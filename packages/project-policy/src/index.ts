@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, normalize, parse, relative, resolve, sep } from "node:path";
-import type { PolicyDecision, ProjectReader, ProjectRecord } from "@work-intelligence/core";
+import type { PolicyDecision, ProjectReader } from "@work-intelligence/core";
 
 export function canonicalizeProjectRoot(input: string): string {
   const normalized = normalize(resolve(input.trim()));

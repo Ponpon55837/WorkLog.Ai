@@ -1913,6 +1913,8 @@ function graphNodeLabel(value: string): string {
   let displayUnits = 0;
   let label = "";
   for (const character of value) {
+    // The null-to-extended-ASCII range is intentional: it estimates display width for graph labels.
+    // eslint-disable-next-line no-control-regex
     const characterUnits = /[^\u0000-\u00ff]/u.test(character) ? 2 : 1;
     if (displayUnits + characterUnits > maxDisplayUnits) {
       return `${label}…`;

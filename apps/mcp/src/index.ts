@@ -7,7 +7,6 @@ import {
   cancelMetadataBackfillRequestInputSchema,
   cancelReportSynthesisRequestInputSchema,
   contextQuerySchema,
-  createMetadataBackfillRequestInputSchema,
   reportSynthesisContextQuerySchema,
   reportSynthesisRequestQuerySchema,
   retryReportSynthesisRequestInputSchema,

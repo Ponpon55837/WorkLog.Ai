@@ -23,14 +23,12 @@ import type {
   GraphNodeTotals,
   GraphQuery,
   GraphQueryResult,
-  GraphSkippedResult,
   HandoffImportApplyInput,
   HandoffImportBatchResult,
   HandoffImportOptions,
   HandoffImportPreview,
   HandoffImportPreviewItem,
   HandoffImportPreviewResult,
-  HandoffImportResult,
   HandoffImportFailure,
   KnowledgeAuditAction,
   KnowledgeAuditRecord,
@@ -46,7 +44,6 @@ import type {
   MetadataBackfillBatchResult,
   MetadataBackfillFailure,
   MetadataBackfillItem,
-  MetadataBackfillPreview,
   MetadataBackfillPreviewResult,
   MetadataBackfillRequest,
   MetadataBackfillRequestContextQuery,
@@ -80,9 +77,6 @@ import type {
   ReportSynthesisRequest,
   ReportSynthesisRequestQuery,
   ReportSynthesisRequestListQueryResult,
-  ReportSynthesisRequestListResult,
-  ReportSynthesisRequestCancelledResult,
-  ReportSynthesisRequestCancelRejectedResult,
   RetryReportSynthesisRequestResult,
   ReportSummary,
   ReportSummaryBlock,
@@ -4078,7 +4072,6 @@ export class WorkIntelligenceStore {
         };
       }
       scopedProject = decision.project;
-      projectId = decision.project.id;
     }
 
     const projects = scopedProject
