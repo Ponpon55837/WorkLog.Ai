@@ -10,7 +10,6 @@ import {
   reportSynthesisContextQuerySchema,
   reportSynthesisRequestQuerySchema,
   retryReportSynthesisRequestInputSchema,
-  finalizeSessionInputSchema,
   graphQuerySchema,
   handoffImportApplyInputSchema,
   handoffImportOptionsSchema,
@@ -20,6 +19,7 @@ import {
   metadataBackfillRequestContextQuerySchema,
   metadataBackfillRequestQuerySchema,
   metadataBackfillPreviewQuerySchema,
+  mcpFinalizeSessionInputSchema,
   reportExportQuerySchema,
   reportQuerySchema,
   recordKnowledgeInputSchema,
@@ -48,7 +48,7 @@ const server = new McpServer({
   version: "0.1.0"
 }, {
   instructions:
-    "Work Intelligence is a local-first, explicit-opt-in work record system. When the user asks to整理、提煉、產生或完成 Work Intelligence 工作報告, automatically find the newest pending report synthesis request, obtain its matching deterministic context, write a grounded summary, and save it back. If the newest report request is failed because it timed out or was interrupted, retry it through the implementation-detail retry operation before obtaining context. When the user asks to補齊、更新、檢查或處理 Work Intelligence metadata 缺口, automatically find the newest pending or processing metadata backfill request, obtain its bounded context, inspect the tracked project's actual worktree/diff or handoff evidence, and apply only confirmed metadata updates. When the user asks to修正已完成 Session 的主摘要, use work_update_session_summary with the existing sessionId; choose replace to replace the full summary or append to add a clearly separated follow-up. Never use evidence as a substitute for a summary update. If work_finalize_session finds the same idempotencyKey with a different summary, treat it as an idempotency conflict and use work_update_session_summary rather than assuming the summary changed. The user should only need natural language and must never be asked for MCP tool names, request IDs, JSON, or a tool-call order. Use request/context/retry/apply/cancel tools as implementation details; do not tell the user to call them manually. Keep deterministic reports separate from Agent-derived summaries. Never expose or read untracked, paused, ignored, or unregistered project source, handoff, Git, or evidence. If no matching request exists, explain that the relevant Work Intelligence page must first create one. If context is insufficient, say 資料不足 instead of guessing. " + reportSynthesisContract + " " + metadataBackfillContract
+    "Work Intelligence is a local-first, explicit-opt-in work record system. When finalizing a completed work Session, always provide the required workSummary object with exactly five stable sections: outcomes (成果), scope (範圍), decisions (決策), verification (驗證), and nextSteps (後續). Each section is an array of concise, confirmed statements; use an empty array when that section has nothing to report. Keep summary as a short executive sentence and keep verification.status as the machine-readable verification result. When the user asks to整理、提煉、產生或完成 Work Intelligence 工作報告, automatically find the newest pending report synthesis request, obtain its matching deterministic context, write a grounded summary, and save it back. If the newest report request is failed because it timed out or was interrupted, retry it through the implementation-detail retry operation before obtaining context. When the user asks to補齊、更新、檢查或處理 Work Intelligence metadata 缺口, automatically find the newest pending or processing metadata backfill request, obtain its bounded context, inspect the tracked project's actual worktree/diff or handoff evidence, and apply only confirmed metadata updates. When the user asks to修正已完成 Session 的主摘要, use work_update_session_summary with the existing sessionId; choose replace to replace the full summary or append to add a clearly separated follow-up. Never use evidence as a substitute for a summary update. If work_finalize_session finds the same idempotencyKey with a different summary, treat it as an idempotency conflict and use work_update_session_summary rather than assuming the summary changed. The user should only need natural language and must never be asked for MCP tool names, request IDs, JSON, or a tool-call order. Use request/context/retry/apply/cancel tools as implementation details; do not tell the user to call them manually. Keep deterministic reports separate from Agent-derived summaries. Never expose or read untracked, paused, ignored, or unregistered project source, handoff, Git, or evidence. If no matching request exists, explain that the relevant Work Intelligence page must first create one. If context is insufficient, say 資料不足 instead of guessing. " + reportSynthesisContract + " " + metadataBackfillContract
 });
 
 server.registerTool(
@@ -56,11 +56,11 @@ server.registerTool(
   {
     title: "Finalize a work session",
     description:
-      "Finalize a completed planning/execution/verification/closing session. Before calling, the Agent must inspect the worktree and provide changedFiles (use [] only when no files were intentionally changed) plus an explicit verification status: passed, failed, or not_run. Optionally provide changedFilesProvenance with Agent, handoff, Git, or worktree evidence references and changedFileChanges with added, modified, deleted, or renamed semantics (renamed requires previousPath). This is independent from Git commit. The project must be explicitly tracked; unregistered, paused, and ignored projects are skipped without reading handoff, Git, or source files. The idempotencyKey makes retries safe. If legacy data is missing verification or changedFiles, the response includes a follow-up instruction.",
-    inputSchema: finalizeSessionInputSchema.shape
+      "Finalize a completed planning/execution/verification/closing session. Provide summary plus the required workSummary object with outcomes (成果), scope (範圍), decisions (決策), verification (驗證), and nextSteps (後續) arrays; use [] when a section has no confirmed content. Before calling, inspect the worktree and provide changedFiles (use [] only when no files were intentionally changed) plus an explicit verification status: passed, failed, or not_run. Optionally provide changedFilesProvenance with Agent, handoff, Git, or worktree evidence references and changedFileChanges with added, modified, deleted, or renamed semantics (renamed requires previousPath). This is independent from Git commit. The project must be explicitly tracked; unregistered, paused, and ignored projects are skipped without reading handoff, Git, or source files. The idempotencyKey makes retries safe. If legacy data is missing verification, changedFiles, or workSummary, the response includes a follow-up instruction.",
+    inputSchema: mcpFinalizeSessionInputSchema.shape
   },
   async (input) => {
-    const parsed = parseMcpInput(finalizeSessionInputSchema, input);
+    const parsed = parseMcpInput(mcpFinalizeSessionInputSchema, input);
     if (!parsed.success) {
       return {
         isError: true,

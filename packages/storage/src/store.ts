@@ -105,6 +105,8 @@ import type {
   UpdateKnowledgeResult,
   VerificationFollowUp,
   VerificationSummary,
+  WorkSummarySections,
+  WorkSummaryFollowUp,
   WorkEventRecord,
   WorkEventType,
   WorkSessionRecord
@@ -286,6 +288,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   idempotency_key TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
   summary TEXT NOT NULL,
+  work_summary_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL CHECK (status = 'finalized'),
   execution_status TEXT NOT NULL DEFAULT 'completed' CHECK (execution_status = 'completed'),
   completed_at TEXT NOT NULL,
@@ -447,6 +450,40 @@ function parseJson<T>(value: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function normalizeWorkSummarySections(value: WorkSummarySections | undefined): WorkSummarySections | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return {
+    outcomes: value.outcomes.map((item) => item.trim()).filter(Boolean),
+    scope: value.scope.map((item) => item.trim()).filter(Boolean),
+    decisions: value.decisions.map((item) => item.trim()).filter(Boolean),
+    verification: value.verification.map((item) => item.trim()).filter(Boolean),
+    nextSteps: value.nextSteps.map((item) => item.trim()).filter(Boolean)
+  };
+}
+
+function parseWorkSummarySections(value: string | null): WorkSummarySections | undefined {
+  const parsed = parseJson<Partial<WorkSummarySections>>(value, {});
+  if (!parsed || typeof parsed !== "object") {
+    return undefined;
+  }
+
+  const sections: WorkSummarySections = {
+    outcomes: Array.isArray(parsed.outcomes) ? parsed.outcomes.filter((item): item is string => typeof item === "string") : [],
+    scope: Array.isArray(parsed.scope) ? parsed.scope.filter((item): item is string => typeof item === "string") : [],
+    decisions: Array.isArray(parsed.decisions) ? parsed.decisions.filter((item): item is string => typeof item === "string") : [],
+    verification: Array.isArray(parsed.verification) ? parsed.verification.filter((item): item is string => typeof item === "string") : [],
+    nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.filter((item): item is string => typeof item === "string") : []
+  };
+
+  const hasStructuredSections = ["outcomes", "scope", "decisions", "verification", "nextSteps"].some((key) =>
+    Array.isArray(parsed[key as keyof WorkSummarySections])
+  );
+  return hasStructuredSections ? sections : undefined;
 }
 
 function changedFileIdentity(value: string): string {
@@ -674,6 +711,7 @@ function toSession(row: SessionRow): WorkSessionRecord {
     idempotencyKey: row.idempotency_key,
     title: row.title,
     summary: row.summary,
+    workSummary: parseWorkSummarySections(row.work_summary_json),
     status: row.status,
     executionStatus: row.execution_status ?? "completed",
     completedAt: row.completed_at,
@@ -987,6 +1025,17 @@ function getChangedFilesFollowUp(session: WorkSessionRecord): ChangedFilesFollow
   };
 }
 
+function getWorkSummaryFollowUp(session: WorkSessionRecord): WorkSummaryFollowUp | undefined {
+  if (session.workSummary) {
+    return undefined;
+  }
+  return {
+    required: true,
+    sessionId: session.id,
+    message: "Work summary sections were not supplied. Provide outcomes, scope, decisions, verification, and nextSteps as concise arrays when updating the Session record."
+  };
+}
+
 function verificationStatusLabel(status: VerificationSummary["status"]): string {
   return status === "passed" ? "Passed" : status === "failed" ? "Failed" : "未執行";
 }
@@ -1131,6 +1180,9 @@ export class WorkIntelligenceStore {
       }
       if (!columnNames.has("changed_file_changes_json")) {
         this.db.exec("ALTER TABLE sessions ADD COLUMN changed_file_changes_json TEXT NOT NULL DEFAULT '[]'");
+      }
+      if (!columnNames.has("work_summary_json")) {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN work_summary_json TEXT NOT NULL DEFAULT '{}'");
       }
 
       const reportSummaryColumns = this.db.prepare("PRAGMA table_info(report_summaries)").all() as Array<{ name?: string }>;
@@ -3590,6 +3642,7 @@ export class WorkIntelligenceStore {
       input.changedFilesProvenance,
       pathResolver
     );
+    const normalizedWorkSummary = normalizeWorkSummarySections(input.workSummary);
     const capturedHandoff = this.captureHandoff(project.rootPath, input);
     const git = input.git ?? this.readGitMetadata(project.rootPath);
     const sessionId = randomUUID();
@@ -3622,7 +3675,8 @@ export class WorkIntelligenceStore {
           duplicate: true,
           session: existing,
           verificationFollowUp: getVerificationFollowUp(existing),
-          changedFilesFollowUp: getChangedFilesFollowUp(existing)
+          changedFilesFollowUp: getChangedFilesFollowUp(existing),
+          workSummaryFollowUp: getWorkSummaryFollowUp(existing)
         };
       }
 
@@ -3630,11 +3684,11 @@ export class WorkIntelligenceStore {
         .prepare(
           `INSERT INTO sessions (
              id, project_id, external_session_id, idempotency_key, title, summary,
-             status, execution_status, completed_at, created_at, commit_required, commit_sha, git_branch,
+             work_summary_json, status, execution_status, completed_at, created_at, commit_required, commit_sha, git_branch,
              changed_files_json, changed_files_provenance_json, changed_file_changes_json, verification_json
            ) VALUES (
              @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
-             'finalized', 'completed', @completedAt, @createdAt, 0, @commitSha, @gitBranch,
+             @workSummary, 'finalized', 'completed', @completedAt, @createdAt, 0, @commitSha, @gitBranch,
              @changedFiles, @changedFilesProvenance, @changedFileChanges, @verification
            )`
         )
@@ -3645,6 +3699,7 @@ export class WorkIntelligenceStore {
           idempotencyKey: input.idempotencyKey,
           title: input.title,
           summary: input.summary,
+          workSummary: JSON.stringify(normalizedWorkSummary ?? {}),
           completedAt,
           createdAt,
           commitSha: git?.commitSha ?? null,
@@ -3701,7 +3756,8 @@ export class WorkIntelligenceStore {
         duplicate: false,
         session,
         verificationFollowUp: getVerificationFollowUp(session),
-        changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined
+        changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
+        workSummaryFollowUp: getWorkSummaryFollowUp(session)
       };
     });
   }

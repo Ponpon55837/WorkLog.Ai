@@ -62,6 +62,18 @@ export interface GitSummary {
   dirty?: boolean;
 }
 
+/**
+ * Stable, human-readable sections for an Agent's completed work record.
+ * Empty arrays are valid when a section has nothing to report.
+ */
+export interface WorkSummarySections {
+  outcomes: string[];
+  scope: string[];
+  decisions: string[];
+  verification: string[];
+  nextSteps: string[];
+}
+
 export interface WorkSessionRecord {
   id: string;
   projectId: string;
@@ -70,6 +82,7 @@ export interface WorkSessionRecord {
   idempotencyKey: string;
   title: string;
   summary: string;
+  workSummary?: WorkSummarySections;
   status: "finalized";
   executionStatus: ExecutionStatus;
   completedAt: string;
@@ -747,6 +760,7 @@ export interface FinalizeSessionInput {
   idempotencyKey: string;
   title: string;
   summary: string;
+  workSummary?: WorkSummarySections;
   externalSessionId?: string;
   handoffPath?: string;
   handoffContent?: string;
@@ -778,6 +792,7 @@ export interface FinalizedSessionResult {
   session: WorkSessionRecord;
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
+  workSummaryFollowUp?: WorkSummaryFollowUp;
 }
 
 export interface FinalizeIdempotencyConflictResult {
@@ -817,6 +832,12 @@ export interface VerificationFollowUp {
 }
 
 export interface ChangedFilesFollowUp {
+  required: true;
+  sessionId: string;
+  message: string;
+}
+
+export interface WorkSummaryFollowUp {
   required: true;
   sessionId: string;
   message: string;

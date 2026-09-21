@@ -130,7 +130,7 @@ REST API 預設只接受沒有 `Origin` 的本機 client，以及 `http://127.0.
 
 ### `work_finalize_session`
 
-在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles` 與 `verification` 必填；Agent 必須先檢查工作樹／diff，沒有檔案變更時才傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata，`commitRequired` 永遠是 `false`。
+在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須先檢查工作樹／diff，沒有檔案變更時才傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（後續）五個陣列，沒有內容時傳空陣列；每個元素是一件已確認的短句，不使用 `##` Markdown 標題。這讓 Worklog、Session Detail 與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata，`commitRequired` 永遠是 `false`。
 
 ```json
 {
@@ -138,6 +138,13 @@ REST API 預設只接受沒有 `Origin` 的本機 client，以及 `http://127.0.
   "idempotencyKey": "assistant-2026-09-16-session-001",
   "title": "Add project recording policy",
   "summary": "Implemented explicit opt-in tracking and verified skipped states.",
+  "workSummary": {
+    "outcomes": ["Implemented explicit opt-in tracking."],
+    "scope": ["Updated the MCP contract and central SQLite registry."],
+    "decisions": ["Kept Agent work completion independent from Git commit."],
+    "verification": ["Unit tests and typecheck passed."],
+    "nextSteps": ["Review the implementation in the next agent session."]
+  },
   "handoffPath": ".openspec/handoffs/closing.md",
   "changedFiles": ["packages/project-policy/src/index.ts"],
   "changedFilesProvenance": [
@@ -480,7 +487,7 @@ C:\path\to\WorkLog.Ai
 ```text
 完成這次工作後，請呼叫 work_finalize_session。
 projectRoot 為 C:\path\to\WorkLog.Ai，
-請提供唯一的 idempotencyKey、title、summary、changedFiles 與 verification。
+請提供唯一的 idempotencyKey、title、summary、workSummary（成果／範圍／決策／驗證／後續五個陣列）、changedFiles 與 verification。
 ```
 
 如果專案還是 `unregistered`、`paused` 或 `ignored`，MCP 會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git、source 資料；這是 default-deny 的預期行為。

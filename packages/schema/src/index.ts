@@ -74,11 +74,21 @@ const eventSchema = z.object({
   occurredAt: z.string().datetime().optional()
 });
 
+const workSummarySectionSchema = z.array(z.string().trim().min(1).max(4_000)).max(20);
+export const workSummarySectionsSchema = z.object({
+  outcomes: workSummarySectionSchema,
+  scope: workSummarySectionSchema,
+  decisions: workSummarySectionSchema,
+  verification: workSummarySectionSchema,
+  nextSteps: workSummarySectionSchema
+});
+
 export const finalizeSessionInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: z.string().trim().min(1).max(300),
   title: z.string().trim().min(1).max(300),
   summary: z.string().trim().min(1).max(20_000),
+  workSummary: workSummarySectionsSchema.optional(),
   externalSessionId: z.string().trim().max(300).optional(),
   handoffPath: z.string().max(1_000).optional(),
   handoffContent: z.string().max(200_000).optional(),
@@ -92,6 +102,10 @@ export const finalizeSessionInputSchema = z.object({
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);
+
+export const mcpFinalizeSessionInputSchema = finalizeSessionInputSchema.extend({
+  workSummary: workSummarySectionsSchema
+});
 
 export const updateSessionSummaryInputSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),
@@ -341,6 +355,7 @@ export const handoffImportApplyInputSchema = handoffImportOptionsSchema.extend({
 export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
 export type FinalizeSessionInput = z.infer<typeof finalizeSessionInputSchema>;
+export type McpFinalizeSessionInput = z.infer<typeof mcpFinalizeSessionInputSchema>;
 export type UpdateSessionSummaryInput = z.infer<typeof updateSessionSummaryInputSchema>;
 export type SessionsQuery = z.infer<typeof sessionsQuerySchema>;
 export type ReportQuery = z.infer<typeof reportQuerySchema>;

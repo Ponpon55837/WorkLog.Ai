@@ -9,6 +9,7 @@ export type SessionRow = {
   idempotency_key: string;
   title: string;
   summary: string;
+  work_summary_json: string | null;
   status: "finalized";
   execution_status: "completed";
   completed_at: string;

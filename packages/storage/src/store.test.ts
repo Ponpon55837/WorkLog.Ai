@@ -99,6 +99,65 @@ describe("WorkIntelligenceStore", () => {
     expect(detail?.events.map((event) => event.type)).toEqual(["planning", "verification", "finalized"]);
   });
 
+  it("persists compact structured work summary sections with the same Session", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Structured work project", root);
+    store.updateProject(project.id, { status: "tracked" });
+
+    const result = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "structured-summary-001",
+      title: "Structured work record",
+      summary: "建立固定欄位的工作紀錄。",
+      workSummary: {
+        outcomes: ["完成 MCP 輸入 contract。", "保留原有 handoff 流程。"],
+        scope: ["更新 core、schema 與 SQLite storage。"],
+        decisions: ["使用短句陣列，不寫 Markdown 標題。"],
+        verification: ["schema 與 storage tests 已通過。"],
+        nextSteps: ["交由 Claude 進行複檢。"]
+      },
+      changedFiles: ["packages/core/src/index.ts"],
+      verification: { status: "passed", summary: "Tests passed." }
+    });
+
+    expect(result).toMatchObject({ outcome: "finalized", duplicate: false });
+    if (result.outcome !== "finalized") {
+      throw new Error("Expected a finalized structured work record");
+    }
+    expect(result.workSummaryFollowUp).toBeUndefined();
+    expect(result.session.workSummary).toEqual({
+      outcomes: ["完成 MCP 輸入 contract。", "保留原有 handoff 流程。"],
+      scope: ["更新 core、schema 與 SQLite storage。"],
+      decisions: ["使用短句陣列，不寫 Markdown 標題。"],
+      verification: ["schema 與 storage tests 已通過。"],
+      nextSteps: ["交由 Claude 進行複檢。"]
+    });
+    expect(store.getSessionDetail(result.session.id)?.session.workSummary).toEqual(result.session.workSummary);
+  });
+
+  it("returns a structured-summary follow-up for legacy-compatible writes", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Legacy summary project", root);
+    store.updateProject(project.id, { status: "tracked" });
+
+    const result = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "legacy-summary-001",
+      title: "Legacy work record",
+      summary: "This legacy-compatible path has no sections.",
+      changedFiles: [],
+      verification: { status: "not_run" }
+    });
+
+    expect(result).toMatchObject({
+      outcome: "finalized",
+      workSummaryFollowUp: {
+        required: true,
+        sessionId: expect.any(String)
+      }
+    });
+  });
+
   it("keeps finalize idempotent across two SQLite store connections", () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-shared-db-"));
     tempDirs.push(root);

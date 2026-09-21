@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   finalizeSessionInputSchema,
+  mcpFinalizeSessionInputSchema,
   metadataBackfillApplyInputSchema,
   updateSessionMetadataInputSchema
 } from "./index.js";
@@ -14,7 +15,27 @@ const validFinalizeInput = {
   verification: { status: "not_run" as const }
 };
 
+const validStructuredWorkSummary = {
+  outcomes: ["完成明確授權的工作紀錄流程。"],
+  scope: ["更新 MCP contract 與 SQLite session schema。"],
+  decisions: ["保留 Git commit 與工作完成狀態解耦。"],
+  verification: ["已執行 schema 與 storage tests。"],
+  nextSteps: ["由 Claude 進行複檢。"]
+};
+
 describe("schema input boundaries", () => {
+  it("requires stable work summary sections at the MCP boundary", () => {
+    expect(mcpFinalizeSessionInputSchema.safeParse(validFinalizeInput).success).toBe(false);
+    expect(mcpFinalizeSessionInputSchema.safeParse({
+      ...validFinalizeInput,
+      workSummary: validStructuredWorkSummary
+    }).success).toBe(true);
+  });
+
+  it("keeps the REST/store schema backward compatible for legacy finalize callers", () => {
+    expect(finalizeSessionInputSchema.safeParse(validFinalizeInput).success).toBe(true);
+  });
+
   it("rejects more than 200 changed files in finalize", () => {
     const result = finalizeSessionInputSchema.safeParse({
       ...validFinalizeInput,
