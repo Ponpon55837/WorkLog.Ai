@@ -1,0 +1,637 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { URL } from "node:url";
+import {
+  attachEvidenceInputSchema,
+  cancelMetadataBackfillRequestInputSchema,
+  cancelReportSynthesisRequestInputSchema,
+  createReportSynthesisRequestInputSchema,
+  createProjectInputSchema,
+  finalizeSessionInputSchema,
+  graphQuerySchema,
+  handoffImportApplyInputSchema,
+  handoffImportOptionsSchema,
+  knowledgeHistoryQuerySchema,
+  knowledgeQuerySchema,
+  metadataBackfillApplyInputSchema,
+  createMetadataBackfillRequestInputSchema,
+  metadataBackfillRequestContextQuerySchema,
+  metadataBackfillRequestQuerySchema,
+  metadataBackfillPreviewQuerySchema,
+  reportExportQuerySchema,
+  reportSynthesisContextQuerySchema,
+  reportSynthesisRequestQuerySchema,
+  retryReportSynthesisRequestInputSchema,
+  reportQuerySchema,
+  recordKnowledgeInputSchema,
+  saveReportSummaryInputSchema,
+  searchQuerySchema,
+  sessionsQuerySchema,
+  updateProjectInputSchema,
+  updateKnowledgeInputSchema,
+  updateSessionMetadataInputSchema,
+  updateSessionSummaryInputSchema
+} from "@work-intelligence/schema";
+import { WorkIntelligenceStore } from "@work-intelligence/storage";
+
+const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
+
+const JSON_HEADERS = {
+  "Content-Type": "application/json; charset=utf-8"
+};
+
+const allowedOrigins = new Set(
+  (process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "http://127.0.0.1:5966,http://localhost:5966")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0 && origin !== "*")
+);
+
+if ((process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "").split(",").some((origin) => origin.trim() === "*")) {
+  console.error("[work-intelligence] WORK_INTELLIGENCE_ALLOWED_ORIGINS=* is not allowed; using the explicit origin allowlist instead.");
+}
+
+class RequestBodyError extends Error {
+  public constructor(public readonly statusCode: 400 | 413 | 415, message: string) {
+    super(message);
+  }
+}
+
+function applyCorsHeaders(request: IncomingMessage, response: ServerResponse): void {
+  const origin = request.headers.origin;
+  if (!origin || !allowedOrigins.has(origin)) {
+    return;
+  }
+
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  response.setHeader("Access-Control-Allow-Origin", origin);
+  response.setHeader("Vary", "Origin");
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const contentType = request.headers["content-type"];
+  if (typeof contentType !== "string" || !contentType.toLowerCase().startsWith("application/json")) {
+    throw new RequestBodyError(415, "Content-Type must be application/json.");
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > MAX_INPUT_PAYLOAD_BYTES) {
+      throw new RequestBodyError(413, "Request body is too large.");
+    }
+    chunks.push(buffer);
+  }
+
+  if (chunks.length === 0) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new RequestBodyError(400, "Invalid JSON request body.");
+  }
+}
+
+function sendJson(response: ServerResponse, statusCode: number, payload: unknown): void {
+  response.writeHead(statusCode, JSON_HEADERS);
+  response.end(JSON.stringify(payload));
+}
+
+function sendError(response: ServerResponse, statusCode: number, message: string, details?: unknown): void {
+  sendJson(response, statusCode, { error: message, details });
+}
+
+export function createApiHandler(store: WorkIntelligenceStore) {
+  return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    applyCorsHeaders(request, response);
+
+    const origin = request.headers.origin;
+    if (origin && !allowedOrigins.has(origin)) {
+      sendError(response, 403, "Origin is not allowed.");
+      return;
+    }
+
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, JSON_HEADERS);
+      response.end();
+      return;
+    }
+
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    const pathParts = requestUrl.pathname.split("/").filter(Boolean);
+
+    try {
+      if (request.method === "GET" && requestUrl.pathname === "/api/health") {
+        let databaseHealthy = true;
+        try {
+          store.listProjects();
+        } catch {
+          databaseHealthy = false;
+        }
+        sendJson(response, databaseHealthy ? 200 : 503, {
+          ok: true,
+          app: "Work Intelligence",
+          policy: "explicit-opt-in/default-deny",
+          database: databaseHealthy ? "connected" : "unavailable"
+        });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/dashboard") {
+        sendJson(response, 200, store.getDashboardSummary());
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/reports") {
+        const parsed = reportQuerySchema.safeParse({
+          period: requestUrl.searchParams.get("period") ?? undefined,
+          date: requestUrl.searchParams.get("date") ?? undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          evidenceKind: requestUrl.searchParams.get("evidenceKind") ?? undefined,
+          evidenceQuery: requestUrl.searchParams.get("evidenceQuery")?.trim() || undefined,
+          evidencePage: requestUrl.searchParams.get("evidencePage") ? Number(requestUrl.searchParams.get("evidencePage")) : undefined,
+          evidencePageSize: requestUrl.searchParams.get("evidencePageSize") ? Number(requestUrl.searchParams.get("evidencePageSize")) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getReport(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/reports/export") {
+        const parsed = reportExportQuerySchema.safeParse({
+          period: requestUrl.searchParams.get("period") ?? undefined,
+          date: requestUrl.searchParams.get("date") ?? undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          evidenceKind: requestUrl.searchParams.get("evidenceKind") ?? undefined,
+          evidenceQuery: requestUrl.searchParams.get("evidenceQuery")?.trim() || undefined,
+          evidencePage: requestUrl.searchParams.get("evidencePage") ? Number(requestUrl.searchParams.get("evidencePage")) : undefined,
+          evidencePageSize: requestUrl.searchParams.get("evidencePageSize") ? Number(requestUrl.searchParams.get("evidencePageSize")) : undefined,
+          format: requestUrl.searchParams.get("format") ?? undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report export query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.exportReport(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/reports/synthesis-requests") {
+        const parsed = createReportSynthesisRequestInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report synthesis request payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 201, store.createReportSynthesisRequest(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/reports/synthesis-requests") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const parsed = reportSynthesisRequestQuerySchema.safeParse({
+          period: requestUrl.searchParams.get("period") ?? undefined,
+          date: requestUrl.searchParams.get("date") ?? undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          status: requestUrl.searchParams.get("status") ?? undefined,
+          requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
+          limit: rawLimit ? Number(rawLimit) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report synthesis request query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.listReportSynthesisRequests(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "reports" &&
+        pathParts[2] === "synthesis-requests" &&
+        pathParts[3] &&
+        pathParts.length === 5 &&
+        pathParts[4] === "retry"
+      ) {
+        const parsed = retryReportSynthesisRequestInputSchema.safeParse({ requestId: pathParts[3] });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report synthesis retry request.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.retryReportSynthesisRequest(parsed.data.requestId));
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "reports" &&
+        pathParts[2] === "synthesis-requests" &&
+        pathParts[3] &&
+        pathParts.length === 5 &&
+        pathParts[4] === "cancel"
+      ) {
+        const parsed = cancelReportSynthesisRequestInputSchema.safeParse({ requestId: pathParts[3] });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report synthesis cancellation request.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.cancelReportSynthesisRequest(parsed.data.requestId));
+        return;
+      }
+
+      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "reports" && pathParts[2] === "synthesis-requests" && pathParts[3] && pathParts[4] === "context") {
+        const parsed = reportSynthesisContextQuerySchema.safeParse({
+          requestId: pathParts[3],
+          maxSessions: requestUrl.searchParams.get("maxSessions") ? Number(requestUrl.searchParams.get("maxSessions")) : undefined,
+          maxEvidence: requestUrl.searchParams.get("maxEvidence") ? Number(requestUrl.searchParams.get("maxEvidence")) : undefined,
+          maxHandoffCharacters: requestUrl.searchParams.get("maxHandoffCharacters") ? Number(requestUrl.searchParams.get("maxHandoffCharacters")) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report synthesis context query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getReportSynthesisContext(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "reports" && pathParts[2] === "synthesis-requests" && pathParts[3]) {
+        sendJson(response, 200, store.getReportSynthesisRequest(pathParts[3]));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/reports/summaries") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const parsed = reportSynthesisRequestQuerySchema.safeParse({
+          period: requestUrl.searchParams.get("period") ?? undefined,
+          date: requestUrl.searchParams.get("date") ?? undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
+          limit: rawLimit ? Number(rawLimit) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report summary query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.listReportSummaries({ ...parsed.data, currentOnly: requestUrl.searchParams.get("currentOnly") !== "false" }));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/reports/summaries") {
+        const parsed = saveReportSummaryInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid report summary payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.saveReportSummary(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "DELETE" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "reports" &&
+        pathParts[2] === "summaries" &&
+        pathParts[3] &&
+        pathParts.length === 4
+      ) {
+        sendJson(response, 200, store.deleteReportSummary(pathParts[3]));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/projects") {
+        sendJson(response, 200, store.listProjects());
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/knowledge") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const parsed = knowledgeQuerySchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          q: requestUrl.searchParams.get("q")?.trim() || undefined,
+          kind: requestUrl.searchParams.get("kind") || undefined,
+          status: requestUrl.searchParams.get("status") || undefined,
+          limit: rawLimit ? Number(rawLimit) : undefined,
+          page: requestUrl.searchParams.get("page") ? Number(requestUrl.searchParams.get("page")) : undefined,
+          pageSize: requestUrl.searchParams.get("pageSize") ? Number(requestUrl.searchParams.get("pageSize")) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.searchKnowledge(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "knowledge" && pathParts[2] && pathParts[3] === "history") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const parsed = knowledgeHistoryQuerySchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot") ?? "",
+          knowledgeId: pathParts[2],
+          limit: rawLimit ? Number(rawLimit) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge history query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getKnowledgeHistory(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/graph") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const rawMaxNodes = requestUrl.searchParams.get("maxNodes");
+        const rawMaxEdges = requestUrl.searchParams.get("maxEdges");
+        const parsed = graphQuerySchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          limit: rawLimit ? Number(rawLimit) : undefined,
+          maxNodes: rawMaxNodes ? Number(rawMaxNodes) : undefined,
+          maxEdges: rawMaxEdges ? Number(rawMaxEdges) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid graph query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getGraph(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/knowledge") {
+        const parsed = recordKnowledgeInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.recordKnowledge(parsed.data));
+        return;
+      }
+
+      if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "knowledge" && pathParts[2]) {
+        const parsed = updateKnowledgeInputSchema.safeParse({
+          ...(await readJsonBody(request) as Record<string, unknown>),
+          knowledgeId: pathParts[2]
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge update payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.updateKnowledge(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/projects") {
+        const parsed = createProjectInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid project payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 201, store.addProject(parsed.data.name, parsed.data.rootPath));
+        return;
+      }
+
+      if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "projects" && pathParts[2]) {
+        const parsed = updateProjectInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid project update payload.", parsed.error.flatten());
+          return;
+        }
+        const project = store.updateProject(pathParts[2], parsed.data);
+        if (!project) {
+          sendError(response, 404, "Project not found.");
+          return;
+        }
+        sendJson(response, 200, project);
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/sessions") {
+        const parsed = sessionsQuerySchema.safeParse({
+          q: requestUrl.searchParams.get("q")?.trim() || undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          from: requestUrl.searchParams.get("from") || undefined,
+          to: requestUrl.searchParams.get("to") || undefined,
+          page: requestUrl.searchParams.get("page") ? Number(requestUrl.searchParams.get("page")) : undefined,
+          pageSize: requestUrl.searchParams.get("pageSize") ? Number(requestUrl.searchParams.get("pageSize")) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session filters.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.listSessionsPage({
+          query: parsed.data.q,
+          projectId: parsed.data.projectId,
+          from: parsed.data.from,
+          to: parsed.data.to,
+          page: parsed.data.page,
+          pageSize: parsed.data.pageSize
+        }));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/backfill/metadata/preview") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const parsed = metadataBackfillPreviewQuerySchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
+          limit: rawLimit ? Number(rawLimit) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid metadata backfill preview query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.previewMetadataBackfill(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/backfill/metadata-requests") {
+        const parsed = createMetadataBackfillRequestInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid metadata backfill request payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 201, store.createMetadataBackfillRequest(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/backfill/metadata-requests") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const parsed = metadataBackfillRequestQuerySchema.safeParse({
+          scopeType: requestUrl.searchParams.get("scopeType") ?? undefined,
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          status: requestUrl.searchParams.get("status") ?? undefined,
+          requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
+          limit: rawLimit ? Number(rawLimit) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid metadata backfill request query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.listMetadataBackfillRequests(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "backfill" && pathParts[2] === "metadata-requests" && pathParts[3] && pathParts[4] === "context") {
+        const parsed = metadataBackfillRequestContextQuerySchema.safeParse({
+          requestId: pathParts[3],
+          limit: requestUrl.searchParams.get("limit") ? Number(requestUrl.searchParams.get("limit")) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid metadata backfill request context query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getMetadataBackfillContext(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "backfill" &&
+        pathParts[2] === "metadata-requests" &&
+        pathParts[3] &&
+        pathParts.length === 5 &&
+        pathParts[4] === "cancel"
+      ) {
+        const parsed = cancelMetadataBackfillRequestInputSchema.safeParse({ requestId: pathParts[3] });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid metadata backfill cancellation request.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.cancelMetadataBackfillRequest(parsed.data.requestId));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/backfill/metadata") {
+        const parsed = metadataBackfillApplyInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid metadata backfill payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.applyMetadataBackfill(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/imports/handoffs/preview") {
+        const rawMaxFiles = requestUrl.searchParams.get("maxFiles");
+        const parsed = handoffImportOptionsSchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot") ?? "",
+          handoffDirectory: requestUrl.searchParams.get("handoffDirectory") ?? undefined,
+          excludePaths: requestUrl.searchParams.getAll("excludePath"),
+          maxFiles: rawMaxFiles ? Number(rawMaxFiles) : undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid handoff import preview query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.previewHandoffImport(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/imports/handoffs") {
+        const parsed = handoffImportApplyInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid handoff import payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.importHandoffs(parsed.data));
+        return;
+      }
+
+      if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "sessions" && pathParts[2] && pathParts[3] === "metadata") {
+        const parsed = updateSessionMetadataInputSchema.safeParse({
+          ...(await readJsonBody(request) as Record<string, unknown>),
+          sessionId: pathParts[2]
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session metadata payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.updateSessionMetadata(parsed.data));
+        return;
+      }
+
+      if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "sessions" && pathParts[2] && pathParts[3] === "summary") {
+        const parsed = updateSessionSummaryInputSchema.safeParse({
+          ...(await readJsonBody(request) as Record<string, unknown>),
+          sessionId: pathParts[2]
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session summary payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.updateSessionSummary(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && pathParts[0] === "api" && pathParts[1] === "sessions" && pathParts[2] && pathParts[3] === "evidence") {
+        const parsed = attachEvidenceInputSchema.safeParse({
+          ...(await readJsonBody(request) as Record<string, unknown>),
+          sessionId: pathParts[2]
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid evidence payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.attachEvidence(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "sessions" && pathParts[2]) {
+        const detail = store.getSessionDetail(pathParts[2]);
+        if (!detail) {
+          sendError(response, 404, "Session not found.");
+          return;
+        }
+        sendJson(response, 200, detail);
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/context") {
+        sendJson(response, 200, store.getContext(requestUrl.searchParams.get("projectRoot") ?? undefined));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/search") {
+        const parsed = searchQuerySchema.safeParse({
+          q: requestUrl.searchParams.get("q") ?? "",
+          projectRoot: requestUrl.searchParams.get("projectRoot") ?? undefined
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "A non-empty search query is required.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.search(parsed.data.q, parsed.data.projectRoot));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/work/finalize") {
+        const parsed = finalizeSessionInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid finalize payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.finalizeSession(parsed.data));
+        return;
+      }
+
+      sendError(response, 404, "Route not found.");
+    } catch (error) {
+      if (error instanceof RequestBodyError) {
+        sendError(response, error.statusCode, error.message);
+        return;
+      }
+
+      console.error("[work-intelligence] API request failed", error);
+      sendError(response, 500, "Internal server error.");
+    }
+  };
+}

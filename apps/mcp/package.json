@@ -1,0 +1,20 @@
+{
+  "name": "@work-intelligence/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@work-intelligence/schema": "workspace:*",
+    "@work-intelligence/storage": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run src",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

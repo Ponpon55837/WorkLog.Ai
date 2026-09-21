@@ -1,0 +1,59 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { defineConfig } from "@playwright/test";
+
+const webPort = Number(process.env.WORK_INTELLIGENCE_E2E_WEB_PORT ?? 5967);
+const apiPort = Number(process.env.WORK_INTELLIGENCE_E2E_API_PORT ?? 3211);
+const databasePath = path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}.sqlite`);
+const chromeCandidates = [
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+];
+const browserExecutablePath = chromeCandidates.find((candidate) => fs.existsSync(candidate));
+
+export default defineConfig({
+  testDir: "./e2e",
+  timeout: 30_000,
+  expect: {
+    timeout: 8_000
+  },
+  fullyParallel: false,
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 2 : 0,
+  reporter: "list",
+  use: {
+    baseURL: `http://127.0.0.1:${webPort}`,
+    headless: true,
+    screenshot: "only-on-failure",
+    trace: "retain-on-failure",
+    ...(browserExecutablePath ? { launchOptions: { executablePath: browserExecutablePath } } : {})
+  },
+  webServer: [
+    {
+      command: "pnpm.cmd --filter @work-intelligence/server start",
+      url: `http://127.0.0.1:${apiPort}/api/health`,
+      timeout: 120_000,
+      reuseExistingServer: false,
+      env: {
+        ...process.env,
+        WORK_INTELLIGENCE_PORT: String(apiPort),
+        WORK_INTELLIGENCE_DB: databasePath,
+        WORK_INTELLIGENCE_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort},http://localhost:${webPort}`
+      }
+    },
+    {
+      command: "pnpm.cmd --filter @work-intelligence/web dev -- --host 127.0.0.1",
+      url: `http://127.0.0.1:${webPort}`,
+      timeout: 120_000,
+      reuseExistingServer: false,
+      env: {
+        ...process.env,
+        WORK_INTELLIGENCE_WEB_PORT: String(webPort),
+        WORK_INTELLIGENCE_API_PORT: String(apiPort)
+      }
+    }
+  ]
+});

@@ -1,0 +1,24 @@
+{
+  "name": "work-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first developer work intelligence MVP",
+  "packageManager": "pnpm@11.16.0",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @work-intelligence/server --filter @work-intelligence/web dev",
+    "start:server": "pnpm --filter @work-intelligence/server start",
+    "start:mcp": "pnpm --filter @work-intelligence/mcp start",
+    "test": "pnpm --filter @work-intelligence/project-policy test && pnpm --filter @work-intelligence/schema test && pnpm --filter @work-intelligence/storage test && pnpm --filter @work-intelligence/server test && pnpm --filter @work-intelligence/mcp test",
+    "test:e2e": "pnpm build && playwright test",
+    "typecheck": "pnpm -r typecheck && pnpm run typecheck:e2e",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.11"
+  }
+}
