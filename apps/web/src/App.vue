@@ -1,5 +1,18 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useApiRequest } from "./composables/useApiRequest";
+import GraphNodeModal from "./components/GraphNodeModal.vue";
+import HandoffImportModal from "./components/HandoffImportModal.vue";
+import KnowledgeEditorModal from "./components/KnowledgeEditorModal.vue";
+import KnowledgeHistoryModal from "./components/KnowledgeHistoryModal.vue";
+import SessionDetailModal from "./components/SessionDetailModal.vue";
+import DashboardView from "./views/DashboardView.vue";
+import GraphView from "./views/GraphView.vue";
+import KnowledgeView from "./views/KnowledgeView.vue";
+import ProjectsView from "./views/ProjectsView.vue";
+import ReportsView from "./views/ReportsView.vue";
+import WorklogView from "./views/WorklogView.vue";
 import type {
   ChangedFileChangeStatus,
   ChangedFileSource,
@@ -47,12 +60,21 @@ import type {
   SessionDetail,
   SessionListResult,
   UpdateKnowledgeResult,
+  WorkSummarySections,
   WorkReport,
   WorkSessionRecord
 } from "@work-intelligence/core";
 
 type ViewName = "dashboard" | "projects" | "reports" | "knowledge" | "graph" | "worklog";
 type ReportTab = "overview" | "work" | "trend" | "risks" | "raw" | "evidence";
+const viewTitles: Record<ViewName, string> = {
+  dashboard: "工作總覽",
+  projects: "專案記錄管理",
+  reports: "工作報告",
+  knowledge: "工作知識",
+  graph: "工作圖譜",
+  worklog: "工作歷程"
+};
 const listPageSizeOptions = [
   { value: 10, label: "10" },
   { value: 20, label: "20" },
@@ -69,6 +91,14 @@ const reportTabOptions: Array<{ id: ReportTab; label: string; shortLabel: string
   { id: "risks", label: "風險與決策", shortLabel: "風險" },
   { id: "raw", label: "原始工作紀錄", shortLabel: "原始紀錄" },
   { id: "evidence", label: "來源證據", shortLabel: "證據" }
+];
+
+const workSummarySectionLabels: Array<{ key: keyof WorkSummarySections; label: string }> = [
+  { key: "outcomes", label: "成果" },
+  { key: "scope", label: "範圍" },
+  { key: "decisions", label: "決策" },
+  { key: "verification", label: "驗證" },
+  { key: "nextSteps", label: "後續" }
 ];
 
 const emptyPageInfo: PageInfo = {
@@ -217,7 +247,16 @@ const graphEdgeKindLabels = {
   has_evidence: "附加證據"
 } as const;
 
-const activeView = ref<ViewName>("dashboard");
+const route = useRoute();
+const router = useRouter();
+const routeView = computed<ViewName>(() => {
+  const view = route.meta.view;
+  return typeof view === "string" && view in viewTitles ? view as ViewName : "dashboard";
+});
+const activeView = ref<ViewName>(routeView.value);
+watch(routeView, (view) => {
+  activeView.value = view;
+});
 const dashboard = ref<DashboardSummary>(emptyDashboard);
 const projects = ref<ProjectRecord[]>([]);
 const sessions = ref<WorkSessionRecord[]>([]);
@@ -290,7 +329,6 @@ const graphLoading = ref(false);
 const graphError = ref("");
 const selectedGraphNode = ref<GraphNode | null>(null);
 const selectedDetail = ref<SessionDetail | null>(null);
-const detailModal = ref<HTMLElement | null>(null);
 const detailModalContent = ref<HTMLElement | null>(null);
 const searchTerm = ref("");
 const selectedProjectId = ref("");
@@ -328,43 +366,8 @@ const metadataBackfillRequestError = ref("");
 const metadataBackfillInstruction = "請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。";
 
 const apiBase = import.meta.env.VITE_API_URL ?? "";
-const activeRequestControllers = new Map<string, AbortController>();
-
-function beginRequest(key: string): AbortController {
-  activeRequestControllers.get(key)?.abort();
-  const controller = new AbortController();
-  activeRequestControllers.set(key, controller);
-  return controller;
-}
-
-function isCurrentRequest(key: string, controller: AbortController): boolean {
-  return activeRequestControllers.get(key) === controller;
-}
-
-function finishRequest(key: string, controller: AbortController): void {
-  if (isCurrentRequest(key, controller)) {
-    activeRequestControllers.delete(key);
-  }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
-  });
-  const payload = (await response.json()) as T & { error?: string };
-  if (!response.ok) {
-    throw new Error(payload.error ?? "請求失敗，請確認 API 是否已啟動。");
-  }
-  return payload;
-}
+const apiRequest = useApiRequest(apiBase);
+const { request, beginRequest, isCurrentRequest, finishRequest, isAbortError } = apiRequest;
 
 async function loadDashboard(): Promise<void> {
   const key = "dashboard";
@@ -1116,10 +1119,7 @@ watch([selectedDetail, handoffImportPreview, knowledgeEditor, knowledgeHistoryIt
 });
 
 onBeforeUnmount(() => {
-  for (const controller of activeRequestControllers.values()) {
-    controller.abort();
-  }
-  activeRequestControllers.clear();
+  apiRequest.abortAll();
   window.removeEventListener("resize", updateDatePickerPosition);
   window.removeEventListener("scroll", updateDatePickerPosition, true);
   document.body.classList.remove("modal-open");
@@ -1148,6 +1148,9 @@ async function refresh(): Promise<void> {
 
 async function changeView(view: ViewName): Promise<void> {
   activeView.value = view;
+  if (route.name !== view) {
+    await router.push({ name: view });
+  }
   if (view === "worklog") {
     await loadSessions();
   }
@@ -2144,7 +2147,7 @@ onMounted(() => {
       </section>
 
       <template v-else>
-        <section v-if="activeView === 'dashboard'" class="page-section">
+        <DashboardView v-if="activeView === 'dashboard'">
           <div class="hero-panel">
             <div>
               <div class="eyebrow warm">TODAY'S SIGNAL</div>
@@ -2221,9 +2224,9 @@ onMounted(() => {
               <button class="outline-button" type="button" @click="changeView('projects')">管理 tracking 狀態</button>
             </section>
           </div>
-        </section>
+        </DashboardView>
 
-        <section v-else-if="activeView === 'projects'" class="page-section">
+        <ProjectsView v-else-if="activeView === 'projects'">
           <div class="section-intro">
             <div>
               <div class="eyebrow">PROJECT REGISTRY</div>
@@ -2345,9 +2348,9 @@ onMounted(() => {
             </article>
             <div v-if="projects.length === 0" class="empty-state large-empty"><div class="empty-icon">◈</div><strong>還沒有專案</strong><p>加入第一個 workspace，建立你的中央 project registry。</p></div>
           </section>
-        </section>
+        </ProjectsView>
 
-        <section v-else-if="activeView === 'reports'" class="page-section reports-page">
+        <ReportsView v-else-if="activeView === 'reports'">
           <div class="section-intro reports-intro">
             <div>
               <div class="eyebrow">WORK REPORTS</div>
@@ -2719,9 +2722,9 @@ onMounted(() => {
             </div>
           </template>
           <div v-else class="empty-state large-empty report-empty-state"><div class="empty-icon">▥</div><strong>尚未產生報告</strong><p>切換到報表後，系統會從已授權的工作紀錄建立摘要。</p></div>
-        </section>
+        </ReportsView>
 
-        <section v-else-if="activeView === 'knowledge'" class="page-section knowledge-page">
+        <KnowledgeView v-else-if="activeView === 'knowledge'">
           <div class="section-intro knowledge-intro">
             <div>
               <div class="eyebrow">EXPLICIT KNOWLEDGE</div>
@@ -2797,9 +2800,9 @@ onMounted(() => {
               <span v-else class="pagination-current">共 {{ knowledgePageInfo.total }} 筆</span>
             </div>
           </section>
-        </section>
+        </KnowledgeView>
 
-        <section v-else-if="activeView === 'graph'" class="page-section graph-page">
+        <GraphView v-else-if="activeView === 'graph'">
           <div class="section-intro graph-intro">
             <div>
               <div class="eyebrow">DETERMINISTIC WORK GRAPH</div>
@@ -2946,9 +2949,9 @@ onMounted(() => {
             </div>
       </template>
       <div v-else class="empty-state large-empty graph-empty-state"><div class="empty-icon">◎</div><strong>尚未載入工作圖譜</strong><p>切換到 Graph 後，系統會從已授權的工作紀錄建立結構化視圖。</p></div>
-        </section>
+        </GraphView>
 
-        <section v-else class="page-section">
+        <WorklogView v-else>
           <div class="section-intro worklog-intro">
             <div>
               <div class="eyebrow">SESSION ARCHIVE</div>
@@ -3078,12 +3081,11 @@ onMounted(() => {
               <span v-else class="pagination-current">共 {{ sessionPageInfo.total }} 筆</span>
             </div>
           </section>
-        </section>
+        </WorklogView>
       </template>
     </main>
 
-    <div v-if="handoffImportPreview" class="modal-backdrop import-backdrop" tabindex="-1" @click.self="closeHandoffImport" @keydown.esc="closeHandoffImport">
-      <section class="detail-modal import-modal" role="dialog" aria-modal="true" aria-label="Handoff import preview">
+    <HandoffImportModal v-if="handoffImportPreview" :open="Boolean(handoffImportPreview)" @close="closeHandoffImport">
         <header class="detail-modal-header">
           <div>
             <div class="eyebrow">HANDOFF IMPORT / PREVIEW</div>
@@ -3127,11 +3129,9 @@ onMounted(() => {
             <button class="primary-button" type="button" :disabled="handoffImportApplying || selectedHandoffCount === 0" @click="applyHandoffImport">{{ handoffImportApplying ? '匯入中…' : '套用選取' }}</button>
           </div>
         </footer>
-      </section>
-    </div>
+    </HandoffImportModal>
 
-    <div v-if="selectedGraphNode" class="modal-backdrop" tabindex="-1" @click.self="selectedGraphNode = null" @keydown.esc="selectedGraphNode = null">
-      <section class="detail-modal graph-node-modal" role="dialog" aria-modal="true" aria-label="Graph 節點詳細資料">
+    <GraphNodeModal v-if="selectedGraphNode" :open="Boolean(selectedGraphNode)" @close="selectedGraphNode = null">
         <header class="detail-modal-header">
           <div>
             <div class="eyebrow">GRAPH NODE DETAIL</div>
@@ -3191,11 +3191,9 @@ onMounted(() => {
             <button v-if="selectedGraphNode.kind === 'project'" class="outline-button" type="button" @click="openGraphProject">管理專案</button>
           </footer>
         </div>
-      </section>
-    </div>
+    </GraphNodeModal>
 
-    <div v-if="selectedDetail" class="modal-backdrop" tabindex="-1" @click.self="selectedDetail = null" @keydown.esc="selectedDetail = null">
-      <section ref="detailModal" class="detail-modal" role="dialog" aria-modal="true" aria-label="Session Detail">
+    <SessionDetailModal v-if="selectedDetail" :open="Boolean(selectedDetail)" @close="selectedDetail = null">
         <header class="detail-modal-header">
           <div class="eyebrow">SESSION DETAIL / {{ selectedDetail.session.status.toUpperCase() }}</div>
           <button class="close-button" type="button" aria-label="關閉" @click="selectedDetail = null">×</button>
@@ -3204,6 +3202,18 @@ onMounted(() => {
           <h2>{{ selectedDetail.session.title }}</h2>
           <div class="detail-project"><span class="project-avatar small">{{ selectedDetail.project.name.slice(0, 1).toUpperCase() }}</span><div><strong>{{ selectedDetail.project.name }}</strong><span>{{ selectedDetail.project.rootPath }}</span></div></div>
           <p class="detail-summary">{{ formatReadableSummary(selectedDetail.session.summary) }}</p>
+          <div v-if="selectedDetail.session.workSummary" class="detail-section structured-work-summary">
+            <div class="eyebrow">WORK SUMMARY</div>
+            <div class="work-summary-grid">
+              <article v-for="section in workSummarySectionLabels" :key="section.key" class="work-summary-section">
+                <span>{{ section.label }}</span>
+                <ul v-if="selectedDetail.session.workSummary[section.key].length">
+                  <li v-for="item in selectedDetail.session.workSummary[section.key]" :key="item">{{ item }}</li>
+                </ul>
+                <em v-else>—</em>
+              </article>
+            </div>
+          </div>
           <div class="detail-facts">
             <div><span>執行狀態 Execution</span><strong>{{ executionStatusLabels[selectedDetail.session.executionStatus] }}</strong></div>
             <div><span>完成時間 Completed</span><strong>{{ formatDate(selectedDetail.session.completedAt) }}</strong></div>
@@ -3228,11 +3238,9 @@ onMounted(() => {
             </div>
           </div>
         </div>
-      </section>
-    </div>
+    </SessionDetailModal>
 
-    <div v-if="knowledgeHistoryItem" class="modal-backdrop" tabindex="-1" @click.self="closeKnowledgeHistory" @keydown.esc="closeKnowledgeHistory">
-      <section class="detail-modal knowledge-history-modal" role="dialog" aria-modal="true" aria-label="Knowledge 變更紀錄">
+    <KnowledgeHistoryModal v-if="knowledgeHistoryItem" :open="Boolean(knowledgeHistoryItem)" @close="closeKnowledgeHistory">
         <header class="detail-modal-header">
           <div>
             <div class="eyebrow">KNOWLEDGE AUDIT HISTORY</div>
@@ -3270,11 +3278,9 @@ onMounted(() => {
           </div>
           <div v-else class="empty-state large-empty knowledge-history-empty"><div class="empty-icon">↺</div><strong>尚無變更紀錄</strong><p>這筆 Knowledge 可能是在 audit history 功能加入前建立，目前只會從下一次變更開始追蹤。</p></div>
         </div>
-      </section>
-    </div>
+    </KnowledgeHistoryModal>
 
-    <div v-if="knowledgeEditor" class="modal-backdrop" tabindex="-1" @click.self="closeKnowledgeEditor" @keydown.esc="closeKnowledgeEditor">
-      <section class="detail-modal knowledge-editor-modal" role="dialog" aria-modal="true" aria-label="編輯 Knowledge">
+    <KnowledgeEditorModal v-if="knowledgeEditor" :open="Boolean(knowledgeEditor)" @close="closeKnowledgeEditor">
         <header class="detail-modal-header">
           <div>
             <div class="eyebrow">KNOWLEDGE MAINTENANCE</div>
@@ -3326,7 +3332,6 @@ onMounted(() => {
             </div>
           </footer>
         </form>
-      </section>
-    </div>
+    </KnowledgeEditorModal>
   </div>
 </template>

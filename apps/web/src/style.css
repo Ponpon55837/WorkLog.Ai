@@ -1560,3 +1560,54 @@ select:not([multiple]) optgroup {
   width: auto;
   min-width: 76px;
 }
+
+/* Structured Session summaries stay compact while keeping each work dimension
+   visually separate from the free-form executive summary. */
+.work-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.work-summary-section {
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid rgba(164, 188, 214, .12);
+  border-radius: 9px;
+  background: rgba(117, 183, 255, .035);
+}
+
+.work-summary-section > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #8eabc4;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.work-summary-section ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 17px;
+  color: #c5d6e5;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.work-summary-section li::marker {
+  color: var(--green);
+}
+
+.work-summary-section em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+@media (max-width: 640px) {
+  .work-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

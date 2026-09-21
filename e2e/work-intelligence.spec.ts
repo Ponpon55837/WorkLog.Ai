@@ -36,6 +36,13 @@ test.describe("Work Intelligence browser regression", () => {
       idempotencyKey: `browser-regression-${process.pid}`,
       title: "Browser regression fixture session",
       summary: "Fixture data used to exercise the Work Intelligence UI.",
+      workSummary: {
+        outcomes: ["The browser fixture remains readable."],
+        scope: ["The primary Work Intelligence views."],
+        decisions: ["Use one isolated SQLite fixture."],
+        verification: ["Browser regression fixture is deterministic."],
+        nextSteps: ["Keep the UI regression suite green."]
+      },
       changedFiles: ["README.md"],
       verification: {
         status: "passed",
@@ -212,6 +219,8 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.locator(".worklog-row").first()).toBeVisible();
     await page.locator(".worklog-row").first().click();
     await expect(page.getByRole("button", { name: "關閉" })).toBeVisible();
+    await expect(page.locator(".structured-work-summary")).toContainText("成果");
+    await expect(page.locator(".structured-work-summary")).toContainText("The browser fixture remains readable.");
 
     const dimensions = await page.evaluate(() => ({
       viewport: window.innerWidth,
@@ -219,5 +228,15 @@ test.describe("Work Intelligence browser regression", () => {
     }));
     expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
     await page.getByRole("button", { name: "關閉" }).click();
+  });
+
+  test("supports direct page routes", async ({ page }) => {
+    await page.goto("/reports");
+    await expect(page.getByRole("heading", { name: "工作報告" }).first()).toBeVisible();
+    await expect(page).toHaveURL(/\/reports$/);
+
+    await page.goto("/worklog");
+    await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
+    await expect(page).toHaveURL(/\/worklog$/);
   });
 });
