@@ -1,0 +1,161 @@
+import { DatabaseSync } from "node:sqlite";
+import type { PageInfo, SessionListResult, WorkSessionRecord } from "@work-intelligence/core";
+
+export type SessionRow = {
+  id: string;
+  project_id: string;
+  project_name: string | null;
+  external_session_id: string | null;
+  idempotency_key: string;
+  title: string;
+  summary: string;
+  status: "finalized";
+  execution_status: "completed";
+  completed_at: string;
+  created_at: string;
+  commit_required: number;
+  commit_sha: string | null;
+  git_branch: string | null;
+  changed_files_json: string;
+  changed_files_provenance_json: string;
+  changed_file_changes_json: string | null;
+  verification_json: string | null;
+};
+
+export type SessionListOptions = {
+  projectId?: string;
+  query?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  page?: number;
+  pageSize?: number;
+  trackedOnly?: boolean;
+};
+
+type SessionMapper = (row: SessionRow) => WorkSessionRecord;
+type PageInfoBuilder = (
+  pageValue: number | undefined,
+  pageSizeValue: number | undefined,
+  total: number,
+  maxPageSize?: number
+) => PageInfo;
+
+/** Read-side Session persistence kept separate from finalize/update workflows. */
+export class SessionRepository {
+  public constructor(
+    private readonly db: DatabaseSync,
+    private readonly mapSession: SessionMapper,
+    private readonly buildPageInfo: PageInfoBuilder
+  ) {}
+
+  public list(options: SessionListOptions = {}): WorkSessionRecord[] {
+    const { clauses, parameters } = this.buildFilter(options);
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, p.name AS project_name
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         ${where}
+         ORDER BY s.completed_at DESC, s.id DESC
+         LIMIT ?`
+      )
+      .all(...parameters, limit) as SessionRow[];
+    return rows.map(this.mapSession);
+  }
+
+  public listPage(options: SessionListOptions = {}): SessionListResult {
+    const { clauses, parameters } = this.buildFilter(options);
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const totalRow = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         ${where}`
+      )
+      .get(...parameters) as { count: number };
+    const pageInfo = this.buildPageInfo(options.page, options.pageSize, totalRow.count, 100);
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, p.name AS project_name
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         ${where}
+         ORDER BY s.completed_at DESC, s.id DESC
+         LIMIT ? OFFSET ?`
+      )
+      .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as SessionRow[];
+    return {
+      outcome: "sessions",
+      items: rows.map(this.mapSession),
+      pageInfo
+    };
+  }
+
+  public getByIdempotencyKey(idempotencyKey: string): WorkSessionRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT s.*, p.name AS project_name
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         WHERE s.idempotency_key = ?`
+      )
+      .get(idempotencyKey) as SessionRow | undefined;
+    return row ? this.mapSession(row) : undefined;
+  }
+
+  public getById(sessionId: string): WorkSessionRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT s.*, p.name AS project_name
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         WHERE s.id = ?`
+      )
+      .get(sessionId) as SessionRow | undefined;
+    return row ? this.mapSession(row) : undefined;
+  }
+
+  private buildFilter(options: SessionListOptions): {
+    clauses: string[];
+    parameters: Array<string | number | null>;
+  } {
+    const clauses: string[] = [];
+    const parameters: Array<string | number | null> = [];
+
+    if (options.projectId) {
+      clauses.push("s.project_id = ?");
+      parameters.push(options.projectId);
+    }
+
+    if (options.trackedOnly) {
+      clauses.push("p.status = 'tracked'");
+    }
+
+    if (options.query) {
+      clauses.push(
+        `(LOWER(s.title) LIKE ? OR LOWER(s.summary) LIKE ? OR EXISTS (
+          SELECT 1 FROM work_events search_events
+          WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ?
+        ))`
+      );
+      const needle = `%${options.query.toLowerCase()}%`;
+      parameters.push(needle, needle, needle);
+    }
+
+    if (options.from) {
+      clauses.push("substr(s.completed_at, 1, 10) >= ?");
+      parameters.push(options.from);
+    }
+
+    if (options.to) {
+      clauses.push("substr(s.completed_at, 1, 10) <= ?");
+      parameters.push(options.to);
+    }
+
+    return { clauses, parameters };
+  }
+}

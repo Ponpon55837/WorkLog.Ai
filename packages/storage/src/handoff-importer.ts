@@ -33,7 +33,7 @@ export interface HandoffDiscoveryResult {
   candidates: HandoffImportCandidate[];
 }
 
-interface DiscoveryOptions {
+export interface HandoffDiscoveryOptions {
   handoffDirectory?: string;
   excludePaths?: string[];
   maxFiles?: number;
@@ -287,7 +287,7 @@ function excludedCandidate(sourcePath: string): HandoffImportCandidate {
   };
 }
 
-export function discoverHandoffCandidates(projectRoot: string, options: DiscoveryOptions = {}): HandoffDiscoveryResult {
+export function discoverHandoffCandidates(projectRoot: string, options: HandoffDiscoveryOptions = {}): HandoffDiscoveryResult {
   const pathResolver = createProjectPathResolver(projectRoot);
   const handoffDirectory = normalizeRelativePath(
     projectRoot,
@@ -369,4 +369,11 @@ export function discoverHandoffCandidates(projectRoot: string, options: Discover
     truncated,
     candidates
   };
+}
+
+/** Service boundary used by the storage facade; policy checks remain outside this reader. */
+export class HandoffImportService {
+  public discover(projectRoot: string, options: HandoffDiscoveryOptions = {}): HandoffDiscoveryResult {
+    return discoverHandoffCandidates(projectRoot, options);
+  }
 }

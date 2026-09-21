@@ -18,9 +18,6 @@ import type {
   CreateMetadataBackfillRequestResult,
   DashboardSummary,
   EvidenceRecord,
-  GraphEdge,
-  GraphNode,
-  GraphNodeTotals,
   GraphQuery,
   GraphQueryResult,
   HandoffImportApplyInput,
@@ -51,7 +48,7 @@ import type {
   MetadataBackfillRequestListQueryResult,
   MetadataBackfillRequestQuery,
   MetadataBackfillSkipped,
-  PageInfo,
+  PolicyDecision,
   ProjectIdSkippedResult,
   FinalizeSessionInput,
   FinalizeSessionResult,
@@ -114,62 +111,26 @@ import type {
 } from "@work-intelligence/core";
 import { nowIso, truncateText } from "@work-intelligence/shared";
 import {
-  canonicalizeProjectRoot,
   createProjectPathResolver,
   ProjectPolicyGate,
   safeProjectPath
 } from "@work-intelligence/project-policy";
 import {
-  discoverHandoffCandidates,
+  HandoffImportService,
   type HandoffDiscoveryResult,
   type HandoffImportCandidate
 } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
-
-const REPORT_SYNTHESIS_PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
-const METADATA_BACKFILL_PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
-
-type ProjectRow = {
-  id: string;
-  name: string;
-  root_path: string;
-  status: ProjectStatus;
-  created_at: string;
-  updated_at: string;
-  last_ingested_at: string | null;
-};
-
-type SessionRow = {
-  id: string;
-  project_id: string;
-  project_name: string | null;
-  external_session_id: string | null;
-  idempotency_key: string;
-  title: string;
-  summary: string;
-  status: "finalized";
-  execution_status: "completed";
-  completed_at: string;
-  created_at: string;
-  commit_required: number;
-  commit_sha: string | null;
-  git_branch: string | null;
-  changed_files_json: string;
-  changed_files_provenance_json: string;
-  changed_file_changes_json: string | null;
-  verification_json: string | null;
-};
-
-type SessionListOptions = {
-  projectId?: string;
-  query?: string;
-  from?: string;
-  to?: string;
-  limit?: number;
-  page?: number;
-  pageSize?: number;
-  trackedOnly?: boolean;
-};
+import { checkTrackedProjectById, checkTrackedProjectByRoot } from "./policy-helper.js";
+import { createPageInfo } from "./pagination.js";
+import { GraphBuilder } from "./graph-builder.js";
+import { KnowledgeRepository } from "./knowledge-repository.js";
+import { ProjectRepository } from "./project-repository.js";
+import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
+import { ReportBuilder } from "./report-builder.js";
+import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
+import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
+import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 
 type EventRow = {
   id: string;
@@ -284,11 +245,6 @@ type MetadataBackfillRequestRow = {
 };
 
 type ReportAttachedEvidenceRow = EvidenceRow & {
-  session_title: string;
-  project_name: string | null;
-};
-
-type GraphEvidenceRow = EvidenceRow & {
   session_title: string;
   project_name: string | null;
 };
@@ -491,26 +447,6 @@ function parseJson<T>(value: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-function createPageInfo(pageValue: number | undefined, pageSizeValue: number | undefined, total: number, maxPageSize = 200): PageInfo {
-  const requestedPageSize = Math.trunc(pageSizeValue ?? 20);
-  const showAll = requestedPageSize === 0;
-  const pageSize = showAll ? Math.max(total, 1) : Math.min(Math.max(requestedPageSize, 1), maxPageSize);
-  const totalPages = showAll ? 1 : Math.max(1, Math.ceil(total / pageSize));
-  const page = showAll ? 1 : Math.min(Math.max(Math.trunc(pageValue ?? 1), 1), totalPages);
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const to = total === 0 ? 0 : Math.min(page * pageSize, total);
-  return {
-    page,
-    pageSize,
-    total,
-    totalPages,
-    from,
-    to,
-    hasPrevious: page > 1,
-    hasNext: page < totalPages
-  };
 }
 
 function changedFileIdentity(value: string): string {
@@ -726,18 +662,6 @@ function mergeChangedFiles(
         ...(references.length > 0 ? { references } : {})
       }];
     })
-  };
-}
-
-function toProject(row: ProjectRow): ProjectRecord {
-  return {
-    id: row.id,
-    name: row.name,
-    rootPath: row.root_path,
-    status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    lastIngestedAt: row.last_ingested_at ?? undefined
   };
 }
 
@@ -1093,161 +1017,6 @@ function toMetadataBackfillItem(row: MetadataBackfillRow): MetadataBackfillItem 
   };
 }
 
-function markdownInline(value: string | number | undefined): string {
-  return String(value ?? "—")
-    .replace(/\r?\n/g, " ")
-    .replaceAll("|", "\\|")
-    .trim();
-}
-
-function reportFilenamePart(value: string): string {
-  const normalized = value
-    .normalize("NFKC")
-    .replace(/[^a-zA-Z0-9\u4e00-\u9fff]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  return normalized || "all-projects";
-}
-
-function reportMetricMarkdown(label: string, metric: ReportMetricComparison): string {
-  const delta = metric.delta > 0 ? "+" + metric.delta : String(metric.delta);
-  return "| " + label + " | " + metric.current + " | " + metric.previous + " | " + delta + " |";
-}
-
-function reportExportMarkdown(report: WorkReport): string {
-  const projectLabel = report.project?.name ?? "所有 tracked projects";
-  const lines: string[] = [
-    "# Work Intelligence 工作報告",
-    "",
-    "- 報告類型：" + report.period,
-    "- 報告區間：" + report.range.from + " 至 " + report.range.to,
-    "- 上一期：" + report.previousRange.from + " 至 " + report.previousRange.to,
-    "- 專案範圍：" + markdownInline(projectLabel),
-    "- 時區：" + report.timezone,
-    "",
-    "## 期間摘要",
-    "",
-    report.periodSummary,
-    "",
-    "## 上一期比較",
-    "",
-    "| 指標 | 本期 | 上一期 | 差異 |",
-    "| --- | ---: | ---: | ---: |",
-    reportMetricMarkdown("Sessions", report.comparison.sessions),
-    reportMetricMarkdown("Events", report.comparison.events),
-    reportMetricMarkdown("Changed files", report.comparison.changedFiles),
-    "",
-    "## 主要完成事項",
-    ""
-  ];
-
-  if (report.sessions.length === 0) {
-    lines.push("這段期間沒有可彙整的完成工作。", "");
-  } else {
-    for (const session of report.sessions) {
-      const projectSuffix = session.projectName ? " · " + markdownInline(session.projectName) : "";
-      lines.push(
-        "- **" + markdownInline(session.title) + "** — " +
-          markdownInline(session.summary) +
-          "（" + session.completedAt.slice(0, 10) + projectSuffix + "）"
-      );
-    }
-    lines.push("");
-  }
-
-  lines.push(
-    "## Verification 狀態",
-    "",
-    "| 狀態 | 筆數 |",
-    "| --- | ---: |",
-    "| Passed | " + report.totals.verification.passed + " |",
-    "| Failed | " + report.totals.verification.failed + " |",
-    "| Not run | " + report.totals.verification.not_run + " |",
-    "| Not supplied | " + report.totals.verification.not_supplied + " |",
-    ""
-  );
-
-  lines.push("## 風險與待確認事項", "");
-  if (report.risks.length === 0) {
-    lines.push("目前期間沒有資料型風險。", "");
-  } else {
-    for (const risk of report.risks) {
-      lines.push(
-        "- **" + markdownInline(risk.label) + "** — " +
-          markdownInline(risk.detail) +
-          "（來源 Session：" + risk.sourceSessionIds.length + "）"
-      );
-    }
-    lines.push("");
-  }
-
-  lines.push("## 決策與 Closing", "");
-  if (report.decisions.length === 0) {
-    lines.push("這段期間沒有決策事件。", "");
-  } else {
-    for (const decision of report.decisions) {
-      lines.push(
-        "- **" + markdownInline(decision.summary) + "** — " +
-          markdownInline(decision.sessionTitle) +
-          "（" + decision.occurredAt + "）"
-      );
-    }
-    lines.push("");
-  }
-
-  lines.push(
-    "## 活動趨勢",
-    "",
-    "| 日期 | Sessions | Events |",
-    "| --- | ---: | ---: |"
-  );
-  for (const trend of report.trends) {
-    lines.push("| " + trend.date + " | " + trend.sessions + " | " + trend.events + " |");
-  }
-  lines.push("");
-
-  lines.push("## 專案分布", "");
-  if (report.projects.length === 0) {
-    lines.push("目前期間沒有 tracked project 資料。", "");
-  } else {
-    lines.push(
-      "| 專案 | Sessions | Events | Source sessions |",
-      "| --- | ---: | ---: | ---: |"
-    );
-    for (const project of report.projects) {
-      lines.push(
-        "| " + markdownInline(project.projectName) +
-          " | " + project.sessionCount +
-          " | " + project.eventCount +
-          " | " + project.sourceSessionIds.length + " |"
-      );
-    }
-    lines.push("");
-  }
-
-  lines.push("## 來源證據", "");
-  if (report.evidence.length === 0) {
-    lines.push("目前期間沒有可呈現的來源證據。", "");
-  } else {
-    for (const evidence of report.evidence) {
-      const reference = evidence.reference ? " · " + markdownInline(evidence.reference) : "";
-      lines.push(
-        "- **" + markdownInline(evidence.label) + "** — " +
-          markdownInline(evidence.detail) +
-          "（" + markdownInline(evidence.sessionTitle) + reference + "）"
-      );
-    }
-    lines.push("");
-  }
-
-  lines.push(
-    "---",
-    "",
-    "來源 Session IDs：" + (report.sourceSessionIds.length ? report.sourceSessionIds.join(", ") : "無")
-  );
-  return lines.join("\n") + "\n";
-}
-
 function handoffImportIdempotencyKey(projectId: string, sourcePath: string): string {
   const digest = createHash("sha256").update(`${projectId}\n${sourcePath}`).digest("hex");
   return `handoff-import:v1:${digest}`;
@@ -1311,6 +1080,14 @@ function countHandoffPreviewItems(items: HandoffImportPreviewItem[]): HandoffImp
 
 export class WorkIntelligenceStore {
   private readonly db: DatabaseSync;
+  private readonly projects: ProjectRepository;
+  private readonly sessions: SessionRepository;
+  private readonly knowledge: KnowledgeRepository;
+  private readonly graphBuilder: GraphBuilder;
+  private readonly handoffImportService = new HandoffImportService();
+  private readonly reportBuilder = new ReportBuilder();
+  private readonly reportSynthesisRequests: ReportSynthesisRequestRepository;
+  private readonly metadataBackfills: MetadataBackfillRepository;
   private readonly policyGate: ProjectPolicyGate;
 
   public constructor(public readonly databasePath: string) {
@@ -1322,6 +1099,23 @@ export class WorkIntelligenceStore {
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.db.exec(schema);
     this.ensureSchemaMigrations();
+    this.projects = new ProjectRepository(this.db);
+    this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
+    this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
+      listTrackedProjects: () => this.listProjects().filter((project) => project.status === "tracked"),
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      checkProjectById: (projectId) => this.checkProjectById(projectId)
+    });
+    this.graphBuilder = new GraphBuilder(this.db, {
+      listProjects: () => this.listProjects(),
+      getProjectById: (projectId) => this.getProjectById(projectId),
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
+      toSession,
+      toKnowledge
+    });
+    this.reportSynthesisRequests = new ReportSynthesisRequestRepository(this.db);
+    this.metadataBackfills = new MetadataBackfillRepository(this.db);
     this.policyGate = new ProjectPolicyGate(this);
   }
 
@@ -1387,19 +1181,15 @@ export class WorkIntelligenceStore {
   }
 
   private runImmediateTransaction<T>(operation: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const result = operation();
-      this.db.exec("COMMIT");
-      return result;
-    } catch (error) {
-      try {
-        this.db.exec("ROLLBACK");
-      } catch {
-        // Preserve the original error if the connection is already closed.
-      }
-      throw error;
-    }
+    return runImmediateSqlTransaction(this.db, operation);
+  }
+
+  private checkProjectRoot(projectRoot: string): PolicyDecision {
+    return checkTrackedProjectByRoot(this.policyGate, projectRoot);
+  }
+
+  private checkProjectById(projectId: string): PolicyDecision {
+    return checkTrackedProjectById(this.policyGate, this, projectId);
   }
 
   public close(): void {
@@ -1407,79 +1197,26 @@ export class WorkIntelligenceStore {
   }
 
   public getProjectByRootPath(rootPath: string): ProjectRecord | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM projects WHERE root_path = ?")
-      .get(canonicalizeProjectRoot(rootPath)) as ProjectRow | undefined;
-    return row ? toProject(row) : undefined;
+    return this.projects.getByRootPath(rootPath);
   }
 
   public getProjectById(projectId: string): ProjectRecord | undefined {
-    const row = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as ProjectRow | undefined;
-    return row ? toProject(row) : undefined;
+    return this.projects.getById(projectId);
   }
 
   public listProjects(): ProjectRecord[] {
-    const rows = this.db.prepare("SELECT * FROM projects ORDER BY updated_at DESC, name ASC").all() as ProjectRow[];
-    return rows.map(toProject);
+    return this.projects.list();
   }
 
   public addProject(name: string, rootPath: string): ProjectRecord {
-    const canonicalRoot = canonicalizeProjectRoot(rootPath);
-    const existing = this.getProjectByRootPath(canonicalRoot);
-    if (existing) {
-      return existing;
-    }
-
-    const now = nowIso();
-    const project: ProjectRecord = {
-      id: randomUUID(),
-      name: name.trim(),
-      rootPath: canonicalRoot,
-      status: "unregistered",
-      createdAt: now,
-      updatedAt: now
-    };
-
-    this.db
-      .prepare(
-        `INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
-         VALUES (@id, @name, @rootPath, @status, @createdAt, @updatedAt)`
-      )
-      .run({
-        id: project.id,
-        name: project.name,
-        rootPath: project.rootPath,
-        status: project.status,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt
-      });
-    return project;
+    return this.projects.add(name, rootPath);
   }
 
   public updateProject(
     projectId: string,
     update: { name?: string; status?: ProjectStatus }
   ): ProjectRecord | undefined {
-    const existing = this.getProjectById(projectId);
-    if (!existing) {
-      return undefined;
-    }
-
-    const next: ProjectRecord = {
-      ...existing,
-      name: update.name?.trim() || existing.name,
-      status: update.status ?? existing.status,
-      updatedAt: nowIso()
-    };
-
-    this.db
-      .prepare(
-        `UPDATE projects
-         SET name = @name, status = @status, updated_at = @updatedAt
-         WHERE id = @id`
-      )
-      .run({ id: projectId, name: next.name, status: next.status, updatedAt: next.updatedAt });
-    return next;
+    return this.projects.update(projectId, update);
   }
 
   public previewMetadataBackfill(options: {
@@ -1489,7 +1226,7 @@ export class WorkIntelligenceStore {
     let project: ProjectRecord | undefined;
     let projectId: string | undefined;
     if (options.projectRoot) {
-      const decision = this.policyGate.check(options.projectRoot);
+      const decision = this.checkProjectRoot(options.projectRoot);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -1548,7 +1285,7 @@ export class WorkIntelligenceStore {
           reason: "Project is not registered."
         } satisfies ProjectIdSkippedResult;
       }
-      const decision = this.policyGate.check(project.rootPath);
+      const decision = this.checkProjectById(project.id);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -1677,7 +1414,7 @@ export class WorkIntelligenceStore {
           reason: "Project is not registered."
         } satisfies ProjectIdSkippedResult;
       }
-      const decision = this.policyGate.check(project.rootPath);
+      const decision = this.checkProjectById(project.id);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -1738,8 +1475,7 @@ export class WorkIntelligenceStore {
     }
 
     if (row.project_id) {
-      const project = this.getProjectById(row.project_id);
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -1809,7 +1545,7 @@ export class WorkIntelligenceStore {
 
     const project = row.project_id ? this.getProjectById(row.project_id) : undefined;
     if (row.project_id) {
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -1957,7 +1693,7 @@ export class WorkIntelligenceStore {
   }
 
   private buildHandoffImportPlan(options: HandoffImportOptions): HandoffImportPlan | SkippedResult {
-    const decision = this.policyGate.check(options.projectRoot);
+    const decision = this.checkProjectRoot(options.projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -1968,7 +1704,7 @@ export class WorkIntelligenceStore {
     }
 
     const project = decision.project;
-    const discovery = discoverHandoffCandidates(project.rootPath, {
+    const discovery = this.handoffImportService.discover(project.rootPath, {
       handoffDirectory: options.handoffDirectory,
       excludePaths: options.excludePaths,
       maxFiles: options.maxFiles
@@ -2469,14 +2205,14 @@ export class WorkIntelligenceStore {
       return report;
     }
 
-    const projectSuffix = report.project ? "-" + reportFilenamePart(report.project.name) : "-all-projects";
+    const projectSuffix = report.project ? "-" + this.reportBuilder.filenamePart(report.project.name) : "-all-projects";
     const baseName = "work-report-" + report.period + "-" + report.range.from + "-to-" + report.range.to + projectSuffix;
     const contentType = options.format === "json"
       ? "application/json; charset=utf-8"
       : "text/markdown; charset=utf-8";
     const content = options.format === "json"
       ? JSON.stringify(report, null, 2) + "\n"
-      : reportExportMarkdown(report);
+      : this.reportBuilder.toMarkdown(report);
 
     return {
       outcome: "report_export",
@@ -2489,68 +2225,11 @@ export class WorkIntelligenceStore {
   }
 
   private recoverStaleReportSynthesisRequests(): void {
-    const cutoff = Date.now() - REPORT_SYNTHESIS_PROCESSING_TIMEOUT_MS;
-    const rows = this.db
-      .prepare(
-        `SELECT id, started_at
-         FROM report_synthesis_requests
-         WHERE status = 'processing' AND started_at IS NOT NULL`
-      )
-      .all() as Array<{ id: string; started_at: string | null }>;
-    const staleRows = rows.filter((row) => {
-      const startedAt = row.started_at ? Date.parse(row.started_at) : Number.NaN;
-      return Number.isFinite(startedAt) && startedAt <= cutoff;
-    });
-
-    if (staleRows.length === 0) {
-      return;
-    }
-
-    const failureReason = "報告提煉超過 30 分鐘仍未完成，已標記為可重試；原始報告與既有摘要未受影響。";
-    const update = this.db.prepare(
-      `UPDATE report_synthesis_requests
-       SET status = 'failed', failure_reason = ?, completed_at = NULL
-       WHERE id = ? AND status = 'processing'`
-    );
-    for (const row of staleRows) {
-      update.run(failureReason, row.id);
-    }
+    this.reportSynthesisRequests.recoverStale();
   }
 
   private recoverStaleMetadataBackfillRequests(): void {
-    const cutoff = Date.now() - METADATA_BACKFILL_PROCESSING_TIMEOUT_MS;
-    const rows = this.db
-      .prepare(
-        `SELECT id, started_at
-         FROM metadata_backfill_requests r
-         WHERE r.status = 'processing'
-           AND r.started_at IS NOT NULL
-           AND (r.project_id IS NULL OR EXISTS (
-             SELECT 1 FROM projects p WHERE p.id = r.project_id AND p.status = 'tracked'
-           ))`
-      )
-      .all() as Array<{ id: string; started_at: string | null }>;
-    const staleRows = rows.filter((row) => {
-      const startedAt = row.started_at ? Date.parse(row.started_at) : Number.NaN;
-      return Number.isFinite(startedAt) && startedAt <= cutoff;
-    });
-
-    if (staleRows.length === 0) {
-      return;
-    }
-
-    const failureReason = "Metadata 回補超過 30 分鐘仍未完成，已標記為可重試；原有 Session 資料未被清除。";
-    const update = this.db.prepare(
-      `UPDATE metadata_backfill_requests
-       SET status = 'failed', failure_reason = ?, completed_at = NULL
-       WHERE id = ? AND status = 'processing'
-         AND (project_id IS NULL OR EXISTS (
-           SELECT 1 FROM projects p WHERE p.id = metadata_backfill_requests.project_id AND p.status = 'tracked'
-         ))`
-    );
-    for (const row of staleRows) {
-      update.run(failureReason, row.id);
-    }
+    this.metadataBackfills.recoverStale();
   }
 
   public createReportSynthesisRequest(input: CreateReportSynthesisRequestInput): CreateReportSynthesisRequestResult {
@@ -2566,7 +2245,7 @@ export class WorkIntelligenceStore {
           reason: "Project is not registered."
         };
       }
-      const decision = this.policyGate.check(project.rootPath);
+      const decision = this.checkProjectById(project.id);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -2662,7 +2341,7 @@ export class WorkIntelligenceStore {
           reason: "Project is not registered."
         };
       }
-      const decision = this.policyGate.check(project.rootPath);
+      const decision = this.checkProjectById(project.id);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -2727,8 +2406,7 @@ export class WorkIntelligenceStore {
       return { outcome: "not_found", requestId };
     }
     if (row.project_id) {
-      const project = this.getProjectById(row.project_id);
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -2773,8 +2451,7 @@ export class WorkIntelligenceStore {
     }
 
     if (row.project_id) {
-      const project = this.getProjectById(row.project_id);
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -2866,8 +2543,7 @@ export class WorkIntelligenceStore {
     }
 
     if (row.project_id) {
-      const project = this.getProjectById(row.project_id);
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -2936,8 +2612,7 @@ export class WorkIntelligenceStore {
     }
 
     if (row.project_id) {
-      const project = this.getProjectById(row.project_id);
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -3065,8 +2740,7 @@ export class WorkIntelligenceStore {
     }
 
     if (row.project_id) {
-      const project = this.getProjectById(row.project_id);
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -3217,7 +2891,7 @@ export class WorkIntelligenceStore {
           reason: "Project is not registered."
         };
       }
-      const decision = this.policyGate.check(project.rootPath);
+      const decision = this.checkProjectById(project.id);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -3279,8 +2953,7 @@ export class WorkIntelligenceStore {
     }
 
     if (row.project_id) {
-      const project = this.getProjectById(row.project_id);
-      const decision = project ? this.policyGate.check(project.rootPath) : undefined;
+      const decision = this.checkProjectById(row.project_id);
       if (!decision?.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -3321,114 +2994,20 @@ export class WorkIntelligenceStore {
       .all(...sessionIds) as ReportEventRow[];
   }
 
-  private buildSessionFilter(options: SessionListOptions): {
-    clauses: string[];
-    parameters: Array<string | number | null>;
-  } {
-    const clauses: string[] = [];
-    const parameters: Array<string | number | null> = [];
-
-    if (options.projectId) {
-      clauses.push("s.project_id = ?");
-      parameters.push(options.projectId);
-    }
-
-    if (options.trackedOnly) {
-      clauses.push("p.status = 'tracked'");
-    }
-
-    if (options.query) {
-      clauses.push(
-        `(LOWER(s.title) LIKE ? OR LOWER(s.summary) LIKE ? OR EXISTS (
-          SELECT 1 FROM work_events search_events
-          WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ?
-        ))`
-      );
-      const needle = `%${options.query.toLowerCase()}%`;
-      parameters.push(needle, needle, needle);
-    }
-
-    if (options.from) {
-      clauses.push("substr(s.completed_at, 1, 10) >= ?");
-      parameters.push(options.from);
-    }
-
-    if (options.to) {
-      clauses.push("substr(s.completed_at, 1, 10) <= ?");
-      parameters.push(options.to);
-    }
-
-    return { clauses, parameters };
-  }
-
   public listSessions(options: SessionListOptions = {}): WorkSessionRecord[] {
-    const { clauses, parameters } = this.buildSessionFilter(options);
-    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
-    const rows = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         ${where}
-         ORDER BY s.completed_at DESC, s.id DESC
-         LIMIT ?`
-      )
-      .all(...parameters, limit) as SessionRow[];
-    return rows.map(toSession);
+    return this.sessions.list(options);
   }
 
   public listSessionsPage(options: SessionListOptions = {}): SessionListResult {
-    const { clauses, parameters } = this.buildSessionFilter(options);
-    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const totalRow = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         ${where}`
-      )
-      .get(...parameters) as { count: number };
-    const pageInfo = createPageInfo(options.page, options.pageSize, totalRow.count, 100);
-    const rows = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         ${where}
-         ORDER BY s.completed_at DESC, s.id DESC
-         LIMIT ? OFFSET ?`
-      )
-      .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as SessionRow[];
-    return {
-      outcome: "sessions",
-      items: rows.map(toSession),
-      pageInfo
-    };
+    return this.sessions.listPage(options);
   }
 
   public getSessionByIdempotencyKey(idempotencyKey: string): WorkSessionRecord | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         WHERE s.idempotency_key = ?`
-      )
-      .get(idempotencyKey) as SessionRow | undefined;
-    return row ? toSession(row) : undefined;
+    return this.sessions.getByIdempotencyKey(idempotencyKey);
   }
 
   public getSessionById(sessionId: string): WorkSessionRecord | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`
-      )
-      .get(sessionId) as SessionRow | undefined;
-    return row ? toSession(row) : undefined;
+    return this.sessions.getById(sessionId);
   }
 
   public updateSessionVerification(sessionId: string, verification: VerificationSummary): UpdateSessionVerificationResult {
@@ -3437,8 +3016,7 @@ export class WorkIntelligenceStore {
       return { outcome: "not_found", sessionId };
     }
 
-    const projectRecord = this.getProjectById(row.project_id);
-    const decision = projectRecord ? this.policyGate.check(projectRecord.rootPath) : undefined;
+    const decision = this.checkProjectById(row.project_id);
     if (!decision?.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -3475,8 +3053,7 @@ export class WorkIntelligenceStore {
       return { outcome: "not_found", sessionId: input.sessionId };
     }
 
-    const projectRecord = this.getProjectById(row.project_id);
-    const decision = projectRecord ? this.policyGate.check(projectRecord.rootPath) : undefined;
+    const decision = this.checkProjectById(row.project_id);
     if (!decision?.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -3558,8 +3135,7 @@ export class WorkIntelligenceStore {
       return { outcome: "not_found", sessionId: input.sessionId };
     }
 
-    const projectRecord = this.getProjectById(row.project_id);
-    const decision = projectRecord ? this.policyGate.check(projectRecord.rootPath) : undefined;
+    const decision = this.checkProjectById(row.project_id);
     if (!decision?.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -3710,7 +3286,7 @@ export class WorkIntelligenceStore {
   }
 
   public recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult {
-    const decision = this.policyGate.check(input.projectRoot);
+    const decision = this.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -3797,7 +3373,7 @@ export class WorkIntelligenceStore {
   }
 
   public updateKnowledge(input: UpdateKnowledgeInput): UpdateKnowledgeResult {
-    const decision = this.policyGate.check(input.projectRoot);
+    const decision = this.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -3880,7 +3456,7 @@ export class WorkIntelligenceStore {
   }
 
   public getKnowledgeHistory(input: KnowledgeHistoryQuery): KnowledgeHistoryResult {
-    const decision = this.policyGate.check(input.projectRoot);
+    const decision = this.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -3923,411 +3499,13 @@ export class WorkIntelligenceStore {
   }
 
   public searchKnowledge(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
-    let scopedProject: ProjectRecord | undefined;
-    let projectId = options.projectId;
-
-    if (options.projectRoot) {
-      const decision = this.policyGate.check(options.projectRoot);
-      if (!decision.allowed || !decision.project) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
-        };
-      }
-      scopedProject = decision.project;
-      projectId = decision.project.id;
-    }
-
-    if (projectId) {
-      const project = this.getProjectById(projectId);
-      if (!project) {
-        return {
-          outcome: "knowledge",
-          projects: [],
-          items: [],
-          pageInfo: createPageInfo(options.page, options.pageSize ?? options.limit, 0)
-        };
-      }
-      const decision = this.policyGate.check(project.rootPath);
-      if (!decision.allowed || !decision.project) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
-        };
-      }
-      scopedProject = decision.project;
-      projectId = decision.project.id;
-    }
-
-    const clauses = ["p.status = 'tracked'"];
-    const parameters: Array<string | number> = [];
-    if (projectId) {
-      clauses.push("k.project_id = ?");
-      parameters.push(projectId);
-    }
-    if (options.kind) {
-      clauses.push("k.kind = ?");
-      parameters.push(options.kind);
-    }
-    const status = options.status ?? "active";
-    if (status) {
-      clauses.push("k.status = ?");
-      parameters.push(status);
-    }
-    const queryText = options.query?.trim() || options.q?.trim();
-    if (queryText) {
-      clauses.push("(LOWER(k.title) LIKE ? OR LOWER(k.body) LIKE ? OR LOWER(k.tags_json) LIKE ? OR LOWER(k.references_json) LIKE ?)");
-      const needle = `%${queryText.toLowerCase()}%`;
-      parameters.push(needle, needle, needle, needle);
-    }
-
-    const pageSize = options.pageSize ?? options.limit ?? 50;
-    const totalRow = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE ${clauses.join(" AND ")}`
-      )
-      .get(...parameters) as { count: number };
-    const pageInfo = createPageInfo(options.page, pageSize, totalRow.count, 200);
-    const rows = this.db
-      .prepare(
-        `SELECT k.*, p.name AS project_name
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE ${clauses.join(" AND ")}
-         ORDER BY k.updated_at DESC, k.id DESC
-         LIMIT ? OFFSET ?`
-      )
-      .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as KnowledgeRow[];
-    const trackedProjects = this.listProjects().filter((project) => project.status === "tracked");
-    return {
-      outcome: "knowledge",
-      project: scopedProject,
-      projects: scopedProject ? [scopedProject] : trackedProjects,
-      items: rows.map(toKnowledge),
-      pageInfo
-    };
+    return this.knowledge.search(options);
   }
 
   public getGraph(options: GraphQuery = {}): GraphQueryResult {
-    let scopedProject: ProjectRecord | undefined;
-    let projectId = options.projectId;
-
-    if (options.projectRoot) {
-      const decision = this.policyGate.check(options.projectRoot);
-      if (!decision.allowed || !decision.project) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
-        };
-      }
-      if (projectId && projectId !== decision.project.id) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: "Project scope does not match projectRoot."
-        };
-      }
-      scopedProject = decision.project;
-      projectId = decision.project.id;
-    }
-
-    if (projectId) {
-      const project = this.getProjectById(projectId);
-      if (!project) {
-        return {
-          outcome: "graph",
-          projects: [],
-          nodes: [],
-          edges: [],
-          totalNodes: 0,
-          totalEdges: 0,
-          totalNodesByKind: { project: 0, session: 0, knowledge: 0, evidence: 0, file: 0 },
-          sourceProjectIds: [],
-          sourceSessionIds: [],
-          truncation: {
-            nodeLimit: Math.min(Math.max(options.maxNodes ?? 180, 1), 500),
-            edgeLimit: Math.min(Math.max(options.maxEdges ?? 360, 1), 1_000),
-            nodesTruncated: false,
-            edgesTruncated: false
-          }
-        };
-      }
-      const decision = this.policyGate.check(project.rootPath);
-      if (!decision.allowed || !decision.project) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
-        };
-      }
-      scopedProject = decision.project;
-    }
-
-    const projects = scopedProject
-      ? [scopedProject]
-      : this.listProjects().filter((project) => project.status === "tracked");
-    const projectScopeClause = scopedProject ? "AND p.id = ?" : "";
-    const projectScopeParameters = scopedProject ? [scopedProject.id] : [];
-    const allSessionsForCounts = projects.length
-      ? (this.db
-          .prepare(
-            `SELECT s.*, p.name AS project_name
-             FROM sessions s
-             JOIN projects p ON p.id = s.project_id
-             WHERE p.status = 'tracked'
-               ${projectScopeClause}
-             ORDER BY s.completed_at DESC, s.id DESC`
-          )
-          .all(...projectScopeParameters) as SessionRow[]).map(toSession)
-      : [];
-    const knowledgeRows = projects.length
-      ? (this.db
-          .prepare(
-            `SELECT k.*, p.name AS project_name
-             FROM knowledge k
-             JOIN projects p ON p.id = k.project_id
-             WHERE p.status = 'tracked'
-               AND k.status = 'active'
-               ${projectScopeClause}
-             ORDER BY k.updated_at DESC, k.id DESC`
-          )
-          .all(...projectScopeParameters) as KnowledgeRow[]).map(toKnowledge)
-      : [];
-    const evidenceRows = projects.length
-      ? (this.db
-          .prepare(
-            `SELECT e.*, s.title AS session_title, p.name AS project_name
-             FROM evidence e
-             JOIN sessions s ON s.id = e.session_id
-             JOIN projects p ON p.id = s.project_id
-             WHERE p.status = 'tracked'
-               ${projectScopeClause}
-             ORDER BY e.captured_at ASC, e.id ASC`
-          )
-          .all(...projectScopeParameters) as GraphEvidenceRow[])
-      : [];
-    const sessionsByProject = new Map<string, WorkSessionRecord[]>();
-    for (const session of allSessionsForCounts) {
-      const sessions = sessionsByProject.get(session.projectId) ?? [];
-      sessions.push(session);
-      sessionsByProject.set(session.projectId, sessions);
-    }
-    const knowledgeByProject = new Map<string, KnowledgeRecord[]>();
-    for (const item of knowledgeRows) {
-      const items = knowledgeByProject.get(item.projectId) ?? [];
-      items.push(item);
-      knowledgeByProject.set(item.projectId, items);
-    }
-    const evidenceBySession = new Map<string, GraphEvidenceRow[]>();
-    for (const item of evidenceRows) {
-      const items = evidenceBySession.get(item.session_id) ?? [];
-      items.push(item);
-      evidenceBySession.set(item.session_id, items);
-    }
-    const fileNodeIds = new Set(
-      allSessionsForCounts.flatMap((session) => session.changedFiles.map((file) => `file:${session.projectId}:${file}`))
-    );
-    const knowledgeCount = knowledgeRows.length;
-    const evidenceCount = evidenceRows.length;
-    const totalNodes = projects.length + allSessionsForCounts.length + fileNodeIds.size + knowledgeCount + evidenceCount;
-    const totalNodesByKind: GraphNodeTotals = {
-      project: projects.length,
-      session: allSessionsForCounts.length,
-      knowledge: knowledgeCount,
-      evidence: evidenceCount,
-      file: fileNodeIds.size
-    };
-    const totalEdges = allSessionsForCounts.length
-      + allSessionsForCounts.reduce((total, session) => total + session.changedFiles.length, 0)
-      + knowledgeCount
-      + evidenceCount;
-    const sessionLimit = Math.min(Math.max(options.limit ?? 50, 1), 200);
-    const nodeLimit = Math.min(Math.max(options.maxNodes ?? 180, 1), 500);
-    const edgeLimit = Math.min(Math.max(options.maxEdges ?? 360, 1), 1_000);
-    const nodes: GraphNode[] = [];
-    const edges: GraphEdge[] = [];
-    const nodeIds = new Set<string>();
-    const edgeIds = new Set<string>();
-    const sourceSessionIds: string[] = [];
-    const sourceSessionIdSet = new Set<string>();
-    let nodesTruncated = false;
-    let edgesTruncated = false;
-    const addNode = (node: GraphNode): void => {
-      if (!nodeIds.has(node.id)) {
-        if (nodes.length >= nodeLimit) {
-          nodesTruncated = true;
-          return;
-        }
-        nodeIds.add(node.id);
-        nodes.push(node);
-      }
-    };
-    const addEdge = (edge: GraphEdge): void => {
-      if (edgeIds.has(edge.id) || !nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
-        return;
-      }
-      if (edges.length >= edgeLimit) {
-        edgesTruncated = true;
-        return;
-      }
-      if (!edgeIds.has(edge.id) && nodeIds.has(edge.from) && nodeIds.has(edge.to)) {
-        edgeIds.add(edge.id);
-        edges.push(edge);
-      }
-    };
-
-    for (const project of projects) {
-      const projectNodeId = `project:${project.id}`;
-      addNode({
-        id: projectNodeId,
-        kind: "project",
-        label: project.name,
-        projectId: project.id,
-        metadata: { rootPath: project.rootPath, status: project.status }
-      });
-      if (!nodeIds.has(projectNodeId)) {
-        continue;
-      }
-
-      const sessions = (sessionsByProject.get(project.id) ?? []).slice(0, sessionLimit);
-      for (const session of sessions) {
-        const sessionNodeId = `session:${session.id}`;
-        addNode({
-          id: sessionNodeId,
-          kind: "session",
-          label: session.title,
-          projectId: project.id,
-          sessionId: session.id,
-          metadata: {
-            completedAt: session.completedAt,
-            changedFilesCount: session.changedFiles.length,
-            verification: session.verification?.status ?? "not_supplied"
-          }
-        });
-        if (!nodeIds.has(sessionNodeId)) {
-          break;
-        }
-        addEdge({ id: `contains:${project.id}:${session.id}`, from: projectNodeId, to: sessionNodeId, kind: "contains" });
-        if (!sourceSessionIdSet.has(session.id)) {
-          sourceSessionIdSet.add(session.id);
-          sourceSessionIds.push(session.id);
-        }
-
-        for (const file of session.changedFiles) {
-          const fileNodeId = `file:${project.id}:${file}`;
-          addNode({
-            id: fileNodeId,
-            kind: "file",
-            label: file,
-            projectId: project.id,
-            metadata: { path: file }
-          });
-          addEdge({ id: `changed-file:${session.id}:${file}`, from: sessionNodeId, to: fileNodeId, kind: "changed_file" });
-          if (nodesTruncated) {
-            break;
-          }
-        }
-        if (nodesTruncated) {
-          break;
-        }
-      }
-
-      if (nodesTruncated) {
-        break;
-      }
-
-      const knowledgeItems = (knowledgeByProject.get(project.id) ?? []).slice(0, Math.min(200, nodeLimit));
-      for (const item of knowledgeItems) {
-          const knowledgeNodeId = `knowledge:${item.id}`;
-          addNode({
-            id: knowledgeNodeId,
-            kind: "knowledge",
-            label: item.title,
-            projectId: project.id,
-            sessionId: item.sessionId,
-            metadata: { kind: item.kind, status: item.status, tagsCount: item.tags.length }
-          });
-          if (!nodeIds.has(knowledgeNodeId)) {
-            break;
-          }
-          const parentId = item.sessionId && nodeIds.has(`session:${item.sessionId}`)
-            ? `session:${item.sessionId}`
-            : projectNodeId;
-          addEdge({ id: `has-knowledge:${parentId}:${item.id}`, from: parentId, to: knowledgeNodeId, kind: "has_knowledge" });
-      }
-
-      if (nodesTruncated) {
-        break;
-      }
-
-      const sessionIds = sessions.map((session) => session.id);
-      if (sessionIds.length > 0) {
-        const selectedEvidenceRows = sessionIds.flatMap((sessionId) => evidenceBySession.get(sessionId) ?? [])
-          .sort((left, right) => left.captured_at.localeCompare(right.captured_at) || left.id.localeCompare(right.id));
-        for (const item of selectedEvidenceRows) {
-          const evidenceNodeId = `evidence:${item.id}`;
-          addNode({
-            id: evidenceNodeId,
-            kind: "evidence",
-            label: `${item.kind}: ${truncateText(item.summary ?? item.reference, 120)}`,
-            projectId: item.project_id,
-            sessionId: item.session_id,
-            metadata: {
-              kind: item.kind,
-              reference: item.reference,
-              capturedAt: item.captured_at
-            }
-          });
-          if (!nodeIds.has(evidenceNodeId)) {
-            break;
-          }
-          addEdge({
-            id: `has-evidence:${item.session_id}:${item.id}`,
-            from: `session:${item.session_id}`,
-            to: evidenceNodeId,
-            kind: "has_evidence"
-          });
-        }
-      }
-
-      if (nodesTruncated) {
-        break;
-      }
-    }
-
-    nodesTruncated = nodesTruncated || nodes.length < totalNodes;
-    edgesTruncated = edgesTruncated || edges.length < totalEdges;
-
-    return {
-      outcome: "graph",
-      project: scopedProject,
-      projects,
-      nodes,
-      edges,
-      totalNodes,
-      totalEdges,
-      totalNodesByKind,
-      sourceProjectIds: projects.map((project) => project.id),
-      sourceSessionIds,
-      truncation: {
-        nodeLimit,
-        edgeLimit,
-        nodesTruncated,
-        edgesTruncated
-      }
-    };
+    return this.graphBuilder.build(options);
   }
+
 
   public attachEvidence(input: AttachEvidenceInput): AttachEvidenceResult {
     const row = this.db
@@ -4342,8 +3520,7 @@ export class WorkIntelligenceStore {
       return { outcome: "not_found", sessionId: input.sessionId };
     }
 
-    const projectRecord = this.getProjectById(row.project_id);
-    const decision = projectRecord ? this.policyGate.check(projectRecord.rootPath) : undefined;
+    const decision = this.checkProjectById(row.project_id);
     if (!decision?.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -4394,7 +3571,7 @@ export class WorkIntelligenceStore {
   }
 
   public finalizeSession(input: FinalizeSessionInput): FinalizeSessionResult {
-    const decision = this.policyGate.check(input.projectRoot);
+    const decision = this.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
         outcome: "skipped",
@@ -4531,7 +3708,7 @@ export class WorkIntelligenceStore {
 
   public getContext(projectRoot?: string): ContextQueryResult {
     if (projectRoot) {
-      const decision = this.policyGate.check(projectRoot);
+      const decision = this.checkProjectRoot(projectRoot);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -4558,7 +3735,7 @@ export class WorkIntelligenceStore {
   public search(query: string, projectRoot?: string): SearchResult[] | SkippedResult {
     let projectId: string | undefined;
     if (projectRoot) {
-      const decision = this.policyGate.check(projectRoot);
+      const decision = this.checkProjectRoot(projectRoot);
       if (!decision.allowed || !decision.project) {
         return {
           outcome: "skipped",
@@ -4596,7 +3773,7 @@ export class WorkIntelligenceStore {
   }
 
   public readProjectSource(projectRoot: string, relativeOrAbsolutePath: string): string | SkippedResult {
-    const decision = this.policyGate.check(projectRoot);
+    const decision = this.checkProjectRoot(projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
         outcome: "skipped",
