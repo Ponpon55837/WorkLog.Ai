@@ -133,7 +133,8 @@ export class ApiClient {
       from,
       to,
       hasPrevious: normalizedPage > 1,
-      hasNext: normalizedPage < totalPages
+      hasNext: normalizedPage < totalPages,
+      truncated: false
     };
   }
 }

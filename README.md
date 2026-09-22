@@ -53,6 +53,7 @@ Work Intelligence 是一個 Local-first Developer Work Intelligence MVP：Agent 
 - Reports：日報／週報／月報／季報／年報，包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
 - Worklog 可依關鍵字、專案與完成日期區間篩選
+- Worklog、Knowledge 與報告來源證據支援 10／20／50／100／All；All 仍由 server cap（Session／證據 100、Knowledge 200），回應會以 `pageInfo.truncated` 明確標示並保留分頁導覽
 - 歷史 handoff 可先 preview/dry-run，再由使用者明確選取套用；pending、blocked、planning-only 不會自動匯入
 - 中央 project registry：不往任何專案 repo 寫設定檔
 - Explicit opt-in / default deny：`unregistered`、`tracked`、`paused`、`ignored`

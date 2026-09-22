@@ -8,9 +8,12 @@ export function createPageInfo(
 ): PageInfo {
   const requestedPageSize = Math.trunc(pageSizeValue ?? 20);
   const showAll = requestedPageSize === 0;
-  const pageSize = showAll ? Math.max(total, 1) : Math.min(Math.max(requestedPageSize, 1), maxPageSize);
-  const totalPages = showAll ? 1 : Math.max(1, Math.ceil(total / pageSize));
-  const page = showAll ? 1 : Math.min(Math.max(Math.trunc(pageValue ?? 1), 1), totalPages);
+  const safeMaxPageSize = Math.max(Math.trunc(maxPageSize), 1);
+  const pageSize = showAll
+    ? Math.min(Math.max(total, 1), safeMaxPageSize)
+    : Math.min(Math.max(requestedPageSize, 1), safeMaxPageSize);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(Math.trunc(pageValue ?? 1), 1), totalPages);
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = total === 0 ? 0 : Math.min(page * pageSize, total);
   return {
@@ -21,6 +24,7 @@ export function createPageInfo(
     from,
     to,
     hasPrevious: page > 1,
-    hasNext: page < totalPages
+    hasNext: page < totalPages,
+    truncated: showAll && total > safeMaxPageSize
   };
 }

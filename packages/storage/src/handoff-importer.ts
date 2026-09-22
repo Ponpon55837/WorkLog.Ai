@@ -7,7 +7,7 @@ import type {
   VerificationSummary
 } from "@work-intelligence/core";
 import { createProjectPathResolver, safeProjectPath } from "@work-intelligence/project-policy";
-import { parseHandoffContent } from "./handoff-parser.js";
+import { MAX_HANDOFF_CONTENT_LENGTH, parseHandoffContent } from "./handoff-parser.js";
 
 export const DEFAULT_HANDOFF_DIRECTORY = ".openspec/handoffs";
 
@@ -80,7 +80,7 @@ function parseCompletedAt(content: string, filePath: string, recordedDate?: stri
 
 function parseCandidate(projectRoot: string, filePath: string, sourcePath: string): HandoffImportCandidate {
   try {
-    const content = readFileSync(filePath, "utf8").slice(0, 200_000);
+    const content = readFileSync(filePath, "utf8").slice(0, MAX_HANDOFF_CONTENT_LENGTH);
     const parsed = parseHandoffContent(content, projectRoot, sourcePath);
     return {
       sourcePath,

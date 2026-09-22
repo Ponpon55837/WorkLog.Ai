@@ -1525,6 +1525,49 @@ Result: PASSED
     expect(graph.truncation.edgesTruncated).toBe(true);
   });
 
+  it("hard-caps All requests for sessions, knowledge, and report evidence", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Large list project", root);
+    store.updateProject(project.id, { status: "tracked" });
+
+    for (let index = 0; index < 101; index += 1) {
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `large-list-session-${index}`,
+        title: `Large list session ${index}`,
+        summary: "A session used to verify server-side All limits.",
+        completedAt: "2026-09-17T12:00:00.000Z",
+        changedFiles: [`src/large-list-${index}.ts`],
+        verification: { status: "passed" }
+      });
+    }
+    for (let index = 0; index < 201; index += 1) {
+      store.recordKnowledge({
+        projectRoot: root,
+        idempotencyKey: `large-list-knowledge-${index}`,
+        kind: "pattern",
+        title: `Large list knowledge ${index}`,
+        body: "A confirmed Knowledge item used to verify server-side All limits."
+      });
+    }
+
+    const sessions = store.listSessionsPage({ projectId: project.id, pageSize: 0 });
+    expect(sessions.pageInfo).toMatchObject({ page: 1, pageSize: 100, total: 101, totalPages: 2, truncated: true, hasNext: true });
+    expect(sessions.items).toHaveLength(100);
+    const knowledge = store.searchKnowledge({ projectId: project.id, pageSize: 0 });
+    expect(knowledge).toMatchObject({ outcome: "knowledge", pageInfo: { page: 1, pageSize: 200, total: 201, totalPages: 2, truncated: true, hasNext: true } });
+    if (knowledge.outcome !== "knowledge") {
+      throw new Error("Expected Knowledge results");
+    }
+    expect(knowledge.items).toHaveLength(200);
+    const report = store.getReport({ period: "day", date: "2026-09-17", projectId: project.id, evidencePageSize: 0 });
+    expect(report).toMatchObject({ outcome: "report", evidencePageInfo: { pageSize: 100, truncated: true, hasNext: true } });
+    if (report.outcome !== "report") {
+      throw new Error("Expected a report result");
+    }
+    expect(report.evidence).toHaveLength(100);
+  });
+
   it("creates, bounds, and idempotently saves an Agent report synthesis", () => {
     const { store, root } = createStore();
     const project = store.addProject("Synthesis project", root);

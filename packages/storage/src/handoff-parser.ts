@@ -12,6 +12,8 @@ export type HandoffClassification = {
   detail?: string;
 };
 
+export const MAX_HANDOFF_CONTENT_LENGTH = 200_000;
+
 export type ParsedHandoffContent = {
   title: string;
   summary: string;
@@ -22,13 +24,32 @@ export type ParsedHandoffContent = {
 };
 
 export function stripFencedCodeBlocks(content: string): string {
-  return content
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/~~~[\s\S]*?~~~/g, "");
+  const lines = content.slice(0, MAX_HANDOFF_CONTENT_LENGTH).split(/\r?\n/);
+  const visibleLines: string[] = [];
+  let activeFence: "```" | "~~~" | undefined;
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    if (activeFence) {
+      if (trimmed.startsWith(activeFence)) {
+        activeFence = undefined;
+      }
+      continue;
+    }
+    if (trimmed.startsWith("```")) {
+      activeFence = "```";
+      continue;
+    }
+    if (trimmed.startsWith("~~~")) {
+      activeFence = "~~~";
+      continue;
+    }
+    visibleLines.push(line);
+  }
+  return visibleLines.join("\n");
 }
 
 export function titleFromContent(content: string, sourcePath: string): string {
-  const heading = content.match(/^\s*#\s+(.+?)\s*$/m)?.[1]?.trim();
+  const heading = content.slice(0, MAX_HANDOFF_CONTENT_LENGTH).match(/^\s*#\s+(.+?)\s*$/m)?.[1]?.trim();
   const fallback = basename(sourcePath).replace(/\.md$/i, "");
   return truncateText(heading || fallback, 300);
 }
@@ -77,7 +98,7 @@ export function classifyHandoff(title: string, statusSignals: string[]): Handoff
 }
 
 export function parseRecordedDate(content: string): string | undefined {
-  return content.match(/(?:recorded\s+date|recorded|記錄日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2})/i)?.[1];
+  return content.slice(0, MAX_HANDOFF_CONTENT_LENGTH).match(/(?:recorded\s+date|recorded|記錄日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2})/i)?.[1];
 }
 
 export function parseVerification(content: string): VerificationSummary {

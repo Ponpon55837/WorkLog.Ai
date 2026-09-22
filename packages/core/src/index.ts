@@ -266,6 +266,7 @@ export interface PageInfo {
   to: number;
   hasPrevious: boolean;
   hasNext: boolean;
+  truncated: boolean;
 }
 
 export interface SessionListResult {

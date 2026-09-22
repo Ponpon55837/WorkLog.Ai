@@ -4,8 +4,10 @@ import {
   extractChangedFiles,
   fileTokenFromLine,
   findStatusSignals,
+  MAX_HANDOFF_CONTENT_LENGTH,
   parseHandoffContent,
-  parseVerification
+  parseVerification,
+  stripFencedCodeBlocks
 } from "./handoff-parser.js";
 
 describe("handoff parser", () => {
@@ -33,6 +35,13 @@ describe("handoff parser", () => {
       decision: "excluded",
       reason: "pending"
     });
+  });
+
+  it("removes unclosed fences and bounds parser input", () => {
+    const content = `## Status: completed\n\`\`\`md\nStatus: pending\n${"x".repeat(MAX_HANDOFF_CONTENT_LENGTH)}\nStatus: pending`;
+
+    expect(stripFencedCodeBlocks(content)).toBe("## Status: completed");
+    expect(findStatusSignals(content)).toEqual(["completed"]);
   });
 
   it("accepts bounded relative file paths and rejects outside or non-file tokens", () => {

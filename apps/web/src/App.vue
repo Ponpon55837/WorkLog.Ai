@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useClipboard } from "./composables/useClipboard";
 import { useApiRequest } from "./composables/useApiRequest";
 import GraphNodeModal from "./components/GraphNodeModal.vue";
 import HandoffImportModal from "./components/HandoffImportModal.vue";
@@ -109,7 +110,8 @@ const emptyPageInfo: PageInfo = {
   from: 0,
   to: 0,
   hasPrevious: false,
-  hasNext: false
+  hasNext: false,
+  truncated: false
 };
 
 const emptyDashboard: DashboardSummary = {
@@ -368,6 +370,7 @@ const metadataBackfillInstruction = "請處理我剛在 Work Intelligence 掃描
 const apiBase = import.meta.env.VITE_API_URL ?? "";
 const apiRequest = useApiRequest(apiBase);
 const { request, beginRequest, isCurrentRequest, finishRequest, isAbortError } = apiRequest;
+const { copyText } = useClipboard();
 
 async function loadDashboard(): Promise<void> {
   const key = "dashboard";
@@ -734,21 +737,17 @@ async function cancelReportSynthesisRequest(): Promise<void> {
   }
 }
 
-async function copyReportSynthesisInstruction(): Promise<void> {
+async function copyInstruction(instruction: string, successMessage: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(reportSynthesisInstruction);
-    toastMessage.value = "已複製自然語言提煉指令。";
-  } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = reportSynthesisInstruction;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
-    toastMessage.value = "已複製自然語言提煉指令。";
+    await copyText(instruction);
+    toastMessage.value = successMessage;
+  } catch (error) {
+    toastMessage.value = error instanceof Error ? error.message : "無法使用剪貼簿，請手動複製文字。";
   }
+}
+
+function copyReportSynthesisInstruction(): Promise<void> {
+  return copyInstruction(reportSynthesisInstruction, "已複製自然語言提煉指令。");
 }
 
 async function deleteReportSynthesisVersion(summary: ReportSummary): Promise<void> {
@@ -1297,21 +1296,8 @@ async function cancelMetadataBackfillRequest(): Promise<void> {
   }
 }
 
-async function copyMetadataBackfillInstruction(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(metadataBackfillInstruction);
-    toastMessage.value = "已複製自然語言 metadata 回補指令。";
-  } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = metadataBackfillInstruction;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
-    toastMessage.value = "已複製自然語言 metadata 回補指令。";
-  }
+function copyMetadataBackfillInstruction(): Promise<void> {
+  return copyInstruction(metadataBackfillInstruction, "已複製自然語言 metadata 回補指令。");
 }
 
 async function previewMetadataBackfill(): Promise<void> {
@@ -2674,7 +2660,7 @@ onMounted(() => {
               </div>
               <div v-else class="report-empty report-empty-compact"><strong>這段期間沒有原始 Session</strong><p>請切換報告期間或專案範圍。</p></div>
               <div v-if="reportSessionPageInfo.total > 0" class="pagination-bar report-list-pagination-bar">
-                <span class="pagination-summary">顯示 {{ reportSessionPageInfo.from }}–{{ reportSessionPageInfo.to }}，共 {{ reportSessionPageInfo.total }} 筆</span>
+                <span class="pagination-summary">顯示 {{ reportSessionPageInfo.from }}–{{ reportSessionPageInfo.to }}，共 {{ reportSessionPageInfo.total }} 筆<span v-if="reportSessionPageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ reportSessionPageInfo.pageSize }} 筆</span></span>
                 <label class="pagination-page-size"><span>每頁</span><select v-model="reportSessionPageSize" aria-label="報告原始工作紀錄每頁筆數" @change="changeReportSessionPageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
                 <div v-if="reportSessionPageInfo.totalPages > 1" class="pagination-controls"><button class="pagination-button" type="button" :disabled="!reportSessionPageInfo.hasPrevious" @click="changeReportSessionPage(reportSessionPageInfo.page - 1)">上一頁</button><span>第 {{ reportSessionPageInfo.page }} / {{ reportSessionPageInfo.totalPages }} 頁</span><button class="pagination-button" type="button" :disabled="!reportSessionPageInfo.hasNext" @click="changeReportSessionPage(reportSessionPageInfo.page + 1)">下一頁</button></div>
                 <span v-else class="pagination-current">共 {{ reportSessionPageInfo.total }} 筆</span>
@@ -2708,7 +2694,7 @@ onMounted(() => {
                 </button>
               </div>
               <div v-if="report.evidencePageInfo.total > 0" class="pagination-bar report-list-pagination-bar">
-                <span class="pagination-summary">顯示 {{ report.evidencePageInfo.from }}–{{ report.evidencePageInfo.to }}，共 {{ report.evidencePageInfo.total }} 筆</span>
+                <span class="pagination-summary">顯示 {{ report.evidencePageInfo.from }}–{{ report.evidencePageInfo.to }}，共 {{ report.evidencePageInfo.total }} 筆<span v-if="report.evidencePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ report.evidencePageInfo.pageSize }} 筆</span></span>
                 <label class="pagination-page-size"><span>每頁</span><select v-model="reportEvidencePageSize" aria-label="報告來源證據每頁筆數" @change="changeReportEvidencePageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
                 <div v-if="report.evidencePageInfo.totalPages > 1" class="pagination-controls">
                   <button class="pagination-button" type="button" :disabled="!report.evidencePageInfo.hasPrevious" @click="changeReportEvidencePage(report.evidencePageInfo.page - 1)">上一頁</button>
@@ -2790,7 +2776,7 @@ onMounted(() => {
             </article>
             <div v-if="knowledgeItems.length === 0" class="empty-state large-empty"><div class="empty-icon">✦</div><strong>{{ knowledgeStatus === 'active' ? '還沒有已確認的 Knowledge' : '沒有已封存的 Knowledge' }}</strong><p>{{ knowledgeStatus === 'active' ? 'Agent 使用 work_record_knowledge 提交 decision、pattern、gotcha、procedure 或 skill 後，內容會出現在這裡。' : '封存只會停止它出現在預設搜尋與 Graph 中，不會刪除原始記錄。' }}</p></div>
             <div class="pagination-bar list-pagination-bar">
-              <span class="pagination-summary">顯示 {{ knowledgePageInfo.from }}–{{ knowledgePageInfo.to }}，共 {{ knowledgePageInfo.total }} 筆</span>
+              <span class="pagination-summary">顯示 {{ knowledgePageInfo.from }}–{{ knowledgePageInfo.to }}，共 {{ knowledgePageInfo.total }} 筆<span v-if="knowledgePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ knowledgePageInfo.pageSize }} 筆</span></span>
               <label class="pagination-page-size"><span>每頁</span><select v-model="knowledgePageSize" aria-label="Knowledge 每頁筆數" @change="changeKnowledgePageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
               <div v-if="knowledgePageInfo.totalPages > 1" class="pagination-controls">
                 <button class="pagination-button" type="button" :disabled="!knowledgePageInfo.hasPrevious" @click="changeKnowledgePage(knowledgePageInfo.page - 1)">上一頁</button>
@@ -3071,7 +3057,7 @@ onMounted(() => {
             </button>
             <div v-if="sessions.length === 0" class="empty-state large-empty"><div class="empty-icon">≡</div><strong>找不到工作紀錄</strong><p>完成的 session 會在這裡依時間排列。</p></div>
             <div class="pagination-bar list-pagination-bar">
-              <span class="pagination-summary">顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}，共 {{ sessionPageInfo.total }} 筆</span>
+              <span class="pagination-summary">顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}，共 {{ sessionPageInfo.total }} 筆<span v-if="sessionPageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ sessionPageInfo.pageSize }} 筆</span></span>
               <label class="pagination-page-size"><span>每頁</span><select v-model="sessionPageSize" aria-label="工作歷程每頁筆數" @change="changeSessionPageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
               <div v-if="sessionPageInfo.totalPages > 1" class="pagination-controls">
                 <button class="pagination-button" type="button" :disabled="!sessionPageInfo.hasPrevious" @click="changeSessionPage(sessionPageInfo.page - 1)">上一頁</button>
