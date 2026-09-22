@@ -1,8 +1,8 @@
 # Work Intelligence Codex 執行文件
 
-日期：2026-09-22  
-基準 commit：`40c1d3b`  
-最新 commit：`f21c336`  
+日期：2026-09-22
+基準 commit：`40c1d3b`
+最新 commit：`f21c336`
 用途：交由 Claude 進行完整複檢，並記錄本輪前端彈窗回歸修正。
 
 ## 1. 執行摘要
