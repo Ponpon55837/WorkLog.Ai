@@ -1471,6 +1471,7 @@ h3 { font-size: 20px; }
 
 /* Keep Knowledge and Graph aligned with Project Registry: the page summary
    belongs beside the introduction, not in a separate row underneath it. */
+.projects-intro,
 .knowledge-intro,
 .graph-intro {
   display: flex;
@@ -1479,12 +1480,14 @@ h3 { font-size: 20px; }
   gap: 28px;
 }
 
+.projects-intro > div:first-child,
 .knowledge-intro > div:first-child,
 .graph-intro > div:first-child {
   min-width: 0;
   flex: 1 1 auto;
 }
 
+.projects-intro .tracked-summary,
 .knowledge-intro .tracked-summary,
 .graph-intro .tracked-summary {
   flex: 0 0 auto;
@@ -1492,12 +1495,14 @@ h3 { font-size: 20px; }
 }
 
 @media (max-width: 960px) {
+  .projects-intro,
   .knowledge-intro,
   .graph-intro {
     display: grid;
     align-items: start;
   }
 
+  .projects-intro .tracked-summary,
   .knowledge-intro .tracked-summary,
   .graph-intro .tracked-summary {
     align-self: start;

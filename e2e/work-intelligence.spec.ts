@@ -314,8 +314,30 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(projectForm.locator("input").first()).toHaveCSS("background-color", "rgb(11, 24, 40)");
     await expect(projectForm.locator(".primary-button")).toHaveCSS("height", "44px");
 
+    const projectIntroLayout = await page.evaluate(() => {
+      const intro = document.querySelector(".projects-intro");
+      const copy = intro?.firstElementChild;
+      const summary = intro?.querySelector(".tracked-summary");
+      if (!(intro instanceof HTMLElement) || !(copy instanceof HTMLElement) || !(summary instanceof HTMLElement)) {
+        throw new Error("Project intro layout is missing");
+      }
+      const copyRect = copy.getBoundingClientRect();
+      const summaryRect = summary.getBoundingClientRect();
+      return {
+        display: getComputedStyle(intro).display,
+        copyRight: copyRect.right,
+        summaryLeft: summaryRect.left,
+        summaryTop: summaryRect.top,
+        copyBottom: copyRect.bottom
+      };
+    });
+    expect(projectIntroLayout.display).toBe("flex");
+    expect(projectIntroLayout.summaryLeft).toBeGreaterThan(projectIntroLayout.copyRight);
+    expect(projectIntroLayout.summaryTop).toBeLessThanOrEqual(projectIntroLayout.copyBottom);
+
     await page.setViewportSize({ width: 640, height: 844 });
     await page.goto("/projects");
+    await expect(page.locator(".projects-intro")).toHaveCSS("display", "grid");
     const mobileProjectFormColumns = await projectForm.evaluate((element) => getComputedStyle(element).gridTemplateColumns);
     expect(mobileProjectFormColumns.trim().split(/\s+/)).toHaveLength(1);
 

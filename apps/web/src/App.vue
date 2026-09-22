@@ -2134,7 +2134,7 @@ onMounted(() => {
         </DashboardView>
 
         <ProjectsView v-else-if="activeView === 'projects'">
-          <div class="section-intro">
+          <div class="section-intro projects-intro">
             <div>
               <div class="eyebrow">PROJECT REGISTRY</div>
               <h2>你決定哪些專案值得被記住。</h2>
