@@ -1,15 +1,34 @@
 import type {
   DashboardSummary,
+  CancelMetadataBackfillRequestResult,
+  CancelReportSynthesisRequestResult,
+  CreateMetadataBackfillRequestResult,
+  CreateReportSynthesisRequestResult,
+  DeleteReportSummaryResult,
   GraphQuery,
   GraphQueryResult,
+  HandoffImportApplyInput,
+  HandoffImportBatchResult,
+  HandoffImportPreviewResult,
+  KnowledgeHistoryResult,
   KnowledgeQuery,
   KnowledgeSearchResult,
+  MetadataBackfillPreviewResult,
+  MetadataBackfillRequestListQueryResult,
   PageInfo,
   ProjectRecord,
+  ProjectStatus,
   ReportPeriod,
+  ReportExportFormat,
+  ReportExportResult,
   ReportQueryResult,
+  ReportSummaryQueryResult,
+  ReportSynthesisRequestListQueryResult,
+  RetryReportSynthesisRequestResult,
   SessionDetail,
-  SessionListResult
+  SessionListResult,
+  UpdateKnowledgeInput,
+  UpdateKnowledgeResult
 } from "@work-intelligence/core";
 
 type ApiErrorPayload = { error?: string };
@@ -33,7 +52,9 @@ export type ReportRequest = {
   evidenceQuery?: string;
 };
 
-function appendQuery(path: string, values: Record<string, string | number | undefined>): string {
+type KnowledgeRequest = Omit<KnowledgeQuery, "pageSize"> & { pageSize?: number | "all" };
+
+function appendQuery(path: string, values: Record<string, boolean | string | number | undefined>): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined && value !== "") {
@@ -62,6 +83,10 @@ export class ApiClient {
     return payload;
   }
 
+  private write<T>(path: string, method: "DELETE" | "PATCH" | "POST", body: unknown, signal?: AbortSignal): Promise<T> {
+    return this.request<T>(path, { method, body: JSON.stringify(body), signal });
+  }
+
   public getDashboard(signal?: AbortSignal): Promise<DashboardSummary> {
     return this.request<DashboardSummary>("/api/dashboard", { signal });
   }
@@ -85,14 +110,14 @@ export class ApiClient {
     return this.request<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal });
   }
 
-  public searchKnowledge(options: KnowledgeQuery = {}, signal?: AbortSignal): Promise<KnowledgeSearchResult> {
+  public searchKnowledge(options: KnowledgeRequest = {}, signal?: AbortSignal): Promise<KnowledgeSearchResult> {
     return this.request<KnowledgeSearchResult>(appendQuery("/api/knowledge", {
       projectId: options.projectId,
       q: options.q ?? options.query,
       kind: options.kind,
       status: options.status,
       page: options.page,
-      pageSize: options.pageSize,
+      pageSize: options.pageSize === "all" ? 0 : options.pageSize,
       limit: options.limit
     }), { signal });
   }
@@ -117,6 +142,127 @@ export class ApiClient {
       evidenceKind: options.evidenceKind,
       evidenceQuery: options.evidenceQuery
     }), { signal });
+  }
+
+  public listReportSynthesisRequests(options: {
+    period?: ReportPeriod;
+    date?: string;
+    projectId?: string;
+    limit?: number;
+  } = {}, signal?: AbortSignal): Promise<ReportSynthesisRequestListQueryResult> {
+    return this.request<ReportSynthesisRequestListQueryResult>(appendQuery("/api/reports/synthesis-requests", {
+      period: options.period,
+      date: options.date,
+      projectId: options.projectId,
+      limit: options.limit
+    }), { signal });
+  }
+
+  public listReportSummaries(options: {
+    period?: ReportPeriod;
+    date?: string;
+    projectId?: string;
+    currentOnly?: boolean;
+  } = {}, signal?: AbortSignal): Promise<ReportSummaryQueryResult> {
+    return this.request<ReportSummaryQueryResult>(appendQuery("/api/reports/summaries", {
+      period: options.period,
+      date: options.date,
+      projectId: options.projectId,
+      currentOnly: options.currentOnly
+    }), { signal });
+  }
+
+  public createReportSynthesisRequest(input: {
+    period: ReportPeriod;
+    date?: string;
+    projectId?: string;
+    idempotencyKey?: string;
+  }, signal?: AbortSignal): Promise<CreateReportSynthesisRequestResult> {
+    return this.write<CreateReportSynthesisRequestResult>("/api/reports/synthesis-requests", "POST", input, signal);
+  }
+
+  public retryReportSynthesisRequest(requestId: string, signal?: AbortSignal): Promise<RetryReportSynthesisRequestResult> {
+    return this.write<RetryReportSynthesisRequestResult>(
+      `/api/reports/synthesis-requests/${encodeURIComponent(requestId)}/retry`,
+      "POST",
+      {},
+      signal
+    );
+  }
+
+  public cancelReportSynthesisRequest(requestId: string, signal?: AbortSignal): Promise<CancelReportSynthesisRequestResult> {
+    return this.write<CancelReportSynthesisRequestResult>(
+      `/api/reports/synthesis-requests/${encodeURIComponent(requestId)}/cancel`,
+      "POST",
+      {},
+      signal
+    );
+  }
+
+  public deleteReportSummary(summaryId: string, signal?: AbortSignal): Promise<DeleteReportSummaryResult> {
+    return this.write<DeleteReportSummaryResult>(`/api/reports/summaries/${encodeURIComponent(summaryId)}`, "DELETE", {}, signal);
+  }
+
+  public exportReport(options: ReportRequest & { format: ReportExportFormat }, signal?: AbortSignal): Promise<ReportExportResult> {
+    return this.request<ReportExportResult>(appendQuery("/api/reports/export", {
+      period: options.period,
+      date: options.date,
+      projectId: options.projectId,
+      format: options.format,
+      evidencePage: options.evidencePage,
+      evidencePageSize: options.evidencePageSize === "all" ? 0 : options.evidencePageSize,
+      evidenceKind: options.evidenceKind,
+      evidenceQuery: options.evidenceQuery
+    }), { signal });
+  }
+
+  public createProject(input: { name: string; rootPath: string }, signal?: AbortSignal): Promise<ProjectRecord> {
+    return this.write<ProjectRecord>("/api/projects", "POST", input, signal);
+  }
+
+  public updateProject(projectId: string, input: { name?: string; status?: ProjectStatus }, signal?: AbortSignal): Promise<ProjectRecord> {
+    return this.write<ProjectRecord>(`/api/projects/${encodeURIComponent(projectId)}`, "PATCH", input, signal);
+  }
+
+  public listMetadataBackfillRequests(signal?: AbortSignal): Promise<MetadataBackfillRequestListQueryResult> {
+    return this.request<MetadataBackfillRequestListQueryResult>("/api/backfill/metadata-requests?scopeType=all&limit=1", { signal });
+  }
+
+  public createMetadataBackfillRequest(projectId?: string, signal?: AbortSignal): Promise<CreateMetadataBackfillRequestResult> {
+    return this.write<CreateMetadataBackfillRequestResult>("/api/backfill/metadata-requests", "POST", { projectId }, signal);
+  }
+
+  public cancelMetadataBackfillRequest(requestId: string, signal?: AbortSignal): Promise<CancelMetadataBackfillRequestResult> {
+    return this.write<CancelMetadataBackfillRequestResult>(
+      `/api/backfill/metadata-requests/${encodeURIComponent(requestId)}/cancel`,
+      "POST",
+      {},
+      signal
+    );
+  }
+
+  public previewMetadataBackfill(limit = 50, signal?: AbortSignal): Promise<MetadataBackfillPreviewResult> {
+    return this.request<MetadataBackfillPreviewResult>(appendQuery("/api/backfill/metadata/preview", { limit }), { signal });
+  }
+
+  public previewHandoffs(projectRoot: string, handoffDirectory?: string, signal?: AbortSignal): Promise<HandoffImportPreviewResult> {
+    return this.request<HandoffImportPreviewResult>(appendQuery("/api/imports/handoffs/preview", { projectRoot, handoffDirectory }), { signal });
+  }
+
+  public importHandoffs(input: HandoffImportApplyInput, signal?: AbortSignal): Promise<HandoffImportBatchResult> {
+    return this.write<HandoffImportBatchResult>("/api/imports/handoffs", "POST", input, signal);
+  }
+
+  public getKnowledgeHistory(knowledgeId: string, options: { projectRoot: string; limit?: number }, signal?: AbortSignal): Promise<KnowledgeHistoryResult> {
+    return this.request<KnowledgeHistoryResult>(appendQuery(`/api/knowledge/${encodeURIComponent(knowledgeId)}/history`, options), { signal });
+  }
+
+  public updateKnowledge(
+    knowledgeId: string,
+    input: Omit<UpdateKnowledgeInput, "knowledgeId">,
+    signal?: AbortSignal
+  ): Promise<UpdateKnowledgeResult> {
+    return this.write<UpdateKnowledgeResult>(`/api/knowledge/${encodeURIComponent(knowledgeId)}`, "PATCH", { ...input, knowledgeId }, signal);
   }
 
   public static pageInfo(total: number, page: number, pageSize: number): PageInfo {

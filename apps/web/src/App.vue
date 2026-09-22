@@ -369,14 +369,14 @@ const metadataBackfillInstruction = "請處理我剛在 Work Intelligence 掃描
 
 const apiBase = import.meta.env.VITE_API_URL ?? "";
 const apiRequest = useApiRequest(apiBase);
-const { request, beginRequest, isCurrentRequest, finishRequest, isAbortError } = apiRequest;
+const { client, beginRequest, isCurrentRequest, finishRequest, isAbortError } = apiRequest;
 const { copyText } = useClipboard();
 
 async function loadDashboard(): Promise<void> {
   const key = "dashboard";
   const controller = beginRequest(key);
   try {
-    dashboard.value = await request<DashboardSummary>("/api/dashboard", { signal: controller.signal });
+    dashboard.value = await client.getDashboard(controller.signal);
   } catch (error) {
     if (!isAbortError(error)) {
       throw error;
@@ -390,7 +390,7 @@ async function loadProjects(): Promise<void> {
   const key = "projects";
   const controller = beginRequest(key);
   try {
-    projects.value = await request<ProjectRecord[]>("/api/projects", { signal: controller.signal });
+    projects.value = await client.listProjects(controller.signal);
   } catch (error) {
     if (!isAbortError(error)) {
       throw error;
@@ -417,25 +417,15 @@ async function loadKnowledge(resetPage = false): Promise<void> {
   }
   knowledgeLoading.value = true;
   knowledgeError.value = "";
-  const params = new URLSearchParams();
-  if (knowledgeQuery.value.trim()) {
-    params.set("q", knowledgeQuery.value.trim());
-  }
-  if (knowledgeKind.value) {
-    params.set("kind", knowledgeKind.value);
-  }
-  if (knowledgeProjectId.value) {
-    params.set("projectId", knowledgeProjectId.value);
-  }
-  params.set("status", knowledgeStatus.value);
-  params.set("page", String(knowledgePage.value));
-  params.set("pageSize", String(pageSizeToQuery(knowledgePageSize.value)));
-
   try {
-    const queryString = params.toString();
-    const result = await request<KnowledgeSearchResult>(queryString ? `/api/knowledge?${queryString}` : "/api/knowledge", {
-      signal: controller.signal
-    });
+    const result = await client.searchKnowledge({
+      q: knowledgeQuery.value.trim() || undefined,
+      kind: knowledgeKind.value || undefined,
+      projectId: knowledgeProjectId.value || undefined,
+      status: knowledgeStatus.value,
+      page: knowledgePage.value,
+      pageSize: knowledgePageSize.value
+    }, controller.signal);
     if (result.outcome === "knowledge") {
       knowledgeItems.value = result.items;
       knowledgeProjects.value = result.projects;
@@ -483,17 +473,13 @@ async function loadGraph(): Promise<void> {
   graphLoading.value = true;
   graphError.value = "";
   const loadPreset = graphLoadPresetOptions.find((preset) => preset.value === graphLoadPreset.value) ?? graphLoadPresetOptions[0];
-  const params = new URLSearchParams({
-    limit: "40",
-    maxNodes: String(loadPreset.maxNodes),
-    maxEdges: String(loadPreset.maxEdges)
-  });
-  if (graphProjectId.value) {
-    params.set("projectId", graphProjectId.value);
-  }
-
   try {
-    const result = await request<GraphQueryResult>(`/api/graph?${params.toString()}`, { signal: controller.signal });
+    const result = await client.getGraph({
+      projectId: graphProjectId.value || undefined,
+      limit: 40,
+      maxNodes: loadPreset.maxNodes,
+      maxEdges: loadPreset.maxEdges
+    }, controller.signal);
     if (result.outcome === "graph") {
       graph.value = result;
     } else {
@@ -538,26 +524,15 @@ async function loadSessions(resetPage = false): Promise<void> {
   const requestKey = "worklog-sessions";
   const controller = beginRequest(requestKey);
   sessionFilterError.value = "";
-  const params = new URLSearchParams();
-  const query = searchTerm.value.trim();
-  if (query) {
-    params.set("q", query);
-  }
-  if (selectedProjectId.value) {
-    params.set("projectId", selectedProjectId.value);
-  }
-  if (dateFrom.value) {
-    params.set("from", dateFrom.value);
-  }
-  if (dateTo.value) {
-    params.set("to", dateTo.value);
-  }
-  params.set("page", String(sessionPage.value));
-  params.set("pageSize", String(pageSizeToQuery(sessionPageSize.value)));
-
   try {
-    const queryString = params.toString();
-    const result = await request<SessionListResult>(`/api/sessions?${queryString}`, { signal: controller.signal });
+    const result = await client.listSessions({
+      q: searchTerm.value.trim() || undefined,
+      projectId: selectedProjectId.value || undefined,
+      from: dateFrom.value || undefined,
+      to: dateTo.value || undefined,
+      page: sessionPage.value,
+      pageSize: sessionPageSize.value
+    }, controller.signal);
     sessions.value = result.items;
     sessionPage.value = result.pageInfo.page;
     sessionPageInfo.value = result.pageInfo;
@@ -598,23 +573,20 @@ async function loadReportSynthesis(): Promise<void> {
   const controller = beginRequest(requestKey);
   reportSynthesisLoading.value = true;
   reportSynthesisError.value = "";
-  const params = new URLSearchParams({
-    period: reportPeriod.value,
-    limit: "10"
-  });
-  if (reportDate.value) {
-    params.set("date", reportDate.value);
-  }
-  if (reportProjectId.value) {
-    params.set("projectId", reportProjectId.value);
-  }
-  const summaryParams = new URLSearchParams(params);
-  summaryParams.set("currentOnly", "false");
-
   try {
     const [requests, summaries] = await Promise.all([
-      request<ReportSynthesisRequestListQueryResult>(`/api/reports/synthesis-requests?${params.toString()}`, { signal: controller.signal }),
-      request<ReportSummaryQueryResult>(`/api/reports/summaries?${summaryParams.toString()}`, { signal: controller.signal })
+      client.listReportSynthesisRequests({
+        period: reportPeriod.value,
+        date: reportDate.value || undefined,
+        projectId: reportProjectId.value || undefined,
+        limit: 10
+      }, controller.signal),
+      client.listReportSummaries({
+        period: reportPeriod.value,
+        date: reportDate.value || undefined,
+        projectId: reportProjectId.value || undefined,
+        currentOnly: false
+      }, controller.signal)
     ]);
     if (requests.outcome === "report_synthesis_requests") {
       reportSynthesisRequest.value = requests.requests[0] ?? null;
@@ -658,14 +630,11 @@ async function createReportSynthesisRequest(): Promise<void> {
   reportSynthesisCreating.value = true;
   reportSynthesisError.value = "";
   try {
-    const result = await request<CreateReportSynthesisRequestResult>("/api/reports/synthesis-requests", {
-      method: "POST",
-      body: JSON.stringify({
-        period: reportPeriod.value,
-        date: reportDate.value || undefined,
-        projectId: reportProjectId.value || undefined,
-        idempotencyKey: crypto.randomUUID()
-      })
+    const result = await client.createReportSynthesisRequest({
+      period: reportPeriod.value,
+      date: reportDate.value || undefined,
+      projectId: reportProjectId.value || undefined,
+      idempotencyKey: crypto.randomUUID()
     });
     if (result.outcome !== "report_synthesis_request") {
       reportSynthesisError.value = result.reason;
@@ -691,10 +660,7 @@ async function retryReportSynthesisRequest(): Promise<void> {
   reportSynthesisRetrying.value = true;
   reportSynthesisError.value = "";
   try {
-    const result = await request<RetryReportSynthesisRequestResult>(
-      `/api/reports/synthesis-requests/${encodeURIComponent(requestToRetry.id)}/retry`,
-      { method: "POST", body: "{}" }
-    );
+    const result = await client.retryReportSynthesisRequest(requestToRetry.id);
     if (result.outcome !== "report_synthesis_request_retried") {
       reportSynthesisError.value = "reason" in result ? result.reason : "這份報告目前無法重試。";
       return;
@@ -720,10 +686,7 @@ async function cancelReportSynthesisRequest(): Promise<void> {
   reportSynthesisCancelling.value = true;
   reportSynthesisError.value = "";
   try {
-    const result = await request<CancelReportSynthesisRequestResult>(
-      `/api/reports/synthesis-requests/${encodeURIComponent(requestToCancel.id)}/cancel`,
-      { method: "POST", body: "{}" }
-    );
+    const result = await client.cancelReportSynthesisRequest(requestToCancel.id);
     if (result.outcome !== "report_synthesis_request_cancelled") {
       reportSynthesisError.value = "reason" in result ? result.reason : "這份報告目前無法取消。";
       return;
@@ -760,10 +723,7 @@ async function deleteReportSynthesisVersion(summary: ReportSummary): Promise<voi
 
   reportSynthesisError.value = "";
   try {
-    const result = await request<DeleteReportSummaryResult>(
-      `/api/reports/summaries/${encodeURIComponent(summary.id)}`,
-      { method: "DELETE" }
-    );
+    const result = await client.deleteReportSummary(summary.id);
     if (result.outcome !== "report_summary_deleted") {
       reportSynthesisError.value = "reason" in result ? result.reason : "這個報告版本目前無法移除。";
       return;
@@ -788,16 +748,13 @@ async function loadReportSessions(resetPage = false): Promise<void> {
   const controller = beginRequest(requestKey);
   reportSessionLoading.value = true;
   try {
-    const params = new URLSearchParams({
+    const result = await client.listSessions({
       from: report.value.range.from,
       to: report.value.range.to,
-      page: String(reportSessionPage.value),
-      pageSize: String(pageSizeToQuery(reportSessionPageSize.value))
-    });
-    if (reportProjectId.value) {
-      params.set("projectId", reportProjectId.value);
-    }
-    const result = await request<SessionListResult>(`/api/sessions?${params.toString()}`, { signal: controller.signal });
+      projectId: reportProjectId.value || undefined,
+      page: reportSessionPage.value,
+      pageSize: reportSessionPageSize.value
+    }, controller.signal);
     reportSessionItems.value = result.items;
     reportSessionPage.value = result.pageInfo.page;
     reportSessionPageInfo.value = result.pageInfo;
@@ -841,26 +798,16 @@ async function loadReportEvidence(resetPage = false): Promise<void> {
   const controller = beginRequest(requestKey);
   reportEvidenceLoading.value = true;
   reportError.value = "";
-  const params = new URLSearchParams({
-    period: reportPeriod.value,
-    evidencePage: String(reportEvidencePage.value),
-    evidencePageSize: String(pageSizeToQuery(reportEvidencePageSize.value))
-  });
-  if (reportDate.value) {
-    params.set("date", reportDate.value);
-  }
-  if (reportProjectId.value) {
-    params.set("projectId", reportProjectId.value);
-  }
-  if (reportEvidenceKind.value) {
-    params.set("evidenceKind", reportEvidenceKind.value);
-  }
-  if (reportEvidenceQuery.value.trim()) {
-    params.set("evidenceQuery", reportEvidenceQuery.value.trim());
-  }
-
   try {
-    const result = await request<ReportQueryResult>(`/api/reports?${params.toString()}`, { signal: controller.signal });
+    const result = await client.getReport({
+      period: reportPeriod.value,
+      date: reportDate.value || undefined,
+      projectId: reportProjectId.value || undefined,
+      evidencePage: reportEvidencePage.value,
+      evidencePageSize: reportEvidencePageSize.value,
+      evidenceKind: reportEvidenceKind.value || undefined,
+      evidenceQuery: reportEvidenceQuery.value.trim() || undefined
+    }, controller.signal);
     if (result.outcome !== "report") {
       reportError.value = result.reason;
       return;
@@ -892,24 +839,16 @@ async function loadReport(resetEvidencePage = false): Promise<void> {
   const controller = beginRequest(requestKey);
   reportLoading.value = true;
   reportError.value = "";
-  const params = new URLSearchParams({ period: reportPeriod.value });
-  if (reportDate.value) {
-    params.set("date", reportDate.value);
-  }
-  if (reportProjectId.value) {
-    params.set("projectId", reportProjectId.value);
-  }
-  if (reportEvidenceKind.value) {
-    params.set("evidenceKind", reportEvidenceKind.value);
-  }
-  if (reportEvidenceQuery.value.trim()) {
-    params.set("evidenceQuery", reportEvidenceQuery.value.trim());
-  }
-  params.set("evidencePage", String(reportEvidencePage.value));
-  params.set("evidencePageSize", String(pageSizeToQuery(reportEvidencePageSize.value)));
-
   try {
-    const result = await request<ReportQueryResult>(`/api/reports?${params.toString()}`, { signal: controller.signal });
+    const result = await client.getReport({
+      period: reportPeriod.value,
+      date: reportDate.value || undefined,
+      projectId: reportProjectId.value || undefined,
+      evidencePage: reportEvidencePage.value,
+      evidencePageSize: reportEvidencePageSize.value,
+      evidenceKind: reportEvidenceKind.value || undefined,
+      evidenceQuery: reportEvidenceQuery.value.trim() || undefined
+    }, controller.signal);
     if (result.outcome === "report") {
       report.value = result;
       await Promise.all([loadReportSynthesis(), loadReportSessions(resetEvidencePage)]);
@@ -953,25 +892,15 @@ async function exportReport(format: ReportExportFormat): Promise<void> {
   }
 
   reportExportLoading.value = format;
-  const params = new URLSearchParams({
-    period: reportPeriod.value,
-    format
-  });
-  if (reportDate.value) {
-    params.set("date", reportDate.value);
-  }
-  if (reportProjectId.value) {
-    params.set("projectId", reportProjectId.value);
-  }
-  if (reportEvidenceKind.value) {
-    params.set("evidenceKind", reportEvidenceKind.value);
-  }
-  if (reportEvidenceQuery.value.trim()) {
-    params.set("evidenceQuery", reportEvidenceQuery.value.trim());
-  }
-
   try {
-    const result = await request<ReportExportResult>("/api/reports/export?" + params.toString());
+    const result = await client.exportReport({
+      period: reportPeriod.value,
+      format,
+      date: reportDate.value || undefined,
+      projectId: reportProjectId.value || undefined,
+      evidenceKind: reportEvidenceKind.value || undefined,
+      evidenceQuery: reportEvidenceQuery.value.trim() || undefined
+    });
     if (result.outcome !== "report_export") {
       toastMessage.value = result.reason;
       return;
@@ -1175,10 +1104,7 @@ async function addProject(): Promise<void> {
 
   addingProject.value = true;
   try {
-    await request<ProjectRecord>("/api/projects", {
-      method: "POST",
-      body: JSON.stringify({ name: projectName.value, rootPath: projectRoot.value })
-    });
+    await client.createProject({ name: projectName.value, rootPath: projectRoot.value });
     projectName.value = "";
     projectRoot.value = "";
     toastMessage.value = "專案已加入 registry；目前仍是未註冊狀態。請明確切換為記錄中。";
@@ -1192,10 +1118,7 @@ async function addProject(): Promise<void> {
 
 async function updateProjectStatus(project: ProjectRecord, status: ProjectStatus): Promise<void> {
   try {
-    const updated = await request<ProjectRecord>(`/api/projects/${project.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status })
-    });
+    const updated = await client.updateProject(project.id, { status });
     const index = projects.value.findIndex((item) => item.id === updated.id);
     if (index >= 0) {
       projects.value[index] = updated;
@@ -1213,9 +1136,7 @@ async function loadMetadataBackfillRequest(): Promise<void> {
   metadataBackfillRequestLoading.value = true;
   metadataBackfillRequestError.value = "";
   try {
-    const result = await request<MetadataBackfillRequestListQueryResult>("/api/backfill/metadata-requests?scopeType=all&limit=1", {
-      signal: controller.signal
-    });
+    const result = await client.listMetadataBackfillRequests(controller.signal);
     if (result.outcome === "metadata_backfill_requests") {
       metadataBackfillRequest.value = result.requests[0] ?? null;
     } else {
@@ -1245,10 +1166,7 @@ async function createMetadataBackfillRequest(): Promise<void> {
   metadataBackfillRequestCreating.value = true;
   metadataBackfillRequestError.value = "";
   try {
-    const result = await request<CreateMetadataBackfillRequestResult>("/api/backfill/metadata-requests", {
-      method: "POST",
-      body: JSON.stringify({ projectId: preview.project?.id })
-    });
+    const result = await client.createMetadataBackfillRequest(preview.project?.id);
     if (result.outcome === "metadata_backfill_request") {
       metadataBackfillRequest.value = result.request;
       toastMessage.value = result.duplicate
@@ -1279,10 +1197,7 @@ async function cancelMetadataBackfillRequest(): Promise<void> {
   metadataBackfillRequestLoading.value = true;
   metadataBackfillRequestError.value = "";
   try {
-    const result = await request<CancelMetadataBackfillRequestResult>(
-      `/api/backfill/metadata-requests/${encodeURIComponent(requestToCancel.id)}/cancel`,
-      { method: "POST", body: "{}" }
-    );
+    const result = await client.cancelMetadataBackfillRequest(requestToCancel.id);
     if (result.outcome !== "metadata_backfill_request_cancelled") {
       metadataBackfillRequestError.value = "reason" in result ? result.reason : "這批 metadata 回補目前無法取消。";
       return;
@@ -1307,7 +1222,7 @@ async function previewMetadataBackfill(): Promise<void> {
   metadataBackfillError.value = "";
   metadataBackfillRequestError.value = "";
   try {
-    const result = await request<MetadataBackfillPreviewResult>("/api/backfill/metadata/preview?limit=50", { signal: controller.signal });
+    const result = await client.previewMetadataBackfill(50, controller.signal);
     if (result.outcome !== "backfill_preview") {
       metadataBackfillPreview.value = null;
       metadataBackfillError.value = result.reason;
@@ -1407,10 +1322,7 @@ async function previewHandoffs(project: ProjectRecord): Promise<void> {
   handoffImportError.value = "";
   handoffImportProjectId.value = project.id;
   try {
-    const params = new URLSearchParams({ projectRoot: project.rootPath });
-    const result = await request<HandoffImportPreviewResult>(`/api/imports/handoffs/preview?${params.toString()}`, {
-      signal: controller.signal
-    });
+    const result = await client.previewHandoffs(project.rootPath, undefined, controller.signal);
     if (result.outcome !== "preview") {
       toastMessage.value = result.reason;
       return;
@@ -1447,13 +1359,10 @@ async function applyHandoffImport(): Promise<void> {
   handoffImportApplying.value = true;
   handoffImportError.value = "";
   try {
-    const result = await request<HandoffImportBatchResult>("/api/imports/handoffs", {
-      method: "POST",
-      body: JSON.stringify({
-        projectRoot: preview.project.rootPath,
-        handoffDirectory: preview.handoffDirectory,
-        sourcePaths: handoffImportSelection.value
-      })
+    const result = await client.importHandoffs({
+      projectRoot: preview.project.rootPath,
+      handoffDirectory: preview.handoffDirectory,
+      sourcePaths: handoffImportSelection.value
     });
     if (result.outcome !== "imported") {
       handoffImportError.value = result.reason;
@@ -1476,7 +1385,7 @@ async function openSessionDetail(sessionId: string, errorMessage: string): Promi
   const requestKey = "session-detail";
   const controller = beginRequest(requestKey);
   try {
-    selectedDetail.value = await request<SessionDetail>(`/api/sessions/${sessionId}`, { signal: controller.signal });
+    selectedDetail.value = await client.getSessionDetail(sessionId, controller.signal);
   } catch (error) {
     if (!isAbortError(error)) {
       toastMessage.value = error instanceof Error ? error.message : errorMessage;
@@ -1543,10 +1452,7 @@ async function openKnowledgeHistory(item: KnowledgeRecord): Promise<void> {
   const controller = beginRequest(requestKey);
   knowledgeHistoryLoading.value = true;
   try {
-    const params = new URLSearchParams({ projectRoot: project.rootPath, limit: "100" });
-    const result = await request<KnowledgeHistoryResult>(`/api/knowledge/${encodeURIComponent(item.id)}/history?${params.toString()}`, {
-      signal: controller.signal
-    });
+    const result = await client.getKnowledgeHistory(item.id, { projectRoot: project.rootPath, limit: 100 }, controller.signal);
     if (result.outcome === "knowledge_history") {
       knowledgeHistory.value = result.history;
     } else if (result.outcome === "skipped") {
@@ -1602,10 +1508,7 @@ async function patchKnowledge(
   }
 
   try {
-    const result = await request<UpdateKnowledgeResult>(`/api/knowledge/${item.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ projectRoot: project.rootPath, knowledgeId: item.id, ...changes })
-    });
+    const result = await client.updateKnowledge(item.id, { projectRoot: project.rootPath, ...changes });
     if (result.outcome !== "knowledge_updated") {
       toastMessage.value = result.outcome === "skipped" ? result.reason : "Knowledge 已不存在。";
       return false;
