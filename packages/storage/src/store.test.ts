@@ -1850,6 +1850,14 @@ Result: PASSED
       changedFiles: ["legacy/file.ts"],
       changedFilesProvenance: []
     });
+
+    const migratedDatabase = new DatabaseSync(databasePath);
+    const migratedSessionColumns = migratedDatabase
+      .prepare("PRAGMA table_info(sessions)")
+      .all()
+      .map((column) => (column as { name?: string }).name);
+    migratedDatabase.close();
+    expect(migratedSessionColumns).not.toContain("commit_required");
   });
 
   it("gates source reads and context by the same project policy", () => {

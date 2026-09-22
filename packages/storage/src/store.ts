@@ -293,7 +293,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   execution_status TEXT NOT NULL DEFAULT 'completed' CHECK (execution_status = 'completed'),
   completed_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  commit_required INTEGER NOT NULL DEFAULT 0 CHECK (commit_required = 0),
   commit_sha TEXT,
   git_branch TEXT,
   changed_files_json TEXT NOT NULL DEFAULT '[]',
@@ -1182,6 +1181,9 @@ export class WorkIntelligenceStore {
       }
       if (!columnNames.has("work_summary_json")) {
         this.db.exec("ALTER TABLE sessions ADD COLUMN work_summary_json TEXT NOT NULL DEFAULT '{}'");
+      }
+      if (columnNames.has("commit_required")) {
+        this.db.exec("ALTER TABLE sessions DROP COLUMN commit_required");
       }
 
       const reportSummaryColumns = this.db.prepare("PRAGMA table_info(report_summaries)").all() as Array<{ name?: string }>;
