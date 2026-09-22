@@ -8,6 +8,7 @@ import HandoffImportModal from "./components/HandoffImportModal.vue";
 import KnowledgeEditorModal from "./components/KnowledgeEditorModal.vue";
 import KnowledgeHistoryModal from "./components/KnowledgeHistoryModal.vue";
 import SessionDetailModal from "./components/SessionDetailModal.vue";
+import VirtualList from "./components/VirtualList.vue";
 import DashboardView from "./views/DashboardView.vue";
 import GraphView from "./views/GraphView.vue";
 import KnowledgeView from "./views/KnowledgeView.vue";
@@ -1568,6 +1569,23 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
+function verificationLabel(value: unknown): string {
+  const status = typeof value === "string" && value in verificationLabels ? (value as ReportVerificationStatus) : "not_supplied";
+  return verificationLabels[status];
+}
+
+function evidenceKindLabel(value: unknown): string {
+  return typeof value === "string" && value in evidenceKindLabels ? evidenceKindLabels[value as ReportEvidence["kind"]] : "Evidence";
+}
+
+function knowledgeKindLabel(value: unknown): string {
+  return typeof value === "string" && value in knowledgeKindLabels ? knowledgeKindLabels[value as KnowledgeKind] : "Knowledge";
+}
+
+function knowledgeStatusLabel(value: unknown): string {
+  return typeof value === "string" && value in knowledgeStatusLabels ? knowledgeStatusLabels[value as KnowledgeStatus] : "未知狀態";
+}
+
 function eventDetails(value: Record<string, unknown> | undefined): string {
   return value ? JSON.stringify(value) : "";
 }
@@ -2557,9 +2575,13 @@ onMounted(() => {
               <summary><span><span class="eyebrow">RAW WORK RECORDS</span><strong>原始工作紀錄</strong></span><span class="report-count">{{ reportSessionPageInfo.total }} 個 Session</span></summary>
               <div v-if="reportSessionLoading" class="report-raw-loading"><span class="spinner small-spinner"></span><span>正在載入原始 Session…</span></div>
               <div v-else-if="reportSessionItems.length" class="report-raw-session-list">
-                <button v-for="session in reportSessionItems" :key="session.id" class="report-raw-session-row" type="button" @click="openSession(session)">
-                  <span class="session-marker"></span><span class="report-raw-session-copy"><strong>{{ session.title }}</strong><span>{{ session.projectName }} · {{ formatDate(session.completedAt) }}</span><small>{{ formatReadableSummary(session.summary) }}</small></span><span :class="['verification-badge', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabels[session.verification?.status ?? 'not_supplied'] }}</span><span class="session-arrow">↗</span>
-                </button>
+                <VirtualList :items="reportSessionItems" :enabled="reportSessionPageSize === 'all'" aria-label="報告原始工作紀錄清單">
+                  <template #default="{ item: session }">
+                    <button class="report-raw-session-row" type="button" @click="openSession(session)">
+                      <span class="session-marker"></span><span class="report-raw-session-copy"><strong>{{ session.title }}</strong><span>{{ session.projectName }} · {{ formatDate(session.completedAt) }}</span><small>{{ formatReadableSummary(session.summary) }}</small></span><span :class="['verification-badge', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabel(session.verification?.status) }}</span><span class="session-arrow">↗</span>
+                    </button>
+                  </template>
+                </VirtualList>
               </div>
               <div v-else class="report-empty report-empty-compact"><strong>這段期間沒有原始 Session</strong><p>請切換報告期間或專案範圍。</p></div>
               <div v-if="reportSessionPageInfo.total > 0" class="pagination-bar report-list-pagination-bar">
@@ -2589,12 +2611,23 @@ onMounted(() => {
               </form>
               <div v-if="reportEvidenceLoading" class="report-evidence-inline-loading"><span class="spinner small-spinner"></span><span>正在更新來源證據…</span></div>
               <div v-else-if="report.evidence.length === 0" class="empty-state report-empty"><strong>尚無可呈現的證據</strong><p>完成 session 時提供 handoff、verification、changed files 或 event，報告就能建立追溯線索。</p></div>
-              <div v-else class="report-evidence-list">
-                <button v-for="item in report.evidence" :key="`${item.sessionId}-${item.kind}-${item.label}`" class="report-evidence-row" type="button" @click="openReportEvidence(item)">
-                  <span :class="['report-evidence-icon', `evidence-${item.kind}`]">{{ item.kind === 'handoff' ? 'H' : item.kind === 'verification' ? 'V' : item.kind === 'changed-files' ? 'F' : item.kind === 'attached' ? 'A' : 'E' }}</span>
-                  <div class="report-evidence-copy"><div><span class="report-evidence-kind">{{ evidenceKindLabels[item.kind] }}</span><strong>{{ item.label }}</strong></div><p>{{ item.detail }}</p><small>{{ item.sessionTitle }}<span v-if="item.projectName"> · {{ item.projectName }}</span><span v-if="item.reference"> · {{ item.reference }}</span></small></div>
-                  <span class="session-arrow">↗</span>
-                </button>
+              <div v-else :class="['report-evidence-list', { 'report-evidence-list-virtualized': reportEvidencePageSize === 'all' }]">
+                <VirtualList v-if="reportEvidencePageSize === 'all'" :items="report.evidence" :enabled="true" aria-label="報告來源證據清單" :estimate-item-height="94">
+                  <template #default="{ item }">
+                    <button class="report-evidence-row" type="button" @click="openReportEvidence(item)">
+                      <span :class="['report-evidence-icon', `evidence-${item.kind}`]">{{ item.kind === 'handoff' ? 'H' : item.kind === 'verification' ? 'V' : item.kind === 'changed-files' ? 'F' : item.kind === 'attached' ? 'A' : 'E' }}</span>
+                      <div class="report-evidence-copy"><div><span class="report-evidence-kind">{{ evidenceKindLabel(item.kind) }}</span><strong>{{ item.label }}</strong></div><p>{{ item.detail }}</p><small>{{ item.sessionTitle }}<span v-if="item.projectName"> · {{ item.projectName }}</span><span v-if="item.reference"> · {{ item.reference }}</span></small></div>
+                      <span class="session-arrow">↗</span>
+                    </button>
+                  </template>
+                </VirtualList>
+                <template v-else>
+                  <button v-for="item in report.evidence" :key="`${item.sessionId}-${item.kind}-${item.label}`" class="report-evidence-row" type="button" @click="openReportEvidence(item)">
+                    <span :class="['report-evidence-icon', `evidence-${item.kind}`]">{{ item.kind === 'handoff' ? 'H' : item.kind === 'verification' ? 'V' : item.kind === 'changed-files' ? 'F' : item.kind === 'attached' ? 'A' : 'E' }}</span>
+                    <div class="report-evidence-copy"><div><span class="report-evidence-kind">{{ evidenceKindLabels[item.kind] }}</span><strong>{{ item.label }}</strong></div><p>{{ item.detail }}</p><small>{{ item.sessionTitle }}<span v-if="item.projectName"> · {{ item.projectName }}</span><span v-if="item.reference"> · {{ item.reference }}</span></small></div>
+                    <span class="session-arrow">↗</span>
+                  </button>
+                </template>
               </div>
               <div v-if="report.evidencePageInfo.total > 0" class="pagination-bar report-list-pagination-bar">
                 <span class="pagination-summary">顯示 {{ report.evidencePageInfo.from }}–{{ report.evidencePageInfo.to }}，共 {{ report.evidencePageInfo.total }} 筆<span v-if="report.evidencePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ report.evidencePageInfo.pageSize }} 筆</span></span>
@@ -2658,25 +2691,29 @@ onMounted(() => {
           </section>
           <section v-else class="panel knowledge-panel">
             <div class="list-heading knowledge-heading"><span>{{ knowledgePageInfo.total }} 筆{{ knowledgeStatus === 'active' ? '目前使用中' : '已封存' }} Knowledge</span><span>維護</span></div>
-            <article v-for="item in knowledgeItems" :key="item.id" class="knowledge-row">
-              <div :class="['knowledge-kind-mark', `knowledge-kind-${item.kind}`]">{{ item.kind.slice(0, 1).toUpperCase() }}</div>
-              <div class="knowledge-body">
-                <div class="knowledge-title"><strong>{{ item.title }}</strong><span class="knowledge-kind-label">{{ knowledgeKindLabels[item.kind] }}</span><span :class="['knowledge-status-label', `knowledge-status-${item.status}`]">{{ knowledgeStatusLabels[item.status] }}</span></div>
-                <p>{{ item.body }}</p>
-                <div class="knowledge-meta">
-                  <span v-if="item.projectName">{{ item.projectName }}</span>
-                  <span v-for="tag in item.tags" :key="`${item.id}-${tag}`" class="knowledge-tag">#{{ tag }}</span>
-                  <button v-if="item.sessionId" class="text-button knowledge-source-button" type="button" @click="openKnowledgeSession(item)">查看來源 Session ↗</button>
-                </div>
-                <div v-if="item.references.length" class="knowledge-references"><code v-for="reference in item.references" :key="`${item.id}-${reference}`">{{ reference }}</code></div>
-              </div>
-              <div class="knowledge-row-actions">
-                <time>{{ formatDate(item.updatedAt) }}</time>
-                <button class="text-button" type="button" @click="openKnowledgeHistory(item)">變更紀錄</button>
-                <button class="text-button" type="button" @click="openKnowledgeEditor(item)">編輯</button>
-                <button class="text-button knowledge-archive-button" type="button" @click="setKnowledgeStatus(item, item.status === 'active' ? 'archived' : 'active')">{{ item.status === 'active' ? '封存' : '恢復' }}</button>
-              </div>
-            </article>
+            <VirtualList :items="knowledgeItems" :enabled="knowledgePageSize === 'all'" aria-label="工作知識清單">
+              <template #default="{ item }">
+                <article class="knowledge-row">
+                  <div :class="['knowledge-kind-mark', `knowledge-kind-${item.kind}`]">{{ item.kind.slice(0, 1).toUpperCase() }}</div>
+                  <div class="knowledge-body">
+                    <div class="knowledge-title"><strong>{{ item.title }}</strong><span class="knowledge-kind-label">{{ knowledgeKindLabel(item.kind) }}</span><span :class="['knowledge-status-label', `knowledge-status-${item.status}`]">{{ knowledgeStatusLabel(item.status) }}</span></div>
+                    <p>{{ item.body }}</p>
+                    <div class="knowledge-meta">
+                      <span v-if="item.projectName">{{ item.projectName }}</span>
+                      <span v-for="tag in item.tags" :key="`${item.id}-${tag}`" class="knowledge-tag">#{{ tag }}</span>
+                      <button v-if="item.sessionId" class="text-button knowledge-source-button" type="button" @click="openKnowledgeSession(item)">查看來源 Session ↗</button>
+                    </div>
+                    <div v-if="item.references.length" class="knowledge-references"><code v-for="reference in item.references" :key="`${item.id}-${reference}`">{{ reference }}</code></div>
+                  </div>
+                  <div class="knowledge-row-actions">
+                    <time>{{ formatDate(item.updatedAt) }}</time>
+                    <button class="text-button" type="button" @click="openKnowledgeHistory(item)">變更紀錄</button>
+                    <button class="text-button" type="button" @click="openKnowledgeEditor(item)">編輯</button>
+                    <button class="text-button knowledge-archive-button" type="button" @click="setKnowledgeStatus(item, item.status === 'active' ? 'archived' : 'active')">{{ item.status === 'active' ? '封存' : '恢復' }}</button>
+                  </div>
+                </article>
+              </template>
+            </VirtualList>
             <div v-if="knowledgeItems.length === 0" class="empty-state large-empty"><div class="empty-icon">✦</div><strong>{{ knowledgeStatus === 'active' ? '還沒有已確認的 Knowledge' : '沒有已封存的 Knowledge' }}</strong><p>{{ knowledgeStatus === 'active' ? 'Agent 使用 work_record_knowledge 提交 decision、pattern、gotcha、procedure 或 skill 後，內容會出現在這裡。' : '封存只會停止它出現在預設搜尋與 Graph 中，不會刪除原始記錄。' }}</p></div>
             <div class="pagination-bar list-pagination-bar">
               <span class="pagination-summary">顯示 {{ knowledgePageInfo.from }}–{{ knowledgePageInfo.to }}，共 {{ knowledgePageInfo.total }} 筆<span v-if="knowledgePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ knowledgePageInfo.pageSize }} 筆</span></span>
@@ -2948,16 +2985,20 @@ onMounted(() => {
 
           <section class="panel worklog-panel">
             <div class="list-heading worklog-heading"><span>{{ sessionPageInfo.total }} 個工作 Session<span v-if="hasSessionFilters" class="filter-applied">已套用篩選</span></span><span>完成時間</span></div>
-            <button v-for="session in sessions" :key="session.id" class="worklog-row" type="button" @click="openSession(session)">
-              <div class="timeline-dot"></div>
-              <div class="worklog-body">
-                <div class="worklog-title"><strong>{{ session.title }}</strong><span class="finalized-label">已完成</span><span :class="['verification-badge', 'worklog-verification', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabels[session.verification?.status ?? 'not_supplied'] }}</span></div>
-                <p>{{ formatReadableSummary(session.summary) }}</p>
-                <div class="worklog-meta"><span>{{ session.projectName }}</span><span v-if="session.gitBranch">分支：{{ session.gitBranch }}</span><span>{{ session.changedFiles.length }} 個檔案</span></div>
-              </div>
-              <time>{{ formatDate(session.completedAt) }}</time>
-              <span class="session-arrow">↗</span>
-            </button>
+            <VirtualList :items="sessions" :enabled="sessionPageSize === 'all'" aria-label="工作歷程清單">
+              <template #default="{ item: session }">
+                <button class="worklog-row" type="button" @click="openSession(session)">
+                  <div class="timeline-dot"></div>
+                  <div class="worklog-body">
+                    <div class="worklog-title"><strong>{{ session.title }}</strong><span class="finalized-label">已完成</span><span :class="['verification-badge', 'worklog-verification', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabel(session.verification?.status) }}</span></div>
+                    <p>{{ formatReadableSummary(session.summary) }}</p>
+                    <div class="worklog-meta"><span>{{ session.projectName }}</span><span v-if="session.gitBranch">分支：{{ session.gitBranch }}</span><span>{{ session.changedFiles.length }} 個檔案</span></div>
+                  </div>
+                  <time>{{ formatDate(session.completedAt) }}</time>
+                  <span class="session-arrow">↗</span>
+                </button>
+              </template>
+            </VirtualList>
             <div v-if="sessions.length === 0" class="empty-state large-empty"><div class="empty-icon">≡</div><strong>找不到工作紀錄</strong><p>完成的 session 會在這裡依時間排列。</p></div>
             <div class="pagination-bar list-pagination-bar">
               <span class="pagination-summary">顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}，共 {{ sessionPageInfo.total }} 筆<span v-if="sessionPageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ sessionPageInfo.pageSize }} 筆</span></span>

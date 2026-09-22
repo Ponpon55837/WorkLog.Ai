@@ -76,6 +76,40 @@ test.describe("Work Intelligence browser regression", () => {
     });
     expect(knowledge.outcome).toBe("knowledge_recorded");
 
+    for (let index = 1; index <= 24; index += 1) {
+      const extraSession = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+        projectRoot,
+        idempotencyKey: `browser-regression-extra-${process.pid}-${index}`,
+        title: `Browser regression extra session ${index}`,
+        summary: "Additional fixture data used to verify bounded virtual lists.",
+        changedFiles: ["README.md"],
+        verification: {
+          status: "passed",
+          summary: "Virtual list fixture is deterministic."
+        },
+        completedAt: new Date(Date.now() - index * 60_000).toISOString()
+      });
+      const extraEvidence = await request.post(`/api/sessions/${extraSession.session.id}/evidence`, {
+        data: {
+          kind: "test",
+          reference: `virtual-list-${index}`,
+          summary: "Virtual list fixture evidence."
+        }
+      });
+      expect(extraEvidence.ok()).toBeTruthy();
+      const extraKnowledge = await postJson(request, "/api/knowledge", {
+        projectRoot,
+        idempotencyKey: `browser-regression-extra-knowledge-${process.pid}-${index}`,
+        kind: "pattern",
+        title: `Virtual list fixture knowledge ${index}`,
+        body: "Additional fixture knowledge used to verify bounded virtual lists.",
+        sessionId: extraSession.session.id,
+        tags: ["e2e", "virtual-list"],
+        references: ["apps/web/src/components/VirtualList.vue"]
+      });
+      expect(extraKnowledge.outcome).toBe("knowledge_recorded");
+    }
+
     const synthesisRequest = await postJson<{ request: { id: string } }>(request, "/api/reports/synthesis-requests", {
       period: "week",
       date: reportDate,
@@ -153,11 +187,26 @@ test.describe("Work Intelligence browser regression", () => {
     const reportSessionPageSize = page.getByLabel("報告原始工作紀錄每頁筆數");
     await expect(reportSessionPageSize).toHaveValue("10");
     await expect(reportSessionPageSize.locator("option")).toHaveCount(5);
+    await reportSessionPageSize.selectOption("all");
+    const reportSessionVirtualList = page.locator(".report-raw-session-list .virtual-list");
+    await expect(reportSessionVirtualList).toBeVisible();
+    await expect(reportSessionVirtualList).toHaveAttribute("role", "list");
+    await expect(reportSessionVirtualList).toHaveCSS("overflow-y", "auto");
+    const reportSessionVisibleItems = await reportSessionVirtualList.locator(".virtual-list-item").count();
+    expect(reportSessionVisibleItems).toBeGreaterThan(0);
+    expect(reportSessionVisibleItems).toBeLessThan(25);
 
     await page.getByRole("tab", { name: "證據" }).click();
     const reportEvidencePageSize = page.getByLabel("報告來源證據每頁筆數");
     await expect(reportEvidencePageSize).toHaveValue("10");
     await expect(reportEvidencePageSize.locator("option")).toHaveCount(5);
+    await reportEvidencePageSize.selectOption("all");
+    const reportEvidenceVirtualList = page.locator(".report-evidence-list .virtual-list");
+    await expect(reportEvidenceVirtualList).toBeVisible();
+    await expect(reportEvidenceVirtualList).toHaveAttribute("role", "list");
+    const reportEvidenceVisibleItems = await reportEvidenceVirtualList.locator(".virtual-list-item").count();
+    expect(reportEvidenceVisibleItems).toBeGreaterThan(0);
+    expect(reportEvidenceVisibleItems).toBeLessThan(25);
   });
 
   test("keeps Worklog and Knowledge page-size controls at the intended default", async ({ page }) => {
@@ -170,12 +219,28 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(sessionPageSize.locator("option")).toHaveCount(5);
     await sessionPageSize.selectOption("20");
     await expect(sessionPageSize).toHaveValue("20");
+    await sessionPageSize.selectOption("all");
+    const sessionVirtualList = page.locator(".worklog-panel .virtual-list");
+    await expect(sessionVirtualList).toBeVisible();
+    await expect(sessionVirtualList).toHaveAttribute("role", "list");
+    await expect(sessionVirtualList).toHaveCSS("overflow-y", "auto");
+    const sessionVisibleItems = await sessionVirtualList.locator(".virtual-list-item").count();
+    expect(sessionVisibleItems).toBeGreaterThan(0);
+    expect(sessionVisibleItems).toBeLessThan(25);
 
     await page.getByRole("button", { name: /工作知識 Knowledge/ }).click();
     await expect(page.getByRole("heading", { name: "工作知識" }).first()).toBeVisible();
     const knowledgePageSize = page.getByLabel("Knowledge 每頁筆數");
     await expect(knowledgePageSize).toHaveValue("10");
     await expect(knowledgePageSize.locator("option")).toHaveCount(5);
+    await knowledgePageSize.selectOption("all");
+    const knowledgeVirtualList = page.locator(".knowledge-panel .virtual-list");
+    await expect(knowledgeVirtualList).toBeVisible();
+    await expect(knowledgeVirtualList).toHaveAttribute("role", "list");
+    await expect(knowledgeVirtualList).toHaveCSS("overflow-y", "auto");
+    const knowledgeVisibleItems = await knowledgeVirtualList.locator(".virtual-list-item").count();
+    expect(knowledgeVisibleItems).toBeGreaterThan(0);
+    expect(knowledgeVisibleItems).toBeLessThan(25);
   });
 
   test("keeps Graph filters and source detail navigation available", async ({ page }) => {
@@ -228,6 +293,32 @@ test.describe("Work Intelligence browser regression", () => {
     }));
     expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
     await page.getByRole("button", { name: "關閉" }).click();
+  });
+
+  test("keeps shared controls dark and responsive across pages", async ({ page }) => {
+    await page.goto("/projects");
+    await expect(page.getByRole("heading", { name: "專案記錄管理" }).first()).toBeVisible();
+
+    const projectForm = page.locator(".add-project-panel .project-form");
+    await expect(projectForm).toHaveCSS("display", "grid");
+    await expect(projectForm.locator("input").first()).toHaveCSS("background-color", "rgb(11, 24, 40)");
+    await expect(projectForm.locator(".primary-button")).toHaveCSS("height", "44px");
+
+    await page.setViewportSize({ width: 640, height: 844 });
+    await page.goto("/projects");
+    const mobileProjectFormColumns = await projectForm.evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+    expect(mobileProjectFormColumns.trim().split(/\s+/)).toHaveLength(1);
+
+    await page.goto("/knowledge");
+    await expect(page.getByRole("heading", { name: "工作知識" }).first()).toBeVisible();
+    await expect(page.locator(".knowledge-search-box")).toHaveCSS("background-color", "rgb(11, 24, 40)");
+    await expect(page.locator(".knowledge-search-box input")).toHaveCSS("color", "rgb(220, 234, 247)");
+
+    await page.goto("/worklog");
+    await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
+    await expect(page.locator(".worklog-tools .search-box")).toHaveCSS("background-color", "rgb(11, 24, 40)");
+    await expect(page.locator(".worklog-row").first()).toHaveCSS("display", "grid");
+    await expect(page.locator(".worklog-row").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   });
 
   test("supports direct page routes", async ({ page }) => {
