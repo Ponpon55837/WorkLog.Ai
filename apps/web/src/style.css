@@ -1053,6 +1053,11 @@ h3 { font-size: 20px; }
   .event-type { display: block; margin-bottom: 7px; }
 }
 
+/* Keep the structured summary and its status facts as separate visual blocks. */
+.structured-work-summary {
+  margin-bottom: 28px;
+}
+
 /* Keep report rows and graph node details visually separated and readable. */
 .report-primary-grid + .report-secondary-grid { margin-top: 16px; }
 .graph-svg-node { outline: none; }

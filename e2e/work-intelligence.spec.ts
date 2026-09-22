@@ -287,6 +287,16 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.locator(".structured-work-summary")).toContainText("成果");
     await expect(page.locator(".structured-work-summary")).toContainText("The browser fixture remains readable.");
 
+    const summaryFactsGap = await page.evaluate(() => {
+      const summary = document.querySelector(".structured-work-summary");
+      const facts = document.querySelector(".structured-work-summary + .detail-facts");
+      if (!(summary instanceof HTMLElement) || !(facts instanceof HTMLElement)) {
+        throw new Error("Session detail summary/facts blocks are missing");
+      }
+      return facts.getBoundingClientRect().top - summary.getBoundingClientRect().bottom;
+    });
+    expect(summaryFactsGap).toBeGreaterThanOrEqual(24);
+
     const dimensions = await page.evaluate(() => ({
       viewport: window.innerWidth,
       document: document.documentElement.scrollWidth
