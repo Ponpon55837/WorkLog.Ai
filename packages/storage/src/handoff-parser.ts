@@ -13,6 +13,8 @@ export type HandoffClassification = {
 };
 
 export const MAX_HANDOFF_CONTENT_LENGTH = 200_000;
+export const MAX_HANDOFF_STATUS_SIGNALS = 32;
+export const MAX_PARSED_CHANGED_FILES = 200;
 
 export type ParsedHandoffContent = {
   title: string;
@@ -56,9 +58,18 @@ export function titleFromContent(content: string, sourcePath: string): string {
 
 export function findStatusSignals(content: string): string[] {
   const source = stripFencedCodeBlocks(content);
-  const signals = [...source.matchAll(/^\s*(?:#{1,6}\s*)?(?:final\s+)?status(?:\s+signals?)?\s*[:：|]\s*(.+?)\s*$/gim)]
-    .map((match) => match[1]?.trim())
-    .filter((value): value is string => Boolean(value));
+  const signals: string[] = [];
+  for (const match of source.matchAll(
+    /^\s*(?:#{1,6}\s*)?(?:final\s+)?status(?:\s+signals?)?\s*[:：|]\s*(.+?)\s*$/gim,
+  )) {
+    const value = match[1]?.trim();
+    if (value) {
+      signals.push(value);
+    }
+    if (signals.length >= MAX_HANDOFF_STATUS_SIGNALS) {
+      break;
+    }
+  }
 
   const heading = source.match(/^\s*#{1,6}\s*(?:final\s+)?status\s*$/im);
   if (heading) {
@@ -68,12 +79,12 @@ export function findStatusSignals(content: string): string[] {
       .map((line) => line.trim())
       .filter(Boolean);
     const nextLine = followingLines.find((line) => !line.startsWith("#"));
-    if (nextLine) {
+    if (nextLine && signals.length < MAX_HANDOFF_STATUS_SIGNALS) {
       signals.push(nextLine.replace(/^[-*]\s+/, "").trim());
     }
   }
 
-  return [...new Set(signals)];
+  return [...new Set(signals)].slice(0, MAX_HANDOFF_STATUS_SIGNALS);
 }
 
 export function classifyHandoff(title: string, statusSignals: string[]): HandoffClassification {
@@ -165,6 +176,9 @@ export function extractChangedFiles(content: string, projectRoot: string): strin
   const source = stripFencedCodeBlocks(content);
   const values: string[] = [];
   const add = (value: string): void => {
+    if (values.length >= MAX_PARSED_CHANGED_FILES) {
+      return;
+    }
     const normalized = normalizeFileCandidate(projectRoot, value);
     if (!normalized) {
       return;
@@ -181,11 +195,17 @@ export function extractChangedFiles(content: string, projectRoot: string): strin
       if (match[1]) {
         add(match[1]);
       }
+      if (values.length >= MAX_PARSED_CHANGED_FILES) {
+        break;
+      }
     }
   }
 
   const sectionPattern = /^\s*#{1,6}\s*(?:changed files?|files changed|modified files?|files modified|變更檔案|修改檔案)\s*:?\s*$/gim;
   for (const match of source.matchAll(sectionPattern)) {
+    if (values.length >= MAX_PARSED_CHANGED_FILES) {
+      break;
+    }
     const start = (match.index ?? 0) + match[0].length;
     const remainder = source.slice(start);
     const nextHeading = remainder.search(/^\s*#{1,6}\s+/m);
@@ -194,6 +214,9 @@ export function extractChangedFiles(content: string, projectRoot: string): strin
       const token = fileTokenFromLine(line);
       if (token) {
         add(token);
+      }
+      if (values.length >= MAX_PARSED_CHANGED_FILES) {
+        break;
       }
     }
   }

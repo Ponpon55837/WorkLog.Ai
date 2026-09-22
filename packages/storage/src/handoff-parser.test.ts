@@ -5,6 +5,8 @@ import {
   fileTokenFromLine,
   findStatusSignals,
   MAX_HANDOFF_CONTENT_LENGTH,
+  MAX_HANDOFF_STATUS_SIGNALS,
+  MAX_PARSED_CHANGED_FILES,
   parseHandoffContent,
   parseVerification,
   stripFencedCodeBlocks
@@ -55,5 +57,13 @@ describe("handoff parser", () => {
   it("normalizes inline changedFiles and removes duplicates case-insensitively", () => {
     const content = `changedFiles: ["src/App.vue", "src/app.vue"]`;
     expect(extractChangedFiles(content, "C:/work/project")).toEqual(["src/App.vue"]);
+  });
+
+  it("caps parser output to the public metadata limits", () => {
+    const changedFiles = Array.from({ length: MAX_PARSED_CHANGED_FILES + 20 }, (_, index) => `- src/file-${index}.ts`).join("\n");
+    const statusSignals = Array.from({ length: MAX_HANDOFF_STATUS_SIGNALS + 20 }, (_, index) => `Status: completed-${index}`).join("\n");
+
+    expect(extractChangedFiles(`## Changed Files\n${changedFiles}`, "C:/work/project")).toHaveLength(MAX_PARSED_CHANGED_FILES);
+    expect(findStatusSignals(statusSignals)).toHaveLength(MAX_HANDOFF_STATUS_SIGNALS);
   });
 });
