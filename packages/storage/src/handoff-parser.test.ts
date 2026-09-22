@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+import {
+  classifyHandoff,
+  extractChangedFiles,
+  fileTokenFromLine,
+  findStatusSignals,
+  parseHandoffContent,
+  parseVerification
+} from "./handoff-parser.js";
+
+describe("handoff parser", () => {
+  it("understands mixed English and Traditional Chinese completion signals", () => {
+    const content = `# UI 修正\n\n## Status\n已完成 / accepted\n\n## Verification\nVerification: passed`;
+    const signals = findStatusSignals(content);
+
+    expect(signals).toContain("已完成 / accepted");
+    expect(classifyHandoff("UI 修正", signals)).toMatchObject({ decision: "eligible" });
+    expect(parseVerification(content).status).toBe("passed");
+  });
+
+  it("stops changed-file sections at the next heading regardless of heading depth", () => {
+    const content = `# Closing\n\n## Changed Files\n- src/real.ts\n### Notes\n- docs/should-not-be-read.md\n#### Verification\npassed`;
+
+    expect(extractChangedFiles(content, "C:/work/project")).toEqual(["src/real.ts"]);
+  });
+
+  it("does not infer status or changed files from fenced code examples", () => {
+    const content = `# Draft\n\n\`\`\`md\n## Status: completed\nchangedFiles: ["src/fake.ts"]\n\`\`\`\n\n## Status\npending\n\n## Changed Files\n- src/real.ts\n\`\`\`text\n- src/fake-2.ts\n\`\`\``;
+
+    expect(findStatusSignals(content)).toEqual(["pending"]);
+    expect(extractChangedFiles(content, "C:/work/project")).toEqual(["src/real.ts"]);
+    expect(parseHandoffContent(content, "C:/work/project", ".openspec/handoffs/draft.md").classification).toMatchObject({
+      decision: "excluded",
+      reason: "pending"
+    });
+  });
+
+  it("accepts bounded relative file paths and rejects outside or non-file tokens", () => {
+    expect(fileTokenFromLine("- src/components/Button.vue")).toBe("src/components/Button.vue");
+    expect(fileTokenFromLine("- WorkLog.Ai/src/components/Button.vue")).toBe("WorkLog.Ai/src/components/Button.vue");
+    expect(fileTokenFromLine("- ../outside.ts")).toBeUndefined();
+    expect(fileTokenFromLine("- C:/outside.ts")).toBeUndefined();
+    expect(extractChangedFiles("## Changed Files\n- ../outside.ts\n- src/inside.ts", "C:/work/project")).toEqual(["src/inside.ts"]);
+  });
+
+  it("normalizes inline changedFiles and removes duplicates case-insensitively", () => {
+    const content = `changedFiles: ["src/App.vue", "src/app.vue"]`;
+    expect(extractChangedFiles(content, "C:/work/project")).toEqual(["src/App.vue"]);
+  });
+});

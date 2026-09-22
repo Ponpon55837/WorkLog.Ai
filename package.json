@@ -13,6 +13,7 @@
     "start:server": "pnpm --filter @work-intelligence/server start",
     "start:mcp": "pnpm --filter @work-intelligence/mcp start",
     "test": "pnpm lint && pnpm format:check && pnpm --filter @work-intelligence/project-policy test && pnpm --filter @work-intelligence/schema test && pnpm --filter @work-intelligence/storage test && pnpm --filter @work-intelligence/server test && pnpm --filter @work-intelligence/mcp test",
+    "test:coverage": "pnpm --filter @work-intelligence/schema test:coverage && pnpm --filter @work-intelligence/storage test:coverage",
     "test:e2e": "pnpm build && playwright test",
     "typecheck": "pnpm -r typecheck && pnpm run typecheck:e2e",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"
@@ -21,6 +22,7 @@
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.15.0",
+    "@vitest/coverage-v8": "4.1.11",
     "eslint": "^10.11.0",
     "eslint-plugin-vue": "^10.11.0",
     "prettier": "^3.9.8",

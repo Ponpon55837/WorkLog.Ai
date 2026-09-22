@@ -19,6 +19,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run src",
+    "test:coverage": "vitest run src --config vitest.coverage.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

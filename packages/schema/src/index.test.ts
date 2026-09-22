@@ -3,6 +3,8 @@ import {
   finalizeSessionInputSchema,
   mcpFinalizeSessionInputSchema,
   metadataBackfillApplyInputSchema,
+  sessionsQuerySchema,
+  updateKnowledgeInputSchema,
   updateSessionMetadataInputSchema
 } from "./index.js";
 
@@ -113,5 +115,33 @@ describe("schema input boundaries", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("requires previousPath when a changed file is renamed", () => {
+    expect(finalizeSessionInputSchema.safeParse({
+      ...validFinalizeInput,
+      changedFileChanges: [{ path: "src/new.ts", status: "renamed" }]
+    }).success).toBe(false);
+    expect(finalizeSessionInputSchema.safeParse({
+      ...validFinalizeInput,
+      changedFileChanges: [{ path: "src/new.ts", status: "renamed", previousPath: "src/old.ts" }]
+    }).success).toBe(true);
+  });
+
+  it("rejects reversed session date ranges", () => {
+    expect(sessionsQuerySchema.safeParse({ from: "2026-09-22", to: "2026-09-21" }).success).toBe(false);
+    expect(sessionsQuerySchema.safeParse({ from: "2026-09-21", to: "2026-09-22" }).success).toBe(true);
+  });
+
+  it("requires at least one Knowledge field when updating", () => {
+    expect(updateKnowledgeInputSchema.safeParse({
+      projectRoot: "C:/tracked/project",
+      knowledgeId: "knowledge-1"
+    }).success).toBe(false);
+    expect(updateKnowledgeInputSchema.safeParse({
+      projectRoot: "C:/tracked/project",
+      knowledgeId: "knowledge-1",
+      title: "Updated title"
+    }).success).toBe(true);
   });
 });

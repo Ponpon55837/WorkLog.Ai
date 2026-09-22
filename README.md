@@ -559,10 +559,13 @@ projectRoot 為 C:\path\to\WorkLog.Ai，
 
 ```powershell
 pnpm test       # source-only unit/integration tests across policy, schema, storage, server and MCP
+pnpm test:coverage # schema/storage coverage with enforced minimum thresholds
 pnpm typecheck  # packages + Vue template + E2E test/config types
 pnpm build      # all packages + server/mcp + Vite production bundle
 pnpm test:e2e   # isolated Playwright browser regression suite
 ```
+
+`pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%，storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
 
 `pnpm test:e2e` 會先建置 production packages，再以獨立的暫存 SQLite、API `3211` 與 Web `5967` 啟動測試服務，不會讀寫目前使用中的 `data/work-intelligence.sqlite` 或 `5966` 開發畫面。測試涵蓋報告提煉收合、Worklog／Knowledge 每頁筆數、Graph 篩選與節點詳情，以及 390px 寬度的 Session 詳情彈窗。
 
