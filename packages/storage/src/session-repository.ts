@@ -14,7 +14,6 @@ export type SessionRow = {
   execution_status: "completed";
   completed_at: string;
   created_at: string;
-  commit_required: number;
   commit_sha: string | null;
   git_branch: string | null;
   changed_files_json: string;

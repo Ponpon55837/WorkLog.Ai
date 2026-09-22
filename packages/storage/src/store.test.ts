@@ -87,7 +87,6 @@ describe("WorkIntelligenceStore", () => {
     if (first.outcome !== "finalized") {
       throw new Error("Expected a finalized result");
     }
-    expect(first.session.commitRequired).toBe(false);
     expect(first.session.changedFiles).toEqual(["packages/project-policy/src/index.ts"]);
 
     const second = store.finalizeSession({ ...input, title: "A retry with the same key" });

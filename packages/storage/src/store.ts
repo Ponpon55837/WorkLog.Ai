@@ -716,7 +716,6 @@ function toSession(row: SessionRow): WorkSessionRecord {
     executionStatus: row.execution_status ?? "completed",
     completedAt: row.completed_at,
     createdAt: row.created_at,
-    commitRequired: false,
     commitSha: row.commit_sha ?? undefined,
     gitBranch: row.git_branch ?? undefined,
     changedFiles: parseJson<string[]>(row.changed_files_json, []),
@@ -3684,11 +3683,11 @@ export class WorkIntelligenceStore {
         .prepare(
           `INSERT INTO sessions (
              id, project_id, external_session_id, idempotency_key, title, summary,
-             work_summary_json, status, execution_status, completed_at, created_at, commit_required, commit_sha, git_branch,
+             work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
              changed_files_json, changed_files_provenance_json, changed_file_changes_json, verification_json
            ) VALUES (
              @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
-             @workSummary, 'finalized', 'completed', @completedAt, @createdAt, 0, @commitSha, @gitBranch,
+             @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
              @changedFiles, @changedFilesProvenance, @changedFileChanges, @verification
            )`
         )

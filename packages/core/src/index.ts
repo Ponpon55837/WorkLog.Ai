@@ -87,7 +87,6 @@ export interface WorkSessionRecord {
   executionStatus: ExecutionStatus;
   completedAt: string;
   createdAt: string;
-  commitRequired: false;
   commitSha?: string;
   gitBranch?: string;
   changedFiles: string[];
@@ -1190,5 +1189,3 @@ export type ContextQueryResult = ContextResult | SkippedContextResult;
 export interface ProjectReader {
   getProjectByRootPath(rootPath: string): ProjectRecord | undefined;
 }
-
-export * from "./modules.js";
