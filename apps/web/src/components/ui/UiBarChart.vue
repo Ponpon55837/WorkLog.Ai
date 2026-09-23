@@ -17,6 +17,12 @@ const props = defineProps<{
 const maxima = computed(() => props.series.map((item) => Math.max(1, ...item.values)));
 const every = computed(() => props.labelEvery ?? Math.max(1, Math.ceil(props.labels.length / 8)));
 
+/** Every n-th label plus the last one, skipping an n-th label that would crowd the last. */
+function showLabel(index: number): boolean {
+  const last = props.labels.length - 1;
+  return index === last || (index % every.value === 0 && last - index >= Math.ceil(every.value / 2));
+}
+
 function height(seriesIndex: number, value: number): string {
   return value ? `${Math.max(6, (value / (maxima.value[seriesIndex] ?? 1)) * 100)}%` : "2px";
 }
@@ -32,7 +38,7 @@ function height(seriesIndex: number, value: number): string {
         <div class="ui-bar-chart__bars">
           <i v-for="(item, seriesIndex) in series" :key="item.name" :class="`tone-${item.tone}`" :style="{ height: height(seriesIndex, item.values[index] ?? 0) }"></i>
         </div>
-        <span class="ui-bar-chart__x">{{ index % every === 0 || index === labels.length - 1 ? point : "" }}</span>
+        <span class="ui-bar-chart__x"><span v-if="showLabel(index)">{{ point }}</span></span>
       </div>
     </div>
   </figure>
@@ -90,13 +96,20 @@ function height(seriesIndex: number, value: number): string {
 }
 
 .ui-bar-chart__x {
+  position: relative;
   height: 20px;
   padding-top: var(--space-1);
-  overflow: hidden;
   color: var(--fg-muted);
   font-size: var(--text-xs);
   text-align: center;
   white-space: nowrap;
+}
+
+/* Labels may be wider than their column; center them over it and let them overflow sideways. */
+.ui-bar-chart__x span {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .tone-accent { background: var(--accent); }

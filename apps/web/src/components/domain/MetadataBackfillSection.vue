@@ -45,7 +45,9 @@ const requestMessage = computed(() => {
   if (request.value.status === "completed") {
     return "這批 metadata 已完成回補。重新掃描後，若仍有缺口會建立新的請求。";
   }
-  return "這批 metadata 回補尚未完成，可以重新建立請求後再請 Agent 處理。";
+  return preview.value?.items.length
+    ? "這批 metadata 回補尚未完成，可以重新建立請求後再請 Agent 處理。"
+    : "這批 metadata 回補尚未完成。重新掃描後，若仍有缺口即可建立新的請求。";
 });
 </script>
 
