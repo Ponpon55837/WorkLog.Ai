@@ -1,0 +1,85 @@
+/* Design tokens — the only place raw colour values are allowed. See .agents/skills/worklog-ui/references/tokens.md */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-canvas: #0d1117;
+  --bg-inset: #010409;
+  --bg-subtle: #161b22;
+  --bg-hover: #1c2128;
+  --bg-muted: #21262d;
+  --bg-muted-hover: #292e36;
+  --bg-overlay: rgba(1, 4, 9, 0.6);
+
+  /* Borders */
+  --border: #30363d;
+  --border-muted: #21262d;
+  --border-strong: #8b949e;
+  --border-on-emphasis: rgba(240, 246, 252, 0.1);
+
+  /* Text */
+  --fg: #e6edf3;
+  --fg-muted: #9198a1;
+  --fg-subtle: #6e7681;
+  --fg-on-emphasis: #ffffff;
+
+  /* Semantic */
+  --accent: #4493f8;
+  --accent-emphasis: #1f6feb;
+  --accent-soft: rgba(68, 147, 248, 0.1);
+  --accent-border: rgba(68, 147, 248, 0.4);
+  --success: #3fb950;
+  --success-emphasis: #238636;
+  --success-emphasis-hover: #2ea043;
+  --success-soft: rgba(63, 185, 80, 0.1);
+  --success-border: rgba(63, 185, 80, 0.4);
+  --attention: #d29922;
+  --attention-soft: rgba(210, 153, 34, 0.1);
+  --attention-border: rgba(210, 153, 34, 0.4);
+  --danger: #f85149;
+  --danger-emphasis: #da3633;
+  --danger-soft: rgba(248, 81, 73, 0.1);
+  --danger-border: rgba(248, 81, 73, 0.4);
+  --done: #a371f7;
+  --done-soft: rgba(163, 113, 247, 0.1);
+  --done-border: rgba(163, 113, 247, 0.4);
+  --neutral-soft: rgba(110, 118, 129, 0.4);
+  --attention-counter: rgba(187, 128, 9, 0.4);
+  --underline-active: #f78166;
+
+  /* Typography */
+  --font-sans: -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+
+  /* Spacing (4px scale) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Shape & elevation */
+  --radius: 6px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --shadow-popover: 0 8px 24px rgba(1, 4, 9, 0.75);
+  --shadow-panel: -16px 0 48px rgba(1, 4, 9, 0.6);
+
+  /* Sizing */
+  --control-height: 32px;
+  --control-height-sm: 28px;
+  --header-height: 48px;
+  --sidebar-width: 240px;
+  --sidebar-rail-width: 56px;
+  --content-max-width: 1280px;
+}

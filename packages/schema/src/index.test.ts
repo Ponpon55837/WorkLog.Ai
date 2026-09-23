@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   finalizeSessionInputSchema,
+  graphQuerySchema,
+  insightAvailabilitySchema,
+  insightEvaluationSchema,
+  insightProviderDescriptorSchema,
+  insightQuestionSchema,
   mcpFinalizeSessionInputSchema,
   metadataBackfillApplyInputSchema,
   sessionsQuerySchema,
   updateKnowledgeInputSchema,
-  updateSessionMetadataInputSchema
+  updateSessionMetadataInputSchema,
+  updateSessionWorkSummaryInputSchema,
 } from "./index.js";
 
 const validFinalizeInput = {
@@ -14,7 +20,7 @@ const validFinalizeInput = {
   title: "完成工作",
   summary: "完成一項工作",
   changedFiles: [],
-  verification: { status: "not_run" as const }
+  verification: { status: "not_run" as const },
 };
 
 const validStructuredWorkSummary = {
@@ -22,16 +28,85 @@ const validStructuredWorkSummary = {
   scope: ["更新 MCP contract 與 SQLite session schema。"],
   decisions: ["保留 Git commit 與工作完成狀態解耦。"],
   verification: ["已執行 schema 與 storage tests。"],
-  nextSteps: ["由 Claude 進行複檢。"]
+  nextSteps: ["由 Claude 進行複檢。"],
 };
 
 describe("schema input boundaries", () => {
+  it("mirrors the frozen InsightProvider contracts", () => {
+    expect(
+      insightProviderDescriptorSchema.safeParse({
+        id: "jev",
+        execution: "external",
+        model: "jev-default",
+      }).success,
+    ).toBe(true);
+    expect(insightAvailabilitySchema.safeParse("policy_denied").success).toBe(true);
+    expect(insightAvailabilitySchema.safeParse("denied").success).toBe(false);
+    expect(
+      insightQuestionSchema.safeParse({
+        type: "noul",
+        instructions: "Is this meaningful?",
+      }).success,
+    ).toBe(true);
+    expect(
+      insightQuestionSchema.safeParse({
+        type: "null",
+        instructions: "Is this meaningful?",
+      }).success,
+    ).toBe(false);
+    expect(
+      insightEvaluationSchema.safeParse({
+        provider: "jev",
+        model: "jev-default",
+        results: { impact: { value: 0.8, confidence: 0.9 } },
+        latencyMs: 120,
+        evaluatedAt: "2026-09-22T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires stable work summary sections at the MCP boundary", () => {
     expect(mcpFinalizeSessionInputSchema.safeParse(validFinalizeInput).success).toBe(false);
-    expect(mcpFinalizeSessionInputSchema.safeParse({
-      ...validFinalizeInput,
-      workSummary: validStructuredWorkSummary
-    }).success).toBe(true);
+    expect(
+      mcpFinalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        workSummary: validStructuredWorkSummary,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("validates finalized workSummary replace and patch semantics", () => {
+    const replace = updateSessionWorkSummaryInputSchema.safeParse({
+      sessionId: "session-1",
+      idempotencyKey: "work-summary-update-1",
+      mode: "replace",
+      workSummary: validStructuredWorkSummary,
+    });
+    expect(replace.success).toBe(true);
+
+    const patch = updateSessionWorkSummaryInputSchema.safeParse({
+      sessionId: "session-1",
+      idempotencyKey: "work-summary-update-2",
+      mode: "patch",
+      workSummary: { nextSteps: [] },
+    });
+    expect(patch.success).toBe(true);
+    expect(
+      updateSessionWorkSummaryInputSchema.safeParse({
+        sessionId: "session-1",
+        idempotencyKey: "work-summary-update-3",
+        mode: "replace",
+        workSummary: { nextSteps: [] },
+      }).success,
+    ).toBe(false);
+    expect(
+      updateSessionWorkSummaryInputSchema.safeParse({
+        sessionId: "session-1",
+        idempotencyKey: "work-summary-update-4",
+        mode: "patch",
+        workSummary: {},
+      }).success,
+    ).toBe(false);
   });
 
   it("keeps the REST/store schema backward compatible for legacy finalize callers", () => {
@@ -41,7 +116,7 @@ describe("schema input boundaries", () => {
   it("rejects more than 200 changed files in finalize", () => {
     const result = finalizeSessionInputSchema.safeParse({
       ...validFinalizeInput,
-      changedFiles: Array.from({ length: 201 }, (_, index) => `src/file-${index}.ts`)
+      changedFiles: Array.from({ length: 201 }, (_, index) => `src/file-${index}.ts`),
     });
 
     expect(result.success).toBe(false);
@@ -50,7 +125,7 @@ describe("schema input boundaries", () => {
   it("rejects more than 200 changed files in metadata updates", () => {
     const result = updateSessionMetadataInputSchema.safeParse({
       sessionId: "session-1",
-      changedFiles: Array.from({ length: 201 }, (_, index) => `src/file-${index}.ts`)
+      changedFiles: Array.from({ length: 201 }, (_, index) => `src/file-${index}.ts`),
     });
 
     expect(result.success).toBe(false);
@@ -61,8 +136,8 @@ describe("schema input boundaries", () => {
       ...validFinalizeInput,
       changedFilesProvenance: Array.from({ length: 201 }, (_, index) => ({
         path: `src/file-${index}.ts`,
-        sources: ["agent"]
-      }))
+        sources: ["agent"],
+      })),
     });
 
     expect(result.success).toBe(false);
@@ -73,8 +148,8 @@ describe("schema input boundaries", () => {
       ...validFinalizeInput,
       changedFileChanges: Array.from({ length: 201 }, (_, index) => ({
         path: `src/file-${index}.ts`,
-        status: "modified"
-      }))
+        status: "modified",
+      })),
     });
 
     expect(result.success).toBe(false);
@@ -86,8 +161,8 @@ describe("schema input boundaries", () => {
       changedFiles: [],
       changedFilesProvenance: Array.from({ length: 201 }, (_, index) => ({
         path: `src/file-${index}.ts`,
-        sources: ["agent"]
-      }))
+        sources: ["agent"],
+      })),
     });
 
     expect(result.success).toBe(false);
@@ -99,8 +174,8 @@ describe("schema input boundaries", () => {
       changedFiles: [],
       changedFileChanges: Array.from({ length: 201 }, (_, index) => ({
         path: `src/file-${index}.ts`,
-        status: "modified"
-      }))
+        status: "modified",
+      })),
     });
 
     expect(result.success).toBe(false);
@@ -110,22 +185,26 @@ describe("schema input boundaries", () => {
     const result = metadataBackfillApplyInputSchema.safeParse({
       updates: Array.from({ length: 101 }, (_, index) => ({
         sessionId: `session-${index}`,
-        changedFiles: []
-      }))
+        changedFiles: [],
+      })),
     });
 
     expect(result.success).toBe(false);
   });
 
   it("requires previousPath when a changed file is renamed", () => {
-    expect(finalizeSessionInputSchema.safeParse({
-      ...validFinalizeInput,
-      changedFileChanges: [{ path: "src/new.ts", status: "renamed" }]
-    }).success).toBe(false);
-    expect(finalizeSessionInputSchema.safeParse({
-      ...validFinalizeInput,
-      changedFileChanges: [{ path: "src/new.ts", status: "renamed", previousPath: "src/old.ts" }]
-    }).success).toBe(true);
+    expect(
+      finalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        changedFileChanges: [{ path: "src/new.ts", status: "renamed" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      finalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        changedFileChanges: [{ path: "src/new.ts", status: "renamed", previousPath: "src/old.ts" }],
+      }).success,
+    ).toBe(true);
   });
 
   it("rejects reversed session date ranges", () => {
@@ -133,15 +212,24 @@ describe("schema input boundaries", () => {
     expect(sessionsQuerySchema.safeParse({ from: "2026-09-21", to: "2026-09-22" }).success).toBe(true);
   });
 
+  it("accepts bounded graph cursor pages and rejects oversized pages", () => {
+    expect(graphQuerySchema.safeParse({ pageSize: 500, cursor: "cursor-1" }).success).toBe(true);
+    expect(graphQuerySchema.safeParse({ pageSize: 501 }).success).toBe(false);
+  });
+
   it("requires at least one Knowledge field when updating", () => {
-    expect(updateKnowledgeInputSchema.safeParse({
-      projectRoot: "C:/tracked/project",
-      knowledgeId: "knowledge-1"
-    }).success).toBe(false);
-    expect(updateKnowledgeInputSchema.safeParse({
-      projectRoot: "C:/tracked/project",
-      knowledgeId: "knowledge-1",
-      title: "Updated title"
-    }).success).toBe(true);
+    expect(
+      updateKnowledgeInputSchema.safeParse({
+        projectRoot: "C:/tracked/project",
+        knowledgeId: "knowledge-1",
+      }).success,
+    ).toBe(false);
+    expect(
+      updateKnowledgeInputSchema.safeParse({
+        projectRoot: "C:/tracked/project",
+        knowledgeId: "knowledge-1",
+        title: "Updated title",
+      }).success,
+    ).toBe(true);
   });
 });

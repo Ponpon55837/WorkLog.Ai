@@ -1,0 +1,109 @@
+import type { WorkReport } from "@work-intelligence/core";
+
+export function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("zh-TW", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+export function formatReadableSummary(value: string): string {
+  const normalized = value.replace(/\r\n?/g, "\n").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized
+    .replace(/\s+Status signals\s*:/i, "\n\nStatus signals:\n")
+    .replace(/\s*\|\s*/g, "\n")
+    .replace(/(pending-backend-contract|pendingbackend|Reverted|blocked|completed|complete|pending)(?=[A-Za-z#])/gi, "$1\n")
+    .replace(/(^|\n)\s*#{1,6}\s*/gm, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function toDateInputValue(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function startOfMonth(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), 1);
+}
+
+
+function formatReportDay(value: string): string {
+  const [, month = "", day = ""] = value.split("-");
+  return `${month}/${day}`;
+}
+
+export function formatReportTrendLabel(value: string, granularity: WorkReport["trendGranularity"]): string {
+  if (granularity === "month") {
+    const [year = "", month = ""] = value.split("-");
+    return `${year}/${month}`;
+  }
+  return formatReportDay(value);
+}
+
+export function graphNodeLabel(value: string): string {
+  const maxDisplayUnits = 25;
+  let displayUnits = 0;
+  let label = "";
+  for (const character of value) {
+    // The null-to-extended-ASCII range is intentional: it estimates display width for graph labels.
+    // eslint-disable-next-line no-control-regex
+    const characterUnits = /[^\u0000-\u00ff]/u.test(character) ? 2 : 1;
+    if (displayUnits + characterUnits > maxDisplayUnits) {
+      return `${label}…`;
+    }
+    label += character;
+    displayUnits += characterUnits;
+  }
+  return label;
+}
+
+export function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+/** "12 分鐘前" / "昨天 18:40" / "9月20日" — pair with a title tooltip carrying formatDate(). */
+export function formatRelative(value: string, now = new Date()): string {
+  const date = new Date(value);
+  const diffMinutes = Math.round((now.getTime() - date.getTime()) / 60_000);
+  if (diffMinutes < 1) {
+    return "剛剛";
+  }
+  if (diffMinutes < 60) {
+    return `${diffMinutes} 分鐘前`;
+  }
+  const time = new Intl.DateTimeFormat("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  const dayDiff = dayIndex(now) - dayIndex(date);
+  if (dayDiff === 0) {
+    return `${Math.round(diffMinutes / 60)} 小時前`;
+  }
+  if (dayDiff === 1) {
+    return `昨天 ${time}`;
+  }
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return new Intl.DateTimeFormat("zh-TW", sameYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" }).format(date);
+}
+
+function dayIndex(date: Date): number {
+  return Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000);
+}
+
+/** Group label for date-grouped lists: 今天 / 昨天 / 9月20日（週六）. */
+export function formatDayGroup(value: string, now = new Date()): string {
+  const date = new Date(value);
+  const dayDiff = dayIndex(now) - dayIndex(date);
+  if (dayDiff === 0) {
+    return "今天";
+  }
+  if (dayDiff === 1) {
+    return "昨天";
+  }
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return new Intl.DateTimeFormat("zh-TW", sameYear ? { month: "long", day: "numeric", weekday: "short" } : { dateStyle: "long" }).format(date);
+}

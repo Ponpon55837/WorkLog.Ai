@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 const projectRoot = process.cwd();
 const reportDate = new Date().toISOString().slice(0, 10);
@@ -7,10 +7,37 @@ type ProjectRecord = { id: string };
 type SessionRecord = { id: string };
 type ApiResult<T> = T & { outcome?: string; reason?: string };
 
+const pageRoutes: ReadonlyArray<readonly [string, string]> = [
+  ["/dashboard", "工作總覽"],
+  ["/sessions", "工作歷程"],
+  ["/reports", "工作報告"],
+  ["/knowledge", "工作知識"],
+  ["/graph", "工作圖譜"],
+  ["/projects", "專案"]
+];
+
 async function postJson<T>(request: APIRequestContext, endpoint: string, body: unknown): Promise<ApiResult<T>> {
   const response = await request.post(endpoint, { data: body });
   expect(response.ok(), `${endpoint} returned ${response.status()}`).toBeTruthy();
   return (await response.json()) as ApiResult<T>;
+}
+
+async function expectBoundedVirtualList(page: Page, name: string): Promise<Locator> {
+  const list = page.getByRole("list", { name });
+  await expect(list).toBeVisible();
+  await expect(list).toHaveCSS("overflow-y", "auto");
+  const visibleItems = await list.getByRole("listitem").count();
+  expect(visibleItems).toBeGreaterThan(0);
+  expect(visibleItems).toBeLessThan(25);
+  return list;
+}
+
+async function expectNoHorizontalOverflow(page: Page): Promise<void> {
+  const dimensions = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
 test.describe("Work Intelligence browser regression", () => {
@@ -160,58 +187,46 @@ test.describe("Work Intelligence browser regression", () => {
     expect(newerSummary.outcome).toBe("report_summary_saved");
   });
 
-  test("keeps the report synthesis card collapsible and readable", async ({ page }) => {
+  test("keeps the report synthesis card readable with sourced sections and versions", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /工作報告 Reports/ }).click();
+    await page.getByTestId("nav-reports").click();
     await expect(page.getByRole("heading", { name: "工作報告" }).first()).toBeVisible();
 
-    const synthesis = page.locator("details.report-synthesis-card");
+    const synthesis = page.getByTestId("report-synthesis");
     await expect(synthesis).toBeVisible();
-    await expect(synthesis).not.toHaveAttribute("open");
-    await synthesis.locator("summary.report-synthesis-summary").click();
-    await expect(synthesis).toHaveAttribute("open", "");
     await expect(synthesis).toContainText("Browser regression report updated");
-    await expect(synthesis).toContainText("提煉完成");
-    const history = synthesis.locator("details.report-synthesis-history");
-    await expect(history).toContainText("2 個版本");
+    await expect(synthesis).toContainText("已完成");
+    await expect(synthesis).toContainText("狀態／未結項");
+    await expect(synthesis.getByRole("button", { name: /1 Session/ }).first()).toBeVisible();
+    const history = page.getByTestId("report-synthesis-history");
+    await expect(history).toContainText("歷史版本");
     await history.locator("summary").click();
-    await expect(history.locator(".report-synthesis-history-item")).toHaveCount(2);
+    await expect(history.getByTestId("report-synthesis-version")).toHaveCount(2);
     await expect(history).toContainText("Browser regression report");
 
-    const resynthesizeButton = synthesis.getByRole("button", { name: "重新提煉", exact: true });
-    await expect(resynthesizeButton).toBeEnabled();
-    await resynthesizeButton.click();
-    await expect(synthesis.getByRole("button", { name: "等待 Agent 處理中…", exact: true })).toBeDisabled();
+    await synthesis.getByRole("button", { name: "重新整理", exact: true }).click();
+    await expect(synthesis).toContainText("待處理");
+    await expect(synthesis.getByRole("button", { name: "取消這次整理" })).toBeVisible();
+    await expect(synthesis.getByRole("button", { name: "複製 Agent 指令" })).toBeVisible();
 
     await page.getByRole("tab", { name: "原始紀錄" }).click();
     const reportSessionPageSize = page.getByLabel("報告原始工作紀錄每頁筆數");
     await expect(reportSessionPageSize).toHaveValue("10");
     await expect(reportSessionPageSize.locator("option")).toHaveCount(5);
     await reportSessionPageSize.selectOption("all");
-    const reportSessionVirtualList = page.locator(".report-raw-session-list .virtual-list");
-    await expect(reportSessionVirtualList).toBeVisible();
-    await expect(reportSessionVirtualList).toHaveAttribute("role", "list");
-    await expect(reportSessionVirtualList).toHaveCSS("overflow-y", "auto");
-    const reportSessionVisibleItems = await reportSessionVirtualList.locator(".virtual-list-item").count();
-    expect(reportSessionVisibleItems).toBeGreaterThan(0);
-    expect(reportSessionVisibleItems).toBeLessThan(25);
+    await expectBoundedVirtualList(page, "報告原始工作紀錄清單");
 
     await page.getByRole("tab", { name: "證據" }).click();
     const reportEvidencePageSize = page.getByLabel("報告來源證據每頁筆數");
     await expect(reportEvidencePageSize).toHaveValue("10");
     await expect(reportEvidencePageSize.locator("option")).toHaveCount(5);
     await reportEvidencePageSize.selectOption("all");
-    const reportEvidenceVirtualList = page.locator(".report-evidence-list .virtual-list");
-    await expect(reportEvidenceVirtualList).toBeVisible();
-    await expect(reportEvidenceVirtualList).toHaveAttribute("role", "list");
-    const reportEvidenceVisibleItems = await reportEvidenceVirtualList.locator(".virtual-list-item").count();
-    expect(reportEvidenceVisibleItems).toBeGreaterThan(0);
-    expect(reportEvidenceVisibleItems).toBeLessThan(25);
+    await expectBoundedVirtualList(page, "報告來源證據清單");
   });
 
   test("keeps Worklog and Knowledge page-size controls at the intended default", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /工作歷程/ }).click();
+    await page.getByTestId("nav-sessions").click();
     await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
 
     const sessionPageSize = page.getByLabel("工作歷程每頁筆數");
@@ -220,32 +235,26 @@ test.describe("Work Intelligence browser regression", () => {
     await sessionPageSize.selectOption("20");
     await expect(sessionPageSize).toHaveValue("20");
     await sessionPageSize.selectOption("all");
-    const sessionVirtualList = page.locator(".worklog-panel .virtual-list");
-    await expect(sessionVirtualList).toBeVisible();
-    await expect(sessionVirtualList).toHaveAttribute("role", "list");
-    await expect(sessionVirtualList).toHaveCSS("overflow-y", "auto");
-    const sessionVisibleItems = await sessionVirtualList.locator(".virtual-list-item").count();
-    expect(sessionVisibleItems).toBeGreaterThan(0);
-    expect(sessionVisibleItems).toBeLessThan(25);
+    const sessionList = await expectBoundedVirtualList(page, "工作歷程清單");
+    const sessionRowBoxes = await sessionList.getByTestId("session-row").evaluateAll((rows) =>
+      rows.map((row) => row.getBoundingClientRect()).map((box) => ({ top: box.top, bottom: box.bottom }))
+    );
+    for (let index = 1; index < sessionRowBoxes.length; index += 1) {
+      expect(sessionRowBoxes[index]?.top ?? 0).toBeGreaterThanOrEqual((sessionRowBoxes[index - 1]?.bottom ?? 0) - 1);
+    }
 
-    await page.getByRole("button", { name: /工作知識 Knowledge/ }).click();
+    await page.getByTestId("nav-knowledge").click();
     await expect(page.getByRole("heading", { name: "工作知識" }).first()).toBeVisible();
     const knowledgePageSize = page.getByLabel("Knowledge 每頁筆數");
     await expect(knowledgePageSize).toHaveValue("10");
     await expect(knowledgePageSize.locator("option")).toHaveCount(5);
     await knowledgePageSize.selectOption("all");
-    const knowledgeVirtualList = page.locator(".knowledge-panel .virtual-list");
-    await expect(knowledgeVirtualList).toBeVisible();
-    await expect(knowledgeVirtualList).toHaveAttribute("role", "list");
-    await expect(knowledgeVirtualList).toHaveCSS("overflow-y", "auto");
-    const knowledgeVisibleItems = await knowledgeVirtualList.locator(".virtual-list-item").count();
-    expect(knowledgeVisibleItems).toBeGreaterThan(0);
-    expect(knowledgeVisibleItems).toBeLessThan(25);
+    await expectBoundedVirtualList(page, "工作知識清單");
   });
 
   test("keeps Graph filters and source detail navigation available", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /工作圖譜 Graph/ }).click();
+    await page.getByTestId("nav-graph").click();
     await expect(page.getByRole("heading", { name: "工作圖譜" }).first()).toBeVisible();
 
     const nodeFilter = page.getByLabel("選擇 Graph 節點類型");
@@ -257,12 +266,16 @@ test.describe("Work Intelligence browser regression", () => {
     await nodeFilter.selectOption("session");
     await previewLimit.selectOption("60");
     await page.getByRole("button", { name: "更新圖譜" }).click();
-    await expect(page.locator(".graph-visual-panel .report-count")).toContainText("節點");
+    const visibleCount = page.getByTestId("graph-visible-count");
+    await expect(visibleCount).toContainText("節點");
 
-    const graphViewport = page.locator(".graph-viewport");
-    const graphLaneHeader = graphViewport.locator(".graph-lane-header");
+    const graphViewport = page.getByTestId("graph-viewport");
+    const graphLaneHeader = page.getByTestId("graph-lane-header");
     await expect(graphLaneHeader).toBeVisible();
-    await expect(graphLaneHeader).toHaveCSS("position", "sticky");
+    const graphDisplayedNodeCount = Number((await visibleCount.innerText()).match(/顯示\s+(\d+)/)?.[1] ?? 0);
+    const graphNodes = graphViewport.getByRole("button", { name: /^查看/ });
+    const graphRenderedNodeCount = await graphNodes.count();
+    expect(graphDisplayedNodeCount).toBeGreaterThan(graphRenderedNodeCount);
     const headerTopBeforeScroll = await graphLaneHeader.evaluate((element) => element.getBoundingClientRect().top);
     await graphViewport.evaluate((element) => {
       element.scrollTop = Math.min(240, element.scrollHeight - element.clientHeight);
@@ -270,96 +283,106 @@ test.describe("Work Intelligence browser regression", () => {
     const headerTopAfterScroll = await graphLaneHeader.evaluate((element) => element.getBoundingClientRect().top);
     expect(Math.abs(headerTopAfterScroll - headerTopBeforeScroll)).toBeLessThan(2);
 
-    const graphNode = page.locator(".graph-svg-node").first();
-    await expect(graphNode).toBeVisible();
-    await graphNode.click();
+    await expect(graphNodes.first()).toBeVisible();
+    await graphNodes.first().click();
     await expect(page.getByRole("button", { name: "關閉 Graph 節點詳細資料" })).toBeVisible();
     await page.getByRole("button", { name: "關閉 Graph 節點詳細資料" }).click();
   });
 
-  test("keeps Session detail modal usable on a narrow viewport", async ({ page }) => {
+  test("keeps Session detail usable on a narrow viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    await page.getByRole("button", { name: /工作歷程/ }).click();
-    await expect(page.locator(".worklog-row").first()).toBeVisible();
-    await page.locator(".worklog-row").first().click();
-    await expect(page.getByRole("button", { name: "關閉" })).toBeVisible();
-    await expect(page.locator(".structured-work-summary")).toContainText("成果");
-    await expect(page.locator(".structured-work-summary")).toContainText("The browser fixture remains readable.");
+    await page.getByRole("button", { name: "開啟主選單" }).click();
+    await page.getByTestId("nav-sessions").click();
+    await expect(page.getByTestId("nav-sessions")).not.toBeInViewport();
+    const firstRow = page.getByTestId("session-row").first();
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    const detail = page.getByRole("dialog");
+    await expect(detail).toBeVisible();
+    const workSummary = page.getByTestId("session-work-summary");
+    await expect(workSummary).toContainText("成果");
+    await expect(workSummary).toContainText("The browser fixture remains readable.");
+    await expect(workSummary).toContainText("狀態／未結項");
 
-    const summaryFactsGap = await page.evaluate(() => {
-      const summary = document.querySelector(".structured-work-summary");
-      const facts = document.querySelector(".structured-work-summary + .detail-facts");
-      if (!(summary instanceof HTMLElement) || !(facts instanceof HTMLElement)) {
-        throw new Error("Session detail summary/facts blocks are missing");
-      }
-      return facts.getBoundingClientRect().top - summary.getBoundingClientRect().bottom;
-    });
-    expect(summaryFactsGap).toBeGreaterThanOrEqual(24);
-
-    const dimensions = await page.evaluate(() => ({
-      viewport: window.innerWidth,
-      document: document.documentElement.scrollWidth
-    }));
-    expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
-    await page.getByRole("button", { name: "關閉" }).click();
+    await expect(detail).toBeInViewport({ ratio: 1 });
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("button", { name: "關閉", exact: true }).click();
+    await expect(detail).toBeHidden();
   });
 
-  test("keeps shared controls dark and responsive across pages", async ({ page }) => {
-    await page.goto("/projects");
-    await expect(page.getByRole("heading", { name: "專案記錄管理" }).first()).toBeVisible();
-
-    const projectForm = page.locator(".add-project-panel .project-form");
-    await expect(projectForm).toHaveCSS("display", "grid");
-    await expect(projectForm.locator("input").first()).toHaveCSS("background-color", "rgb(11, 24, 40)");
-    await expect(projectForm.locator(".primary-button")).toHaveCSS("height", "44px");
-
-    const projectIntroLayout = await page.evaluate(() => {
-      const intro = document.querySelector(".projects-intro");
-      const copy = intro?.firstElementChild;
-      const summary = intro?.querySelector(".tracked-summary");
-      if (!(intro instanceof HTMLElement) || !(copy instanceof HTMLElement) || !(summary instanceof HTMLElement)) {
-        throw new Error("Project intro layout is missing");
+  test("keeps every page free of horizontal overflow on narrow viewports", async ({ page }) => {
+    for (const width of [640, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const [path, heading] of pageRoutes) {
+        await page.goto(path);
+        await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+        await expectNoHorizontalOverflow(page);
       }
-      const copyRect = copy.getBoundingClientRect();
-      const summaryRect = summary.getBoundingClientRect();
-      return {
-        display: getComputedStyle(intro).display,
-        copyRight: copyRect.right,
-        summaryLeft: summaryRect.left,
-        summaryTop: summaryRect.top,
-        copyBottom: copyRect.bottom
-      };
-    });
-    expect(projectIntroLayout.display).toBe("flex");
-    expect(projectIntroLayout.summaryLeft).toBeGreaterThan(projectIntroLayout.copyRight);
-    expect(projectIntroLayout.summaryTop).toBeLessThanOrEqual(projectIntroLayout.copyBottom);
-
-    await page.setViewportSize({ width: 640, height: 844 });
-    await page.goto("/projects");
-    await expect(page.locator(".projects-intro")).toHaveCSS("display", "grid");
-    const mobileProjectFormColumns = await projectForm.evaluate((element) => getComputedStyle(element).gridTemplateColumns);
-    expect(mobileProjectFormColumns.trim().split(/\s+/)).toHaveLength(1);
-
-    await page.goto("/knowledge");
-    await expect(page.getByRole("heading", { name: "工作知識" }).first()).toBeVisible();
-    await expect(page.locator(".knowledge-search-box")).toHaveCSS("background-color", "rgb(11, 24, 40)");
-    await expect(page.locator(".knowledge-search-box input")).toHaveCSS("color", "rgb(220, 234, 247)");
-
-    await page.goto("/worklog");
-    await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
-    await expect(page.locator(".worklog-tools .search-box")).toHaveCSS("background-color", "rgb(11, 24, 40)");
-    await expect(page.locator(".worklog-row").first()).toHaveCSS("display", "grid");
-    await expect(page.locator(".worklog-row").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    }
   });
 
   test("supports direct page routes", async ({ page }) => {
-    await page.goto("/reports");
-    await expect(page.getByRole("heading", { name: "工作報告" }).first()).toBeVisible();
-    await expect(page).toHaveURL(/\/reports$/);
+    for (const [path, heading] of pageRoutes) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+      await expect(page).toHaveURL(new RegExp(`${path}$`));
+    }
 
     await page.goto("/worklog");
+    await expect(page).toHaveURL(/\/sessions$/);
     await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
-    await expect(page).toHaveURL(/\/worklog$/);
+  });
+
+  test("opens the Session panel from a ?session deep link and closes it", async ({ page }) => {
+    await page.goto(`/sessions?session=${sessionId}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Browser regression fixture session");
+    await expect(panel).toContainText("changed files 不代表 Git commit");
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(page).not.toHaveURL(/session=/);
+  });
+
+  test("asks for consent before a project starts being tracked", async ({ page, request }) => {
+    await postJson(request, "/api/projects", { name: "Consent Fixture", rootPath: `${projectRoot}/e2e` });
+    await page.goto("/projects");
+    const status = page.getByLabel("更新 Consent Fixture 的專案記錄狀態");
+    await expect(status).toHaveValue("unregistered");
+    await status.selectOption("tracked");
+    const consent = page.getByRole("dialog", { name: /切換為記錄中/ });
+    await expect(consent).toBeVisible();
+    await consent.getByRole("button", { name: "取消" }).click();
+    await expect(consent).toBeHidden();
+    await expect(page.getByLabel("更新 Consent Fixture 的專案記錄狀態")).toHaveValue("unregistered");
+  });
+
+  test("jumps to a page from the command palette", async ({ page }) => {
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { name: "工作總覽" }).first()).toBeVisible();
+    await page.keyboard.press("Control+KeyK");
+    const palette = page.getByRole("dialog", { name: "搜尋或跳至頁面" });
+    await expect(palette).toBeVisible();
+    await page.keyboard.type("工作報告");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/reports/);
+    await expect(palette).toBeHidden();
+  });
+
+  // Opt-in visual baseline: UI_SCREENSHOTS=<label> pnpm test:e2e writes docs/ui-baseline/<label>/*.png
+  test("captures page screenshots for visual comparison", async ({ page }) => {
+    const label = process.env.UI_SCREENSHOTS;
+    test.skip(!label, "Set UI_SCREENSHOTS=<label> to capture screenshots.");
+    test.setTimeout(120_000);
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const [path, heading] of pageRoutes) {
+        await page.goto(path);
+        await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+        await page.waitForLoadState("networkidle");
+        await page.screenshot({ path: `docs/ui-baseline/${label}/${path.slice(1)}-${width}.png`, fullPage: true });
+      }
+    }
   });
 });

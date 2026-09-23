@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NoopInsightProvider } from "@work-intelligence/core";
 import { WorkIntelligenceStore } from "./store.js";
 
 const stores: WorkIntelligenceStore[] = [];
@@ -27,6 +28,16 @@ function createStore(): { store: WorkIntelligenceStore; root: string } {
 }
 
 describe("WorkIntelligenceStore", () => {
+  it("uses a no-op InsightProvider by default and accepts optional injection", () => {
+    const { store } = createStore();
+    expect(store.insightProvider).toBeInstanceOf(NoopInsightProvider);
+
+    const injectedProvider = new NoopInsightProvider();
+    const injectedStore = new WorkIntelligenceStore(":memory:", { insightProvider: injectedProvider });
+    stores.push(injectedStore);
+    expect(injectedStore.insightProvider).toBe(injectedProvider);
+  });
+
   it("skips unregistered, paused, and ignored projects without creating sessions", () => {
     const { store, root } = createStore();
     const project = store.addProject("Private side project", root);
@@ -38,26 +49,30 @@ describe("WorkIntelligenceStore", () => {
       idempotencyKey: "skip-unregistered",
       title: "Should not persist",
       summary: "The policy gate must stop ingestion.",
-      handoffPath: "closing.md"
+      handoffPath: "closing.md",
     });
     expect(unregistered).toMatchObject({ outcome: "skipped", projectStatus: "unregistered" });
     expect(store.listSessions()).toHaveLength(0);
 
     store.updateProject(project.id, { status: "paused" });
-    expect(store.finalizeSession({
-      projectRoot: root,
-      idempotencyKey: "skip-paused",
-      title: "Still skipped",
-      summary: "Paused projects stay quiet."
-    })).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: "skip-paused",
+        title: "Still skipped",
+        summary: "Paused projects stay quiet.",
+      }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
 
     store.updateProject(project.id, { status: "ignored" });
-    expect(store.finalizeSession({
-      projectRoot: root,
-      idempotencyKey: "skip-ignored",
-      title: "Still skipped",
-      summary: "Ignored projects stay quiet."
-    })).toMatchObject({ outcome: "skipped", projectStatus: "ignored" });
+    expect(
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: "skip-ignored",
+        title: "Still skipped",
+        summary: "Ignored projects stay quiet.",
+      }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "ignored" });
     expect(store.listSessions()).toHaveLength(0);
   });
 
@@ -78,8 +93,8 @@ describe("WorkIntelligenceStore", () => {
       verification: { status: "passed" as const, summary: "Unit tests passed." },
       events: [
         { type: "planning" as const, summary: "Defined explicit opt-in policy." },
-        { type: "verification" as const, summary: "Verified skipped states." }
-      ]
+        { type: "verification" as const, summary: "Verified skipped states." },
+      ],
     };
 
     const first = store.finalizeSession(input);
@@ -113,10 +128,10 @@ describe("WorkIntelligenceStore", () => {
         scope: ["更新 core、schema 與 SQLite storage。"],
         decisions: ["使用短句陣列，不寫 Markdown 標題。"],
         verification: ["schema 與 storage tests 已通過。"],
-        nextSteps: ["交由 Claude 進行複檢。"]
+        nextSteps: ["交由 Claude 進行複檢。"],
       },
       changedFiles: ["packages/core/src/index.ts"],
-      verification: { status: "passed", summary: "Tests passed." }
+      verification: { status: "passed", summary: "Tests passed." },
     });
 
     expect(result).toMatchObject({ outcome: "finalized", duplicate: false });
@@ -129,7 +144,7 @@ describe("WorkIntelligenceStore", () => {
       scope: ["更新 core、schema 與 SQLite storage。"],
       decisions: ["使用短句陣列，不寫 Markdown 標題。"],
       verification: ["schema 與 storage tests 已通過。"],
-      nextSteps: ["交由 Claude 進行複檢。"]
+      nextSteps: ["交由 Claude 進行複檢。"],
     });
     expect(store.getSessionDetail(result.session.id)?.session.workSummary).toEqual(result.session.workSummary);
   });
@@ -145,15 +160,15 @@ describe("WorkIntelligenceStore", () => {
       title: "Legacy work record",
       summary: "This legacy-compatible path has no sections.",
       changedFiles: [],
-      verification: { status: "not_run" }
+      verification: { status: "not_run" },
     });
 
     expect(result).toMatchObject({
       outcome: "finalized",
       workSummaryFollowUp: {
         required: true,
-        sessionId: expect.any(String)
-      }
+        sessionId: expect.any(String),
+      },
     });
   });
 
@@ -173,7 +188,7 @@ describe("WorkIntelligenceStore", () => {
       title: "Shared connection finalize",
       summary: "Only one Session should be stored for this key.",
       changedFiles: ["src/shared.ts"],
-      verification: { status: "passed" as const }
+      verification: { status: "passed" as const },
     };
 
     const first = firstStore.finalizeSession(input);
@@ -196,7 +211,7 @@ describe("WorkIntelligenceStore", () => {
       handoffContent: "Closing handoff preserved for the summary update test.",
       changedFiles: ["src/original.ts"],
       verification: { status: "passed", summary: "Original verification remains intact." },
-      events: [{ type: "verification", summary: "The original verification event remains intact." }]
+      events: [{ type: "verification", summary: "The original verification event remains intact." }],
     });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a finalized session for summary update");
@@ -205,7 +220,7 @@ describe("WorkIntelligenceStore", () => {
       sessionId: finalized.session.id,
       kind: "test",
       reference: "pnpm test --filter summary-update",
-      summary: "Evidence must remain attached after the summary changes."
+      summary: "Evidence must remain attached after the summary changes.",
     });
     expect(evidence).toMatchObject({ outcome: "evidence_attached" });
 
@@ -213,7 +228,7 @@ describe("WorkIntelligenceStore", () => {
       sessionId: finalized.session.id,
       idempotencyKey: "summary-update-001",
       mode: "append" as const,
-      summary: "補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。"
+      summary: "補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。",
     };
     const updated = store.updateSessionSummary(input);
     expect(updated).toMatchObject({
@@ -221,57 +236,190 @@ describe("WorkIntelligenceStore", () => {
       duplicate: false,
       session: {
         id: finalized.session.id,
-        summary: "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。",
+        summary:
+          "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。",
         changedFiles: ["src/original.ts"],
-        verification: { status: "passed" }
+        verification: { status: "passed" },
       },
-      mode: "append"
+      mode: "append",
     });
 
     const retry = store.updateSessionSummary(input);
     expect(retry).toMatchObject({ outcome: "summary_updated", duplicate: true, session: { id: finalized.session.id } });
-    expect(store.finalizeSession({
-      projectRoot: root,
-      idempotencyKey: "summary-update-finalize-001",
-      title: finalized.session.title,
-      summary: "A different summary must not silently look like a successful retry.",
-      changedFiles: ["src/other.ts"],
-      verification: { status: "failed" }
-    })).toMatchObject({
+    expect(
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: "summary-update-finalize-001",
+        title: finalized.session.title,
+        summary: "A different summary must not silently look like a successful retry.",
+        changedFiles: ["src/other.ts"],
+        verification: { status: "failed" },
+      }),
+    ).toMatchObject({
       outcome: "idempotency_conflict",
       sessionId: finalized.session.id,
-      suggestedTool: "work_update_session_summary"
+      suggestedTool: "work_update_session_summary",
     });
 
     const detail = store.getSessionDetail(finalized.session.id);
     expect(detail).toMatchObject({
       session: {
         id: finalized.session.id,
-        summary: "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。",
+        summary:
+          "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。",
         changedFiles: ["src/original.ts"],
-        verification: { status: "passed" }
+        verification: { status: "passed" },
       },
       events: [expect.objectContaining({ type: "verification" }), expect.objectContaining({ type: "finalized" })],
-      evidence: [expect.objectContaining({ reference: "pnpm test --filter summary-update" })]
+      evidence: [expect.objectContaining({ reference: "pnpm test --filter summary-update" })],
     });
     const context = store.getContext(root);
     expect(context).toMatchObject({
       outcome: "context",
-      recentSessions: [expect.objectContaining({
-        id: finalized.session.id,
-        summary: "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。"
-      })]
+      recentSessions: [
+        expect.objectContaining({
+          id: finalized.session.id,
+          summary:
+            "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。",
+        }),
+      ],
     });
 
     store.updateProject(project.id, { status: "paused" });
-    expect(store.updateSessionSummary({
-      sessionId: finalized.session.id,
-      idempotencyKey: "summary-update-paused",
-      summary: "This must not be written while the project is paused."
-    })).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(
+      store.updateSessionSummary({
+        sessionId: finalized.session.id,
+        idempotencyKey: "summary-update-paused",
+        summary: "This must not be written while the project is paused.",
+      }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
     expect(store.getSessionById(finalized.session.id)?.summary).toBe(
-      "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。"
+      "Original summary before the later UI correction.\n\n補充 knowledgeChunkViewer 編輯態按鈕已同步改為儲存，並更新三個語系與 aria-label。",
     );
+  });
+
+  it("updates finalized workSummary sections in place with patch idempotency and legacy backfill", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("WorkSummary update project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "work-summary-update-finalize-001",
+      title: "Update a structured work summary",
+      summary: "Original work summary record.",
+      workSummary: {
+        outcomes: ["完成原始工作。"],
+        scope: ["保留同一筆 Session。"],
+        decisions: ["使用固定五段結構。"],
+        verification: ["原始測試已通過。"],
+        nextSteps: ["等待後續修正。"],
+      },
+      handoffContent: "Raw closing handoff must remain available.",
+      changedFiles: ["src/original.ts"],
+      verification: { status: "passed", summary: "Original verification remains intact." },
+      events: [{ type: "verification", summary: "Original event remains intact." }],
+    });
+    if (finalized.outcome !== "finalized") {
+      throw new Error("Expected a finalized workSummary update session");
+    }
+    store.attachEvidence({
+      sessionId: finalized.session.id,
+      kind: "test",
+      reference: "pnpm test --filter work-summary-update",
+      summary: "Evidence remains attached after workSummary update.",
+    });
+
+    const patchInput = {
+      sessionId: finalized.session.id,
+      idempotencyKey: "work-summary-update-001",
+      mode: "patch" as const,
+      workSummary: {
+        nextSteps: ["已完成後續修正，無待辦。"],
+      },
+    };
+    const updated = store.updateSessionWorkSummary(patchInput);
+    expect(updated).toMatchObject({
+      outcome: "work_summary_updated",
+      duplicate: false,
+      session: {
+        id: finalized.session.id,
+        idempotencyKey: finalized.session.idempotencyKey,
+        summary: finalized.session.summary,
+        changedFiles: ["src/original.ts"],
+        verification: { status: "passed" },
+        workSummary: {
+          outcomes: ["完成原始工作。"],
+          scope: ["保留同一筆 Session。"],
+          decisions: ["使用固定五段結構。"],
+          verification: ["原始測試已通過。"],
+          nextSteps: ["已完成後續修正，無待辦。"],
+        },
+      },
+      mode: "patch",
+    });
+    const retry = store.updateSessionWorkSummary(patchInput);
+    expect(retry).toMatchObject({ outcome: "work_summary_updated", duplicate: true });
+    expect(
+      store.updateSessionWorkSummary({
+        ...patchInput,
+        workSummary: { nextSteps: ["不同內容"] },
+      }),
+    ).toMatchObject({ outcome: "work_summary_update_idempotency_conflict" });
+
+    const detail = store.getSessionDetail(finalized.session.id);
+    expect(detail).toMatchObject({
+      session: {
+        id: finalized.session.id,
+        summary: finalized.session.summary,
+        changedFiles: ["src/original.ts"],
+        verification: { status: "passed" },
+        workSummary: { nextSteps: ["已完成後續修正，無待辦。"] },
+      },
+      rawSnapshots: [expect.objectContaining({ content: "Raw closing handoff must remain available." })],
+      events: [expect.objectContaining({ type: "verification" }), expect.objectContaining({ type: "finalized" })],
+      evidence: [expect.objectContaining({ reference: "pnpm test --filter work-summary-update" })],
+    });
+
+    const legacy = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "work-summary-legacy-001",
+      title: "Legacy work summary",
+      summary: "Legacy session without structured sections.",
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+    if (legacy.outcome !== "finalized") {
+      throw new Error("Expected a legacy-compatible finalized session");
+    }
+    const legacyUpdate = store.updateSessionWorkSummary({
+      sessionId: legacy.session.id,
+      idempotencyKey: "work-summary-legacy-update-001",
+      mode: "patch",
+      workSummary: { outcomes: ["補回 legacy 成果。"] },
+    });
+    expect(legacyUpdate).toMatchObject({
+      outcome: "work_summary_updated",
+      session: {
+        workSummary: {
+          outcomes: ["補回 legacy 成果。"],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: [],
+        },
+      },
+    });
+
+    store.updateProject(project.id, { status: "paused" });
+    expect(
+      store.updateSessionWorkSummary({
+        sessionId: finalized.session.id,
+        idempotencyKey: "work-summary-paused-001",
+        mode: "patch",
+        workSummary: { nextSteps: ["不得寫入"] },
+      }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(store.getSessionById(finalized.session.id)?.workSummary?.nextSteps).toEqual(["已完成後續修正，無待辦。"]);
   });
 
   it("filters sessions by project and inclusive completion date range", () => {
@@ -286,21 +434,21 @@ describe("WorkIntelligenceStore", () => {
       idempotencyKey: "date-filter-001",
       title: "Included session",
       summary: "Falls inside the requested date range.",
-      completedAt: "2026-09-01T12:00:00.000Z"
+      completedAt: "2026-09-01T12:00:00.000Z",
     });
     store.finalizeSession({
       projectRoot: join(root, "second"),
       idempotencyKey: "date-filter-002",
       title: "Excluded session",
       summary: "Falls outside the requested date range.",
-      completedAt: "2026-10-01T12:00:00.000Z"
+      completedAt: "2026-10-01T12:00:00.000Z",
     });
 
     expect(store.listSessions({ from: "2026-09-01", to: "2026-09-30" }).map((session) => session.title)).toEqual([
-      "Included session"
+      "Included session",
     ]);
     expect(store.listSessions({ projectId: secondProject.id }).map((session) => session.title)).toEqual([
-      "Excluded session"
+      "Excluded session",
     ]);
   });
 
@@ -322,8 +470,8 @@ describe("WorkIntelligenceStore", () => {
       verification: { status: "passed", summary: "Checks passed." },
       events: [
         { type: "verification", summary: "Report source verified." },
-        { type: "note", summary: "Keep the report source linked to this session." }
-      ]
+        { type: "note", summary: "Keep the report source linked to this session." },
+      ],
     });
     store.finalizeSession({
       projectRoot: root,
@@ -331,14 +479,14 @@ describe("WorkIntelligenceStore", () => {
       title: "Previous report source",
       summary: "Included only in the previous-period comparison.",
       completedAt: "2026-09-15T12:00:00.000Z",
-      changedFiles: ["src/previous.ts"]
+      changedFiles: ["src/previous.ts"],
     });
     const paused = store.finalizeSession({
       projectRoot: join(root, "paused"),
       idempotencyKey: "report-002",
       title: "Paused source session",
       summary: "Must not appear in the global report.",
-      completedAt: "2026-09-16T13:00:00.000Z"
+      completedAt: "2026-09-16T13:00:00.000Z",
     });
     store.updateProject(pausedProject.id, { status: "paused" });
 
@@ -356,8 +504,8 @@ describe("WorkIntelligenceStore", () => {
       comparison: {
         sessions: { current: 1, previous: 1, delta: 0, direction: "flat" },
         events: { current: 3, previous: 1, delta: 2, direction: "up" },
-        changedFiles: { current: 2, previous: 1, delta: 1, direction: "up" }
-      }
+        changedFiles: { current: 2, previous: 1, delta: 1, direction: "up" },
+      },
     });
     if (report.outcome !== "report" || tracked.outcome !== "finalized") {
       throw new Error("Expected a tracked report and finalized source session");
@@ -369,34 +517,29 @@ describe("WorkIntelligenceStore", () => {
         projectName: "Tracked project",
         sessionCount: 1,
         eventCount: 3,
-        sourceSessionIds: [tracked.session.id]
-      })
+        sourceSessionIds: [tracked.session.id],
+      }),
     ]);
     expect(report.periodSummary).toContain("完成 1 個 Session");
     expect(report.completedWork.map((session) => session.id)).toEqual([tracked.session.id]);
     expect(report.decisions).toEqual([
       expect.objectContaining({
         sessionId: tracked.session.id,
-        summary: "Keep the report source linked to this session."
-      })
+        summary: "Keep the report source linked to this session.",
+      }),
     ]);
     expect(report.trends).toEqual([{ date: "2026-09-16", sessions: 1, events: 3 }]);
-    expect(report.evidence.map((item) => item.kind)).toEqual([
-      "handoff",
-      "verification",
-      "changed-files",
-      "event"
-    ]);
+    expect(report.evidence.map((item) => item.kind)).toEqual(["handoff", "verification", "changed-files", "event"]);
     expect(report.risks).toEqual([]);
 
     expect(store.getReport({ period: "week", date: "2026-09-16" })).toMatchObject({
       outcome: "report",
       range: { from: "2026-09-14", to: "2026-09-20" },
-      totals: { sessions: 2 }
+      totals: { sessions: 2 },
     });
     expect(store.getReport({ period: "day", date: "2026-09-16", projectId: pausedProject.id })).toMatchObject({
       outcome: "skipped",
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
   });
 
@@ -409,7 +552,7 @@ describe("WorkIntelligenceStore", () => {
       ["calendar-jan", "2026-01-15T12:00:00.000Z", ["src/january.ts"]],
       ["calendar-mar", "2026-03-31T12:00:00.000Z", ["src/march.ts"]],
       ["calendar-apr", "2026-04-01T12:00:00.000Z", ["src/april.ts"]],
-      ["calendar-dec", "2026-12-31T12:00:00.000Z", ["src/december.ts"]]
+      ["calendar-dec", "2026-12-31T12:00:00.000Z", ["src/december.ts"]],
     ] as const) {
       store.finalizeSession({
         projectRoot: root,
@@ -417,7 +560,7 @@ describe("WorkIntelligenceStore", () => {
         title: idempotencyKey,
         summary: "Calendar report source.",
         completedAt,
-        changedFiles: [...changedFiles]
+        changedFiles: [...changedFiles],
       });
     }
 
@@ -428,7 +571,7 @@ describe("WorkIntelligenceStore", () => {
       range: { from: "2026-01-01", to: "2026-03-31" },
       previousRange: { from: "2025-10-01", to: "2025-12-31" },
       trendGranularity: "month",
-      totals: { sessions: 2, changedFiles: 2 }
+      totals: { sessions: 2, changedFiles: 2 },
     });
     if (quarter.outcome !== "report") {
       throw new Error("Expected a quarter report");
@@ -436,7 +579,7 @@ describe("WorkIntelligenceStore", () => {
     expect(quarter.trends).toEqual([
       { date: "2026-01-01", sessions: 1, events: 1 },
       { date: "2026-02-01", sessions: 0, events: 0 },
-      { date: "2026-03-01", sessions: 1, events: 1 }
+      { date: "2026-03-01", sessions: 1, events: 1 },
     ]);
 
     const year = store.getReport({ period: "year", date: "2026-09-16", projectId: project.id });
@@ -446,7 +589,7 @@ describe("WorkIntelligenceStore", () => {
       range: { from: "2026-01-01", to: "2026-12-31" },
       previousRange: { from: "2025-01-01", to: "2025-12-31" },
       trendGranularity: "month",
-      totals: { sessions: 4, changedFiles: 4 }
+      totals: { sessions: 4, changedFiles: 4 },
     });
     if (year.outcome !== "report") {
       throw new Error("Expected a year report");
@@ -456,7 +599,7 @@ describe("WorkIntelligenceStore", () => {
       "2026-01-01",
       "2026-03-01",
       "2026-04-01",
-      "2026-12-01"
+      "2026-12-01",
     ]);
   });
 
@@ -473,22 +616,18 @@ describe("WorkIntelligenceStore", () => {
       changedFiles: [],
       changedFileChanges: [
         { path: "src/new-name.ts", status: "renamed", previousPath: "src/old-name.ts" },
-        { path: "src/removed.ts", status: "deleted" }
+        { path: "src/removed.ts", status: "deleted" },
       ],
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
     expect(finalized).toMatchObject({ outcome: "finalized" });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a finalized file history session");
     }
-    expect(finalized.session.changedFiles).toEqual([
-      "src/new-name.ts",
-      "src/old-name.ts",
-      "src/removed.ts"
-    ]);
+    expect(finalized.session.changedFiles).toEqual(["src/new-name.ts", "src/old-name.ts", "src/removed.ts"]);
     expect(finalized.session.changedFileChanges).toEqual([
       { path: "src/new-name.ts", status: "renamed", previousPath: "src/old-name.ts" },
-      { path: "src/removed.ts", status: "deleted" }
+      { path: "src/removed.ts", status: "deleted" },
     ]);
 
     const merged = store.updateSessionMetadata({
@@ -497,8 +636,8 @@ describe("WorkIntelligenceStore", () => {
       changedFilesMode: "merge",
       changedFileChanges: [
         { path: "src/added.ts", status: "added" },
-        { path: "src/new-name.ts", status: "renamed", previousPath: "src/old-name.ts" }
-      ]
+        { path: "src/new-name.ts", status: "renamed", previousPath: "src/old-name.ts" },
+      ],
     });
     expect(merged).toMatchObject({
       outcome: "updated",
@@ -506,33 +645,35 @@ describe("WorkIntelligenceStore", () => {
         changedFileChanges: [
           { path: "src/new-name.ts", status: "renamed", previousPath: "src/old-name.ts" },
           { path: "src/removed.ts", status: "deleted" },
-          { path: "src/added.ts", status: "added" }
-        ]
-      }
+          { path: "src/added.ts", status: "added" },
+        ],
+      },
     });
 
     const replaced = store.updateSessionMetadata({
       sessionId: finalized.session.id,
       changedFiles: ["src/final.ts"],
-      changedFileChanges: [{ path: "src/final.ts", status: "modified" }]
+      changedFileChanges: [{ path: "src/final.ts", status: "modified" }],
     });
     expect(replaced).toMatchObject({
       outcome: "updated",
       session: {
         changedFiles: ["src/final.ts"],
-        changedFileChanges: [{ path: "src/final.ts", status: "modified" }]
-      }
+        changedFileChanges: [{ path: "src/final.ts", status: "modified" }],
+      },
     });
 
-    expect(() => store.finalizeSession({
-      projectRoot: root,
-      idempotencyKey: "file-history-invalid-001",
-      title: "Invalid rename",
-      summary: "A rename without its previous path must be rejected.",
-      changedFiles: [],
-      changedFileChanges: [{ path: "src/missing-previous.ts", status: "renamed" }],
-      verification: { status: "passed" }
-    })).toThrow("previousPath");
+    expect(() =>
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: "file-history-invalid-001",
+        title: "Invalid rename",
+        summary: "A rename without its previous path must be rejected.",
+        changedFiles: [],
+        changedFileChanges: [{ path: "src/missing-previous.ts", status: "renamed" }],
+        verification: { status: "passed" },
+      }),
+    ).toThrow("previousPath");
   });
 
   it("keeps missing verification distinct and lets an agent backfill session metadata", () => {
@@ -546,12 +687,12 @@ describe("WorkIntelligenceStore", () => {
       title: "Completed work without structured metadata",
       summary: "The handoff says the task is complete, but the first submission omitted structured fields.",
       completedAt: "2026-09-17T12:00:00.000Z",
-      handoffContent: "Status: complete"
+      handoffContent: "Status: complete",
     });
     expect(finalized).toMatchObject({
       outcome: "finalized",
       verificationFollowUp: { required: true },
-      changedFilesFollowUp: { required: true }
+      changedFilesFollowUp: { required: true },
     });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a finalized session");
@@ -563,35 +704,39 @@ describe("WorkIntelligenceStore", () => {
       totals: { verification: { not_supplied: 1 } },
       risks: expect.arrayContaining([
         expect.objectContaining({ label: "Verification 尚未回報" }),
-        expect.objectContaining({ label: "變更檔案 metadata 未提供" })
-      ])
+        expect.objectContaining({ label: "變更檔案 metadata 未提供" }),
+      ]),
     });
 
     const updated = store.updateSessionMetadata({
       sessionId: finalized.session.id,
       changedFiles: ["src/completed-work.ts"],
-      verification: { status: "passed", summary: "Agent confirmed the verification result." }
+      verification: { status: "passed", summary: "Agent confirmed the verification result." },
     });
     expect(updated).toMatchObject({ outcome: "updated", session: { id: finalized.session.id } });
 
     const after = store.getReport({ period: "day", date: "2026-09-17" });
     expect(after).toMatchObject({
       outcome: "report",
-      totals: { changedFiles: 1, verification: { passed: 1, not_supplied: 0 } }
+      totals: { changedFiles: 1, verification: { passed: 1, not_supplied: 0 } },
     });
     if (after.outcome !== "report") {
       throw new Error("Expected an updated report");
     }
-    expect(after.risks).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Verification 尚未回報" }),
-      expect.objectContaining({ label: "變更檔案 metadata 未提供" })
-    ]));
+    expect(after.risks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Verification 尚未回報" }),
+        expect.objectContaining({ label: "變更檔案 metadata 未提供" }),
+      ]),
+    );
 
     store.updateProject(project.id, { status: "paused" });
-    expect(store.updateSessionMetadata({
-      sessionId: finalized.session.id,
-      changedFiles: ["src/should-not-update.ts"]
-    })).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(
+      store.updateSessionMetadata({
+        sessionId: finalized.session.id,
+        changedFiles: ["src/should-not-update.ts"],
+      }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
   });
 
   it("exports deterministic Markdown and JSON reports while preserving policy skips", () => {
@@ -607,21 +752,21 @@ describe("WorkIntelligenceStore", () => {
       handoffContent: "# Closing\n\nThe export source is complete.",
       changedFiles: ["src/export.ts"],
       verification: { status: "passed", summary: "Export source verified." },
-      events: [{ type: "note", summary: "Keep the exported report reproducible." }]
+      events: [{ type: "note", summary: "Keep the exported report reproducible." }],
     });
 
     const markdown = store.exportReport({
       period: "day",
       date: "2026-09-17",
       projectId: project.id,
-      format: "markdown"
+      format: "markdown",
     });
     expect(markdown).toMatchObject({
       outcome: "report_export",
       format: "markdown",
       filename: "work-report-day-2026-09-17-to-2026-09-17-Export-project.md",
       contentType: "text/markdown; charset=utf-8",
-      report: { outcome: "report", sourceSessionIds: expect.any(Array) }
+      report: { outcome: "report", sourceSessionIds: expect.any(Array) },
     });
     if (markdown.outcome !== "report_export") {
       throw new Error("Expected a Markdown report export");
@@ -635,13 +780,13 @@ describe("WorkIntelligenceStore", () => {
       period: "day",
       date: "2026-09-17",
       projectId: project.id,
-      format: "json"
+      format: "json",
     });
     expect(json).toMatchObject({
       outcome: "report_export",
       format: "json",
       filename: "work-report-day-2026-09-17-to-2026-09-17-Export-project.json",
-      contentType: "application/json; charset=utf-8"
+      contentType: "application/json; charset=utf-8",
     });
     if (json.outcome !== "report_export") {
       throw new Error("Expected a JSON report export");
@@ -650,16 +795,18 @@ describe("WorkIntelligenceStore", () => {
       outcome: "report",
       period: "day",
       range: { from: "2026-09-17", to: "2026-09-17" },
-      sourceSessionIds: [expect.any(String)]
+      sourceSessionIds: [expect.any(String)],
     });
 
     store.updateProject(project.id, { status: "paused" });
-    expect(store.exportReport({
-      period: "day",
-      date: "2026-09-17",
-      projectId: project.id,
-      format: "markdown"
-    })).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(
+      store.exportReport({
+        period: "day",
+        date: "2026-09-17",
+        projectId: project.id,
+        format: "markdown",
+      }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
   });
 
   it("normalizes changed file paths and merges their evidence sources", () => {
@@ -677,15 +824,15 @@ describe("WorkIntelligenceStore", () => {
         {
           path: "src/index.ts",
           sources: ["git"],
-          references: ["git diff --name-only"]
+          references: ["git diff --name-only"],
         },
         {
           path: join(root, "src", "index.ts"),
           sources: ["worktree"],
-          references: ["worktree diff"]
-        }
+          references: ["worktree diff"],
+        },
       ],
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
 
     expect(finalized).toMatchObject({ outcome: "finalized" });
@@ -697,19 +844,21 @@ describe("WorkIntelligenceStore", () => {
       {
         path: "src/index.ts",
         sources: ["git", "worktree"],
-        references: ["git diff --name-only", "worktree diff"]
+        references: ["git diff --name-only", "worktree diff"],
       },
-      { path: "README.md", sources: ["agent"] }
+      { path: "README.md", sources: ["agent"] },
     ]);
 
-    expect(() => store.finalizeSession({
-      projectRoot: root,
-      idempotencyKey: "provenance-outside-001",
-      title: "Reject outside path",
-      summary: "An outside path must not be stored.",
-      changedFiles: [join(root, "..", "outside.ts")],
-      verification: { status: "not_run" }
-    })).toThrow("inside the tracked project root");
+    expect(() =>
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: "provenance-outside-001",
+        title: "Reject outside path",
+        summary: "An outside path must not be stored.",
+        changedFiles: [join(root, "..", "outside.ts")],
+        verification: { status: "not_run" },
+      }),
+    ).toThrow("inside the tracked project root");
     expect(store.listSessions()).toHaveLength(1);
   });
 
@@ -726,7 +875,7 @@ describe("WorkIntelligenceStore", () => {
       idempotencyKey: "batch-backfill-missing",
       title: "Missing metadata session",
       summary: "This session needs both structured fields.",
-      completedAt: "2026-09-17T12:00:00.000Z"
+      completedAt: "2026-09-17T12:00:00.000Z",
     });
     const notRun = store.finalizeSession({
       projectRoot: root,
@@ -735,7 +884,7 @@ describe("WorkIntelligenceStore", () => {
       summary: "This session needs a confirmed verification result.",
       completedAt: "2026-09-16T12:00:00.000Z",
       changedFiles: ["src/not-run.ts"],
-      verification: { status: "not_run" }
+      verification: { status: "not_run" },
     });
     store.finalizeSession({
       projectRoot: root,
@@ -744,7 +893,7 @@ describe("WorkIntelligenceStore", () => {
       summary: "This session should not appear in the queue.",
       completedAt: "2026-09-15T12:00:00.000Z",
       changedFiles: ["src/complete.ts"],
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
     const paused = store.finalizeSession({
       projectRoot: pausedRoot,
@@ -752,7 +901,7 @@ describe("WorkIntelligenceStore", () => {
       title: "Paused metadata session",
       summary: "The project will be paused before applying updates.",
       changedFiles: ["src/paused.ts"],
-      verification: { status: "not_run" }
+      verification: { status: "not_run" },
     });
     store.updateProject(pausedProject.id, { status: "paused" });
 
@@ -772,34 +921,36 @@ describe("WorkIntelligenceStore", () => {
         needsBackfill: 2,
         changedFilesMissing: 1,
         verificationMissing: 1,
-        verificationNotRun: 1
-      }
+        verificationNotRun: 1,
+      },
     });
     if (preview.outcome !== "backfill_preview") {
       throw new Error("Expected a metadata backfill preview");
     }
-    expect(preview.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        sessionId: missing.session.id,
-        title: "Missing metadata session",
-        verificationStatus: "not_supplied",
-        gaps: ["changed_files", "verification"],
-        rawSnapshotCount: 0
-      }),
-      expect.objectContaining({
-        sessionId: notRun.session.id,
-        title: "Not run verification session",
-        verificationStatus: "not_run",
-        gaps: ["verification"],
-        changedFilesCount: 1
-      })
-    ]));
+    expect(preview.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: missing.session.id,
+          title: "Missing metadata session",
+          verificationStatus: "not_supplied",
+          gaps: ["changed_files", "verification"],
+          rawSnapshotCount: 0,
+        }),
+        expect.objectContaining({
+          sessionId: notRun.session.id,
+          title: "Not run verification session",
+          verificationStatus: "not_run",
+          gaps: ["verification"],
+          changedFilesCount: 1,
+        }),
+      ]),
+    );
 
     const request = store.createMetadataBackfillRequest({});
     expect(request).toMatchObject({
       outcome: "metadata_backfill_request",
       duplicate: false,
-      request: { status: "pending", sourceSessionIds: expect.arrayContaining([missing.session.id, notRun.session.id]) }
+      request: { status: "pending", sourceSessionIds: expect.arrayContaining([missing.session.id, notRun.session.id]) },
     });
     if (request.outcome !== "metadata_backfill_request") {
       throw new Error("Expected a metadata backfill request");
@@ -807,7 +958,7 @@ describe("WorkIntelligenceStore", () => {
     expect(store.createMetadataBackfillRequest({})).toMatchObject({
       outcome: "metadata_backfill_request",
       duplicate: true,
-      request: { id: request.request.id }
+      request: { id: request.request.id },
     });
     const context = store.getMetadataBackfillContext({ requestId: request.request.id });
     expect(context).toMatchObject({
@@ -815,33 +966,37 @@ describe("WorkIntelligenceStore", () => {
       request: { status: "processing" },
       items: expect.arrayContaining([
         expect.objectContaining({ sessionId: missing.session.id, changedFiles: [] }),
-        expect.objectContaining({ sessionId: notRun.session.id, changedFiles: ["src/not-run.ts"] })
-      ])
+        expect.objectContaining({ sessionId: notRun.session.id, changedFiles: ["src/not-run.ts"] }),
+      ]),
     });
 
     const updated = store.applyMetadataBackfill({
       requestId: request.request.id,
-      updates: [{
-        sessionId: missing.session.id,
-        changedFiles: ["src/recovered.ts"],
-        changedFilesProvenance: [{
-          path: "src/recovered.ts",
-          sources: ["worktree"],
-          references: ["confirmed worktree diff"]
-        }],
-        verification: { status: "passed", summary: "Agent confirmed the existing verification evidence." },
-        git: { branch: "feature/backfill" }
-      }]
+      updates: [
+        {
+          sessionId: missing.session.id,
+          changedFiles: ["src/recovered.ts"],
+          changedFilesProvenance: [
+            {
+              path: "src/recovered.ts",
+              sources: ["worktree"],
+              references: ["confirmed worktree diff"],
+            },
+          ],
+          verification: { status: "passed", summary: "Agent confirmed the existing verification evidence." },
+          git: { branch: "feature/backfill" },
+        },
+      ],
     });
     expect(updated).toMatchObject({
       outcome: "backfill_applied",
       requestedCount: 1,
       skipped: [],
-      failures: []
+      failures: [],
     });
     expect(updated).toMatchObject({
       request: { id: request.request.id, status: "processing" },
-      remainingItems: [expect.objectContaining({ sessionId: notRun.session.id })]
+      remainingItems: [expect.objectContaining({ sessionId: notRun.session.id })],
     });
     expect(updated.outcome).toBe("backfill_applied");
     if (updated.outcome !== "backfill_applied") {
@@ -855,47 +1010,49 @@ describe("WorkIntelligenceStore", () => {
       summary: "This session needs both structured fields.",
       changedFiles: ["src/recovered.ts"],
       verification: { status: "passed" },
-      gitBranch: "feature/backfill"
+      gitBranch: "feature/backfill",
     });
 
     const completed = store.applyMetadataBackfill({
       requestId: request.request.id,
-      updates: [{
-        sessionId: notRun.session.id,
-        changedFiles: [],
-        changedFilesMode: "merge",
-        verification: { status: "passed", summary: "Agent confirmed the verification evidence." }
-      }]
+      updates: [
+        {
+          sessionId: notRun.session.id,
+          changedFiles: [],
+          changedFilesMode: "merge",
+          verification: { status: "passed", summary: "Agent confirmed the verification evidence." },
+        },
+      ],
     });
     expect(completed).toMatchObject({
       outcome: "backfill_applied",
       request: { id: request.request.id, status: "completed" },
-      remainingItems: []
+      remainingItems: [],
     });
 
     const retry = store.applyMetadataBackfill({
       updates: [
         { sessionId: missing.session.id, changedFiles: ["src/last-writer.ts"] },
-        { sessionId: missing.session.id, changedFiles: ["src/duplicate.ts"] }
-      ]
+        { sessionId: missing.session.id, changedFiles: ["src/duplicate.ts"] },
+      ],
     });
     expect(retry).toMatchObject({
       outcome: "backfill_applied",
       requestedCount: 2,
       updated: [expect.objectContaining({ id: missing.session.id })],
       skipped: [],
-      failures: [{ sessionId: missing.session.id }]
+      failures: [{ sessionId: missing.session.id }],
     });
     expect(store.getSessionById(missing.session.id)?.changedFiles).toEqual(["src/last-writer.ts"]);
 
     const pausedUpdate = store.applyMetadataBackfill({
-      updates: [{ sessionId: paused.session.id, changedFiles: ["src/should-not-update.ts"] }]
+      updates: [{ sessionId: paused.session.id, changedFiles: ["src/should-not-update.ts"] }],
     });
     expect(pausedUpdate).toMatchObject({
       outcome: "backfill_applied",
       updated: [],
       skipped: [{ sessionId: paused.session.id, projectStatus: "paused" }],
-      failures: []
+      failures: [],
     });
 
     const unregisteredRoot = join(root, "unregistered");
@@ -903,7 +1060,7 @@ describe("WorkIntelligenceStore", () => {
     expect(unregistered).toMatchObject({ status: "unregistered" });
     expect(store.previewMetadataBackfill({ projectRoot: unregisteredRoot })).toMatchObject({
       outcome: "skipped",
-      projectStatus: "unregistered"
+      projectStatus: "unregistered",
     });
   });
 
@@ -915,7 +1072,7 @@ describe("WorkIntelligenceStore", () => {
       projectRoot: root,
       idempotencyKey: "metadata-cancel-session-001",
       title: "Metadata cancellation source",
-      summary: "This session intentionally has missing structured metadata."
+      summary: "This session intentionally has missing structured metadata.",
     });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a metadata cancellation source session");
@@ -929,28 +1086,34 @@ describe("WorkIntelligenceStore", () => {
     expect(store.cancelMetadataBackfillRequest(first.request.id)).toMatchObject({
       outcome: "metadata_backfill_request_cancelled",
       duplicate: false,
-      request: { id: first.request.id, status: "cancelled" }
+      request: { id: first.request.id, status: "cancelled" },
     });
     expect(store.cancelMetadataBackfillRequest(first.request.id)).toMatchObject({
       outcome: "metadata_backfill_request_cancelled",
       duplicate: true,
-      request: { id: first.request.id, status: "cancelled" }
+      request: { id: first.request.id, status: "cancelled" },
     });
     expect(store.getMetadataBackfillContext({ requestId: first.request.id })).toMatchObject({
       outcome: "metadata_backfill_request_not_ready",
-      request: { status: "cancelled" }
+      request: { status: "cancelled" },
     });
-    expect(store.applyMetadataBackfill({
-      requestId: first.request.id,
-      updates: [{ sessionId: finalized.session.id, changedFiles: ["src/must-not-write.ts"] }]
-    })).toMatchObject({
+    expect(
+      store.applyMetadataBackfill({
+        requestId: first.request.id,
+        updates: [{ sessionId: finalized.session.id, changedFiles: ["src/must-not-write.ts"] }],
+      }),
+    ).toMatchObject({
       outcome: "metadata_backfill_request_not_ready",
-      request: { status: "cancelled" }
+      request: { status: "cancelled" },
     });
     expect(store.getSessionById(finalized.session.id)?.changedFiles).toEqual([]);
 
     const recreated = store.createMetadataBackfillRequest({});
-    expect(recreated).toMatchObject({ outcome: "metadata_backfill_request", duplicate: false, request: { status: "pending" } });
+    expect(recreated).toMatchObject({
+      outcome: "metadata_backfill_request",
+      duplicate: false,
+      request: { status: "pending" },
+    });
     if (recreated.outcome !== "metadata_backfill_request") {
       throw new Error("Expected a fresh metadata backfill request after cancellation");
     }
@@ -964,12 +1127,12 @@ describe("WorkIntelligenceStore", () => {
     expect(store.createMetadataBackfillRequest({ projectId: "missing-project" })).toMatchObject({
       outcome: "skipped",
       projectId: "missing-project",
-      projectStatus: "unregistered"
+      projectStatus: "unregistered",
     });
     expect(store.listMetadataBackfillRequests({ projectId: "missing-project" })).toMatchObject({
       outcome: "skipped",
       projectId: "missing-project",
-      projectStatus: "unregistered"
+      projectStatus: "unregistered",
     });
 
     store.updateProject(project.id, { status: "tracked" });
@@ -977,7 +1140,7 @@ describe("WorkIntelligenceStore", () => {
       projectRoot: root,
       idempotencyKey: "metadata-policy-session-001",
       title: "Policy scoped metadata source",
-      summary: "This tracked session creates a policy-scoped metadata request."
+      summary: "This tracked session creates a policy-scoped metadata request.",
     });
     expect(session).toMatchObject({ outcome: "finalized" });
     const request = store.createMetadataBackfillRequest({ projectId: project.id });
@@ -990,17 +1153,17 @@ describe("WorkIntelligenceStore", () => {
     expect(store.listMetadataBackfillRequests({ projectId: project.id })).toMatchObject({
       outcome: "skipped",
       projectId: project.id,
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
     expect(store.cancelMetadataBackfillRequest(request.request.id)).toMatchObject({
       outcome: "skipped",
       projectId: project.id,
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
     expect(store.getMetadataBackfillContext({ requestId: request.request.id })).toMatchObject({
       outcome: "skipped",
       projectId: project.id,
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
   });
 
@@ -1012,7 +1175,7 @@ describe("WorkIntelligenceStore", () => {
       projectRoot: root,
       idempotencyKey: "stale-metadata-session-001",
       title: "Stale metadata source",
-      summary: "This Session needs metadata recovery."
+      summary: "This Session needs metadata recovery.",
     });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a stale metadata source Session");
@@ -1024,7 +1187,7 @@ describe("WorkIntelligenceStore", () => {
     }
     expect(store.getMetadataBackfillContext({ requestId: created.request.id })).toMatchObject({
       outcome: "metadata_backfill_context",
-      request: { status: "processing" }
+      request: { status: "processing" },
     });
 
     const database = (store as unknown as { db: DatabaseSync }).db;
@@ -1034,7 +1197,7 @@ describe("WorkIntelligenceStore", () => {
 
     expect(store.listMetadataBackfillRequests({ requestId: created.request.id })).toMatchObject({
       outcome: "metadata_backfill_requests",
-      requests: [{ status: "failed", failureReason: expect.stringContaining("30 分鐘") }]
+      requests: [{ status: "failed", failureReason: expect.stringContaining("30 分鐘") }],
     });
   });
 
@@ -1059,17 +1222,21 @@ Implemented the feature and captured its verification evidence.
 ## Verification
 Result: PASSED
 `,
-      "utf8"
+      "utf8",
     );
     writeFileSync(join(handoffDirectory, "blocked.md"), "# Blocked task\n\nStatus: blocked\n", "utf8");
     writeFileSync(join(handoffDirectory, "pending.md"), "# Pending task\n\nStatus: pending\n", "utf8");
     writeFileSync(join(handoffDirectory, "planning.md"), "# Planning task\n\nStatus: planning\n", "utf8");
-    writeFileSync(join(handoffDirectory, "unknown.md"), "# Undecided task\n\nNotes without a completion status.\n", "utf8");
+    writeFileSync(
+      join(handoffDirectory, "unknown.md"),
+      "# Undecided task\n\nNotes without a completion status.\n",
+      "utf8",
+    );
     writeFileSync(join(handoffDirectory, "excluded.md"), "# Excluded complete task\n\nStatus: complete\n", "utf8");
 
     const preview = store.previewHandoffImport({
       projectRoot: root,
-      excludePaths: [".openspec/handoffs/excluded.md"]
+      excludePaths: [".openspec/handoffs/excluded.md"],
     });
     expect(preview).toMatchObject({
       outcome: "preview",
@@ -1077,32 +1244,54 @@ Result: PASSED
       handoffDirectory: ".openspec/handoffs",
       directoryFound: true,
       truncated: false,
-      totals: { discovered: 6, eligible: 1, excluded: 5, alreadyImported: 0, errors: 0 }
+      totals: { discovered: 6, eligible: 1, excluded: 5, alreadyImported: 0, errors: 0 },
     });
     if (preview.outcome !== "preview") {
       throw new Error("Expected a handoff import preview");
     }
-    expect(preview.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        sourcePath: ".openspec/handoffs/completed.md",
-        title: "Completed feature",
-        decision: "eligible",
-        recordedDate: "2026-09-17",
-        verificationStatus: "passed",
-        changedFiles: ["src/feature.ts"],
-        changedFilesStatus: "detected"
-      }),
-      expect.objectContaining({ sourcePath: ".openspec/handoffs/blocked.md", decision: "excluded", reason: "blocked" }),
-      expect.objectContaining({ sourcePath: ".openspec/handoffs/pending.md", decision: "excluded", reason: "pending" }),
-      expect.objectContaining({ sourcePath: ".openspec/handoffs/planning.md", decision: "excluded", reason: "planning_only" }),
-      expect.objectContaining({ sourcePath: ".openspec/handoffs/unknown.md", decision: "excluded", reason: "no_explicit_completion" }),
-      expect.objectContaining({ sourcePath: ".openspec/handoffs/excluded.md", decision: "excluded", reason: "excluded_by_user" })
-    ]));
+    expect(preview.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourcePath: ".openspec/handoffs/completed.md",
+          title: "Completed feature",
+          decision: "eligible",
+          recordedDate: "2026-09-17",
+          verificationStatus: "passed",
+          changedFiles: ["src/feature.ts"],
+          changedFilesStatus: "detected",
+        }),
+        expect.objectContaining({
+          sourcePath: ".openspec/handoffs/blocked.md",
+          decision: "excluded",
+          reason: "blocked",
+        }),
+        expect.objectContaining({
+          sourcePath: ".openspec/handoffs/pending.md",
+          decision: "excluded",
+          reason: "pending",
+        }),
+        expect.objectContaining({
+          sourcePath: ".openspec/handoffs/planning.md",
+          decision: "excluded",
+          reason: "planning_only",
+        }),
+        expect.objectContaining({
+          sourcePath: ".openspec/handoffs/unknown.md",
+          decision: "excluded",
+          reason: "no_explicit_completion",
+        }),
+        expect.objectContaining({
+          sourcePath: ".openspec/handoffs/excluded.md",
+          decision: "excluded",
+          reason: "excluded_by_user",
+        }),
+      ]),
+    );
 
     const imported = store.importHandoffs({
       projectRoot: root,
       sourcePaths: [".openspec/handoffs/completed.md"],
-      excludePaths: [".openspec/handoffs/excluded.md"]
+      excludePaths: [".openspec/handoffs/excluded.md"],
     });
     expect(imported).toMatchObject({ outcome: "imported", selectedCount: 1, failures: [], skipped: [] });
     if (imported.outcome !== "imported") {
@@ -1113,15 +1302,17 @@ Result: PASSED
       title: "Completed feature",
       completedAt: "2026-09-17T12:00:00.000Z",
       changedFiles: ["src/feature.ts"],
-      changedFilesProvenance: [{ path: "src/feature.ts", sources: ["handoff"], references: [".openspec/handoffs/completed.md"] }],
-      verification: { status: "passed" }
+      changedFilesProvenance: [
+        { path: "src/feature.ts", sources: ["handoff"], references: [".openspec/handoffs/completed.md"] },
+      ],
+      verification: { status: "passed" },
     });
     const detail = store.getSessionDetail(imported.imported[0]?.id ?? "");
     expect(detail?.rawSnapshots[0]?.sourcePath).toBe(".openspec/handoffs/completed.md");
 
     const retry = store.importHandoffs({
       projectRoot: root,
-      sourcePaths: [".openspec/handoffs/completed.md"]
+      sourcePaths: [".openspec/handoffs/completed.md"],
     });
     expect(retry).toMatchObject({ outcome: "imported", selectedCount: 1, imported: [], failures: [] });
     if (retry.outcome !== "imported") {
@@ -1131,8 +1322,8 @@ Result: PASSED
       expect.objectContaining({
         sourcePath: ".openspec/handoffs/completed.md",
         decision: "already_imported",
-        reason: "already_imported"
-      })
+        reason: "already_imported",
+      }),
     ]);
     expect(store.listSessions()).toHaveLength(1);
   });
@@ -1146,7 +1337,7 @@ Result: PASSED
       idempotencyKey: "evidence-001",
       title: "Capture evidence",
       summary: "Keep external verification references linked to the session.",
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
     expect(finalized).toMatchObject({ outcome: "finalized" });
     if (finalized.outcome !== "finalized") {
@@ -1157,7 +1348,7 @@ Result: PASSED
       sessionId: finalized.session.id,
       kind: "test",
       reference: "pnpm test --filter storage",
-      summary: "Storage and policy tests passed."
+      summary: "Storage and policy tests passed.",
     };
     const first = store.attachEvidence(input);
     expect(first).toMatchObject({
@@ -1168,8 +1359,8 @@ Result: PASSED
         projectId: project.id,
         kind: "test",
         reference: input.reference,
-        summary: input.summary
-      }
+        summary: input.summary,
+      },
     });
     if (first.outcome !== "evidence_attached") {
       throw new Error("Expected evidence to be attached");
@@ -1179,7 +1370,7 @@ Result: PASSED
     expect(retry).toMatchObject({
       outcome: "evidence_attached",
       duplicate: true,
-      evidence: { id: first.evidence.id, summary: input.summary }
+      evidence: { id: first.evidence.id, summary: input.summary },
     });
 
     const detail = store.getSessionDetail(finalized.session.id);
@@ -1190,20 +1381,22 @@ Result: PASSED
     if (report.outcome !== "report") {
       throw new Error("Expected an evidence report");
     }
-    expect(report.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "attached",
-        sessionId: finalized.session.id,
-        reference: input.reference,
-        detail: input.summary
-      })
-    ]));
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "attached",
+          sessionId: finalized.session.id,
+          reference: input.reference,
+          detail: input.summary,
+        }),
+      ]),
+    );
 
     store.updateProject(project.id, { status: "paused" });
     expect(store.attachEvidence({ ...input, reference: "paused-reference" })).toMatchObject({
       outcome: "skipped",
       sessionId: finalized.session.id,
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
     expect(store.getSessionDetail(finalized.session.id)).toBeUndefined();
     store.updateProject(project.id, { status: "tracked" });
@@ -1219,7 +1412,7 @@ Result: PASSED
       idempotencyKey: "knowledge-session-001",
       title: "Establish storage boundary",
       summary: "Confirmed the local SQLite boundary for the work record.",
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
     expect(finalized).toMatchObject({ outcome: "finalized" });
     if (finalized.outcome !== "finalized") {
@@ -1234,7 +1427,7 @@ Result: PASSED
       body: "Project tracking belongs to the central registry; repositories must not receive configuration files.",
       sessionId: finalized.session.id,
       tags: ["architecture", "registry", "architecture"],
-      references: ["README.md#project-recording-policy"]
+      references: ["README.md#project-recording-policy"],
     };
     const first = store.recordKnowledge(input);
     expect(first).toMatchObject({
@@ -1248,8 +1441,8 @@ Result: PASSED
         title: input.title,
         tags: ["architecture", "registry"],
         references: input.references,
-        status: "active"
-      }
+        status: "active",
+      },
     });
     if (first.outcome !== "knowledge_recorded") {
       throw new Error("Expected knowledge to be recorded");
@@ -1259,7 +1452,7 @@ Result: PASSED
     expect(retry).toMatchObject({
       outcome: "knowledge_recorded",
       duplicate: true,
-      knowledge: { id: first.knowledge.id, body: input.body }
+      knowledge: { id: first.knowledge.id, body: input.body },
     });
 
     const search = store.searchKnowledge({ projectRoot: root, query: "central SQLite" });
@@ -1267,26 +1460,33 @@ Result: PASSED
     if (search.outcome !== "knowledge") {
       throw new Error("Expected tracked knowledge search results");
     }
-    expect(search.items).toEqual([expect.objectContaining({ id: first.knowledge.id, sessionId: finalized.session.id })]);
+    expect(search.items).toEqual([
+      expect.objectContaining({ id: first.knowledge.id, sessionId: finalized.session.id }),
+    ]);
     const allKnowledge = store.searchKnowledge({ projectId: project.id, pageSize: 0 });
-    expect(allKnowledge).toMatchObject({ outcome: "knowledge", pageInfo: { page: 1, pageSize: 1, total: 1, totalPages: 1, from: 1, to: 1 } });
+    expect(allKnowledge).toMatchObject({
+      outcome: "knowledge",
+      pageInfo: { page: 1, pageSize: 1, total: 1, totalPages: 1, from: 1, to: 1 },
+    });
     if (allKnowledge.outcome !== "knowledge") {
       throw new Error("Expected all Knowledge results");
     }
     expect(allKnowledge.items).toHaveLength(1);
-    expect(store.getContext(root)).toMatchObject({ recentKnowledge: [expect.objectContaining({ id: first.knowledge.id })] });
+    expect(store.getContext(root)).toMatchObject({
+      recentKnowledge: [expect.objectContaining({ id: first.knowledge.id })],
+    });
     expect(store.getSessionDetail(finalized.session.id)).toMatchObject({
-      knowledge: [expect.objectContaining({ id: first.knowledge.id })]
+      knowledge: [expect.objectContaining({ id: first.knowledge.id })],
     });
 
     store.updateProject(project.id, { status: "paused" });
     expect(store.recordKnowledge({ ...input, idempotencyKey: "knowledge-paused" })).toMatchObject({
       outcome: "skipped",
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
     expect(store.searchKnowledge({ projectId: project.id })).toMatchObject({
       outcome: "skipped",
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
   });
 
@@ -1302,7 +1502,7 @@ Result: PASSED
       title: "Original title",
       body: "Original body",
       tags: ["first"],
-      references: ["notes.md"]
+      references: ["notes.md"],
     });
     expect(created).toMatchObject({ outcome: "knowledge_recorded" });
     if (created.outcome !== "knowledge_recorded") {
@@ -1316,7 +1516,7 @@ Result: PASSED
       body: "Updated body",
       tags: ["updated", "updated"],
       references: ["README.md"],
-      status: "archived"
+      status: "archived",
     });
     expect(archived).toMatchObject({
       outcome: "knowledge_updated",
@@ -1326,19 +1526,19 @@ Result: PASSED
         body: "Updated body",
         tags: ["updated"],
         references: ["README.md"],
-        status: "archived"
-      }
+        status: "archived",
+      },
     });
     expect(store.searchKnowledge({ projectRoot: root })).toMatchObject({ outcome: "knowledge", items: [] });
     expect(store.searchKnowledge({ projectRoot: root, status: "archived" })).toMatchObject({
       outcome: "knowledge",
-      items: [expect.objectContaining({ id: created.knowledge.id, status: "archived" })]
+      items: [expect.objectContaining({ id: created.knowledge.id, status: "archived" })],
     });
 
     const restored = store.updateKnowledge({
       projectRoot: root,
       knowledgeId: created.knowledge.id,
-      status: "active"
+      status: "active",
     });
     expect(restored).toMatchObject({ outcome: "knowledge_updated", knowledge: { status: "active" } });
 
@@ -1349,8 +1549,8 @@ Result: PASSED
       history: [
         { action: "restored", changedFields: ["status"] },
         { action: "archived", changedFields: ["title", "body", "tags", "references", "status"] },
-        { action: "created", changedFields: ["kind", "title", "body", "tags", "references", "status"] }
-      ]
+        { action: "created", changedFields: ["kind", "title", "body", "tags", "references", "status"] },
+      ],
     });
     if (history.outcome !== "knowledge_history") {
       throw new Error("Expected Knowledge audit history");
@@ -1359,14 +1559,16 @@ Result: PASSED
     expect(history.history[1]?.after).toMatchObject({ title: "Updated title", status: "archived" });
 
     store.updateProject(project.id, { status: "paused" });
-    expect(store.updateKnowledge({
-      projectRoot: root,
-      knowledgeId: created.knowledge.id,
-      title: "Must not update while paused"
-    })).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(
+      store.updateKnowledge({
+        projectRoot: root,
+        knowledgeId: created.knowledge.id,
+        title: "Must not update while paused",
+      }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
     expect(store.getKnowledgeHistory({ projectRoot: root, knowledgeId: created.knowledge.id })).toMatchObject({
       outcome: "skipped",
-      projectStatus: "paused"
+      projectStatus: "paused",
     });
   });
 
@@ -1380,7 +1582,7 @@ Result: PASSED
       title: "Multi-stage metadata",
       summary: "Each independently verified stage should contribute its confirmed paths.",
       changedFiles: ["src/first.ts"],
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a finalized metadata merge session");
@@ -1392,8 +1594,8 @@ Result: PASSED
       changedFilesMode: "merge",
       changedFilesProvenance: [
         { path: "src/first.ts", sources: ["worktree"], references: ["stage 1 diff"] },
-        { path: "src/second.ts", sources: ["git"], references: ["stage 2 commit"] }
-      ]
+        { path: "src/second.ts", sources: ["git"], references: ["stage 2 commit"] },
+      ],
     });
     expect(firstStage).toMatchObject({
       outcome: "updated",
@@ -1401,9 +1603,9 @@ Result: PASSED
         changedFiles: ["src/first.ts", "src/second.ts"],
         changedFilesProvenance: [
           { path: "src/first.ts", sources: ["agent", "worktree"], references: ["stage 1 diff"] },
-          { path: "src/second.ts", sources: ["git"], references: ["stage 2 commit"] }
-        ]
-      }
+          { path: "src/second.ts", sources: ["git"], references: ["stage 2 commit"] },
+        ],
+      },
     });
 
     const secondStage = store.updateSessionMetadata({
@@ -1412,8 +1614,8 @@ Result: PASSED
       changedFilesMode: "merge",
       changedFilesProvenance: [
         { path: "src/second.ts", sources: ["handoff"], references: ["stage 2 handoff"] },
-        { path: "src/third.ts", sources: ["worktree"], references: ["stage 3 diff"] }
-      ]
+        { path: "src/third.ts", sources: ["worktree"], references: ["stage 3 diff"] },
+      ],
     });
     expect(secondStage).toMatchObject({
       outcome: "updated",
@@ -1422,9 +1624,9 @@ Result: PASSED
         changedFilesProvenance: [
           { path: "src/first.ts", sources: ["agent", "worktree"], references: ["stage 1 diff"] },
           { path: "src/second.ts", sources: ["handoff", "git"], references: ["stage 2 commit", "stage 2 handoff"] },
-          { path: "src/third.ts", sources: ["worktree"], references: ["stage 3 diff"] }
-        ]
-      }
+          { path: "src/third.ts", sources: ["worktree"], references: ["stage 3 diff"] },
+        ],
+      },
     });
   });
 
@@ -1439,7 +1641,7 @@ Result: PASSED
       title: "Create graph source",
       summary: "Create graph nodes from structured work records.",
       changedFiles: ["src/graph.ts"],
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
     expect(finalized).toMatchObject({ outcome: "finalized" });
     if (finalized.outcome !== "finalized") {
@@ -1451,13 +1653,13 @@ Result: PASSED
       kind: "pattern",
       title: "Graph uses structured metadata",
       body: "Graph edges are deterministic and trace back to stored records.",
-      sessionId: finalized.session.id
+      sessionId: finalized.session.id,
     });
     const evidence = store.attachEvidence({
       sessionId: finalized.session.id,
       kind: "test",
       reference: "pnpm test --filter storage",
-      summary: "Graph storage test passed."
+      summary: "Graph storage test passed.",
     });
     expect(knowledge).toMatchObject({ outcome: "knowledge_recorded" });
     expect(evidence).toMatchObject({ outcome: "evidence_attached" });
@@ -1467,19 +1669,23 @@ Result: PASSED
     if (graph.outcome !== "graph") {
       throw new Error("Expected a tracked project graph");
     }
-    expect(graph.nodes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "project", projectId: project.id, label: project.name }),
-      expect.objectContaining({ kind: "session", sessionId: finalized.session.id }),
-      expect.objectContaining({ kind: "file", label: "src/graph.ts" }),
-      expect.objectContaining({ kind: "knowledge", label: "Graph uses structured metadata" }),
-      expect.objectContaining({ kind: "evidence", sessionId: finalized.session.id })
-    ]));
-    expect(graph.edges).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "contains" }),
-      expect.objectContaining({ kind: "changed_file" }),
-      expect.objectContaining({ kind: "has_knowledge" }),
-      expect.objectContaining({ kind: "has_evidence" })
-    ]));
+    expect(graph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "project", projectId: project.id, label: project.name }),
+        expect.objectContaining({ kind: "session", sessionId: finalized.session.id }),
+        expect.objectContaining({ kind: "file", label: "src/graph.ts" }),
+        expect.objectContaining({ kind: "knowledge", label: "Graph uses structured metadata" }),
+        expect.objectContaining({ kind: "evidence", sessionId: finalized.session.id }),
+      ]),
+    );
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "contains" }),
+        expect.objectContaining({ kind: "changed_file" }),
+        expect.objectContaining({ kind: "has_knowledge" }),
+        expect.objectContaining({ kind: "has_evidence" }),
+      ]),
+    );
     expect(graph.nodes.some((node) => node.label === hiddenProject.name)).toBe(false);
 
     store.updateProject(project.id, { status: "paused" });
@@ -1498,22 +1704,40 @@ Result: PASSED
         summary: "A session used to verify backend pagination.",
         completedAt: `2026-09-${String(10 + index).padStart(2, "0")}T12:00:00.000Z`,
         changedFiles: [`src/pagination-${index}.ts`],
-        verification: { status: "passed" }
+        verification: { status: "passed" },
       });
     }
 
     const page = store.listSessionsPage({ projectId: project.id, page: 2, pageSize: 2 });
-    expect(page.pageInfo).toMatchObject({ page: 2, pageSize: 2, total: 5, totalPages: 3, from: 3, to: 4, hasPrevious: true, hasNext: true });
+    expect(page.pageInfo).toMatchObject({
+      page: 2,
+      pageSize: 2,
+      total: 5,
+      totalPages: 3,
+      from: 3,
+      to: 4,
+      hasPrevious: true,
+      hasNext: true,
+    });
     expect(page.items).toHaveLength(2);
     const all = store.listSessionsPage({ projectId: project.id, pageSize: 0 });
-    expect(all.pageInfo).toMatchObject({ page: 1, pageSize: 5, total: 5, totalPages: 1, from: 1, to: 5, hasPrevious: false, hasNext: false });
+    expect(all.pageInfo).toMatchObject({
+      page: 1,
+      pageSize: 5,
+      total: 5,
+      totalPages: 1,
+      from: 1,
+      to: 5,
+      hasPrevious: false,
+      hasNext: false,
+    });
     expect(all.items).toHaveLength(5);
     const graph = store.getGraph({ projectId: project.id, limit: 50, maxNodes: 2, maxEdges: 1 });
     expect(graph).toMatchObject({
       outcome: "graph",
       totalNodes: 11,
       totalEdges: 10,
-      totalNodesByKind: { project: 1, session: 5, knowledge: 0, evidence: 0, file: 5 }
+      totalNodesByKind: { project: 1, session: 5, knowledge: 0, evidence: 0, file: 5 },
     });
     if (graph.outcome !== "graph") {
       throw new Error("Expected a graph result");
@@ -1522,6 +1746,107 @@ Result: PASSED
     expect(graph.edges.length).toBeLessThanOrEqual(1);
     expect(graph.truncation.nodesTruncated).toBe(true);
     expect(graph.truncation.edgesTruncated).toBe(true);
+  });
+
+  it("streams large graphs through bounded server-side session cursors", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Cursor graph project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    for (let index = 0; index < 251; index += 1) {
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `cursor-graph-${index}`,
+        title: `Cursor session ${index}`,
+        summary: "A session used to verify bounded graph cursor pages.",
+        completedAt: `2026-09-${String((index % 20) + 1).padStart(2, "0")}T12:00:00.000Z`,
+        changedFiles: [`src/cursor-${index}.ts`],
+        verification: { status: "passed" },
+      });
+    }
+
+    let cursor: string | undefined;
+    let pageCount = 0;
+    const nodeIds = new Set<string>();
+    let totalNodes: number;
+    do {
+      const page = store.getGraph({
+        projectId: project.id,
+        limit: 200,
+        pageSize: 500,
+        maxNodes: 500,
+        maxEdges: 1_000,
+        cursor,
+      });
+      expect(page).toMatchObject({ outcome: "graph" });
+      if (page.outcome !== "graph") {
+        throw new Error("Expected a graph cursor page");
+      }
+      pageCount += 1;
+      totalNodes = page.totalNodes;
+      expect(page.nodes.length).toBeLessThanOrEqual(500);
+      expect(page.pageInfo).toMatchObject({ unit: "sessions", pageSize: 200 });
+      page.nodes.forEach((node) => nodeIds.add(node.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(pageCount).toBe(2);
+    expect(totalNodes).toBe(503);
+    expect(nodeIds.size).toBe(totalNodes);
+  });
+
+  it("continues a cursor when one session fills the page with related nodes", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Single session graph project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "single-session-cursor-001",
+      title: "Single session cursor",
+      summary: "A single session with enough evidence to require a continuation page.",
+      completedAt: "2026-09-18T12:00:00.000Z",
+      changedFiles: ["src/single-session-cursor.ts"],
+      verification: { status: "passed" },
+    });
+    expect(finalized).toMatchObject({ outcome: "finalized" });
+    if (finalized.outcome !== "finalized") {
+      throw new Error("Expected a finalized cursor source session");
+    }
+
+    for (let index = 0; index < 501; index += 1) {
+      const evidence = store.attachEvidence({
+        sessionId: finalized.session.id,
+        kind: "test",
+        reference: `pnpm test --filter graph-${index}`,
+        summary: `Evidence ${index}`,
+      });
+      expect(evidence).toMatchObject({ outcome: "evidence_attached" });
+    }
+
+    let cursor: string | undefined;
+    let pageCount = 0;
+    const nodeIds = new Set<string>();
+    do {
+      const page = store.getGraph({
+        projectId: project.id,
+        limit: 200,
+        pageSize: 500,
+        maxNodes: 500,
+        maxEdges: 1_000,
+        cursor,
+      });
+      expect(page).toMatchObject({ outcome: "graph" });
+      if (page.outcome !== "graph") {
+        throw new Error("Expected a graph cursor page for one large session");
+      }
+      pageCount += 1;
+      expect(page.totalNodes).toBe(504);
+      expect(page.nodes.length).toBeLessThanOrEqual(500);
+      page.nodes.forEach((node) => nodeIds.add(node.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(pageCount).toBe(2);
+    expect(nodeIds.size).toBe(504);
   });
 
   it("hard-caps All requests for sessions, knowledge, and report evidence", () => {
@@ -1537,7 +1862,7 @@ Result: PASSED
         summary: "A session used to verify server-side All limits.",
         completedAt: "2026-09-17T12:00:00.000Z",
         changedFiles: [`src/large-list-${index}.ts`],
-        verification: { status: "passed" }
+        verification: { status: "passed" },
       });
     }
     for (let index = 0; index < 201; index += 1) {
@@ -1546,21 +1871,34 @@ Result: PASSED
         idempotencyKey: `large-list-knowledge-${index}`,
         kind: "pattern",
         title: `Large list knowledge ${index}`,
-        body: "A confirmed Knowledge item used to verify server-side All limits."
+        body: "A confirmed Knowledge item used to verify server-side All limits.",
       });
     }
 
     const sessions = store.listSessionsPage({ projectId: project.id, pageSize: 0 });
-    expect(sessions.pageInfo).toMatchObject({ page: 1, pageSize: 100, total: 101, totalPages: 2, truncated: true, hasNext: true });
+    expect(sessions.pageInfo).toMatchObject({
+      page: 1,
+      pageSize: 100,
+      total: 101,
+      totalPages: 2,
+      truncated: true,
+      hasNext: true,
+    });
     expect(sessions.items).toHaveLength(100);
     const knowledge = store.searchKnowledge({ projectId: project.id, pageSize: 0 });
-    expect(knowledge).toMatchObject({ outcome: "knowledge", pageInfo: { page: 1, pageSize: 200, total: 201, totalPages: 2, truncated: true, hasNext: true } });
+    expect(knowledge).toMatchObject({
+      outcome: "knowledge",
+      pageInfo: { page: 1, pageSize: 200, total: 201, totalPages: 2, truncated: true, hasNext: true },
+    });
     if (knowledge.outcome !== "knowledge") {
       throw new Error("Expected Knowledge results");
     }
     expect(knowledge.items).toHaveLength(200);
     const report = store.getReport({ period: "day", date: "2026-09-17", projectId: project.id, evidencePageSize: 0 });
-    expect(report).toMatchObject({ outcome: "report", evidencePageInfo: { pageSize: 100, truncated: true, hasNext: true } });
+    expect(report).toMatchObject({
+      outcome: "report",
+      evidencePageInfo: { pageSize: 100, truncated: true, hasNext: true },
+    });
     if (report.outcome !== "report") {
       throw new Error("Expected a report result");
     }
@@ -1582,7 +1920,7 @@ Result: PASSED
       handoffContent: "Closing: report context is ready. Verification passed.",
       changedFiles: ["packages/core/src/index.ts"],
       verification: { status: "passed", summary: "Storage tests passed." },
-      events: [{ type: "note", summary: "Keep Agent summaries traceable." }]
+      events: [{ type: "note", summary: "Keep Agent summaries traceable." }],
     });
     expect(finalized).toMatchObject({ outcome: "finalized" });
     if (finalized.outcome !== "finalized") {
@@ -1593,21 +1931,36 @@ Result: PASSED
       period: "week",
       date: "2026-09-17",
       projectId: project.id,
-      idempotencyKey: "synthesis-request-001"
+      idempotencyKey: "synthesis-request-001",
     });
-    expect(created).toMatchObject({ outcome: "report_synthesis_request", duplicate: false, request: { status: "pending", sourceSessionIds: [finalized.session.id] } });
+    expect(created).toMatchObject({
+      outcome: "report_synthesis_request",
+      duplicate: false,
+      request: { status: "pending", sourceSessionIds: [finalized.session.id] },
+    });
     if (created.outcome !== "report_synthesis_request") {
       throw new Error("Expected a synthesis request");
     }
-    expect(store.createReportSynthesisRequest({
-      period: "week",
-      date: "2026-09-17",
-      projectId: project.id,
-      idempotencyKey: "synthesis-request-001"
-    })).toMatchObject({ outcome: "report_synthesis_request", duplicate: true, request: { id: created.request.id } });
+    expect(
+      store.createReportSynthesisRequest({
+        period: "week",
+        date: "2026-09-17",
+        projectId: project.id,
+        idempotencyKey: "synthesis-request-001",
+      }),
+    ).toMatchObject({ outcome: "report_synthesis_request", duplicate: true, request: { id: created.request.id } });
 
-    const context = store.getReportSynthesisContext({ requestId: created.request.id, maxSessions: 1, maxEvidence: 2, maxHandoffCharacters: 1000 });
-    expect(context).toMatchObject({ outcome: "report_context", request: { status: "processing" }, handoffSummaries: [{ sessionId: finalized.session.id }] });
+    const context = store.getReportSynthesisContext({
+      requestId: created.request.id,
+      maxSessions: 1,
+      maxEvidence: 2,
+      maxHandoffCharacters: 1000,
+    });
+    expect(context).toMatchObject({
+      outcome: "report_context",
+      request: { status: "processing" },
+      handoffSummaries: [{ sessionId: finalized.session.id }],
+    });
     if (context.outcome !== "report_context") {
       throw new Error("Expected bounded synthesis context");
     }
@@ -1618,17 +1971,33 @@ Result: PASSED
       requestId: created.request.id,
       title: "本週工作報告",
       executiveSummary: "完成報告提煉契約，資料不足部分已明確保留。",
-      themes: [{ title: "報告治理", detail: "建立可重跑且可追溯的提煉流程。", sourceSessionIds: [finalized.session.id] }],
-      highlights: [{ title: "完成 MCP contract", detail: "建立受控 context 與回寫流程。", sourceSessionIds: [finalized.session.id] }],
+      themes: [
+        { title: "報告治理", detail: "建立可重跑且可追溯的提煉流程。", sourceSessionIds: [finalized.session.id] },
+      ],
+      highlights: [
+        {
+          title: "完成 MCP contract",
+          detail: "建立受控 context 與回寫流程。",
+          sourceSessionIds: [finalized.session.id],
+        },
+      ],
       verification: [{ title: "測試通過", detail: "Storage tests passed。", sourceSessionIds: [finalized.session.id] }],
-      comparison: [{ title: "相較上一期", detail: "本期新增一個可回寫摘要的 Session。", sourceSessionIds: [finalized.session.id] }],
+      comparison: [
+        { title: "相較上一期", detail: "本期新增一個可回寫摘要的 Session。", sourceSessionIds: [finalized.session.id] },
+      ],
       risks: [],
       decisions: [],
-      nextSteps: [{ title: "由 Agent 持續補充", detail: "若需要更多證據，回到來源 Session。", sourceSessionIds: [finalized.session.id] }],
+      nextSteps: [
+        {
+          title: "由 Agent 持續補充",
+          detail: "若需要更多證據，回到來源 Session。",
+          sourceSessionIds: [finalized.session.id],
+        },
+      ],
       sourceSessionIds: [finalized.session.id],
       generatedByAgent: "codex",
       generatedByModel: "test-model",
-      promptVersion: "report-synthesis-v1"
+      promptVersion: "report-synthesis-v1",
     });
     expect(saved).toMatchObject({
       outcome: "report_summary_saved",
@@ -1638,40 +2007,44 @@ Result: PASSED
         requestId: created.request.id,
         themes: [{ title: "報告治理" }],
         verification: [{ title: "測試通過" }],
-        comparison: [{ title: "相較上一期" }]
-      }
+        comparison: [{ title: "相較上一期" }],
+      },
     });
     if (saved.outcome !== "report_summary_saved") {
       throw new Error("Expected the first report summary to be saved");
     }
-    expect(store.saveReportSummary({
-      requestId: created.request.id,
-      title: "Retry must be ignored",
-      executiveSummary: "This retry must return the existing result.",
-      highlights: [],
-      risks: [],
-      decisions: [],
-      nextSteps: [],
-      sourceSessionIds: [finalized.session.id],
-      generatedByAgent: "claude",
-      promptVersion: "report-synthesis-v2"
-    })).toMatchObject({ outcome: "report_summary_saved", duplicate: true, summary: { title: "本週工作報告" } });
+    expect(
+      store.saveReportSummary({
+        requestId: created.request.id,
+        title: "Retry must be ignored",
+        executiveSummary: "This retry must return the existing result.",
+        highlights: [],
+        risks: [],
+        decisions: [],
+        nextSteps: [],
+        sourceSessionIds: [finalized.session.id],
+        generatedByAgent: "claude",
+        promptVersion: "report-synthesis-v2",
+      }),
+    ).toMatchObject({ outcome: "report_summary_saved", duplicate: true, summary: { title: "本週工作報告" } });
     expect(store.getReportSynthesisRequest(created.request.id)).toMatchObject({
       outcome: "report_synthesis_request_detail",
       request: { status: "completed" },
-      summary: { title: "本週工作報告", sourceSessionIds: [finalized.session.id] }
+      summary: { title: "本週工作報告", sourceSessionIds: [finalized.session.id] },
     });
     const secondRequest = store.createReportSynthesisRequest({
       period: "week",
       date: "2026-09-17",
       projectId: project.id,
-      idempotencyKey: "synthesis-request-002"
+      idempotencyKey: "synthesis-request-002",
     });
     expect(secondRequest).toMatchObject({ outcome: "report_synthesis_request", duplicate: false });
     if (secondRequest.outcome !== "report_synthesis_request") {
       throw new Error("Expected a second synthesis request");
     }
-    expect(store.getReportSynthesisContext({ requestId: secondRequest.request.id })).toMatchObject({ outcome: "report_context" });
+    expect(store.getReportSynthesisContext({ requestId: secondRequest.request.id })).toMatchObject({
+      outcome: "report_context",
+    });
     const secondSaved = store.saveReportSummary({
       requestId: secondRequest.request.id,
       title: "本週工作報告第二版",
@@ -1682,31 +2055,40 @@ Result: PASSED
       nextSteps: [],
       sourceSessionIds: [finalized.session.id],
       generatedByAgent: "codex",
-      promptVersion: "report-synthesis-v2"
+      promptVersion: "report-synthesis-v2",
     });
-    expect(secondSaved).toMatchObject({ outcome: "report_summary_saved", duplicate: false, summary: { isCurrent: true } });
+    expect(secondSaved).toMatchObject({
+      outcome: "report_summary_saved",
+      duplicate: false,
+      summary: { isCurrent: true },
+    });
     if (secondSaved.outcome !== "report_summary_saved") {
       throw new Error("Expected the second report summary to be saved");
     }
-    expect(store.listReportSummaries({ period: "week", date: "2026-09-17", projectId: project.id, currentOnly: false })).toMatchObject({
+    expect(
+      store.listReportSummaries({ period: "week", date: "2026-09-17", projectId: project.id, currentOnly: false }),
+    ).toMatchObject({
       outcome: "report_summaries",
-      summaries: [expect.objectContaining({ id: secondSaved.summary.id }), expect.objectContaining({ id: saved.summary.id })]
+      summaries: [
+        expect.objectContaining({ id: secondSaved.summary.id }),
+        expect.objectContaining({ id: saved.summary.id }),
+      ],
     });
     expect(store.deleteReportSummary(saved.summary.id)).toMatchObject({
       outcome: "report_summary_deleted",
       summaryId: saved.summary.id,
-      deleted: true
+      deleted: true,
     });
     expect(store.deleteReportSummary(secondSaved.summary.id)).toMatchObject({
       outcome: "report_summary_delete_rejected",
-      summaryId: secondSaved.summary.id
+      summaryId: secondSaved.summary.id,
     });
 
     const cancellable = store.createReportSynthesisRequest({
       period: "week",
       date: "2026-09-17",
       projectId: project.id,
-      idempotencyKey: "synthesis-request-cancel-001"
+      idempotencyKey: "synthesis-request-cancel-001",
     });
     expect(cancellable).toMatchObject({ outcome: "report_synthesis_request", request: { status: "pending" } });
     if (cancellable.outcome !== "report_synthesis_request") {
@@ -1715,21 +2097,21 @@ Result: PASSED
     expect(store.cancelReportSynthesisRequest(cancellable.request.id)).toMatchObject({
       outcome: "report_synthesis_request_cancelled",
       duplicate: false,
-      request: { status: "cancelled" }
+      request: { status: "cancelled" },
     });
     expect(store.cancelReportSynthesisRequest(cancellable.request.id)).toMatchObject({
       outcome: "report_synthesis_request_cancelled",
-      duplicate: true
+      duplicate: true,
     });
     expect(store.getReportSynthesisContext({ requestId: cancellable.request.id })).toMatchObject({
       outcome: "report_synthesis_request_not_ready",
-      request: { status: "cancelled" }
+      request: { status: "cancelled" },
     });
     const interrupted = store.createReportSynthesisRequest({
       period: "week",
       date: "2026-09-17",
       projectId: project.id,
-      idempotencyKey: "synthesis-request-interrupted-001"
+      idempotencyKey: "synthesis-request-interrupted-001",
     });
     expect(interrupted).toMatchObject({ outcome: "report_synthesis_request", request: { status: "pending" } });
     if (interrupted.outcome !== "report_synthesis_request") {
@@ -1743,14 +2125,14 @@ Result: PASSED
       .run(new Date(Date.now() - 31 * 60 * 1000).toISOString(), interrupted.request.id);
     expect(store.listReportSynthesisRequests({ requestId: interrupted.request.id })).toMatchObject({
       outcome: "report_synthesis_requests",
-      requests: [{ status: "failed", failureReason: expect.stringContaining("30 分鐘") }]
+      requests: [{ status: "failed", failureReason: expect.stringContaining("30 分鐘") }],
     });
 
     const retried = store.retryReportSynthesisRequest(interrupted.request.id);
     expect(retried).toMatchObject({
       outcome: "report_synthesis_request_retried",
       previousRequestId: interrupted.request.id,
-      request: { status: "pending", sourceSessionIds: [finalized.session.id] }
+      request: { status: "pending", sourceSessionIds: [finalized.session.id] },
     });
     if (retried.outcome !== "report_synthesis_request_retried") {
       throw new Error("Expected a retry synthesis request");
@@ -1758,26 +2140,31 @@ Result: PASSED
     expect(retried.request.id).not.toBe(interrupted.request.id);
     expect(store.getReportSynthesisRequest(interrupted.request.id)).toMatchObject({
       outcome: "report_synthesis_request_detail",
-      request: { status: "cancelled" }
+      request: { status: "cancelled" },
     });
-    expect(store.saveReportSummary({
-      requestId: interrupted.request.id,
-      title: "Stale summary must be rejected",
-      executiveSummary: "The interrupted attempt must not write after retry.",
-      highlights: [],
-      risks: [],
-      decisions: [],
-      nextSteps: [],
-      sourceSessionIds: [finalized.session.id],
-      generatedByAgent: "codex",
-      promptVersion: "report-synthesis-v2"
-    })).toMatchObject({ outcome: "report_summary_request_not_ready", status: "cancelled" });
+    expect(
+      store.saveReportSummary({
+        requestId: interrupted.request.id,
+        title: "Stale summary must be rejected",
+        executiveSummary: "The interrupted attempt must not write after retry.",
+        highlights: [],
+        risks: [],
+        decisions: [],
+        nextSteps: [],
+        sourceSessionIds: [finalized.session.id],
+        generatedByAgent: "codex",
+        promptVersion: "report-synthesis-v2",
+      }),
+    ).toMatchObject({ outcome: "report_summary_request_not_ready", status: "cancelled" });
     expect(store.getReportSynthesisContext({ requestId: retried.request.id })).toMatchObject({
       outcome: "report_context",
-      request: { status: "processing" }
+      request: { status: "processing" },
     });
     store.updateProject(project.id, { status: "paused" });
-    expect(store.getReportSynthesisContext({ requestId: created.request.id })).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(store.getReportSynthesisContext({ requestId: created.request.id })).toMatchObject({
+      outcome: "skipped",
+      projectStatus: "paused",
+    });
   });
 
   it("adds new session metadata columns when opening a legacy SQLite database", () => {
@@ -1812,33 +2199,30 @@ Result: PASSED
         verification_json TEXT
       );
     `);
-    legacyDatabase.prepare(
-      `INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(
-      "legacy-project",
-      "Legacy project",
-      root,
-      "tracked",
-      "2026-09-17T12:00:00.000Z",
-      "2026-09-17T12:00:00.000Z"
-    );
-    legacyDatabase.prepare(
-      `INSERT INTO sessions (
+    legacyDatabase
+      .prepare(
+        `INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run("legacy-project", "Legacy project", root, "tracked", "2026-09-17T12:00:00.000Z", "2026-09-17T12:00:00.000Z");
+    legacyDatabase
+      .prepare(
+        `INSERT INTO sessions (
         id, project_id, idempotency_key, title, summary, status,
         completed_at, created_at, changed_files_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      "legacy-session",
-      "legacy-project",
-      "legacy-key",
-      "Legacy session",
-      "Keep this historical summary unchanged.",
-      "finalized",
-      "2026-09-17T12:00:00.000Z",
-      "2026-09-17T12:00:00.000Z",
-      JSON.stringify(["legacy/file.ts"])
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "legacy-session",
+        "legacy-project",
+        "legacy-key",
+        "Legacy session",
+        "Keep this historical summary unchanged.",
+        "finalized",
+        "2026-09-17T12:00:00.000Z",
+        "2026-09-17T12:00:00.000Z",
+        JSON.stringify(["legacy/file.ts"]),
+      );
     legacyDatabase.close();
 
     const store = new WorkIntelligenceStore(databasePath);
@@ -1848,7 +2232,7 @@ Result: PASSED
       summary: "Keep this historical summary unchanged.",
       executionStatus: "completed",
       changedFiles: ["legacy/file.ts"],
-      changedFilesProvenance: []
+      changedFilesProvenance: [],
     });
 
     const migratedDatabase = new DatabaseSync(databasePath);
@@ -1875,7 +2259,7 @@ Result: PASSED
       projectRoot: root,
       idempotencyKey: "context-follow-up-001",
       title: "Context metadata follow-up",
-      summary: "The Agent should see missing metadata when it asks for context."
+      summary: "The Agent should see missing metadata when it asks for context.",
     });
     expect(finalized).toMatchObject({ outcome: "finalized" });
     const context = store.getContext(root);
@@ -1886,9 +2270,9 @@ Result: PASSED
         expect.objectContaining({
           title: "Context metadata follow-up",
           gaps: ["changed_files", "verification"],
-          changedFileChangesCount: 0
-        })
-      ]
+          changedFileChangesCount: 0,
+        }),
+      ],
     });
   });
 });

@@ -15,6 +15,10 @@
 
 本批已先落地 execution status、changed-file provenance、root-relative normalization、向後相容的 SQLite 欄位 migration，以及 MCP response contract tests；reports export、metadata batch backfill、explicit evidence、explicit knowledge、Knowledge audit history 與 deterministic graph read model 已落地。
 
+## 工作記錄與報告格式
+
+Agent 的 Session 輸入欄位、五段內容準則、日／週／月／季／年聚合層級、來源追溯與既有資料回填邊界，統一依 [Work record and report format v1](docs/work-record-and-report-format.md)。MCP 仍使用向下相容的五個 `workSummary` 陣列；`nextSteps` 只表示已知現況／未結項，不是未來工作建議。Git 維持獨立且可選的結構化 metadata。
+
 ## Session metadata contract
 
 每筆 finalized Session 都會回傳 `executionStatus: "completed"`。這只表示既有 planning → execution → verification → closing 流程已完成並呼叫 finalize，不代表一定有 Git commit，也不代表 verification 一定通過。
@@ -51,11 +55,12 @@ Work Intelligence 是一個 Local-first Developer Work Intelligence MVP：Agent 
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node 24 內建 `node:sqlite` SQLite 儲存，避免額外 native binding
-- MCP stdio server：`work_finalize_session`、`work_update_session_metadata`、`work_update_session_summary`、`work_attach_evidence`、`work_record_knowledge`、`work_search_knowledge`、`work_update_knowledge`、`work_get_knowledge_history`、`work_get_graph`、`work_preview_metadata_backfill`、`work_list_metadata_backfill_requests`、`work_get_metadata_backfill_context`、`work_cancel_metadata_backfill`、`work_apply_metadata_backfill`、`work_preview_handoff_import`、`work_import_handoffs`、`work_get_context`、`work_search`、`work_get_report`、`work_export_report`、`work_list_report_synthesis_requests`、`work_cancel_report_synthesis`、`work_retry_report_synthesis`、`work_get_report_context`、`work_save_report_summary`
+- MCP stdio server：`work_finalize_session`、`work_update_session_metadata`、`work_update_session_summary`、`work_update_session_work_summary`、`work_attach_evidence`、`work_record_knowledge`、`work_search_knowledge`、`work_update_knowledge`、`work_get_knowledge_history`、`work_get_graph`、`work_preview_metadata_backfill`、`work_list_metadata_backfill_requests`、`work_get_metadata_backfill_context`、`work_cancel_metadata_backfill`、`work_apply_metadata_backfill`、`work_preview_handoff_import`、`work_import_handoffs`、`work_get_context`、`work_search`、`work_get_report`、`work_export_report`、`work_list_report_synthesis_requests`、`work_cancel_report_synthesis`、`work_retry_report_synthesis`、`work_get_report_context`、`work_save_report_summary`
 - Reports：日報／週報／月報／季報／年報，包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
+- 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization
 - Worklog 可依關鍵字、專案與完成日期區間篩選
-- Worklog、Knowledge 與報告來源證據支援 10／20／50／100／All；All 仍由 server cap（Session／證據 100、Knowledge 200），回應會以 `pageInfo.truncated` 明確標示並保留分頁導覽
+- Worklog、Knowledge 與報告來源證據支援 10／20／50／100／All；All 仍由 server cap（Session／證據 100、Knowledge 200），回應會以 `pageInfo.truncated` 明確標示並保留分頁導覽，前端清單則以 `VirtualList` 限制 DOM 渲染量
 - 歷史 handoff 可先 preview/dry-run，再由使用者明確選取套用；pending、blocked、planning-only 不會自動匯入
 - 中央 project registry：不往任何專案 repo 寫設定檔
 - Explicit opt-in / default deny：`unregistered`、`tracked`、`paused`、`ignored`
@@ -124,7 +129,7 @@ REST API 預設只接受沒有 `Origin` 的本機 client，以及 `http://127.0.
 1. 在 UI 的 `Projects / Tracking` 加入 workspace。加入後一定是 `unregistered`。
 2. 使用者明確把狀態切成 `tracked`，才授權 Work Intelligence ingest。
 3. `paused`、`ignored`、`unregistered` 都會安靜回傳 `outcome: "skipped"`，不讀 handoff、Git、source，也不建立 session/events。
-4. `tracked` 專案的 handoff path 會限制在 project root 內；越界 path 不會被讀取。
+4. `tracked` 專案的 handoff path 會限制在 project root 內；越界 path 不會被讀取。同步 storage 流程使用既有 `createProjectPathResolver`；非同步檔案流程可使用 `createAsyncProjectPathResolver` 的保序批次 API，所有結果仍採相同 lexical／realpath boundary。
 5. registry 位於中央 SQLite；side project 不會因 MCP 連線而自動被記錄。
 
 任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_get_context`、project-scoped `work_search`、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
@@ -133,7 +138,7 @@ REST API 預設只接受沒有 `Origin` 的本機 client，以及 `http://127.0.
 
 ### `work_finalize_session`
 
-在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須先檢查工作樹／diff，沒有檔案變更時才傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（後續）五個陣列，沒有內容時傳空陣列；每個元素是一件已確認的短句，不使用 `##` Markdown 標題。這讓 Worklog、Session Detail 與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
+在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須先檢查工作樹／diff，沒有檔案變更時才傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（API 相容欄位，畫面標示「狀態／未結項」）五個陣列；每個元素是一件已確認的短句，沒有證據時傳空陣列，不使用 `##` Markdown 標題。`nextSteps` 只能記錄已知限制、未完成項目、證據缺口或未驗證情境，不可寫建議或未來計畫。Git 狀態另由可選 metadata 記錄。這讓 Worklog、Session Detail 與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
 
 ```json
 {
@@ -146,12 +151,16 @@ REST API 預設只接受沒有 `Origin` 的本機 client，以及 `http://127.0.
     "scope": ["Updated the MCP contract and central SQLite registry."],
     "decisions": ["Kept Agent work completion independent from Git commit."],
     "verification": ["Unit tests and typecheck passed."],
-    "nextSteps": ["Review the implementation in the next agent session."]
+    "nextSteps": ["Firefox/WebKit 尚未驗證。"]
   },
   "handoffPath": ".openspec/handoffs/closing.md",
   "changedFiles": ["packages/project-policy/src/index.ts"],
   "changedFilesProvenance": [
-    { "path": "packages/project-policy/src/index.ts", "sources": ["agent", "git"], "references": ["git diff --name-only"] }
+    {
+      "path": "packages/project-policy/src/index.ts",
+      "sources": ["agent", "git"],
+      "references": ["git diff --name-only"]
+    }
   ],
   "verification": {
     "status": "passed",
@@ -223,9 +232,7 @@ MCP client 的 stdio 設定可使用：
   "changedFilesProvenance": [
     { "path": "src/feature.ts", "sources": ["agent", "worktree"], "references": ["git diff --stat"] }
   ],
-  "changedFileChanges": [
-    { "path": "src/feature.ts", "status": "modified" }
-  ],
+  "changedFileChanges": [{ "path": "src/feature.ts", "status": "modified" }],
   "verification": {
     "status": "passed",
     "summary": "Agent confirmed the verification result."
@@ -249,6 +256,27 @@ MCP client 的 stdio 設定可使用：
   "idempotencyKey": "summary-update-2026-09-18-knowledge-save-label",
   "mode": "append",
   "summary": "補充 knowledgeChunkViewer 編輯態的確定按鈕已改為儲存，並同步 zh-TW、zh-CN、en-US 與 aria-label。"
+}
+```
+
+### `work_update_session_work_summary`
+
+修正已 finalized Session 的結構化五段工作摘要時，使用原本的 `sessionId`，不會建立平行 Session，也不需要重新 finalize：
+
+- `mode: "replace"` 必須提供完整的 `outcomes`、`scope`、`decisions`、`verification`、`nextSteps` 五個陣列，取代整份 workSummary。
+- `mode: "patch"` 可只提供一個或多個已確認的 section；未提供的 section 保留原值，明確傳入 `[]` 代表清空該 section。legacy Session 沒有 workSummary 時，patch 會從五個空陣列開始合併。
+- 必須使用獨立的 workSummary 更新 `idempotencyKey`。相同 key、相同 Session／模式／內容重試會回傳 `duplicate: true`，不會重複追加或建立新 Session；不同內容會回傳 conflict。
+- 只更新 `sessions.work_summary_json` 與 audit row，保留 Session id、原 idempotencyKey、summary、changedFiles、verification、Git metadata、events、raw handoff snapshot、evidence 與 Knowledge。
+- 仍先通過 tracked project policy；`unregistered`、`paused`、`ignored` 會安靜回傳 `outcome: "skipped"`，不讀取或寫入受保護的專案資料。
+
+```json
+{
+  "sessionId": "session-id-from-existing-session",
+  "idempotencyKey": "work-summary-update-2026-09-18-knowledge-save-label",
+  "mode": "patch",
+  "workSummary": {
+    "nextSteps": ["已完成後續修正，無待辦。"]
+  }
 }
 ```
 
@@ -327,6 +355,8 @@ UI 的 Knowledge 頁面每筆記錄都有「變更紀錄」入口，顯示同一
 
 Graph 也回傳 `totalNodes`、`totalEdges`、`totalNodesByKind` 與 `truncation`。`maxNodes` 預設 180、上限 500；`maxEdges` 預設 360、上限 1,000。這些是 API 載入上限，前端另有畫面預覽配額；當 `nodesTruncated` 或 `edgesTruncated` 為 `true` 時，UI 可以提高載入上限或繼續載入，不會把完整資料誤當成已全部渲染。
 
+大型 Graph 可額外傳 `pageSize`（1–500）啟用 server-side incremental page，並把 response 的 `nextCursor` 原樣傳回下一次 `cursor`。cursor 是 scope-bound opaque token；服務會依序處理 Project、Session 及其 changed files／Knowledge／Evidence 關聯，單一 Session 的關聯資料填滿節點上限時也會以同一個 Session 的 relation offset 續載，不會因為沒有下一個 Session 就誤判完成。`pageInfo.unit` 維持 `sessions` 相容欄位，另以 `pageInfo.phase` 反映目前 traversal phase；response 的節點數仍受 `pageSize`／`maxNodes` 限制。Web UI 會合併已載入頁面並透過 Graph viewport virtualization 控制 DOM 數量，因此資料量超過 500 時不需要一次渲染完整 Graph。
+
 ### 報告提煉：使用者只需要自然語言
 
 Reports 頁面上的「請 Agent 提煉」只會在中央 SQLite 建立一筆 pending request，不會由 WorkLog 反向啟動或綁定 Codex、Claude。使用者接著在目前的 Agent 對話輸入：
@@ -339,7 +369,7 @@ Agent 會自行完成以下 implementation detail，使用者不需要知道工�
 
 1. 找到最新的 pending report synthesis request。
 2. 取得該期間與專案範圍的 deterministic report context。
-3. 依 `report-synthesis-v2` contract 產生可掃讀、以結果為中心的繁體中文報告。
+3. 依 `report-synthesis-v3` contract 直接從來源 Session 產生符合日／週／月／季／年資訊粒度的繁體中文報告。
 4. 將摘要、Agent／model／prompt metadata 與每個結論的 `sourceSessionIds` 回寫。
 
 摘要至少要包含：
@@ -348,9 +378,9 @@ Agent 會自行完成以下 implementation detail，使用者不需要知道工�
 - 工作主題／工作流與主要完成成果
 - Verification：`passed`、`failed`、`not_run`、`not_supplied` 必須分開
 - 與上一期的差異、風險／需要協助、技術決策與原因
-- 具體下一步，以及每個主要結論可追溯的來源 Session
+- 目前已知狀態、未結項與限制；不生成未來計畫；每個主要結論可追溯至來源 Session
 
-Agent 不得把「有 changed files」當成 Git commit，也不得從不足的 context 推測；沒有證據時要明確寫 `資料不足`。這種結構符合工作週報常見的結果、阻礙／需要協助、下一期重點、決策與風險分段設計，可參考 [Atlassian Weekly Status Report](https://www.atlassian.com/software/confluence/templates/end-of-week-status-report) 與 [Atlassian Project Status Report Guide](https://www.atlassian.com/agile/project-management/status-report)。
+Agent 不得把「有 changed files」當成 Git commit，也不得從不足的 context 推測；沒有證據時要明確寫 `資料不足`。報告依日／週／月／季／年的時間尺度重新聚類，呈現成果、工作主題、決策、驗證與當下限制；不按日期寫流水帳，也不新增來源未提供的未來計畫。
 
 若早上已完成一次提煉、下午又有新 Session，直接在 Reports 頁按「重新提煉本報告」即可建立新 request。上一版摘要會保留到新的 Agent 摘要完成，再由新版本取代；每次回寫都保留歷史版本，pending request 沒有 Agent 處理時也不會遺失。
 
@@ -434,6 +464,8 @@ claude mcp remove work-intelligence
 
 Claude Code 的 `--` 後方是實際啟動 MCP server 的 command；`--scope user` 會將設定套用到使用者層級。詳見 [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp)。
 
+MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更新 Work Intelligence 的 MCP contract（例如新增 `work_update_session_work_summary`）後，請先重新執行 `pnpm build`，再重新啟動或重新連線目前的 Codex／Claude 對話；若工具清單仍是舊的，請移除並重新加入 `work-intelligence` MCP 設定。只要 host 尚未重新載入，舊對話即使連到同一個 SQLite，也不會看到新工具。
+
 ### Claude Desktop
 
 如果使用的是 Claude Desktop GUI，將以下內容合併到 Windows 設定檔：
@@ -447,11 +479,7 @@ Claude Code 的 `--` 後方是實際啟動 MCP server 的 command；`--scope use
   "mcpServers": {
     "work-intelligence": {
       "command": "pnpm.cmd",
-      "args": [
-        "--dir",
-        "C:\\path\\to\\WorkLog.Ai",
-        "start:mcp"
-      ],
+      "args": ["--dir", "C:\\path\\to\\WorkLog.Ai", "start:mcp"],
       "env": {
         "WORK_INTELLIGENCE_DB": "C:\\path\\to\\WorkLog.Ai\\data\\work-intelligence.sqlite"
       }
@@ -497,38 +525,39 @@ projectRoot 為 C:\path\to\WorkLog.Ai，
 
 ## REST API
 
-| Method | Route | 用途 |
-| --- | --- | --- |
-| GET | `/api/health` | API/SQLite health |
-| GET | `/api/dashboard` | Dashboard counters + recent sessions |
-| GET/POST | `/api/projects` | 列出/加入 registry project |
-| PATCH | `/api/projects/:id` | 更新名稱或 tracking status |
-| GET | `/api/sessions` | Worklog session list；可用 `q`、`projectId`、`from`、`to`（日期格式 `YYYY-MM-DD`）篩選 |
-| GET | `/api/sessions/:id` | Session detail、events、raw handoff |
-| PATCH | `/api/sessions/:id/metadata` | Agent 回填 changed files、verification、Git metadata |
-| PATCH | `/api/sessions/:id/summary` | 以 replace／append 更新既有 finalized Session 主摘要 |
-| POST | `/api/sessions/:id/evidence` | 保存 Agent 提供的 evidence reference |
-| GET | `/api/knowledge` | 搜尋 tracked projects 的 explicit Knowledge |
-| POST | `/api/knowledge` | 保存 Agent 明確提交的 Knowledge |
-| PATCH | `/api/knowledge/:id` | 在 project policy 通過後更新或封存 Knowledge |
-| GET | `/api/knowledge/:id/history?projectRoot=...` | 讀取 Knowledge audit history；先通過 project policy |
-| GET | `/api/graph` | 讀取 tracked-only deterministic work graph |
-| GET | `/api/context` | Agent context query |
-| GET | `/api/search?q=...` | Work history search |
-| GET | `/api/backfill/metadata/preview?projectRoot=...` | 唯讀掃描 metadata 缺口 |
-| GET/POST | `/api/backfill/metadata-requests` | 建立或查詢 Agent metadata 回補請求 |
-| GET | `/api/backfill/metadata-requests/:id/context` | 取得受控 metadata 回補 context |
-| POST | `/api/backfill/metadata-requests/:id/cancel` | 取消 pending／processing metadata 回補請求 |
-| POST | `/api/backfill/metadata` | Agent 回寫已確認的 Session metadata |
-| GET | `/api/reports?period=week&date=YYYY-MM-DD` | 日/週/月/季/年工作報告，可加 `projectId` |
-| GET/POST | `/api/reports/synthesis-requests` | 建立或查詢 Agent 報告提煉請求 |
-| POST | `/api/reports/synthesis-requests/:id/cancel` | 取消 pending／processing 報告提煉請求 |
-| POST | `/api/reports/synthesis-requests/:id/retry` | 將失敗／逾時的提煉請求建立為新的 pending attempt |
-| GET | `/api/reports/synthesis-requests/:id/context` | 取得受控、可追溯的提煉 Context |
-| GET | `/api/reports/summaries` | 查詢目前或歷史 Agent 報告摘要 |
-| POST | `/api/reports/summaries` | Agent 回寫摘要與來源 Session |
-| DELETE | `/api/reports/summaries/:id` | 移除非目前使用中的歷史報告版本 |
-| POST | `/api/work/finalize` | REST 形式的 finalize |
+| Method   | Route                                            | 用途                                                                                   |
+| -------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| GET      | `/api/health`                                    | API/SQLite health                                                                      |
+| GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions                                                   |
+| GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
+| PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
+| GET      | `/api/sessions`                                  | Worklog session list；可用 `q`、`projectId`、`from`、`to`（日期格式 `YYYY-MM-DD`）篩選 |
+| GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
+| PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
+| PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要                                   |
+| PATCH    | `/api/sessions/:id/work-summary`                 | 以 replace／patch 更新既有 finalized Session 五段 workSummary                          |
+| POST     | `/api/sessions/:id/evidence`                     | 保存 Agent 提供的 evidence reference                                                   |
+| GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge                                            |
+| POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
+| PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge                                           |
+| GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
+| GET      | `/api/graph`                                     | 讀取 tracked-only deterministic work graph                                             |
+| GET      | `/api/context`                                   | Agent context query                                                                    |
+| GET      | `/api/search?q=...`                              | Work history search                                                                    |
+| GET      | `/api/backfill/metadata/preview?projectRoot=...` | 唯讀掃描 metadata 缺口                                                                 |
+| GET/POST | `/api/backfill/metadata-requests`                | 建立或查詢 Agent metadata 回補請求                                                     |
+| GET      | `/api/backfill/metadata-requests/:id/context`    | 取得受控 metadata 回補 context                                                         |
+| POST     | `/api/backfill/metadata-requests/:id/cancel`     | 取消 pending／processing metadata 回補請求                                             |
+| POST     | `/api/backfill/metadata`                         | Agent 回寫已確認的 Session metadata                                                    |
+| GET      | `/api/reports?period=week&date=YYYY-MM-DD`       | 日/週/月/季/年工作報告，可加 `projectId`                                               |
+| GET/POST | `/api/reports/synthesis-requests`                | 建立或查詢 Agent 報告提煉請求                                                          |
+| POST     | `/api/reports/synthesis-requests/:id/cancel`     | 取消 pending／processing 報告提煉請求                                                  |
+| POST     | `/api/reports/synthesis-requests/:id/retry`      | 將失敗／逾時的提煉請求建立為新的 pending attempt                                       |
+| GET      | `/api/reports/synthesis-requests/:id/context`    | 取得受控、可追溯的提煉 Context                                                         |
+| GET      | `/api/reports/summaries`                         | 查詢目前或歷史 Agent 報告摘要                                                          |
+| POST     | `/api/reports/summaries`                         | Agent 回寫摘要與來源 Session                                                           |
+| DELETE   | `/api/reports/summaries/:id`                     | 移除非目前使用中的歷史報告版本                                                         |
+| POST     | `/api/work/finalize`                             | REST 形式的 finalize                                                                   |
 
 ### Metadata backfill
 
@@ -601,4 +630,4 @@ pnpm test:e2e   # isolated Playwright browser regression suite
 
 ## 後續擴充邊界
 
-`packages/core/src/modules.ts` 已提供 reports、evidence、knowledge、graph 的接口；目前已落地 reports、evidence、explicit knowledge（含維護、封存與 audit history）、deterministic graph read model、Graph 節點詳細面板、metadata backfill 的明確 replace／merge contract，以及 deleted／renamed path history。Graph 目前刻意維持 read-only，不做未確認的語意推論；原始 session/event/handoff snapshot、明確附加的 evidence 與 Agent 明確提交的 Knowledge 仍是可信來源，不讓 LLM 取代原始資料保存與 policy decision。後續可再加入受控的 report／knowledge automation。
+`packages/core/src/index.ts` 提供 reports、evidence、knowledge、graph 的公開型別與契約；目前已落地 reports、evidence、explicit knowledge（含維護、封存與 audit history）、deterministic graph read model、Graph 節點詳細面板、metadata backfill 的明確 replace／merge contract，以及 deleted／renamed path history。Graph 目前刻意維持 read-only，不做未確認的語意推論；原始 session/event/handoff snapshot、明確附加的 evidence 與 Agent 明確提交的 Knowledge 仍是可信來源，不讓 LLM 取代原始資料保存與 policy decision。後續可再加入受控的 report／knowledge automation。

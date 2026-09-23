@@ -3,7 +3,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import type { ProjectRecord } from "@work-intelligence/core";
-import { canonicalizeProjectRoot, isPathWithinProject, ProjectPolicyGate, safeProjectPath } from "./index.js";
+import {
+  canonicalizeProjectRoot,
+  createAsyncProjectPathResolver,
+  isPathWithinProject,
+  ProjectPolicyGate,
+  safeExistingProjectPaths,
+  safeProjectPath,
+  safeProjectPaths
+} from "./index.js";
 
 function project(status: ProjectRecord["status"]): ProjectRecord {
   return {
@@ -61,6 +69,59 @@ describe("ProjectPolicyGate", () => {
 
     try {
       expect(safeProjectPath(root, "linked/secret.txt")).toBeUndefined();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves a batch asynchronously while preserving order and policy boundaries", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "work-intelligence-policy-"));
+    const root = join(parent, "project");
+    const outside = join(parent, "outside");
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(root, "src", "inside.ts"), "inside", "utf8");
+    writeFileSync(join(outside, "secret.txt"), "outside", "utf8");
+
+    try {
+      const resolver = createAsyncProjectPathResolver(root);
+      const safePaths = await resolver.safePaths(["src/inside.ts", "src/new.ts", "../outside/secret.txt"]);
+      expect(safePaths[0]).toContain(`${join("src", "inside.ts")}`);
+      expect(safePaths[1]).toContain(`${join("src", "new.ts")}`);
+      expect(safePaths[2]).toBeUndefined();
+
+      const existingPaths = await safeExistingProjectPaths(root, ["src/inside.ts", "src/new.ts", "../outside/secret.txt"]);
+      expect(existingPaths[0]).toContain(`${join("src", "inside.ts")}`);
+      expect(existingPaths[1]).toBeUndefined();
+      expect(existingPaths[2]).toBeUndefined();
+
+      const helperPaths = await safeProjectPaths(root, ["src/inside.ts", "../outside/secret.txt"]);
+      expect(helperPaths[0]).toContain(`${join("src", "inside.ts")}`);
+      expect(helperPaths[1]).toBeUndefined();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an asynchronous symlink escape", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "work-intelligence-policy-"));
+    const root = join(parent, "project");
+    const outside = join(parent, "outside");
+    mkdirSync(root);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "secret.txt"), "must stay outside", "utf8");
+
+    try {
+      symlinkSync(outside, join(root, "linked"), process.platform === "win32" ? "junction" : "dir");
+    } catch {
+      rmSync(parent, { recursive: true, force: true });
+      return;
+    }
+
+    try {
+      const resolver = createAsyncProjectPathResolver(root);
+      await expect(resolver.safeExistingPath("linked/secret.txt")).resolves.toBeUndefined();
+      await expect(resolver.safePath("linked/new.txt")).resolves.toBeUndefined();
     } finally {
       rmSync(parent, { recursive: true, force: true });
     }

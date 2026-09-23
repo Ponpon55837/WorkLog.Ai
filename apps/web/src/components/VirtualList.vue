@@ -7,14 +7,14 @@ const props = withDefaults(
     enabled?: boolean;
     estimateItemHeight?: number;
     overscan?: number;
-    ariaLabel?: string;
+    label?: string;
     maxHeight?: string;
   }>(),
   {
     enabled: false,
     estimateItemHeight: 96,
     overscan: 4,
-    ariaLabel: "可捲動清單",
+    label: "可捲動清單",
     maxHeight: "min(68vh, 720px)"
   }
 );
@@ -85,6 +85,86 @@ const visibleItems = computed(() =>
 
 const topSpacerHeight = computed(() => offsets.value[startIndex.value] ?? 0);
 const bottomSpacerHeight = computed(() => Math.max(0, totalHeight.value - (offsets.value[endIndex.value] ?? totalHeight.value)));
+const focusableSelector = [
+  "a[href]",
+  "button:not(:disabled)",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
+
+function getFocusableElements(index: number): HTMLElement[] {
+  const item = itemElements.get(index);
+  if (!item) {
+    return [];
+  }
+
+  return Array.from(item.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+    (element) => !element.hidden && element.getAttribute("aria-hidden") !== "true" && element.getClientRects().length > 0
+  );
+}
+
+async function focusItemEdge(index: number, edge: "first" | "last"): Promise<void> {
+  const element = viewport.value;
+  if (!element) {
+    return;
+  }
+
+  element.scrollTop = offsets.value[index] ?? 0;
+  scrollTop.value = element.scrollTop;
+  await nextTick();
+
+  const item = itemElements.get(index);
+  if (!item) {
+    return;
+  }
+
+  const focusableElements = getFocusableElements(index);
+  const focusTarget = edge === "first" ? focusableElements[0] : focusableElements.at(-1);
+  if (focusTarget) {
+    focusTarget.focus({ preventScroll: true });
+    return;
+  }
+
+  item.tabIndex = -1;
+  item.focus({ preventScroll: true });
+}
+
+function handleKeydown(event: KeyboardEvent): void {
+  if (!props.enabled || event.key !== "Tab" || !(event.target instanceof HTMLElement)) {
+    return;
+  }
+
+  const item = event.target.closest<HTMLElement>(".virtual-list-item");
+  if (!item || !viewport.value?.contains(item)) {
+    return;
+  }
+
+  const itemIndex = Number(item.dataset.virtualIndex);
+  if (!Number.isInteger(itemIndex)) {
+    return;
+  }
+
+  const focusableElements = getFocusableElements(itemIndex);
+  const focusIndex = focusableElements.indexOf(event.target);
+
+  if (event.shiftKey && itemIndex === startIndex.value && focusIndex === 0 && itemIndex > 0) {
+    event.preventDefault();
+    void focusItemEdge(itemIndex - 1, "last");
+    return;
+  }
+
+  if (
+    !event.shiftKey &&
+    itemIndex === endIndex.value - 1 &&
+    focusIndex === focusableElements.length - 1 &&
+    itemIndex < props.items.length - 1
+  ) {
+    event.preventDefault();
+    void focusItemEdge(itemIndex + 1, "first");
+  }
+}
 
 function updateViewportHeight(): void {
   viewportHeight.value = viewport.value?.clientHeight || 480;
@@ -171,8 +251,9 @@ onBeforeUnmount(() => {
     :class="{ 'virtual-list-disabled': !enabled }"
     :style="enabled ? { maxHeight } : undefined"
     :role="enabled ? 'list' : undefined"
-    :aria-label="enabled ? ariaLabel : undefined"
+    :aria-label="enabled ? label : undefined"
     @scroll="handleScroll"
+    @keydown="handleKeydown"
   >
     <template v-if="!enabled">
       <template v-for="(item, index) in items" :key="index">
@@ -186,6 +267,8 @@ onBeforeUnmount(() => {
         :key="entry.index"
         class="virtual-list-item"
         role="listitem"
+        :aria-setsize="items.length"
+        :aria-posinset="entry.index + 1"
         :ref="(element) => setItemElement(entry.index, element)"
       >
         <slot :item="entry.item" :index="entry.index" />
@@ -194,3 +277,28 @@ onBeforeUnmount(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.virtual-list {
+  width: 100%;
+}
+
+.virtual-list:not(.virtual-list-disabled) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.virtual-list-disabled {
+  display: contents;
+}
+
+.virtual-list-item {
+  min-width: 0;
+}
+
+.virtual-list-spacer {
+  width: 100%;
+  pointer-events: none;
+}
+</style>

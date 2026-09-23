@@ -15,3 +15,6 @@ coverage/
 test-results/
 playwright-report/
 .DS_Store
+
+# Local UI screenshots (UI_SCREENSHOTS=<label> pnpm test:e2e)
+docs/ui-baseline/

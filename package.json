@@ -12,7 +12,7 @@
     "format:check": "prettier --check \"eslint.config.js\" \"package.json\" \".prettierrc.json\"",
     "start:server": "pnpm --filter @work-intelligence/server start",
     "start:mcp": "pnpm --filter @work-intelligence/mcp start",
-    "test": "pnpm lint && pnpm format:check && pnpm --filter @work-intelligence/project-policy test && pnpm --filter @work-intelligence/schema test && pnpm --filter @work-intelligence/storage test && pnpm --filter @work-intelligence/server test && pnpm --filter @work-intelligence/mcp test",
+    "test": "pnpm lint && pnpm format:check && pnpm --filter @work-intelligence/core test && pnpm --filter @work-intelligence/project-policy test && pnpm --filter @work-intelligence/schema test && pnpm --filter @work-intelligence/storage test && pnpm --filter @work-intelligence/server test && pnpm --filter @work-intelligence/mcp test",
     "test:coverage": "pnpm --filter @work-intelligence/schema test:coverage && pnpm --filter @work-intelligence/storage test:coverage",
     "test:e2e": "pnpm build && playwright test",
     "typecheck": "pnpm -r typecheck && pnpm run typecheck:e2e",

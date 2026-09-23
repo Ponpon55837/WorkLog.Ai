@@ -29,29 +29,35 @@ import {
   updateProjectInputSchema,
   updateKnowledgeInputSchema,
   updateSessionMetadataInputSchema,
-  updateSessionSummaryInputSchema
+  updateSessionSummaryInputSchema,
+  updateSessionWorkSummaryInputSchema,
 } from "@work-intelligence/schema";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 
 const JSON_HEADERS = {
-  "Content-Type": "application/json; charset=utf-8"
+  "Content-Type": "application/json; charset=utf-8",
 };
 
 const allowedOrigins = new Set(
   (process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "http://127.0.0.1:5966,http://localhost:5966")
     .split(",")
     .map((origin) => origin.trim())
-    .filter((origin) => origin.length > 0 && origin !== "*")
+    .filter((origin) => origin.length > 0 && origin !== "*"),
 );
 
 if ((process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "").split(",").some((origin) => origin.trim() === "*")) {
-  console.error("[work-intelligence] WORK_INTELLIGENCE_ALLOWED_ORIGINS=* is not allowed; using the explicit origin allowlist instead.");
+  console.error(
+    "[work-intelligence] WORK_INTELLIGENCE_ALLOWED_ORIGINS=* is not allowed; using the explicit origin allowlist instead.",
+  );
 }
 
 class RequestBodyError extends Error {
-  public constructor(public readonly statusCode: 400 | 413 | 415, message: string) {
+  public constructor(
+    public readonly statusCode: 400 | 413 | 415,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -137,7 +143,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           ok: true,
           app: "Work Intelligence",
           policy: "explicit-opt-in/default-deny",
-          database: databaseHealthy ? "connected" : "unavailable"
+          database: databaseHealthy ? "connected" : "unavailable",
         });
         return;
       }
@@ -154,8 +160,12 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           evidenceKind: requestUrl.searchParams.get("evidenceKind") ?? undefined,
           evidenceQuery: requestUrl.searchParams.get("evidenceQuery")?.trim() || undefined,
-          evidencePage: requestUrl.searchParams.get("evidencePage") ? Number(requestUrl.searchParams.get("evidencePage")) : undefined,
-          evidencePageSize: requestUrl.searchParams.get("evidencePageSize") ? Number(requestUrl.searchParams.get("evidencePageSize")) : undefined
+          evidencePage: requestUrl.searchParams.get("evidencePage")
+            ? Number(requestUrl.searchParams.get("evidencePage"))
+            : undefined,
+          evidencePageSize: requestUrl.searchParams.get("evidencePageSize")
+            ? Number(requestUrl.searchParams.get("evidencePageSize"))
+            : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid report query.", parsed.error.flatten());
@@ -172,9 +182,13 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           evidenceKind: requestUrl.searchParams.get("evidenceKind") ?? undefined,
           evidenceQuery: requestUrl.searchParams.get("evidenceQuery")?.trim() || undefined,
-          evidencePage: requestUrl.searchParams.get("evidencePage") ? Number(requestUrl.searchParams.get("evidencePage")) : undefined,
-          evidencePageSize: requestUrl.searchParams.get("evidencePageSize") ? Number(requestUrl.searchParams.get("evidencePageSize")) : undefined,
-          format: requestUrl.searchParams.get("format") ?? undefined
+          evidencePage: requestUrl.searchParams.get("evidencePage")
+            ? Number(requestUrl.searchParams.get("evidencePage"))
+            : undefined,
+          evidencePageSize: requestUrl.searchParams.get("evidencePageSize")
+            ? Number(requestUrl.searchParams.get("evidencePageSize"))
+            : undefined,
+          format: requestUrl.searchParams.get("format") ?? undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid report export query.", parsed.error.flatten());
@@ -202,7 +216,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           status: requestUrl.searchParams.get("status") ?? undefined,
           requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
-          limit: rawLimit ? Number(rawLimit) : undefined
+          limit: rawLimit ? Number(rawLimit) : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid report synthesis request query.", parsed.error.flatten());
@@ -248,12 +262,25 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         return;
       }
 
-      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "reports" && pathParts[2] === "synthesis-requests" && pathParts[3] && pathParts[4] === "context") {
+      if (
+        request.method === "GET" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "reports" &&
+        pathParts[2] === "synthesis-requests" &&
+        pathParts[3] &&
+        pathParts[4] === "context"
+      ) {
         const parsed = reportSynthesisContextQuerySchema.safeParse({
           requestId: pathParts[3],
-          maxSessions: requestUrl.searchParams.get("maxSessions") ? Number(requestUrl.searchParams.get("maxSessions")) : undefined,
-          maxEvidence: requestUrl.searchParams.get("maxEvidence") ? Number(requestUrl.searchParams.get("maxEvidence")) : undefined,
-          maxHandoffCharacters: requestUrl.searchParams.get("maxHandoffCharacters") ? Number(requestUrl.searchParams.get("maxHandoffCharacters")) : undefined
+          maxSessions: requestUrl.searchParams.get("maxSessions")
+            ? Number(requestUrl.searchParams.get("maxSessions"))
+            : undefined,
+          maxEvidence: requestUrl.searchParams.get("maxEvidence")
+            ? Number(requestUrl.searchParams.get("maxEvidence"))
+            : undefined,
+          maxHandoffCharacters: requestUrl.searchParams.get("maxHandoffCharacters")
+            ? Number(requestUrl.searchParams.get("maxHandoffCharacters"))
+            : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid report synthesis context query.", parsed.error.flatten());
@@ -263,7 +290,13 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         return;
       }
 
-      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "reports" && pathParts[2] === "synthesis-requests" && pathParts[3]) {
+      if (
+        request.method === "GET" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "reports" &&
+        pathParts[2] === "synthesis-requests" &&
+        pathParts[3]
+      ) {
         sendJson(response, 200, store.getReportSynthesisRequest(pathParts[3]));
         return;
       }
@@ -275,13 +308,20 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           date: requestUrl.searchParams.get("date") ?? undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
-          limit: rawLimit ? Number(rawLimit) : undefined
+          limit: rawLimit ? Number(rawLimit) : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid report summary query.", parsed.error.flatten());
           return;
         }
-        sendJson(response, 200, store.listReportSummaries({ ...parsed.data, currentOnly: requestUrl.searchParams.get("currentOnly") !== "false" }));
+        sendJson(
+          response,
+          200,
+          store.listReportSummaries({
+            ...parsed.data,
+            currentOnly: requestUrl.searchParams.get("currentOnly") !== "false",
+          }),
+        );
         return;
       }
 
@@ -322,7 +362,9 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           status: requestUrl.searchParams.get("status") || undefined,
           limit: rawLimit ? Number(rawLimit) : undefined,
           page: requestUrl.searchParams.get("page") ? Number(requestUrl.searchParams.get("page")) : undefined,
-          pageSize: requestUrl.searchParams.get("pageSize") ? Number(requestUrl.searchParams.get("pageSize")) : undefined
+          pageSize: requestUrl.searchParams.get("pageSize")
+            ? Number(requestUrl.searchParams.get("pageSize"))
+            : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid knowledge query.", parsed.error.flatten());
@@ -332,12 +374,18 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         return;
       }
 
-      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "knowledge" && pathParts[2] && pathParts[3] === "history") {
+      if (
+        request.method === "GET" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "knowledge" &&
+        pathParts[2] &&
+        pathParts[3] === "history"
+      ) {
         const rawLimit = requestUrl.searchParams.get("limit");
         const parsed = knowledgeHistoryQuerySchema.safeParse({
           projectRoot: requestUrl.searchParams.get("projectRoot") ?? "",
           knowledgeId: pathParts[2],
-          limit: rawLimit ? Number(rawLimit) : undefined
+          limit: rawLimit ? Number(rawLimit) : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid knowledge history query.", parsed.error.flatten());
@@ -351,12 +399,15 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         const rawLimit = requestUrl.searchParams.get("limit");
         const rawMaxNodes = requestUrl.searchParams.get("maxNodes");
         const rawMaxEdges = requestUrl.searchParams.get("maxEdges");
+        const rawPageSize = requestUrl.searchParams.get("pageSize");
         const parsed = graphQuerySchema.safeParse({
           projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           limit: rawLimit ? Number(rawLimit) : undefined,
           maxNodes: rawMaxNodes ? Number(rawMaxNodes) : undefined,
-          maxEdges: rawMaxEdges ? Number(rawMaxEdges) : undefined
+          maxEdges: rawMaxEdges ? Number(rawMaxEdges) : undefined,
+          pageSize: rawPageSize ? Number(rawPageSize) : undefined,
+          cursor: requestUrl.searchParams.get("cursor")?.trim() || undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid graph query.", parsed.error.flatten());
@@ -378,8 +429,8 @@ export function createApiHandler(store: WorkIntelligenceStore) {
 
       if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "knowledge" && pathParts[2]) {
         const parsed = updateKnowledgeInputSchema.safeParse({
-          ...(await readJsonBody(request) as Record<string, unknown>),
-          knowledgeId: pathParts[2]
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          knowledgeId: pathParts[2],
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid knowledge update payload.", parsed.error.flatten());
@@ -421,20 +472,26 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           from: requestUrl.searchParams.get("from") || undefined,
           to: requestUrl.searchParams.get("to") || undefined,
           page: requestUrl.searchParams.get("page") ? Number(requestUrl.searchParams.get("page")) : undefined,
-          pageSize: requestUrl.searchParams.get("pageSize") ? Number(requestUrl.searchParams.get("pageSize")) : undefined
+          pageSize: requestUrl.searchParams.get("pageSize")
+            ? Number(requestUrl.searchParams.get("pageSize"))
+            : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid session filters.", parsed.error.flatten());
           return;
         }
-        sendJson(response, 200, store.listSessionsPage({
-          query: parsed.data.q,
-          projectId: parsed.data.projectId,
-          from: parsed.data.from,
-          to: parsed.data.to,
-          page: parsed.data.page,
-          pageSize: parsed.data.pageSize
-        }));
+        sendJson(
+          response,
+          200,
+          store.listSessionsPage({
+            query: parsed.data.q,
+            projectId: parsed.data.projectId,
+            from: parsed.data.from,
+            to: parsed.data.to,
+            page: parsed.data.page,
+            pageSize: parsed.data.pageSize,
+          }),
+        );
         return;
       }
 
@@ -442,7 +499,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         const rawLimit = requestUrl.searchParams.get("limit");
         const parsed = metadataBackfillPreviewQuerySchema.safeParse({
           projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
-          limit: rawLimit ? Number(rawLimit) : undefined
+          limit: rawLimit ? Number(rawLimit) : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid metadata backfill preview query.", parsed.error.flatten());
@@ -469,7 +526,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           status: requestUrl.searchParams.get("status") ?? undefined,
           requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
-          limit: rawLimit ? Number(rawLimit) : undefined
+          limit: rawLimit ? Number(rawLimit) : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid metadata backfill request query.", parsed.error.flatten());
@@ -479,10 +536,17 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         return;
       }
 
-      if (request.method === "GET" && pathParts[0] === "api" && pathParts[1] === "backfill" && pathParts[2] === "metadata-requests" && pathParts[3] && pathParts[4] === "context") {
+      if (
+        request.method === "GET" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "backfill" &&
+        pathParts[2] === "metadata-requests" &&
+        pathParts[3] &&
+        pathParts[4] === "context"
+      ) {
         const parsed = metadataBackfillRequestContextQuerySchema.safeParse({
           requestId: pathParts[3],
-          limit: requestUrl.searchParams.get("limit") ? Number(requestUrl.searchParams.get("limit")) : undefined
+          limit: requestUrl.searchParams.get("limit") ? Number(requestUrl.searchParams.get("limit")) : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid metadata backfill request context query.", parsed.error.flatten());
@@ -526,7 +590,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           projectRoot: requestUrl.searchParams.get("projectRoot") ?? "",
           handoffDirectory: requestUrl.searchParams.get("handoffDirectory") ?? undefined,
           excludePaths: requestUrl.searchParams.getAll("excludePath"),
-          maxFiles: rawMaxFiles ? Number(rawMaxFiles) : undefined
+          maxFiles: rawMaxFiles ? Number(rawMaxFiles) : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid handoff import preview query.", parsed.error.flatten());
@@ -546,10 +610,16 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         return;
       }
 
-      if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "sessions" && pathParts[2] && pathParts[3] === "metadata") {
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "metadata"
+      ) {
         const parsed = updateSessionMetadataInputSchema.safeParse({
-          ...(await readJsonBody(request) as Record<string, unknown>),
-          sessionId: pathParts[2]
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          sessionId: pathParts[2],
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid session metadata payload.", parsed.error.flatten());
@@ -559,10 +629,16 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         return;
       }
 
-      if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "sessions" && pathParts[2] && pathParts[3] === "summary") {
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "summary"
+      ) {
         const parsed = updateSessionSummaryInputSchema.safeParse({
-          ...(await readJsonBody(request) as Record<string, unknown>),
-          sessionId: pathParts[2]
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          sessionId: pathParts[2],
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid session summary payload.", parsed.error.flatten());
@@ -572,10 +648,35 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         return;
       }
 
-      if (request.method === "POST" && pathParts[0] === "api" && pathParts[1] === "sessions" && pathParts[2] && pathParts[3] === "evidence") {
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "work-summary"
+      ) {
+        const parsed = updateSessionWorkSummaryInputSchema.safeParse({
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          sessionId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session workSummary payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.updateSessionWorkSummary(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "evidence"
+      ) {
         const parsed = attachEvidenceInputSchema.safeParse({
-          ...(await readJsonBody(request) as Record<string, unknown>),
-          sessionId: pathParts[2]
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          sessionId: pathParts[2],
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid evidence payload.", parsed.error.flatten());
@@ -603,7 +704,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
       if (request.method === "GET" && requestUrl.pathname === "/api/search") {
         const parsed = searchQuerySchema.safeParse({
           q: requestUrl.searchParams.get("q") ?? "",
-          projectRoot: requestUrl.searchParams.get("projectRoot") ?? undefined
+          projectRoot: requestUrl.searchParams.get("projectRoot") ?? undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "A non-empty search query is required.", parsed.error.flatten());

@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Work Intelligence UI 預覽</title>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+:root {
+  --bg-canvas: #0d1117; --bg-inset: #010409; --bg-subtle: #161b22; --bg-hover: #1c2128; --bg-muted: #21262d;
+  --border: #30363d; --border-muted: #21262d;
+  --fg: #e6edf3; --fg-muted: #9198a1; --fg-subtle: #6e7681;
+  --accent: #4493f8; --accent-emphasis: #1f6feb;
+  --success: #3fb950; --success-emphasis: #238636;
+  --attention: #d29922; --danger: #f85149; --done: #a371f7;
+  --radius: 6px;
+  --font: -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg-canvas); color: var(--fg); font: 14px/1.5 var(--font); overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg.lucide { width: 16px; height: 16px; stroke-width: 1.75; flex: 0 0 auto; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
+/* Shell */
+.app { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
+.header { display: flex; align-items: center; gap: 16px; padding: 0 16px; background: var(--bg-inset); border-bottom: 1px solid var(--border-muted); }
+.logo { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius); font: 700 11px var(--mono); letter-spacing: .04em; }
+.crumb { display: flex; align-items: center; gap: 8px; font-size: 14px; min-width: 0; white-space: nowrap; }
+.crumb .app-name { font-weight: 600; }
+.crumb .sep { color: var(--fg-subtle); }
+.search-trigger { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 320px; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-canvas); color: var(--fg-muted); font-size: 13px; }
+.search-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-trigger kbd { margin-left: auto; white-space: nowrap; }
+kbd { padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; font: 11px var(--mono); color: var(--fg-muted); background: var(--bg-subtle); }
+.local { display: flex; align-items: center; gap: 6px; color: var(--fg-muted); font-size: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.body { display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
+.sidebar { display: flex; flex-direction: column; padding: 16px 8px; background: var(--bg-inset); border-right: 1px solid var(--border-muted); overflow-y: auto; }
+.nav-group { margin-bottom: 16px; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); }
+.nav-group > .eyebrow { padding: 0 8px 6px; font-size: 11px; color: var(--fg-subtle); }
+.nav-item { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius); background: none; color: var(--fg); text-align: left; }
+.nav-item svg { color: var(--fg-muted); }
+.nav-item:hover { background: var(--bg-hover); }
+.nav-item.active { background: var(--bg-muted); font-weight: 600; }
+.nav-item.active::before { content: ""; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 4px; border-radius: 6px; background: var(--accent); }
+.nav-item.active svg { color: var(--fg); }
+.counter { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: rgba(110,118,129,.4); font-size: 12px; font-weight: 500; line-height: 18px; text-align: center; }
+.counter.attention { background: rgba(187,128,9,.4); }
+.policy { margin-top: auto; display: flex; gap: 8px; padding: 12px; border: 1px solid var(--border-muted); border-radius: var(--radius); color: var(--fg-muted); font-size: 12px; }
+.policy svg { color: var(--success); margin-top: 2px; }
+.policy strong { display: block; color: var(--fg); font-weight: 600; }
+.main { overflow-y: auto; }
+.page { max-width: 1280px; margin: 0 auto; padding: 24px 32px 64px; }
+.view { display: none; } .view.active { display: block; }
+
+/* Page header */
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 16px; margin-bottom: 24px; border-bottom: 1px solid var(--border-muted); flex-wrap: wrap; }
+.page-header h1 { margin: 4px 0 0; font-size: 20px; font-weight: 600; }
+.page-header p { margin: 4px 0 0; color: var(--fg-muted); font-size: 14px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-muted); color: var(--fg); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.btn:hover { background: #292e36; border-color: #8b949e; }
+.btn.sm { height: 28px; padding: 0 8px; font-size: 12px; }
+.btn.primary { background: var(--success-emphasis); border-color: rgba(240,246,252,.1); color: #fff; }
+.btn.primary:hover { background: #2ea043; }
+.btn.invisible { background: none; border-color: transparent; color: var(--fg-muted); }
+.btn.invisible:hover { background: var(--bg-hover); color: var(--fg); }
+.btn.icon { width: 32px; padding: 0; justify-content: center; }
+.btn svg { color: var(--fg-muted); }
+.btn.primary svg { color: #fff; }
+
+/* Labels */
+.label { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border: 1px solid; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.label svg { width: 12px; height: 12px; }
+.l-success { color: var(--success); border-color: rgba(63,185,80,.4); background: rgba(63,185,80,.1); }
+.l-danger { color: var(--danger); border-color: rgba(248,81,73,.4); background: rgba(248,81,73,.1); }
+.l-attention { color: var(--attention); border-color: rgba(210,153,34,.4); background: rgba(210,153,34,.1); }
+.l-accent { color: var(--accent); border-color: rgba(68,147,248,.4); background: rgba(68,147,248,.1); }
+.l-done { color: var(--done); border-color: rgba(163,113,247,.4); background: rgba(163,113,247,.1); }
+.l-neutral { color: var(--fg-muted); border-color: var(--border); background: transparent; }
+
+/* Box */
+.box { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-canvas); overflow: hidden; }
+.box + .box { margin-top: 16px; }
+.box-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: var(--bg-subtle); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.box-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.box-title .eyebrow { font-size: 11px; }
+.box-footer { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--bg-subtle); border-top: 1px solid var(--border); color: var(--fg-muted); font-size: 12px; }
+.row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border-muted); }
+.row:first-child { border-top: 0; }
+.row.clickable { cursor: pointer; }
+.row.clickable:hover { background: var(--bg-subtle); }
+.row .ic { margin-top: 2px; }
+.row-main { flex: 1; min-width: 0; }
+.row-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; }
+.row-title a { color: var(--fg); text-decoration: none; }
+.row.clickable:hover .row-title a { color: var(--accent); }
+.row-meta { margin-top: 2px; color: var(--fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-side { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.group-label { padding: 6px 16px; background: var(--bg-subtle); border-top: 1px solid var(--border-muted); color: var(--fg-muted); font-size: 12px; font-weight: 600; }
+.c-success { color: var(--success); } .c-danger { color: var(--danger); } .c-attention { color: var(--attention); } .c-muted { color: var(--fg-muted); } .c-done { color: var(--done); } .c-accent { color: var(--accent); }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.stat { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-subtle); }
+.stat-label { display: flex; align-items: center; gap: 6px; color: var(--fg-muted); font-size: 12px; }
+.stat-value { margin-top: 8px; font-size: 24px; font-weight: 600; line-height: 1.2; }
+.stat-foot { margin-top: 4px; color: var(--fg-muted); font-size: 12px; }
+.delta-up { color: var(--success); } .delta-down { color: var(--danger); }
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 24px; margin-top: 8px; }
+.spark span { flex: 1; border-radius: 2px; background: rgba(68,147,248,.35); }
+.spark span:last-child { background: var(--accent); }
+.meter { height: 8px; margin-top: 12px; border-radius: 999px; background: var(--bg-muted); overflow: hidden; display: flex; }
+.meter i { display: block; height: 100%; }
+
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+
+/* Filters */
+.searchbar { display: flex; gap: 8px; margin-bottom: 16px; }
+.input { display: flex; align-items: center; gap: 8px; flex: 1; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-inset); color: var(--fg-muted); }
+.input input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); }
+.input:focus-within { border-color: var(--accent-emphasis); box-shadow: inset 0 0 0 1px var(--accent-emphasis); }
+.qual { color: var(--accent); font-family: var(--mono); font-size: 13px; }
+.menus { display: flex; gap: 4px; }
+.menu-btn { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius); background: none; color: var(--fg-muted); font-size: 14px; }
+.menu-btn:hover { color: var(--fg); background: var(--bg-hover); }
+.menu-btn svg { width: 14px; height: 14px; }
+.menu-btn.applied { color: var(--fg); font-weight: 600; }
+.popover { position: absolute; z-index: 30; width: 260px; margin-top: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-subtle); box-shadow: 0 8px 24px rgba(1,4,9,.75); overflow: hidden; }
+.popover-head { padding: 8px 12px; border-bottom: 1px solid var(--border-muted); font-size: 12px; font-weight: 600; }
+.popover button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 0; border-top: 1px solid var(--border-muted); background: none; text-align: left; font-size: 13px; }
+.popover button:first-of-type { border-top: 0; }
+.popover button:hover { background: var(--bg-hover); }
+.popover .check { width: 16px; color: var(--accent); }
+.menu-wrap { position: relative; }
+.chips { display: flex; gap: 8px; align-items: center; margin: -4px 0 16px; flex-wrap: wrap; font-size: 12px; color: var(--fg-muted); }
+
+/* Segmented + underline nav */
+.segmented { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-muted); }
+.segmented button { height: 26px; padding: 0 12px; border: 1px solid transparent; border-radius: 5px; background: none; color: var(--fg-muted); font-size: 13px; }
+.segmented button.on { background: var(--bg-canvas); border-color: var(--border); color: var(--fg); font-weight: 600; }
+.unav { display: flex; gap: 8px; margin: -24px -32px 24px; padding: 0 32px; border-bottom: 1px solid var(--border-muted); overflow-x: auto; }
+.unav button { position: relative; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 8px; border: 0; background: none; color: var(--fg); font-size: 14px; white-space: nowrap; }
+.unav button svg { color: var(--fg-muted); }
+.unav button:hover::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--border); border-radius: 6px; }
+.unav button.on { font-weight: 600; }
+.unav button.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: #f78166; border-radius: 6px; }
+
+/* Synthesis */
+.synth { padding: 16px; }
+.synth p { margin: 8px 0 0; color: var(--fg); line-height: 1.7; }
+.synth .sources { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+.sblock { margin-top: 16px; }
+.sblock-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; font-weight: 600; font-size: 14px; }
+.sblock-head span { font-size: 12px; font-weight: 400; }
+.sitem { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border-muted); }
+.sitem strong { display: block; font-weight: 600; }
+.sitem span { display: block; color: var(--fg-muted); font-size: 13px; }
+.src-chip { flex: 0 0 auto; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--accent); font-size: 12px; }
+.src-chip:hover { background: rgba(68,147,248,.1); }
+.p-summary { margin: 0 0 16px; font-size: 16px; line-height: 1.6; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+.code-chip { padding: 1px 6px; border-radius: 6px; background: rgba(110,118,129,.2); }
+.cmd { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 8px 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-inset); font-family: var(--mono); font-size: 12px; color: var(--fg); }
+.cmd span { flex: 1; }
+.chart { display: flex; align-items: flex-end; gap: 10px; height: 160px; padding: 16px 16px 0; }
+.chart .col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+.chart .bars { display: flex; gap: 3px; align-items: flex-end; width: 100%; height: 100%; justify-content: center; }
+.chart .bars i { width: 40%; max-width: 18px; border-radius: 3px 3px 0 0; }
+.chart .x { color: var(--fg-muted); font-size: 12px; padding-bottom: 8px; }
+.legend { display: flex; gap: 16px; font-size: 12px; color: var(--fg-muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
+
+/* Side panel */
+.backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(1,4,9,.6); opacity: 0; pointer-events: none; transition: opacity .15s; }
+.backdrop.open { opacity: 1; pointer-events: auto; }
+.panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; width: min(640px, 100%); display: flex; flex-direction: column; background: var(--bg-canvas); border-left: 1px solid var(--border); box-shadow: -16px 0 48px rgba(1,4,9,.6); transform: translateX(100%); transition: transform .2s ease; }
+.panel.open { transform: none; }
+.panel-head { padding: 16px 24px; border-bottom: 1px solid var(--border-muted); }
+.panel-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel-head h2 { margin: 8px 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.panel-body { flex: 1; overflow-y: auto; padding: 16px 24px 32px; }
+.meta { display: grid; grid-template-columns: 120px 1fr; gap: 8px 16px; margin: 0 0 24px; font-size: 13px; }
+.meta dt { color: var(--fg-muted); } .meta dd { margin: 0; display: flex; align-items: center; gap: 6px; }
+.ws { margin-bottom: 20px; }
+.ws h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.ws h3 .eyebrow { font-size: 11px; }
+.ws ul { margin: 0; padding-left: 20px; color: var(--fg); }
+.ws li { margin: 4px 0; }
+.ws li::marker { color: var(--fg-subtle); }
+.empty-dash { color: var(--fg-subtle); }
+details { border: 1px solid var(--border); border-radius: var(--radius); margin-top: 12px; }
+summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-subtle); cursor: pointer; font-weight: 600; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary .chev { transition: transform .15s; }
+details[open] summary .chev { transform: rotate(90deg); }
+details[open] summary { border-bottom: 1px solid var(--border-muted); }
+.file { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-family: var(--mono); font-size: 12px; border-top: 1px solid var(--border-muted); }
+.file:first-of-type { border-top: 0; }
+.fs { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 3px; font-size: 10px; font-weight: 700; }
+.fs-A { color: var(--success); border: 1px solid var(--success); } .fs-M { color: var(--attention); border: 1px solid var(--attention); }
+.fs-D { color: var(--danger); border: 1px solid var(--danger); } .fs-R { color: var(--done); border: 1px solid var(--done); }
+.file .src { margin-left: auto; color: var(--fg-subtle); font-family: var(--font); }
+.timeline { padding: 8px 12px; }
+.tl { display: flex; gap: 12px; padding: 6px 0; font-size: 13px; }
+.tl code { width: 90px; color: var(--fg-muted); }
+.panel-foot { display: flex; justify-content: space-between; align-items: center; padding: 8px 24px; border-top: 1px solid var(--border-muted); color: var(--fg-muted); font-size: 12px; }
+
+.placeholder { padding: 64px 24px; text-align: center; color: var(--fg-muted); }
+.placeholder svg { width: 24px; height: 24px; margin-bottom: 8px; }
+.placeholder strong { display: block; color: var(--fg); font-size: 16px; margin-bottom: 4px; }
+
+@media (max-width: 960px) {
+  .body { grid-template-columns: 56px 1fr; }
+  .sidebar .nav-item span, .sidebar .counter, .nav-group > .eyebrow, .policy div { display: none; }
+  .nav-item { justify-content: center; }
+  .policy { justify-content: center; padding: 8px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .grid-2 { grid-template-columns: 1fr; }
+  .search-trigger { width: 200px; }
+}
+@media (max-width: 640px) {
+  .body { grid-template-columns: 1fr; } .sidebar { display: none; }
+  .page { padding: 16px; } .unav { margin: -16px -16px 16px; padding: 0 16px; }
+  .search-trigger span, .search-trigger kbd, .local span { display: none; } .search-trigger { width: 32px; justify-content: center; padding: 0; }
+  .stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .row-side .label.hide-sm { display: none; }
+  .menus .menu-btn span { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <button class="btn icon invisible" aria-label="選單" style="display:none" id="hamburger"><i data-lucide="menu"></i></button>
+    <div class="logo">WI</div>
+    <div class="crumb"><span class="app-name">Work Intelligence</span><span class="sep">/</span><span id="crumb">工作總覽</span></div>
+    <button class="search-trigger" type="button"><i data-lucide="search"></i><span>搜尋 Session、Knowledge 或跳至頁面…</span><kbd>Ctrl K</kbd></button>
+    <span class="local"><span class="dot"></span><span>Local-first</span></span>
+    <button class="btn icon invisible" aria-label="重新整理"><i data-lucide="refresh-cw"></i></button>
+  </header>
+
+  <div class="body">
+    <aside class="sidebar">
+      <nav aria-label="主選單">
+        <div class="nav-group">
+          <div class="eyebrow">Work</div>
+          <button class="nav-item active" data-view="dashboard" data-title="工作總覽"><i data-lucide="layout-dashboard"></i><span>總覽</span><span class="counter attention">3</span></button>
+          <button class="nav-item" data-view="sessions" data-title="工作歷程"><i data-lucide="list-checks"></i><span>工作歷程</span><span class="counter">128</span></button>
+          <button class="nav-item" data-view="reports" data-title="工作報告"><i data-lucide="bar-chart-3"></i><span>工作報告</span></button>
+        </div>
+        <div class="nav-group">
+          <div class="eyebrow">Knowledge</div>
+          <button class="nav-item" data-view="placeholder" data-title="工作知識"><i data-lucide="book-open"></i><span>工作知識</span><span class="counter">42</span></button>
+          <button class="nav-item" data-view="placeholder" data-title="工作圖譜"><i data-lucide="share-2"></i><span>工作圖譜</span></button>
+        </div>
+        <div class="nav-group">
+          <div class="eyebrow">Manage</div>
+          <button class="nav-item" data-view="placeholder" data-title="專案"><i data-lucide="folder-git-2"></i><span>專案</span><span class="counter">3</span></button>
+        </div>
+      </nav>
+      <div class="policy" title="任何 handoff、Git 或 source 讀取，都必須先通過 project policy gate。"><i data-lucide="shield-check"></i><div><strong>Policy gate enabled</strong>未明確加入的專案，不讀取、不保存。</div></div>
+    </aside>
+
+    <main class="main" id="main">
+      <!-- ============ DASHBOARD ============ -->
+      <section class="view page active" id="view-dashboard">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Today's signal</div>
+            <h1>工作總覽</h1>
+            <p>2026 年 9 月 23 日（週三）· 3 個專案記錄中</p>
+          </div>
+          <div class="actions">
+            <button class="btn" data-go="reports"><i data-lucide="bar-chart-3"></i>本週報告</button>
+            <button class="btn" data-go="sessions"><i data-lucide="list-checks"></i>全部 Sessions</button>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label"><i data-lucide="folder-git-2"></i>記錄中專案</div>
+            <div class="stat-value">3</div>
+            <div class="stat-foot">explicit opt-in · 1 個已暫停</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label"><i data-lucide="circle-check-big"></i>本週完成 Sessions</div>
+            <div class="stat-value">24 <span class="delta-up" style="font-size:12px;font-weight:500">▲ 20%</span></div>
+            <div class="spark"><span style="height:40%"></span><span style="height:65%"></span><span style="height:30%"></span><span style="height:80%"></span><span style="height:55%"></span><span style="height:20%"></span><span style="height:90%"></span></div>
+          </div>
+          <div class="stat">
+            <div class="stat-label"><i data-lucide="shield-check"></i>Verification</div>
+            <div class="stat-value">21 <span class="c-muted" style="font-size:14px;font-weight:400">/ 24 通過</span></div>
+            <div class="meter"><i style="width:87.5%;background:var(--success)"></i><i style="width:4.2%;background:var(--danger)"></i><i style="width:4.2%;background:var(--fg-subtle)"></i><i style="width:4.1%;background:var(--attention)"></i></div>
+            <div class="stat-foot">1 失敗 · 1 未執行 · 1 未回報</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label"><i data-lucide="inbox"></i>待處理</div>
+            <div class="stat-value c-attention">3</div>
+            <div class="stat-foot">1 失敗 · 2 等待 Agent</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <div class="box">
+              <div class="box-header"><div class="box-title"><span class="eyebrow">Action required</span>需要處理</div><span class="counter attention">3</span></div>
+              <div class="row">
+                <i data-lucide="circle-x" class="ic c-danger"></i>
+                <div class="row-main"><div class="row-title">9 月月報 AI 整理逾時 <span class="label l-danger">失敗</span></div><div class="row-meta">Report synthesis · 月報 · 2 小時前建立 · 等待超過 30 分鐘</div></div>
+                <div class="row-side"><button class="btn sm"><i data-lucide="rotate-ccw"></i>重試</button></div>
+              </div>
+              <div class="row">
+                <i data-lucide="circle-dashed" class="ic c-attention"></i>
+                <div class="row-main"><div class="row-title">本週週報待 Agent 整理 <span class="label l-attention">待處理</span></div><div class="row-meta">Report synthesis · 週報 9/21 – 9/27 · 24 個來源 Session</div></div>
+                <div class="row-side"><button class="btn sm"><i data-lucide="copy"></i>複製 Agent 指令</button></div>
+              </div>
+              <div class="row">
+                <i data-lucide="triangle-alert" class="ic c-attention"></i>
+                <div class="row-main"><div class="row-title">5 筆 Session 缺少 metadata <span class="label l-attention">Metadata 缺口</span></div><div class="row-meta">3 筆 verification 未回報 · 2 筆 changed-files 缺漏</div></div>
+                <div class="row-side"><button class="btn sm">前往回補<i data-lucide="arrow-right"></i></button></div>
+              </div>
+            </div>
+
+            <div class="box">
+              <div class="box-header"><div class="box-title"><span class="eyebrow">Latest memory</span>最近完成的工作</div><button class="btn sm invisible" data-go="sessions">查看全部<i data-lucide="arrow-right"></i></button></div>
+              <div id="recent-rows"></div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-header"><div class="box-title"><span class="eyebrow">Projects</span>專案狀態</div><button class="btn sm invisible">管理</button></div>
+            <div class="row"><i data-lucide="folder-git-2" class="ic c-muted"></i><div class="row-main"><div class="row-title">WorkLog.Ai</div><div class="row-meta mono">C:\Users\dgh\Desktop\github\WorkLog.Ai</div><div class="row-meta">最後活動 12 分鐘前 · 86 Sessions</div></div><span class="label l-success">記錄中</span></div>
+            <div class="row"><i data-lucide="folder-git-2" class="ic c-muted"></i><div class="row-main"><div class="row-title">Assistant Console</div><div class="row-meta mono">D:\work\assistant</div><div class="row-meta">最後活動 昨天 · 31 Sessions</div></div><span class="label l-success">記錄中</span></div>
+            <div class="row"><i data-lucide="folder-git-2" class="ic c-muted"></i><div class="row-main"><div class="row-title">DevTools</div><div class="row-meta mono">D:\work\devtools</div><div class="row-meta">最後活動 9 月 18 日 · 11 Sessions</div></div><span class="label l-success">記錄中</span></div>
+            <div class="row"><i data-lucide="folder" class="ic c-muted"></i><div class="row-main"><div class="row-title">DevDocs</div><div class="row-meta mono">D:\work\devdocs</div><div class="row-meta">已暫停 · 不讀取、不保存</div></div><span class="label l-attention">已暫停</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SESSIONS ============ -->
+      <section class="view page" id="view-sessions">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Session archive</div>
+            <h1>工作歷程</h1>
+            <p>每一次完成，都留下可追溯的脈絡。</p>
+          </div>
+          <div class="actions"><button class="btn"><i data-lucide="download"></i>匯出</button></div>
+        </div>
+
+        <div class="searchbar">
+          <label class="input"><i data-lucide="search"></i><span class="qual">verification:failed</span><input placeholder="搜尋 title、summary 或 event" /></label>
+          <button class="btn"><i data-lucide="x"></i>清除篩選</button>
+        </div>
+
+        <div class="box">
+          <div class="box-header">
+            <div class="box-title"><i data-lucide="list-checks" class="c-muted"></i>128 Sessions <span class="c-muted" style="font-weight:400">· 顯示 1–20</span></div>
+            <div class="menus">
+              <div class="menu-wrap"><button class="menu-btn" data-menu="project"><span>專案</span><i data-lucide="chevron-down"></i></button></div>
+              <div class="menu-wrap"><button class="menu-btn applied" data-menu="verify"><span>驗證</span><i data-lucide="chevron-down"></i></button></div>
+              <div class="menu-wrap"><button class="menu-btn" data-menu="date"><span>日期</span><i data-lucide="chevron-down"></i></button></div>
+              <div class="menu-wrap"><button class="menu-btn" data-menu="sort"><span>排序</span><i data-lucide="chevron-down"></i></button></div>
+            </div>
+          </div>
+          <div id="session-rows"></div>
+          <div class="box-footer"><span>每頁 20 筆 ▾</span><span style="display:flex;gap:4px"><button class="btn sm" disabled style="opacity:.5">‹ 上一頁</button><button class="btn sm">1</button><button class="btn sm invisible">2</button><button class="btn sm invisible">3</button><span style="padding:4px">…</span><button class="btn sm invisible">7</button><button class="btn sm">下一頁 ›</button></span></div>
+        </div>
+      </section>
+
+      <!-- ============ REPORTS ============ -->
+      <section class="view page" id="view-reports">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Work reports</div>
+            <h1>工作報告</h1>
+            <p>週報 · 2026/09/21 – 09/27 · 所有記錄中專案</p>
+          </div>
+          <div class="actions">
+            <div class="segmented" role="radiogroup"><button>日</button><button class="on">週</button><button>月</button><button>季</button><button>年</button></div>
+            <button class="btn"><i data-lucide="calendar"></i>2026/09/23</button>
+            <button class="btn"><i data-lucide="folder-git-2"></i>所有專案<i data-lucide="chevron-down"></i></button>
+            <button class="btn"><i data-lucide="download"></i>匯出<i data-lucide="chevron-down"></i></button>
+          </div>
+        </div>
+        <nav class="unav">
+          <button class="on"><i data-lucide="layout-dashboard"></i>報告總覽</button>
+          <button><i data-lucide="circle-check-big"></i>完成與驗證<span class="counter">24</span></button>
+          <button><i data-lucide="trending-up"></i>趨勢與專案</button>
+          <button><i data-lucide="triangle-alert"></i>風險與決策<span class="counter">4</span></button>
+          <button><i data-lucide="file-text"></i>原始工作紀錄<span class="counter">24</span></button>
+          <button><i data-lucide="link"></i>來源證據<span class="counter">57</span></button>
+        </nav>
+
+        <div class="box">
+          <div class="box-header">
+            <div class="box-title"><i data-lucide="sparkles" class="c-done"></i><span class="eyebrow">AI synthesis</span>本週重點整理 <span class="label l-done"><i data-lucide="check"></i>已完成</span></div>
+            <div class="actions"><button class="btn sm invisible"><i data-lucide="history"></i>版本 3 / 3<i data-lucide="chevron-down"></i></button><button class="btn sm"><i data-lucide="rotate-ccw"></i>重新整理</button></div>
+          </div>
+          <div class="synth">
+            <p style="margin-top:0;font-size:16px">本週完成報告匯出與 metadata 批次回補兩條工作流，Assistant Console 交付長期記憶管理頁；1 筆 Session 驗證失敗仍未解決。</p>
+            <div class="sblock"><div class="sblock-head">主題 <span class="c-muted">週報 · 以 Feature / Workstream 分組</span></div>
+              <div class="sitem"><div><strong>報告匯出</strong><span>Markdown / JSON 匯出並保留每筆來源 Session 與 evidence。</span></div><button class="src-chip">6 Sessions</button></div>
+              <div class="sitem"><div><strong>Metadata 批次回補</strong><span>preview → request → Agent 回補流程上線，缺口三類分開呈現。</span></div><button class="src-chip">9 Sessions</button></div>
+            </div>
+            <div class="sblock"><div class="sblock-head">驗證</div>
+              <div class="sitem"><div><strong>21 通過 · 1 失敗 · 1 未執行 · 1 未回報</strong><span>失敗為 handoff parser 大型輸入截斷案例。</span></div><button class="src-chip">24 Sessions</button></div>
+            </div>
+            <div class="sblock"><div class="sblock-head">風險與限制</div>
+              <div class="sitem"><div><strong>handoff parser 邊界案例</strong><span>大型 handoff 截斷仍未通過驗證。</span></div><button class="src-chip">1 Session</button></div>
+            </div>
+            <div class="sblock"><div class="sblock-head">狀態／未結項</div>
+              <div class="sitem"><div><strong>2 筆 Session 尚未回報 verification</strong><span class="c-attention">資料不足，無法判定結果。</span></div><button class="src-chip">2 Sessions</button></div>
+            </div>
+            <div class="sources"><span class="c-muted" style="font-size:12px">來源：</span><code class="code-chip">24 Sessions</code><code class="code-chip">codex · gpt-5</code><code class="code-chip">prompt v3</code><code class="code-chip">09/23 10:42</code></div>
+          </div>
+        </div>
+
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><div class="stat-label">完成 Sessions</div><div class="stat-value">24</div><div class="stat-foot"><span class="delta-up">▲ 4</span> vs 上週</div></div>
+          <div class="stat"><div class="stat-label">Recorded events</div><div class="stat-value">311</div><div class="stat-foot"><span class="delta-up">▲ 18%</span> vs 上週</div></div>
+          <div class="stat"><div class="stat-label">變更檔案</div><div class="stat-value">148</div><div class="stat-foot"><span class="delta-down">▼ 6%</span> vs 上週</div></div>
+          <div class="stat"><div class="stat-label">驗證通過</div><div class="stat-value">21 / 24</div><div class="stat-foot">1 失敗 · 2 未回報</div></div>
+        </div>
+
+        <div class="box">
+          <div class="box-header"><div class="box-title"><span class="eyebrow">Trend</span>每日工作量</div><div class="legend"><span><i style="background:var(--accent)"></i>Sessions</span><span><i style="background:var(--done)"></i>Events ÷ 10</span></div></div>
+          <div class="chart" id="chart"></div>
+        </div>
+      </section>
+
+      <!-- ============ PLACEHOLDER ============ -->
+      <section class="view page" id="view-placeholder">
+        <div class="page-header"><div><div class="eyebrow">Preview</div><h1 id="ph-title">—</h1></div></div>
+        <div class="box"><div class="placeholder"><i data-lucide="layers"></i><strong>這頁不在這次預覽範圍</strong>會沿用同一套 Box、Label、UnderlineNav 元件，在 P3 階段遷移。</div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- Side panel -->
+<div class="backdrop" id="backdrop"></div>
+<aside class="panel" id="panel" role="dialog" aria-modal="true" aria-label="Session 詳情">
+  <div class="panel-head">
+    <div class="panel-top">
+      <span class="eyebrow">Session · <span class="mono" id="p-id"></span></span>
+      <div class="actions">
+        <button class="btn sm invisible" id="p-prev" aria-label="上一筆"><i data-lucide="chevron-up"></i></button>
+        <button class="btn sm invisible" id="p-next" aria-label="下一筆"><i data-lucide="chevron-down"></i></button>
+        <button class="btn sm invisible"><i data-lucide="link"></i>複製連結</button>
+        <button class="btn icon invisible" id="p-close" aria-label="關閉"><i data-lucide="x"></i></button>
+      </div>
+    </div>
+    <h2 id="p-title"></h2>
+    <div class="actions" id="p-labels"></div>
+  </div>
+  <div class="panel-body">
+    <p class="p-summary" id="p-summary"></p>
+    <dl class="meta">
+      <dt>專案</dt><dd id="p-project"></dd>
+      <dt>完成時間</dt><dd id="p-time"></dd>
+      <dt>執行狀態</dt><dd><span class="label l-neutral">completed</span></dd>
+      <dt>Verification</dt><dd id="p-verify"></dd>
+    </dl>
+    <div id="p-ws"></div>
+    <details open>
+      <summary><i data-lucide="chevron-right" class="chev"></i><i data-lucide="file-diff" class="c-muted"></i>Changed files<span class="counter">5</span></summary>
+      <div class="file"><span class="fs fs-M">M</span>apps/web/src/App.vue<span class="src">agent · git</span></div>
+      <div class="file"><span class="fs fs-A">A</span>apps/web/src/components/GraphCanvas.vue<span class="src">agent</span></div>
+      <div class="file"><span class="fs fs-A">A</span>packages/core/src/insights.ts<span class="src">agent · worktree</span></div>
+      <div class="file"><span class="fs fs-R">R</span>docs/report-format.md <span class="c-muted">← docs/format.md</span><span class="src">handoff</span></div>
+      <div class="file"><span class="fs fs-D">D</span>apps/web/src/legacy.css<span class="src">未提供來源</span></div>
+      <div class="file c-muted" style="font-family:var(--font)">changed files 不代表 Git commit</div>
+    </details>
+    <details>
+      <summary><i data-lucide="chevron-right" class="chev"></i><i data-lucide="git-branch" class="c-muted"></i>Git<span class="c-muted" style="font-weight:400;font-size:12px">observed metadata</span></summary>
+      <dl class="meta" style="padding:12px;margin:0"><dt>Branch</dt><dd class="mono">main</dd><dt>Commit</dt><dd class="mono">da98212</dd></dl>
+    </details>
+    <details>
+      <summary><i data-lucide="chevron-right" class="chev"></i><i data-lucide="paperclip" class="c-muted"></i>Evidence<span class="counter">2</span></summary>
+      <div class="file" style="font-family:var(--font)"><i data-lucide="terminal" class="c-muted"></i>pnpm test · 186 passed<span class="src">command</span></div>
+      <div class="file" style="font-family:var(--font)"><i data-lucide="link" class="c-muted"></i>docs/work-record-and-report-format.md<span class="src">reference</span></div>
+    </details>
+    <details>
+      <summary><i data-lucide="chevron-right" class="chev"></i><i data-lucide="book-open" class="c-muted"></i>Knowledge<span class="counter">1</span></summary>
+      <div class="file" style="font-family:var(--font)"><span class="label l-accent">決策</span>匯出採 deterministic 排序<span class="src">使用中</span></div>
+    </details>
+    <details>
+      <summary><i data-lucide="chevron-right" class="chev"></i><i data-lucide="git-commit-horizontal" class="c-muted"></i>Events<span class="counter">14</span></summary>
+      <div class="timeline">
+        <div class="tl"><code>planning</code>確認報表匯出格式與 idempotency 邊界</div>
+        <div class="tl"><code>execution</code>實作 Markdown / JSON exporter</div>
+        <div class="tl"><code>verification</code>pnpm test · 186 passed</div>
+        <div class="tl"><code>closing</code>handoff 已寫入並 finalize</div>
+      </div>
+    </details>
+    <details>
+      <summary><i data-lucide="chevron-right" class="chev"></i><i data-lucide="file-text" class="c-muted"></i>Handoff snapshot</summary>
+      <div class="timeline mono c-muted">## Closing handoff<br/>- 完成報表匯出…</div>
+    </details>
+  </div>
+  <div class="panel-foot"><span><kbd>J</kbd> / <kbd>K</kbd> 切換上下筆 · <kbd>Esc</kbd> 關閉</span><span id="p-pos"></span></div>
+</aside>
+
+<script>
+const sessions = [
+  { id: "ses_8f2a", group: "今天", title: "報表匯出支援 Markdown 與 JSON", project: "WorkLog.Ai", time: "12 分鐘前", full: "2026/09/23 14:08", v: "passed", files: 5, sum: "新增 exporter 並保留每筆來源 Session" },
+  { id: "ses_7c11", group: "今天", title: "handoff parser metadata 擷取加上邊界", project: "WorkLog.Ai", time: "2 小時前", full: "2026/09/23 12:31", v: "failed", files: 3, sum: "大型 handoff 仍有一個截斷案例未通過" },
+  { id: "ses_6b90", group: "今天", title: "長期記憶管理頁：搜尋與刪除", project: "Assistant Console", time: "4 小時前", full: "2026/09/23 10:02", v: "passed", files: 8, sum: "新增 memoryMgt 對話框與 i18n key" },
+  { id: "ses_5a42", group: "昨天", title: "Session detail 面板間距修正", project: "WorkLog.Ai", time: "昨天 18:40", full: "2026/09/22 18:40", v: "not_supplied", files: 2, sum: "恢復 detail panel spacing" },
+  { id: "ses_4e03", group: "昨天", title: "Project registry 頁首精簡", project: "WorkLog.Ai", time: "昨天 16:15", full: "2026/09/22 16:15", v: "passed", files: 1, sum: "壓縮 registry page header" },
+  { id: "ses_39d7", group: "昨天", title: "版本輪詢 Nginx 規則補充", project: "Assistant Console", time: "昨天 09:52", full: "2026/09/22 09:52", v: "not_run", files: 0, sum: "僅文件調整，未執行驗證" },
+  { id: "ses_2c8e", group: "9 月 20 日", title: "Log Viewer 搜尋索引效能", project: "DevTools", time: "9/20 15:30", full: "2026/09/20 15:30", v: "passed", files: 6, sum: "搜尋索引改為增量建立" },
+];
+const vMap = {
+  passed: ["l-success", "circle-check", "c-success", "通過"],
+  failed: ["l-danger", "circle-x", "c-danger", "失敗"],
+  not_run: ["l-neutral", "circle-minus", "c-muted", "未執行"],
+  not_supplied: ["l-attention", "circle-dashed", "c-attention", "未回報"],
+};
+function row(s, i) {
+  const [lc, ic, cc, lt] = vMap[s.v];
+  return `<div class="row clickable" data-i="${i}" tabindex="0">
+    <i data-lucide="${ic}" class="ic ${cc}"></i>
+    <div class="row-main"><div class="row-title"><a>${s.title}</a></div>
+    <div class="row-meta"><span title="${s.full}">${s.project} · ${s.time}</span> · ${s.sum}</div></div>
+    <div class="row-side"><span class="label ${lc}">${lt}</span><span class="label l-neutral hide-sm"><i data-lucide="file-diff"></i>${s.files}</span></div></div>`;
+}
+let html = "", last = "";
+sessions.forEach((s, i) => { if (s.group !== last) { html += `<div class="group-label">${s.group}</div>`; last = s.group; } html += row(s, i); });
+document.getElementById("session-rows").innerHTML = html;
+document.getElementById("recent-rows").innerHTML = sessions.slice(0, 4).map(row).join("");
+
+const days = [["一", 3, 38], ["二", 5, 61], ["三", 4, 52], ["四", 6, 70], ["五", 2, 25], ["六", 0, 0], ["日", 4, 45]];
+document.getElementById("chart").innerHTML = days.map(([d, s, e]) => `<div class="col"><div class="bars"><i style="height:${s * 14}%;background:var(--accent)"></i><i style="height:${e / 10 * 14}%;background:var(--done)"></i></div><div class="x">週${d}</div></div>`).join("");
+
+// nav
+function go(view, title) {
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + view));
+  document.querySelectorAll(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.title === title));
+  document.getElementById("crumb").textContent = title;
+  if (view === "placeholder") document.getElementById("ph-title").textContent = title;
+  document.getElementById("main").scrollTop = 0;
+}
+document.querySelectorAll(".nav-item").forEach(n => n.addEventListener("click", () => go(n.dataset.view, n.dataset.title)));
+document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => { const n = document.querySelector(`.nav-item[data-view=${b.dataset.go}]`); go(n.dataset.view, n.dataset.title); }));
+document.querySelectorAll(".segmented button").forEach(b => b.addEventListener("click", () => { b.parentElement.querySelectorAll("button").forEach(x => x.classList.remove("on")); b.classList.add("on"); }));
+document.querySelectorAll(".unav button").forEach(b => b.addEventListener("click", () => { b.parentElement.querySelectorAll("button").forEach(x => x.classList.remove("on")); b.classList.add("on"); }));
+
+// menus
+const menus = {
+  project: ["篩選專案", [["", "所有專案", true], ["", "WorkLog.Ai"], ["", "Assistant Console"], ["", "DevTools"]]],
+  verify: ["篩選 verification", [["circle-check c-success", "通過"], ["circle-x c-danger", "失敗", true], ["circle-dashed c-attention", "未回報"], ["circle-minus c-muted", "未執行"]]],
+  date: ["日期區間", [["", "今天"], ["", "昨天"], ["", "近 7 天", true], ["", "本月"], ["calendar", "自訂區間…"]]],
+  sort: ["排序", [["", "最新完成", true], ["", "最早完成"], ["", "檔案數最多"]]],
+};
+let openPop = null;
+document.querySelectorAll("[data-menu]").forEach(b => b.addEventListener("click", e => {
+  e.stopPropagation();
+  const had = openPop && openPop.parentElement === b.parentElement;
+  openPop?.remove(); openPop = null;
+  if (had) return;
+  const [head, items] = menus[b.dataset.menu];
+  const p = document.createElement("div"); p.className = "popover";
+  if (b.getBoundingClientRect().right > innerWidth - 280) p.style.right = "0";
+  p.innerHTML = `<div class="popover-head">${head}</div>` + items.map(([ic, t, on]) => {
+    const [name, cls] = ic.split(" ");
+    return `<button><span class="check">${on ? '<i data-lucide="check"></i>' : ""}</span>${name ? `<i data-lucide="${name}" class="${cls || "c-muted"}"></i>` : ""}${t}</button>`;
+  }).join("");
+  b.parentElement.appendChild(p); openPop = p; lucide.createIcons();
+}));
+document.addEventListener("click", () => { openPop?.remove(); openPop = null; });
+
+// panel
+const ws = {
+  outcomes: ["成果", ["新增報表 Markdown 與 JSON 匯出", "匯出內容保留每筆來源 Session 與 evidence"]],
+  scope: ["範圍", ["packages/storage exporter", "apps/web 報告頁匯出按鈕"]],
+  decisions: ["決策", ["匯出採 deterministic 排序，確保同一份報告可重現"]],
+  verification: ["驗證", ["pnpm test：186 passed", "e2e：報告匯出流程通過"]],
+  nextSteps: ["狀態／未結項", []],
+};
+let cur = -1;
+const panel = document.getElementById("panel"), backdrop = document.getElementById("backdrop");
+function openPanel(i) {
+  cur = i; const s = sessions[i]; const [lc, ic, , lt] = vMap[s.v];
+  document.getElementById("p-id").textContent = s.id;
+  document.getElementById("p-title").textContent = s.title;
+  document.getElementById("p-summary").textContent = s.sum + "。";
+  document.getElementById("p-labels").innerHTML = `<span class="label ${lc}"><i data-lucide="${ic}"></i>${lt}</span><span class="label l-neutral">${s.project}</span><span class="label l-neutral"><i data-lucide="file-diff"></i>${s.files} files</span>`;
+  document.getElementById("p-project").innerHTML = `<i data-lucide="folder-git-2" class="c-muted"></i>${s.project}`;
+  document.getElementById("p-time").textContent = `${s.full}（${s.time}）`;
+  document.getElementById("p-verify").innerHTML = `<span class="label ${lc}">${lt}</span>`;
+  document.getElementById("p-ws").innerHTML = Object.entries(ws).map(([k, [label, items]]) =>
+    `<div class="ws"><h3>${label} <span class="eyebrow">${k}</span></h3>${items.length ? `<ul>${items.map(x => `<li>${x}</li>`).join("")}</ul>` : `<div class="empty-dash">—</div>`}</div>`).join("");
+  document.getElementById("p-pos").textContent = `${i + 1} / ${sessions.length}`;
+  panel.classList.add("open"); backdrop.classList.add("open");
+  lucide.createIcons();
+  document.getElementById("p-close").focus();
+}
+function closePanel() { panel.classList.remove("open"); backdrop.classList.remove("open"); cur = -1; }
+document.addEventListener("click", e => { const r = e.target.closest(".row.clickable"); if (r) openPanel(+r.dataset.i); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.matches(".row.clickable")) openPanel(+e.target.dataset.i);
+  if (cur < 0) return;
+  if (e.key === "Escape") closePanel();
+  if (e.key === "j") openPanel(Math.min(cur + 1, sessions.length - 1));
+  if (e.key === "k") openPanel(Math.max(cur - 1, 0));
+});
+document.getElementById("p-close").onclick = closePanel;
+backdrop.onclick = closePanel;
+document.getElementById("p-next").onclick = () => openPanel(Math.min(cur + 1, sessions.length - 1));
+document.getElementById("p-prev").onclick = () => openPanel(Math.max(cur - 1, 0));
+
+lucide.createIcons();
+</script>
+</body>
+</html>
