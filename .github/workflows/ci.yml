@@ -35,14 +35,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Workspace packages resolve each other through dist/, so build before testing.
+      - run: pnpm build
+
       # lint + format:check + unit/integration tests for every package
       - run: pnpm test
 
       - run: pnpm typecheck
 
       - run: pnpm test:coverage
-
-      - run: pnpm build
 
   e2e:
     name: E2E (Chromium)
