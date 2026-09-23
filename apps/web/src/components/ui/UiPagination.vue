@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { ChevronLeft, ChevronRight } from "lucide-vue-next";
 import type { PageInfo } from "@work-intelligence/core";
 import { listPageSizeOptions, type ListPageSize } from "../../utils/labels";
@@ -10,11 +11,23 @@ defineProps<{ pageInfo: PageInfo; sizeLabel: string }>();
 const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const emit = defineEmits<{ page: [page: number] }>();
 
+const root = ref<HTMLElement | null>(null);
+
+/** Changing page from the footer brings the top of the list back into view instead of leaving the user at the bottom. */
+function goTo(page: number): void {
+  emit("page", page);
+  const list = root.value?.closest<HTMLElement>(".ui-box");
+  const scroller = list?.closest<HTMLElement>("main");
+  if (list && scroller && list.getBoundingClientRect().top < scroller.getBoundingClientRect().top) {
+    list.scrollIntoView({ block: "start" });
+  }
+}
+
 const sizeOptions = listPageSizeOptions.map((option) => ({ value: option.value, label: option.label }));
 </script>
 
 <template>
-  <div class="ui-pagination">
+  <div ref="root" class="ui-pagination">
     <span class="ui-pagination__summary">
       顯示 {{ pageInfo.from }}–{{ pageInfo.to }}，共 {{ pageInfo.total }} 筆
       <span v-if="pageInfo.truncated"> · All 已限制每頁 {{ pageInfo.pageSize }} 筆</span>
@@ -24,9 +37,9 @@ const sizeOptions = listPageSizeOptions.map((option) => ({ value: option.value, 
       <UiSelect v-model="pageSize" :options="sizeOptions" :label="sizeLabel" size="sm" />
     </span>
     <span v-if="pageInfo.totalPages > 1" class="ui-pagination__pages">
-      <UiButton size="sm" :icon="ChevronLeft" :disabled="!pageInfo.hasPrevious" @click="emit('page', pageInfo.page - 1)">上一頁</UiButton>
+      <UiButton size="sm" :icon="ChevronLeft" :disabled="!pageInfo.hasPrevious" @click="goTo(pageInfo.page - 1)">上一頁</UiButton>
       <span>第 {{ pageInfo.page }} / {{ pageInfo.totalPages }} 頁</span>
-      <UiButton size="sm" :trailing-icon="ChevronRight" :disabled="!pageInfo.hasNext" @click="emit('page', pageInfo.page + 1)">下一頁</UiButton>
+      <UiButton size="sm" :trailing-icon="ChevronRight" :disabled="!pageInfo.hasNext" @click="goTo(pageInfo.page + 1)">下一頁</UiButton>
     </span>
   </div>
 </template>

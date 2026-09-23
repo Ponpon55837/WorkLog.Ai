@@ -1,10 +1,14 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ padded?: boolean; tag?: string }>(), { padded: false, tag: "section" });
+/**
+ * Bordered container. `stickyHeader` pins the header while the page scrolls, directly below the
+ * page's sticky PageToolbar (offset `--page-toolbar-height`, set by PageToolbar).
+ */
+withDefaults(defineProps<{ padded?: boolean; tag?: string; stickyHeader?: boolean }>(), { padded: false, tag: "section", stickyHeader: false });
 </script>
 
 <template>
   <component :is="tag" class="ui-box">
-    <header v-if="$slots.header" class="ui-box__header">
+    <header v-if="$slots.header" :class="['ui-box__header', { 'ui-box__header--sticky': stickyHeader }]">
       <slot name="header" />
     </header>
     <div :class="['ui-box__body', { 'ui-box__body--padded': padded }]">
@@ -22,7 +26,10 @@ withDefaults(defineProps<{ padded?: boolean; tag?: string }>(), { padded: false,
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-canvas);
-  overflow: hidden;
+  /* clip (not hidden) rounds the corners without creating a scroll container, so sticky headers still work. */
+  overflow: clip;
+  /* Keeps scrollIntoView targets clear of the sticky page toolbar. */
+  scroll-margin-top: calc(var(--page-toolbar-height, 0px) + var(--space-2));
 }
 
 .ui-box + .ui-box {
@@ -39,6 +46,12 @@ withDefaults(defineProps<{ padded?: boolean; tag?: string }>(), { padded: false,
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--bg-subtle);
+}
+
+.ui-box__header--sticky {
+  position: sticky;
+  top: var(--page-toolbar-height, 0px);
+  z-index: 5;
 }
 
 .ui-box__body--padded {

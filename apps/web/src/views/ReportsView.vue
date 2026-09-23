@@ -16,6 +16,7 @@ import {
 } from "lucide-vue-next";
 import type { ReportEvidence, ReportExportFormat, ReportPeriod, WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import PageToolbar from "../components/layout/PageToolbar.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import SynthesisCard from "../components/domain/SynthesisCard.vue";
 import VerificationBreakdown from "../components/domain/VerificationBreakdown.vue";
@@ -196,7 +197,12 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", 
   <UiEmptyState v-else-if="!report" :icon="ChartColumn" title="尚未產生報告" description="選擇區間後，系統會從已授權的工作紀錄建立 deterministic 報告。" />
 
   <template v-else>
-    <UiUnderlineNav v-model="tab" :items="tabs" label="工作報告內容分頁" id-prefix="report" />
+    <PageToolbar>
+      <UiUnderlineNav v-model="tab" :items="tabs" label="工作報告內容分頁" id-prefix="report" />
+      <div v-if="tab === 'evidence'" class="reports__evidence-search">
+        <UiTextInput v-model="reportEvidenceQuery" type="search" :icon="Search" label="搜尋來源證據" placeholder="搜尋 Session、來源或證據內容" />
+      </div>
+    </PageToolbar>
 
     <section v-if="tab === 'overview'" id="report-panel-overview" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-overview">
       <SynthesisCard />
@@ -223,7 +229,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", 
     </section>
 
     <section v-else-if="tab === 'work'" id="report-panel-work" class="reports__panel reports__grid" role="tabpanel" aria-labelledby="report-tab-work">
-      <UiBox>
+      <UiBox sticky-header>
         <template #header><UiBoxTitle eyebrow="Completed work" title="主要完成事項" :count="report.totals.sessions" /></template>
         <UiEmptyState v-if="report.completedWork.length === 0" compact :icon="CircleCheckBig" title="這段期間沒有完成工作" />
         <SessionRow v-for="session in report.completedWork" :key="session.id" :session="session" @open="openSession($event, report.completedWork)" />
@@ -251,7 +257,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", 
     </section>
 
     <section v-else-if="tab === 'risks'" id="report-panel-risks" class="reports__panel reports__grid" role="tabpanel" aria-labelledby="report-tab-risks">
-      <UiBox>
+      <UiBox sticky-header>
         <template #header><UiBoxTitle eyebrow="Risks to review" title="資料型風險" :count="report.risks.length" /></template>
         <UiEmptyState v-if="report.risks.length === 0" compact :icon="TriangleAlert" title="沒有偵測到資料型風險" />
         <UiBoxRow
@@ -266,7 +272,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", 
           <p class="reports__row-detail">{{ insight.detail }}</p>
         </UiBoxRow>
       </UiBox>
-      <UiBox>
+      <UiBox sticky-header>
         <template #header><UiBoxTitle eyebrow="Decisions" title="決策與 closing 事件" :count="report.decisions.length" /></template>
         <UiEmptyState v-if="report.decisions.length === 0" compact title="這段期間沒有決策事件" description="Agent 提交 note 或 closing event 後，會在這裡保留來源。" />
         <UiBoxRow v-for="decision in report.decisions" :key="`${decision.sessionId}-${decision.occurredAt}`" clickable :title="decision.summary" @select="openReportSession(decision.sessionId)">
@@ -276,7 +282,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", 
     </section>
 
     <section v-else-if="tab === 'raw'" id="report-panel-raw" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-raw">
-      <UiBox>
+      <UiBox sticky-header>
         <template #header><UiBoxTitle eyebrow="Raw work records" title="原始工作紀錄" :count="reportSessionPageInfo.total" /></template>
         <UiSkeleton v-if="reportSessionLoading && reportSessionItems.length === 0" />
         <UiEmptyState v-else-if="reportSessionItems.length === 0" compact :icon="FileText" title="這段期間沒有原始 Session" />
@@ -292,8 +298,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", 
     </section>
 
     <section v-else id="report-panel-evidence" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-evidence">
-      <UiTextInput v-model="reportEvidenceQuery" type="search" :icon="Search" label="搜尋來源證據" placeholder="搜尋 Session、來源或證據內容" />
-      <UiBox>
+      <UiBox sticky-header>
         <template #header>
           <UiBoxTitle eyebrow="Source evidence" title="來源證據" :count="report.evidencePageInfo.total" />
           <UiActionMenu v-model="reportEvidenceKind" label="類型" header="篩選 Evidence 類型" default-value="" align="end" :items="evidenceKindItems" />
@@ -362,6 +367,11 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", 
   margin-top: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.reports__evidence-search {
+  flex: 1 1 100%;
+  padding: var(--space-2) 0;
 }
 
 .reports__evidence-kind {

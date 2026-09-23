@@ -11,7 +11,8 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`. |
 | `AppHeader` | Menu button (< 640px), `WI` logo, crumb from route meta, search trigger (`Ctrl/⌘ K`), Local-first dot, refresh `UiIconButton`. |
 | `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<route>"`. |
-| `PageHeader` | Props `title?`, `eyebrow?` (default to route meta), `description?`. Slot `actions`. |
+| `PageHeader` | Props `title?`, `eyebrow?` (default to route meta), `description?`. Slot `actions`. Scrolls away with the page. |
+| `PageToolbar` | Sticky container for page search and/or `UiUnderlineNav`; publishes `--page-toolbar-height` for sticky Box headers. One per page. |
 
 ## Actions & inputs
 
@@ -28,13 +29,13 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `UiSegmentedControl` | `v-model`, `options`, `label`. Arrow keys move selection. |
 | `UiUnderlineNav` | `v-model`, `items: SelectOption[]` (`icon`, `count`), `label`, `idPrefix` (tabs get `${idPrefix}-tab-<v>`, panels should use `${idPrefix}-panel-<v>`). |
 | `UiDateRangeMenu` | `v-model: { from, to }`, `label`, `variant`, `align`. Presets 不限／今天／昨天／近 7 天／本月 + two-click custom range. The only date-range picker. |
-| `UiPagination` | `pageInfo`, `v-model:page-size`, `sizeLabel` (accessible name of the size select), emits `page`. |
+| `UiPagination` | `pageInfo`, `v-model:page-size`, `sizeLabel` (accessible name of the size select), emits `page`; scrolls its Box back into view when the list top is off-screen. |
 
 ## Display
 
 | Component | API |
 |---|---|
-| `UiBox` | Slots `header`, default, `footer`; props `padded`, `tag`. Adjacent boxes get 16px spacing. |
+| `UiBox` | Slots `header`, default, `footer`; props `padded`, `tag`, `stickyHeader` (pins the header below `PageToolbar`). Uses `overflow: clip` so sticky works. Adjacent boxes get 16px spacing. |
 | `UiBoxTitle` | `title`, `eyebrow`, `icon`, `count`; default slot for inline extras (e.g. a Label). |
 | `UiBoxRow` | Props `clickable`, `title`, `meta`, `tag`; emits `select`. Slots `leading`, `title`, `labels`, `meta`, default (body), `trailing`. Clickable rows use a stretched title button; trailing actions stay independently focusable. Add class `hide-sm` to trailing items that should hide < 640px. |
 | `UiGroupLabel` | Date/section separator inside a Box. |

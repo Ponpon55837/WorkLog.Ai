@@ -18,6 +18,13 @@ Route meta: `{ title, eyebrow, group, icon }`. The sidebar, breadcrumb and `Page
 
 Do not add hero banners, decorative illustrations or slogan-sized headings.
 
+## Scrolling
+
+- `<main>` is the scroll container. Page-level controls that must stay reachable (search box, `UiUnderlineNav` tabs, a tab-specific search) go inside `PageToolbar`, which is sticky at the top of the content. The `PageHeader` above it scrolls away.
+- Every list `UiBox` under a toolbar uses `sticky-header`, so its filters/count stay pinned directly below the toolbar (offset `--page-toolbar-height`).
+- Path changes (new page or tab) reset scroll to the top (AppShell). Query-only changes (filters, pagination, `?session`) keep position; pagination scrolls the list top back into view.
+- Never wrap a list in another scrolling element except `VirtualList` in "All" mode and the Graph canvas.
+
 ## Lists (the GitHub issue-list pattern)
 
 - Wrap every list in `UiBox`.

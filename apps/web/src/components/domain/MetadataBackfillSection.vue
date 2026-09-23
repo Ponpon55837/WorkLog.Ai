@@ -76,7 +76,7 @@ const requestMessage = computed(() => {
       <template #actions><UiButton variant="primary" size="sm" :loading="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest">請 Agent 回補</UiButton></template>
     </UiFlash>
 
-    <UiBox>
+    <UiBox sticky-header>
       <template #header>
         <UiBoxTitle eyebrow="Agent follow-ups" title="需要回補的 Session" :count="preview?.items.length" />
         <UiButton size="sm" :icon="ScanSearch" :loading="metadataBackfillLoading" @click="previewMetadataBackfill">{{ preview ? "重新掃描" : "掃描 metadata 缺口" }}</UiButton>

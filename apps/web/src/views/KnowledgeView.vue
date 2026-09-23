@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { BookOpen, Search, X } from "lucide-vue-next";
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import PageToolbar from "../components/layout/PageToolbar.vue";
 import KnowledgeRow from "../components/domain/KnowledgeRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -81,17 +82,19 @@ function onAction(action: "edit" | "history" | "toggle-status" | "source", item:
 <template>
   <PageHeader description="Knowledge 只接受 Agent 明確提交、已確認的內容，不會自行讀取 source 或用猜測取代證據。" />
 
-  <form class="knowledge-search" role="search" @submit.prevent="reloadNow">
-    <UiTextInput v-model="knowledgeQuery" class="knowledge-search__input" type="search" :icon="Search" label="搜尋 Knowledge" placeholder="搜尋標題、內容、標籤或參考" />
-    <UiButton v-if="hasFilters" :icon="X" @click="clearFilters">清除篩選</UiButton>
-  </form>
+  <PageToolbar>
+    <form class="knowledge-search" role="search" @submit.prevent="reloadNow">
+      <UiTextInput v-model="knowledgeQuery" class="knowledge-search__input" type="search" :icon="Search" label="搜尋 Knowledge" placeholder="搜尋標題、內容、標籤或參考" />
+      <UiButton v-if="hasFilters" :icon="X" @click="clearFilters">清除篩選</UiButton>
+    </form>
+  </PageToolbar>
 
   <UiFlash v-if="knowledgeError" tone="danger">
     {{ knowledgeError }}
     <template #actions><UiButton size="sm" @click="loadKnowledge">重試</UiButton></template>
   </UiFlash>
 
-  <UiBox>
+  <UiBox sticky-header>
     <template #header>
       <UiBoxTitle :icon="BookOpen" :title="`${knowledgePageInfo.total} 筆${knowledgeStatus === 'active' ? '使用中' : '已封存'} Knowledge`" />
       <div class="knowledge__filters">
@@ -125,8 +128,8 @@ function onAction(action: "edit" | "history" | "toggle-status" | "source", item:
 <style scoped>
 .knowledge-search {
   display: flex;
+  flex: 1;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
 }
 
 .knowledge-search__input {

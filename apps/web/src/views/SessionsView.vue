@@ -3,6 +3,7 @@ import { computed, watch } from "vue";
 import { ListChecks, Search, X } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import PageToolbar from "../components/layout/PageToolbar.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -85,14 +86,16 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
 <template>
   <PageHeader description="每一次完成，都留下可追溯的脈絡。" />
 
-  <form class="sessions-search" role="search" @submit.prevent="reloadNow">
-    <UiTextInput v-model="searchTerm" class="sessions-search__input" type="search" :icon="Search" label="搜尋工作歷程" placeholder="搜尋 title、summary 或 event" />
-    <UiButton v-if="hasSessionFilters" :icon="X" @click="clearSessionFilters">清除篩選</UiButton>
-  </form>
+  <PageToolbar>
+    <form class="sessions-search" role="search" @submit.prevent="reloadNow">
+      <UiTextInput v-model="searchTerm" class="sessions-search__input" type="search" :icon="Search" label="搜尋工作歷程" placeholder="搜尋 title、summary 或 event" />
+      <UiButton v-if="hasSessionFilters" :icon="X" @click="clearSessionFilters">清除篩選</UiButton>
+    </form>
+  </PageToolbar>
 
   <UiFlash v-if="sessionFilterError" tone="danger">{{ sessionFilterError }}</UiFlash>
 
-  <UiBox>
+  <UiBox sticky-header>
     <template #header>
       <UiBoxTitle :icon="ListChecks" :title="`${sessionPageInfo.total} Sessions`">
         <span v-if="sessionPageInfo.total" class="sessions__range">顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}</span>
@@ -128,8 +131,8 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
 <style scoped>
 .sessions-search {
   display: flex;
+  flex: 1;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
 }
 
 .sessions-search__input {

@@ -5,7 +5,7 @@
 Full plan: `docs/ui-redesign-plan.md`. Each phase ships as its own PR(s). Never mix phases.
 
 ## P0 — Safety net
-- Capture Playwright screenshots of all 6 pages at 1440 / 960 / 375 into `docs/ui-baseline/`.
+- Capture Playwright screenshots of all 6 pages at 1440 / 960 / 375 with `UI_SCREENSHOTS=<label> pnpm test:e2e` (written to `docs/ui-baseline/<label>/`, git-ignored; attach to PRs instead of committing).
 - Replace class-based `locator(".worklog-row")`-style selectors in `e2e/work-intelligence.spec.ts` with `getByRole` / `getByLabel` / `data-testid`. Add `data-testid` to the current markup where no accessible handle exists.
 - Done when: `pnpm test:e2e` passes with zero styling-class selectors.
 

@@ -104,10 +104,10 @@ apps/web/src/
 
 | 階段 | 結果 |
 |---|---|
-| P0 | e2e 改用 role／label／data-testid 與版面不變量；`UI_SCREENSHOTS=<label>` 截圖，baseline 在 `docs/ui-baseline/before` |
+| P0 | e2e 改用 role／label／data-testid 與版面不變量；`UI_SCREENSHOTS=<label>` 截圖到 `docs/ui-baseline/<label>`（本機產生、不進版控） |
 | P1 | App.vue 由 2617 行拆成 domain composables；截圖與 baseline 差異 ≤ 0.1% |
 | P2 | tokens／base、lucide、`components/ui`、`components/layout`、`/__ui` 展示頁 |
-| P3 | 六頁全部改寫；移除 `style.css` 與 BaseModal 系列；新版截圖在 `docs/ui-baseline/after` |
+| P3 | 六頁全部改寫；移除 `style.css` 與 BaseModal 系列 |
 | P4 | 移除死碼、label 統一來源、axe 對比修正、指令面板與快捷鍵、新增 e2e（deep link、tracking 同意、指令面板）、新增 code-style skill |
 
 與原規劃的刻意差異：
@@ -116,3 +116,4 @@ apps/web/src/
 2. **Tooltip 使用原生 `title`**，未另做 UiTooltip 元件。
 3. **Dashboard 待處理清單**只讀取既有的 report synthesis／metadata backfill request；同一報告範圍只看最新一筆，避免已被後續完成的失敗請求重複出現。
 4. **報告時區**沿用後端 UTC，頁首明確標示「（UTC）」。
+5. **捲動**：搜尋列與分頁標籤放在 `PageToolbar`，捲動時固定在內容頂端；清單的 Box header 固定在其下方。換頁（分頁按鈕）時捲回清單頂端，切換頁面或分頁標籤時回到頁首。

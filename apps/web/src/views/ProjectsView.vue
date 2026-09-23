@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 import { FileInput, FolderGit2, Plus, ScanSearch } from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import PageToolbar from "../components/layout/PageToolbar.vue";
 import AddProjectDialog from "../components/domain/AddProjectDialog.vue";
 import MetadataBackfillSection from "../components/domain/MetadataBackfillSection.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
@@ -79,13 +80,15 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
     </template>
   </PageHeader>
 
-  <UiUnderlineNav v-model="tab" :items="tabs" label="專案管理分頁" id-prefix="projects" />
+  <PageToolbar>
+    <UiUnderlineNav v-model="tab" :items="tabs" label="專案管理分頁" id-prefix="projects" />
+  </PageToolbar>
 
   <section v-if="tab === 'registry'" id="projects-panel-registry" role="tabpanel" aria-labelledby="projects-tab-registry">
     <UiFlash v-if="!policyDismissed" tone="accent" title="Default deny" dismissible @dismiss="dismissPolicy">
       任何 handoff、Git 或 source 讀取，都必須先通過 project policy gate：專案被發現 → 你明確切換為「記錄中」→ Agent 才能 finalize Session。
     </UiFlash>
-    <UiBox>
+    <UiBox sticky-header>
       <template #header>
         <UiBoxTitle :icon="FolderGit2" title="所有專案" :count="projects.length" />
         <span class="projects__tracked">{{ trackedProjects.length }} 個記錄中</span>
