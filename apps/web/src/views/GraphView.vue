@@ -1,103 +1,34 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import type { GraphEdge, GraphNode, GraphQueryResult, ProjectRecord } from "@work-intelligence/core";
 import GraphCanvas from "../components/GraphCanvas.vue";
+import { useViewLoader } from "../composables/useAppRefresh";
+import { graphLoadPresetOptions, useGraph } from "../composables/useGraph";
+import { useProjects } from "../composables/useProjects";
+import { graphNodeLabel } from "../utils/format";
+import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 
-type GraphResult = Extract<GraphQueryResult, { outcome: "graph" }>;
-type GraphNodeFilter = GraphNode["kind"] | "all";
+const { trackedProjects } = useProjects();
+const {
+  graph,
+  graphProjectId,
+  graphNodeFilter,
+  graphPreviewLimit,
+  graphLoadPreset,
+  graphLoading,
+  graphError,
+  graphVisual,
+  graphFilteredTotalNodes,
+  graphCanLoadMore,
+  graphNodeCounts,
+  graphEdgeCounts,
+  graphNodeFilterLabel,
+  graphNodeDescription,
+  loadGraph,
+  loadMoreGraph: loadMore,
+  selectGraphNode: selectNode
+} = useGraph();
 
-type GraphVisualNode = {
-  node: GraphNode;
-  x: number;
-  y: number;
-};
-
-type GraphVisualEdge = {
-  edge: GraphEdge;
-  from: GraphVisualNode;
-  to: GraphVisualNode;
-};
-
-type GraphVisual = {
-  width: number;
-  height: number;
-  nodes: readonly GraphVisualNode[];
-  edges: readonly GraphVisualEdge[];
-  hiddenNodes: number;
-  hiddenEdges: number;
-};
-
-type GraphLoadPreset = {
-  value: string;
-  label: string;
-  maxNodes: number;
-  maxEdges: number;
-};
-
-type GraphNodeCount = {
-  kind: GraphNode["kind"];
-  label: string;
-  count: number;
-};
-
-type GraphEdgeCount = {
-  kind: GraphEdge["kind"];
-  label: string;
-  count: number;
-};
-
-const props = defineProps<{
-  trackedProjects: readonly ProjectRecord[];
-  graph: GraphResult | null;
-  graphProjectId: string;
-  graphNodeFilter: GraphNodeFilter;
-  graphPreviewLimit: number;
-  graphLoadPreset: string;
-  graphLoadPresetOptions: readonly GraphLoadPreset[];
-  graphLoading: boolean;
-  graphError: string;
-  graphNodeKindOrder: readonly GraphNode["kind"][];
-  graphNodeKindLabels: Readonly<Record<GraphNode["kind"], string>>;
-  graphEdgeKindLabels: Readonly<Record<GraphEdge["kind"], string>>;
-  graphVisual: GraphVisual;
-  graphFilteredTotalNodes: number;
-  graphNodeCounts: readonly GraphNodeCount[];
-  graphEdgeCounts: readonly GraphEdgeCount[];
-  graphCanLoadMore: boolean;
-  graphNodeFilterLabel: string;
-  graphNodeLabel: (value: string) => string;
-  graphNodeDescription: (node: GraphNode) => string;
-}>();
-
-const emit = defineEmits<{
-  "update:graphProjectId": [value: string];
-  "update:graphNodeFilter": [value: GraphNodeFilter];
-  "update:graphPreviewLimit": [value: number];
-  "update:graphLoadPreset": [value: string];
-  load: [];
-  loadMore: [];
-  selectNode: [node: GraphNode];
-}>();
-
-const graphProjectIdModel = computed({
-  get: () => props.graphProjectId,
-  set: (value: string) => emit("update:graphProjectId", value)
-});
-
-const graphNodeFilterModel = computed({
-  get: () => props.graphNodeFilter,
-  set: (value: GraphNodeFilter) => emit("update:graphNodeFilter", value)
-});
-
-const graphPreviewLimitModel = computed({
-  get: () => props.graphPreviewLimit,
-  set: (value: number) => emit("update:graphPreviewLimit", value)
-});
-
-const graphLoadPresetModel = computed({
-  get: () => props.graphLoadPreset,
-  set: (value: string) => emit("update:graphLoadPreset", value)
-});
+const load = (): Promise<void> => loadGraph();
+useViewLoader(load);
 </script>
 
 <template>
@@ -111,24 +42,24 @@ const graphLoadPresetModel = computed({
       <div class="tracked-summary"><strong>{{ graph?.totalNodes ?? 0 }}</strong><span>個圖譜節點</span></div>
     </div>
 
-    <form class="graph-tools" @submit.prevent="emit('load')">
+    <form class="graph-tools" @submit.prevent="load()">
       <label class="filter-field">
         <span>專案範圍</span>
-        <select v-model="graphProjectIdModel" aria-label="選擇 Graph 專案範圍">
+        <select v-model="graphProjectId" aria-label="選擇 Graph 專案範圍">
           <option value="">所有記錄中專案</option>
           <option v-for="project in trackedProjects" :key="project.id" :value="project.id">{{ project.name }}</option>
         </select>
       </label>
       <label class="filter-field">
         <span>節點類型</span>
-        <select v-model="graphNodeFilterModel" aria-label="選擇 Graph 節點類型">
+        <select v-model="graphNodeFilter" aria-label="選擇 Graph 節點類型">
           <option value="all">全部類型</option>
           <option v-for="kind in graphNodeKindOrder" :key="kind" :value="kind">{{ graphNodeKindLabels[kind] }}</option>
         </select>
       </label>
       <label class="filter-field">
         <span>畫面預覽量</span>
-        <select v-model.number="graphPreviewLimitModel" aria-label="選擇 Graph 畫面預覽量">
+        <select v-model.number="graphPreviewLimit" aria-label="選擇 Graph 畫面預覽量">
           <option :value="60">精簡（最多 60）</option>
           <option :value="120">標準（最多 120）</option>
           <option :value="180">展開（最多 180）</option>
@@ -136,13 +67,13 @@ const graphLoadPresetModel = computed({
       </label>
       <label class="filter-field">
         <span>資料載入上限</span>
-        <select v-model="graphLoadPresetModel" aria-label="選擇 Graph 資料載入上限">
+        <select v-model="graphLoadPreset" aria-label="選擇 Graph 資料載入上限">
           <option v-for="preset in graphLoadPresetOptions" :key="preset.value" :value="preset.value">{{ preset.label }}</option>
         </select>
       </label>
       <span class="graph-policy-note">只顯示「記錄中」專案；類型與預覽量可立即切換</span>
       <button class="filter-button" type="submit" :disabled="graphLoading">{{ graphLoading ? '整理中…' : '更新圖譜' }}</button>
-      <button v-if="graphCanLoadMore" class="text-button graph-load-more-button" type="button" :disabled="graphLoading" @click="emit('loadMore')">載入更多資料</button>
+      <button v-if="graphCanLoadMore" class="text-button graph-load-more-button" type="button" :disabled="graphLoading" @click="loadMore()">載入更多資料</button>
     </form>
 
     <div v-if="graphError" class="alert error-alert" role="alert">{{ graphError }}</div>
@@ -177,7 +108,7 @@ const graphLoadPresetModel = computed({
           :edge-kind-labels="graphEdgeKindLabels"
           :node-label="graphNodeLabel"
           :node-description="graphNodeDescription"
-          @select="emit('selectNode', $event)"
+          @select="selectNode($event)"
         />
         <p class="graph-panel-note">目前顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 個{{ graphNodeFilterLabel }}、{{ graphVisual.edges.length }} / {{ graph.totalEdges }} 條關係。{{ graph.truncation.nodesTruncated || graph.truncation.edgesTruncated ? '資料已依載入上限受控；可提高「資料載入上限」或按「載入更多資料」。' : '目前範圍的資料已完整載入。' }}<span v-if="graphVisual.hiddenNodes"> 畫面另省略 {{ graphVisual.hiddenNodes }} 個節點。</span><span v-if="graphVisual.hiddenEdges"> 另有 {{ graphVisual.hiddenEdges }} 條關係因端點被省略而未繪出。</span></p>
       </section>

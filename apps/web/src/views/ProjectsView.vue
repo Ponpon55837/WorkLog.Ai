@@ -1,52 +1,32 @@
 <script setup lang="ts">
-import type {
-  HandoffImportPreview,
-  MetadataBackfillGap,
-  MetadataBackfillPreview,
-  MetadataBackfillRequest,
-  ProjectRecord,
-  ProjectStatus,
-  ReportVerificationStatus
-} from "@work-intelligence/core";
+import type { ProjectStatus } from "@work-intelligence/core";
+import { useViewLoader } from "../composables/useAppRefresh";
+import { useHandoffImport } from "../composables/useHandoffImport";
+import { metadataBackfillInstruction, useMetadataBackfill } from "../composables/useMetadataBackfill";
+import { useProjects } from "../composables/useProjects";
+import { formatDate } from "../utils/format";
+import { metadataBackfillStatusLabels, metadataGapLabel, statusDescriptions, statusLabels, verificationLabels } from "../utils/labels";
 
-const props = defineProps<{
-  trackedProjects: readonly ProjectRecord[];
-  projects: readonly ProjectRecord[];
-  projectName: string;
-  projectRoot: string;
-  addingProject: boolean;
-  metadataBackfillPreview: MetadataBackfillPreview | null;
-  metadataBackfillLoading: boolean;
-  metadataBackfillError: string;
-  metadataBackfillRequest: MetadataBackfillRequest | null;
-  metadataBackfillRequestIsActive: boolean;
-  metadataBackfillStatusLabels: Readonly<Record<MetadataBackfillRequest["status"], string>>;
-  metadataBackfillRequestLoading: boolean;
-  metadataBackfillRequestCreating: boolean;
-  metadataBackfillRequestError: string;
-  metadataBackfillInstruction: string;
-  handoffImportLoading: boolean;
-  handoffImportProjectId: string;
-  statusLabels: Readonly<Record<ProjectStatus, string>>;
-  statusDescriptions: Readonly<Record<ProjectStatus, string>>;
-  verificationLabels: Readonly<Record<ReportVerificationStatus, string>>;
-  formatDate: (value: string) => string;
-  metadataGapLabel: (value: MetadataBackfillGap) => string;
-}>();
+const { projects, trackedProjects, projectName, projectRoot, addingProject, loadProjects, addProject, updateProjectStatus } = useProjects();
+const {
+  metadataBackfillPreview,
+  metadataBackfillLoading,
+  metadataBackfillError,
+  metadataBackfillRequest,
+  metadataBackfillRequestIsActive,
+  metadataBackfillRequestLoading,
+  metadataBackfillRequestCreating,
+  metadataBackfillRequestError,
+  loadMetadataBackfillRequest,
+  createMetadataBackfillRequest,
+  cancelMetadataBackfillRequest,
+  copyMetadataBackfillInstruction,
+  previewMetadataBackfill,
+  openMetadataBackfillSession
+} = useMetadataBackfill();
+const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
 
-const emit = defineEmits<{
-  "update:projectName": [value: string];
-  "update:projectRoot": [value: string];
-  addProject: [];
-  previewMetadataBackfill: [];
-  openMetadataBackfillSession: [item: MetadataBackfillPreview["items"][number]];
-  copyMetadataBackfillInstruction: [];
-  cancelMetadataBackfillRequest: [];
-  loadMetadataBackfillRequest: [];
-  createMetadataBackfillRequest: [];
-  previewHandoffs: [project: ProjectRecord];
-  updateProjectStatus: [project: ProjectRecord, status: ProjectStatus];
-}>();
+useViewLoader(() => Promise.all([loadProjects(), loadMetadataBackfillRequest()]));
 </script>
 
 <template>
@@ -68,14 +48,14 @@ const emit = defineEmits<{
         </div>
         <span class="opt-in-label">加入後預設為未註冊</span>
       </div>
-      <form class="project-form" @submit.prevent="emit('addProject')">
+      <form class="project-form" @submit.prevent="addProject()">
         <label>
           <span>專案名稱</span>
-          <input :value="projectName" type="text" placeholder="例如：Assistant Console" @input="emit('update:projectName', ($event.target as HTMLInputElement).value)" />
+          <input :value="projectName" type="text" placeholder="例如：Assistant Console" @input="projectName = (($event.target as HTMLInputElement).value)" />
         </label>
         <label class="path-field">
           <span>Workspace 根目錄</span>
-          <input :value="projectRoot" type="text" placeholder="C:\\Users\\you\\project" @input="emit('update:projectRoot', ($event.target as HTMLInputElement).value)" />
+          <input :value="projectRoot" type="text" placeholder="C:\\Users\\you\\project" @input="projectRoot = (($event.target as HTMLInputElement).value)" />
         </label>
         <button class="primary-button" type="submit" :disabled="addingProject">{{ addingProject ? '加入中…' : '加入專案' }}</button>
       </form>
@@ -88,7 +68,7 @@ const emit = defineEmits<{
           <h3>需要 Agent 回補的 Session</h3>
           <p>只列出已完成但缺少 Verification 或 changed-files metadata 的 tracked Session。這裡不會猜測，也不會自動寫回。</p>
         </div>
-        <button class="outline-button" type="button" :disabled="metadataBackfillLoading" @click="emit('previewMetadataBackfill')">{{ metadataBackfillLoading ? '掃描中…' : '掃描 metadata 缺口' }}</button>
+        <button class="outline-button" type="button" :disabled="metadataBackfillLoading" @click="previewMetadataBackfill()">{{ metadataBackfillLoading ? '掃描中…' : '掃描 metadata 缺口' }}</button>
       </div>
       <div v-if="metadataBackfillError" class="alert error-alert metadata-backfill-alert" role="alert">{{ metadataBackfillError }}</div>
       <template v-if="metadataBackfillPreview">
@@ -109,7 +89,7 @@ const emit = defineEmits<{
               <span v-for="gap in item.gaps" :key="gap" class="metadata-gap-chip">{{ metadataGapLabel(gap) }}</span>
               <span class="metadata-verification-chip">{{ verificationLabels[item.verificationStatus] }}</span>
             </div>
-            <button class="text-button" type="button" @click="emit('openMetadataBackfillSession', item)">查看 Session</button>
+            <button class="text-button" type="button" @click="openMetadataBackfillSession(item)">查看 Session</button>
           </article>
         </div>
         <div v-else class="metadata-backfill-empty"><strong>目前沒有待回補資料</strong><p>所有 tracked Session 都已提供必要的結構化 metadata。</p></div>
@@ -129,10 +109,10 @@ const emit = defineEmits<{
           <span :class="['synthesis-status', `synthesis-status-${metadataBackfillRequest.status}`]">{{ metadataBackfillStatusLabels[metadataBackfillRequest.status] }}</span>
         </div>
         <div class="metadata-backfill-agent-actions">
-          <button class="primary-button" type="button" :disabled="metadataBackfillRequestLoading" @click="emit('copyMetadataBackfillInstruction')">複製 Agent 指令</button>
-          <button v-if="metadataBackfillRequestIsActive" class="text-button cancel-button" type="button" :disabled="metadataBackfillRequestLoading" @click="emit('cancelMetadataBackfillRequest')">{{ metadataBackfillRequestLoading ? '取消中…' : '取消回補' }}</button>
-          <button class="icon-button report-icon-button" type="button" :disabled="metadataBackfillRequestLoading" aria-label="重新整理 metadata 回補狀態" title="重新整理 metadata 回補狀態" @click="emit('loadMetadataBackfillRequest')"><span aria-hidden="true">↻</span></button>
-          <button v-if="!metadataBackfillRequestIsActive && metadataBackfillPreview?.items.length" class="text-button" type="button" :disabled="metadataBackfillRequestCreating" @click="emit('createMetadataBackfillRequest')">重新建立回補請求</button>
+          <button class="primary-button" type="button" :disabled="metadataBackfillRequestLoading" @click="copyMetadataBackfillInstruction()">複製 Agent 指令</button>
+          <button v-if="metadataBackfillRequestIsActive" class="text-button cancel-button" type="button" :disabled="metadataBackfillRequestLoading" @click="cancelMetadataBackfillRequest()">{{ metadataBackfillRequestLoading ? '取消中…' : '取消回補' }}</button>
+          <button class="icon-button report-icon-button" type="button" :disabled="metadataBackfillRequestLoading" aria-label="重新整理 metadata 回補狀態" title="重新整理 metadata 回補狀態" @click="loadMetadataBackfillRequest()"><span aria-hidden="true">↻</span></button>
+          <button v-if="!metadataBackfillRequestIsActive && metadataBackfillPreview?.items.length" class="text-button" type="button" :disabled="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest()">重新建立回補請求</button>
         </div>
       </div>
       <div v-else-if="metadataBackfillPreview?.items.length" class="metadata-backfill-agent-card metadata-backfill-agent-card-warning">
@@ -144,7 +124,7 @@ const emit = defineEmits<{
           </div>
         </div>
         <div class="metadata-backfill-agent-actions">
-          <button class="primary-button" type="button" :disabled="metadataBackfillRequestCreating" @click="emit('createMetadataBackfillRequest')">{{ metadataBackfillRequestCreating ? '建立中…' : '請 Agent 回補 metadata' }}</button>
+          <button class="primary-button" type="button" :disabled="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest()">{{ metadataBackfillRequestCreating ? '建立中…' : '請 Agent 回補 metadata' }}</button>
         </div>
       </div>
       <div v-if="metadataBackfillRequestError" class="alert error-alert metadata-backfill-alert" role="alert">{{ metadataBackfillRequestError }}</div>
@@ -161,9 +141,9 @@ const emit = defineEmits<{
         <div class="project-status-copy">
           <span :class="['status-chip', `status-${project.status}`]"><span class="chip-dot"></span>{{ statusLabels[project.status] }}</span>
           <small>{{ statusDescriptions[project.status] }}</small>
-          <button v-if="project.status === 'tracked'" class="text-button import-trigger" type="button" :disabled="handoffImportLoading && handoffImportProjectId === project.id" @click.stop="emit('previewHandoffs', project)">{{ handoffImportLoading && handoffImportProjectId === project.id ? '預覽中…' : '預覽 handoff' }}</button>
+          <button v-if="project.status === 'tracked'" class="text-button import-trigger" type="button" :disabled="handoffImportLoading && handoffImportProjectId === project.id" @click.stop="previewHandoffs(project)">{{ handoffImportLoading && handoffImportProjectId === project.id ? '預覽中…' : '預覽 handoff' }}</button>
         </div>
-        <select :value="project.status" :aria-label="`更新 ${project.name} 的專案記錄狀態`" @change="emit('updateProjectStatus', project, ($event.target as HTMLSelectElement).value as ProjectStatus)">
+        <select :value="project.status" :aria-label="`更新 ${project.name} 的專案記錄狀態`" @change="updateProjectStatus(project, ($event.target as HTMLSelectElement).value as ProjectStatus)">
           <option value="unregistered">未註冊</option>
           <option value="tracked">記錄中</option>
           <option value="paused">已暫停</option>

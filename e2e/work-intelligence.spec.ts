@@ -9,7 +9,7 @@ type ApiResult<T> = T & { outcome?: string; reason?: string };
 
 const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/dashboard", "工作總覽"],
-  ["/worklog", "工作歷程"],
+  ["/sessions", "工作歷程"],
   ["/reports", "工作報告"],
   ["/knowledge", "工作知識"],
   ["/graph", "工作圖譜"],
@@ -329,6 +329,10 @@ test.describe("Work Intelligence browser regression", () => {
       await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
       await expect(page).toHaveURL(new RegExp(`${path}$`));
     }
+
+    await page.goto("/worklog");
+    await expect(page).toHaveURL(/\/sessions$/);
+    await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
   });
 
   // Opt-in visual baseline: UI_SCREENSHOTS=<label> pnpm test:e2e writes docs/ui-baseline/<label>/*.png
