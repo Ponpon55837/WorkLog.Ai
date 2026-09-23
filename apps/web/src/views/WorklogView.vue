@@ -142,7 +142,7 @@ function toggleDatePicker(target: DatePickerTarget): void {
       <div class="list-heading worklog-heading"><span>{{ sessionPageInfo.total }} 個工作 Session<span v-if="hasSessionFilters" class="filter-applied">已套用篩選</span></span><span>完成時間</span></div>
       <VirtualList :items="sessions" :enabled="sessionPageSize === 'all'" aria-label="工作歷程清單">
         <template #default="{ item: session }">
-          <button class="worklog-row" type="button" @click="emit('openSession', session)">
+          <button class="worklog-row" data-testid="session-row" type="button" @click="emit('openSession', session)">
             <div class="timeline-dot"></div>
             <div class="worklog-body">
               <div class="worklog-title"><strong>{{ session.title }}</strong><span class="finalized-label">已完成</span><span :class="['verification-badge', 'worklog-verification', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabel(session.verification?.status) }}</span></div>

@@ -2015,27 +2015,27 @@ onMounted(() => {
       </div>
 
       <nav class="navigation" aria-label="主選單">
-        <button :class="['nav-item', { active: activeView === 'dashboard' }]" type="button" :aria-current="activeView === 'dashboard' ? 'page' : undefined" @click="changeView('dashboard')">
+        <button data-testid="nav-dashboard" :class="['nav-item', { active: activeView === 'dashboard' }]" type="button" :aria-current="activeView === 'dashboard' ? 'page' : undefined" @click="changeView('dashboard')">
           <span class="nav-icon">⌂</span>
           <span class="nav-copy"><strong>工作總覽</strong><small>Dashboard</small></span>
         </button>
-        <button :class="['nav-item', { active: activeView === 'projects' }]" type="button" :aria-current="activeView === 'projects' ? 'page' : undefined" @click="changeView('projects')">
+        <button data-testid="nav-projects" :class="['nav-item', { active: activeView === 'projects' }]" type="button" :aria-current="activeView === 'projects' ? 'page' : undefined" @click="changeView('projects')">
           <span class="nav-icon">◈</span>
           <span class="nav-copy"><strong>專案與記錄</strong><small>Projects / Tracking</small></span>
         </button>
-        <button :class="['nav-item', { active: activeView === 'reports' }]" type="button" :aria-current="activeView === 'reports' ? 'page' : undefined" @click="changeView('reports')">
+        <button data-testid="nav-reports" :class="['nav-item', { active: activeView === 'reports' }]" type="button" :aria-current="activeView === 'reports' ? 'page' : undefined" @click="changeView('reports')">
           <span class="nav-icon">▥</span>
           <span class="nav-copy"><strong>工作報告</strong><small>Reports</small></span>
         </button>
-        <button :class="['nav-item', { active: activeView === 'knowledge' }]" type="button" :aria-current="activeView === 'knowledge' ? 'page' : undefined" @click="changeView('knowledge')">
+        <button data-testid="nav-knowledge" :class="['nav-item', { active: activeView === 'knowledge' }]" type="button" :aria-current="activeView === 'knowledge' ? 'page' : undefined" @click="changeView('knowledge')">
           <span class="nav-icon">✦</span>
           <span class="nav-copy"><strong>工作知識</strong><small>Knowledge</small></span>
         </button>
-        <button :class="['nav-item', { active: activeView === 'graph' }]" type="button" :aria-current="activeView === 'graph' ? 'page' : undefined" @click="changeView('graph')">
+        <button data-testid="nav-graph" :class="['nav-item', { active: activeView === 'graph' }]" type="button" :aria-current="activeView === 'graph' ? 'page' : undefined" @click="changeView('graph')">
           <span class="nav-icon">◎</span>
           <span class="nav-copy"><strong>工作圖譜</strong><small>Graph</small></span>
         </button>
-        <button :class="['nav-item', { active: activeView === 'worklog' }]" type="button" :aria-current="activeView === 'worklog' ? 'page' : undefined" @click="changeView('worklog')">
+        <button data-testid="nav-sessions" :class="['nav-item', { active: activeView === 'worklog' }]" type="button" :aria-current="activeView === 'worklog' ? 'page' : undefined" @click="changeView('worklog')">
           <span class="nav-icon">≡</span>
           <span class="nav-copy"><strong>工作歷程</strong><small>Worklog</small></span>
         </button>
@@ -2482,7 +2482,7 @@ onMounted(() => {
           <h2>{{ selectedDetail.session.title }}</h2>
           <div class="detail-project"><span class="project-avatar small">{{ selectedDetail.project.name.slice(0, 1).toUpperCase() }}</span><div><strong>{{ selectedDetail.project.name }}</strong><span>{{ selectedDetail.project.rootPath }}</span></div></div>
           <p class="detail-summary">{{ formatReadableSummary(selectedDetail.session.summary) }}</p>
-          <div v-if="selectedDetail.session.workSummary" class="detail-section structured-work-summary">
+          <div v-if="selectedDetail.session.workSummary" class="detail-section structured-work-summary" data-testid="session-work-summary">
             <div class="eyebrow">WORK SUMMARY</div>
             <div class="work-summary-grid">
               <article v-for="section in workSummarySectionLabels" :key="section.key" class="work-summary-section">

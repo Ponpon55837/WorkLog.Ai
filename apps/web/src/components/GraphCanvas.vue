@@ -78,8 +78,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="viewport" class="graph-viewport" role="img" aria-label="Work Intelligence 結構化工作關係圖" @scroll="handleScroll">
-    <div class="graph-lane-header" aria-hidden="true">
+  <div ref="viewport" class="graph-viewport" data-testid="graph-viewport" role="img" aria-label="Work Intelligence 結構化工作關係圖" @scroll="handleScroll">
+    <div class="graph-lane-header" data-testid="graph-lane-header" aria-hidden="true">
       <span v-for="kind in nodeKindOrder" :key="kind">{{ nodeKindLabels[kind] }}</span>
     </div>
     <svg class="graph-svg" :viewBox="`0 0 ${width} ${height}`" preserveAspectRatio="xMinYMin meet">

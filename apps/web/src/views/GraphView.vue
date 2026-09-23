@@ -163,7 +163,7 @@ const graphLoadPresetModel = computed({
             <div class="eyebrow">RELATIONSHIP MAP</div>
             <h3>工作關係圖</h3>
           </div>
-          <span class="report-count">顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 節點</span>
+          <span class="report-count" data-testid="graph-visible-count">顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 節點</span>
         </div>
         <div v-if="graph.nodes.length === 0" class="empty-state graph-empty"><div class="empty-icon">◎</div><strong>目前沒有可視化資料</strong><p>tracked project 完成 Session 後，這裡會出現工作關係。</p></div>
         <GraphCanvas
