@@ -39,7 +39,6 @@ const reportSessionLoading = ref(false);
 const reportSynthesisRequest = ref<ReportSynthesisRequest | null>(null);
 const reportSynthesisSummary = ref<ReportSummary | null>(null);
 const reportSynthesisHistory = ref<ReportSummary[]>([]);
-const reportSynthesisExpanded = ref(false);
 const reportSynthesisLoading = ref(false);
 const reportSynthesisCreating = ref(false);
 const reportSynthesisRetrying = ref(false);
@@ -391,7 +390,6 @@ export function useReports() {
     reportSynthesisRequest,
     reportSynthesisSummary,
     reportSynthesisHistory,
-    reportSynthesisExpanded,
     reportSynthesisLoading,
     reportSynthesisCreating,
     reportSynthesisRetrying,

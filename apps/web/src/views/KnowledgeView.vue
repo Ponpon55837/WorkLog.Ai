@@ -47,7 +47,7 @@ useRouteQuery("project", knowledgeProjectId, stringQuery());
 useRouteQuery("status", knowledgeStatus, enumQuery<KnowledgeStatus>(["active", "archived"], "active"));
 useRouteQuery("page", knowledgePage, pageQuery());
 useRouteQuery("size", knowledgePageSize, enumQuery(listPageSizeOptions.map((option) => option.value), 10));
-useListReload({ load: loadKnowledge, page: knowledgePage, filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize], search: knowledgeQuery });
+const { reloadNow } = useListReload({ load: loadKnowledge, page: knowledgePage, filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize], search: knowledgeQuery });
 useViewLoader(loadKnowledge);
 
 const hasFilters = computed(() => Boolean(knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeStatus.value !== "active"));
@@ -81,7 +81,7 @@ function onAction(action: "edit" | "history" | "toggle-status" | "source", item:
 <template>
   <PageHeader description="Knowledge 只接受 Agent 明確提交、已確認的內容，不會自行讀取 source 或用猜測取代證據。" />
 
-  <form class="knowledge-search" role="search" @submit.prevent="loadKnowledge">
+  <form class="knowledge-search" role="search" @submit.prevent="reloadNow">
     <UiTextInput v-model="knowledgeQuery" class="knowledge-search__input" type="search" :icon="Search" label="搜尋 Knowledge" placeholder="搜尋標題、內容、標籤或參考" />
     <UiButton v-if="hasFilters" :icon="X" @click="clearFilters">清除篩選</UiButton>
   </form>

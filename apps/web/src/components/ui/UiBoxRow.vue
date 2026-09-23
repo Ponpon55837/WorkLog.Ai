@@ -108,6 +108,12 @@ const emit = defineEmits<{ select: [] }>();
   white-space: nowrap;
 }
 
+/* Elements carrying a tooltip (e.g. <time title>) sit above the stretched link so hover still works. */
+.ui-box-row__meta :deep([title]) {
+  position: relative;
+  z-index: 1;
+}
+
 .ui-box-row__trailing {
   position: relative;
   z-index: 1;

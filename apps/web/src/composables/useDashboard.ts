@@ -13,6 +13,8 @@ const weekReport = ref<WorkReport | null>(null);
 const synthesisRequests = ref<ReportSynthesisRequest[]>([]);
 const backfillRequest = ref<MetadataBackfillRequest | null>(null);
 const dashboardLoading = ref(false);
+const freshForMs = 10_000;
+let loadedAt = 0;
 
 /**
  * Only the newest request per report scope matters: an older failed request that was later
@@ -81,9 +83,15 @@ async function loadDashboardData(): Promise<void> {
     }, { onError: () => (backfillRequest.value = null) })
   ]).finally(() => {
     dashboardLoading.value = false;
+    loadedAt = Date.now();
   });
 }
 
+/** Skips the fetch when App (startup or header refresh) loaded the same data moments ago. */
+function ensureDashboardData(): Promise<void> {
+  return Date.now() - loadedAt < freshForMs ? Promise.resolve() : loadDashboardData();
+}
+
 export function useDashboard() {
-  return { weekReport, weekVerification, inbox, dashboardLoading, loadDashboardData };
+  return { weekReport, weekVerification, inbox, dashboardLoading, loadDashboardData, ensureDashboardData };
 }

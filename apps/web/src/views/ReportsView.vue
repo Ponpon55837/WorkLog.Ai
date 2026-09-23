@@ -41,7 +41,7 @@ import { useReports } from "../composables/useReports";
 import { enumQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { useSessionDetail } from "../composables/useSessionDetail";
 import { router } from "../router";
-import { formatDate, formatReadableSummary, formatRelative, formatReportTrendLabel } from "../utils/format";
+import { formatDate, formatReadableSummary, formatRelative, formatReportTrendLabel, toDateInputValue } from "../utils/format";
 import { evidenceKindLabels, insightKindLabels, reportPeriodLabels, reportTabOptions, type ReportTab } from "../utils/labels";
 
 const route = useRoute();
@@ -76,7 +76,7 @@ const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
 const periods: ReportPeriod[] = ["day", "week", "month", "quarter", "year"];
 useRouteQuery("period", reportPeriod, enumQuery(periods, "week"));
-useRouteQuery("date", reportDate, stringQuery(reportDate.value));
+useRouteQuery("date", reportDate, stringQuery(toDateInputValue(new Date())));
 useRouteQuery("project", reportProjectId, stringQuery());
 useViewLoader(() => loadReport(true));
 watch([reportPeriod, reportDate, reportProjectId], () => void loadReport(true));

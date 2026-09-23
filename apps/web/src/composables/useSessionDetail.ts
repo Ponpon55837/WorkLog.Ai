@@ -5,7 +5,6 @@ import { runKeyed, useApi } from "./useApi";
 import { useToast } from "./useToast";
 
 const selectedDetail = ref<SessionDetail | null>(null);
-const loadingSessionId = ref("");
 /** Ordered Session IDs of the list the panel was opened from; drives J/K navigation. */
 const sequence = ref<string[]>([]);
 
@@ -19,17 +18,13 @@ async function openSessionDetail(sessionId: string | undefined, failureMessage =
   if (!sessionId) {
     return;
   }
-  loadingSessionId.value = sessionId;
   await runKeyed(
     "session-detail",
     async (signal) => {
       selectedDetail.value = await useApi().client.getSessionDetail(sessionId, signal);
     },
     {
-      onError: (error) => useToast().showToast(errorMessage(error, failureMessage), "danger"),
-      onSettled: () => {
-        loadingSessionId.value = "";
-      }
+      onError: (error) => useToast().showToast(errorMessage(error, failureMessage), "danger")
     }
   );
 }
@@ -51,7 +46,6 @@ function openAdjacentSession(step: 1 | -1): void {
 export function useSessionDetail() {
   return {
     selectedDetail,
-    loadingSessionId,
     position,
     openSessionDetail,
     closeSessionDetail,

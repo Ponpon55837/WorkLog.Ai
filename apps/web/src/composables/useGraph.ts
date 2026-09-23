@@ -1,7 +1,7 @@
 import { computed, ref } from "vue";
 import type { GraphEdge, GraphNode, GraphQueryResult, ProjectStatus, ReportVerificationStatus } from "@work-intelligence/core";
 import { router } from "../router";
-import { graphEdgeKindLabels, graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels } from "../utils/labels";
+import { graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels } from "../utils/labels";
 import { verificationStatus } from "../utils/status";
 import { errorMessage, formatDate } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
@@ -169,15 +169,6 @@ const graphNodeCounts = computed(() => {
   return graphNodeKindOrder.map((kind) => ({ kind, label: graphNodeKindLabels[kind], count: totals[kind] }));
 });
 
-const graphEdgeCounts = computed(() => {
-  const edges = graph.value?.edges ?? [];
-  return (Object.keys(graphEdgeKindLabels) as Array<keyof typeof graphEdgeKindLabels>).map((kind) => ({
-    kind,
-    label: graphEdgeKindLabels[kind],
-    count: edges.filter((edge) => edge.kind === kind).length
-  }));
-});
-
 function graphNodeDescription(node: GraphNode): string {
   if (node.kind === "session") {
     return `${String(node.metadata.verification ?? "not_supplied")} · ${String(node.metadata.changedFilesCount ?? 0)} files`;
@@ -289,7 +280,6 @@ export function useGraph() {
     graphFilteredTotalNodes,
     graphCanLoadMore,
     graphNodeCounts,
-    graphEdgeCounts,
     graphNodeDescription,
     loadGraph,
     loadMoreGraph,
