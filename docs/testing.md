@@ -12,6 +12,24 @@ pnpm build      # all packages + server/mcp + Vite production bundle
 pnpm test:e2e   # isolated Playwright browser regression suite
 ```
 
+## CI
+
+`.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：
+
+- **Quality**（`ubuntu-latest` + `windows-latest`）：`pnpm install --frozen-lockfile` → `pnpm test`（含 lint、format check）→ `pnpm typecheck` → `pnpm test:coverage` → `pnpm build`。Windows 是主要開發平台，Linux 用來守住非 Windows 的路徑處理。
+- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 後執行 `pnpm test:e2e`；失敗時上傳 `test-results/` 供除錯。
+
+Coverage 門檻維持下方的模組局部門檻；尚未量測其他 workspace 的基線，所以沒有設定全域門檻。
+
+## Storage 讀取效能基準
+
+```powershell
+pnpm --filter @work-intelligence/storage build
+$env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; node packages/storage/bench/read-paths.bench.mjs 5000
+```
+
+腳本會在暫存目錄建立合成 SQLite（2 個 tracked 專案、橫跨一年的 N 筆 Session），並列出列表、Dashboard、日／週／年報、context、search、metadata 預覽與 Graph 的中位數與最大耗時。建立 5,000 筆資料約需 20–60 秒；設定 `WI_BENCH_CACHE` 會保留建好的資料庫，方便比較修改前後。它不會讀寫 `data/` 下的使用中資料庫。
+
 `pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%，storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
 
 `pnpm test:e2e` 會先建置 production packages，再以獨立的暫存 SQLite、API `3211` 與 Web `5967` 啟動測試服務，不會讀寫目前使用中的 `data/work-intelligence.sqlite` 或 `5966` 開發畫面。若這兩個 port 已被占用，可改用其他 port：

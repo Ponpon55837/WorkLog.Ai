@@ -452,6 +452,73 @@ describe("WorkIntelligenceStore", () => {
     ]);
   });
 
+  it("treats from/to as inclusive UTC calendar dates at the day boundaries", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Boundary project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const completions = {
+      "before-from": "2026-08-31T23:59:59.999Z",
+      "from-start": "2026-09-01T00:00:00.000Z",
+      "to-end": "2026-09-30T23:59:59.999Z",
+      "after-to": "2026-10-01T00:00:00.000Z",
+    };
+    for (const [title, completedAt] of Object.entries(completions)) {
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `boundary-${title}`,
+        title,
+        summary: "Boundary check.",
+        completedAt,
+      });
+    }
+
+    expect(store.listSessions({ from: "2026-09-01", to: "2026-09-30" }).map((session) => session.title)).toEqual([
+      "to-end",
+      "from-start",
+    ]);
+    expect(store.listSessions({ to: "2026-08-31" }).map((session) => session.title)).toEqual(["before-from"]);
+    expect(store.listSessions({ from: "2026-10-01" }).map((session) => session.title)).toEqual(["after-to"]);
+    expect(store.listSessionsPage({ from: "2026-09-30", to: "2026-09-30" }).pageInfo.total).toBe(1);
+  });
+
+  it("keeps metadata backfill gaps exact for edge-case and legacy metadata rows", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Backfill edge project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalize = (key: string, input: { changedFiles?: string[]; verification?: { status: "passed" | "failed" | "not_run" } }) => {
+      const result = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: key,
+        summary: "Backfill edge case.",
+        ...input,
+      });
+      if (result.outcome !== "finalized") {
+        throw new Error(`Expected ${key} to be finalized`);
+      }
+      return result.session.id;
+    };
+    finalize("failed-with-files", { changedFiles: ["src/a.ts"], verification: { status: "failed" } });
+    finalize("passed-without-files", { changedFiles: [], verification: { status: "passed" } });
+    const statusless = finalize("statusless-verification", { changedFiles: ["src/b.ts"], verification: { status: "passed" } });
+    const corrupted = finalize("corrupted-json", { changedFiles: ["src/c.ts"], verification: { status: "passed" } });
+    const database = (store as unknown as { db: DatabaseSync }).db;
+    database.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run('{"summary":"legacy"}', statusless);
+    database
+      .prepare("UPDATE sessions SET changed_files_json = ?, verification_json = ? WHERE id = ?")
+      .run("not-json", "{broken", corrupted);
+
+    const preview = store.previewMetadataBackfill({ limit: 10 });
+    if (preview.outcome !== "backfill_preview") {
+      throw new Error("Expected a metadata backfill preview");
+    }
+    expect(preview.scannedSessions).toBe(4);
+    expect(Object.fromEntries(preview.items.map((item) => [item.title, item.gaps]))).toEqual({
+      "passed-without-files": ["changed_files"],
+      "corrupted-json": ["changed_files", "verification"],
+    });
+  });
+
   it("builds tracked-only reports with a deterministic UTC range and provenance", () => {
     const { store, root } = createStore();
     const trackedProject = store.addProject("Tracked project", root);

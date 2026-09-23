@@ -13,6 +13,7 @@ const chromeCandidates = [
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
 ];
 const browserExecutablePath = chromeCandidates.find((candidate) => fs.existsSync(candidate));
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -33,7 +34,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "pnpm.cmd --filter @work-intelligence/server start",
+      command: `${pnpm} --filter @work-intelligence/server start`,
       url: `http://127.0.0.1:${apiPort}/api/health`,
       timeout: 120_000,
       reuseExistingServer: false,
@@ -45,7 +46,7 @@ export default defineConfig({
       }
     },
     {
-      command: "pnpm.cmd --filter @work-intelligence/web dev -- --host 127.0.0.1",
+      command: `${pnpm} --filter @work-intelligence/web dev -- --host 127.0.0.1`,
       url: `http://127.0.0.1:${webPort}`,
       timeout: 120_000,
       reuseExistingServer: false,
