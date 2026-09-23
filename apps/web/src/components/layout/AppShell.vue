@@ -35,7 +35,8 @@ const menuOpen = ref(false);
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-rows: var(--header-height) 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: var(--header-height) minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
 }

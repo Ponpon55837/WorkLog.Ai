@@ -13,7 +13,7 @@ const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/reports", "工作報告"],
   ["/knowledge", "工作知識"],
   ["/graph", "工作圖譜"],
-  ["/projects", "專案記錄管理"]
+  ["/projects", "專案"]
 ];
 
 async function postJson<T>(request: APIRequestContext, endpoint: string, body: unknown): Promise<ApiResult<T>> {
@@ -187,28 +187,27 @@ test.describe("Work Intelligence browser regression", () => {
     expect(newerSummary.outcome).toBe("report_summary_saved");
   });
 
-  test("keeps the report synthesis card collapsible and readable", async ({ page }) => {
+  test("keeps the report synthesis card readable with sourced sections and versions", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("nav-reports").click();
     await expect(page.getByRole("heading", { name: "工作報告" }).first()).toBeVisible();
 
     const synthesis = page.getByTestId("report-synthesis");
     await expect(synthesis).toBeVisible();
-    await expect(synthesis).not.toHaveAttribute("open");
-    await page.getByTestId("report-synthesis-toggle").click();
-    await expect(synthesis).toHaveAttribute("open", "");
     await expect(synthesis).toContainText("Browser regression report updated");
-    await expect(synthesis).toContainText("提煉完成");
+    await expect(synthesis).toContainText("已完成");
+    await expect(synthesis).toContainText("狀態／未結項");
+    await expect(synthesis.getByRole("button", { name: /1 Session/ }).first()).toBeVisible();
     const history = page.getByTestId("report-synthesis-history");
-    await expect(history).toContainText("2 個版本");
+    await expect(history).toContainText("歷史版本");
     await history.locator("summary").click();
     await expect(history.getByTestId("report-synthesis-version")).toHaveCount(2);
     await expect(history).toContainText("Browser regression report");
 
-    const resynthesizeButton = synthesis.getByRole("button", { name: "重新提煉", exact: true });
-    await expect(resynthesizeButton).toBeEnabled();
-    await resynthesizeButton.click();
-    await expect(synthesis.getByRole("button", { name: "等待 Agent 處理中…", exact: true })).toBeDisabled();
+    await synthesis.getByRole("button", { name: "重新整理", exact: true }).click();
+    await expect(synthesis).toContainText("待處理");
+    await expect(synthesis.getByRole("button", { name: "取消這次整理" })).toBeVisible();
+    await expect(synthesis.getByRole("button", { name: "複製 Agent 指令" })).toBeVisible();
 
     await page.getByRole("tab", { name: "原始紀錄" }).click();
     const reportSessionPageSize = page.getByLabel("報告原始工作紀錄每頁筆數");
@@ -293,7 +292,9 @@ test.describe("Work Intelligence browser regression", () => {
   test("keeps Session detail usable on a narrow viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
+    await page.getByRole("button", { name: "開啟主選單" }).click();
     await page.getByTestId("nav-sessions").click();
+    await expect(page.getByTestId("nav-sessions")).not.toBeInViewport();
     const firstRow = page.getByTestId("session-row").first();
     await expect(firstRow).toBeVisible();
     await firstRow.click();
@@ -304,9 +305,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(workSummary).toContainText("The browser fixture remains readable.");
     await expect(workSummary).toContainText("狀態／未結項");
 
-    const dialogBox = await detail.boundingBox();
-    expect(dialogBox?.x ?? -1).toBeGreaterThanOrEqual(0);
-    expect((dialogBox?.x ?? 0) + (dialogBox?.width ?? 0)).toBeLessThanOrEqual(391);
+    await expect(detail).toBeInViewport({ ratio: 1 });
     await expectNoHorizontalOverflow(page);
     await page.getByRole("button", { name: "關閉", exact: true }).click();
     await expect(detail).toBeHidden();

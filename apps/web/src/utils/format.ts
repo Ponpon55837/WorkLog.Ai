@@ -107,3 +107,43 @@ export function graphNodeLabel(value: string): string {
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
+
+/** "12 分鐘前" / "昨天 18:40" / "9月20日" — pair with a title tooltip carrying formatDate(). */
+export function formatRelative(value: string, now = new Date()): string {
+  const date = new Date(value);
+  const diffMinutes = Math.round((now.getTime() - date.getTime()) / 60_000);
+  if (diffMinutes < 1) {
+    return "剛剛";
+  }
+  if (diffMinutes < 60) {
+    return `${diffMinutes} 分鐘前`;
+  }
+  const time = new Intl.DateTimeFormat("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  const dayDiff = dayIndex(now) - dayIndex(date);
+  if (dayDiff === 0) {
+    return `${Math.round(diffMinutes / 60)} 小時前`;
+  }
+  if (dayDiff === 1) {
+    return `昨天 ${time}`;
+  }
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return new Intl.DateTimeFormat("zh-TW", sameYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" }).format(date);
+}
+
+function dayIndex(date: Date): number {
+  return Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000);
+}
+
+/** Group label for date-grouped lists: 今天 / 昨天 / 9月20日（週六）. */
+export function formatDayGroup(value: string, now = new Date()): string {
+  const date = new Date(value);
+  const dayDiff = dayIndex(now) - dayIndex(date);
+  if (dayDiff === 0) {
+    return "今天";
+  }
+  if (dayDiff === 1) {
+    return "昨天";
+  }
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return new Intl.DateTimeFormat("zh-TW", sameYear ? { month: "long", day: "numeric", weekday: "short" } : { dateStyle: "long" }).format(date);
+}

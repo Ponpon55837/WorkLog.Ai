@@ -22,12 +22,12 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/sessions",
     name: "sessions",
-    component: () => import("./views/WorklogView.vue"),
+    component: () => import("./views/SessionsView.vue"),
     meta: { title: "工作歷程", navLabel: "工作歷程", eyebrow: "SESSION ARCHIVE", group: "work" }
   },
   { path: "/worklog", redirect: (to) => ({ path: "/sessions", query: to.query }) },
   {
-    path: "/reports",
+    path: "/reports/:tab?",
     name: "reports",
     component: () => import("./views/ReportsView.vue"),
     meta: { title: "工作報告", navLabel: "工作報告", eyebrow: "WORK REPORTS", group: "work" }
@@ -45,10 +45,10 @@ const routes: RouteRecordRaw[] = [
     meta: { title: "工作圖譜", navLabel: "工作圖譜", eyebrow: "DETERMINISTIC WORK GRAPH", group: "knowledge" }
   },
   {
-    path: "/projects",
+    path: "/projects/:tab?",
     name: "projects",
     component: () => import("./views/ProjectsView.vue"),
-    meta: { title: "專案記錄管理", navLabel: "專案", eyebrow: "PROJECT REGISTRY", group: "manage" }
+    meta: { title: "專案", navLabel: "專案", eyebrow: "PROJECT REGISTRY", group: "manage" }
   },
   { path: "/:pathMatch(.*)*", redirect: "/dashboard" }
 ];

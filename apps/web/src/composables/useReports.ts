@@ -9,7 +9,7 @@ import type {
   WorkReport,
   WorkSessionRecord
 } from "@work-intelligence/core";
-import { pageSizeToQuery, verificationLabels, type ListPageSize, type ReportTab } from "../utils/labels";
+import { pageSizeToQuery, verificationLabels, type ListPageSize } from "../utils/labels";
 import { errorMessage, toDateInputValue } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
 import { emptyPageInfo } from "./useSessions";
@@ -23,7 +23,6 @@ const report = ref<WorkReport | null>(null);
 const reportPeriod = ref<ReportPeriod>("week");
 const reportDate = ref(toDateInputValue(new Date()));
 const reportProjectId = ref("");
-const reportTab = ref<ReportTab>("overview");
 const reportLoading = ref(false);
 const reportError = ref("");
 const reportExportLoading = ref<ReportExportFormat | null>(null);
@@ -251,7 +250,9 @@ async function loadReportSessions(resetPage = false): Promise<void> {
         pageSize: reportSessionPageSize.value
       }, signal);
       reportSessionItems.value = result.items;
-      reportSessionPage.value = result.pageInfo.page;
+      if (reportSessionPage.value !== result.pageInfo.page) {
+        reportSessionPage.value = result.pageInfo.page;
+      }
       reportSessionPageInfo.value = result.pageInfo;
     },
     {
@@ -267,19 +268,6 @@ async function loadReportSessions(resetPage = false): Promise<void> {
   );
 }
 
-async function changeReportSessionPageSize(): Promise<void> {
-  reportSessionPage.value = 1;
-  await loadReportSessions();
-}
-
-async function changeReportSessionPage(page: number): Promise<void> {
-  if (page < 1 || page > reportSessionPageInfo.value.totalPages || page === reportSessionPage.value) {
-    return;
-  }
-  reportSessionPage.value = page;
-  await loadReportSessions();
-}
-
 function evidenceScope() {
   return {
     ...reportScope(),
@@ -290,12 +278,9 @@ function evidenceScope() {
   };
 }
 
-async function loadReportEvidence(resetPage = false): Promise<void> {
-  if (!report.value || reportEvidenceLoading.value) {
+async function loadReportEvidence(): Promise<void> {
+  if (!report.value) {
     return;
-  }
-  if (resetPage) {
-    reportEvidencePage.value = 1;
   }
   reportEvidenceLoading.value = true;
   reportError.value = "";
@@ -325,7 +310,6 @@ async function loadReportEvidence(resetPage = false): Promise<void> {
 async function loadReport(resetEvidencePage = false): Promise<void> {
   if (resetEvidencePage) {
     reportEvidencePage.value = 1;
-    reportTab.value = "overview";
   }
   reportLoading.value = true;
   reportError.value = "";
@@ -353,19 +337,6 @@ async function loadReport(resetEvidencePage = false): Promise<void> {
       }
     }
   );
-}
-
-async function changeReportEvidencePage(page: number): Promise<void> {
-  if (!report.value || page < 1 || page > report.value.evidencePageInfo.totalPages || page === reportEvidencePage.value) {
-    return;
-  }
-  reportEvidencePage.value = page;
-  await loadReportEvidence();
-}
-
-async function changeReportEvidencePageSize(): Promise<void> {
-  reportEvidencePage.value = 1;
-  await loadReportEvidence();
 }
 
 async function exportReport(format: ReportExportFormat): Promise<void> {
@@ -418,15 +389,16 @@ export function useReports() {
     reportPeriod,
     reportDate,
     reportProjectId,
-    reportTab,
     reportLoading,
     reportError,
     reportExportLoading,
     reportEvidenceLoading,
+    reportEvidencePage,
     reportEvidencePageSize,
     reportEvidenceKind,
     reportEvidenceQuery,
     reportSessionItems,
+    reportSessionPage,
     reportSessionPageSize,
     reportSessionPageInfo,
     reportSessionLoading,
@@ -451,11 +423,8 @@ export function useReports() {
     cancelReportSynthesisRequest,
     copyReportSynthesisInstruction,
     deleteReportSynthesisVersion,
-    changeReportSessionPage,
-    changeReportSessionPageSize,
+    loadReportSessions,
     loadReportEvidence,
-    changeReportEvidencePage,
-    changeReportEvidencePageSize,
     exportReport,
     openReportSession,
     openReportEvidence

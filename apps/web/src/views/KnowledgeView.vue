@@ -1,13 +1,30 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { BookOpen, Search, X } from "lucide-vue-next";
+import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
+import PageHeader from "../components/layout/PageHeader.vue";
+import KnowledgeRow from "../components/domain/KnowledgeRow.vue";
+import UiActionMenu from "../components/ui/UiActionMenu.vue";
+import UiBox from "../components/ui/UiBox.vue";
+import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
+import UiButton from "../components/ui/UiButton.vue";
+import UiEmptyState from "../components/ui/UiEmptyState.vue";
+import UiFlash from "../components/ui/UiFlash.vue";
+import UiPagination from "../components/ui/UiPagination.vue";
+import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiTextInput from "../components/ui/UiTextInput.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { useViewLoader } from "../composables/useAppRefresh";
 import { useKnowledge } from "../composables/useKnowledge";
-import { formatDate } from "../utils/format";
-import { knowledgeKindLabel, knowledgeKindLabels, knowledgeStatusLabel, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
+import { useListReload } from "../composables/useListReload";
+import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
+import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
+import { knowledgeKindVisual } from "../utils/status";
 
 const {
   knowledgeItems,
   knowledgeProjects,
+  knowledgePage,
   knowledgePageSize,
   knowledgePageInfo,
   knowledgeQuery,
@@ -16,98 +33,109 @@ const {
   knowledgeStatus,
   knowledgeLoading,
   knowledgeError,
-  loadKnowledge: load,
-  changeKnowledgePage,
-  changeKnowledgePageSize,
+  loadKnowledge,
   setKnowledgeStatus,
   openKnowledgeSession,
   openKnowledgeEditor,
   openKnowledgeHistory
 } = useKnowledge();
 
-useViewLoader(() => load());
+const kinds = Object.keys(knowledgeKindLabels) as KnowledgeKind[];
+useRouteQuery("q", knowledgeQuery, stringQuery());
+useRouteQuery("kind", knowledgeKind, enumQuery<KnowledgeKind | "">(["", ...kinds], ""));
+useRouteQuery("project", knowledgeProjectId, stringQuery());
+useRouteQuery("status", knowledgeStatus, enumQuery<KnowledgeStatus>(["active", "archived"], "active"));
+useRouteQuery("page", knowledgePage, pageQuery());
+useRouteQuery("size", knowledgePageSize, enumQuery(listPageSizeOptions.map((option) => option.value), 10));
+useListReload({ load: loadKnowledge, page: knowledgePage, filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize], search: knowledgeQuery });
+useViewLoader(loadKnowledge);
+
+const hasFilters = computed(() => Boolean(knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeStatus.value !== "active"));
+const projectItems = computed(() => [{ value: "", label: "所有記錄中專案" }, ...knowledgeProjects.value.map((project) => ({ value: project.id, label: project.name }))]);
+const kindItems = [
+  { value: "" as const, label: "所有類型" },
+  ...kinds.map((kind) => ({ value: kind, label: knowledgeKindLabels[kind], icon: knowledgeKindVisual[kind].icon, tone: knowledgeKindVisual[kind].tone }))
+];
+const statusItems = (Object.keys(knowledgeStatusLabels) as KnowledgeStatus[]).map((status) => ({ value: status, label: knowledgeStatusLabels[status] }));
+
+function clearFilters(): void {
+  knowledgeQuery.value = "";
+  knowledgeKind.value = "";
+  knowledgeProjectId.value = "";
+  knowledgeStatus.value = "active";
+}
+
+function onAction(action: "edit" | "history" | "toggle-status" | "source", item: KnowledgeRecord): void {
+  if (action === "edit") {
+    openKnowledgeEditor(item);
+  } else if (action === "history") {
+    void openKnowledgeHistory(item);
+  } else if (action === "source") {
+    void openKnowledgeSession(item);
+  } else {
+    void setKnowledgeStatus(item, item.status === "active" ? "archived" : "active");
+  }
+}
 </script>
 
 <template>
-  <section class="page-section knowledge-page">
-    <div class="section-intro knowledge-intro">
-      <div>
-        <div class="eyebrow">EXPLICIT KNOWLEDGE</div>
-        <h2>把已確認的經驗，留給下一次工作。</h2>
-        <p>Knowledge 只接受 Agent 明確提交的內容，不會自行讀取 source 或用猜測取代證據。</p>
-      </div>
-      <div class="tracked-summary"><strong>{{ knowledgePageInfo.total }}</strong><span>筆目前可用知識</span></div>
-    </div>
+  <PageHeader description="Knowledge 只接受 Agent 明確提交、已確認的內容，不會自行讀取 source 或用猜測取代證據。" />
 
-    <form class="knowledge-tools" @submit.prevent="load(true)">
-      <label class="search-box knowledge-search-box">
-        <span>⌕</span>
-        <input v-model="knowledgeQuery" type="search" placeholder="搜尋標題、內容、標籤或參考" />
-      </label>
-      <label class="filter-field">
-        <span>專案</span>
-        <select v-model="knowledgeProjectId" aria-label="依專案篩選 Knowledge">
-          <option value="">所有記錄中專案</option>
-          <option v-for="project in knowledgeProjects" :key="project.id" :value="project.id">{{ project.name }}</option>
-        </select>
-      </label>
-      <label class="filter-field">
-        <span>類型</span>
-        <select v-model="knowledgeKind" aria-label="依類型篩選 Knowledge">
-          <option value="">所有類型</option>
-          <option v-for="(label, kind) in knowledgeKindLabels" :key="kind" :value="kind">{{ label }}</option>
-        </select>
-      </label>
-      <label class="filter-field">
-        <span>狀態</span>
-        <select v-model="knowledgeStatus" aria-label="依狀態篩選 Knowledge">
-          <option v-for="(label, status) in knowledgeStatusLabels" :key="status" :value="status">{{ label }}</option>
-        </select>
-      </label>
-      <button class="filter-button" type="submit" :disabled="knowledgeLoading">{{ knowledgeLoading ? '整理中…' : '套用篩選' }}</button>
-    </form>
+  <form class="knowledge-search" role="search" @submit.prevent="loadKnowledge">
+    <UiTextInput v-model="knowledgeQuery" class="knowledge-search__input" type="search" :icon="Search" label="搜尋 Knowledge" placeholder="搜尋標題、內容、標籤或參考" />
+    <UiButton v-if="hasFilters" :icon="X" @click="clearFilters">清除篩選</UiButton>
+  </form>
 
-    <div v-if="knowledgeError" class="alert error-alert" role="alert">{{ knowledgeError }}</div>
-    <section v-if="knowledgeLoading" class="loading-state knowledge-loading">
-      <div class="spinner"></div>
-      <p>正在載入已確認的工作知識…</p>
-    </section>
-    <section v-else class="panel knowledge-panel">
-      <div class="list-heading knowledge-heading"><span>{{ knowledgePageInfo.total }} 筆{{ knowledgeStatus === 'active' ? '目前使用中' : '已封存' }} Knowledge</span><span>維護</span></div>
-      <VirtualList :items="knowledgeItems" :enabled="knowledgePageSize === 'all'" aria-label="工作知識清單">
-        <template #default="{ item }">
-          <article class="knowledge-row">
-            <div :class="['knowledge-kind-mark', `knowledge-kind-${item.kind}`]">{{ item.kind.slice(0, 1).toUpperCase() }}</div>
-            <div class="knowledge-body">
-              <div class="knowledge-title"><strong>{{ item.title }}</strong><span class="knowledge-kind-label">{{ knowledgeKindLabel(item.kind) }}</span><span :class="['knowledge-status-label', `knowledge-status-${item.status}`]">{{ knowledgeStatusLabel(item.status) }}</span></div>
-              <p>{{ item.body }}</p>
-              <div class="knowledge-meta">
-                <span v-if="item.projectName">{{ item.projectName }}</span>
-                <span v-for="tag in item.tags" :key="`${item.id}-${tag}`" class="knowledge-tag">#{{ tag }}</span>
-                <button v-if="item.sessionId" class="text-button knowledge-source-button" type="button" @click="openKnowledgeSession(item)">查看來源 Session ↗</button>
-              </div>
-              <div v-if="item.references.length" class="knowledge-references"><code v-for="reference in item.references" :key="`${item.id}-${reference}`">{{ reference }}</code></div>
-            </div>
-            <div class="knowledge-row-actions">
-              <time>{{ formatDate(item.updatedAt) }}</time>
-              <button class="text-button" type="button" @click="openKnowledgeHistory(item)">變更紀錄</button>
-              <button class="text-button" type="button" @click="openKnowledgeEditor(item)">編輯</button>
-              <button class="text-button knowledge-archive-button" type="button" @click="setKnowledgeStatus(item, item.status === 'active' ? 'archived' : 'active')">{{ item.status === 'active' ? '封存' : '恢復' }}</button>
-            </div>
-          </article>
-        </template>
-      </VirtualList>
-      <div v-if="knowledgeItems.length === 0" class="empty-state large-empty"><div class="empty-icon">✦</div><strong>{{ knowledgeStatus === 'active' ? '還沒有已確認的 Knowledge' : '沒有已封存的 Knowledge' }}</strong><p>{{ knowledgeStatus === 'active' ? 'Agent 使用 work_record_knowledge 提交 decision、pattern、gotcha、procedure 或 skill 後，內容會出現在這裡。' : '封存只會停止它出現在預設搜尋與 Graph 中，不會刪除原始記錄。' }}</p></div>
-      <div class="pagination-bar list-pagination-bar">
-        <span class="pagination-summary">顯示 {{ knowledgePageInfo.from }}–{{ knowledgePageInfo.to }}，共 {{ knowledgePageInfo.total }} 筆<span v-if="knowledgePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ knowledgePageInfo.pageSize }} 筆</span></span>
-        <label class="pagination-page-size"><span>每頁</span><select v-model="knowledgePageSize" aria-label="Knowledge 每頁筆數" @change="changeKnowledgePageSize($event)"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
-        <div v-if="knowledgePageInfo.totalPages > 1" class="pagination-controls">
-          <button class="pagination-button" type="button" :disabled="!knowledgePageInfo.hasPrevious" @click="changeKnowledgePage(knowledgePageInfo.page - 1)">上一頁</button>
-          <span>第 {{ knowledgePageInfo.page }} / {{ knowledgePageInfo.totalPages }} 頁</span>
-          <button class="pagination-button" type="button" :disabled="!knowledgePageInfo.hasNext" @click="changeKnowledgePage(knowledgePageInfo.page + 1)">下一頁</button>
-        </div>
-        <span v-else class="pagination-current">共 {{ knowledgePageInfo.total }} 筆</span>
+  <UiFlash v-if="knowledgeError" tone="danger">
+    {{ knowledgeError }}
+    <template #actions><UiButton size="sm" @click="loadKnowledge">重試</UiButton></template>
+  </UiFlash>
+
+  <UiBox>
+    <template #header>
+      <UiBoxTitle :icon="BookOpen" :title="`${knowledgePageInfo.total} 筆${knowledgeStatus === 'active' ? '使用中' : '已封存'} Knowledge`" />
+      <div class="knowledge__filters">
+        <UiActionMenu v-model="knowledgeProjectId" label="專案" header="篩選專案" default-value="" align="end" :items="projectItems" />
+        <UiActionMenu v-model="knowledgeKind" label="類型" header="篩選類型" default-value="" align="end" :items="kindItems" />
+        <UiActionMenu v-model="knowledgeStatus" label="狀態" header="篩選狀態" default-value="active" align="end" :items="statusItems" />
       </div>
-    </section>
-  </section>
+    </template>
+
+    <UiSkeleton v-if="knowledgeLoading && knowledgeItems.length === 0" :count="4" />
+    <UiEmptyState
+      v-else-if="knowledgeItems.length === 0"
+      :icon="BookOpen"
+      :title="hasFilters ? '沒有符合條件的 Knowledge' : '還沒有已確認的 Knowledge'"
+      :description="hasFilters ? '調整搜尋或篩選條件後再試一次。' : 'Agent 明確提交 decision、pattern、gotcha、procedure 或 skill 後，會出現在這裡。'"
+    >
+      <template v-if="hasFilters" #action><UiButton @click="clearFilters">清除篩選</UiButton></template>
+    </UiEmptyState>
+    <VirtualList v-else :items="knowledgeItems" :enabled="knowledgePageSize === 'all'" :estimate-item-height="140" label="工作知識清單">
+      <template #default="{ item }">
+        <KnowledgeRow :item="item" @action="onAction" />
+      </template>
+    </VirtualList>
+
+    <template #footer>
+      <UiPagination v-model:page-size="knowledgePageSize" :page-info="knowledgePageInfo" size-label="Knowledge 每頁筆數" @page="knowledgePage = $event" />
+    </template>
+  </UiBox>
 </template>
+
+<style scoped>
+.knowledge-search {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.knowledge-search__input {
+  flex: 1;
+}
+
+.knowledge__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+</style>

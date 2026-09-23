@@ -3,6 +3,7 @@ import type { DashboardSummary, ProjectRecord, ProjectStatus } from "@work-intel
 import { statusLabels } from "../utils/labels";
 import { errorMessage } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
+import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
 
 const emptyDashboard: DashboardSummary = {
@@ -33,11 +34,11 @@ async function loadProjects(): Promise<void> {
   });
 }
 
-async function addProject(): Promise<void> {
+async function addProject(): Promise<boolean> {
   const { showToast } = useToast();
   if (!projectName.value.trim() || !projectRoot.value.trim()) {
-    showToast("請填寫專案名稱與根目錄。");
-    return;
+    showToast("請填寫專案名稱與根目錄。", "danger");
+    return false;
   }
 
   addingProject.value = true;
@@ -45,10 +46,12 @@ async function addProject(): Promise<void> {
     await useApi().client.createProject({ name: projectName.value, rootPath: projectRoot.value });
     projectName.value = "";
     projectRoot.value = "";
-    showToast("專案已加入 registry；目前仍是未註冊狀態。請明確切換為記錄中。");
+    showToast("專案已加入 registry；目前仍是未註冊狀態。請明確切換為記錄中。", "success");
     await Promise.all([loadProjects(), loadDashboard()]);
+    return true;
   } catch (error) {
-    showToast(errorMessage(error, "加入專案失敗。"));
+    showToast(errorMessage(error, "加入專案失敗。"), "danger");
+    return false;
   } finally {
     addingProject.value = false;
   }
@@ -56,16 +59,27 @@ async function addProject(): Promise<void> {
 
 async function updateProjectStatus(project: ProjectRecord, status: ProjectStatus): Promise<void> {
   const { showToast } = useToast();
+  if (status === project.status) {
+    return;
+  }
+  // Enabling tracking widens what Agents may read, so it is the one status change that needs consent.
+  if (status === "tracked" && !(await confirmAction({
+    title: `將「${project.name}」切換為記錄中？`,
+    message: "切換後，Agent 可以在這個專案讀取 handoff、Git／worktree 與 source 並保存工作紀錄。其他狀態會安靜略過所有讀取。",
+    confirmLabel: "開始記錄"
+  }))) {
+    return;
+  }
   try {
     const updated = await useApi().client.updateProject(project.id, { status });
     const index = projects.value.findIndex((item) => item.id === updated.id);
     if (index >= 0) {
       projects.value[index] = updated;
     }
-    showToast(`${updated.name}：${statusLabels[updated.status]}`);
+    showToast(`${updated.name}：${statusLabels[updated.status]}`, "success");
     await loadDashboard();
   } catch (error) {
-    showToast(errorMessage(error, "更新專案狀態失敗。"));
+    showToast(errorMessage(error, "更新專案狀態失敗。"), "danger");
   }
 }
 

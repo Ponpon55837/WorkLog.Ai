@@ -7,14 +7,14 @@ const props = withDefaults(
     enabled?: boolean;
     estimateItemHeight?: number;
     overscan?: number;
-    ariaLabel?: string;
+    label?: string;
     maxHeight?: string;
   }>(),
   {
     enabled: false,
     estimateItemHeight: 96,
     overscan: 4,
-    ariaLabel: "可捲動清單",
+    label: "可捲動清單",
     maxHeight: "min(68vh, 720px)"
   }
 );
@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
     :class="{ 'virtual-list-disabled': !enabled }"
     :style="enabled ? { maxHeight } : undefined"
     :role="enabled ? 'list' : undefined"
-    :aria-label="enabled ? ariaLabel : undefined"
+    :aria-label="enabled ? label : undefined"
     @scroll="handleScroll"
     @keydown="handleKeydown"
   >
@@ -277,3 +277,28 @@ onBeforeUnmount(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.virtual-list {
+  width: 100%;
+}
+
+.virtual-list:not(.virtual-list-disabled) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.virtual-list-disabled {
+  display: contents;
+}
+
+.virtual-list-item {
+  min-width: 0;
+}
+
+.virtual-list-spacer {
+  width: 100%;
+  pointer-events: none;
+}
+</style>

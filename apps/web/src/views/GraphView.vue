@@ -1,8 +1,20 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, watch } from "vue";
+import { FolderGit2, Share2 } from "lucide-vue-next";
+import type { GraphNode } from "@work-intelligence/core";
+import PageHeader from "../components/layout/PageHeader.vue";
+import GraphNodePanel from "../components/domain/GraphNodePanel.vue";
 import GraphCanvas from "../components/GraphCanvas.vue";
+import UiBox from "../components/ui/UiBox.vue";
+import UiButton from "../components/ui/UiButton.vue";
+import UiEmptyState from "../components/ui/UiEmptyState.vue";
+import UiFlash from "../components/ui/UiFlash.vue";
+import UiSelect from "../components/ui/UiSelect.vue";
+import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import { useViewLoader } from "../composables/useAppRefresh";
-import { graphLoadPresetOptions, useGraph } from "../composables/useGraph";
+import { graphLoadPresetOptions, useGraph, type GraphNodeFilter } from "../composables/useGraph";
 import { useProjects } from "../composables/useProjects";
+import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { graphNodeLabel } from "../utils/format";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 
@@ -19,138 +31,155 @@ const {
   graphFilteredTotalNodes,
   graphCanLoadMore,
   graphNodeCounts,
-  graphEdgeCounts,
-  graphNodeFilterLabel,
   graphNodeDescription,
   loadGraph,
-  loadMoreGraph: loadMore,
-  selectGraphNode: selectNode
+  loadMoreGraph,
+  selectedGraphNode,
+  selectGraphNode
 } = useGraph();
 
 const load = (): Promise<void> => loadGraph();
+useRouteQuery("project", graphProjectId, stringQuery());
 useViewLoader(load);
+watch([graphProjectId, graphLoadPreset], () => void load());
+onBeforeUnmount(() => selectGraphNode(null));
+
+const projectOptions = computed(() => [{ value: "", label: "所有記錄中專案" }, ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name }))]);
+const kindOptions: { value: GraphNodeFilter; label: string }[] = [
+  { value: "all", label: "全部類型" },
+  ...graphNodeKindOrder.map((kind) => ({ value: kind, label: graphNodeKindLabels[kind] }))
+];
+const previewOptions = [
+  { value: 60, label: "精簡（最多 60）" },
+  { value: 120, label: "標準（最多 120）" },
+  { value: 180, label: "展開（最多 180）" }
+];
+const presetOptions = graphLoadPresetOptions.map((preset) => ({ value: preset.value as string, label: preset.label }));
+
+const truncationNote = computed(() => {
+  const current = graph.value;
+  if (!current) {
+    return "";
+  }
+  const parts = [
+    current.truncation.nodesTruncated || current.truncation.edgesTruncated ? "資料已依載入上限受控，可提高上限或載入更多。" : "目前範圍的資料已完整載入。"
+  ];
+  if (graphVisual.value.hiddenNodes) {
+    parts.push(`畫面另省略 ${graphVisual.value.hiddenNodes} 個節點。`);
+  }
+  if (graphVisual.value.hiddenEdges) {
+    parts.push(`${graphVisual.value.hiddenEdges} 條關係因端點被省略而未繪出。`);
+  }
+  return parts.join(" ");
+});
+
+function onSelect(node: GraphNode): void {
+  selectGraphNode(node);
+}
 </script>
 
 <template>
-  <section class="page-section graph-page">
-    <div class="section-intro graph-intro">
-      <div>
-        <div class="eyebrow">DETERMINISTIC WORK GRAPH</div>
-        <h2>把 Session、檔案、知識與證據連起來。</h2>
-        <p>圖譜只使用已保存的結構化資料；不讀取 source、handoff 或 Git，也不替資料推測語意關係。</p>
-      </div>
-      <div class="tracked-summary"><strong>{{ graph?.totalNodes ?? 0 }}</strong><span>個圖譜節點</span></div>
+  <PageHeader description="只使用已保存的結構化資料；不讀取 source、handoff 或 Git，也不替資料推測語意關係。" />
+
+  <UiFlash v-if="graphError" tone="danger">
+    {{ graphError }}
+    <template #actions><UiButton size="sm" @click="load">重試</UiButton></template>
+  </UiFlash>
+
+  <UiBox :class="['graph', { 'graph--with-panel': selectedGraphNode }]">
+    <template #header>
+      <form class="graph__toolbar" @submit.prevent="load">
+        <UiSelect v-model="graphProjectId" :options="projectOptions" :icon="FolderGit2" size="sm" label="選擇 Graph 專案範圍" />
+        <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" label="選擇 Graph 節點類型" />
+        <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
+        <UiSelect v-model="graphLoadPreset" :options="presetOptions" size="sm" label="選擇 Graph 資料載入上限" />
+        <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
+        <UiButton v-if="graphCanLoadMore" size="sm" variant="invisible" :disabled="graphLoading" @click="loadMoreGraph">載入更多資料</UiButton>
+      </form>
+      <span v-if="graph" class="graph__count" data-testid="graph-visible-count">顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 節點</span>
+    </template>
+
+    <div v-if="graph" class="graph__legend" aria-label="節點分布">
+      <span><strong>{{ graph.totalNodes }}</strong> 節點</span>
+      <span><strong>{{ graph.totalEdges }}</strong> 關係</span>
+      <span v-for="item in graphNodeCounts" :key="item.kind" :class="`graph__legend-item graph__legend-item--${item.kind}`"><i aria-hidden="true"></i>{{ item.label }} {{ item.count }}</span>
     </div>
 
-    <form class="graph-tools" @submit.prevent="load()">
-      <label class="filter-field">
-        <span>專案範圍</span>
-        <select v-model="graphProjectId" aria-label="選擇 Graph 專案範圍">
-          <option value="">所有記錄中專案</option>
-          <option v-for="project in trackedProjects" :key="project.id" :value="project.id">{{ project.name }}</option>
-        </select>
-      </label>
-      <label class="filter-field">
-        <span>節點類型</span>
-        <select v-model="graphNodeFilter" aria-label="選擇 Graph 節點類型">
-          <option value="all">全部類型</option>
-          <option v-for="kind in graphNodeKindOrder" :key="kind" :value="kind">{{ graphNodeKindLabels[kind] }}</option>
-        </select>
-      </label>
-      <label class="filter-field">
-        <span>畫面預覽量</span>
-        <select v-model.number="graphPreviewLimit" aria-label="選擇 Graph 畫面預覽量">
-          <option :value="60">精簡（最多 60）</option>
-          <option :value="120">標準（最多 120）</option>
-          <option :value="180">展開（最多 180）</option>
-        </select>
-      </label>
-      <label class="filter-field">
-        <span>資料載入上限</span>
-        <select v-model="graphLoadPreset" aria-label="選擇 Graph 資料載入上限">
-          <option v-for="preset in graphLoadPresetOptions" :key="preset.value" :value="preset.value">{{ preset.label }}</option>
-        </select>
-      </label>
-      <span class="graph-policy-note">只顯示「記錄中」專案；類型與預覽量可立即切換</span>
-      <button class="filter-button" type="submit" :disabled="graphLoading">{{ graphLoading ? '整理中…' : '更新圖譜' }}</button>
-      <button v-if="graphCanLoadMore" class="text-button graph-load-more-button" type="button" :disabled="graphLoading" @click="loadMore()">載入更多資料</button>
-    </form>
+    <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" />
+    <UiEmptyState v-else-if="!graph || graph.nodes.length === 0" :icon="Share2" title="目前沒有可視化資料" description="記錄中的專案完成 Session 後，這裡會出現工作關係。" />
+    <GraphCanvas
+      v-else
+      :nodes="graphVisual.nodes"
+      :edges="graphVisual.edges"
+      :width="graphVisual.width"
+      :height="graphVisual.height"
+      :node-kind-order="graphNodeKindOrder"
+      :node-kind-labels="graphNodeKindLabels"
+      :edge-kind-labels="graphEdgeKindLabels"
+      :node-label="graphNodeLabel"
+      :node-description="graphNodeDescription"
+      :selected-id="selectedGraphNode?.id"
+      @select="onSelect"
+    />
 
-    <div v-if="graphError" class="alert error-alert" role="alert">{{ graphError }}</div>
-    <section v-if="graphLoading" class="loading-state graph-loading">
-      <div class="spinner"></div>
-      <p>正在整理本機工作圖譜…</p>
-    </section>
-    <template v-else-if="graph">
-      <div class="graph-stat-grid">
-        <article class="graph-stat-card graph-stat-total"><span>節點總數</span><strong>{{ graph.totalNodes }}</strong><small>完整範圍總數</small></article>
-        <article class="graph-stat-card graph-stat-total"><span>關係總數</span><strong>{{ graph.totalEdges }}</strong><small>完整範圍總數</small></article>
-        <article v-for="item in graphNodeCounts" :key="item.kind" class="graph-stat-card"><span>{{ item.label }}</span><strong>{{ item.count }}</strong><small>圖譜節點</small></article>
-      </div>
-
-      <section class="panel graph-visual-panel">
-        <div class="panel-heading">
-          <div>
-            <div class="eyebrow">RELATIONSHIP MAP</div>
-            <h3>工作關係圖</h3>
-          </div>
-          <span class="report-count" data-testid="graph-visible-count">顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 節點</span>
-        </div>
-        <div v-if="graph.nodes.length === 0" class="empty-state graph-empty"><div class="empty-icon">◎</div><strong>目前沒有可視化資料</strong><p>tracked project 完成 Session 後，這裡會出現工作關係。</p></div>
-        <GraphCanvas
-          v-else
-          :nodes="graphVisual.nodes"
-          :edges="graphVisual.edges"
-          :width="graphVisual.width"
-          :height="graphVisual.height"
-          :node-kind-order="graphNodeKindOrder"
-          :node-kind-labels="graphNodeKindLabels"
-          :edge-kind-labels="graphEdgeKindLabels"
-          :node-label="graphNodeLabel"
-          :node-description="graphNodeDescription"
-          @select="selectNode($event)"
-        />
-        <p class="graph-panel-note">目前顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 個{{ graphNodeFilterLabel }}、{{ graphVisual.edges.length }} / {{ graph.totalEdges }} 條關係。{{ graph.truncation.nodesTruncated || graph.truncation.edgesTruncated ? '資料已依載入上限受控；可提高「資料載入上限」或按「載入更多資料」。' : '目前範圍的資料已完整載入。' }}<span v-if="graphVisual.hiddenNodes"> 畫面另省略 {{ graphVisual.hiddenNodes }} 個節點。</span><span v-if="graphVisual.hiddenEdges"> 另有 {{ graphVisual.hiddenEdges }} 條關係因端點被省略而未繪出。</span></p>
-      </section>
-
-      <div class="content-grid graph-secondary-grid">
-        <section class="panel graph-breakdown-panel">
-          <div class="panel-heading">
-            <div>
-              <div class="eyebrow">NODE BREAKDOWN</div>
-              <h3>節點分布</h3>
-            </div>
-            <span class="report-count">{{ graph.projects.length }} 個專案</span>
-          </div>
-          <div class="graph-breakdown-list">
-            <div v-for="item in graphNodeCounts" :key="item.kind" class="graph-breakdown-row">
-              <span :class="['graph-kind-dot', `graph-kind-${item.kind}`]"></span>
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.count }} 個節點</span>
-            </div>
-          </div>
-          <p class="graph-panel-note">來源 Projects：{{ graph.sourceProjectIds.length }} · 來源 Sessions：{{ graph.sourceSessionIds.length }}</p>
-        </section>
-
-        <section class="panel graph-breakdown-panel">
-          <div class="panel-heading">
-            <div>
-              <div class="eyebrow">EDGE LEGEND</div>
-              <h3>關係類型</h3>
-            </div>
-            <span class="report-count">{{ graph.edges.length }} 條關係</span>
-          </div>
-          <div class="graph-breakdown-list">
-            <div v-for="item in graphEdgeCounts" :key="item.kind" class="graph-breakdown-row">
-              <span class="graph-edge-mark">→</span>
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.count }} 條關係</span>
-            </div>
-          </div>
-          <p class="graph-panel-note">目前關係皆可回溯到 Project Registry、Session、Knowledge、Evidence 或 changed-files metadata。</p>
-        </section>
-      </div>
+    <template v-if="graph" #footer>
+      <span>{{ truncationNote }}</span>
+      <span>來源 Projects {{ graph.sourceProjectIds.length }} · Sessions {{ graph.sourceSessionIds.length }}</span>
     </template>
-    <div v-else class="empty-state large-empty graph-empty-state"><div class="empty-icon">◎</div><strong>尚未載入工作圖譜</strong><p>切換到 Graph 後，系統會從已授權的工作紀錄建立結構化視圖。</p></div>
-  </section>
+  </UiBox>
+
+  <GraphNodePanel />
 </template>
+
+<style scoped>
+.graph--with-panel {
+  margin-right: 380px;
+}
+
+.graph__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.graph__count {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.graph__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.graph__legend strong {
+  color: var(--fg);
+}
+
+.graph__legend-item i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.graph__legend-item--project i { border-color: var(--success-border); background: var(--success-soft); }
+.graph__legend-item--session i { border-color: var(--accent-border); background: var(--accent-soft); }
+.graph__legend-item--knowledge i { border-color: var(--done-border); background: var(--done-soft); }
+.graph__legend-item--evidence i { border-color: var(--attention-border); background: var(--attention-soft); }
+
+@media (max-width: 959px) {
+  .graph--with-panel {
+    margin-right: 0;
+  }
+}
+</style>

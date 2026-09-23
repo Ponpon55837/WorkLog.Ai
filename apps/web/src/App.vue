@@ -1,118 +1,77 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import GraphNodeModal from "./components/GraphNodeModal.vue";
-import HandoffImportModal from "./components/HandoffImportModal.vue";
-import KnowledgeEditorModal from "./components/KnowledgeEditorModal.vue";
-import KnowledgeHistoryModal from "./components/KnowledgeHistoryModal.vue";
-import SessionDetailModal from "./components/SessionDetailModal.vue";
+import AppShell from "./components/layout/AppShell.vue";
+import CommandPalette from "./components/domain/CommandPalette.vue";
+import HandoffImportDialog from "./components/domain/HandoffImportDialog.vue";
+import KnowledgeEditorDialog from "./components/domain/KnowledgeEditorDialog.vue";
+import KnowledgeHistoryPanel from "./components/domain/KnowledgeHistoryPanel.vue";
+import SessionPanel from "./components/domain/SessionPanel.vue";
+import UiButton from "./components/ui/UiButton.vue";
+import UiFlash from "./components/ui/UiFlash.vue";
+import UiSkeleton from "./components/ui/UiSkeleton.vue";
 import { useApi } from "./composables/useApi";
 import { requestAppRefresh } from "./composables/useAppRefresh";
+import { useDashboard } from "./composables/useDashboard";
+import { useHotkeys } from "./composables/useHotkeys";
 import { useProjects } from "./composables/useProjects";
-import UiConfirmHost from "./components/ui/UiConfirmHost.vue";
-import UiToastHost from "./components/ui/UiToastHost.vue";
 import { errorMessage as toErrorMessage } from "./utils/format";
 
-const navItems = [
-  { name: "dashboard", icon: "⌂", label: "工作總覽", hint: "Dashboard" },
-  { name: "projects", icon: "◈", label: "專案與記錄", hint: "Projects / Tracking" },
-  { name: "reports", icon: "▥", label: "工作報告", hint: "Reports" },
-  { name: "knowledge", icon: "✦", label: "工作知識", hint: "Knowledge" },
-  { name: "graph", icon: "◎", label: "工作圖譜", hint: "Graph" },
-  { name: "sessions", icon: "≡", label: "工作歷程", hint: "Worklog" }
-] as const;
-
 const route = useRoute();
-const pageTitle = computed(() => route.meta.title ?? "Work Intelligence");
-const { loadDashboard, loadProjects } = useProjects();
+const { dashboard, trackedProjects, loadDashboard, loadProjects } = useProjects();
+const { inbox } = useDashboard();
 const loading = ref(true);
+const refreshing = ref(false);
 const errorMessage = ref("");
+const paletteOpen = ref(false);
+
+const counts = computed(() => ({
+  dashboard: { value: inbox.value.length, tone: "attention" as const },
+  sessions: { value: dashboard.value.finalizedSessions },
+  projects: { value: trackedProjects.value.length }
+}));
 
 async function loadShared(): Promise<void> {
   errorMessage.value = "";
   try {
     await Promise.all([loadDashboard(), loadProjects()]);
   } catch (error) {
-    errorMessage.value = toErrorMessage(error, "無法載入 Work Intelligence。");
+    errorMessage.value = toErrorMessage(error, "無法載入 Work Intelligence，請確認本機 API 是否已啟動。");
   }
 }
 
 async function refresh(): Promise<void> {
+  refreshing.value = true;
   await loadShared();
   requestAppRefresh();
+  refreshing.value = false;
 }
+
+useHotkeys({ openPalette: () => (paletteOpen.value = true) });
 
 onMounted(async () => {
   await loadShared();
   loading.value = false;
 });
 
-onBeforeUnmount(() => {
-  useApi().abortAll();
-});
+onBeforeUnmount(() => useApi().abortAll());
 </script>
 
 <template>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">WI</div>
-        <div>
-          <div class="brand-name">Work Intelligence</div>
-          <div class="brand-subtitle">Local-first work memory</div>
-        </div>
-      </div>
+  <AppShell :refreshing="refreshing" :counts="counts" :full-width="route.name === 'graph'" @refresh="refresh" @search="paletteOpen = true">
+    <UiFlash v-if="errorMessage" tone="danger" title="無法連線">
+      {{ errorMessage }}
+      <template #actions><UiButton size="sm" @click="refresh">重試</UiButton></template>
+    </UiFlash>
+    <UiSkeleton v-if="loading" variant="card" :count="4" />
+    <RouterView v-else />
 
-      <nav class="navigation" aria-label="主選單">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.name"
-          :to="{ name: item.name }"
-          :data-testid="`nav-${item.name}`"
-          class="nav-item"
-          active-class="active"
-        >
-          <span class="nav-icon">{{ item.icon }}</span>
-          <span class="nav-copy"><strong>{{ item.label }}</strong><small>{{ item.hint }}</small></span>
-        </RouterLink>
-      </nav>
-
-      <div class="sidebar-note">
-        <span class="pulse-dot"></span>
-        <div>
-          <strong>Policy gate enabled</strong>
-          <p>未明確加入的專案，不讀取、不保存。</p>
-        </div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <header class="topbar">
-        <div>
-          <div class="eyebrow">WORK MEMORY / MVP</div>
-          <h1>{{ pageTitle }}</h1>
-        </div>
-        <div class="topbar-actions">
-          <span class="local-badge"><span class="status-dot"></span>Local-first</span>
-          <button class="refresh-button" type="button" aria-label="重新整理" @click="refresh">↻</button>
-        </div>
-      </header>
-
-      <div v-if="errorMessage" class="alert error-alert">{{ errorMessage }}</div>
-
-      <section v-if="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>正在載入本機工作資料…</p>
-      </section>
-      <RouterView v-else />
-    </main>
-
-    <HandoffImportModal />
-    <GraphNodeModal />
-    <SessionDetailModal />
-    <KnowledgeHistoryModal />
-    <KnowledgeEditorModal />
-    <UiConfirmHost />
-    <UiToastHost />
-  </div>
+    <template #overlays>
+      <SessionPanel />
+      <KnowledgeHistoryPanel />
+      <KnowledgeEditorDialog />
+      <HandoffImportDialog />
+      <CommandPalette v-model:open="paletteOpen" />
+    </template>
+  </AppShell>
 </template>

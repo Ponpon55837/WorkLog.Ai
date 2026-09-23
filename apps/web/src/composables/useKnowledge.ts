@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import type { KnowledgeAuditRecord, KnowledgeKind, KnowledgeRecord, KnowledgeStatus, PageInfo, ProjectRecord } from "@work-intelligence/core";
-import { normalizePageSize, pageSizeToQuery, type ListPageSize } from "../utils/labels";
+import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { errorMessage } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
 import { useProjects } from "./useProjects";
@@ -45,10 +45,7 @@ function resetKnowledgeList(): void {
   knowledgePageInfo.value = { ...emptyPageInfo, pageSize: pageSizeToQuery(knowledgePageSize.value) };
 }
 
-async function loadKnowledge(resetPage = false): Promise<void> {
-  if (resetPage) {
-    knowledgePage.value = 1;
-  }
+async function loadKnowledge(): Promise<void> {
   knowledgeLoading.value = true;
   knowledgeError.value = "";
   await runKeyed(
@@ -65,7 +62,9 @@ async function loadKnowledge(resetPage = false): Promise<void> {
       if (result.outcome === "knowledge") {
         knowledgeItems.value = result.items;
         knowledgeProjects.value = result.projects;
-        knowledgePage.value = result.pageInfo.page;
+        if (knowledgePage.value !== result.pageInfo.page) {
+          knowledgePage.value = result.pageInfo.page;
+        }
         knowledgePageInfo.value = result.pageInfo;
       } else {
         resetKnowledgeList();
@@ -82,20 +81,6 @@ async function loadKnowledge(resetPage = false): Promise<void> {
       }
     }
   );
-}
-
-async function changeKnowledgePage(page: number): Promise<void> {
-  if (page < 1 || page > knowledgePageInfo.value.totalPages || page === knowledgePage.value) {
-    return;
-  }
-  knowledgePage.value = page;
-  await loadKnowledge();
-}
-
-async function changeKnowledgePageSize(event: Event): Promise<void> {
-  knowledgePageSize.value = normalizePageSize((event.target as HTMLSelectElement).value);
-  knowledgePage.value = 1;
-  await loadKnowledge();
 }
 
 function knowledgeProject(item: KnowledgeRecord): ProjectRecord | undefined {
@@ -244,6 +229,7 @@ export function useKnowledge() {
   return {
     knowledgeItems,
     knowledgeProjects,
+    knowledgePage,
     knowledgePageSize,
     knowledgePageInfo,
     knowledgeQuery,
@@ -253,8 +239,6 @@ export function useKnowledge() {
     knowledgeLoading,
     knowledgeError,
     loadKnowledge,
-    changeKnowledgePage,
-    changeKnowledgePageSize,
     setKnowledgeStatus,
     openKnowledgeSession,
     knowledgeEditor,

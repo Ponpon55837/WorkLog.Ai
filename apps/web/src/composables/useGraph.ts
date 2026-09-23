@@ -177,8 +177,6 @@ const graphEdgeCounts = computed(() => {
   }));
 });
 
-const graphNodeFilterLabel = computed(() => graphNodeFilter.value === "all" ? "節點" : graphNodeKindLabels[graphNodeFilter.value]);
-
 function graphNodeDescription(node: GraphNode): string {
   if (node.kind === "session") {
     return `${String(node.metadata.verification ?? "not_supplied")} · ${String(node.metadata.changedFilesCount ?? 0)} files`;
@@ -291,7 +289,6 @@ export function useGraph() {
     graphCanLoadMore,
     graphNodeCounts,
     graphEdgeCounts,
-    graphNodeFilterLabel,
     graphNodeDescription,
     loadGraph,
     loadMoreGraph,

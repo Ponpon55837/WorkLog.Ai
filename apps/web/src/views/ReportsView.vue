@@ -1,135 +1,396 @@
 <script setup lang="ts">
-import type { WorkSessionRecord } from "@work-intelligence/core";
+import { computed, onBeforeUnmount, watch } from "vue";
+import { useRoute } from "vue-router";
+import {
+  ChartColumn,
+  CircleCheckBig,
+  Download,
+  FileText,
+  FolderGit2,
+  LayoutDashboard,
+  Link,
+  RefreshCw,
+  Search,
+  TrendingUp,
+  TriangleAlert
+} from "lucide-vue-next";
+import type { ReportEvidence, ReportExportFormat, ReportPeriod, WorkSessionRecord } from "@work-intelligence/core";
+import PageHeader from "../components/layout/PageHeader.vue";
+import SessionRow from "../components/domain/SessionRow.vue";
+import SynthesisCard from "../components/domain/SynthesisCard.vue";
+import VerificationBreakdown from "../components/domain/VerificationBreakdown.vue";
+import UiActionMenu from "../components/ui/UiActionMenu.vue";
+import UiBarChart from "../components/ui/UiBarChart.vue";
+import UiBox from "../components/ui/UiBox.vue";
+import UiBoxRow from "../components/ui/UiBoxRow.vue";
+import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
+import UiEmptyState from "../components/ui/UiEmptyState.vue";
+import UiFlash from "../components/ui/UiFlash.vue";
+import UiIconButton from "../components/ui/UiIconButton.vue";
+import UiLabel from "../components/ui/UiLabel.vue";
+import UiPagination from "../components/ui/UiPagination.vue";
+import UiSegmentedControl from "../components/ui/UiSegmentedControl.vue";
+import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiStatCard from "../components/ui/UiStatCard.vue";
+import UiTextInput from "../components/ui/UiTextInput.vue";
+import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { useViewLoader } from "../composables/useAppRefresh";
 import { useProjects } from "../composables/useProjects";
 import { useReports } from "../composables/useReports";
+import { enumQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { useSessionDetail } from "../composables/useSessionDetail";
-import { formatDate, formatReadableSummary, formatReportDelta, formatReportTrendLabel, reportTrendHeight, shouldShowTrendLabel } from "../utils/format";
-import {
-  evidenceKindLabel,
-  evidenceKindLabels,
-  insightKindLabels,
-  listPageSizeOptions,
-  reportPeriodLabels,
-  reportSynthesisStatusLabels,
-  reportTabOptions,
-  verificationLabel,
-  verificationLabels
-} from "../utils/labels";
+import { router } from "../router";
+import { formatDate, formatReadableSummary, formatRelative, formatReportTrendLabel } from "../utils/format";
+import { evidenceKindLabels, insightKindLabels, reportPeriodLabels, reportTabOptions, type ReportTab } from "../utils/labels";
 
+const route = useRoute();
 const { trackedProjects } = useProjects();
 const {
   report,
   reportPeriod,
   reportDate,
   reportProjectId,
-  reportTab,
   reportLoading,
   reportError,
   reportExportLoading,
   reportEvidenceLoading,
+  reportEvidencePage,
   reportEvidencePageSize,
   reportEvidenceKind,
   reportEvidenceQuery,
   reportSessionItems,
+  reportSessionPage,
   reportSessionPageSize,
   reportSessionPageInfo,
   reportSessionLoading,
-  reportSynthesisRequest,
-  reportSynthesisSummary,
-  reportSynthesisHistory,
-  reportSynthesisExpanded,
-  reportSynthesisLoading,
-  reportSynthesisCreating,
-  reportSynthesisRetrying,
-  reportSynthesisCancelling,
-  reportSynthesisError,
-  reportSynthesisIsActive,
-  reportSynthesisCanRetry,
   reportComparisons,
-  reportVerification,
-  loadReport: load,
-  loadReportSynthesis,
-  selectReportSynthesisVersion,
-  createReportSynthesisRequest: createReportSynthesis,
-  retryReportSynthesisRequest: retryReportSynthesis,
-  cancelReportSynthesisRequest: cancelReportSynthesis,
-  copyReportSynthesisInstruction,
-  deleteReportSynthesisVersion,
-  changeReportSessionPage,
-  changeReportSessionPageSize,
+  loadReport,
+  loadReportSessions,
   loadReportEvidence,
-  changeReportEvidencePage,
-  changeReportEvidencePageSize,
   exportReport,
   openReportSession,
   openReportEvidence
 } = useReports();
-const { openSessionDetail } = useSessionDetail();
+const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
-function openSession(session: WorkSessionRecord): void {
+const periods: ReportPeriod[] = ["day", "week", "month", "quarter", "year"];
+useRouteQuery("period", reportPeriod, enumQuery(periods, "week"));
+useRouteQuery("date", reportDate, stringQuery(reportDate.value));
+useRouteQuery("project", reportProjectId, stringQuery());
+useViewLoader(() => loadReport(true));
+watch([reportPeriod, reportDate, reportProjectId], () => void loadReport(true));
+
+const tabIds = reportTabOptions.map((option) => option.id);
+const tab = computed<ReportTab>({
+  get: () => (tabIds.includes(route.params.tab as ReportTab) ? (route.params.tab as ReportTab) : "overview"),
+  set: (value) => void router.replace({ name: "reports", params: { tab: value === "overview" ? undefined : value }, query: route.query })
+});
+const tabIcons = { overview: LayoutDashboard, work: CircleCheckBig, trend: TrendingUp, risks: TriangleAlert, raw: FileText, evidence: Link } as const;
+const tabs = computed(() =>
+  reportTabOptions.map((option) => ({ value: option.id, label: option.shortLabel, icon: tabIcons[option.id], count: tabCount(option.id) }))
+);
+
+function tabCount(id: ReportTab): number | undefined {
+  const current = report.value;
+  if (!current) {
+    return undefined;
+  }
+  const counts: Record<ReportTab, number | undefined> = {
+    overview: undefined,
+    work: current.totals.sessions,
+    trend: undefined,
+    risks: current.risks.length + current.decisions.length,
+    raw: reportSessionPageInfo.value.total,
+    evidence: current.evidencePageInfo.total
+  };
+  return counts[id];
+}
+
+const periodShortLabels: Record<ReportPeriod, string> = { day: "日", week: "週", month: "月", quarter: "季", year: "年" };
+const periodOptions = periods.map((period) => ({ value: period, label: periodShortLabels[period] }));
+const projectItems = computed(() => [{ value: "", label: "所有記錄中專案" }, ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name }))]);
+const projectLabel = computed(() => projectItems.value.find((item) => item.value === reportProjectId.value)?.label ?? "所有記錄中專案");
+const exportItems = [
+  { value: "markdown" as ReportExportFormat, label: "下載 Markdown", icon: Download },
+  { value: "json" as ReportExportFormat, label: "匯出 JSON", icon: Download }
+];
+const description = computed(() => {
+  const current = report.value;
+  return current
+    ? `${reportPeriodLabels[current.period]} · ${current.range.from} – ${current.range.to}（UTC）· ${projectLabel.value}`
+    : "報告只聚合「記錄中」的專案，並保留每筆來源 Session。";
+});
+
+const verificationCounts = computed(() => {
+  const totals = report.value?.totals.verification;
+  return { passed: totals?.passed ?? 0, failed: totals?.failed ?? 0, notRun: totals?.not_run ?? 0, notSupplied: totals?.not_supplied ?? 0 };
+});
+const trend = computed(() => {
+  const current = report.value;
+  if (!current) {
+    return { labels: [], series: [] };
+  }
+  return {
+    labels: current.trends.map((point) => formatReportTrendLabel(point.date, current.trendGranularity)),
+    series: [
+      { name: "Sessions", tone: "accent" as const, values: current.trends.map((point) => point.sessions) },
+      { name: "Events", tone: "done" as const, values: current.trends.map((point) => point.events) }
+    ]
+  };
+});
+
+const evidenceKindItems = [
+  { value: "" as const, label: "所有類型" },
+  ...(Object.keys(evidenceKindLabels) as ReportEvidence["kind"][]).map((kind) => ({ value: kind, label: evidenceKindLabels[kind] }))
+];
+
+function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecord[]): void {
+  setSessionSequence(list.map((item) => item.id));
   void openSessionDetail(session.id);
 }
 
-useViewLoader(() => load());
+function changeRawPage(page: number): void {
+  reportSessionPage.value = page;
+  void loadReportSessions();
+}
+
+function changeEvidencePage(page: number): void {
+  reportEvidencePage.value = page;
+  void loadReportEvidence();
+}
+
+function reloadEvidenceFromFirstPage(): void {
+  reportEvidencePage.value = 1;
+  void loadReportEvidence();
+}
+
+watch(reportSessionPageSize, () => {
+  reportSessionPage.value = 1;
+  void loadReportSessions();
+});
+watch([reportEvidencePageSize, reportEvidenceKind], reloadEvidenceFromFirstPage);
+let evidenceTimer: number | undefined;
+watch(reportEvidenceQuery, () => {
+  window.clearTimeout(evidenceTimer);
+  evidenceTimer = window.setTimeout(reloadEvidenceFromFirstPage, 300);
+});
+onBeforeUnmount(() => window.clearTimeout(evidenceTimer));
+
+const evidenceLetters: Record<ReportEvidence["kind"], string> = { handoff: "H", verification: "V", "changed-files": "F", event: "E", attached: "A" };
 </script>
 
 <template>
-  <section class="page-section reports-page">
-    <div class="section-intro reports-intro">
-      <div><div class="eyebrow">WORK REPORTS</div><h2>把已完成的工作，整理成可讀的節奏。</h2><p>報告只聚合「記錄中」的專案，並保留每筆來源 Session。</p></div>
-      <form class="report-tools" @submit.prevent="load(true)">
-        <label class="report-control"><span>報表區間</span><select v-model="reportPeriod" aria-label="選擇報表區間" @change="load(true)"><option value="day">今日</option><option value="week">本週</option><option value="month">本月</option><option value="quarter">本季</option><option value="year">本年</option></select></label>
-        <label class="report-control report-date-control"><span>報告日期</span><input v-model="reportDate" type="date" aria-label="選擇報告日期" @change="load(true)" /></label>
-        <label class="report-control"><span>專案範圍</span><select v-model="reportProjectId" aria-label="選擇報表專案" @change="load(true)"><option value="">所有記錄中專案</option><option v-for="project in trackedProjects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
-        <button class="filter-button report-refresh report-refresh-icon" type="submit" :disabled="reportLoading" :aria-busy="reportLoading" aria-label="重新整理報告" title="重新整理報告"><span class="refresh-icon" aria-hidden="true">{{ reportLoading ? '…' : '↻' }}</span><span class="sr-only">{{ reportLoading ? '整理中' : '重新整理報告' }}</span></button>
-        <div class="report-export-actions" aria-label="匯出報告"><button class="text-button report-export-button" type="button" :disabled="reportLoading || !report || reportExportLoading !== null" @click="exportReport('markdown')">{{ reportExportLoading === 'markdown' ? '產生中…' : '下載 Markdown' }}</button><button class="text-button report-export-button" type="button" :disabled="reportLoading || !report || reportExportLoading !== null" @click="exportReport('json')">{{ reportExportLoading === 'json' ? '產生中…' : '匯出 JSON' }}</button></div>
-      </form>
-    </div>
-
-    <div v-if="reportError" class="alert error-alert report-error" role="alert">{{ reportError }}</div>
-    <section v-if="reportLoading" class="loading-state report-loading"><div class="spinner"></div><p>正在整理本機工作報告…</p></section>
-    <template v-else-if="report">
-      <div class="report-range-note"><div><span>{{ reportPeriodLabels[report.period] }}</span><strong>{{ report.range.from }} — {{ report.range.to }}</strong></div><small>資料時區 {{ report.timezone }} · {{ report.sourceSessionIds.length }} 筆來源 Session</small></div>
-      <nav class="report-tabs" role="tablist" aria-label="工作報告內容分頁"><button v-for="tab in reportTabOptions" :id="`report-tab-${tab.id}`" :key="tab.id" class="report-tab" :class="{ 'report-tab-active': reportTab === tab.id }" type="button" role="tab" :aria-selected="reportTab === tab.id" :aria-controls="`report-tab-panel-${tab.id}`" :title="tab.label" @click="reportTab = tab.id"><span>{{ tab.shortLabel }}</span></button></nav>
-      <div class="report-tab-panels">
-        <section id="report-tab-panel-overview" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-overview" v-show="reportTab === 'overview'">
-          <details class="report-synthesis-card" data-testid="report-synthesis" :open="reportSynthesisExpanded || !reportSynthesisSummary" @toggle="reportSynthesisExpanded = ($event.currentTarget as HTMLDetailsElement).open">
-            <summary class="report-synthesis-summary" data-testid="report-synthesis-toggle"><div class="report-synthesis-heading"><div><div class="eyebrow">AGENT SYNTHESIS</div><h3>{{ reportSynthesisSummary?.title ?? '管理層摘要' }}</h3></div><span v-if="reportSynthesisRequest" :class="['synthesis-status', `synthesis-status-${reportSynthesisRequest.status}`]">{{ reportSynthesisStatusLabels[reportSynthesisRequest.status] }}</span></div></summary>
-            <div v-if="reportSynthesisLoading" class="report-synthesis-loading"><span class="spinner small-spinner"></span><span>正在讀取提煉狀態…</span></div>
-            <template v-else-if="reportSynthesisSummary && !reportSynthesisIsActive">
-              <p class="report-synthesis-executive">{{ reportSynthesisSummary.executiveSummary }}</p>
-              <div class="report-synthesis-block-grid">
-                <section v-if="reportSynthesisSummary.themes.length" class="report-synthesis-block"><div class="eyebrow">WORKSTREAMS</div><article v-for="block in reportSynthesisSummary.themes" :key="`${block.title}-${block.detail}`" class="synthesis-block-item"><strong>{{ block.title }}</strong><p>{{ block.detail }}</p><div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div></article></section>
-                <section v-if="reportSynthesisSummary.highlights.length" class="report-synthesis-block"><div class="eyebrow">HIGHLIGHTS</div><article v-for="block in reportSynthesisSummary.highlights" :key="`${block.title}-${block.detail}`" class="synthesis-block-item"><strong>{{ block.title }}</strong><p>{{ block.detail }}</p><div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div></article></section>
-                <section v-if="reportSynthesisSummary.risks.length" class="report-synthesis-block"><div class="eyebrow">RISKS</div><article v-for="block in reportSynthesisSummary.risks" :key="`${block.title}-${block.detail}`" class="synthesis-block-item synthesis-risk-item"><strong>{{ block.title }}</strong><p>{{ block.detail }}</p><div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div></article></section>
-                <section v-if="reportSynthesisSummary.decisions.length" class="report-synthesis-block"><div class="eyebrow">DECISIONS</div><article v-for="block in reportSynthesisSummary.decisions" :key="`${block.title}-${block.detail}`" class="synthesis-block-item"><strong>{{ block.title }}</strong><p>{{ block.detail }}</p><div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div></article></section>
-                <section v-if="reportSynthesisSummary.nextSteps.length" class="report-synthesis-block"><div class="eyebrow">KNOWN STATUS</div><article v-for="block in reportSynthesisSummary.nextSteps" :key="`${block.title}-${block.detail}`" class="synthesis-block-item"><strong>{{ block.title }}</strong><p>{{ block.detail }}</p><div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div></article></section>
-                <section v-if="reportSynthesisSummary.verification.length" class="report-synthesis-block"><div class="eyebrow">VERIFICATION</div><article v-for="block in reportSynthesisSummary.verification" :key="`${block.title}-${block.detail}`" class="synthesis-block-item"><strong>{{ block.title }}</strong><p>{{ block.detail }}</p><div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div></article></section>
-                <section v-if="reportSynthesisSummary.comparison.length" class="report-synthesis-block"><div class="eyebrow">COMPARISON</div><article v-for="block in reportSynthesisSummary.comparison" :key="`${block.title}-${block.detail}`" class="synthesis-block-item"><strong>{{ block.title }}</strong><p>{{ block.detail }}</p><div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div></article></section>
-              </div>
-              <div class="report-synthesis-footer"><span>由 {{ reportSynthesisSummary.generatedByAgent }} 產生 · Prompt {{ reportSynthesisSummary.promptVersion }} · {{ formatDate(reportSynthesisSummary.createdAt) }}</span><span v-if="reportSynthesisRequest?.failureReason" class="report-synthesis-failure">{{ reportSynthesisRequest.failureReason }}</span><div class="report-synthesis-footer-actions"><button class="icon-button report-icon-button" type="button" :disabled="reportSynthesisLoading" aria-label="重新整理提煉狀態" title="重新整理提煉狀態" @click="loadReportSynthesis()"><span aria-hidden="true">↻</span></button><button class="text-button" type="button" :disabled="reportSynthesisCreating || reportSynthesisRetrying" @click="reportSynthesisCanRetry ? retryReportSynthesis() : createReportSynthesis()">{{ reportSynthesisCanRetry ? (reportSynthesisRetrying ? '重試中…' : '重試這次提煉') : '重新提煉' }}</button></div></div>
-              <details v-if="reportSynthesisHistory.length > 1" class="report-synthesis-history" data-testid="report-synthesis-history"><summary><span>歷史版本</span><span>{{ reportSynthesisHistory.length }} 個版本</span></summary><div class="report-synthesis-history-list"><div v-for="summary in reportSynthesisHistory" :key="summary.id" data-testid="report-synthesis-version" :class="['report-synthesis-history-item', { 'report-synthesis-history-item-current': reportSynthesisSummary.id === summary.id }]" ><button class="report-synthesis-history-select" type="button" :aria-pressed="reportSynthesisSummary.id === summary.id" @click="selectReportSynthesisVersion(summary)"><span class="report-synthesis-history-item-copy"><strong>{{ summary.title }}</strong><small>{{ formatDate(summary.createdAt) }} · {{ summary.generatedByAgent }}</small></span><span class="report-synthesis-history-item-status">{{ summary.isCurrent ? '目前版本' : '歷史版本' }}</span></button><button v-if="!summary.isCurrent" class="icon-button report-synthesis-history-delete" type="button" :aria-label="`移除歷史版本 ${summary.title}`" :title="`移除歷史版本 ${summary.title}`" @click.stop="deleteReportSynthesisVersion(summary)"><span aria-hidden="true">×</span></button></div></div></details>
-            </template>
-            <div v-else class="report-synthesis-empty"><div class="report-synthesis-message"><p v-if="reportSynthesisRequest">{{ reportSynthesisRequest.status === 'pending' ? '請在目前的 Codex 或 Claude 對話中用自然語言請 Agent 處理這份報告。' : reportSynthesisRequest.status === 'processing' ? 'Agent 已開始處理；完成後可重新整理狀態。' : reportSynthesisRequest.status === 'failed' || reportSynthesisRequest.status === 'cancelled' ? '這次提煉沒有完成，可以重新建立一次安全的提煉請求。' : '目前沒有可顯示的提煉內容。' }}</p><p v-if="reportSynthesisRequest?.failureReason" class="report-synthesis-error">{{ reportSynthesisRequest.failureReason }}</p><p v-if="reportSynthesisSummary && reportSynthesisIsActive" class="report-synthesis-previous-note">上一版摘要仍保留在資料庫；新的提煉完成後才會替換，期間不會遺失早上的報告。</p><p v-if="!reportSynthesisRequest">這份 deterministic report 尚未建立 Agent 提煉請求。按下按鈕後，WorkLog 只會建立待處理請求，不會反向呼叫任何 Agent。</p></div><div class="report-synthesis-actions"><button v-if="reportSynthesisCanRetry" class="primary-button" type="button" :disabled="reportSynthesisRetrying" @click="retryReportSynthesis()">{{ reportSynthesisRetrying ? '重試中…' : '重試這次提煉' }}</button><button v-else class="primary-button" type="button" :disabled="reportSynthesisCreating || reportSynthesisIsActive" @click="createReportSynthesis()">{{ reportSynthesisCreating ? '建立中…' : reportSynthesisIsActive ? '等待 Agent 處理中…' : reportSynthesisRequest ? '重新提煉本報告' : '請 Agent 提煉本報告' }}</button><button v-if="reportSynthesisRequest" class="text-button" type="button" @click="copyReportSynthesisInstruction()">複製提煉指令</button><button v-if="reportSynthesisIsActive" class="text-button cancel-button" type="button" :disabled="reportSynthesisCancelling" @click="cancelReportSynthesis()">{{ reportSynthesisCancelling ? '取消中…' : '取消這次提煉' }}</button><button class="icon-button report-icon-button" type="button" :disabled="reportSynthesisLoading" aria-label="重新整理提煉狀態" title="重新整理提煉狀態" @click="loadReportSynthesis()"><span aria-hidden="true">↻</span></button></div></div>
-            <p v-if="reportSynthesisError" class="report-synthesis-error" role="alert">{{ reportSynthesisError }}</p>
-          </details>
-          <section class="report-summary-card"><div class="report-summary-copy"><div class="eyebrow">PERIOD SUMMARY</div><h3>這段時間發生了什麼</h3><p>{{ formatReadableSummary(report.periodSummary) }}</p></div><div class="report-period-meta"><div><span>比較期間</span><strong>{{ report.previousRange.from }} — {{ report.previousRange.to }}</strong></div><div><span>報告範圍</span><strong>{{ report.project?.name ?? '所有記錄中專案' }}</strong></div></div></section>
-          <div class="report-comparison-grid"><article v-for="item in reportComparisons" :key="item.key" :class="['report-comparison-card', `comparison-${item.comparison.direction}`]"><div class="report-comparison-heading"><span>{{ item.label }}</span><span class="comparison-arrow">{{ item.comparison.direction === 'up' ? '↗' : item.comparison.direction === 'down' ? '↘' : '→' }}</span></div><strong>{{ item.comparison.current }}</strong><span class="report-comparison-delta">{{ formatReportDelta(item.comparison) }}</span><small>{{ item.foot }}</small></article></div>
-        </section>
-
-        <section id="report-tab-panel-work" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-work" v-show="reportTab === 'work'"><div class="content-grid report-grid report-primary-grid"><section class="panel report-panel report-work-panel"><div class="panel-heading"><div><div class="eyebrow">COMPLETED WORK</div><h3>主要完成事項</h3></div><span class="report-count">{{ report.totals.sessions }} 個 Session</span></div><div v-if="report.completedWork.length === 0" class="empty-state report-empty"><strong>這段期間沒有完成工作</strong><p>選擇其他區間，或先讓記錄中的專案完成一次 session。</p></div><button v-for="session in report.completedWork" :key="session.id" class="report-completed-row" type="button" @click="openSession(session)"><div class="session-marker"></div><div class="session-main"><strong>{{ session.title }}</strong><p class="report-summary-preview">{{ formatReadableSummary(session.summary) }}</p><span>{{ session.projectName }} · {{ formatDate(session.completedAt) }}</span></div><span :class="['verification-badge', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabels[session.verification?.status ?? 'not_supplied'] }}</span><span class="session-arrow">↗</span></button></section><section class="panel report-panel report-verification-panel"><div class="panel-heading"><div><div class="eyebrow">VERIFICATION STATUS</div><h3>Verification 狀態</h3></div><span class="report-count">{{ report.totals.sessions }} 個 Session</span></div><div class="report-verification-list"><div v-for="item in reportVerification" :key="item.status" class="report-verification-row"><div class="report-progress-label"><span>{{ item.label }}</span><strong>{{ item.count }}</strong></div><div class="report-progress"><span :class="`verification-fill-${item.status}`" :style="{ width: `${item.percent}%` }"></span></div></div></div><p class="report-panel-note">待 Agent 回報代表沒有結構化 verification；未執行則代表 Agent 明確表示尚未驗證。報告不會替 Agent 推測驗證結果。</p></section></div></section>
-
-        <section id="report-tab-panel-trend" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-trend" v-show="reportTab === 'trend'"><div class="content-grid report-grid report-secondary-grid"><section class="panel report-panel report-trend-panel"><div class="panel-heading"><div><div class="eyebrow">ACTIVITY TREND</div><h3>工作節奏</h3></div><span class="report-count">{{ report.trends.length }} {{ report.trendGranularity === 'month' ? '個月' : '天' }}</span></div><div class="report-trend-legend"><span><i class="trend-legend-sessions"></i>工作 Session</span><span><i class="trend-legend-events"></i>事件</span></div><div class="report-trend-chart"><div v-for="(point, index) in report.trends" :key="point.date" class="report-trend-column" :title="`${point.date} · ${point.sessions} 個 Session · ${point.events} 個事件`"><div class="report-trend-bars"><span class="trend-bar trend-bar-sessions" :style="{ height: reportTrendHeight(point.sessions, report) }"></span><span class="trend-bar trend-bar-events" :style="{ height: reportTrendHeight(point.events, report) }"></span></div><small v-if="shouldShowTrendLabel(index, report.trends.length)">{{ formatReportTrendLabel(point.date, report.trendGranularity) }}</small></div></div><p v-if="report.trends.every((point) => point.sessions === 0)" class="report-panel-note">這段期間尚未有工作活動，趨勢會在新的 Session 完成後出現。</p></section><section class="panel report-panel report-project-panel"><div class="panel-heading"><div><div class="eyebrow">PROJECT BREAKDOWN</div><h3>專案分布</h3></div><span class="report-count">{{ report.projects.length }}</span></div><div v-if="report.projects.length === 0" class="empty-state report-empty"><strong>沒有專案資料</strong><p>這段期間沒有可顯示的 tracked project。</p></div><div v-for="project in report.projects" :key="project.projectId" class="report-project-row"><div class="project-avatar">{{ project.projectName.slice(0, 1).toUpperCase() }}</div><div class="report-project-info"><strong>{{ project.projectName }}</strong><span>{{ project.sessionCount }} 個 Session · {{ project.eventCount }} 個事件</span></div><span class="report-source-count">{{ project.sourceSessionIds.length }} 個來源</span></div></section></div></section>
-
-        <section id="report-tab-panel-risks" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-risks" v-show="reportTab === 'risks'"><div class="report-insights-grid"><section class="panel report-panel report-insight-panel"><div class="panel-heading"><div><div class="eyebrow">RISKS TO REVIEW</div><h3>風險與待確認事項</h3></div><span class="report-count">{{ report.risks.length }}</span></div><div v-if="report.risks.length === 0" class="empty-state report-empty"><strong>目前沒有資料型風險</strong><p>目前期間的報告資料沒有偵測到需要提醒的項目。</p></div><button v-for="insight in report.risks" :key="`${insight.kind}-${insight.label}`" class="report-insight-row" type="button" @click="openReportSession(insight.sourceSessionIds[0])"><div class="report-insight-heading"><span class="report-insight-kind">{{ insightKindLabels[insight.kind] }}</span><strong>{{ insight.label }}</strong></div><p>{{ insight.detail }}</p><small>{{ insight.sourceSessionIds.length }} 筆來源 Session · 查看第一筆 ↗</small></button></section><section class="panel report-panel report-insight-panel"><div class="panel-heading"><div><div class="eyebrow">DECISIONS &amp; CLOSING</div><h3>風險／決策</h3></div><span class="report-count">{{ report.decisions.length }}</span></div><div v-if="report.decisions.length === 0" class="empty-state report-empty"><strong>這段期間沒有決策事件</strong><p>Agent 提交 note 或 closing event 後，會在這裡保留來源。</p></div><button v-for="decision in report.decisions" :key="`${decision.sessionId}-${decision.occurredAt}`" class="report-decision-row" type="button" @click="openReportSession(decision.sessionId)"><div class="report-decision-copy"><strong>{{ decision.summary }}</strong><span>{{ decision.sessionTitle }} · {{ formatDate(decision.occurredAt) }}</span></div><span class="session-arrow">↗</span></button></section></div></section>
-
-        <section id="report-tab-panel-raw" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-raw" v-show="reportTab === 'raw'"><details class="report-raw-details" open><summary><span><span class="eyebrow">RAW WORK RECORDS</span><strong>原始工作紀錄</strong></span><span class="report-count">{{ reportSessionPageInfo.total }} 個 Session</span></summary><div v-if="reportSessionLoading" class="report-raw-loading"><span class="spinner small-spinner"></span><span>正在載入原始 Session…</span></div><div v-else-if="reportSessionItems.length" class="report-raw-session-list"><VirtualList :items="reportSessionItems" :enabled="reportSessionPageSize === 'all'" aria-label="報告原始工作紀錄清單"><template #default="{ item: session }"><button class="report-raw-session-row" type="button" @click="openSession(session)"><span class="session-marker"></span><span class="report-raw-session-copy"><strong>{{ session.title }}</strong><span>{{ session.projectName }} · {{ formatDate(session.completedAt) }}</span><small>{{ formatReadableSummary(session.summary) }}</small></span><span :class="['verification-badge', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabel(session.verification?.status) }}</span><span class="session-arrow">↗</span></button></template></VirtualList></div><div v-else class="report-empty report-empty-compact"><strong>這段期間沒有原始 Session</strong><p>請切換報告期間或專案範圍。</p></div><div v-if="reportSessionPageInfo.total > 0" class="pagination-bar report-list-pagination-bar"><span class="pagination-summary">顯示 {{ reportSessionPageInfo.from }}–{{ reportSessionPageInfo.to }}，共 {{ reportSessionPageInfo.total }} 筆<span v-if="reportSessionPageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ reportSessionPageInfo.pageSize }} 筆</span></span><label class="pagination-page-size"><span>每頁</span><select v-model="reportSessionPageSize" aria-label="報告原始工作紀錄每頁筆數" @change="changeReportSessionPageSize()"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label><div v-if="reportSessionPageInfo.totalPages > 1" class="pagination-controls"><button class="pagination-button" type="button" :disabled="!reportSessionPageInfo.hasPrevious" @click="changeReportSessionPage(reportSessionPageInfo.page - 1)">上一頁</button><span>第 {{ reportSessionPageInfo.page }} / {{ reportSessionPageInfo.totalPages }} 頁</span><button class="pagination-button" type="button" :disabled="!reportSessionPageInfo.hasNext" @click="changeReportSessionPage(reportSessionPageInfo.page + 1)">下一頁</button></div><span v-else class="pagination-current">共 {{ reportSessionPageInfo.total }} 筆</span></div></details></section>
-
-        <section id="report-tab-panel-evidence" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-evidence" v-show="reportTab === 'evidence'"><section class="panel report-panel report-evidence-panel"><div class="panel-heading"><div><div class="eyebrow">SOURCE EVIDENCE</div><h3>來源證據</h3></div><span class="report-count">{{ report.evidencePageInfo.total }} 筆</span></div><form class="report-evidence-tools" @submit.prevent="loadReportEvidence(true)"><label class="report-evidence-search"><span>⌕</span><input v-model="reportEvidenceQuery" type="search" placeholder="搜尋 Session、來源或證據內容" /></label><label class="report-evidence-kind"><span>類型</span><select v-model="reportEvidenceKind" aria-label="依 Evidence 類型篩選" @change="loadReportEvidence(true)"><option value="">所有類型</option><option v-for="(label, kind) in evidenceKindLabels" :key="kind" :value="kind">{{ label }}</option></select></label><button class="text-button report-evidence-filter-button" type="submit" :disabled="reportEvidenceLoading">{{ reportEvidenceLoading ? '更新中…' : '套用篩選' }}</button></form><div v-if="reportEvidenceLoading" class="report-evidence-inline-loading"><span class="spinner small-spinner"></span><span>正在更新來源證據…</span></div><div v-else-if="report.evidence.length === 0" class="empty-state report-empty"><strong>尚無可呈現的證據</strong><p>完成 session 時提供 handoff、verification、changed files 或 event，報告就能建立追溯線索。</p></div><div v-else :class="['report-evidence-list', { 'report-evidence-list-virtualized': reportEvidencePageSize === 'all' }]"><VirtualList v-if="reportEvidencePageSize === 'all'" :items="report.evidence" :enabled="true" aria-label="報告來源證據清單" :estimate-item-height="94"><template #default="{ item }"><button class="report-evidence-row" type="button" @click="openReportEvidence(item)"><span :class="['report-evidence-icon', `evidence-${item.kind}`]">{{ item.kind === 'handoff' ? 'H' : item.kind === 'verification' ? 'V' : item.kind === 'changed-files' ? 'F' : item.kind === 'attached' ? 'A' : 'E' }}</span><div class="report-evidence-copy"><div><span class="report-evidence-kind">{{ evidenceKindLabel(item.kind) }}</span><strong>{{ item.label }}</strong></div><p>{{ item.detail }}</p><small>{{ item.sessionTitle }}<span v-if="item.projectName"> · {{ item.projectName }}</span><span v-if="item.reference"> · {{ item.reference }}</span></small></div><span class="session-arrow">↗</span></button></template></VirtualList><template v-else><button v-for="item in report.evidence" :key="`${item.sessionId}-${item.kind}-${item.label}`" class="report-evidence-row" type="button" @click="openReportEvidence(item)"><span :class="['report-evidence-icon', `evidence-${item.kind}`]">{{ item.kind === 'handoff' ? 'H' : item.kind === 'verification' ? 'V' : item.kind === 'changed-files' ? 'F' : item.kind === 'attached' ? 'A' : 'E' }}</span><div class="report-evidence-copy"><div><span class="report-evidence-kind">{{ evidenceKindLabels[item.kind] }}</span><strong>{{ item.label }}</strong></div><p>{{ item.detail }}</p><small>{{ item.sessionTitle }}<span v-if="item.projectName"> · {{ item.projectName }}</span><span v-if="item.reference"> · {{ item.reference }}</span></small></div><span class="session-arrow">↗</span></button></template></div><div v-if="report.evidencePageInfo.total > 0" class="pagination-bar report-list-pagination-bar"><span class="pagination-summary">顯示 {{ report.evidencePageInfo.from }}–{{ report.evidencePageInfo.to }}，共 {{ report.evidencePageInfo.total }} 筆<span v-if="report.evidencePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ report.evidencePageInfo.pageSize }} 筆</span></span><label class="pagination-page-size"><span>每頁</span><select v-model="reportEvidencePageSize" aria-label="報告來源證據每頁筆數" @change="changeReportEvidencePageSize()"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label><div v-if="report.evidencePageInfo.totalPages > 1" class="pagination-controls"><button class="pagination-button" type="button" :disabled="!report.evidencePageInfo.hasPrevious" @click="changeReportEvidencePage(report.evidencePageInfo.page - 1)">上一頁</button><span>第 {{ report.evidencePageInfo.page }} / {{ report.evidencePageInfo.totalPages }} 頁</span><button class="pagination-button" type="button" :disabled="!report.evidencePageInfo.hasNext" @click="changeReportEvidencePage(report.evidencePageInfo.page + 1)">下一頁</button></div><span v-else class="pagination-current">共 {{ report.evidencePageInfo.total }} 筆</span></div></section></section>
-      </div>
+  <PageHeader :description="description">
+    <template #actions>
+      <UiSegmentedControl v-model="reportPeriod" :options="periodOptions" label="選擇報表區間" />
+      <UiTextInput v-model="reportDate" type="date" class="reports__date" label="選擇報告日期" />
+      <UiActionMenu v-model="reportProjectId" :label="projectLabel" :icon="FolderGit2" variant="button" header="專案範圍" default-value="" align="end" :items="projectItems" />
+      <UiActionMenu label="匯出" :icon="Download" variant="button" align="end" :items="exportItems" @select="exportReport" />
+      <UiIconButton :icon="RefreshCw" label="重新整理報告" variant="default" :loading="reportLoading || Boolean(reportExportLoading)" @click="loadReport(true)" />
     </template>
-    <div v-else class="empty-state large-empty report-empty-state"><div class="empty-icon">▥</div><strong>尚未產生報告</strong><p>切換到報表後，系統會從已授權的工作紀錄建立摘要。</p></div>
-  </section>
+  </PageHeader>
+
+  <UiFlash v-if="reportError" tone="danger">{{ reportError }}</UiFlash>
+  <UiSkeleton v-if="reportLoading && !report" variant="card" :count="4" />
+  <UiEmptyState v-else-if="!report" :icon="ChartColumn" title="尚未產生報告" description="選擇區間後，系統會從已授權的工作紀錄建立 deterministic 報告。" />
+
+  <template v-else>
+    <UiUnderlineNav v-model="tab" :items="tabs" label="工作報告內容分頁" id-prefix="report" />
+
+    <section v-if="tab === 'overview'" id="report-panel-overview" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-overview">
+      <SynthesisCard />
+      <div class="reports__stats">
+        <UiStatCard
+          v-for="item in reportComparisons"
+          :key="item.key"
+          :label="item.label"
+          :value="item.comparison.current"
+          :delta="{ direction: item.comparison.direction, text: item.comparison.direction === 'flat' ? '與上期相同' : `${Math.abs(item.comparison.delta)} vs 上期` }"
+          :foot="item.foot"
+        />
+        <UiStatCard label="Verification" :value="verificationCounts.passed" :suffix="`/ ${report.totals.sessions} 通過`">
+          <VerificationBreakdown :counts="verificationCounts" />
+        </UiStatCard>
+      </div>
+      <UiBox padded>
+        <template #header>
+          <UiBoxTitle eyebrow="Period summary" title="這段時間發生了什麼" />
+          <span class="reports__muted">比較期間 {{ report.previousRange.from }} – {{ report.previousRange.to }}</span>
+        </template>
+        <p class="reports__summary">{{ formatReadableSummary(report.periodSummary) }}</p>
+      </UiBox>
+    </section>
+
+    <section v-else-if="tab === 'work'" id="report-panel-work" class="reports__panel reports__grid" role="tabpanel" aria-labelledby="report-tab-work">
+      <UiBox>
+        <template #header><UiBoxTitle eyebrow="Completed work" title="主要完成事項" :count="report.totals.sessions" /></template>
+        <UiEmptyState v-if="report.completedWork.length === 0" compact :icon="CircleCheckBig" title="這段期間沒有完成工作" />
+        <SessionRow v-for="session in report.completedWork" :key="session.id" :session="session" @open="openSession($event, report.completedWork)" />
+      </UiBox>
+      <UiBox padded>
+        <template #header><UiBoxTitle eyebrow="Verification" title="驗證狀態" /></template>
+        <VerificationBreakdown :counts="verificationCounts" />
+        <p class="reports__note">未回報代表沒有結構化 verification；未執行代表 Agent 明確表示尚未驗證。報告不會替 Agent 推測驗證結果。</p>
+      </UiBox>
+    </section>
+
+    <section v-else-if="tab === 'trend'" id="report-panel-trend" class="reports__panel reports__grid" role="tabpanel" aria-labelledby="report-tab-trend">
+      <UiBox>
+        <template #header><UiBoxTitle eyebrow="Activity trend" title="工作節奏" /></template>
+        <UiBarChart :labels="trend.labels" :series="trend.series" label="每期完成 Session 與事件數" />
+      </UiBox>
+      <UiBox>
+        <template #header><UiBoxTitle eyebrow="Project breakdown" title="專案分布" :count="report.projects.length" /></template>
+        <UiEmptyState v-if="report.projects.length === 0" compact :icon="FolderGit2" title="沒有專案資料" />
+        <UiBoxRow v-for="project in report.projects" :key="project.projectId" :title="project.projectName" :meta="`${project.sessionCount} 個 Session · ${project.eventCount} 個事件`">
+          <template #leading><FolderGit2 :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
+          <template #trailing><UiLabel>{{ project.sourceSessionIds.length }} 個來源</UiLabel></template>
+        </UiBoxRow>
+      </UiBox>
+    </section>
+
+    <section v-else-if="tab === 'risks'" id="report-panel-risks" class="reports__panel reports__grid" role="tabpanel" aria-labelledby="report-tab-risks">
+      <UiBox>
+        <template #header><UiBoxTitle eyebrow="Risks to review" title="資料型風險" :count="report.risks.length" /></template>
+        <UiEmptyState v-if="report.risks.length === 0" compact :icon="TriangleAlert" title="沒有偵測到資料型風險" />
+        <UiBoxRow
+          v-for="insight in report.risks"
+          :key="`${insight.kind}-${insight.label}`"
+          clickable
+          :title="insight.label"
+          :meta="`${insight.sourceSessionIds.length} 筆來源 Session`"
+          @select="openReportSession(insight.sourceSessionIds[0])"
+        >
+          <template #labels><UiLabel tone="attention">{{ insightKindLabels[insight.kind] }}</UiLabel></template>
+          <p class="reports__row-detail">{{ insight.detail }}</p>
+        </UiBoxRow>
+      </UiBox>
+      <UiBox>
+        <template #header><UiBoxTitle eyebrow="Decisions" title="決策與 closing 事件" :count="report.decisions.length" /></template>
+        <UiEmptyState v-if="report.decisions.length === 0" compact title="這段期間沒有決策事件" description="Agent 提交 note 或 closing event 後，會在這裡保留來源。" />
+        <UiBoxRow v-for="decision in report.decisions" :key="`${decision.sessionId}-${decision.occurredAt}`" clickable :title="decision.summary" @select="openReportSession(decision.sessionId)">
+          <template #meta>{{ decision.sessionTitle }} · <time :title="formatDate(decision.occurredAt)">{{ formatRelative(decision.occurredAt) }}</time></template>
+        </UiBoxRow>
+      </UiBox>
+    </section>
+
+    <section v-else-if="tab === 'raw'" id="report-panel-raw" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-raw">
+      <UiBox>
+        <template #header><UiBoxTitle eyebrow="Raw work records" title="原始工作紀錄" :count="reportSessionPageInfo.total" /></template>
+        <UiSkeleton v-if="reportSessionLoading && reportSessionItems.length === 0" />
+        <UiEmptyState v-else-if="reportSessionItems.length === 0" compact :icon="FileText" title="這段期間沒有原始 Session" />
+        <VirtualList v-else :items="reportSessionItems" :enabled="reportSessionPageSize === 'all'" label="報告原始工作紀錄清單">
+          <template #default="{ item }">
+            <SessionRow :session="item" @open="openSession($event, reportSessionItems)" />
+          </template>
+        </VirtualList>
+        <template #footer>
+          <UiPagination v-model:page-size="reportSessionPageSize" :page-info="reportSessionPageInfo" size-label="報告原始工作紀錄每頁筆數" @page="changeRawPage" />
+        </template>
+      </UiBox>
+    </section>
+
+    <section v-else id="report-panel-evidence" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-evidence">
+      <UiTextInput v-model="reportEvidenceQuery" type="search" :icon="Search" label="搜尋來源證據" placeholder="搜尋 Session、來源或證據內容" />
+      <UiBox>
+        <template #header>
+          <UiBoxTitle eyebrow="Source evidence" title="來源證據" :count="report.evidencePageInfo.total" />
+          <UiActionMenu v-model="reportEvidenceKind" label="類型" header="篩選 Evidence 類型" default-value="" align="end" :items="evidenceKindItems" />
+        </template>
+        <UiSkeleton v-if="reportEvidenceLoading && report.evidence.length === 0" />
+        <UiEmptyState v-else-if="report.evidence.length === 0" compact :icon="Link" title="尚無可呈現的證據" description="Session 提供 handoff、verification、changed files 或 event 後，報告就能建立追溯線索。" />
+        <VirtualList v-else :items="report.evidence" :enabled="reportEvidencePageSize === 'all'" :estimate-item-height="72" label="報告來源證據清單">
+          <template #default="{ item }">
+            <UiBoxRow clickable :title="item.label" @select="openReportEvidence(item)">
+              <template #leading><span class="reports__evidence-kind" aria-hidden="true">{{ evidenceLetters[item.kind as ReportEvidence["kind"]] }}</span></template>
+              <template #labels><UiLabel>{{ evidenceKindLabels[item.kind as ReportEvidence["kind"]] }}</UiLabel></template>
+              <template #meta>{{ item.sessionTitle }}<template v-if="item.projectName"> · {{ item.projectName }}</template><template v-if="item.reference"> · {{ item.reference }}</template></template>
+              <p class="reports__row-detail">{{ item.detail }}</p>
+            </UiBoxRow>
+          </template>
+        </VirtualList>
+        <template #footer>
+          <UiPagination v-model:page-size="reportEvidencePageSize" :page-info="report.evidencePageInfo" size-label="報告來源證據每頁筆數" @page="changeEvidencePage" />
+        </template>
+      </UiBox>
+    </section>
+  </template>
 </template>
+
+<style scoped>
+.reports__date {
+  width: 150px;
+}
+
+.reports__panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.reports__panel > :deep(.ui-box + .ui-box) {
+  margin-top: 0;
+}
+
+.reports__grid {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  align-items: start;
+}
+
+.reports__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.reports__summary {
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+.reports__muted,
+.reports__note {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.reports__note {
+  margin-top: var(--space-3);
+}
+
+.reports__row-detail {
+  margin-top: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.reports__evidence-kind {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg-muted);
+  font: 700 11px var(--font-mono);
+}
+
+@media (max-width: 1279px) {
+  .reports__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 959px) {
+  .reports__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 639px) {
+  .reports__date {
+    flex: 1;
+    width: auto;
+  }
+}
+</style>
