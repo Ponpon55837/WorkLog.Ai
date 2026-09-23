@@ -18,3 +18,7 @@ playwright-report/
 
 # Local UI screenshots (UI_SCREENSHOTS=<label> pnpm test:e2e)
 docs/ui-baseline/
+
+# Local Claude Code config (per machine)
+.claude/launch.json
+.claude/settings.local.json
