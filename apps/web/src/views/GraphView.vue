@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from "vue";
-import { FolderGit2, Share2 } from "lucide-vue-next";
+import { FolderGit2, Search, SearchX, Share2 } from "lucide-vue-next";
 import type { GraphNode } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import GraphNodePanel from "../components/domain/GraphNodePanel.vue";
@@ -11,11 +11,11 @@ import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiTextInput from "../components/ui/UiTextInput.vue";
 import { useViewLoader } from "../composables/useAppRefresh";
 import { graphLoadPresetOptions, useGraph, type GraphNodeFilter } from "../composables/useGraph";
 import { useProjects } from "../composables/useProjects";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
-import { graphNodeLabel } from "../utils/format";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 
 const { trackedProjects } = useProjects();
@@ -25,6 +25,8 @@ const {
   graphNodeFilter,
   graphPreviewLimit,
   graphLoadPreset,
+  graphSearch,
+  graphSearchMatchIds,
   graphLoading,
   graphError,
   graphVisual,
@@ -32,14 +34,17 @@ const {
   graphCanLoadMore,
   graphNodeCounts,
   graphNodeDescription,
+  graphNodeDisplayLabel,
   loadGraph,
   loadMoreGraph,
   selectedGraphNode,
+  graphPanelWidth,
   selectGraphNode
 } = useGraph();
 
 const load = (): Promise<void> => loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
+useRouteQuery("q", graphSearch, stringQuery());
 useViewLoader(load);
 watch([graphProjectId, graphLoadPreset], () => void load());
 onBeforeUnmount(() => selectGraphNode(null));
@@ -73,8 +78,24 @@ const truncationNote = computed(() => {
   return parts.join(" ");
 });
 
+const graphStyle = computed(() => (selectedGraphNode.value ? { "--graph-panel-width": `${graphPanelWidth.value}px` } : {}));
+
+const countLabel = computed(() =>
+  graphSearch.value.trim()
+    ? `符合 ${graphVisual.value.searchMatches} 個節點 · 顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`
+    : `顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`
+);
+
 function onSelect(node: GraphNode): void {
   selectGraphNode(node);
+}
+
+/** Enter in the search box jumps to the first hit instead of submitting the toolbar form. */
+function selectFirstMatch(): void {
+  const first = graphVisual.value.nodes.find((item) => graphSearchMatchIds.value.has(item.node.id));
+  if (first) {
+    selectGraphNode(first.node);
+  }
 }
 </script>
 
@@ -86,9 +107,10 @@ function onSelect(node: GraphNode): void {
     <template #actions><UiButton size="sm" @click="load">重試</UiButton></template>
   </UiFlash>
 
-  <UiBox :class="['graph', { 'graph--with-panel': selectedGraphNode }]">
+  <UiBox :class="['graph', { 'graph--with-panel': selectedGraphNode }]" :style="graphStyle">
     <template #header>
       <form class="graph__toolbar" @submit.prevent="load">
+        <UiTextInput v-model="graphSearch" type="search" :icon="Search" size="sm" placeholder="搜尋節點名稱…" label="搜尋 Graph 節點" class="graph__search" @keydown.enter.prevent="selectFirstMatch" />
         <UiSelect v-model="graphProjectId" :options="projectOptions" :icon="FolderGit2" size="sm" label="選擇 Graph 專案範圍" />
         <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" label="選擇 Graph 節點類型" />
         <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
@@ -96,7 +118,7 @@ function onSelect(node: GraphNode): void {
         <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
         <UiButton v-if="graphCanLoadMore" size="sm" variant="invisible" :disabled="graphLoading" @click="loadMoreGraph">載入更多資料</UiButton>
       </form>
-      <span v-if="graph" class="graph__count" data-testid="graph-visible-count">顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 節點</span>
+      <span v-if="graph" class="graph__count" data-testid="graph-visible-count">{{ countLabel }}</span>
     </template>
 
     <div v-if="graph" class="graph__legend" aria-label="節點分布">
@@ -107,19 +129,23 @@ function onSelect(node: GraphNode): void {
 
     <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" />
     <UiEmptyState v-else-if="!graph || graph.nodes.length === 0" :icon="Share2" title="目前沒有可視化資料" description="記錄中的專案完成 Session 後，這裡會出現工作關係。" />
+    <UiEmptyState v-else-if="graphSearch.trim() && graphVisual.nodes.length === 0" :icon="SearchX" title="沒有符合的節點" description="搜尋只比對目前已載入的節點；可以換個關鍵字，或提高資料載入上限。">
+      <template #action><UiButton size="sm" @click="graphSearch = ''">清除搜尋</UiButton></template>
+    </UiEmptyState>
     <GraphCanvas
       v-else
       :nodes="graphVisual.nodes"
       :edges="graphVisual.edges"
-      :width="graphVisual.width"
       :height="graphVisual.height"
       :node-kind-order="graphNodeKindOrder"
       :node-kind-labels="graphNodeKindLabels"
       :edge-kind-labels="graphEdgeKindLabels"
-      :node-label="graphNodeLabel"
+      :node-label="graphNodeDisplayLabel"
       :node-description="graphNodeDescription"
       :selected-id="selectedGraphNode?.id"
+      :match-ids="graphSearchMatchIds"
       @select="onSelect"
+      @clear="selectGraphNode(null)"
     />
 
     <template v-if="graph" #footer>
@@ -133,7 +159,11 @@ function onSelect(node: GraphNode): void {
 
 <style scoped>
 .graph--with-panel {
-  margin-right: 380px;
+  margin-right: var(--graph-panel-width, 460px);
+}
+
+.graph__search {
+  width: 200px;
 }
 
 .graph__toolbar {

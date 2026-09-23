@@ -26,6 +26,12 @@ body.modal-open {
   overflow: hidden;
 }
 
+/* Set by UiSidePanel while its edge is dragged: keep the resize cursor and avoid selecting text. */
+body.is-resizing-panel {
+  cursor: col-resize;
+  user-select: none;
+}
+
 button,
 input,
 select,

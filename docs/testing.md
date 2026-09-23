@@ -38,7 +38,7 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; node packages/storage/bench/read-pat
 $env:WORK_INTELLIGENCE_E2E_WEB_PORT = "5987"; $env:WORK_INTELLIGENCE_E2E_API_PORT = "3231"; npx playwright test
 ```
 
-E2E 涵蓋：AI 報告整理卡（來源 Session、歷史版本、重新整理）、工作歷程／知識的每頁筆數與 virtual list、Graph 篩選與節點面板、390px 寬度的 Session 面板、640／390px 各頁無水平捲動、直接路由與 `/worklog` 轉址、`?session=` 深連結、切換為記錄中前的同意對話框、Ctrl／⌘ K 指令面板。
+E2E 涵蓋：AI 報告整理卡（來源 Session、歷史版本、重新整理）、工作歷程／知識的每頁筆數與 virtual list、Graph 篩選、節點搜尋（`?q=`、Enter 選取第一筆、無結果狀態）與節點面板、390px 寬度的 Session 面板、640／390px 各頁無水平捲動、直接路由與 `/worklog` 轉址、`?session=` 深連結、側邊面板拖曳調整寬度並記住、切換為記錄中前的同意對話框、Ctrl／⌘ K 指令面板。
 
 設定 `UI_SCREENSHOTS=<label>` 會額外把六頁 × 1440／960／375 的截圖寫到 `docs/ui-baseline/<label>/`（已被 `.gitignore` 排除），方便改版前後比對。
 
