@@ -21,7 +21,9 @@ Do not add hero banners, decorative illustrations or slogan-sized headings.
 ## Lists (the GitHub issue-list pattern)
 
 - Wrap every list in `UiBox`.
-- Box header: left = count + optional context ("128 Sessions · 顯示 1–20"); right = `UiActionMenu` filters. Free-text search sits above the Box as `UiSearchInput` + "清除篩選" button when filters are applied.
+- Box header: left = count + optional context ("128 Sessions · 顯示 1–20"); right = `UiActionMenu` / `UiDateRangeMenu` filters. Free-text search sits above the Box as `UiTextInput type="search"` + a "清除篩選" button when filters are applied.
+- Only offer filters the API supports. Sessions: search, project, date range (no verification or sort filter). Knowledge: search, project, kind, status. Evidence: search, kind.
+- Wire list pages with `useRouteQuery` → `useListReload` → `useViewLoader` (see the code-style skill §4).
 - Rows: leading status icon, title (600), one meta line. Trailing Labels ≤ 2 (hide the less important one below 640px).
 - Group by date with `UiGroupLabel` where time ordering matters (Sessions).
 - Footer: `UiPagination`. Use `VirtualList` only when page size is "all".
@@ -32,10 +34,10 @@ Do not add hero banners, decorative illustrations or slogan-sized headings.
 | Situation | Use |
 |---|---|
 | Read a record (Session, Knowledge history) | `UiSidePanel` (modal overlay) |
-| Graph node | `UiSidePanel` `modal=false`, docked 360px; graph stays interactive |
+| Graph node | `UiSidePanel` `modal=false`, docked 380px; graph stays interactive |
 | Create / edit (加入專案, Knowledge 編輯) | `UiDialog`; warn on close with unsaved changes |
 | Import confirmation (Handoff 匯入) | `UiDialog size="lg"` listing items to import and excluded items with reasons |
-| Destructive action | `useConfirm()` with danger button — never act on first click |
+| Destructive or scope-widening action (delete version, cancel request, enable tracking) | `await confirmAction({...})` — never act on first click |
 
 Open records are addressable: `?session=<id>` (and equivalents) so a refresh or shared link reopens the panel.
 

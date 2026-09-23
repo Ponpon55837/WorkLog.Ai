@@ -9,7 +9,7 @@ import type {
   WorkReport,
   WorkSessionRecord
 } from "@work-intelligence/core";
-import { pageSizeToQuery, verificationLabels, type ListPageSize } from "../utils/labels";
+import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { errorMessage, toDateInputValue } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
 import { emptyPageInfo } from "./useSessions";
@@ -65,20 +65,6 @@ const reportComparisons = computed(() => {
     { key: "events", label: "Recorded Events", comparison: report.value.comparison.events, foot: "可追溯事件" },
     { key: "changedFiles", label: "Changed Files", comparison: report.value.comparison.changedFiles, foot: "不等同 Git commit" }
   ];
-});
-
-const reportVerification = computed(() => {
-  const current = report.value;
-  if (!current) {
-    return [];
-  }
-  const total = Math.max(current.totals.sessions, 1);
-  return (["passed", "failed", "not_supplied", "not_run"] as const).map((status) => ({
-    status,
-    label: verificationLabels[status],
-    count: current.totals.verification[status] ?? 0,
-    percent: Math.round(((current.totals.verification[status] ?? 0) / total) * 100)
-  }));
 });
 
 function reportScope(): { period: ReportPeriod; date?: string; projectId?: string } {
@@ -414,7 +400,6 @@ export function useReports() {
     reportSynthesisIsActive,
     reportSynthesisCanRetry,
     reportComparisons,
-    reportVerification,
     loadReport,
     loadReportSynthesis,
     selectReportSynthesisVersion,

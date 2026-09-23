@@ -64,6 +64,6 @@ defineProps<{ summary?: WorkSummarySections }>();
 }
 
 .work-summary__empty {
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
 }
 </style>

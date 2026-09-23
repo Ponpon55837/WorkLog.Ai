@@ -1,6 +1,6 @@
 # UI Redesign Plan（GitHub Dark）
 
-- 狀態：已確認方向，尚未實作（2026-09-23）
+- 狀態：P0–P4 已於 2026-09-23 在 `feat/ui-redesign` 完成（見 §8 實作紀錄）
 - 範圍：只改 `apps/web`；後端與 MCP / HTTP API 契約不變
 - 視覺參照：[`.agents/skills/worklog-ui/assets/preview.html`](../.agents/skills/worklog-ui/assets/preview.html)（已確認的預覽稿）
 - 實作規範：[`.agents/skills/worklog-ui/SKILL.md`](../.agents/skills/worklog-ui/SKILL.md)
@@ -99,3 +99,20 @@ apps/web/src/
 - `J`/`K` 快捷鍵只在面板開啟且焦點不在輸入框時生效。
 - Dashboard 只讀既有 request 狀態，不自動觸發 metadata 掃描。
 - 不新增後端端點；缺資料的區塊直接隱藏。
+
+## 8. 實作紀錄與差異
+
+| 階段 | 結果 |
+|---|---|
+| P0 | e2e 改用 role／label／data-testid 與版面不變量；`UI_SCREENSHOTS=<label>` 截圖，baseline 在 `docs/ui-baseline/before` |
+| P1 | App.vue 由 2617 行拆成 domain composables；截圖與 baseline 差異 ≤ 0.1% |
+| P2 | tokens／base、lucide、`components/ui`、`components/layout`、`/__ui` 展示頁 |
+| P3 | 六頁全部改寫；移除 `style.css` 與 BaseModal 系列；新版截圖在 `docs/ui-baseline/after` |
+| P4 | 移除死碼、label 統一來源、axe 對比修正、指令面板與快捷鍵、新增 e2e（deep link、tracking 同意、指令面板）、新增 code-style skill |
+
+與原規劃的刻意差異：
+
+1. **篩選只提供 API 支援的條件**：Sessions 沒有「驗證」與「排序」篩選（後端不支援，不新增端點）；Knowledge 改用 Box header 的 ActionMenu，而非左側 facet 欄（API 不提供各類別數量）。
+2. **Tooltip 使用原生 `title`**，未另做 UiTooltip 元件。
+3. **Dashboard 待處理清單**只讀取既有的 report synthesis／metadata backfill request；同一報告範圍只看最新一筆，避免已被後續完成的失敗請求重複出現。
+4. **報告時區**沿用後端 UTC，頁首明確標示「（UTC）」。

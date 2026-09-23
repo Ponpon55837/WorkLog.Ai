@@ -1,4 +1,4 @@
-import type { ReportMetricComparison, WorkReport } from "@work-intelligence/core";
+import type { WorkReport } from "@work-intelligence/core";
 
 export function formatDate(value: string): string {
   return new Intl.DateTimeFormat("zh-TW", {
@@ -29,38 +29,10 @@ export function toDateInputValue(value: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export function parseDateInputValue(value: string): Date {
-  const [year = "1970", month = "1", day = "1"] = value.split("-");
-  return new Date(Number(year), Number(month) - 1, Number(day));
-}
-
 export function startOfMonth(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), 1);
 }
 
-export function displayDate(value: string): string {
-  if (!value) {
-    return "選擇日期";
-  }
-
-  const [year, month, day] = value.split("-");
-  return `${year}/${month}/${day}`;
-}
-
-export function eventDetails(value: Record<string, unknown> | undefined): string {
-  return value ? JSON.stringify(value) : "";
-}
-
-export function formatKnowledgeTags(tags: string[]): string {
-  return tags.map((tag) => `#${tag}`).join(" · ");
-}
-
-export function formatReportDelta(comparison: ReportMetricComparison): string {
-  if (comparison.direction === "flat") {
-    return "與上一期相同";
-  }
-  return `${comparison.delta > 0 ? "+" : ""}${comparison.delta} · 上期 ${comparison.previous}`;
-}
 
 function formatReportDay(value: string): string {
   const [, month = "", day = ""] = value.split("-");
@@ -75,18 +47,6 @@ export function formatReportTrendLabel(value: string, granularity: WorkReport["t
   return formatReportDay(value);
 }
 
-export function reportTrendHeight(value: number, reportValue: WorkReport): string {
-  const max = Math.max(
-    1,
-    ...reportValue.trends.map((point) => Math.max(point.sessions, point.events))
-  );
-  return `${value ? Math.max(12, Math.round((value / max) * 100)) : 4}%`;
-}
-
-export function shouldShowTrendLabel(index: number, total: number): boolean {
-  return total <= 14 || index === 0 || index === total - 1 || index % Math.ceil(total / 7) === 0;
-}
-
 export function graphNodeLabel(value: string): string {
   const maxDisplayUnits = 25;
   let displayUnits = 0;
@@ -94,7 +54,7 @@ export function graphNodeLabel(value: string): string {
   for (const character of value) {
     // The null-to-extended-ASCII range is intentional: it estimates display width for graph labels.
     // eslint-disable-next-line no-control-regex
-    const characterUnits = /[^\u0000-ÿ]/u.test(character) ? 2 : 1;
+    const characterUnits = /[^\u0000-\u00ff]/u.test(character) ? 2 : 1;
     if (displayUnits + characterUnits > maxDisplayUnits) {
       return `${label}…`;
     }

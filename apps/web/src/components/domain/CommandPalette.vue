@@ -2,13 +2,13 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { BookOpen, CornerDownLeft, ListChecks, Search } from "lucide-vue-next";
 import type { KnowledgeRecord, WorkSessionRecord } from "@work-intelligence/core";
-import { router } from "../../router";
+import { navItems } from "../layout/navigation";
+import type { IconComponent } from "../ui/types";
 import { runKeyed, useApi } from "../../composables/useApi";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { useSessionDetail } from "../../composables/useSessionDetail";
+import { router } from "../../router";
 import { formatRelative } from "../../utils/format";
-import { navItems } from "../layout/navigation";
-import type { IconComponent } from "../ui/types";
 
 type PaletteItem = { id: string; group: string; label: string; hint?: string; icon: IconComponent; run: () => void };
 

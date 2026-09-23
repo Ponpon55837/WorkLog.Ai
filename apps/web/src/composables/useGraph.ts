@@ -1,7 +1,8 @@
 import { computed, ref } from "vue";
 import type { GraphEdge, GraphNode, GraphQueryResult, ProjectStatus, ReportVerificationStatus } from "@work-intelligence/core";
 import { router } from "../router";
-import { graphEdgeKindLabels, graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels, verificationLabels } from "../utils/labels";
+import { graphEdgeKindLabels, graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels } from "../utils/labels";
+import { verificationStatus } from "../utils/status";
 import { errorMessage, formatDate } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
 import { useKnowledge } from "./useKnowledge";
@@ -197,8 +198,8 @@ function formatGraphMetadataValue(key: string, value: string | number | boolean)
   if (key === "status" && typeof value === "string" && value in statusLabels) {
     return statusLabels[value as ProjectStatus];
   }
-  if (key === "verification" && typeof value === "string" && value in verificationLabels) {
-    return verificationLabels[value as ReportVerificationStatus];
+  if (key === "verification" && typeof value === "string" && value in verificationStatus) {
+    return verificationStatus[value as ReportVerificationStatus].label;
   }
   if ((key === "completedAt" || key === "capturedAt") && typeof value === "string") {
     return formatDate(value);

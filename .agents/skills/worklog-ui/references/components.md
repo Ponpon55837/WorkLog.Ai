@@ -1,66 +1,84 @@
 # Component catalog
 
-Location: `apps/web/src/components/ui/` (generic), `components/layout/` (shell), `components/domain/` (Work Intelligence specific). Names are `Ui*` for generic components. If a component below does not exist yet, create it with this API; if it exists, read its source before use — the source wins over this doc, and update this doc when you change an API.
+Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (shell), `components/domain/` (Work Intelligence specific). The source is the final authority; update this file whenever an API changes. Every component is browsable in the dev-only `/__ui` route (`views/UiShowcaseView.vue`).
+
+**Prop naming:** the accessible name of a control is always the `label` prop (never `ariaLabel`). Two-way state uses `v-model` (`defineModel`).
 
 ## Layout
 
-| Component | Purpose / API |
+| Component | API |
 |---|---|
-| `AppShell` | Grid: 48px `AppHeader` + (`AppSidebar` \| scrollable `<main>`). Hosts `ToastHost`, the global `SessionPanel` and the command palette. |
-| `AppHeader` | Logo mark `WI`, breadcrumb `Work Intelligence / {route.meta.title}`, search trigger (`Ctrl K`), Local-first dot, refresh `UiIconButton`. |
-| `AppSidebar` | Groups WORK / KNOWLEDGE / MANAGE built from route meta; `RouterLink` items with icon, label, optional `UiCounter`; active = `--bg-muted` + 4px accent bar on the left. Bottom: Policy gate badge with tooltip. Icon rail < 960, drawer < 640. |
-| `PageHeader` | Props `eyebrow`, `title`, `description?`; slot `actions`; optional slot `nav` for an `UiUnderlineNav` directly beneath. One line of description max — no slogans in large type. |
+| `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`. |
+| `AppHeader` | Menu button (< 640px), `WI` logo, crumb from route meta, search trigger (`Ctrl/⌘ K`), Local-first dot, refresh `UiIconButton`. |
+| `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<route>"`. |
+| `PageHeader` | Props `title?`, `eyebrow?` (default to route meta), `description?`. Slot `actions`. |
 
-## Inputs & actions
+## Actions & inputs
 
-| Component | API notes |
+| Component | API |
 |---|---|
-| `UiButton` | `variant: 'default' \| 'primary' \| 'invisible' \| 'danger'`, `size: 'md' \| 'sm'`, `icon?`, `trailingIcon?`, `loading?`. Primary is green; only one primary per view region. |
-| `UiIconButton` | Required `label` (becomes `aria-label` + tooltip). |
-| `UiTextInput` / `UiSearchInput` | Inset background, accent focus ring. Search supports leading icon and displaying `key:value` qualifiers in accent mono. |
-| `UiSelect` | Native select styled to tokens; use for forms. For list filters use `UiActionMenu`. |
-| `UiActionMenu` | Trigger + popover list; single/multi select with check marks, optional per-item icon, header title, keyboard navigation, closes on outside click / Esc. Used in Box headers ("專案 ▾ 驗證 ▾ 日期 ▾ 排序 ▾"). Applied filter → trigger text becomes `--fg` + 600. |
-| `UiSegmentedControl` | Mutually exclusive small sets (report period 日/週/月/季/年). `role="radiogroup"`. |
-| `UiDateRangeMenu` | ActionMenu with presets (今天、昨天、近 7 天、本月) + 自訂區間 calendar. The only date picker in the app (Sessions and Reports both use it). |
-| `UiCopyButton` | Copies text, shows transient check + toast. Used for Agent instructions. |
+| `UiButton` | `variant: default \| primary \| invisible \| danger`, `size: md \| sm`, `icon`, `trailingIcon`, `loading`, `disabled`, `type`, `to` (renders RouterLink), `iconOnly` + `label`. |
+| `UiIconButton` | Required `icon`, `label`; `variant` (default `invisible`), `size`, `loading`, `disabled`. |
+| `UiCopyButton` | `text`, `label`, `successMessage`, `variant`, `size`, `iconOnly`. Toast + check-mark feedback. |
+| `UiTextInput` | `v-model`, `icon`, `type: text \| search \| date`, `placeholder`, `label`, `size`, `mono`, `maxlength`, `required`, `autofocus`. Slots `prefix`, `suffix`. |
+| `UiTextarea` | `v-model`, `rows`, `placeholder`, `maxlength`, `required`, `mono`. |
+| `UiSelect` | Native select. `v-model`, `options: SelectOption[]`, `label`, `icon`, `size`, `disabled`. Use for forms/toolbars and anything e2e selects by label. |
+| `UiField` | `label`, `hint`, `error`; wraps one control. |
+| `UiActionMenu` | Popover menu. `label` (trigger text), `items: SelectOption[]`, `header`, `icon`, `align: start \| end`, `variant: filter \| button`, `size`, `hideLabelOnMobile`. With `v-model` + `defaultValue` it is a single-select filter (trigger turns bold when applied); without `v-model` it is an action menu and emits `select`. Arrow keys, Esc, outside click. |
+| `UiSegmentedControl` | `v-model`, `options`, `label`. Arrow keys move selection. |
+| `UiUnderlineNav` | `v-model`, `items: SelectOption[]` (`icon`, `count`), `label`, `idPrefix` (tabs get `${idPrefix}-tab-<v>`, panels should use `${idPrefix}-panel-<v>`). |
+| `UiDateRangeMenu` | `v-model: { from, to }`, `label`, `variant`, `align`. Presets 不限／今天／昨天／近 7 天／本月 + two-click custom range. The only date-range picker. |
+| `UiPagination` | `pageInfo`, `v-model:page-size`, `sizeLabel` (accessible name of the size select), emits `page`. |
 
 ## Display
 
-| Component | API notes |
+| Component | API |
 |---|---|
-| `UiBox` | Bordered container. Slots: `header` (bg-subtle, title left + controls right), default (rows), `footer` (pagination). |
-| `UiBoxRow` | Row with leading icon slot, title, meta line (12px muted, ellipsis), trailing slot for Labels/buttons. `clickable` adds hover and Enter-to-activate. |
-| `UiGroupLabel` | Date group separator inside a Box (今天 / 昨天 / 9 月 20 日). |
-| `UiLabel` | `tone: 'success' \| 'danger' \| 'attention' \| 'accent' \| 'done' \| 'neutral'`, optional `icon`. |
-| `StatusLabel` | Wraps `UiLabel` with the status mapping (`kind="verification" \| "tracking" \| "request"`, `value`). Never map status → color inline. |
-| `UiCounter` | Numeric pill; `tone: 'default' \| 'attention'`. |
-| `StatCard` | Label with icon, value (24px), foot text, optional `delta` (▲ success / ▼ danger), optional sparkline or segmented meter slot. |
-| `UiUnderlineNav` | Tabs bound to route (`/reports/:tab`, `/projects/:tab`); each item icon + text + optional Counter; active bar `#f78166`. |
-| `UiPagination` | Page size menu + prev / numbered / next. One implementation. |
-| `UiFlash` | Inline banner `tone` + optional action (e.g. 重試) + dismissible. For page-level errors and notices. |
-| `ToastHost` / `useToast()` | Bottom-right stack, auto-dismiss 4s, success/danger tone. |
-| `UiSkeleton` | Row-shaped and card-shaped placeholders. Use instead of spinners for list/page loads. |
-| `UiEmptyState` | Icon, one-sentence explanation, one next-step action. |
-| `UiTooltip` | Hover/focus tooltip; used by icon buttons and truncated timestamps (absolute time on hover). |
+| `UiBox` | Slots `header`, default, `footer`; props `padded`, `tag`. Adjacent boxes get 16px spacing. |
+| `UiBoxTitle` | `title`, `eyebrow`, `icon`, `count`; default slot for inline extras (e.g. a Label). |
+| `UiBoxRow` | Props `clickable`, `title`, `meta`, `tag`; emits `select`. Slots `leading`, `title`, `labels`, `meta`, default (body), `trailing`. Clickable rows use a stretched title button; trailing actions stay independently focusable. Add class `hide-sm` to trailing items that should hide < 640px. |
+| `UiGroupLabel` | Date/section separator inside a Box. |
+| `UiLabel` | `tone: neutral \| accent \| success \| attention \| danger \| done`, `icon`. |
+| `UiCounter` | `count`, `tone: default \| attention`. |
+| `UiStatCard` | `label`, `value`, `icon`, `suffix`, `foot` (or slot), `valueTone`, `delta: { direction, text }`; default slot for a meter/sparkline. |
+| `UiMeter` | `segments: { value, tone, label }[]`, `label`. |
+| `UiSparkline` | `values`, `label`. |
+| `UiBarChart` | `labels`, `series: { name, tone, values }[]`, `label`, `labelEvery`. Each series scales independently. |
+| `UiDisclosure` | Native `<details>`: `title`, `icon`, `count`, `hint`, `open`. |
+| `UiCommandBlock` | `text`, `successMessage`. Copyable natural-language Agent instruction (never tool names, IDs or JSON). |
+| `UiFlash` | `tone: accent \| success \| attention \| danger`, `title`, `dismissible`; slot `actions`; emits `dismiss`. |
+| `UiEmptyState` | `icon`, `title`, `description` (or default slot), `compact`; slot `action`. |
+| `UiSkeleton` | `variant: row \| card \| text`, `count`. |
+| `UiSpinner` | `size`, `label`. |
+| `UiToastHost` / `useToast()` | `showToast(message, tone?)`, `copyWithToast(text, message)`. Stack of 4, auto-dismiss 4 s. |
+| Tooltips | Native `title` attribute (icon buttons set it from `label`; timestamps carry the absolute time). No custom tooltip component. |
 
 ## Overlays
 
-| Component | API notes |
+| Component | API |
 |---|---|
-| `UiSidePanel` | Right overlay, width `min(640px, 100%)`, backdrop, focus trap, Esc, scroll lock, restore focus. Slots `header`, default, `footer`. `modal=false` variant docks without backdrop (Graph node panel, 360px). Full-screen below 640px. |
-| `UiDialog` | Centered, radius 12px, `size: 'sm' \| 'md' \| 'lg'`; same a11y guarantees. Header title + close, body, footer with actions right-aligned (primary last). |
-| `UiConfirmDialog` / `useConfirm()` | Promise-based confirm for destructive actions (封存、刪除版本、取消請求). Danger button for destructive confirm. |
-| Command palette | P4: `Ctrl K` / `⌘K`; jump to pages, search Sessions and Knowledge. |
+| `UiSidePanel` | `open`, `label`, `modal` (default true), `width` (default 640); emits `close`; slots `header`, default, `footer`. `modal=false` docks under the header without backdrop or focus trap. |
+| `UiDialog` | `open`, `title`, `description`, `size: sm \| md \| lg`, `busy` (blocks closing); emits `close`; slot `footer`. |
+| `UiConfirmHost` / `confirmAction(options)` | Promise<boolean>; `title`, `message`, `confirmLabel`, `cancelLabel`, `danger`. Cancel is focused by default. |
+| `CommandPalette` (domain) | `v-model:open`. Pages, Sessions and Knowledge search via existing APIs. |
+
+All overlays use `useFocusTrap` (focus in, Tab trapped, Esc closes, scroll lock, focus restored). Popovers use `usePopover` (teleported, fixed-positioned, never clipped by a Box).
 
 ## Domain components
 
 | Component | Notes |
 |---|---|
-| `SessionRow` | Verification icon, title, `StatusLabel`, file-count neutral Label, meta `project · relative time (tooltip absolute) · outcome summary`. |
-| `SessionPanel` | Read-only. Opened via `?session=<id>` from anywhere. Header: eyebrow `SESSION · <id>` (muted mono), title, Labels (verification, project, file count), prev/next, 複製連結, close. Body: `summary` sentence (16px) → meta `<dl>` (專案、完成時間、執行狀態 neutral Label、Verification) → five workSummary sections in fixed order 成果 outcomes / 範圍 scope / 決策 decisions / 驗證 verification / 狀態／未結項 nextSteps (empty → "—"; missing workSummary → note) → collapsible Changed files → Git (only when commit SHA / branch exist) → Evidence → Knowledge → Events timeline → Handoff snapshot. Footer shows `J`/`K`/`Esc` hints and position. See domain-semantics.md. |
-| `ChangedFileList` | Mono paths, A/M/D/R letter badge, `new ← old` for renames, provenance sources right-aligned in muted text (`未提供來源` when empty). Caption: "changed files 不代表 Git commit". |
-| `SynthesisCard` | Header: AI SYNTHESIS eyebrow, report title, `StatusLabel kind="request"`, version menu, actions (複製 Agent 指令 / 重試 / 取消 / 重新整理 by status). Body: executive summary, then blocks 主題 / 重點成果 / 驗證 / 比較 / 風險與限制 / 決策 / 狀態／未結項; each block item = title + detail + source chip (`n Sessions`, opens those Sessions). Grain hint next to 主題. Footer: total sources, generatedByAgent / model / promptVersion, time. `資料不足` rendered attention-muted. |
-| `VerificationBreakdown` | Segmented meter + legend for passed / failed / not_run / not_supplied counts. Used by Dashboard and Reports instead of a single pass-rate percentage. |
-| `ActionInboxRow` | Dashboard "ACTION REQUIRED" row: status icon, title + Label, meta, one direct action button. |
-| `KnowledgeRow` | Kind icon, title, kind + status Labels, 3-line clamp body (expandable), `#tag` Labels, mono references, `…` ActionMenu. |
-| `GraphCanvas` | Existing SVG canvas; restyle to tokens, add floating toolbar and docked node panel. |
+| `StatusLabel` | `status: StatusVisual` from `utils/status.ts`, `showIcon`, `text`. |
+| `SessionRow` | `session`, `showSummary`; emits `open`. Verification icon, title, Labels, `project · relative time · first outcome`. `data-testid="session-row"`. |
+| `SessionPanel` | Global, read-only. `?session=<id>` deep link, J/K via `setSessionSequence`, summary → meta → `WorkSummarySections` → Changed files → Git (only when present) → Evidence → Knowledge → Events → Handoff snapshot. |
+| `WorkSummarySections` | Five sections in fixed order; `nextSteps` shown as 狀態／未結項; legacy note when missing. |
+| `ChangedFileList` | A/M/D/R badges, `new ← old` for renames, provenance or 未提供來源, "changed files 不代表 Git commit". |
+| `VerificationBreakdown` | `counts: { passed, failed, notRun, notSupplied }`. Four-state meter; no single percentage. |
+| `SynthesisCard` / `SynthesisBlock` | ReportSummary order 主題 / 重點成果 / 驗證 / 比較 / 風險與限制 / 決策 / 狀態／未結項, per-block source chips, grain hint, generator meta, version history with delete (confirm). |
+| `KnowledgeRow` | `item`; emits `action: edit \| history \| toggle-status \| source`. |
+| `KnowledgeEditorDialog`, `KnowledgeHistoryPanel` | Global; driven by `useKnowledge`. |
+| `MetadataBackfillSection` | Scan, gap stats (three gap kinds), gap rows, Agent request card. |
+| `HandoffImportDialog` | Import preview with eligible/excluded reasons; global. |
+| `AddProjectDialog` | `v-model:open`. |
+| `GraphNodePanel` | Docked non-modal SidePanel (380px). |
+| `GraphCanvas` (components/) | Lane SVG canvas; `selectedId` highlights node and edges. |

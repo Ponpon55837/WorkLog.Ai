@@ -21,9 +21,9 @@ import { metadataBackfillInstruction } from "../composables/useMetadataBackfill"
 import { useProjects } from "../composables/useProjects";
 import { reportSynthesisInstruction, useReports } from "../composables/useReports";
 import { useSessionDetail } from "../composables/useSessionDetail";
+import { router } from "../router";
 import { formatRelative } from "../utils/format";
 import { requestStatus, trackingStatus } from "../utils/status";
-import { router } from "../router";
 
 const { dashboard, projects, recentSessions } = useProjects();
 const { weekReport, weekVerification, inbox, loadDashboardData } = useDashboard();

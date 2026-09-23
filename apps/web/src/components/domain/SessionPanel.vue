@@ -2,9 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { BookOpen, ChevronDown, ChevronUp, FileDiff, FileText, FolderGit2, GitBranch, GitCommitHorizontal, Link, Paperclip, X } from "lucide-vue-next";
-import { router } from "../../router";
 import { useSessionDetail } from "../../composables/useSessionDetail";
 import { useToast } from "../../composables/useToast";
+import { router } from "../../router";
 import { formatDate, formatReadableSummary, formatRelative } from "../../utils/format";
 import { knowledgeKindLabels } from "../../utils/labels";
 import { executionStatusVisual, verificationOf, verificationStatus } from "../../utils/status";
@@ -299,7 +299,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 }
 
 .session-panel__events time {
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 

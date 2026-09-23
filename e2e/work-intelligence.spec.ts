@@ -334,6 +334,42 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
   });
 
+  test("opens the Session panel from a ?session deep link and closes it", async ({ page }) => {
+    await page.goto(`/sessions?session=${sessionId}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Browser regression fixture session");
+    await expect(panel).toContainText("changed files 不代表 Git commit");
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(page).not.toHaveURL(/session=/);
+  });
+
+  test("asks for consent before a project starts being tracked", async ({ page, request }) => {
+    await postJson(request, "/api/projects", { name: "Consent Fixture", rootPath: `${projectRoot}/e2e` });
+    await page.goto("/projects");
+    const status = page.getByLabel("更新 Consent Fixture 的專案記錄狀態");
+    await expect(status).toHaveValue("unregistered");
+    await status.selectOption("tracked");
+    const consent = page.getByRole("dialog", { name: /切換為記錄中/ });
+    await expect(consent).toBeVisible();
+    await consent.getByRole("button", { name: "取消" }).click();
+    await expect(consent).toBeHidden();
+    await expect(page.getByLabel("更新 Consent Fixture 的專案記錄狀態")).toHaveValue("unregistered");
+  });
+
+  test("jumps to a page from the command palette", async ({ page }) => {
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { name: "工作總覽" }).first()).toBeVisible();
+    await page.keyboard.press("Control+KeyK");
+    const palette = page.getByRole("dialog", { name: "搜尋或跳至頁面" });
+    await expect(palette).toBeVisible();
+    await page.keyboard.type("工作報告");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/reports/);
+    await expect(palette).toBeHidden();
+  });
+
   // Opt-in visual baseline: UI_SCREENSHOTS=<label> pnpm test:e2e writes docs/ui-baseline/<label>/*.png
   test("captures page screenshots for visual comparison", async ({ page }) => {
     const label = process.env.UI_SCREENSHOTS;

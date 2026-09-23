@@ -97,7 +97,7 @@ function isInsufficient(detail: string): boolean {
 
 .synthesis-block__no-source {
   flex: 0 0 auto;
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 </style>

@@ -18,8 +18,8 @@ import { useProjects } from "./composables/useProjects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 
 const route = useRoute();
-const { dashboard, trackedProjects, loadDashboard, loadProjects } = useProjects();
-const { inbox } = useDashboard();
+const { dashboard, trackedProjects, loadProjects } = useProjects();
+const { inbox, loadDashboardData } = useDashboard();
 const loading = ref(true);
 const refreshing = ref(false);
 const errorMessage = ref("");
@@ -34,7 +34,7 @@ const counts = computed(() => ({
 async function loadShared(): Promise<void> {
   errorMessage.value = "";
   try {
-    await Promise.all([loadDashboard(), loadProjects()]);
+    await Promise.all([loadDashboardData(), loadProjects()]);
   } catch (error) {
     errorMessage.value = toErrorMessage(error, "無法載入 Work Intelligence，請確認本機 API 是否已啟動。");
   }

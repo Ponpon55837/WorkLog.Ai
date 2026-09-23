@@ -60,7 +60,7 @@ const emit = defineEmits<{ close: [] }>();
 
 .app-sidebar__group-label {
   padding: 0 var(--space-2) 6px;
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;

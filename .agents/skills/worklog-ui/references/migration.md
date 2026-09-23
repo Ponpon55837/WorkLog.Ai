@@ -1,5 +1,7 @@
 # Migration guide (P0–P4)
 
+> Status: completed on branch `feat/ui-redesign` (2026-09-23). Kept as a record of the approach and of the old → new mapping for reviewing older code.
+
 Full plan: `docs/ui-redesign-plan.md`. Each phase ships as its own PR(s). Never mix phases.
 
 ## P0 — Safety net

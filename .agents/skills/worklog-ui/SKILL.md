@@ -5,7 +5,7 @@ description: Use for ANY change to the Work Intelligence web UI (apps/web) — n
 
 # Work Intelligence UI
 
-The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **GitHub-dark (Primer-like)**, data-first tool UI. This skill is the single source of truth for how UI code must look and be built. The rationale and phase plan live in [`docs/ui-redesign-plan.md`](../../../docs/ui-redesign-plan.md). The approved visual reference is [`assets/preview.html`](assets/preview.html) — open it in a browser when in doubt about look and feel.
+The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **GitHub-dark (Primer-like)**, data-first tool UI. This skill is the single source of truth for how UI code must look and be built. The rationale and phase plan live in [`docs/ui-redesign-plan.md`](../../../docs/ui-redesign-plan.md). The approved visual reference is [`assets/preview.html`](assets/preview.html) — open it in a browser when in doubt about look and feel. Every implemented component is live in the dev-only `/__ui` route. File placement, naming, comments and composable rules are in the companion [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) skill.
 
 ## Fixed decisions (do not re-ask the user)
 
@@ -19,7 +19,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **Gi
 
 ## Workflow
 
-1. Identify the current migration phase (see `docs/ui-redesign-plan.md` §6). Do not do work belonging to a later phase inside an earlier-phase change.
+1. The P0–P4 migration is complete (see `docs/ui-redesign-plan.md`); new work builds on the shipped design system.
 2. Before writing UI, check `apps/web/src/components/ui/` and `components/layout/` for an existing component. Reuse it. If it does not exist yet, build it to the spec in [references/components.md](references/components.md) — never hand-roll a one-off.
 3. Use only tokens from [references/tokens.md](references/tokens.md). No raw hex / rgba in component CSS except inside `styles/tokens.css`.
 4. Follow page and interaction patterns in [references/patterns.md](references/patterns.md).

@@ -263,7 +263,7 @@ watch(open, (value) => {
 
 .ui-date-range__weekdays span {
   padding: var(--space-1) 0;
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 
@@ -280,7 +280,7 @@ watch(open, (value) => {
   background: var(--bg-hover);
 }
 
-.ui-date-range__grid .is-outside { color: var(--fg-subtle); }
+.ui-date-range__grid .is-outside { color: var(--fg-muted); opacity: 0.7; }
 .ui-date-range__grid .is-today { box-shadow: inset 0 0 0 1px var(--border-strong); }
 .ui-date-range__grid .is-in-range { border-radius: 0; background: var(--accent-soft); }
 .ui-date-range__grid .is-edge { background: var(--accent-emphasis); color: var(--fg-on-emphasis); font-weight: 600; }

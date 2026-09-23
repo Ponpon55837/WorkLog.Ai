@@ -101,6 +101,6 @@ const rows = computed(() => {
 
 .changed-files__note {
   border-top: 1px solid var(--border-muted);
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
 }
 </style>

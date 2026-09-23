@@ -3,18 +3,21 @@ import type {
   ChangedFileSource,
   GraphNode,
   KnowledgeAuditAction,
-  KnowledgeKind,
-  KnowledgeStatus,
-  MetadataBackfillItem,
-  MetadataBackfillRequest,
   ProjectStatus,
   ReportEvidence,
   ReportPeriod,
-  ReportSynthesisRequest,
-  ReportVerificationStatus,
-  WorkSessionRecord,
   WorkSummarySections
 } from "@work-intelligence/core";
+import { knowledgeKindVisual, knowledgeStatusVisual, trackingStatus, type StatusVisual } from "./status";
+
+function labelsOf<K extends string>(visuals: Record<K, StatusVisual>): Record<K, string> {
+  return Object.fromEntries(Object.entries<StatusVisual>(visuals).map(([key, visual]) => [key, visual.label])) as Record<K, string>;
+}
+
+/** Label-only views of the status maps in utils/status.ts (single source of truth). */
+export const statusLabels = labelsOf(trackingStatus);
+export const knowledgeKindLabels = labelsOf(knowledgeKindVisual);
+export const knowledgeStatusLabels = labelsOf(knowledgeStatusVisual);
 
 export const listPageSizeOptions = [
   { value: 10, label: "10" },
@@ -27,11 +30,6 @@ export type ListPageSize = (typeof listPageSizeOptions)[number]["value"];
 
 export function pageSizeToQuery(value: ListPageSize): number {
   return value === "all" ? 0 : value;
-}
-
-export function normalizePageSize(value: string): ListPageSize {
-  const option = listPageSizeOptions.find((candidate) => String(candidate.value) === value);
-  return option?.value ?? 10;
 }
 
 export type ReportTab = "overview" | "work" | "trend" | "risks" | "raw" | "evidence";
@@ -51,13 +49,6 @@ export const workSummarySectionLabels: Array<{ key: keyof WorkSummarySections; l
   { key: "verification", label: "驗證" },
   { key: "nextSteps", label: "狀態／未結項" }
 ];
-
-export const statusLabels: Record<ProjectStatus, string> = {
-  unregistered: "未註冊",
-  tracked: "記錄中",
-  paused: "已暫停",
-  ignored: "已忽略"
-};
 
 export const statusDescriptions: Record<ProjectStatus, string> = {
   unregistered: "尚未授權，所有 ingest 都會略過。",
@@ -88,33 +79,6 @@ export const reportPeriodLabels: Record<ReportPeriod, string> = {
   year: "本年"
 };
 
-export const reportSynthesisStatusLabels: Record<ReportSynthesisRequest["status"], string> = {
-  pending: "等待 Agent 處理",
-  processing: "Agent 處理中",
-  completed: "提煉完成",
-  failed: "處理失敗／可重試",
-  cancelled: "已取消／可重試"
-};
-
-export const metadataBackfillStatusLabels: Record<MetadataBackfillRequest["status"], string> = {
-  pending: "等待 Agent 處理",
-  processing: "Agent 處理中",
-  completed: "回補完成",
-  failed: "處理失敗",
-  cancelled: "已取消／可重建"
-};
-
-export const verificationLabels: Record<ReportVerificationStatus, string> = {
-  passed: "Passed",
-  failed: "Failed",
-  not_run: "未執行",
-  not_supplied: "待 Agent 回報"
-};
-
-export const executionStatusLabels: Record<WorkSessionRecord["executionStatus"], string> = {
-  completed: "已完成"
-};
-
 export const insightKindLabels: Record<"verification" | "metadata" | "event", string> = {
   verification: "Verification",
   metadata: "Metadata",
@@ -127,19 +91,6 @@ export const evidenceKindLabels: Record<ReportEvidence["kind"], string> = {
   "changed-files": "Changed files",
   event: "Event",
   attached: "Attached evidence"
-};
-
-export const knowledgeKindLabels: Record<KnowledgeKind, string> = {
-  decision: "技術決策",
-  pattern: "可重用模式",
-  gotcha: "注意事項",
-  procedure: "操作流程",
-  skill: "技能"
-};
-
-export const knowledgeStatusLabels: Record<KnowledgeStatus, string> = {
-  active: "使用中",
-  archived: "已封存"
 };
 
 export const knowledgeAuditActionLabels: Record<KnowledgeAuditAction, string> = {
@@ -178,32 +129,3 @@ export const graphMetadataLabels: Record<string, string> = {
   capturedAt: "擷取時間",
   path: "檔案路徑"
 };
-
-export function verificationLabel(value: unknown): string {
-  const status = typeof value === "string" && value in verificationLabels ? (value as ReportVerificationStatus) : "not_supplied";
-  return verificationLabels[status];
-}
-
-export function evidenceKindLabel(value: unknown): string {
-  return typeof value === "string" && value in evidenceKindLabels ? evidenceKindLabels[value as ReportEvidence["kind"]] : "Evidence";
-}
-
-export function knowledgeKindLabel(value: unknown): string {
-  return typeof value === "string" && value in knowledgeKindLabels ? knowledgeKindLabels[value as KnowledgeKind] : "Knowledge";
-}
-
-export function knowledgeStatusLabel(value: unknown): string {
-  return typeof value === "string" && value in knowledgeStatusLabels ? knowledgeStatusLabels[value as KnowledgeStatus] : "未知狀態";
-}
-
-export function metadataGapLabel(gap: MetadataBackfillItem["gaps"][number]): string {
-  return gap === "changed_files" ? "Changed files 待確認" : "Verification 待確認";
-}
-
-export function changedFileSourceLabel(session: WorkSessionRecord, file: string): string {
-  const provenance = session.changedFilesProvenance?.find((item) => item.path === file);
-  if (!provenance?.sources.length) {
-    return "來源未提供";
-  }
-  return provenance.sources.map((source) => changedFileSourceLabels[source]).join(" · ");
-}
