@@ -128,7 +128,9 @@ export class ApiClient {
       projectId: options.projectId,
       limit: options.limit,
       maxNodes: options.maxNodes,
-      maxEdges: options.maxEdges
+      maxEdges: options.maxEdges,
+      pageSize: options.pageSize,
+      cursor: options.cursor
     }), { signal });
   }
 

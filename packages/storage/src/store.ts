@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { CHANGED_FILE_SOURCES } from "@work-intelligence/core";
+import { CHANGED_FILE_SOURCES, NoopInsightProvider } from "@work-intelligence/core";
 import type {
   AttachEvidenceInput,
   AttachEvidenceResult,
@@ -27,6 +27,7 @@ import type {
   HandoffImportPreviewItem,
   HandoffImportPreviewResult,
   HandoffImportFailure,
+  InsightProvider,
   KnowledgeAuditAction,
   KnowledgeAuditRecord,
   KnowledgeKind,
@@ -100,6 +101,8 @@ import type {
   UpdateSessionMetadataResult,
   UpdateSessionSummaryInput,
   UpdateSessionSummaryResult,
+  UpdateSessionWorkSummaryInput,
+  UpdateSessionWorkSummaryResult,
   UpdateSessionVerificationResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
@@ -109,19 +112,11 @@ import type {
   WorkSummaryFollowUp,
   WorkEventRecord,
   WorkEventType,
-  WorkSessionRecord
+  WorkSessionRecord,
 } from "@work-intelligence/core";
 import { nowIso, truncateText } from "@work-intelligence/shared";
-import {
-  createProjectPathResolver,
-  ProjectPolicyGate,
-  safeProjectPath
-} from "@work-intelligence/project-policy";
-import {
-  HandoffImportService,
-  type HandoffDiscoveryResult,
-  type HandoffImportCandidate
-} from "./handoff-importer.js";
+import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
+import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
 import { checkTrackedProjectById, checkTrackedProjectByRoot } from "./policy-helper.js";
 import { createPageInfo } from "./pagination.js";
@@ -422,6 +417,17 @@ CREATE TABLE IF NOT EXISTS session_summary_updates (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS session_work_summary_updates (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  mode TEXT NOT NULL CHECK (mode IN ('replace', 'patch')),
+  work_summary_json TEXT NOT NULL,
+  previous_work_summary_json TEXT NOT NULL DEFAULT '{}',
+  resulting_work_summary_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_project_completed ON sessions(project_id, completed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_session_occurred ON work_events(session_id, occurred_at ASC);
@@ -437,6 +443,7 @@ CREATE INDEX IF NOT EXISTS idx_report_summaries_current_scope ON report_summarie
 CREATE INDEX IF NOT EXISTS idx_metadata_backfill_requests_status ON metadata_backfill_requests(status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metadata_backfill_requests_scope ON metadata_backfill_requests(project_id, status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_session_summary_updates_session ON session_summary_updates(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_work_summary_updates_session ON session_work_summary_updates(session_id, created_at DESC);
 `;
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -461,7 +468,53 @@ function normalizeWorkSummarySections(value: WorkSummarySections | undefined): W
     scope: value.scope.map((item) => item.trim()).filter(Boolean),
     decisions: value.decisions.map((item) => item.trim()).filter(Boolean),
     verification: value.verification.map((item) => item.trim()).filter(Boolean),
-    nextSteps: value.nextSteps.map((item) => item.trim()).filter(Boolean)
+    nextSteps: value.nextSteps.map((item) => item.trim()).filter(Boolean),
+  };
+}
+
+function normalizeWorkSummaryPatch(
+  value: WorkSummarySections | Partial<WorkSummarySections>,
+): Partial<WorkSummarySections> {
+  const normalized: Partial<WorkSummarySections> = {};
+  const sectionKeys: Array<keyof WorkSummarySections> = ["outcomes", "scope", "decisions", "verification", "nextSteps"];
+  for (const key of sectionKeys) {
+    const section = value[key];
+    if (Array.isArray(section)) {
+      normalized[key] = section.map((item) => item.trim()).filter(Boolean);
+    }
+  }
+  return normalized;
+}
+
+function completeWorkSummary(value: Partial<WorkSummarySections>): WorkSummarySections | undefined {
+  if (
+    !Array.isArray(value.outcomes) ||
+    !Array.isArray(value.scope) ||
+    !Array.isArray(value.decisions) ||
+    !Array.isArray(value.verification) ||
+    !Array.isArray(value.nextSteps)
+  ) {
+    return undefined;
+  }
+  return {
+    outcomes: value.outcomes,
+    scope: value.scope,
+    decisions: value.decisions,
+    verification: value.verification,
+    nextSteps: value.nextSteps,
+  };
+}
+
+function mergeWorkSummary(
+  current: WorkSummarySections | undefined,
+  patch: Partial<WorkSummarySections>,
+): WorkSummarySections {
+  return {
+    outcomes: patch.outcomes ?? current?.outcomes ?? [],
+    scope: patch.scope ?? current?.scope ?? [],
+    decisions: patch.decisions ?? current?.decisions ?? [],
+    verification: patch.verification ?? current?.verification ?? [],
+    nextSteps: patch.nextSteps ?? current?.nextSteps ?? [],
   };
 }
 
@@ -472,15 +525,23 @@ function parseWorkSummarySections(value: string | null): WorkSummarySections | u
   }
 
   const sections: WorkSummarySections = {
-    outcomes: Array.isArray(parsed.outcomes) ? parsed.outcomes.filter((item): item is string => typeof item === "string") : [],
+    outcomes: Array.isArray(parsed.outcomes)
+      ? parsed.outcomes.filter((item): item is string => typeof item === "string")
+      : [],
     scope: Array.isArray(parsed.scope) ? parsed.scope.filter((item): item is string => typeof item === "string") : [],
-    decisions: Array.isArray(parsed.decisions) ? parsed.decisions.filter((item): item is string => typeof item === "string") : [],
-    verification: Array.isArray(parsed.verification) ? parsed.verification.filter((item): item is string => typeof item === "string") : [],
-    nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.filter((item): item is string => typeof item === "string") : []
+    decisions: Array.isArray(parsed.decisions)
+      ? parsed.decisions.filter((item): item is string => typeof item === "string")
+      : [],
+    verification: Array.isArray(parsed.verification)
+      ? parsed.verification.filter((item): item is string => typeof item === "string")
+      : [],
+    nextSteps: Array.isArray(parsed.nextSteps)
+      ? parsed.nextSteps.filter((item): item is string => typeof item === "string")
+      : [],
   };
 
   const hasStructuredSections = ["outcomes", "scope", "decisions", "verification", "nextSteps"].some((key) =>
-    Array.isArray(parsed[key as keyof WorkSummarySections])
+    Array.isArray(parsed[key as keyof WorkSummarySections]),
   );
   return hasStructuredSections ? sections : undefined;
 }
@@ -497,7 +558,7 @@ function sortChangedFileSources(sources: ChangedFileSource[]): ChangedFileSource
 function normalizeChangedFilePath(
   projectRoot: string,
   value: string,
-  pathResolver = createProjectPathResolver(projectRoot)
+  pathResolver = createProjectPathResolver(projectRoot),
 ): string {
   const candidate = value.trim();
   if (!candidate) {
@@ -519,7 +580,7 @@ function normalizeChangedFilePath(
 function normalizeChangedFileChanges(
   projectRoot: string,
   changes: ChangedFileChange[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot)
+  pathResolver = createProjectPathResolver(projectRoot),
 ): ChangedFileChange[] {
   const normalized: ChangedFileChange[] = [];
   const identities = new Set<string>();
@@ -532,7 +593,11 @@ function normalizeChangedFileChanges(
     const previousPath = change.previousPath
       ? normalizeChangedFilePath(projectRoot, change.previousPath, pathResolver)
       : undefined;
-    const identity = [change.status, changedFileIdentity(path), previousPath ? changedFileIdentity(previousPath) : ""].join(":");
+    const identity = [
+      change.status,
+      changedFileIdentity(path),
+      previousPath ? changedFileIdentity(previousPath) : "",
+    ].join(":");
     if (identities.has(identity)) {
       continue;
     }
@@ -540,7 +605,7 @@ function normalizeChangedFileChanges(
     normalized.push({
       path,
       status: change.status,
-      ...(previousPath ? { previousPath } : {})
+      ...(previousPath ? { previousPath } : {}),
     });
   }
 
@@ -555,14 +620,18 @@ function mergeChangedFileChanges(
   projectRoot: string,
   current: WorkSessionRecord,
   incoming: ChangedFileChange[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot)
+  pathResolver = createProjectPathResolver(projectRoot),
 ): ChangedFileChange[] {
   const normalizedIncoming = normalizeChangedFileChanges(projectRoot, incoming, pathResolver);
   const merged: ChangedFileChange[] = [];
   const identities = new Set<string>();
 
   for (const change of [...current.changedFileChanges, ...normalizedIncoming]) {
-    const identity = [change.status, changedFileIdentity(change.path), change.previousPath ? changedFileIdentity(change.previousPath) : ""].join(":");
+    const identity = [
+      change.status,
+      changedFileIdentity(change.path),
+      change.previousPath ? changedFileIdentity(change.previousPath) : "",
+    ].join(":");
     if (identities.has(identity)) {
       continue;
     }
@@ -577,7 +646,7 @@ function normalizeChangedFiles(
   projectRoot: string,
   changedFiles: string[] | undefined,
   provenance: ChangedFileProvenance[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot)
+  pathResolver = createProjectPathResolver(projectRoot),
 ): { files: string[]; provenance: ChangedFileProvenance[] } {
   const files: string[] = [];
   const fileByIdentity = new Map<string, string>();
@@ -610,7 +679,7 @@ function normalizeChangedFiles(
     } else {
       provenanceByIdentity.set(identity, {
         sources: sortChangedFileSources(sources),
-        references: [...(item.references ?? [])]
+        references: [...(item.references ?? [])],
       });
     }
   }
@@ -626,9 +695,9 @@ function normalizeChangedFiles(
       return {
         path,
         sources: record.sources,
-        ...(references.length > 0 ? { references } : {})
+        ...(references.length > 0 ? { references } : {}),
       };
-    })
+    }),
   };
 }
 
@@ -637,7 +706,7 @@ function mergeChangedFiles(
   current: WorkSessionRecord,
   changedFiles: string[],
   provenance: ChangedFileProvenance[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot)
+  pathResolver = createProjectPathResolver(projectRoot),
 ): { files: string[]; provenance: ChangedFileProvenance[] } {
   const incoming = normalizeChangedFiles(projectRoot, changedFiles, provenance, pathResolver);
   const files: string[] = [];
@@ -656,7 +725,9 @@ function mergeChangedFiles(
   };
 
   const addProvenance = (item: ChangedFileProvenance, normalizePath: boolean): void => {
-    const path = normalizePath ? normalizeChangedFilePath(projectRoot, item.path, pathResolver) : addStoredFile(item.path);
+    const path = normalizePath
+      ? normalizeChangedFilePath(projectRoot, item.path, pathResolver)
+      : addStoredFile(item.path);
     const identity = changedFileIdentity(path);
     const existing = provenanceByIdentity.get(identity);
     if (existing) {
@@ -666,7 +737,7 @@ function mergeChangedFiles(
     }
     provenanceByIdentity.set(identity, {
       sources: sortChangedFileSources(item.sources),
-      references: [...(item.references ?? [])]
+      references: [...(item.references ?? [])],
     });
   };
 
@@ -692,12 +763,14 @@ function mergeChangedFiles(
         return [];
       }
       const references = [...new Set(record.references)];
-      return [{
-        path,
-        sources: record.sources,
-        ...(references.length > 0 ? { references } : {})
-      }];
-    })
+      return [
+        {
+          path,
+          sources: record.sources,
+          ...(references.length > 0 ? { references } : {}),
+        },
+      ];
+    }),
   };
 }
 
@@ -720,7 +793,7 @@ function toSession(row: SessionRow): WorkSessionRecord {
     changedFiles: parseJson<string[]>(row.changed_files_json, []),
     changedFilesProvenance: parseJson<ChangedFileProvenance[]>(row.changed_files_provenance_json, []),
     changedFileChanges: parseJson<ChangedFileChange[]>(row.changed_file_changes_json, []),
-    verification: parseJson<VerificationSummary | undefined>(row.verification_json, undefined)
+    verification: parseJson<VerificationSummary | undefined>(row.verification_json, undefined),
   };
 }
 
@@ -731,7 +804,7 @@ function toEvent(row: EventRow): WorkEventRecord {
     type: row.type,
     summary: row.summary,
     details: parseJson<Record<string, unknown> | undefined>(row.details_json, undefined),
-    occurredAt: row.occurred_at
+    occurredAt: row.occurred_at,
   };
 }
 
@@ -743,7 +816,7 @@ function toSnapshot(row: SnapshotRow): RawSnapshotRecord {
     kind: row.kind,
     sourcePath: row.source_path ?? undefined,
     content: row.content,
-    capturedAt: row.captured_at
+    capturedAt: row.captured_at,
   };
 }
 
@@ -755,7 +828,7 @@ function toEvidence(row: EvidenceRow): EvidenceRecord {
     kind: row.kind,
     reference: row.reference,
     summary: row.summary ?? undefined,
-    capturedAt: row.captured_at
+    capturedAt: row.captured_at,
   };
 }
 
@@ -773,7 +846,7 @@ function toKnowledge(row: KnowledgeRow): KnowledgeRecord {
     references: parseJson<string[]>(row.references_json, []),
     status: row.status,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
   };
 }
 
@@ -792,7 +865,7 @@ function toKnowledgeAudit(row: KnowledgeAuditRow): KnowledgeAuditRecord {
     ...(before ? { before } : {}),
     after,
     changedFields: parseJson<string[]>(row.changed_fields_json, []),
-    occurredAt: row.occurred_at
+    occurredAt: row.occurred_at,
   };
 }
 
@@ -810,7 +883,7 @@ function toReportSynthesisRequest(row: ReportSynthesisRequestRow): ReportSynthes
     ...(row.started_at ? { startedAt: row.started_at } : {}),
     ...(row.completed_at ? { completedAt: row.completed_at } : {}),
     ...(row.failure_reason ? { failureReason: row.failure_reason } : {}),
-    sourceSessionIds: parseJson<string[]>(row.source_session_ids_json, [])
+    sourceSessionIds: parseJson<string[]>(row.source_session_ids_json, []),
   };
 }
 
@@ -826,7 +899,7 @@ function toMetadataBackfillRequest(row: MetadataBackfillRequestRow): MetadataBac
     ...(row.started_at ? { startedAt: row.started_at } : {}),
     ...(row.completed_at ? { completedAt: row.completed_at } : {}),
     ...(row.failure_reason ? { failureReason: row.failure_reason } : {}),
-    sourceSessionIds: parseJson<string[]>(row.source_session_ids_json, [])
+    sourceSessionIds: parseJson<string[]>(row.source_session_ids_json, []),
   };
 }
 
@@ -852,7 +925,7 @@ function toReportSummary(row: ReportSummaryRow): ReportSummary {
     ...(row.generated_by_model ? { generatedByModel: row.generated_by_model } : {}),
     promptVersion: row.prompt_version,
     createdAt: row.created_at,
-    isCurrent: row.is_current === 1
+    isCurrent: row.is_current === 1,
   };
 }
 
@@ -971,7 +1044,7 @@ function buildReportTrends(
   period: ReportPeriod,
   range: ReportRange,
   sessions: WorkSessionRecord[],
-  eventsBySession: Map<string, ReportEventRow[]>
+  eventsBySession: Map<string, ReportEventRow[]>,
 ): ReportTrendPoint[] {
   const granularity = getReportTrendGranularity(period);
   const dates = granularity === "month" ? listCalendarMonths(range) : listCalendarDates(range);
@@ -982,7 +1055,7 @@ function buildReportTrends(
     return {
       date,
       sessions: bucketSessions.length,
-      events: bucketSessions.reduce((total, session) => total + (eventsBySession.get(session.id)?.length ?? 0), 0)
+      events: bucketSessions.reduce((total, session) => total + (eventsBySession.get(session.id)?.length ?? 0), 0),
     };
   });
 }
@@ -993,7 +1066,7 @@ function compareReportMetric(current: number, previous: number): ReportMetricCom
     current,
     previous,
     delta,
-    direction: delta === 0 ? "flat" : delta > 0 ? "up" : "down"
+    direction: delta === 0 ? "flat" : delta > 0 ? "up" : "down",
   };
 }
 
@@ -1001,13 +1074,14 @@ function getVerificationFollowUp(session: WorkSessionRecord): VerificationFollow
   if (session.verification?.status === "passed" || session.verification?.status === "failed") {
     return undefined;
   }
-  const message = session.verification?.status === "not_run"
-    ? "Verification is marked not_run. Re-check the completed work and call work_update_session_metadata with passed or failed when a confirmed result is available; keep not_run only when no verification was actually executed."
-    : "Verification was not supplied. If verification was completed, call work_update_session_metadata with this sessionId and the confirmed result; otherwise explicitly report status not_run.";
+  const message =
+    session.verification?.status === "not_run"
+      ? "Verification is marked not_run. Re-check the completed work and call work_update_session_metadata with passed or failed when a confirmed result is available; keep not_run only when no verification was actually executed."
+      : "Verification was not supplied. If verification was completed, call work_update_session_metadata with this sessionId and the confirmed result; otherwise explicitly report status not_run.";
   return {
     required: true,
     sessionId: session.id,
-    message
+    message,
   };
 }
 
@@ -1019,7 +1093,7 @@ function getChangedFilesFollowUp(session: WorkSessionRecord): ChangedFilesFollow
     required: true,
     sessionId: session.id,
     message:
-      "No changedFiles metadata was supplied. Inspect the working tree and worktree diff before finishing; call work_update_session_metadata with the confirmed file list, using [] only when the work intentionally changed no files."
+      "No changedFiles metadata was supplied. Inspect the working tree and worktree diff before finishing; call work_update_session_metadata with the confirmed file list, using [] only when the work intentionally changed no files.",
   };
 }
 
@@ -1030,7 +1104,8 @@ function getWorkSummaryFollowUp(session: WorkSessionRecord): WorkSummaryFollowUp
   return {
     required: true,
     sessionId: session.id,
-    message: "Work summary sections were not supplied. Provide outcomes, scope, decisions, verification, and nextSteps as concise arrays when updating the Session record."
+    message:
+      "Work summary sections were not supplied. Provide outcomes (confirmed results), scope (important changed areas), decisions (explicit choices only), verification (actual results and unverified coverage), and nextSteps (objective current open state/limitations only; no future recommendations) as concise arrays. Use [] when a section has no supported facts.",
   };
 }
 
@@ -1042,7 +1117,7 @@ function toMetadataBackfillItem(row: MetadataBackfillRow): MetadataBackfillItem 
   const session = toSession(row);
   const gaps = [
     ...(session.changedFiles.length === 0 ? ["changed_files" as const] : []),
-    ...(!session.verification || session.verification.status === "not_run" ? ["verification" as const] : [])
+    ...(!session.verification || session.verification.status === "not_run" ? ["verification" as const] : []),
   ];
   return {
     sessionId: session.id,
@@ -1060,7 +1135,7 @@ function toMetadataBackfillItem(row: MetadataBackfillRow): MetadataBackfillItem 
     verificationStatus: session.verification?.status ?? "not_supplied",
     ...(session.verification ? { verification: session.verification } : {}),
     rawSnapshotCount: row.raw_snapshot_count,
-    gaps
+    gaps,
   };
 }
 
@@ -1083,7 +1158,7 @@ function normalizeHandoffSelectionPath(projectRoot: string, value: string): stri
 
 function toHandoffPreviewItem(
   candidate: HandoffImportCandidate,
-  existingSession?: WorkSessionRecord
+  existingSession?: WorkSessionRecord,
 ): HandoffImportPreviewItem {
   if (existingSession) {
     return {
@@ -1097,7 +1172,7 @@ function toHandoffPreviewItem(
       verificationStatus: candidate.verification?.status,
       changedFiles: candidate.changedFiles,
       changedFilesStatus: candidate.changedFilesStatus,
-      existingSessionId: existingSession.id
+      existingSessionId: existingSession.id,
     };
   }
 
@@ -1111,7 +1186,7 @@ function toHandoffPreviewItem(
     detail: candidate.detail,
     verificationStatus: candidate.verification?.status,
     changedFiles: candidate.changedFiles,
-    changedFilesStatus: candidate.changedFilesStatus
+    changedFilesStatus: candidate.changedFilesStatus,
   };
 }
 
@@ -1121,8 +1196,12 @@ function countHandoffPreviewItems(items: HandoffImportPreviewItem[]): HandoffImp
     eligible: items.filter((item) => item.decision === "eligible").length,
     excluded: items.filter((item) => item.decision === "excluded").length,
     alreadyImported: items.filter((item) => item.decision === "already_imported").length,
-    errors: items.filter((item) => item.decision === "error").length
+    errors: items.filter((item) => item.decision === "error").length,
   };
+}
+
+export interface WorkIntelligenceStoreOptions {
+  insightProvider?: InsightProvider;
 }
 
 export class WorkIntelligenceStore {
@@ -1136,8 +1215,13 @@ export class WorkIntelligenceStore {
   private readonly reportSynthesisRequests: ReportSynthesisRequestRepository;
   private readonly metadataBackfills: MetadataBackfillRepository;
   private readonly policyGate: ProjectPolicyGate;
+  public readonly insightProvider: InsightProvider;
 
-  public constructor(public readonly databasePath: string) {
+  public constructor(
+    public readonly databasePath: string,
+    options: WorkIntelligenceStoreOptions = {},
+  ) {
+    this.insightProvider = options.insightProvider ?? new NoopInsightProvider();
     if (databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
@@ -1151,7 +1235,7 @@ export class WorkIntelligenceStore {
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
       listTrackedProjects: () => this.listProjects().filter((project) => project.status === "tracked"),
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
-      checkProjectById: (projectId) => this.checkProjectById(projectId)
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
     });
     this.graphBuilder = new GraphBuilder(this.db, {
       listProjects: () => this.listProjects(),
@@ -1159,7 +1243,7 @@ export class WorkIntelligenceStore {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       checkProjectById: (projectId) => this.checkProjectById(projectId),
       toSession,
-      toKnowledge
+      toKnowledge,
     });
     this.reportSynthesisRequests = new ReportSynthesisRequestRepository(this.db);
     this.metadataBackfills = new MetadataBackfillRepository(this.db);
@@ -1186,7 +1270,9 @@ export class WorkIntelligenceStore {
         this.db.exec("ALTER TABLE sessions DROP COLUMN commit_required");
       }
 
-      const reportSummaryColumns = this.db.prepare("PRAGMA table_info(report_summaries)").all() as Array<{ name?: string }>;
+      const reportSummaryColumns = this.db.prepare("PRAGMA table_info(report_summaries)").all() as Array<{
+        name?: string;
+      }>;
       const reportSummaryColumnNames = new Set(reportSummaryColumns.map((column) => column.name));
       if (!reportSummaryColumnNames.has("themes_json")) {
         this.db.exec("ALTER TABLE report_summaries ADD COLUMN themes_json TEXT NOT NULL DEFAULT '[]'");
@@ -1267,15 +1353,17 @@ export class WorkIntelligenceStore {
 
   public updateProject(
     projectId: string,
-    update: { name?: string; status?: ProjectStatus }
+    update: { name?: string; status?: ProjectStatus },
   ): ProjectRecord | undefined {
     return this.projects.update(projectId, update);
   }
 
-  public previewMetadataBackfill(options: {
-    projectRoot?: string;
-    limit?: number;
-  } = {}): MetadataBackfillPreviewResult {
+  public previewMetadataBackfill(
+    options: {
+      projectRoot?: string;
+      limit?: number;
+    } = {},
+  ): MetadataBackfillPreviewResult {
     let project: ProjectRecord | undefined;
     let projectId: string | undefined;
     if (options.projectRoot) {
@@ -1285,7 +1373,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectRoot: decision.canonicalRoot,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
+          reason: decision.reason ?? "Project recording is not enabled.",
         };
       }
       project = decision.project;
@@ -1302,8 +1390,10 @@ export class WorkIntelligenceStore {
         "SELECT s.*, p.name AS project_name, p.root_path AS project_root, " +
           "(SELECT COUNT(*) FROM raw_snapshots rs WHERE rs.session_id = s.id) AS raw_snapshot_count " +
           "FROM sessions s JOIN projects p ON p.id = s.project_id " +
-          "WHERE p.status = 'tracked'" + projectClause + " " +
-          "ORDER BY s.completed_at DESC, s.id DESC"
+          "WHERE p.status = 'tracked'" +
+          projectClause +
+          " " +
+          "ORDER BY s.completed_at DESC, s.id DESC",
       )
       .all(...parameters) as MetadataBackfillRow[];
     const allItems = rows.map(toMetadataBackfillItem).filter((item) => item.gaps.length > 0);
@@ -1320,8 +1410,8 @@ export class WorkIntelligenceStore {
         needsBackfill: allItems.length,
         changedFilesMissing: allItems.filter((item) => item.gaps.includes("changed_files")).length,
         verificationMissing: allItems.filter((item) => item.verificationStatus === "not_supplied").length,
-        verificationNotRun: allItems.filter((item) => item.verificationStatus === "not_run").length
-      }
+        verificationNotRun: allItems.filter((item) => item.verificationStatus === "not_run").length,
+      },
     };
   }
 
@@ -1335,7 +1425,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: input.projectId,
           projectStatus: "unregistered",
-          reason: "Project is not registered."
+          reason: "Project is not registered.",
         } satisfies ProjectIdSkippedResult;
       }
       const decision = this.checkProjectById(project.id);
@@ -1344,7 +1434,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: project.id,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
+          reason: decision.reason ?? "Project recording is not enabled.",
         } satisfies ProjectIdSkippedResult;
       }
     }
@@ -1358,21 +1448,23 @@ export class WorkIntelligenceStore {
       return {
         outcome: "metadata_backfill_not_needed",
         scannedSessions: preview.scannedSessions,
-        reason: "目前沒有需要回補的 metadata。"
+        reason: "目前沒有需要回補的 metadata。",
       };
     }
 
     const scopeType = project ? "project" : "all";
-    const idempotencyKey = input.idempotencyKey?.trim() || `metadata-backfill-${createHash("sha256")
-      .update(`${scopeType}:${project?.id ?? "all"}:${sourceSessionIds.join(",")}`)
-      .digest("hex")}`;
+    const idempotencyKey =
+      input.idempotencyKey?.trim() ||
+      `metadata-backfill-${createHash("sha256")
+        .update(`${scopeType}:${project?.id ?? "all"}:${sourceSessionIds.join(",")}`)
+        .digest("hex")}`;
     return this.runImmediateTransaction(() => {
       const existingRow = this.db
         .prepare(
           `SELECT r.*, p.name AS project_name
            FROM metadata_backfill_requests r
            LEFT JOIN projects p ON p.id = r.project_id
-           WHERE r.idempotency_key = ?`
+           WHERE r.idempotency_key = ?`,
         )
         .get(idempotencyKey) as MetadataBackfillRequestRow | undefined;
       if (existingRow) {
@@ -1386,7 +1478,7 @@ export class WorkIntelligenceStore {
             .prepare(
               `INSERT INTO metadata_backfill_requests (
                  id, idempotency_key, scope_type, project_id, status, requested_at, source_session_ids_json
-               ) VALUES (@id, @idempotencyKey, @scopeType, @projectId, 'pending', @requestedAt, @sourceSessionIds)`
+               ) VALUES (@id, @idempotencyKey, @scopeType, @projectId, 'pending', @requestedAt, @sourceSessionIds)`,
             )
             .run({
               id,
@@ -1394,14 +1486,14 @@ export class WorkIntelligenceStore {
               scopeType,
               projectId: project?.id ?? null,
               requestedAt,
-              sourceSessionIds: JSON.stringify(sourceSessionIds)
+              sourceSessionIds: JSON.stringify(sourceSessionIds),
             });
           const retryRow = this.db
             .prepare(
               `SELECT r.*, p.name AS project_name
                FROM metadata_backfill_requests r
                LEFT JOIN projects p ON p.id = r.project_id
-               WHERE r.id = ?`
+               WHERE r.id = ?`,
             )
             .get(id) as MetadataBackfillRequestRow | undefined;
           if (!retryRow) {
@@ -1410,13 +1502,13 @@ export class WorkIntelligenceStore {
           return {
             outcome: "metadata_backfill_request",
             duplicate: false,
-            request: toMetadataBackfillRequest(retryRow)
+            request: toMetadataBackfillRequest(retryRow),
           };
         }
         return {
           outcome: "metadata_backfill_request",
           duplicate: true,
-          request: toMetadataBackfillRequest(existingRow)
+          request: toMetadataBackfillRequest(existingRow),
         };
       }
 
@@ -1426,7 +1518,7 @@ export class WorkIntelligenceStore {
         .prepare(
           `INSERT INTO metadata_backfill_requests (
              id, idempotency_key, scope_type, project_id, status, requested_at, source_session_ids_json
-           ) VALUES (@id, @idempotencyKey, @scopeType, @projectId, 'pending', @requestedAt, @sourceSessionIds)`
+           ) VALUES (@id, @idempotencyKey, @scopeType, @projectId, 'pending', @requestedAt, @sourceSessionIds)`,
         )
         .run({
           id,
@@ -1434,14 +1526,14 @@ export class WorkIntelligenceStore {
           scopeType,
           projectId: project?.id ?? null,
           requestedAt,
-          sourceSessionIds: JSON.stringify(sourceSessionIds)
+          sourceSessionIds: JSON.stringify(sourceSessionIds),
         });
       const row = this.db
         .prepare(
           `SELECT r.*, p.name AS project_name
            FROM metadata_backfill_requests r
            LEFT JOIN projects p ON p.id = r.project_id
-           WHERE r.id = ?`
+           WHERE r.id = ?`,
         )
         .get(id) as MetadataBackfillRequestRow | undefined;
       if (!row) {
@@ -1450,12 +1542,14 @@ export class WorkIntelligenceStore {
       return {
         outcome: "metadata_backfill_request",
         duplicate: false,
-        request: toMetadataBackfillRequest(row)
+        request: toMetadataBackfillRequest(row),
       };
     });
   }
 
-  public listMetadataBackfillRequests(options: MetadataBackfillRequestQuery = {}): MetadataBackfillRequestListQueryResult {
+  public listMetadataBackfillRequests(
+    options: MetadataBackfillRequestQuery = {},
+  ): MetadataBackfillRequestListQueryResult {
     this.recoverStaleMetadataBackfillRequests();
     if (options.projectId) {
       const project = this.getProjectById(options.projectId);
@@ -1464,7 +1558,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: options.projectId,
           projectStatus: "unregistered",
-          reason: "Project is not registered."
+          reason: "Project is not registered.",
         } satisfies ProjectIdSkippedResult;
       }
       const decision = this.checkProjectById(project.id);
@@ -1473,7 +1567,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: project.id,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
+          reason: decision.reason ?? "Project recording is not enabled.",
         } satisfies ProjectIdSkippedResult;
       }
     }
@@ -1504,12 +1598,12 @@ export class WorkIntelligenceStore {
          LEFT JOIN projects p ON p.id = r.project_id
          WHERE ${clauses.join(" AND ")}
          ORDER BY r.requested_at DESC, r.id DESC
-         LIMIT ?`
+         LIMIT ?`,
       )
       .all(...parameters, limit) as MetadataBackfillRequestRow[];
     return {
       outcome: "metadata_backfill_requests",
-      requests: rows.map(toMetadataBackfillRequest)
+      requests: rows.map(toMetadataBackfillRequest),
     };
   }
 
@@ -1520,7 +1614,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM metadata_backfill_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(requestId) as MetadataBackfillRequestRow | undefined;
     if (!row) {
@@ -1534,7 +1628,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project recording is not enabled."
+          reason: decision?.reason ?? "Project recording is not enabled.",
         } satisfies ProjectIdSkippedResult;
       }
     }
@@ -1548,7 +1642,7 @@ export class WorkIntelligenceStore {
         outcome: "metadata_backfill_cancel_rejected",
         requestId,
         status: request.status,
-        reason: "只有等待 Agent 處理或 Agent 處理中的 metadata 回補可以取消。"
+        reason: "只有等待 Agent 處理或 Agent 處理中的 metadata 回補可以取消。",
       };
     }
 
@@ -1556,7 +1650,7 @@ export class WorkIntelligenceStore {
       .prepare(
         `UPDATE metadata_backfill_requests
          SET status = 'cancelled', failure_reason = ?, completed_at = NULL
-         WHERE id = ? AND status IN ('pending', 'processing')`
+         WHERE id = ? AND status IN ('pending', 'processing')`,
       )
       .run("使用者取消這次 metadata 回補；Session 原有資料保留。", requestId);
     const nextRow = this.db
@@ -1564,7 +1658,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM metadata_backfill_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(requestId) as MetadataBackfillRequestRow | undefined;
     if (!nextRow) {
@@ -1576,20 +1670,22 @@ export class WorkIntelligenceStore {
         outcome: "metadata_backfill_cancel_rejected",
         requestId,
         status: nextRequest.status,
-        reason: "這次 metadata 回補已在取消前被其他流程更新，請重新整理狀態。"
+        reason: "這次 metadata 回補已在取消前被其他流程更新，請重新整理狀態。",
       };
     }
     return { outcome: "metadata_backfill_request_cancelled", duplicate: false, request: nextRequest };
   }
 
-  public getMetadataBackfillContext(options: MetadataBackfillRequestContextQuery): MetadataBackfillRequestContextQueryResult {
+  public getMetadataBackfillContext(
+    options: MetadataBackfillRequestContextQuery,
+  ): MetadataBackfillRequestContextQueryResult {
     this.recoverStaleMetadataBackfillRequests();
     const row = this.db
       .prepare(
         `SELECT r.*, p.name AS project_name
          FROM metadata_backfill_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(options.requestId) as MetadataBackfillRequestRow | undefined;
     if (!row) {
@@ -1604,7 +1700,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project recording is not enabled."
+          reason: decision?.reason ?? "Project recording is not enabled.",
         } satisfies ProjectIdSkippedResult;
       }
     }
@@ -1614,7 +1710,7 @@ export class WorkIntelligenceStore {
       return {
         outcome: "metadata_backfill_request_not_ready",
         request,
-        reason: "這筆 metadata 回補請求已取消；請由使用者重新建立請求後再處理。"
+        reason: "這筆 metadata 回補請求已取消；請由使用者重新建立請求後再處理。",
       };
     }
     const preview = this.previewMetadataBackfill({ projectRoot: project?.rootPath, limit: 500 });
@@ -1629,7 +1725,9 @@ export class WorkIntelligenceStore {
     if (request.status === "pending" && currentItems.length > 0) {
       const startedAt = nowIso();
       this.db
-        .prepare("UPDATE metadata_backfill_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'")
+        .prepare(
+          "UPDATE metadata_backfill_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'",
+        )
         .run(startedAt, request.id);
       request.status = "processing";
       request.startedAt = startedAt;
@@ -1637,7 +1735,9 @@ export class WorkIntelligenceStore {
     if ((request.status === "pending" || request.status === "processing") && currentItems.length === 0) {
       const completedAt = nowIso();
       this.db
-        .prepare("UPDATE metadata_backfill_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?")
+        .prepare(
+          "UPDATE metadata_backfill_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?",
+        )
         .run(completedAt, request.id);
       request.status = "completed";
       request.completedAt = completedAt;
@@ -1650,7 +1750,7 @@ export class WorkIntelligenceStore {
       items: currentItems.slice(0, limit),
       resolvedSessionIds,
       sourceSessionIds: request.sourceSessionIds,
-      truncated: currentItems.length > limit
+      truncated: currentItems.length > limit,
     };
   }
 
@@ -1663,7 +1763,7 @@ export class WorkIntelligenceStore {
           `SELECT r.*, p.name AS project_name
            FROM metadata_backfill_requests r
            LEFT JOIN projects p ON p.id = r.project_id
-           WHERE r.id = ?`
+           WHERE r.id = ?`,
         )
         .get(input.requestId) as MetadataBackfillRequestRow | undefined;
       if (!requestRow) {
@@ -1674,13 +1774,15 @@ export class WorkIntelligenceStore {
         return {
           outcome: "metadata_backfill_request_not_ready",
           request,
-          reason: "這筆 metadata 回補請求已取消；不允許再寫入 Session。"
+          reason: "這筆 metadata 回補請求已取消；不允許再寫入 Session。",
         };
       }
       if (request.status === "pending") {
         const startedAt = nowIso();
         this.db
-          .prepare("UPDATE metadata_backfill_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'")
+          .prepare(
+            "UPDATE metadata_backfill_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'",
+          )
           .run(startedAt, request.id);
         request.status = "processing";
         request.startedAt = startedAt;
@@ -1695,7 +1797,7 @@ export class WorkIntelligenceStore {
       if (seenSessionIds.has(update.sessionId)) {
         failures.push({
           sessionId: update.sessionId,
-          reason: "The same sessionId was provided more than once in this batch."
+          reason: "The same sessionId was provided more than once in this batch.",
         });
         continue;
       }
@@ -1709,18 +1811,18 @@ export class WorkIntelligenceStore {
           skipped.push({
             sessionId: result.sessionId,
             projectStatus: result.projectStatus,
-            reason: result.reason
+            reason: result.reason,
           });
         } else {
           failures.push({
             sessionId: result.sessionId,
-            reason: "Session was not found."
+            reason: "Session was not found.",
           });
         }
       } catch (error) {
         failures.push({
           sessionId: update.sessionId,
-          reason: error instanceof Error ? error.message : "Session metadata update failed."
+          reason: error instanceof Error ? error.message : "Session metadata update failed.",
         });
       }
     }
@@ -1741,7 +1843,7 @@ export class WorkIntelligenceStore {
       skipped,
       failures,
       ...(request ? { request } : {}),
-      ...(remainingItems ? { remainingItems } : {})
+      ...(remainingItems ? { remainingItems } : {}),
     };
   }
 
@@ -1752,7 +1854,7 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         projectRoot: decision.canonicalRoot,
         projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled."
+        reason: decision.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -1760,12 +1862,13 @@ export class WorkIntelligenceStore {
     const discovery = this.handoffImportService.discover(project.rootPath, {
       handoffDirectory: options.handoffDirectory,
       excludePaths: options.excludePaths,
-      maxFiles: options.maxFiles
+      maxFiles: options.maxFiles,
     });
     const items = discovery.candidates.map((candidate) => {
-      const existing = candidate.decision === "eligible"
-        ? this.getSessionByIdempotencyKey(handoffImportIdempotencyKey(project.id, candidate.sourcePath))
-        : undefined;
+      const existing =
+        candidate.decision === "eligible"
+          ? this.getSessionByIdempotencyKey(handoffImportIdempotencyKey(project.id, candidate.sourcePath))
+          : undefined;
       return toHandoffPreviewItem(candidate, existing);
     });
     const preview: HandoffImportPreview = {
@@ -1776,7 +1879,7 @@ export class WorkIntelligenceStore {
       directoryFound: discovery.directoryFound,
       truncated: discovery.truncated,
       items,
-      totals: countHandoffPreviewItems(items)
+      totals: countHandoffPreviewItems(items),
     };
     return { project, discovery, candidates: discovery.candidates, items, preview };
   }
@@ -1793,11 +1896,9 @@ export class WorkIntelligenceStore {
     }
 
     const candidateByPath = new Map(
-      plan.candidates.map((candidate) => [changedFileIdentity(candidate.sourcePath), candidate])
+      plan.candidates.map((candidate) => [changedFileIdentity(candidate.sourcePath), candidate]),
     );
-    const itemByPath = new Map(
-      plan.items.map((item) => [changedFileIdentity(item.sourcePath), item])
-    );
+    const itemByPath = new Map(plan.items.map((item) => [changedFileIdentity(item.sourcePath), item]));
     const selectedPaths = new Set<string>();
     const failures: HandoffImportFailure[] = [];
     for (const sourcePath of input.sourcePaths) {
@@ -1808,7 +1909,7 @@ export class WorkIntelligenceStore {
         failures.push({
           sourcePath,
           reason: "invalid_path",
-          detail: error instanceof Error ? error.message : "The selected handoff path is invalid."
+          detail: error instanceof Error ? error.message : "The selected handoff path is invalid.",
         });
       }
     }
@@ -1822,7 +1923,7 @@ export class WorkIntelligenceStore {
         failures.push({
           sourcePath: selectedPath,
           reason: "source_not_found",
-          detail: "The selected handoff was not found in the preview result."
+          detail: "The selected handoff was not found in the preview result.",
         });
         continue;
       }
@@ -1842,27 +1943,28 @@ export class WorkIntelligenceStore {
           handoffContent: candidate.content,
           completedAt: candidate.completedAt,
           changedFiles: candidate.changedFiles.length > 0 ? candidate.changedFiles : undefined,
-          changedFilesProvenance: candidate.changedFiles.length > 0
-            ? candidate.changedFiles.map((path) => ({
-                path,
-                sources: ["handoff" as const],
-                references: [candidate.sourcePath]
-              }))
-            : undefined,
+          changedFilesProvenance:
+            candidate.changedFiles.length > 0
+              ? candidate.changedFiles.map((path) => ({
+                  path,
+                  sources: ["handoff" as const],
+                  references: [candidate.sourcePath],
+                }))
+              : undefined,
           verification: candidate.verification,
           events: [
             {
               type: "closing",
               summary: `Historical handoff imported from ${candidate.sourcePath}.`,
-              details: { source: "handoff-import", sourcePath: candidate.sourcePath }
-            }
-          ]
+              details: { source: "handoff-import", sourcePath: candidate.sourcePath },
+            },
+          ],
         });
         if (result.outcome !== "finalized") {
           failures.push({
             sourcePath: candidate.sourcePath,
             reason: "import_failed",
-            detail: result.reason
+            detail: result.reason,
           });
         } else if (result.duplicate) {
           skipped.push({
@@ -1870,7 +1972,7 @@ export class WorkIntelligenceStore {
             decision: "already_imported",
             reason: "already_imported",
             existingSessionId: result.session.id,
-            detail: "This handoff was imported by another retry while the batch was running."
+            detail: "This handoff was imported by another retry while the batch was running.",
           });
         } else {
           imported.push(result.session);
@@ -1879,7 +1981,7 @@ export class WorkIntelligenceStore {
         failures.push({
           sourcePath: candidate.sourcePath,
           reason: "import_failed",
-          detail: error instanceof Error ? error.message : "The handoff could not be imported."
+          detail: error instanceof Error ? error.message : "The handoff could not be imported.",
         });
       }
     }
@@ -1890,7 +1992,7 @@ export class WorkIntelligenceStore {
       selectedCount: input.sourcePaths.length,
       imported,
       skipped,
-      failures
+      failures,
     };
   }
 
@@ -1899,19 +2001,15 @@ export class WorkIntelligenceStore {
       .prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'tracked'")
       .get() as { count: number };
     const activeProjects = trackedProjects;
-    const finalizedSessions = this.db
-      .prepare("SELECT COUNT(*) AS count FROM sessions")
-      .get() as { count: number };
-    const recordedEvents = this.db
-      .prepare("SELECT COUNT(*) AS count FROM work_events")
-      .get() as { count: number };
+    const finalizedSessions = this.db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count: number };
+    const recordedEvents = this.db.prepare("SELECT COUNT(*) AS count FROM work_events").get() as { count: number };
 
     return {
       trackedProjects: trackedProjects.count,
       activeProjects: activeProjects.count,
       finalizedSessions: finalizedSessions.count,
       recordedEvents: recordedEvents.count,
-      recentSessions: this.listSessions({ limit: 6 })
+      recentSessions: this.listSessions({ limit: 6 }),
     };
   }
 
@@ -1933,7 +2031,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: options.projectId,
           projectStatus: "unregistered",
-          reason: "Project is not registered."
+          reason: "Project is not registered.",
         };
       }
       if (project.status !== "tracked") {
@@ -1941,7 +2039,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: project.id,
           projectStatus: project.status,
-          reason: "Project reporting is not enabled for this tracking state."
+          reason: "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -1953,14 +2051,14 @@ export class WorkIntelligenceStore {
       to: range.to,
       projectId: project?.id,
       limit: 200,
-      trackedOnly: true
+      trackedOnly: true,
     });
     const previousSessions = this.listSessions({
       from: previousRange.from,
       to: previousRange.to,
       projectId: project?.id,
       limit: 200,
-      trackedOnly: true
+      trackedOnly: true,
     });
     const sessionIds = sessions.map((session) => session.id);
     const previousSessionIds = previousSessions.map((session) => session.id);
@@ -1974,7 +2072,7 @@ export class WorkIntelligenceStore {
              JOIN projects p ON p.id = rs.project_id
              WHERE p.status = 'tracked'
                AND rs.session_id IN (${sessionIds.map(() => "?").join(", ")})
-             ORDER BY rs.captured_at ASC, rs.id ASC`
+             ORDER BY rs.captured_at ASC, rs.id ASC`,
           )
           .all(...sessionIds) as ReportSnapshotSummaryRow[])
       : [];
@@ -1987,7 +2085,7 @@ export class WorkIntelligenceStore {
              JOIN projects p ON p.id = e.project_id
              WHERE p.status = 'tracked'
                AND e.session_id IN (${sessionIds.map(() => "?").join(", ")})
-             ORDER BY e.captured_at ASC, e.id ASC`
+             ORDER BY e.captured_at ASC, e.id ASC`,
           )
           .all(...sessionIds) as ReportAttachedEvidenceRow[])
       : [];
@@ -1996,7 +2094,7 @@ export class WorkIntelligenceStore {
       passed: 0,
       failed: 0,
       not_run: 0,
-      not_supplied: 0
+      not_supplied: 0,
     };
     const projectSummaries = new Map<string, ReportProjectSummary>();
     for (const session of sessions) {
@@ -2012,7 +2110,7 @@ export class WorkIntelligenceStore {
           projectName: session.projectName ?? session.projectId,
           sessionCount: 1,
           eventCount: 0,
-          sourceSessionIds: [session.id]
+          sourceSessionIds: [session.id],
         });
       }
     }
@@ -2026,17 +2124,17 @@ export class WorkIntelligenceStore {
     const currentMetrics = {
       sessions: sessions.length,
       events: eventRows.length,
-      changedFiles: sessions.reduce((total, session) => total + session.changedFiles.length, 0)
+      changedFiles: sessions.reduce((total, session) => total + session.changedFiles.length, 0),
     };
     const previousMetrics = {
       sessions: previousSessions.length,
       events: previousEventRows.length,
-      changedFiles: previousSessions.reduce((total, session) => total + session.changedFiles.length, 0)
+      changedFiles: previousSessions.reduce((total, session) => total + session.changedFiles.length, 0),
     };
     const comparison = {
       sessions: compareReportMetric(currentMetrics.sessions, previousMetrics.sessions),
       events: compareReportMetric(currentMetrics.events, previousMetrics.events),
-      changedFiles: compareReportMetric(currentMetrics.changedFiles, previousMetrics.changedFiles)
+      changedFiles: compareReportMetric(currentMetrics.changedFiles, previousMetrics.changedFiles),
     };
     const periodScope = project ? `專案「${project.name}」` : `${projectSummaries.size} 個記錄中專案`;
     const periodSummary = sessions.length
@@ -2064,7 +2162,7 @@ export class WorkIntelligenceStore {
         kind: "verification",
         label: "Verification 尚未回報",
         detail: `${notSuppliedSessions.length} 個 Session 沒有結構化 verification；不能只根據文件內容推測結果。`,
-        sourceSessionIds: notSuppliedSessions.map((session) => session.id)
+        sourceSessionIds: notSuppliedSessions.map((session) => session.id),
       });
     }
     const notRunSessions = sessions.filter((session) => session.verification?.status === "not_run");
@@ -2073,7 +2171,7 @@ export class WorkIntelligenceStore {
         kind: "verification",
         label: "Verification 明確標示未執行",
         detail: `${notRunSessions.length} 個 Session 由 Agent 明確回報 verification 尚未執行；Agent 應再確認是否能補回 passed 或 failed。`,
-        sourceSessionIds: notRunSessions.map((session) => session.id)
+        sourceSessionIds: notRunSessions.map((session) => session.id),
       });
     }
     const failedSessions = sessions.filter((session) => session.verification?.status === "failed");
@@ -2082,7 +2180,7 @@ export class WorkIntelligenceStore {
         kind: "verification",
         label: "Verification 失敗",
         detail: `${failedSessions.length} 個 Session 回報 failed，請回到來源工作檢查驗證事件。`,
-        sourceSessionIds: failedSessions.map((session) => session.id)
+        sourceSessionIds: failedSessions.map((session) => session.id),
       });
     }
     const missingHandoffSessions = sessions.filter((session) => !snapshotsBySession.has(session.id));
@@ -2091,7 +2189,7 @@ export class WorkIntelligenceStore {
         kind: "metadata",
         label: "Handoff snapshot 未保存",
         detail: `${missingHandoffSessions.length} 個 Session 沒有可追溯的 raw handoff snapshot。`,
-        sourceSessionIds: missingHandoffSessions.map((session) => session.id)
+        sourceSessionIds: missingHandoffSessions.map((session) => session.id),
       });
     }
     const missingChangedFilesSessions = sessions.filter((session) => session.changedFiles.length === 0);
@@ -2100,7 +2198,7 @@ export class WorkIntelligenceStore {
         kind: "metadata",
         label: "變更檔案 metadata 未提供",
         detail: `${missingChangedFilesSessions.length} 個 Session 沒有 changed files metadata；請由 Agent 檢查工作樹後補回，這不代表工作沒有完成。`,
-        sourceSessionIds: missingChangedFilesSessions.map((session) => session.id)
+        sourceSessionIds: missingChangedFilesSessions.map((session) => session.id),
       });
     }
 
@@ -2116,13 +2214,15 @@ export class WorkIntelligenceStore {
       .flatMap((event) => {
         const session = sessionById.get(event.session_id);
         return session
-          ? [{
-              sessionId: session.id,
-              sessionTitle: session.title,
-              projectName: session.projectName,
-              summary: event.summary,
-              occurredAt: event.occurred_at
-            }]
+          ? [
+              {
+                sessionId: session.id,
+                sessionTitle: session.title,
+                projectName: session.projectName,
+                summary: event.summary,
+                occurredAt: event.occurred_at,
+              },
+            ]
           : [];
       });
 
@@ -2140,7 +2240,7 @@ export class WorkIntelligenceStore {
           kind: "handoff",
           label: "Handoff snapshot",
           detail: "Closing handoff 已保存為 raw snapshot。",
-          reference: snapshot.source_path ?? "captured handoff"
+          reference: snapshot.source_path ?? "captured handoff",
         });
       }
       if (session.verification) {
@@ -2150,7 +2250,7 @@ export class WorkIntelligenceStore {
           projectName: session.projectName,
           kind: "verification",
           label: `Verification ${verificationStatusLabel(session.verification.status)}`,
-          detail: session.verification.summary ?? "Agent 提供了 verification 狀態。"
+          detail: session.verification.summary ?? "Agent 提供了 verification 狀態。",
         });
       }
       if (session.changedFiles.length) {
@@ -2161,11 +2261,11 @@ export class WorkIntelligenceStore {
           kind: "changed-files",
           label: "Changed files metadata",
           detail: `記錄 ${session.changedFiles.length} 個檔案變更；不等同 Git commit。`,
-          reference: session.changedFiles.slice(0, 3).join(", ")
+          reference: session.changedFiles.slice(0, 3).join(", "),
         });
       }
       const primaryEvent = (eventsBySession.get(session.id) ?? []).find(
-        (event) => event.type === "verification" || event.type === "note" || event.type === "closing"
+        (event) => event.type === "verification" || event.type === "note" || event.type === "closing",
       );
       if (primaryEvent) {
         evidence.push({
@@ -2175,7 +2275,7 @@ export class WorkIntelligenceStore {
           kind: "event",
           label: `${primaryEvent.type} event`,
           detail: primaryEvent.summary,
-          reference: primaryEvent.id
+          reference: primaryEvent.id,
         });
       }
     }
@@ -2187,7 +2287,7 @@ export class WorkIntelligenceStore {
         kind: "attached",
         label: `Evidence · ${item.kind}`,
         detail: item.summary ?? item.reference,
-        reference: item.reference
+        reference: item.reference,
       });
     }
 
@@ -2203,10 +2303,18 @@ export class WorkIntelligenceStore {
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(query));
     });
-    const evidencePageInfo = createPageInfo(options.evidencePage, options.evidencePageSize, filteredEvidence.length, 100);
+    const evidencePageInfo = createPageInfo(
+      options.evidencePage,
+      options.evidencePageSize,
+      filteredEvidence.length,
+      100,
+    );
     const pageEvidence = options.includeAllEvidence
       ? filteredEvidence
-      : filteredEvidence.slice((evidencePageInfo.page - 1) * evidencePageInfo.pageSize, evidencePageInfo.page * evidencePageInfo.pageSize);
+      : filteredEvidence.slice(
+          (evidencePageInfo.page - 1) * evidencePageInfo.pageSize,
+          evidencePageInfo.page * evidencePageInfo.pageSize,
+        );
 
     return {
       outcome: "report",
@@ -2219,19 +2327,17 @@ export class WorkIntelligenceStore {
       sourceSessionIds: sessionIds,
       sessions,
       completedWork: sessions.slice(0, 6),
-      projects: [...projectSummaries.values()].sort(
-        (left, right) => {
-          if (right.sessionCount !== left.sessionCount) {
-            return right.sessionCount - left.sessionCount;
-          }
-          return left.projectName < right.projectName ? -1 : left.projectName > right.projectName ? 1 : 0;
+      projects: [...projectSummaries.values()].sort((left, right) => {
+        if (right.sessionCount !== left.sessionCount) {
+          return right.sessionCount - left.sessionCount;
         }
-      ),
+        return left.projectName < right.projectName ? -1 : left.projectName > right.projectName ? 1 : 0;
+      }),
       totals: {
         sessions: currentMetrics.sessions,
         events: eventRows.length,
         changedFiles: currentMetrics.changedFiles,
-        verification
+        verification,
       },
       comparison,
       risks,
@@ -2239,7 +2345,7 @@ export class WorkIntelligenceStore {
       trendGranularity,
       trends,
       evidence: pageEvidence,
-      evidencePageInfo
+      evidencePageInfo,
     };
   }
 
@@ -2259,13 +2365,11 @@ export class WorkIntelligenceStore {
     }
 
     const projectSuffix = report.project ? "-" + this.reportBuilder.filenamePart(report.project.name) : "-all-projects";
-    const baseName = "work-report-" + report.period + "-" + report.range.from + "-to-" + report.range.to + projectSuffix;
-    const contentType = options.format === "json"
-      ? "application/json; charset=utf-8"
-      : "text/markdown; charset=utf-8";
-    const content = options.format === "json"
-      ? JSON.stringify(report, null, 2) + "\n"
-      : this.reportBuilder.toMarkdown(report);
+    const baseName =
+      "work-report-" + report.period + "-" + report.range.from + "-to-" + report.range.to + projectSuffix;
+    const contentType = options.format === "json" ? "application/json; charset=utf-8" : "text/markdown; charset=utf-8";
+    const content =
+      options.format === "json" ? JSON.stringify(report, null, 2) + "\n" : this.reportBuilder.toMarkdown(report);
 
     return {
       outcome: "report_export",
@@ -2273,7 +2377,7 @@ export class WorkIntelligenceStore {
       filename: baseName + (options.format === "json" ? ".json" : ".md"),
       contentType,
       content,
-      report
+      report,
     };
   }
 
@@ -2295,7 +2399,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: input.projectId,
           projectStatus: "unregistered",
-          reason: "Project is not registered."
+          reason: "Project is not registered.",
         };
       }
       const decision = this.checkProjectById(project.id);
@@ -2304,7 +2408,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: project.id,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2318,7 +2422,7 @@ export class WorkIntelligenceStore {
       projectId: project?.id,
       evidencePage: 1,
       evidencePageSize: 100,
-      includeAllEvidence: true
+      includeAllEvidence: true,
     });
     if (report.outcome !== "report") {
       return report;
@@ -2332,14 +2436,14 @@ export class WorkIntelligenceStore {
           `SELECT r.*, p.name AS project_name
            FROM report_synthesis_requests r
            LEFT JOIN projects p ON p.id = r.project_id
-           WHERE r.idempotency_key = ?`
+           WHERE r.idempotency_key = ?`,
         )
         .get(idempotencyKey) as ReportSynthesisRequestRow | undefined;
       if (existingRow) {
         return {
           outcome: "report_synthesis_request",
           duplicate: true,
-          request: toReportSynthesisRequest(existingRow)
+          request: toReportSynthesisRequest(existingRow),
         };
       }
 
@@ -2349,7 +2453,7 @@ export class WorkIntelligenceStore {
              id, idempotency_key, scope_type, project_id, period, range_from, range_to,
              status, requested_at, source_session_ids_json
            ) VALUES (@id, @idempotencyKey, @scopeType, @projectId, @period, @rangeFrom, @rangeTo,
-                     'pending', @requestedAt, @sourceSessionIds)`
+                     'pending', @requestedAt, @sourceSessionIds)`,
         )
         .run({
           id,
@@ -2360,7 +2464,7 @@ export class WorkIntelligenceStore {
           rangeFrom: range.from,
           rangeTo: range.to,
           requestedAt,
-          sourceSessionIds: JSON.stringify(report.sourceSessionIds)
+          sourceSessionIds: JSON.stringify(report.sourceSessionIds),
         });
 
       const row = this.db
@@ -2368,7 +2472,7 @@ export class WorkIntelligenceStore {
           `SELECT r.*, p.name AS project_name
            FROM report_synthesis_requests r
            LEFT JOIN projects p ON p.id = r.project_id
-           WHERE r.id = ?`
+           WHERE r.id = ?`,
         )
         .get(id) as ReportSynthesisRequestRow | undefined;
       if (!row) {
@@ -2377,7 +2481,7 @@ export class WorkIntelligenceStore {
       return {
         outcome: "report_synthesis_request",
         duplicate: false,
-        request: toReportSynthesisRequest(row)
+        request: toReportSynthesisRequest(row),
       };
     });
   }
@@ -2391,7 +2495,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: options.projectId,
           projectStatus: "unregistered",
-          reason: "Project is not registered."
+          reason: "Project is not registered.",
         };
       }
       const decision = this.checkProjectById(project.id);
@@ -2400,7 +2504,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: project.id,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2436,12 +2540,12 @@ export class WorkIntelligenceStore {
          LEFT JOIN projects p ON p.id = r.project_id
          WHERE ${clauses.join(" AND ")}
          ORDER BY r.requested_at DESC, r.id DESC
-         LIMIT ?`
+         LIMIT ?`,
       )
       .all(...parameters, limit) as ReportSynthesisRequestRow[];
     return {
       outcome: "report_synthesis_requests",
-      requests: rows.map(toReportSynthesisRequest)
+      requests: rows.map(toReportSynthesisRequest),
     };
   }
 
@@ -2452,7 +2556,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM report_synthesis_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(requestId) as ReportSynthesisRequestRow | undefined;
     if (!row) {
@@ -2465,7 +2569,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2476,12 +2580,12 @@ export class WorkIntelligenceStore {
          LEFT JOIN projects p ON p.id = s.project_id
          WHERE s.request_id = ? AND s.is_current = 1
          ORDER BY s.created_at DESC, s.id DESC
-         LIMIT 1`
+         LIMIT 1`,
       )
       .get(requestId) as ReportSummaryRow | undefined;
     const result: ReportSynthesisRequestDetailResult = {
       outcome: "report_synthesis_request_detail",
-      request: toReportSynthesisRequest(row)
+      request: toReportSynthesisRequest(row),
     };
     if (summaryRow) {
       result.summary = toReportSummary(summaryRow);
@@ -2496,7 +2600,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM report_synthesis_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(requestId) as ReportSynthesisRequestRow | undefined;
     if (!row) {
@@ -2510,7 +2614,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2521,9 +2625,10 @@ export class WorkIntelligenceStore {
         outcome: "report_synthesis_retry_rejected",
         requestId,
         status: request.status,
-        reason: request.status === "processing"
-          ? "The report synthesis request is still processing. Wait for the timeout recovery or let the Agent finish before retrying."
-          : "Only failed or cancelled report synthesis requests can be retried."
+        reason:
+          request.status === "processing"
+            ? "The report synthesis request is still processing. Wait for the timeout recovery or let the Agent finish before retrying."
+            : "Only failed or cancelled report synthesis requests can be retried.",
       };
     }
 
@@ -2536,7 +2641,7 @@ export class WorkIntelligenceStore {
         .prepare(
           `UPDATE report_synthesis_requests
            SET status = 'cancelled', failure_reason = ?
-           WHERE id = ? AND status IN ('failed', 'cancelled')`
+           WHERE id = ? AND status IN ('failed', 'cancelled')`,
         )
         .run(`Superseded by retry request ${nextRequestId}.`, request.id);
       this.db
@@ -2545,7 +2650,7 @@ export class WorkIntelligenceStore {
              id, idempotency_key, scope_type, project_id, period, range_from, range_to,
              status, requested_at, source_session_ids_json
            ) VALUES (@id, @idempotencyKey, @scopeType, @projectId, @period, @rangeFrom, @rangeTo,
-                     'pending', @requestedAt, @sourceSessionIds)`
+                     'pending', @requestedAt, @sourceSessionIds)`,
         )
         .run({
           id: nextRequestId,
@@ -2556,14 +2661,14 @@ export class WorkIntelligenceStore {
           rangeFrom: request.range.from,
           rangeTo: request.range.to,
           requestedAt,
-          sourceSessionIds: JSON.stringify(request.sourceSessionIds)
+          sourceSessionIds: JSON.stringify(request.sourceSessionIds),
         });
       const nextRow = this.db
         .prepare(
           `SELECT r.*, p.name AS project_name
            FROM report_synthesis_requests r
            LEFT JOIN projects p ON p.id = r.project_id
-           WHERE r.id = ?`
+           WHERE r.id = ?`,
         )
         .get(nextRequestId) as ReportSynthesisRequestRow | undefined;
       if (!nextRow) {
@@ -2573,7 +2678,7 @@ export class WorkIntelligenceStore {
       return {
         outcome: "report_synthesis_request_retried",
         previousRequestId: request.id,
-        request: toReportSynthesisRequest(nextRow)
+        request: toReportSynthesisRequest(nextRow),
       };
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -2588,7 +2693,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM report_synthesis_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(requestId) as ReportSynthesisRequestRow | undefined;
     if (!row) {
@@ -2602,7 +2707,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2616,7 +2721,7 @@ export class WorkIntelligenceStore {
         outcome: "report_synthesis_cancel_rejected",
         requestId,
         status: request.status,
-        reason: "只有等待 Agent 處理或 Agent 處理中的報告提煉可以取消。"
+        reason: "只有等待 Agent 處理或 Agent 處理中的報告提煉可以取消。",
       };
     }
 
@@ -2624,7 +2729,7 @@ export class WorkIntelligenceStore {
       .prepare(
         `UPDATE report_synthesis_requests
          SET status = 'cancelled', failure_reason = ?, completed_at = NULL
-         WHERE id = ? AND status IN ('pending', 'processing')`
+         WHERE id = ? AND status IN ('pending', 'processing')`,
       )
       .run("使用者取消這次報告提煉；既有摘要與歷史版本保留。", requestId);
     const nextRow = this.db
@@ -2632,7 +2737,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM report_synthesis_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(requestId) as ReportSynthesisRequestRow | undefined;
     if (!nextRow) {
@@ -2644,7 +2749,7 @@ export class WorkIntelligenceStore {
         outcome: "report_synthesis_cancel_rejected",
         requestId,
         status: nextRequest.status,
-        reason: "這次報告提煉已在取消前被其他流程更新，請重新整理狀態。"
+        reason: "這次報告提煉已在取消前被其他流程更新，請重新整理狀態。",
       };
     }
     return { outcome: "report_synthesis_request_cancelled", duplicate: false, request: nextRequest };
@@ -2657,7 +2762,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM report_synthesis_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(options.requestId) as ReportSynthesisRequestRow | undefined;
     if (!row) {
@@ -2671,7 +2776,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2681,13 +2786,15 @@ export class WorkIntelligenceStore {
       return {
         outcome: "report_synthesis_request_not_ready",
         request,
-        reason: "這次報告提煉已取消；請建立新的提煉請求後再取得報告 Context。"
+        reason: "這次報告提煉已取消；請建立新的提煉請求後再取得報告 Context。",
       };
     }
     if (request.status === "pending") {
       const startedAt = nowIso();
       this.db
-        .prepare("UPDATE report_synthesis_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'")
+        .prepare(
+          "UPDATE report_synthesis_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'",
+        )
         .run(startedAt, request.id);
       request.status = "processing";
       request.startedAt = startedAt;
@@ -2699,7 +2806,7 @@ export class WorkIntelligenceStore {
       date: request.range.from,
       projectId: request.projectId,
       evidencePage: 1,
-      evidencePageSize: maxEvidence
+      evidencePageSize: maxEvidence,
     });
     if (reportResult.outcome !== "report") {
       return reportResult;
@@ -2719,7 +2826,7 @@ export class WorkIntelligenceStore {
              JOIN projects p ON p.id = rs.project_id
              WHERE p.status = 'tracked'
                AND rs.session_id IN (${[...selectedSessionIds].map(() => "?").join(", ")})
-             ORDER BY rs.captured_at ASC, rs.id ASC`
+             ORDER BY rs.captured_at ASC, rs.id ASC`,
           )
           .all(...selectedSessionIds) as Array<SnapshotRow & { session_title: string; project_name: string }>)
       : [];
@@ -2731,25 +2838,29 @@ export class WorkIntelligenceStore {
       }
       const content = snapshot.content.slice(0, remainingCharacters);
       remainingCharacters -= content.length;
-      return [{
-        sessionId: snapshot.session_id,
-        sessionTitle: snapshot.session_title,
-        projectName: snapshot.project_name,
-        ...(snapshot.source_path ? { sourcePath: snapshot.source_path } : {}),
-        content
-      }];
+      return [
+        {
+          sessionId: snapshot.session_id,
+          sessionTitle: snapshot.session_title,
+          projectName: snapshot.project_name,
+          ...(snapshot.source_path ? { sourcePath: snapshot.source_path } : {}),
+          content,
+        },
+      ];
     });
     const totalHandoffCharacters = selectedSessionIds.size
       ? Number(
-          (this.db
-            .prepare(
-              `SELECT COALESCE(SUM(LENGTH(rs.content)), 0) AS total
+          (
+            this.db
+              .prepare(
+                `SELECT COALESCE(SUM(LENGTH(rs.content)), 0) AS total
                FROM raw_snapshots rs
                JOIN projects p ON p.id = rs.project_id
                WHERE p.status = 'tracked'
-                 AND rs.session_id IN (${[...selectedSessionIds].map(() => "?").join(", ")})`
-            )
-            .get(...selectedSessionIds) as { total: number }).total
+                 AND rs.session_id IN (${[...selectedSessionIds].map(() => "?").join(", ")})`,
+              )
+              .get(...selectedSessionIds) as { total: number }
+          ).total,
         )
       : 0;
     const contextEvidence = reportResult.evidence.filter((item) => selectedSessionIds.has(item.sessionId));
@@ -2760,7 +2871,7 @@ export class WorkIntelligenceStore {
       sessions,
       completedWork: sessions.slice(0, 6),
       evidence: contextEvidence,
-      evidencePageInfo: createPageInfo(1, Math.max(contextEvidence.length, 1), contextEvidence.length, 100)
+      evidencePageInfo: createPageInfo(1, Math.max(contextEvidence.length, 1), contextEvidence.length, 100),
     };
     const context: ReportSynthesisContextResult = {
       outcome: "report_context",
@@ -2772,8 +2883,8 @@ export class WorkIntelligenceStore {
       truncation: {
         sessions: availableSessions.length > sessions.length,
         evidence: reportResult.evidencePageInfo.total > contextEvidence.length,
-        handoffCharacters: totalHandoffCharacters > maxHandoffCharacters
-      }
+        handoffCharacters: totalHandoffCharacters > maxHandoffCharacters,
+      },
     };
     return context;
   }
@@ -2785,7 +2896,7 @@ export class WorkIntelligenceStore {
         `SELECT r.*, p.name AS project_name
          FROM report_synthesis_requests r
          LEFT JOIN projects p ON p.id = r.project_id
-         WHERE r.id = ?`
+         WHERE r.id = ?`,
       )
       .get(input.requestId) as ReportSynthesisRequestRow | undefined;
     if (!row) {
@@ -2799,7 +2910,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2811,7 +2922,7 @@ export class WorkIntelligenceStore {
          LEFT JOIN projects p ON p.id = s.project_id
          WHERE s.request_id = ? AND s.is_current = 1
          ORDER BY s.created_at DESC, s.id DESC
-         LIMIT 1`
+         LIMIT 1`,
       )
       .get(input.requestId) as ReportSummaryRow | undefined;
     if (existingRow && row.status === "completed") {
@@ -2823,9 +2934,10 @@ export class WorkIntelligenceStore {
         outcome: "report_summary_request_not_ready",
         requestId: row.id,
         status: row.status,
-        reason: row.status === "failed"
-          ? "The report synthesis request failed or timed out. Retry the request before saving a summary."
-          : "The report synthesis request was superseded by a retry and can no longer accept a summary."
+        reason:
+          row.status === "failed"
+            ? "The report synthesis request failed or timed out. Retry the request before saving a summary."
+            : "The report synthesis request was superseded by a retry and can no longer accept a summary.",
       };
       return result;
     }
@@ -2844,7 +2956,7 @@ export class WorkIntelligenceStore {
            FROM sessions s
            JOIN projects p ON p.id = s.project_id
            WHERE p.status = 'tracked'
-             AND s.id IN (${sourceSessionIds.map(() => "?").join(", ")})`
+             AND s.id IN (${sourceSessionIds.map(() => "?").join(", ")})`,
         )
         .get(...sourceSessionIds) as { count: number };
       if (trackedCount.count !== sourceSessionIds.length) {
@@ -2873,7 +2985,7 @@ export class WorkIntelligenceStore {
       ...(input.generatedByModel?.trim() ? { generatedByModel: input.generatedByModel.trim() } : {}),
       promptVersion: input.promptVersion.trim(),
       createdAt: nowIso(),
-      isCurrent: true
+      isCurrent: true,
     };
 
     this.db.exec("BEGIN");
@@ -2883,9 +2995,15 @@ export class WorkIntelligenceStore {
           `UPDATE report_summaries
            SET is_current = 0
            WHERE period = ? AND range_from = ? AND range_to = ?
-             AND (project_id = ? OR (project_id IS NULL AND ? IS NULL))`
+             AND (project_id = ? OR (project_id IS NULL AND ? IS NULL))`,
         )
-        .run(request.period, request.range.from, request.range.to, request.projectId ?? null, request.projectId ?? null);
+        .run(
+          request.period,
+          request.range.from,
+          request.range.to,
+          request.projectId ?? null,
+          request.projectId ?? null,
+        );
       this.db
         .prepare(
           `INSERT INTO report_summaries (
@@ -2897,7 +3015,7 @@ export class WorkIntelligenceStore {
              @id, @requestId, @period, @rangeFrom, @rangeTo, @projectId, @title, @executiveSummary,
              @themes, @highlights, @verification, @comparison, @risks, @decisions, @nextSteps, @sourceSessionIds,
              @generatedByAgent, @generatedByModel, @promptVersion, @createdAt, 1
-           )`
+           )`,
         )
         .run({
           id: summary.id,
@@ -2919,10 +3037,12 @@ export class WorkIntelligenceStore {
           generatedByAgent: summary.generatedByAgent,
           generatedByModel: summary.generatedByModel ?? null,
           promptVersion: summary.promptVersion,
-          createdAt: summary.createdAt
+          createdAt: summary.createdAt,
         });
       this.db
-        .prepare("UPDATE report_synthesis_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?")
+        .prepare(
+          "UPDATE report_synthesis_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?",
+        )
         .run(summary.createdAt, request.id);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -2941,7 +3061,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: options.projectId,
           projectStatus: "unregistered",
-          reason: "Project is not registered."
+          reason: "Project is not registered.",
         };
       }
       const decision = this.checkProjectById(project.id);
@@ -2950,7 +3070,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: project.id,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -2985,7 +3105,7 @@ export class WorkIntelligenceStore {
          LEFT JOIN projects p ON p.id = s.project_id
          WHERE ${clauses.join(" AND ")}
          ORDER BY s.created_at DESC, s.id DESC
-         LIMIT ?`
+         LIMIT ?`,
       )
       .all(...parameters, limit) as ReportSummaryRow[];
     const result: ReportSummaryListResult = { outcome: "report_summaries", summaries: rows.map(toReportSummary) };
@@ -2998,7 +3118,7 @@ export class WorkIntelligenceStore {
         `SELECT s.*, p.name AS project_name
          FROM report_summaries s
          LEFT JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`
+         WHERE s.id = ?`,
       )
       .get(summaryId) as ReportSummaryRow | undefined;
     if (!row) {
@@ -3012,7 +3132,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectId: row.project_id,
           projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state."
+          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
         };
       }
     }
@@ -3021,7 +3141,7 @@ export class WorkIntelligenceStore {
       return {
         outcome: "report_summary_delete_rejected",
         summaryId,
-        reason: "目前使用中的報告版本不能移除；請保留至少一個目前版本。"
+        reason: "目前使用中的報告版本不能移除；請保留至少一個目前版本。",
       };
     }
 
@@ -3042,7 +3162,7 @@ export class WorkIntelligenceStore {
          JOIN projects p ON p.id = s.project_id
          WHERE p.status = 'tracked'
            AND e.session_id IN (${sessionIds.map(() => "?").join(", ")})
-         ORDER BY e.occurred_at ASC, e.id ASC`
+         ORDER BY e.occurred_at ASC, e.id ASC`,
       )
       .all(...sessionIds) as ReportEventRow[];
   }
@@ -3063,7 +3183,10 @@ export class WorkIntelligenceStore {
     return this.sessions.getById(sessionId);
   }
 
-  public updateSessionVerification(sessionId: string, verification: VerificationSummary): UpdateSessionVerificationResult {
+  public updateSessionVerification(
+    sessionId: string,
+    verification: VerificationSummary,
+  ): UpdateSessionVerificationResult {
     const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as SessionRow | undefined;
     if (!row) {
       return { outcome: "not_found", sessionId };
@@ -3075,7 +3198,7 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         sessionId,
         projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled."
+        reason: decision?.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -3087,7 +3210,7 @@ export class WorkIntelligenceStore {
         .prepare(
           `UPDATE sessions
            SET verification_json = ?
-           WHERE id = ?`
+           WHERE id = ?`,
         )
         .run(JSON.stringify(verification), sessionId);
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
@@ -3112,7 +3235,7 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         sessionId: input.sessionId,
         projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled."
+        reason: decision?.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -3122,27 +3245,29 @@ export class WorkIntelligenceStore {
     const incomingChangedFileChanges = normalizeChangedFileChanges(
       project.rootPath,
       input.changedFileChanges,
-      pathResolver
+      pathResolver,
     );
-    const normalizedChangedFiles = input.changedFilesMode === "merge"
-      ? mergeChangedFiles(
-        project.rootPath,
-        current,
-        [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
-        input.changedFilesProvenance,
-        pathResolver
-      )
-      : normalizeChangedFiles(
-        project.rootPath,
-        [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
-        input.changedFilesProvenance,
-        pathResolver
-      );
-    const changedFileChanges = input.changedFilesMode === "merge"
-      ? mergeChangedFileChanges(project.rootPath, current, incomingChangedFileChanges, pathResolver)
-      : input.changedFileChanges === undefined
-        ? current.changedFileChanges
-        : incomingChangedFileChanges;
+    const normalizedChangedFiles =
+      input.changedFilesMode === "merge"
+        ? mergeChangedFiles(
+            project.rootPath,
+            current,
+            [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
+            input.changedFilesProvenance,
+            pathResolver,
+          )
+        : normalizeChangedFiles(
+            project.rootPath,
+            [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
+            input.changedFilesProvenance,
+            pathResolver,
+          );
+    const changedFileChanges =
+      input.changedFilesMode === "merge"
+        ? mergeChangedFileChanges(project.rootPath, current, incomingChangedFileChanges, pathResolver)
+        : input.changedFileChanges === undefined
+          ? current.changedFileChanges
+          : incomingChangedFileChanges;
     const updatedAt = nowIso();
     this.runImmediateTransaction(() => {
       this.db
@@ -3154,16 +3279,20 @@ export class WorkIntelligenceStore {
                verification_json = @verification,
                commit_sha = @commitSha,
                git_branch = @gitBranch
-           WHERE id = @id`
+           WHERE id = @id`,
         )
         .run({
           id: input.sessionId,
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(changedFileChanges),
-          verification: input.verification ? JSON.stringify(input.verification) : current.verification ? JSON.stringify(current.verification) : null,
+          verification: input.verification
+            ? JSON.stringify(input.verification)
+            : current.verification
+              ? JSON.stringify(current.verification)
+              : null,
           commitSha: input.git?.commitSha ?? current.commitSha ?? null,
-          gitBranch: input.git?.branch ?? current.gitBranch ?? null
+          gitBranch: input.git?.branch ?? current.gitBranch ?? null,
         });
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
     });
@@ -3181,7 +3310,7 @@ export class WorkIntelligenceStore {
         `SELECT s.*, p.name AS project_name
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`
+         WHERE s.id = ?`,
       )
       .get(input.sessionId) as SessionRow | undefined;
     if (!row) {
@@ -3194,7 +3323,7 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         sessionId: input.sessionId,
         projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled."
+        reason: decision?.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -3207,15 +3336,19 @@ export class WorkIntelligenceStore {
 
     return this.runImmediateTransaction(() => {
       const existingUpdate = this.db
-        .prepare("SELECT session_id, idempotency_key, mode, summary, previous_summary, resulting_summary FROM session_summary_updates WHERE idempotency_key = ?")
-        .get(input.idempotencyKey) as {
-          session_id: string;
-          idempotency_key: string;
-          mode: "replace" | "append";
-          summary: string;
-          previous_summary: string;
-          resulting_summary: string;
-        } | undefined;
+        .prepare(
+          "SELECT session_id, idempotency_key, mode, summary, previous_summary, resulting_summary FROM session_summary_updates WHERE idempotency_key = ?",
+        )
+        .get(input.idempotencyKey) as
+        | {
+            session_id: string;
+            idempotency_key: string;
+            mode: "replace" | "append";
+            summary: string;
+            previous_summary: string;
+            resulting_summary: string;
+          }
+        | undefined;
       if (existingUpdate) {
         if (
           existingUpdate.session_id !== input.sessionId ||
@@ -3226,7 +3359,7 @@ export class WorkIntelligenceStore {
             outcome: "summary_update_idempotency_conflict",
             sessionId: input.sessionId,
             idempotencyKey: input.idempotencyKey,
-            reason: "這個摘要更新 idempotencyKey 已經用於不同的 Session、模式或內容；請使用新的 idempotencyKey。"
+            reason: "這個摘要更新 idempotencyKey 已經用於不同的 Session、模式或內容；請使用新的 idempotencyKey。",
           };
         }
 
@@ -3241,27 +3374,24 @@ export class WorkIntelligenceStore {
           idempotencyKey: input.idempotencyKey,
           mode,
           previousSummary: existingUpdate.previous_summary,
-          appliedSummary: existingUpdate.resulting_summary
+          appliedSummary: existingUpdate.resulting_summary,
         };
       }
 
-      const currentRow = this.db.prepare("SELECT summary FROM sessions WHERE id = ?").get(input.sessionId) as { summary?: string } | undefined;
+      const currentRow = this.db.prepare("SELECT summary FROM sessions WHERE id = ?").get(input.sessionId) as
+        { summary?: string } | undefined;
       if (!currentRow) {
         return { outcome: "not_found", sessionId: input.sessionId };
       }
       const previousSummary = currentRow.summary ?? "";
-      const appliedSummary = mode === "append"
-        ? `${previousSummary.trim()}\n\n${summary}`
-        : summary;
+      const appliedSummary = mode === "append" ? `${previousSummary.trim()}\n\n${summary}` : summary;
       const createdAt = nowIso();
-      this.db
-        .prepare("UPDATE sessions SET summary = ? WHERE id = ?")
-        .run(appliedSummary, input.sessionId);
+      this.db.prepare("UPDATE sessions SET summary = ? WHERE id = ?").run(appliedSummary, input.sessionId);
       this.db
         .prepare(
           `INSERT INTO session_summary_updates (
              id, session_id, idempotency_key, mode, summary, previous_summary, resulting_summary, created_at
-           ) VALUES (@id, @sessionId, @idempotencyKey, @mode, @summary, @previousSummary, @resultingSummary, @createdAt)`
+           ) VALUES (@id, @sessionId, @idempotencyKey, @mode, @summary, @previousSummary, @resultingSummary, @createdAt)`,
         )
         .run({
           id: randomUUID(),
@@ -3271,7 +3401,7 @@ export class WorkIntelligenceStore {
           summary,
           previousSummary,
           resultingSummary: appliedSummary,
-          createdAt
+          createdAt,
         });
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(createdAt, project.id);
 
@@ -3286,7 +3416,139 @@ export class WorkIntelligenceStore {
         idempotencyKey: input.idempotencyKey,
         mode,
         previousSummary,
-        appliedSummary
+        appliedSummary,
+      };
+    });
+  }
+
+  public updateSessionWorkSummary(input: UpdateSessionWorkSummaryInput): UpdateSessionWorkSummaryResult {
+    const row = this.db
+      .prepare(
+        `SELECT s.*, p.name AS project_name
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         WHERE s.id = ?`,
+      )
+      .get(input.sessionId) as SessionRow | undefined;
+    if (!row) {
+      return { outcome: "not_found", sessionId: input.sessionId };
+    }
+
+    const decision = this.checkProjectById(row.project_id);
+    if (!decision?.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        sessionId: input.sessionId,
+        projectStatus: decision?.projectStatus ?? "unregistered",
+        reason: decision?.reason ?? "Project recording is not enabled.",
+      };
+    }
+
+    const mode = input.mode ?? "replace";
+    const normalizedPatch = normalizeWorkSummaryPatch(input.workSummary);
+    if (Object.keys(normalizedPatch).length === 0) {
+      throw new Error("At least one workSummary section is required.");
+    }
+    const replacement = mode === "replace" ? completeWorkSummary(normalizedPatch) : undefined;
+    if (mode === "replace" && !replacement) {
+      throw new Error("replace mode requires all five workSummary sections.");
+    }
+    const requestJson = JSON.stringify(normalizedPatch);
+    const project = decision.project;
+
+    return this.runImmediateTransaction(() => {
+      const existingUpdate = this.db
+        .prepare(
+          `SELECT session_id, idempotency_key, mode, work_summary_json, previous_work_summary_json, resulting_work_summary_json
+           FROM session_work_summary_updates
+           WHERE idempotency_key = ?`,
+        )
+        .get(input.idempotencyKey) as
+        | {
+            session_id: string;
+            idempotency_key: string;
+            mode: "replace" | "patch";
+            work_summary_json: string;
+            previous_work_summary_json: string;
+            resulting_work_summary_json: string;
+          }
+        | undefined;
+      if (existingUpdate) {
+        if (
+          existingUpdate.session_id !== input.sessionId ||
+          existingUpdate.mode !== mode ||
+          existingUpdate.work_summary_json !== requestJson
+        ) {
+          return {
+            outcome: "work_summary_update_idempotency_conflict",
+            sessionId: input.sessionId,
+            idempotencyKey: input.idempotencyKey,
+            reason:
+              "這個 workSummary 更新 idempotencyKey 已經用於不同的 Session、模式或內容；請使用新的 idempotencyKey。",
+          };
+        }
+
+        const session = this.getSessionById(input.sessionId);
+        const appliedWorkSummary = parseWorkSummarySections(existingUpdate.resulting_work_summary_json);
+        if (!session || !appliedWorkSummary) {
+          return { outcome: "not_found", sessionId: input.sessionId };
+        }
+        const previousWorkSummary = parseWorkSummarySections(existingUpdate.previous_work_summary_json);
+        return {
+          outcome: "work_summary_updated",
+          duplicate: true,
+          session,
+          idempotencyKey: input.idempotencyKey,
+          mode,
+          ...(previousWorkSummary ? { previousWorkSummary } : {}),
+          appliedWorkSummary,
+        };
+      }
+
+      const currentRow = this.db.prepare("SELECT work_summary_json FROM sessions WHERE id = ?").get(input.sessionId) as
+        | {
+            work_summary_json?: string | null;
+          }
+        | undefined;
+      if (!currentRow) {
+        return { outcome: "not_found", sessionId: input.sessionId };
+      }
+      const previousWorkSummary = parseWorkSummarySections(currentRow.work_summary_json ?? null);
+      const appliedWorkSummary = replacement ?? mergeWorkSummary(previousWorkSummary, normalizedPatch);
+      const createdAt = nowIso();
+      this.db
+        .prepare("UPDATE sessions SET work_summary_json = ? WHERE id = ?")
+        .run(JSON.stringify(appliedWorkSummary), input.sessionId);
+      this.db
+        .prepare(
+          `INSERT INTO session_work_summary_updates (
+             id, session_id, idempotency_key, mode, work_summary_json, previous_work_summary_json, resulting_work_summary_json, created_at
+           ) VALUES (@id, @sessionId, @idempotencyKey, @mode, @workSummary, @previousWorkSummary, @resultingWorkSummary, @createdAt)`,
+        )
+        .run({
+          id: randomUUID(),
+          sessionId: input.sessionId,
+          idempotencyKey: input.idempotencyKey,
+          mode,
+          workSummary: requestJson,
+          previousWorkSummary: JSON.stringify(previousWorkSummary ?? {}),
+          resultingWorkSummary: JSON.stringify(appliedWorkSummary),
+          createdAt,
+        });
+      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(createdAt, project.id);
+
+      const session = this.getSessionById(input.sessionId);
+      if (!session) {
+        throw new Error("Session workSummary was updated but could not be loaded.");
+      }
+      return {
+        outcome: "work_summary_updated",
+        duplicate: false,
+        session,
+        idempotencyKey: input.idempotencyKey,
+        mode,
+        ...(previousWorkSummary ? { previousWorkSummary } : {}),
+        appliedWorkSummary,
       };
     });
   }
@@ -3297,7 +3559,7 @@ export class WorkIntelligenceStore {
         `SELECT s.*, p.name AS project_name
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`
+         WHERE s.id = ?`,
       )
       .get(sessionId) as SessionRow | undefined;
     if (!row) {
@@ -3324,7 +3586,7 @@ export class WorkIntelligenceStore {
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
          WHERE k.session_id = ?
-         ORDER BY k.updated_at DESC, k.id ASC`
+         ORDER BY k.updated_at DESC, k.id ASC`,
       )
       .all(sessionId) as KnowledgeRow[];
 
@@ -3334,7 +3596,7 @@ export class WorkIntelligenceStore {
       events: events.map(toEvent),
       rawSnapshots: snapshots.map(toSnapshot),
       evidence: evidence.map(toEvidence),
-      knowledge: knowledge.map(toKnowledge)
+      knowledge: knowledge.map(toKnowledge),
     };
   }
 
@@ -3345,16 +3607,15 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         projectRoot: decision.canonicalRoot,
         projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled."
+        reason: decision.reason ?? "Project recording is not enabled.",
       };
     }
 
     const project = decision.project;
     return this.runImmediateTransaction(() => {
       if (input.sessionId) {
-        const session = this.db
-          .prepare("SELECT project_id FROM sessions WHERE id = ?")
-          .get(input.sessionId) as { project_id?: string } | undefined;
+        const session = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
+          { project_id?: string } | undefined;
         if (!session || session.project_id !== project.id) {
           return { outcome: "not_found", sessionId: input.sessionId };
         }
@@ -3365,7 +3626,7 @@ export class WorkIntelligenceStore {
           `SELECT k.*, p.name AS project_name
            FROM knowledge k
            JOIN projects p ON p.id = k.project_id
-           WHERE k.project_id = ? AND k.idempotency_key = ?`
+           WHERE k.project_id = ? AND k.idempotency_key = ?`,
         )
         .get(project.id, input.idempotencyKey) as KnowledgeRow | undefined;
       if (existing) {
@@ -3386,7 +3647,7 @@ export class WorkIntelligenceStore {
         references: [...new Set((input.references ?? []).map((reference) => reference.trim()).filter(Boolean))],
         status: "active",
         createdAt,
-        updatedAt: createdAt
+        updatedAt: createdAt,
       };
 
       this.db
@@ -3397,7 +3658,7 @@ export class WorkIntelligenceStore {
            ) VALUES (
              @id, @projectId, @sessionId, @idempotencyKey, @kind, @title, @body,
              @tags, @references, @status, @createdAt, @updatedAt
-           )`
+           )`,
         )
         .run({
           id: knowledge.id,
@@ -3411,14 +3672,14 @@ export class WorkIntelligenceStore {
           references: JSON.stringify(knowledge.references),
           status: knowledge.status,
           createdAt: knowledge.createdAt,
-          updatedAt: knowledge.updatedAt
+          updatedAt: knowledge.updatedAt,
         });
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(createdAt, project.id);
       this.insertKnowledgeAudit({
         knowledge,
         action: "created",
         changedFields: ["kind", "title", "body", "tags", "references", "status"],
-        occurredAt: createdAt
+        occurredAt: createdAt,
       });
 
       return { outcome: "knowledge_recorded", duplicate: false, knowledge };
@@ -3432,7 +3693,7 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         projectRoot: decision.canonicalRoot,
         projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled."
+        reason: decision.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -3441,7 +3702,7 @@ export class WorkIntelligenceStore {
         `SELECT k.*, p.name AS project_name
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
-         WHERE k.id = ? AND k.project_id = ?`
+         WHERE k.id = ? AND k.project_id = ?`,
       )
       .get(input.knowledgeId, decision.project.id) as KnowledgeRow | undefined;
     if (!row) {
@@ -3455,14 +3716,12 @@ export class WorkIntelligenceStore {
       kind: input.kind ?? current.kind,
       title: input.title?.trim() || current.title,
       body: input.body?.trim() || current.body,
-      tags: input.tags
-        ? [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))]
-        : current.tags,
+      tags: input.tags ? [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))] : current.tags,
       references: input.references
         ? [...new Set(input.references.map((reference) => reference.trim()).filter(Boolean))]
         : current.references,
       status: input.status ?? current.status,
-      updatedAt
+      updatedAt,
     };
     const changedFields = [
       ...(current.kind !== next.kind ? ["kind"] : []),
@@ -3470,14 +3729,10 @@ export class WorkIntelligenceStore {
       ...(current.body !== next.body ? ["body"] : []),
       ...(JSON.stringify(current.tags) !== JSON.stringify(next.tags) ? ["tags"] : []),
       ...(JSON.stringify(current.references) !== JSON.stringify(next.references) ? ["references"] : []),
-      ...(current.status !== next.status ? ["status"] : [])
+      ...(current.status !== next.status ? ["status"] : []),
     ];
     const action: KnowledgeAuditAction =
-      current.status !== next.status
-        ? next.status === "archived"
-          ? "archived"
-          : "restored"
-        : "updated";
+      current.status !== next.status ? (next.status === "archived" ? "archived" : "restored") : "updated";
 
     this.db
       .prepare(
@@ -3489,7 +3744,7 @@ export class WorkIntelligenceStore {
              references_json = @references,
              status = @status,
              updated_at = @updatedAt
-         WHERE id = @id AND project_id = @projectId`
+         WHERE id = @id AND project_id = @projectId`,
       )
       .run({
         id: next.id,
@@ -3500,7 +3755,7 @@ export class WorkIntelligenceStore {
         tags: JSON.stringify(next.tags),
         references: JSON.stringify(next.references),
         status: next.status,
-        updatedAt: next.updatedAt
+        updatedAt: next.updatedAt,
       });
     this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, decision.project.id);
     this.insertKnowledgeAudit({ knowledge: next, before: current, action, changedFields, occurredAt: updatedAt });
@@ -3516,7 +3771,7 @@ export class WorkIntelligenceStore {
         knowledgeId: input.knowledgeId,
         projectRoot: decision.canonicalRoot,
         projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled."
+        reason: decision.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -3525,7 +3780,7 @@ export class WorkIntelligenceStore {
         `SELECT k.*, p.name AS project_name
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
-         WHERE k.id = ? AND k.project_id = ?`
+         WHERE k.id = ? AND k.project_id = ?`,
       )
       .get(input.knowledgeId, decision.project.id) as KnowledgeRow | undefined;
     if (!row) {
@@ -3539,7 +3794,7 @@ export class WorkIntelligenceStore {
          FROM knowledge_audit
          WHERE knowledge_id = ? AND project_id = ?
          ORDER BY occurred_at DESC, rowid DESC
-         LIMIT ?`
+         LIMIT ?`,
       )
       .all(input.knowledgeId, decision.project.id, limit) as KnowledgeAuditRow[];
 
@@ -3547,7 +3802,7 @@ export class WorkIntelligenceStore {
       outcome: "knowledge_history",
       project: decision.project,
       knowledge: toKnowledge(row),
-      history: auditRows.map(toKnowledgeAudit)
+      history: auditRows.map(toKnowledgeAudit),
     };
   }
 
@@ -3559,14 +3814,13 @@ export class WorkIntelligenceStore {
     return this.graphBuilder.build(options);
   }
 
-
   public attachEvidence(input: AttachEvidenceInput): AttachEvidenceResult {
     const row = this.db
       .prepare(
         `SELECT s.*, p.name AS project_name
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`
+         WHERE s.id = ?`,
       )
       .get(input.sessionId) as SessionRow | undefined;
     if (!row) {
@@ -3579,7 +3833,7 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         sessionId: input.sessionId,
         projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled."
+        reason: decision?.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -3601,12 +3855,12 @@ export class WorkIntelligenceStore {
         kind,
         reference,
         summary: input.summary?.trim() || undefined,
-        capturedAt: nowIso()
+        capturedAt: nowIso(),
       };
       this.db
         .prepare(
           `INSERT INTO evidence (id, session_id, project_id, kind, reference, summary, captured_at)
-           VALUES (@id, @sessionId, @projectId, @kind, @reference, @summary, @capturedAt)`
+           VALUES (@id, @sessionId, @projectId, @kind, @reference, @summary, @capturedAt)`,
         )
         .run({
           id: evidence.id,
@@ -3615,7 +3869,7 @@ export class WorkIntelligenceStore {
           kind: evidence.kind,
           reference: evidence.reference,
           summary: evidence.summary ?? null,
-          capturedAt: evidence.capturedAt
+          capturedAt: evidence.capturedAt,
         });
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(evidence.capturedAt, project.id);
 
@@ -3630,18 +3884,22 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         projectRoot: decision.canonicalRoot,
         projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled."
+        reason: decision.reason ?? "Project recording is not enabled.",
       };
     }
 
     const project = decision.project;
     const pathResolver = createProjectPathResolver(project.rootPath);
-    const normalizedChangedFileChanges = normalizeChangedFileChanges(project.rootPath, input.changedFileChanges, pathResolver);
+    const normalizedChangedFileChanges = normalizeChangedFileChanges(
+      project.rootPath,
+      input.changedFileChanges,
+      pathResolver,
+    );
     const normalizedChangedFiles = normalizeChangedFiles(
       project.rootPath,
       [...(input.changedFiles ?? []), ...changedFilePathsFromChanges(normalizedChangedFileChanges)],
       input.changedFilesProvenance,
-      pathResolver
+      pathResolver,
     );
     const normalizedWorkSummary = normalizeWorkSummarySections(input.workSummary);
     const capturedHandoff = this.captureHandoff(project.rootPath, input);
@@ -3653,8 +3911,8 @@ export class WorkIntelligenceStore {
       ...(input.events ?? []),
       {
         type: "finalized" as const,
-        summary: "Session finalized after closing handoff."
-      }
+        summary: "Session finalized after closing handoff.",
+      },
     ];
 
     return this.runImmediateTransaction(() => {
@@ -3667,8 +3925,9 @@ export class WorkIntelligenceStore {
             idempotencyKey: input.idempotencyKey,
             sessionId: existing.id,
             existingSummary: existing.summary,
-            reason: "同一 idempotencyKey 已經完成過，但這次 summary 不同；請使用 work_update_session_summary 明確更新同一筆 Session。",
-            suggestedTool: "work_update_session_summary"
+            reason:
+              "同一 idempotencyKey 已經完成過，但這次 summary 不同；請使用 work_update_session_summary 明確更新同一筆 Session。",
+            suggestedTool: "work_update_session_summary",
           };
         }
         return {
@@ -3677,7 +3936,7 @@ export class WorkIntelligenceStore {
           session: existing,
           verificationFollowUp: getVerificationFollowUp(existing),
           changedFilesFollowUp: getChangedFilesFollowUp(existing),
-          workSummaryFollowUp: getWorkSummaryFollowUp(existing)
+          workSummaryFollowUp: getWorkSummaryFollowUp(existing),
         };
       }
 
@@ -3691,7 +3950,7 @@ export class WorkIntelligenceStore {
              @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
              @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
              @changedFiles, @changedFilesProvenance, @changedFileChanges, @verification
-           )`
+           )`,
         )
         .run({
           id: sessionId,
@@ -3708,14 +3967,14 @@ export class WorkIntelligenceStore {
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(normalizedChangedFileChanges),
-          verification: input.verification ? JSON.stringify(input.verification) : null
+          verification: input.verification ? JSON.stringify(input.verification) : null,
         });
 
       for (const event of events) {
         this.db
           .prepare(
             `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
-             VALUES (@id, @sessionId, @type, @summary, @details, @occurredAt)`
+             VALUES (@id, @sessionId, @type, @summary, @details, @occurredAt)`,
           )
           .run({
             id: randomUUID(),
@@ -3723,7 +3982,7 @@ export class WorkIntelligenceStore {
             type: event.type,
             summary: event.summary,
             details: event.details ? JSON.stringify(event.details) : null,
-            occurredAt: event.occurredAt ?? completedAt
+            occurredAt: event.occurredAt ?? completedAt,
           });
       }
 
@@ -3731,7 +3990,7 @@ export class WorkIntelligenceStore {
         this.db
           .prepare(
             `INSERT INTO raw_snapshots (id, session_id, project_id, kind, source_path, content, captured_at)
-             VALUES (@id, @sessionId, @projectId, 'handoff', @sourcePath, @content, @capturedAt)`
+             VALUES (@id, @sessionId, @projectId, 'handoff', @sourcePath, @content, @capturedAt)`,
           )
           .run({
             id: randomUUID(),
@@ -3739,7 +3998,7 @@ export class WorkIntelligenceStore {
             projectId: project.id,
             sourcePath: capturedHandoff.sourcePath ?? null,
             content: capturedHandoff.content,
-            capturedAt: createdAt
+            capturedAt: createdAt,
           });
       }
 
@@ -3758,7 +4017,7 @@ export class WorkIntelligenceStore {
         session,
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
-        workSummaryFollowUp: getWorkSummaryFollowUp(session)
+        workSummaryFollowUp: getWorkSummaryFollowUp(session),
       };
     });
   }
@@ -3771,7 +4030,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectRoot: decision.canonicalRoot,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
+          reason: decision.reason ?? "Project recording is not enabled.",
         };
       }
 
@@ -3785,7 +4044,7 @@ export class WorkIntelligenceStore {
       recentSessions: this.listSessions({ limit: 12, trackedOnly: true }),
       recentDecisions: this.getRecentDecisionSummaries(),
       recentKnowledge: this.getRecentKnowledge(),
-      metadataFollowUps: this.getMetadataFollowUps()
+      metadataFollowUps: this.getMetadataFollowUps(),
     };
   }
 
@@ -3798,7 +4057,7 @@ export class WorkIntelligenceStore {
           outcome: "skipped",
           projectRoot: decision.canonicalRoot,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
+          reason: decision.reason ?? "Project recording is not enabled.",
         };
       }
       projectId = decision.project.id;
@@ -3818,13 +4077,13 @@ export class WorkIntelligenceStore {
         .prepare(
           `SELECT * FROM work_events
            WHERE session_id = ? AND LOWER(summary) LIKE ?
-           ORDER BY occurred_at ASC LIMIT 1`
+           ORDER BY occurred_at ASC LIMIT 1`,
         )
         .get(session.id, `%${needle}%`) as EventRow | undefined;
       return {
         session,
         matchedIn: "event",
-        excerpt: truncateText(event?.summary ?? session.summary)
+        excerpt: truncateText(event?.summary ?? session.summary),
       };
     });
   }
@@ -3836,7 +4095,7 @@ export class WorkIntelligenceStore {
         outcome: "skipped",
         projectRoot: decision.canonicalRoot,
         projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled."
+        reason: decision.reason ?? "Project recording is not enabled.",
       };
     }
 
@@ -3850,7 +4109,7 @@ export class WorkIntelligenceStore {
 
   private captureHandoff(
     projectRoot: string,
-    input: FinalizeSessionInput
+    input: FinalizeSessionInput,
   ): { content: string; sourcePath?: string } | undefined {
     if (input.handoffContent !== undefined) {
       return { content: input.handoffContent, sourcePath: input.handoffPath };
@@ -3868,7 +4127,7 @@ export class WorkIntelligenceStore {
     try {
       return {
         content: readFileSync(handoffPath, "utf8").slice(0, 200_000),
-        sourcePath: input.handoffPath
+        sourcePath: input.handoffPath,
       };
     } catch {
       return undefined;
@@ -3887,7 +4146,7 @@ export class WorkIntelligenceStore {
         const ref = head.slice("ref: ".length);
         let commitSha: string | undefined;
         try {
-        const refPath = safeExistingProjectPath(projectRoot, `.git/${ref}`);
+          const refPath = safeExistingProjectPath(projectRoot, `.git/${ref}`);
           commitSha = refPath ? readFileSync(refPath, "utf8").trim() || undefined : undefined;
         } catch {
           commitSha = undefined;
@@ -3908,7 +4167,7 @@ export class WorkIntelligenceStore {
       recentSessions: this.listSessions({ projectId: project.id, limit: 12, trackedOnly: true }),
       recentDecisions: this.getRecentDecisionSummaries(project.id),
       recentKnowledge: this.getRecentKnowledge(project.id),
-      metadataFollowUps: this.getMetadataFollowUps(project.id)
+      metadataFollowUps: this.getMetadataFollowUps(project.id),
     };
   }
 
@@ -3933,7 +4192,7 @@ export class WorkIntelligenceStore {
       ...(input.before ? { before: input.before } : {}),
       after: input.knowledge,
       changedFields: [...new Set(input.changedFields)],
-      occurredAt: input.occurredAt
+      occurredAt: input.occurredAt,
     };
 
     this.db
@@ -3944,7 +4203,7 @@ export class WorkIntelligenceStore {
          ) VALUES (
            @id, @knowledgeId, @projectId, @action, @before, @after,
            @changedFields, @occurredAt
-         )`
+         )`,
       )
       .run({
         id: audit.id,
@@ -3954,7 +4213,7 @@ export class WorkIntelligenceStore {
         before: audit.before ? JSON.stringify(audit.before) : null,
         after: JSON.stringify(audit.after),
         changedFields: JSON.stringify(audit.changedFields),
-        occurredAt: audit.occurredAt
+        occurredAt: audit.occurredAt,
       });
   }
 
@@ -3974,7 +4233,7 @@ export class WorkIntelligenceStore {
            AND p.status = 'tracked'
            ${projectId ? "AND p.id = ?" : ""}
          ORDER BY e.occurred_at DESC
-         LIMIT 8`
+         LIMIT 8`,
       )
       .all(...(projectId ? [projectId] : [])) as Array<{ summary: string }>;
     return rows.map((row) => row.summary);

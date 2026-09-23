@@ -1,1 +1,1 @@
-export { WorkIntelligenceStore } from "./store.js";
+export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";

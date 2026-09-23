@@ -29,13 +29,17 @@ async function startApi(store: WorkIntelligenceStore): Promise<{ server: Server;
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 }
 
-async function requestJson<T>(baseUrl: string, path: string, options: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: T }> {
+async function requestJson<T>(
+  baseUrl: string,
+  path: string,
+  options: { method?: string; body?: unknown } = {},
+): Promise<{ status: number; body: T }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: options.method,
     headers: { "content-type": "application/json" },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
-  return { status: response.status, body: await response.json() as T };
+  return { status: response.status, body: (await response.json()) as T };
 }
 
 describe("Work Intelligence REST API", () => {
@@ -64,7 +68,7 @@ describe("Work Intelligence REST API", () => {
     const response = await fetch(`${baseUrl}/api/work/finalize`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{not-json"
+      body: "{not-json",
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: "Invalid JSON request body." });
@@ -72,7 +76,7 @@ describe("Work Intelligence REST API", () => {
     const unsupported = await fetch(`${baseUrl}/api/work/finalize`, {
       method: "POST",
       headers: { "content-type": "text/plain" },
-      body: JSON.stringify({})
+      body: JSON.stringify({}),
     });
     expect(unsupported.status).toBe(415);
     expect(await unsupported.json()).toMatchObject({ error: "Content-Type must be application/json." });
@@ -90,7 +94,7 @@ describe("Work Intelligence REST API", () => {
       summary: "Original API summary.",
       changedFiles: ["src/feature.ts"],
       verification: { status: "passed", summary: "API test passed." },
-      events: [{ type: "verification", summary: "The API update must preserve this event." }]
+      events: [{ type: "verification", summary: "The API update must preserve this event." }],
     });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a finalized API test session");
@@ -99,32 +103,32 @@ describe("Work Intelligence REST API", () => {
       sessionId: finalized.session.id,
       kind: "test",
       reference: "server.test.ts",
-      summary: "REST API integration evidence."
+      summary: "REST API integration evidence.",
     });
 
     const { server, baseUrl } = await startApi(store);
     resources.push({ server, store, root });
 
-    const update = await requestJson<{ outcome: string; duplicate?: boolean; session?: { id: string; summary: string } }>(
-      baseUrl,
-      `/api/sessions/${finalized.session.id}/summary`,
-      {
-        method: "PATCH",
-        body: {
-          idempotencyKey: "api-summary-update-001",
-          mode: "append",
-          summary: "補充 API 更新同一筆 Session 的主摘要。"
-        }
-      }
-    );
+    const update = await requestJson<{
+      outcome: string;
+      duplicate?: boolean;
+      session?: { id: string; summary: string };
+    }>(baseUrl, `/api/sessions/${finalized.session.id}/summary`, {
+      method: "PATCH",
+      body: {
+        idempotencyKey: "api-summary-update-001",
+        mode: "append",
+        summary: "補充 API 更新同一筆 Session 的主摘要。",
+      },
+    });
     expect(update.status).toBe(200);
     expect(update.body).toMatchObject({
       outcome: "summary_updated",
       duplicate: false,
       session: {
         id: finalized.session.id,
-        summary: "Original API summary.\n\n補充 API 更新同一筆 Session 的主摘要。"
-      }
+        summary: "Original API summary.\n\n補充 API 更新同一筆 Session 的主摘要。",
+      },
     });
 
     const retry = await requestJson<{ outcome: string; duplicate?: boolean }>(
@@ -135,9 +139,9 @@ describe("Work Intelligence REST API", () => {
         body: {
           idempotencyKey: "api-summary-update-001",
           mode: "append",
-          summary: "補充 API 更新同一筆 Session 的主摘要。"
-        }
-      }
+          summary: "補充 API 更新同一筆 Session 的主摘要。",
+        },
+      },
     );
     expect(retry.body).toMatchObject({ outcome: "summary_updated", duplicate: true });
 
@@ -151,10 +155,10 @@ describe("Work Intelligence REST API", () => {
       session: {
         summary: "Original API summary.\n\n補充 API 更新同一筆 Session 的主摘要。",
         changedFiles: ["src/feature.ts"],
-        verification: { status: "passed" }
+        verification: { status: "passed" },
       },
       events: [expect.objectContaining({ type: "verification" }), expect.objectContaining({ type: "finalized" })],
-      evidence: [expect.objectContaining({ reference: "server.test.ts" })]
+      evidence: [expect.objectContaining({ reference: "server.test.ts" })],
     });
 
     store.updateProject(project.id, { status: "paused" });
@@ -163,9 +167,94 @@ describe("Work Intelligence REST API", () => {
       `/api/sessions/${finalized.session.id}/summary`,
       {
         method: "PATCH",
-        body: { idempotencyKey: "api-summary-paused-001", summary: "Must not be written." }
-      }
+        body: { idempotencyKey: "api-summary-paused-001", summary: "Must not be written." },
+      },
     );
     expect(skipped.body).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+  });
+
+  it("updates a finalized workSummary in place through the API", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-work-summary-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const project = store.addProject("API workSummary project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-work-summary-finalize-001",
+      title: "API workSummary update",
+      summary: "Original structured session.",
+      workSummary: {
+        outcomes: ["完成 API 測試。"],
+        scope: ["只更新同一筆 Session。"],
+        decisions: ["使用 patch 語意。"],
+        verification: ["REST test 已通過。"],
+        nextSteps: ["等待補充。"],
+      },
+      changedFiles: ["src/api.ts"],
+      verification: { status: "passed" },
+      events: [{ type: "verification", summary: "Preserve API event." }],
+    });
+    if (finalized.outcome !== "finalized") {
+      throw new Error("Expected a finalized API workSummary session");
+    }
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    const update = await requestJson<{
+      outcome: string;
+      duplicate?: boolean;
+      session?: { id: string; workSummary: { nextSteps: string[] } };
+    }>(baseUrl, `/api/sessions/${finalized.session.id}/work-summary`, {
+      method: "PATCH",
+      body: {
+        idempotencyKey: "api-work-summary-update-001",
+        mode: "patch",
+        workSummary: { nextSteps: ["補充內容已完成。"] },
+      },
+    });
+    expect(update.status).toBe(200);
+    expect(update.body).toMatchObject({
+      outcome: "work_summary_updated",
+      duplicate: false,
+      session: {
+        id: finalized.session.id,
+        workSummary: { nextSteps: ["補充內容已完成。"] },
+      },
+    });
+
+    const retry = await requestJson<{ outcome: string; duplicate?: boolean }>(
+      baseUrl,
+      `/api/sessions/${finalized.session.id}/work-summary`,
+      {
+        method: "PATCH",
+        body: {
+          idempotencyKey: "api-work-summary-update-001",
+          mode: "patch",
+          workSummary: { nextSteps: ["補充內容已完成。"] },
+        },
+      },
+    );
+    expect(retry.body).toMatchObject({ outcome: "work_summary_updated", duplicate: true });
+
+    const detail = await requestJson<{
+      session: {
+        id: string;
+        summary: string;
+        changedFiles: string[];
+        verification: { status: string };
+        workSummary: { nextSteps: string[] };
+      };
+      events: Array<{ type: string }>;
+    }>(baseUrl, `/api/sessions/${finalized.session.id}`);
+    expect(detail.body).toMatchObject({
+      session: {
+        id: finalized.session.id,
+        summary: "Original structured session.",
+        changedFiles: ["src/api.ts"],
+        verification: { status: "passed" },
+        workSummary: { nextSteps: ["補充內容已完成。"] },
+      },
+      events: [expect.objectContaining({ type: "verification" }), expect.objectContaining({ type: "finalized" })],
+    });
   });
 });

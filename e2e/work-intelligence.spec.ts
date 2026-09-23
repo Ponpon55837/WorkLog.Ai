@@ -227,6 +227,12 @@ test.describe("Work Intelligence browser regression", () => {
     const sessionVisibleItems = await sessionVirtualList.locator(".virtual-list-item").count();
     expect(sessionVisibleItems).toBeGreaterThan(0);
     expect(sessionVisibleItems).toBeLessThan(25);
+    const sessionRowBoxes = await sessionVirtualList.locator(".virtual-list-item").evaluateAll((items) =>
+      items.map((item) => item.querySelector<HTMLElement>(".worklog-row")?.getBoundingClientRect()).filter((box): box is DOMRect => Boolean(box)).map((box) => ({ top: box.top, bottom: box.bottom }))
+    );
+    for (let index = 1; index < sessionRowBoxes.length; index += 1) {
+      expect(sessionRowBoxes[index]?.top ?? 0).toBeGreaterThanOrEqual((sessionRowBoxes[index - 1]?.bottom ?? 0) - 1);
+    }
 
     await page.getByRole("button", { name: /工作知識 Knowledge/ }).click();
     await expect(page.getByRole("heading", { name: "工作知識" }).first()).toBeVisible();
@@ -262,6 +268,10 @@ test.describe("Work Intelligence browser regression", () => {
     const graphViewport = page.locator(".graph-viewport");
     const graphLaneHeader = graphViewport.locator(".graph-lane-header");
     await expect(graphLaneHeader).toBeVisible();
+    const graphCountText = await page.locator(".graph-visual-panel .report-count").innerText();
+    const graphDisplayedNodeCount = Number(graphCountText.match(/顯示\s+(\d+)/)?.[1] ?? 0);
+    const graphRenderedNodeCount = await graphViewport.locator(".graph-svg-node").count();
+    expect(graphDisplayedNodeCount).toBeGreaterThan(graphRenderedNodeCount);
     await expect(graphLaneHeader).toHaveCSS("position", "sticky");
     const headerTopBeforeScroll = await graphLaneHeader.evaluate((element) => element.getBoundingClientRect().top);
     await graphViewport.evaluate((element) => {

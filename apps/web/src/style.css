@@ -1510,6 +1510,56 @@ h3 { font-size: 20px; }
   }
 }
 
+/* Keep long Worklog records inside their own row, including the virtualized All view. */
+.worklog-row {
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.worklog-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.worklog-title {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.worklog-title strong {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worklog-body p {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.worklog-meta {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.worklog-meta span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worklog-row time {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Shared select control: every native dropdown uses the same visual language. */
 select:not([multiple]) {
   width: 100%;

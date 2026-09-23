@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, promises as fsPromises, realpathSync } from "node:fs";
 import { dirname, normalize, parse, relative, resolve, sep } from "node:path";
 import type { PolicyDecision, ProjectReader } from "@work-intelligence/core";
 
@@ -54,6 +54,13 @@ export class ProjectPolicyGate {
 export interface ProjectPathResolver {
   safePath(relativeOrAbsolutePath: string): string | undefined;
   safeExistingPath(relativeOrAbsolutePath: string): string | undefined;
+}
+
+export interface AsyncProjectPathResolver {
+  safePath(relativeOrAbsolutePath: string): Promise<string | undefined>;
+  safeExistingPath(relativeOrAbsolutePath: string): Promise<string | undefined>;
+  safePaths(relativeOrAbsolutePaths: readonly string[]): Promise<Array<string | undefined>>;
+  safeExistingPaths(relativeOrAbsolutePaths: readonly string[]): Promise<Array<string | undefined>>;
 }
 
 /**
@@ -146,6 +153,126 @@ export function createProjectPathResolver(projectRoot: string): ProjectPathResol
       }
     }
   };
+}
+
+/**
+ * Async counterpart for operations that already use promise based filesystem
+ * APIs. It resolves shared parent paths concurrently and keeps the same
+ * fail-closed symlink boundary as the synchronous resolver. The batch methods
+ * preserve input order so callers can map the result back without doing their
+ * own path bookkeeping.
+ */
+export function createAsyncProjectPathResolver(projectRoot: string): AsyncProjectPathResolver {
+  const realRootPromise = fsPromises.realpath(projectRoot).catch(() => undefined);
+  const safePathCache = new Map<string, Promise<string | undefined>>();
+  const safeExistingPathCache = new Map<string, Promise<string | undefined>>();
+  const existingPathCache = new Map<string, Promise<string | undefined>>();
+  const cacheKeyFor = (relativeOrAbsolutePath: string): string => {
+    const candidate = resolve(projectRoot, relativeOrAbsolutePath);
+    return process.platform === "win32" ? candidate.toLowerCase() : candidate;
+  };
+
+  const findExistingPath = (candidate: string): Promise<string | undefined> => {
+    const key = process.platform === "win32" ? candidate.toLowerCase() : candidate;
+    const cached = existingPathCache.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const pending = (async (): Promise<string | undefined> => {
+      let current = candidate;
+      while (true) {
+        try {
+          await fsPromises.lstat(current);
+          return current;
+        } catch (error) {
+          const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+          if (code !== "ENOENT") {
+            return undefined;
+          }
+          const parent = dirname(current);
+          if (parent === current) {
+            return undefined;
+          }
+          current = parent;
+        }
+      }
+    })();
+    existingPathCache.set(key, pending);
+    return pending;
+  };
+
+  const resolveCandidate = (relativeOrAbsolutePath: string): Promise<string | undefined> => {
+    const cacheKey = cacheKeyFor(relativeOrAbsolutePath);
+    const cached = safePathCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const pending = (async (): Promise<string | undefined> => {
+      if (!isPathWithinProject(projectRoot, relativeOrAbsolutePath)) {
+        return undefined;
+      }
+
+      const candidate = resolve(projectRoot, relativeOrAbsolutePath);
+      const realRoot = await realRootPromise;
+      if (!realRoot) {
+        return candidate;
+      }
+
+      const existingPath = await findExistingPath(candidate);
+      if (!existingPath) {
+        return undefined;
+      }
+      try {
+        const realExistingPath = await fsPromises.realpath(existingPath);
+        return isPathWithinProject(realRoot, realExistingPath) ? candidate : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    safePathCache.set(cacheKey, pending);
+    return pending;
+  };
+
+  const resolveExistingCandidate = (relativeOrAbsolutePath: string): Promise<string | undefined> => {
+    const cacheKey = cacheKeyFor(relativeOrAbsolutePath);
+    const cached = safeExistingPathCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const pending = (async (): Promise<string | undefined> => {
+      const candidate = await resolveCandidate(relativeOrAbsolutePath);
+      const realRoot = await realRootPromise;
+      if (!candidate || !realRoot) {
+        return undefined;
+      }
+      try {
+        const realCandidate = await fsPromises.realpath(candidate);
+        return isPathWithinProject(realRoot, realCandidate) ? realCandidate : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    safeExistingPathCache.set(cacheKey, pending);
+    return pending;
+  };
+
+  return {
+    safePath: resolveCandidate,
+    safeExistingPath: resolveExistingCandidate,
+    safePaths: (relativeOrAbsolutePaths) => Promise.all(relativeOrAbsolutePaths.map(resolveCandidate)),
+    safeExistingPaths: (relativeOrAbsolutePaths) => Promise.all(relativeOrAbsolutePaths.map(resolveExistingCandidate))
+  };
+}
+
+export async function safeProjectPaths(projectRoot: string, relativeOrAbsolutePaths: readonly string[]): Promise<Array<string | undefined>> {
+  return createAsyncProjectPathResolver(projectRoot).safePaths(relativeOrAbsolutePaths);
+}
+
+export async function safeExistingProjectPaths(projectRoot: string, relativeOrAbsolutePaths: readonly string[]): Promise<Array<string | undefined>> {
+  return createAsyncProjectPathResolver(projectRoot).safeExistingPaths(relativeOrAbsolutePaths);
 }
 
 export function safeProjectPath(projectRoot: string, relativeOrAbsolutePath: string): string | undefined {

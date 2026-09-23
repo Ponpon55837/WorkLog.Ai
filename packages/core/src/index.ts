@@ -3,14 +3,7 @@ export const PROJECT_STATUSES = ["unregistered", "tracked", "paused", "ignored"]
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 export type PolicyStatus = ProjectStatus | "unregistered";
 
-export const WORK_EVENT_TYPES = [
-  "planning",
-  "execution",
-  "verification",
-  "closing",
-  "note",
-  "finalized"
-] as const;
+export const WORK_EVENT_TYPES = ["planning", "execution", "verification", "closing", "note", "finalized"] as const;
 
 export type WorkEventType = (typeof WORK_EVENT_TYPES)[number];
 export type VerificationStatus = "passed" | "failed" | "not_run";
@@ -307,9 +300,7 @@ export interface KnowledgeHistorySkippedResult extends KnowledgeSkippedResult {
 }
 
 export type KnowledgeHistoryResult =
-  | KnowledgeHistoryQueryResult
-  | KnowledgeHistoryNotFoundResult
-  | KnowledgeHistorySkippedResult;
+  KnowledgeHistoryQueryResult | KnowledgeHistoryNotFoundResult | KnowledgeHistorySkippedResult;
 
 export const GRAPH_NODE_KINDS = ["project", "session", "knowledge", "evidence", "file"] as const;
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
@@ -340,6 +331,19 @@ export interface GraphQuery {
   limit?: number;
   maxNodes?: number;
   maxEdges?: number;
+  /** Enables bounded server-side graph pages when supplied. */
+  pageSize?: number;
+  /** Opaque cursor returned by a previous graph page. */
+  cursor?: string;
+}
+
+export interface GraphPageInfo {
+  unit: "sessions";
+  /** Current opaque-cursor traversal phase. */
+  phase?: "projects" | "sessions" | "project_knowledge";
+  offset: number;
+  pageSize: number;
+  hasNext: boolean;
 }
 
 export interface GraphTruncation {
@@ -361,6 +365,9 @@ export interface GraphResult {
   sourceProjectIds: string[];
   sourceSessionIds: string[];
   truncation: GraphTruncation;
+  pageInfo?: GraphPageInfo;
+  cursor?: string;
+  nextCursor?: string;
 }
 
 export interface GraphSkippedResult {
@@ -390,7 +397,13 @@ export const REPORT_SYNTHESIS_STATUSES = ["pending", "processing", "completed", 
 export type ReportSynthesisStatus = (typeof REPORT_SYNTHESIS_STATUSES)[number];
 export const REPORT_SYNTHESIS_SCOPE_TYPES = ["all", "project"] as const;
 export type ReportSynthesisScopeType = (typeof REPORT_SYNTHESIS_SCOPE_TYPES)[number];
-export const METADATA_BACKFILL_REQUEST_STATUSES = ["pending", "processing", "completed", "failed", "cancelled"] as const;
+export const METADATA_BACKFILL_REQUEST_STATUSES = [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
 export type MetadataBackfillRequestStatus = (typeof METADATA_BACKFILL_REQUEST_STATUSES)[number];
 export const METADATA_BACKFILL_SCOPE_TYPES = ["all", "project"] as const;
 export type MetadataBackfillScopeType = (typeof METADATA_BACKFILL_SCOPE_TYPES)[number];
@@ -592,7 +605,8 @@ export interface ReportSynthesisRequestDetailResult {
   summary?: ReportSummary;
 }
 
-export type ReportSynthesisRequestLookupResult = ReportSynthesisRequestDetailResult | ReportSynthesisRequestNotFoundResult | SkippedReportResult;
+export type ReportSynthesisRequestLookupResult =
+  ReportSynthesisRequestDetailResult | ReportSynthesisRequestNotFoundResult | SkippedReportResult;
 
 export interface ReportSynthesisRequestRetriedResult {
   outcome: "report_synthesis_request_retried";
@@ -709,10 +723,7 @@ export interface ReportSummaryRequestNotReadyResult {
 }
 
 export type SaveReportSummaryResult =
-  | ReportSummarySavedResult
-  | ReportSummarySaveNotFoundResult
-  | ReportSummaryRequestNotReadyResult
-  | SkippedReportResult;
+  ReportSummarySavedResult | ReportSummarySaveNotFoundResult | ReportSummaryRequestNotReadyResult | SkippedReportResult;
 
 export interface ReportSummaryQuery extends ReportSynthesisRequestQuery {
   currentOnly?: boolean;
@@ -1146,18 +1157,47 @@ export interface SessionVerificationSkippedResult {
 }
 
 export type UpdateSessionVerificationResult =
-  | UpdatedSessionVerificationResult
-  | SessionVerificationNotFoundResult
-  | SessionVerificationSkippedResult;
+  UpdatedSessionVerificationResult | SessionVerificationNotFoundResult | SessionVerificationSkippedResult;
 
 export type UpdateSessionMetadataResult =
-  | UpdatedSessionMetadataResult
-  | SessionVerificationNotFoundResult
-  | SessionVerificationSkippedResult;
+  UpdatedSessionMetadataResult | SessionVerificationNotFoundResult | SessionVerificationSkippedResult;
 
 export type UpdateSessionSummaryResult =
   | UpdatedSessionSummaryResult
   | SessionSummaryUpdateIdempotencyConflictResult
+  | SessionVerificationNotFoundResult
+  | SessionVerificationSkippedResult;
+
+export const WORK_SUMMARY_UPDATE_MODES = ["replace", "patch"] as const;
+export type WorkSummaryUpdateMode = (typeof WORK_SUMMARY_UPDATE_MODES)[number];
+
+export interface UpdateSessionWorkSummaryInput {
+  sessionId: string;
+  idempotencyKey: string;
+  mode?: WorkSummaryUpdateMode;
+  workSummary: WorkSummarySections | Partial<WorkSummarySections>;
+}
+
+export interface UpdatedSessionWorkSummaryResult {
+  outcome: "work_summary_updated";
+  duplicate: boolean;
+  session: WorkSessionRecord;
+  idempotencyKey: string;
+  mode: WorkSummaryUpdateMode;
+  previousWorkSummary?: WorkSummarySections;
+  appliedWorkSummary: WorkSummarySections;
+}
+
+export interface SessionWorkSummaryUpdateIdempotencyConflictResult {
+  outcome: "work_summary_update_idempotency_conflict";
+  sessionId: string;
+  idempotencyKey: string;
+  reason: string;
+}
+
+export type UpdateSessionWorkSummaryResult =
+  | UpdatedSessionWorkSummaryResult
+  | SessionWorkSummaryUpdateIdempotencyConflictResult
   | SessionVerificationNotFoundResult
   | SessionVerificationSkippedResult;
 
@@ -1189,3 +1229,5 @@ export type ContextQueryResult = ContextResult | SkippedContextResult;
 export interface ProjectReader {
   getProjectByRootPath(rootPath: string): ProjectRecord | undefined;
 }
+
+export * from "./insights.js";

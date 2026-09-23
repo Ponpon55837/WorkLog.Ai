@@ -100,7 +100,7 @@ const workSummarySectionLabels: Array<{ key: keyof WorkSummarySections; label: s
   { key: "scope", label: "範圍" },
   { key: "decisions", label: "決策" },
   { key: "verification", label: "驗證" },
-  { key: "nextSteps", label: "後續" }
+  { key: "nextSteps", label: "狀態／未結項" }
 ];
 
 const emptyPageInfo: PageInfo = {
@@ -468,7 +468,7 @@ async function changeKnowledgePageSize(event: Event): Promise<void> {
   await loadKnowledge();
 }
 
-async function loadGraph(): Promise<void> {
+async function loadGraph(cursor?: string): Promise<void> {
   const requestKey = "graph";
   const controller = beginRequest(requestKey);
   graphLoading.value = true;
@@ -477,12 +477,27 @@ async function loadGraph(): Promise<void> {
   try {
     const result = await client.getGraph({
       projectId: graphProjectId.value || undefined,
-      limit: 40,
+      limit: 200,
       maxNodes: loadPreset.maxNodes,
-      maxEdges: loadPreset.maxEdges
+      maxEdges: loadPreset.maxEdges,
+      pageSize: loadPreset.maxNodes,
+      cursor
     }, controller.signal);
     if (result.outcome === "graph") {
-      graph.value = result;
+      if (cursor && graph.value?.outcome === "graph") {
+        const nodes = [...graph.value.nodes, ...result.nodes].filter((node, index, items) => items.findIndex((candidate) => candidate.id === node.id) === index);
+        const edges = [...graph.value.edges, ...result.edges].filter((edge, index, items) => items.findIndex((candidate) => candidate.id === edge.id) === index);
+        graph.value = {
+          ...result,
+          nodes,
+          edges,
+          projects: graph.value.projects,
+          sourceProjectIds: [...new Set([...graph.value.sourceProjectIds, ...result.sourceProjectIds])],
+          sourceSessionIds: [...new Set([...graph.value.sourceSessionIds, ...result.sourceSessionIds])]
+        };
+      } else {
+        graph.value = result;
+      }
     } else {
       graph.value = null;
       graphError.value = result.reason;
@@ -502,14 +517,12 @@ async function loadGraph(): Promise<void> {
 }
 
 async function loadMoreGraph(): Promise<void> {
-  const currentIndex = graphLoadPresetOptions.findIndex((preset) => preset.value === graphLoadPreset.value);
-  const nextPreset = graphLoadPresetOptions[Math.min(currentIndex + 1, graphLoadPresetOptions.length - 1)];
-  if (!nextPreset || nextPreset.value === graphLoadPreset.value) {
-    toastMessage.value = "圖譜已達目前可載入上限。";
+  const cursor = graph.value?.nextCursor;
+  if (!cursor) {
+    toastMessage.value = "圖譜已載入完成。";
     return;
   }
-  graphLoadPreset.value = nextPreset.value;
-  await loadGraph();
+  await loadGraph(cursor);
 }
 
 async function loadSessions(resetPage = false): Promise<void> {
@@ -950,7 +963,15 @@ function displayDate(value: string): string {
   return `${year}/${month}/${day}`;
 }
 
-function toggleDatePicker(target: DatePickerTarget): void {
+function toggleDatePicker(target: DatePickerTarget, trigger?: HTMLButtonElement | null): void {
+  if (trigger) {
+    if (target === "from") {
+      dateFromTrigger.value = trigger;
+    } else {
+      dateToTrigger.value = trigger;
+    }
+  }
+
   if (activeDatePicker.value === target) {
     activeDatePicker.value = null;
     return;
@@ -1793,11 +1814,7 @@ const graphFilteredTotalNodes = computed(() => {
 });
 
 const graphCanLoadMore = computed(() => {
-  if (!graph.value) {
-    return false;
-  }
-  const currentIndex = graphLoadPresetOptions.findIndex((preset) => preset.value === graphLoadPreset.value);
-  return (graph.value.truncation.nodesTruncated || graph.value.truncation.edgesTruncated) && currentIndex < graphLoadPresetOptions.length - 1;
+  return Boolean(graph.value?.nextCursor);
 });
 
 const graphNodeCounts = computed(() => {
@@ -2133,885 +2150,218 @@ onMounted(() => {
           </div>
         </DashboardView>
 
-        <ProjectsView v-else-if="activeView === 'projects'">
-          <div class="section-intro projects-intro">
-            <div>
-              <div class="eyebrow">PROJECT REGISTRY</div>
-              <h2>你決定哪些專案值得被記住。</h2>
-              <p>Registry 只存在中央 SQLite，不會把設定檔寫進任何專案 repo。</p>
-            </div>
-            <div class="tracked-summary"><strong>{{ trackedProjects.length }}</strong><span>個專案正在記錄</span></div>
-          </div>
+        <ProjectsView
+          v-else-if="activeView === 'projects'"
+          :tracked-projects="trackedProjects"
+          :projects="projects"
+          :project-name="projectName"
+          :project-root="projectRoot"
+          :adding-project="addingProject"
+          :metadata-backfill-preview="metadataBackfillPreview"
+          :metadata-backfill-loading="metadataBackfillLoading"
+          :metadata-backfill-error="metadataBackfillError"
+          :metadata-backfill-request="metadataBackfillRequest"
+          :metadata-backfill-request-is-active="metadataBackfillRequestIsActive"
+          :metadata-backfill-status-labels="metadataBackfillStatusLabels"
+          :metadata-backfill-request-loading="metadataBackfillRequestLoading"
+          :metadata-backfill-request-creating="metadataBackfillRequestCreating"
+          :metadata-backfill-request-error="metadataBackfillRequestError"
+          :metadata-backfill-instruction="metadataBackfillInstruction"
+          :handoff-import-loading="handoffImportLoading"
+          :handoff-import-project-id="handoffImportProjectId"
+          :status-labels="statusLabels"
+          :status-descriptions="statusDescriptions"
+          :verification-labels="verificationLabels"
+          :format-date="formatDate"
+          :metadata-gap-label="metadataGapLabel"
+          @update:project-name="projectName = $event"
+          @update:project-root="projectRoot = $event"
+          @add-project="addProject"
+          @preview-metadata-backfill="previewMetadataBackfill"
+          @open-metadata-backfill-session="openMetadataBackfillSession"
+          @copy-metadata-backfill-instruction="copyMetadataBackfillInstruction"
+          @cancel-metadata-backfill-request="cancelMetadataBackfillRequest"
+          @load-metadata-backfill-request="loadMetadataBackfillRequest"
+          @create-metadata-backfill-request="createMetadataBackfillRequest"
+          @preview-handoffs="previewHandoffs"
+          @update-project-status="updateProjectStatus"
+        />
 
-          <section class="panel add-project-panel">
-            <div class="panel-heading compact">
-              <div>
-                <div class="eyebrow">ADD PROJECT</div>
-                <h3>加入 registry</h3>
-              </div>
-              <span class="opt-in-label">加入後預設為未註冊</span>
-            </div>
-            <form class="project-form" @submit.prevent="addProject">
-              <label>
-                <span>專案名稱</span>
-                <input v-model="projectName" type="text" placeholder="例如：Assistant Console" />
-              </label>
-              <label class="path-field">
-                <span>Workspace 根目錄</span>
-                <input v-model="projectRoot" type="text" placeholder="C:\\Users\\you\\project" />
-              </label>
-              <button class="primary-button" type="submit" :disabled="addingProject">{{ addingProject ? '加入中…' : '加入專案' }}</button>
-            </form>
-          </section>
+        <ReportsView
+          v-else-if="activeView === 'reports'"
+          :tracked-projects="trackedProjects"
+          :report="report"
+          :report-period="reportPeriod"
+          :report-date="reportDate"
+          :report-project-id="reportProjectId"
+          :report-tab="reportTab"
+          :report-loading="reportLoading"
+          :report-error="reportError"
+          :report-export-loading="reportExportLoading"
+          :report-evidence-loading="reportEvidenceLoading"
+          :report-evidence-page-size="reportEvidencePageSize"
+          :report-evidence-kind="reportEvidenceKind"
+          :report-evidence-query="reportEvidenceQuery"
+          :report-session-items="reportSessionItems"
+          :report-session-page-size="reportSessionPageSize"
+          :report-session-page-info="reportSessionPageInfo"
+          :report-session-loading="reportSessionLoading"
+          :report-synthesis-request="reportSynthesisRequest"
+          :report-synthesis-summary="reportSynthesisSummary"
+          :report-synthesis-history="reportSynthesisHistory"
+          :report-synthesis-expanded="reportSynthesisExpanded"
+          :report-synthesis-loading="reportSynthesisLoading"
+          :report-synthesis-creating="reportSynthesisCreating"
+          :report-synthesis-retrying="reportSynthesisRetrying"
+          :report-synthesis-cancelling="reportSynthesisCancelling"
+          :report-synthesis-error="reportSynthesisError"
+          :report-synthesis-status-labels="reportSynthesisStatusLabels"
+          :report-period-labels="reportPeriodLabels"
+          :report-tab-options="reportTabOptions"
+          :report-synthesis-is-active="reportSynthesisIsActive"
+          :report-synthesis-can-retry="reportSynthesisCanRetry"
+          :report-comparisons="reportComparisons"
+          :report-verification="reportVerification"
+          :verification-labels="verificationLabels"
+          :evidence-kind-labels="evidenceKindLabels"
+          :insight-kind-labels="insightKindLabels"
+          :list-page-size-options="listPageSizeOptions"
+          :format-date="formatDate"
+          :format-readable-summary="formatReadableSummary"
+          :format-report-delta="formatReportDelta"
+          :format-report-trend-label="formatReportTrendLabel"
+          :report-trend-height="reportTrendHeight"
+          :should-show-trend-label="shouldShowTrendLabel"
+          :verification-label="verificationLabel"
+          :evidence-kind-label="evidenceKindLabel"
+          @update:report-period="reportPeriod = $event"
+          @update:report-date="reportDate = $event"
+          @update:report-project-id="reportProjectId = $event"
+          @update:report-tab="reportTab = $event"
+          @update:report-evidence-page-size="reportEvidencePageSize = $event"
+          @update:report-evidence-kind="reportEvidenceKind = $event"
+          @update:report-evidence-query="reportEvidenceQuery = $event"
+          @update:report-session-page-size="reportSessionPageSize = $event"
+          @update:report-synthesis-expanded="reportSynthesisExpanded = $event"
+          @load="loadReport"
+          @export="exportReport"
+          @load-report-synthesis="loadReportSynthesis"
+          @retry-report-synthesis="retryReportSynthesisRequest"
+          @create-report-synthesis="createReportSynthesisRequest"
+          @cancel-report-synthesis="cancelReportSynthesisRequest"
+          @select-report-synthesis-version="selectReportSynthesisVersion"
+          @delete-report-synthesis-version="deleteReportSynthesisVersion"
+          @copy-report-synthesis-instruction="copyReportSynthesisInstruction"
+          @open-session="openSession"
+          @open-report-session="openReportSession"
+          @open-report-evidence="openReportEvidence"
+          @change-report-session-page="changeReportSessionPage"
+          @change-report-session-page-size="changeReportSessionPageSize"
+          @load-report-evidence="loadReportEvidence"
+          @change-report-evidence-page="changeReportEvidencePage"
+          @change-report-evidence-page-size="changeReportEvidencePageSize"
+        />
 
-          <section class="panel metadata-backfill-panel">
-            <div class="metadata-backfill-heading">
-              <div>
-                <div class="eyebrow">AGENT FOLLOW-UPS</div>
-                <h3>需要 Agent 回補的 Session</h3>
-                <p>只列出已完成但缺少 Verification 或 changed-files metadata 的 tracked Session。這裡不會猜測，也不會自動寫回。</p>
-              </div>
-              <button class="outline-button" type="button" :disabled="metadataBackfillLoading" @click="previewMetadataBackfill">{{ metadataBackfillLoading ? '掃描中…' : '掃描 metadata 缺口' }}</button>
-            </div>
-            <div v-if="metadataBackfillError" class="alert error-alert metadata-backfill-alert" role="alert">{{ metadataBackfillError }}</div>
-            <template v-if="metadataBackfillPreview">
-              <div class="metadata-backfill-summary">
-                <div><span>需要回補</span><strong>{{ metadataBackfillPreview.totals.needsBackfill }}</strong></div>
-                <div><span>檔案 metadata</span><strong>{{ metadataBackfillPreview.totals.changedFilesMissing }}</strong></div>
-                <div><span>Verification 缺漏</span><strong>{{ metadataBackfillPreview.totals.verificationMissing }}</strong></div>
-                <div><span>明確未執行</span><strong>{{ metadataBackfillPreview.totals.verificationNotRun }}</strong></div>
-              </div>
-              <div v-if="metadataBackfillPreview.items.length" class="metadata-backfill-list">
-                <article v-for="item in metadataBackfillPreview.items" :key="item.sessionId" class="metadata-backfill-item">
-                  <div class="metadata-backfill-item-copy">
-                    <strong>{{ item.title }}</strong>
-                    <span>{{ item.projectName }} · {{ formatDate(item.completedAt) }}</span>
-                    <small>{{ item.changedFilesCount }} 個檔案 · {{ item.changedFileChangesCount }} 筆生命週期紀錄 · {{ item.rawSnapshotCount }} 份 handoff snapshot</small>
-                  </div>
-                  <div class="metadata-backfill-gaps">
-                    <span v-for="gap in item.gaps" :key="gap" class="metadata-gap-chip">{{ metadataGapLabel(gap) }}</span>
-                    <span class="metadata-verification-chip">{{ verificationLabels[item.verificationStatus] }}</span>
-                  </div>
-                  <button class="text-button" type="button" @click="openMetadataBackfillSession(item)">查看 Session</button>
-                </article>
-              </div>
-              <div v-else class="metadata-backfill-empty"><strong>目前沒有待回補資料</strong><p>所有 tracked Session 都已提供必要的結構化 metadata。</p></div>
-              <p v-if="metadataBackfillPreview.truncated" class="metadata-backfill-note">結果已達顯示上限，請由 Agent 使用 MCP preview 的 limit 分頁檢查其餘 Session。</p>
-            </template>
-              <div v-else class="metadata-backfill-empty metadata-backfill-empty-initial"><strong>尚未掃描</strong><p>按下掃描後，系統只會讀取中央 SQLite 中已保存的 Session metadata。</p></div>
+        <KnowledgeView
+          v-else-if="activeView === 'knowledge'"
+          :knowledge-items="knowledgeItems"
+          :knowledge-projects="knowledgeProjects"
+          :knowledge-page-info="knowledgePageInfo"
+          :knowledge-query="knowledgeQuery"
+          :knowledge-kind="knowledgeKind"
+          :knowledge-project-id="knowledgeProjectId"
+          :knowledge-status="knowledgeStatus"
+          :knowledge-loading="knowledgeLoading"
+          :knowledge-error="knowledgeError"
+          :knowledge-kind-labels="knowledgeKindLabels"
+          :knowledge-status-labels="knowledgeStatusLabels"
+          :knowledge-page-size="knowledgePageSize"
+          :list-page-size-options="listPageSizeOptions"
+          :format-date="formatDate"
+          :knowledge-kind-label="knowledgeKindLabel"
+          :knowledge-status-label="knowledgeStatusLabel"
+          @update:knowledge-query="knowledgeQuery = $event"
+          @update:knowledge-kind="knowledgeKind = $event"
+          @update:knowledge-project-id="knowledgeProjectId = $event"
+          @update:knowledge-status="knowledgeStatus = $event"
+          @update:knowledge-page-size="knowledgePageSize = $event"
+          @load="loadKnowledge"
+          @open-knowledge-session="openKnowledgeSession"
+          @open-knowledge-history="openKnowledgeHistory"
+          @open-knowledge-editor="openKnowledgeEditor"
+          @set-knowledge-status="setKnowledgeStatus"
+          @change-knowledge-page="changeKnowledgePage"
+          @change-knowledge-page-size="changeKnowledgePageSize"
+        />
 
-            <div v-if="metadataBackfillRequest" class="metadata-backfill-agent-card">
-              <div class="metadata-backfill-agent-heading">
-                <div>
-                  <div class="eyebrow">AGENT REQUEST</div>
-                  <h4>請 Agent 回補 metadata</h4>
-                  <p v-if="metadataBackfillRequestIsActive">請在目前的 Codex 或 Claude 對話中輸入：「{{ metadataBackfillInstruction }}」Agent 會自行取得待回補清單、檢查 tracked 專案的 worktree／handoff，再只寫回已確認的 metadata。</p>
-                  <p v-else-if="metadataBackfillRequest.status === 'completed'">這批 metadata 已完成回補。重新掃描後，若仍有缺口會建立新的待處理請求。</p>
-                  <p v-else>這批 metadata 回補尚未完成，請重新整理狀態或再次請 Agent 處理。</p>
-                </div>
-                <span :class="['synthesis-status', `synthesis-status-${metadataBackfillRequest.status}`]">{{ metadataBackfillStatusLabels[metadataBackfillRequest.status] }}</span>
-              </div>
-              <div class="metadata-backfill-agent-actions">
-                <button class="primary-button" type="button" :disabled="metadataBackfillRequestLoading" @click="copyMetadataBackfillInstruction">複製 Agent 指令</button>
-                <button v-if="metadataBackfillRequestIsActive" class="text-button cancel-button" type="button" :disabled="metadataBackfillRequestLoading" @click="cancelMetadataBackfillRequest">{{ metadataBackfillRequestLoading ? '取消中…' : '取消回補' }}</button>
-                <button class="icon-button report-icon-button" type="button" :disabled="metadataBackfillRequestLoading" aria-label="重新整理 metadata 回補狀態" title="重新整理 metadata 回補狀態" @click="loadMetadataBackfillRequest"><span aria-hidden="true">↻</span></button>
-                <button v-if="!metadataBackfillRequestIsActive && metadataBackfillPreview?.items.length" class="text-button" type="button" :disabled="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest">重新建立回補請求</button>
-              </div>
-            </div>
-            <div v-else-if="metadataBackfillPreview?.items.length" class="metadata-backfill-agent-card metadata-backfill-agent-card-warning">
-              <div class="metadata-backfill-agent-heading">
-                <div>
-                  <div class="eyebrow">ACTION REQUIRED</div>
-                  <h4>這些缺口需要 Agent 確認</h4>
-                  <p>掃描結果不會自行猜測檔案或驗證狀態；建立請求後，Agent 才能在目前對話中檢查並回寫。</p>
-                </div>
-              </div>
-              <div class="metadata-backfill-agent-actions">
-                <button class="primary-button" type="button" :disabled="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest">{{ metadataBackfillRequestCreating ? '建立中…' : '請 Agent 回補 metadata' }}</button>
-              </div>
-            </div>
-            <div v-if="metadataBackfillRequestError" class="alert error-alert metadata-backfill-alert" role="alert">{{ metadataBackfillRequestError }}</div>
-          </section>
+        <GraphView
+          v-else-if="activeView === 'graph'"
+          :tracked-projects="trackedProjects"
+          :graph="graph"
+          :graph-project-id="graphProjectId"
+          :graph-node-filter="graphNodeFilter"
+          :graph-preview-limit="graphPreviewLimit"
+          :graph-load-preset="graphLoadPreset"
+          :graph-load-preset-options="graphLoadPresetOptions"
+          :graph-loading="graphLoading"
+          :graph-error="graphError"
+          :graph-node-kind-order="graphNodeKindOrder"
+          :graph-node-kind-labels="graphNodeKindLabels"
+          :graph-edge-kind-labels="graphEdgeKindLabels"
+          :graph-visual="graphVisual"
+          :graph-filtered-total-nodes="graphFilteredTotalNodes"
+          :graph-node-counts="graphNodeCounts"
+          :graph-edge-counts="graphEdgeCounts"
+          :graph-can-load-more="graphCanLoadMore"
+          :graph-node-filter-label="graphNodeFilterLabel()"
+          :graph-node-label="graphNodeLabel"
+          :graph-node-description="graphNodeDescription"
+          @update:graph-project-id="graphProjectId = $event"
+          @update:graph-node-filter="graphNodeFilter = $event"
+          @update:graph-preview-limit="graphPreviewLimit = $event"
+          @update:graph-load-preset="graphLoadPreset = $event"
+          @load="loadGraph"
+          @load-more="loadMoreGraph"
+          @select-node="openGraphNode"
+        />
 
-          <section class="project-list">
-            <div class="list-heading"><span>所有專案</span><span>記錄狀態</span></div>
-            <article v-for="project in projects" :key="project.id" class="project-row">
-              <div class="project-avatar">{{ project.name.slice(0, 1).toUpperCase() }}</div>
-              <div class="project-info">
-                <strong>{{ project.name }}</strong>
-                <span>{{ project.rootPath }}</span>
-              </div>
-              <div class="project-status-copy">
-                <span :class="['status-chip', `status-${project.status}`]"><span class="chip-dot"></span>{{ statusLabels[project.status] }}</span>
-                <small>{{ statusDescriptions[project.status] }}</small>
-                <button v-if="project.status === 'tracked'" class="text-button import-trigger" type="button" :disabled="handoffImportLoading && handoffImportProjectId === project.id" @click.stop="previewHandoffs(project)">{{ handoffImportLoading && handoffImportProjectId === project.id ? '預覽中…' : '預覽 handoff' }}</button>
-              </div>
-              <select :value="project.status" :aria-label="`更新 ${project.name} 的專案記錄狀態`" @change="updateProjectStatus(project, ($event.target as HTMLSelectElement).value as ProjectStatus)">
-                <option value="unregistered">未註冊</option>
-                <option value="tracked">記錄中</option>
-                <option value="paused">已暫停</option>
-                <option value="ignored">已忽略</option>
-              </select>
-            </article>
-            <div v-if="projects.length === 0" class="empty-state large-empty"><div class="empty-icon">◈</div><strong>還沒有專案</strong><p>加入第一個 workspace，建立你的中央 project registry。</p></div>
-          </section>
-        </ProjectsView>
-
-        <ReportsView v-else-if="activeView === 'reports'">
-          <div class="section-intro reports-intro">
-            <div>
-              <div class="eyebrow">WORK REPORTS</div>
-              <h2>把已完成的工作，整理成可讀的節奏。</h2>
-              <p>報告只聚合「記錄中」的專案，並保留每筆來源 Session。</p>
-            </div>
-            <form class="report-tools" @submit.prevent="loadReport(true)">
-              <label class="report-control">
-                <span>報表區間</span>
-                <select v-model="reportPeriod" aria-label="選擇報表區間" @change="loadReport(true)">
-                  <option value="day">今日</option>
-                  <option value="week">本週</option>
-                  <option value="month">本月</option>
-                  <option value="quarter">本季</option>
-                  <option value="year">本年</option>
-                </select>
-              </label>
-              <label class="report-control report-date-control">
-                <span>報告日期</span>
-                <input v-model="reportDate" type="date" aria-label="選擇報告日期" @change="loadReport(true)" />
-              </label>
-              <label class="report-control">
-                <span>專案範圍</span>
-                <select v-model="reportProjectId" aria-label="選擇報表專案" @change="loadReport(true)">
-                  <option value="">所有記錄中專案</option>
-                  <option v-for="project in trackedProjects" :key="project.id" :value="project.id">{{ project.name }}</option>
-                </select>
-              </label>
-              <button class="filter-button report-refresh report-refresh-icon" type="submit" :disabled="reportLoading" :aria-busy="reportLoading" aria-label="重新整理報告" title="重新整理報告"><span class="refresh-icon" aria-hidden="true">{{ reportLoading ? '…' : '↻' }}</span><span class="sr-only">{{ reportLoading ? '整理中' : '重新整理報告' }}</span></button>
-              <div class="report-export-actions" aria-label="匯出報告">
-                <button class="text-button report-export-button" type="button" :disabled="reportLoading || !report || reportExportLoading !== null" @click="exportReport('markdown')">{{ reportExportLoading === 'markdown' ? '產生中…' : '下載 Markdown' }}</button>
-                <button class="text-button report-export-button" type="button" :disabled="reportLoading || !report || reportExportLoading !== null" @click="exportReport('json')">{{ reportExportLoading === 'json' ? '產生中…' : '匯出 JSON' }}</button>
-              </div>
-            </form>
-          </div>
-
-          <div v-if="reportError" class="alert error-alert report-error" role="alert">{{ reportError }}</div>
-          <section v-if="reportLoading" class="loading-state report-loading">
-            <div class="spinner"></div>
-            <p>正在整理本機工作報告…</p>
-          </section>
-          <template v-else-if="report">
-            <div class="report-range-note">
-              <div><span>{{ reportPeriodLabels[report.period] }}</span><strong>{{ report.range.from }} — {{ report.range.to }}</strong></div>
-              <small>資料時區 {{ report.timezone }} · {{ report.sourceSessionIds.length }} 筆來源 Session</small>
-            </div>
-
-            <nav class="report-tabs" role="tablist" aria-label="工作報告內容分頁">
-              <button
-                v-for="tab in reportTabOptions"
-                :id="`report-tab-${tab.id}`"
-                :key="tab.id"
-                class="report-tab"
-                :class="{ 'report-tab-active': reportTab === tab.id }"
-                type="button"
-                role="tab"
-                :aria-selected="reportTab === tab.id"
-                :aria-controls="`report-tab-panel-${tab.id}`"
-                :title="tab.label"
-                @click="reportTab = tab.id"
-              >
-                <span>{{ tab.shortLabel }}</span>
-              </button>
-            </nav>
-
-            <div class="report-tab-panels">
-              <section id="report-tab-panel-overview" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-overview" v-show="reportTab === 'overview'">
-
-            <details class="report-synthesis-card" :open="reportSynthesisExpanded || !reportSynthesisSummary" @toggle="reportSynthesisExpanded = ($event.currentTarget as HTMLDetailsElement).open">
-              <summary class="report-synthesis-summary">
-                <div class="report-synthesis-heading">
-                <div>
-                  <div class="eyebrow">AGENT SYNTHESIS</div>
-                  <h3>{{ reportSynthesisSummary?.title ?? '管理層摘要' }}</h3>
-                </div>
-                <span v-if="reportSynthesisRequest" :class="['synthesis-status', `synthesis-status-${reportSynthesisRequest.status}`]">{{ reportSynthesisStatusLabels[reportSynthesisRequest.status] }}</span>
-                </div>
-              </summary>
-              <div v-if="reportSynthesisLoading" class="report-synthesis-loading"><span class="spinner small-spinner"></span><span>正在讀取提煉狀態…</span></div>
-              <template v-else-if="reportSynthesisSummary && !reportSynthesisIsActive">
-                <p class="report-synthesis-executive">{{ reportSynthesisSummary.executiveSummary }}</p>
-                <div class="report-synthesis-block-grid">
-                  <section v-if="reportSynthesisSummary.themes.length" class="report-synthesis-block">
-                    <div class="eyebrow">WORKSTREAMS</div>
-                    <article v-for="block in reportSynthesisSummary.themes" :key="`${block.title}-${block.detail}`" class="synthesis-block-item">
-                      <strong>{{ block.title }}</strong><p>{{ block.detail }}</p>
-                      <div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div>
-                    </article>
-                  </section>
-                  <section v-if="reportSynthesisSummary.highlights.length" class="report-synthesis-block">
-                    <div class="eyebrow">HIGHLIGHTS</div>
-                    <article v-for="block in reportSynthesisSummary.highlights" :key="`${block.title}-${block.detail}`" class="synthesis-block-item">
-                      <strong>{{ block.title }}</strong><p>{{ block.detail }}</p>
-                      <div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div>
-                    </article>
-                  </section>
-                  <section v-if="reportSynthesisSummary.risks.length" class="report-synthesis-block">
-                    <div class="eyebrow">RISKS</div>
-                    <article v-for="block in reportSynthesisSummary.risks" :key="`${block.title}-${block.detail}`" class="synthesis-block-item synthesis-risk-item">
-                      <strong>{{ block.title }}</strong><p>{{ block.detail }}</p>
-                      <div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div>
-                    </article>
-                  </section>
-                  <section v-if="reportSynthesisSummary.decisions.length" class="report-synthesis-block">
-                    <div class="eyebrow">DECISIONS</div>
-                    <article v-for="block in reportSynthesisSummary.decisions" :key="`${block.title}-${block.detail}`" class="synthesis-block-item">
-                      <strong>{{ block.title }}</strong><p>{{ block.detail }}</p>
-                      <div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div>
-                    </article>
-                  </section>
-                  <section v-if="reportSynthesisSummary.nextSteps.length" class="report-synthesis-block">
-                    <div class="eyebrow">NEXT STEPS</div>
-                    <article v-for="block in reportSynthesisSummary.nextSteps" :key="`${block.title}-${block.detail}`" class="synthesis-block-item">
-                      <strong>{{ block.title }}</strong><p>{{ block.detail }}</p>
-                      <div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div>
-                    </article>
-                  </section>
-                  <section v-if="reportSynthesisSummary.verification.length" class="report-synthesis-block">
-                    <div class="eyebrow">VERIFICATION</div>
-                    <article v-for="block in reportSynthesisSummary.verification" :key="`${block.title}-${block.detail}`" class="synthesis-block-item">
-                      <strong>{{ block.title }}</strong><p>{{ block.detail }}</p>
-                      <div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div>
-                    </article>
-                  </section>
-                  <section v-if="reportSynthesisSummary.comparison.length" class="report-synthesis-block">
-                    <div class="eyebrow">COMPARISON</div>
-                    <article v-for="block in reportSynthesisSummary.comparison" :key="`${block.title}-${block.detail}`" class="synthesis-block-item">
-                      <strong>{{ block.title }}</strong><p>{{ block.detail }}</p>
-                      <div class="synthesis-sources"><button v-for="sourceId in block.sourceSessionIds" :key="sourceId" type="button" @click="openReportSession(sourceId)">來源 Session · {{ sourceId.slice(0, 8) }} ↗</button><span v-if="!block.sourceSessionIds.length">資料不足，未提供來源 Session</span></div>
-                    </article>
-                  </section>
-                </div>
-                <div class="report-synthesis-footer"><span>由 {{ reportSynthesisSummary.generatedByAgent }} 產生 · Prompt {{ reportSynthesisSummary.promptVersion }} · {{ formatDate(reportSynthesisSummary.createdAt) }}</span><span v-if="reportSynthesisRequest?.failureReason" class="report-synthesis-failure">{{ reportSynthesisRequest.failureReason }}</span><div class="report-synthesis-footer-actions"><button class="icon-button report-icon-button" type="button" :disabled="reportSynthesisLoading" aria-label="重新整理提煉狀態" title="重新整理提煉狀態" @click="loadReportSynthesis"><span aria-hidden="true">↻</span></button><button class="text-button" type="button" :disabled="reportSynthesisCreating || reportSynthesisRetrying" @click="reportSynthesisCanRetry ? retryReportSynthesisRequest() : createReportSynthesisRequest()">{{ reportSynthesisCanRetry ? (reportSynthesisRetrying ? '重試中…' : '重試這次提煉') : '重新提煉' }}</button></div></div>
-                <details v-if="reportSynthesisHistory.length > 1" class="report-synthesis-history">
-                  <summary><span>歷史版本</span><span>{{ reportSynthesisHistory.length }} 個版本</span></summary>
-                  <div class="report-synthesis-history-list">
-                    <div
-                      v-for="summary in reportSynthesisHistory"
-                      :key="summary.id"
-                      :class="['report-synthesis-history-item', { 'report-synthesis-history-item-current': reportSynthesisSummary.id === summary.id }]"
-                    >
-                      <button class="report-synthesis-history-select" type="button" :aria-pressed="reportSynthesisSummary.id === summary.id" @click="selectReportSynthesisVersion(summary)">
-                        <span class="report-synthesis-history-item-copy"><strong>{{ summary.title }}</strong><small>{{ formatDate(summary.createdAt) }} · {{ summary.generatedByAgent }}</small></span>
-                        <span class="report-synthesis-history-item-status">{{ summary.isCurrent ? '目前版本' : '歷史版本' }}</span>
-                      </button>
-                      <button v-if="!summary.isCurrent" class="icon-button report-synthesis-history-delete" type="button" :aria-label="`移除歷史版本 ${summary.title}`" :title="`移除歷史版本 ${summary.title}`" @click.stop="deleteReportSynthesisVersion(summary)"><span aria-hidden="true">×</span></button>
-                    </div>
-                  </div>
-                </details>
-              </template>
-              <div v-else class="report-synthesis-empty">
-                <div class="report-synthesis-message">
-                  <p v-if="reportSynthesisRequest">{{ reportSynthesisRequest.status === 'pending' ? '請在目前的 Codex 或 Claude 對話中用自然語言請 Agent 處理這份報告。' : reportSynthesisRequest.status === 'processing' ? 'Agent 已開始處理；完成後可重新整理狀態。' : reportSynthesisRequest.status === 'failed' || reportSynthesisRequest.status === 'cancelled' ? '這次提煉沒有完成，可以重新建立一次安全的提煉請求。' : '目前沒有可顯示的提煉內容。' }}</p>
-                  <p v-if="reportSynthesisRequest?.failureReason" class="report-synthesis-error">{{ reportSynthesisRequest.failureReason }}</p>
-                  <p v-if="reportSynthesisSummary && reportSynthesisIsActive" class="report-synthesis-previous-note">上一版摘要仍保留在資料庫；新的提煉完成後才會替換，期間不會遺失早上的報告。</p>
-                  <p v-if="!reportSynthesisRequest">這份 deterministic report 尚未建立 Agent 提煉請求。按下按鈕後，WorkLog 只會建立待處理請求，不會反向呼叫任何 Agent。</p>
-                </div>
-                <div class="report-synthesis-actions">
-                  <button v-if="reportSynthesisCanRetry" class="primary-button" type="button" :disabled="reportSynthesisRetrying" @click="retryReportSynthesisRequest">{{ reportSynthesisRetrying ? '重試中…' : '重試這次提煉' }}</button>
-                  <button v-else class="primary-button" type="button" :disabled="reportSynthesisCreating || reportSynthesisIsActive" @click="createReportSynthesisRequest">{{ reportSynthesisCreating ? '建立中…' : reportSynthesisIsActive ? '等待 Agent 處理中…' : reportSynthesisRequest ? '重新提煉本報告' : '請 Agent 提煉本報告' }}</button>
-                  <button v-if="reportSynthesisRequest" class="text-button" type="button" @click="copyReportSynthesisInstruction">複製提煉指令</button>
-                  <button v-if="reportSynthesisIsActive" class="text-button cancel-button" type="button" :disabled="reportSynthesisCancelling" @click="cancelReportSynthesisRequest">{{ reportSynthesisCancelling ? '取消中…' : '取消這次提煉' }}</button>
-                  <button class="icon-button report-icon-button" type="button" :disabled="reportSynthesisLoading" aria-label="重新整理提煉狀態" title="重新整理提煉狀態" @click="loadReportSynthesis"><span aria-hidden="true">↻</span></button>
-                </div>
-              </div>
-              <p v-if="reportSynthesisError" class="report-synthesis-error" role="alert">{{ reportSynthesisError }}</p>
-            </details>
-
-            <section class="report-summary-card">
-              <div class="report-summary-copy">
-                <div class="eyebrow">PERIOD SUMMARY</div>
-                <h3>這段時間發生了什麼</h3>
-                <p>{{ formatReadableSummary(report.periodSummary) }}</p>
-              </div>
-              <div class="report-period-meta">
-                <div><span>比較期間</span><strong>{{ report.previousRange.from }} — {{ report.previousRange.to }}</strong></div>
-                <div><span>報告範圍</span><strong>{{ report.project?.name ?? '所有記錄中專案' }}</strong></div>
-              </div>
-            </section>
-
-            <div class="report-comparison-grid">
-              <article v-for="item in reportComparisons" :key="item.key" :class="['report-comparison-card', `comparison-${item.comparison.direction}`]">
-                <div class="report-comparison-heading"><span>{{ item.label }}</span><span class="comparison-arrow">{{ item.comparison.direction === 'up' ? '↗' : item.comparison.direction === 'down' ? '↘' : '→' }}</span></div>
-                <strong>{{ item.comparison.current }}</strong>
-                <span class="report-comparison-delta">{{ formatReportDelta(item.comparison) }}</span>
-                <small>{{ item.foot }}</small>
-              </article>
-            </div>
-
-              </section>
-
-              <section id="report-tab-panel-work" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-work" v-show="reportTab === 'work'">
-
-            <div class="content-grid report-grid report-primary-grid">
-              <section class="panel report-panel report-work-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">COMPLETED WORK</div>
-                    <h3>主要完成事項</h3>
-                  </div>
-                  <span class="report-count">{{ report.totals.sessions }} 個 Session</span>
-                </div>
-                <div v-if="report.completedWork.length === 0" class="empty-state report-empty">
-                  <strong>這段期間沒有完成工作</strong>
-                  <p>選擇其他區間，或先讓記錄中的專案完成一次 session。</p>
-                </div>
-                <button v-for="session in report.completedWork" :key="session.id" class="report-completed-row" type="button" @click="openSession(session)">
-                  <div class="session-marker"></div>
-                  <div class="session-main"><strong>{{ session.title }}</strong><p class="report-summary-preview">{{ formatReadableSummary(session.summary) }}</p><span>{{ session.projectName }} · {{ formatDate(session.completedAt) }}</span></div>
-                  <span :class="['verification-badge', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabels[session.verification?.status ?? 'not_supplied'] }}</span>
-                  <span class="session-arrow">↗</span>
-                </button>
-              </section>
-
-              <section class="panel report-panel report-verification-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">VERIFICATION STATUS</div>
-                    <h3>Verification 狀態</h3>
-                  </div>
-                  <span class="report-count">{{ report.totals.sessions }} 個 Session</span>
-                </div>
-                <div class="report-verification-list">
-                  <div v-for="item in reportVerification" :key="item.status" class="report-verification-row">
-                    <div class="report-progress-label"><span>{{ item.label }}</span><strong>{{ item.count }}</strong></div>
-                    <div class="report-progress"><span :class="`verification-fill-${item.status}`" :style="{ width: `${item.percent}%` }"></span></div>
-                  </div>
-                </div>
-                <p class="report-panel-note">待 Agent 回報代表沒有結構化 verification；未執行則代表 Agent 明確表示尚未驗證。報告不會替 Agent 推測驗證結果。</p>
-              </section>
-            </div>
-
-              </section>
-
-              <section id="report-tab-panel-trend" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-trend" v-show="reportTab === 'trend'">
-
-            <div class="content-grid report-grid report-secondary-grid">
-              <section class="panel report-panel report-trend-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">ACTIVITY TREND</div>
-                    <h3>工作節奏</h3>
-                  </div>
-                  <span class="report-count">{{ report.trends.length }} {{ report.trendGranularity === 'month' ? '個月' : '天' }}</span>
-                </div>
-                <div class="report-trend-legend"><span><i class="trend-legend-sessions"></i>工作 Session</span><span><i class="trend-legend-events"></i>事件</span></div>
-                <div class="report-trend-chart">
-                  <div v-for="(point, index) in report.trends" :key="point.date" class="report-trend-column" :title="`${point.date} · ${point.sessions} 個 Session · ${point.events} 個事件`">
-                    <div class="report-trend-bars"><span class="trend-bar trend-bar-sessions" :style="{ height: reportTrendHeight(point.sessions, report) }"></span><span class="trend-bar trend-bar-events" :style="{ height: reportTrendHeight(point.events, report) }"></span></div>
-                    <small v-if="shouldShowTrendLabel(index, report.trends.length)">{{ formatReportTrendLabel(point.date, report.trendGranularity) }}</small>
-                  </div>
-                </div>
-                <p v-if="report.trends.every((point) => point.sessions === 0)" class="report-panel-note">這段期間尚未有工作活動，趨勢會在新的 Session 完成後出現。</p>
-              </section>
-
-              <section class="panel report-panel report-project-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">PROJECT BREAKDOWN</div>
-                    <h3>專案分布</h3>
-                  </div>
-                  <span class="report-count">{{ report.projects.length }}</span>
-                </div>
-                <div v-if="report.projects.length === 0" class="empty-state report-empty"><strong>沒有專案資料</strong><p>這段期間沒有可顯示的 tracked project。</p></div>
-                <div v-for="project in report.projects" :key="project.projectId" class="report-project-row">
-                  <div class="project-avatar">{{ project.projectName.slice(0, 1).toUpperCase() }}</div>
-                  <div class="report-project-info"><strong>{{ project.projectName }}</strong><span>{{ project.sessionCount }} 個 Session · {{ project.eventCount }} 個事件</span></div>
-                  <span class="report-source-count">{{ project.sourceSessionIds.length }} 個來源</span>
-                </div>
-              </section>
-            </div>
-
-              </section>
-
-              <section id="report-tab-panel-risks" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-risks" v-show="reportTab === 'risks'">
-
-            <div class="report-insights-grid">
-              <section class="panel report-panel report-insight-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">RISKS TO REVIEW</div>
-                    <h3>風險與待確認事項</h3>
-                  </div>
-                  <span class="report-count">{{ report.risks.length }}</span>
-                </div>
-                <div v-if="report.risks.length === 0" class="empty-state report-empty"><strong>目前沒有資料型風險</strong><p>目前期間的報告資料沒有偵測到需要提醒的項目。</p></div>
-                <button v-for="insight in report.risks" :key="`${insight.kind}-${insight.label}`" class="report-insight-row" type="button" @click="openReportSession(insight.sourceSessionIds[0])">
-                  <div class="report-insight-heading"><span class="report-insight-kind">{{ insightKindLabels[insight.kind] }}</span><strong>{{ insight.label }}</strong></div>
-                  <p>{{ insight.detail }}</p>
-                  <small>{{ insight.sourceSessionIds.length }} 筆來源 Session · 查看第一筆 ↗</small>
-                </button>
-              </section>
-
-              <section class="panel report-panel report-insight-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">DECISIONS &amp; CLOSING</div>
-                    <h3>風險／決策</h3>
-                  </div>
-                  <span class="report-count">{{ report.decisions.length }}</span>
-                </div>
-                <div v-if="report.decisions.length === 0" class="empty-state report-empty"><strong>這段期間沒有決策事件</strong><p>Agent 提交 note 或 closing event 後，會在這裡保留來源。</p></div>
-                <button v-for="decision in report.decisions" :key="`${decision.sessionId}-${decision.occurredAt}`" class="report-decision-row" type="button" @click="openReportSession(decision.sessionId)">
-                  <div class="report-decision-copy"><strong>{{ decision.summary }}</strong><span>{{ decision.sessionTitle }} · {{ formatDate(decision.occurredAt) }}</span></div>
-                  <span class="session-arrow">↗</span>
-                </button>
-              </section>
-            </div>
-
-              </section>
-
-              <section id="report-tab-panel-raw" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-raw" v-show="reportTab === 'raw'">
-
-            <details class="report-raw-details" open>
-              <summary><span><span class="eyebrow">RAW WORK RECORDS</span><strong>原始工作紀錄</strong></span><span class="report-count">{{ reportSessionPageInfo.total }} 個 Session</span></summary>
-              <div v-if="reportSessionLoading" class="report-raw-loading"><span class="spinner small-spinner"></span><span>正在載入原始 Session…</span></div>
-              <div v-else-if="reportSessionItems.length" class="report-raw-session-list">
-                <VirtualList :items="reportSessionItems" :enabled="reportSessionPageSize === 'all'" aria-label="報告原始工作紀錄清單">
-                  <template #default="{ item: session }">
-                    <button class="report-raw-session-row" type="button" @click="openSession(session)">
-                      <span class="session-marker"></span><span class="report-raw-session-copy"><strong>{{ session.title }}</strong><span>{{ session.projectName }} · {{ formatDate(session.completedAt) }}</span><small>{{ formatReadableSummary(session.summary) }}</small></span><span :class="['verification-badge', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabel(session.verification?.status) }}</span><span class="session-arrow">↗</span>
-                    </button>
-                  </template>
-                </VirtualList>
-              </div>
-              <div v-else class="report-empty report-empty-compact"><strong>這段期間沒有原始 Session</strong><p>請切換報告期間或專案範圍。</p></div>
-              <div v-if="reportSessionPageInfo.total > 0" class="pagination-bar report-list-pagination-bar">
-                <span class="pagination-summary">顯示 {{ reportSessionPageInfo.from }}–{{ reportSessionPageInfo.to }}，共 {{ reportSessionPageInfo.total }} 筆<span v-if="reportSessionPageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ reportSessionPageInfo.pageSize }} 筆</span></span>
-                <label class="pagination-page-size"><span>每頁</span><select v-model="reportSessionPageSize" aria-label="報告原始工作紀錄每頁筆數" @change="changeReportSessionPageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
-                <div v-if="reportSessionPageInfo.totalPages > 1" class="pagination-controls"><button class="pagination-button" type="button" :disabled="!reportSessionPageInfo.hasPrevious" @click="changeReportSessionPage(reportSessionPageInfo.page - 1)">上一頁</button><span>第 {{ reportSessionPageInfo.page }} / {{ reportSessionPageInfo.totalPages }} 頁</span><button class="pagination-button" type="button" :disabled="!reportSessionPageInfo.hasNext" @click="changeReportSessionPage(reportSessionPageInfo.page + 1)">下一頁</button></div>
-                <span v-else class="pagination-current">共 {{ reportSessionPageInfo.total }} 筆</span>
-              </div>
-            </details>
-
-              </section>
-
-              <section id="report-tab-panel-evidence" class="report-tab-panel" role="tabpanel" aria-labelledby="report-tab-evidence" v-show="reportTab === 'evidence'">
-
-            <section class="panel report-panel report-evidence-panel">
-              <div class="panel-heading">
-                <div>
-                  <div class="eyebrow">SOURCE EVIDENCE</div>
-                  <h3>來源證據</h3>
-                </div>
-                <span class="report-count">{{ report.evidencePageInfo.total }} 筆</span>
-              </div>
-              <form class="report-evidence-tools" @submit.prevent="loadReportEvidence(true)">
-                <label class="report-evidence-search"><span>⌕</span><input v-model="reportEvidenceQuery" type="search" placeholder="搜尋 Session、來源或證據內容" /></label>
-                <label class="report-evidence-kind"><span>類型</span><select v-model="reportEvidenceKind" aria-label="依 Evidence 類型篩選" @change="loadReportEvidence(true)"><option value="">所有類型</option><option v-for="(label, kind) in evidenceKindLabels" :key="kind" :value="kind">{{ label }}</option></select></label>
-                <button class="text-button report-evidence-filter-button" type="submit" :disabled="reportEvidenceLoading">{{ reportEvidenceLoading ? '更新中…' : '套用篩選' }}</button>
-              </form>
-              <div v-if="reportEvidenceLoading" class="report-evidence-inline-loading"><span class="spinner small-spinner"></span><span>正在更新來源證據…</span></div>
-              <div v-else-if="report.evidence.length === 0" class="empty-state report-empty"><strong>尚無可呈現的證據</strong><p>完成 session 時提供 handoff、verification、changed files 或 event，報告就能建立追溯線索。</p></div>
-              <div v-else :class="['report-evidence-list', { 'report-evidence-list-virtualized': reportEvidencePageSize === 'all' }]">
-                <VirtualList v-if="reportEvidencePageSize === 'all'" :items="report.evidence" :enabled="true" aria-label="報告來源證據清單" :estimate-item-height="94">
-                  <template #default="{ item }">
-                    <button class="report-evidence-row" type="button" @click="openReportEvidence(item)">
-                      <span :class="['report-evidence-icon', `evidence-${item.kind}`]">{{ item.kind === 'handoff' ? 'H' : item.kind === 'verification' ? 'V' : item.kind === 'changed-files' ? 'F' : item.kind === 'attached' ? 'A' : 'E' }}</span>
-                      <div class="report-evidence-copy"><div><span class="report-evidence-kind">{{ evidenceKindLabel(item.kind) }}</span><strong>{{ item.label }}</strong></div><p>{{ item.detail }}</p><small>{{ item.sessionTitle }}<span v-if="item.projectName"> · {{ item.projectName }}</span><span v-if="item.reference"> · {{ item.reference }}</span></small></div>
-                      <span class="session-arrow">↗</span>
-                    </button>
-                  </template>
-                </VirtualList>
-                <template v-else>
-                  <button v-for="item in report.evidence" :key="`${item.sessionId}-${item.kind}-${item.label}`" class="report-evidence-row" type="button" @click="openReportEvidence(item)">
-                    <span :class="['report-evidence-icon', `evidence-${item.kind}`]">{{ item.kind === 'handoff' ? 'H' : item.kind === 'verification' ? 'V' : item.kind === 'changed-files' ? 'F' : item.kind === 'attached' ? 'A' : 'E' }}</span>
-                    <div class="report-evidence-copy"><div><span class="report-evidence-kind">{{ evidenceKindLabels[item.kind] }}</span><strong>{{ item.label }}</strong></div><p>{{ item.detail }}</p><small>{{ item.sessionTitle }}<span v-if="item.projectName"> · {{ item.projectName }}</span><span v-if="item.reference"> · {{ item.reference }}</span></small></div>
-                    <span class="session-arrow">↗</span>
-                  </button>
-                </template>
-              </div>
-              <div v-if="report.evidencePageInfo.total > 0" class="pagination-bar report-list-pagination-bar">
-                <span class="pagination-summary">顯示 {{ report.evidencePageInfo.from }}–{{ report.evidencePageInfo.to }}，共 {{ report.evidencePageInfo.total }} 筆<span v-if="report.evidencePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ report.evidencePageInfo.pageSize }} 筆</span></span>
-                <label class="pagination-page-size"><span>每頁</span><select v-model="reportEvidencePageSize" aria-label="報告來源證據每頁筆數" @change="changeReportEvidencePageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
-                <div v-if="report.evidencePageInfo.totalPages > 1" class="pagination-controls">
-                  <button class="pagination-button" type="button" :disabled="!report.evidencePageInfo.hasPrevious" @click="changeReportEvidencePage(report.evidencePageInfo.page - 1)">上一頁</button>
-                  <span>第 {{ report.evidencePageInfo.page }} / {{ report.evidencePageInfo.totalPages }} 頁</span>
-                  <button class="pagination-button" type="button" :disabled="!report.evidencePageInfo.hasNext" @click="changeReportEvidencePage(report.evidencePageInfo.page + 1)">下一頁</button>
-                </div>
-                <span v-else class="pagination-current">共 {{ report.evidencePageInfo.total }} 筆</span>
-              </div>
-            </section>
-              </section>
-            </div>
-          </template>
-          <div v-else class="empty-state large-empty report-empty-state"><div class="empty-icon">▥</div><strong>尚未產生報告</strong><p>切換到報表後，系統會從已授權的工作紀錄建立摘要。</p></div>
-        </ReportsView>
-
-        <KnowledgeView v-else-if="activeView === 'knowledge'">
-          <div class="section-intro knowledge-intro">
-            <div>
-              <div class="eyebrow">EXPLICIT KNOWLEDGE</div>
-              <h2>把已確認的經驗，留給下一次工作。</h2>
-              <p>Knowledge 只接受 Agent 明確提交的內容，不會自行讀取 source 或用猜測取代證據。</p>
-            </div>
-            <div class="tracked-summary"><strong>{{ knowledgePageInfo.total }}</strong><span>筆目前可用知識</span></div>
-          </div>
-
-          <form class="knowledge-tools" @submit.prevent="loadKnowledge(true)">
-            <label class="search-box knowledge-search-box">
-              <span>⌕</span>
-              <input v-model="knowledgeQuery" type="search" placeholder="搜尋標題、內容、標籤或參考" />
-            </label>
-            <label class="filter-field">
-              <span>專案</span>
-              <select v-model="knowledgeProjectId" aria-label="依專案篩選 Knowledge">
-                <option value="">所有記錄中專案</option>
-                <option v-for="project in knowledgeProjects" :key="project.id" :value="project.id">{{ project.name }}</option>
-              </select>
-            </label>
-            <label class="filter-field">
-              <span>類型</span>
-              <select v-model="knowledgeKind" aria-label="依類型篩選 Knowledge">
-                <option value="">所有類型</option>
-                <option v-for="(label, kind) in knowledgeKindLabels" :key="kind" :value="kind">{{ label }}</option>
-              </select>
-            </label>
-            <label class="filter-field">
-              <span>狀態</span>
-              <select v-model="knowledgeStatus" aria-label="依狀態篩選 Knowledge">
-                <option v-for="(label, status) in knowledgeStatusLabels" :key="status" :value="status">{{ label }}</option>
-              </select>
-            </label>
-            <button class="filter-button" type="submit" :disabled="knowledgeLoading">{{ knowledgeLoading ? '整理中…' : '套用篩選' }}</button>
-          </form>
-
-          <div v-if="knowledgeError" class="alert error-alert" role="alert">{{ knowledgeError }}</div>
-          <section v-if="knowledgeLoading" class="loading-state knowledge-loading">
-            <div class="spinner"></div>
-            <p>正在載入已確認的工作知識…</p>
-          </section>
-          <section v-else class="panel knowledge-panel">
-            <div class="list-heading knowledge-heading"><span>{{ knowledgePageInfo.total }} 筆{{ knowledgeStatus === 'active' ? '目前使用中' : '已封存' }} Knowledge</span><span>維護</span></div>
-            <VirtualList :items="knowledgeItems" :enabled="knowledgePageSize === 'all'" aria-label="工作知識清單">
-              <template #default="{ item }">
-                <article class="knowledge-row">
-                  <div :class="['knowledge-kind-mark', `knowledge-kind-${item.kind}`]">{{ item.kind.slice(0, 1).toUpperCase() }}</div>
-                  <div class="knowledge-body">
-                    <div class="knowledge-title"><strong>{{ item.title }}</strong><span class="knowledge-kind-label">{{ knowledgeKindLabel(item.kind) }}</span><span :class="['knowledge-status-label', `knowledge-status-${item.status}`]">{{ knowledgeStatusLabel(item.status) }}</span></div>
-                    <p>{{ item.body }}</p>
-                    <div class="knowledge-meta">
-                      <span v-if="item.projectName">{{ item.projectName }}</span>
-                      <span v-for="tag in item.tags" :key="`${item.id}-${tag}`" class="knowledge-tag">#{{ tag }}</span>
-                      <button v-if="item.sessionId" class="text-button knowledge-source-button" type="button" @click="openKnowledgeSession(item)">查看來源 Session ↗</button>
-                    </div>
-                    <div v-if="item.references.length" class="knowledge-references"><code v-for="reference in item.references" :key="`${item.id}-${reference}`">{{ reference }}</code></div>
-                  </div>
-                  <div class="knowledge-row-actions">
-                    <time>{{ formatDate(item.updatedAt) }}</time>
-                    <button class="text-button" type="button" @click="openKnowledgeHistory(item)">變更紀錄</button>
-                    <button class="text-button" type="button" @click="openKnowledgeEditor(item)">編輯</button>
-                    <button class="text-button knowledge-archive-button" type="button" @click="setKnowledgeStatus(item, item.status === 'active' ? 'archived' : 'active')">{{ item.status === 'active' ? '封存' : '恢復' }}</button>
-                  </div>
-                </article>
-              </template>
-            </VirtualList>
-            <div v-if="knowledgeItems.length === 0" class="empty-state large-empty"><div class="empty-icon">✦</div><strong>{{ knowledgeStatus === 'active' ? '還沒有已確認的 Knowledge' : '沒有已封存的 Knowledge' }}</strong><p>{{ knowledgeStatus === 'active' ? 'Agent 使用 work_record_knowledge 提交 decision、pattern、gotcha、procedure 或 skill 後，內容會出現在這裡。' : '封存只會停止它出現在預設搜尋與 Graph 中，不會刪除原始記錄。' }}</p></div>
-            <div class="pagination-bar list-pagination-bar">
-              <span class="pagination-summary">顯示 {{ knowledgePageInfo.from }}–{{ knowledgePageInfo.to }}，共 {{ knowledgePageInfo.total }} 筆<span v-if="knowledgePageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ knowledgePageInfo.pageSize }} 筆</span></span>
-              <label class="pagination-page-size"><span>每頁</span><select v-model="knowledgePageSize" aria-label="Knowledge 每頁筆數" @change="changeKnowledgePageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
-              <div v-if="knowledgePageInfo.totalPages > 1" class="pagination-controls">
-                <button class="pagination-button" type="button" :disabled="!knowledgePageInfo.hasPrevious" @click="changeKnowledgePage(knowledgePageInfo.page - 1)">上一頁</button>
-                <span>第 {{ knowledgePageInfo.page }} / {{ knowledgePageInfo.totalPages }} 頁</span>
-                <button class="pagination-button" type="button" :disabled="!knowledgePageInfo.hasNext" @click="changeKnowledgePage(knowledgePageInfo.page + 1)">下一頁</button>
-              </div>
-              <span v-else class="pagination-current">共 {{ knowledgePageInfo.total }} 筆</span>
-            </div>
-          </section>
-        </KnowledgeView>
-
-        <GraphView v-else-if="activeView === 'graph'">
-          <div class="section-intro graph-intro">
-            <div>
-              <div class="eyebrow">DETERMINISTIC WORK GRAPH</div>
-              <h2>把 Session、檔案、知識與證據連起來。</h2>
-              <p>圖譜只使用已保存的結構化資料；不讀取 source、handoff 或 Git，也不替資料推測語意關係。</p>
-            </div>
-            <div class="tracked-summary"><strong>{{ graph?.totalNodes ?? 0 }}</strong><span>個圖譜節點</span></div>
-          </div>
-
-          <form class="graph-tools" @submit.prevent="loadGraph">
-            <label class="filter-field">
-              <span>專案範圍</span>
-              <select v-model="graphProjectId" aria-label="選擇 Graph 專案範圍">
-                <option value="">所有記錄中專案</option>
-                <option v-for="project in trackedProjects" :key="project.id" :value="project.id">{{ project.name }}</option>
-              </select>
-            </label>
-            <label class="filter-field">
-              <span>節點類型</span>
-              <select v-model="graphNodeFilter" aria-label="選擇 Graph 節點類型">
-                <option value="all">全部類型</option>
-                <option v-for="kind in graphNodeKindOrder" :key="kind" :value="kind">{{ graphNodeKindLabels[kind] }}</option>
-              </select>
-            </label>
-            <label class="filter-field">
-              <span>畫面預覽量</span>
-              <select v-model.number="graphPreviewLimit" aria-label="選擇 Graph 畫面預覽量">
-                <option :value="60">精簡（最多 60）</option>
-                <option :value="120">標準（最多 120）</option>
-                <option :value="180">展開（最多 180）</option>
-              </select>
-            </label>
-            <label class="filter-field">
-              <span>資料載入上限</span>
-              <select v-model="graphLoadPreset" aria-label="選擇 Graph 資料載入上限">
-                <option v-for="preset in graphLoadPresetOptions" :key="preset.value" :value="preset.value">{{ preset.label }}</option>
-              </select>
-            </label>
-            <span class="graph-policy-note">只顯示「記錄中」專案；類型與預覽量可立即切換</span>
-            <button class="filter-button" type="submit" :disabled="graphLoading">{{ graphLoading ? '整理中…' : '更新圖譜' }}</button>
-            <button v-if="graphCanLoadMore" class="text-button graph-load-more-button" type="button" :disabled="graphLoading" @click="loadMoreGraph">載入更多資料</button>
-          </form>
-
-          <div v-if="graphError" class="alert error-alert" role="alert">{{ graphError }}</div>
-          <section v-if="graphLoading" class="loading-state graph-loading">
-            <div class="spinner"></div>
-            <p>正在整理本機工作圖譜…</p>
-          </section>
-          <template v-else-if="graph">
-            <div class="graph-stat-grid">
-              <article class="graph-stat-card graph-stat-total"><span>節點總數</span><strong>{{ graph.totalNodes }}</strong><small>完整範圍總數</small></article>
-              <article class="graph-stat-card graph-stat-total"><span>關係總數</span><strong>{{ graph.totalEdges }}</strong><small>完整範圍總數</small></article>
-              <article v-for="item in graphNodeCounts" :key="item.kind" class="graph-stat-card"><span>{{ item.label }}</span><strong>{{ item.count }}</strong><small>圖譜節點</small></article>
-            </div>
-
-            <section class="panel graph-visual-panel">
-              <div class="panel-heading">
-                <div>
-                  <div class="eyebrow">RELATIONSHIP MAP</div>
-                  <h3>工作關係圖</h3>
-                </div>
-                <span class="report-count">顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 節點</span>
-              </div>
-              <div v-if="graph.nodes.length === 0" class="empty-state graph-empty"><div class="empty-icon">◎</div><strong>目前沒有可視化資料</strong><p>tracked project 完成 Session 後，這裡會出現工作關係。</p></div>
-              <div v-else class="graph-viewport" role="img" aria-label="Work Intelligence 結構化工作關係圖">
-                <div class="graph-lane-header" aria-hidden="true">
-                  <span v-for="kind in graphNodeKindOrder" :key="kind">{{ graphNodeKindLabels[kind] }}</span>
-                </div>
-                <svg class="graph-svg" :viewBox="`0 0 ${graphVisual.width} ${graphVisual.height}`" preserveAspectRatio="xMinYMin meet">
-                  <defs>
-                    <marker id="graph-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
-                      <path d="M0,0 L7,3.5 L0,7 z" fill="#6d92b3"></path>
-                    </marker>
-                    <clipPath
-                      v-for="item in graphVisual.nodes"
-                      :id="graphNodeClipId(item.node.id)"
-                      :key="graphNodeClipId(item.node.id)"
-                      clipPathUnits="userSpaceOnUse"
-                    >
-                      <rect x="-80" y="-17" width="160" height="34" rx="3"></rect>
-                    </clipPath>
-                  </defs>
-                  <line v-for="item in graphVisual.edges" :key="item.edge.id" class="graph-edge" :x1="item.from.x + 92" :y1="item.from.y" :x2="item.to.x - 92" :y2="item.to.y" marker-end="url(#graph-arrow)">
-                    <title>{{ graphEdgeKindLabels[item.edge.kind] }}</title>
-                  </line>
-                  <g
-                    v-for="item in graphVisual.nodes"
-                    :key="item.node.id"
-                    :class="['graph-svg-node', `graph-svg-node-${item.node.kind}`, { clickable: true }]"
-                    :transform="`translate(${item.x}, ${item.y})`"
-                    role="button"
-                    tabindex="0"
-                    :aria-label="`查看${graphNodeKindLabels[item.node.kind]}：${item.node.label}`"
-                    @click="openGraphNode(item.node)"
-                    @keydown.enter="openGraphNode(item.node)"
-                    @keydown.space.prevent="openGraphNode(item.node)"
-                  >
-                    <title>{{ item.node.label }} · {{ graphNodeKindLabels[item.node.kind] }}</title>
-                    <rect x="-92" y="-20" width="184" height="40" rx="10"></rect>
-                    <text class="graph-node-label" x="-78" y="-3" :clip-path="`url(#${graphNodeClipId(item.node.id)})`">{{ graphNodeLabel(item.node.label) }}</text>
-                    <text class="graph-node-meta" x="-78" y="12" :clip-path="`url(#${graphNodeClipId(item.node.id)})`">{{ graphNodeDescription(item.node) }}</text>
-                  </g>
-                </svg>
-              </div>
-              <p class="graph-panel-note">目前顯示 {{ graphVisual.nodes.length }} / {{ graphFilteredTotalNodes }} 個{{ graphNodeFilterLabel() }}、{{ graphVisual.edges.length }} / {{ graph.totalEdges }} 條關係。{{ graph.truncation.nodesTruncated || graph.truncation.edgesTruncated ? '資料已依載入上限受控；可提高「資料載入上限」或按「載入更多資料」。' : '目前範圍的資料已完整載入。' }}<span v-if="graphVisual.hiddenNodes"> 畫面另省略 {{ graphVisual.hiddenNodes }} 個節點。</span><span v-if="graphVisual.hiddenEdges"> 另有 {{ graphVisual.hiddenEdges }} 條關係因端點被省略而未繪出。</span></p>
-            </section>
-
-            <div class="content-grid graph-secondary-grid">
-              <section class="panel graph-breakdown-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">NODE BREAKDOWN</div>
-                    <h3>節點分布</h3>
-                  </div>
-                  <span class="report-count">{{ graph.projects.length }} 個專案</span>
-                </div>
-                <div class="graph-breakdown-list">
-                  <div v-for="item in graphNodeCounts" :key="item.kind" class="graph-breakdown-row">
-                    <span :class="['graph-kind-dot', `graph-kind-${item.kind}`]"></span>
-                    <strong>{{ item.label }}</strong>
-                    <span>{{ item.count }} 個節點</span>
-                  </div>
-                </div>
-                <p class="graph-panel-note">來源 Projects：{{ graph.sourceProjectIds.length }} · 來源 Sessions：{{ graph.sourceSessionIds.length }}</p>
-              </section>
-
-              <section class="panel graph-breakdown-panel">
-                <div class="panel-heading">
-                  <div>
-                    <div class="eyebrow">EDGE LEGEND</div>
-                    <h3>關係類型</h3>
-                  </div>
-                  <span class="report-count">{{ graph.edges.length }} 條關係</span>
-                </div>
-                <div class="graph-breakdown-list">
-                  <div v-for="item in graphEdgeCounts" :key="item.kind" class="graph-breakdown-row">
-                    <span class="graph-edge-mark">→</span>
-                    <strong>{{ item.label }}</strong>
-                    <span>{{ item.count }} 條關係</span>
-                  </div>
-                </div>
-                <p class="graph-panel-note">目前關係皆可回溯到 Project Registry、Session、Knowledge、Evidence 或 changed-files metadata。</p>
-              </section>
-            </div>
-      </template>
-      <div v-else class="empty-state large-empty graph-empty-state"><div class="empty-icon">◎</div><strong>尚未載入工作圖譜</strong><p>切換到 Graph 後，系統會從已授權的工作紀錄建立結構化視圖。</p></div>
-        </GraphView>
-
-        <WorklogView v-else>
-          <div class="section-intro worklog-intro">
-            <div>
-              <div class="eyebrow">SESSION ARCHIVE</div>
-              <h2>每一次完成，都留下可追溯的脈絡。</h2>
-            </div>
-            <form class="worklog-tools" @submit.prevent="loadSessions(true)">
-              <label class="search-box">
-                <span>⌕</span>
-                <input v-model="searchTerm" type="search" placeholder="搜尋 title、summary 或 event" />
-              </label>
-              <div class="filter-row">
-                <label class="filter-field">
-                  <span>專案</span>
-                  <select v-model="selectedProjectId" aria-label="依專案篩選">
-                    <option value="">所有專案</option>
-                    <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option>
-                  </select>
-                </label>
-                <div class="filter-field date-filter-field">
-                  <span>從日期</span>
-                  <button
-                    ref="dateFromTrigger"
-                    class="date-picker-trigger"
-                    type="button"
-                    :aria-expanded="activeDatePicker === 'from'"
-                    aria-haspopup="dialog"
-                    aria-label="選擇開始日期"
-                    @click="toggleDatePicker('from')"
-                  >
-                    <span class="calendar-glyph" aria-hidden="true">▦</span>
-                    <span :class="['date-picker-value', { placeholder: !dateFrom }]">{{ displayDate(dateFrom) }}</span>
-                    <span class="date-picker-chevron" aria-hidden="true">⌄</span>
-                  </button>
-                  <Teleport to="body">
-                    <div v-if="activeDatePicker === 'from'" class="date-picker-popover" :style="datePickerStyle" role="dialog" aria-label="選擇開始日期" @click.stop>
-                    <div class="date-picker-toolbar">
-                      <button type="button" aria-label="上一個月" @click="shiftPickerMonth(-1)">‹</button>
-                      <strong>{{ pickerMonthLabel }}</strong>
-                      <button type="button" aria-label="下一個月" @click="shiftPickerMonth(1)">›</button>
-                    </div>
-                    <div class="calendar-weekdays" aria-hidden="true"><span v-for="weekday in ['日', '一', '二', '三', '四', '五', '六']" :key="weekday">{{ weekday }}</span></div>
-                    <div class="calendar-grid">
-                      <button
-                        v-for="day in calendarDays"
-                        :key="day.value"
-                        :class="['calendar-day', { muted: !day.inCurrentMonth, today: day.isToday, selected: day.isSelected }]"
-                        type="button"
-                        :aria-label="`${day.value}`"
-                        @click="selectCalendarDate(day.value)"
-                      >{{ day.label }}</button>
-                    </div>
-                    <div class="date-picker-footer">
-                      <button type="button" class="date-today-button" @click="selectCalendarDate(toDateInputValue(new Date()))">今天</button>
-                      <button type="button" class="date-clear-button" @click="clearCalendarDate">清除</button>
-                    </div>
-                    </div>
-                  </Teleport>
-                </div>
-                <div class="filter-field date-filter-field">
-                  <span>至日期</span>
-                  <button
-                    ref="dateToTrigger"
-                    class="date-picker-trigger"
-                    type="button"
-                    :aria-expanded="activeDatePicker === 'to'"
-                    aria-haspopup="dialog"
-                    aria-label="選擇結束日期"
-                    @click="toggleDatePicker('to')"
-                  >
-                    <span class="calendar-glyph" aria-hidden="true">▦</span>
-                    <span :class="['date-picker-value', { placeholder: !dateTo }]">{{ displayDate(dateTo) }}</span>
-                    <span class="date-picker-chevron" aria-hidden="true">⌄</span>
-                  </button>
-                  <Teleport to="body">
-                    <div v-if="activeDatePicker === 'to'" class="date-picker-popover" :style="datePickerStyle" role="dialog" aria-label="選擇結束日期" @click.stop>
-                    <div class="date-picker-toolbar">
-                      <button type="button" aria-label="上一個月" @click="shiftPickerMonth(-1)">‹</button>
-                      <strong>{{ pickerMonthLabel }}</strong>
-                      <button type="button" aria-label="下一個月" @click="shiftPickerMonth(1)">›</button>
-                    </div>
-                    <div class="calendar-weekdays" aria-hidden="true"><span v-for="weekday in ['日', '一', '二', '三', '四', '五', '六']" :key="weekday">{{ weekday }}</span></div>
-                    <div class="calendar-grid">
-                      <button
-                        v-for="day in calendarDays"
-                        :key="day.value"
-                        :class="['calendar-day', { muted: !day.inCurrentMonth, today: day.isToday, selected: day.isSelected }]"
-                        type="button"
-                        :aria-label="`${day.value}`"
-                        @click="selectCalendarDate(day.value)"
-                      >{{ day.label }}</button>
-                    </div>
-                    <div class="date-picker-footer">
-                      <button type="button" class="date-today-button" @click="selectCalendarDate(toDateInputValue(new Date()))">今天</button>
-                      <button type="button" class="date-clear-button" @click="clearCalendarDate">清除</button>
-                    </div>
-                    </div>
-                  </Teleport>
-                </div>
-                <button class="filter-button" type="submit">套用篩選</button>
-                <button class="filter-clear" type="button" :disabled="!hasSessionFilters" @click="clearSessionFilters">清除</button>
-              </div>
-              <p v-if="sessionFilterError" class="filter-error" role="alert">{{ sessionFilterError }}</p>
-            </form>
-          </div>
-
-          <section class="panel worklog-panel">
-            <div class="list-heading worklog-heading"><span>{{ sessionPageInfo.total }} 個工作 Session<span v-if="hasSessionFilters" class="filter-applied">已套用篩選</span></span><span>完成時間</span></div>
-            <VirtualList :items="sessions" :enabled="sessionPageSize === 'all'" aria-label="工作歷程清單">
-              <template #default="{ item: session }">
-                <button class="worklog-row" type="button" @click="openSession(session)">
-                  <div class="timeline-dot"></div>
-                  <div class="worklog-body">
-                    <div class="worklog-title"><strong>{{ session.title }}</strong><span class="finalized-label">已完成</span><span :class="['verification-badge', 'worklog-verification', `verification-${session.verification?.status ?? 'not_supplied'}`]">{{ verificationLabel(session.verification?.status) }}</span></div>
-                    <p>{{ formatReadableSummary(session.summary) }}</p>
-                    <div class="worklog-meta"><span>{{ session.projectName }}</span><span v-if="session.gitBranch">分支：{{ session.gitBranch }}</span><span>{{ session.changedFiles.length }} 個檔案</span></div>
-                  </div>
-                  <time>{{ formatDate(session.completedAt) }}</time>
-                  <span class="session-arrow">↗</span>
-                </button>
-              </template>
-            </VirtualList>
-            <div v-if="sessions.length === 0" class="empty-state large-empty"><div class="empty-icon">≡</div><strong>找不到工作紀錄</strong><p>完成的 session 會在這裡依時間排列。</p></div>
-            <div class="pagination-bar list-pagination-bar">
-              <span class="pagination-summary">顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}，共 {{ sessionPageInfo.total }} 筆<span v-if="sessionPageInfo.truncated" class="pagination-truncated"> · All 已限制每頁 {{ sessionPageInfo.pageSize }} 筆</span></span>
-              <label class="pagination-page-size"><span>每頁</span><select v-model="sessionPageSize" aria-label="工作歷程每頁筆數" @change="changeSessionPageSize"><option v-for="option in listPageSizeOptions" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select></label>
-              <div v-if="sessionPageInfo.totalPages > 1" class="pagination-controls">
-                <button class="pagination-button" type="button" :disabled="!sessionPageInfo.hasPrevious" @click="changeSessionPage(sessionPageInfo.page - 1)">上一頁</button>
-                <span>第 {{ sessionPageInfo.page }} / {{ sessionPageInfo.totalPages }} 頁</span>
-                <button class="pagination-button" type="button" :disabled="!sessionPageInfo.hasNext" @click="changeSessionPage(sessionPageInfo.page + 1)">下一頁</button>
-              </div>
-              <span v-else class="pagination-current">共 {{ sessionPageInfo.total }} 筆</span>
-            </div>
-          </section>
-        </WorklogView>
+        <WorklogView
+          v-else
+          :projects="projects"
+          :sessions="sessions"
+          :session-page-info="sessionPageInfo"
+          :search-term="searchTerm"
+          :selected-project-id="selectedProjectId"
+          :session-page-size="sessionPageSize"
+          :date-from="dateFrom"
+          :date-to="dateTo"
+          :session-filter-error="sessionFilterError"
+          :has-session-filters="hasSessionFilters"
+          :active-date-picker="activeDatePicker"
+          :date-picker-style="datePickerStyle"
+          :picker-month-label="pickerMonthLabel"
+          :calendar-days="calendarDays"
+          :list-page-size-options="listPageSizeOptions"
+          :format-date="formatDate"
+          :format-readable-summary="formatReadableSummary"
+          :display-date="displayDate"
+          :to-date-input-value="toDateInputValue"
+          :verification-label="verificationLabel"
+          @update:search-term="searchTerm = $event"
+          @update:selected-project-id="selectedProjectId = $event"
+          @update:session-page-size="sessionPageSize = $event"
+          @update:date-from="dateFrom = $event"
+          @update:date-to="dateTo = $event"
+          @load="loadSessions"
+          @clear-session-filters="clearSessionFilters"
+          @toggle-date-picker="toggleDatePicker"
+          @shift-picker-month="shiftPickerMonth"
+          @select-calendar-date="selectCalendarDate"
+          @clear-calendar-date="clearCalendarDate"
+          @open-session="openSession"
+          @change-session-page="changeSessionPage"
+          @change-session-page-size="changeSessionPageSize"
+        />
       </template>
     </main>
 
