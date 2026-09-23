@@ -33,6 +33,16 @@ export type SessionListOptions = {
   trackedOnly?: boolean;
 };
 
+/** Returns the calendar date after `date` (YYYY-MM-DD), used as an exclusive upper bound. */
+export function nextCalendarDate(date: string): string {
+  const parsed = Date.parse(`${date}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed)) {
+    // Not a calendar date: keep the prefix semantics of `substr(completed_at, 1, 10) <= date`.
+    return `${date}￿`;
+  }
+  return new Date(parsed + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 type SessionMapper = (row: SessionRow) => WorkSessionRecord;
 type PageInfoBuilder = (
   pageValue: number | undefined,
@@ -146,14 +156,16 @@ export class SessionRepository {
       parameters.push(needle, needle, needle);
     }
 
+    // Compare the raw ISO timestamp so the completed_at indexes stay usable:
+    // `completed_at >= from` and `completed_at < to + 1 day` match the calendar-date bounds.
     if (options.from) {
-      clauses.push("substr(s.completed_at, 1, 10) >= ?");
+      clauses.push("s.completed_at >= ?");
       parameters.push(options.from);
     }
 
     if (options.to) {
-      clauses.push("substr(s.completed_at, 1, 10) <= ?");
-      parameters.push(options.to);
+      clauses.push("s.completed_at < ?");
+      parameters.push(nextCalendarDate(options.to));
     }
 
     return { clauses, parameters };

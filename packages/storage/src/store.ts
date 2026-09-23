@@ -430,7 +430,9 @@ CREATE TABLE IF NOT EXISTS session_work_summary_updates (
 
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_project_completed ON sessions(project_id, completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_completed ON sessions(completed_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_events_session_occurred ON work_events(session_id, occurred_at ASC);
+CREATE INDEX IF NOT EXISTS idx_events_decisions_occurred ON work_events(occurred_at DESC) WHERE type IN ('note', 'closing');
 CREATE INDEX IF NOT EXISTS idx_snapshots_session ON raw_snapshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_session_captured ON evidence(session_id, captured_at ASC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_project_updated ON knowledge(project_id, updated_at DESC);
@@ -1385,6 +1387,15 @@ export class WorkIntelligenceStore {
     if (projectId) {
       parameters.push(projectId);
     }
+    const scanned = this.db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM sessions s JOIN projects p ON p.id = s.project_id " +
+          "WHERE p.status = 'tracked'" +
+          projectClause,
+      )
+      .get(...parameters) as { count: number };
+    // SQL pre-filter only drops rows that certainly have no gap (non-empty changed files and a
+    // passed/failed verification); toMetadataBackfillItem still decides the exact gaps.
     const rows = this.db
       .prepare(
         "SELECT s.*, p.name AS project_name, p.root_path AS project_root, " +
@@ -1392,7 +1403,12 @@ export class WorkIntelligenceStore {
           "FROM sessions s JOIN projects p ON p.id = s.project_id " +
           "WHERE p.status = 'tracked'" +
           projectClause +
-          " " +
+          " AND NOT (" +
+          "COALESCE(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json) = 'array' " +
+          "THEN json_array_length(s.changed_files_json) END, 0) > 0 " +
+          "AND COALESCE(CASE WHEN json_valid(s.verification_json) " +
+          "THEN json_extract(s.verification_json, '$.status') END, 'not_run') IN ('passed', 'failed')" +
+          ") " +
           "ORDER BY s.completed_at DESC, s.id DESC",
       )
       .all(...parameters) as MetadataBackfillRow[];
@@ -1403,7 +1419,7 @@ export class WorkIntelligenceStore {
     return {
       outcome: "backfill_preview",
       project,
-      scannedSessions: rows.length,
+      scannedSessions: scanned.count,
       truncated: allItems.length > limit,
       items,
       totals: {
@@ -2069,7 +2085,7 @@ export class WorkIntelligenceStore {
           .prepare(
             `SELECT rs.session_id, rs.source_path
              FROM raw_snapshots rs
-             JOIN projects p ON p.id = rs.project_id
+             CROSS JOIN projects p ON p.id = rs.project_id
              WHERE p.status = 'tracked'
                AND rs.session_id IN (${sessionIds.map(() => "?").join(", ")})
              ORDER BY rs.captured_at ASC, rs.id ASC`,
@@ -2081,8 +2097,8 @@ export class WorkIntelligenceStore {
           .prepare(
             `SELECT e.*, s.title AS session_title, p.name AS project_name
              FROM evidence e
-             JOIN sessions s ON s.id = e.session_id
-             JOIN projects p ON p.id = e.project_id
+             CROSS JOIN sessions s ON s.id = e.session_id
+             CROSS JOIN projects p ON p.id = e.project_id
              WHERE p.status = 'tracked'
                AND e.session_id IN (${sessionIds.map(() => "?").join(", ")})
              ORDER BY e.captured_at ASC, e.id ASC`,
@@ -2822,8 +2838,8 @@ export class WorkIntelligenceStore {
           .prepare(
             `SELECT rs.*, s.title AS session_title, p.name AS project_name
              FROM raw_snapshots rs
-             JOIN sessions s ON s.id = rs.session_id
-             JOIN projects p ON p.id = rs.project_id
+             CROSS JOIN sessions s ON s.id = rs.session_id
+             CROSS JOIN projects p ON p.id = rs.project_id
              WHERE p.status = 'tracked'
                AND rs.session_id IN (${[...selectedSessionIds].map(() => "?").join(", ")})
              ORDER BY rs.captured_at ASC, rs.id ASC`,
@@ -2855,7 +2871,7 @@ export class WorkIntelligenceStore {
               .prepare(
                 `SELECT COALESCE(SUM(LENGTH(rs.content)), 0) AS total
                FROM raw_snapshots rs
-               JOIN projects p ON p.id = rs.project_id
+               CROSS JOIN projects p ON p.id = rs.project_id
                WHERE p.status = 'tracked'
                  AND rs.session_id IN (${[...selectedSessionIds].map(() => "?").join(", ")})`,
               )
@@ -2954,7 +2970,7 @@ export class WorkIntelligenceStore {
         .prepare(
           `SELECT COUNT(*) AS count
            FROM sessions s
-           JOIN projects p ON p.id = s.project_id
+           CROSS JOIN projects p ON p.id = s.project_id
            WHERE p.status = 'tracked'
              AND s.id IN (${sourceSessionIds.map(() => "?").join(", ")})`,
         )
@@ -3154,12 +3170,15 @@ export class WorkIntelligenceStore {
       return [];
     }
 
+    // CROSS JOIN pins the join order in SQLite: drive from the session-id list instead of letting
+    // the planner walk every tracked project's sessions first. Used the same way for the other
+    // IN-list report/synthesis queries and the recent-decision lookup.
     return this.db
       .prepare(
         `SELECT e.*, s.project_id
          FROM work_events e
-         JOIN sessions s ON s.id = e.session_id
-         JOIN projects p ON p.id = s.project_id
+         CROSS JOIN sessions s ON s.id = e.session_id
+         CROSS JOIN projects p ON p.id = s.project_id
          WHERE p.status = 'tracked'
            AND e.session_id IN (${sessionIds.map(() => "?").join(", ")})
          ORDER BY e.occurred_at ASC, e.id ASC`,
@@ -4227,8 +4246,8 @@ export class WorkIntelligenceStore {
       .prepare(
         `SELECT e.summary
          FROM work_events e
-         JOIN sessions s ON s.id = e.session_id
-         JOIN projects p ON p.id = s.project_id
+         CROSS JOIN sessions s ON s.id = e.session_id
+         CROSS JOIN projects p ON p.id = s.project_id
          WHERE e.type IN ('note', 'closing')
            AND p.status = 'tracked'
            ${projectId ? "AND p.id = ?" : ""}
