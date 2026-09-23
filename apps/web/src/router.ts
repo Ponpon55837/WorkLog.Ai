@@ -53,6 +53,15 @@ const routes: RouteRecordRaw[] = [
   { path: "/:pathMatch(.*)*", redirect: "/dashboard" }
 ];
 
+if (import.meta.env.DEV) {
+  routes.unshift({
+    path: "/__ui",
+    name: "ui-showcase",
+    component: () => import("./views/UiShowcaseView.vue"),
+    meta: { title: "UI 元件展示", eyebrow: "DESIGN SYSTEM" }
+  });
+}
+
 export const router = createRouter({
   history: createWebHistory(),
   routes,

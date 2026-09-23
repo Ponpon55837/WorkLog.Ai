@@ -3,6 +3,7 @@ import type { MetadataBackfillItem, MetadataBackfillPreview, MetadataBackfillReq
 import { errorMessage } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
 import { useSessionDetail } from "./useSessionDetail";
+import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
 
 export const metadataBackfillInstruction = "請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。";
@@ -78,7 +79,7 @@ async function cancelMetadataBackfillRequest(): Promise<void> {
   if (!requestToCancel || !metadataBackfillRequestIsActive.value || metadataBackfillRequestLoading.value) {
     return;
   }
-  if (!window.confirm("確定取消這批 metadata 回補嗎？既有 Session 資料不會被刪除。")) {
+  if (!(await confirmAction({ title: "取消這批 metadata 回補？", message: "既有 Session 資料不會被刪除。", confirmLabel: "取消回補", cancelLabel: "繼續等待", danger: true }))) {
     return;
   }
   metadataBackfillRequestLoading.value = true;

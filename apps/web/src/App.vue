@@ -9,7 +9,8 @@ import SessionDetailModal from "./components/SessionDetailModal.vue";
 import { useApi } from "./composables/useApi";
 import { requestAppRefresh } from "./composables/useAppRefresh";
 import { useProjects } from "./composables/useProjects";
-import { useToast } from "./composables/useToast";
+import UiConfirmHost from "./components/ui/UiConfirmHost.vue";
+import UiToastHost from "./components/ui/UiToastHost.vue";
 import { errorMessage as toErrorMessage } from "./utils/format";
 
 const navItems = [
@@ -24,7 +25,6 @@ const navItems = [
 const route = useRoute();
 const pageTitle = computed(() => route.meta.title ?? "Work Intelligence");
 const { loadDashboard, loadProjects } = useProjects();
-const { toastMessage, dismissToast } = useToast();
 const loading = ref(true);
 const errorMessage = ref("");
 
@@ -99,7 +99,6 @@ onBeforeUnmount(() => {
       </header>
 
       <div v-if="errorMessage" class="alert error-alert">{{ errorMessage }}</div>
-      <div v-if="toastMessage" class="toast" @click="dismissToast">{{ toastMessage }}</div>
 
       <section v-if="loading" class="loading-state">
         <div class="spinner"></div>
@@ -113,5 +112,7 @@ onBeforeUnmount(() => {
     <SessionDetailModal />
     <KnowledgeHistoryModal />
     <KnowledgeEditorModal />
+    <UiConfirmHost />
+    <UiToastHost />
   </div>
 </template>

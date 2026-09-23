@@ -14,6 +14,7 @@ import { errorMessage, toDateInputValue } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
 import { emptyPageInfo } from "./useSessions";
 import { useSessionDetail } from "./useSessionDetail";
+import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
 
 export const reportSynthesisInstruction = "請處理我剛在 Work Intelligence 建立的報告提煉請求。";
@@ -183,7 +184,7 @@ async function cancelReportSynthesisRequest(): Promise<void> {
   if (!requestToCancel || !reportSynthesisIsActive.value || reportSynthesisCancelling.value) {
     return;
   }
-  if (!window.confirm("確定取消這次報告提煉嗎？既有報告與歷史版本會保留。")) {
+  if (!(await confirmAction({ title: "取消這次報告提煉？", message: "既有報告與歷史版本會保留。", confirmLabel: "取消提煉", cancelLabel: "繼續等待", danger: true }))) {
     return;
   }
   reportSynthesisCancelling.value = true;
@@ -211,7 +212,7 @@ async function deleteReportSynthesisVersion(summary: ReportSummary): Promise<voi
   if (summary.isCurrent) {
     return;
   }
-  if (!window.confirm(`確定移除「${summary.title}」這個歷史版本嗎？此操作無法復原。`)) {
+  if (!(await confirmAction({ title: "移除這個歷史版本？", message: `「${summary.title}」將被移除，此操作無法復原。`, confirmLabel: "移除版本", danger: true }))) {
     return;
   }
   reportSynthesisError.value = "";
