@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, ArrowRight, BookOpen, FolderGit2, ListChecks, X } from "lucide-vue-next";
+import type { GraphEdge, GraphNode } from "@work-intelligence/core";
 import { useGraph } from "../../composables/useGraph";
-import { graphNodeLabel } from "../../utils/format";
 import { graphEdgeKindLabels, graphNodeKindLabels } from "../../utils/labels";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -13,16 +13,27 @@ const {
   selectedGraphNode: node,
   selectedGraphNodeMetadata: metadata,
   selectedGraphNodeRelations: relations,
+  graphPanelWidth,
   graphNodeProjectName,
+  graphNodeDisplayLabel,
+  graphNodeDescription,
   selectGraphNode,
   openGraphSession,
   openGraphKnowledge,
   openGraphProject
 } = useGraph();
+
+/** Relation subtitle; avoids "變更檔案 · 變更檔案" and shows the folder for files. */
+function relationDetail(edge: GraphEdge, related: GraphNode): string {
+  const edgeLabel = graphEdgeKindLabels[edge.kind];
+  const kindLabel = graphNodeKindLabels[related.kind];
+  const context = related.kind === "file" ? graphNodeDescription(related, 48) : kindLabel;
+  return edgeLabel === kindLabel && related.kind !== "file" ? edgeLabel : `${edgeLabel} · ${context}`;
+}
 </script>
 
 <template>
-  <UiSidePanel :open="Boolean(node)" :modal="false" :width="380" label="Graph 節點詳細資料" @close="selectGraphNode(null)">
+  <UiSidePanel :open="Boolean(node)" :modal="false" :width="460" storage-key="graph-node" label="Graph 節點詳細資料" @close="selectGraphNode(null)" @resize="graphPanelWidth = $event">
     <template v-if="node" #header>
       <div class="node-panel__top">
         <UiLabel tone="accent">{{ graphNodeKindLabels[node.kind] }}</UiLabel>
@@ -55,8 +66,8 @@ const {
             <button type="button" class="node-panel__relation" @click="selectGraphNode(relation.relatedNode)">
               <component :is="relation.direction === 'outgoing' ? ArrowRight : ArrowLeft" :size="16" :stroke-width="1.75" aria-hidden="true" />
               <span class="node-panel__relation-copy">
-                <strong>{{ graphNodeLabel(relation.relatedNode.label) }}</strong>
-                <small>{{ graphEdgeKindLabels[relation.edge.kind] }} · {{ graphNodeKindLabels[relation.relatedNode.kind] }}</small>
+                <strong>{{ graphNodeDisplayLabel(relation.relatedNode, 40) }}</strong>
+                <small>{{ relationDetail(relation.edge, relation.relatedNode) }}</small>
               </span>
             </button>
           </li>

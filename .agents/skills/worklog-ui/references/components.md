@@ -58,7 +58,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 
 | Component | API |
 |---|---|
-| `UiSidePanel` | `open`, `label`, `modal` (default true), `width` (default 640); emits `close`; slots `header`, default, `footer`. `modal=false` docks under the header without backdrop or focus trap. |
+| `UiSidePanel` | `open`, `label`, `modal` (default true), `width` (default width, 640), `minWidth` (360), `storageKey` (remembers the user-chosen width in localStorage); emits `close`, `resize(width)`; slots `header`, default, `footer`. The left edge is a `separator` the user can drag or move with ←/→ (Home restores the default); hidden below 640px where the panel is full screen. `modal=false` docks under the header without backdrop or focus trap. Defaults: Session 760, Knowledge history 640, Graph node 460. |
 | `UiDialog` | `open`, `title`, `description`, `size: sm \| md \| lg`, `busy` (blocks closing); emits `close`; slot `footer`. |
 | `UiConfirmHost` / `confirmAction(options)` | Promise<boolean>; `title`, `message`, `confirmLabel`, `cancelLabel`, `danger`. Cancel is focused by default. |
 | `CommandPalette` (domain) | `v-model:open`. Pages, Sessions and Knowledge search via existing APIs. |
@@ -81,5 +81,5 @@ All overlays use `useFocusTrap` (focus in, Tab trapped, Esc closes, scroll lock,
 | `MetadataBackfillSection` | Scan, gap stats (three gap kinds), gap rows, Agent request card. |
 | `HandoffImportDialog` | Import preview with eligible/excluded reasons; global. |
 | `AddProjectDialog` | `v-model:open`. |
-| `GraphNodePanel` | Docked non-modal SidePanel (380px). |
-| `GraphCanvas` (components/) | Lane SVG canvas; `selectedId` highlights node and edges. |
+| `GraphNodePanel` | Docked non-modal SidePanel (460px default, resizable); the graph reserves the reported width. Relation rows re-select the related node. |
+| `GraphCanvas` (components/) | Lane SVG canvas; lanes stretch to the container (min 220px). Layered layout from `useGraph`: Sessions on even rows, knowledge/evidence/files beside their Sessions. `selectedId` keeps the node and its direct neighbours bright and dims the rest, and scrolls the node into view; `matchIds` marks search hits. Only nodes near the viewport render. |

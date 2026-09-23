@@ -345,6 +345,37 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page).not.toHaveURL(/session=/);
   });
 
+  test("resizes the Session panel from its edge and remembers the width", async ({ page }) => {
+    await page.goto(`/sessions?session=${sessionId}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    await expect(panel).toBeVisible();
+    const handle = panel.getByRole("separator", { name: "調整Session 詳情寬度" });
+    const before = (await panel.boundingBox())?.width ?? 0;
+    await handle.focus();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => (await panel.boundingBox())?.width ?? 0).toBeGreaterThan(before + 40);
+    const resized = Number(await handle.getAttribute("aria-valuenow"));
+
+    await page.reload();
+    await expect(panel).toBeVisible();
+    await expect(handle).toHaveAttribute("aria-valuenow", String(resized));
+  });
+
+  test("searches the Graph and focuses the first hit", async ({ page }) => {
+    await page.goto("/graph");
+    const search = page.getByLabel("搜尋 Graph 節點");
+    await search.fill("Browser regression fixture");
+    await expect(page.getByTestId("graph-visible-count")).toContainText("符合");
+    await expect(page).toHaveURL(/q=Browser/);
+    await search.press("Enter");
+    await expect(page.getByRole("button", { name: "關閉 Graph 節點詳細資料" })).toBeVisible();
+    await expect(page.getByTestId("graph-viewport").getByRole("button", { pressed: true })).toHaveCount(1);
+
+    await search.fill("zz-no-such-graph-node");
+    await expect(page.getByText("沒有符合的節點")).toBeVisible();
+  });
+
   test("asks for consent before a project starts being tracked", async ({ page, request }) => {
     await postJson(request, "/api/projects", { name: "Consent Fixture", rootPath: `${projectRoot}/e2e` });
     await page.goto("/projects");

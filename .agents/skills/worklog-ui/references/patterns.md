@@ -41,7 +41,7 @@ Do not add hero banners, decorative illustrations or slogan-sized headings.
 | Situation | Use |
 |---|---|
 | Read a record (Session, Knowledge history) | `UiSidePanel` (modal overlay) |
-| Graph node | `UiSidePanel` `modal=false`, docked 380px; graph stays interactive |
+| Graph node | `UiSidePanel` `modal=false`, docked 460px (resizable); graph stays interactive and dims unrelated nodes |
 | Create / edit (加入專案, Knowledge 編輯) | `UiDialog`; warn on close with unsaved changes |
 | Import confirmation (Handoff 匯入) | `UiDialog size="lg"` listing items to import and excluded items with reasons |
 | Destructive or scope-widening action (delete version, cancel request, enable tracking) | `await confirmAction({...})` — never act on first click |

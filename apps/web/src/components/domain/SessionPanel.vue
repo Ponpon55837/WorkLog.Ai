@@ -74,7 +74,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <UiSidePanel :open="Boolean(selectedDetail)" label="Session 詳情" @close="closeSessionDetail">
+  <UiSidePanel :open="Boolean(selectedDetail)" label="Session 詳情" :width="760" storage-key="session" @close="closeSessionDetail">
     <template v-if="selectedDetail && session" #header>
       <div class="session-panel__top">
         <span class="session-panel__eyebrow">Session · <span class="mono">{{ session.id.slice(0, 8) }}</span></span>

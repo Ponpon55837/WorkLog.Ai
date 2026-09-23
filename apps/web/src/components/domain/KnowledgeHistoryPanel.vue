@@ -15,7 +15,7 @@ const actionTone = { created: "success", updated: "accent", archived: "neutral",
 </script>
 
 <template>
-  <UiSidePanel :open="Boolean(knowledgeHistoryItem)" label="Knowledge 變更紀錄" :width="560" @close="closeKnowledgeHistory">
+  <UiSidePanel :open="Boolean(knowledgeHistoryItem)" label="Knowledge 變更紀錄" :width="640" storage-key="knowledge-history" @close="closeKnowledgeHistory">
     <template #header>
       <div class="history__top">
         <span class="history__eyebrow">Knowledge audit history</span>

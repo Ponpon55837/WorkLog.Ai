@@ -47,8 +47,15 @@ export function formatReportTrendLabel(value: string, granularity: WorkReport["t
   return formatReportDay(value);
 }
 
-export function graphNodeLabel(value: string): string {
-  const maxDisplayUnits = 25;
+/** Keeps the end of a label (e.g. the deepest folders of a path) within `maxDisplayUnits`. */
+export function graphNodeLabelTail(value: string, maxDisplayUnits = 25): string {
+  const reversed = [...value].reverse().join("");
+  const truncated = graphNodeLabel(reversed, maxDisplayUnits);
+  return truncated === reversed ? value : `…${[...truncated.slice(0, -1)].reverse().join("")}`;
+}
+
+/** Truncates a graph label to `maxDisplayUnits` (CJK characters count as 2 units). */
+export function graphNodeLabel(value: string, maxDisplayUnits = 25): string {
   let displayUnits = 0;
   let label = "";
   for (const character of value) {
