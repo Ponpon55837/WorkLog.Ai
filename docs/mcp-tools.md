@@ -8,21 +8,23 @@
 
 | 類別 | Tool | 用途 |
 |---|---|---|
+| Project | `work_get_project_status` | 唯讀查詢某個 workspace 是否「記錄中」；不能變更記錄狀態 |
 | Session | `work_finalize_session` | 完成工作後保存 Session（必填 idempotencyKey、changedFiles、verification、workSummary） |
 | Session | `work_update_session_metadata` | 回填既有 Session 的 changed files、verification、Git metadata |
 | Session | `work_update_session_summary` | 以 replace／append 修正主摘要 |
 | Session | `work_update_session_work_summary` | 以 replace／patch 修正五段 workSummary |
 | Session | `work_attach_evidence` | 掛上 Agent 已確認的測試、命令或文件參考 |
-| Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge 與 metadata 缺口 |
+| Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求 |
+| Context | `work_list_sessions`<br>`work_get_session` | 依關鍵字、日期、專案分頁列出 Session；讀取單筆 Session 完整內容 |
 | Context | `work_search` | 搜尋已保存的 title、summary、events |
 | Knowledge | `work_record_knowledge`<br>`work_search_knowledge` | 明確提交與搜尋 Knowledge |
 | Knowledge | `work_update_knowledge` | 編輯、封存或恢復 Knowledge |
 | Knowledge | `work_get_knowledge_history` | 查詢 Knowledge 的不可變變更紀錄 |
 | Graph | `work_get_graph` | 讀取 deterministic 工作圖譜 |
 | Report | `work_get_report`<br>`work_export_report` | deterministic 報告與 Markdown／JSON 匯出 |
-| Report | `work_list_report_synthesis_requests`<br>`work_get_report_context`<br>`work_save_report_summary` | AI 報告整理流程（找請求 → 取 context → 回寫） |
+| Report | `work_request_report_synthesis`<br>`work_list_report_synthesis_requests`<br>`work_get_report_context`<br>`work_save_report_summary` | AI 報告整理流程（建立或找請求 → 取 context → 回寫） |
 | Report | `work_retry_report_synthesis`<br>`work_cancel_report_synthesis` | 重試逾時請求或取消整理 |
-| Backfill | `work_preview_metadata_backfill`<br>`work_list_metadata_backfill_requests`<br>`work_get_metadata_backfill_context`<br>`work_apply_metadata_backfill`<br>`work_cancel_metadata_backfill` | metadata 缺口掃描與 Agent 回補流程（見 REST API 文件的 Metadata backfill） |
+| Backfill | `work_preview_metadata_backfill`<br>`work_request_metadata_backfill`<br>`work_list_metadata_backfill_requests`<br>`work_get_metadata_backfill_context`<br>`work_apply_metadata_backfill`<br>`work_cancel_metadata_backfill` | metadata 缺口掃描與 Agent 回補流程（見 REST API 文件的 Metadata backfill） |
 | Import | `work_preview_handoff_import`<br>`work_import_handoffs` | 歷史 handoff 預覽與匯入 |
 
 ## `work_finalize_session`
@@ -82,9 +84,41 @@ MCP client 的 stdio 設定可使用：
 
 傳入 `projectRoot` 時只會回傳該 tracked project 的近期 sessions、decisions、`recentKnowledge` 與 `metadataFollowUps`；不傳則回傳所有 tracked projects 的摘要、最近的 explicit Knowledge 與最多 12 筆 metadata 缺口。`metadataFollowUps` 會列出 verification 尚未回報／明確 `not_run`，或 changed-files metadata 缺漏的已完成 Session。Agent 取得 context 後應檢查對應 worktree、diff 或 handoff，再用 metadata tool 回填已確認的內容；系統不會自行猜測檔案變更。
 
+`pendingRequests.reportSynthesis`／`pendingRequests.metadataBackfill` 列出 pending 或 processing、等待 Agent 處理的請求（新到舊，各最多 5 筆）。指定專案時也包含「所有專案」範圍的請求。
+
+## `work_get_project_status`
+
+唯讀查詢一個 workspace root 的記錄狀態：`tracked`、`paused`、`ignored` 或 `unregistered`，以及 `tracked: boolean` 與已註冊時的專案資料。Agent 在準備 finalize payload 前先呼叫，非「記錄中」就不要整理或保存工作。這個工具**不能**變更記錄狀態；授權只能由使用者在 Web UI 操作。
+
+```json
+{ "projectRoot": "C:\\work\\assistant" }
+```
+
+## `work_list_sessions` / `work_get_session`
+
+`work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的 Session。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。
+
+`work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
+
+```json
+{ "projectRoot": "C:\\work\\assistant", "from": "2026-09-21", "to": "2026-09-27", "pageSize": 20 }
+```
+
 ## `work_search`
 
-搜尋已保存的 title、summary、events。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
+搜尋已保存的 title、summary、events，最多 50 筆並附上命中的片段。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。`%`、`_` 會照字面比對。
+
+## Tool annotations 與 prompts
+
+每個工具都有 MCP annotations，讓用戶端可以自動核准唯讀操作：
+
+- `readOnlyHint: true`：查詢類（status、context、list、search、report、graph、preview、history）。
+- `destructiveHint: true`：可能取代既有值的更新（摘要、workSummary、metadata、Knowledge、metadata 回補）；變更前的狀態依各工具說明保留在 audit。
+- `idempotentHint: true`：相同 payload 重試不會再產生變化（finalize、evidence、Knowledge、摘要回寫等）。
+
+另外提供兩個 MCP prompts：`finalize-work`（把這次工作記錄下來）與 `synthesize-report`（可選 `period`，整理報告）。
+
+Server instructions 只放路由規則；Work record、Report synthesis、Metadata backfill 三份 contract 只附在負責寫入該資料的工具說明上，避免用戶端截斷過長的 instructions。
 
 ## `work_get_report`
 
@@ -253,6 +287,8 @@ Graph 也回傳 `totalNodes`、`totalEdges`、`totalNodesByKind` 與 `truncation
 ```text
 請處理我剛在 Work Intelligence 建立的報告提煉請求。
 ```
+
+也可以不開 Web UI，直接說「幫我整理這週的 Work Intelligence 報告」。沒有待處理的請求時，Agent 會用 `work_request_report_synthesis` 自己建立一筆（範圍與去重規則和頁面按鈕相同）。metadata 回補也一樣：沒有待處理請求時，Agent 會用 `work_request_metadata_backfill` 建立；沒有缺口時回傳 `metadata_backfill_not_needed`。
 
 Agent 會自行完成以下 implementation detail，使用者不需要知道工具名稱、requestId、JSON 或呼叫順序：
 

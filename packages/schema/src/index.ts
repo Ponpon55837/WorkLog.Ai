@@ -183,6 +183,39 @@ export const sessionsQuerySchema = z
     }
   });
 
+const projectRootSchema = z.string().trim().min(1).max(1_000);
+const projectIdSchema = z.string().trim().min(1).max(200);
+
+export const projectStatusQuerySchema = z.object({
+  projectRoot: projectRootSchema,
+});
+
+export const sessionDetailQuerySchema = z.object({
+  sessionId: z.string().trim().min(1).max(200),
+  includeRawSnapshots: z.boolean().default(false),
+});
+
+/** MCP list: scoped by projectRoot or projectId; no "all" page size so Agent payloads stay bounded. */
+export const mcpListSessionsInputSchemaBase = z.object({
+  q: z.string().trim().max(500).optional(),
+  projectRoot: projectRootSchema.optional(),
+  projectId: projectIdSchema.optional(),
+  from: calendarDateSchema.optional(),
+  to: calendarDateSchema.optional(),
+  page: z.number().int().min(1).max(10_000).default(1),
+  pageSize: z.number().int().min(1).max(100).default(20),
+});
+
+export const mcpListSessionsInputSchema = mcpListSessionsInputSchemaBase.superRefine((value, context) => {
+  if (value.from && value.to && value.from > value.to) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["to"],
+      message: "The end date must be on or after the start date.",
+    });
+  }
+});
+
 export const reportQuerySchema = z.object({
   period: z.enum(REPORT_PERIODS).default("week"),
   date: calendarDateSchema.optional(),
@@ -205,6 +238,10 @@ export const createReportSynthesisRequestInputSchema = z.object({
   date: calendarDateSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
   idempotencyKey: z.string().trim().min(1).max(300).optional(),
+});
+
+export const mcpCreateReportSynthesisRequestInputSchema = createReportSynthesisRequestInputSchema.extend({
+  projectRoot: projectRootSchema.optional(),
 });
 
 export const reportSynthesisRequestQuerySchema = z.object({
@@ -399,6 +436,10 @@ export const createMetadataBackfillRequestInputSchema = z.object({
   idempotencyKey: z.string().trim().min(1).max(300).optional(),
 });
 
+export const mcpCreateMetadataBackfillRequestInputSchema = createMetadataBackfillRequestInputSchema.extend({
+  projectRoot: projectRootSchema.optional(),
+});
+
 export const metadataBackfillRequestQuerySchema = z.object({
   scopeType: metadataBackfillScopeTypeSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
@@ -512,3 +553,8 @@ export type MetadataBackfillRequestContextQuery = z.infer<typeof metadataBackfil
 export type CancelMetadataBackfillRequestInput = z.infer<typeof cancelMetadataBackfillRequestInputSchema>;
 export type HandoffImportOptions = z.infer<typeof handoffImportOptionsSchema>;
 export type HandoffImportApplyInput = z.infer<typeof handoffImportApplyInputSchema>;
+export type ProjectStatusQuery = z.infer<typeof projectStatusQuerySchema>;
+export type SessionDetailQuery = z.infer<typeof sessionDetailQuerySchema>;
+export type McpListSessionsInput = z.infer<typeof mcpListSessionsInputSchema>;
+export type McpCreateReportSynthesisRequestInput = z.infer<typeof mcpCreateReportSynthesisRequestInputSchema>;
+export type McpCreateMetadataBackfillRequestInput = z.infer<typeof mcpCreateMetadataBackfillRequestInputSchema>;

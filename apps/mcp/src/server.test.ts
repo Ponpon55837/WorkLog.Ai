@@ -1,0 +1,181 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { WorkIntelligenceStore } from "@work-intelligence/storage";
+import { afterEach, describe, expect, it } from "vitest";
+import { createWorkIntelligenceMcpServer } from "./server.js";
+
+const cleanups: Array<() => Promise<void> | void> = [];
+
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    await cleanup();
+  }
+});
+
+async function connect() {
+  const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-test-"));
+  const store = new WorkIntelligenceStore(":memory:");
+  const server = createWorkIntelligenceMcpServer(store, "9.9.9");
+  const client = new Client({ name: "test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  cleanups.push(
+    () => rmSync(root, { recursive: true, force: true }),
+    () => store.close(),
+    () => client.close(),
+  );
+  return { client, store, root };
+}
+
+async function callJson<T = Record<string, unknown>>(
+  client: Client,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  const result = await client.callTool({ name, arguments: args });
+  const [content] = result.content as Array<{ type: string; text: string }>;
+  return JSON.parse(content?.text ?? "null") as T;
+}
+
+function finalizePayload(root: string, key: string, title: string) {
+  return {
+    projectRoot: root,
+    idempotencyKey: key,
+    title,
+    summary: `${title} summary.`,
+    workSummary: { outcomes: [`${title} done.`], scope: [], decisions: [], verification: [], nextSteps: [] },
+    changedFiles: ["src/a.ts"],
+    verification: { status: "passed" },
+  };
+}
+
+describe("Work Intelligence MCP server", () => {
+  it("advertises version, short instructions, annotations, and prompts", async () => {
+    const { client } = await connect();
+
+    expect(client.getServerVersion()).toMatchObject({ name: "work-intelligence", version: "9.9.9" });
+    // Clients truncate long instructions; routing text must stay well under a few KB.
+    expect(client.getInstructions()?.length ?? 0).toBeLessThan(2_500);
+
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    for (const name of [
+      "work_get_project_status",
+      "work_get_session",
+      "work_list_sessions",
+      "work_request_report_synthesis",
+      "work_request_metadata_backfill",
+    ]) {
+      expect(byName.has(name), name).toBe(true);
+    }
+    for (const tool of tools) {
+      expect(tool.annotations, tool.name).toBeDefined();
+    }
+    expect(byName.get("work_search")?.annotations).toMatchObject({ readOnlyHint: true });
+    expect(byName.get("work_update_session_summary")?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+    });
+    // Contracts are attached only to the tools that write the governed data.
+    const withReportContract = tools.filter((tool) => tool.description?.includes("Report synthesis contract v3"));
+    expect(withReportContract.map((tool) => tool.name).sort()).toEqual([
+      "work_get_report_context",
+      "work_save_report_summary",
+    ]);
+
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map((prompt) => prompt.name).sort()).toEqual(["finalize-work", "synthesize-report"]);
+  });
+
+  it("reports project status and lists, reads, and scopes Sessions", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("MCP project", root);
+
+    expect(await callJson(client, "work_get_project_status", { projectRoot: root })).toMatchObject({
+      outcome: "project_status",
+      projectStatus: "unregistered",
+      tracked: false,
+    });
+    store.updateProject(project.id, { status: "tracked" });
+    expect(await callJson(client, "work_get_project_status", { projectRoot: root })).toMatchObject({
+      tracked: true,
+      projectStatus: "tracked",
+      project: { id: project.id },
+    });
+
+    const finalized = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-list-001", "First"),
+    );
+    await callJson(client, "work_finalize_session", finalizePayload(root, "mcp-list-002", "Second"));
+
+    const list = await callJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(
+      client,
+      "work_list_sessions",
+      { projectRoot: root, pageSize: 1 },
+    );
+    expect(list.pageInfo.total).toBe(2);
+    expect(list.items).toHaveLength(1);
+    expect(await callJson(client, "work_list_sessions", { q: "First" })).toMatchObject({
+      items: [{ title: "First" }],
+    });
+
+    const detail = await callJson(client, "work_get_session", { sessionId: finalized.session.id });
+    expect(detail).toMatchObject({
+      outcome: "session_detail",
+      session: { id: finalized.session.id, workSummary: { outcomes: ["First done."] } },
+    });
+    expect(await callJson(client, "work_get_session", { sessionId: "missing" })).toMatchObject({
+      outcome: "not_found",
+    });
+
+    store.updateProject(project.id, { status: "paused" });
+    expect(await callJson(client, "work_get_session", { sessionId: finalized.session.id })).toMatchObject({
+      outcome: "skipped",
+      projectStatus: "paused",
+    });
+    expect(await callJson(client, "work_list_sessions", { projectRoot: root })).toMatchObject({
+      outcome: "skipped",
+      projectStatus: "paused",
+    });
+  });
+
+  it("lets an Agent create report and metadata requests that show up in context", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Request project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    await callJson(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-request-001", "Needs metadata"),
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+
+    const report = await callJson<{ outcome: string; request: { id: string; projectId?: string } }>(
+      client,
+      "work_request_report_synthesis",
+      { projectRoot: root, period: "week" },
+    );
+    expect(report).toMatchObject({ outcome: "report_synthesis_request", request: { projectId: project.id } });
+
+    const backfill = await callJson<{ outcome: string }>(client, "work_request_metadata_backfill", {
+      projectRoot: root,
+    });
+    expect(backfill.outcome).toBe("metadata_backfill_request");
+
+    const context = await callJson<{
+      pendingRequests: { reportSynthesis: Array<{ id: string }>; metadataBackfill: unknown[] };
+    }>(client, "work_get_context", { projectRoot: root });
+    expect(context.pendingRequests.reportSynthesis.map((request) => request.id)).toEqual([report.request.id]);
+    expect(context.pendingRequests.metadataBackfill).toHaveLength(1);
+
+    const otherRoot = join(root, "other");
+    expect(
+      await callJson(client, "work_request_report_synthesis", { projectRoot: otherRoot, period: "week" }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "unregistered" });
+  });
+});

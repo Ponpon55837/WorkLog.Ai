@@ -113,12 +113,21 @@ import type {
   WorkEventRecord,
   WorkEventType,
   WorkSessionRecord,
+  ProjectStatusResult,
+  SessionDetailQueryResult,
+  SessionListQueryResult,
+  SessionNotFoundResult,
 } from "@work-intelligence/core";
 import { localTimeZone, nowIso, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
 import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
-import { checkTrackedProjectById, checkTrackedProjectByRoot } from "./policy-helper.js";
+import {
+  checkTrackedProjectById,
+  checkTrackedProjectByRoot,
+  skippedByProjectId,
+  skippedByRoot,
+} from "./policy-helper.js";
 import { createPageInfo } from "./pagination.js";
 import { GraphBuilder } from "./graph-builder.js";
 import { KnowledgeRepository } from "./knowledge-repository.js";
@@ -129,6 +138,9 @@ import { ReportSynthesisRequestRepository } from "./report-synthesis-request-rep
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
 import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
+
+/** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
+export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
 
 type EventRow = {
   id: string;
@@ -4080,6 +4092,7 @@ export class WorkIntelligenceStore {
       recentDecisions: this.getRecentDecisionSummaries(),
       recentKnowledge: this.getRecentKnowledge(),
       metadataFollowUps: this.getMetadataFollowUps(),
+      pendingRequests: this.getPendingRequests(),
     };
   }
 
@@ -4121,6 +4134,140 @@ export class WorkIntelligenceStore {
         excerpt: truncateText(event?.summary ?? session.summary),
       };
     });
+  }
+
+  /** Read-only recording state of a workspace root, so an Agent can skip preparing an untracked finalize. */
+  public getProjectStatus(projectRoot: string): ProjectStatusResult {
+    const decision = this.checkProjectRoot(projectRoot);
+    const project = decision.project ?? this.getProjectByRootPath(decision.canonicalRoot);
+    return {
+      outcome: "project_status",
+      projectRoot: decision.canonicalRoot,
+      projectStatus: decision.projectStatus,
+      tracked: decision.allowed && decision.project !== undefined,
+      ...(project ? { project } : {}),
+      ...(decision.reason ? { reason: decision.reason } : {}),
+    };
+  }
+
+  /** Session detail for Agents: policy-gated, with raw handoff content omitted unless requested. */
+  public getSessionDetailForAgent(query: {
+    sessionId: string;
+    includeRawSnapshots?: boolean;
+  }): SessionDetailQueryResult {
+    const notFound: SessionNotFoundResult = {
+      outcome: "not_found",
+      sessionId: query.sessionId,
+      reason: "Session does not exist.",
+    };
+    const session = this.getSessionById(query.sessionId);
+    if (!session) {
+      return notFound;
+    }
+    const decision = this.checkProjectById(session.projectId);
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        sessionId: query.sessionId,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+    const detail = this.getSessionDetail(query.sessionId);
+    if (!detail) {
+      return notFound;
+    }
+    return {
+      outcome: "session_detail",
+      ...detail,
+      rawSnapshots: query.includeRawSnapshots
+        ? detail.rawSnapshots
+        : detail.rawSnapshots.map(({ content, ...snapshot }) => ({ ...snapshot, contentLength: content.length })),
+    };
+  }
+
+  /** Paged tracked-only Session list for Agents, scoped by projectRoot or projectId. */
+  public listSessionsForAgent(
+    input: {
+      q?: string;
+      from?: string;
+      to?: string;
+      page?: number;
+      pageSize?: number;
+    } & TrackedScopeInput,
+  ): SessionListQueryResult {
+    const scope = this.resolveTrackedScope(input);
+    if ("outcome" in scope) {
+      return scope;
+    }
+    return this.listSessionsPage({
+      query: input.q || undefined,
+      from: input.from,
+      to: input.to,
+      page: input.page,
+      pageSize: input.pageSize,
+      projectId: scope.projectId,
+      trackedOnly: true,
+    });
+  }
+
+  /** Agent-created report synthesis request; the same policy and dedupe rules as the Reports page. */
+  public requestReportSynthesis(
+    input: Omit<CreateReportSynthesisRequestInput, "projectId"> & TrackedScopeInput,
+  ): CreateReportSynthesisRequestResult | SkippedResult | ProjectIdSkippedResult {
+    const scope = this.resolveTrackedScope(input);
+    if ("outcome" in scope) {
+      return scope;
+    }
+    return this.createReportSynthesisRequest({
+      period: input.period,
+      ...(input.date ? { date: input.date } : {}),
+      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+      ...(scope.projectId ? { projectId: scope.projectId } : {}),
+    });
+  }
+
+  /** Agent-created metadata backfill request; the same policy and dedupe rules as the Projects page. */
+  public requestMetadataBackfill(
+    input: Omit<CreateMetadataBackfillRequestInput, "projectId"> & TrackedScopeInput,
+  ): CreateMetadataBackfillRequestResult {
+    const scope = this.resolveTrackedScope(input);
+    if ("outcome" in scope) {
+      return scope;
+    }
+    return this.createMetadataBackfillRequest({
+      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+      ...(scope.projectId ? { projectId: scope.projectId } : {}),
+    });
+  }
+
+  /** Resolves an optional projectRoot/projectId pair to a tracked project id, or the quiet skip result. */
+  private resolveTrackedScope(
+    scope: TrackedScopeInput,
+  ): { projectId?: string } | SkippedResult | ProjectIdSkippedResult {
+    if (scope.projectRoot) {
+      const decision = this.checkProjectRoot(scope.projectRoot);
+      if (!decision.allowed || !decision.project) {
+        return skippedByRoot(decision);
+      }
+      if (scope.projectId && scope.projectId !== decision.project.id) {
+        return {
+          outcome: "skipped",
+          projectId: scope.projectId,
+          projectStatus: decision.projectStatus,
+          reason: "projectRoot and projectId refer to different projects.",
+        };
+      }
+      return { projectId: decision.project.id };
+    }
+    if (scope.projectId) {
+      const decision = this.checkProjectById(scope.projectId);
+      if (!decision.allowed || !decision.project) {
+        return skippedByProjectId(scope.projectId, decision);
+      }
+      return { projectId: decision.project.id };
+    }
+    return {};
   }
 
   private captureHandoff(
@@ -4184,6 +4331,34 @@ export class WorkIntelligenceStore {
       recentDecisions: this.getRecentDecisionSummaries(project.id),
       recentKnowledge: this.getRecentKnowledge(project.id),
       metadataFollowUps: this.getMetadataFollowUps(project.id),
+      pendingRequests: this.getPendingRequests(project.id),
+    };
+  }
+
+  /** Pending/processing requests an Agent could pick up; a project scope also includes its "all projects" requests. */
+  private getPendingRequests(projectId?: string): ContextResult["pendingRequests"] {
+    const active = new Set(["pending", "processing"]);
+    const inScope = (request: { projectId?: string }) =>
+      !projectId || !request.projectId || request.projectId === projectId;
+    const byNewest = (left: { requestedAt: string }, right: { requestedAt: string }) =>
+      right.requestedAt.localeCompare(left.requestedAt);
+    const reports = this.listReportSynthesisRequests({ limit: 100 });
+    const backfills = this.listMetadataBackfillRequests({ limit: 100 });
+    return {
+      reportSynthesis:
+        reports.outcome === "report_synthesis_requests"
+          ? reports.requests
+              .filter((request) => active.has(request.status) && inScope(request))
+              .sort(byNewest)
+              .slice(0, 5)
+          : [],
+      metadataBackfill:
+        backfills.outcome === "metadata_backfill_requests"
+          ? backfills.requests
+              .filter((request) => active.has(request.status) && inScope(request))
+              .sort(byNewest)
+              .slice(0, 5)
+          : [],
     };
   }
 
