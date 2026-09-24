@@ -127,6 +127,36 @@ export class ReportBuilder {
       lines.push("");
     }
 
+    const spanningGroups = [
+      ["更早開始、在這段期間完成", report.spanning.startedEarlier],
+      ["在這段期間開始、之後才完成", report.spanning.continuedLater],
+      ["更早完成、在這段期間修改", report.spanning.updatedInPeriod],
+    ] as const;
+    if (spanningGroups.some(([, items]) => items.length > 0)) {
+      lines.push("## 跨期工作", "", "數字只計算這段期間完成的 Session；以下列出跨越期間邊界的工作，不重複計算。", "");
+      for (const [title, items] of spanningGroups) {
+        if (items.length === 0) {
+          continue;
+        }
+        lines.push("### " + title, "");
+        for (const item of items) {
+          const started = item.startedAt ? "開始 " + item.startedAt + "，" : "";
+          lines.push(
+            "- " +
+              markdownInline(item.title) +
+              "（" +
+              started +
+              "完成 " +
+              item.completedAt +
+              "，更新 " +
+              item.updatedAt +
+              "）",
+          );
+        }
+        lines.push("");
+      }
+    }
+
     lines.push("## 活動趨勢", "", "| 日期 | Sessions | Events |", "| --- | ---: | ---: |");
     for (const trend of report.trends) {
       lines.push("| " + trend.date + " | " + trend.sessions + " | " + trend.events + " |");

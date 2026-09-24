@@ -39,6 +39,15 @@ export type SessionListOptions = {
   trackedOnly?: boolean;
   /** Voided Sessions are excluded unless asked for; "only" lists just the voided ones. */
   voided?: SessionVoidedFilter;
+  /** Calendar-date bounds (host time zone) on when the work started; Sessions without a start never match. */
+  startedFrom?: string;
+  startedTo?: string;
+  /** Only Sessions completed after this calendar day, or before this one. */
+  completedAfter?: string;
+  completedBefore?: string;
+  /** Only Sessions changed after finalize (more than a minute later) within these calendar days. */
+  updatedFrom?: string;
+  updatedTo?: string;
 };
 
 /**
@@ -199,6 +208,35 @@ export class SessionRepository {
     if (options.to) {
       clauses.push("s.completed_at < ?");
       parameters.push(nextCalendarDate(options.to));
+    }
+
+    if (options.startedFrom) {
+      clauses.push("s.started_at >= ?");
+      parameters.push(localDayStartIso(options.startedFrom) ?? options.startedFrom);
+    }
+    if (options.startedTo) {
+      clauses.push("s.started_at < ?");
+      parameters.push(nextCalendarDate(options.startedTo));
+    }
+    if (options.completedAfter) {
+      clauses.push("s.completed_at >= ?");
+      parameters.push(nextCalendarDate(options.completedAfter));
+    }
+    if (options.completedBefore) {
+      clauses.push("s.completed_at < ?");
+      parameters.push(localDayStartIso(options.completedBefore) ?? options.completedBefore);
+    }
+    if (options.updatedFrom || options.updatedTo) {
+      // Matches the Web's "更新於" rule: a change more than a minute after finalize.
+      clauses.push("(julianday(s.updated_at) - julianday(s.created_at)) * 86400 > 60");
+    }
+    if (options.updatedFrom) {
+      clauses.push("s.updated_at >= ?");
+      parameters.push(localDayStartIso(options.updatedFrom) ?? options.updatedFrom);
+    }
+    if (options.updatedTo) {
+      clauses.push("s.updated_at < ?");
+      parameters.push(nextCalendarDate(options.updatedTo));
     }
 
     return { clauses, parameters };

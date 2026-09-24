@@ -142,6 +142,8 @@ import type {
   WorkEventType,
   WorkSessionRecord,
   WorkReportPeriod,
+  ReportSpanningSession,
+  ReportSpanningSessions,
   DatabaseBackupCreated,
   DatabaseBackupList,
   DatabaseBackupUnavailable,
@@ -150,7 +152,7 @@ import type {
   SessionListQueryResult,
   SessionNotFoundResult,
 } from "@work-intelligence/core";
-import { localTimeZone, nowIso, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
+import { localDayStartIso, localTimeZone, nowIso, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
 import {
   backupDatabase,
@@ -2285,6 +2287,43 @@ export class WorkIntelligenceStore {
     };
   }
 
+  /** Sessions that belong to the period without being counted in it (see WorkReport.spanning). */
+  private getReportSpanningSessions(
+    range: ReportRange,
+    sessions: WorkSessionRecord[],
+    projectId: string | undefined,
+  ): ReportSpanningSessions {
+    const limit = 20;
+    const digest = (session: WorkSessionRecord): ReportSpanningSession => ({
+      id: session.id,
+      title: session.title,
+      ...(session.projectName ? { projectName: session.projectName } : {}),
+      ...(session.startedAt ? { startedAt: session.startedAt } : {}),
+      completedAt: session.completedAt,
+      updatedAt: session.updatedAt,
+    });
+    const periodStart = localDayStartIso(range.from) ?? range.from;
+    const scope = { projectId, trackedOnly: true, limit };
+    return {
+      startedEarlier: sessions
+        .filter((session) => session.startedAt && session.startedAt < periodStart)
+        .slice(0, limit)
+        .map(digest),
+      continuedLater: this.listSessions({
+        ...scope,
+        startedFrom: range.from,
+        startedTo: range.to,
+        completedAfter: range.to,
+      }).map(digest),
+      updatedInPeriod: this.listSessions({
+        ...scope,
+        updatedFrom: range.from,
+        updatedTo: range.to,
+        completedBefore: range.from,
+      }).map(digest),
+    };
+  }
+
   public getReport(options: {
     period: ReportPeriod;
     date?: string;
@@ -2504,6 +2543,7 @@ export class WorkIntelligenceStore {
           : [];
       });
 
+    const spanning = this.getReportSpanningSessions(range, sessions, project?.id);
     const trendGranularity = getReportTrendGranularity(period, range);
     const trends = buildReportTrends(trendGranularity, range, sessions, eventsBySession);
 
@@ -2622,6 +2662,7 @@ export class WorkIntelligenceStore {
       decisions,
       trendGranularity,
       trends,
+      spanning,
       evidence: pageEvidence,
       evidencePageInfo,
     };

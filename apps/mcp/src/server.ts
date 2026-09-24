@@ -386,7 +386,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_get_report", {
     title: "Get a work report",
     description:
-      'Build a deterministic day, week, month, quarter, or year report from finalized tracked-project sessions, or pass from and to (YYYY-MM-DD, up to 366 days) for a custom range such as a sprint (period is then "custom" and the comparison is the same number of days before): period summary, previous-period comparison, completed work, verification, risks, decisions, trends (monthly for quarter/year and custom ranges over 92 days), source evidence, and source Session IDs. Calendar dates use the server\'s local time zone, returned as timezone. A non-tracked project scope is skipped quietly.',
+      'Build a deterministic day, week, month, quarter, or year report from finalized tracked-project sessions, or pass from and to (YYYY-MM-DD, up to 366 days) for a custom range such as a sprint (period is then "custom" and the comparison is the same number of days before): period summary, previous-period comparison, completed work, verification, risks, decisions, trends (monthly for quarter/year and custom ranges over 92 days), spanning (work that started before, finished after, or was corrected during the period; not counted in the totals), source evidence, and source Session IDs. Calendar dates use the server\'s local time zone, returned as timezone. A non-tracked project scope is skipped quietly.',
     inputShape: reportQueryObjectSchema.shape,
     schema: reportQuerySchema,
     annotations: READ_ONLY,

@@ -611,6 +611,25 @@ export interface ReportEvidence {
   reference?: string;
 }
 
+/** A compact Session reference for the report's cross-period lists. */
+export interface ReportSpanningSession {
+  id: string;
+  title: string;
+  projectName?: string;
+  startedAt?: string;
+  completedAt: string;
+  updatedAt: string;
+}
+
+export interface ReportSpanningSessions {
+  /** Completed in the period, started before it. */
+  startedEarlier: ReportSpanningSession[];
+  /** Started in the period, completed after it. */
+  continuedLater: ReportSpanningSession[];
+  /** Completed before the period, changed during it. */
+  updatedInPeriod: ReportSpanningSession[];
+}
+
 export interface WorkReport {
   outcome: "report";
   period: WorkReportPeriod;
@@ -635,6 +654,11 @@ export interface WorkReport {
   decisions: ReportDecision[];
   trendGranularity: ReportTrendGranularity;
   trends: ReportTrendPoint[];
+  /**
+   * Work that crosses the period boundary. Totals still count a Session once, in the period it was
+   * completed; these lists only show where else it belongs (at most 20 each).
+   */
+  spanning: ReportSpanningSessions;
   evidence: ReportEvidence[];
   evidencePageInfo: PageInfo;
 }
