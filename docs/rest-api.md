@@ -50,6 +50,8 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | DELETE   | `/api/reports/summaries/:id`                     | 移除非目前使用中的歷史報告版本                                                         |
 | POST     | `/api/work/finalize`                             | REST 形式的 finalize                                                                   |
 
+報告提煉請求與摘要查詢可使用 `period`、`date`、`projectId`／`scopeType`；指定自訂區間時傳入 `period=custom&from=YYYY-MM-DD&to=YYYY-MM-DD`，`from` 與 `to` 必須同時提供且最多 366 天。自訂區間以起訖日期共同識別，Agent 摘要的歷史版本也只會取代相同專案範圍、相同起訖日的目前版本。建立請求的 JSON 格式例如 `{ "period": "custom", "from": "2026-09-01", "to": "2026-09-14" }`。
+
 ## Metadata backfill
 
 當既有 Session 顯示 Verification 待回報、明確 not_run，或沒有 changed-files metadata 時，可以先預覽缺口，再由 Agent 提供已確認的資料批次回填。

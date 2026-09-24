@@ -327,7 +327,9 @@ test.describe("Work Intelligence browser regression", () => {
     );
     await expect(page.getByText(/自訂期間 · \d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}/)).toBeVisible();
     await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
-    await expect(page.getByTestId("report-synthesis")).toContainText("自訂期間的報告暫不支援 AI 整理");
+    await expect(
+      page.getByTestId("report-synthesis").getByRole("button", { name: "請 Agent 整理這份報告" }),
+    ).toBeEnabled();
 
     await page.goto(`/reports?period=custom&from=${reportDate}&to=${reportDate}`);
     await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
@@ -926,5 +928,58 @@ test.describe("Work Intelligence browser regression", () => {
         expect.arrayContaining([expect.objectContaining({ id: candidateId, status: "rejected" })]),
       );
     }
+  });
+
+  test("creates and displays an AI summary for an exact custom report range", async ({ page }) => {
+    await page.goto(`/reports?period=custom&from=${reportDate}&to=${reportDate}`);
+    const synthesis = page.getByTestId("report-synthesis");
+    const createButton = synthesis.getByRole("button", { name: "請 Agent 整理這份報告" });
+    await expect(createButton).toBeEnabled();
+    await createButton.click();
+
+    const customRequest = withAgentStore((store) => {
+      const requests = store.listReportSynthesisRequests({
+        period: "custom",
+        from: reportDate,
+        to: reportDate,
+        scopeType: "all",
+        status: "pending",
+      });
+      if (requests.outcome !== "report_synthesis_requests") {
+        throw new Error(`Expected custom synthesis requests, got ${requests.outcome}`);
+      }
+      const request = requests.requests[0];
+      if (!request) {
+        throw new Error("The custom report request was not stored for the selected range.");
+      }
+      const context = store.getReportSynthesisContext({ requestId: request.id });
+      if (context.outcome !== "report_context") {
+        throw new Error(`Expected a custom report context, got ${context.outcome}`);
+      }
+      const saved = store.saveReportSummary({
+        requestId: request.id,
+        title: "自訂期間工作整理",
+        executiveSummary: "自訂日期範圍已取得來源工作並完成整理。",
+        highlights: [],
+        risks: [],
+        decisions: [],
+        nextSteps: [],
+        sourceSessionIds: context.sourceSessionIds,
+        generatedByAgent: "Playwright fixture",
+        promptVersion: "e2e-custom-report-v1",
+      });
+      return { request, context, saved };
+    });
+    expect(customRequest.request).toMatchObject({ period: "custom", range: { from: reportDate, to: reportDate } });
+    expect(customRequest.context.report).toMatchObject({
+      outcome: "report",
+      period: "custom",
+      range: { from: reportDate, to: reportDate },
+    });
+    expect(customRequest.saved).toMatchObject({
+      outcome: "report_summary_saved",
+      summary: { period: "custom", range: { from: reportDate, to: reportDate } },
+    });
+    await expect(synthesis).toContainText("自訂日期範圍已取得來源工作並完成整理。", { timeout: 15_000 });
   });
 });

@@ -6,6 +6,7 @@ import type {
   ReportPeriod,
   ReportSummary,
   ReportSynthesisRequest,
+  WorkReportPeriod,
   WorkReport,
   WorkSessionRecord,
 } from "@work-intelligence/core";
@@ -95,20 +96,19 @@ function reportScope(): { period: ReportPeriod; date?: string; from?: string; to
   return { period: reportPeriod.value, date: reportDate.value || undefined, projectId };
 }
 
-/** Without a project, only all-project syntheses belong to this report; a single project's must not stand in. */
-function synthesisScope(): ReturnType<typeof reportScope> & { scopeType?: "all" } {
+function synthesisRequestScope(): Omit<ReturnType<typeof reportScope>, "period"> & { period: WorkReportPeriod } {
   const scope = reportScope();
+  const period: WorkReportPeriod = reportPeriod.value === "custom" ? "custom" : scope.period;
+  return { ...scope, period };
+}
+
+/** Without a project, only all-project syntheses belong to this report; a single project's must not stand in. */
+function synthesisScope(): ReturnType<typeof synthesisRequestScope> & { scopeType?: "all" } {
+  const scope = synthesisRequestScope();
   return scope.projectId ? scope : { ...scope, scopeType: "all" };
 }
 
 async function fetchReportSynthesis(quiet = false): Promise<void> {
-  if (reportPeriod.value === "custom") {
-    // Synthesis requests and summaries only exist for calendar periods.
-    reportSynthesisRequest.value = null;
-    reportSynthesisSummary.value = null;
-    reportSynthesisHistory.value = [];
-    return;
-  }
   if (!quiet) {
     reportSynthesisLoading.value = true;
   }
@@ -156,14 +156,18 @@ function selectReportSynthesisVersion(summary: ReportSummary): void {
 }
 
 async function createReportSynthesisRequest(): Promise<void> {
-  if (!report.value || reportSynthesisCreating.value || reportPeriod.value === "custom") {
+  if (
+    !report.value ||
+    reportSynthesisCreating.value ||
+    (reportPeriod.value === "custom" && customRangeProblem().length > 0)
+  ) {
     return;
   }
   reportSynthesisCreating.value = true;
   reportSynthesisError.value = "";
   try {
     const result = await useApi().client.createReportSynthesisRequest({
-      ...reportScope(),
+      ...synthesisRequestScope(),
       idempotencyKey: crypto.randomUUID(),
     });
     if (result.outcome !== "report_synthesis_request") {

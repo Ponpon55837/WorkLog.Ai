@@ -328,7 +328,7 @@ CREATE TABLE IF NOT EXISTS report_synthesis_requests (
   idempotency_key TEXT NOT NULL UNIQUE,
   scope_type TEXT NOT NULL CHECK (scope_type IN ('all', 'project')),
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-  period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'quarter', 'year')),
+  period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'quarter', 'year', 'custom')),
   range_from TEXT NOT NULL,
   range_to TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
@@ -342,7 +342,7 @@ CREATE TABLE IF NOT EXISTS report_synthesis_requests (
 CREATE TABLE IF NOT EXISTS report_summaries (
   id TEXT PRIMARY KEY,
   request_id TEXT NOT NULL REFERENCES report_synthesis_requests(id) ON DELETE CASCADE,
-  period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'quarter', 'year')),
+  period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'quarter', 'year', 'custom')),
   range_from TEXT NOT NULL,
   range_to TEXT NOT NULL,
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
@@ -410,9 +410,9 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_project_updated ON knowledge(project_id
 CREATE INDEX IF NOT EXISTS idx_knowledge_session_updated ON knowledge(session_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_audit_knowledge_occurred ON knowledge_audit(knowledge_id, occurred_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_report_synthesis_requests_status ON report_synthesis_requests(status, requested_at DESC);
-CREATE INDEX IF NOT EXISTS idx_report_synthesis_requests_scope ON report_synthesis_requests(project_id, period, range_from, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_synthesis_requests_scope ON report_synthesis_requests(project_id, period, range_from, range_to, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_report_summaries_request_created ON report_summaries(request_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_report_summaries_current_scope ON report_summaries(is_current, project_id, period, range_from, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_summaries_current_scope ON report_summaries(is_current, project_id, period, range_from, range_to, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metadata_backfill_requests_status ON metadata_backfill_requests(status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metadata_backfill_requests_scope ON metadata_backfill_requests(project_id, status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_session_summary_updates_session ON session_summary_updates(session_id, created_at DESC);

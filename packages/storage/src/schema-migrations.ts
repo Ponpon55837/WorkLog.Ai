@@ -222,6 +222,82 @@ const MIGRATIONS: SchemaMigration[] = [
         ON knowledge_candidates(project_id, status, created_at DESC);
     `,
   },
+  {
+    version: 8,
+    name: "custom-report-synthesis-ranges",
+    sql: `
+      CREATE TABLE report_synthesis_requests_next (
+        id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        scope_type TEXT NOT NULL CHECK (scope_type IN ('all', 'project')),
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'quarter', 'year', 'custom')),
+        range_from TEXT NOT NULL,
+        range_to TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+        requested_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        failure_reason TEXT,
+        source_session_ids_json TEXT NOT NULL DEFAULT '[]'
+      );
+      INSERT INTO report_synthesis_requests_next (
+        id, idempotency_key, scope_type, project_id, period, range_from, range_to,
+        status, requested_at, started_at, completed_at, failure_reason, source_session_ids_json
+      )
+      SELECT
+        id, idempotency_key, scope_type, project_id, period, range_from, range_to,
+        status, requested_at, started_at, completed_at, failure_reason, source_session_ids_json
+      FROM report_synthesis_requests;
+
+      CREATE TABLE report_summaries_next (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL REFERENCES report_synthesis_requests_next(id) ON DELETE CASCADE,
+        period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'quarter', 'year', 'custom')),
+        range_from TEXT NOT NULL,
+        range_to TEXT NOT NULL,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        executive_summary TEXT NOT NULL,
+        themes_json TEXT NOT NULL DEFAULT '[]',
+        highlights_json TEXT NOT NULL DEFAULT '[]',
+        verification_json TEXT NOT NULL DEFAULT '[]',
+        comparison_json TEXT NOT NULL DEFAULT '[]',
+        risks_json TEXT NOT NULL DEFAULT '[]',
+        decisions_json TEXT NOT NULL DEFAULT '[]',
+        next_steps_json TEXT NOT NULL DEFAULT '[]',
+        source_session_ids_json TEXT NOT NULL DEFAULT '[]',
+        generated_by_agent TEXT NOT NULL,
+        generated_by_model TEXT,
+        prompt_version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 1 CHECK (is_current IN (0, 1))
+      );
+      INSERT INTO report_summaries_next (
+        id, request_id, period, range_from, range_to, project_id, title, executive_summary,
+        themes_json, highlights_json, verification_json, comparison_json, risks_json, decisions_json,
+        next_steps_json, source_session_ids_json, generated_by_agent, generated_by_model,
+        prompt_version, created_at, is_current
+      )
+      SELECT
+        id, request_id, period, range_from, range_to, project_id, title, executive_summary,
+        themes_json, highlights_json, verification_json, comparison_json, risks_json, decisions_json,
+        next_steps_json, source_session_ids_json, generated_by_agent, generated_by_model,
+        prompt_version, created_at, is_current
+      FROM report_summaries;
+
+      DROP TABLE report_summaries;
+      DROP TABLE report_synthesis_requests;
+      ALTER TABLE report_synthesis_requests_next RENAME TO report_synthesis_requests;
+      ALTER TABLE report_summaries_next RENAME TO report_summaries;
+      CREATE INDEX IF NOT EXISTS idx_report_synthesis_requests_status ON report_synthesis_requests(status, requested_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_report_synthesis_requests_scope
+        ON report_synthesis_requests(project_id, period, range_from, range_to, requested_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_report_summaries_request_created ON report_summaries(request_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_report_summaries_current_scope
+        ON report_summaries(is_current, project_id, period, range_from, range_to, created_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { History, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-vue-next";
-import type { ReportPeriod, ReportSummary } from "@work-intelligence/core";
+import type { WorkReportPeriod, ReportSummary } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { reportSynthesisInstruction, useReports } from "../../composables/useReports";
 import { useSessionDetail } from "../../composables/useSessionDetail";
@@ -28,6 +28,7 @@ const {
   report,
   reportPeriod,
   reportDate,
+  reportRange,
   reportProjectId,
   reportSynthesisRequest: request,
   reportSynthesisSummary: summary,
@@ -53,7 +54,8 @@ const { showToast } = useToast();
 useActiveRequestWatch({
   requests: () => (request.value ? [request.value] : []),
   check: refreshReportSynthesis,
-  scope: () => `${reportPeriod.value}|${reportDate.value}|${reportProjectId.value}`,
+  scope: () =>
+    `${reportPeriod.value}|${reportDate.value}|${reportRange.value.from}|${reportRange.value.to}|${reportProjectId.value}`,
   onSettled: (_request, status) => {
     if (status === "completed") {
       showToast("Agent 已完成 AI 報告整理。", "success");
@@ -63,12 +65,13 @@ useActiveRequestWatch({
   },
 });
 
-const grainHints: Record<ReportPeriod, string> = {
+const grainHints: Record<WorkReportPeriod, string> = {
   day: "日報 · 以 Task / Feature / Issue 分組",
   week: "週報 · 以 Feature / Workstream 分組",
   month: "月報 · 以 Project / Milestone 分組",
   quarter: "季報 · 以 Initiative 分組",
   year: "年報 · 以 Major Contribution 分組",
+  custom: "自訂期間 · 依工作主題整理",
 };
 
 const sections = computed(() => {
@@ -118,7 +121,6 @@ function versionMeta(version: ReportSummary): string {
         <StatusLabel v-if="request" :status="requestStatus[request.status]" />
       </UiBoxTitle>
       <UiIconButton
-        v-if="report?.period !== 'custom'"
         :icon="RefreshCw"
         label="重新整理整理狀態"
         size="sm"
@@ -127,11 +129,7 @@ function versionMeta(version: ReportSummary): string {
       />
     </template>
 
-    <p v-if="report?.period === 'custom'" class="synthesis synthesis__pending">
-      自訂期間的報告暫不支援 AI 整理；下方的數字與分布都來自確定性的報告資料。需要 AI
-      整理時，請改用日／週／月／季／年報告。
-    </p>
-    <div v-else class="synthesis">
+    <div class="synthesis">
       <UiFlash v-if="reportSynthesisError" tone="danger">{{ reportSynthesisError }}</UiFlash>
       <UiSkeleton v-if="reportSynthesisLoading && !summary && !request" variant="text" :count="3" />
 

@@ -12,6 +12,7 @@ import {
   knowledgeQuerySchema,
   mcpCreateMetadataBackfillRequestInputSchema,
   mcpCreateReportSynthesisRequestInputSchema,
+  mcpCreateReportSynthesisRequestInputObjectSchema,
   mcpFinalizeSessionInputSchema,
   mcpListSessionsInputSchema,
   mcpListSessionsInputSchemaBase,
@@ -29,6 +30,7 @@ import {
   reportQuerySchema,
   reportSynthesisContextQuerySchema,
   reportSynthesisRequestQuerySchema,
+  reportSynthesisRequestQueryObjectSchema,
   retryReportSynthesisRequestInputSchema,
   saveReportSummaryInputSchema,
   searchQuerySchema,
@@ -410,9 +412,9 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_request_report_synthesis", {
     title: "Create a report synthesis request",
     description:
-      "Create a pending report synthesis request when the user asks for an AI-organized report and none is pending, exactly like the Reports page button. Scope with projectRoot or projectId (omit both for all tracked projects); date defaults to today in the server's local time zone. Then get its context and save the summary. " +
+      "Create a pending report synthesis request when the user asks for an AI-organized report and none is pending, exactly like the Reports page button. Scope with projectRoot or projectId (omit both for all tracked projects); date defaults to today in the server's local time zone. For a custom interval, pass period=custom with both from and to (YYYY-MM-DD, up to 366 days). Then get its context and save the summary. " +
       implementationDetail,
-    inputShape: mcpCreateReportSynthesisRequestInputSchema.shape,
+    inputShape: mcpCreateReportSynthesisRequestInputObjectSchema.shape,
     schema: mcpCreateReportSynthesisRequestInputSchema,
     annotations: ADDITIVE,
     invalidMessage: "Invalid report synthesis request payload.",
@@ -424,7 +426,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
     description:
       "Find the newest pending or processing report synthesis request (tracked-project scopes only). " +
       implementationDetail,
-    inputShape: reportSynthesisRequestQuerySchema.shape,
+    inputShape: reportSynthesisRequestQueryObjectSchema.shape,
     schema: reportSynthesisRequestQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid report synthesis request query.",
@@ -608,15 +610,22 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
     {
       title: "Organize a Work Intelligence report",
       description: "Create or pick up a report synthesis request and write the grounded report summary.",
-      argsSchema: { period: z.enum(["day", "week", "month", "quarter", "year"]).optional() },
+      argsSchema: {
+        period: z.enum(["day", "week", "month", "quarter", "year", "custom"]).optional(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+      },
     },
-    ({ period }) => ({
+    ({ period, from, to }) => ({
       messages: [
         {
           role: "user",
           content: {
             type: "text",
-            text: `請整理 Work Intelligence 的${period ? { day: "日", week: "週", month: "月", quarter: "季", year: "年" }[period] : "週"}報告：使用最新待處理的報告提煉請求，沒有就建立一筆，取得 context 後寫出有來源 Session 的摘要並存回。`,
+            text:
+              period === "custom"
+                ? `請整理 Work Intelligence 的自訂期間報告（${from ?? "起日未提供"} 至 ${to ?? "迄日未提供"}）：建立或取得完全相同區間的報告提煉請求，再讀取 context、依涵蓋長度與工作性質歸納繁體中文摘要，並附上來源 Session 後存回。`
+                : `請整理 Work Intelligence 的${period ? { day: "日", week: "週", month: "月", quarter: "季", year: "年" }[period] : "週"}報告：使用最新待處理的報告提煉請求，沒有就建立一筆，取得 context 後寫出有來源 Session 的摘要並存回。`,
           },
         },
       ],

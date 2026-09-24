@@ -2366,6 +2366,152 @@ Result: PASSED
     });
   });
 
+  it("keeps custom synthesis requests and current summaries isolated by both range bounds", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Custom synthesis project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    for (const [day, title] of [
+      ["17", "Custom range day one"],
+      ["18", "Custom range day two"],
+      ["19", "Custom range day three"],
+    ] as const) {
+      const finalized = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `custom-synthesis-session-${day}`,
+        title,
+        summary: "自訂期間報告的來源工作紀錄。",
+        completedAt: `2026-09-${day}T12:00:00.000Z`,
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      expect(finalized.outcome).toBe("finalized");
+    }
+
+    const first = store.createReportSynthesisRequest({
+      period: "custom",
+      from: "2026-09-17",
+      to: "2026-09-18",
+      projectId: project.id,
+      idempotencyKey: "custom-range-17-to-18",
+    });
+    const second = store.createReportSynthesisRequest({
+      period: "custom",
+      from: "2026-09-17",
+      to: "2026-09-19",
+      projectId: project.id,
+      idempotencyKey: "custom-range-17-to-19",
+    });
+    expect(first).toMatchObject({
+      outcome: "report_synthesis_request",
+      request: { period: "custom", range: { from: "2026-09-17", to: "2026-09-18" } },
+    });
+    expect(second).toMatchObject({
+      outcome: "report_synthesis_request",
+      request: { period: "custom", range: { from: "2026-09-17", to: "2026-09-19" } },
+    });
+    if (first.outcome !== "report_synthesis_request" || second.outcome !== "report_synthesis_request") {
+      throw new Error("Expected custom report synthesis requests.");
+    }
+
+    const context = store.getReportSynthesisContext({ requestId: first.request.id });
+    expect(context).toMatchObject({
+      outcome: "report_context",
+      request: { period: "custom", range: { from: "2026-09-17", to: "2026-09-18" } },
+      report: { outcome: "report", period: "custom", range: { from: "2026-09-17", to: "2026-09-18" } },
+    });
+
+    const firstSummary = store.saveReportSummary({
+      requestId: first.request.id,
+      title: "兩日區間摘要",
+      executiveSummary: "完成兩日區間的整理。",
+      highlights: [],
+      risks: [],
+      decisions: [],
+      nextSteps: [],
+      sourceSessionIds: first.request.sourceSessionIds,
+      generatedByAgent: "codex",
+      promptVersion: "custom-range-test-v1",
+    });
+    const secondSummary = store.saveReportSummary({
+      requestId: second.request.id,
+      title: "三日區間摘要",
+      executiveSummary: "完成三日區間的整理。",
+      highlights: [],
+      risks: [],
+      decisions: [],
+      nextSteps: [],
+      sourceSessionIds: second.request.sourceSessionIds,
+      generatedByAgent: "codex",
+      promptVersion: "custom-range-test-v1",
+    });
+    expect(firstSummary).toMatchObject({ outcome: "report_summary_saved", summary: { isCurrent: true } });
+    expect(secondSummary).toMatchObject({ outcome: "report_summary_saved", summary: { isCurrent: true } });
+    if (firstSummary.outcome !== "report_summary_saved") {
+      throw new Error("Expected the first custom summary to be saved.");
+    }
+
+    const replacement = store.createReportSynthesisRequest({
+      period: "custom",
+      from: "2026-09-17",
+      to: "2026-09-18",
+      projectId: project.id,
+      idempotencyKey: "custom-range-17-to-18-retry",
+    });
+    if (replacement.outcome !== "report_synthesis_request") {
+      throw new Error("Expected a replacement custom synthesis request.");
+    }
+    const replacementSummary = store.saveReportSummary({
+      requestId: replacement.request.id,
+      title: "更新後的兩日區間摘要",
+      executiveSummary: "更新後的摘要只取代完全相同區間。",
+      highlights: [],
+      risks: [],
+      decisions: [],
+      nextSteps: [],
+      sourceSessionIds: replacement.request.sourceSessionIds,
+      generatedByAgent: "codex",
+      promptVersion: "custom-range-test-v2",
+    });
+    expect(replacementSummary).toMatchObject({ outcome: "report_summary_saved", summary: { isCurrent: true } });
+    expect(
+      store.listReportSummaries({
+        period: "custom",
+        from: "2026-09-17",
+        to: "2026-09-18",
+        projectId: project.id,
+        currentOnly: false,
+      }),
+    ).toMatchObject({
+      outcome: "report_summaries",
+      summaries: [
+        expect.objectContaining({ title: "更新後的兩日區間摘要", isCurrent: true }),
+        expect.objectContaining({ title: "兩日區間摘要", isCurrent: false }),
+      ],
+    });
+    expect(
+      store.listReportSummaries({
+        period: "custom",
+        from: "2026-09-17",
+        to: "2026-09-19",
+        projectId: project.id,
+      }),
+    ).toMatchObject({ summaries: [expect.objectContaining({ title: "三日區間摘要", isCurrent: true })] });
+    const matchingRequests = store.listReportSynthesisRequests({
+      period: "custom",
+      from: "2026-09-17",
+      to: "2026-09-18",
+      projectId: project.id,
+    });
+    expect(matchingRequests).toMatchObject({ outcome: "report_synthesis_requests" });
+    if (matchingRequests.outcome === "report_synthesis_requests") {
+      expect(matchingRequests.requests.map((request) => request.id)).toEqual(
+        expect.arrayContaining([first.request.id, replacement.request.id]),
+      );
+      expect(matchingRequests.requests).toHaveLength(2);
+      expect(matchingRequests.requests.map((request) => request.range.to)).not.toContain("2026-09-19");
+    }
+  });
+
   it("adds new session metadata columns when opening a legacy SQLite database", () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-legacy-"));
     tempDirs.push(root);

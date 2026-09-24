@@ -14,6 +14,7 @@ import {
   REPORT_SYNTHESIS_SCOPE_TYPES,
   REPORT_SYNTHESIS_STATUSES,
   SESSION_SUMMARY_UPDATE_MODES,
+  WORK_REPORT_PERIODS,
   WORK_SUMMARY_UPDATE_MODES,
   WORK_EVENT_TYPES,
   INSIGHT_AVAILABILITIES,
@@ -308,26 +309,54 @@ export const reportExportQuerySchema = reportExportQueryObjectSchema.superRefine
 export const reportSynthesisStatusSchema = z.enum(REPORT_SYNTHESIS_STATUSES);
 export const reportSynthesisScopeTypeSchema = z.enum(REPORT_SYNTHESIS_SCOPE_TYPES);
 
-export const createReportSynthesisRequestInputSchema = z.object({
-  period: z.enum(REPORT_PERIODS).default("week"),
+export const createReportSynthesisRequestInputObjectSchema = z.object({
+  period: z.enum(WORK_REPORT_PERIODS).default("week"),
   date: calendarDateSchema.optional(),
+  /** When both dates are supplied, the request is scoped to this exact custom range. */
+  from: calendarDateSchema.optional(),
+  to: calendarDateSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
   idempotencyKey: z.string().trim().min(1).max(300).optional(),
 });
 
-export const mcpCreateReportSynthesisRequestInputSchema = createReportSynthesisRequestInputSchema.extend({
+function checkCreateReportSynthesisRange(
+  value: { period: (typeof WORK_REPORT_PERIODS)[number]; from?: string; to?: string },
+  context: z.RefinementCtx,
+): void {
+  checkCustomReportRange(value, context);
+  if (value.period === "custom" && (!value.from || !value.to)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [value.from ? "to" : "from"],
+      message: "A custom report synthesis request needs both from and to.",
+    });
+  }
+}
+
+export const createReportSynthesisRequestInputSchema = createReportSynthesisRequestInputObjectSchema.superRefine(
+  checkCreateReportSynthesisRange,
+);
+
+export const mcpCreateReportSynthesisRequestInputObjectSchema = createReportSynthesisRequestInputObjectSchema.extend({
   projectRoot: projectRootSchema.optional(),
 });
+export const mcpCreateReportSynthesisRequestInputSchema = mcpCreateReportSynthesisRequestInputObjectSchema.superRefine(
+  checkCreateReportSynthesisRange,
+);
 
-export const reportSynthesisRequestQuerySchema = z.object({
-  period: z.enum(REPORT_PERIODS).optional(),
+export const reportSynthesisRequestQueryObjectSchema = z.object({
+  period: z.enum(WORK_REPORT_PERIODS).optional(),
   date: calendarDateSchema.optional(),
+  from: calendarDateSchema.optional(),
+  to: calendarDateSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
   scopeType: reportSynthesisScopeTypeSchema.optional(),
   status: reportSynthesisStatusSchema.optional(),
   requestId: z.string().trim().min(1).max(200).optional(),
   limit: z.number().int().min(1).max(100).default(20),
 });
+export const reportSynthesisRequestQuerySchema =
+  reportSynthesisRequestQueryObjectSchema.superRefine(checkCustomReportRange);
 
 export const reportSynthesisContextQuerySchema = z.object({
   requestId: z.string().trim().min(1).max(200),

@@ -28,6 +28,7 @@ import type {
   ProjectRecord,
   ProjectStatus,
   ReportPeriod,
+  WorkReportPeriod,
   ReportExportFormat,
   ReportExportResult,
   ReportQueryResult,
@@ -339,8 +340,10 @@ export class ApiClient {
 
   public listReportSynthesisRequests(
     options: {
-      period?: ReportPeriod;
+      period?: WorkReportPeriod;
       date?: string;
+      from?: string;
+      to?: string;
       projectId?: string;
       scopeType?: ReportSynthesisScopeType;
       limit?: number;
@@ -351,6 +354,8 @@ export class ApiClient {
       appendQuery("/api/reports/synthesis-requests", {
         period: options.period,
         date: options.date,
+        from: options.from,
+        to: options.to,
         projectId: options.projectId,
         scopeType: options.scopeType,
         limit: options.limit,
@@ -361,8 +366,10 @@ export class ApiClient {
 
   public listReportSummaries(
     options: {
-      period?: ReportPeriod;
+      period?: WorkReportPeriod;
       date?: string;
+      from?: string;
+      to?: string;
       projectId?: string;
       scopeType?: ReportSynthesisScopeType;
       currentOnly?: boolean;
@@ -373,6 +380,8 @@ export class ApiClient {
       appendQuery("/api/reports/summaries", {
         period: options.period,
         date: options.date,
+        from: options.from,
+        to: options.to,
         projectId: options.projectId,
         scopeType: options.scopeType,
         currentOnly: options.currentOnly,
@@ -383,8 +392,10 @@ export class ApiClient {
 
   public createReportSynthesisRequest(
     input: {
-      period: ReportPeriod;
+      period: WorkReportPeriod;
       date?: string;
+      from?: string;
+      to?: string;
       projectId?: string;
       idempotencyKey?: string;
     },

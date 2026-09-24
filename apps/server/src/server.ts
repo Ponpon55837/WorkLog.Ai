@@ -397,6 +397,8 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         const parsed = reportSynthesisRequestQuerySchema.safeParse({
           period: requestUrl.searchParams.get("period") ?? undefined,
           date: requestUrl.searchParams.get("date") ?? undefined,
+          from: requestUrl.searchParams.get("from") ?? undefined,
+          to: requestUrl.searchParams.get("to") ?? undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           scopeType: requestUrl.searchParams.get("scopeType") ?? undefined,
           status: requestUrl.searchParams.get("status") ?? undefined,
@@ -491,6 +493,8 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         const parsed = reportSynthesisRequestQuerySchema.safeParse({
           period: requestUrl.searchParams.get("period") ?? undefined,
           date: requestUrl.searchParams.get("date") ?? undefined,
+          from: requestUrl.searchParams.get("from") ?? undefined,
+          to: requestUrl.searchParams.get("to") ?? undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           scopeType: requestUrl.searchParams.get("scopeType") ?? undefined,
           requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
