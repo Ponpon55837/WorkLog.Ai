@@ -753,6 +753,48 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("Agent 已完成 metadata 回補。")).toBeVisible({ timeout: 15_000 });
   });
 
+  test("refreshes the Session list after a Session is created over REST", async ({ page, request }) => {
+    const eventsConnected = page.waitForResponse(
+      (response) => response.url().endsWith("/api/events") && response.status() === 200,
+    );
+    await page.goto("/sessions");
+    await eventsConnected;
+    await expect(page.getByTestId("session-row").first()).toBeVisible();
+
+    async function createSession(title: string): Promise<void> {
+      const finalized = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+        projectRoot,
+        idempotencyKey: `browser-live-session-${process.pid}-${title}`,
+        title,
+        summary: "透過 REST 新增後，工作歷程應自動更新。",
+        changedFiles: [],
+        verification: { status: "passed" },
+        completedAt: new Date().toISOString(),
+      });
+      expect(finalized.session.id).toBeTruthy();
+    }
+
+    const liveTitle = `即時更新前景測試 ${process.pid}`;
+    await createSession(liveTitle);
+    await expect(page.getByTestId("session-row").filter({ hasText: liveTitle })).toBeVisible({ timeout: 10_000 });
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const hiddenTitle = `即時更新背景測試 ${process.pid}`;
+    await createSession(hiddenTitle);
+    const newRow = page.getByTestId("session-row").filter({ hasText: hiddenTitle });
+    await page.waitForTimeout(2_200);
+    await expect(newRow).toHaveCount(0);
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect(newRow).toBeVisible({ timeout: 10_000 });
+  });
+
   test("captures page screenshots for visual comparison", async ({ page }) => {
     const label = process.env.UI_SCREENSHOTS;
     test.skip(!label, "Set UI_SCREENSHOTS=<label> to capture screenshots.");

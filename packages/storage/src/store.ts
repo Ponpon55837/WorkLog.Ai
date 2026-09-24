@@ -1305,6 +1305,14 @@ export class WorkIntelligenceStore {
     return checkTrackedProjectById(this.policyGate, this, projectId);
   }
 
+  /** Returns a lightweight token for writes made by this connection and other SQLite connections. */
+  public getChangeToken(): string {
+    const dataVersion = this.db.prepare("PRAGMA data_version").get() as { data_version?: number } | undefined;
+    const localChanges = this.db.prepare("SELECT total_changes() AS total_changes").get() as
+      { total_changes?: number } | undefined;
+    return `${dataVersion?.data_version ?? 0}:${localChanges?.total_changes ?? 0}`;
+  }
+
   public close(): void {
     this.db.close();
   }

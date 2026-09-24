@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
-import { createApiHandler } from "./server.js";
+import { createApiHandler, type ApiHandlerOptions } from "./server.js";
 
 const resources: Array<{ server: Server; store: WorkIntelligenceStore; root: string }> = [];
 
@@ -16,8 +16,11 @@ afterEach(async () => {
   }
 });
 
-async function startApi(store: WorkIntelligenceStore): Promise<{ server: Server; baseUrl: string }> {
-  const server = createServer(createApiHandler(store));
+async function startApi(
+  store: WorkIntelligenceStore,
+  options: ApiHandlerOptions = {},
+): Promise<{ server: Server; baseUrl: string }> {
+  const server = createServer(createApiHandler(store, options));
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -27,6 +30,34 @@ async function startApi(store: WorkIntelligenceStore): Promise<{ server: Server;
     throw new Error("The test API did not expose a TCP address.");
   }
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+}
+
+async function readSseUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  marker: string,
+  timeoutMs = 2_000,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let output = "";
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(`Timed out waiting for SSE marker: ${marker}`)), timeoutMs);
+    });
+    while (!output.includes(marker)) {
+      const chunkPromise = reader.read();
+      const chunk = await Promise.race([chunkPromise, timeoutPromise]);
+      if (chunk.done) {
+        throw new Error("The SSE stream ended before the expected event arrived.");
+      }
+      output += decoder.decode(chunk.value, { stream: true });
+    }
+    return output;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 async function requestJson<T>(
@@ -53,6 +84,12 @@ describe("Work Intelligence REST API", () => {
     expect(rejected.status).toBe(403);
     expect(await rejected.json()).toMatchObject({ error: "Origin is not allowed." });
 
+    const rejectedEventOrigin = await fetch(`${baseUrl}/api/events`, {
+      headers: { origin: "http://evil.example" },
+    });
+    expect(rejectedEventOrigin.status).toBe(403);
+    expect(await rejectedEventOrigin.json()).toMatchObject({ error: "Origin is not allowed." });
+
     const allowed = await fetch(`${baseUrl}/api/health`, { headers: { origin: "http://127.0.0.1:5966" } });
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5966");
@@ -65,23 +102,53 @@ describe("Work Intelligence REST API", () => {
     resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-host-test-")) });
     const { port } = new URL(baseUrl);
 
-    const statusForHost = (host: string) =>
+    const statusForHost = (host: string, path = "/api/sessions") =>
       new Promise<number>((resolve, reject) => {
-        const request = httpRequest(
-          { host: "127.0.0.1", port, path: "/api/sessions", headers: { host } },
-          (response) => {
-            response.resume();
-            resolve(response.statusCode ?? 0);
-          },
-        );
+        const request = httpRequest({ host: "127.0.0.1", port, path, headers: { host } }, (response) => {
+          response.resume();
+          resolve(response.statusCode ?? 0);
+        });
         request.once("error", reject);
         request.end();
       });
 
     expect(await statusForHost("rebind.evil.example")).toBe(421);
     expect(await statusForHost(`evil.example:${port}`)).toBe(421);
+    expect(await statusForHost("rebind.evil.example", "/api/events")).toBe(421);
     expect(await statusForHost(`127.0.0.1:${port}`)).toBe(200);
     expect(await statusForHost("localhost:5966")).toBe(200);
+  });
+
+  it("streams a data-free changed event after another SQLite connection writes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-events-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const { server, baseUrl } = await startApi(store, { eventPollIntervalMs: 10 });
+    resources.push({ server, store, root });
+
+    const response = await fetch(`${baseUrl}/api/events`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("The SSE response did not expose a readable stream.");
+    }
+
+    try {
+      expect(await readSseUntil(reader, ": connected")).toContain(": connected");
+      const agentStore = new WorkIntelligenceStore(databasePath);
+      try {
+        agentStore.addProject("External SQLite writer", join(root, "external-project"));
+        const event = await readSseUntil(reader, "event: changed");
+        expect(event).toContain("event: changed\ndata:\n\n");
+        expect(event).not.toContain("External SQLite writer");
+        expect(event).not.toContain(databasePath);
+      } finally {
+        agentStore.close();
+      }
+    } finally {
+      await reader.cancel();
+    }
   });
 
   it("returns a safe client error for malformed JSON", async () => {
