@@ -10,7 +10,7 @@ import type {
   PolicyDecision,
   ProjectRecord,
 } from "@work-intelligence/core";
-import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
+import { LIKE_ESCAPE, likeContainsPattern, splitSearchTerms } from "./sql-like.js";
 import { createPageInfo } from "./pagination.js";
 
 type KnowledgeRepositoryRow = {
@@ -104,12 +104,12 @@ export class KnowledgeRepository {
       clauses.push("k.status = ?");
       parameters.push(status);
     }
-    const queryText = options.query?.trim() || options.q?.trim();
-    if (queryText) {
+    // Every term must appear in at least one of the Knowledge's text fields.
+    for (const term of splitSearchTerms(options.query?.trim() || options.q?.trim() || "")) {
       clauses.push(
         `(LOWER(k.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.body) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.tags_json) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.references_json) LIKE ? ${LIKE_ESCAPE})`,
       );
-      const needle = likeContainsPattern(queryText.toLowerCase());
+      const needle = likeContainsPattern(term);
       parameters.push(needle, needle, needle, needle);
     }
 

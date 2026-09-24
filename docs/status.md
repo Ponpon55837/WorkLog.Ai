@@ -49,7 +49,6 @@
 剩下的項目：
 
 - 以本機真實 DB 快照重跑上面 36 題評估，確認實作後的 hit@5／MRR 與 S5 預期一致；評估題與腳本仍只留在本機。
-- `work_search_knowledge` 與 Web 的 Session 列表／Knowledge 搜尋仍是整句 LIKE（UI 需要分頁與時間排序）；Agent 改用 `work_recall`，UI 是否改用排序檢索另外評估。
 
 **第二階段：可信度與回饋**：已全部完成（Session 作廢、Session 關聯、Knowledge 可信度、Session 開始／更新時間、Knowledge 候選），見下方「最近完成」。
 
@@ -66,6 +65,7 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **列表搜尋改為多關鍵字**：Web 的 Session 列表、Knowledge 搜尋與 `work_search_knowledge` 原本把整句當成一個 LIKE。現在依空白拆詞（雙引號可保留片語），每個詞都要出現在某個欄位；Session 另外比對五段 workSummary 與 changed files（以 `json_each` 只比對內容，不會因欄位名稱如 decisions 命中每一筆）。列表維持時間排序與分頁，排序檢索仍由 Agent 的 `work_recall` 負責（評估的 S1 策略：0 筆題數 31→16）。
 - **圖譜跨頁的 Session 關聯**：分頁取回圖譜時，只要關聯的一端在該頁就送出 `session_link`（另一端必須是範圍內的有效 Session），Web 合併各頁後即可畫出兩端落在不同頁的關聯。
 - **保存提醒 hook**：新增 Claude Code Stop hook（`apps/mcp/dist/finalize-reminder.js`）。在記錄中的專案裡，上次保存後又用 Edit／Write 類工具改了檔案、這一輪結束卻沒保存時提醒 Agent 一次（同一段工作只提醒一次，`stop_hook_active` 時不再擋）；唯讀查專案清單、判斷失敗一律放行。設定方式見 agent-setup。
 - **加入專案改為選擇資料夾**（使用者提出）：「加入專案」對話框新增「選擇資料夾」，由本機 API server 叫出作業系統的選擇資料夾視窗（macOS `osascript`、Windows PowerShell、Linux `zenity`／`kdialog`），選完自動填入路徑，名稱空白時以資料夾名稱帶入；仍可手動輸入。新增 `POST /api/system/pick-folder`，指令固定、不經過 shell，區分「取消」與「無法開啟」，同時只開一個視窗。

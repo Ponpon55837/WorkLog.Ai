@@ -302,7 +302,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_search_knowledge", {
     title: "Search recorded work knowledge",
     description:
-      "Search explicitly recorded knowledge by title, body, tags, references, project, or kind. Results are limited to active knowledge from tracked projects by default; a projectRoot or projectId scope is policy-gated before returning data.",
+      'Search explicitly recorded knowledge by title, body, tags, references, project, or kind, newest first. Each space-separated word (or "quoted phrase") must appear in some field, so several words narrow the list; use work_recall for ranked matching of looser questions. Results are limited to active knowledge from tracked projects by default; a projectRoot or projectId scope is policy-gated before returning data.',
     inputShape: knowledgeQuerySchema.shape,
     schema: knowledgeQuerySchema,
     annotations: READ_ONLY,
