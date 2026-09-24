@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
@@ -115,10 +115,12 @@ describe("moving the database to another computer", () => {
     const target = join(newRoot, "work-intelligence.sqlite");
     new WorkIntelligenceStore(target).close();
 
+    // Project roots are stored as real paths (e.g. long names instead of Windows 8.3 short names).
+    const storedParent = dirname(store.listProjects()[0]?.rootPath ?? root);
     const result = restoreDatabase({
       source: exported,
       databasePath: target,
-      remap: [{ from: `${root}/`, to: "/Volumes/New/work" }],
+      remap: [{ from: `${storedParent}/`, to: "/Volumes/New/work" }],
     });
     expect(result).toMatchObject({ schemaVersion: LATEST_SCHEMA_VERSION, projects: 2, sessions: 0 });
     expect(result.remapped.projects).toBe(2);
@@ -155,7 +157,12 @@ describe("moving the database to another computer", () => {
     const result = restoreDatabase({
       source: exported,
       databasePath: target,
-      remap: [{ from: join(root, "apiary"), to: "/Volumes/New/apiary" }],
+      remap: [
+        {
+          from: store.listProjects().find((project) => project.name === "Apiary")?.rootPath ?? "",
+          to: "/Volumes/New/apiary",
+        },
+      ],
     });
     expect(result.remapped.projects).toBe(1);
     expect(result.safetyBackup).toBeUndefined();
@@ -185,5 +192,24 @@ describe("moving the database to another computer", () => {
     expect(() => restoreDatabase({ source: join(root, "missing.sqlite"), databasePath: elsewhere })).toThrow(
       /does not exist/,
     );
+  });
+
+  it("matches Windows paths case-insensitively and switches separators for the new machine", () => {
+    const { root, store } = setup();
+    const exported = exportFrom(store, root);
+    const db = new DatabaseSync(exported);
+    db.prepare("UPDATE projects SET root_path = ?").run("C:\\Users\\Me\\Code\\apiary");
+    db.close();
+    const target = join(mkdtempSync(join(tmpdir(), "work-intelligence-restore-")), "work-intelligence.sqlite");
+    tempDirs.push(join(target, ".."));
+    const result = restoreDatabase({
+      source: exported,
+      databasePath: target,
+      remap: [{ from: "c:\\users\\me\\code", to: "/Users/me/code" }],
+    });
+    expect(result.remapped.projects).toBe(1);
+    const restored = new WorkIntelligenceStore(target);
+    stores.push(restored);
+    expect(restored.listProjects()[0]?.rootPath).toBe("/Users/me/code/apiary");
   });
 });

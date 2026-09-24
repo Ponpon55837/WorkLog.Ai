@@ -248,13 +248,24 @@ export function restoreDatabase(options: {
     for (const entry of options.remap ?? []) {
       const from = trimSeparator(entry.from);
       const to = trimSeparator(entry.to);
-      // Replace the prefix only on a whole path segment, so /a/app never matches /a/apple.
+      // Replace the prefix only on a whole path segment, so /a/app never matches /a/apple. Windows paths
+      // (drive letter) compare case-insensitively, as the file system does.
+      const windowsPath = /^[A-Za-z]:[\\/]/;
+      const fold = windowsPath.test(from) ? "lower" : "";
+      // Moving between Windows and macOS/Linux also switches the separators in the rest of the path.
+      const convert =
+        windowsPath.test(from) === windowsPath.test(to)
+          ? (value: string) => value
+          : windowsPath.test(to)
+            ? (value: string) => `replace(${value}, '/', '\\')`
+            : (value: string) => `replace(${value}, '\\', '/')`;
       const move = (table: string, column: string): number =>
         Number(
           db
             .prepare(
-              `UPDATE ${table} SET ${column} = ? || substr(${column}, length(?) + 1)
-               WHERE ${column} = ? OR substr(${column}, 1, length(?) + 1) IN (? || '/', ? || '\\')`,
+              `UPDATE ${table} SET ${column} = ? || ${convert(`substr(${column}, length(?) + 1)`)}
+               WHERE ${fold}(${column}) = ${fold}(?)
+                  OR ${fold}(substr(${column}, 1, length(?) + 1)) IN (${fold}(? || '/'), ${fold}(? || '\\'))`,
             )
             .run(to, from, from, from, from, from).changes,
         );
