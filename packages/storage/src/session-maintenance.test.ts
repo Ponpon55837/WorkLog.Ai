@@ -243,6 +243,36 @@ describe("linking Sessions", () => {
     expect(store.getSessionDetail(plan)?.links[0]).toMatchObject({ voided: true });
   });
 
+  it("sends a link whose Sessions land on different graph pages so the pages can be joined", () => {
+    const { store, finalize } = setup();
+    const keys = Array.from({ length: 8 }, (_, index) => finalize(`paged-${index}`));
+    const [first, last] = [keys[0]!, keys[keys.length - 1]!];
+    store.linkSessions({ sessionId: last, relatedSessionId: first, relation: "related", linked: true });
+
+    const pages: Array<{ nodes: Set<string>; links: string[] }> = [];
+    let cursor: string | undefined;
+    do {
+      const page = store.getGraph({ pageSize: 3, cursor });
+      if (page.outcome !== "graph") {
+        throw new Error("Expected a graph page");
+      }
+      pages.push({
+        nodes: new Set(page.nodes.map((node) => node.id)),
+        links: page.edges.filter((edge) => edge.kind === "session_link").map((edge) => edge.id),
+      });
+      cursor = page.nextCursor;
+    } while (cursor && pages.length < 20);
+
+    const linkId = `session_link:${last}:${first}`;
+    const withLink = pages.filter((page) => page.links.includes(linkId));
+    expect(withLink.length).toBeGreaterThan(0);
+    expect(withLink.every((page) => !(page.nodes.has(`session:${first}`) && page.nodes.has(`session:${last}`)))).toBe(
+      true,
+    );
+    const allNodes = new Set(pages.flatMap((page) => [...page.nodes]));
+    expect(allNodes.has(`session:${first}`) && allNodes.has(`session:${last}`)).toBe(true);
+  });
+
   it("replaces, removes, and rejects links", () => {
     const { store, projectId, finalize } = setup();
     const first = finalize("first");

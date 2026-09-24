@@ -102,10 +102,7 @@ function decodeGraphCursor(value: string | undefined, scope: string): DecodedGra
   }
 }
 
-/**
- * Links become edges only when both Sessions are materialized in the same response; a paged graph
- * can miss a link whose Sessions fall on different pages.
- */
+/** Turns Session links (already limited to Sessions in scope) into `session_link` edges. */
 function addSessionLinkEdges(
   links: ReadonlyArray<{ session_id: string; related_session_id: string }>,
   addEdge: (edge: GraphEdge) => void,
@@ -547,7 +544,19 @@ export class GraphBuilder {
         }
       }
 
-      addSessionLinkEdges(sessionLinks, addEdge);
+      // A link whose Sessions land on different pages is sent with either page: the other endpoint is a
+      // Session in scope that another page delivers, and the client joins the pages by node id.
+      addSessionLinkEdges(sessionLinks, (edge) => {
+        if (edgeIds.has(edge.id) || (!nodeIds.has(edge.from) && !nodeIds.has(edge.to))) {
+          return;
+        }
+        if (edges.length >= edgeLimit) {
+          edgesTruncated = true;
+          return;
+        }
+        edgeIds.add(edge.id);
+        edges.push(edge);
+      });
       const hasNext =
         phase === "projects"
           ? projectOffset < projects.length
