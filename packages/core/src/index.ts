@@ -262,6 +262,36 @@ export interface KnowledgeRecord {
   status: KnowledgeStatus;
   createdAt: string;
   updatedAt: string;
+  /** Paths or globs (relative to the project) this Knowledge is about; drives possiblyStale. */
+  appliesTo: string[];
+  /** When a Session last confirmed it still holds (finalize appliedKnowledgeIds or a manual confirm). */
+  lastConfirmedAt?: string;
+  lastConfirmedSessionId?: string;
+  /** The older Knowledge this one replaced; the older one is archived when this is recorded. */
+  supersedesId?: string;
+  /** Set when a Session reported contradicting it; cleared when it is confirmed again. */
+  review?: KnowledgeReview;
+  /**
+   * Computed on read, never stored: a later Session changed files matching appliesTo after the last
+   * confirmation (or creation), so the Knowledge may no longer hold.
+   */
+  possiblyStale?: KnowledgeStaleness;
+}
+
+export interface KnowledgeReview {
+  reason: "contradicted";
+  sessionId?: string;
+  at: string;
+}
+
+export interface KnowledgeStaleness {
+  /** The earliest later Session that touched a matching path. */
+  sessionId: string;
+  sessionTitle: string;
+  completedAt: string;
+  paths: string[];
+  /** How many later Sessions touched matching paths. */
+  sessionCount: number;
 }
 
 export const KNOWLEDGE_AUDIT_ACTIONS = ["created", "updated", "archived", "restored"] as const;
@@ -287,12 +317,17 @@ export interface RecordKnowledgeInput {
   sessionId?: string;
   tags?: string[];
   references?: string[];
+  appliesTo?: string[];
+  /** An older active Knowledge of the same project that this one replaces; it gets archived. */
+  supersedesId?: string;
 }
 
 export interface RecordedKnowledgeResult {
   outcome: "knowledge_recorded";
   duplicate: boolean;
   knowledge: KnowledgeRecord;
+  /** Problems that did not block recording, e.g. an unknown supersedesId. */
+  warnings?: string[];
 }
 
 export interface UpdateKnowledgeInput {
@@ -304,6 +339,9 @@ export interface UpdateKnowledgeInput {
   tags?: string[];
   references?: string[];
   status?: KnowledgeStatus;
+  appliesTo?: string[];
+  /** true records that the Knowledge was checked and still holds: sets lastConfirmedAt, clears review. */
+  confirm?: boolean;
 }
 
 export interface UpdatedKnowledgeResult {
@@ -881,6 +919,10 @@ export interface FinalizeSessionInput {
   /** An earlier Session this one continues (e.g. the planning Session it implements). */
   parentSessionId?: string;
   relatedSessionIds?: string[];
+  /** Knowledge this work relied on and found still valid; their confirmation time moves to this Session. */
+  appliedKnowledgeIds?: string[];
+  /** Knowledge this work found no longer true; they are flagged for review. */
+  contradictedKnowledgeIds?: string[];
 }
 
 export interface UpdateSessionVerificationInput {
@@ -905,6 +947,8 @@ export interface FinalizedSessionResult {
   workSummaryFollowUp?: WorkSummaryFollowUp;
   /** Requested links that were not created (unknown, non-tracked, or same Session). */
   linkWarnings?: string[];
+  /** applied/contradicted Knowledge ids that were not found in this project. */
+  knowledgeWarnings?: string[];
 }
 
 export interface FinalizeIdempotencyConflictResult {
@@ -1336,6 +1380,8 @@ export interface KnowledgeDigest {
   excerpt: string;
   tags: string[];
   updatedAt: string;
+  possiblyStale?: boolean;
+  needsReview?: boolean;
 }
 
 /** A confirmed decision from a Session's workSummary.decisions, with its source for citation. */
@@ -1395,6 +1441,9 @@ export interface RecallHit {
   /** Stored paths that matched the queried paths. */
   matchedPaths?: string[];
   score: number;
+  /** Knowledge only: a later Session changed its appliesTo paths, or a Session contradicted it. */
+  possiblyStale?: boolean;
+  needsReview?: boolean;
   /** Linked, non-voided Sessions (planning ↔ implementation), so one hit leads to the other. */
   related?: Array<{ id: string; title: string; relation: SessionLinkDirection }>;
 }

@@ -1,10 +1,12 @@
 import {
   Check,
+  CircleAlert,
   CircleCheck,
   CircleDashed,
   CircleMinus,
   CircleSlash,
   CircleX,
+  Clock3,
   FileQuestion,
   Folder,
   FolderGit2,
@@ -75,6 +77,12 @@ export const knowledgeKindVisual: Record<KnowledgeKind, StatusVisual> = {
   procedure: { tone: "success", icon: ListOrdered, label: "操作流程" },
   skill: { tone: "neutral", icon: GraduationCap, label: "技能" },
 };
+
+/** Trust markers: stale is rule-based (later Sessions changed appliesTo paths); review follows a reported contradiction. */
+export const knowledgeTrustVisual = {
+  possiblyStale: { tone: "attention", icon: Clock3, label: "可能過時" },
+  needsReview: { tone: "danger", icon: CircleAlert, label: "需要檢視" },
+} satisfies Record<string, StatusVisual>;
 
 export const executionStatusVisual: StatusVisual = { tone: "neutral", label: "completed" };
 

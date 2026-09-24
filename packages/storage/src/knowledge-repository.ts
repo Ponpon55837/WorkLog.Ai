@@ -27,6 +27,11 @@ type KnowledgeRepositoryRow = {
   status: KnowledgeStatus;
   created_at: string;
   updated_at: string;
+  applies_to_json?: string | null;
+  last_confirmed_at?: string | null;
+  last_confirmed_session_id?: string | null;
+  supersedes_id?: string | null;
+  review_json?: string | null;
 };
 
 type KnowledgeMapper = (row: KnowledgeRepositoryRow) => KnowledgeRecord;

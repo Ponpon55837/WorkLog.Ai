@@ -252,6 +252,39 @@ export function pathMatchStrength(stored: string, queried: string): number {
   return 0;
 }
 
+function globToRegExp(pattern: string): RegExp {
+  let source = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]!;
+    if (char === "*" && pattern[index + 1] === "*") {
+      source += ".*";
+      index += pattern[index + 2] === "/" ? 2 : 1;
+    } else if (char === "*") {
+      source += "[^/]*";
+    } else if (char === "?") {
+      source += "[^/]";
+    } else {
+      source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`^${source}$`);
+}
+
+/**
+ * Whether a normalized changed-file path falls under a normalized appliesTo entry: a glob
+ * (`*`, `**`, `?`) must match the whole path; a plain path matches itself, files under it as a
+ * directory, or a path-segment suffix.
+ */
+export function matchesAppliesTo(path: string, pattern: string): boolean {
+  if (!path || !pattern) {
+    return false;
+  }
+  if (/[*?]/.test(pattern)) {
+    return globToRegExp(pattern).test(path);
+  }
+  return pathMatchStrength(path, pattern) > 0;
+}
+
 export function pathBasename(path: string): string {
   const index = path.lastIndexOf("/");
   return index >= 0 ? path.slice(index + 1) : path;

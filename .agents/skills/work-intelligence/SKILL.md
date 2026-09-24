@@ -35,6 +35,8 @@ Write:
 - Git fields: optional separate metadata containing only observed values. Changed files do not prove a commit.
 - Events and evidence: record only supported facts and keep them separate from the five-section summary.
 
+If this work relied on recalled Knowledge, report it when finalizing: Knowledge that proved still valid as applied, and Knowledge that turned out to be wrong as contradicted (then tell the user which one and why, so it can be updated or archived). Do not report Knowledge you did not actually use.
+
 When this Session continues an earlier recorded one (for example it implements a planning Session, or finishes a follow-up), pass that Session as the parent link when finalizing so recall can lead from one to the other; use related links for other confirmed associations. Only link Sessions whose relationship is clear from the user or the records.
 
 Use a stable per-work idempotency key. A retry with the same key and same payload must not create another Session. If that key already exists with a different primary summary, treat it as an idempotency conflict and update the existing Session explicitly; never claim the duplicate response updated it.
@@ -69,6 +71,7 @@ In a tracked project, check recorded work proactively — not only when the user
 - **Before starting a task**: get the project context with the task description and the files you expect to change. Read the returned relevant Knowledge (gotchas, patterns, decisions), the decisions of related Sessions, and the open items of Sessions that changed the same files before planning.
 - **When an error or unexpected behavior appears**: recall with the key part of the error message (and the file involved) before debugging from scratch; the fix may already be recorded.
 - **When the user asks about past work**: recall with their words; words are matched independently, so natural-language and Chinese questions work. If some words matched nothing (the result lists per-word hit counts), rephrase with other terms instead of concluding nothing exists.
+- Knowledge marked possibly stale (its files changed after it was last confirmed) or needs review (a Session reported it wrong) must be checked against the current code before you rely on it.
 - A Session hit may list related Sessions (the plan it implements, or its follow-up); check them when the hit alone does not explain the decision.
 - Hits are compact. Open the full Session or Knowledge before relying on it, and cite the sessionId or knowledgeId you applied when you explain a decision or fix. If the record contradicts the current code, trust the code and say the record looks outdated.
 - Stay within the tracked project's scope when the question is about this project. Do not substitute an unrestricted repository scan for missing recorded context; if nothing relevant is recorded, say so briefly and continue.
@@ -77,6 +80,6 @@ In a tracked project, check recorded work proactively — not only when the user
 
 To find a specific Session (for example before correcting it), recall or list Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.
 
-Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; do not turn guesses or an entire Session transcript into Knowledge.
+Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; do not turn guesses or an entire Session transcript into Knowledge. When recording, set the paths it applies to when they are clear, and name the older Knowledge it replaces instead of leaving both active.
 
 When responding, summarize what was saved or corrected, report verification and remaining gaps accurately, and keep internal MCP mechanics out of the user-facing instructions.

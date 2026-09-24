@@ -65,6 +65,11 @@ const description = computed(
           ><UiTextarea v-model="knowledgeEditorForm.references" :rows="3" mono
         /></UiField>
       </div>
+      <UiField
+        label="適用路徑"
+        hint="每行一個專案內的路徑或 glob（例如 src/report/**）。之後有 Session 改到這些檔案時，會標示「可能過時」。"
+        ><UiTextarea v-model="knowledgeEditorForm.appliesTo" :rows="3" mono
+      /></UiField>
     </form>
     <template #footer>
       <UiButton :disabled="knowledgeEditorSaving" @click="closeKnowledgeEditor">取消</UiButton>

@@ -149,6 +149,17 @@ const MIGRATIONS: SchemaMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_session_links_related ON session_links(related_session_id);
     `,
   },
+  {
+    version: 5,
+    name: "knowledge-trust",
+    sql: `
+      ALTER TABLE knowledge ADD COLUMN applies_to_json TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE knowledge ADD COLUMN last_confirmed_at TEXT;
+      ALTER TABLE knowledge ADD COLUMN last_confirmed_session_id TEXT;
+      ALTER TABLE knowledge ADD COLUMN supersedes_id TEXT;
+      ALTER TABLE knowledge ADD COLUMN review_json TEXT;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

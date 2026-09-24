@@ -302,9 +302,16 @@ Knowledge 必須由 Agent 明確提交，不會因為 finalize、handoff 或 sou
 
 Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區塊，也會由 `work_get_context` 以 `recentKnowledge` 提供給後續 Agent。這一層只保存 Agent 明確確認的內容，不讓 LLM 取代 policy decision 或原始資料保存。
 
+### 可信度：`appliesTo`、確認與取代
+
+- `appliesTo`：這筆 Knowledge 針對的專案內路徑或 glob（`*`、`**`、`?`；一般路徑也涵蓋其下的檔案）。從最後確認時間（沒有就用建立時間）之後，同專案未作廢的 Session 改到符合的檔案時，讀取結果會帶 `possiblyStale`（第一筆改動的 Session、路徑與之後共幾筆）。這是規則判斷，不推測內容是否真的過時；建立它的 Session 與最後確認它的 Session 不算。
+- `supersedesId`：記錄新 Knowledge 時指定它取代的舊 Knowledge（同專案），舊的會自動封存並留下 audit；找不到時只在 `warnings` 提示，不影響保存。
+- finalize 的 `appliedKnowledgeIds`：這次工作用到且仍然有效的 Knowledge，最後確認時間移到這筆 Session，並清除「需要檢視」。`contradictedKnowledgeIds`：這次工作發現已不成立的 Knowledge，會帶 `review`（`contradicted`、Session、時間）。找不到的 id 列在 `knowledgeWarnings`。所有變更都寫入 Knowledge audit。
+- `work_get_context` 的 `recentKnowledge` 與 `work_recall` 的 Knowledge hit 會帶 `possiblyStale`／`needsReview` 旗標；使用前應先打開原文確認。
+
 ## `work_update_knowledge`
 
-維護既有的 explicit Knowledge。必須傳入該筆資料所屬 tracked project 的 `projectRoot`；policy gate 會在讀取 Knowledge 前先執行。可以更新 `title`、`body`、`kind`、`tags`、`references` 或 `status`，其中 `status: "archived"` 會將內容從預設 active 搜尋與 Graph 隱藏，`status: "active"` 可以恢復。每次建立、更新、封存或恢復都會保存不可變的前後狀態快照，供 audit history 追溯。這不是刪除操作，也不會讀取 source、handoff 或 Git。
+維護既有的 explicit Knowledge。必須傳入該筆資料所屬 tracked project 的 `projectRoot`；policy gate 會在讀取 Knowledge 前先執行。可以更新 `title`、`body`、`kind`、`tags`、`references`、`appliesTo` 或 `status`，`confirm: true` 表示檢查後仍然有效（更新最後確認時間、清除「需要檢視」，「可能過時」也會重新從這個時間計算），其中 `status: "archived"` 會將內容從預設 active 搜尋與 Graph 隱藏，`status: "active"` 可以恢復。每次建立、更新、封存或恢復都會保存不可變的前後狀態快照，供 audit history 追溯。這不是刪除操作，也不會讀取 source、handoff 或 Git。
 
 ```json
 {

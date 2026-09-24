@@ -4,7 +4,7 @@ import { BookOpen, Search, X } from "lucide-vue-next";
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
-import KnowledgeRow from "../components/domain/KnowledgeRow.vue";
+import KnowledgeRow, { type KnowledgeAction } from "../components/domain/KnowledgeRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
@@ -37,6 +37,8 @@ const {
   loadKnowledge,
   setKnowledgeStatus,
   openKnowledgeSession,
+  openKnowledgeStaleSession,
+  confirmKnowledge,
   openKnowledgeEditor,
   openKnowledgeHistory,
 } = useKnowledge();
@@ -93,8 +95,12 @@ function clearFilters(): void {
   knowledgeStatus.value = "active";
 }
 
-function onAction(action: "edit" | "history" | "toggle-status" | "source", item: KnowledgeRecord): void {
-  if (action === "edit") {
+function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
+  if (action === "confirm") {
+    void confirmKnowledge(item);
+  } else if (action === "stale-source") {
+    void openKnowledgeStaleSession(item);
+  } else if (action === "edit") {
     openKnowledgeEditor(item);
   } else if (action === "history") {
     void openKnowledgeHistory(item);
