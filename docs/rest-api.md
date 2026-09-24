@@ -1,6 +1,8 @@
 # REST API
 
-API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
+API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。`Host` 必須是 loopback（或 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），否則回 421；帶 `Origin` 的請求必須在 origin 白名單內，否則回 403。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
+
+日期參數（`from`、`to`、`date`）是 server 所在系統時區的日曆日期；報告回應的 `timezone` 會標出使用的 IANA 時區。
 
 > 回到 [README](../README.md)
 
@@ -10,11 +12,11 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
-| GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選 |
+| GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾） |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
-| PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要                                   |
-| PATCH    | `/api/sessions/:id/work-summary`                 | 以 replace／patch 更新既有 finalized Session 五段 workSummary                          |
+| PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要（Agent 與 Session 面板「編輯摘要」共用） |
+| PATCH    | `/api/sessions/:id/work-summary`                 | 以 replace／patch 更新既有 finalized Session 五段 workSummary（Session 面板只 patch 有改的段落） |
 | POST     | `/api/sessions/:id/evidence`                     | 保存 Agent 提供的 evidence reference                                                   |
 | GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge                                            |
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
@@ -22,7 +24,7 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
 | GET      | `/api/graph`                                     | 讀取 tracked-only deterministic work graph                                             |
 | GET      | `/api/context`                                   | Agent context query（含 `pendingRequests`：等待 Agent 的報告整理與 metadata 回補請求）     |
-| GET      | `/api/search?q=...`                              | Work history search                                                                    |
+| GET      | `/api/search?q=...`                              | Work history search（`%`、`_` 照字面比對，最多 50 筆）                                 |
 | GET      | `/api/backfill/metadata/preview?projectRoot=...` | 唯讀掃描 metadata 缺口                                                                 |
 | GET/POST | `/api/backfill/metadata-requests`                | 建立或查詢 Agent metadata 回補請求                                                     |
 | GET      | `/api/backfill/metadata-requests/:id/context`    | 取得受控 metadata 回補 context                                                         |
@@ -44,7 +46,7 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 
 - MCP：先呼叫 work_preview_metadata_backfill；可選 projectRoot 與 limit。
 - 專案 → Metadata 回補分頁按下「掃描 metadata 缺口」後，若找到缺口，WorkLog 會在中央 SQLite 建立一筆 pending metadata backfill request；不會猜測，也不會直接修改 Session。
-- UI 會顯示 Agent 狀態與「複製 Agent 指令」；使用者只需要在目前的 Codex 或 Claude 對話輸入：`請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。`
+- UI 會顯示 Agent 狀態與「複製 Agent 指令」；使用者只需要在目前的 Codex 或 Claude 對話輸入：`請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。` 也可以不掃描，直接請 Agent 補齊；沒有待處理請求時 Agent 會用 `work_request_metadata_backfill` 自己建立一筆。
 - MCP Agent 會自動找最新的 pending／processing request，取得 bounded context，依 project policy 檢查對應 tracked project 的 handoff、worktree 或 diff，再呼叫 work_apply_metadata_backfill。使用者不需要提供 requestId、JSON 或工具順序。
 - MCP：Agent 檢查對應的 handoff、worktree 或 diff 後，呼叫 work_apply_metadata_backfill，updates 內只放明確確認的 sessionId 與 metadata；帶入 requestId 時，所有缺口完成後 request 才會標為 completed，部分回補則保留為 processing 並回傳 remainingItems。
 - REST：GET /api/backfill/metadata/preview?projectRoot=tracked-project-root

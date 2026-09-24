@@ -85,7 +85,7 @@ Template rules:
 ## 4. Composables
 
 - Domain state is a **module-level singleton**: refs are declared at module scope, actions are plain module functions, and `useX()` returns them. Multiple components share one store.
-- One composable per domain (`useSessions`, `useReports`, `useKnowledge`, `useGraph`, `useProjects`, `useMetadataBackfill`, `useHandoffImport`, `useSessionDetail`, `useDashboard`).
+- One composable per domain (`useSessions`, `useReports`, `useKnowledge`, `useGraph`, `useProjects`, `useMetadataBackfill`, `useHandoffImport`, `useSessionDetail`, `useSessionEditor`, `useDashboard`).
 - All API calls go through `useApi().client` and are wrapped with `runKeyed(key, task, { onError, onSettled })` so a newer request aborts the older one. Use a unique, stable key per list.
 - User feedback: `useToast().showToast(message, tone)`; destructive or scope-widening actions: `await confirmAction({...})`. Never `window.confirm`/`alert`.
 - List pages wire three helpers, in this order: `useRouteQuery` (URL ⇄ filter refs) → `useListReload` (filter change → page 1, page change → reload, debounced search) → `useViewLoader` (load on mount and on global refresh).

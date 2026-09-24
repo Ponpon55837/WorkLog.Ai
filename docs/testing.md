@@ -5,7 +5,8 @@
 > 回到 [README](../README.md)
 
 ```powershell
-pnpm test       # source-only unit/integration tests across policy, schema, storage, server and MCP
+pnpm test       # lint + Prettier check (whole repo) + unit/integration tests across policy, schema, storage, server and MCP
+pnpm format     # Prettier --write for the whole repo (docs and agent skills are excluded)
 pnpm test:coverage # schema/storage coverage with enforced minimum thresholds
 pnpm typecheck  # packages + Vue template + E2E test/config types
 pnpm build      # all packages + server/mcp + Vite production bundle
@@ -16,7 +17,7 @@ pnpm test:e2e   # isolated Playwright browser regression suite
 
 `.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：
 
-- **Quality**（`ubuntu-latest` + `windows-latest`）：`pnpm install --frozen-lockfile` → `pnpm test`（含 lint、format check）→ `pnpm typecheck` → `pnpm test:coverage` → `pnpm build`。Windows 是主要開發平台，Linux 用來守住非 Windows 的路徑處理。
+- **Quality**（`ubuntu-latest` + `windows-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。Windows 是主要開發平台，Linux 用來守住非 Windows 的路徑處理。
 - **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 後執行 `pnpm test:e2e`；失敗時上傳 `test-results/` 供除錯。
 
 Coverage 門檻維持下方的模組局部門檻；尚未量測其他 workspace 的基線，所以沒有設定全域門檻。
@@ -30,7 +31,7 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; node packages/storage/bench/read-pat
 
 腳本會在暫存目錄建立合成 SQLite（2 個 tracked 專案、橫跨一年的 N 筆 Session），並列出列表、Dashboard、日／週／年報、context、search、metadata 預覽與 Graph 的中位數與最大耗時。建立 5,000 筆資料約需 20–60 秒；設定 `WI_BENCH_CACHE` 會保留建好的資料庫，方便比較修改前後。它不會讀寫 `data/` 下的使用中資料庫。
 
-`pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%，storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
+`pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%（新增 schema，包括 MCP 專用的 input schema，都要補測試才會過），storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
 
 `pnpm test:e2e` 會先建置 production packages，再以獨立的暫存 SQLite、API `3211` 與 Web `5967` 啟動測試服務，不會讀寫目前使用中的 `data/work-intelligence.sqlite` 或 `5966` 開發畫面。若這兩個 port 已被占用，可改用其他 port：
 
@@ -38,14 +39,14 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; node packages/storage/bench/read-pat
 $env:WORK_INTELLIGENCE_E2E_WEB_PORT = "5987"; $env:WORK_INTELLIGENCE_E2E_API_PORT = "3231"; npx playwright test
 ```
 
-E2E 涵蓋：AI 報告整理卡（來源 Session、歷史版本、重新整理）、工作歷程／知識的每頁筆數與 virtual list、Graph 篩選、節點搜尋（`?q=`、Enter 選取第一筆、無結果狀態）與節點面板、390px 寬度的 Session 面板、640／390px 各頁無水平捲動、直接路由與 `/worklog` 轉址、`?session=` 深連結、側邊面板拖曳調整寬度並記住、切換為記錄中前的同意對話框、Ctrl／⌘ K 指令面板。
+E2E 涵蓋：AI 報告整理卡（來源 Session、歷史版本、重新整理）、工作歷程／知識的每頁筆數與 virtual list、Graph 篩選、節點搜尋（`?q=`、Enter 選取第一筆、無結果狀態）與節點面板、390px 寬度的 Session 面板、640／390px 各頁無水平捲動、直接路由與 `/worklog` 轉址、`?session=` 深連結、側邊面板拖曳調整寬度並記住、切換為記錄中前的同意對話框、Ctrl／⌘ K 指令面板、Session 面板「編輯摘要」（改主摘要與一段 workSummary，未改的段落保留）。報告日期以測試機器的系統時區計算，與 server 一致。
 
 設定 `UI_SCREENSHOTS=<label>` 會額外把六頁 × 1440／960／375 的截圖寫到 `docs/ui-baseline/<label>/`（已被 `.gitignore` 排除），方便改版前後比對。
 
 Unit／integration 測試涵蓋：
 
 - unknown/unregistered、paused、ignored 不會建立 session
-- tracked 才能讀 source 與 handoff snapshot
+- tracked 才能讀 handoff snapshot 與 Git metadata
 - raw handoff、events、changed files、verification 會保存；缺少結構化欄位時會要求 Agent follow-up
 - 同一 `idempotencyKey` finalize 不重複寫入
 - 兩個 SQLite store connection 同時使用相同 finalize key 仍只保存一筆 Session
@@ -68,3 +69,7 @@ Unit／integration 測試涵蓋：
 - Agent report synthesis request 的逾時回收、舊 Agent 寫入隔離、失敗請求 retry 與 UI 恢復流程
 - Reports 的 Evidence 類型／關鍵字篩選只更新證據區塊，不重新渲染整份報告；原始工作紀錄與來源證據提供 10／20／50／100／All 的局部分頁控制
 - project root 之外的 source path 會被拒絕
+- 日期邊界依系統時區：storage 測試固定以 `TZ=UTC` 執行（`packages/storage/vitest.config.ts`），另有 `Asia/Taipei` 案例驗證篩選、日報與週趨勢的分桶
+- Session 列表與 `search` 把 `%`、`_` 當字面字元（Knowledge 搜尋共用同一個跳脫函式）
+- REST 拒絕非 loopback 的 `Host`（421）與不在白名單的 `Origin`（403）
+- MCP server 以 in-memory transport 端對端測試：工具清單、annotations、instructions 長度、contract 只掛在寫入工具、prompts、`work_get_project_status`、`work_list_sessions`／`work_get_session` 與 paused 專案 skip、Agent 建立報告／metadata 請求並出現在 context 的 `pendingRequests`

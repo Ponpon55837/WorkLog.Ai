@@ -18,7 +18,7 @@ For the canonical field definitions, reporting granularity, and examples, read [
 
 ## Finalize a completed work session
 
-Keep the existing planning → execution → verification → closing-handoff workflow unchanged. After closing is complete, finalize the Session; finalization is a work-lifecycle event, not a Git commit. A commit is optional and must never be required or inferred.
+Keep the existing planning → execution → verification → closing-handoff workflow unchanged. Confirm the workspace is tracked before preparing anything; if it is not, tell the user in one sentence that no record was made. After closing is complete, finalize the Session; finalization is a work-lifecycle event, not a Git commit. A commit is optional and must never be required or inferred.
 
 Before finalizing, inspect only the tracked project's relevant worktree/diff to identify this task's intentional file changes. Do not claim files based on a title, summary, or commit alone; do not absorb unrelated pre-existing dirty changes. Use an empty `changedFiles` list only when no files were intentionally changed.
 
@@ -40,6 +40,8 @@ Use a stable per-work idempotency key. A retry with the same key and same payloa
 ## Repair an existing Session in place
 
 Never create a replacement Session just to fix its text or metadata.
+
+- Read the current Session in full before correcting it. The user can also edit `summary` and `workSummary` in the Web UI, so base the correction on the stored text, not on what was finalized earlier, and do not overwrite the user's edits unless asked.
 
 - For the primary `summary`, update the existing `sessionId`. `replace` replaces the full sentence/text; `append` adds a clearly separated follow-up. Give this update its own idempotency key. Repeating the same operation must not append twice.
 - For `workSummary`, use `patch` when changing only confirmed sections and preserve every omitted section. Use `replace` only when supplying all five arrays. An explicit `[]` clears that section. Use a distinct idempotency key for this operation.

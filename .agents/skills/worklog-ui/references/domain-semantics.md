@@ -34,6 +34,7 @@ The Work Intelligence data contract is defined in [`docs/work-record-and-report-
 | `資料不足` is a legitimate statement; truncated context must not imply full coverage | Render `資料不足` in attention-muted text, not as an error. When truncation info is available, show a Flash "此版本整理時來源資料已截斷" |
 | Prior report versions are preserved | Version menu lists all versions; deleting a version is an explicit user action behind `useConfirm()` |
 | Synthesis request states: pending / processing / completed / failed (timeout or interrupted) / cancelled | Use the request status mapping; failed shows 重試, processing shows no retry |
+| Report ranges are calendar dates in the server's local time zone (`WorkReport.timezone`) | The report header shows the range followed by the zone name, e.g. `2026-09-21 – 2026-09-27（Asia/Taipei）`; never hard-code UTC or convert the range in the browser |
 
 ## Projects and policy
 

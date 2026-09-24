@@ -9,11 +9,11 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node 24 內建 `node:sqlite` SQLite 儲存，避免額外 native binding
-- MCP stdio server：`work_finalize_session`、`work_update_session_metadata`、`work_update_session_summary`、`work_update_session_work_summary`、`work_attach_evidence`、`work_record_knowledge`、`work_search_knowledge`、`work_update_knowledge`、`work_get_knowledge_history`、`work_get_graph`、`work_preview_metadata_backfill`、`work_list_metadata_backfill_requests`、`work_get_metadata_backfill_context`、`work_cancel_metadata_backfill`、`work_apply_metadata_backfill`、`work_preview_handoff_import`、`work_import_handoffs`、`work_get_context`、`work_search`、`work_get_report`、`work_export_report`、`work_list_report_synthesis_requests`、`work_cancel_report_synthesis`、`work_retry_report_synthesis`、`work_get_report_context`、`work_save_report_summary`
-- Reports：日報／週報／月報／季報／年報，包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
+- MCP stdio server：31 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
+- Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
 - 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization
-- 工作歷程可依關鍵字、專案與完成日期區間篩選
+- 工作歷程可依關鍵字、專案與完成日期區間（系統時區）篩選；Session 面板可就地編輯主摘要與五段 workSummary
 - 工作歷程、Knowledge 與報告來源證據支援 10／20／50／100／All；All 仍由 server cap（Session／證據 100、Knowledge 200），回應會以 `pageInfo.truncated` 明確標示並保留分頁導覽，前端清單則以 `VirtualList` 限制 DOM 渲染量
 - 歷史 handoff 可先 preview/dry-run，再由使用者明確選取套用；pending、blocked、planning-only 不會自動匯入
 - 中央 project registry：不往任何專案 repo 寫設定檔
@@ -68,6 +68,12 @@ REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Eviden
 
 Processing 中的 report synthesis 與 metadata backfill 請求超過 30 分鐘會標記為 `failed`，保留原始資料並允許後續 Agent／UI 重新處理。更新 Session metadata、verification 與 summary 時，Session 與 Project timestamp 會一起原子更新。
 
+REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`，以及 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），其他一律回 421，避免 DNS rebinding 的網頁在同源情況下讀取資料；帶 `Origin` 的請求還必須在 origin 白名單內。
+
+日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。搜尋關鍵字中的 `%`、`_`、`\` 照字面比對。
+
+主摘要與五段 workSummary 可以由 Agent（MCP）或 Web UI（Session 面板「編輯摘要」）就地更新，兩者都走同一組具 idempotency 與 audit row 的更新流程；changed files、verification、events、evidence 在 UI 維持唯讀。
+
 REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdio payload 都限制為 1.5 MB；單次 finalize 或 metadata update 的 changed-files、provenance 與 lifecycle change 陣列最多 200 筆。所有即將讀取的既有 source、handoff 或 Git path 都會在 policy gate 後再次解析 real path，避免透過 symlink 逃離 tracked project root；metadata 中的 deleted／尚未建立路徑仍只做 lexical normalization，不會被當成檔案讀取。
 
 ## Project Recording Policy
@@ -77,6 +83,7 @@ REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdi
 3. `paused`、`ignored`、`unregistered` 都會安靜回傳 `outcome: "skipped"`，不讀 handoff、Git、source，也不建立 session/events。
 4. `tracked` 專案的 handoff path 會限制在 project root 內；越界 path 不會被讀取。同步 storage 流程使用既有 `createProjectPathResolver`；非同步檔案流程可使用 `createAsyncProjectPathResolver` 的保序批次 API，所有結果仍採相同 lexical／realpath boundary。
 5. registry 位於中央 SQLite；side project 不會因 MCP 連線而自動被記錄。
+6. Agent 可以用 `work_get_project_status` 唯讀查詢記錄狀態，但沒有任何 MCP 工具能變更它；切換為 `tracked` 只能由使用者在 Web UI 確認。
 
 任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_get_context`、project-scoped `work_search`、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
 
