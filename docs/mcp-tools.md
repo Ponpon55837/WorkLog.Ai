@@ -22,6 +22,7 @@
 | Context | `work_search` | 與 `work_recall` 同一個引擎，只查 Session |
 | Knowledge | `work_record_knowledge`<br>`work_search_knowledge` | 明確提交與搜尋 Knowledge |
 | Knowledge | `work_update_knowledge` | 編輯、封存或恢復 Knowledge |
+| Knowledge | `work_request_knowledge_candidates`<br>`work_get_knowledge_candidate_context`<br>`work_submit_knowledge_candidates` | Agent 從已記錄的 Session 提出 Knowledge 候選；使用者在工作知識頁接受後才寫入 |
 | Knowledge | `work_get_knowledge_history` | 查詢 Knowledge 的不可變變更紀錄 |
 | Graph | `work_get_graph` | 讀取 deterministic 工作圖譜 |
 | Report | `work_get_report`<br>`work_export_report` | deterministic 報告與 Markdown／JSON 匯出 |
@@ -314,6 +315,16 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 - `supersedesId`：記錄新 Knowledge 時指定它取代的舊 Knowledge（同專案），舊的會自動封存並留下 audit；找不到時只在 `warnings` 提示，不影響保存。
 - finalize 的 `appliedKnowledgeIds`：這次工作用到且仍然有效的 Knowledge，最後確認時間移到這筆 Session，並清除「需要檢視」。`contradictedKnowledgeIds`：這次工作發現已不成立的 Knowledge，會帶 `review`（`contradicted`、Session、時間）。找不到的 id 列在 `knowledgeWarnings`。所有變更都寫入 Knowledge audit。
 - `work_get_context` 的 `recentKnowledge` 與 `work_recall` 的 Knowledge hit 會帶 `possiblyStale`／`needsReview` 旗標；使用前應先打開原文確認。
+
+## Knowledge 候選：`work_request_knowledge_candidates` / `work_get_knowledge_candidate_context` / `work_submit_knowledge_candidates`
+
+讓 Agent 從已記錄的 Session（含 raw handoff）整理出值得重用的 Knowledge，但**候選不是 Knowledge**：只有使用者在「工作知識」頁接受（可先修改）後才會以 `work_record_knowledge` 相同的流程寫入，維持 Knowledge 必須明確提交的原則。MCP 沒有接受候選的工具。
+
+1. `work_request_knowledge_candidates`（`projectRoot`）：以這個專案還沒被任何請求涵蓋、未作廢的 Session（新到舊，最多 10 筆）建立請求；已有未完成的請求時直接回傳它；都整理過時回傳 `knowledge_candidates_not_needed`。工作知識頁的「整理候選」建立的是同一種請求。
+2. `work_get_knowledge_candidate_context`（`projectRoot` 或 `requestId`）：把請求標為 processing，回傳來源 Session 的摘要、五段 workSummary 與 raw handoff（全部共 40,000 字內，逐筆截斷並標示 `handoffTruncated`），以及專案現有 active Knowledge 的標題，避免重複。超過 30 分鐘沒回寫的請求會標為 failed，可以再取一次 context 重新處理。
+3. `work_submit_knowledge_candidates`（`requestId`、`candidates`）：每筆候選包含 `sourceSessionId`（必須是這個請求的來源）、`kind`、`title`、`body`、`rationale`（引用或指出來源 Session 中支持它的部分），選填 `tags`、`references`、`appliesTo`。沒有值得提出的內容時送空陣列也是正確結果。送出後請求完成，候選出現在工作知識頁等待審核。
+
+`work_get_context` 的 `pendingRequests.knowledgeCandidates` 會列出 pending／processing 的候選請求。
 
 ## `work_update_knowledge`
 

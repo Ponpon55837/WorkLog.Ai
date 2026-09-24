@@ -51,9 +51,7 @@
 - 以本機真實 DB 快照重跑上面 36 題評估，確認實作後的 hit@5／MRR 與 S5 預期一致；評估題與腳本仍只留在本機。
 - `work_search_knowledge` 與 Web 的 Session 列表／Knowledge 搜尋仍是整句 LIKE（UI 需要分頁與時間排序）；Agent 改用 `work_recall`，UI 是否改用排序檢索另外評估。
 
-**第二階段：可信度與回饋**（Session 作廢、Session 關聯、Knowledge 可信度、Session 開始／更新時間已完成，見下方「最近完成」；以下為剩餘項目）
-
-- 以 Agent 請求流程（比照 metadata backfill）從 raw snapshot 整理 Knowledge 候選，經確認後才寫入，維持 Knowledge 必須明確提交的原則。
+**第二階段：可信度與回饋**：已全部完成（Session 作廢、Session 關聯、Knowledge 可信度、Session 開始／更新時間、Knowledge 候選），見下方「最近完成」。
 
 ## 未結項
 
@@ -69,6 +67,7 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **Knowledge 候選**（Agent 檢索第二階段）：migration 7 新增 `knowledge_candidate_requests`、`knowledge_candidates`。Agent 以 `work_request_knowledge_candidates` → `work_get_knowledge_candidate_context` → `work_submit_knowledge_candidates` 從專案尚未整理過的 Session（含 raw handoff，40,000 字內）提出候選，每筆附來源 Session 與依據；候選只有在工作知識頁由使用者接受（可先修改）後才寫成 Knowledge，MCP 沒有接受工具。`work_get_context` 的 `pendingRequests` 新增 `knowledgeCandidates`；請求超過 30 分鐘未完成會標為可重新處理。Web：工作知識頁新增「Knowledge 候選」區塊（整理候選、接受、修改後接受、拒絕、查看來源 Session）。
 - **Session 開始時間與最後更新時間**（使用者提出）：migration 6 為 Session 加上 `started_at`、`updated_at`。finalize 可回報 `startedAt`（沒回報時取早於完成時間的最早 event，都沒有就留空，不推測），`work_update_session_metadata` 可補上已確認的開始時間；摘要、workSummary、verification、metadata、作廢、Evidence、關聯等修改都會更新 `updatedAt`，既有資料以修改紀錄回填。Session 詳情顯示開始時間與耗時、完成時間、最後更新，工作歷程列表在完成後有修改時顯示「更新於」。報告與日期篩選仍以完成時間分組。
 - **Knowledge 可信度**（Agent 檢索第二階段）：migration 5 為 Knowledge 加上 `appliesTo`、`lastConfirmedAt`／`lastConfirmedSessionId`、`supersedesId`、`review`。之後有 Session 改到 `appliesTo` 的檔案時，讀取結果帶 `possiblyStale`（規則判斷）；finalize 可回報 `appliedKnowledgeIds`（確認有效）與 `contradictedKnowledgeIds`（標示需要檢視）；記錄新 Knowledge 時可用 `supersedesId` 自動封存被取代的舊 Knowledge。context 與 `work_recall` 帶 `possiblyStale`／`needsReview` 旗標。Web：工作知識頁顯示「可能過時」「需要檢視」與原因、確認有效時間與適用路徑，選單新增「確認仍有效」「查看改動檔案的 Session」，編輯對話框可設定適用路徑。
 - **Session 關聯**（Agent 檢索第二階段）：migration 4 新增 `session_links`（`continues`：接續另一筆的工作，`related`：一般關聯；同一對 Session 只有一個關聯）。finalize 可帶 `parentSessionId`／`relatedSessionIds`（無法建立的列在 `linkWarnings`），MCP 新增 `work_link_sessions`，REST 新增 `POST /api/sessions/:id/links`、`DELETE /api/sessions/:id/links/:relatedId`。Session 詳情回傳 `links`，`work_recall` 的 Session hit 附 `related`（不含已作廢），圖譜新增 `session_link` 連線。Web：Session 面板「關聯 Session」區塊可搜尋並建立關聯、點標題跳到另一筆、移除（確認框）。

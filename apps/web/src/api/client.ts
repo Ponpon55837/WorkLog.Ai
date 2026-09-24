@@ -13,6 +13,10 @@ import type {
   KnowledgeHistoryResult,
   KnowledgeQuery,
   KnowledgeSearchResult,
+  DecideKnowledgeCandidateInput,
+  DecideKnowledgeCandidateResult,
+  KnowledgeCandidateListResult,
+  RequestKnowledgeCandidatesResult,
   LinkSessionsResult,
   SessionLinkRelation,
   MetadataBackfillPreviewResult,
@@ -137,6 +141,37 @@ export class ApiClient {
       `/api/sessions/${encodeURIComponent(sessionId)}/verification`,
       "PATCH",
       verification,
+      signal,
+    );
+  }
+
+  public listKnowledgeCandidates(projectRoot?: string, signal?: AbortSignal): Promise<KnowledgeCandidateListResult> {
+    return this.request<KnowledgeCandidateListResult>(appendQuery("/api/knowledge/candidates", { projectRoot }), {
+      signal,
+    });
+  }
+
+  public requestKnowledgeCandidates(
+    projectRoot: string,
+    signal?: AbortSignal,
+  ): Promise<RequestKnowledgeCandidatesResult> {
+    return this.write<RequestKnowledgeCandidatesResult>(
+      "/api/knowledge/candidate-requests",
+      "POST",
+      { projectRoot },
+      signal,
+    );
+  }
+
+  public decideKnowledgeCandidate(
+    input: DecideKnowledgeCandidateInput,
+    signal?: AbortSignal,
+  ): Promise<DecideKnowledgeCandidateResult> {
+    const { candidateId, ...body } = input;
+    return this.write<DecideKnowledgeCandidateResult>(
+      `/api/knowledge/candidates/${encodeURIComponent(candidateId)}/decision`,
+      "POST",
+      body,
       signal,
     );
   }

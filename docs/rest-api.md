@@ -23,6 +23,9 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | DELETE   | `/api/sessions/:id/links/:relatedId`             | 移除兩筆 Session 之間的關聯                                                           |
 | PATCH    | `/api/sessions/:id/void`                         | 作廢（`voided: true` 與必填 `reason`）或還原（`voided: false`）Session，保留作廢紀錄 |
 | PATCH    | `/api/evidence/:id/void`                         | 標示 Evidence 為錯誤或還原，保留作廢紀錄                                              |
+| GET      | `/api/knowledge/candidates`                      | 待審核（`status=proposed`，預設）或已處理的 Knowledge 候選與未完成的整理請求；可用 `projectRoot` 篩選 |
+| POST     | `/api/knowledge/candidate-requests`              | 建立（或回傳既有的）Knowledge 候選整理請求（`projectRoot`），由 Agent 處理                |
+| POST     | `/api/knowledge/candidates/:id/decision`         | 接受（`decision: "accept"`，可帶 `edits`）或拒絕候選；接受時才寫成 Knowledge             |
 | GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge                                            |
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
 | PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge                                           |

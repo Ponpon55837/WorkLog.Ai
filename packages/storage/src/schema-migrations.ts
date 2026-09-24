@@ -184,6 +184,44 @@ const MIGRATIONS: SchemaMigration[] = [
       );
     `,
   },
+  {
+    version: 7,
+    name: "knowledge-candidates",
+    sql: `
+      CREATE TABLE IF NOT EXISTS knowledge_candidate_requests (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+        requested_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        failure_reason TEXT,
+        source_session_ids_json TEXT NOT NULL DEFAULT '[]',
+        candidate_count INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_candidate_requests_project
+        ON knowledge_candidate_requests(project_id, status, requested_at DESC);
+      CREATE TABLE IF NOT EXISTS knowledge_candidates (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL REFERENCES knowledge_candidate_requests(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('decision', 'pattern', 'gotcha', 'procedure', 'skill')),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        references_json TEXT NOT NULL DEFAULT '[]',
+        applies_to_json TEXT NOT NULL DEFAULT '[]',
+        rationale TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected')),
+        knowledge_id TEXT REFERENCES knowledge(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        decided_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_candidates_project_status
+        ON knowledge_candidates(project_id, status, created_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

@@ -36,6 +36,10 @@ import {
   setSessionVoidInputSchema,
   setSessionVoidInputSchemaBase,
   linkSessionsInputSchema,
+  knowledgeCandidateContextQuerySchema,
+  knowledgeCandidateContextQuerySchemaBase,
+  requestKnowledgeCandidatesInputSchema,
+  submitKnowledgeCandidatesInputSchema,
   updateKnowledgeInputSchema,
   updateKnowledgeInputSchemaBase,
   updateSessionMetadataInputSchema,
@@ -47,6 +51,7 @@ import type { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { z } from "zod";
 import {
   implementationDetail,
+  knowledgeCandidateContract,
   metadataBackfillContract,
   reportSynthesisContract,
   serverInstructions,
@@ -303,6 +308,42 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
     annotations: READ_ONLY,
     invalidMessage: "Invalid knowledge query.",
     run: (input) => store.searchKnowledge(input),
+  });
+
+  registerStoreTool("work_request_knowledge_candidates", {
+    title: "Request Knowledge candidates",
+    description:
+      "Open a request to propose Knowledge from a tracked project's recorded Sessions that no earlier request covered (up to 10, newest first), or return the project's open request. Returns knowledge_candidates_not_needed when every Session was already reviewed. " +
+      implementationDetail,
+    inputShape: requestKnowledgeCandidatesInputSchema.shape,
+    schema: requestKnowledgeCandidatesInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid knowledge candidate request.",
+    run: (input) => store.requestKnowledgeCandidates(input.projectRoot),
+  });
+
+  registerStoreTool("work_get_knowledge_candidate_context", {
+    title: "Get Knowledge candidate context",
+    description:
+      "Start processing a Knowledge candidate request (the newest open one of projectRoot, or requestId) and return its source Sessions — summary, five-section workSummary, and raw handoff text within a 40,000-character budget — plus the project's active Knowledge titles to avoid duplicates. Failed or interrupted requests can be processed again. " +
+      implementationDetail,
+    inputShape: knowledgeCandidateContextQuerySchemaBase.shape,
+    schema: knowledgeCandidateContextQuerySchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid knowledge candidate context query.",
+    run: (input) => store.getKnowledgeCandidateContext(input),
+  });
+
+  registerStoreTool("work_submit_knowledge_candidates", {
+    title: "Submit Knowledge candidates",
+    description:
+      "Submit proposed Knowledge for a request and complete it. Candidates are stored for the user to accept or reject on the Knowledge page; they are not Knowledge yet. " +
+      knowledgeCandidateContract,
+    inputShape: submitKnowledgeCandidatesInputSchema.shape,
+    schema: submitKnowledgeCandidatesInputSchema,
+    annotations: ADDITIVE,
+    invalidMessage: "Invalid knowledge candidates payload.",
+    run: (input) => store.submitKnowledgeCandidates(input),
   });
 
   registerStoreTool("work_update_knowledge", {

@@ -13,6 +13,9 @@ import {
   metadataBackfillApplyInputSchema,
   projectStatusQuerySchema,
   contextQuerySchema,
+  decideKnowledgeCandidateInputSchema,
+  knowledgeCandidateContextQuerySchema,
+  submitKnowledgeCandidatesInputSchema,
   recallQuerySchema,
   setEvidenceVoidInputSchema,
   setSessionVoidInputSchema,
@@ -289,5 +292,19 @@ describe("MCP-only input schemas", () => {
     expect(setEvidenceVoidInputSchema.safeParse({ evidenceId: "e1", voided: false }).success).toBe(true);
     expect(sessionsQuerySchema.parse({}).voided).toBe("exclude");
     expect(sessionsQuerySchema.safeParse({ voided: "all" }).success).toBe(false);
+  });
+
+  it("validates Knowledge candidate requests, submissions, and decisions", () => {
+    expect(knowledgeCandidateContextQuerySchema.safeParse({}).success).toBe(false);
+    expect(knowledgeCandidateContextQuerySchema.safeParse({ projectRoot: "/tmp/p" }).success).toBe(true);
+    const candidate = { sourceSessionId: "s1", kind: "gotcha", title: "T", body: "B", rationale: "R" };
+    expect(submitKnowledgeCandidatesInputSchema.safeParse({ requestId: "r1", candidates: [candidate] }).success).toBe(
+      true,
+    );
+    expect(
+      submitKnowledgeCandidatesInputSchema.safeParse({ requestId: "r1", candidates: [{ ...candidate, rationale: "" }] })
+        .success,
+    ).toBe(false);
+    expect(decideKnowledgeCandidateInputSchema.safeParse({ candidateId: "c1", decision: "maybe" }).success).toBe(false);
   });
 });
