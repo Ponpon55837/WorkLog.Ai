@@ -127,10 +127,28 @@ describe("schema input boundaries", () => {
     expect(finalizeSessionInputSchema.safeParse(validFinalizeInput).success).toBe(true);
   });
 
+  it("accepts an optional changed-file baseline when finalizing", () => {
+    expect(
+      finalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        baselineChangedFiles: ["src/pre-existing.ts"],
+      }).success,
+    ).toBe(true);
+  });
+
   it("rejects more than 200 changed files in finalize", () => {
     const result = finalizeSessionInputSchema.safeParse({
       ...validFinalizeInput,
       changedFiles: Array.from({ length: 201 }, (_, index) => `src/file-${index}.ts`),
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects more than 200 baseline changed files in finalize", () => {
+    const result = finalizeSessionInputSchema.safeParse({
+      ...validFinalizeInput,
+      baselineChangedFiles: Array.from({ length: 201 }, (_, index) => `src/file-${index}.ts`),
     });
 
     expect(result.success).toBe(false);

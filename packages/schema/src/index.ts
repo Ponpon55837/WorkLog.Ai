@@ -109,6 +109,11 @@ export const finalizeSessionInputSchema = z.object({
   handoffContent: z.string().max(200_000).optional(),
   events: z.array(eventSchema).max(100).optional(),
   changedFiles: z.array(z.string().max(1_000)).max(200),
+  baselineChangedFiles: z
+    .array(z.string().max(1_000))
+    .max(200)
+    .optional()
+    .describe("Paths already changed before this work started; they are excluded from this Session's changed files."),
   changedFilesProvenance: z.array(changedFileProvenanceSchema).max(200).optional(),
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
   verification: verificationSchema,

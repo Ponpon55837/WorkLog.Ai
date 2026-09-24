@@ -1002,6 +1002,54 @@ describe("WorkIntelligenceStore", () => {
     expect(store.listSessions()).toHaveLength(1);
   });
 
+  it("excludes paths changed before work began, including provenance and lifecycle changes", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Changed-file baseline project", root);
+    store.updateProject(project.id, { status: "tracked" });
+
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "changed-file-baseline-001",
+      title: "排除開工前已變更的路徑",
+      summary: "本次 Session 只保留開始工作後的檔案變更。",
+      baselineChangedFiles: ["src/pre-existing.ts", join(root, "src", "renamed-before.ts")],
+      changedFiles: ["src/pre-existing.ts", "src/modified.ts", "src/new-name.ts", "src/from-new.ts"],
+      changedFilesProvenance: [
+        { path: "src/pre-existing.ts", sources: ["worktree"], references: ["工作開始前的 git status"] },
+        { path: "src/modified.ts", sources: ["git"], references: ["git diff"] },
+      ],
+      changedFileChanges: [
+        { path: "src/pre-existing.ts", status: "modified" },
+        { path: "src/modified.ts", status: "modified" },
+        { path: "src/new-name.ts", previousPath: "src/renamed-before.ts", status: "renamed" },
+        { path: "src/from-new.ts", previousPath: "src/fresh-old.ts", status: "renamed" },
+      ],
+      verification: { status: "passed" },
+    });
+
+    expect(finalized).toMatchObject({ outcome: "finalized" });
+    if (finalized.outcome !== "finalized") {
+      throw new Error("Expected a finalized baseline session");
+    }
+    expect(finalized.session.changedFiles).toEqual([
+      "src/modified.ts",
+      "src/new-name.ts",
+      "src/from-new.ts",
+      "src/fresh-old.ts",
+    ]);
+    expect(finalized.session.changedFilesProvenance).toEqual([
+      { path: "src/modified.ts", sources: ["git"], references: ["git diff"] },
+      { path: "src/new-name.ts", sources: ["agent"] },
+      { path: "src/from-new.ts", sources: ["agent"] },
+      { path: "src/fresh-old.ts", sources: ["agent"] },
+    ]);
+    expect(finalized.session.changedFileChanges).toEqual([
+      { path: "src/modified.ts", status: "modified" },
+      { path: "src/new-name.ts", status: "added" },
+      { path: "src/from-new.ts", previousPath: "src/fresh-old.ts", status: "renamed" },
+    ]);
+  });
+
   it("previews metadata gaps and applies only explicit batch updates", () => {
     const { store, root } = createStore();
     const project = store.addProject("Backfill queue project", root);
