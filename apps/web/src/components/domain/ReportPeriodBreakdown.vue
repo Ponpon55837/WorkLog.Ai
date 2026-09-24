@@ -119,6 +119,11 @@ function barWidth(value: number, max: number): string {
   gap: var(--space-4);
 }
 
+/* UiBox stacks consecutive boxes with a top margin; side by side in this grid they must stay aligned. */
+.report-breakdown > .ui-box + .ui-box {
+  margin-top: 0;
+}
+
 .report-breakdown__muted {
   color: var(--fg-muted);
   font-size: var(--text-xs);
