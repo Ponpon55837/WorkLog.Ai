@@ -118,6 +118,7 @@ function versionMeta(version: ReportSummary): string {
         <StatusLabel v-if="request" :status="requestStatus[request.status]" />
       </UiBoxTitle>
       <UiIconButton
+        v-if="report?.period !== 'custom'"
         :icon="RefreshCw"
         label="重新整理整理狀態"
         size="sm"
@@ -126,7 +127,11 @@ function versionMeta(version: ReportSummary): string {
       />
     </template>
 
-    <div class="synthesis">
+    <p v-if="report?.period === 'custom'" class="synthesis synthesis__pending">
+      自訂期間的報告暫不支援 AI 整理；下方的數字與分布都來自確定性的報告資料。需要 AI
+      整理時，請改用日／週／月／季／年報告。
+    </p>
+    <div v-else class="synthesis">
       <UiFlash v-if="reportSynthesisError" tone="danger">{{ reportSynthesisError }}</UiFlash>
       <UiSkeleton v-if="reportSynthesisLoading && !summary && !request" variant="text" :count="3" />
 

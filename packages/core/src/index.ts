@@ -527,6 +527,10 @@ export interface DashboardSummary {
 export const REPORT_PERIODS = ["day", "week", "month", "quarter", "year"] as const;
 
 export type ReportPeriod = (typeof REPORT_PERIODS)[number];
+/** A report covers a calendar period, or "custom" for an explicit from/to range (e.g. a sprint). */
+export type WorkReportPeriod = ReportPeriod | "custom";
+/** Longest custom report range, in days, inclusive of both ends. */
+export const MAX_CUSTOM_REPORT_DAYS = 366;
 export type ReportTrendGranularity = "day" | "month";
 export const REPORT_EXPORT_FORMATS = ["json", "markdown"] as const;
 export type ReportExportFormat = (typeof REPORT_EXPORT_FORMATS)[number];
@@ -609,7 +613,7 @@ export interface ReportEvidence {
 
 export interface WorkReport {
   outcome: "report";
-  period: ReportPeriod;
+  period: WorkReportPeriod;
   range: ReportRange;
   previousRange: ReportRange;
   /** IANA time zone of the host that computed the calendar-date range. */

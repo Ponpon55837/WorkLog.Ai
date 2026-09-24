@@ -9,7 +9,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import SessionRow from "./SessionRow.vue";
-import { buildReportBuckets, buildReportProjectShares, reportBucketUnits } from "../../utils/report";
+import { buildReportBuckets, buildReportProjectShares, reportBucketMode, reportBucketUnits } from "../../utils/report";
 
 /**
  * The period-specific part of the report overview, built only from deterministic report data: a daily
@@ -20,7 +20,10 @@ const emit = defineEmits<{ open: [session: WorkSessionRecord, list: readonly Wor
 
 const dayLimit = 8;
 
-const unit = computed(() => (props.report.period === "day" ? null : reportBucketUnits[props.report.period]));
+const unit = computed(() => {
+  const mode = reportBucketMode(props.report);
+  return mode ? reportBucketUnits[mode] : null;
+});
 const buckets = computed(() => buildReportBuckets(props.report));
 const busiest = computed(() =>
   buckets.value.reduce<(typeof buckets.value)[number] | null>(

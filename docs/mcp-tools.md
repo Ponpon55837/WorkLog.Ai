@@ -167,6 +167,8 @@ Server instructions 只放路由規則；Work record、Report synthesis、Metada
 
 建立可重複驗證的日、週、月、季或年報告。`period` 可用 `day`、`week`、`month`、`quarter`、`year`；`date` 是 server 所在系統時區的日曆日期，省略時使用 server 當下日期；`projectId` 可選，且指定專案必須是 `tracked`。季報與年報的 `trends` 以月份為單位，其他區間以日期為單位。
 
+自訂期間（例如一個 sprint，或「上次 release 到現在」）改傳 `from`、`to`（`YYYY-MM-DD`，兩個要一起給，最長 366 天），此時會忽略 `period` 與 `date`，回傳的 `period` 為 `custom`，上一期是緊接在前、同樣天數的區間，超過 92 天的 `trends` 以月份為單位。自訂期間目前沒有 AI 報告整理（synthesis request 只支援日／週／月／季／年）。
+
 ```json
 {
   "period": "week",

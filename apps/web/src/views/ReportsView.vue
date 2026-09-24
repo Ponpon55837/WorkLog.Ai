@@ -14,7 +14,7 @@ import {
   TrendingUp,
   TriangleAlert,
 } from "lucide-vue-next";
-import type { ReportEvidence, ReportExportFormat, ReportPeriod, WorkSessionRecord } from "@work-intelligence/core";
+import type { ReportEvidence, ReportExportFormat, WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import ReportPeriodBreakdown from "../components/domain/ReportPeriodBreakdown.vue";
@@ -26,6 +26,7 @@ import UiBarChart from "../components/ui/UiBarChart.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
+import UiDateRangeMenu from "../components/ui/UiDateRangeMenu.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiIconButton from "../components/ui/UiIconButton.vue";
@@ -39,7 +40,7 @@ import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { useViewLoader } from "../composables/useAppRefresh";
 import { useProjects } from "../composables/useProjects";
-import { useReports } from "../composables/useReports";
+import { useReports, type ReportViewPeriod } from "../composables/useReports";
 import { enumQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { useSessionDetail } from "../composables/useSessionDetail";
 import { router } from "../router";
@@ -64,6 +65,7 @@ const {
   report,
   reportPeriod,
   reportDate,
+  reportRange,
   reportProjectId,
   reportLoading,
   reportError,
@@ -88,12 +90,31 @@ const {
 } = useReports();
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
-const periods: ReportPeriod[] = ["day", "week", "month", "quarter", "year"];
+const periods: ReportViewPeriod[] = ["day", "week", "month", "quarter", "year", "custom"];
+const reportFrom = computed({
+  get: () => reportRange.value.from,
+  set: (from: string) => (reportRange.value = { ...reportRange.value, from }),
+});
+const reportTo = computed({
+  get: () => reportRange.value.to,
+  set: (to: string) => (reportRange.value = { ...reportRange.value, to }),
+});
 useRouteQuery("period", reportPeriod, enumQuery(periods, "week"));
 useRouteQuery("date", reportDate, stringQuery(toDateInputValue(new Date())));
+useRouteQuery("from", reportFrom, stringQuery());
+useRouteQuery("to", reportTo, stringQuery());
 useRouteQuery("project", reportProjectId, stringQuery());
 useViewLoader(() => loadReport(true));
-watch([reportPeriod, reportDate, reportProjectId], () => void loadReport(true));
+watch([reportPeriod, reportDate, reportRange, reportProjectId], () => void loadReport(true));
+// Switching to a custom range starts from the last 14 days instead of an empty range.
+watch(reportPeriod, (period) => {
+  if (period === "custom" && !reportRange.value.from && !reportRange.value.to) {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(start.getDate() - 13);
+    reportRange.value = { from: toDateInputValue(start), to: toDateInputValue(today) };
+  }
+});
 
 const tabIds = reportTabOptions.map((option) => option.id);
 const tab = computed<ReportTab>({
@@ -138,12 +159,13 @@ function tabCount(id: ReportTab): number | undefined {
   return counts[id];
 }
 
-const periodShortLabels: Record<ReportPeriod, string> = {
+const periodShortLabels: Record<ReportViewPeriod, string> = {
   day: "日",
   week: "週",
   month: "月",
   quarter: "季",
   year: "年",
+  custom: "自訂",
 };
 const periodOptions = periods.map((period) => ({ value: period, label: periodShortLabels[period] }));
 const projectItems = computed(() => [
@@ -240,7 +262,8 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   <PageHeader :description="description">
     <template #actions>
       <UiSegmentedControl v-model="reportPeriod" :options="periodOptions" label="選擇報表區間" />
-      <UiTextInput v-model="reportDate" type="date" class="reports__date" label="選擇報告日期" />
+      <UiDateRangeMenu v-if="reportPeriod === 'custom'" v-model="reportRange" variant="button" label="自訂期間" />
+      <UiTextInput v-else v-model="reportDate" type="date" class="reports__date" label="選擇報告日期" />
       <UiActionMenu
         v-model="reportProjectId"
         :label="projectLabel"

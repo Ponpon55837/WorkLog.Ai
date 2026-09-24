@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  reportQuerySchema,
+  reportExportQuerySchema,
   finalizeSessionInputSchema,
   graphQuerySchema,
   insightAvailabilitySchema,
@@ -306,5 +308,22 @@ describe("MCP-only input schemas", () => {
         .success,
     ).toBe(false);
     expect(decideKnowledgeCandidateInputSchema.safeParse({ candidateId: "c1", decision: "maybe" }).success).toBe(false);
+  });
+});
+
+describe("custom report ranges", () => {
+  it("accepts an ordered from/to pair of up to 366 days", () => {
+    expect(reportQuerySchema.safeParse({ from: "2030-01-01", to: "2030-01-14" }).success).toBe(true);
+    expect(reportQuerySchema.safeParse({ from: "2030-01-01", to: "2031-01-01" }).success).toBe(true);
+    expect(reportExportQuerySchema.safeParse({ from: "2030-01-01", to: "2030-01-01", format: "json" }).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects a lone bound, a reversed range, and a range longer than 366 days", () => {
+    expect(reportQuerySchema.safeParse({ from: "2030-01-01" }).success).toBe(false);
+    expect(reportQuerySchema.safeParse({ from: "2030-01-14", to: "2030-01-01" }).success).toBe(false);
+    expect(reportQuerySchema.safeParse({ from: "2030-01-01", to: "2031-01-02" }).success).toBe(false);
+    expect(reportExportQuerySchema.safeParse({ to: "2030-01-01" }).success).toBe(false);
   });
 });
