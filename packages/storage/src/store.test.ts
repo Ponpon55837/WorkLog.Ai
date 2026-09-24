@@ -2214,6 +2214,17 @@ Result: PASSED
         expect.objectContaining({ id: saved.summary.id }),
       ],
     });
+    // A project's synthesis must not show up as the all-project report for the same range.
+    expect(
+      store.listReportSummaries({ period: "week", date: "2026-09-17", scopeType: "all", currentOnly: false }),
+    ).toEqual({ outcome: "report_summaries", summaries: [] });
+    expect(store.listReportSynthesisRequests({ period: "week", date: "2026-09-17", scopeType: "all" })).toEqual({
+      outcome: "report_synthesis_requests",
+      requests: [],
+    });
+    expect(
+      store.listReportSummaries({ period: "week", date: "2026-09-17", scopeType: "project", currentOnly: false }),
+    ).toMatchObject({ summaries: [expect.anything(), expect.anything()] });
     expect(store.deleteReportSummary(saved.summary.id)).toMatchObject({
       outcome: "report_summary_deleted",
       summaryId: saved.summary.id,

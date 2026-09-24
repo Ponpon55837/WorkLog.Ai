@@ -291,6 +291,7 @@ export const reportSynthesisRequestQuerySchema = z.object({
   period: z.enum(REPORT_PERIODS).optional(),
   date: calendarDateSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
+  scopeType: reportSynthesisScopeTypeSchema.optional(),
   status: reportSynthesisStatusSchema.optional(),
   requestId: z.string().trim().min(1).max(200).optional(),
   limit: z.number().int().min(1).max(100).default(20),

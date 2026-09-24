@@ -136,10 +136,10 @@ test.describe("Work Intelligence browser regression", () => {
       expect(extraKnowledge.outcome).toBe("knowledge_recorded");
     }
 
+    // The report page opens on all tracked projects, which only shows all-project syntheses.
     const synthesisRequest = await postJson<{ request: { id: string } }>(request, "/api/reports/synthesis-requests", {
       period: "week",
       date: reportDate,
-      projectId,
       idempotencyKey: `browser-regression-report-${process.pid}`,
     });
     expect(synthesisRequest.outcome).toBe("report_synthesis_request");
@@ -173,7 +173,6 @@ test.describe("Work Intelligence browser regression", () => {
     const newerRequest = await postJson<{ request: { id: string } }>(request, "/api/reports/synthesis-requests", {
       period: "week",
       date: reportDate,
-      projectId,
       idempotencyKey: `browser-regression-report-v2-${process.pid}`,
     });
     expect(newerRequest.outcome).toBe("report_synthesis_request");

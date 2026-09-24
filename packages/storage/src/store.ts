@@ -2715,6 +2715,10 @@ export class WorkIntelligenceStore {
       clauses.push("r.project_id = ?");
       parameters.push(options.projectId);
     }
+    if (options.scopeType) {
+      clauses.push("r.scope_type = ?");
+      parameters.push(options.scopeType);
+    }
     if (options.requestId) {
       clauses.push("r.id = ?");
       parameters.push(options.requestId);
@@ -3280,6 +3284,10 @@ export class WorkIntelligenceStore {
     if (options.projectId) {
       clauses.push("s.project_id = ?");
       parameters.push(options.projectId);
+    }
+    if (options.scopeType) {
+      clauses.push("s.request_id IN (SELECT id FROM report_synthesis_requests WHERE scope_type = ?)");
+      parameters.push(options.scopeType);
     }
     if (options.period) {
       clauses.push("s.period = ?");
