@@ -11,8 +11,6 @@ import type {
   ChangedFilesFollowUp,
   ChangedFileSource,
   ContextQueryResult,
-  ContextResult,
-  DecisionDigest,
   DecideKnowledgeCandidateInput,
   DecideKnowledgeCandidateResult,
   KnowledgeCandidateContextResult,
@@ -25,7 +23,6 @@ import type {
   KnowledgeStaleness,
   LinkSessionsInput,
   LinkSessionsResult,
-  RecallHit,
   SessionLinkRecord,
   SessionLinkRelation,
   SetEvidenceVoidInput,
@@ -38,7 +35,6 @@ import type {
   VerificationUpdateSource,
   VoidTargetType,
   RecallQueryResult,
-  RelevantContext,
   CancelMetadataBackfillRequestResult,
   CancelReportSynthesisRequestResult,
   CreateMetadataBackfillRequestInput,
@@ -60,7 +56,6 @@ import type {
   KnowledgeKind,
   KnowledgeHistoryQuery,
   KnowledgeHistoryResult,
-  KnowledgeDigest,
   KnowledgeQuery,
   KnowledgeQueryResult,
   KnowledgeRecord,
@@ -158,20 +153,13 @@ import { ReportSynthesisService } from "./report-synthesis-service.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
-import { DIGEST_ITEM_LENGTH, toKnowledgeDigest, toSessionDigest } from "./digest.js";
 import { applySchemaMigrations } from "./schema-migrations.js";
 import { matchesAppliesTo, normalizePath } from "./search-text.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { SearchRepository } from "./search-repository.js";
+import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 
-const RECENT_DECISION_LIMIT = 12;
-const RELEVANT_LIMIT = 5;
-const RECALL_DEFAULT_LIMIT = 8;
-const RECALL_MAX_LIMIT = 30;
-const SEARCH_LIMIT = 20;
-
-/** What an Agent is about to work on; ranks relevant records into the context result. */
-export type ContextFocus = { task?: string; paths?: string[] };
+export type { ContextFocus } from "./context-recall-service.js";
 
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
@@ -1104,6 +1092,7 @@ export class WorkIntelligenceStore {
   private readonly reportReader: ReportReadService;
   private readonly reportSynthesis: ReportSynthesisService;
   private readonly metadataBackfillService: MetadataBackfillService;
+  private readonly contextRecallService: ContextRecallService;
   private readonly searchIndex: SearchRepository;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
   private readonly policyGate: ProjectPolicyGate;
@@ -1166,6 +1155,25 @@ export class WorkIntelligenceStore {
       recordKnowledge: (input) => this.recordKnowledge(input),
     });
     this.policyGate = new ProjectPolicyGate(this);
+    this.contextRecallService = new ContextRecallService(this.db, this.searchIndex, {
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      listProjects: () => this.listProjects(),
+      listSessions: (sessionOptions) => this.listSessions(sessionOptions),
+      getSessionById: (sessionId) => this.getSessionById(sessionId),
+      getProjectById: (projectId) => this.getProjectById(projectId),
+      getSessionLinks: (sessionId) => this.getSessionLinks(sessionId),
+      getKnowledgeWithTrust: (knowledgeId) => {
+        const row = this.db
+          .prepare("SELECT k.*, NULL AS project_name FROM knowledge k WHERE k.id = ?")
+          .get(knowledgeId) as KnowledgeRow | undefined;
+        return row ? this.withKnowledgeTrust(toKnowledge(row)) : undefined;
+      },
+      searchKnowledge: (query) => this.searchKnowledge(query),
+      listReportSynthesisRequests: (query) => this.listReportSynthesisRequests(query),
+      listMetadataBackfillRequests: (query) => this.listMetadataBackfillRequests(query),
+      previewMetadataBackfill: (previewOptions) => this.previewMetadataBackfill(previewOptions),
+      openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
+    });
   }
 
   private ensureSchemaMigrations(): void {
@@ -2970,32 +2978,7 @@ export class WorkIntelligenceStore {
   }
 
   public getContext(projectRoot?: string, focus: ContextFocus = {}): ContextQueryResult {
-    if (projectRoot) {
-      const decision = this.checkProjectRoot(projectRoot);
-      if (!decision.allowed || !decision.project) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled.",
-        };
-      }
-
-      return this.buildContext(decision.project, focus);
-    }
-
-    const projects = this.listProjects().filter((project) => project.status === "tracked");
-    const relevant = this.getRelevantContext(focus);
-    return {
-      outcome: "context",
-      projects,
-      recentSessions: this.listSessions({ limit: 12, trackedOnly: true }).map(toSessionDigest),
-      recentDecisions: this.getRecentDecisions(),
-      recentKnowledge: this.getRecentKnowledge(),
-      metadataFollowUps: this.getMetadataFollowUps(),
-      pendingRequests: this.getPendingRequests(),
-      ...(relevant ? { relevant } : {}),
-    };
+    return this.contextRecallService.getContext(projectRoot, focus);
   }
 
   /**
@@ -3003,80 +2986,11 @@ export class WorkIntelligenceStore {
    * projects. Returns compact hits; read full records with getSessionDetailForAgent or searchKnowledge.
    */
   public recall(input: { q?: string; paths?: string[]; projectRoot?: string; limit?: number }): RecallQueryResult {
-    let project: ProjectRecord | undefined;
-    if (input.projectRoot) {
-      const decision = this.checkProjectRoot(input.projectRoot);
-      if (!decision.allowed || !decision.project) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled.",
-        };
-      }
-      project = decision.project;
-    }
-    const result = this.searchIndex.recall({
-      q: input.q,
-      paths: input.paths,
-      projectId: project?.id,
-      limit: Math.min(Math.max(input.limit ?? RECALL_DEFAULT_LIMIT, 1), RECALL_MAX_LIMIT),
-    });
-    return {
-      outcome: "recall",
-      ...(project ? { project } : {}),
-      ...result,
-      hits: result.hits.map((hit) => this.withRelatedSessions(hit)),
-    };
-  }
-
-  private withRelatedSessions(hit: RecallHit): RecallHit {
-    if (hit.type === "knowledge") {
-      const row = this.db.prepare("SELECT k.*, NULL AS project_name FROM knowledge k WHERE k.id = ?").get(hit.id) as
-        KnowledgeRow | undefined;
-      const knowledge = row ? this.withKnowledgeTrust(toKnowledge(row)) : undefined;
-      return {
-        ...hit,
-        ...(knowledge?.possiblyStale ? { possiblyStale: true } : {}),
-        ...(knowledge?.review ? { needsReview: true } : {}),
-      };
-    }
-    const related = this.getSessionLinks(hit.id)
-      .filter((link) => !link.voided)
-      .map((link) => ({ id: link.sessionId, title: link.title, relation: link.relation }));
-    return related.length > 0 ? { ...hit, related } : hit;
+    return this.contextRecallService.recall(input);
   }
 
   public search(query: string, projectRoot?: string): SearchResult[] | SkippedResult {
-    let projectId: string | undefined;
-    if (projectRoot) {
-      const decision = this.checkProjectRoot(projectRoot);
-      if (!decision.allowed || !decision.project) {
-        return {
-          outcome: "skipped",
-          projectRoot: decision.canonicalRoot,
-          projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled.",
-        };
-      }
-      projectId = decision.project.id;
-    }
-
-    const { hits } = this.searchIndex.recall({ q: query, projectId, types: ["session"], limit: SEARCH_LIMIT });
-    return hits.flatMap((hit) => {
-      const record = this.getSessionById(hit.id);
-      if (!record) {
-        return [];
-      }
-      return [
-        {
-          session: toSessionDigest(record),
-          matchedIn: hit.matchedIn[0] ?? "title",
-          ...(hit.section ? { section: hit.section } : {}),
-          excerpt: hit.excerpt,
-        },
-      ];
-    });
+    return this.contextRecallService.search(query, projectRoot);
   }
 
   /** Read-only recording state of a workspace root, so an Agent can skip preparing an untracked finalize. */
@@ -3267,97 +3181,6 @@ export class WorkIntelligenceStore {
     }
   }
 
-  private buildContext(project: ProjectRecord, focus: ContextFocus): ContextResult {
-    const relevant = this.getRelevantContext(focus, project.id);
-    return {
-      outcome: "context",
-      project,
-      projects: [project],
-      recentSessions: this.listSessions({ projectId: project.id, limit: 12, trackedOnly: true }).map(toSessionDigest),
-      recentDecisions: this.getRecentDecisions(project.id),
-      recentKnowledge: this.getRecentKnowledge(project.id),
-      metadataFollowUps: this.getMetadataFollowUps(project.id),
-      pendingRequests: this.getPendingRequests(project.id),
-      ...(relevant ? { relevant } : {}),
-    };
-  }
-
-  /** Records ranked for the task and paths an Agent is about to work on; undefined without a focus. */
-  private getRelevantContext(focus: ContextFocus, projectId?: string): RelevantContext | undefined {
-    const task = focus.task?.trim();
-    const paths = (focus.paths ?? []).map((path) => path.trim()).filter(Boolean);
-    if (!task && paths.length === 0) {
-      return undefined;
-    }
-    const recalled = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
-    const termHits = recalled.termHits;
-    const hits = recalled.hits.map((hit) => this.withRelatedSessions(hit));
-    const knowledge = hits.filter((hit) => hit.type === "knowledge").slice(0, RELEVANT_LIMIT);
-    const sessions = hits
-      .filter((hit) => hit.type === "session")
-      .slice(0, RELEVANT_LIMIT)
-      .flatMap((hit) => {
-        const record = this.getSessionById(hit.id);
-        return record ? [{ hit, record }] : [];
-      });
-    const decisions = sessions
-      .flatMap(({ record }) =>
-        (record.workSummary?.decisions ?? [])
-          .filter((text) => text.trim().length > 0)
-          .map((text) => ({
-            sessionId: record.id,
-            sessionTitle: record.title,
-            completedAt: record.completedAt,
-            text: truncateText(text, DIGEST_ITEM_LENGTH),
-          })),
-      )
-      .slice(0, RECENT_DECISION_LIMIT);
-    return {
-      ...(task ? { task } : {}),
-      ...(paths.length > 0 ? { paths } : {}),
-      knowledge,
-      decisions,
-      sessions: sessions.map(({ hit, record }) => ({ ...hit, openItems: toSessionDigest(record).openItems })),
-      ...(termHits ? { termHits } : {}),
-    };
-  }
-
-  /** Pending/processing requests an Agent could pick up; a project scope also includes its "all projects" requests. */
-  private getPendingRequests(projectId?: string): ContextResult["pendingRequests"] {
-    const active = new Set(["pending", "processing"]);
-    const inScope = (request: { projectId?: string }) =>
-      !projectId || !request.projectId || request.projectId === projectId;
-    const byNewest = (left: { requestedAt: string }, right: { requestedAt: string }) =>
-      right.requestedAt.localeCompare(left.requestedAt);
-    const reports = this.listReportSynthesisRequests({ limit: 100 });
-    const backfills = this.listMetadataBackfillRequests({ limit: 100 });
-    return {
-      reportSynthesis:
-        reports.outcome === "report_synthesis_requests"
-          ? reports.requests
-              .filter((request) => active.has(request.status) && inScope(request))
-              .sort(byNewest)
-              .slice(0, 5)
-          : [],
-      metadataBackfill:
-        backfills.outcome === "metadata_backfill_requests"
-          ? backfills.requests
-              .filter((request) => active.has(request.status) && inScope(request))
-              .sort(byNewest)
-              .slice(0, 5)
-          : [],
-      knowledgeCandidates: this.knowledgeCandidates.openRequests(projectId),
-    };
-  }
-
-  private getMetadataFollowUps(projectId?: string): ContextResult["metadataFollowUps"] {
-    const projectRoot = projectId ? this.getProjectById(projectId)?.rootPath : undefined;
-    const preview = this.previewMetadataBackfill({ projectRoot, limit: 1 });
-    return preview.outcome === "backfill_preview"
-      ? preview.totals
-      : { needsBackfill: 0, changedFilesMissing: 0, verificationMissing: 0, verificationNotRun: 0 };
-  }
-
   private insertKnowledgeAudit(input: {
     knowledge: KnowledgeRecord;
     before?: KnowledgeRecord;
@@ -3396,50 +3219,5 @@ export class WorkIntelligenceStore {
         changedFields: JSON.stringify(audit.changedFields),
         occurredAt: audit.occurredAt,
       });
-  }
-
-  private getRecentKnowledge(projectId?: string): KnowledgeDigest[] {
-    const result = this.searchKnowledge({ projectId, status: "active", limit: 12 });
-    return result.outcome === "knowledge" ? result.items.map(toKnowledgeDigest) : [];
-  }
-
-  /*
-   * Decisions come from workSummary.decisions, the confirmed technical decisions an Agent wrote at
-   * finalize. note/closing events are not used: they mostly record process state (commits,
-   * worktree status), not decisions.
-   */
-  private getRecentDecisions(projectId?: string): DecisionDigest[] {
-    const rows = this.db
-      .prepare(
-        `SELECT s.id, s.title, s.completed_at, json_extract(s.work_summary_json, '$.decisions') AS decisions_json
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         WHERE p.status = 'tracked'
-           AND s.voided_at IS NULL
-           ${projectId ? "AND p.id = ?" : ""}
-           AND json_valid(s.work_summary_json)
-           AND json_type(s.work_summary_json, '$.decisions') = 'array'
-           AND json_array_length(s.work_summary_json, '$.decisions') > 0
-         ORDER BY s.completed_at DESC, s.id DESC
-         LIMIT ${RECENT_DECISION_LIMIT}`,
-      )
-      .all(...(projectId ? [projectId] : [])) as Array<{
-      id: string;
-      title: string;
-      completed_at: string;
-      decisions_json: string;
-    }>;
-    return rows
-      .flatMap((row) =>
-        parseJson<unknown[]>(row.decisions_json, [])
-          .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-          .map((text) => ({
-            sessionId: row.id,
-            sessionTitle: row.title,
-            completedAt: row.completed_at,
-            text: truncateText(text, DIGEST_ITEM_LENGTH),
-          })),
-      )
-      .slice(0, RECENT_DECISION_LIMIT);
   }
 }
