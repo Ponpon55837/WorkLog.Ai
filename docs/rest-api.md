@@ -78,6 +78,7 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 - MCP：呼叫 work_export_report，format 可填 markdown 或 json
 - markdown 會包含期間摘要、上一期比較、主要完成事項、Verification、風險、決策、趨勢、專案分布與來源證據。
 - json 會保留完整的 WorkReport 結構，適合後續自動化或外部保存。
+- `sessionTruncation.currentPeriod` 與 `sessionTruncation.previousPeriod` 分別標示本期及上一期是否超過 200 個 Session；若為 `true`，摘要、趨勢、專案分布與比較數值只依納入的 200 筆計算。Markdown 匯出會附上相同提醒。
 - 專案範圍仍遵守 tracked-only policy；unregistered、paused、ignored 會安靜回傳 skipped。
 
 ## 備份與匯出

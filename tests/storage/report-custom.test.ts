@@ -69,6 +69,36 @@ describe("custom-range reports", () => {
     expect(exported).toMatchObject({ filename: "work-report-custom-2030-01-01-to-2030-01-14-all-projects.md" });
     expect(exported.outcome === "report_export" ? exported.content : "").toContain("報告類型：自訂期間");
   });
+
+  it("marks current and comparison periods when they exceed the 200-session report limit", () => {
+    const { store, finalize } = setup();
+    for (let index = 0; index < 200; index += 1) {
+      finalize(`previous-${index}`, "2030-01-01T12:00:00.000Z");
+    }
+    for (let index = 0; index < 201; index += 1) {
+      finalize(`current-${index}`, "2030-01-02T12:00:00.000Z");
+    }
+
+    const currentReport = store.getReport({ period: "day", from: "2030-01-02", to: "2030-01-02" });
+    if (currentReport.outcome !== "report") {
+      throw new Error("Expected a current-period report");
+    }
+    expect(currentReport.sessions).toHaveLength(200);
+    expect(currentReport.sessionTruncation).toEqual({ currentPeriod: true, previousPeriod: false });
+    const markdown = store.exportReport({
+      period: "day",
+      from: "2030-01-02",
+      to: "2030-01-02",
+      format: "markdown",
+    });
+    expect(markdown.outcome === "report_export" ? markdown.content : "").toContain("部分資料未納入報告");
+
+    const followingReport = store.getReport({ period: "day", from: "2030-01-03", to: "2030-01-03" });
+    expect(followingReport).toMatchObject({
+      outcome: "report",
+      sessionTruncation: { currentPeriod: false, previousPeriod: true },
+    });
+  });
 });
 
 describe("work that crosses the report period", () => {

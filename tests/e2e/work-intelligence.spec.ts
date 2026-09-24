@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
@@ -981,5 +984,50 @@ test.describe("Work Intelligence browser regression", () => {
       summary: { period: "custom", range: { from: reportDate, to: reportDate } },
     });
     await expect(synthesis).toContainText("自訂日期範圍已取得來源工作並完成整理。", { timeout: 15_000 });
+  });
+
+  test("reports session truncation through the API and warns in the report page", async ({ page, request }) => {
+    const truncationProjectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-report-truncation-"));
+    const from = "2099-01-01";
+    const to = "2099-01-01";
+
+    try {
+      const project = await postJson<ProjectRecord>(request, "/api/projects", {
+        name: "Report truncation fixture",
+        rootPath: truncationProjectRoot,
+      });
+      const tracked = await request.patch(`/api/projects/${project.id}`, { data: { status: "tracked" } });
+      expect(tracked.ok()).toBeTruthy();
+
+      withAgentStore((store) => {
+        for (let index = 0; index < 201; index += 1) {
+          const finalized = store.finalizeSession({
+            projectRoot: truncationProjectRoot,
+            idempotencyKey: `browser-report-truncation-${process.pid}-${index}`,
+            title: `Report truncation fixture ${index}`,
+            summary: "Isolated fixture for the report session limit.",
+            completedAt: "2099-01-01T12:00:00.000Z",
+          });
+          if (finalized.outcome !== "finalized") {
+            throw new Error(`Expected a finalized report fixture, got ${finalized.outcome}`);
+          }
+        }
+      });
+
+      const reportResponse = await request.get(`/api/reports?from=${from}&to=${to}`);
+      expect(reportResponse.ok()).toBeTruthy();
+      const report = (await reportResponse.json()) as {
+        sessionTruncation: { currentPeriod: boolean; previousPeriod: boolean };
+      };
+      expect(report.sessionTruncation).toEqual({ currentPeriod: true, previousPeriod: false });
+
+      await page.goto(`/reports?period=custom&from=${from}&to=${to}`);
+      const notice = page.getByTestId("report-session-truncation");
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText("本期超過 200 個 Session 的報告上限");
+      await expect(notice).toContainText("只依納入報告的 Session 計算");
+    } finally {
+      rmSync(truncationProjectRoot, { recursive: true, force: true });
+    }
   });
 });

@@ -642,6 +642,11 @@ export interface WorkReport {
   periodSummary: string;
   sourceSessionIds: string[];
   sessions: WorkSessionRecord[];
+  /** Whether the current or comparison period contains more sessions than the report's 200-session limit. */
+  sessionTruncation: {
+    currentPeriod: boolean;
+    previousPeriod: boolean;
+  };
   completedWork: WorkSessionRecord[];
   projects: ReportProjectSummary[];
   totals: {

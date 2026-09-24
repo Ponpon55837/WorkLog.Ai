@@ -4,7 +4,7 @@
 
 > 回到 [README](../README.md)
 
-- 最後更新：2026-09-24
+- 最後更新：2026-09-25
 
 ## 優先改善：Agent 檢索品質
 
@@ -59,18 +59,17 @@
 | TypeSafe Adapter（Insight Provider Phase 2） | BLOCKED：等待外部契約 | Provider abstraction、No-op 與 optional injection 已完成，`WorkIntelligenceStore` 預設使用 No-op。開始實作前需要 TypeSafe／產品方先定稿：SDK 或 HTTP endpoint 與版本；backend-only credential 注入、日誌遮罩與資料外送規則；evaluation request／response／error schema（signal、confidence、usage、timeout）；timeout、retry、circuit-breaker 契約；egress guard 的呼叫邊界。這些到位前不新增依賴、網路呼叫、設定開關或假 adapter。 |
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
-| 即時更新新的 Session | 提案 | 目前只有進行中的 Agent 請求（報告整理、Knowledge 候選、metadata 回補）會自動檢查；Agent 新存的 Session 要手動重新整理才會出現。建議以 `PRAGMA data_version` 偵測寫入並用 SSE 推送「有變化」訊號（見 `.openspec/handoffs/2026-09-24-claude-to-codex.md`）。 |
-| 自訂期間的 AI 整理 | 限制 | `report_synthesis_requests`／`report_summaries` 的 `period` 有 CHECK 限制，自訂期間無法建立整理請求；支援需要 migration 重建兩張表。 |
-| 報告 Session 上限 | 限制 | 報告取 Session 的上限是 200 筆，很長的自訂期間或年報可能被截斷且沒有標示。 |
-| 測試缺口 | 待補 | Knowledge 候選的「修改後接受」「拒絕」沒有 E2E；Web 沒有單元測試；原生選擇資料夾視窗只在 macOS 以 `osacompile` 確認語法，Windows／Linux 未實機驗證；備份還原未在 Windows 實機手動驗證。 |
-| 工程整理 | 進行中 | `store.ts` 的報告讀取／匯出與期間函式已移至 `report-service.ts`、`report-utils.ts`；剩餘 synthesis、metadata 回補、context／recall 拆分，以及 Web 單元測試與 server／mcp／web 覆蓋率門檻仍待處理。`store.ts` 現為 4,787 行；schema 版本表已加入，既有欄位補齊檢查仍留在其中。 |
+| 人工平台驗證 | 待確認 | 資料夾選擇器尚未在 macOS、Windows、Linux 實機驗證；備份還原尚未在 Windows 實機手動驗證。 |
+| 工程整理 | 進行中 | 報告、synthesis、metadata 回補、context／recall 等 Storage 服務已拆分，Web 單元測試與 server／mcp／web 覆蓋率門檻已加入。`store.ts` 目前 3,223 行；既有資料欄位檢查與升級相容處理仍留在其中。 |
 
-## 最近完成（2026-09-23～24）
+## 最近完成（2026-09-23～25）
 
 - **報告的跨期工作**：報告新增 `spanning`，列出在期間內完成但更早開始、在期間內開始但之後才完成、更早完成但在期間內修改（比 finalize 晚一分鐘以上）的 Session；統計數字仍只算期間內完成的 Session。報告頁「工作」分頁與 Markdown 匯出都會顯示。
-- **自訂期間報告**：報告查詢（REST、MCP `work_get_report`／`work_export_report`、Web）接受 `from`／`to`（最長 366 天），回傳 `period: "custom"`，上一期為緊接在前的同樣天數，超過 92 天趨勢以月份為單位。報告頁新增「自訂」區間與日期範圍選擇，總覽依長度按日／週／月分組。自訂期間暫不支援 AI 整理：synthesis 的資料表以 CHECK 限制 period，支援需要重建資料表，先在 UI 說明。
+- **自訂期間報告**：報告查詢（REST、MCP `work_get_report`／`work_export_report`、Web）接受 `from`／`to`（最長 366 天），回傳 `period: "custom"`，上一期為緊接在前的同樣天數，超過 92 天趨勢以月份為單位。報告頁新增「自訂」區間與日期範圍選擇，總覽依長度按日／週／月分組；PR #44 也完成自訂期間的 AI 整理與既有摘要資料升級。
+- **報告 Session 截斷標示**：報告回傳本期與上一期是否各自超過 200 筆，報告頁與 Markdown 匯出會提示部分統計只依納入的 200 筆計算。
 - **列表搜尋改為多關鍵字**：Web 的 Session 列表、Knowledge 搜尋與 `work_search_knowledge` 原本把整句當成一個 LIKE。現在依空白拆詞（雙引號可保留片語），每個詞都要出現在某個欄位；Session 另外比對五段 workSummary 與 changed files（以 `json_each` 只比對內容，不會因欄位名稱如 decisions 命中每一筆）。列表維持時間排序與分頁，排序檢索仍由 Agent 的 `work_recall` 負責（評估的 S1 策略：0 筆題數 31→16）。
 - **圖譜跨頁的 Session 關聯**：分頁取回圖譜時，只要關聯的一端在該頁就送出 `session_link`（另一端必須是範圍內的有效 Session），Web 合併各頁後即可畫出兩端落在不同頁的關聯。
+- **測試檔集中分類（PR #45）**：單元測試與端對端測試統一放在根目錄 `tests/`，依套件與測試類型分類；不再混放於 `apps/` 或 `packages/` 的程式碼目錄。
 - **保存提醒 hook**：Claude Code 使用 `apps/mcp/dist/finalize-reminder.js`；Codex 專案設定 `.codex/hooks.json` 使用 `apps/mcp/dist/codex-finalize-reminder.js`。在記錄中的專案裡，Codex 的 `apply_patch` 改檔後若未成功呼叫 `work_finalize_session`，Stop 時提醒一次（同一段未保存工作只提醒一次，`stop_hook_active` 時放行）。兩者都唯讀查專案清單、判斷失敗時放行；Codex hook 需在 `/hooks` 檢查並信任，Bash 改檔不會觸發。設定方式見 agent-setup。
 - **changedFiles 開工基準排除**：`work_finalize_session` 可傳入工作開始時擷取的 `baselineChangedFiles`，系統會從該 Session 的 changed files、來源與變更事件排除開工前已變更的路徑；從基準路徑改名時只記新路徑為新增檔案。相同基準檔案後續又修改也會保守排除，避免把先前工作錯算成本次成果。
 - **Storage 報告讀取服務拆分**：將報告產生、跨期 Session、證據整理與 Markdown／JSON 匯出搬至 `report-service.ts`，期間計算與趨勢函式移至 `report-utils.ts`；`WorkIntelligenceStore` 對外方法維持原樣並轉呼叫新服務，未改變報告行為。
