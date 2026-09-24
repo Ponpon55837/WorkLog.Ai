@@ -13,6 +13,8 @@ import type {
   KnowledgeHistoryResult,
   KnowledgeQuery,
   KnowledgeSearchResult,
+  LinkSessionsResult,
+  SessionLinkRelation,
   MetadataBackfillPreviewResult,
   MetadataBackfillRequestListQueryResult,
   PageInfo,
@@ -135,6 +137,29 @@ export class ApiClient {
       `/api/sessions/${encodeURIComponent(sessionId)}/verification`,
       "PATCH",
       verification,
+      signal,
+    );
+  }
+
+  public linkSession(
+    sessionId: string,
+    relatedSessionId: string,
+    relation: SessionLinkRelation,
+    signal?: AbortSignal,
+  ): Promise<LinkSessionsResult> {
+    return this.write<LinkSessionsResult>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/links`,
+      "POST",
+      { relatedSessionId, relation },
+      signal,
+    );
+  }
+
+  public unlinkSession(sessionId: string, relatedSessionId: string, signal?: AbortSignal): Promise<LinkSessionsResult> {
+    return this.write<LinkSessionsResult>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/links/${encodeURIComponent(relatedSessionId)}`,
+      "DELETE",
+      {},
       signal,
     );
   }

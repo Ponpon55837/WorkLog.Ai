@@ -13,6 +13,11 @@ import type {
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
+  LinkSessionsInput,
+  LinkSessionsResult,
+  RecallHit,
+  SessionLinkRecord,
+  SessionLinkRelation,
   SetEvidenceVoidInput,
   SetEvidenceVoidResult,
   SetSessionVoidInput,
@@ -3362,6 +3367,120 @@ export class WorkIntelligenceStore {
     return { outcome: "updated", session, previous, ...(unchanged ? { unchanged } : {}) };
   }
 
+  /** Links or unlinks two Sessions; a pair has at most one link, so a new relation replaces the old one. */
+  public linkSessions(input: LinkSessionsInput, source: VerificationUpdateSource = "agent"): LinkSessionsResult {
+    const row = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
+      { project_id: string } | undefined;
+    if (!row) {
+      return { outcome: "not_found", sessionId: input.sessionId };
+    }
+    const decision = this.checkProjectById(row.project_id);
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        sessionId: input.sessionId,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+    const problem = this.linkProblem(input.sessionId, input.relatedSessionId);
+    if (problem) {
+      return { outcome: "invalid_link", sessionId: input.sessionId, reason: problem };
+    }
+    return this.runImmediateTransaction(() => {
+      const existing = this.db
+        .prepare(
+          `SELECT session_id, related_session_id, relation FROM session_links
+           WHERE (session_id = ? AND related_session_id = ?) OR (session_id = ? AND related_session_id = ?)`,
+        )
+        .get(input.sessionId, input.relatedSessionId, input.relatedSessionId, input.sessionId) as
+        { session_id: string; related_session_id: string; relation: SessionLinkRelation } | undefined;
+      const same =
+        existing?.session_id === input.sessionId &&
+        existing.related_session_id === input.relatedSessionId &&
+        existing.relation === input.relation;
+      const duplicate = input.linked ? same : !existing;
+      if (!duplicate) {
+        this.db
+          .prepare(
+            `DELETE FROM session_links
+             WHERE (session_id = ? AND related_session_id = ?) OR (session_id = ? AND related_session_id = ?)`,
+          )
+          .run(input.sessionId, input.relatedSessionId, input.relatedSessionId, input.sessionId);
+        if (input.linked) {
+          this.writeSessionLink(input.sessionId, input.relatedSessionId, input.relation, source, nowIso());
+        }
+      }
+      return {
+        outcome: "session_link_updated",
+        duplicate,
+        sessionId: input.sessionId,
+        links: this.getSessionLinks(input.sessionId),
+      };
+    });
+  }
+
+  /** Both Sessions must exist in tracked projects and differ; returns why a link is not allowed. */
+  private linkProblem(sessionId: string, relatedSessionId: string): string | undefined {
+    if (sessionId === relatedSessionId) {
+      return "A Session cannot be linked to itself.";
+    }
+    const related = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(relatedSessionId) as
+      { project_id: string } | undefined;
+    if (!related) {
+      return "The related Session does not exist.";
+    }
+    if (!this.checkProjectById(related.project_id).allowed) {
+      return "The related Session belongs to a project that is not tracked.";
+    }
+    return undefined;
+  }
+
+  private writeSessionLink(
+    sessionId: string,
+    relatedSessionId: string,
+    relation: SessionLinkRelation,
+    source: VerificationUpdateSource,
+    createdAt: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO session_links (id, session_id, related_session_id, relation, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(randomUUID(), sessionId, relatedSessionId, relation, source, createdAt);
+  }
+
+  /** Links of one Session as seen from it, limited to tracked projects, oldest linked Session first. */
+  private getSessionLinks(sessionId: string): SessionLinkRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT l.session_id, l.relation, s.id AS other_id, s.title, s.completed_at, s.voided_at, p.name AS project_name
+         FROM session_links l
+         JOIN sessions s ON s.id = CASE WHEN l.session_id = ? THEN l.related_session_id ELSE l.session_id END
+         JOIN projects p ON p.id = s.project_id
+         WHERE (l.session_id = ? OR l.related_session_id = ?) AND p.status = 'tracked'
+         ORDER BY s.completed_at ASC, s.id ASC`,
+      )
+      .all(sessionId, sessionId, sessionId) as Array<{
+      session_id: string;
+      relation: SessionLinkRelation;
+      other_id: string;
+      title: string;
+      completed_at: string;
+      voided_at: string | null;
+      project_name: string | null;
+    }>;
+    return rows.map((row) => ({
+      sessionId: row.other_id,
+      title: row.title,
+      ...(row.project_name ? { projectName: row.project_name } : {}),
+      completedAt: row.completed_at,
+      relation: row.relation === "related" ? "related" : row.session_id === sessionId ? "continues" : "continued_by",
+      ...(row.voided_at ? { voided: true } : {}),
+    }));
+  }
+
   private insertVerificationUpdate(
     sessionId: string,
     source: VerificationUpdateSource,
@@ -3762,6 +3881,7 @@ export class WorkIntelligenceStore {
       rawSnapshots: snapshots.map(toSnapshot),
       evidence: evidence.map(toEvidence),
       knowledge: knowledge.map(toKnowledge),
+      links: this.getSessionLinks(sessionId),
       verificationHistory: (
         this.db
           .prepare("SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, id DESC")
@@ -4277,6 +4397,18 @@ export class WorkIntelligenceStore {
         .prepare("UPDATE projects SET last_ingested_at = ?, updated_at = ? WHERE id = ?")
         .run(createdAt, createdAt, project.id);
 
+      const linkWarnings = [
+        ...(input.parentSessionId ? [{ id: input.parentSessionId, relation: "continues" as const }] : []),
+        ...(input.relatedSessionIds ?? []).map((id) => ({ id, relation: "related" as const })),
+      ].flatMap(({ id, relation }) => {
+        const problem = this.linkProblem(sessionId, id);
+        if (problem) {
+          return [`${id}: ${problem}`];
+        }
+        this.writeSessionLink(sessionId, id, relation, "agent", createdAt);
+        return [];
+      });
+
       const session = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (!session) {
         throw new Error("Session was inserted but could not be loaded.");
@@ -4289,6 +4421,7 @@ export class WorkIntelligenceStore {
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
         workSummaryFollowUp: getWorkSummaryFollowUp(session),
+        ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
       };
     });
   }
@@ -4346,7 +4479,22 @@ export class WorkIntelligenceStore {
       projectId: project?.id,
       limit: Math.min(Math.max(input.limit ?? RECALL_DEFAULT_LIMIT, 1), RECALL_MAX_LIMIT),
     });
-    return { outcome: "recall", ...(project ? { project } : {}), ...result };
+    return {
+      outcome: "recall",
+      ...(project ? { project } : {}),
+      ...result,
+      hits: result.hits.map((hit) => this.withRelatedSessions(hit)),
+    };
+  }
+
+  private withRelatedSessions(hit: RecallHit): RecallHit {
+    if (hit.type !== "session") {
+      return hit;
+    }
+    const related = this.getSessionLinks(hit.id)
+      .filter((link) => !link.voided)
+      .map((link) => ({ id: link.sessionId, title: link.title, relation: link.relation }));
+    return related.length > 0 ? { ...hit, related } : hit;
   }
 
   public search(query: string, projectRoot?: string): SearchResult[] | SkippedResult {
@@ -4591,7 +4739,9 @@ export class WorkIntelligenceStore {
     if (!task && paths.length === 0) {
       return undefined;
     }
-    const { hits, termHits } = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
+    const recalled = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
+    const termHits = recalled.termHits;
+    const hits = recalled.hits.map((hit) => this.withRelatedSessions(hit));
     const knowledge = hits.filter((hit) => hit.type === "knowledge").slice(0, RELEVANT_LIMIT);
     const sessions = hits
       .filter((hit) => hit.type === "session")

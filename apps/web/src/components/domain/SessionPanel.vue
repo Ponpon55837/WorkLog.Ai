@@ -13,6 +13,9 @@ import {
   GitCommitHorizontal,
   History,
   Link,
+  Link2,
+  Plus,
+  Unlink,
   Paperclip,
   Pencil,
   RotateCcw,
@@ -22,10 +25,11 @@ import type { EvidenceRecord } from "@work-intelligence/core";
 import { useSessionDetail } from "../../composables/useSessionDetail";
 import { useRecordVoid, type VoidTarget } from "../../composables/useRecordVoid";
 import { useSessionEditor } from "../../composables/useSessionEditor";
+import { useSessionLinks } from "../../composables/useSessionLinks";
 import { useToast } from "../../composables/useToast";
 import { router } from "../../router";
 import { formatDate, formatReadableSummary, formatRelative } from "../../utils/format";
-import { knowledgeKindLabels } from "../../utils/labels";
+import { knowledgeKindLabels, sessionLinkDirectionLabels } from "../../utils/labels";
 import { executionStatusVisual, verificationOf, verificationStatus } from "../../utils/status";
 import UiButton from "../ui/UiButton.vue";
 import UiDisclosure from "../ui/UiDisclosure.vue";
@@ -45,6 +49,7 @@ const route = useRoute();
 const { selectedDetail, position, openSessionDetail, closeSessionDetail, openAdjacentSession } = useSessionDetail();
 const { openSessionEditor } = useSessionEditor();
 const { openVoidDialog, restoreRecord } = useRecordVoid();
+const { openLinkDialog, removeLink } = useSessionLinks();
 const body = ref<HTMLElement | null>(null);
 
 const session = computed(() => selectedDetail.value?.session);
@@ -275,6 +280,36 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             <p>{{ item.body }}</p>
           </div>
         </UiDisclosure>
+        <UiDisclosure
+          title="關聯 Session"
+          :icon="Link2"
+          :count="selectedDetail.links.length"
+          :open="selectedDetail.links.length > 0"
+          data-testid="session-links"
+        >
+          <div v-for="link in selectedDetail.links" :key="link.sessionId" class="session-panel__item">
+            <div class="session-panel__item-head">
+              <UiLabel :tone="link.relation === 'related' ? 'neutral' : 'accent'">{{
+                sessionLinkDirectionLabels[link.relation]
+              }}</UiLabel
+              ><UiLabel v-if="link.voided" tone="danger" :icon="Ban">已作廢</UiLabel
+              ><time :title="formatDate(link.completedAt)">{{ formatRelative(link.completedAt) }}</time>
+              <UiIconButton
+                class="session-panel__item-action"
+                :icon="Unlink"
+                label="移除關聯"
+                size="sm"
+                @click="removeLink(session.id, link.sessionId, link.title)"
+              />
+            </div>
+            <RouterLink class="session-panel__link" :to="{ query: { ...route.query, session: link.sessionId } }">{{
+              link.title
+            }}</RouterLink>
+          </div>
+          <div class="session-panel__item session-panel__item--action">
+            <UiButton size="sm" :icon="Plus" @click="openLinkDialog(session)">新增關聯</UiButton>
+          </div>
+        </UiDisclosure>
         <UiDisclosure title="Events" :icon="GitCommitHorizontal" :count="selectedDetail.events.length">
           <ol class="session-panel__events">
             <li v-for="event in selectedDetail.events" :key="event.id">
@@ -442,6 +477,20 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 .session-panel__item-head strong {
   color: var(--fg);
   font-size: var(--text-sm);
+}
+
+.session-panel__item--action {
+  justify-items: start;
+}
+
+.session-panel__link {
+  color: var(--fg);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.session-panel__link:hover {
+  color: var(--accent);
 }
 
 .session-panel__item-action {

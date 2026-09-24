@@ -258,4 +258,35 @@ describe("Work Intelligence MCP server", () => {
       await callJson(client, "work_void_evidence", { evidenceId: evidence.evidence.id, reason: "Wrong command." }),
     ).toMatchObject({ outcome: "evidence_void_updated", evidence: { voided: { reason: "Wrong command." } } });
   });
+
+  it("links Sessions at finalize and through work_link_sessions", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Link project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const plan = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-link-plan", "Plan"),
+    );
+    const build = await callJson<{ session: { id: string }; linkWarnings?: string[] }>(
+      client,
+      "work_finalize_session",
+      {
+        ...finalizePayload(root, "mcp-link-build", "Build"),
+        parentSessionId: plan.session.id,
+      },
+    );
+    expect(build.linkWarnings).toBeUndefined();
+    expect(await callJson(client, "work_get_session", { sessionId: plan.session.id })).toMatchObject({
+      links: [{ sessionId: build.session.id, relation: "continued_by" }],
+    });
+
+    expect(
+      await callJson(client, "work_link_sessions", {
+        sessionId: build.session.id,
+        relatedSessionId: plan.session.id,
+        linked: false,
+      }),
+    ).toMatchObject({ outcome: "session_link_updated", links: [] });
+  });
 });

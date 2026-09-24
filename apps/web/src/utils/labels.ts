@@ -6,6 +6,7 @@ import type {
   ProjectStatus,
   ReportEvidence,
   ReportPeriod,
+  SessionLinkDirection,
   SessionVoidedFilter,
   WorkSummarySections,
 } from "@work-intelligence/core";
@@ -30,6 +31,19 @@ export const listPageSizeOptions = [
   { value: "all", label: "All" },
 ] as const;
 export type ListPageSize = (typeof listPageSizeOptions)[number]["value"];
+
+export const sessionLinkDirectionLabels: Record<SessionLinkDirection, string> = {
+  continues: "接續自",
+  continued_by: "後續",
+  related: "相關",
+};
+
+/** Link choices from the open Session's point of view; `reverse` stores the link on the other Session. */
+export const sessionLinkOptions = [
+  { value: "continues", label: "這筆接續所選 Session（例如實作接續規劃）" },
+  { value: "continued_by", label: "所選 Session 接續這筆" },
+  { value: "related", label: "一般相關" },
+] as const satisfies ReadonlyArray<{ value: SessionLinkDirection; label: string }>;
 
 export const voidedFilterOptions: Array<{ value: SessionVoidedFilter; label: string }> = [
   { value: "exclude", label: "不含已作廢" },
@@ -124,6 +138,7 @@ export const graphEdgeKindLabels = {
   changed_file: "變更檔案",
   has_knowledge: "關聯知識",
   has_evidence: "附加證據",
+  session_link: "Session 關聯",
 } as const;
 
 export const graphMetadataLabels: Record<string, string> = {

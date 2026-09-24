@@ -35,6 +35,7 @@ import {
   setEvidenceVoidInputSchemaBase,
   setSessionVoidInputSchema,
   setSessionVoidInputSchemaBase,
+  linkSessionsInputSchema,
   updateKnowledgeInputSchema,
   updateKnowledgeInputSchemaBase,
   updateSessionMetadataInputSchema,
@@ -245,6 +246,17 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid session void payload.",
     run: (input) => store.setSessionVoid(input),
+  });
+
+  registerStoreTool("work_link_sessions", {
+    title: "Link related work sessions",
+    description:
+      "Link two tracked Sessions so finding one leads to the other: relation continues means sessionId continues relatedSessionId's work (e.g. the implementation of a planning Session), related is a plain association. A pair has one link; a new relation replaces the old one, and linked: false removes it. Links appear in work_get_session, as related on work_recall hits, and in the graph. When finalizing, you can pass parentSessionId or relatedSessionIds instead. Link only when the relationship is confirmed by the user or the records themselves.",
+    inputShape: linkSessionsInputSchema.shape,
+    schema: linkSessionsInputSchema,
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid session link payload.",
+    run: (input) => store.linkSessions(input),
   });
 
   registerStoreTool("work_void_evidence", {

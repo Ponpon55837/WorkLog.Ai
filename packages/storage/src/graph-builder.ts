@@ -102,6 +102,24 @@ function decodeGraphCursor(value: string | undefined, scope: string): DecodedGra
   }
 }
 
+/**
+ * Links become edges only when both Sessions are materialized in the same response; a paged graph
+ * can miss a link whose Sessions fall on different pages.
+ */
+function addSessionLinkEdges(
+  links: ReadonlyArray<{ session_id: string; related_session_id: string }>,
+  addEdge: (edge: GraphEdge) => void,
+): void {
+  for (const link of links) {
+    addEdge({
+      id: `session_link:${link.session_id}:${link.related_session_id}`,
+      from: `session:${link.related_session_id}`,
+      to: `session:${link.session_id}`,
+      kind: "session_link",
+    });
+  }
+}
+
 /** Deterministic graph query and bounded node/edge materialization. */
 export class GraphBuilder {
   public constructor(
@@ -258,7 +276,15 @@ export class GraphBuilder {
       evidence: evidenceCount,
       file: fileNodeIds.size,
     };
+    const sessionIdsInScope = new Set(allSessionsForCounts.map((session) => session.id));
+    const sessionLinks = (
+      this.db.prepare("SELECT session_id, related_session_id FROM session_links").all() as Array<{
+        session_id: string;
+        related_session_id: string;
+      }>
+    ).filter((link) => sessionIdsInScope.has(link.session_id) && sessionIdsInScope.has(link.related_session_id));
     const totalEdges =
+      sessionLinks.length +
       allSessionsForCounts.length +
       allSessionsForCounts.reduce((total, session) => total + session.changedFiles.length, 0) +
       knowledgeCount +
@@ -521,6 +547,7 @@ export class GraphBuilder {
         }
       }
 
+      addSessionLinkEdges(sessionLinks, addEdge);
       const hasNext =
         phase === "projects"
           ? projectOffset < projects.length
@@ -729,6 +756,7 @@ export class GraphBuilder {
       }
     }
 
+    addSessionLinkEdges(sessionLinks, addEdge);
     nodesTruncated = nodesTruncated || nodes.length < totalNodes;
     edgesTruncated = edgesTruncated || edges.length < totalEdges;
 

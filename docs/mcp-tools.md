@@ -14,6 +14,7 @@
 | Session | `work_update_session_summary` | 以 replace／append 修正主摘要 |
 | Session | `work_update_session_work_summary` | 以 replace／patch 修正五段 workSummary |
 | Session | `work_attach_evidence` | 掛上 Agent 已確認的測試、命令或文件參考 |
+| Session | `work_link_sessions` | 連結規劃與實作等相關 Session，檢索找到一筆時帶出另一筆 |
 | Session | `work_void_session`<br>`work_void_evidence` | 作廢誤記錄的 Session、標示錯誤的 Evidence（可還原，保留作廢紀錄） |
 | Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求；帶 `task`／`paths` 時另回傳與這次工作相關的記錄 |
 | Context | `work_recall` | 以關鍵字與檔案路徑排序查詢 Session（含 raw handoff 段落）與 Knowledge，開工前、遇到錯誤時使用 |
@@ -137,7 +138,7 @@ MCP client 的 stdio 設定可使用：
 - **排序**：BM25 × 欄位權重（title 3、tags 2、summary／workSummary／Knowledge 本文 1.5、其他 1；raw handoff 只取最相關的一段並 ×0.5），再乘上「命中關鍵字比例（依 IDF 加權）的平方」，命中越多關鍵字的記錄排越前面，最後加上溫和的時間權重。changed files 超過 20 個的 Session，其檔案欄位與路徑命中會依比例降權。
 - **路徑**：`paths` 可用絕對路徑、`專案名/相對路徑` 或相對路徑，比對前會去掉專案根目錄與專案名前綴；完全相同、檔名或路徑尾段相同、位於查詢的目錄下都算命中。Knowledge `references` 裡的 commit SHA 與 URL 會分開處理，不參與路徑比對。
 
-每筆 hit 只包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、`matchedIn`（命中欄位，路徑命中為 `path`）、raw 段落標題 `section`、約 220 字的 `excerpt`、`matchedPaths` 與 `score`。完整內容再用 `work_get_session` 或 `work_search_knowledge` 讀取，並在回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。
+每筆 hit 只包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、`matchedIn`（命中欄位，路徑命中為 `path`）、raw 段落標題 `section`、約 220 字的 `excerpt`、`matchedPaths`、`score`，以及 Session 的關聯 Session `related`（id、標題、關係）。完整內容再用 `work_get_session` 或 `work_search_knowledge` 讀取，並在回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。
 
 ```json
 { "q": "排程 重複執行 lock", "paths": ["src/scheduler/queue.ts"], "projectRoot": "C:\\work\\assistant" }
@@ -242,6 +243,16 @@ Server instructions 只放路由規則；Work record、Report synthesis、Metada
     "nextSteps": ["已完成後續修正，無待辦。"]
   }
 }
+```
+
+## `work_link_sessions`
+
+連結兩筆 tracked Session（`sessionId`、`relatedSessionId`、`relation`、`linked`）。`relation: "continues"` 表示 `sessionId` 接續 `relatedSessionId` 的工作（例如實作接續規劃）；`related` 是一般關聯。同一對 Session 只有一個關聯，新的 relation 會取代舊的；`linked: false` 移除。finalize 時也可以直接帶 `parentSessionId`（這筆接續的 Session）與 `relatedSessionIds`；無法建立的關聯（不存在、非 tracked、自己連自己）會列在回傳的 `linkWarnings`，不影響 Session 保存。
+
+關聯會出現在 `work_get_session` 的 `links`（從該 Session 看是 `continues`／`continued_by`／`related`，已作廢的會標 `voided`）、`work_recall` Session hit 的 `related`（不含已作廢）與圖譜的 `session_link` 連線（兩端 Session 需在同一次回傳中）。只在使用者或記錄本身能確認關係時才連結。
+
+```json
+{ "sessionId": "implementation-session-id", "relatedSessionId": "planning-session-id", "relation": "continues" }
 ```
 
 ## `work_void_session` / `work_void_evidence`

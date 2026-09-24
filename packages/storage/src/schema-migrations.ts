@@ -131,6 +131,24 @@ const MIGRATIONS: SchemaMigration[] = [
         ON session_verification_updates(session_id, created_at DESC);
     `,
   },
+  {
+    version: 4,
+    name: "session-links",
+    // (session_id, related_session_id, 'continues') means session_id continues the work of the other.
+    sql: `
+      CREATE TABLE IF NOT EXISTS session_links (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        related_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        relation TEXT NOT NULL CHECK (relation IN ('continues', 'related')),
+        source TEXT NOT NULL CHECK (source IN ('web', 'agent')),
+        created_at TEXT NOT NULL,
+        CHECK (session_id <> related_session_id),
+        UNIQUE (session_id, related_session_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_links_related ON session_links(related_session_id);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

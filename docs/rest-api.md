@@ -19,6 +19,8 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | PATCH    | `/api/sessions/:id/work-summary`                 | 以 replace／patch 更新既有 finalized Session 五段 workSummary（Session 面板只 patch 有改的段落） |
 | POST     | `/api/sessions/:id/evidence`                     | 保存 Agent 提供的 evidence reference                                                   |
 | PATCH    | `/api/sessions/:id/verification`                 | 修正 verification（`status`：passed／failed／not_run，選填 `summary`），每次變更寫入修改紀錄 |
+| POST     | `/api/sessions/:id/links`                        | 建立或更新 Session 關聯（`relatedSessionId`、`relation`：continues／related）            |
+| DELETE   | `/api/sessions/:id/links/:relatedId`             | 移除兩筆 Session 之間的關聯                                                           |
 | PATCH    | `/api/sessions/:id/void`                         | 作廢（`voided: true` 與必填 `reason`）或還原（`voided: false`）Session，保留作廢紀錄 |
 | PATCH    | `/api/evidence/:id/void`                         | 標示 Evidence 為錯誤或還原，保留作廢紀錄                                              |
 | GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge                                            |

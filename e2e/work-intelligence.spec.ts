@@ -441,6 +441,42 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(panel.getByRole("button", { name: "作廢 Session" })).toBeVisible();
   });
 
+  test("links two Sessions from the panel and shows the link on both sides", async ({ page, request }) => {
+    await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-link-plan-${process.pid}`,
+      title: "Linkable planning session",
+      summary: "Planned the work.",
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+    const build = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-link-build-${process.pid}`,
+      title: "Linkable implementation session",
+      summary: "Implemented the plan.",
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+
+    await page.goto(`/sessions?session=${build.session.id}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    const links = panel.getByTestId("session-links");
+    await links.getByText("關聯 Session").click();
+    await links.getByRole("button", { name: "新增關聯" }).click();
+    const dialog = page.getByRole("dialog", { name: "新增 Session 關聯" });
+    await dialog.getByLabel("搜尋要關聯的 Session").fill("Linkable planning");
+    await dialog.getByLabel(/Linkable planning session/).check();
+    await dialog.getByRole("button", { name: "建立關聯" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(links).toContainText("接續自");
+
+    await links.getByRole("link", { name: "Linkable planning session" }).click();
+    await expect(panel).toContainText("Linkable planning session");
+    await expect(panel.getByTestId("session-links")).toContainText("後續");
+    await expect(panel.getByTestId("session-links")).toContainText("Linkable implementation session");
+  });
+
   test("resizes the Session panel from its edge and remembers the width", async ({ page }) => {
     await page.goto(`/sessions?session=${sessionId}`);
     const panel = page.getByRole("dialog", { name: "Session 詳情" });

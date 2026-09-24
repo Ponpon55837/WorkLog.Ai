@@ -113,6 +113,14 @@ export const finalizeSessionInputSchema = z.object({
   verification: verificationSchema,
   git: gitSchema.optional(),
   completedAt: z.string().datetime().optional(),
+  parentSessionId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("An earlier Session this one continues, e.g. the planning Session it implements."),
+  relatedSessionIds: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);
@@ -385,6 +393,13 @@ export const setEvidenceVoidInputSchemaBase = z.object({
 });
 
 export const setEvidenceVoidInputSchema = setEvidenceVoidInputSchemaBase.superRefine(requireReasonWhenVoiding);
+
+export const linkSessionsInputSchema = z.object({
+  sessionId: z.string().trim().min(1).max(200),
+  relatedSessionId: z.string().trim().min(1).max(200),
+  relation: z.enum(["continues", "related"]).default("related"),
+  linked: z.boolean().default(true),
+});
 
 export const attachEvidenceInputSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),
