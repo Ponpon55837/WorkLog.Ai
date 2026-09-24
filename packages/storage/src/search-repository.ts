@@ -416,7 +416,7 @@ export class SearchRepository {
     const row = this.db
       .prepare(
         `SELECT project_id, title, summary, work_summary_json, completed_at, git_branch, changed_files_json
-         FROM sessions WHERE id = ?`,
+         FROM sessions WHERE id = ? AND voided_at IS NULL`,
       )
       .get(sessionId) as
       | {

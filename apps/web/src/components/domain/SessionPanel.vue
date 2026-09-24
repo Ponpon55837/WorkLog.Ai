@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
+  Ban,
   BookOpen,
   ChevronDown,
   ChevronUp,
@@ -10,19 +11,25 @@ import {
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
+  History,
   Link,
   Paperclip,
   Pencil,
+  RotateCcw,
   X,
 } from "lucide-vue-next";
+import type { EvidenceRecord } from "@work-intelligence/core";
 import { useSessionDetail } from "../../composables/useSessionDetail";
+import { useRecordVoid, type VoidTarget } from "../../composables/useRecordVoid";
 import { useSessionEditor } from "../../composables/useSessionEditor";
 import { useToast } from "../../composables/useToast";
 import { router } from "../../router";
 import { formatDate, formatReadableSummary, formatRelative } from "../../utils/format";
 import { knowledgeKindLabels } from "../../utils/labels";
 import { executionStatusVisual, verificationOf, verificationStatus } from "../../utils/status";
+import UiButton from "../ui/UiButton.vue";
 import UiDisclosure from "../ui/UiDisclosure.vue";
+import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
@@ -37,11 +44,27 @@ import WorkSummarySections from "./WorkSummarySections.vue";
 const route = useRoute();
 const { selectedDetail, position, openSessionDetail, closeSessionDetail, openAdjacentSession } = useSessionDetail();
 const { openSessionEditor } = useSessionEditor();
+const { openVoidDialog, restoreRecord } = useRecordVoid();
 const body = ref<HTMLElement | null>(null);
 
 const session = computed(() => selectedDetail.value?.session);
 const verification = computed(() => (session.value ? verificationStatus[verificationOf(session.value)] : undefined));
 const hasGit = computed(() => Boolean(session.value?.commitSha || session.value?.gitBranch));
+const sessionTarget = computed<VoidTarget | undefined>(() =>
+  session.value
+    ? { type: "session", id: session.value.id, sessionId: session.value.id, title: session.value.title }
+    : undefined,
+);
+const voidedEvidenceCount = computed(() => selectedDetail.value?.evidence.filter((item) => item.voided).length ?? 0);
+
+function evidenceTarget(item: EvidenceRecord): VoidTarget {
+  return { type: "evidence", id: item.id, sessionId: item.sessionId, title: `${item.kind} · ${item.reference}` };
+}
+
+function voidHistoryLabel(entry: { targetType: string; action: string }): string {
+  const target = entry.targetType === "session" ? "Session" : "Evidence";
+  return entry.action === "voided" ? `${target} 作廢` : `${target} 還原`;
+}
 
 watch(
   () => route.query.session,
@@ -124,6 +147,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             @click="openAdjacentSession(1)"
           />
           <UiIconButton :icon="Pencil" label="編輯摘要" size="sm" @click="openSessionEditor(session)" />
+          <UiIconButton
+            v-if="!session.voided && sessionTarget"
+            :icon="Ban"
+            label="作廢 Session"
+            size="sm"
+            @click="openVoidDialog(sessionTarget)"
+          />
           <UiIconButton :icon="Link" label="複製連結" size="sm" @click="copyLink" />
           <UiIconButton :icon="X" label="關閉" @click="closeSessionDetail" />
         </div>
@@ -133,10 +163,18 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         <StatusLabel v-if="verification" :status="verification" />
         <UiLabel :icon="FolderGit2">{{ selectedDetail.project.name }}</UiLabel>
         <UiLabel :icon="FileDiff">{{ session.changedFiles.length }} files</UiLabel>
+        <UiLabel v-if="session.voided" tone="danger" :icon="Ban">已作廢</UiLabel>
       </div>
     </template>
 
     <div v-if="selectedDetail && session" ref="body" class="session-panel">
+      <UiFlash v-if="session.voided && sessionTarget" tone="attention" title="這筆 Session 已作廢">
+        {{ session.voided.reason }}（{{ formatDate(session.voided.at) }}）。不會出現在工作歷程、報告、圖譜與 Agent
+        檢索。
+        <template #actions
+          ><UiButton size="sm" :icon="RotateCcw" @click="restoreRecord(sessionTarget)">還原</UiButton></template
+        >
+      </UiFlash>
       <p class="session-panel__summary">{{ formatReadableSummary(session.summary) }}</p>
 
       <dl class="session-panel__meta">
@@ -185,12 +223,36 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           title="Evidence"
           :icon="Paperclip"
           :count="selectedDetail.evidence.length"
+          :hint="voidedEvidenceCount ? `${voidedEvidenceCount} 筆已標示錯誤` : undefined"
         >
-          <div v-for="item in selectedDetail.evidence" :key="item.id" class="session-panel__item">
+          <div
+            v-for="item in selectedDetail.evidence"
+            :key="item.id"
+            :class="['session-panel__item', { 'is-voided': item.voided }]"
+            data-testid="session-evidence"
+          >
             <div class="session-panel__item-head">
               <UiLabel>{{ item.kind }}</UiLabel
+              ><UiLabel v-if="item.voided" tone="danger" :icon="Ban">已標示錯誤</UiLabel
               ><time :title="formatDate(item.capturedAt)">{{ formatRelative(item.capturedAt) }}</time>
+              <UiIconButton
+                v-if="item.voided"
+                class="session-panel__item-action"
+                :icon="RotateCcw"
+                label="還原 Evidence"
+                size="sm"
+                @click="restoreRecord(evidenceTarget(item))"
+              />
+              <UiIconButton
+                v-else
+                class="session-panel__item-action"
+                :icon="Ban"
+                label="標示 Evidence 為錯誤"
+                size="sm"
+                @click="openVoidDialog(evidenceTarget(item))"
+              />
             </div>
+            <p v-if="item.voided" class="session-panel__void-reason">原因：{{ item.voided.reason }}</p>
             <p v-if="item.summary">{{ item.summary }}</p>
             <code>{{ item.reference }}</code>
           </div>
@@ -222,6 +284,22 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         </UiDisclosure>
         <UiDisclosure v-if="selectedDetail.rawSnapshots.length" title="Handoff snapshot" :icon="FileText">
           <pre class="session-panel__snapshot">{{ selectedDetail.rawSnapshots[0]?.content }}</pre>
+        </UiDisclosure>
+        <UiDisclosure
+          v-if="selectedDetail.voidHistory.length"
+          title="作廢紀錄"
+          :icon="History"
+          :count="selectedDetail.voidHistory.length"
+        >
+          <ol class="session-panel__events">
+            <li v-for="entry in selectedDetail.voidHistory" :key="entry.id">
+              <code>{{ voidHistoryLabel(entry) }}</code>
+              <div>
+                <span>{{ entry.reason ?? "未填原因" }}</span>
+                <time :title="formatDate(entry.occurredAt)">{{ formatRelative(entry.occurredAt) }}</time>
+              </div>
+            </li>
+          </ol>
         </UiDisclosure>
       </div>
     </div>
@@ -341,6 +419,19 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 .session-panel__item-head strong {
   color: var(--fg);
   font-size: var(--text-sm);
+}
+
+.session-panel__item-action {
+  margin-left: auto;
+}
+
+.session-panel__item.is-voided code,
+.session-panel__item.is-voided p:not(.session-panel__void-reason) {
+  text-decoration: line-through;
+}
+
+.session-panel__void-reason {
+  color: var(--danger);
 }
 
 .session-panel__item code {

@@ -27,6 +27,11 @@ import type {
   RetryReportSynthesisRequestResult,
   SessionDetail,
   SessionListResult,
+  SessionVoidedFilter,
+  SetEvidenceVoidInput,
+  SetEvidenceVoidResult,
+  SetSessionVoidInput,
+  SetSessionVoidResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
   UpdateSessionSummaryInput,
@@ -40,6 +45,7 @@ type ApiErrorPayload = { error?: string };
 export type SessionListRequest = {
   q?: string;
   projectId?: string;
+  voided?: SessionVoidedFilter;
   from?: string;
   to?: string;
   page?: number;
@@ -104,6 +110,7 @@ export class ApiClient {
       appendQuery("/api/sessions", {
         q: options.q,
         projectId: options.projectId,
+        voided: options.voided === "exclude" ? undefined : options.voided,
         from: options.from,
         to: options.to,
         page: options.page,
@@ -115,6 +122,26 @@ export class ApiClient {
 
   public getSessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
     return this.request<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal });
+  }
+
+  public setSessionVoid(input: SetSessionVoidInput, signal?: AbortSignal): Promise<SetSessionVoidResult> {
+    const { sessionId, ...body } = input;
+    return this.write<SetSessionVoidResult>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/void`,
+      "PATCH",
+      body,
+      signal,
+    );
+  }
+
+  public setEvidenceVoid(input: SetEvidenceVoidInput, signal?: AbortSignal): Promise<SetEvidenceVoidResult> {
+    const { evidenceId, ...body } = input;
+    return this.write<SetEvidenceVoidResult>(
+      `/api/evidence/${encodeURIComponent(evidenceId)}/void`,
+      "PATCH",
+      body,
+      signal,
+    );
   }
 
   public updateSessionSummary(

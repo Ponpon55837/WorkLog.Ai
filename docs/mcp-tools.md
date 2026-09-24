@@ -14,6 +14,7 @@
 | Session | `work_update_session_summary` | 以 replace／append 修正主摘要 |
 | Session | `work_update_session_work_summary` | 以 replace／patch 修正五段 workSummary |
 | Session | `work_attach_evidence` | 掛上 Agent 已確認的測試、命令或文件參考 |
+| Session | `work_void_session`<br>`work_void_evidence` | 作廢誤記錄的 Session、標示錯誤的 Evidence（可還原，保留作廢紀錄） |
 | Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求；帶 `task`／`paths` 時另回傳與這次工作相關的記錄 |
 | Context | `work_recall` | 以關鍵字與檔案路徑排序查詢 Session（含 raw handoff 段落）與 Knowledge，開工前、遇到錯誤時使用 |
 | Context | `work_list_sessions`<br>`work_get_session` | 依關鍵字、日期、專案分頁列出 Session；讀取單筆 Session 完整內容 |
@@ -241,6 +242,17 @@ Server instructions 只放路由規則；Work record、Report synthesis、Metada
     "nextSteps": ["已完成後續修正，無待辦。"]
   }
 }
+```
+
+## `work_void_session` / `work_void_evidence`
+
+作廢誤記錄或測試用的 Session（`sessionId`、`voided`、`reason`），或把錯誤的 Evidence 標示為錯誤（`evidenceId`、`voided`、`reason`）。`voided` 預設 `true`，作廢時必須提供 `reason`；傳 `voided: false` 則還原。兩者都是可還原的 soft-delete，每次變更都寫入作廢紀錄（Session 詳情的 `voidHistory`）。只在使用者要求或確認時作廢，不能用來隱藏真實但不想要的工作。
+
+- 作廢的 Session 不會出現在 Session 列表（`work_list_sessions` 可用 `voided: "include"`／`"only"` 找回）、Dashboard、報告、圖譜、metadata 缺口、`work_get_context` 與 `work_recall`／`work_search`；`work_get_session` 仍可讀取，並帶 `session.voided`（時間與原因）。
+- 標示錯誤的 Evidence 保留在 Session 詳情並附原因，但不再出現在報告與圖譜。正確的 Evidence 請另外用 `work_attach_evidence` 掛上。
+
+```json
+{ "sessionId": "session-id", "reason": "測試 MCP 設定時誤記錄" }
 ```
 
 ## `work_attach_evidence`

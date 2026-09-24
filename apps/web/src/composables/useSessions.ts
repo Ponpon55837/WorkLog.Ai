@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import type { PageInfo, WorkSessionRecord } from "@work-intelligence/core";
+import type { PageInfo, SessionVoidedFilter, WorkSessionRecord } from "@work-intelligence/core";
 import type { ListPageSize } from "../utils/labels";
 import { runKeyed, useApi } from "./useApi";
 
@@ -25,9 +25,12 @@ const sessionPageSize = ref<ListPageSize>(10);
 const sessionPageInfo = ref<PageInfo>({ ...emptyPageInfo, pageSize: 10 });
 const dateFrom = ref("");
 const dateTo = ref("");
+const voidedFilter = ref<SessionVoidedFilter>("exclude");
 const sessionFilterError = ref("");
 const hasSessionFilters = computed(() =>
-  Boolean(searchTerm.value || selectedProjectId.value || dateFrom.value || dateTo.value),
+  Boolean(
+    searchTerm.value || selectedProjectId.value || dateFrom.value || dateTo.value || voidedFilter.value !== "exclude",
+  ),
 );
 
 async function loadSessions(): Promise<void> {
@@ -44,6 +47,7 @@ async function loadSessions(): Promise<void> {
         {
           q: searchTerm.value.trim() || undefined,
           projectId: selectedProjectId.value || undefined,
+          voided: voidedFilter.value,
           from: dateFrom.value || undefined,
           to: dateTo.value || undefined,
           page: sessionPage.value,
@@ -71,6 +75,7 @@ function clearSessionFilters(): void {
   selectedProjectId.value = "";
   dateFrom.value = "";
   dateTo.value = "";
+  voidedFilter.value = "exclude";
 }
 
 export function useSessions() {
@@ -85,6 +90,7 @@ export function useSessions() {
     sessionPageInfo,
     dateFrom,
     dateTo,
+    voidedFilter,
     sessionFilterError,
     hasSessionFilters,
     loadSessions,

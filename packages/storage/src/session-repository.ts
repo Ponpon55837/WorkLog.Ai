@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { PageInfo, SessionListResult, WorkSessionRecord } from "@work-intelligence/core";
+import type { PageInfo, SessionListResult, SessionVoidedFilter, WorkSessionRecord } from "@work-intelligence/core";
 import { localDayStartIso } from "@work-intelligence/shared";
 import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 
@@ -22,6 +22,8 @@ export type SessionRow = {
   changed_files_provenance_json: string;
   changed_file_changes_json: string | null;
   verification_json: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
 };
 
 export type SessionListOptions = {
@@ -33,6 +35,8 @@ export type SessionListOptions = {
   page?: number;
   pageSize?: number;
   trackedOnly?: boolean;
+  /** Voided Sessions are excluded unless asked for; "only" lists just the voided ones. */
+  voided?: SessionVoidedFilter;
 };
 
 /**
@@ -149,6 +153,13 @@ export class SessionRepository {
 
     if (options.trackedOnly) {
       clauses.push("p.status = 'tracked'");
+    }
+
+    const voided = options.voided ?? "exclude";
+    if (voided === "exclude") {
+      clauses.push("s.voided_at IS NULL");
+    } else if (voided === "only") {
+      clauses.push("s.voided_at IS NOT NULL");
     }
 
     if (options.query) {

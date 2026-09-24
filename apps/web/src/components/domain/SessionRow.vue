@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { FileDiff } from "lucide-vue-next";
+import { Ban, FileDiff } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
 import { formatDate, formatReadableSummary, formatRelative } from "../../utils/format";
 import { verificationOf, verificationStatus } from "../../utils/status";
@@ -40,6 +40,7 @@ const firstOutcome = computed(
       <template v-if="showSummary && firstOutcome"> · {{ firstOutcome }}</template>
     </template>
     <template #trailing>
+      <UiLabel v-if="session.voided" tone="danger" :icon="Ban">已作廢</UiLabel>
       <StatusLabel :status="verification" :show-icon="false" />
       <UiLabel class="hide-sm" :icon="FileDiff">{{ session.changedFiles.length }}</UiLabel>
     </template>

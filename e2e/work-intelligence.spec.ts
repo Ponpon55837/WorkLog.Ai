@@ -391,6 +391,43 @@ test.describe("Work Intelligence browser regression", () => {
     });
   });
 
+  test("voids a Session from the panel, lists it under the voided filter, and restores it", async ({
+    page,
+    request,
+  }) => {
+    const target = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-voidable-${process.pid}`,
+      title: "Voidable fixture session",
+      summary: "Recorded by mistake.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+    const targetId = target.session.id;
+
+    await page.goto(`/sessions?session=${targetId}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    await panel.getByRole("button", { name: "作廢 Session" }).click();
+    const dialog = page.getByRole("dialog", { name: "作廢 Session" });
+    await dialog.getByLabel("原因").fill("Recorded while testing.");
+    await dialog.getByRole("button", { name: "作廢", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(panel).toContainText("這筆 Session 已作廢");
+    await expect(panel).toContainText("Recorded while testing.");
+
+    await page.goto("/sessions?voided=only");
+    await expect(page.getByTestId("session-row").filter({ hasText: "Voidable fixture session" })).toBeVisible();
+    await page.goto("/sessions");
+    await expect(page.getByTestId("session-row").filter({ hasText: "Voidable fixture session" })).toHaveCount(0);
+
+    await page.goto(`/sessions?session=${targetId}`);
+    await panel.getByRole("button", { name: "還原" }).click();
+    await page.getByRole("dialog", { name: "還原這筆 Session？" }).getByRole("button", { name: "還原" }).click();
+    await expect(panel).not.toContainText("這筆 Session 已作廢");
+    await expect(panel.getByRole("button", { name: "作廢 Session" })).toBeVisible();
+  });
+
   test("resizes the Session panel from its edge and remembers the width", async ({ page }) => {
     await page.goto(`/sessions?session=${sessionId}`);
     const panel = page.getByRole("dialog", { name: "Session 詳情" });

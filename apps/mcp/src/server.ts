@@ -31,6 +31,10 @@ import {
   saveReportSummaryInputSchema,
   searchQuerySchema,
   sessionDetailQuerySchema,
+  setEvidenceVoidInputSchema,
+  setEvidenceVoidInputSchemaBase,
+  setSessionVoidInputSchema,
+  setSessionVoidInputSchemaBase,
   updateKnowledgeInputSchema,
   updateKnowledgeInputSchemaBase,
   updateSessionMetadataInputSchema,
@@ -154,7 +158,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_list_sessions", {
     title: "List work sessions",
     description:
-      "List finalized tracked-project Sessions, newest first, with optional keyword (q), inclusive from/to calendar dates in the server's local time zone, and a projectRoot or projectId scope. Results are paged (pageSize up to 100) and include pageInfo.total. Non-tracked scopes are skipped quietly.",
+      "List finalized tracked-project Sessions, newest first, with optional keyword (q), inclusive from/to calendar dates in the server's local time zone, a projectRoot or projectId scope, and voided (exclude by default, include, or only). Results are paged (pageSize up to 100) and include pageInfo.total. Non-tracked scopes are skipped quietly.",
     inputShape: mcpListSessionsInputSchemaBase.shape,
     schema: mcpListSessionsInputSchema,
     annotations: READ_ONLY,
@@ -230,6 +234,28 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
     invalidMessage: "Invalid session workSummary payload.",
     sessionResult: true,
     run: (input) => store.updateSessionWorkSummary(input),
+  });
+
+  registerStoreTool("work_void_session", {
+    title: "Void or restore a work session",
+    description:
+      "Void a Session that was recorded by mistake or as a test (voided: true, with a reason), or restore it (voided: false). This is a reversible soft-delete: the Session stays readable with work_get_session and every change is audited, but a voided Session leaves Session lists, reports, the graph, context, and recall. Only void when the user asks or confirms; never void to hide real but unwanted work. Non-tracked projects are skipped quietly.",
+    inputShape: setSessionVoidInputSchemaBase.shape,
+    schema: setSessionVoidInputSchema,
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid session void payload.",
+    run: (input) => store.setSessionVoid(input),
+  });
+
+  registerStoreTool("work_void_evidence", {
+    title: "Mark evidence as wrong or restore it",
+    description:
+      "Mark an attached evidence reference as wrong (voided: true, with a reason) or restore it (voided: false). Voided evidence stays in Session detail with its reason but is left out of reports and the graph; every change is audited. Attach corrected evidence separately with work_attach_evidence. Non-tracked projects are skipped quietly.",
+    inputShape: setEvidenceVoidInputSchemaBase.shape,
+    schema: setEvidenceVoidInputSchema,
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid evidence void payload.",
+    run: (input) => store.setEvidenceVoid(input),
   });
 
   registerStoreTool("work_attach_evidence", {
