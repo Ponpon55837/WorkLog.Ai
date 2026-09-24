@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { MAX_CUSTOM_REPORT_DAYS } from "@work-intelligence/core";
 import type {
   CancelReportSynthesisRequestResult,
   CreateReportSynthesisRequestInput,
@@ -14,6 +15,7 @@ import type {
   ReportSummaryListResult,
   ReportSummaryQuery,
   ReportSummaryQueryResult,
+  ReportRange,
   ReportSynthesisContextQuery,
   ReportSynthesisContextQueryResult,
   ReportSynthesisContextResult,
@@ -27,6 +29,7 @@ import type {
   SaveReportSummaryInput,
   SaveReportSummaryResult,
   WorkReport,
+  WorkReportPeriod,
 } from "@work-intelligence/core";
 import { nowIso, toLocalCalendarDate } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
@@ -37,6 +40,8 @@ import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-
 type ReportReaderOptions = {
   period: ReportPeriod;
   date?: string;
+  from?: string;
+  to?: string;
   projectId?: string;
   evidencePage?: number;
   evidencePageSize?: number;
@@ -55,7 +60,7 @@ type ReportSynthesisRequestRow = {
   scope_type: "all" | "project";
   project_id: string | null;
   project_name: string | null;
-  period: ReportPeriod;
+  period: WorkReportPeriod;
   range_from: string;
   range_to: string;
   status: "pending" | "processing" | "completed" | "failed" | "cancelled";
@@ -69,7 +74,7 @@ type ReportSynthesisRequestRow = {
 type ReportSummaryRow = {
   id: string;
   request_id: string;
-  period: ReportPeriod;
+  period: WorkReportPeriod;
   range_from: string;
   range_to: string;
   project_id: string | null;
@@ -109,6 +114,56 @@ function parseJson<T>(value: string | null, fallback: T): T {
     return JSON.parse(value) as T;
   } catch {
     return fallback;
+  }
+}
+
+function resolveSynthesisRange(input: { period: WorkReportPeriod; date?: string; from?: string; to?: string }): {
+  period: WorkReportPeriod;
+  range: ReportRange;
+} {
+  if ((input.from === undefined) !== (input.to === undefined)) {
+    throw new Error("Custom report synthesis needs both from and to dates.");
+  }
+  if (input.from && input.to) {
+    const range = { from: getReportRange("day", input.from).from, to: getReportRange("day", input.to).to };
+    const days = (Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000 + 1;
+    if (days < 1) {
+      throw new Error("The end date must be on or after the start date.");
+    }
+    if (days > MAX_CUSTOM_REPORT_DAYS) {
+      throw new Error(`A custom report covers at most ${MAX_CUSTOM_REPORT_DAYS} days.`);
+    }
+    return { period: "custom", range };
+  }
+  if (input.period === "custom") {
+    throw new Error("A custom report synthesis request needs both from and to dates.");
+  }
+  return { period: input.period, range: getReportRange(input.period, input.date ?? toLocalCalendarDate()) };
+}
+
+function addSynthesisRangeFilter(
+  options: { period?: WorkReportPeriod; date?: string; from?: string; to?: string },
+  columnPrefix: "r" | "s",
+  clauses: string[],
+  parameters: Array<string | number>,
+): void {
+  if ((options.from === undefined) !== (options.to === undefined)) {
+    throw new Error("Custom report synthesis queries need both from and to dates.");
+  }
+  if (options.from && options.to) {
+    clauses.push(`${columnPrefix}.period = ?`, `${columnPrefix}.range_from = ?`, `${columnPrefix}.range_to = ?`);
+    parameters.push("custom", options.from, options.to);
+    return;
+  }
+  if (!options.period) {
+    return;
+  }
+  clauses.push(`${columnPrefix}.period = ?`);
+  parameters.push(options.period);
+  if (options.date && options.period !== "custom") {
+    const range = getReportRange(options.period, options.date);
+    clauses.push(`${columnPrefix}.range_from = ?`, `${columnPrefix}.range_to = ?`);
+    parameters.push(range.from, range.to);
   }
 }
 
@@ -195,12 +250,13 @@ export class ReportSynthesisService {
       }
     }
 
-    const range = getReportRange(input.period, input.date ?? toLocalCalendarDate());
+    const { period, range } = resolveSynthesisRange(input);
     const idempotencyKey = input.idempotencyKey?.trim() || randomUUID();
 
     const report = this.store.getReport({
-      period: input.period,
+      period: period === "custom" ? "week" : period,
       date: input.date,
+      ...(period === "custom" ? { from: range.from, to: range.to } : {}),
       projectId: project?.id,
       evidencePage: 1,
       evidencePageSize: 100,
@@ -242,7 +298,7 @@ export class ReportSynthesisService {
           idempotencyKey,
           scopeType: project ? "project" : "all",
           projectId: project?.id ?? null,
-          period: input.period,
+          period,
           rangeFrom: range.from,
           rangeTo: range.to,
           requestedAt,
@@ -309,15 +365,7 @@ export class ReportSynthesisService {
       clauses.push("r.status = ?");
       parameters.push(options.status);
     }
-    if (options.period) {
-      clauses.push("r.period = ?");
-      parameters.push(options.period);
-      if (options.date) {
-        const range = getReportRange(options.period, options.date);
-        clauses.push("r.range_from = ?", "r.range_to = ?");
-        parameters.push(range.from, range.to);
-      }
-    }
+    addSynthesisRangeFilter(options, "r", clauses, parameters);
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? 20), 1), 100);
     const rows = this.db
       .prepare(
@@ -588,8 +636,10 @@ export class ReportSynthesisService {
 
     const maxEvidence = Math.min(Math.max(Math.trunc(options.maxEvidence ?? 40), 1), 100);
     const reportResult = this.store.getReport({
-      period: request.period,
-      date: request.range.from,
+      period: request.period === "custom" ? "week" : request.period,
+      ...(request.period === "custom"
+        ? { from: request.range.from, to: request.range.to }
+        : { date: request.range.from }),
       projectId: request.projectId,
       evidencePage: 1,
       evidencePageSize: maxEvidence,
@@ -871,15 +921,7 @@ export class ReportSynthesisService {
       clauses.push("s.request_id IN (SELECT id FROM report_synthesis_requests WHERE scope_type = ?)");
       parameters.push(options.scopeType);
     }
-    if (options.period) {
-      clauses.push("s.period = ?");
-      parameters.push(options.period);
-      if (options.date) {
-        const range = getReportRange(options.period, options.date);
-        clauses.push("s.range_from = ?", "s.range_to = ?");
-        parameters.push(range.from, range.to);
-      }
-    }
+    addSynthesisRangeFilter(options, "s", clauses, parameters);
     if (options.requestId) {
       clauses.push("s.request_id = ?");
       parameters.push(options.requestId);

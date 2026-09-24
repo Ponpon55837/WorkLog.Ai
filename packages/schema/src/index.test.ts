@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   reportQuerySchema,
   reportExportQuerySchema,
+  createReportSynthesisRequestInputSchema,
+  reportSynthesisRequestQuerySchema,
   finalizeSessionInputSchema,
   graphQuerySchema,
   insightAvailabilitySchema,
@@ -343,5 +345,38 @@ describe("custom report ranges", () => {
     expect(reportQuerySchema.safeParse({ from: "2030-01-14", to: "2030-01-01" }).success).toBe(false);
     expect(reportQuerySchema.safeParse({ from: "2030-01-01", to: "2031-01-02" }).success).toBe(false);
     expect(reportExportQuerySchema.safeParse({ to: "2030-01-01" }).success).toBe(false);
+  });
+
+  it("accepts custom synthesis requests and filters only for a valid exact range", () => {
+    expect(
+      createReportSynthesisRequestInputSchema.parse({
+        period: "custom",
+        from: "2030-01-01",
+        to: "2030-01-14",
+      }),
+    ).toMatchObject({ period: "custom", from: "2030-01-01", to: "2030-01-14" });
+    expect(
+      mcpCreateReportSynthesisRequestInputSchema.parse({
+        projectRoot: "/tracked/project",
+        period: "custom",
+        from: "2030-01-01",
+        to: "2030-01-14",
+      }),
+    ).toMatchObject({ projectRoot: "/tracked/project", period: "custom" });
+    expect(createReportSynthesisRequestInputSchema.safeParse({ period: "custom" }).success).toBe(false);
+    expect(createReportSynthesisRequestInputSchema.safeParse({ period: "custom", from: "2030-01-01" }).success).toBe(
+      false,
+    );
+    expect(
+      createReportSynthesisRequestInputSchema.safeParse({
+        period: "custom",
+        from: "2030-01-14",
+        to: "2030-01-01",
+      }).success,
+    ).toBe(false);
+    expect(
+      reportSynthesisRequestQuerySchema.safeParse({ period: "custom", from: "2030-01-01", to: "2030-01-14" }).success,
+    ).toBe(true);
+    expect(reportSynthesisRequestQuerySchema.safeParse({ period: "custom", from: "2030-01-01" }).success).toBe(false);
   });
 });

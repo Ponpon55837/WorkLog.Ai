@@ -528,7 +528,8 @@ export const REPORT_PERIODS = ["day", "week", "month", "quarter", "year"] as con
 
 export type ReportPeriod = (typeof REPORT_PERIODS)[number];
 /** A report covers a calendar period, or "custom" for an explicit from/to range (e.g. a sprint). */
-export type WorkReportPeriod = ReportPeriod | "custom";
+export const WORK_REPORT_PERIODS = [...REPORT_PERIODS, "custom"] as const;
+export type WorkReportPeriod = (typeof WORK_REPORT_PERIODS)[number];
 /** Longest custom report range, in days, inclusive of both ends. */
 export const MAX_CUSTOM_REPORT_DAYS = 366;
 export type ReportTrendGranularity = "day" | "month";
@@ -689,7 +690,7 @@ export interface ReportSynthesisRequest {
   scopeType: ReportSynthesisScopeType;
   projectId?: string;
   projectName?: string;
-  period: ReportPeriod;
+  period: WorkReportPeriod;
   range: ReportRange;
   status: ReportSynthesisStatus;
   requestedAt: string;
@@ -708,7 +709,7 @@ export interface ReportSummaryBlock {
 export interface ReportSummary {
   id: string;
   requestId: string;
-  period: ReportPeriod;
+  period: WorkReportPeriod;
   range: ReportRange;
   projectId?: string;
   projectName?: string;
@@ -730,15 +731,19 @@ export interface ReportSummary {
 }
 
 export interface CreateReportSynthesisRequestInput {
-  period: ReportPeriod;
+  period: WorkReportPeriod;
   date?: string;
+  from?: string;
+  to?: string;
   projectId?: string;
   idempotencyKey?: string;
 }
 
 export interface ReportSynthesisRequestQuery {
-  period?: ReportPeriod;
+  period?: WorkReportPeriod;
   date?: string;
+  from?: string;
+  to?: string;
   projectId?: string;
   /** "all" limits results to all-project reports, so a single project's synthesis never stands in for them. */
   scopeType?: ReportSynthesisScopeType;
