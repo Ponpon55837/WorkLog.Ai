@@ -114,7 +114,7 @@ import type {
   WorkEventType,
   WorkSessionRecord,
 } from "@work-intelligence/core";
-import { nowIso, truncateText } from "@work-intelligence/shared";
+import { localTimeZone, nowIso, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
 import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
@@ -127,6 +127,7 @@ import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
 import { ReportBuilder } from "./report-builder.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
+import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 
 type EventRow = {
@@ -1053,7 +1054,9 @@ function buildReportTrends(
   return dates.map((date) => {
     const keyLength = granularity === "month" ? 7 : 10;
     const bucketKey = date.slice(0, keyLength);
-    const bucketSessions = sessions.filter((session) => session.completedAt.slice(0, keyLength) === bucketKey);
+    const bucketSessions = sessions.filter(
+      (session) => toLocalCalendarDate(session.completedAt).slice(0, keyLength) === bucketKey,
+    );
     return {
       date,
       sessions: bucketSessions.length,
@@ -2073,7 +2076,7 @@ export class WorkIntelligenceStore {
       }
     }
 
-    const range = getReportRange(options.period, options.date ?? nowIso().slice(0, 10));
+    const range = getReportRange(options.period, options.date ?? toLocalCalendarDate());
     const previousRange = getPreviousReportRange(options.period, range);
     const sessions = this.listSessions({
       from: range.from,
@@ -2350,7 +2353,7 @@ export class WorkIntelligenceStore {
       period: options.period,
       range,
       previousRange,
-      timezone: "UTC",
+      timezone: localTimeZone(),
       project,
       periodSummary,
       sourceSessionIds: sessionIds,
@@ -2442,7 +2445,7 @@ export class WorkIntelligenceStore {
       }
     }
 
-    const range = getReportRange(input.period, input.date ?? nowIso().slice(0, 10));
+    const range = getReportRange(input.period, input.date ?? toLocalCalendarDate());
     const idempotencyKey = input.idempotencyKey?.trim() || randomUUID();
 
     const report = this.getReport({
@@ -4108,35 +4111,16 @@ export class WorkIntelligenceStore {
       const event = this.db
         .prepare(
           `SELECT * FROM work_events
-           WHERE session_id = ? AND LOWER(summary) LIKE ?
+           WHERE session_id = ? AND LOWER(summary) LIKE ? ${LIKE_ESCAPE}
            ORDER BY occurred_at ASC LIMIT 1`,
         )
-        .get(session.id, `%${needle}%`) as EventRow | undefined;
+        .get(session.id, likeContainsPattern(needle)) as EventRow | undefined;
       return {
         session,
         matchedIn: "event",
         excerpt: truncateText(event?.summary ?? session.summary),
       };
     });
-  }
-
-  public readProjectSource(projectRoot: string, relativeOrAbsolutePath: string): string | SkippedResult {
-    const decision = this.checkProjectRoot(projectRoot);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        projectRoot: decision.canonicalRoot,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const sourcePath = safeExistingProjectPath(decision.project.rootPath, relativeOrAbsolutePath);
-    if (!sourcePath) {
-      throw new Error("Source path must remain inside the tracked project root.");
-    }
-
-    return readFileSync(sourcePath, "utf8").slice(0, 200_000);
   }
 
   private captureHandoff(

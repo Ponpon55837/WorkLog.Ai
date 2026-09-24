@@ -115,5 +115,5 @@ apps/web/src/
 1. **篩選只提供 API 支援的條件**：Sessions 沒有「驗證」與「排序」篩選（後端不支援，不新增端點）；Knowledge 改用 Box header 的 ActionMenu，而非左側 facet 欄（API 不提供各類別數量）。
 2. **Tooltip 使用原生 `title`**，未另做 UiTooltip 元件。
 3. **Dashboard 待處理清單**只讀取既有的 report synthesis／metadata backfill request；同一報告範圍只看最新一筆，避免已被後續完成的失敗請求重複出現。
-4. **報告時區**沿用後端 UTC，頁首明確標示「（UTC）」。
+4. **報告時區**跟隨 server 所在系統時區，頁首顯示後端回傳的 `timezone`（例如「（Asia/Taipei）」）。
 5. **捲動**：搜尋列與分頁標籤放在 `PageToolbar`，捲動時固定在內容頂端；清單的 Box header 固定在其下方。換頁（分頁按鈕）時捲回清單頂端，切換頁面或分頁標籤時回到頁首。

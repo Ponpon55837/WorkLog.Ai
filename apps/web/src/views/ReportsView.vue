@@ -119,7 +119,7 @@ const exportItems = [
 const description = computed(() => {
   const current = report.value;
   return current
-    ? `${reportPeriodLabels[current.period]} · ${current.range.from} – ${current.range.to}（UTC）· ${projectLabel.value}`
+    ? `${reportPeriodLabels[current.period]} · ${current.range.from} – ${current.range.to}（${current.timezone}）· ${projectLabel.value}`
     : "報告只聚合「記錄中」的專案，並保留每筆來源 Session。";
 });
 

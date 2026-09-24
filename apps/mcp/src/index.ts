@@ -458,7 +458,7 @@ server.registerTool(
   {
     title: "Get a work report",
     description:
-      "Build a deterministic day, week, month, quarter, or year report from finalized sessions. Quarter and year trends are aggregated by calendar month. The report includes a period summary, previous-period comparison, completed work, verification status, risks, decisions, activity trends, source evidence, and source session IDs. Reports use UTC calendar dates and aggregate tracked projects only. A project scope that is unregistered, paused, or ignored is skipped quietly.",
+      "Build a deterministic day, week, month, quarter, or year report from finalized sessions. Quarter and year trends are aggregated by calendar month. The report includes a period summary, previous-period comparison, completed work, verification status, risks, decisions, activity trends, source evidence, and source session IDs. Reports use calendar dates in the host time zone (returned as timezone) and aggregate tracked projects only. A project scope that is unregistered, paused, or ignored is skipped quietly.",
     inputSchema: reportQuerySchema.shape,
   },
   async (input) => {

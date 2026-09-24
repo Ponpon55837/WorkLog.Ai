@@ -1,4 +1,5 @@
 import type { ReportMetricComparison, WorkReport } from "@work-intelligence/core";
+import { toLocalCalendarDate } from "@work-intelligence/shared";
 
 function markdownInline(value: string | number | undefined): string {
   return String(value ?? "—")
@@ -58,7 +59,7 @@ export class ReportBuilder {
         lines.push(
           "- **" + markdownInline(session.title) + "** — " +
             markdownInline(session.summary) +
-            "（" + session.completedAt.slice(0, 10) + projectSuffix + "）"
+            "（" + toLocalCalendarDate(session.completedAt) + projectSuffix + "）"
         );
       }
       lines.push("");

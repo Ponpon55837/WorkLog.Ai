@@ -1,5 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import type { PageInfo, SessionListResult, WorkSessionRecord } from "@work-intelligence/core";
+import { localDayStartIso } from "@work-intelligence/shared";
+import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 
 export type SessionRow = {
   id: string;
@@ -33,14 +35,18 @@ export type SessionListOptions = {
   trackedOnly?: boolean;
 };
 
-/** Returns the calendar date after `date` (YYYY-MM-DD), used as an exclusive upper bound. */
+/**
+ * Returns the UTC instant where the local calendar day after `date` (YYYY-MM-DD) starts, used as an
+ * exclusive upper bound on `completed_at`.
+ */
 export function nextCalendarDate(date: string): string {
   const parsed = Date.parse(`${date}T00:00:00.000Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed)) {
     // Not a calendar date: keep the prefix semantics of `substr(completed_at, 1, 10) <= date`.
     return `${date}￿`;
   }
-  return new Date(parsed + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const nextDate = new Date(parsed + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return localDayStartIso(nextDate) ?? nextDate;
 }
 
 type SessionMapper = (row: SessionRow) => WorkSessionRecord;
@@ -147,20 +153,20 @@ export class SessionRepository {
 
     if (options.query) {
       clauses.push(
-        `(LOWER(s.title) LIKE ? OR LOWER(s.summary) LIKE ? OR EXISTS (
+        `(LOWER(s.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(s.summary) LIKE ? ${LIKE_ESCAPE} OR EXISTS (
           SELECT 1 FROM work_events search_events
-          WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ?
+          WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ? ${LIKE_ESCAPE}
         ))`
       );
-      const needle = `%${options.query.toLowerCase()}%`;
+      const needle = likeContainsPattern(options.query.toLowerCase());
       parameters.push(needle, needle, needle);
     }
 
-    // Compare the raw ISO timestamp so the completed_at indexes stay usable:
-    // `completed_at >= from` and `completed_at < to + 1 day` match the calendar-date bounds.
+    // Compare the raw ISO timestamp so the completed_at indexes stay usable. Calendar dates become
+    // the UTC instants of local midnight, so `from`/`to` follow the host time zone.
     if (options.from) {
       clauses.push("s.completed_at >= ?");
-      parameters.push(options.from);
+      parameters.push(localDayStartIso(options.from) ?? options.from);
     }
 
     if (options.to) {

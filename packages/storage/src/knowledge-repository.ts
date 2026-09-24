@@ -10,6 +10,7 @@ import type {
   PolicyDecision,
   ProjectRecord
 } from "@work-intelligence/core";
+import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { createPageInfo } from "./pagination.js";
 
 type KnowledgeRepositoryRow = {
@@ -100,8 +101,10 @@ export class KnowledgeRepository {
     }
     const queryText = options.query?.trim() || options.q?.trim();
     if (queryText) {
-      clauses.push("(LOWER(k.title) LIKE ? OR LOWER(k.body) LIKE ? OR LOWER(k.tags_json) LIKE ? OR LOWER(k.references_json) LIKE ?)");
-      const needle = `%${queryText.toLowerCase()}%`;
+      clauses.push(
+        `(LOWER(k.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.body) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.tags_json) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.references_json) LIKE ? ${LIKE_ESCAPE})`
+      );
+      const needle = likeContainsPattern(queryText.toLowerCase());
       parameters.push(needle, needle, needle, needle);
     }
 

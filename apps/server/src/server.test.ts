@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -57,6 +57,31 @@ describe("Work Intelligence REST API", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5966");
     expect(await allowed.json()).toMatchObject({ ok: true, database: "connected" });
+  });
+
+  it("rejects non-loopback Host headers so DNS-rebound pages cannot read the API", async () => {
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-host-test-")) });
+    const { port } = new URL(baseUrl);
+
+    const statusForHost = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const request = httpRequest(
+          { host: "127.0.0.1", port, path: "/api/sessions", headers: { host } },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode ?? 0);
+          },
+        );
+        request.once("error", reject);
+        request.end();
+      });
+
+    expect(await statusForHost("rebind.evil.example")).toBe(421);
+    expect(await statusForHost(`evil.example:${port}`)).toBe(421);
+    expect(await statusForHost(`127.0.0.1:${port}`)).toBe(200);
+    expect(await statusForHost("localhost:5966")).toBe(200);
   });
 
   it("returns a safe client error for malformed JSON", async () => {

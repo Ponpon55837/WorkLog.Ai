@@ -475,7 +475,8 @@ export interface WorkReport {
   period: ReportPeriod;
   range: ReportRange;
   previousRange: ReportRange;
-  timezone: "UTC";
+  /** IANA time zone of the host that computed the calendar-date range. */
+  timezone: string;
   project?: ProjectRecord;
   periodSummary: string;
   sourceSessionIds: string[];

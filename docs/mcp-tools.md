@@ -88,7 +88,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_report`
 
-建立可重複驗證的日、週、月、季或年報告。`period` 可用 `day`、`week`、`month`、`quarter`、`year`；`date` 是 UTC 日曆日期，省略時使用 server 當下日期；`projectId` 可選，且指定專案必須是 `tracked`。季報與年報的 `trends` 以月份為單位，其他區間以日期為單位。
+建立可重複驗證的日、週、月、季或年報告。`period` 可用 `day`、`week`、`month`、`quarter`、`year`；`date` 是 server 所在系統時區的日曆日期，省略時使用 server 當下日期；`projectId` 可選，且指定專案必須是 `tracked`。季報與年報的 `trends` 以月份為單位，其他區間以日期為單位。
 
 ```json
 {
@@ -101,7 +101,7 @@ MCP client 的 stdio 設定可使用：
 回傳會包含：
 
 - `periodSummary`：該期間的 deterministic 摘要
-- `range`、`previousRange`：本期與上一期的 UTC 日曆範圍
+- `range`、`previousRange`：本期與上一期的日曆範圍（系統時區，名稱見 `timezone`）
 - `comparison`：Sessions、Events、Changed Files 的 current/previous/delta/direction
 - `completedWork`：主要完成事項（可由 Agent/UI 追到原始 Session）
 - `totals.verification`（`not_supplied` 代表 Agent 尚未回報，不等同 `not_run`）、`risks`、`decisions`、`trends`

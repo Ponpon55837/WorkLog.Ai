@@ -53,6 +53,28 @@ if ((process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "").split(",").some((origi
   );
 }
 
+// DNS rebinding guard: a rebound page is same-origin, so its GETs carry no Origin header, but the
+// Host header still names the attacker's domain. Only loopback names and allowlisted origins pass.
+const allowedHostnames = new Set(["127.0.0.1", "localhost", "[::1]"]);
+for (const origin of allowedOrigins) {
+  try {
+    allowedHostnames.add(new URL(origin).hostname);
+  } catch {
+    // An unparsable origin cannot match a browser Origin header either; ignore it here.
+  }
+}
+
+function isAllowedHost(hostHeader: string | undefined): boolean {
+  if (!hostHeader) {
+    return false;
+  }
+  try {
+    return allowedHostnames.has(new URL(`http://${hostHeader}`).hostname);
+  } catch {
+    return false;
+  }
+}
+
 class RequestBodyError extends Error {
   public constructor(
     public readonly statusCode: 400 | 413 | 415,
@@ -114,6 +136,11 @@ function sendError(response: ServerResponse, statusCode: number, message: string
 
 export function createApiHandler(store: WorkIntelligenceStore) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    if (!isAllowedHost(request.headers.host)) {
+      sendError(response, 421, "Host is not allowed.");
+      return;
+    }
+
     applyCorsHeaders(request, response);
 
     const origin = request.headers.origin;
