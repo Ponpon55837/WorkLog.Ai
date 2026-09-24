@@ -14,6 +14,7 @@
 - [連接 Codex／Claude](#連接-codexclaude)
 - [日常使用](#日常使用)
 - [Web UI 導覽](#web-ui-導覽)
+- [備份與換電腦](#備份與換電腦)
 - [核心概念](#核心概念)
 - [專案結構與開發](#專案結構與開發)
 - [文件索引](#文件索引)
@@ -85,6 +86,20 @@ GitHub 深色風格的介面，左側選單分三組：
 
 快捷鍵：`Ctrl`/`⌘` + `K` 搜尋或跳頁、`/` 聚焦頁面搜尋、`g` + `d`／`s`／`r`／`k`／`g`／`p` 切換頁面。篩選條件與開啟中的 Session 都會寫進網址，可以直接分享或重新整理。
 
+## 備份與換電腦
+
+所有記錄都在一個 SQLite 檔案裡。
+
+- **自動備份**：API server 執行時每天備份一次到資料庫旁的 `backups/`，保留最近 14 份（`WORK_INTELLIGENCE_BACKUP_KEEP` 可調整，`WORK_INTELLIGENCE_BACKUP_DIR` 可改位置，`WORK_INTELLIGENCE_BACKUP=off` 關閉）。備份檔只有目前使用者可以讀寫。
+- **手動備份**：Web UI 的專案 → 資料備份 →「立即備份」，或執行 `pnpm db:backup`。
+- **換電腦**：在舊電腦按「匯出整份資料」（或 `pnpm db:export <檔案>`）得到一個 `.sqlite` 檔。檔案包含全部工作記錄且沒有加密，請用可信任的方式帶到新電腦。在新電腦執行 `pnpm build` 後，停止 API server、關閉會啟動 MCP 的 Agent 對話，再執行：
+
+```bash
+pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>
+```
+
+專案在新電腦的位置相同時不用加 `--remap-root`；可以重複加多組。還原會先檢查檔案完整性與版本、自動備份新電腦上原本的資料，資料庫仍被其他程式開著時會停止。用備份還原也是同一個指令。
+
 ## 核心概念
 
 **專案記錄狀態（default deny）**
@@ -128,6 +143,7 @@ data/              本機 SQLite（不進版控）
 pnpm dev            # API + Web UI（開發模式）
 pnpm start:server   # 只啟動 API
 pnpm start:mcp      # 只啟動 MCP stdio server
+pnpm db:backup      # 立即備份（db:export、db:restore 見「備份與換電腦」）
 pnpm test           # lint + Prettier check + 各 package 測試
 pnpm format         # 用 Prettier 格式化整個 repo
 pnpm typecheck      # packages + Vue + e2e 型別

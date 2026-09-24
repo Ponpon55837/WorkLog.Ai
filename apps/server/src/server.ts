@@ -1,4 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { createReadStream, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
 import {
   attachEvidenceInputSchema,
@@ -141,6 +145,27 @@ function sendError(response: ServerResponse, statusCode: number, message: string
   sendJson(response, statusCode, { error: message, details });
 }
 
+/** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
+async function sendDatabaseExport(store: WorkIntelligenceStore, response: ServerResponse): Promise<void> {
+  const directory = mkdtempSync(join(tmpdir(), "work-intelligence-export-"));
+  try {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "");
+    const fileName = `work-intelligence-export-${stamp}.sqlite`;
+    const target = join(directory, fileName);
+    const { bytes } = store.exportTo(target);
+    response.writeHead(200, {
+      "Content-Type": "application/vnd.sqlite3",
+      "Content-Length": String(bytes),
+      "Content-Disposition": `attachment; filename="${fileName}"`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    await pipeline(createReadStream(target), response);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 export function createApiHandler(store: WorkIntelligenceStore) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (!isAllowedHost(request.headers.host)) {
@@ -179,6 +204,26 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           policy: "explicit-opt-in/default-deny",
           database: databaseHealthy ? "connected" : "unavailable",
         });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/backups") {
+        const result = store.listBackups();
+        sendJson(response, result.outcome === "database_backups" ? 200 : 409, result);
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/backups") {
+        // Requiring a JSON body keeps cross-site form posts from triggering backups.
+        await readJsonBody(request);
+        const result = store.createBackup();
+        sendJson(response, result.outcome === "database_backups" ? 201 : 409, result);
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/export") {
+        await readJsonBody(request);
+        await sendDatabaseExport(store, response);
         return;
       }
 
@@ -897,6 +942,11 @@ export function createApiHandler(store: WorkIntelligenceStore) {
       }
 
       console.error("[work-intelligence] API request failed", error);
+      if (response.headersSent) {
+        // A streamed download failed midway; cut the connection so the client sees an incomplete file.
+        response.destroy();
+        return;
+      }
       sendError(response, 500, "Internal server error.");
     }
   };
