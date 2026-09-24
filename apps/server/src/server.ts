@@ -48,6 +48,8 @@ import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
 
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
+const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
+const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -171,10 +173,89 @@ async function sendDatabaseExport(store: WorkIntelligenceStore, response: Server
 export interface ApiHandlerOptions {
   /** Shows the native folder dialog; injectable so tests never open a real window. */
   pickFolder?: () => Promise<FolderPickResult>;
+  /** Polling interval for the SQLite change stream; configurable to keep integration tests fast. */
+  eventPollIntervalMs?: number;
 }
 
 export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}) {
   const pickFolder = options.pickFolder ?? createFolderPicker();
+  const eventClients = new Set<ServerResponse>();
+  const eventPollIntervalMs = Math.max(1, options.eventPollIntervalMs ?? DEFAULT_EVENT_POLL_INTERVAL_MS);
+  let lastChangeToken = store.getChangeToken();
+  let lastHeartbeatAt = Date.now();
+  let eventPollTimer: ReturnType<typeof setInterval> | undefined;
+
+  function stopEventPolling(): void {
+    if (eventPollTimer) {
+      clearInterval(eventPollTimer);
+      eventPollTimer = undefined;
+    }
+  }
+
+  function publishChanged(): void {
+    for (const client of eventClients) {
+      if (client.destroyed || client.writableEnded) {
+        eventClients.delete(client);
+        continue;
+      }
+      try {
+        // This event is deliberately data-free; the browser must refetch through the normal API.
+        client.write("event: changed\ndata:\n\n");
+      } catch {
+        eventClients.delete(client);
+      }
+    }
+    lastHeartbeatAt = Date.now();
+  }
+
+  function pollDatabaseChanges(): void {
+    try {
+      const changeToken = store.getChangeToken();
+      if (changeToken !== lastChangeToken) {
+        lastChangeToken = changeToken;
+        publishChanged();
+        return;
+      }
+    } catch {
+      // Keep the stream open and retry on the next interval if SQLite is temporarily unavailable.
+      return;
+    }
+
+    if (Date.now() - lastHeartbeatAt >= EVENT_HEARTBEAT_INTERVAL_MS) {
+      for (const client of eventClients) {
+        if (!client.destroyed && !client.writableEnded) {
+          client.write(": keep-alive\n\n");
+        }
+      }
+      lastHeartbeatAt = Date.now();
+    }
+  }
+
+  function startEventStream(response: ServerResponse): void {
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      "X-Content-Type-Options": "nosniff",
+    });
+    response.write(": connected\n\n");
+    eventClients.add(response);
+    response.once("close", () => {
+      eventClients.delete(response);
+      if (eventClients.size === 0) {
+        stopEventPolling();
+      }
+    });
+
+    if (!eventPollTimer) {
+      lastChangeToken = store.getChangeToken();
+      lastHeartbeatAt = Date.now();
+      eventPollTimer = setInterval(pollDatabaseChanges, eventPollIntervalMs);
+      eventPollTimer.unref();
+    }
+  }
+
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (!isAllowedHost(request.headers.host)) {
       sendError(response, 421, "Host is not allowed.");
@@ -212,6 +293,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           policy: "explicit-opt-in/default-deny",
           database: databaseHealthy ? "connected" : "unavailable",
         });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/events") {
+        startEventStream(response);
         return;
       }
 

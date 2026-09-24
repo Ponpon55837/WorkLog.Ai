@@ -93,6 +93,16 @@ function appendQuery(path: string, values: Record<string, boolean | string | num
 export class ApiClient {
   public constructor(private readonly baseUrl = "") {}
 
+  /** Opens the data-free change stream used to refresh views from the normal REST API. */
+  public openChangeStream(onChanged: () => void, onReconnected?: () => void): EventSource {
+    const source = new EventSource(`${this.baseUrl.replace(/\/$/, "")}/api/events`);
+    source.addEventListener("changed", onChanged);
+    if (onReconnected) {
+      source.addEventListener("open", onReconnected);
+    }
+    return source;
+  }
+
   public async request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,

@@ -38,6 +38,7 @@ function shutdown(): void {
     store.close();
     process.exit(0);
   });
+  server.closeAllConnections();
 }
 
 process.on("SIGINT", shutdown);
