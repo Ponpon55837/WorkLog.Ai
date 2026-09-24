@@ -74,7 +74,7 @@ REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`，以�
 
 日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 
-主摘要與五段 workSummary 可以由 Agent（MCP）或 Web UI（Session 面板「編輯摘要」）就地更新，兩者都走同一組具 idempotency 與 audit row 的更新流程；changed files、verification、events、evidence 在 UI 維持唯讀。
+主摘要、五段 workSummary 與 verification 可以由 Agent（MCP）或 Web UI（Session 面板「編輯 Session」）就地更新，都會留下 audit row（verification 的前後值與來源記在 `session_verification_updates`）；Session 與 Evidence 可作廢／還原（`void_audit`）；changed files、events 與 evidence 內容在 UI 維持唯讀。
 
 REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdio payload 都限制為 1.5 MB；單次 finalize 或 metadata update 的 changed-files、provenance 與 lifecycle change 陣列最多 200 筆。所有即將讀取的既有 source、handoff 或 Git path 都會在 policy gate 後再次解析 real path，避免透過 symlink 逃離 tracked project root；metadata 中的 deleted／尚未建立路徑仍只做 lexical normalization，不會被當成檔案讀取。
 

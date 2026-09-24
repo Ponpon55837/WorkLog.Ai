@@ -24,7 +24,7 @@ import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables
 import { useSessionDetail } from "../composables/useSessionDetail";
 import { useSessions } from "../composables/useSessions";
 import { formatDayGroup } from "../utils/format";
-import { listPageSizeOptions } from "../utils/labels";
+import { listPageSizeOptions, voidedFilterOptions } from "../utils/labels";
 
 const { projects } = useProjects();
 const {
@@ -38,6 +38,7 @@ const {
   sessionPageInfo,
   dateFrom,
   dateTo,
+  voidedFilter,
   sessionFilterError,
   hasSessionFilters,
   loadSessions,
@@ -49,6 +50,14 @@ useRouteQuery("q", searchTerm, stringQuery());
 useRouteQuery("project", selectedProjectId, stringQuery());
 useRouteQuery("from", dateFrom, stringQuery());
 useRouteQuery("to", dateTo, stringQuery());
+useRouteQuery(
+  "voided",
+  voidedFilter,
+  enumQuery(
+    voidedFilterOptions.map((option) => option.value),
+    "exclude",
+  ),
+);
 useRouteQuery("page", sessionPage, pageQuery());
 useRouteQuery(
   "size",
@@ -61,7 +70,7 @@ useRouteQuery(
 const { reloadNow } = useListReload({
   load: loadSessions,
   page: sessionPage,
-  filters: [selectedProjectId, dateFrom, dateTo, sessionPageSize],
+  filters: [selectedProjectId, dateFrom, dateTo, voidedFilter, sessionPageSize],
   search: searchTerm,
 });
 useViewLoader(loadSessions);
@@ -131,6 +140,14 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
           :items="projectItems"
         />
         <UiDateRangeMenu v-model="dateRange" />
+        <UiActionMenu
+          v-model="voidedFilter"
+          label="作廢"
+          header="已作廢的 Session"
+          default-value="exclude"
+          align="end"
+          :items="voidedFilterOptions"
+        />
       </div>
     </template>
 

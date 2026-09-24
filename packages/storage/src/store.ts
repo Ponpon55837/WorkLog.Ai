@@ -13,6 +13,15 @@ import type {
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
+  SetEvidenceVoidInput,
+  SetEvidenceVoidResult,
+  SetSessionVoidInput,
+  SetSessionVoidResult,
+  SessionVoidedFilter,
+  VoidAuditRecord,
+  VerificationUpdateRecord,
+  VerificationUpdateSource,
+  VoidTargetType,
   RecallQueryResult,
   RelevantContext,
   CancelMetadataBackfillRequestResult,
@@ -184,6 +193,8 @@ type EvidenceRow = {
   reference: string;
   summary: string | null;
   captured_at: string;
+  voided_at?: string | null;
+  void_reason?: string | null;
 };
 
 type KnowledgeRow = {
@@ -825,6 +836,7 @@ function toSession(row: SessionRow): WorkSessionRecord {
     changedFilesProvenance: parseJson<ChangedFileProvenance[]>(row.changed_files_provenance_json, []),
     changedFileChanges: parseJson<ChangedFileChange[]>(row.changed_file_changes_json, []),
     verification: parseJson<VerificationSummary | undefined>(row.verification_json, undefined),
+    ...(row.voided_at ? { voided: { at: row.voided_at, reason: row.void_reason ?? "" } } : {}),
   };
 }
 
@@ -860,7 +872,65 @@ function toEvidence(row: EvidenceRow): EvidenceRecord {
     reference: row.reference,
     summary: row.summary ?? undefined,
     capturedAt: row.captured_at,
+    ...(row.voided_at ? { voided: { at: row.voided_at, reason: row.void_reason ?? "" } } : {}),
   };
+}
+
+type VoidAuditRow = {
+  id: string;
+  target_type: VoidTargetType;
+  target_id: string;
+  action: "voided" | "restored";
+  reason: string | null;
+  occurred_at: string;
+};
+
+function toVoidAudit(row: VoidAuditRow): VoidAuditRecord {
+  return {
+    id: row.id,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    action: row.action,
+    ...(row.reason ? { reason: row.reason } : {}),
+    occurredAt: row.occurred_at,
+  };
+}
+
+type VerificationUpdateRow = {
+  id: string;
+  source: VerificationUpdateSource;
+  previous_json: string | null;
+  resulting_json: string;
+  created_at: string;
+};
+
+function toVerificationUpdate(row: VerificationUpdateRow): VerificationUpdateRecord {
+  const previous = parseJson<VerificationSummary | undefined>(row.previous_json, undefined);
+  return {
+    id: row.id,
+    source: row.source,
+    ...(previous ? { previous } : {}),
+    resulting: parseJson<VerificationSummary>(row.resulting_json, { status: "not_run" }),
+    createdAt: row.created_at,
+  };
+}
+
+function normalizeVerification(verification: VerificationSummary): VerificationSummary {
+  const summary = verification.summary?.trim();
+  return { status: verification.status, ...(summary ? { summary } : {}) };
+}
+
+function sameVerification(left: VerificationSummary | undefined, right: VerificationSummary): boolean {
+  return left?.status === right.status && (left.summary?.trim() || undefined) === right.summary;
+}
+
+/** Voiding needs a reason so the audit explains it; a restore reason is optional. */
+function requireVoidReason(voided: boolean, reason: string | undefined): string | undefined {
+  const trimmed = reason?.trim();
+  if (voided && !trimmed) {
+    throw new Error("A reason is required to void a record.");
+  }
+  return trimmed || undefined;
 }
 
 function toKnowledge(row: KnowledgeRow): KnowledgeRecord {
@@ -1425,7 +1495,7 @@ export class WorkIntelligenceStore {
     const scanned = this.db
       .prepare(
         "SELECT COUNT(*) AS count FROM sessions s JOIN projects p ON p.id = s.project_id " +
-          "WHERE p.status = 'tracked'" +
+          "WHERE p.status = 'tracked' AND s.voided_at IS NULL" +
           projectClause,
       )
       .get(...parameters) as { count: number };
@@ -1436,7 +1506,7 @@ export class WorkIntelligenceStore {
         "SELECT s.*, p.name AS project_name, p.root_path AS project_root, " +
           "(SELECT COUNT(*) FROM raw_snapshots rs WHERE rs.session_id = s.id) AS raw_snapshot_count " +
           "FROM sessions s JOIN projects p ON p.id = s.project_id " +
-          "WHERE p.status = 'tracked'" +
+          "WHERE p.status = 'tracked' AND s.voided_at IS NULL" +
           projectClause +
           " AND NOT (" +
           "COALESCE(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json) = 'array' " +
@@ -2055,7 +2125,7 @@ export class WorkIntelligenceStore {
     // Only tracked projects are shown: history of paused/ignored projects stays in SQLite but is hidden.
     const finalizedSessions = this.db
       .prepare(
-        "SELECT COUNT(*) AS count FROM sessions s JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked'",
+        "SELECT COUNT(*) AS count FROM sessions s JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL",
       )
       .get() as { count: number };
     const recordedEvents = this.db
@@ -2064,7 +2134,7 @@ export class WorkIntelligenceStore {
          FROM work_events e
          JOIN sessions s ON s.id = e.session_id
          JOIN projects p ON p.id = s.project_id
-         WHERE p.status = 'tracked'`,
+         WHERE p.status = 'tracked' AND s.voided_at IS NULL`,
       )
       .get() as { count: number };
 
@@ -2148,6 +2218,7 @@ export class WorkIntelligenceStore {
              CROSS JOIN sessions s ON s.id = e.session_id
              CROSS JOIN projects p ON p.id = e.project_id
              WHERE p.status = 'tracked'
+               AND e.voided_at IS NULL
                AND e.session_id IN (${sessionIds.map(() => "?").join(", ")})
              ORDER BY e.captured_at ASC, e.id ASC`,
           )
@@ -3250,9 +3321,11 @@ export class WorkIntelligenceStore {
     return this.sessions.getById(sessionId);
   }
 
+  /** Corrects a Session's verification in place; every change is kept in the verification audit. */
   public updateSessionVerification(
     sessionId: string,
     verification: VerificationSummary,
+    source: VerificationUpdateSource = "agent",
   ): UpdateSessionVerificationResult {
     const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as SessionRow | undefined;
     if (!row) {
@@ -3271,23 +3344,44 @@ export class WorkIntelligenceStore {
 
     const project = decision.project;
     const previous = parseJson<VerificationSummary | undefined>(row.verification_json, undefined);
-    const updatedAt = nowIso();
-    this.runImmediateTransaction(() => {
-      this.db
-        .prepare(
-          `UPDATE sessions
-           SET verification_json = ?
-           WHERE id = ?`,
-        )
-        .run(JSON.stringify(verification), sessionId);
-      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
-    });
+    const next = normalizeVerification(verification);
+    const unchanged = sameVerification(previous, next);
+    if (!unchanged) {
+      const updatedAt = nowIso();
+      this.runImmediateTransaction(() => {
+        this.db.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run(JSON.stringify(next), sessionId);
+        this.insertVerificationUpdate(sessionId, source, previous, next, updatedAt);
+        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
+      });
+    }
 
     const session = this.getSessionById(sessionId);
     if (!session) {
       throw new Error("Session verification was updated but could not be loaded.");
     }
-    return { outcome: "updated", session, previous };
+    return { outcome: "updated", session, previous, ...(unchanged ? { unchanged } : {}) };
+  }
+
+  private insertVerificationUpdate(
+    sessionId: string,
+    source: VerificationUpdateSource,
+    previous: VerificationSummary | undefined,
+    resulting: VerificationSummary,
+    createdAt: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO session_verification_updates (id, session_id, source, previous_json, resulting_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        sessionId,
+        source,
+        previous ? JSON.stringify(previous) : null,
+        JSON.stringify(resulting),
+        createdAt,
+      );
   }
 
   public updateSessionMetadata(input: UpdateSessionMetadataInput): UpdateSessionMetadataResult {
@@ -3336,7 +3430,11 @@ export class WorkIntelligenceStore {
           ? current.changedFileChanges
           : incomingChangedFileChanges;
     const updatedAt = nowIso();
+    const nextVerification = input.verification ? normalizeVerification(input.verification) : undefined;
     this.runImmediateTransaction(() => {
+      if (nextVerification && !sameVerification(current.verification, nextVerification)) {
+        this.insertVerificationUpdate(input.sessionId, "agent", current.verification, nextVerification, updatedAt);
+      }
       this.db
         .prepare(
           `UPDATE sessions
@@ -3353,8 +3451,8 @@ export class WorkIntelligenceStore {
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(changedFileChanges),
-          verification: input.verification
-            ? JSON.stringify(input.verification)
+          verification: nextVerification
+            ? JSON.stringify(nextVerification)
             : current.verification
               ? JSON.stringify(current.verification)
               : null,
@@ -3664,7 +3762,113 @@ export class WorkIntelligenceStore {
       rawSnapshots: snapshots.map(toSnapshot),
       evidence: evidence.map(toEvidence),
       knowledge: knowledge.map(toKnowledge),
+      verificationHistory: (
+        this.db
+          .prepare("SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, id DESC")
+          .all(sessionId) as VerificationUpdateRow[]
+      ).map(toVerificationUpdate),
+      voidHistory: (
+        this.db
+          .prepare("SELECT * FROM void_audit WHERE session_id = ? ORDER BY occurred_at DESC, id DESC")
+          .all(sessionId) as VoidAuditRow[]
+      ).map(toVoidAudit),
     };
+  }
+
+  /** Voids or restores a Session. Voided Sessions leave lists, reports, the graph, context, and recall. */
+  public setSessionVoid(input: SetSessionVoidInput): SetSessionVoidResult {
+    const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(input.sessionId) as SessionRow | undefined;
+    if (!row) {
+      return { outcome: "not_found", sessionId: input.sessionId };
+    }
+    const decision = this.checkProjectById(row.project_id);
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        sessionId: input.sessionId,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+    const projectId = decision.project.id;
+    const reason = requireVoidReason(input.voided, input.reason);
+    return this.runImmediateTransaction(() => {
+      const current = this.db.prepare("SELECT voided_at FROM sessions WHERE id = ?").get(input.sessionId) as {
+        voided_at: string | null;
+      };
+      const duplicate = Boolean(current.voided_at) === input.voided;
+      if (!duplicate) {
+        const occurredAt = nowIso();
+        this.db
+          .prepare("UPDATE sessions SET voided_at = ?, void_reason = ? WHERE id = ?")
+          .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.sessionId);
+        this.insertVoidAudit("session", input.sessionId, input.sessionId, projectId, input.voided, reason, occurredAt);
+        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
+      }
+      const session = this.getSessionById(input.sessionId);
+      if (!session) {
+        throw new Error("Session void state was updated but the Session could not be loaded.");
+      }
+      return { outcome: "session_void_updated", duplicate, session };
+    });
+  }
+
+  /** Marks evidence as wrong (or restores it); it stays in Session detail but leaves reports and the graph. */
+  public setEvidenceVoid(input: SetEvidenceVoidInput): SetEvidenceVoidResult {
+    const row = this.db.prepare("SELECT * FROM evidence WHERE id = ?").get(input.evidenceId) as EvidenceRow | undefined;
+    if (!row) {
+      return { outcome: "not_found", evidenceId: input.evidenceId };
+    }
+    const decision = this.checkProjectById(row.project_id);
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        evidenceId: input.evidenceId,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+    const projectId = decision.project.id;
+    const reason = requireVoidReason(input.voided, input.reason);
+    return this.runImmediateTransaction(() => {
+      const duplicate = Boolean(row.voided_at) === input.voided;
+      if (!duplicate) {
+        const occurredAt = nowIso();
+        this.db
+          .prepare("UPDATE evidence SET voided_at = ?, void_reason = ? WHERE id = ?")
+          .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.evidenceId);
+        this.insertVoidAudit("evidence", input.evidenceId, row.session_id, projectId, input.voided, reason, occurredAt);
+        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
+      }
+      const updated = this.db.prepare("SELECT * FROM evidence WHERE id = ?").get(input.evidenceId) as EvidenceRow;
+      return { outcome: "evidence_void_updated", duplicate, evidence: toEvidence(updated) };
+    });
+  }
+
+  private insertVoidAudit(
+    targetType: VoidTargetType,
+    targetId: string,
+    sessionId: string,
+    projectId: string,
+    voided: boolean,
+    reason: string | undefined,
+    occurredAt: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO void_audit (id, target_type, target_id, session_id, project_id, action, reason, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        targetType,
+        targetId,
+        sessionId,
+        projectId,
+        voided ? "voided" : "restored",
+        reason ?? null,
+        occurredAt,
+      );
   }
 
   public recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult {
@@ -4233,6 +4437,7 @@ export class WorkIntelligenceStore {
       q?: string;
       from?: string;
       to?: string;
+      voided?: SessionVoidedFilter;
       page?: number;
       pageSize?: number;
     } & TrackedScopeInput,
@@ -4245,6 +4450,7 @@ export class WorkIntelligenceStore {
       query: input.q || undefined,
       from: input.from,
       to: input.to,
+      voided: input.voided,
       page: input.page,
       pageSize: input.pageSize,
       projectId: scope.projectId,
@@ -4508,6 +4714,7 @@ export class WorkIntelligenceStore {
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
          WHERE p.status = 'tracked'
+           AND s.voided_at IS NULL
            ${projectId ? "AND p.id = ?" : ""}
            AND json_valid(s.work_summary_json)
            AND json_type(s.work_summary_json, '$.decisions') = 'array'

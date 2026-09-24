@@ -26,6 +26,9 @@ import {
   saveReportSummaryInputSchema,
   searchQuerySchema,
   sessionsQuerySchema,
+  setEvidenceVoidInputSchema,
+  setSessionVoidInputSchema,
+  updateSessionVerificationInputSchema,
   updateProjectInputSchema,
   updateKnowledgeInputSchema,
   updateSessionMetadataInputSchema,
@@ -496,6 +499,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
         const parsed = sessionsQuerySchema.safeParse({
           q: requestUrl.searchParams.get("q")?.trim() || undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          voided: requestUrl.searchParams.get("voided") || undefined,
           from: requestUrl.searchParams.get("from") || undefined,
           to: requestUrl.searchParams.get("to") || undefined,
           page: requestUrl.searchParams.get("page") ? Number(requestUrl.searchParams.get("page")) : undefined,
@@ -513,6 +517,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           store.listSessionsPage({
             query: parsed.data.q,
             projectId: parsed.data.projectId,
+            voided: parsed.data.voided,
             from: parsed.data.from,
             to: parsed.data.to,
             page: parsed.data.page,
@@ -712,6 +717,67 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           return;
         }
         sendJson(response, 200, store.attachEvidence(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "verification"
+      ) {
+        const parsed = updateSessionVerificationInputSchema.safeParse({
+          verification: await readJsonBody(request),
+          sessionId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session verification payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(
+          response,
+          200,
+          store.updateSessionVerification(parsed.data.sessionId, parsed.data.verification, "web"),
+        );
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "void"
+      ) {
+        const parsed = setSessionVoidInputSchema.safeParse({
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          sessionId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session void payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.setSessionVoid(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "evidence" &&
+        pathParts[2] &&
+        pathParts[3] === "void"
+      ) {
+        const parsed = setEvidenceVoidInputSchema.safeParse({
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          evidenceId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid evidence void payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.setEvidenceVoid(parsed.data));
         return;
       }
 

@@ -219,4 +219,43 @@ describe("Work Intelligence MCP server", () => {
     expect(context.relevant?.knowledge).toHaveLength(1);
     expect(context.relevant?.sessions.map((session) => session.id)).toEqual([finalized.session.id]);
   });
+
+  it("voids and restores a Session and evidence through MCP", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Void project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-void-001", "Test record"),
+    );
+    const sessionId = finalized.session.id;
+
+    const missingReason = await client.callTool({ name: "work_void_session", arguments: { sessionId } });
+    expect(missingReason.isError).toBe(true);
+
+    expect(
+      await callJson(client, "work_void_session", { sessionId, reason: "Recorded while testing the setup." }),
+    ).toMatchObject({
+      outcome: "session_void_updated",
+      session: { voided: { reason: "Recorded while testing the setup." } },
+    });
+    expect(await callJson(client, "work_list_sessions", { projectRoot: root })).toMatchObject({ items: [] });
+    expect(await callJson(client, "work_list_sessions", { projectRoot: root, voided: "only" })).toMatchObject({
+      items: [{ id: sessionId }],
+    });
+    expect(await callJson(client, "work_void_session", { sessionId, voided: false })).toMatchObject({
+      outcome: "session_void_updated",
+      duplicate: false,
+    });
+
+    const evidence = await callJson<{ evidence: { id: string } }>(client, "work_attach_evidence", {
+      sessionId,
+      kind: "command",
+      reference: "pnpm test",
+    });
+    expect(
+      await callJson(client, "work_void_evidence", { evidenceId: evidence.evidence.id, reason: "Wrong command." }),
+    ).toMatchObject({ outcome: "evidence_void_updated", evidence: { voided: { reason: "Wrong command." } } });
+  });
 });

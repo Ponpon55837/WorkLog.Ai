@@ -86,6 +86,14 @@ export interface WorkSessionRecord {
   changedFilesProvenance: ChangedFileProvenance[];
   changedFileChanges: ChangedFileChange[];
   verification?: VerificationSummary;
+  /** Set when the Session was voided (recorded by mistake or as a test); voided Sessions are hidden by default. */
+  voided?: VoidState;
+}
+
+/** Soft-delete marker kept with the record; every change is also written to the void audit. */
+export interface VoidState {
+  at: string;
+  reason: string;
 }
 
 export interface WorkEventRecord {
@@ -114,6 +122,21 @@ export interface SessionDetail {
   rawSnapshots: RawSnapshotRecord[];
   evidence: EvidenceRecord[];
   knowledge: KnowledgeRecord[];
+  /** Void and restore history of this Session and its evidence, newest first. */
+  voidHistory: VoidAuditRecord[];
+  /** Verification corrections after finalize, newest first. */
+  verificationHistory: VerificationUpdateRecord[];
+}
+
+export type VerificationUpdateSource = "web" | "agent";
+
+export interface VerificationUpdateRecord {
+  id: string;
+  source: VerificationUpdateSource;
+  /** Absent when the Session had no reported verification (historical not_supplied). */
+  previous?: VerificationSummary;
+  resulting: VerificationSummary;
+  createdAt: string;
 }
 
 export interface EvidenceRecord {
@@ -124,7 +147,47 @@ export interface EvidenceRecord {
   reference: string;
   summary?: string;
   capturedAt: string;
+  /** Set when the evidence was marked wrong; it stays visible in Session detail but leaves reports and the graph. */
+  voided?: VoidState;
 }
+
+export type VoidTargetType = "session" | "evidence";
+
+/** Session list filter: voided Sessions are excluded unless asked for. */
+export type SessionVoidedFilter = "exclude" | "include" | "only";
+
+export interface VoidAuditRecord {
+  id: string;
+  targetType: VoidTargetType;
+  targetId: string;
+  action: "voided" | "restored";
+  reason?: string;
+  occurredAt: string;
+}
+
+export interface SetSessionVoidInput {
+  sessionId: string;
+  /** true voids the Session, false restores it. */
+  voided: boolean;
+  /** Required when voiding. */
+  reason?: string;
+}
+
+export interface SetEvidenceVoidInput {
+  evidenceId: string;
+  voided: boolean;
+  reason?: string;
+}
+
+export type SetSessionVoidResult =
+  | { outcome: "session_void_updated"; duplicate: boolean; session: WorkSessionRecord }
+  | { outcome: "not_found"; sessionId: string }
+  | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
+
+export type SetEvidenceVoidResult =
+  | { outcome: "evidence_void_updated"; duplicate: boolean; evidence: EvidenceRecord }
+  | { outcome: "not_found"; evidenceId: string }
+  | { outcome: "skipped"; evidenceId: string; projectStatus: PolicyStatus; reason: string };
 
 export interface AttachEvidenceInput {
   sessionId: string;
@@ -859,6 +922,8 @@ export interface UpdatedSessionVerificationResult {
   outcome: "updated";
   session: WorkSessionRecord;
   previous?: VerificationSummary;
+  /** true when the submitted verification equals the stored one; nothing was written. */
+  unchanged?: boolean;
 }
 
 export interface UpdateSessionMetadataInput {

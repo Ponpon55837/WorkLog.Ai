@@ -184,6 +184,7 @@ export class GraphBuilder {
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              WHERE p.status = 'tracked'
+               AND s.voided_at IS NULL
                ${projectScopeClause}
              ORDER BY s.completed_at DESC, s.id DESC`,
             )
@@ -213,6 +214,8 @@ export class GraphBuilder {
              JOIN sessions s ON s.id = e.session_id
              JOIN projects p ON p.id = s.project_id
              WHERE p.status = 'tracked'
+               AND s.voided_at IS NULL
+               AND e.voided_at IS NULL
                ${projectScopeClause}
              ORDER BY e.captured_at ASC, e.id ASC`,
           )

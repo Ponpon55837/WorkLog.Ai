@@ -94,6 +94,43 @@ const MIGRATIONS: SchemaMigration[] = [
       INSERT OR IGNORE INTO search_dirty (doc_type, doc_id) SELECT 'knowledge', id FROM knowledge;
     `,
   },
+  {
+    version: 2,
+    name: "void-sessions-and-evidence",
+    sql: `
+      ALTER TABLE sessions ADD COLUMN voided_at TEXT;
+      ALTER TABLE sessions ADD COLUMN void_reason TEXT;
+      ALTER TABLE evidence ADD COLUMN voided_at TEXT;
+      ALTER TABLE evidence ADD COLUMN void_reason TEXT;
+      CREATE TABLE IF NOT EXISTS void_audit (
+        id TEXT PRIMARY KEY,
+        target_type TEXT NOT NULL CHECK (target_type IN ('session', 'evidence')),
+        target_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        action TEXT NOT NULL CHECK (action IN ('voided', 'restored')),
+        reason TEXT,
+        occurred_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_void_audit_session ON void_audit(session_id, occurred_at DESC);
+    `,
+  },
+  {
+    version: 3,
+    name: "verification-audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS session_verification_updates (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        source TEXT NOT NULL CHECK (source IN ('web', 'agent')),
+        previous_json TEXT,
+        resulting_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_verification_updates_session
+        ON session_verification_updates(session_id, created_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

@@ -180,10 +180,13 @@ export const searchQuerySchema = z.object({
 const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
 const listPageSizeSchema = z.union([z.literal(0), z.number().int().min(1).max(100)]);
 
+const voidedFilterSchema = z.enum(["exclude", "include", "only"]);
+
 export const sessionsQuerySchema = z
   .object({
     q: z.string().trim().max(500).optional(),
     projectId: z.string().trim().min(1).max(200).optional(),
+    voided: voidedFilterSchema.default("exclude"),
     from: calendarDateSchema.optional(),
     to: calendarDateSchema.optional(),
     page: z.number().int().min(1).max(10_000).default(1),
@@ -218,6 +221,7 @@ export const mcpListSessionsInputSchemaBase = z.object({
   projectId: projectIdSchema.optional(),
   from: calendarDateSchema.optional(),
   to: calendarDateSchema.optional(),
+  voided: voidedFilterSchema.default("exclude"),
   page: z.number().int().min(1).max(10_000).default(1),
   pageSize: z.number().int().min(1).max(100).default(20),
 });
@@ -357,6 +361,30 @@ export const updateSessionMetadataInputSchema = z.object({
   verification: verificationSchema.optional(),
   git: gitSchema.optional(),
 });
+
+const voidReasonSchema = z.string().trim().min(1).max(1_000);
+
+function requireReasonWhenVoiding(value: { voided: boolean; reason?: string }, context: z.RefinementCtx): void {
+  if (value.voided && !value.reason) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "A reason is required to void." });
+  }
+}
+
+export const setSessionVoidInputSchemaBase = z.object({
+  sessionId: z.string().trim().min(1).max(200),
+  voided: z.boolean().default(true),
+  reason: voidReasonSchema.optional(),
+});
+
+export const setSessionVoidInputSchema = setSessionVoidInputSchemaBase.superRefine(requireReasonWhenVoiding);
+
+export const setEvidenceVoidInputSchemaBase = z.object({
+  evidenceId: z.string().trim().min(1).max(200),
+  voided: z.boolean().default(true),
+  reason: voidReasonSchema.optional(),
+});
+
+export const setEvidenceVoidInputSchema = setEvidenceVoidInputSchemaBase.superRefine(requireReasonWhenVoiding);
 
 export const attachEvidenceInputSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),

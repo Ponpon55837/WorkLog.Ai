@@ -258,7 +258,7 @@ describe("recall", () => {
     const database = new DatabaseSync(databasePath);
     database.exec(`
       DROP TABLE search_chunks; DROP TABLE search_fts; DROP TABLE search_paths; DROP TABLE search_dirty;
-      DROP TABLE schema_migrations;
+      DELETE FROM schema_migrations WHERE version = 1;
     `);
     for (const { name } of database
       .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_search_%'")

@@ -6,6 +6,7 @@ import type {
   ProjectStatus,
   ReportEvidence,
   ReportPeriod,
+  SessionVoidedFilter,
   WorkSummarySections,
 } from "@work-intelligence/core";
 import { knowledgeKindVisual, knowledgeStatusVisual, trackingStatus, type StatusVisual } from "./status";
@@ -29,6 +30,12 @@ export const listPageSizeOptions = [
   { value: "all", label: "All" },
 ] as const;
 export type ListPageSize = (typeof listPageSizeOptions)[number]["value"];
+
+export const voidedFilterOptions: Array<{ value: SessionVoidedFilter; label: string }> = [
+  { value: "exclude", label: "不含已作廢" },
+  { value: "include", label: "包含已作廢" },
+  { value: "only", label: "只看已作廢" },
+];
 
 export function pageSizeToQuery(value: ListPageSize): number {
   return value === "all" ? 0 : value;

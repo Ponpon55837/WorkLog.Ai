@@ -14,6 +14,8 @@ import {
   projectStatusQuerySchema,
   contextQuerySchema,
   recallQuerySchema,
+  setEvidenceVoidInputSchema,
+  setSessionVoidInputSchema,
   sessionDetailQuerySchema,
   sessionsQuerySchema,
   updateKnowledgeInputSchema,
@@ -277,5 +279,15 @@ describe("MCP-only input schemas", () => {
     expect(recallQuerySchema.safeParse({ q: "x", limit: 31 }).success).toBe(false);
     expect(contextQuerySchema.safeParse({ task: "fix", paths: ["src/a.ts"] }).success).toBe(true);
     expect(contextQuerySchema.safeParse({ paths: Array.from({ length: 21 }, () => "a.ts") }).success).toBe(false);
+  });
+
+  it("requires a reason to void but not to restore", () => {
+    expect(setSessionVoidInputSchema.safeParse({ sessionId: "s1" }).success).toBe(false);
+    expect(setSessionVoidInputSchema.parse({ sessionId: "s1", reason: "test" })).toMatchObject({ voided: true });
+    expect(setSessionVoidInputSchema.safeParse({ sessionId: "s1", voided: false }).success).toBe(true);
+    expect(setEvidenceVoidInputSchema.safeParse({ evidenceId: "e1", voided: true }).success).toBe(false);
+    expect(setEvidenceVoidInputSchema.safeParse({ evidenceId: "e1", voided: false }).success).toBe(true);
+    expect(sessionsQuerySchema.parse({}).voided).toBe("exclude");
+    expect(sessionsQuerySchema.safeParse({ voided: "all" }).success).toBe(false);
   });
 });
