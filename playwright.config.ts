@@ -5,7 +5,11 @@ import { defineConfig } from "@playwright/test";
 
 const webPort = Number(process.env.WORK_INTELLIGENCE_E2E_WEB_PORT ?? 5967);
 const apiPort = Number(process.env.WORK_INTELLIGENCE_E2E_API_PORT ?? 3211);
-const databasePath = path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}.sqlite`);
+// Workers load this config again with their own pid; they inherit the runner's path through the env so
+// tests that act as an Agent (writing through the storage package) use the server's database.
+const databasePath =
+  process.env.WORK_INTELLIGENCE_E2E_DB ?? path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}.sqlite`);
+process.env.WORK_INTELLIGENCE_E2E_DB = databasePath;
 const chromeCandidates = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
