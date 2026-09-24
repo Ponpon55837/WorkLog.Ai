@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
+import type { FolderPickResult } from "@work-intelligence/core";
 import {
   attachEvidenceInputSchema,
   cancelMetadataBackfillRequestInputSchema,
@@ -44,6 +45,7 @@ import {
   updateSessionWorkSummaryInputSchema,
 } from "@work-intelligence/schema";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
+import { createFolderPicker } from "./folder-picker.js";
 
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 
@@ -166,7 +168,13 @@ async function sendDatabaseExport(store: WorkIntelligenceStore, response: Server
   }
 }
 
-export function createApiHandler(store: WorkIntelligenceStore) {
+export interface ApiHandlerOptions {
+  /** Shows the native folder dialog; injectable so tests never open a real window. */
+  pickFolder?: () => Promise<FolderPickResult>;
+}
+
+export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}) {
+  const pickFolder = options.pickFolder ?? createFolderPicker();
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (!isAllowedHost(request.headers.host)) {
       sendError(response, 421, "Host is not allowed.");
@@ -204,6 +212,13 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           policy: "explicit-opt-in/default-deny",
           database: databaseHealthy ? "connected" : "unavailable",
         });
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/system/pick-folder") {
+        // JSON-only like every POST, so a cross-site form cannot pop a dialog on the user's screen.
+        await readJsonBody(request);
+        sendJson(response, 200, await pickFolder());
         return;
       }
 

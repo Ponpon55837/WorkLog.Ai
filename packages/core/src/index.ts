@@ -1681,3 +1681,10 @@ export interface DatabaseBackupUnavailable {
   outcome: "backup_unavailable";
   reason: string;
 }
+
+/** The folder chosen in the native dialog the API server shows when adding a project. */
+export type FolderPickResult =
+  | { outcome: "folder_picked"; path: string; name: string }
+  | { outcome: "folder_pick_cancelled" }
+  | { outcome: "folder_pick_busy" }
+  | { outcome: "folder_pick_unavailable"; reason: string };

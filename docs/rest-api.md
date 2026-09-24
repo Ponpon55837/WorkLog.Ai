@@ -12,6 +12,7 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
+| POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |
 | GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
@@ -83,3 +84,11 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 - 兩個 POST 都要求 `Content-Type: application/json`，跨站表單無法觸發；回應只含檔名，不會出現檔案系統路徑。
 - in-memory 資料庫回傳 409 `backup_unavailable`。
 - 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。
+
+## 選擇專案資料夾
+
+瀏覽器拿不到資料夾的完整路徑，所以「加入專案」的「選擇資料夾」由本機 API server 叫出作業系統的對話框：macOS 用 `osascript`、Windows 用 PowerShell 的 FolderBrowserDialog、Linux 依序嘗試 `zenity` 與 `kdialog`。
+
+- 回應為 `folder_picked`（`path`、`name`）、`folder_pick_cancelled`、`folder_pick_busy`（已有一個視窗開著），或 `folder_pick_unavailable`（沒有桌面環境或找不到對話框程式）。
+- 指令與參數都是固定字串、不經過 shell，也不帶入任何請求內容；要求 JSON body，跨站表單無法觸發視窗。
+- 視窗 5 分鐘沒有選擇即放棄；同一時間只開一個。

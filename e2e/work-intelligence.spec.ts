@@ -566,6 +566,27 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByLabel("更新 Consent Fixture 的專案記錄狀態")).toHaveValue("unregistered");
   });
 
+  test("fills the project root from the folder dialog", async ({ page }) => {
+    // Answer for the API so no real dialog opens on the machine running the tests.
+    await page.route("**/api/system/pick-folder", (route) =>
+      route.fulfill({ json: { outcome: "folder_picked", path: "/Users/me/code/apiary", name: "apiary" } }),
+    );
+    await page.goto("/projects");
+    await page.getByRole("button", { name: "加入專案" }).first().click();
+    const dialog = page.getByRole("dialog", { name: "加入專案" });
+    await dialog.getByRole("button", { name: "選擇資料夾" }).click();
+    await expect(dialog.getByLabel("Workspace 根目錄")).toHaveValue("/Users/me/code/apiary");
+    await expect(dialog.getByLabel("專案名稱")).toHaveValue("apiary");
+
+    await page.unroute("**/api/system/pick-folder");
+    await page.route("**/api/system/pick-folder", (route) =>
+      route.fulfill({ json: { outcome: "folder_pick_unavailable", reason: "none" } }),
+    );
+    await dialog.getByRole("button", { name: "選擇資料夾" }).click();
+    await expect(page.getByText("這台電腦無法開啟選擇資料夾視窗，請直接輸入路徑。")).toBeVisible();
+    await expect(dialog.getByLabel("Workspace 根目錄")).toHaveValue("/Users/me/code/apiary");
+  });
+
   test("jumps to a page from the command palette", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page.getByRole("heading", { name: "工作總覽" }).first()).toBeVisible();

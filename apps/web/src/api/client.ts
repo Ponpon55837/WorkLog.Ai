@@ -1,6 +1,7 @@
 import type {
   DatabaseBackupCreated,
   DatabaseBackupList,
+  FolderPickResult,
   DashboardSummary,
   CancelMetadataBackfillRequestResult,
   CancelReportSynthesisRequestResult,
@@ -106,6 +107,11 @@ export class ApiClient {
 
   private write<T>(path: string, method: "DELETE" | "PATCH" | "POST", body: unknown, signal?: AbortSignal): Promise<T> {
     return this.request<T>(path, { method, body: JSON.stringify(body), signal });
+  }
+
+  /** Opens the native folder dialog on this computer (through the local API server). */
+  public pickFolder(): Promise<FolderPickResult> {
+    return this.write<FolderPickResult>("/api/system/pick-folder", "POST", {});
   }
 
   public listBackups(signal?: AbortSignal): Promise<DatabaseBackupList> {

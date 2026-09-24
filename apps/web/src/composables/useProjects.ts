@@ -19,6 +19,7 @@ const projects = ref<ProjectRecord[]>([]);
 const projectName = ref("");
 const projectRoot = ref("");
 const addingProject = ref(false);
+const pickingFolder = ref(false);
 const trackedProjects = computed(() => projects.value.filter((project) => project.status === "tracked"));
 const recentSessions = computed(() => dashboard.value.recentSessions);
 
@@ -32,6 +33,29 @@ async function loadProjects(): Promise<void> {
   await runKeyed("projects", async (signal) => {
     projects.value = await useApi().client.listProjects(signal);
   });
+}
+
+/** Fills the project root from the native folder dialog, and the name from the folder when it is empty. */
+async function pickProjectFolder(): Promise<void> {
+  const { showToast } = useToast();
+  pickingFolder.value = true;
+  try {
+    const result = await useApi().client.pickFolder();
+    if (result.outcome === "folder_picked") {
+      projectRoot.value = result.path;
+      if (!projectName.value.trim()) {
+        projectName.value = result.name;
+      }
+    } else if (result.outcome === "folder_pick_busy") {
+      showToast("已經有一個選擇資料夾視窗開著，請先在那個視窗完成選擇。");
+    } else if (result.outcome === "folder_pick_unavailable") {
+      showToast("這台電腦無法開啟選擇資料夾視窗，請直接輸入路徑。", "danger");
+    }
+  } catch (error) {
+    showToast(errorMessage(error, "無法開啟選擇資料夾視窗。"), "danger");
+  } finally {
+    pickingFolder.value = false;
+  }
 }
 
 async function addProject(): Promise<boolean> {
@@ -99,6 +123,8 @@ export function useProjects() {
     loadDashboard,
     loadProjects,
     addProject,
+    pickingFolder,
+    pickProjectFolder,
     updateProjectStatus,
   };
 }
