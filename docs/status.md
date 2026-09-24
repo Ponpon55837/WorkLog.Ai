@@ -59,7 +59,6 @@
 | TypeSafe Adapter（Insight Provider Phase 2） | BLOCKED：等待外部契約 | Provider abstraction、No-op 與 optional injection 已完成，`WorkIntelligenceStore` 預設使用 No-op。開始實作前需要 TypeSafe／產品方先定稿：SDK 或 HTTP endpoint 與版本；backend-only credential 注入、日誌遮罩與資料外送規則；evaluation request／response／error schema（signal、confidence、usage、timeout）；timeout、retry、circuit-breaker 契約；egress guard 的呼叫邊界。這些到位前不新增依賴、網路呼叫、設定開關或假 adapter。 |
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
-| changedFiles 品質 | 提案（檢索降權在第一階段） | 有「唯讀盤點」Session 記到 41 個 changed files，疑似把既有 dirty worktree 算進去，檢索評估中已實際擠進檔名查詢前 3 名。第一階段先在排序時降權；根本解法仍是在 finalize 記錄 baseline，或在 UI 標示異常。 |
 | 即時更新新的 Session | 提案 | 目前只有進行中的 Agent 請求（報告整理、Knowledge 候選、metadata 回補）會自動檢查；Agent 新存的 Session 要手動重新整理才會出現。建議以 `PRAGMA data_version` 偵測寫入並用 SSE 推送「有變化」訊號（見 `.openspec/handoffs/2026-09-24-claude-to-codex.md`）。 |
 | 自訂期間的 AI 整理 | 限制 | `report_synthesis_requests`／`report_summaries` 的 `period` 有 CHECK 限制，自訂期間無法建立整理請求；支援需要 migration 重建兩張表。 |
 | 報告 Session 上限 | 限制 | 報告取 Session 的上限是 200 筆，很長的自訂期間或年報可能被截斷且沒有標示。 |
@@ -73,6 +72,7 @@
 - **列表搜尋改為多關鍵字**：Web 的 Session 列表、Knowledge 搜尋與 `work_search_knowledge` 原本把整句當成一個 LIKE。現在依空白拆詞（雙引號可保留片語），每個詞都要出現在某個欄位；Session 另外比對五段 workSummary 與 changed files（以 `json_each` 只比對內容，不會因欄位名稱如 decisions 命中每一筆）。列表維持時間排序與分頁，排序檢索仍由 Agent 的 `work_recall` 負責（評估的 S1 策略：0 筆題數 31→16）。
 - **圖譜跨頁的 Session 關聯**：分頁取回圖譜時，只要關聯的一端在該頁就送出 `session_link`（另一端必須是範圍內的有效 Session），Web 合併各頁後即可畫出兩端落在不同頁的關聯。
 - **保存提醒 hook**：Claude Code 使用 `apps/mcp/dist/finalize-reminder.js`；Codex 專案設定 `.codex/hooks.json` 使用 `apps/mcp/dist/codex-finalize-reminder.js`。在記錄中的專案裡，Codex 的 `apply_patch` 改檔後若未成功呼叫 `work_finalize_session`，Stop 時提醒一次（同一段未保存工作只提醒一次，`stop_hook_active` 時放行）。兩者都唯讀查專案清單、判斷失敗時放行；Codex hook 需在 `/hooks` 檢查並信任，Bash 改檔不會觸發。設定方式見 agent-setup。
+- **changedFiles 開工基準排除**：`work_finalize_session` 可傳入工作開始時擷取的 `baselineChangedFiles`，系統會從該 Session 的 changed files、來源與變更事件排除開工前已變更的路徑；從基準路徑改名時只記新路徑為新增檔案。相同基準檔案後續又修改也會保守排除，避免把先前工作錯算成本次成果。
 - **加入專案改為選擇資料夾**（使用者提出）：「加入專案」對話框新增「選擇資料夾」，由本機 API server 叫出作業系統的選擇資料夾視窗（macOS `osascript`、Windows PowerShell、Linux `zenity`／`kdialog`），選完自動填入路徑，名稱空白時以資料夾名稱帶入；仍可手動輸入。新增 `POST /api/system/pick-folder`，指令固定、不經過 shell，區分「取消」與「無法開啟」，同時只開一個視窗。
 - **資料庫備份與換電腦**（使用者提出）：API server 每天自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700、保留 14 份）；專案頁新增「資料備份」分頁，可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。
 - **Agent 完成請求後頁面自動更新**（使用者提出）：報告整理、Knowledge 候選、metadata 回補的請求在待處理或處理中時，頁面每 5 秒安靜地重新檢查（不顯示載入動畫，分頁不在前景時暫停、回到前景立即檢查），請求結束就停止；Agent 完成時自動載入結果並提示，失敗時也會提示。切換報告區間或專案時會重設追蹤，不會誤報完成。只改前端，API 不變；E2E 以 API 模擬 Agent 存入整理結果驗證。

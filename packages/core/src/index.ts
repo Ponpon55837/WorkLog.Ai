@@ -945,6 +945,8 @@ export interface FinalizeSessionInput {
   handoffContent?: string;
   events?: FinalizeEventInput[];
   changedFiles?: string[];
+  /** Paths already changed before this work started; they are excluded from this Session's changed files. */
+  baselineChangedFiles?: string[];
   changedFilesProvenance?: ChangedFileProvenance[];
   changedFileChanges?: ChangedFileChange[];
   verification?: VerificationSummary;

@@ -779,6 +779,43 @@ function normalizeChangedFiles(
   };
 }
 
+function excludeBaselineChangedFiles(
+  changedFiles: { files: string[]; provenance: ChangedFileProvenance[] },
+  baselineIdentities: Set<string>,
+): { files: string[]; provenance: ChangedFileProvenance[] } {
+  if (baselineIdentities.size === 0) {
+    return changedFiles;
+  }
+
+  return {
+    files: changedFiles.files.filter((file) => !baselineIdentities.has(changedFileIdentity(file))),
+    provenance: changedFiles.provenance.filter((entry) => !baselineIdentities.has(changedFileIdentity(entry.path))),
+  };
+}
+
+function excludeBaselineChangedFileChanges(
+  changes: ChangedFileChange[],
+  baselineIdentities: Set<string>,
+): ChangedFileChange[] {
+  if (baselineIdentities.size === 0) {
+    return changes;
+  }
+
+  return changes.flatMap((change) => {
+    if (baselineIdentities.has(changedFileIdentity(change.path))) {
+      return [];
+    }
+    if (
+      change.status === "renamed" &&
+      change.previousPath &&
+      baselineIdentities.has(changedFileIdentity(change.previousPath))
+    ) {
+      return [{ path: change.path, status: "added" }];
+    }
+    return [change];
+  });
+}
+
 function mergeChangedFiles(
   projectRoot: string,
   current: WorkSessionRecord,
@@ -4702,16 +4739,25 @@ export class WorkIntelligenceStore {
 
     const project = decision.project;
     const pathResolver = createProjectPathResolver(project.rootPath);
-    const normalizedChangedFileChanges = normalizeChangedFileChanges(
+    const normalizedBaselineChangedFiles = normalizeChangedFiles(
       project.rootPath,
-      input.changedFileChanges,
+      input.baselineChangedFiles,
+      undefined,
       pathResolver,
+    ).files;
+    const baselineChangedFileIdentities = new Set(normalizedBaselineChangedFiles.map(changedFileIdentity));
+    const normalizedChangedFileChanges = excludeBaselineChangedFileChanges(
+      normalizeChangedFileChanges(project.rootPath, input.changedFileChanges, pathResolver),
+      baselineChangedFileIdentities,
     );
-    const normalizedChangedFiles = normalizeChangedFiles(
-      project.rootPath,
-      [...(input.changedFiles ?? []), ...changedFilePathsFromChanges(normalizedChangedFileChanges)],
-      input.changedFilesProvenance,
-      pathResolver,
+    const normalizedChangedFiles = excludeBaselineChangedFiles(
+      normalizeChangedFiles(
+        project.rootPath,
+        [...(input.changedFiles ?? []), ...changedFilePathsFromChanges(normalizedChangedFileChanges)],
+        input.changedFilesProvenance,
+        pathResolver,
+      ),
+      baselineChangedFileIdentities,
     );
     const normalizedWorkSummary = normalizeWorkSummarySections(input.workSummary);
     const capturedHandoff = this.captureHandoff(project.rootPath, input);
