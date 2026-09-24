@@ -4142,7 +4142,7 @@ export class WorkIntelligenceStore {
       .prepare("SELECT * FROM raw_snapshots WHERE session_id = ? ORDER BY captured_at ASC")
       .all(sessionId) as SnapshotRow[];
     const evidence = this.db
-      .prepare("SELECT * FROM evidence WHERE session_id = ? ORDER BY captured_at ASC, id ASC")
+      .prepare("SELECT * FROM evidence WHERE session_id = ? ORDER BY captured_at ASC, rowid ASC")
       .all(sessionId) as EvidenceRow[];
     const knowledge = this.db
       .prepare(
@@ -4164,12 +4164,12 @@ export class WorkIntelligenceStore {
       links: this.getSessionLinks(sessionId),
       verificationHistory: (
         this.db
-          .prepare("SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, id DESC")
+          .prepare("SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, rowid DESC")
           .all(sessionId) as VerificationUpdateRow[]
       ).map(toVerificationUpdate),
       voidHistory: (
         this.db
-          .prepare("SELECT * FROM void_audit WHERE session_id = ? ORDER BY occurred_at DESC, id DESC")
+          .prepare("SELECT * FROM void_audit WHERE session_id = ? ORDER BY occurred_at DESC, rowid DESC")
           .all(sessionId) as VoidAuditRow[]
       ).map(toVoidAudit),
     };
