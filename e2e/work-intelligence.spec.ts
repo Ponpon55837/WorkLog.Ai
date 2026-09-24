@@ -185,7 +185,7 @@ test.describe("Work Intelligence browser regression", () => {
     expect(newerSummary.outcome).toBe("report_summary_saved");
   });
 
-  test("keeps the report synthesis card readable with sourced sections and versions", async ({ page }) => {
+  test("keeps the report synthesis card readable with sourced sections and versions", async ({ page, request }) => {
     await page.goto("/");
     await page.getByTestId("nav-reports").click();
     await expect(page.getByRole("heading", { name: "工作報告" }).first()).toBeVisible();
@@ -218,6 +218,29 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(synthesis).toContainText("待處理");
     await expect(synthesis.getByRole("button", { name: "取消這次整理" })).toBeVisible();
     await expect(synthesis.getByRole("button", { name: "複製 Agent 指令" })).toBeVisible();
+
+    // An Agent finishing the request shows up on the open page without a manual refresh.
+    const pendingResponse = await request.get(
+      `/api/reports/synthesis-requests?period=week&date=${reportDate}&scopeType=all&status=pending`,
+    );
+    const pending = (await pendingResponse.json()) as { requests: Array<{ id: string }> };
+    const agentSummary = await postJson(request, "/api/reports/summaries", {
+      requestId: pending.requests[0]?.id,
+      title: "Browser regression report by Agent",
+      executiveSummary: "Saved while the report page was open.",
+      highlights: [
+        { title: "Auto refresh", detail: "The page picked this up by itself.", sourceSessionIds: [sessionId] },
+      ],
+      risks: [],
+      decisions: [],
+      nextSteps: [],
+      sourceSessionIds: [sessionId],
+      generatedByAgent: "Playwright fixture",
+      promptVersion: "e2e-fixture-v3",
+    });
+    expect(agentSummary.outcome).toBe("report_summary_saved");
+    await expect(page.getByText("Agent 已完成 AI 報告整理。")).toBeVisible({ timeout: 15_000 });
+    await expect(synthesis).toContainText("Browser regression report by Agent");
 
     await page.getByRole("tab", { name: "原始紀錄" }).click();
     const reportSessionPageSize = page.getByLabel("報告原始工作紀錄每頁筆數");

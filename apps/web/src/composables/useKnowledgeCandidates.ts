@@ -35,8 +35,10 @@ function splitValues(value: string): string[] {
 }
 
 /** Proposed candidates and open requests, optionally limited to one project's root. */
-async function loadCandidates(projectRoot?: string): Promise<void> {
-  candidatesLoading.value = true;
+async function fetchCandidates(projectRoot?: string, quiet = false): Promise<void> {
+  if (!quiet) {
+    candidatesLoading.value = true;
+  }
   await runKeyed(
     "knowledge-candidates",
     async (signal) => {
@@ -168,6 +170,15 @@ async function saveCandidateEditor(reloadRoot?: string): Promise<void> {
   }
 }
 
+function loadCandidates(projectRoot?: string): Promise<void> {
+  return fetchCandidates(projectRoot);
+}
+
+/** Re-checks without the loading indicator, while an Agent is working on a request. */
+function refreshCandidates(projectRoot?: string): Promise<void> {
+  return fetchCandidates(projectRoot, true);
+}
+
 export function useKnowledgeCandidates() {
   return {
     candidates,
@@ -179,6 +190,7 @@ export function useKnowledgeCandidates() {
     candidateSaving,
     candidateError,
     loadCandidates,
+    refreshCandidates,
     requestCandidates,
     acceptCandidate,
     rejectCandidate,

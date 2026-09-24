@@ -394,7 +394,7 @@ Agent 會自行完成以下 implementation detail，使用者不需要知道工�
 
 Agent 不得把「有 changed files」當成 Git commit，也不得從不足的 context 推測；沒有證據時要明確寫 `資料不足`。報告依日／週／月／季／年的時間尺度重新聚類，呈現成果、工作主題、決策、驗證與當下限制；不按日期寫流水帳，也不新增來源未提供的未來計畫。
 
-若早上已完成一次提煉、下午又有新 Session，直接在工作報告頁按「重新整理」即可建立新 request。上一版摘要會保留到新的 Agent 摘要完成，再由新版本取代；每次回寫都保留歷史版本，pending request 沒有 Agent 處理時也不會遺失。
+若早上已完成一次提煉、下午又有新 Session，直接在工作報告頁按「重新整理」即可建立新 request。上一版摘要會保留到新的 Agent 摘要完成，再由新版本取代；每次回寫都保留歷史版本，pending request 沒有 Agent 處理時也不會遺失。報告頁、工作知識頁與 metadata 回補區塊在請求待處理或處理中時，每 5 秒重新檢查一次狀態（分頁不在前景時暫停），Agent 完成後會自動載入結果並提示，不需要手動重新整理。
 
 如果 Agent 在取得 Context 後中斷，WorkLog 不會讓舊 Agent 在稍後覆蓋新結果。processing 請求超過 30 分鐘會自動標記為可重試；工作報告頁會顯示失敗原因與「重試這次整理」，重試會建立新的 pending attempt 並保留舊請求歷史。MCP Agent 遇到逾時或中斷的 request 時，也應先使用 `work_retry_report_synthesis`，再取得新的 report context。尚未逾時的 processing request 不允許平行重試，以避免重複產生報告。
 

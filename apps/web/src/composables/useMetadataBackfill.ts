@@ -21,8 +21,10 @@ const metadataBackfillRequestIsActive = computed(() => {
   return status === "pending" || status === "processing";
 });
 
-async function loadMetadataBackfillRequest(): Promise<void> {
-  metadataBackfillRequestLoading.value = true;
+async function fetchMetadataBackfillRequest(quiet = false): Promise<void> {
+  if (!quiet) {
+    metadataBackfillRequestLoading.value = true;
+  }
   metadataBackfillRequestError.value = "";
   await runKeyed(
     "metadata-backfill-request",
@@ -148,6 +150,15 @@ function openMetadataBackfillSession(item: MetadataBackfillItem): Promise<void> 
   return useSessionDetail().openSessionDetail(item.sessionId, "無法載入待回補的 Session。");
 }
 
+function loadMetadataBackfillRequest(): Promise<void> {
+  return fetchMetadataBackfillRequest();
+}
+
+/** Re-checks without the loading indicator, while an Agent is working on a request. */
+function refreshMetadataBackfillRequest(): Promise<void> {
+  return fetchMetadataBackfillRequest(true);
+}
+
 export function useMetadataBackfill() {
   return {
     metadataBackfillPreview,
@@ -159,6 +170,7 @@ export function useMetadataBackfill() {
     metadataBackfillRequestCreating,
     metadataBackfillRequestError,
     loadMetadataBackfillRequest,
+    refreshMetadataBackfillRequest,
     createMetadataBackfillRequest,
     cancelMetadataBackfillRequest,
     copyMetadataBackfillInstruction,

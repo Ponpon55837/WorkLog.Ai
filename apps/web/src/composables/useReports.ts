@@ -85,8 +85,10 @@ function synthesisScope(): ReturnType<typeof reportScope> & { scopeType?: "all" 
   return scope.projectId ? scope : { ...scope, scopeType: "all" };
 }
 
-async function loadReportSynthesis(): Promise<void> {
-  reportSynthesisLoading.value = true;
+async function fetchReportSynthesis(quiet = false): Promise<void> {
+  if (!quiet) {
+    reportSynthesisLoading.value = true;
+  }
   reportSynthesisError.value = "";
   await runKeyed(
     "report-synthesis",
@@ -403,6 +405,15 @@ function openReportEvidence(evidence: ReportEvidence): Promise<void> {
   return openReportSession(evidence.sessionId);
 }
 
+function loadReportSynthesis(): Promise<void> {
+  return fetchReportSynthesis();
+}
+
+/** Re-checks without the loading indicator, while an Agent is working on a request. */
+function refreshReportSynthesis(): Promise<void> {
+  return fetchReportSynthesis(true);
+}
+
 export function useReports() {
   return {
     report,
@@ -435,6 +446,7 @@ export function useReports() {
     reportComparisons,
     loadReport,
     loadReportSynthesis,
+    refreshReportSynthesis,
     selectReportSynthesisVersion,
     createReportSynthesisRequest,
     retryReportSynthesisRequest,

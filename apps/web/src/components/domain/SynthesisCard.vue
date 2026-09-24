@@ -2,8 +2,10 @@
 import { computed } from "vue";
 import { History, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-vue-next";
 import type { ReportPeriod, ReportSummary } from "@work-intelligence/core";
+import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { reportSynthesisInstruction, useReports } from "../../composables/useReports";
 import { useSessionDetail } from "../../composables/useSessionDetail";
+import { useToast } from "../../composables/useToast";
 import { formatDate, formatRelative } from "../../utils/format";
 import { requestStatus } from "../../utils/status";
 import UiBox from "../ui/UiBox.vue";
@@ -24,6 +26,9 @@ import SynthesisBlock from "./SynthesisBlock.vue";
  */
 const {
   report,
+  reportPeriod,
+  reportDate,
+  reportProjectId,
   reportSynthesisRequest: request,
   reportSynthesisSummary: summary,
   reportSynthesisHistory: history,
@@ -35,6 +40,7 @@ const {
   reportSynthesisIsActive: isActive,
   reportSynthesisCanRetry: canRetry,
   loadReportSynthesis,
+  refreshReportSynthesis,
   selectReportSynthesisVersion,
   createReportSynthesisRequest,
   retryReportSynthesisRequest,
@@ -42,6 +48,20 @@ const {
   deleteReportSynthesisVersion,
 } = useReports();
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
+const { showToast } = useToast();
+
+useActiveRequestWatch({
+  requests: () => (request.value ? [request.value] : []),
+  check: refreshReportSynthesis,
+  scope: () => `${reportPeriod.value}|${reportDate.value}|${reportProjectId.value}`,
+  onSettled: (_request, status) => {
+    if (status === "completed") {
+      showToast("Agent 已完成 AI 報告整理。", "success");
+    } else if (status === "failed") {
+      showToast("AI 報告整理沒有完成，可以重試。", "danger");
+    }
+  },
+});
 
 const grainHints: Record<ReportPeriod, string> = {
   day: "日報 · 以 Task / Feature / Issue 分組",
@@ -73,7 +93,7 @@ const pendingMessage = computed(() => {
     return "請在目前的 Codex 或 Claude 對話中貼上下面的指令，Agent 會處理這份報告。";
   }
   if (status === "processing") {
-    return "Agent 已開始處理；完成後按重新整理即可看到新版本。";
+    return "Agent 已開始處理；完成後這裡會自動顯示新版本。";
   }
   if (status === "failed" || status === "cancelled") {
     return "這次整理沒有完成，可以重試建立一次安全的整理請求。";
