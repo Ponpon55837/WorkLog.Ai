@@ -89,14 +89,8 @@ import type {
   ReportExportFormat,
   ReportExportResult,
   ReportPeriod,
-  ReportRange,
-  ReportEvidence,
   ReportEvidenceKind,
-  ReportDecision,
-  ReportInsight,
-  ReportMetricComparison,
   ReportQueryResult,
-  ReportProjectSummary,
   ReportSynthesisContextQuery,
   ReportSynthesisContextQueryResult,
   ReportSynthesisContextResult,
@@ -117,8 +111,6 @@ import type {
   CreateReportSynthesisRequestResult,
   ReportSynthesisRequestLookupResult,
   ReportSynthesisRequestDetailResult,
-  ReportTrendGranularity,
-  ReportTrendPoint,
   WorkReport,
   RawSnapshotRecord,
   SearchResult,
@@ -141,9 +133,6 @@ import type {
   WorkEventRecord,
   WorkEventType,
   WorkSessionRecord,
-  WorkReportPeriod,
-  ReportSpanningSession,
-  ReportSpanningSessions,
   DatabaseBackupCreated,
   DatabaseBackupList,
   DatabaseBackupUnavailable,
@@ -152,7 +141,7 @@ import type {
   SessionListQueryResult,
   SessionNotFoundResult,
 } from "@work-intelligence/core";
-import { localDayStartIso, localTimeZone, nowIso, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
+import { nowIso, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
 import {
   backupDatabase,
@@ -175,7 +164,8 @@ import { GraphBuilder } from "./graph-builder.js";
 import { KnowledgeRepository } from "./knowledge-repository.js";
 import { ProjectRepository } from "./project-repository.js";
 import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
-import { ReportBuilder } from "./report-builder.js";
+import { ReportReadService } from "./report-service.js";
+import { getReportRange } from "./report-utils.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
@@ -314,17 +304,6 @@ type MetadataBackfillRequestRow = {
   completed_at: string | null;
   failure_reason: string | null;
   source_session_ids_json: string;
-};
-
-type ReportAttachedEvidenceRow = EvidenceRow & {
-  session_title: string;
-  project_name: string | null;
-};
-
-type ReportEventRow = EventRow & { project_id: string };
-type ReportSnapshotSummaryRow = {
-  session_id: string;
-  source_path: string | null;
 };
 
 type MetadataBackfillRow = SessionRow & {
@@ -1140,166 +1119,6 @@ function toReportSummary(row: ReportSummaryRow): ReportSummary {
   };
 }
 
-function parseUtcCalendarDate(value: string): Date {
-  const [year = "0", month = "0", day = "0"] = value.split("-");
-  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-  if (!Number.isFinite(date.getTime()) || formatUtcCalendarDate(date) !== value) {
-    throw new Error("Report date must use a valid YYYY-MM-DD value.");
-  }
-  return date;
-}
-
-function formatUtcCalendarDate(value: Date): string {
-  const year = value.getUTCFullYear();
-  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(value.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getReportRange(period: ReportPeriod, anchorValue: string): { from: string; to: string } {
-  const anchor = parseUtcCalendarDate(anchorValue);
-  if (period === "day") {
-    const day = formatUtcCalendarDate(anchor);
-    return { from: day, to: day };
-  }
-
-  if (period === "year") {
-    const from = new Date(Date.UTC(anchor.getUTCFullYear(), 0, 1));
-    const to = new Date(Date.UTC(anchor.getUTCFullYear(), 11, 31));
-    return { from: formatUtcCalendarDate(from), to: formatUtcCalendarDate(to) };
-  }
-
-  if (period === "quarter") {
-    const quarterMonth = Math.floor(anchor.getUTCMonth() / 3) * 3;
-    const from = new Date(Date.UTC(anchor.getUTCFullYear(), quarterMonth, 1));
-    const to = new Date(Date.UTC(anchor.getUTCFullYear(), quarterMonth + 3, 0));
-    return { from: formatUtcCalendarDate(from), to: formatUtcCalendarDate(to) };
-  }
-
-  if (period === "month") {
-    const from = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
-    const to = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 0));
-    return { from: formatUtcCalendarDate(from), to: formatUtcCalendarDate(to) };
-  }
-
-  const mondayOffset = (anchor.getUTCDay() + 6) % 7;
-  const from = new Date(anchor);
-  from.setUTCDate(from.getUTCDate() - mondayOffset);
-  const to = new Date(from);
-  to.setUTCDate(to.getUTCDate() + 6);
-  return { from: formatUtcCalendarDate(from), to: formatUtcCalendarDate(to) };
-}
-
-function getPreviousReportRange(period: ReportPeriod, range: ReportRange): ReportRange {
-  const from = parseUtcCalendarDate(range.from);
-  if (period === "day") {
-    from.setUTCDate(from.getUTCDate() - 1);
-    const previousDay = formatUtcCalendarDate(from);
-    return { from: previousDay, to: previousDay };
-  }
-
-  if (period === "year") {
-    const previousFrom = new Date(Date.UTC(from.getUTCFullYear() - 1, 0, 1));
-    const previousTo = new Date(Date.UTC(from.getUTCFullYear() - 1, 11, 31));
-    return { from: formatUtcCalendarDate(previousFrom), to: formatUtcCalendarDate(previousTo) };
-  }
-
-  if (period === "quarter") {
-    const previousFrom = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 3, 1));
-    const previousTo = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 0));
-    return { from: formatUtcCalendarDate(previousFrom), to: formatUtcCalendarDate(previousTo) };
-  }
-
-  if (period === "month") {
-    const previousFrom = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
-    const previousTo = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 0));
-    return { from: formatUtcCalendarDate(previousFrom), to: formatUtcCalendarDate(previousTo) };
-  }
-
-  const previousFrom = new Date(from);
-  previousFrom.setUTCDate(previousFrom.getUTCDate() - 7);
-  const previousTo = new Date(previousFrom);
-  previousTo.setUTCDate(previousTo.getUTCDate() + 6);
-  return { from: formatUtcCalendarDate(previousFrom), to: formatUtcCalendarDate(previousTo) };
-}
-
-function listCalendarDates(range: ReportRange): string[] {
-  const current = parseUtcCalendarDate(range.from);
-  const end = parseUtcCalendarDate(range.to);
-  const dates: string[] = [];
-  while (current <= end) {
-    dates.push(formatUtcCalendarDate(current));
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-  return dates;
-}
-
-function listCalendarMonths(range: ReportRange): string[] {
-  const current = parseUtcCalendarDate(range.from);
-  current.setUTCDate(1);
-  const end = parseUtcCalendarDate(range.to);
-  end.setUTCDate(1);
-  const dates: string[] = [];
-  while (current <= end) {
-    dates.push(formatUtcCalendarDate(current));
-    current.setUTCMonth(current.getUTCMonth() + 1);
-  }
-  return dates;
-}
-
-function reportRangeDays(range: ReportRange): number {
-  return (parseUtcCalendarDate(range.to).getTime() - parseUtcCalendarDate(range.from).getTime()) / 86_400_000 + 1;
-}
-
-/** Days for up to a quarter's worth of dates (a custom range longer than 92 days trends by month). */
-function getReportTrendGranularity(period: WorkReportPeriod, range: ReportRange): ReportTrendGranularity {
-  if (period === "custom") {
-    return reportRangeDays(range) > 92 ? "month" : "day";
-  }
-  return period === "quarter" || period === "year" ? "month" : "day";
-}
-
-/** The same number of days immediately before a custom range. */
-function getPreviousCustomRange(range: ReportRange): ReportRange {
-  const days = reportRangeDays(range);
-  const to = parseUtcCalendarDate(range.from);
-  to.setUTCDate(to.getUTCDate() - 1);
-  const from = new Date(to);
-  from.setUTCDate(from.getUTCDate() - (days - 1));
-  return { from: formatUtcCalendarDate(from), to: formatUtcCalendarDate(to) };
-}
-
-function buildReportTrends(
-  granularity: ReportTrendGranularity,
-  range: ReportRange,
-  sessions: WorkSessionRecord[],
-  eventsBySession: Map<string, ReportEventRow[]>,
-): ReportTrendPoint[] {
-  const dates = granularity === "month" ? listCalendarMonths(range) : listCalendarDates(range);
-  return dates.map((date) => {
-    const keyLength = granularity === "month" ? 7 : 10;
-    const bucketKey = date.slice(0, keyLength);
-    const bucketSessions = sessions.filter(
-      (session) => toLocalCalendarDate(session.completedAt).slice(0, keyLength) === bucketKey,
-    );
-    return {
-      date,
-      sessions: bucketSessions.length,
-      events: bucketSessions.reduce((total, session) => total + (eventsBySession.get(session.id)?.length ?? 0), 0),
-    };
-  });
-}
-
-function compareReportMetric(current: number, previous: number): ReportMetricComparison {
-  const delta = current - previous;
-  return {
-    current,
-    previous,
-    delta,
-    direction: delta === 0 ? "flat" : delta > 0 ? "up" : "down",
-  };
-}
-
 function getVerificationFollowUp(session: WorkSessionRecord): VerificationFollowUp | undefined {
   if (session.verification?.status === "passed" || session.verification?.status === "failed") {
     return undefined;
@@ -1337,10 +1156,6 @@ function getWorkSummaryFollowUp(session: WorkSessionRecord): WorkSummaryFollowUp
     message:
       "Work summary sections were not supplied. Provide outcomes (confirmed results), scope (important changed areas), decisions (explicit choices only), verification (actual results and unverified coverage), and nextSteps (objective current open state/limitations only; no future recommendations) as concise arrays. Use [] when a section has no supported facts.",
   };
-}
-
-function verificationStatusLabel(status: VerificationSummary["status"]): string {
-  return status === "passed" ? "Passed" : status === "failed" ? "Failed" : "未執行";
 }
 
 function toMetadataBackfillItem(row: MetadataBackfillRow): MetadataBackfillItem {
@@ -1444,7 +1259,7 @@ export class WorkIntelligenceStore {
   private readonly knowledge: KnowledgeRepository;
   private readonly graphBuilder: GraphBuilder;
   private readonly handoffImportService = new HandoffImportService();
-  private readonly reportBuilder = new ReportBuilder();
+  private readonly reportReader: ReportReadService;
   private readonly reportSynthesisRequests: ReportSynthesisRequestRepository;
   private readonly metadataBackfills: MetadataBackfillRepository;
   private readonly searchIndex: SearchRepository;
@@ -1468,6 +1283,7 @@ export class WorkIntelligenceStore {
     this.ensureSchemaMigrations();
     this.projects = new ProjectRepository(this.db);
     this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
+    this.reportReader = new ReportReadService(this.db, this);
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
       listTrackedProjects: () => this.listProjects().filter((project) => project.status === "tracked"),
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
@@ -2324,43 +2140,6 @@ export class WorkIntelligenceStore {
     };
   }
 
-  /** Sessions that belong to the period without being counted in it (see WorkReport.spanning). */
-  private getReportSpanningSessions(
-    range: ReportRange,
-    sessions: WorkSessionRecord[],
-    projectId: string | undefined,
-  ): ReportSpanningSessions {
-    const limit = 20;
-    const digest = (session: WorkSessionRecord): ReportSpanningSession => ({
-      id: session.id,
-      title: session.title,
-      ...(session.projectName ? { projectName: session.projectName } : {}),
-      ...(session.startedAt ? { startedAt: session.startedAt } : {}),
-      completedAt: session.completedAt,
-      updatedAt: session.updatedAt,
-    });
-    const periodStart = localDayStartIso(range.from) ?? range.from;
-    const scope = { projectId, trackedOnly: true, limit };
-    return {
-      startedEarlier: sessions
-        .filter((session) => session.startedAt && session.startedAt < periodStart)
-        .slice(0, limit)
-        .map(digest),
-      continuedLater: this.listSessions({
-        ...scope,
-        startedFrom: range.from,
-        startedTo: range.to,
-        completedAfter: range.to,
-      }).map(digest),
-      updatedInPeriod: this.listSessions({
-        ...scope,
-        updatedFrom: range.from,
-        updatedTo: range.to,
-        completedBefore: range.from,
-      }).map(digest),
-    };
-  }
-
   public getReport(options: {
     period: ReportPeriod;
     date?: string;
@@ -2374,335 +2153,7 @@ export class WorkIntelligenceStore {
     evidenceQuery?: string;
     includeAllEvidence?: boolean;
   }): ReportQueryResult {
-    let project: ProjectRecord | undefined;
-    if (options.projectId) {
-      project = this.getProjectById(options.projectId);
-      if (!project) {
-        return {
-          outcome: "skipped",
-          projectId: options.projectId,
-          projectStatus: "unregistered",
-          reason: "Project is not registered.",
-        };
-      }
-      if (project.status !== "tracked") {
-        return {
-          outcome: "skipped",
-          projectId: project.id,
-          projectStatus: project.status,
-          reason: "Project reporting is not enabled for this tracking state.",
-        };
-      }
-    }
-
-    const customRange = options.from && options.to ? { from: options.from, to: options.to } : undefined;
-    const period: WorkReportPeriod = customRange ? "custom" : options.period;
-    const range = customRange ?? getReportRange(options.period, options.date ?? toLocalCalendarDate());
-    const previousRange = customRange ? getPreviousCustomRange(range) : getPreviousReportRange(options.period, range);
-    const sessions = this.listSessions({
-      from: range.from,
-      to: range.to,
-      projectId: project?.id,
-      limit: 200,
-      trackedOnly: true,
-    });
-    const previousSessions = this.listSessions({
-      from: previousRange.from,
-      to: previousRange.to,
-      projectId: project?.id,
-      limit: 200,
-      trackedOnly: true,
-    });
-    const sessionIds = sessions.map((session) => session.id);
-    const previousSessionIds = previousSessions.map((session) => session.id);
-    const eventRows = this.getReportEvents(sessionIds);
-    const previousEventRows = this.getReportEvents(previousSessionIds);
-    const snapshotRows = sessionIds.length
-      ? (this.db
-          .prepare(
-            `SELECT rs.session_id, rs.source_path
-             FROM raw_snapshots rs
-             CROSS JOIN projects p ON p.id = rs.project_id
-             WHERE p.status = 'tracked'
-               AND rs.session_id IN (${sessionIds.map(() => "?").join(", ")})
-             ORDER BY rs.captured_at ASC, rs.id ASC`,
-          )
-          .all(...sessionIds) as ReportSnapshotSummaryRow[])
-      : [];
-    const attachedEvidenceRows = sessionIds.length
-      ? (this.db
-          .prepare(
-            `SELECT e.*, s.title AS session_title, p.name AS project_name
-             FROM evidence e
-             CROSS JOIN sessions s ON s.id = e.session_id
-             CROSS JOIN projects p ON p.id = e.project_id
-             WHERE p.status = 'tracked'
-               AND e.voided_at IS NULL
-               AND e.session_id IN (${sessionIds.map(() => "?").join(", ")})
-             ORDER BY e.captured_at ASC, e.id ASC`,
-          )
-          .all(...sessionIds) as ReportAttachedEvidenceRow[])
-      : [];
-
-    const verification: Record<"passed" | "failed" | "not_run" | "not_supplied", number> = {
-      passed: 0,
-      failed: 0,
-      not_run: 0,
-      not_supplied: 0,
-    };
-    const projectSummaries = new Map<string, ReportProjectSummary>();
-    for (const session of sessions) {
-      const verificationStatus = session.verification?.status ?? "not_supplied";
-      verification[verificationStatus] += 1;
-      const existing = projectSummaries.get(session.projectId);
-      if (existing) {
-        existing.sessionCount += 1;
-        existing.sourceSessionIds.push(session.id);
-      } else {
-        projectSummaries.set(session.projectId, {
-          projectId: session.projectId,
-          projectName: session.projectName ?? session.projectId,
-          sessionCount: 1,
-          eventCount: 0,
-          sourceSessionIds: [session.id],
-        });
-      }
-    }
-    for (const event of eventRows) {
-      const summary = projectSummaries.get(event.project_id);
-      if (summary) {
-        summary.eventCount += 1;
-      }
-    }
-
-    const currentMetrics = {
-      sessions: sessions.length,
-      events: eventRows.length,
-      changedFiles: sessions.reduce((total, session) => total + session.changedFiles.length, 0),
-    };
-    const previousMetrics = {
-      sessions: previousSessions.length,
-      events: previousEventRows.length,
-      changedFiles: previousSessions.reduce((total, session) => total + session.changedFiles.length, 0),
-    };
-    const comparison = {
-      sessions: compareReportMetric(currentMetrics.sessions, previousMetrics.sessions),
-      events: compareReportMetric(currentMetrics.events, previousMetrics.events),
-      changedFiles: compareReportMetric(currentMetrics.changedFiles, previousMetrics.changedFiles),
-    };
-    const periodScope = project ? `專案「${project.name}」` : `${projectSummaries.size} 個記錄中專案`;
-    const periodSummary = sessions.length
-      ? `${range.from} 至 ${range.to}，${periodScope}完成 ${sessions.length} 個 Session，留下 ${eventRows.length} 個事件與 ${currentMetrics.changedFiles} 筆檔案變更 metadata。`
-      : `${range.from} 至 ${range.to} 沒有可彙整的完成工作。`;
-
-    const sessionById = new Map(sessions.map((session) => [session.id, session]));
-    const eventsBySession = new Map<string, ReportEventRow[]>();
-    for (const event of eventRows) {
-      const events = eventsBySession.get(event.session_id) ?? [];
-      events.push(event);
-      eventsBySession.set(event.session_id, events);
-    }
-    const snapshotsBySession = new Map<string, ReportSnapshotSummaryRow>();
-    for (const snapshot of snapshotRows) {
-      if (!snapshotsBySession.has(snapshot.session_id)) {
-        snapshotsBySession.set(snapshot.session_id, snapshot);
-      }
-    }
-
-    const risks: ReportInsight[] = [];
-    const notSuppliedSessions = sessions.filter((session) => !session.verification);
-    if (notSuppliedSessions.length) {
-      risks.push({
-        kind: "verification",
-        label: "Verification 尚未回報",
-        detail: `${notSuppliedSessions.length} 個 Session 沒有結構化 verification；不能只根據文件內容推測結果。`,
-        sourceSessionIds: notSuppliedSessions.map((session) => session.id),
-      });
-    }
-    const notRunSessions = sessions.filter((session) => session.verification?.status === "not_run");
-    if (notRunSessions.length) {
-      risks.push({
-        kind: "verification",
-        label: "Verification 明確標示未執行",
-        detail: `${notRunSessions.length} 個 Session 由 Agent 明確回報 verification 尚未執行；Agent 應再確認是否能補回 passed 或 failed。`,
-        sourceSessionIds: notRunSessions.map((session) => session.id),
-      });
-    }
-    const failedSessions = sessions.filter((session) => session.verification?.status === "failed");
-    if (failedSessions.length) {
-      risks.push({
-        kind: "verification",
-        label: "Verification 失敗",
-        detail: `${failedSessions.length} 個 Session 回報 failed，請回到來源工作檢查驗證事件。`,
-        sourceSessionIds: failedSessions.map((session) => session.id),
-      });
-    }
-    const missingHandoffSessions = sessions.filter((session) => !snapshotsBySession.has(session.id));
-    if (missingHandoffSessions.length) {
-      risks.push({
-        kind: "metadata",
-        label: "Handoff snapshot 未保存",
-        detail: `${missingHandoffSessions.length} 個 Session 沒有可追溯的 raw handoff snapshot。`,
-        sourceSessionIds: missingHandoffSessions.map((session) => session.id),
-      });
-    }
-    const missingChangedFilesSessions = sessions.filter((session) => session.changedFiles.length === 0);
-    if (missingChangedFilesSessions.length) {
-      risks.push({
-        kind: "metadata",
-        label: "變更檔案 metadata 未提供",
-        detail: `${missingChangedFilesSessions.length} 個 Session 沒有 changed files metadata；請由 Agent 檢查工作樹後補回，這不代表工作沒有完成。`,
-        sourceSessionIds: missingChangedFilesSessions.map((session) => session.id),
-      });
-    }
-
-    const decisions: ReportDecision[] = eventRows
-      .filter((event) => event.type === "note" || event.type === "closing")
-      .sort((left, right) => {
-        if (right.occurred_at !== left.occurred_at) {
-          return right.occurred_at < left.occurred_at ? -1 : 1;
-        }
-        return right.id < left.id ? -1 : right.id > left.id ? 1 : 0;
-      })
-      .slice(0, 8)
-      .flatMap((event) => {
-        const session = sessionById.get(event.session_id);
-        return session
-          ? [
-              {
-                sessionId: session.id,
-                sessionTitle: session.title,
-                projectName: session.projectName,
-                summary: event.summary,
-                occurredAt: event.occurred_at,
-              },
-            ]
-          : [];
-      });
-
-    const spanning = this.getReportSpanningSessions(range, sessions, project?.id);
-    const trendGranularity = getReportTrendGranularity(period, range);
-    const trends = buildReportTrends(trendGranularity, range, sessions, eventsBySession);
-
-    const evidence: ReportEvidence[] = [];
-    for (const session of sessions) {
-      const snapshot = snapshotsBySession.get(session.id);
-      if (snapshot) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "handoff",
-          label: "Handoff snapshot",
-          detail: "Closing handoff 已保存為 raw snapshot。",
-          reference: snapshot.source_path ?? "captured handoff",
-        });
-      }
-      if (session.verification) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "verification",
-          label: `Verification ${verificationStatusLabel(session.verification.status)}`,
-          detail: session.verification.summary ?? "Agent 提供了 verification 狀態。",
-        });
-      }
-      if (session.changedFiles.length) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "changed-files",
-          label: "Changed files metadata",
-          detail: `記錄 ${session.changedFiles.length} 個檔案變更；不等同 Git commit。`,
-          reference: session.changedFiles.slice(0, 3).join(", "),
-        });
-      }
-      const primaryEvent = (eventsBySession.get(session.id) ?? []).find(
-        (event) => event.type === "verification" || event.type === "note" || event.type === "closing",
-      );
-      if (primaryEvent) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "event",
-          label: `${primaryEvent.type} event`,
-          detail: primaryEvent.summary,
-          reference: primaryEvent.id,
-        });
-      }
-    }
-    for (const item of attachedEvidenceRows) {
-      evidence.push({
-        sessionId: item.session_id,
-        sessionTitle: item.session_title,
-        projectName: item.project_name ?? undefined,
-        kind: "attached",
-        label: `Evidence · ${item.kind}`,
-        detail: item.summary ?? item.reference,
-        reference: item.reference,
-      });
-    }
-
-    const filteredEvidence = evidence.filter((item) => {
-      if (options.evidenceKind && item.kind !== options.evidenceKind) {
-        return false;
-      }
-      const query = options.evidenceQuery?.trim().toLowerCase();
-      if (!query) {
-        return true;
-      }
-      return [item.label, item.detail, item.reference, item.sessionTitle, item.projectName]
-        .filter((value): value is string => Boolean(value))
-        .some((value) => value.toLowerCase().includes(query));
-    });
-    const evidencePageInfo = createPageInfo(
-      options.evidencePage,
-      options.evidencePageSize,
-      filteredEvidence.length,
-      100,
-    );
-    const pageEvidence = options.includeAllEvidence
-      ? filteredEvidence
-      : filteredEvidence.slice(
-          (evidencePageInfo.page - 1) * evidencePageInfo.pageSize,
-          evidencePageInfo.page * evidencePageInfo.pageSize,
-        );
-
-    return {
-      outcome: "report",
-      period,
-      range,
-      previousRange,
-      timezone: localTimeZone(),
-      project,
-      periodSummary,
-      sourceSessionIds: sessionIds,
-      sessions,
-      completedWork: sessions.slice(0, 6),
-      projects: [...projectSummaries.values()].sort((left, right) => {
-        if (right.sessionCount !== left.sessionCount) {
-          return right.sessionCount - left.sessionCount;
-        }
-        return left.projectName < right.projectName ? -1 : left.projectName > right.projectName ? 1 : 0;
-      }),
-      totals: {
-        sessions: currentMetrics.sessions,
-        events: eventRows.length,
-        changedFiles: currentMetrics.changedFiles,
-        verification,
-      },
-      comparison,
-      risks,
-      decisions,
-      trendGranularity,
-      trends,
-      spanning,
-      evidence: pageEvidence,
-      evidencePageInfo,
-    };
+    return this.reportReader.getReport(options);
   }
 
   public exportReport(options: {
@@ -2717,26 +2168,7 @@ export class WorkIntelligenceStore {
     evidenceKind?: ReportEvidenceKind;
     evidenceQuery?: string;
   }): ReportExportResult {
-    const report = this.getReport({ ...options, includeAllEvidence: true });
-    if (report.outcome !== "report") {
-      return report;
-    }
-
-    const projectSuffix = report.project ? "-" + this.reportBuilder.filenamePart(report.project.name) : "-all-projects";
-    const baseName =
-      "work-report-" + report.period + "-" + report.range.from + "-to-" + report.range.to + projectSuffix;
-    const contentType = options.format === "json" ? "application/json; charset=utf-8" : "text/markdown; charset=utf-8";
-    const content =
-      options.format === "json" ? JSON.stringify(report, null, 2) + "\n" : this.reportBuilder.toMarkdown(report);
-
-    return {
-      outcome: "report_export",
-      format: options.format,
-      filename: baseName + (options.format === "json" ? ".json" : ".md"),
-      contentType,
-      content,
-      report,
-    };
+    return this.reportReader.exportReport(options);
   }
 
   private recoverStaleReportSynthesisRequests(): void {
@@ -3513,27 +2945,6 @@ export class WorkIntelligenceStore {
 
     this.db.prepare("DELETE FROM report_summaries WHERE id = ? AND is_current = 0").run(summaryId);
     return { outcome: "report_summary_deleted", summaryId, deleted: true };
-  }
-
-  private getReportEvents(sessionIds: string[]): ReportEventRow[] {
-    if (!sessionIds.length) {
-      return [];
-    }
-
-    // CROSS JOIN pins the join order in SQLite: drive from the session-id list instead of letting
-    // the planner walk every tracked project's sessions first. Used the same way for the other
-    // IN-list report/synthesis queries and the recent-decision lookup.
-    return this.db
-      .prepare(
-        `SELECT e.*, s.project_id
-         FROM work_events e
-         CROSS JOIN sessions s ON s.id = e.session_id
-         CROSS JOIN projects p ON p.id = s.project_id
-         WHERE p.status = 'tracked'
-           AND e.session_id IN (${sessionIds.map(() => "?").join(", ")})
-         ORDER BY e.occurred_at ASC, e.id ASC`,
-      )
-      .all(...sessionIds) as ReportEventRow[];
   }
 
   public listSessions(options: SessionListOptions = {}): WorkSessionRecord[] {
