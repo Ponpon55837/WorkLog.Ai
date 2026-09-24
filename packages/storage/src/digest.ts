@@ -35,5 +35,7 @@ export function toKnowledgeDigest(knowledge: KnowledgeRecord): KnowledgeDigest {
     excerpt: truncateText(knowledge.body, DIGEST_KNOWLEDGE_LENGTH),
     tags: knowledge.tags,
     updatedAt: knowledge.updatedAt,
+    ...(knowledge.possiblyStale ? { possiblyStale: true } : {}),
+    ...(knowledge.review ? { needsReview: true } : {}),
   };
 }

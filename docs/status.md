@@ -51,11 +51,10 @@
 - 以本機真實 DB 快照重跑上面 36 題評估，確認實作後的 hit@5／MRR 與 S5 預期一致；評估題與腳本仍只留在本機。
 - `work_search_knowledge` 與 Web 的 Session 列表／Knowledge 搜尋仍是整句 LIKE（UI 需要分頁與時間排序）；Agent 改用 `work_recall`，UI 是否改用排序檢索另外評估。
 
-**第二階段：可信度與回饋**（Session 作廢、Session 關聯已完成，見下方「最近完成」；以下為剩餘項目）
+**第二階段：可信度與回饋**（Session 作廢、Session 關聯、Knowledge 可信度已完成，見下方「最近完成」；以下為剩餘項目）
 
-- Knowledge 加 `appliesTo`（路徑／glob）、`lastConfirmedAt`／`lastConfirmedSessionId`、`supersedes`；`appliesTo` 的檔案在確認時間後被其他 Session 改過時，標示 `possiblyStale`（規則判斷，不靠推測）。
-- `work_finalize_session` 可選回報 `appliedKnowledgeIds`／`contradictedKnowledgeIds`：用過且有效的更新確認時間，被推翻的在 Knowledge 頁與 context 提示更新或封存。
 - 以 Agent 請求流程（比照 metadata backfill）從 raw snapshot 整理 Knowledge 候選，經確認後才寫入，維持 Knowledge 必須明確提交的原則。
+- Session 的開始時間與最後更新時間：目前只有完成時間，跨日的工作看不出何時開始、事後修正也看不出何時更新（使用者 2026-09-24 提出）。
 
 ## 未結項
 
@@ -71,6 +70,7 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **Knowledge 可信度**（Agent 檢索第二階段）：migration 5 為 Knowledge 加上 `appliesTo`、`lastConfirmedAt`／`lastConfirmedSessionId`、`supersedesId`、`review`。之後有 Session 改到 `appliesTo` 的檔案時，讀取結果帶 `possiblyStale`（規則判斷）；finalize 可回報 `appliedKnowledgeIds`（確認有效）與 `contradictedKnowledgeIds`（標示需要檢視）；記錄新 Knowledge 時可用 `supersedesId` 自動封存被取代的舊 Knowledge。context 與 `work_recall` 帶 `possiblyStale`／`needsReview` 旗標。Web：工作知識頁顯示「可能過時」「需要檢視」與原因、確認有效時間與適用路徑，選單新增「確認仍有效」「查看改動檔案的 Session」，編輯對話框可設定適用路徑。
 - **Session 關聯**（Agent 檢索第二階段）：migration 4 新增 `session_links`（`continues`：接續另一筆的工作，`related`：一般關聯；同一對 Session 只有一個關聯）。finalize 可帶 `parentSessionId`／`relatedSessionIds`（無法建立的列在 `linkWarnings`），MCP 新增 `work_link_sessions`，REST 新增 `POST /api/sessions/:id/links`、`DELETE /api/sessions/:id/links/:relatedId`。Session 詳情回傳 `links`，`work_recall` 的 Session hit 附 `related`（不含已作廢），圖譜新增 `session_link` 連線。Web：Session 面板「關聯 Session」區塊可搜尋並建立關聯、點標題跳到另一筆、移除（確認框）。
 - **Verification 可在 UI 修正**：Session 面板的「編輯 Session」對話框新增 Verification 狀態（通過／失敗／未執行；未回報只能維持不變）與說明，只在有變更時送出 `PATCH /api/sessions/:id/verification`。migration 3 新增 `session_verification_updates`，Web 修正與 Agent 的 metadata 回填改動 verification 時都會留下前後值與來源，Session 詳情以「Verification 修改紀錄」顯示。
 - **Session 作廢與 Evidence 更正**（Agent 檢索第二階段）：migration 2 為 Session 與 Evidence 加上 `voided_at`／`void_reason`，並新增 `void_audit` 作廢紀錄。作廢的 Session 從 Session 列表、Dashboard、報告、圖譜、metadata 缺口、近期決策、context 與檢索排除，詳情仍可開啟並顯示原因與作廢紀錄；標示錯誤的 Evidence 保留在詳情但不進報告與圖譜。MCP 新增 `work_void_session`／`work_void_evidence`，REST 新增 `PATCH /api/sessions/:id/void`、`PATCH /api/evidence/:id/void`，Session 列表可用 `voided` 篩選。Web：Session 面板可作廢（對話框必填原因）與還原（確認框），Evidence 可逐筆標示錯誤／還原，工作歷程新增「作廢」篩選，列表與面板顯示「已作廢」標籤。

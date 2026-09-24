@@ -135,7 +135,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_finalize_session", {
     title: "Finalize a work session",
     description:
-      "Finalize a completed planning/execution/verification/closing session. Provide summary plus the required five-section workSummary; inspect the worktree and provide changedFiles (use [] only when no files were intentionally changed) plus an explicit verification status: passed, failed, or not_run. Optionally provide changedFilesProvenance with Agent, handoff, Git, or worktree evidence references and changedFileChanges with added, modified, deleted, or renamed semantics (renamed requires previousPath). This is independent from Git commit. The project must be explicitly tracked; unregistered, paused, and ignored projects are skipped without reading handoff, Git, or source files. The idempotencyKey makes retries safe. If legacy data is missing verification, changedFiles, or workSummary, the response includes a follow-up instruction. " +
+      "Finalize a completed planning/execution/verification/closing session. Provide summary plus the required five-section workSummary; inspect the worktree and provide changedFiles (use [] only when no files were intentionally changed) plus an explicit verification status: passed, failed, or not_run. Optionally provide changedFilesProvenance with Agent, handoff, Git, or worktree evidence references and changedFileChanges with added, modified, deleted, or renamed semantics (renamed requires previousPath). If this work relied on recalled Knowledge, report appliedKnowledgeIds (still valid; confirms them) and contradictedKnowledgeIds (no longer true; flags them for review); link an earlier Session this one continues with parentSessionId. This is independent from Git commit. The project must be explicitly tracked; unregistered, paused, and ignored projects are skipped without reading handoff, Git, or source files. The idempotencyKey makes retries safe. If legacy data is missing verification, changedFiles, or workSummary, the response includes a follow-up instruction. " +
       workRecordContract,
     inputShape: mcpFinalizeSessionInputSchema.shape,
     schema: mcpFinalizeSessionInputSchema,
@@ -286,7 +286,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_record_knowledge", {
     title: "Record explicit work knowledge",
     description:
-      "Store an explicitly confirmed decision, pattern, gotcha, procedure, or skill for a tracked project, optionally linked to a finalized Session. Knowledge is never extracted from source files or handoffs automatically. idempotencyKey retries return the original record, and non-tracked projects are skipped quietly.",
+      "Store an explicitly confirmed decision, pattern, gotcha, procedure, or skill for a tracked project, optionally linked to a finalized Session. Set appliesTo to the project-relative paths or globs it is about, so it is flagged possiblyStale when a later Session changes them; set supersedesId to archive the older Knowledge it replaces. Knowledge is never extracted from source files or handoffs automatically. idempotencyKey retries return the original record, and non-tracked projects are skipped quietly.",
     inputShape: recordKnowledgeInputSchema.shape,
     schema: recordKnowledgeInputSchema,
     annotations: ADDITIVE_IDEMPOTENT,
@@ -308,7 +308,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_update_knowledge", {
     title: "Update recorded work knowledge",
     description:
-      "Update or archive explicitly recorded Knowledge for a tracked project; projectRoot is required so the policy gate runs first. Set status to archived to hide an item from active searches, or active to restore it. Every change keeps an immutable before/after snapshot. Non-tracked projects are skipped quietly.",
+      "Update or archive explicitly recorded Knowledge for a tracked project; projectRoot is required so the policy gate runs first. Set status to archived to hide an item from active searches, or active to restore it. Set appliesTo to change the paths it covers, or confirm: true after checking that it still holds (clears possiblyStale and needsReview until files change again). Every change keeps an immutable before/after snapshot. Non-tracked projects are skipped quietly.",
     inputShape: updateKnowledgeInputSchemaBase.shape,
     schema: updateKnowledgeInputSchema,
     annotations: OVERWRITE_IDEMPOTENT,

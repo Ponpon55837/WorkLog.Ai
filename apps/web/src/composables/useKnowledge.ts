@@ -15,7 +15,9 @@ import { emptyPageInfo } from "./useSessions";
 import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
 
-type KnowledgeChanges = Partial<Pick<KnowledgeRecord, "kind" | "title" | "body" | "tags" | "references" | "status">>;
+type KnowledgeChanges = Partial<
+  Pick<KnowledgeRecord, "kind" | "title" | "body" | "tags" | "references" | "status" | "appliesTo">
+> & { confirm?: true };
 
 const knowledgeItems = ref<KnowledgeRecord[]>([]);
 const knowledgeProjects = ref<ProjectRecord[]>([]);
@@ -36,6 +38,7 @@ const knowledgeEditorForm = ref({
   body: "",
   tags: "",
   references: "",
+  appliesTo: "",
   status: "active" as KnowledgeStatus,
 });
 const knowledgeEditorSaving = ref(false);
@@ -139,6 +142,7 @@ function openKnowledgeEditor(item: KnowledgeRecord): void {
     body: item.body,
     tags: item.tags.join(", "),
     references: item.references.join("\n"),
+    appliesTo: item.appliesTo.join("\n"),
     status: item.status,
   };
   knowledgeEditorError.value = "";
@@ -170,6 +174,7 @@ async function saveKnowledge(): Promise<void> {
     body: form.body.trim(),
     tags: splitKnowledgeValues(form.tags),
     references: splitKnowledgeValues(form.references),
+    appliesTo: splitKnowledgeValues(form.appliesTo),
     status: form.status,
   });
   knowledgeEditorSaving.value = false;
@@ -185,6 +190,15 @@ async function setKnowledgeStatus(item: KnowledgeRecord, status: KnowledgeStatus
     return;
   }
   useToast().showToast(status === "archived" ? "Knowledge 已封存。" : "Knowledge 已恢復使用。");
+  await loadKnowledge();
+}
+
+/** Records that the Knowledge was checked and still holds; clears 可能過時 and 需要檢視 until files change again. */
+async function confirmKnowledge(item: KnowledgeRecord): Promise<void> {
+  if (!(await patchKnowledge(item, { confirm: true }))) {
+    return;
+  }
+  useToast().showToast("已確認這筆 Knowledge 仍然有效。");
   await loadKnowledge();
 }
 
@@ -239,6 +253,10 @@ function knowledgeAuditFields(entry: KnowledgeAuditRecord): string {
     tags: "標籤",
     references: "參考資料",
     status: "狀態",
+    appliesTo: "適用路徑",
+    lastConfirmedAt: "確認有效",
+    review: "檢視標記",
+    supersedesId: "取代的 Knowledge",
   };
   const fields = entry.changedFields.map((field) => labels[field] ?? field);
   return fields.length ? fields.join("、") : "狀態快照";
@@ -246,6 +264,10 @@ function knowledgeAuditFields(entry: KnowledgeAuditRecord): string {
 
 function openKnowledgeSession(item: KnowledgeRecord): Promise<void> {
   return useSessionDetail().openSessionDetail(item.sessionId, "無法載入 Knowledge 的來源 Session。");
+}
+
+function openKnowledgeStaleSession(item: KnowledgeRecord): Promise<void> {
+  return useSessionDetail().openSessionDetail(item.possiblyStale?.sessionId, "無法載入改動檔案的 Session。");
 }
 
 export function useKnowledge() {
@@ -276,6 +298,8 @@ export function useKnowledge() {
     knowledgeHistoryLoading,
     knowledgeHistoryError,
     openKnowledgeHistory,
+    confirmKnowledge,
+    openKnowledgeStaleSession,
     closeKnowledgeHistory,
     knowledgeAuditFields,
   };

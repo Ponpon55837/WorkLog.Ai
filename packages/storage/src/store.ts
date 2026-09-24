@@ -13,6 +13,8 @@ import type {
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
+  KnowledgeReview,
+  KnowledgeStaleness,
   LinkSessionsInput,
   LinkSessionsResult,
   RecallHit,
@@ -157,6 +159,7 @@ import { SessionRepository, type SessionListOptions, type SessionRow } from "./s
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { DIGEST_ITEM_LENGTH, toKnowledgeDigest, toSessionDigest } from "./digest.js";
 import { applySchemaMigrations } from "./schema-migrations.js";
+import { matchesAppliesTo, normalizePath } from "./search-text.js";
 import { SearchRepository } from "./search-repository.js";
 
 const RECENT_DECISION_LIMIT = 12;
@@ -216,6 +219,11 @@ type KnowledgeRow = {
   status: KnowledgeStatus;
   created_at: string;
   updated_at: string;
+  applies_to_json?: string | null;
+  last_confirmed_at?: string | null;
+  last_confirmed_session_id?: string | null;
+  supersedes_id?: string | null;
+  review_json?: string | null;
 };
 
 type KnowledgeAuditRow = {
@@ -953,7 +961,23 @@ function toKnowledge(row: KnowledgeRow): KnowledgeRecord {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    appliesTo: parseJson<string[]>(row.applies_to_json ?? null, []),
+    ...(row.last_confirmed_at ? { lastConfirmedAt: row.last_confirmed_at } : {}),
+    ...(row.last_confirmed_session_id ? { lastConfirmedSessionId: row.last_confirmed_session_id } : {}),
+    ...(row.supersedes_id ? { supersedesId: row.supersedes_id } : {}),
+    ...(row.review_json
+      ? { review: parseJson<KnowledgeReview>(row.review_json, { reason: "contradicted", at: "" }) }
+      : {}),
   };
+}
+
+/** Audit snapshots written before appliesTo existed lack it; default it so readers can rely on it. */
+function withKnowledgeDefaults(record: KnowledgeRecord): KnowledgeRecord {
+  return { ...record, appliesTo: record.appliesTo ?? [] };
+}
+
+function cleanList(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim().replace(/\\/g, "/")).filter(Boolean))];
 }
 
 function toKnowledgeAudit(row: KnowledgeAuditRow): KnowledgeAuditRecord {
@@ -968,8 +992,8 @@ function toKnowledgeAudit(row: KnowledgeAuditRow): KnowledgeAuditRecord {
     knowledgeId: row.knowledge_id,
     projectId: row.project_id,
     action: row.action,
-    ...(before ? { before } : {}),
-    after,
+    ...(before ? { before: withKnowledgeDefaults(before) } : {}),
+    after: withKnowledgeDefaults(after),
     changedFields: parseJson<string[]>(row.changed_fields_json, []),
     occurredAt: row.occurred_at,
   };
@@ -3367,6 +3391,120 @@ export class WorkIntelligenceStore {
     return { outcome: "updated", session, previous, ...(unchanged ? { unchanged } : {}) };
   }
 
+  /**
+   * Records what a finalized Session reported about Knowledge it used: applied items are confirmed as
+   * of this Session (and leave review), contradicted items are flagged for review. Runs inside finalize.
+   */
+  private applyKnowledgeFeedback(
+    projectId: string,
+    sessionId: string,
+    completedAt: string,
+    input: Pick<FinalizeSessionInput, "appliedKnowledgeIds" | "contradictedKnowledgeIds">,
+  ): string[] {
+    const warnings: string[] = [];
+    const contradicted = new Set(input.contradictedKnowledgeIds ?? []);
+    const feedback = [
+      ...[...new Set(input.appliedKnowledgeIds ?? [])]
+        .filter((id) => {
+          if (contradicted.has(id)) {
+            warnings.push(`${id}: listed as both applied and contradicted; kept as contradicted.`);
+            return false;
+          }
+          return true;
+        })
+        .map((id) => ({ id, applied: true })),
+      ...[...contradicted].map((id) => ({ id, applied: false })),
+    ];
+    for (const { id, applied } of feedback) {
+      const row = this.db
+        .prepare(
+          `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
+           WHERE k.id = ? AND k.project_id = ?`,
+        )
+        .get(id, projectId) as KnowledgeRow | undefined;
+      if (!row) {
+        warnings.push(`${id}: Knowledge was not found in this project.`);
+        continue;
+      }
+      const before = toKnowledge(row);
+      const after: KnowledgeRecord = applied
+        ? { ...before, lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId }
+        : { ...before, review: { reason: "contradicted", sessionId, at: completedAt } };
+      if (applied) {
+        delete after.review;
+      }
+      this.db
+        .prepare(
+          "UPDATE knowledge SET last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ? WHERE id = ?",
+        )
+        .run(
+          after.lastConfirmedAt ?? null,
+          after.lastConfirmedSessionId ?? null,
+          after.review ? JSON.stringify(after.review) : null,
+          id,
+        );
+      this.insertKnowledgeAudit({
+        knowledge: after,
+        before,
+        action: "updated",
+        changedFields: applied ? ["lastConfirmedAt", ...(before.review ? ["review"] : [])] : ["review"],
+        occurredAt: completedAt,
+      });
+    }
+    return warnings;
+  }
+
+  /** Adds the computed possiblyStale marker (see KnowledgeRecord.possiblyStale). */
+  private withKnowledgeTrust(knowledge: KnowledgeRecord): KnowledgeRecord {
+    const staleness = this.knowledgeStaleness(knowledge);
+    return staleness ? { ...knowledge, possiblyStale: staleness } : knowledge;
+  }
+
+  private knowledgeStaleness(knowledge: KnowledgeRecord): KnowledgeStaleness | undefined {
+    if (knowledge.appliesTo.length === 0) {
+      return undefined;
+    }
+    const project = this.getProjectById(knowledge.projectId);
+    const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
+    const patterns = knowledge.appliesTo.map((pattern) => normalizePath(pattern, contexts)).filter(Boolean);
+    const excluded = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
+    const rows = this.db
+      .prepare(
+        `SELECT id, title, completed_at, changed_files_json FROM sessions
+         WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
+         ORDER BY completed_at ASC, id ASC`,
+      )
+      .all(knowledge.projectId, knowledge.lastConfirmedAt ?? knowledge.createdAt) as Array<{
+      id: string;
+      title: string;
+      completed_at: string;
+      changed_files_json: string;
+    }>;
+    let first: KnowledgeStaleness | undefined;
+    let sessionCount = 0;
+    for (const row of rows) {
+      if (excluded.has(row.id)) {
+        continue;
+      }
+      const paths = parseJson<string[]>(row.changed_files_json, []).filter((file) => {
+        const normalized = normalizePath(file, contexts);
+        return patterns.some((pattern) => matchesAppliesTo(normalized, pattern));
+      });
+      if (paths.length === 0) {
+        continue;
+      }
+      sessionCount += 1;
+      first ??= {
+        sessionId: row.id,
+        sessionTitle: row.title,
+        completedAt: row.completed_at,
+        paths: paths.slice(0, 5),
+        sessionCount: 0,
+      };
+    }
+    return first ? { ...first, sessionCount } : undefined;
+  }
+
   /** Links or unlinks two Sessions; a pair has at most one link, so a new relation replaces the old one. */
   public linkSessions(input: LinkSessionsInput, source: VerificationUpdateSource = "agent"): LinkSessionsResult {
     const row = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
@@ -3880,7 +4018,7 @@ export class WorkIntelligenceStore {
       events: events.map(toEvent),
       rawSnapshots: snapshots.map(toSnapshot),
       evidence: evidence.map(toEvidence),
-      knowledge: knowledge.map(toKnowledge),
+      knowledge: knowledge.map((row) => this.withKnowledgeTrust(toKnowledge(row))),
       links: this.getSessionLinks(sessionId),
       verificationHistory: (
         this.db
@@ -4021,7 +4159,11 @@ export class WorkIntelligenceStore {
         )
         .get(project.id, input.idempotencyKey) as KnowledgeRow | undefined;
       if (existing) {
-        return { outcome: "knowledge_recorded", duplicate: true, knowledge: toKnowledge(existing) };
+        return {
+          outcome: "knowledge_recorded",
+          duplicate: true,
+          knowledge: this.withKnowledgeTrust(toKnowledge(existing)),
+        };
       }
 
       const createdAt = nowIso();
@@ -4039,16 +4181,32 @@ export class WorkIntelligenceStore {
         status: "active",
         createdAt,
         updatedAt: createdAt,
+        appliesTo: cleanList(input.appliesTo),
       };
+      const warnings: string[] = [];
+      const superseded = input.supersedesId
+        ? (this.db
+            .prepare(
+              `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
+               WHERE k.id = ? AND k.project_id = ?`,
+            )
+            .get(input.supersedesId, project.id) as KnowledgeRow | undefined)
+        : undefined;
+      if (input.supersedesId && !superseded) {
+        warnings.push(`supersedesId ${input.supersedesId} was not found in this project.`);
+      }
+      if (superseded) {
+        knowledge.supersedesId = superseded.id;
+      }
 
       this.db
         .prepare(
           `INSERT INTO knowledge (
              id, project_id, session_id, idempotency_key, kind, title, body,
-             tags_json, references_json, status, created_at, updated_at
+             tags_json, references_json, status, created_at, updated_at, applies_to_json, supersedes_id
            ) VALUES (
              @id, @projectId, @sessionId, @idempotencyKey, @kind, @title, @body,
-             @tags, @references, @status, @createdAt, @updatedAt
+             @tags, @references, @status, @createdAt, @updatedAt, @appliesTo, @supersedesId
            )`,
         )
         .run({
@@ -4064,16 +4222,46 @@ export class WorkIntelligenceStore {
           status: knowledge.status,
           createdAt: knowledge.createdAt,
           updatedAt: knowledge.updatedAt,
+          appliesTo: JSON.stringify(knowledge.appliesTo),
+          supersedesId: knowledge.supersedesId ?? null,
         });
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(createdAt, project.id);
       this.insertKnowledgeAudit({
         knowledge,
         action: "created",
-        changedFields: ["kind", "title", "body", "tags", "references", "status"],
+        changedFields: [
+          "kind",
+          "title",
+          "body",
+          "tags",
+          "references",
+          "status",
+          ...(knowledge.appliesTo.length > 0 ? ["appliesTo"] : []),
+          ...(knowledge.supersedesId ? ["supersedesId"] : []),
+        ],
         occurredAt: createdAt,
       });
+      if (superseded && superseded.status === "active") {
+        const before = toKnowledge(superseded);
+        const after: KnowledgeRecord = { ...before, status: "archived", updatedAt: createdAt };
+        this.db
+          .prepare("UPDATE knowledge SET status = 'archived', updated_at = ? WHERE id = ?")
+          .run(createdAt, before.id);
+        this.insertKnowledgeAudit({
+          knowledge: after,
+          before,
+          action: "archived",
+          changedFields: ["status"],
+          occurredAt: createdAt,
+        });
+      }
 
-      return { outcome: "knowledge_recorded", duplicate: false, knowledge };
+      return {
+        outcome: "knowledge_recorded",
+        duplicate: false,
+        knowledge: this.withKnowledgeTrust(knowledge),
+        ...(warnings.length > 0 ? { warnings } : {}),
+      };
     });
   }
 
@@ -4113,7 +4301,13 @@ export class WorkIntelligenceStore {
         : current.references,
       status: input.status ?? current.status,
       updatedAt,
+      appliesTo: input.appliesTo ? cleanList(input.appliesTo) : current.appliesTo,
+      ...(input.confirm ? { lastConfirmedAt: updatedAt } : {}),
     };
+    if (input.confirm) {
+      delete next.lastConfirmedSessionId;
+      delete next.review;
+    }
     const changedFields = [
       ...(current.kind !== next.kind ? ["kind"] : []),
       ...(current.title !== next.title ? ["title"] : []),
@@ -4121,6 +4315,9 @@ export class WorkIntelligenceStore {
       ...(JSON.stringify(current.tags) !== JSON.stringify(next.tags) ? ["tags"] : []),
       ...(JSON.stringify(current.references) !== JSON.stringify(next.references) ? ["references"] : []),
       ...(current.status !== next.status ? ["status"] : []),
+      ...(JSON.stringify(current.appliesTo) !== JSON.stringify(next.appliesTo) ? ["appliesTo"] : []),
+      ...(input.confirm ? ["lastConfirmedAt"] : []),
+      ...(input.confirm && current.review ? ["review"] : []),
     ];
     const action: KnowledgeAuditAction =
       current.status !== next.status ? (next.status === "archived" ? "archived" : "restored") : "updated";
@@ -4134,7 +4331,11 @@ export class WorkIntelligenceStore {
              tags_json = @tags,
              references_json = @references,
              status = @status,
-             updated_at = @updatedAt
+             updated_at = @updatedAt,
+             applies_to_json = @appliesTo,
+             last_confirmed_at = @lastConfirmedAt,
+             last_confirmed_session_id = @lastConfirmedSessionId,
+             review_json = @review
          WHERE id = @id AND project_id = @projectId`,
       )
       .run({
@@ -4147,11 +4348,15 @@ export class WorkIntelligenceStore {
         references: JSON.stringify(next.references),
         status: next.status,
         updatedAt: next.updatedAt,
+        appliesTo: JSON.stringify(next.appliesTo),
+        lastConfirmedAt: next.lastConfirmedAt ?? null,
+        lastConfirmedSessionId: next.lastConfirmedSessionId ?? null,
+        review: next.review ? JSON.stringify(next.review) : null,
       });
     this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, decision.project.id);
     this.insertKnowledgeAudit({ knowledge: next, before: current, action, changedFields, occurredAt: updatedAt });
 
-    return { outcome: "knowledge_updated", knowledge: next };
+    return { outcome: "knowledge_updated", knowledge: this.withKnowledgeTrust(next) };
   }
 
   public getKnowledgeHistory(input: KnowledgeHistoryQuery): KnowledgeHistoryResult {
@@ -4198,7 +4403,10 @@ export class WorkIntelligenceStore {
   }
 
   public searchKnowledge(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
-    return this.knowledge.search(options);
+    const result = this.knowledge.search(options);
+    return result.outcome === "knowledge"
+      ? { ...result, items: result.items.map((item) => this.withKnowledgeTrust(item)) }
+      : result;
   }
 
   public getGraph(options: GraphQuery = {}): GraphQueryResult {
@@ -4409,6 +4617,8 @@ export class WorkIntelligenceStore {
         return [];
       });
 
+      const knowledgeWarnings = this.applyKnowledgeFeedback(project.id, sessionId, completedAt, input);
+
       const session = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (!session) {
         throw new Error("Session was inserted but could not be loaded.");
@@ -4422,6 +4632,7 @@ export class WorkIntelligenceStore {
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
         workSummaryFollowUp: getWorkSummaryFollowUp(session),
         ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
+        ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
       };
     });
   }
@@ -4488,8 +4699,15 @@ export class WorkIntelligenceStore {
   }
 
   private withRelatedSessions(hit: RecallHit): RecallHit {
-    if (hit.type !== "session") {
-      return hit;
+    if (hit.type === "knowledge") {
+      const row = this.db.prepare("SELECT k.*, NULL AS project_name FROM knowledge k WHERE k.id = ?").get(hit.id) as
+        KnowledgeRow | undefined;
+      const knowledge = row ? this.withKnowledgeTrust(toKnowledge(row)) : undefined;
+      return {
+        ...hit,
+        ...(knowledge?.possiblyStale ? { possiblyStale: true } : {}),
+        ...(knowledge?.review ? { needsReview: true } : {}),
+      };
     }
     const related = this.getSessionLinks(hit.id)
       .filter((link) => !link.voided)

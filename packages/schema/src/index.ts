@@ -121,6 +121,16 @@ export const finalizeSessionInputSchema = z.object({
     .optional()
     .describe("An earlier Session this one continues, e.g. the planning Session it implements."),
   relatedSessionIds: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+  appliedKnowledgeIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(30)
+    .optional()
+    .describe("Knowledge this work relied on and found still valid."),
+  contradictedKnowledgeIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(30)
+    .optional()
+    .describe("Knowledge this work found no longer true; it is flagged for review."),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);
@@ -411,6 +421,11 @@ export const attachEvidenceInputSchema = z.object({
 export const knowledgeKindSchema = z.enum(KNOWLEDGE_KINDS);
 export const knowledgeStatusSchema = z.enum(KNOWLEDGE_STATUSES);
 
+const knowledgeAppliesToSchema = z
+  .array(z.string().trim().min(1).max(1_000))
+  .max(30)
+  .describe("Project-relative paths or globs (*, **, ?) this Knowledge is about.");
+
 export const recordKnowledgeInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: z.string().trim().min(1).max(300),
@@ -420,6 +435,8 @@ export const recordKnowledgeInputSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
   references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
+  appliesTo: knowledgeAppliesToSchema.optional(),
+  supersedesId: z.string().trim().min(1).max(200).optional(),
 });
 
 export const updateKnowledgeInputSchemaBase = z.object({
@@ -431,6 +448,8 @@ export const updateKnowledgeInputSchemaBase = z.object({
   tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
   references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
   status: knowledgeStatusSchema.optional(),
+  appliesTo: knowledgeAppliesToSchema.optional(),
+  confirm: z.literal(true).optional().describe("Record that the Knowledge was checked and still holds."),
 });
 
 export const updateKnowledgeInputSchema = updateKnowledgeInputSchemaBase.superRefine((value, context) => {
@@ -440,7 +459,9 @@ export const updateKnowledgeInputSchema = updateKnowledgeInputSchemaBase.superRe
     value.body === undefined &&
     value.tags === undefined &&
     value.references === undefined &&
-    value.status === undefined
+    value.status === undefined &&
+    value.appliesTo === undefined &&
+    value.confirm === undefined
   ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
