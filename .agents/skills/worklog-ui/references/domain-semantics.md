@@ -15,7 +15,7 @@ The Work Intelligence data contract is defined in [`docs/work-record-and-report-
 | `changedFileChanges` carries added / modified / deleted / renamed (+ `previousPath`) | Letter badges A/M/D/R; renamed shows `new ← old` |
 | `changedFilesProvenance` sources: agent / handoff / git / worktree; legacy rows may have none | Show sources per file; empty provenance → muted `未提供來源`, never a guessed source |
 | Evidence and Knowledge are separate from the summary | Panel has its own Evidence and Knowledge sections (from `SessionDetail.evidence` / `.knowledge`); never merge them into workSummary |
-| Corrections happen in place by Agents (same `sessionId`, idempotent) | The UI stays read-only for `summary` / `workSummary`. Do not add "edit summary" or "duplicate Session" actions |
+| Corrections happen in place (same `sessionId`, idempotent, audited) by Agents or the Web UI | The Session panel's 編輯摘要 Dialog replaces `summary` and patches only the edited `workSummary` sections through the existing PATCH endpoints. Never add a "duplicate Session" action or edit changed files, verification, events, or evidence from the UI |
 | Event types: planning / execution / verification / closing / note / finalized | Mono event-type column in the Events timeline, in chronological order |
 
 ## Metadata backfill

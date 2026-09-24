@@ -71,7 +71,7 @@ All overlays use `useFocusTrap` (focus in, Tab trapped, Esc closes, scroll lock,
 |---|---|
 | `StatusLabel` | `status: StatusVisual` from `utils/status.ts`, `showIcon`, `text`. |
 | `SessionRow` | `session`, `showSummary`; emits `open`. Verification icon, title, Labels, `project · relative time · first outcome`. `data-testid="session-row"`. |
-| `SessionPanel` | Global, read-only. `?session=<id>` deep link, J/K via `setSessionSequence`, summary → meta → `WorkSummarySections` → Changed files → Git (only when present) → Evidence → Knowledge → Events → Handoff snapshot. |
+| `SessionPanel` | Global; read-only except the header 編輯摘要 action, which opens `SessionSummaryEditorDialog` (summary + five workSummary sections, one item per line). `?session=<id>` deep link, J/K via `setSessionSequence`, summary → meta → `WorkSummarySections` → Changed files → Git (only when present) → Evidence → Knowledge → Events → Handoff snapshot. |
 | `WorkSummarySections` | Five sections in fixed order; `nextSteps` shown as 狀態／未結項; legacy note when missing. |
 | `ChangedFileList` | A/M/D/R badges, `new ← old` for renames, provenance or 未提供來源, "changed files 不代表 Git commit". |
 | `VerificationBreakdown` | `counts: { passed, failed, notRun, notSupplied }`. Four-state meter; no single percentage. |

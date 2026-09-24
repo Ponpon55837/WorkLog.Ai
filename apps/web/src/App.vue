@@ -7,6 +7,7 @@ import HandoffImportDialog from "./components/domain/HandoffImportDialog.vue";
 import KnowledgeEditorDialog from "./components/domain/KnowledgeEditorDialog.vue";
 import KnowledgeHistoryPanel from "./components/domain/KnowledgeHistoryPanel.vue";
 import SessionPanel from "./components/domain/SessionPanel.vue";
+import SessionSummaryEditorDialog from "./components/domain/SessionSummaryEditorDialog.vue";
 import UiButton from "./components/ui/UiButton.vue";
 import UiFlash from "./components/ui/UiFlash.vue";
 import UiSkeleton from "./components/ui/UiSkeleton.vue";
@@ -76,6 +77,7 @@ onBeforeUnmount(() => useApi().abortAll());
       <SessionPanel />
       <KnowledgeHistoryPanel />
       <KnowledgeEditorDialog />
+      <SessionSummaryEditorDialog />
       <HandoffImportDialog />
       <CommandPalette v-model:open="paletteOpen" />
     </template>

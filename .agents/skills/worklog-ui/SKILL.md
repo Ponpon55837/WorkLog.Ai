@@ -36,7 +36,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **Gi
 - **Minimum font size 12px.** Body text is 14px.
 - **One component per concept**: one date-range picker, one filter pattern, one pagination, one status Label mapping.
 - **Accessibility**: every icon-only button has `aria-label`; focus is always visible (`:focus-visible` accent outline); Dialog/SidePanel trap focus, close on Esc, restore focus to the trigger, lock background scroll.
-- **Data semantics are not styling choices**: `nextSteps` is labeled 狀態／未結項 (never 後續); `executionStatus` is neutral, not success; missing verification (未回報) ≠ `not_run` (未執行) ≠ passed; changed files ≠ Git commit; deterministic report numbers ≠ Agent synthesis text; summaries are read-only in the UI.
+- **Data semantics are not styling choices**: `nextSteps` is labeled 狀態／未結項 (never 後續); `executionStatus` is neutral, not success; missing verification (未回報) ≠ `not_run` (未執行) ≠ passed; changed files ≠ Git commit; deterministic report numbers ≠ Agent synthesis text; summary and workSummary are edited only in place through the Session editor Dialog (other Session fields stay read-only).
 - **Test hooks**: e2e selects by role, label or `data-testid` — never by styling class. When you rename or remove a class, check `e2e/` first.
 
 ## Verification checklist
