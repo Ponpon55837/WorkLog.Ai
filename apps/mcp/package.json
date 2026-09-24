@@ -15,6 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "vitest run src",
+    "test:coverage": "vitest run src --config vitest.coverage.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
