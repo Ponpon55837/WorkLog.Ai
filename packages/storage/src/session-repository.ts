@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import type { PageInfo, SessionListResult, SessionVoidedFilter, WorkSessionRecord } from "@work-intelligence/core";
 import { localDayStartIso } from "@work-intelligence/shared";
-import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
+import { LIKE_ESCAPE, likeContainsPattern, splitSearchTerms } from "./sql-like.js";
 
 export type SessionRow = {
   id: string;
@@ -164,15 +164,29 @@ export class SessionRepository {
       clauses.push("s.voided_at IS NOT NULL");
     }
 
-    if (options.query) {
+    // Every term must appear in at least one of the Session's text fields.
+    for (const term of splitSearchTerms(options.query ?? "")) {
       clauses.push(
-        `(LOWER(s.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(s.summary) LIKE ? ${LIKE_ESCAPE} OR EXISTS (
-          SELECT 1 FROM work_events search_events
-          WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ? ${LIKE_ESCAPE}
-        ))`,
+        `(LOWER(s.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(s.summary) LIKE ? ${LIKE_ESCAPE}
+          -- Match the values only, so section names like "decisions" do not match every Session.
+          OR EXISTS (
+            SELECT 1
+            FROM json_each(CASE WHEN json_valid(s.work_summary_json) THEN s.work_summary_json ELSE '{}' END) section,
+              json_each(CASE WHEN section.type = 'array' THEN section.value ELSE '[]' END) line
+            WHERE LOWER(line.value) LIKE ? ${LIKE_ESCAPE}
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM json_each(CASE WHEN json_valid(s.changed_files_json) THEN s.changed_files_json ELSE '[]' END) file
+            WHERE LOWER(file.value) LIKE ? ${LIKE_ESCAPE}
+          )
+          OR EXISTS (
+            SELECT 1 FROM work_events search_events
+            WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ? ${LIKE_ESCAPE}
+          ))`,
       );
-      const needle = likeContainsPattern(options.query.toLowerCase());
-      parameters.push(needle, needle, needle);
+      const needle = likeContainsPattern(term);
+      parameters.push(needle, needle, needle, needle, needle);
     }
 
     // Compare the raw ISO timestamp so the completed_at indexes stay usable. Calendar dates become
