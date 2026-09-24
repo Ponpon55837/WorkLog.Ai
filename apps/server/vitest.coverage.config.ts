@@ -1,14 +1,16 @@
 import { defineConfig } from "vitest/config";
+import { serverAliases } from "./vitest.config";
 
 export default defineConfig({
+  resolve: { alias: serverAliases },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["tests/server/**/*.test.ts"],
     coverage: {
       enabled: true,
       provider: "v8",
       reporter: ["text", "json-summary"],
-      include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts"],
+      include: ["apps/server/src/**/*.ts"],
+      exclude: ["tests/server/**/*.test.ts"],
       thresholds: {
         statements: 35,
         branches: 38,

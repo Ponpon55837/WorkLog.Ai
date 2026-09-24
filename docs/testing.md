@@ -4,13 +4,17 @@
 
 > 回到 [README](../README.md)
 
+## 測試檔案位置
+
+所有單元、整合與端對端測試集中放在根目錄 `tests/`，依工作區套件分資料夾；`apps/` 與 `packages/` 只放產品程式碼、建置與測試設定，不在 `src/` 旁混放測試檔。`tests/e2e/` 專放瀏覽器端對端測試。
+
 ```powershell
-pnpm test       # lint + Prettier check (whole repo) + unit/integration tests across policy, schema, storage, server and MCP
-pnpm format     # Prettier --write for the whole repo (docs and agent skills are excluded)
-pnpm test:coverage # schema/storage coverage with enforced minimum thresholds
-pnpm typecheck  # packages + Vue template + E2E test/config types
-pnpm build      # all packages + server/mcp + Vite production bundle
-pnpm test:e2e   # isolated Playwright browser regression suite
+pnpm test         # ESLint、全專案格式檢查，以及 core、政策、schema、storage、server、MCP、Web 測試
+pnpm format       # 格式化全專案（文件與 Agent 技能除外）
+pnpm test:coverage # schema、storage、server、MCP、Web 覆蓋率與最低門檻
+pnpm typecheck    # 套件、Vue 樣板、單元測試與 E2E 設定型別
+pnpm build        # 工作區套件、server／MCP 與 Vite 正式版
+pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 ```
 
 ## CI

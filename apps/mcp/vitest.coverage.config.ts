@@ -1,14 +1,16 @@
 import { defineConfig } from "vitest/config";
+import { mcpAliases } from "./vitest.config";
 
 export default defineConfig({
+  resolve: { alias: mcpAliases },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["tests/mcp/**/*.test.ts"],
     coverage: {
       enabled: true,
       provider: "v8",
       reporter: ["text", "json-summary"],
-      include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts"],
+      include: ["apps/mcp/src/**/*.ts"],
+      exclude: ["tests/mcp/**/*.test.ts"],
       thresholds: {
         statements: 47,
         branches: 42,

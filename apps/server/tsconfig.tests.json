@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "baseUrl": ".",
+    "paths": {
+      "@work-intelligence/core": ["../../packages/core/src/index.ts"],
+      "@work-intelligence/schema": ["../../packages/schema/src/index.ts"],
+      "@work-intelligence/shared": ["../../packages/shared/src/index.ts"],
+      "@work-intelligence/storage": ["../../packages/storage/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "../../tests/server/**/*.ts"]
+}

@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "baseUrl": ".",
+    "paths": {
+      "@work-intelligence/core": ["../../packages/core/src/index.ts"],
+      "@work-intelligence/project-policy": ["../../packages/project-policy/src/index.ts"],
+      "@work-intelligence/schema": ["../../packages/schema/src/index.ts"],
+      "@work-intelligence/shared": ["../../packages/shared/src/index.ts"],
+      "@work-intelligence/storage": ["../../packages/storage/src/index.ts"],
+      "@modelcontextprotocol/sdk/*": ["node_modules/@modelcontextprotocol/sdk/dist/esm/*"],
+      "zod": ["node_modules/zod/index.d.cts"],
+      "zod/*": ["node_modules/zod/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "../../tests/mcp/**/*.ts"]
+}

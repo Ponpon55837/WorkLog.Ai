@@ -1,15 +1,21 @@
 import { defineConfig } from "vitest/config";
+import { webAliases } from "./vitest.config";
 
 export default defineConfig({
+  resolve: { alias: webAliases },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["tests/web/**/*.test.ts"],
     coverage: {
       enabled: true,
       provider: "v8",
       reporter: ["text", "json-summary"],
-      include: ["src/utils/report.ts", "src/utils/format.ts", "src/composables/useActiveRequestWatch.ts"],
-      exclude: ["src/**/*.test.ts"],
+      include: [
+        "apps/web/src/utils/report.ts",
+        "apps/web/src/utils/format.ts",
+        "apps/web/src/composables/useActiveRequestWatch.ts",
+      ],
+      exclude: ["tests/web/**/*.test.ts"],
       thresholds: {
         statements: 60,
         branches: 52,
