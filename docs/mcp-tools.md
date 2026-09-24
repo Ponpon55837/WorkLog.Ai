@@ -14,9 +14,10 @@
 | Session | `work_update_session_summary` | 以 replace／append 修正主摘要 |
 | Session | `work_update_session_work_summary` | 以 replace／patch 修正五段 workSummary |
 | Session | `work_attach_evidence` | 掛上 Agent 已確認的測試、命令或文件參考 |
-| Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求 |
+| Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求；帶 `task`／`paths` 時另回傳與這次工作相關的記錄 |
+| Context | `work_recall` | 以關鍵字與檔案路徑排序查詢 Session（含 raw handoff 段落）與 Knowledge，開工前、遇到錯誤時使用 |
 | Context | `work_list_sessions`<br>`work_get_session` | 依關鍵字、日期、專案分頁列出 Session；讀取單筆 Session 完整內容 |
-| Context | `work_search` | 搜尋已保存的 title、summary、events |
+| Context | `work_search` | 與 `work_recall` 同一個引擎，只查 Session |
 | Knowledge | `work_record_knowledge`<br>`work_search_knowledge` | 明確提交與搜尋 Knowledge |
 | Knowledge | `work_update_knowledge` | 編輯、封存或恢復 Knowledge |
 | Knowledge | `work_get_knowledge_history` | 查詢 Knowledge 的不可變變更紀錄 |
@@ -95,6 +96,19 @@ MCP client 的 stdio 設定可使用：
 
 `pendingRequests.reportSynthesis`／`pendingRequests.metadataBackfill` 列出 pending 或 processing、等待 Agent 處理的請求（新到舊，各最多 5 筆）。指定專案時也包含「所有專案」範圍的請求。
 
+開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是：
+
+| 欄位 | 內容 |
+| --- | --- |
+| `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
+| `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
+| `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
+| `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
+
+```json
+{ "projectRoot": "C:\\work\\assistant", "task": "修正報表時區", "paths": ["src/report/range.ts"] }
+```
+
 ## `work_get_project_status`
 
 唯讀查詢一個 workspace root 的記錄狀態：`tracked`、`paused`、`ignored` 或 `unregistered`，以及 `tracked: boolean` 與已註冊時的專案資料。Agent 在準備 finalize payload 前先呼叫，非「記錄中」就不要整理或保存工作。這個工具**不能**變更記錄狀態；授權只能由使用者在 Web UI 操作。
@@ -113,9 +127,26 @@ MCP client 的 stdio 設定可使用：
 { "projectRoot": "C:\\work\\assistant", "from": "2026-09-21", "to": "2026-09-27", "pageSize": 20 }
 ```
 
+## `work_recall`
+
+排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）與 `limit`（1–30，預設 8）。
+
+- **索引範圍**：Session 的 title、summary、五段 workSummary、changed files、branch、events，以及 raw handoff snapshot 依 `#`～`###` 標題切成的段落；Knowledge 的 title、body、tags、references。
+- **查詢**：以空白分隔的每個詞獨立比對，不需要整句完全相符；英文識別字會拆成 camelCase／snake_case 各段，中文以雙字切詞（兩字中文詞可直接查），常見虛詞（the、what、為什麼、如何…）會略過。
+- **排序**：BM25 × 欄位權重（title 3、tags 2、summary／workSummary／Knowledge 本文 1.5、其他 1；raw handoff 只取最相關的一段並 ×0.5），再乘上「命中關鍵字比例（依 IDF 加權）的平方」，命中越多關鍵字的記錄排越前面，最後加上溫和的時間權重。changed files 超過 20 個的 Session，其檔案欄位與路徑命中會依比例降權。
+- **路徑**：`paths` 可用絕對路徑、`專案名/相對路徑` 或相對路徑，比對前會去掉專案根目錄與專案名前綴；完全相同、檔名或路徑尾段相同、位於查詢的目錄下都算命中。Knowledge `references` 裡的 commit SHA 與 URL 會分開處理，不參與路徑比對。
+
+每筆 hit 只包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、`matchedIn`（命中欄位，路徑命中為 `path`）、raw 段落標題 `section`、約 220 字的 `excerpt`、`matchedPaths` 與 `score`。完整內容再用 `work_get_session` 或 `work_search_knowledge` 讀取，並在回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。
+
+```json
+{ "q": "排程 重複執行 lock", "paths": ["src/scheduler/queue.ts"], "projectRoot": "C:\\work\\assistant" }
+```
+
+索引存在同一個 SQLite：寫入時由 trigger 標記變動的 Session／Knowledge，下一次查詢前才重建那幾筆，所以 REST、MCP 與 Web UI 的任何修改都會反映在檢索結果。第一次啟動新版本時會把既有資料全部標記，於第一次查詢時建立索引。
+
 ## `work_search`
 
-搜尋已保存的 title、summary、events，最多 50 筆並附上命中的片段；每筆的 `session` 是與 `work_get_context` 相同的精簡摘要，完整內容用 `work_get_session` 讀取。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。`%`、`_` 會照字面比對。
+與 `work_recall` 使用同一個引擎，但只查 Session，最多 20 筆；每筆包含 Session digest、命中欄位 `matchedIn`、raw 段落標題 `section` 與片段。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
 
 ## Tool annotations 與 prompts
 

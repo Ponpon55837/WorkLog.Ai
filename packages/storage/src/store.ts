@@ -13,6 +13,8 @@ import type {
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
+  RecallQueryResult,
+  RelevantContext,
   CancelMetadataBackfillRequestResult,
   CancelReportSynthesisRequestResult,
   CreateMetadataBackfillRequestInput,
@@ -138,11 +140,19 @@ import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
 import { ReportBuilder } from "./report-builder.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
-import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { DIGEST_ITEM_LENGTH, toKnowledgeDigest, toSessionDigest } from "./digest.js";
+import { applySchemaMigrations } from "./schema-migrations.js";
+import { SearchRepository } from "./search-repository.js";
 
 const RECENT_DECISION_LIMIT = 12;
+const RELEVANT_LIMIT = 5;
+const RECALL_DEFAULT_LIMIT = 8;
+const RECALL_MAX_LIMIT = 30;
+const SEARCH_LIMIT = 20;
+
+/** What an Agent is about to work on; ranks relevant records into the context result. */
+export type ContextFocus = { task?: string; paths?: string[] };
 
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
@@ -1237,6 +1247,7 @@ export class WorkIntelligenceStore {
   private readonly reportBuilder = new ReportBuilder();
   private readonly reportSynthesisRequests: ReportSynthesisRequestRepository;
   private readonly metadataBackfills: MetadataBackfillRepository;
+  private readonly searchIndex: SearchRepository;
   private readonly policyGate: ProjectPolicyGate;
   public readonly insightProvider: InsightProvider;
 
@@ -1270,6 +1281,7 @@ export class WorkIntelligenceStore {
     });
     this.reportSynthesisRequests = new ReportSynthesisRequestRepository(this.db);
     this.metadataBackfills = new MetadataBackfillRepository(this.db);
+    this.searchIndex = new SearchRepository(this.db);
     this.policyGate = new ProjectPolicyGate(this);
   }
 
@@ -1339,6 +1351,8 @@ export class WorkIntelligenceStore {
           CREATE INDEX idx_metadata_backfill_requests_scope ON metadata_backfill_requests(project_id, status, requested_at DESC);
         `);
       }
+
+      applySchemaMigrations(this.db);
     });
   }
 
@@ -4075,7 +4089,7 @@ export class WorkIntelligenceStore {
     });
   }
 
-  public getContext(projectRoot?: string): ContextQueryResult {
+  public getContext(projectRoot?: string, focus: ContextFocus = {}): ContextQueryResult {
     if (projectRoot) {
       const decision = this.checkProjectRoot(projectRoot);
       if (!decision.allowed || !decision.project) {
@@ -4087,10 +4101,11 @@ export class WorkIntelligenceStore {
         };
       }
 
-      return this.buildContext(decision.project);
+      return this.buildContext(decision.project, focus);
     }
 
     const projects = this.listProjects().filter((project) => project.status === "tracked");
+    const relevant = this.getRelevantContext(focus);
     return {
       outcome: "context",
       projects,
@@ -4099,7 +4114,35 @@ export class WorkIntelligenceStore {
       recentKnowledge: this.getRecentKnowledge(),
       metadataFollowUps: this.getMetadataFollowUps(),
       pendingRequests: this.getPendingRequests(),
+      ...(relevant ? { relevant } : {}),
     };
+  }
+
+  /**
+   * Ranked retrieval across Sessions (including raw handoff sections) and active Knowledge of tracked
+   * projects. Returns compact hits; read full records with getSessionDetailForAgent or searchKnowledge.
+   */
+  public recall(input: { q?: string; paths?: string[]; projectRoot?: string; limit?: number }): RecallQueryResult {
+    let project: ProjectRecord | undefined;
+    if (input.projectRoot) {
+      const decision = this.checkProjectRoot(input.projectRoot);
+      if (!decision.allowed || !decision.project) {
+        return {
+          outcome: "skipped",
+          projectRoot: decision.canonicalRoot,
+          projectStatus: decision.projectStatus,
+          reason: decision.reason ?? "Project recording is not enabled.",
+        };
+      }
+      project = decision.project;
+    }
+    const result = this.searchIndex.recall({
+      q: input.q,
+      paths: input.paths,
+      projectId: project?.id,
+      limit: Math.min(Math.max(input.limit ?? RECALL_DEFAULT_LIMIT, 1), RECALL_MAX_LIMIT),
+    });
+    return { outcome: "recall", ...(project ? { project } : {}), ...result };
   }
 
   public search(query: string, projectRoot?: string): SearchResult[] | SkippedResult {
@@ -4117,29 +4160,20 @@ export class WorkIntelligenceStore {
       projectId = decision.project.id;
     }
 
-    const sessions = this.listSessions({ query, projectId, limit: 50, trackedOnly: true });
-    return sessions.map((record) => {
-      const needle = query.toLowerCase();
-      const session = toSessionDigest(record);
-      if (record.title.toLowerCase().includes(needle)) {
-        return { session, matchedIn: "title", excerpt: truncateText(record.title) };
+    const { hits } = this.searchIndex.recall({ q: query, projectId, types: ["session"], limit: SEARCH_LIMIT });
+    return hits.flatMap((hit) => {
+      const record = this.getSessionById(hit.id);
+      if (!record) {
+        return [];
       }
-      if (record.summary.toLowerCase().includes(needle)) {
-        return { session, matchedIn: "summary", excerpt: truncateText(record.summary) };
-      }
-
-      const event = this.db
-        .prepare(
-          `SELECT * FROM work_events
-           WHERE session_id = ? AND LOWER(summary) LIKE ? ${LIKE_ESCAPE}
-           ORDER BY occurred_at ASC LIMIT 1`,
-        )
-        .get(session.id, likeContainsPattern(needle)) as EventRow | undefined;
-      return {
-        session,
-        matchedIn: "event",
-        excerpt: truncateText(event?.summary ?? record.summary),
-      };
+      return [
+        {
+          session: toSessionDigest(record),
+          matchedIn: hit.matchedIn[0] ?? "title",
+          ...(hit.section ? { section: hit.section } : {}),
+          excerpt: hit.excerpt,
+        },
+      ];
     });
   }
 
@@ -4329,7 +4363,8 @@ export class WorkIntelligenceStore {
     }
   }
 
-  private buildContext(project: ProjectRecord): ContextResult {
+  private buildContext(project: ProjectRecord, focus: ContextFocus): ContextResult {
+    const relevant = this.getRelevantContext(focus, project.id);
     return {
       outcome: "context",
       project,
@@ -4339,6 +4374,45 @@ export class WorkIntelligenceStore {
       recentKnowledge: this.getRecentKnowledge(project.id),
       metadataFollowUps: this.getMetadataFollowUps(project.id),
       pendingRequests: this.getPendingRequests(project.id),
+      ...(relevant ? { relevant } : {}),
+    };
+  }
+
+  /** Records ranked for the task and paths an Agent is about to work on; undefined without a focus. */
+  private getRelevantContext(focus: ContextFocus, projectId?: string): RelevantContext | undefined {
+    const task = focus.task?.trim();
+    const paths = (focus.paths ?? []).map((path) => path.trim()).filter(Boolean);
+    if (!task && paths.length === 0) {
+      return undefined;
+    }
+    const { hits, termHits } = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
+    const knowledge = hits.filter((hit) => hit.type === "knowledge").slice(0, RELEVANT_LIMIT);
+    const sessions = hits
+      .filter((hit) => hit.type === "session")
+      .slice(0, RELEVANT_LIMIT)
+      .flatMap((hit) => {
+        const record = this.getSessionById(hit.id);
+        return record ? [{ hit, record }] : [];
+      });
+    const decisions = sessions
+      .flatMap(({ record }) =>
+        (record.workSummary?.decisions ?? [])
+          .filter((text) => text.trim().length > 0)
+          .map((text) => ({
+            sessionId: record.id,
+            sessionTitle: record.title,
+            completedAt: record.completedAt,
+            text: truncateText(text, DIGEST_ITEM_LENGTH),
+          })),
+      )
+      .slice(0, RECENT_DECISION_LIMIT);
+    return {
+      ...(task ? { task } : {}),
+      ...(paths.length > 0 ? { paths } : {}),
+      knowledge,
+      decisions,
+      sessions: sessions.map(({ hit, record }) => ({ ...hit, openItems: toSessionDigest(record).openItems })),
+      ...(termHits ? { termHits } : {}),
     };
   }
 

@@ -44,15 +44,12 @@
 
 ### 改善計畫
 
-**第一階段：找得到、放得進 context**（合併原「全文搜尋」，並處理「工程整理」中的 schema 版本表）
+**第一階段：找得到、放得進 context**（已完成實作，見下方「最近完成」）
 
-1. 加 schema 版本表，讓索引建立與既有資料回填有 migration；檢索邏輯獨立成 `search-repository.ts`，不再擴大 `store.ts`。
-2. 建立檢索索引：Session 擴充欄位、Knowledge，加上 raw snapshot 依標題切段；兩字詞退回 LIKE、較長中文切雙字；BM25 排序加時間權重；changedFiles 異常多的 Session 降權。
-3. 新增 `work_recall(q, paths?, projectRoot?)`：一次回傳 Session＋Knowledge 混合的精簡結果（id、類型、標題、命中欄位或段落標題、片段、分數），要全文再用 `work_get_session`。0 筆時回傳各關鍵字單獨的命中數，讓 Agent 自己調整查詢。`work_search` 改走同一個引擎（精簡回傳已完成）。
-4. `work_get_context` 新增 `task`、`paths` 參數（精簡格式、`metadataFollowUps` 改筆數、`recentDecisions` 改用 `workSummary.decisions` 已完成），依序回傳相關 gotcha、決策、改過同批檔案的 Session 與其未結項。
-5. Knowledge `references` 路徑正規化（commit SHA 與路徑分開處理）。
-6. 更新 `.agents/skills/work-intelligence`：開工前用任務描述與要改的檔案 recall；遇到錯誤時用錯誤訊息查；套用記錄時引用 `sessionId`／`knowledgeId`。
-7. 檢索行為的單元測試只使用虛構的合成資料（專案、Session、Knowledge、raw snapshot 皆為測試自建），涵蓋多關鍵字、兩字中文詞、自然語句、raw 切段與路徑正規化等情境。真實資料的評估題與腳本只在使用者本機執行，不進 repo。
+剩下的項目：
+
+- 以本機真實 DB 快照重跑上面 36 題評估，確認實作後的 hit@5／MRR 與 S5 預期一致；評估題與腳本仍只留在本機。
+- `work_search_knowledge` 與 Web 的 Session 列表／Knowledge 搜尋仍是整句 LIKE（UI 需要分頁與時間排序）；Agent 改用 `work_recall`，UI 是否改用排序檢索另外評估。
 
 **第二階段：可信度與回饋**
 
@@ -73,10 +70,11 @@
 | Session 關聯 | 提案（併入 Agent 檢索第二階段） | 規劃與實作常拆成兩筆 Session 且沒有關聯；可加 `relatedSessionIds`／`parentSessionId`，檢索找到一筆時帶出另一筆，圖譜也能畫出工作流。 |
 | changedFiles 品質 | 提案（檢索降權在第一階段） | 有「唯讀盤點」Session 記到 41 個 changed files，疑似把既有 dirty worktree 算進去，檢索評估中已實際擠進檔名查詢前 3 名。第一階段先在排序時降權；根本解法仍是在 finalize 記錄 baseline，或在 UI 標示異常。 |
 | finalize 提醒 | 提案 | 目前完全依賴 Agent 記得 finalize；可提供 Claude Code Stop／SessionEnd hook 範例提醒保存。 |
-| 工程整理 | 提案 | `store.ts` 仍約 4,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；沒有 DB 備份與 schema 版本表（schema 版本表併入 Agent 檢索第一階段）。 |
+| 工程整理 | 提案 | `store.ts` 仍約 4,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；沒有 DB 備份。schema 版本表已加入（`schema_migrations`），既有的欄位補齊檢查仍留在 `store.ts`。 |
 
 ## 最近完成（2026-09-23～24）
 
+- **Agent 檢索第一階段：排序檢索與 `work_recall`**：新增 `schema_migrations` 版本表；migration 1 建立 FTS5 檢索索引，涵蓋 Session 的 title、summary、五段 workSummary、changed files、branch、events 與 raw handoff（依 `#`～`###` 標題切段），以及 Knowledge 的 title、body、tags、references，既有資料在第一次查詢時回填。英文識別字拆成 camelCase／snake_case 各段、中文以雙字切詞；排序為 BM25 × 欄位權重 × 命中關鍵字比例平方 × 時間權重，changed files 超過 20 個的 Session 降權。新增 MCP `work_recall(q, paths, projectRoot, limit)` 回傳 Session＋Knowledge 混合的精簡 hit，有關鍵字沒命中時附 `termHits`；`work_search`（與 REST `/api/search`）改走同一個引擎、只查 Session、上限 20 筆；`work_get_context` 可帶 `task`／`paths`，回傳 `relevant`（相關 Knowledge、相關 Session 的決策、改過同批檔案的 Session 與未結項）。Knowledge `references` 在索引時把 commit SHA、URL 與路徑分開，路徑去掉專案根目錄與專案名前綴後比對。索引由 SQLite trigger 標記變動、查詢前重建，涵蓋 REST、MCP 與 UI 的所有寫入。以 60 筆各含 4.2 萬字 handoff 的合成資料量測：第一次建立索引約 0.74 秒，之後每次查詢約 38 ms，8 筆結果約 4 KB。另修正 storage coverage 設定沒有固定 `TZ=UTC`，在非 UTC 機器上日期邊界測試會失敗的問題。
 - **Agent context 與搜尋改為精簡回傳**（Agent 檢索第一階段）：`work_get_context` 的 Session、Knowledge 改回傳 digest（摘要與 Knowledge 本文超過 400 字截斷、不含 changed files 清單與 provenance），Session 附前 3 項未結項；`recentDecisions` 改取 `workSummary.decisions` 並附來源 `sessionId`；`metadataFollowUps` 只回傳筆數，明細改用 `work_preview_metadata_backfill`。`work_search` 的每筆結果也改成同樣的 Session digest。以本機資料量測，單一專案 context 由約 107 KB 降到約 12.6 KB，單一關鍵字搜尋由 67 KB 降到約 0.5 KB。原本給 note／closing 事件用的近期決策 partial index 已不再使用並移除。
 - **報告日期改用系統時區**（PR #10）：報告、趨勢與工作歷程日期篩選改依 server 所在系統時區計算，報告回傳 `timezone`，報告頁頁首顯示時區名稱。另外修正搜尋把 `%`、`_` 當萬用字元的問題，API 拒絕非 loopback 的 `Host`（防 DNS rebinding），Prettier 改為檢查全專案。
 - **Session 摘要可在 UI 編輯**：Session 面板新增「編輯摘要」，可修改主摘要與五段 workSummary（每行一項）；只送出有變更的欄位，同一筆 Session 就地更新並留下 audit，其他欄位維持唯讀。

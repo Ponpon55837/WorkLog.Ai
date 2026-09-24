@@ -152,9 +152,25 @@ export const updateSessionWorkSummaryInputSchema = updateSessionWorkSummaryInput
   },
 );
 
+const recallPathsSchema = z.array(z.string().trim().min(1).max(1_000)).max(20);
+
 export const contextQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
+  task: z.string().trim().min(1).max(500).optional(),
+  paths: recallPathsSchema.optional(),
 });
+
+export const recallQuerySchemaBase = z.object({
+  q: z.string().trim().min(1).max(500).optional(),
+  paths: recallPathsSchema.optional(),
+  projectRoot: z.string().trim().min(1).max(1_000).optional(),
+  limit: z.number().int().min(1).max(30).optional(),
+});
+
+export const recallQuerySchema = recallQuerySchemaBase.refine(
+  (value) => Boolean(value.q) || (value.paths?.length ?? 0) > 0,
+  { message: "Provide q, paths, or both." },
+);
 
 export const searchQuerySchema = z.object({
   q: z.string().trim().min(1).max(500),

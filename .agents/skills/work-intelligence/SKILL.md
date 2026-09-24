@@ -1,6 +1,6 @@
 ---
 name: work-intelligence
-description: Use the Work Intelligence MCP to finalize or repair tracked-project work sessions, retrieve saved context, backfill verified metadata, and synthesize requested reports. Do not use it to record untracked project work.
+description: Use the Work Intelligence MCP to finalize or repair tracked-project work sessions, recall related past work before starting a task or when an error appears, retrieve saved context, backfill verified metadata, and synthesize requested reports. Do not use it to record untracked project work.
 ---
 
 # Work Intelligence MCP
@@ -60,10 +60,20 @@ When the user asks to organize or refine a Work Intelligence report, handle the 
 5. Keep `passed`, `failed`, `not_run`, and historical `not_supplied` distinct. Do not estimate metrics, infer commits from changed files, or claim complete coverage when context is truncated. State `資料不足` where sources do not support a conclusion.
 6. Every material report block must include its supporting `sourceSessionIds`; the top-level source list must include the Sessions actually used. Validate source IDs against the request context before saving. Preserve prior report versions as the product contract requires; do not delete them as part of synthesis.
 
+## Recall before and during work
+
+In a tracked project, check recorded work proactively — not only when the user asks about the past:
+
+- **Before starting a task**: get the project context with the task description and the files you expect to change. Read the returned relevant Knowledge (gotchas, patterns, decisions), the decisions of related Sessions, and the open items of Sessions that changed the same files before planning.
+- **When an error or unexpected behavior appears**: recall with the key part of the error message (and the file involved) before debugging from scratch; the fix may already be recorded.
+- **When the user asks about past work**: recall with their words; words are matched independently, so natural-language and Chinese questions work. If some words matched nothing (the result lists per-word hit counts), rephrase with other terms instead of concluding nothing exists.
+- Hits are compact. Open the full Session or Knowledge before relying on it, and cite the sessionId or knowledgeId you applied when you explain a decision or fix. If the record contradicts the current code, trust the code and say the record looks outdated.
+- Stay within the tracked project's scope when the question is about this project. Do not substitute an unrestricted repository scan for missing recorded context; if nothing relevant is recorded, say so briefly and continue.
+
 ## Context, search, and Knowledge
 
-To find a specific Session (for example before correcting it), list or search Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.
+To find a specific Session (for example before correcting it), recall or list Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.
 
-Use saved Work Intelligence context and search for questions about recorded work; constrain queries to the requested tracked project when appropriate. Do not substitute an unrestricted repository scan for missing recorded context. Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; do not turn guesses or an entire Session transcript into Knowledge.
+Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; do not turn guesses or an entire Session transcript into Knowledge.
 
 When responding, summarize what was saved or corrected, report verification and remaining gaps accurately, and keep internal MCP mechanics out of the user-facing instructions.

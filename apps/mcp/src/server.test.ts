@@ -178,4 +178,45 @@ describe("Work Intelligence MCP server", () => {
       await callJson(client, "work_request_report_synthesis", { projectRoot: otherRoot, period: "week" }),
     ).toMatchObject({ outcome: "skipped", projectStatus: "unregistered" });
   });
+
+  it("recalls Sessions and Knowledge and focuses context on a task and paths", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Recall project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-recall-001", "Greenhouse humidity sensor"),
+      changedFiles: ["src/sensors/humidity.ts"],
+    });
+    await callJson(client, "work_record_knowledge", {
+      projectRoot: root,
+      idempotencyKey: "mcp-recall-knowledge",
+      kind: "gotcha",
+      title: "Humidity sensor drifts after restart",
+      body: "Recalibrate before reading.",
+    });
+
+    const recall = await callJson<{ outcome: string; hits: Array<{ type: string; id: string }> }>(
+      client,
+      "work_recall",
+      { q: "humidity sensor", projectRoot: root },
+    );
+    expect(recall.outcome).toBe("recall");
+    expect(recall.hits.map((hit) => hit.type).sort()).toEqual(["knowledge", "session"]);
+
+    const byPath = await callJson<{ hits: Array<{ id: string; matchedPaths?: string[] }> }>(client, "work_recall", {
+      paths: [join(root, "src/sensors/humidity.ts")],
+    });
+    expect(byPath.hits[0]).toMatchObject({ id: finalized.session.id, matchedPaths: ["src/sensors/humidity.ts"] });
+
+    const invalid = await client.callTool({ name: "work_recall", arguments: { projectRoot: root } });
+    expect(invalid.isError).toBe(true);
+
+    const context = await callJson<{ relevant?: { knowledge: unknown[]; sessions: Array<{ id: string }> } }>(
+      client,
+      "work_get_context",
+      { projectRoot: root, task: "humidity drift", paths: ["src/sensors/humidity.ts"] },
+    );
+    expect(context.relevant?.knowledge).toHaveLength(1);
+    expect(context.relevant?.sessions.map((session) => session.id)).toEqual([finalized.session.id]);
+  });
 });
