@@ -1,4 +1,6 @@
+import { DatabaseSync } from "node:sqlite";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { WorkIntelligenceStore } from "../packages/storage/dist/index.js";
 
 const projectRoot = process.cwd();
 // Report calendar dates follow the host time zone, like the server computing them.
@@ -7,6 +9,20 @@ const reportDate = new Date().toLocaleDateString("sv-SE");
 type ProjectRecord = { id: string };
 type SessionRecord = { id: string };
 type ApiResult<T> = T & { outcome?: string; reason?: string };
+
+/** Acts as an Agent on the server's database (MCP-only writes have no REST route). */
+function withAgentStore<T>(task: (store: WorkIntelligenceStore) => T): T {
+  const databasePath = process.env.WORK_INTELLIGENCE_E2E_DB;
+  if (!databasePath) {
+    throw new Error("WORK_INTELLIGENCE_E2E_DB is not set; run the suite through playwright.config.ts.");
+  }
+  const store = new WorkIntelligenceStore(databasePath, { backup: { directory: `${databasePath}-agent-backups` } });
+  try {
+    return task(store);
+  } finally {
+    store.close();
+  }
+}
 
 const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/dashboard", "工作總覽"],
@@ -600,6 +616,111 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   // Opt-in visual baseline: UI_SCREENSHOTS=<label> pnpm test:e2e writes docs/ui-baseline/<label>/*.png
+  test("shows Agent-proposed Knowledge as soon as the Agent submits it, and accepts it", async ({ page }) => {
+    await page.goto("/knowledge");
+    const candidates = page.getByTestId("knowledge-candidates");
+    await candidates.getByRole("button", { name: "整理候選" }).click();
+    await page.getByRole("menuitem", { name: "Browser Regression Fixture" }).click();
+    await expect(candidates).toContainText("等待 Agent 整理");
+
+    withAgentStore((store) => {
+      const context = store.getKnowledgeCandidateContext({ projectRoot });
+      if (context.outcome !== "knowledge_candidate_context") {
+        throw new Error(`Expected candidate context, got ${context.outcome}`);
+      }
+      const submitted = store.submitKnowledgeCandidates({
+        requestId: context.request.id,
+        candidates: [
+          {
+            sourceSessionId: context.sessions[0]!.id,
+            kind: "gotcha",
+            title: "E2E candidate: the browser suite needs its own database",
+            body: "Browser tests run against an isolated SQLite file.",
+            rationale: "The fixture session decided to use one isolated SQLite fixture.",
+          },
+        ],
+      });
+      expect(submitted.outcome).toBe("knowledge_candidates_submitted");
+    });
+
+    // The page re-checks the open request and shows the result without a reload.
+    await expect(page.getByText(/Agent 已送出.*Knowledge 候選/)).toBeVisible({ timeout: 15_000 });
+    const candidate = candidates.getByTestId("knowledge-candidate").filter({ hasText: "E2E candidate" });
+    await candidate.getByRole("button", { name: "接受", exact: true }).click();
+    await expect(page.getByText("已加入 Knowledge。")).toBeVisible();
+    await expect(
+      page.getByTestId("knowledge-row").filter({ hasText: "E2E candidate: the browser suite needs its own database" }),
+    ).toBeVisible();
+  });
+
+  test("flags Knowledge whose files changed and clears the flag once confirmed", async ({ page, request }) => {
+    const title = "E2E trust: fixtures live in playwright.config.ts";
+    const recorded = await postJson(request, "/api/knowledge", {
+      projectRoot,
+      idempotencyKey: `browser-regression-trust-${process.pid}`,
+      kind: "pattern",
+      title,
+      body: "The browser fixtures are configured in playwright.config.ts.",
+      appliesTo: ["playwright.config.ts"],
+    });
+    expect(recorded.outcome).toBe("knowledge_recorded");
+    await postJson(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-trust-change-${process.pid}`,
+      title: "Change the browser fixtures",
+      summary: "Changed playwright.config.ts after the Knowledge was recorded.",
+      changedFiles: ["playwright.config.ts"],
+      verification: { status: "passed" },
+    });
+
+    await page.goto("/knowledge");
+    const row = page.getByTestId("knowledge-row").filter({ hasText: title });
+    await expect(row).toContainText("可能過時");
+    await row.getByRole("button", { name: "更多" }).click();
+    await page.getByRole("menuitem", { name: "確認仍有效" }).click();
+    await expect(row).not.toContainText("可能過時");
+    await expect(row).toContainText("確認有效於");
+  });
+
+  test("picks up a metadata backfill the Agent finishes while the page is open", async ({ page, request }) => {
+    const finalized = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-backfill-${process.pid}`,
+      title: "Legacy session missing verification",
+      summary: "Imported before verification was recorded.",
+      changedFiles: ["README.md"],
+      verification: { status: "passed" },
+    });
+    // Simulate a legacy record: verification was never supplied.
+    const db = new DatabaseSync(process.env.WORK_INTELLIGENCE_E2E_DB!);
+    db.prepare("UPDATE sessions SET verification_json = NULL WHERE id = ?").run(finalized.session.id);
+    db.close();
+
+    await page.goto("/projects/backfill");
+    // Scanning creates the Agent request when gaps exist.
+    await page.getByRole("button", { name: "掃描 metadata 缺口" }).click();
+    await expect(page.getByRole("button", { name: "取消回補" })).toBeVisible();
+
+    // Act as the Agent: read the request's context and write back every confirmed gap.
+    const requests = await request.get("/api/backfill/metadata-requests");
+    const pending = ((await requests.json()) as { requests: Array<{ id: string; status: string }> }).requests.find(
+      (item) => item.status === "pending" || item.status === "processing",
+    );
+    const contextResponse = await request.get(`/api/backfill/metadata-requests/${pending?.id}/context`);
+    const context = (await contextResponse.json()) as { items: Array<{ sessionId: string }> };
+    expect(context.items.map((item) => item.sessionId)).toContain(finalized.session.id);
+    const applied = await postJson(request, "/api/backfill/metadata", {
+      requestId: pending?.id,
+      updates: context.items.map((item) => ({
+        sessionId: item.sessionId,
+        changedFiles: ["README.md"],
+        verification: { status: "passed", summary: "Confirmed from the fixture." },
+      })),
+    });
+    expect(applied.outcome).toBe("backfill_applied");
+    await expect(page.getByText("Agent 已完成 metadata 回補。")).toBeVisible({ timeout: 15_000 });
+  });
+
   test("captures page screenshots for visual comparison", async ({ page }) => {
     const label = process.env.UI_SCREENSHOTS;
     test.skip(!label, "Set UI_SCREENSHOTS=<label> to capture screenshots.");
