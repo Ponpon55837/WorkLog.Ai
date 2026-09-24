@@ -39,6 +39,51 @@ async function postJson<T>(request: APIRequestContext, endpoint: string, body: u
   return (await response.json()) as ApiResult<T>;
 }
 
+async function submitKnowledgeCandidateForReview(
+  page: Page,
+  input: { title: string; body: string; rationale: string },
+): Promise<string> {
+  await page.goto("/knowledge");
+  const candidates = page.getByTestId("knowledge-candidates");
+  await candidates.getByRole("button", { name: "整理候選" }).click();
+  await page.getByRole("menuitem", { name: "Browser Regression Fixture" }).click();
+  await expect(candidates).toContainText("等待 Agent 整理");
+
+  const candidateId = withAgentStore((store) => {
+    const context = store.getKnowledgeCandidateContext({ projectRoot });
+    if (context.outcome !== "knowledge_candidate_context") {
+      throw new Error(`Expected candidate context, got ${context.outcome}`);
+    }
+    const sourceSession = context.sessions[0];
+    if (!sourceSession) {
+      throw new Error("Expected an eligible fixture Session for the Knowledge candidate.");
+    }
+    const submitted = store.submitKnowledgeCandidates({
+      requestId: context.request.id,
+      candidates: [
+        {
+          sourceSessionId: sourceSession.id,
+          kind: "gotcha",
+          title: input.title,
+          body: input.body,
+          rationale: input.rationale,
+        },
+      ],
+    });
+    if (submitted.outcome !== "knowledge_candidates_submitted") {
+      throw new Error(`Expected submitted Knowledge candidates, got ${submitted.outcome}`);
+    }
+    const candidate = submitted.candidates[0];
+    if (!candidate) {
+      throw new Error("Expected the Agent to submit one Knowledge candidate.");
+    }
+    return candidate.id;
+  });
+
+  await expect(page.getByText(/Agent 已送出.*Knowledge 候選/)).toBeVisible({ timeout: 15_000 });
+  return candidateId;
+}
+
 async function expectBoundedVirtualList(page: Page, name: string): Promise<Locator> {
   const list = page.getByRole("list", { name });
   await expect(list).toBeVisible();
@@ -807,6 +852,79 @@ test.describe("Work Intelligence browser regression", () => {
         await page.waitForLoadState("networkidle");
         await page.screenshot({ path: `docs/ui-baseline/${label}/${path.slice(1)}-${width}.png`, fullPage: true });
       }
+    }
+  });
+
+  test("edits an Agent-proposed Knowledge candidate before accepting it", async ({ page }) => {
+    const originalTitle = `E2E candidate to edit ${process.pid}`;
+    const editedTitle = `E2E edited candidate ${process.pid}`;
+    const editedBody = `Reviewed candidate body ${process.pid}.`;
+    const candidateId = await submitKnowledgeCandidateForReview(page, {
+      title: originalTitle,
+      body: "Agent-proposed candidate body.",
+      rationale: "Candidate fixture for reviewer edits.",
+    });
+
+    const candidates = page.getByTestId("knowledge-candidates");
+    const candidate = candidates.getByTestId("knowledge-candidate").filter({ hasText: originalTitle });
+    await expect(candidate).toBeVisible();
+    await candidate.getByRole("button", { name: "修改後接受", exact: true }).click();
+
+    const editor = page.getByRole("dialog", { name: "修改後接受 Knowledge 候選" });
+    await expect(editor).toBeVisible();
+    await editor.getByLabel("標題").fill(editedTitle);
+    await editor.getByLabel("Knowledge 類型").selectOption("decision");
+    await editor.getByLabel("內容").fill(editedBody);
+    await editor.getByLabel("標籤").fill("E2E, reviewer-edited");
+    await editor.getByLabel("適用路徑").fill("e2e/work-intelligence.spec.ts\napps/web/src/views/KnowledgeView.vue");
+    await editor.getByRole("button", { name: "接受並加入 Knowledge" }).click();
+
+    await expect(page.getByText("已加入 Knowledge。")).toBeVisible();
+    const knowledge = page.getByTestId("knowledge-row").filter({ hasText: editedTitle });
+    await expect(knowledge).toBeVisible();
+    await expect(knowledge).toContainText("技術決策");
+    await expect(knowledge).toContainText(editedBody);
+    await expect(knowledge).toContainText("#E2E");
+    await expect(knowledge).toContainText("#reviewer-edited");
+    await expect(knowledge).toContainText("適用 e2e/work-intelligence.spec.ts");
+    await expect(candidates.getByTestId("knowledge-candidate").filter({ hasText: originalTitle })).toHaveCount(0);
+
+    const accepted = withAgentStore((store) => store.listKnowledgeCandidates({ projectRoot, status: "accepted" }));
+    expect(accepted.outcome).toBe("knowledge_candidates");
+    if (accepted.outcome === "knowledge_candidates") {
+      expect(accepted.items).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: candidateId, status: "accepted" })]),
+      );
+    }
+  });
+
+  test("rejects an Agent-proposed Knowledge candidate without recording it as Knowledge", async ({ page }) => {
+    const title = `E2E candidate to reject ${process.pid}`;
+    const candidateId = await submitKnowledgeCandidateForReview(page, {
+      title,
+      body: "This proposal should be rejected.",
+      rationale: "Candidate fixture for the rejection flow.",
+    });
+
+    const candidates = page.getByTestId("knowledge-candidates");
+    const candidate = candidates.getByTestId("knowledge-candidate").filter({ hasText: title });
+    await expect(candidate).toBeVisible();
+    await candidate.getByRole("button", { name: "拒絕", exact: true }).click();
+
+    const confirmation = page.getByRole("dialog", { name: "拒絕這筆候選？" });
+    await expect(confirmation).toContainText("不會成為 Knowledge");
+    await confirmation.getByRole("button", { name: "拒絕", exact: true }).click();
+
+    await expect(page.getByText("已拒絕這筆候選。")).toBeVisible();
+    await expect(candidates.getByTestId("knowledge-candidate").filter({ hasText: title })).toHaveCount(0);
+    await expect(page.getByTestId("knowledge-row").filter({ hasText: title })).toHaveCount(0);
+
+    const rejected = withAgentStore((store) => store.listKnowledgeCandidates({ projectRoot, status: "rejected" }));
+    expect(rejected.outcome).toBe("knowledge_candidates");
+    if (rejected.outcome === "knowledge_candidates") {
+      expect(rejected.items).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: candidateId, status: "rejected" })]),
+      );
     }
   });
 });
