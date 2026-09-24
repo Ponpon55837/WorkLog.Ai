@@ -35,6 +35,8 @@ import type {
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
   UpdateSessionSummaryInput,
+  UpdateSessionVerificationResult,
+  VerificationSummary,
   UpdateSessionSummaryResult,
   UpdateSessionWorkSummaryInput,
   UpdateSessionWorkSummaryResult,
@@ -122,6 +124,19 @@ export class ApiClient {
 
   public getSessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
     return this.request<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal });
+  }
+
+  public updateSessionVerification(
+    sessionId: string,
+    verification: VerificationSummary,
+    signal?: AbortSignal,
+  ): Promise<UpdateSessionVerificationResult> {
+    return this.write<UpdateSessionVerificationResult>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/verification`,
+      "PATCH",
+      verification,
+      signal,
+    );
   }
 
   public setSessionVoid(input: SetSessionVoidInput, signal?: AbortSignal): Promise<SetSessionVoidResult> {

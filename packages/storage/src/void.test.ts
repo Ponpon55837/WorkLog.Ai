@@ -163,3 +163,37 @@ describe("voiding evidence", () => {
     });
   });
 });
+
+describe("correcting verification", () => {
+  it("updates verification in place and keeps every change in the verification audit", () => {
+    const { store, finalize } = setup();
+    const sessionId = finalize("verify");
+
+    const corrected = store.updateSessionVerification(sessionId, { status: "passed", summary: " pnpm test " }, "web");
+    expect(corrected).toMatchObject({
+      outcome: "updated",
+      previous: { status: "not_run" },
+      session: { verification: { status: "passed", summary: "pnpm test" } },
+    });
+    expect(store.updateSessionVerification(sessionId, { status: "passed", summary: "pnpm test" }, "web")).toMatchObject(
+      {
+        unchanged: true,
+      },
+    );
+
+    store.updateSessionMetadata({
+      sessionId,
+      changedFiles: [],
+      changedFilesMode: "merge",
+      verification: { status: "failed", summary: "Flaky suite." },
+    });
+    expect(store.getSessionDetail(sessionId)?.verificationHistory).toEqual([
+      expect.objectContaining({
+        source: "agent",
+        previous: { status: "passed", summary: "pnpm test" },
+        resulting: { status: "failed", summary: "Flaky suite." },
+      }),
+      expect.objectContaining({ source: "web", previous: { status: "not_run" }, resulting: expect.anything() }),
+    ]);
+  });
+});

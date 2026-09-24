@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import type { WorkSessionRecord, WorkSummarySections } from "@work-intelligence/core";
+import type { ReportVerificationStatus, WorkSessionRecord, WorkSummarySections } from "@work-intelligence/core";
 import { errorMessage } from "../utils/format";
 import { workSummarySectionLabels } from "../utils/labels";
 import { useApi } from "./useApi";
@@ -8,7 +8,13 @@ import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
 
 type SectionKey = keyof WorkSummarySections;
-type SessionEditorForm = { summary: string; sections: Record<SectionKey, string> };
+type SessionEditorForm = {
+  summary: string;
+  sections: Record<SectionKey, string>;
+  /** not_supplied means "leave unreported": the API only accepts passed, failed, or not_run. */
+  verificationStatus: ReportVerificationStatus;
+  verificationSummary: string;
+};
 
 const sessionEditor = ref<WorkSessionRecord | null>(null);
 const sessionEditorForm = ref<SessionEditorForm>(toForm());
@@ -31,7 +37,12 @@ function toForm(session?: WorkSessionRecord): SessionEditorForm {
   const sections = Object.fromEntries(
     workSummarySectionLabels.map(({ key }) => [key, sectionText(session?.workSummary?.[key])]),
   ) as Record<SectionKey, string>;
-  return { summary: session?.summary ?? "", sections };
+  return {
+    summary: session?.summary ?? "",
+    sections,
+    verificationStatus: session?.verification?.status ?? "not_supplied",
+    verificationSummary: session?.verification?.summary ?? "",
+  };
 }
 
 /** Opens the in-place editor for a Session's summary and five-section workSummary. */
@@ -58,8 +69,9 @@ function newIdempotencyKey(kind: string, sessionId: string): string {
 }
 
 /**
- * Saves only what changed, on the same Session: the summary is replaced, and edited sections are
- * patched so untouched sections (and legacy Sessions without workSummary) are preserved.
+ * Saves only what changed, on the same Session: the summary is replaced, edited sections are
+ * patched so untouched sections (and legacy Sessions without workSummary) are preserved, and a
+ * verification correction is written through its own audited endpoint.
  */
 async function saveSessionEditor(): Promise<void> {
   const session = sessionEditor.value;
@@ -77,7 +89,15 @@ async function saveSessionEditor(): Promise<void> {
     .map(({ key }) => key)
     .filter((key) => form.sections[key] !== original.sections[key]);
   const summaryChanged = summary !== session.summary.trim();
-  if (!summaryChanged && changedSections.length === 0) {
+  const verificationStatus = form.verificationStatus;
+  const verificationChanged =
+    verificationStatus !== original.verificationStatus ||
+    form.verificationSummary.trim() !== original.verificationSummary.trim();
+  if (verificationChanged && verificationStatus === "not_supplied") {
+    sessionEditorError.value = "請選擇 Verification 狀態（通過、失敗或未執行）才能填寫說明。";
+    return;
+  }
+  if (!summaryChanged && changedSections.length === 0 && !verificationChanged) {
     closeSessionEditor();
     return;
   }
@@ -111,6 +131,16 @@ async function saveSessionEditor(): Promise<void> {
         throw new Error(updateFailureMessage(result));
       }
     }
+    if (verificationChanged && verificationStatus !== "not_supplied") {
+      const summaryText = form.verificationSummary.trim();
+      const result = await client.updateSessionVerification(session.id, {
+        status: verificationStatus,
+        ...(summaryText ? { summary: summaryText } : {}),
+      });
+      if (result.outcome !== "updated") {
+        throw new Error(updateFailureMessage(result));
+      }
+    }
   } catch (error) {
     sessionEditorError.value = errorMessage(error, "無法更新 Session 摘要。");
     sessionEditorSaving.value = false;
@@ -119,7 +149,7 @@ async function saveSessionEditor(): Promise<void> {
 
   sessionEditorSaving.value = false;
   closeSessionEditor();
-  useToast().showToast("Session 摘要已更新。");
+  useToast().showToast("Session 已更新。");
   await useSessionDetail().openSessionDetail(session.id);
   requestAppRefresh();
 }

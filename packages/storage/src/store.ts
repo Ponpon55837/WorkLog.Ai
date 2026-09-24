@@ -19,6 +19,8 @@ import type {
   SetSessionVoidResult,
   SessionVoidedFilter,
   VoidAuditRecord,
+  VerificationUpdateRecord,
+  VerificationUpdateSource,
   VoidTargetType,
   RecallQueryResult,
   RelevantContext,
@@ -892,6 +894,34 @@ function toVoidAudit(row: VoidAuditRow): VoidAuditRecord {
     ...(row.reason ? { reason: row.reason } : {}),
     occurredAt: row.occurred_at,
   };
+}
+
+type VerificationUpdateRow = {
+  id: string;
+  source: VerificationUpdateSource;
+  previous_json: string | null;
+  resulting_json: string;
+  created_at: string;
+};
+
+function toVerificationUpdate(row: VerificationUpdateRow): VerificationUpdateRecord {
+  const previous = parseJson<VerificationSummary | undefined>(row.previous_json, undefined);
+  return {
+    id: row.id,
+    source: row.source,
+    ...(previous ? { previous } : {}),
+    resulting: parseJson<VerificationSummary>(row.resulting_json, { status: "not_run" }),
+    createdAt: row.created_at,
+  };
+}
+
+function normalizeVerification(verification: VerificationSummary): VerificationSummary {
+  const summary = verification.summary?.trim();
+  return { status: verification.status, ...(summary ? { summary } : {}) };
+}
+
+function sameVerification(left: VerificationSummary | undefined, right: VerificationSummary): boolean {
+  return left?.status === right.status && (left.summary?.trim() || undefined) === right.summary;
 }
 
 /** Voiding needs a reason so the audit explains it; a restore reason is optional. */
@@ -3291,9 +3321,11 @@ export class WorkIntelligenceStore {
     return this.sessions.getById(sessionId);
   }
 
+  /** Corrects a Session's verification in place; every change is kept in the verification audit. */
   public updateSessionVerification(
     sessionId: string,
     verification: VerificationSummary,
+    source: VerificationUpdateSource = "agent",
   ): UpdateSessionVerificationResult {
     const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as SessionRow | undefined;
     if (!row) {
@@ -3312,23 +3344,44 @@ export class WorkIntelligenceStore {
 
     const project = decision.project;
     const previous = parseJson<VerificationSummary | undefined>(row.verification_json, undefined);
-    const updatedAt = nowIso();
-    this.runImmediateTransaction(() => {
-      this.db
-        .prepare(
-          `UPDATE sessions
-           SET verification_json = ?
-           WHERE id = ?`,
-        )
-        .run(JSON.stringify(verification), sessionId);
-      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
-    });
+    const next = normalizeVerification(verification);
+    const unchanged = sameVerification(previous, next);
+    if (!unchanged) {
+      const updatedAt = nowIso();
+      this.runImmediateTransaction(() => {
+        this.db.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run(JSON.stringify(next), sessionId);
+        this.insertVerificationUpdate(sessionId, source, previous, next, updatedAt);
+        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
+      });
+    }
 
     const session = this.getSessionById(sessionId);
     if (!session) {
       throw new Error("Session verification was updated but could not be loaded.");
     }
-    return { outcome: "updated", session, previous };
+    return { outcome: "updated", session, previous, ...(unchanged ? { unchanged } : {}) };
+  }
+
+  private insertVerificationUpdate(
+    sessionId: string,
+    source: VerificationUpdateSource,
+    previous: VerificationSummary | undefined,
+    resulting: VerificationSummary,
+    createdAt: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO session_verification_updates (id, session_id, source, previous_json, resulting_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        sessionId,
+        source,
+        previous ? JSON.stringify(previous) : null,
+        JSON.stringify(resulting),
+        createdAt,
+      );
   }
 
   public updateSessionMetadata(input: UpdateSessionMetadataInput): UpdateSessionMetadataResult {
@@ -3377,7 +3430,11 @@ export class WorkIntelligenceStore {
           ? current.changedFileChanges
           : incomingChangedFileChanges;
     const updatedAt = nowIso();
+    const nextVerification = input.verification ? normalizeVerification(input.verification) : undefined;
     this.runImmediateTransaction(() => {
+      if (nextVerification && !sameVerification(current.verification, nextVerification)) {
+        this.insertVerificationUpdate(input.sessionId, "agent", current.verification, nextVerification, updatedAt);
+      }
       this.db
         .prepare(
           `UPDATE sessions
@@ -3394,8 +3451,8 @@ export class WorkIntelligenceStore {
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(changedFileChanges),
-          verification: input.verification
-            ? JSON.stringify(input.verification)
+          verification: nextVerification
+            ? JSON.stringify(nextVerification)
             : current.verification
               ? JSON.stringify(current.verification)
               : null,
@@ -3705,6 +3762,11 @@ export class WorkIntelligenceStore {
       rawSnapshots: snapshots.map(toSnapshot),
       evidence: evidence.map(toEvidence),
       knowledge: knowledge.map(toKnowledge),
+      verificationHistory: (
+        this.db
+          .prepare("SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, id DESC")
+          .all(sessionId) as VerificationUpdateRow[]
+      ).map(toVerificationUpdate),
       voidHistory: (
         this.db
           .prepare("SELECT * FROM void_audit WHERE session_id = ? ORDER BY occurred_at DESC, id DESC")

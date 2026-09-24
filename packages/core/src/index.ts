@@ -124,6 +124,19 @@ export interface SessionDetail {
   knowledge: KnowledgeRecord[];
   /** Void and restore history of this Session and its evidence, newest first. */
   voidHistory: VoidAuditRecord[];
+  /** Verification corrections after finalize, newest first. */
+  verificationHistory: VerificationUpdateRecord[];
+}
+
+export type VerificationUpdateSource = "web" | "agent";
+
+export interface VerificationUpdateRecord {
+  id: string;
+  source: VerificationUpdateSource;
+  /** Absent when the Session had no reported verification (historical not_supplied). */
+  previous?: VerificationSummary;
+  resulting: VerificationSummary;
+  createdAt: string;
 }
 
 export interface EvidenceRecord {
@@ -909,6 +922,8 @@ export interface UpdatedSessionVerificationResult {
   outcome: "updated";
   session: WorkSessionRecord;
   previous?: VerificationSummary;
+  /** true when the submitted verification equals the stored one; nothing was written. */
+  unchanged?: boolean;
 }
 
 export interface UpdateSessionMetadataInput {

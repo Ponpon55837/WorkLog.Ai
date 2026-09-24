@@ -28,6 +28,7 @@ import {
   sessionsQuerySchema,
   setEvidenceVoidInputSchema,
   setSessionVoidInputSchema,
+  updateSessionVerificationInputSchema,
   updateProjectInputSchema,
   updateKnowledgeInputSchema,
   updateSessionMetadataInputSchema,
@@ -716,6 +717,29 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           return;
         }
         sendJson(response, 200, store.attachEvidence(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "verification"
+      ) {
+        const parsed = updateSessionVerificationInputSchema.safeParse({
+          verification: await readJsonBody(request),
+          sessionId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session verification payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(
+          response,
+          200,
+          store.updateSessionVerification(parsed.data.sessionId, parsed.data.verification, "web"),
+        );
         return;
       }
 

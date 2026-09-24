@@ -61,6 +61,10 @@ function evidenceTarget(item: EvidenceRecord): VoidTarget {
   return { type: "evidence", id: item.id, sessionId: item.sessionId, title: `${item.kind} · ${item.reference}` };
 }
 
+function verificationLabel(verification: { status: keyof typeof verificationStatus } | undefined): string {
+  return verificationStatus[verification?.status ?? "not_supplied"].label;
+}
+
 function voidHistoryLabel(entry: { targetType: string; action: string }): string {
   const target = entry.targetType === "session" ? "Session" : "Evidence";
   return entry.action === "voided" ? `${target} 作廢` : `${target} 還原`;
@@ -146,7 +150,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             :disabled="position.index < 0 || position.index >= position.total - 1"
             @click="openAdjacentSession(1)"
           />
-          <UiIconButton :icon="Pencil" label="編輯摘要" size="sm" @click="openSessionEditor(session)" />
+          <UiIconButton :icon="Pencil" label="編輯 Session" size="sm" @click="openSessionEditor(session)" />
           <UiIconButton
             v-if="!session.voided && sessionTarget"
             :icon="Ban"
@@ -284,6 +288,25 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         </UiDisclosure>
         <UiDisclosure v-if="selectedDetail.rawSnapshots.length" title="Handoff snapshot" :icon="FileText">
           <pre class="session-panel__snapshot">{{ selectedDetail.rawSnapshots[0]?.content }}</pre>
+        </UiDisclosure>
+        <UiDisclosure
+          v-if="selectedDetail.verificationHistory.length"
+          title="Verification 修改紀錄"
+          :icon="History"
+          :count="selectedDetail.verificationHistory.length"
+        >
+          <ol class="session-panel__events">
+            <li v-for="entry in selectedDetail.verificationHistory" :key="entry.id">
+              <code>{{ entry.source === "web" ? "Web UI" : "Agent" }}</code>
+              <div>
+                <span
+                  >{{ verificationLabel(entry.previous) }} → {{ verificationLabel(entry.resulting)
+                  }}<template v-if="entry.resulting.summary">：{{ entry.resulting.summary }}</template></span
+                >
+                <time :title="formatDate(entry.createdAt)">{{ formatRelative(entry.createdAt) }}</time>
+              </div>
+            </li>
+          </ol>
         </UiDisclosure>
         <UiDisclosure
           v-if="selectedDetail.voidHistory.length"

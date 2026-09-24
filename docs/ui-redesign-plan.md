@@ -56,7 +56,7 @@ MANAGE     專案 /projects/:tab?（registry | backfill | import）
 2. `executionStatus: completed` 只代表 finalize 完成，用中性 Label，不用綠色。
 3. Verification 四態分開呈現：通過、失敗、明確未執行（`not_run`）、未回報（歷史 `not_supplied`）；Dashboard 不用單一通過率百分比。
 4. Changed files 不等於 Git commit；Git 欄位獨立一區，有值才顯示。provenance 空值顯示「未提供來源」。
-5. Evidence、Knowledge 與五段摘要分開呈現；主摘要與 workSummary 可由 Agent 或 Session 面板的「編輯摘要」就地更新同一 Session（有 audit），其他欄位維持唯讀。
+5. Evidence、Knowledge 與五段摘要分開呈現；主摘要、workSummary 與 verification 可由 Agent 或 Session 面板的「編輯 Session」就地更新同一 Session（有 audit）；Session 與 Evidence 可作廢／還原（必填原因）；changed files、events 與 Evidence 內容維持唯讀。
 6. 報表數字（指標、趨勢、比較）只取 deterministic 報表資料；AI synthesis 每個區塊顯示來源 Session，`資料不足` 與截斷提示正常呈現、不當錯誤。
 7. Metadata 缺口三類分開：changed-files 缺漏、verification 未回報、verification 明確 not_run。
 8. 給使用者複製的 Agent 指令只用自然語言，不含 MCP tool 名稱、request ID 或 JSON。

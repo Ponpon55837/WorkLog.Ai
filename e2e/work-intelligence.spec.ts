@@ -367,12 +367,14 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto(`/sessions?session=${editableId}`);
     const panel = page.getByRole("dialog", { name: "Session 詳情" });
     await expect(panel).toContainText("Original editable summary.");
-    await panel.getByRole("button", { name: "編輯摘要" }).click();
+    await panel.getByRole("button", { name: "編輯 Session" }).click();
 
-    const editor = page.getByRole("dialog", { name: "編輯 Session 摘要" });
+    const editor = page.getByRole("dialog", { name: "編輯 Session" });
     await expect(editor).toBeVisible();
     await editor.getByLabel("主摘要").fill("Edited summary from the Web UI.");
     await editor.getByLabel("成果").fill("Edited outcome one.\nEdited outcome two.");
+    await editor.getByLabel("Verification 狀態").selectOption("passed");
+    await editor.getByLabel("Verification 說明").fill("Ran pnpm test after the fix.");
     await editor.getByRole("button", { name: "儲存變更" }).click();
 
     await expect(editor).toBeHidden();
@@ -381,14 +383,25 @@ test.describe("Work Intelligence browser regression", () => {
     // Untouched sections are patched around, not cleared.
     await expect(panel).toContainText("Original scope.");
 
+    await expect(panel).toContainText("Verification 修改紀錄");
+
     const detail = (await (await request.get(`/api/sessions/${editableId}`)).json()) as {
       session: { id: string; summary: string; workSummary: { outcomes: string[]; scope: string[] } };
+      verificationHistory: Array<{ source: string; previous?: { status: string }; resulting: { status: string } }>;
     };
     expect(detail.session).toMatchObject({
       id: editableId,
       summary: "Edited summary from the Web UI.",
       workSummary: { outcomes: ["Edited outcome one.", "Edited outcome two."], scope: ["Original scope."] },
+      verification: { status: "passed", summary: "Ran pnpm test after the fix." },
     });
+    expect(detail.verificationHistory).toEqual([
+      expect.objectContaining({
+        source: "web",
+        previous: { status: "not_run" },
+        resulting: expect.objectContaining({ status: "passed" }),
+      }),
+    ]);
   });
 
   test("voids a Session from the panel, lists it under the voided filter, and restores it", async ({

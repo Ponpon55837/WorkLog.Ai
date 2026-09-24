@@ -65,7 +65,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 | 取回專案脈絡 | 「先看一下 Work Intelligence 裡這個專案最近做了什麼。」 | 工作歷程、工作知識 |
 | 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立） | 工作報告 →「請 Agent 整理這份報告」 |
 | 補齊缺漏的 metadata | 「幫我補齊 Work Intelligence 的 metadata 缺口。」（沒有請求時 Agent 會自己建立） | 專案 → Metadata 回補 →「掃描 metadata 缺口」 |
-| 修正已保存的摘要 | 「幫我修正上一筆 Session 的摘要：……」 | Session 面板 →「編輯摘要」 |
+| 修正已保存的摘要 | 「幫我修正上一筆 Session 的摘要：……」 | Session 面板 →「編輯 Session」 |
 | 匯入歷史 handoff | 「幫我預覽這個專案可以匯入的 handoff。」 | 專案 → Handoff 匯入 |
 
 每筆 Session 都包含一句話摘要與固定五段內容：**成果／範圍／決策／驗證／狀態與未結項**。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。
@@ -77,7 +77,7 @@ GitHub 深色風格的介面，左側選單分三組：
 | 頁面 | 用途 |
 |---|---|
 | **總覽** | 本週 Sessions、驗證分布、待處理事項（等待 Agent 的報告整理或 metadata 回補）、最近工作 |
-| **工作歷程** | 搜尋與依專案／日期篩選所有 Session；點任一筆從右側開啟詳情，`J`/`K` 切換上下筆，「編輯摘要」可直接修正主摘要與五段內容 |
+| **工作歷程** | 搜尋與依專案／日期篩選所有 Session；點任一筆從右側開啟詳情，`J`/`K` 切換上下筆，「編輯 Session」可直接修正主摘要、五段內容與 verification，也可作廢誤記錄的 Session |
 | **工作報告** | 日／週／月／季／年報告（依系統時區切日，頁首標示時區）、AI 報告整理（每段附來源 Session）、趨勢、風險、原始紀錄、來源證據；可匯出 Markdown／JSON |
 | **工作知識** | Agent 明確提交的決策、模式、注意事項、流程與技能；可編輯、封存與查看變更紀錄 |
 | **工作圖譜** | Project、Session、Knowledge、Evidence、檔案之間的關聯圖 |
