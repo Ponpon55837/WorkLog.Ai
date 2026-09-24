@@ -79,6 +79,12 @@ function reportScope(): { period: ReportPeriod; date?: string; projectId?: strin
   };
 }
 
+/** Without a project, only all-project syntheses belong to this report; a single project's must not stand in. */
+function synthesisScope(): ReturnType<typeof reportScope> & { scopeType?: "all" } {
+  const scope = reportScope();
+  return scope.projectId ? scope : { ...scope, scopeType: "all" };
+}
+
 async function loadReportSynthesis(): Promise<void> {
   reportSynthesisLoading.value = true;
   reportSynthesisError.value = "";
@@ -87,8 +93,8 @@ async function loadReportSynthesis(): Promise<void> {
     async (signal) => {
       const client = useApi().client;
       const [requests, summaries] = await Promise.all([
-        client.listReportSynthesisRequests({ ...reportScope(), limit: 10 }, signal),
-        client.listReportSummaries({ ...reportScope(), currentOnly: false }, signal),
+        client.listReportSynthesisRequests({ ...synthesisScope(), limit: 10 }, signal),
+        client.listReportSummaries({ ...synthesisScope(), currentOnly: false }, signal),
       ]);
       if (requests.outcome === "report_synthesis_requests") {
         reportSynthesisRequest.value = requests.requests[0] ?? null;

@@ -28,6 +28,7 @@ import type {
   ReportExportFormat,
   ReportExportResult,
   ReportQueryResult,
+  ReportSynthesisScopeType,
   ReportSummaryQueryResult,
   ReportSynthesisRequestListQueryResult,
   RetryReportSynthesisRequestResult,
@@ -295,6 +296,7 @@ export class ApiClient {
       period?: ReportPeriod;
       date?: string;
       projectId?: string;
+      scopeType?: ReportSynthesisScopeType;
       limit?: number;
     } = {},
     signal?: AbortSignal,
@@ -304,6 +306,7 @@ export class ApiClient {
         period: options.period,
         date: options.date,
         projectId: options.projectId,
+        scopeType: options.scopeType,
         limit: options.limit,
       }),
       { signal },
@@ -315,6 +318,7 @@ export class ApiClient {
       period?: ReportPeriod;
       date?: string;
       projectId?: string;
+      scopeType?: ReportSynthesisScopeType;
       currentOnly?: boolean;
     } = {},
     signal?: AbortSignal,
@@ -324,6 +328,7 @@ export class ApiClient {
         period: options.period,
         date: options.date,
         projectId: options.projectId,
+        scopeType: options.scopeType,
         currentOnly: options.currentOnly,
       }),
       { signal },

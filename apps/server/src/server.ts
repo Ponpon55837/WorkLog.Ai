@@ -248,6 +248,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           period: requestUrl.searchParams.get("period") ?? undefined,
           date: requestUrl.searchParams.get("date") ?? undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          scopeType: requestUrl.searchParams.get("scopeType") ?? undefined,
           status: requestUrl.searchParams.get("status") ?? undefined,
           requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
           limit: rawLimit ? Number(rawLimit) : undefined,
@@ -341,6 +342,7 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           period: requestUrl.searchParams.get("period") ?? undefined,
           date: requestUrl.searchParams.get("date") ?? undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          scopeType: requestUrl.searchParams.get("scopeType") ?? undefined,
           requestId: requestUrl.searchParams.get("requestId")?.trim() || undefined,
           limit: rawLimit ? Number(rawLimit) : undefined,
         });

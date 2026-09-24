@@ -712,6 +712,8 @@ export interface ReportSynthesisRequestQuery {
   period?: ReportPeriod;
   date?: string;
   projectId?: string;
+  /** "all" limits results to all-project reports, so a single project's synthesis never stands in for them. */
+  scopeType?: ReportSynthesisScopeType;
   status?: ReportSynthesisStatus;
   requestId?: string;
   limit?: number;
