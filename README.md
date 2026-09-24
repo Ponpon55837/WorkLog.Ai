@@ -71,6 +71,8 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 
 每筆 Session 都包含一句話摘要與固定五段內容：**成果／範圍／決策／驗證／狀態與未結項**。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。
 
+想讓 Claude Code 在忘記保存時提醒一次，可以加上 [保存提醒 hook](docs/agent-setup.md#保存提醒選用)。
+
 ## Web UI 導覽
 
 GitHub 深色風格的介面，左側選單分三組：

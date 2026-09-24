@@ -70,6 +70,35 @@ Claude Code 的 `--` 後方是實際啟動 MCP server 的 command；`--scope use
 
 MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更新 Work Intelligence 的 MCP contract（例如新增 `work_update_session_work_summary`）後，請先重新執行 `pnpm build`，再重新啟動或重新連線目前的 Codex／Claude 對話；若工具清單仍是舊的，請移除並重新加入 `work-intelligence` MCP 設定。只要 host 尚未重新載入，舊對話即使連到同一個 SQLite，也不會看到新工具。
 
+### 保存提醒（選用）
+
+工作記錄要靠 Agent 記得保存。Claude Code 可以加一個 Stop hook：在「記錄中」的專案裡，Agent 上次保存之後又改了檔案、這一輪結束卻還沒保存時，提醒它一次；同一段工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
+
+先執行 `pnpm build`，再把下面的設定加到 `~/.claude/settings.json`（路徑換成你的 repo 位置）：
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
+- 「改了檔案」以 Edit／Write／MultiEdit／NotebookEdit 判斷；只用 Bash 改檔不會觸發。
+- 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
+- Codex 目前沒有對應的 hook，依 `work-intelligence` skill 的規則保存。
+
 ## Claude Desktop
 
 如果使用的是 Claude Desktop GUI，將以下內容合併到 Windows 設定檔：
