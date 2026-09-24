@@ -202,6 +202,18 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(history.getByTestId("report-synthesis-version")).toHaveCount(2);
     await expect(history).toContainText("Browser regression report");
 
+    // The overview's deterministic part changes shape with the period.
+    const breakdown = page.getByTestId("report-breakdown");
+    await expect(breakdown).toContainText("每日分布");
+    await expect(breakdown).toContainText("專案占比");
+    const periods = page.getByRole("radiogroup", { name: "選擇報表區間" });
+    await periods.getByRole("radio", { name: "日" }).click();
+    await expect(breakdown).toContainText("當日完成的工作");
+    await periods.getByRole("radio", { name: "年" }).click();
+    await expect(breakdown).toContainText("每季分布");
+    await periods.getByRole("radio", { name: "週" }).click();
+    await expect(breakdown).toContainText("每日分布");
+
     await synthesis.getByRole("button", { name: "重新整理", exact: true }).click();
     await expect(synthesis).toContainText("待處理");
     await expect(synthesis.getByRole("button", { name: "取消這次整理" })).toBeVisible();

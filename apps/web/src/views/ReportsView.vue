@@ -17,6 +17,7 @@ import {
 import type { ReportEvidence, ReportExportFormat, ReportPeriod, WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
+import ReportPeriodBreakdown from "../components/domain/ReportPeriodBreakdown.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import SynthesisCard from "../components/domain/SynthesisCard.vue";
 import VerificationBreakdown from "../components/domain/VerificationBreakdown.vue";
@@ -319,6 +320,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           <VerificationBreakdown :counts="verificationCounts" />
         </UiStatCard>
       </div>
+      <ReportPeriodBreakdown :report="report" @open="openSession" @show-all="tab = 'raw'" />
       <UiBox padded>
         <template #header>
           <UiBoxTitle eyebrow="Period summary" title="這段時間發生了什麼" />
