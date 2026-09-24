@@ -23,7 +23,7 @@ Do not add hero banners, decorative illustrations or slogan-sized headings.
 - `<main>` is the scroll container. Page-level controls that must stay reachable (search box, `UiUnderlineNav` tabs, a tab-specific search) go inside `PageToolbar`, which is sticky at the top of the content. The `PageHeader` above it scrolls away.
 - Every list `UiBox` under a toolbar uses `sticky-header`, so its filters/count stay pinned directly below the toolbar (offset `--page-toolbar-height`).
 - Path changes (new page or tab) reset scroll to the top (AppShell). Query-only changes (filters, pagination, `?session`) keep position; pagination scrolls the list top back into view.
-- Never wrap a list in another scrolling element except `VirtualList` in "All" mode and the Graph canvas.
+- Never hand-roll a scrolling wrapper around a list. A list that can grow long without pagination (e.g. the backup list) scrolls inside its Box through `VirtualList` (`enabled` once it passes a handful of rows, a smaller `maxHeight`, a `label`), so the page does not stretch; paginated lists use `VirtualList` only in "All" mode. The Graph canvas is the other scroll area.
 
 ## Lists (the GitHub issue-list pattern)
 

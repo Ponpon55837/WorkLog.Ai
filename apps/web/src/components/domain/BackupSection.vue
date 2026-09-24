@@ -11,6 +11,7 @@ import UiCopyButton from "../ui/UiCopyButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import VirtualList from "../VirtualList.vue";
 
 /**
  * Database backups and the whole-database export for moving to another computer. Restoring replaces
@@ -28,6 +29,7 @@ const {
   exportDatabase,
 } = useBackups();
 
+const scrollAfter = 6;
 const restoreCommand = "pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>";
 
 onMounted(() => void loadBackups());
@@ -61,19 +63,26 @@ onMounted(() => void loadBackups());
         title="還沒有備份"
         description="按「立即備份」建立第一份。"
       />
-      <UiBoxRow
-        v-for="backup in backups"
-        :key="backup.fileName"
-        :title="backup.fileName"
-        :meta="`${formatRelative(backup.createdAt)} · ${formatBytes(backup.bytes)}`"
+      <!-- Past a handful of backups the list scrolls inside its Box instead of stretching the page. -->
+      <VirtualList
+        v-else
+        :items="backups"
+        :enabled="backups.length > scrollAfter"
+        :estimate-item-height="60"
+        max-height="min(50vh, 420px)"
+        label="備份清單"
       >
-        <template #leading><Archive :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
-        <template #trailing
-          ><time :datetime="backup.createdAt" class="backup-section__time">{{
-            formatDate(backup.createdAt)
-          }}</time></template
-        >
-      </UiBoxRow>
+        <template #default="{ item }">
+          <UiBoxRow :title="item.fileName" :meta="`${formatRelative(item.createdAt)} · ${formatBytes(item.bytes)}`">
+            <template #leading><Archive :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
+            <template #trailing
+              ><time :datetime="item.createdAt" class="backup-section__time">{{
+                formatDate(item.createdAt)
+              }}</time></template
+            >
+          </UiBoxRow>
+        </template>
+      </VirtualList>
     </UiBox>
 
     <UiBox padded>
