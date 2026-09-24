@@ -6,8 +6,13 @@ import {
   insightEvaluationSchema,
   insightProviderDescriptorSchema,
   insightQuestionSchema,
+  mcpCreateMetadataBackfillRequestInputSchema,
+  mcpCreateReportSynthesisRequestInputSchema,
   mcpFinalizeSessionInputSchema,
+  mcpListSessionsInputSchema,
   metadataBackfillApplyInputSchema,
+  projectStatusQuerySchema,
+  sessionDetailQuerySchema,
   sessionsQuerySchema,
   updateKnowledgeInputSchema,
   updateSessionMetadataInputSchema,
@@ -231,5 +236,35 @@ describe("schema input boundaries", () => {
         title: "Updated title",
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("MCP-only input schemas", () => {
+  it("requires a projectRoot for project status and defaults raw snapshots off", () => {
+    expect(projectStatusQuerySchema.safeParse({}).success).toBe(false);
+    expect(projectStatusQuerySchema.safeParse({ projectRoot: "C:/tracked/project" }).success).toBe(true);
+    expect(sessionDetailQuerySchema.parse({ sessionId: "session-1" })).toEqual({
+      sessionId: "session-1",
+      includeRawSnapshots: false,
+    });
+  });
+
+  it("bounds the MCP session list and rejects reversed date ranges", () => {
+    expect(mcpListSessionsInputSchema.parse({})).toMatchObject({ page: 1, pageSize: 20 });
+    expect(mcpListSessionsInputSchema.safeParse({ pageSize: 0 }).success).toBe(false);
+    expect(mcpListSessionsInputSchema.safeParse({ pageSize: 101 }).success).toBe(false);
+    expect(mcpListSessionsInputSchema.safeParse({ from: "2026-09-01", to: "2026-09-30" }).success).toBe(true);
+    const reversed = mcpListSessionsInputSchema.safeParse({ from: "2026-09-30", to: "2026-09-01" });
+    expect(reversed.success).toBe(false);
+    expect(reversed.error?.issues[0]?.path).toEqual(["to"]);
+  });
+
+  it("accepts a projectRoot scope for Agent-created requests", () => {
+    expect(
+      mcpCreateReportSynthesisRequestInputSchema.parse({ projectRoot: "C:/tracked/project", period: "month" }),
+    ).toMatchObject({ projectRoot: "C:/tracked/project", period: "month" });
+    expect(mcpCreateReportSynthesisRequestInputSchema.parse({})).toMatchObject({ period: "week" });
+    expect(mcpCreateMetadataBackfillRequestInputSchema.safeParse({ projectRoot: "" }).success).toBe(false);
+    expect(mcpCreateMetadataBackfillRequestInputSchema.safeParse({ projectId: "project-1" }).success).toBe(true);
   });
 });
