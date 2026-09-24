@@ -141,6 +141,9 @@ import type {
   WorkEventRecord,
   WorkEventType,
   WorkSessionRecord,
+  DatabaseBackupCreated,
+  DatabaseBackupList,
+  DatabaseBackupUnavailable,
   ProjectStatusResult,
   SessionDetailQueryResult,
   SessionListQueryResult,
@@ -148,6 +151,14 @@ import type {
 } from "@work-intelligence/core";
 import { localTimeZone, nowIso, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
+import {
+  backupDatabase,
+  DEFAULT_BACKUP_KEEP,
+  defaultBackupDirectory,
+  exportDatabase,
+  isBackupDue,
+  listDatabaseBackups,
+} from "./backup.js";
 import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
 import {
@@ -1364,10 +1375,13 @@ function countHandoffPreviewItems(items: HandoffImportPreviewItem[]): HandoffImp
 
 export interface WorkIntelligenceStoreOptions {
   insightProvider?: InsightProvider;
+  /** Where database backups go (default: `backups/` beside the database) and how many to keep. */
+  backup?: { directory?: string; keep?: number };
 }
 
 export class WorkIntelligenceStore {
   private readonly db: DatabaseSync;
+  private readonly backupOptions: { directory?: string; keep?: number };
   private readonly projects: ProjectRepository;
   private readonly sessions: SessionRepository;
   private readonly knowledge: KnowledgeRepository;
@@ -1386,6 +1400,7 @@ export class WorkIntelligenceStore {
     options: WorkIntelligenceStoreOptions = {},
   ) {
     this.insightProvider = options.insightProvider ?? new NoopInsightProvider();
+    this.backupOptions = options.backup ?? {};
     if (databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
@@ -1505,6 +1520,46 @@ export class WorkIntelligenceStore {
 
   public close(): void {
     this.db.close();
+  }
+
+  private backupUnavailable(): DatabaseBackupUnavailable | null {
+    return this.databasePath === ":memory:"
+      ? { outcome: "backup_unavailable", reason: "An in-memory database cannot be backed up." }
+      : null;
+  }
+
+  /** Writes a checked snapshot of the whole database and prunes old ones. */
+  public createBackup(): DatabaseBackupCreated | DatabaseBackupUnavailable {
+    return this.backupUnavailable() ?? backupDatabase(this.db, this.databasePath, this.backupOptions);
+  }
+
+  public listBackups(): DatabaseBackupList | DatabaseBackupUnavailable {
+    const unavailable = this.backupUnavailable();
+    if (unavailable) {
+      return unavailable;
+    }
+    const directory = this.backupOptions.directory ?? defaultBackupDirectory(this.databasePath);
+    return {
+      outcome: "database_backups",
+      keep: this.backupOptions.keep ?? DEFAULT_BACKUP_KEEP,
+      backups: listDatabaseBackups(this.databasePath, directory),
+    };
+  }
+
+  /** Writes the whole database to `target` for moving it to another computer; `target` must not exist yet. */
+  public exportTo(target: string): { bytes: number } {
+    if (this.backupUnavailable()) {
+      throw new Error("An in-memory database cannot be exported.");
+    }
+    return exportDatabase(this.db, target);
+  }
+
+  /** Backs up only when there is no backup yet or the newest is a day old; used by the API server's schedule. */
+  public backupIfDue(now = new Date()): DatabaseBackupCreated | null {
+    if (this.backupUnavailable() || !isBackupDue(this.databasePath, this.backupOptions.directory, now)) {
+      return null;
+    }
+    return backupDatabase(this.db, this.databasePath, { ...this.backupOptions, now });
   }
 
   public getProjectByRootPath(rootPath: string): ProjectRecord | undefined {

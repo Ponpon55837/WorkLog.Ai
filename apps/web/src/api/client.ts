@@ -1,4 +1,6 @@
 import type {
+  DatabaseBackupCreated,
+  DatabaseBackupList,
   DashboardSummary,
   CancelMetadataBackfillRequestResult,
   CancelReportSynthesisRequestResult,
@@ -104,6 +106,29 @@ export class ApiClient {
 
   private write<T>(path: string, method: "DELETE" | "PATCH" | "POST", body: unknown, signal?: AbortSignal): Promise<T> {
     return this.request<T>(path, { method, body: JSON.stringify(body), signal });
+  }
+
+  public listBackups(signal?: AbortSignal): Promise<DatabaseBackupList> {
+    return this.request<DatabaseBackupList>("/api/backups", { signal });
+  }
+
+  public createBackup(): Promise<DatabaseBackupCreated> {
+    return this.write<DatabaseBackupCreated>("/api/backups", "POST", {});
+  }
+
+  /** Downloads a fresh snapshot of the whole database; the JSON body keeps cross-site forms from triggering it. */
+  public async exportDatabase(): Promise<{ blob: Blob; fileName: string }> {
+    const response = await fetch(`${this.baseUrl}/api/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!response.ok) {
+      throw new Error("無法匯出資料，請確認 API 是否已啟動。");
+    }
+    // Content-Disposition is not exposed cross-origin, so the name is made here from the local date.
+    const fileName = `work-intelligence-export-${new Date().toLocaleDateString("sv-SE").replace(/-/g, "")}.sqlite`;
+    return { blob: await response.blob(), fileName };
   }
 
   public getDashboard(signal?: AbortSignal): Promise<DashboardSummary> {

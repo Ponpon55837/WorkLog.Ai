@@ -1658,3 +1658,26 @@ export interface SessionNotFoundResult {
 export type SessionDetailQueryResult = SessionDetailResult | SessionVerificationSkippedResult | SessionNotFoundResult;
 
 export type SessionListQueryResult = SessionListResult | SkippedResult | ProjectIdSkippedResult;
+
+/** One SQLite snapshot written beside the database; `createdAt` comes from its UTC file name. */
+export interface DatabaseBackup {
+  fileName: string;
+  createdAt: string;
+  bytes: number;
+}
+
+/** Backups of the database. File names only: the API never exposes filesystem paths. */
+export interface DatabaseBackupList {
+  outcome: "database_backups";
+  keep: number;
+  backups: DatabaseBackup[];
+}
+
+export interface DatabaseBackupCreated extends DatabaseBackupList {
+  created: DatabaseBackup;
+}
+
+export interface DatabaseBackupUnavailable {
+  outcome: "backup_unavailable";
+  reason: string;
+}

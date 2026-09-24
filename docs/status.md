@@ -63,10 +63,11 @@
 | 自訂期間報告 | 提案 | `work_get_report`／報告頁只支援日／週／月／季／年；sprint 或「上次 release 到現在」這類 `from`／`to` 區間尚未支援。 |
 | changedFiles 品質 | 提案（檢索降權在第一階段） | 有「唯讀盤點」Session 記到 41 個 changed files，疑似把既有 dirty worktree 算進去，檢索評估中已實際擠進檔名查詢前 3 名。第一階段先在排序時降權；根本解法仍是在 finalize 記錄 baseline，或在 UI 標示異常。 |
 | finalize 提醒 | 提案 | 目前完全依賴 Agent 記得 finalize；可提供 Claude Code Stop／SessionEnd hook 範例提醒保存。 |
-| 工程整理 | 提案 | `store.ts` 仍約 4,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；沒有 DB 備份。schema 版本表已加入（`schema_migrations`），既有的欄位補齊檢查仍留在 `store.ts`。 |
+| 工程整理 | 提案 | `store.ts` 仍約 4,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；schema 版本表已加入（`schema_migrations`），既有的欄位補齊檢查仍留在 `store.ts`。 |
 
 ## 最近完成（2026-09-23～24）
 
+- **資料庫備份與換電腦**（使用者提出）：API server 每天自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700、保留 14 份）；專案頁新增「資料備份」分頁，可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。
 - **Agent 完成請求後頁面自動更新**（使用者提出）：報告整理、Knowledge 候選、metadata 回補的請求在待處理或處理中時，頁面每 5 秒安靜地重新檢查（不顯示載入動畫，分頁不在前景時暫停、回到前景立即檢查），請求結束就停止；Agent 完成時自動載入結果並提示，失敗時也會提示。切換報告區間或專案時會重設追蹤，不會誤報完成。只改前端，API 不變；E2E 以 API 模擬 Agent 存入整理結果驗證。
 - **報告總覽依區間顯示不同內容**：總覽原本五種區間用同一個版型、只有數字不同。現在依區間加上 deterministic 的分組：日報列出當日完成的 Session，週報分成每日、月報分成每週（週一起算、以月界截斷）、季報分成每月、年報分成每季，標出最多的一期與有完成工作的期數；各區間都顯示專案占比。只用既有的報告資料（`sessions`、`trends`、`projects`）在前端計算，API 沒有變動。
 - **報告 AI 整理的範圍隔離**：選「所有記錄中專案」時，提煉請求與摘要原本只依區間篩選，同一區間的單一專案 AI 整理會被當成全專案報告顯示，且其待處理請求會擋住建立全專案請求。請求與摘要查詢新增 `scopeType`（REST 同名參數），Web 在未選專案時只取全專案的整理；MCP 行為不變。

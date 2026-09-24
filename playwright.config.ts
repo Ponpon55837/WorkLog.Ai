@@ -42,6 +42,8 @@ export default defineConfig({
         ...process.env,
         WORK_INTELLIGENCE_PORT: String(apiPort),
         WORK_INTELLIGENCE_DB: databasePath,
+        WORK_INTELLIGENCE_BACKUP: "off",
+        WORK_INTELLIGENCE_BACKUP_DIR: path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}-backups`),
         WORK_INTELLIGENCE_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort},http://localhost:${webPort}`,
       },
     },

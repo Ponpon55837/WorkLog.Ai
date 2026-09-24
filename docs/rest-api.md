@@ -75,3 +75,11 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 - markdown 會包含期間摘要、上一期比較、主要完成事項、Verification、風險、決策、趨勢、專案分布與來源證據。
 - json 會保留完整的 WorkReport 結構，適合後續自動化或外部保存。
 - 專案範圍仍遵守 tracked-only policy；unregistered、paused、ignored 會安靜回傳 skipped。
+
+## 備份與匯出
+
+- REST：GET /api/backups 列出備份（檔名、時間、大小與保留份數）；POST /api/backups（body `{}`）立即備份。
+- REST：POST /api/export（body `{}`）即時產生整份資料的快照並以 `application/vnd.sqlite3` 下載，暫存檔在傳送後刪除。
+- 兩個 POST 都要求 `Content-Type: application/json`，跨站表單無法觸發；回應只含檔名，不會出現檔案系統路徑。
+- in-memory 資料庫回傳 409 `backup_unavailable`。
+- 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。

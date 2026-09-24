@@ -328,4 +328,51 @@ describe("Work Intelligence REST API", () => {
     expect(dashboard.body.finalizedSessions).toBe(1);
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });
+
+  it("lists and creates backups and exports the database without exposing paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-backup-test-"));
+    const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    expect(await requestJson(baseUrl, "/api/backups")).toMatchObject({
+      status: 200,
+      body: { outcome: "database_backups", backups: [] },
+    });
+    const created = await requestJson<{ created: { fileName: string } }>(baseUrl, "/api/backups", {
+      method: "POST",
+      body: {},
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.created.fileName).toMatch(/^work-intelligence-\d{8}T\d{6}Z\.sqlite$/);
+    expect(JSON.stringify(created.body)).not.toContain(root);
+
+    // A cross-site form post cannot send JSON, so it cannot trigger a backup or an export.
+    const formPost = await fetch(`${baseUrl}/api/backups`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "a=1",
+    });
+    expect(formPost.status).toBe(415);
+
+    const exported = await fetch(`${baseUrl}/api/export`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("content-disposition")).toMatch(/attachment; filename="work-intelligence-export-/);
+    const bytes = Buffer.from(await exported.arrayBuffer());
+    expect(bytes.subarray(0, 15).toString("utf8")).toBe("SQLite format 3");
+  });
+
+  it("reports that an in-memory database has no backups", async () => {
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-backup-memory-")) });
+    expect(await requestJson(baseUrl, "/api/backups")).toMatchObject({
+      status: 409,
+      body: { outcome: "backup_unavailable" },
+    });
+  });
 });

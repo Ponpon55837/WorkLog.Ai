@@ -542,6 +542,17 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("沒有符合的節點")).toBeVisible();
   });
 
+  test("backs up the database from the projects page and explains how to move it", async ({ page }) => {
+    await page.goto("/projects/backup");
+    const backups = page.getByRole("tabpanel", { name: "資料備份" });
+    await expect(backups).toContainText("匯出整份資料");
+    await expect(backups).toContainText("pnpm db:restore");
+    await backups.getByRole("button", { name: "立即備份" }).click();
+    await expect(page.getByText("已備份目前的資料。")).toBeVisible();
+    await expect(backups.getByText(/^work-intelligence-e2e-\d+-\d{8}T\d{6}Z/).first()).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
+
   test("asks for consent before a project starts being tracked", async ({ page, request }) => {
     await postJson(request, "/api/projects", { name: "Consent Fixture", rootPath: `${projectRoot}/e2e` });
     await page.goto("/projects");

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
-import { FileInput, FolderGit2, Plus, ScanSearch } from "lucide-vue-next";
+import { Archive, FileInput, FolderGit2, Plus, ScanSearch } from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import AddProjectDialog from "../components/domain/AddProjectDialog.vue";
+import BackupSection from "../components/domain/BackupSection.vue";
 import MetadataBackfillSection from "../components/domain/MetadataBackfillSection.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -25,7 +26,7 @@ import { formatDate, formatRelative } from "../utils/format";
 import { statusDescriptions, statusLabels } from "../utils/labels";
 import { trackingStatus } from "../utils/status";
 
-type ProjectsTab = "registry" | "backfill" | "import";
+type ProjectsTab = "registry" | "backfill" | "import" | "backup";
 
 const route = useRoute();
 const { projects, trackedProjects, loadProjects, updateProjectStatus } = useProjects();
@@ -41,7 +42,7 @@ const statusRevision = ref(0);
 
 const tab = computed<ProjectsTab>({
   get: () =>
-    ["registry", "backfill", "import"].includes(String(route.params.tab))
+    ["registry", "backfill", "import", "backup"].includes(String(route.params.tab))
       ? (route.params.tab as ProjectsTab)
       : "registry",
   set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } }),
@@ -50,6 +51,7 @@ const tabs = computed(() => [
   { value: "registry" as const, label: "專案清單", icon: FolderGit2, count: projects.value.length },
   { value: "backfill" as const, label: "Metadata 回補", icon: ScanSearch },
   { value: "import" as const, label: "Handoff 匯入", icon: FileInput, count: trackedProjects.value.length },
+  { value: "backup" as const, label: "資料備份", icon: Archive },
 ]);
 const statusOptions = (Object.keys(statusLabels) as ProjectStatus[]).map((status) => ({
   value: status,
@@ -151,6 +153,15 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
     aria-labelledby="projects-tab-backfill"
   >
     <MetadataBackfillSection />
+  </section>
+
+  <section
+    v-else-if="tab === 'backup'"
+    id="projects-panel-backup"
+    role="tabpanel"
+    aria-labelledby="projects-tab-backup"
+  >
+    <BackupSection />
   </section>
 
   <section v-else id="projects-panel-import" role="tabpanel" aria-labelledby="projects-tab-import">
