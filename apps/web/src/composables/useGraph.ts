@@ -1,5 +1,11 @@
 import { computed, ref } from "vue";
-import type { GraphEdge, GraphNode, GraphQueryResult, ProjectStatus, ReportVerificationStatus } from "@work-intelligence/core";
+import type {
+  GraphEdge,
+  GraphNode,
+  GraphQueryResult,
+  ProjectStatus,
+  ReportVerificationStatus,
+} from "@work-intelligence/core";
 import { router } from "../router";
 import { graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels } from "../utils/labels";
 import { verificationStatus } from "../utils/status";
@@ -18,7 +24,7 @@ type GraphNodeRelation = { edge: GraphEdge; direction: "incoming" | "outgoing"; 
 export const graphLoadPresetOptions = [
   { value: "180", label: "180 節點 / 360 關係", maxNodes: 180, maxEdges: 360 },
   { value: "300", label: "300 節點 / 720 關係", maxNodes: 300, maxEdges: 720 },
-  { value: "500", label: "500 節點 / 1,000 關係", maxNodes: 500, maxEdges: 1_000 }
+  { value: "500", label: "500 節點 / 1,000 關係", maxNodes: 500, maxEdges: 1_000 },
 ] as const;
 
 const graphVisualBaseQuotas: Record<GraphNode["kind"], number> = {
@@ -26,7 +32,7 @@ const graphVisualBaseQuotas: Record<GraphNode["kind"], number> = {
   session: 24,
   knowledge: 18,
   evidence: 18,
-  file: 48
+  file: 48,
 };
 
 const graph = ref<Extract<GraphQueryResult, { outcome: "graph" }> | null>(null);
@@ -44,18 +50,22 @@ const graphPanelWidth = ref(460);
 async function loadGraph(cursor?: string): Promise<void> {
   graphLoading.value = true;
   graphError.value = "";
-  const loadPreset = graphLoadPresetOptions.find((preset) => preset.value === graphLoadPreset.value) ?? graphLoadPresetOptions[0];
+  const loadPreset =
+    graphLoadPresetOptions.find((preset) => preset.value === graphLoadPreset.value) ?? graphLoadPresetOptions[0];
   await runKeyed(
     "graph",
     async (signal) => {
-      const result = await useApi().client.getGraph({
-        projectId: graphProjectId.value || undefined,
-        limit: 200,
-        maxNodes: loadPreset.maxNodes,
-        maxEdges: loadPreset.maxEdges,
-        pageSize: loadPreset.maxNodes,
-        cursor
-      }, signal);
+      const result = await useApi().client.getGraph(
+        {
+          projectId: graphProjectId.value || undefined,
+          limit: 200,
+          maxNodes: loadPreset.maxNodes,
+          maxEdges: loadPreset.maxEdges,
+          pageSize: loadPreset.maxNodes,
+          cursor,
+        },
+        signal,
+      );
       if (result.outcome !== "graph") {
         graph.value = null;
         graphError.value = result.reason;
@@ -63,15 +73,19 @@ async function loadGraph(cursor?: string): Promise<void> {
       }
       const previous = graph.value;
       if (cursor && previous) {
-        const nodes = [...previous.nodes, ...result.nodes].filter((node, index, items) => items.findIndex((candidate) => candidate.id === node.id) === index);
-        const edges = [...previous.edges, ...result.edges].filter((edge, index, items) => items.findIndex((candidate) => candidate.id === edge.id) === index);
+        const nodes = [...previous.nodes, ...result.nodes].filter(
+          (node, index, items) => items.findIndex((candidate) => candidate.id === node.id) === index,
+        );
+        const edges = [...previous.edges, ...result.edges].filter(
+          (edge, index, items) => items.findIndex((candidate) => candidate.id === edge.id) === index,
+        );
         graph.value = {
           ...result,
           nodes,
           edges,
           projects: previous.projects,
           sourceProjectIds: [...new Set([...previous.sourceProjectIds, ...result.sourceProjectIds])],
-          sourceSessionIds: [...new Set([...previous.sourceSessionIds, ...result.sourceSessionIds])]
+          sourceSessionIds: [...new Set([...previous.sourceSessionIds, ...result.sourceSessionIds])],
         };
       } else {
         graph.value = result;
@@ -84,8 +98,8 @@ async function loadGraph(cursor?: string): Promise<void> {
       },
       onSettled: () => {
         graphLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -164,7 +178,10 @@ function selectVisibleNodes(filteredNodes: GraphNode[]): GraphNode[] {
   const sessions = byKind("session").slice(0, graphVisualQuotas.value.session);
   const sessionRank = new Map(sessions.map((node, index) => [node.id, index]));
   const firstSessionRank = (node: GraphNode): number =>
-    Math.min(...[...(adjacency.get(node.id) ?? [])].map((id) => sessionRank.get(id) ?? Number.POSITIVE_INFINITY), Number.POSITIVE_INFINITY);
+    Math.min(
+      ...[...(adjacency.get(node.id) ?? [])].map((id) => sessionRank.get(id) ?? Number.POSITIVE_INFINITY),
+      Number.POSITIVE_INFINITY,
+    );
   const attachedFirst = (kind: GraphNode["kind"]): GraphNode[] =>
     byKind(kind)
       .map((node, index) => ({ node, index, rank: firstSessionRank(node) }))
@@ -189,7 +206,9 @@ function layoutGraphNodes(visibleNodes: GraphNode[]): Map<string, GraphVisualNod
   const rowY = (index: number): number => graphLaneTop + index * graphRowHeight;
 
   const sessions = visibleNodes.filter((node) => node.kind === "session");
-  sessions.forEach((node, index) => positions.set(node.id, { node, lane: laneIndex.get("session") ?? 1, y: rowY(index) }));
+  sessions.forEach((node, index) =>
+    positions.set(node.id, { node, lane: laneIndex.get("session") ?? 1, y: rowY(index) }),
+  );
   const sessionY = (node: GraphNode): number[] =>
     [...(adjacency.get(node.id) ?? [])].flatMap((id) => {
       const position = positions.get(id);
@@ -203,16 +222,19 @@ function layoutGraphNodes(visibleNodes: GraphNode[]): Map<string, GraphVisualNod
     const laneNodes = visibleNodes.filter((node) => node.kind === kind);
     const anchored = laneNodes.map((node, index) => {
       const ys = sessionY(node);
-      const ideal = kind === "project" || ys.length === 0
-        ? Number.POSITIVE_INFINITY
-        : ys.reduce((total, y) => total + y, 0) / ys.length;
+      const ideal =
+        kind === "project" || ys.length === 0
+          ? Number.POSITIVE_INFINITY
+          : ys.reduce((total, y) => total + y, 0) / ys.length;
       const order = kind === "project" && ys.length ? Math.min(...ys) : index;
       return { node, ideal, order };
     });
     anchored.sort((left, right) => left.ideal - right.ideal || left.order - right.order);
     let previousY = graphLaneTop - graphRowHeight;
     for (const item of anchored) {
-      const y = Number.isFinite(item.ideal) ? Math.max(item.ideal, previousY + graphRowHeight) : previousY + graphRowHeight;
+      const y = Number.isFinite(item.ideal)
+        ? Math.max(item.ideal, previousY + graphRowHeight)
+        : previousY + graphRowHeight;
       positions.set(item.node.id, { node: item.node, lane: laneIndex.get(kind) ?? 0, y });
       previousY = y;
     }
@@ -222,12 +244,20 @@ function layoutGraphNodes(visibleNodes: GraphNode[]): Map<string, GraphVisualNod
 
 const graphVisual = computed(() => {
   if (!graph.value) {
-    return { height: 560, nodes: [] as GraphVisualNode[], edges: [] as GraphVisualEdge[], hiddenNodes: 0, hiddenEdges: 0, searchMatches: 0 };
+    return {
+      height: 560,
+      nodes: [] as GraphVisualNode[],
+      edges: [] as GraphVisualEdge[],
+      hiddenNodes: 0,
+      hiddenEdges: 0,
+      searchMatches: 0,
+    };
   }
 
-  const filteredNodes = graphNodeFilter.value === "all"
-    ? graph.value.nodes
-    : graph.value.nodes.filter((node) => node.kind === graphNodeFilter.value);
+  const filteredNodes =
+    graphNodeFilter.value === "all"
+      ? graph.value.nodes
+      : graph.value.nodes.filter((node) => node.kind === graphNodeFilter.value);
   const visibleNodes = selectVisibleNodes(filteredNodes);
   const hiddenNodeIds = new Set(filteredNodes.map((node) => node.id));
   visibleNodes.forEach((node) => hiddenNodeIds.delete(node.id));
@@ -241,7 +271,9 @@ const graphVisual = computed(() => {
     }
     return items;
   }, []);
-  const nodes = visibleNodes.map((node) => positions.get(node.id)).filter((node): node is GraphVisualNode => Boolean(node));
+  const nodes = visibleNodes
+    .map((node) => positions.get(node.id))
+    .filter((node): node is GraphVisualNode => Boolean(node));
   const bottom = Math.max(...nodes.map((item) => item.y), graphLaneTop);
   const term = graphSearchTerm.value;
   return {
@@ -250,7 +282,7 @@ const graphVisual = computed(() => {
     edges: graphEdges,
     hiddenNodes: term ? 0 : hiddenNodeIds.size,
     hiddenEdges: graph.value.edges.length - graphEdges.length,
-    searchMatches: term ? filteredNodes.filter((node) => matchesGraphSearch(node, term)).length : 0
+    searchMatches: term ? filteredNodes.filter((node) => matchesGraphSearch(node, term)).length : 0,
   };
 });
 
@@ -260,7 +292,9 @@ const graphSearchMatchIds = computed(() => {
   if (!term) {
     return new Set<string>();
   }
-  return new Set(graphVisual.value.nodes.filter((item) => matchesGraphSearch(item.node, term)).map((item) => item.node.id));
+  return new Set(
+    graphVisual.value.nodes.filter((item) => matchesGraphSearch(item.node, term)).map((item) => item.node.id),
+  );
 });
 
 const graphFilteredTotalNodes = computed(() => {
@@ -280,7 +314,9 @@ const graphNodeCounts = computed(() => {
 function splitFilePath(path: string): { name: string; folder: string } {
   const normalized = path.replaceAll("\\", "/");
   const index = normalized.lastIndexOf("/");
-  return index < 0 ? { name: normalized, folder: "" } : { name: normalized.slice(index + 1), folder: normalized.slice(0, index) };
+  return index < 0
+    ? { name: normalized, folder: "" }
+    : { name: normalized.slice(index + 1), folder: normalized.slice(0, index) };
 }
 
 /** Canvas title: files show their file name (the folder goes on the second line). */
@@ -337,7 +373,7 @@ const selectedGraphNodeMetadata = computed(() => {
   return Object.entries(selectedGraphNode.value.metadata).map(([key, value]) => ({
     key,
     label: graphMetadataLabels[key] ?? key,
-    value: formatGraphMetadataValue(key, value)
+    value: formatGraphMetadataValue(key, value),
   }));
 });
 
@@ -417,6 +453,6 @@ export function useGraph() {
     selectGraphNode,
     openGraphSession,
     openGraphKnowledge,
-    openGraphProject
+    openGraphProject,
   };
 }

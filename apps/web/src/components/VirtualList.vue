@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type ComponentPublicInstance } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+  type ComponentPublicInstance,
+} from "vue";
 
 const props = withDefaults(
   defineProps<{
@@ -15,8 +24,8 @@ const props = withDefaults(
     estimateItemHeight: 96,
     overscan: 4,
     label: "可捲動清單",
-    maxHeight: "min(68vh, 720px)"
-  }
+    maxHeight: "min(68vh, 720px)",
+  },
 );
 
 defineSlots<{
@@ -80,18 +89,20 @@ const visibleItems = computed(() =>
   Array.from({ length: Math.max(0, endIndex.value - startIndex.value) }, (_, offset) => {
     const index = startIndex.value + offset;
     return { index, item: props.items[index] };
-  })
+  }),
 );
 
 const topSpacerHeight = computed(() => offsets.value[startIndex.value] ?? 0);
-const bottomSpacerHeight = computed(() => Math.max(0, totalHeight.value - (offsets.value[endIndex.value] ?? totalHeight.value)));
+const bottomSpacerHeight = computed(() =>
+  Math.max(0, totalHeight.value - (offsets.value[endIndex.value] ?? totalHeight.value)),
+);
 const focusableSelector = [
   "a[href]",
   "button:not(:disabled)",
   "input:not(:disabled)",
   "select:not(:disabled)",
   "textarea:not(:disabled)",
-  "[tabindex]:not([tabindex='-1'])"
+  "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
 function getFocusableElements(index: number): HTMLElement[] {
@@ -101,7 +112,8 @@ function getFocusableElements(index: number): HTMLElement[] {
   }
 
   return Array.from(item.querySelectorAll<HTMLElement>(focusableSelector)).filter(
-    (element) => !element.hidden && element.getAttribute("aria-hidden") !== "true" && element.getClientRects().length > 0
+    (element) =>
+      !element.hidden && element.getAttribute("aria-hidden") !== "true" && element.getClientRects().length > 0,
   );
 }
 
@@ -216,10 +228,13 @@ function resetLayout(): void {
 }
 
 watch(() => props.items, resetLayout);
-watch(() => props.enabled, () => {
-  resetLayout();
-  void nextTick(updateViewportHeight);
-});
+watch(
+  () => props.enabled,
+  () => {
+    resetLayout();
+    void nextTick(updateViewportHeight);
+  },
+);
 
 onMounted(() => {
   updateViewportHeight();

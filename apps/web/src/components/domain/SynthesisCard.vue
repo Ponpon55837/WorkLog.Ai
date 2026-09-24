@@ -39,7 +39,7 @@ const {
   createReportSynthesisRequest,
   retryReportSynthesisRequest,
   cancelReportSynthesisRequest,
-  deleteReportSynthesisVersion
+  deleteReportSynthesisVersion,
 } = useReports();
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
@@ -48,7 +48,7 @@ const grainHints: Record<ReportPeriod, string> = {
   week: "週報 · 以 Feature / Workstream 分組",
   month: "月報 · 以 Project / Milestone 分組",
   quarter: "季報 · 以 Initiative 分組",
-  year: "年報 · 以 Major Contribution 分組"
+  year: "年報 · 以 Major Contribution 分組",
 };
 
 const sections = computed(() => {
@@ -63,7 +63,7 @@ const sections = computed(() => {
     { key: "comparison", title: "比較", blocks: current.comparison },
     { key: "risks", title: "風險與限制", blocks: current.risks },
     { key: "decisions", title: "決策", blocks: current.decisions },
-    { key: "nextSteps", title: "狀態／未結項", blocks: current.nextSteps }
+    { key: "nextSteps", title: "狀態／未結項", blocks: current.nextSteps },
   ].filter((section) => section.blocks.length > 0);
 });
 
@@ -97,7 +97,13 @@ function versionMeta(version: ReportSummary): string {
       <UiBoxTitle :icon="Sparkles" eyebrow="AI synthesis" :title="summary?.title ?? 'AI 報告整理'">
         <StatusLabel v-if="request" :status="requestStatus[request.status]" />
       </UiBoxTitle>
-      <UiIconButton :icon="RefreshCw" label="重新整理整理狀態" size="sm" :loading="reportSynthesisLoading" @click="loadReportSynthesis" />
+      <UiIconButton
+        :icon="RefreshCw"
+        label="重新整理整理狀態"
+        size="sm"
+        :loading="reportSynthesisLoading"
+        @click="loadReportSynthesis"
+      />
     </template>
 
     <div class="synthesis">
@@ -110,32 +116,96 @@ function versionMeta(version: ReportSummary): string {
         <p v-if="summary && isActive" class="synthesis__note">上一版整理仍保留，新的整理完成後才會替換。</p>
         <UiCommandBlock v-if="isActive" :text="reportSynthesisInstruction" success-message="已複製自然語言整理指令。" />
         <div class="synthesis__actions">
-          <UiButton v-if="canRetry" variant="primary" :icon="RotateCcw" :loading="reportSynthesisRetrying" @click="retryReportSynthesisRequest">重試這次整理</UiButton>
-          <UiButton v-else-if="!isActive" variant="primary" :icon="Sparkles" :loading="reportSynthesisCreating" :disabled="!report" @click="createReportSynthesisRequest">
+          <UiButton
+            v-if="canRetry"
+            variant="primary"
+            :icon="RotateCcw"
+            :loading="reportSynthesisRetrying"
+            @click="retryReportSynthesisRequest"
+            >重試這次整理</UiButton
+          >
+          <UiButton
+            v-else-if="!isActive"
+            variant="primary"
+            :icon="Sparkles"
+            :loading="reportSynthesisCreating"
+            :disabled="!report"
+            @click="createReportSynthesisRequest"
+          >
             {{ summary ? "重新整理這份報告" : "請 Agent 整理這份報告" }}
           </UiButton>
-          <UiButton v-if="isActive" variant="danger" :icon="X" :loading="reportSynthesisCancelling" @click="cancelReportSynthesisRequest">取消這次整理</UiButton>
+          <UiButton
+            v-if="isActive"
+            variant="danger"
+            :icon="X"
+            :loading="reportSynthesisCancelling"
+            @click="cancelReportSynthesisRequest"
+            >取消這次整理</UiButton
+          >
         </div>
       </div>
 
       <template v-if="summary">
         <p class="synthesis__executive">{{ summary.executiveSummary }}</p>
-        <SynthesisBlock v-for="section in sections" :key="section.key" :title="section.title" :hint="section.hint" :blocks="section.blocks" @open-sources="openSources" />
+        <SynthesisBlock
+          v-for="section in sections"
+          :key="section.key"
+          :title="section.title"
+          :hint="section.hint"
+          :blocks="section.blocks"
+          @open-sources="openSources"
+        />
         <div class="synthesis__footer">
           <UiLabel>{{ summary.sourceSessionIds.length }} 個來源 Session</UiLabel>
-          <UiLabel>{{ summary.generatedByAgent }}<template v-if="summary.generatedByModel"> · {{ summary.generatedByModel }}</template></UiLabel>
+          <UiLabel
+            >{{ summary.generatedByAgent
+            }}<template v-if="summary.generatedByModel"> · {{ summary.generatedByModel }}</template></UiLabel
+          >
           <UiLabel>prompt {{ summary.promptVersion }}</UiLabel>
-          <time :datetime="summary.createdAt" :title="formatDate(summary.createdAt)">{{ formatRelative(summary.createdAt) }}</time>
-          <UiButton v-if="!isActive && !canRetry" class="synthesis__rerun" size="sm" :icon="Sparkles" :loading="reportSynthesisCreating" @click="createReportSynthesisRequest">重新整理</UiButton>
+          <time :datetime="summary.createdAt" :title="formatDate(summary.createdAt)">{{
+            formatRelative(summary.createdAt)
+          }}</time>
+          <UiButton
+            v-if="!isActive && !canRetry"
+            class="synthesis__rerun"
+            size="sm"
+            :icon="Sparkles"
+            :loading="reportSynthesisCreating"
+            @click="createReportSynthesisRequest"
+            >重新整理</UiButton
+          >
         </div>
-        <UiDisclosure v-if="history.length > 1" :icon="History" title="歷史版本" :count="history.length" data-testid="report-synthesis-history">
+        <UiDisclosure
+          v-if="history.length > 1"
+          :icon="History"
+          title="歷史版本"
+          :count="history.length"
+          data-testid="report-synthesis-history"
+        >
           <ul class="synthesis__versions">
-            <li v-for="version in history" :key="version.id" data-testid="report-synthesis-version" :class="{ 'is-selected': version.id === summary.id }">
-              <button type="button" class="synthesis__version" :aria-pressed="version.id === summary.id" @click="selectReportSynthesisVersion(version)">
+            <li
+              v-for="version in history"
+              :key="version.id"
+              data-testid="report-synthesis-version"
+              :class="{ 'is-selected': version.id === summary.id }"
+            >
+              <button
+                type="button"
+                class="synthesis__version"
+                :aria-pressed="version.id === summary.id"
+                @click="selectReportSynthesisVersion(version)"
+              >
                 <strong>{{ version.title }}</strong>
                 <small>{{ versionMeta(version) }}</small>
               </button>
-              <UiIconButton v-if="!version.isCurrent" :icon="Trash2" :label="`移除歷史版本 ${version.title}`" size="sm" variant="danger" @click="deleteReportSynthesisVersion(version)" />
+              <UiIconButton
+                v-if="!version.isCurrent"
+                :icon="Trash2"
+                :label="`移除歷史版本 ${version.title}`"
+                size="sm"
+                variant="danger"
+                @click="deleteReportSynthesisVersion(version)"
+              />
             </li>
           </ul>
         </UiDisclosure>

@@ -48,7 +48,8 @@
   --underline-active: #f78166;
 
   /* Typography */
-  --font-sans: -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-sans:
+    -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
   --text-xs: 12px;
   --text-sm: 13px;

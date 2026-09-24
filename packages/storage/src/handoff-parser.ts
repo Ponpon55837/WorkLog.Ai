@@ -1,9 +1,5 @@
 import { basename } from "node:path";
-import type {
-  HandoffImportDecision,
-  HandoffImportReason,
-  VerificationSummary
-} from "@work-intelligence/core";
+import type { HandoffImportDecision, HandoffImportReason, VerificationSummary } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
 
 export type HandoffClassification = {
@@ -51,7 +47,10 @@ export function stripFencedCodeBlocks(content: string): string {
 }
 
 export function titleFromContent(content: string, sourcePath: string): string {
-  const heading = content.slice(0, MAX_HANDOFF_CONTENT_LENGTH).match(/^\s*#\s+(.+?)\s*$/m)?.[1]?.trim();
+  const heading = content
+    .slice(0, MAX_HANDOFF_CONTENT_LENGTH)
+    .match(/^\s*#\s+(.+?)\s*$/m)?.[1]
+    ?.trim();
   const fallback = basename(sourcePath).replace(/\.md$/i, "");
   return truncateText(heading || fallback, 300);
 }
@@ -93,45 +92,75 @@ export function classifyHandoff(title: string, statusSignals: string[]): Handoff
     return { decision: "excluded", reason: "blocked", detail: "Blocked handoffs are excluded from historical import." };
   }
   if (/\bpending\b|\bin[- ]progress\b|\bnot started\b|待處理|進行中|未開始/i.test(statusText)) {
-    return { decision: "excluded", reason: "pending", detail: "Pending or in-progress handoffs are excluded from historical import." };
+    return {
+      decision: "excluded",
+      reason: "pending",
+      detail: "Pending or in-progress handoffs are excluded from historical import.",
+    };
   }
   if (/\bcomplete(?:d)?\b|\baccepted\b|\bresolved\b|\bdone\b|\bimplemented\b|\bready\b/i.test(statusText)) {
     return { decision: "eligible" };
   }
   if (/\bplanning\b|\bplanned\b|\bdraft\b|\bproposal\b|規劃|計畫/i.test(statusText)) {
-    return { decision: "excluded", reason: "planning_only", detail: "Planning-only handoffs are excluded from historical import." };
+    return {
+      decision: "excluded",
+      reason: "planning_only",
+      detail: "Planning-only handoffs are excluded from historical import.",
+    };
   }
   return {
     decision: "excluded",
     reason: "no_explicit_completion",
-    detail: "No explicit completed, accepted, resolved, or implemented status was found."
+    detail: "No explicit completed, accepted, resolved, or implemented status was found.",
   };
 }
 
 export function parseRecordedDate(content: string): string | undefined {
-  return content.slice(0, MAX_HANDOFF_CONTENT_LENGTH).match(/(?:recorded\s+date|recorded|記錄日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2})/i)?.[1];
+  return content
+    .slice(0, MAX_HANDOFF_CONTENT_LENGTH)
+    .match(/(?:recorded\s+date|recorded|記錄日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2})/i)?.[1];
 }
 
 export function parseVerification(content: string): VerificationSummary {
   const source = stripFencedCodeBlocks(content);
-  const explicit = source.match(/\bverification(?:\s+status)?\s*[:：=]\s*(passed|failed|not[ _-]?run)\b/i)?.[1]?.toLowerCase();
-  const failedEvidence = /(?:result|verification|tests?|checks?|typecheck|build)[^\n]{0,100}\b(?:failed|failure|errors?\s*[:=]?\s*[1-9]\d*)\b/i.test(source);
-  const passedEvidence = /(?:result|verification|tests?|checks?|typecheck|build)[^\n]{0,100}\b(?:passed|pass|0\s+errors?|success(?:ful)?)\b/i.test(source);
+  const explicit = source
+    .match(/\bverification(?:\s+status)?\s*[:：=]\s*(passed|failed|not[ _-]?run)\b/i)?.[1]
+    ?.toLowerCase();
+  const failedEvidence =
+    /(?:result|verification|tests?|checks?|typecheck|build)[^\n]{0,100}\b(?:failed|failure|errors?\s*[:=]?\s*[1-9]\d*)\b/i.test(
+      source,
+    );
+  const passedEvidence =
+    /(?:result|verification|tests?|checks?|typecheck|build)[^\n]{0,100}\b(?:passed|pass|0\s+errors?|success(?:ful)?)\b/i.test(
+      source,
+    );
   const notRunEvidence = /\bverification\b[^\n]{0,60}\bnot[ _-]?run\b/i.test(source);
 
-  const status = explicit?.replace(/[ _-]/g, "_") ?? (failedEvidence ? "failed" : passedEvidence ? "passed" : notRunEvidence ? "not_run" : "not_run");
+  const status =
+    explicit?.replace(/[ _-]/g, "_") ??
+    (failedEvidence ? "failed" : passedEvidence ? "passed" : notRunEvidence ? "not_run" : "not_run");
   if (status === "passed") {
-    return { status: "passed", summary: "Historical handoff reports a passed verification; no new check was executed by the importer." };
+    return {
+      status: "passed",
+      summary: "Historical handoff reports a passed verification; no new check was executed by the importer.",
+    };
   }
   if (status === "failed") {
-    return { status: "failed", summary: "Historical handoff reports a failed verification; no new check was executed by the importer." };
+    return {
+      status: "failed",
+      summary: "Historical handoff reports a failed verification; no new check was executed by the importer.",
+    };
   }
   return { status: "not_run", summary: "Historical handoff import did not execute a new verification command." };
 }
 
 function normalizeFileCandidate(projectRoot: string, value: string): string {
   let normalized = value.trim().replaceAll("\\", "/").replace(/^\.\//, "");
-  if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized) || normalized.split("/").some((segment) => segment === "..")) {
+  if (
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.split("/").some((segment) => segment === "..")
+  ) {
     return "";
   }
   const projectName = basename(projectRoot).toLowerCase();
@@ -163,10 +192,19 @@ export function fileTokenFromLine(line: string): string | undefined {
   if (!value || value.length > 1_000 || /^https?:\/\//i.test(value)) {
     return undefined;
   }
-  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.split(/[\\/]/).some((segment) => segment === "..")) {
+  if (
+    value.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.split(/[\\/]/).some((segment) => segment === "..")
+  ) {
     return undefined;
   }
-  if (!value.includes("/") && !value.includes("\\") && !/\.(?:[a-z0-9]{1,12})$/i.test(value) && !/^(?:README|LICENSE|Dockerfile)(?:\..*)?$/i.test(value)) {
+  if (
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !/\.(?:[a-z0-9]{1,12})$/i.test(value) &&
+    !/^(?:README|LICENSE|Dockerfile)(?:\..*)?$/i.test(value)
+  ) {
     return undefined;
   }
   return value;
@@ -201,7 +239,8 @@ export function extractChangedFiles(content: string, projectRoot: string): strin
     }
   }
 
-  const sectionPattern = /^\s*#{1,6}\s*(?:changed files?|files changed|modified files?|files modified|變更檔案|修改檔案)\s*:?\s*$/gim;
+  const sectionPattern =
+    /^\s*#{1,6}\s*(?:changed files?|files changed|modified files?|files modified|變更檔案|修改檔案)\s*:?\s*$/gim;
   for (const match of source.matchAll(sectionPattern)) {
     if (values.length >= MAX_PARSED_CHANGED_FILES) {
       break;
@@ -227,7 +266,10 @@ export function summaryFromContent(content: string, sourcePath: string): string 
   const firstUsefulLine = stripFencedCodeBlocks(content)
     .split("\n")
     .map((line) => line.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, "").trim())
-    .find((line) => line.length >= 24 && !line.startsWith("#") && !/^(?:status|recorded date|verification)\s*[:：]/i.test(line));
+    .find(
+      (line) =>
+        line.length >= 24 && !line.startsWith("#") && !/^(?:status|recorded date|verification)\s*[:：]/i.test(line),
+    );
   const detail = firstUsefulLine ? ` ${truncateText(firstUsefulLine, 1_200)}` : "";
   return `Historical handoff imported from ${sourcePath}.${detail}`;
 }
@@ -241,6 +283,6 @@ export function parseHandoffContent(content: string, projectRoot: string, source
     recordedDate: parseRecordedDate(content),
     verification: parseVerification(content),
     changedFiles: extractChangedFiles(content, projectRoot),
-    classification: classifyHandoff(title, statusSignals)
+    classification: classifyHandoff(title, statusSignals),
   };
 }

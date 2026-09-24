@@ -20,7 +20,7 @@ const {
   selectGraphNode,
   openGraphSession,
   openGraphKnowledge,
-  openGraphProject
+  openGraphProject,
 } = useGraph();
 
 /** Relation subtitle; avoids "變更檔案 · 變更檔案" and shows the folder for files. */
@@ -33,7 +33,15 @@ function relationDetail(edge: GraphEdge, related: GraphNode): string {
 </script>
 
 <template>
-  <UiSidePanel :open="Boolean(node)" :modal="false" :width="460" storage-key="graph-node" label="Graph 節點詳細資料" @close="selectGraphNode(null)" @resize="graphPanelWidth = $event">
+  <UiSidePanel
+    :open="Boolean(node)"
+    :modal="false"
+    :width="460"
+    storage-key="graph-node"
+    label="Graph 節點詳細資料"
+    @close="selectGraphNode(null)"
+    @resize="graphPanelWidth = $event"
+  >
     <template v-if="node" #header>
       <div class="node-panel__top">
         <UiLabel tone="accent">{{ graphNodeKindLabels[node.kind] }}</UiLabel>
@@ -45,17 +53,26 @@ function relationDetail(edge: GraphEdge, related: GraphNode): string {
 
     <div v-if="node" class="node-panel">
       <dl class="node-panel__meta">
-        <dt>來源專案</dt><dd>{{ graphNodeProjectName(node) }}</dd>
-        <dt>關係數</dt><dd>{{ relations.length }}</dd>
+        <dt>來源專案</dt>
+        <dd>{{ graphNodeProjectName(node) }}</dd>
+        <dt>關係數</dt>
+        <dd>{{ relations.length }}</dd>
         <template v-for="item in metadata" :key="item.key">
-          <dt>{{ item.label }}</dt><dd class="mono">{{ item.value }}</dd>
+          <dt>{{ item.label }}</dt>
+          <dd class="mono">{{ item.value }}</dd>
         </template>
       </dl>
 
       <div class="node-panel__actions">
-        <UiButton v-if="node.sessionId" size="sm" :icon="ListChecks" @click="openGraphSession(node)">查看 Session 詳情</UiButton>
-        <UiButton v-if="node.kind === 'knowledge'" size="sm" :icon="BookOpen" @click="openGraphKnowledge(node)">維護 Knowledge</UiButton>
-        <UiButton v-if="node.kind === 'project'" size="sm" :icon="FolderGit2" @click="openGraphProject">管理專案</UiButton>
+        <UiButton v-if="node.sessionId" size="sm" :icon="ListChecks" @click="openGraphSession(node)"
+          >查看 Session 詳情</UiButton
+        >
+        <UiButton v-if="node.kind === 'knowledge'" size="sm" :icon="BookOpen" @click="openGraphKnowledge(node)"
+          >維護 Knowledge</UiButton
+        >
+        <UiButton v-if="node.kind === 'project'" size="sm" :icon="FolderGit2" @click="openGraphProject"
+          >管理專案</UiButton
+        >
       </div>
 
       <section>
@@ -64,7 +81,12 @@ function relationDetail(edge: GraphEdge, related: GraphNode): string {
         <ul v-else class="node-panel__relations">
           <li v-for="relation in relations" :key="relation.edge.id">
             <button type="button" class="node-panel__relation" @click="selectGraphNode(relation.relatedNode)">
-              <component :is="relation.direction === 'outgoing' ? ArrowRight : ArrowLeft" :size="16" :stroke-width="1.75" aria-hidden="true" />
+              <component
+                :is="relation.direction === 'outgoing' ? ArrowRight : ArrowLeft"
+                :size="16"
+                :stroke-width="1.75"
+                aria-hidden="true"
+              />
               <span class="node-panel__relation-copy">
                 <strong>{{ graphNodeDisplayLabel(relation.relatedNode, 40) }}</strong>
                 <small>{{ relationDetail(relation.edge, relation.relatedNode) }}</small>

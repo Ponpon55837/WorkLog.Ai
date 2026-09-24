@@ -8,7 +8,7 @@ describe("MCP input boundary", () => {
   it("accepts valid bounded input", () => {
     expect(parseMcpInput(schema, { payload: "small" })).toMatchObject({
       success: true,
-      data: { payload: "small" }
+      data: { payload: "small" },
     });
   });
 

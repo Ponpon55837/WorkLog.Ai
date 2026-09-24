@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import type { IconComponent } from "./types";
 
-withDefaults(defineProps<{ icon?: IconComponent; title: string; description?: string; compact?: boolean }>(), { compact: false });
+withDefaults(defineProps<{ icon?: IconComponent; title: string; description?: string; compact?: boolean }>(), {
+  compact: false,
+});
 </script>
 
 <template>
   <div :class="['ui-empty', { 'ui-empty--compact': compact }]">
     <component :is="icon" v-if="icon" :size="24" :stroke-width="1.5" class="ui-empty__icon" aria-hidden="true" />
     <strong>{{ title }}</strong>
-    <p v-if="description || $slots.default"><slot>{{ description }}</slot></p>
+    <p v-if="description || $slots.default">
+      <slot>{{ description }}</slot>
+    </p>
     <div v-if="$slots.action" class="ui-empty__action"><slot name="action" /></div>
   </div>
 </template>

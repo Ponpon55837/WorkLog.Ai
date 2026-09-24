@@ -1,5 +1,12 @@
 import { ref } from "vue";
-import type { KnowledgeAuditRecord, KnowledgeKind, KnowledgeRecord, KnowledgeStatus, PageInfo, ProjectRecord } from "@work-intelligence/core";
+import type {
+  KnowledgeAuditRecord,
+  KnowledgeKind,
+  KnowledgeRecord,
+  KnowledgeStatus,
+  PageInfo,
+  ProjectRecord,
+} from "@work-intelligence/core";
 import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { errorMessage } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
@@ -29,7 +36,7 @@ const knowledgeEditorForm = ref({
   body: "",
   tags: "",
   references: "",
-  status: "active" as KnowledgeStatus
+  status: "active" as KnowledgeStatus,
 });
 const knowledgeEditorSaving = ref(false);
 const knowledgeEditorError = ref("");
@@ -51,14 +58,17 @@ async function loadKnowledge(): Promise<void> {
   await runKeyed(
     "knowledge",
     async (signal) => {
-      const result = await useApi().client.searchKnowledge({
-        q: knowledgeQuery.value.trim() || undefined,
-        kind: knowledgeKind.value || undefined,
-        projectId: knowledgeProjectId.value || undefined,
-        status: knowledgeStatus.value,
-        page: knowledgePage.value,
-        pageSize: knowledgePageSize.value
-      }, signal);
+      const result = await useApi().client.searchKnowledge(
+        {
+          q: knowledgeQuery.value.trim() || undefined,
+          kind: knowledgeKind.value || undefined,
+          projectId: knowledgeProjectId.value || undefined,
+          status: knowledgeStatus.value,
+          page: knowledgePage.value,
+          pageSize: knowledgePageSize.value,
+        },
+        signal,
+      );
       if (result.outcome === "knowledge") {
         knowledgeItems.value = result.items;
         knowledgeProjects.value = result.projects;
@@ -78,14 +88,16 @@ async function loadKnowledge(): Promise<void> {
       },
       onSettled: () => {
         knowledgeLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
 function knowledgeProject(item: KnowledgeRecord): ProjectRecord | undefined {
-  return useProjects().projects.value.find((project) => project.id === item.projectId) ??
-    knowledgeProjects.value.find((project) => project.id === item.projectId);
+  return (
+    useProjects().projects.value.find((project) => project.id === item.projectId) ??
+    knowledgeProjects.value.find((project) => project.id === item.projectId)
+  );
 }
 
 async function patchKnowledge(item: KnowledgeRecord, changes: KnowledgeChanges): Promise<boolean> {
@@ -109,7 +121,14 @@ async function patchKnowledge(item: KnowledgeRecord, changes: KnowledgeChanges):
 }
 
 function splitKnowledgeValues(value: string): string[] {
-  return [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      value
+        .split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function openKnowledgeEditor(item: KnowledgeRecord): void {
@@ -120,7 +139,7 @@ function openKnowledgeEditor(item: KnowledgeRecord): void {
     body: item.body,
     tags: item.tags.join(", "),
     references: item.references.join("\n"),
-    status: item.status
+    status: item.status,
   };
   knowledgeEditorError.value = "";
 }
@@ -151,7 +170,7 @@ async function saveKnowledge(): Promise<void> {
     body: form.body.trim(),
     tags: splitKnowledgeValues(form.tags),
     references: splitKnowledgeValues(form.references),
-    status: form.status
+    status: form.status,
   });
   knowledgeEditorSaving.value = false;
   if (saved) {
@@ -182,7 +201,11 @@ async function openKnowledgeHistory(item: KnowledgeRecord): Promise<void> {
   await runKeyed(
     "knowledge-history",
     async (signal) => {
-      const result = await useApi().client.getKnowledgeHistory(item.id, { projectRoot: project.rootPath, limit: 100 }, signal);
+      const result = await useApi().client.getKnowledgeHistory(
+        item.id,
+        { projectRoot: project.rootPath, limit: 100 },
+        signal,
+      );
       if (result.outcome === "knowledge_history") {
         knowledgeHistory.value = result.history;
       } else if (result.outcome === "skipped") {
@@ -197,8 +220,8 @@ async function openKnowledgeHistory(item: KnowledgeRecord): Promise<void> {
       },
       onSettled: () => {
         knowledgeHistoryLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -215,7 +238,7 @@ function knowledgeAuditFields(entry: KnowledgeAuditRecord): string {
     body: "內容",
     tags: "標籤",
     references: "參考資料",
-    status: "狀態"
+    status: "狀態",
   };
   const fields = entry.changedFields.map((field) => labels[field] ?? field);
   return fields.length ? fields.join("、") : "狀態快照";
@@ -254,6 +277,6 @@ export function useKnowledge() {
     knowledgeHistoryError,
     openKnowledgeHistory,
     closeKnowledgeHistory,
-    knowledgeAuditFields
+    knowledgeAuditFields,
   };
 }

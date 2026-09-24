@@ -13,7 +13,9 @@ const open = computed(() => Boolean(pending.value));
     <p v-if="pending?.message" class="ui-confirm__message">{{ pending.message }}</p>
     <template #footer>
       <UiButton autofocus @click="settle(false)">{{ pending?.cancelLabel ?? "取消" }}</UiButton>
-      <UiButton :variant="pending?.danger ? 'danger' : 'primary'" @click="settle(true)">{{ pending?.confirmLabel ?? "確認" }}</UiButton>
+      <UiButton :variant="pending?.danger ? 'danger' : 'primary'" @click="settle(true)">{{
+        pending?.confirmLabel ?? "確認"
+      }}</UiButton>
     </template>
   </UiDialog>
 </template>

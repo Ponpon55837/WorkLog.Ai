@@ -41,7 +41,7 @@ const {
   sessionFilterError,
   hasSessionFilters,
   loadSessions,
-  clearSessionFilters
+  clearSessionFilters,
 } = useSessions();
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
@@ -50,20 +50,32 @@ useRouteQuery("project", selectedProjectId, stringQuery());
 useRouteQuery("from", dateFrom, stringQuery());
 useRouteQuery("to", dateTo, stringQuery());
 useRouteQuery("page", sessionPage, pageQuery());
-useRouteQuery("size", sessionPageSize, enumQuery(listPageSizeOptions.map((option) => option.value), 10));
-const { reloadNow } = useListReload({ load: loadSessions, page: sessionPage, filters: [selectedProjectId, dateFrom, dateTo, sessionPageSize], search: searchTerm });
+useRouteQuery(
+  "size",
+  sessionPageSize,
+  enumQuery(
+    listPageSizeOptions.map((option) => option.value),
+    10,
+  ),
+);
+const { reloadNow } = useListReload({
+  load: loadSessions,
+  page: sessionPage,
+  filters: [selectedProjectId, dateFrom, dateTo, sessionPageSize],
+  search: searchTerm,
+});
 useViewLoader(loadSessions);
 
 const projectItems = computed(() => [
   { value: "", label: "所有專案" },
-  ...projects.value.map((project) => ({ value: project.id, label: project.name }))
+  ...projects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const dateRange = computed({
   get: () => ({ from: dateFrom.value, to: dateTo.value }),
   set: (range) => {
     dateFrom.value = range.from;
     dateTo.value = range.to;
-  }
+  },
 });
 
 function dayGroupAt(index: number): string | undefined {
@@ -88,7 +100,14 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
 
   <PageToolbar>
     <form class="sessions-search" role="search" @submit.prevent="reloadNow">
-      <UiTextInput v-model="searchTerm" class="sessions-search__input" type="search" :icon="Search" label="搜尋工作歷程" placeholder="搜尋 title、summary 或 event" />
+      <UiTextInput
+        v-model="searchTerm"
+        class="sessions-search__input"
+        type="search"
+        :icon="Search"
+        label="搜尋工作歷程"
+        placeholder="搜尋 title、summary 或 event"
+      />
       <UiButton v-if="hasSessionFilters" :icon="X" @click="clearSessionFilters">清除篩選</UiButton>
     </form>
   </PageToolbar>
@@ -98,10 +117,19 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
   <UiBox sticky-header>
     <template #header>
       <UiBoxTitle :icon="ListChecks" :title="`${sessionPageInfo.total} Sessions`">
-        <span v-if="sessionPageInfo.total" class="sessions__range">顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}</span>
+        <span v-if="sessionPageInfo.total" class="sessions__range"
+          >顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}</span
+        >
       </UiBoxTitle>
       <div class="sessions__filters">
-        <UiActionMenu v-model="selectedProjectId" label="專案" header="篩選專案" default-value="" align="end" :items="projectItems" />
+        <UiActionMenu
+          v-model="selectedProjectId"
+          label="專案"
+          header="篩選專案"
+          default-value=""
+          align="end"
+          :items="projectItems"
+        />
         <UiDateRangeMenu v-model="dateRange" />
       </div>
     </template>
@@ -111,7 +139,9 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
       v-else-if="sessions.length === 0"
       :icon="ListChecks"
       :title="hasSessionFilters ? '沒有符合條件的 Session' : '還沒有工作紀錄'"
-      :description="hasSessionFilters ? '調整搜尋或篩選條件後再試一次。' : '記錄中的專案完成 Session 後，會依時間出現在這裡。'"
+      :description="
+        hasSessionFilters ? '調整搜尋或篩選條件後再試一次。' : '記錄中的專案完成 Session 後，會依時間出現在這裡。'
+      "
     >
       <template v-if="hasSessionFilters" #action><UiButton @click="clearSessionFilters">清除篩選</UiButton></template>
     </UiEmptyState>
@@ -123,7 +153,12 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
     </VirtualList>
 
     <template #footer>
-      <UiPagination v-model:page-size="sessionPageSize" :page-info="sessionPageInfo" size-label="工作歷程每頁筆數" @page="sessionPage = $event" />
+      <UiPagination
+        v-model:page-size="sessionPageSize"
+        :page-info="sessionPageInfo"
+        size-label="工作歷程每頁筆數"
+        @page="sessionPage = $event"
+      />
     </template>
   </UiBox>
 </template>

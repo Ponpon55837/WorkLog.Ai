@@ -3,7 +3,7 @@ import type { WorkReport } from "@work-intelligence/core";
 export function formatDate(value: string): string {
   return new Intl.DateTimeFormat("zh-TW", {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
   }).format(new Date(value));
 }
 
@@ -16,7 +16,10 @@ export function formatReadableSummary(value: string): string {
   return normalized
     .replace(/\s+Status signals\s*:/i, "\n\nStatus signals:\n")
     .replace(/\s*\|\s*/g, "\n")
-    .replace(/(pending-backend-contract|pendingbackend|Reverted|blocked|completed|complete|pending)(?=[A-Za-z#])/gi, "$1\n")
+    .replace(
+      /(pending-backend-contract|pendingbackend|Reverted|blocked|completed|complete|pending)(?=[A-Za-z#])/gi,
+      "$1\n",
+    )
     .replace(/(^|\n)\s*#{1,6}\s*/gm, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -32,7 +35,6 @@ export function toDateInputValue(value: Date): string {
 export function startOfMonth(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), 1);
 }
-
 
 function formatReportDay(value: string): string {
   const [, month = "", day = ""] = value.split("-");
@@ -94,7 +96,10 @@ export function formatRelative(value: string, now = new Date()): string {
     return `昨天 ${time}`;
   }
   const sameYear = date.getFullYear() === now.getFullYear();
-  return new Intl.DateTimeFormat("zh-TW", sameYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" }).format(date);
+  return new Intl.DateTimeFormat(
+    "zh-TW",
+    sameYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" },
+  ).format(date);
 }
 
 function dayIndex(date: Date): number {
@@ -112,5 +117,8 @@ export function formatDayGroup(value: string, now = new Date()): string {
     return "昨天";
   }
   const sameYear = date.getFullYear() === now.getFullYear();
-  return new Intl.DateTimeFormat("zh-TW", sameYear ? { month: "long", day: "numeric", weekday: "short" } : { dateStyle: "long" }).format(date);
+  return new Intl.DateTimeFormat(
+    "zh-TW",
+    sameYear ? { month: "long", day: "numeric", weekday: "short" } : { dateStyle: "long" },
+  ).format(date);
 }

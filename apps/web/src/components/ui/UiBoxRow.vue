@@ -5,7 +5,7 @@
  */
 withDefaults(defineProps<{ clickable?: boolean; title?: string; meta?: string; tag?: string }>(), {
   clickable: false,
-  tag: "div"
+  tag: "div",
 });
 
 const emit = defineEmits<{ select: [] }>();
@@ -19,10 +19,14 @@ const emit = defineEmits<{ select: [] }>();
         <button v-if="clickable" type="button" class="ui-box-row__link" @click="emit('select')">
           <slot name="title">{{ title }}</slot>
         </button>
-        <span v-else class="ui-box-row__text"><slot name="title">{{ title }}</slot></span>
+        <span v-else class="ui-box-row__text"
+          ><slot name="title">{{ title }}</slot></span
+        >
         <slot name="labels" />
       </div>
-      <div v-if="meta || $slots.meta" class="ui-box-row__meta"><slot name="meta">{{ meta }}</slot></div>
+      <div v-if="meta || $slots.meta" class="ui-box-row__meta">
+        <slot name="meta">{{ meta }}</slot>
+      </div>
       <slot />
     </div>
     <div v-if="$slots.trailing" class="ui-box-row__trailing"><slot name="trailing" /></div>

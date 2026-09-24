@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { BookOpen, ChevronDown, ChevronUp, FileDiff, FileText, FolderGit2, GitBranch, GitCommitHorizontal, Link, Paperclip, X } from "lucide-vue-next";
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  FileDiff,
+  FileText,
+  FolderGit2,
+  GitBranch,
+  GitCommitHorizontal,
+  Link,
+  Paperclip,
+  X,
+} from "lucide-vue-next";
 import { useSessionDetail } from "../../composables/useSessionDetail";
 import { useToast } from "../../composables/useToast";
 import { router } from "../../router";
@@ -28,27 +40,34 @@ const session = computed(() => selectedDetail.value?.session);
 const verification = computed(() => (session.value ? verificationStatus[verificationOf(session.value)] : undefined));
 const hasGit = computed(() => Boolean(session.value?.commitSha || session.value?.gitBranch));
 
-watch(() => route.query.session, (id) => {
-  if (typeof id === "string" && id !== session.value?.id) {
-    void openSessionDetail(id);
-  } else if (!id && session.value) {
-    closeSessionDetail();
-  }
-}, { immediate: true });
-
-watch(() => session.value?.id, async (id) => {
-  if ((route.query.session ?? undefined) !== id) {
-    const query = { ...route.query };
-    if (id) {
-      query.session = id;
-    } else {
-      delete query.session;
+watch(
+  () => route.query.session,
+  (id) => {
+    if (typeof id === "string" && id !== session.value?.id) {
+      void openSessionDetail(id);
+    } else if (!id && session.value) {
+      closeSessionDetail();
     }
-    void router.replace({ query });
-  }
-  await nextTick();
-  body.value?.closest(".ui-side-panel__body")?.scrollTo({ top: 0 });
-});
+  },
+  { immediate: true },
+);
+
+watch(
+  () => session.value?.id,
+  async (id) => {
+    if ((route.query.session ?? undefined) !== id) {
+      const query = { ...route.query };
+      if (id) {
+        query.session = id;
+      } else {
+        delete query.session;
+      }
+      void router.replace({ query });
+    }
+    await nextTick();
+    body.value?.closest(".ui-side-panel__body")?.scrollTo({ top: 0 });
+  },
+);
 
 function copyLink(): void {
   void useToast().copyWithToast(window.location.href, "已複製 Session 連結。");
@@ -74,13 +93,33 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <UiSidePanel :open="Boolean(selectedDetail)" label="Session 詳情" :width="760" storage-key="session" @close="closeSessionDetail">
+  <UiSidePanel
+    :open="Boolean(selectedDetail)"
+    label="Session 詳情"
+    :width="760"
+    storage-key="session"
+    @close="closeSessionDetail"
+  >
     <template v-if="selectedDetail && session" #header>
       <div class="session-panel__top">
-        <span class="session-panel__eyebrow">Session · <span class="mono">{{ session.id.slice(0, 8) }}</span></span>
+        <span class="session-panel__eyebrow"
+          >Session · <span class="mono">{{ session.id.slice(0, 8) }}</span></span
+        >
         <div class="session-panel__actions">
-          <UiIconButton :icon="ChevronUp" label="上一筆 (K)" size="sm" :disabled="position.index <= 0" @click="openAdjacentSession(-1)" />
-          <UiIconButton :icon="ChevronDown" label="下一筆 (J)" size="sm" :disabled="position.index < 0 || position.index >= position.total - 1" @click="openAdjacentSession(1)" />
+          <UiIconButton
+            :icon="ChevronUp"
+            label="上一筆 (K)"
+            size="sm"
+            :disabled="position.index <= 0"
+            @click="openAdjacentSession(-1)"
+          />
+          <UiIconButton
+            :icon="ChevronDown"
+            label="下一筆 (J)"
+            size="sm"
+            :disabled="position.index < 0 || position.index >= position.total - 1"
+            @click="openAdjacentSession(1)"
+          />
           <UiIconButton :icon="Link" label="複製連結" size="sm" @click="copyLink" />
           <UiIconButton :icon="X" label="關閉" @click="closeSessionDetail" />
         </div>
@@ -98,15 +137,24 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
       <dl class="session-panel__meta">
         <dt>專案</dt>
-        <dd><span>{{ selectedDetail.project.name }}</span> <code class="session-panel__path">{{ selectedDetail.project.rootPath }}</code></dd>
+        <dd>
+          <span>{{ selectedDetail.project.name }}</span>
+          <code class="session-panel__path">{{ selectedDetail.project.rootPath }}</code>
+        </dd>
         <dt>完成時間</dt>
-        <dd><time :datetime="session.completedAt">{{ formatDate(session.completedAt) }}（{{ formatRelative(session.completedAt) }}）</time></dd>
+        <dd>
+          <time :datetime="session.completedAt"
+            >{{ formatDate(session.completedAt) }}（{{ formatRelative(session.completedAt) }}）</time
+          >
+        </dd>
         <dt>執行狀態</dt>
         <dd><StatusLabel :status="executionStatusVisual" /></dd>
         <dt>Verification</dt>
         <dd>
           <StatusLabel v-if="verification" :status="verification" />
-          <span v-if="session.verification?.summary" class="session-panel__muted">{{ session.verification.summary }}</span>
+          <span v-if="session.verification?.summary" class="session-panel__muted">{{
+            session.verification.summary
+          }}</span>
         </dd>
       </dl>
 
@@ -118,20 +166,42 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         </UiDisclosure>
         <UiDisclosure v-if="hasGit" title="Git" :icon="GitBranch" hint="observed metadata">
           <dl class="session-panel__meta session-panel__meta--inset">
-            <template v-if="session.gitBranch"><dt>Branch</dt><dd class="mono">{{ session.gitBranch }}</dd></template>
-            <template v-if="session.commitSha"><dt>Commit</dt><dd class="mono">{{ session.commitSha.slice(0, 12) }}</dd></template>
+            <template v-if="session.gitBranch"
+              ><dt>Branch</dt>
+              <dd class="mono">{{ session.gitBranch }}</dd></template
+            >
+            <template v-if="session.commitSha"
+              ><dt>Commit</dt>
+              <dd class="mono">{{ session.commitSha.slice(0, 12) }}</dd></template
+            >
           </dl>
         </UiDisclosure>
-        <UiDisclosure v-if="selectedDetail.evidence.length" title="Evidence" :icon="Paperclip" :count="selectedDetail.evidence.length">
+        <UiDisclosure
+          v-if="selectedDetail.evidence.length"
+          title="Evidence"
+          :icon="Paperclip"
+          :count="selectedDetail.evidence.length"
+        >
           <div v-for="item in selectedDetail.evidence" :key="item.id" class="session-panel__item">
-            <div class="session-panel__item-head"><UiLabel>{{ item.kind }}</UiLabel><time :title="formatDate(item.capturedAt)">{{ formatRelative(item.capturedAt) }}</time></div>
+            <div class="session-panel__item-head">
+              <UiLabel>{{ item.kind }}</UiLabel
+              ><time :title="formatDate(item.capturedAt)">{{ formatRelative(item.capturedAt) }}</time>
+            </div>
             <p v-if="item.summary">{{ item.summary }}</p>
             <code>{{ item.reference }}</code>
           </div>
         </UiDisclosure>
-        <UiDisclosure v-if="selectedDetail.knowledge.length" title="Knowledge" :icon="BookOpen" :count="selectedDetail.knowledge.length">
+        <UiDisclosure
+          v-if="selectedDetail.knowledge.length"
+          title="Knowledge"
+          :icon="BookOpen"
+          :count="selectedDetail.knowledge.length"
+        >
           <div v-for="item in selectedDetail.knowledge" :key="item.id" class="session-panel__item">
-            <div class="session-panel__item-head"><UiLabel tone="accent">{{ knowledgeKindLabels[item.kind] }}</UiLabel><strong>{{ item.title }}</strong></div>
+            <div class="session-panel__item-head">
+              <UiLabel tone="accent">{{ knowledgeKindLabels[item.kind] }}</UiLabel
+              ><strong>{{ item.title }}</strong>
+            </div>
             <p>{{ item.body }}</p>
           </div>
         </UiDisclosure>

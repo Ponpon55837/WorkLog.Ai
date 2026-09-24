@@ -17,40 +17,40 @@ const routes: RouteRecordRaw[] = [
     path: "/dashboard",
     name: "dashboard",
     component: () => import("./views/DashboardView.vue"),
-    meta: { title: "工作總覽", navLabel: "總覽", eyebrow: "TODAY'S SIGNAL", group: "work" }
+    meta: { title: "工作總覽", navLabel: "總覽", eyebrow: "TODAY'S SIGNAL", group: "work" },
   },
   {
     path: "/sessions",
     name: "sessions",
     component: () => import("./views/SessionsView.vue"),
-    meta: { title: "工作歷程", navLabel: "工作歷程", eyebrow: "SESSION ARCHIVE", group: "work" }
+    meta: { title: "工作歷程", navLabel: "工作歷程", eyebrow: "SESSION ARCHIVE", group: "work" },
   },
   { path: "/worklog", redirect: (to) => ({ path: "/sessions", query: to.query }) },
   {
     path: "/reports/:tab?",
     name: "reports",
     component: () => import("./views/ReportsView.vue"),
-    meta: { title: "工作報告", navLabel: "工作報告", eyebrow: "WORK REPORTS", group: "work" }
+    meta: { title: "工作報告", navLabel: "工作報告", eyebrow: "WORK REPORTS", group: "work" },
   },
   {
     path: "/knowledge",
     name: "knowledge",
     component: () => import("./views/KnowledgeView.vue"),
-    meta: { title: "工作知識", navLabel: "工作知識", eyebrow: "EXPLICIT KNOWLEDGE", group: "knowledge" }
+    meta: { title: "工作知識", navLabel: "工作知識", eyebrow: "EXPLICIT KNOWLEDGE", group: "knowledge" },
   },
   {
     path: "/graph",
     name: "graph",
     component: () => import("./views/GraphView.vue"),
-    meta: { title: "工作圖譜", navLabel: "工作圖譜", eyebrow: "DETERMINISTIC WORK GRAPH", group: "knowledge" }
+    meta: { title: "工作圖譜", navLabel: "工作圖譜", eyebrow: "DETERMINISTIC WORK GRAPH", group: "knowledge" },
   },
   {
     path: "/projects/:tab?",
     name: "projects",
     component: () => import("./views/ProjectsView.vue"),
-    meta: { title: "專案", navLabel: "專案", eyebrow: "PROJECT REGISTRY", group: "manage" }
+    meta: { title: "專案", navLabel: "專案", eyebrow: "PROJECT REGISTRY", group: "manage" },
   },
-  { path: "/:pathMatch(.*)*", redirect: "/dashboard" }
+  { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
 ];
 
 if (import.meta.env.DEV) {
@@ -58,12 +58,12 @@ if (import.meta.env.DEV) {
     path: "/__ui",
     name: "ui-showcase",
     component: () => import("./views/UiShowcaseView.vue"),
-    meta: { title: "UI 元件展示", eyebrow: "DESIGN SYSTEM" }
+    meta: { title: "UI 元件展示", eyebrow: "DESIGN SYSTEM" },
   });
 }
 
 export const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior: () => ({ top: 0 })
+  scrollBehavior: () => ({ top: 0 }),
 });

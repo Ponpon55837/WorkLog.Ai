@@ -17,7 +17,7 @@ export function useApi(): ApiRequest {
 export async function runKeyed(
   key: string,
   task: (signal: AbortSignal) => Promise<void>,
-  handlers: { onError?: (error: unknown) => void; onSettled?: () => void } = {}
+  handlers: { onError?: (error: unknown) => void; onSettled?: () => void } = {},
 ): Promise<void> {
   const { beginRequest, isCurrentRequest, finishRequest, isAbortError } = useApi();
   const controller = beginRequest(key);

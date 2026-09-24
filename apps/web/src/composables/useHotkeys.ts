@@ -23,7 +23,13 @@ export function useHotkeys(options: { openPalette: () => void }): void {
       options.openPalette();
       return;
     }
-    if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target) || document.body.classList.contains("modal-open")) {
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      isTyping(event.target) ||
+      document.body.classList.contains("modal-open")
+    ) {
       return;
     }
     if (event.key === "/") {

@@ -11,7 +11,7 @@ const emptyDashboard: DashboardSummary = {
   activeProjects: 0,
   finalizedSessions: 0,
   recordedEvents: 0,
-  recentSessions: []
+  recentSessions: [],
 };
 
 const dashboard = ref<DashboardSummary>(emptyDashboard);
@@ -63,11 +63,15 @@ async function updateProjectStatus(project: ProjectRecord, status: ProjectStatus
     return;
   }
   // Enabling tracking widens what Agents may read, so it is the one status change that needs consent.
-  if (status === "tracked" && !(await confirmAction({
-    title: `將「${project.name}」切換為記錄中？`,
-    message: "切換後，Agent 可以在這個專案讀取 handoff、Git／worktree 與 source 並保存工作紀錄。其他狀態會安靜略過所有讀取。",
-    confirmLabel: "開始記錄"
-  }))) {
+  if (
+    status === "tracked" &&
+    !(await confirmAction({
+      title: `將「${project.name}」切換為記錄中？`,
+      message:
+        "切換後，Agent 可以在這個專案讀取 handoff、Git／worktree 與 source 並保存工作紀錄。其他狀態會安靜略過所有讀取。",
+      confirmLabel: "開始記錄",
+    }))
+  ) {
     return;
   }
   try {
@@ -95,6 +99,6 @@ export function useProjects() {
     loadDashboard,
     loadProjects,
     addProject,
-    updateProjectStatus
+    updateProjectStatus,
   };
 }

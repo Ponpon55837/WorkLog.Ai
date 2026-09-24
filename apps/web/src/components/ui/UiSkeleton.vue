@@ -72,13 +72,23 @@ withDefaults(defineProps<{ variant?: "row" | "card" | "text"; count?: number }>(
   border-radius: 50%;
 }
 
-.ui-skeleton__line { height: 12px; }
-.ui-skeleton__line--thin { height: 10px; }
-.ui-skeleton__line--tall { height: 24px; }
+.ui-skeleton__line {
+  height: 12px;
+}
+.ui-skeleton__line--thin {
+  height: 10px;
+}
+.ui-skeleton__line--tall {
+  height: 24px;
+}
 
 @keyframes ui-shimmer {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

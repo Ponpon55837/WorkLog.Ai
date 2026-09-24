@@ -16,7 +16,7 @@ function onKeydown(event: KeyboardEvent, items: readonly SelectOption<T>[]): voi
   const next = items[(index + step + items.length) % items.length];
   if (next) {
     model.value = next.value;
-    ((event.currentTarget as HTMLElement).querySelector<HTMLElement>(`[data-value="${next.value}"]`))?.focus();
+    (event.currentTarget as HTMLElement).querySelector<HTMLElement>(`[data-value="${next.value}"]`)?.focus();
   }
 }
 </script>

@@ -3,13 +3,16 @@ import { ChevronDown } from "lucide-vue-next";
 import type { IconComponent, SelectOption } from "./types";
 
 /** Native <select> styled to tokens. Use for forms and compact toolbars; list filters use UiActionMenu. */
-withDefaults(defineProps<{
-  options: readonly SelectOption<T>[];
-  label?: string;
-  icon?: IconComponent;
-  size?: "md" | "sm";
-  disabled?: boolean;
-}>(), { size: "md" });
+withDefaults(
+  defineProps<{
+    options: readonly SelectOption<T>[];
+    label?: string;
+    icon?: IconComponent;
+    size?: "md" | "sm";
+    disabled?: boolean;
+  }>(),
+  { size: "md" },
+);
 
 const model = defineModel<T>({ required: true });
 </script>

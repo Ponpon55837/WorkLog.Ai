@@ -12,7 +12,9 @@ function isInsufficient(detail: string): boolean {
 
 <template>
   <section class="synthesis-block">
-    <h3>{{ title }} <span v-if="hint" class="synthesis-block__hint">{{ hint }}</span></h3>
+    <h3>
+      {{ title }} <span v-if="hint" class="synthesis-block__hint">{{ hint }}</span>
+    </h3>
     <div v-for="(block, index) in blocks" :key="`${block.title}-${index}`" class="synthesis-block__item">
       <div class="synthesis-block__copy">
         <strong>{{ block.title }}</strong>

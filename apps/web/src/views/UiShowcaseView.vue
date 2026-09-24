@@ -1,6 +1,18 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { CircleCheck, CircleDashed, CircleX, Download, FolderGit2, Inbox, ListChecks, Plus, RefreshCw, Search, ShieldCheck } from "lucide-vue-next";
+import {
+  CircleCheck,
+  CircleDashed,
+  CircleX,
+  Download,
+  FolderGit2,
+  Inbox,
+  ListChecks,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+} from "lucide-vue-next";
 import PageHeader from "../components/layout/PageHeader.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -41,16 +53,35 @@ const range = ref({ from: "", to: "" });
 const pageSize = ref<ListPageSize>(10);
 const panelOpen = ref(false);
 const dialogOpen = ref(false);
-const pageInfo = { page: 2, pageSize: 10, total: 128, totalPages: 13, from: 11, to: 20, hasPrevious: true, hasNext: true, truncated: false };
+const pageInfo = {
+  page: 2,
+  pageSize: 10,
+  total: 128,
+  totalPages: 13,
+  from: 11,
+  to: 20,
+  hasPrevious: true,
+  hasNext: true,
+  truncated: false,
+};
 
 async function tryConfirm(): Promise<void> {
-  const confirmed = await confirmAction({ title: "移除這個歷史版本？", message: "此操作無法復原。", confirmLabel: "移除", danger: true });
+  const confirmed = await confirmAction({
+    title: "移除這個歷史版本？",
+    message: "此操作無法復原。",
+    confirmLabel: "移除",
+    danger: true,
+  });
   showToast(confirmed ? "已確認" : "已取消", confirmed ? "success" : "default");
 }
 </script>
 
 <template>
-  <PageHeader title="UI 元件展示" eyebrow="DESIGN SYSTEM" description="開發用：檢查每個 ui/ 元件在各狀態的樣式與鍵盤操作。">
+  <PageHeader
+    title="UI 元件展示"
+    eyebrow="DESIGN SYSTEM"
+    description="開發用：檢查每個 ui/ 元件在各狀態的樣式與鍵盤操作。"
+  >
     <template #actions>
       <UiButton :icon="Download">Default</UiButton>
       <UiButton variant="primary" :icon="Plus">Primary</UiButton>
@@ -90,25 +121,78 @@ async function tryConfirm(): Promise<void> {
     <UiBox padded>
       <template #header><UiBoxTitle eyebrow="Inputs" title="輸入" /></template>
       <div class="showcase__grid">
-        <UiField label="文字" hint="說明文字"><UiTextInput v-model="text" :icon="Search" placeholder="搜尋…" /></UiField>
-        <UiField label="選單"><UiSelect v-model="select" :options="[{ value: 'all', label: '全部' }, { value: 'a', label: 'A' }]" label="示範選單" /></UiField>
+        <UiField label="文字" hint="說明文字"
+          ><UiTextInput v-model="text" :icon="Search" placeholder="搜尋…"
+        /></UiField>
+        <UiField label="選單"
+          ><UiSelect
+            v-model="select"
+            :options="[
+              { value: 'all', label: '全部' },
+              { value: 'a', label: 'A' },
+            ]"
+            label="示範選單"
+        /></UiField>
         <UiField label="錯誤" error="必填欄位"><UiTextInput v-model="text" /></UiField>
       </div>
       <div class="showcase__row showcase__row--spaced">
-        <UiSegmentedControl v-model="segment" label="區間" :options="[{ value: 'day', label: '日' }, { value: 'week', label: '週' }, { value: 'month', label: '月' }]" />
-        <UiActionMenu v-model="menu" label="驗證" header="篩選 verification" default-value="all" :items="[{ value: 'all', label: '全部' }, { value: 'passed', label: '通過', icon: CircleCheck, tone: 'success' }, { value: 'failed', label: '失敗', icon: CircleX, tone: 'danger' }]" />
-        <UiActionMenu label="匯出" variant="button" :icon="Download" :items="[{ value: 'md', label: 'Markdown' }, { value: 'json', label: 'JSON' }]" @select="showToast(`匯出 ${$event}`)" />
+        <UiSegmentedControl
+          v-model="segment"
+          label="區間"
+          :options="[
+            { value: 'day', label: '日' },
+            { value: 'week', label: '週' },
+            { value: 'month', label: '月' },
+          ]"
+        />
+        <UiActionMenu
+          v-model="menu"
+          label="驗證"
+          header="篩選 verification"
+          default-value="all"
+          :items="[
+            { value: 'all', label: '全部' },
+            { value: 'passed', label: '通過', icon: CircleCheck, tone: 'success' },
+            { value: 'failed', label: '失敗', icon: CircleX, tone: 'danger' },
+          ]"
+        />
+        <UiActionMenu
+          label="匯出"
+          variant="button"
+          :icon="Download"
+          :items="[
+            { value: 'md', label: 'Markdown' },
+            { value: 'json', label: 'JSON' },
+          ]"
+          @select="showToast(`匯出 ${$event}`)"
+        />
         <UiDateRangeMenu v-model="range" />
       </div>
     </UiBox>
 
-    <UiUnderlineNav v-model="tab" label="示範分頁" id-prefix="showcase" :items="[{ value: 'overview', label: '總覽', icon: Inbox }, { value: 'list', label: '清單', icon: ListChecks, count: 24 }]" />
+    <UiUnderlineNav
+      v-model="tab"
+      label="示範分頁"
+      id-prefix="showcase"
+      :items="[
+        { value: 'overview', label: '總覽', icon: Inbox },
+        { value: 'list', label: '清單', icon: ListChecks, count: 24 },
+      ]"
+    />
 
     <div class="showcase__stats">
       <UiStatCard label="記錄中專案" :icon="FolderGit2" :value="3" foot="explicit opt-in" />
       <UiStatCard label="完成 Sessions" :value="24" :delta="{ direction: 'up', text: '4' }" foot="不等同 Git commit" />
       <UiStatCard label="Verification" :icon="ShieldCheck" :value="21" suffix="/ 24 通過">
-        <UiMeter label="驗證分布" :segments="[{ value: 21, tone: 'success', label: '通過' }, { value: 1, tone: 'danger', label: '失敗' }, { value: 1, tone: 'neutral', label: '未執行' }, { value: 1, tone: 'attention', label: '未回報' }]" />
+        <UiMeter
+          label="驗證分布"
+          :segments="[
+            { value: 21, tone: 'success', label: '通過' },
+            { value: 1, tone: 'danger', label: '失敗' },
+            { value: 1, tone: 'neutral', label: '未執行' },
+            { value: 1, tone: 'attention', label: '未回報' },
+          ]"
+        />
       </UiStatCard>
       <UiStatCard label="待處理" :icon="Inbox" :value="3" value-tone="attention" />
     </div>
@@ -116,7 +200,16 @@ async function tryConfirm(): Promise<void> {
     <UiBox>
       <template #header>
         <UiBoxTitle title="128 Sessions" :icon="ListChecks" />
-        <UiActionMenu v-model="menu" label="驗證" default-value="all" align="end" :items="[{ value: 'all', label: '全部' }, { value: 'passed', label: '通過' }]" />
+        <UiActionMenu
+          v-model="menu"
+          label="驗證"
+          default-value="all"
+          align="end"
+          :items="[
+            { value: 'all', label: '全部' },
+            { value: 'passed', label: '通過' },
+          ]"
+        />
       </template>
       <UiGroupLabel>今天</UiGroupLabel>
       <UiBoxRow clickable title="可點擊的列" meta="WorkLog.Ai · 12 分鐘前" @select="panelOpen = true">
@@ -124,13 +217,21 @@ async function tryConfirm(): Promise<void> {
         <template #trailing><UiLabel tone="success">通過</UiLabel></template>
       </UiBoxRow>
       <UiBoxRow title="靜態列" meta="沒有點擊行為" />
-      <template #footer><UiPagination v-model:page-size="pageSize" :page-info="pageInfo" size-label="示範每頁筆數" /></template>
+      <template #footer
+        ><UiPagination v-model:page-size="pageSize" :page-info="pageInfo" size-label="示範每頁筆數"
+      /></template>
     </UiBox>
 
     <UiBox><UiSkeleton /></UiBox>
-    <UiBox><UiEmptyState :icon="Inbox" title="全部處理完畢" description="目前沒有需要處理的項目。"><template #action><UiButton>前往</UiButton></template></UiEmptyState></UiBox>
+    <UiBox
+      ><UiEmptyState :icon="Inbox" title="全部處理完畢" description="目前沒有需要處理的項目。"
+        ><template #action><UiButton>前往</UiButton></template></UiEmptyState
+      ></UiBox
+    >
 
-    <UiFlash tone="danger" title="無法載入">伺服器沒有回應。<template #actions><UiButton size="sm">重試</UiButton></template></UiFlash>
+    <UiFlash tone="danger" title="無法載入"
+      >伺服器沒有回應。<template #actions><UiButton size="sm">重試</UiButton></template></UiFlash
+    >
     <UiFlash tone="attention" dismissible>資料已截斷。</UiFlash>
     <UiCommandBlock text="請處理我剛在 Work Intelligence 建立的報告提煉請求。" />
 

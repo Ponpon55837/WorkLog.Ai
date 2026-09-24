@@ -42,8 +42,8 @@ async function loadMetadataBackfillRequest(): Promise<void> {
       },
       onSettled: () => {
         metadataBackfillRequestLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -58,9 +58,11 @@ async function createMetadataBackfillRequest(): Promise<void> {
     const result = await useApi().client.createMetadataBackfillRequest(preview.project?.id);
     if (result.outcome === "metadata_backfill_request") {
       metadataBackfillRequest.value = result.request;
-      useToast().showToast(result.duplicate
-        ? "已有待處理的 metadata 回補請求；請在目前的 Agent 對話中處理。"
-        : `已建立 metadata 回補請求；請在目前的 Agent 對話中說：「${metadataBackfillInstruction}」`);
+      useToast().showToast(
+        result.duplicate
+          ? "已有待處理的 metadata 回補請求；請在目前的 Agent 對話中處理。"
+          : `已建立 metadata 回補請求；請在目前的 Agent 對話中說：「${metadataBackfillInstruction}」`,
+      );
     } else if (result.outcome === "metadata_backfill_not_needed") {
       metadataBackfillRequest.value = null;
       useToast().showToast(result.reason);
@@ -79,7 +81,15 @@ async function cancelMetadataBackfillRequest(): Promise<void> {
   if (!requestToCancel || !metadataBackfillRequestIsActive.value || metadataBackfillRequestLoading.value) {
     return;
   }
-  if (!(await confirmAction({ title: "取消這批 metadata 回補？", message: "既有 Session 資料不會被刪除。", confirmLabel: "取消回補", cancelLabel: "繼續等待", danger: true }))) {
+  if (
+    !(await confirmAction({
+      title: "取消這批 metadata 回補？",
+      message: "既有 Session 資料不會被刪除。",
+      confirmLabel: "取消回補",
+      cancelLabel: "繼續等待",
+      danger: true,
+    }))
+  ) {
     return;
   }
   metadataBackfillRequestLoading.value = true;
@@ -129,8 +139,8 @@ async function previewMetadataBackfill(): Promise<void> {
       },
       onSettled: () => {
         metadataBackfillLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -153,6 +163,6 @@ export function useMetadataBackfill() {
     cancelMetadataBackfillRequest,
     copyMetadataBackfillInstruction,
     previewMetadataBackfill,
-    openMetadataBackfillSession
+    openMetadataBackfillSession,
   };
 }

@@ -4,37 +4,42 @@ import type { RouteLocationRaw } from "vue-router";
 import { iconProps, type IconComponent } from "./types";
 import UiSpinner from "./UiSpinner.vue";
 
-const props = withDefaults(defineProps<{
-  variant?: "default" | "primary" | "invisible" | "danger";
-  size?: "md" | "sm";
-  icon?: IconComponent;
-  trailingIcon?: IconComponent;
-  loading?: boolean;
-  disabled?: boolean;
-  type?: "button" | "submit";
-  /** Renders a RouterLink styled as a button. */
-  to?: RouteLocationRaw;
-  /** Icon-only button: hides the label visually but keeps it for screen readers and the tooltip. */
-  iconOnly?: boolean;
-  label?: string;
-}>(), {
-  variant: "default",
-  size: "md",
-  type: "button"
-});
+const props = withDefaults(
+  defineProps<{
+    variant?: "default" | "primary" | "invisible" | "danger";
+    size?: "md" | "sm";
+    icon?: IconComponent;
+    trailingIcon?: IconComponent;
+    loading?: boolean;
+    disabled?: boolean;
+    type?: "button" | "submit";
+    /** Renders a RouterLink styled as a button. */
+    to?: RouteLocationRaw;
+    /** Icon-only button: hides the label visually but keeps it for screen readers and the tooltip. */
+    iconOnly?: boolean;
+    label?: string;
+  }>(),
+  {
+    variant: "default",
+    size: "md",
+    type: "button",
+  },
+);
 
 const classes = computed(() => [
   "ui-button",
   `ui-button--${props.variant}`,
   `ui-button--${props.size}`,
-  { "ui-button--icon-only": props.iconOnly }
+  { "ui-button--icon-only": props.iconOnly },
 ]);
 </script>
 
 <template>
   <RouterLink v-if="to" :to="to" :class="classes" :title="iconOnly ? label : undefined">
     <component :is="icon" v-if="icon" v-bind="iconProps" aria-hidden="true" />
-    <span :class="{ 'sr-only': iconOnly }"><slot>{{ label }}</slot></span>
+    <span :class="{ 'sr-only': iconOnly }"
+      ><slot>{{ label }}</slot></span
+    >
     <component :is="trailingIcon" v-if="trailingIcon" v-bind="iconProps" aria-hidden="true" />
   </RouterLink>
   <button
@@ -47,7 +52,9 @@ const classes = computed(() => [
   >
     <UiSpinner v-if="loading" :size="14" />
     <component :is="icon" v-else-if="icon" v-bind="iconProps" aria-hidden="true" />
-    <span :class="{ 'sr-only': iconOnly }"><slot>{{ label }}</slot></span>
+    <span :class="{ 'sr-only': iconOnly }"
+      ><slot>{{ label }}</slot></span
+    >
     <component :is="trailingIcon" v-if="trailingIcon" v-bind="iconProps" aria-hidden="true" />
   </button>
 </template>
@@ -69,7 +76,9 @@ const classes = computed(() => [
   line-height: 1;
   white-space: nowrap;
   text-decoration: none;
-  transition: background-color 0.12s, border-color 0.12s;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s;
 }
 
 .ui-button:hover:not(:disabled) {

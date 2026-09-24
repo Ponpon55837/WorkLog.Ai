@@ -14,7 +14,9 @@ const handoffImportLoading = ref(false);
 const handoffImportApplying = ref(false);
 const handoffImportError = ref("");
 
-const importableHandoffs = computed(() => handoffImportPreview.value?.items.filter((item) => item.decision === "eligible") ?? []);
+const importableHandoffs = computed(
+  () => handoffImportPreview.value?.items.filter((item) => item.decision === "eligible") ?? [],
+);
 const selectedHandoffCount = computed(() => handoffImportSelection.value.length);
 
 function isHandoffSelected(sourcePath: string): boolean {
@@ -85,8 +87,8 @@ async function previewHandoffs(project: ProjectRecord): Promise<void> {
       },
       onSettled: () => {
         handoffImportLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -108,13 +110,15 @@ async function applyHandoffImport(): Promise<void> {
     const result = await useApi().client.importHandoffs({
       projectRoot: preview.project.rootPath,
       handoffDirectory: preview.handoffDirectory,
-      sourcePaths: handoffImportSelection.value
+      sourcePaths: handoffImportSelection.value,
     });
     if (result.outcome !== "imported") {
       handoffImportError.value = result.reason;
       return;
     }
-    useToast().showToast(`已匯入 ${result.imported.length} 個 handoff；略過 ${result.skipped.length} 個，失敗 ${result.failures.length} 個。`);
+    useToast().showToast(
+      `已匯入 ${result.imported.length} 個 handoff；略過 ${result.skipped.length} 個，失敗 ${result.failures.length} 個。`,
+    );
     closeHandoffImport();
     const { loadDashboard, loadProjects } = useProjects();
     await Promise.all([loadDashboard(), loadProjects(), useSessions().loadSessions()]);
@@ -145,6 +149,6 @@ export function useHandoffImport() {
     handoffDecisionLabel,
     previewHandoffs,
     closeHandoffImport,
-    applyHandoffImport
+    applyHandoffImport,
   };
 }

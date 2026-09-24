@@ -30,9 +30,29 @@ withDefaults(defineProps<{ tone?: Tone; icon?: IconComponent }>(), { tone: "neut
   text-overflow: ellipsis;
 }
 
-.ui-label--accent { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent); }
-.ui-label--success { border-color: var(--success-border); background: var(--success-soft); color: var(--success); }
-.ui-label--attention { border-color: var(--attention-border); background: var(--attention-soft); color: var(--attention); }
-.ui-label--danger { border-color: var(--danger-border); background: var(--danger-soft); color: var(--danger); }
-.ui-label--done { border-color: var(--done-border); background: var(--done-soft); color: var(--done); }
+.ui-label--accent {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ui-label--success {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--success);
+}
+.ui-label--attention {
+  border-color: var(--attention-border);
+  background: var(--attention-soft);
+  color: var(--attention);
+}
+.ui-label--danger {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.ui-label--done {
+  border-color: var(--done-border);
+  background: var(--done-soft);
+  color: var(--done);
+}
 </style>

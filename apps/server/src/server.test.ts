@@ -294,13 +294,26 @@ describe("Work Intelligence REST API", () => {
     const paused = store.addProject("Paused project", pausedRoot);
     store.updateProject(tracked.id, { status: "tracked" });
     store.updateProject(paused.id, { status: "tracked" });
-    const visible = store.finalizeSession({ projectRoot: root, idempotencyKey: "tracked-visible", title: "Visible Session", summary: "Tracked." });
-    const hidden = store.finalizeSession({ projectRoot: pausedRoot, idempotencyKey: "paused-hidden", title: "Hidden Session", summary: "Paused later." });
+    const visible = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "tracked-visible",
+      title: "Visible Session",
+      summary: "Tracked.",
+    });
+    const hidden = store.finalizeSession({
+      projectRoot: pausedRoot,
+      idempotencyKey: "paused-hidden",
+      title: "Hidden Session",
+      summary: "Paused later.",
+    });
     expect(visible).toMatchObject({ outcome: "finalized" });
     expect(hidden).toMatchObject({ outcome: "finalized" });
     store.updateProject(paused.id, { status: "paused" });
 
-    const list = await requestJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(baseUrl, "/api/sessions");
+    const list = await requestJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(
+      baseUrl,
+      "/api/sessions",
+    );
     expect(list.status).toBe(200);
     expect(list.body.items.map((item) => item.title)).toEqual(["Visible Session"]);
     expect(list.body.pageInfo.total).toBe(1);
@@ -308,7 +321,10 @@ describe("Work Intelligence REST API", () => {
     const scoped = await requestJson<{ items: unknown[] }>(baseUrl, `/api/sessions?projectId=${paused.id}`);
     expect(scoped.body.items).toEqual([]);
 
-    const dashboard = await requestJson<{ finalizedSessions: number; recentSessions: Array<{ title: string }> }>(baseUrl, "/api/dashboard");
+    const dashboard = await requestJson<{ finalizedSessions: number; recentSessions: Array<{ title: string }> }>(
+      baseUrl,
+      "/api/dashboard",
+    );
     expect(dashboard.body.finalizedSessions).toBe(1);
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });

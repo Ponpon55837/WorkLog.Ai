@@ -1,4 +1,10 @@
-import type { PolicyDecision, ProjectIdSkippedResult, ProjectReader, ProjectRecord, SkippedResult } from "@work-intelligence/core";
+import type {
+  PolicyDecision,
+  ProjectIdSkippedResult,
+  ProjectReader,
+  ProjectRecord,
+  SkippedResult,
+} from "@work-intelligence/core";
 import type { ProjectPolicyGate } from "@work-intelligence/project-policy";
 
 export interface ProjectByIdReader extends ProjectReader {
@@ -13,7 +19,7 @@ export function checkTrackedProjectByRoot(gate: ProjectPolicyGate, projectRoot: 
 export function checkTrackedProjectById(
   gate: ProjectPolicyGate,
   reader: ProjectByIdReader,
-  projectId: string
+  projectId: string,
 ): PolicyDecision {
   const project = reader.getProjectById(projectId);
   return project
@@ -22,7 +28,7 @@ export function checkTrackedProjectById(
         allowed: false,
         projectStatus: "unregistered",
         canonicalRoot: "",
-        reason: "Project is not registered."
+        reason: "Project is not registered.",
       };
 }
 
@@ -31,7 +37,7 @@ export function skippedByRoot(decision: PolicyDecision): SkippedResult {
     outcome: "skipped",
     projectRoot: decision.canonicalRoot,
     projectStatus: decision.projectStatus,
-    reason: decision.reason ?? "Project recording is not enabled."
+    reason: decision.reason ?? "Project recording is not enabled.",
   };
 }
 
@@ -40,7 +46,7 @@ export function skippedByProjectId(projectId: string, decision?: PolicyDecision)
     outcome: "skipped",
     projectId,
     projectStatus: decision?.projectStatus ?? "unregistered",
-    reason: decision?.reason ?? "Project recording is not enabled."
+    reason: decision?.reason ?? "Project recording is not enabled.",
   };
 }
 

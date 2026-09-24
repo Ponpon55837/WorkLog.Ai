@@ -11,6 +11,6 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     testTimeout: storageTestTimeout,
     // Calendar dates follow the host time zone; pin it so date fixtures behave the same on every machine.
-    env: { TZ: "UTC" }
-  }
+    env: { TZ: "UTC" },
+  },
 });

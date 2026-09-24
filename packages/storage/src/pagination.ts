@@ -4,7 +4,7 @@ export function createPageInfo(
   pageValue: number | undefined,
   pageSizeValue: number | undefined,
   total: number,
-  maxPageSize = 200
+  maxPageSize = 200,
 ): PageInfo {
   const requestedPageSize = Math.trunc(pageSizeValue ?? 20);
   const showAll = requestedPageSize === 0;
@@ -25,6 +25,6 @@ export function createPageInfo(
     to,
     hasPrevious: page > 1,
     hasNext: page < totalPages,
-    truncated: showAll && total > safeMaxPageSize
+    truncated: showAll && total > safeMaxPageSize,
   };
 }

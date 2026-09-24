@@ -552,7 +552,10 @@ describe("WorkIntelligenceStore", () => {
     const { store, root } = createStore();
     const project = store.addProject("Backfill edge project", root);
     store.updateProject(project.id, { status: "tracked" });
-    const finalize = (key: string, input: { changedFiles?: string[]; verification?: { status: "passed" | "failed" | "not_run" } }) => {
+    const finalize = (
+      key: string,
+      input: { changedFiles?: string[]; verification?: { status: "passed" | "failed" | "not_run" } },
+    ) => {
       const result = store.finalizeSession({
         projectRoot: root,
         idempotencyKey: key,
@@ -567,7 +570,10 @@ describe("WorkIntelligenceStore", () => {
     };
     finalize("failed-with-files", { changedFiles: ["src/a.ts"], verification: { status: "failed" } });
     finalize("passed-without-files", { changedFiles: [], verification: { status: "passed" } });
-    const statusless = finalize("statusless-verification", { changedFiles: ["src/b.ts"], verification: { status: "passed" } });
+    const statusless = finalize("statusless-verification", {
+      changedFiles: ["src/b.ts"],
+      verification: { status: "passed" },
+    });
     const corrupted = finalize("corrupted-json", { changedFiles: ["src/c.ts"], verification: { status: "passed" } });
     const database = (store as unknown as { db: DatabaseSync }).db;
     database.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run('{"summary":"legacy"}', statusless);

@@ -46,10 +46,19 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
   pointer-events: auto;
 }
 
-.ui-toast__icon { margin-top: 2px; color: var(--accent); }
-.ui-toast--success .ui-toast__icon { color: var(--success); }
-.ui-toast--danger .ui-toast__icon { color: var(--danger); }
-.ui-toast--danger { border-color: var(--danger-border); }
+.ui-toast__icon {
+  margin-top: 2px;
+  color: var(--accent);
+}
+.ui-toast--success .ui-toast__icon {
+  color: var(--success);
+}
+.ui-toast--danger .ui-toast__icon {
+  color: var(--danger);
+}
+.ui-toast--danger {
+  border-color: var(--danger-border);
+}
 
 .ui-toast__message {
   flex: 1;
@@ -67,7 +76,9 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
 
 .ui-toast-enter-active,
 .ui-toast-leave-active {
-  transition: opacity 0.15s, transform 0.15s;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
 }
 
 .ui-toast-enter-from,

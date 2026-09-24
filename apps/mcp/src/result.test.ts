@@ -10,8 +10,8 @@ describe("MCP result contract", () => {
         id: "session-1",
         executionStatus: "completed",
         changedFiles: ["src/index.ts", "README.md"],
-        verification: { status: "passed" }
-      }
+        verification: { status: "passed" },
+      },
     };
 
     expect(toStructuredContent(value)).toEqual({
@@ -20,7 +20,7 @@ describe("MCP result contract", () => {
       sessionId: "session-1",
       executionStatus: "completed",
       changedFilesCount: 2,
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
 
     const result = textResult(value);
@@ -36,15 +36,17 @@ describe("MCP result contract", () => {
   });
 
   it("keeps skipped and not-found session responses machine-readable", () => {
-    expect(toSessionStructuredContent({
-      outcome: "skipped",
-      projectStatus: "unregistered",
-      reason: "Project is not registered."
-    })).toMatchObject({
+    expect(
+      toSessionStructuredContent({
+        outcome: "skipped",
+        projectStatus: "unregistered",
+        reason: "Project is not registered.",
+      }),
+    ).toMatchObject({
       outcome: "skipped",
       sessionId: null,
       changedFilesCount: 0,
-      verification: null
+      verification: null,
     });
 
     const result = sessionTextResult({ outcome: "not_found", sessionId: "missing-session" });
@@ -53,7 +55,7 @@ describe("MCP result contract", () => {
       outcome: "not_found",
       sessionId: "missing-session",
       changedFilesCount: 0,
-      verification: null
+      verification: null,
     });
   });
 });

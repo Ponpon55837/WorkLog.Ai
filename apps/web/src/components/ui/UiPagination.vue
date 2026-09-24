@@ -37,9 +37,13 @@ const sizeOptions = listPageSizeOptions.map((option) => ({ value: option.value, 
       <UiSelect v-model="pageSize" :options="sizeOptions" :label="sizeLabel" size="sm" />
     </span>
     <span v-if="pageInfo.totalPages > 1" class="ui-pagination__pages">
-      <UiButton size="sm" :icon="ChevronLeft" :disabled="!pageInfo.hasPrevious" @click="goTo(pageInfo.page - 1)">上一頁</UiButton>
+      <UiButton size="sm" :icon="ChevronLeft" :disabled="!pageInfo.hasPrevious" @click="goTo(pageInfo.page - 1)"
+        >上一頁</UiButton
+      >
       <span>第 {{ pageInfo.page }} / {{ pageInfo.totalPages }} 頁</span>
-      <UiButton size="sm" :trailing-icon="ChevronRight" :disabled="!pageInfo.hasNext" @click="goTo(pageInfo.page + 1)">下一頁</UiButton>
+      <UiButton size="sm" :trailing-icon="ChevronRight" :disabled="!pageInfo.hasNext" @click="goTo(pageInfo.page + 1)"
+        >下一頁</UiButton
+      >
     </span>
   </div>
 </template>

@@ -34,7 +34,7 @@ describe("skipped response scope contracts", () => {
       projectRoot: root,
       idempotencyKey: "scope-root-finalize",
       title: "Unregistered root",
-      summary: "The root policy gate must skip ingestion."
+      summary: "The root policy gate must skip ingestion.",
     });
     const graph = store.getGraph({ projectRoot: root });
     const knowledge = store.searchKnowledge({ projectRoot: root });
@@ -53,13 +53,13 @@ describe("skipped response scope contracts", () => {
 
     const metadata = store.createMetadataBackfillRequest({
       idempotencyKey: "scope-project-metadata",
-      projectId: project.id
+      projectId: project.id,
     });
     const reportRequest = store.createReportSynthesisRequest({
       idempotencyKey: "scope-project-report",
       projectId: project.id,
       period: "week",
-      date: "2026-09-21"
+      date: "2026-09-21",
     });
     const report = store.getReport({ period: "week", projectId: project.id, date: "2026-09-21" });
 
@@ -79,7 +79,7 @@ describe("skipped response scope contracts", () => {
       idempotencyKey: "scope-session-finalize",
       title: "Session scope",
       summary: "This Session is used to verify session-scoped skip responses.",
-      verification: { status: "passed" }
+      verification: { status: "passed" },
     });
     if (finalized.outcome !== "finalized") {
       throw new Error("Expected a finalized session.");
@@ -90,14 +90,14 @@ describe("skipped response scope contracts", () => {
       sessionId: finalized.session.id,
       kind: "test",
       reference: "scope-contract",
-      summary: "Must not be written while the project is paused."
+      summary: "Must not be written while the project is paused.",
     });
     const verification = store.updateSessionVerification(finalized.session.id, { status: "failed" });
     const summary = store.updateSessionSummary({
       sessionId: finalized.session.id,
       idempotencyKey: "scope-session-summary",
       mode: "append",
-      summary: "Must not be written while the project is paused."
+      summary: "Must not be written while the project is paused.",
     });
 
     for (const result of [evidence, verification, summary]) {

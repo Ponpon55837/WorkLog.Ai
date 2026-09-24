@@ -27,7 +27,9 @@ defineProps<{
       </span>
     </div>
     <slot />
-    <div v-if="foot || $slots.foot" class="ui-stat__foot"><slot name="foot">{{ foot }}</slot></div>
+    <div v-if="foot || $slots.foot" class="ui-stat__foot">
+      <slot name="foot">{{ foot }}</slot>
+    </div>
   </article>
 </template>
 
@@ -71,9 +73,15 @@ defineProps<{
   font-weight: 500;
 }
 
-.ui-stat__delta--up { color: var(--success); }
-.ui-stat__delta--down { color: var(--danger); }
-.ui-stat__delta--flat { color: var(--fg-muted); }
+.ui-stat__delta--up {
+  color: var(--success);
+}
+.ui-stat__delta--down {
+  color: var(--danger);
+}
+.ui-stat__delta--flat {
+  color: var(--fg-muted);
+}
 
 .ui-stat__foot {
   margin-top: var(--space-1);
@@ -81,7 +89,13 @@ defineProps<{
   font-size: var(--text-xs);
 }
 
-.tone-attention { color: var(--attention); }
-.tone-danger { color: var(--danger); }
-.tone-success { color: var(--success); }
+.tone-attention {
+  color: var(--attention);
+}
+.tone-danger {
+  color: var(--danger);
+}
+.tone-success {
+  color: var(--success);
+}
 </style>

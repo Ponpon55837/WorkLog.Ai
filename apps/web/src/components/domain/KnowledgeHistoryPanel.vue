@@ -10,12 +10,25 @@ import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 
-const { knowledgeHistoryItem, knowledgeHistory, knowledgeHistoryLoading, knowledgeHistoryError, closeKnowledgeHistory, knowledgeAuditFields } = useKnowledge();
+const {
+  knowledgeHistoryItem,
+  knowledgeHistory,
+  knowledgeHistoryLoading,
+  knowledgeHistoryError,
+  closeKnowledgeHistory,
+  knowledgeAuditFields,
+} = useKnowledge();
 const actionTone = { created: "success", updated: "accent", archived: "neutral", restored: "done" } as const;
 </script>
 
 <template>
-  <UiSidePanel :open="Boolean(knowledgeHistoryItem)" label="Knowledge 變更紀錄" :width="640" storage-key="knowledge-history" @close="closeKnowledgeHistory">
+  <UiSidePanel
+    :open="Boolean(knowledgeHistoryItem)"
+    label="Knowledge 變更紀錄"
+    :width="640"
+    storage-key="knowledge-history"
+    @close="closeKnowledgeHistory"
+  >
     <template #header>
       <div class="history__top">
         <span class="history__eyebrow">Knowledge audit history</span>
@@ -27,13 +40,21 @@ const actionTone = { created: "success", updated: "accent", archived: "neutral",
 
     <UiSkeleton v-if="knowledgeHistoryLoading" variant="text" :count="4" />
     <UiFlash v-else-if="knowledgeHistoryError" tone="danger">{{ knowledgeHistoryError }}</UiFlash>
-    <UiEmptyState v-else-if="knowledgeHistory.length === 0" compact :icon="History" title="尚無變更紀錄" description="這筆 Knowledge 可能在 audit history 功能加入前建立，會從下一次變更開始追蹤。" />
+    <UiEmptyState
+      v-else-if="knowledgeHistory.length === 0"
+      compact
+      :icon="History"
+      title="尚無變更紀錄"
+      description="這筆 Knowledge 可能在 audit history 功能加入前建立，會從下一次變更開始追蹤。"
+    />
     <ol v-else class="history__list">
       <li v-for="entry in knowledgeHistory" :key="entry.id" class="history__entry">
         <div class="history__entry-head">
           <UiLabel :tone="actionTone[entry.action]">{{ knowledgeAuditActionLabels[entry.action] }}</UiLabel>
           <span class="history__fields">{{ knowledgeAuditFields(entry) }}</span>
-          <time :datetime="entry.occurredAt" :title="formatDate(entry.occurredAt)">{{ formatRelative(entry.occurredAt) }}</time>
+          <time :datetime="entry.occurredAt" :title="formatDate(entry.occurredAt)">{{
+            formatRelative(entry.occurredAt)
+          }}</time>
         </div>
         <div class="history__snapshots">
           <div v-if="entry.before" class="history__snapshot">

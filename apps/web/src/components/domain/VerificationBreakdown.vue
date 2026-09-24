@@ -13,9 +13,19 @@ const segments = computed(() => [
   { value: props.counts.passed, tone: verificationStatus.passed.tone, label: verificationStatus.passed.label },
   { value: props.counts.failed, tone: verificationStatus.failed.tone, label: verificationStatus.failed.label },
   { value: props.counts.notRun, tone: verificationStatus.not_run.tone, label: verificationStatus.not_run.label },
-  { value: props.counts.notSupplied, tone: verificationStatus.not_supplied.tone, label: verificationStatus.not_supplied.label }
+  {
+    value: props.counts.notSupplied,
+    tone: verificationStatus.not_supplied.tone,
+    label: verificationStatus.not_supplied.label,
+  },
 ]);
-const summary = computed(() => segments.value.slice(1).filter((segment) => segment.value > 0).map((segment) => `${segment.value} ${segment.label}`).join(" · "));
+const summary = computed(() =>
+  segments.value
+    .slice(1)
+    .filter((segment) => segment.value > 0)
+    .map((segment) => `${segment.value} ${segment.label}`)
+    .join(" · "),
+);
 </script>
 
 <template>

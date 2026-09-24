@@ -34,10 +34,22 @@ const total = computed(() => props.segments.reduce((sum, segment) => sum + segme
   height: 100%;
 }
 
-.tone-success { background: var(--success); }
-.tone-danger { background: var(--danger); }
-.tone-attention { background: var(--attention); }
-.tone-neutral { background: var(--fg-subtle); }
-.tone-accent { background: var(--accent); }
-.tone-done { background: var(--done); }
+.tone-success {
+  background: var(--success);
+}
+.tone-danger {
+  background: var(--danger);
+}
+.tone-attention {
+  background: var(--attention);
+}
+.tone-neutral {
+  background: var(--fg-subtle);
+}
+.tone-accent {
+  background: var(--accent);
+}
+.tone-done {
+  background: var(--done);
+}
 </style>

@@ -11,11 +11,11 @@ export const navItems: readonly NavItem[] = [
   { name: "reports", label: "工作報告", icon: ChartColumn, group: "work", shortcut: "g r" },
   { name: "knowledge", label: "工作知識", icon: BookOpen, group: "knowledge", shortcut: "g k" },
   { name: "graph", label: "工作圖譜", icon: Share2, group: "knowledge", shortcut: "g g" },
-  { name: "projects", label: "專案", icon: FolderGit2, group: "manage", shortcut: "g p" }
+  { name: "projects", label: "專案", icon: FolderGit2, group: "manage", shortcut: "g p" },
 ];
 
 export const navGroups: readonly { id: NavGroup; label: string }[] = [
   { id: "work", label: "Work" },
   { id: "knowledge", label: "Knowledge" },
-  { id: "manage", label: "Manage" }
+  { id: "manage", label: "Manage" },
 ];

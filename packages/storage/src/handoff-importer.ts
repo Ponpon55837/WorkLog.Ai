@@ -4,7 +4,7 @@ import type {
   HandoffImportChangedFilesStatus,
   HandoffImportDecision,
   HandoffImportReason,
-  VerificationSummary
+  VerificationSummary,
 } from "@work-intelligence/core";
 import { createProjectPathResolver, safeProjectPath } from "@work-intelligence/project-policy";
 import { MAX_HANDOFF_CONTENT_LENGTH, parseHandoffContent } from "./handoff-parser.js";
@@ -94,7 +94,7 @@ function parseCandidate(projectRoot: string, filePath: string, sourcePath: strin
       detail: parsed.classification.detail,
       verification: parsed.verification,
       changedFiles: parsed.changedFiles,
-      changedFilesStatus: parsed.changedFiles.length > 0 ? "detected" : "not_found"
+      changedFilesStatus: parsed.changedFiles.length > 0 ? "detected" : "not_found",
     };
   } catch (error) {
     return {
@@ -106,7 +106,7 @@ function parseCandidate(projectRoot: string, filePath: string, sourcePath: strin
       reason: "unreadable",
       detail: error instanceof Error ? error.message : "The handoff file could not be read.",
       changedFiles: [],
-      changedFilesStatus: "not_read"
+      changedFilesStatus: "not_read",
     };
   }
 }
@@ -121,16 +121,19 @@ function excludedCandidate(sourcePath: string): HandoffImportCandidate {
     reason: "excluded_by_user",
     detail: "Excluded by the user; source content was not read.",
     changedFiles: [],
-    changedFilesStatus: "not_read"
+    changedFilesStatus: "not_read",
   };
 }
 
-export function discoverHandoffCandidates(projectRoot: string, options: HandoffDiscoveryOptions = {}): HandoffDiscoveryResult {
+export function discoverHandoffCandidates(
+  projectRoot: string,
+  options: HandoffDiscoveryOptions = {},
+): HandoffDiscoveryResult {
   const pathResolver = createProjectPathResolver(projectRoot);
   const handoffDirectory = normalizeRelativePath(
     projectRoot,
     options.handoffDirectory?.trim() || DEFAULT_HANDOFF_DIRECTORY,
-    "Handoff directory"
+    "Handoff directory",
   );
   const absoluteDirectory = pathResolver.safeExistingPath(handoffDirectory) ?? pathResolver.safePath(handoffDirectory);
   if (!absoluteDirectory) {
@@ -145,7 +148,9 @@ export function discoverHandoffCandidates(projectRoot: string, options: HandoffD
   const walk = (directoryPath: string, directoryRelativePath: string): void => {
     let entries;
     try {
-      entries = readdirSync(directoryPath, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name));
+      entries = readdirSync(directoryPath, { withFileTypes: true }).sort((left, right) =>
+        left.name.localeCompare(right.name),
+      );
     } catch (error) {
       if (directoryPath === absoluteDirectory && isNotFound(error)) {
         return;
@@ -184,7 +189,7 @@ export function discoverHandoffCandidates(projectRoot: string, options: HandoffD
           ...excludedCandidate(sourcePath),
           decision: "error",
           reason: "invalid_path",
-          detail: "The discovered handoff path is outside the tracked project root."
+          detail: "The discovered handoff path is outside the tracked project root.",
         });
         continue;
       }
@@ -196,16 +201,18 @@ export function discoverHandoffCandidates(projectRoot: string, options: HandoffD
   candidates.sort((left, right) => left.sourcePath.localeCompare(right.sourcePath));
   return {
     handoffDirectory,
-    directoryFound: candidates.length > 0 || (() => {
-      try {
-        readdirSync(absoluteDirectory);
-        return true;
-      } catch {
-        return false;
-      }
-    })(),
+    directoryFound:
+      candidates.length > 0 ||
+      (() => {
+        try {
+          readdirSync(absoluteDirectory);
+          return true;
+        } catch {
+          return false;
+        }
+      })(),
     truncated,
-    candidates
+    candidates,
   };
 }
 

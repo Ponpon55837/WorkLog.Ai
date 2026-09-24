@@ -8,7 +8,7 @@ import type {
   KnowledgeStatus,
   PageInfo,
   PolicyDecision,
-  ProjectRecord
+  ProjectRecord,
 } from "@work-intelligence/core";
 import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { createPageInfo } from "./pagination.js";
@@ -34,7 +34,7 @@ type PageInfoBuilder = (
   pageValue: number | undefined,
   pageSizeValue: number | undefined,
   total: number,
-  maxPageSize?: number
+  maxPageSize?: number,
 ) => PageInfo;
 
 interface KnowledgeRepositoryDependencies {
@@ -49,7 +49,7 @@ export class KnowledgeRepository {
     private readonly db: DatabaseSync,
     private readonly mapKnowledge: KnowledgeMapper,
     private readonly buildPageInfo: PageInfoBuilder = createPageInfo,
-    private readonly dependencies: KnowledgeRepositoryDependencies
+    private readonly dependencies: KnowledgeRepositoryDependencies,
   ) {}
 
   public search(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
@@ -63,7 +63,7 @@ export class KnowledgeRepository {
           outcome: "skipped",
           projectRoot: decision.canonicalRoot,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
+          reason: decision.reason ?? "Project recording is not enabled.",
         };
       }
       scopedProject = decision.project;
@@ -77,7 +77,7 @@ export class KnowledgeRepository {
           outcome: "skipped",
           projectRoot: decision.canonicalRoot,
           projectStatus: decision.projectStatus,
-          reason: decision.reason ?? "Project recording is not enabled."
+          reason: decision.reason ?? "Project recording is not enabled.",
         };
       }
       scopedProject = decision.project;
@@ -102,7 +102,7 @@ export class KnowledgeRepository {
     const queryText = options.query?.trim() || options.q?.trim();
     if (queryText) {
       clauses.push(
-        `(LOWER(k.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.body) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.tags_json) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.references_json) LIKE ? ${LIKE_ESCAPE})`
+        `(LOWER(k.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.body) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.tags_json) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.references_json) LIKE ? ${LIKE_ESCAPE})`,
       );
       const needle = likeContainsPattern(queryText.toLowerCase());
       parameters.push(needle, needle, needle, needle);
@@ -114,7 +114,7 @@ export class KnowledgeRepository {
         `SELECT COUNT(*) AS count
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
-         WHERE ${clauses.join(" AND ")}`
+         WHERE ${clauses.join(" AND ")}`,
       )
       .get(...parameters) as { count: number };
     const pageInfo = this.buildPageInfo(options.page, pageSize, totalRow.count, 200);
@@ -125,7 +125,7 @@ export class KnowledgeRepository {
          JOIN projects p ON p.id = k.project_id
          WHERE ${clauses.join(" AND ")}
          ORDER BY k.updated_at DESC, k.id DESC
-         LIMIT ? OFFSET ?`
+         LIMIT ? OFFSET ?`,
       )
       .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as KnowledgeRepositoryRow[];
     const trackedProjects = this.dependencies.listTrackedProjects();
@@ -134,7 +134,7 @@ export class KnowledgeRepository {
       project: scopedProject,
       projects: scopedProject ? [scopedProject] : trackedProjects,
       items: rows.map(this.mapKnowledge),
-      pageInfo
+      pageInfo,
     };
   }
 }

@@ -54,7 +54,7 @@ type PageInfoBuilder = (
   pageValue: number | undefined,
   pageSizeValue: number | undefined,
   total: number,
-  maxPageSize?: number
+  maxPageSize?: number,
 ) => PageInfo;
 
 /** Read-side Session persistence kept separate from finalize/update workflows. */
@@ -62,7 +62,7 @@ export class SessionRepository {
   public constructor(
     private readonly db: DatabaseSync,
     private readonly mapSession: SessionMapper,
-    private readonly buildPageInfo: PageInfoBuilder
+    private readonly buildPageInfo: PageInfoBuilder,
   ) {}
 
   public list(options: SessionListOptions = {}): WorkSessionRecord[] {
@@ -76,7 +76,7 @@ export class SessionRepository {
          JOIN projects p ON p.id = s.project_id
          ${where}
          ORDER BY s.completed_at DESC, s.id DESC
-         LIMIT ?`
+         LIMIT ?`,
       )
       .all(...parameters, limit) as SessionRow[];
     return rows.map(this.mapSession);
@@ -90,7 +90,7 @@ export class SessionRepository {
         `SELECT COUNT(*) AS count
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
-         ${where}`
+         ${where}`,
       )
       .get(...parameters) as { count: number };
     const pageInfo = this.buildPageInfo(options.page, options.pageSize, totalRow.count, 100);
@@ -101,13 +101,13 @@ export class SessionRepository {
          JOIN projects p ON p.id = s.project_id
          ${where}
          ORDER BY s.completed_at DESC, s.id DESC
-         LIMIT ? OFFSET ?`
+         LIMIT ? OFFSET ?`,
       )
       .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as SessionRow[];
     return {
       outcome: "sessions",
       items: rows.map(this.mapSession),
-      pageInfo
+      pageInfo,
     };
   }
 
@@ -117,7 +117,7 @@ export class SessionRepository {
         `SELECT s.*, p.name AS project_name
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
-         WHERE s.idempotency_key = ?`
+         WHERE s.idempotency_key = ?`,
       )
       .get(idempotencyKey) as SessionRow | undefined;
     return row ? this.mapSession(row) : undefined;
@@ -129,7 +129,7 @@ export class SessionRepository {
         `SELECT s.*, p.name AS project_name
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`
+         WHERE s.id = ?`,
       )
       .get(sessionId) as SessionRow | undefined;
     return row ? this.mapSession(row) : undefined;
@@ -156,7 +156,7 @@ export class SessionRepository {
         `(LOWER(s.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(s.summary) LIKE ? ${LIKE_ESCAPE} OR EXISTS (
           SELECT 1 FROM work_events search_events
           WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ? ${LIKE_ESCAPE}
-        ))`
+        ))`,
       );
       const needle = likeContainsPattern(options.query.toLowerCase());
       parameters.push(needle, needle, needle);

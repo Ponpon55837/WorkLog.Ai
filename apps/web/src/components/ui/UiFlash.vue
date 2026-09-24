@@ -2,14 +2,19 @@
 import { computed } from "vue";
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-vue-next";
 
-const props = withDefaults(defineProps<{
-  tone?: "accent" | "success" | "attention" | "danger";
-  title?: string;
-  dismissible?: boolean;
-}>(), { tone: "accent" });
+const props = withDefaults(
+  defineProps<{
+    tone?: "accent" | "success" | "attention" | "danger";
+    title?: string;
+    dismissible?: boolean;
+  }>(),
+  { tone: "accent" },
+);
 
 const emit = defineEmits<{ dismiss: [] }>();
-const icon = computed(() => ({ accent: Info, success: CircleCheck, attention: TriangleAlert, danger: CircleAlert })[props.tone]);
+const icon = computed(
+  () => ({ accent: Info, success: CircleCheck, attention: TriangleAlert, danger: CircleAlert })[props.tone],
+);
 </script>
 
 <template>
@@ -39,15 +44,35 @@ const icon = computed(() => ({ accent: Info, success: CircleCheck, attention: Tr
   font-size: var(--text-md);
 }
 
-.ui-flash--accent { border-color: var(--accent-border); background: var(--accent-soft); }
-.ui-flash--success { border-color: var(--success-border); background: var(--success-soft); }
-.ui-flash--attention { border-color: var(--attention-border); background: var(--attention-soft); }
-.ui-flash--danger { border-color: var(--danger-border); background: var(--danger-soft); }
+.ui-flash--accent {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+.ui-flash--success {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+}
+.ui-flash--attention {
+  border-color: var(--attention-border);
+  background: var(--attention-soft);
+}
+.ui-flash--danger {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
 
-.ui-flash--accent .ui-flash__icon { color: var(--accent); }
-.ui-flash--success .ui-flash__icon { color: var(--success); }
-.ui-flash--attention .ui-flash__icon { color: var(--attention); }
-.ui-flash--danger .ui-flash__icon { color: var(--danger); }
+.ui-flash--accent .ui-flash__icon {
+  color: var(--accent);
+}
+.ui-flash--success .ui-flash__icon {
+  color: var(--success);
+}
+.ui-flash--attention .ui-flash__icon {
+  color: var(--attention);
+}
+.ui-flash--danger .ui-flash__icon {
+  color: var(--danger);
+}
 
 .ui-flash__icon {
   margin-top: 3px;

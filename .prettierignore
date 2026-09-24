@@ -5,3 +5,7 @@ test-results/
 coverage/
 .git/
 pnpm-lock.yaml
+.agents/
+.claude/
+docs/
+README.md

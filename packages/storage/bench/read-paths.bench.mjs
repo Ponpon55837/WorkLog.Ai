@@ -59,7 +59,11 @@ function seed() {
       verification: { status: index % 5 === 0 ? "not_run" : "passed", summary: "synthetic" },
       events: [
         { type: "execution", summary: `Implemented step ${index}`, occurredAt: completedAt },
-        { type: index % 3 === 0 ? "closing" : "verification", summary: `Verified step ${index}`, occurredAt: completedAt },
+        {
+          type: index % 3 === 0 ? "closing" : "verification",
+          summary: `Verified step ${index}`,
+          occurredAt: completedAt,
+        },
       ],
     });
   }

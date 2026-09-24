@@ -7,23 +7,21 @@ function isRecord(value: unknown): value is StructuredContent {
 function buildSessionStructuredContent(value: StructuredContent): StructuredContent {
   const session = isRecord(value.session) ? value.session : undefined;
   const changedFiles = session?.changedFiles ?? value.changedFiles;
-  const changedFilesCount = typeof value.changedFilesCount === "number"
-    ? value.changedFilesCount
-    : Array.isArray(changedFiles)
-      ? changedFiles.length
-      : 0;
+  const changedFilesCount =
+    typeof value.changedFilesCount === "number"
+      ? value.changedFilesCount
+      : Array.isArray(changedFiles)
+        ? changedFiles.length
+        : 0;
 
   return {
     ...value,
     outcome: typeof value.outcome === "string" ? value.outcome : "session",
-    sessionId: typeof value.sessionId === "string"
-      ? value.sessionId
-      : typeof session?.id === "string"
-        ? session.id
-        : null,
+    sessionId:
+      typeof value.sessionId === "string" ? value.sessionId : typeof session?.id === "string" ? session.id : null,
     executionStatus: typeof session?.executionStatus === "string" ? session.executionStatus : "completed",
     changedFilesCount,
-    verification: session?.verification ?? value.verification ?? null
+    verification: session?.verification ?? value.verification ?? null,
   };
 }
 
@@ -48,13 +46,13 @@ export function textResult(value: unknown) {
 
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
-    ...(structuredContent ? { structuredContent } : {})
+    ...(structuredContent ? { structuredContent } : {}),
   };
 }
 
 export function sessionTextResult(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
-    structuredContent: toSessionStructuredContent(value) ?? {}
+    structuredContent: toSessionStructuredContent(value) ?? {},
   };
 }
