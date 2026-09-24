@@ -4164,7 +4164,9 @@ export class WorkIntelligenceStore {
       links: this.getSessionLinks(sessionId),
       verificationHistory: (
         this.db
-          .prepare("SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, rowid DESC")
+          .prepare(
+            "SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, rowid DESC",
+          )
           .all(sessionId) as VerificationUpdateRow[]
       ).map(toVerificationUpdate),
       voidHistory: (
