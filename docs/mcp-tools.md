@@ -82,7 +82,16 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_context`
 
-傳入 `projectRoot` 時只會回傳該 tracked project 的近期 sessions、decisions、`recentKnowledge` 與 `metadataFollowUps`；不傳則回傳所有 tracked projects 的摘要、最近的 explicit Knowledge 與最多 12 筆 metadata 缺口。`metadataFollowUps` 會列出 verification 尚未回報／明確 `not_run`，或 changed-files metadata 缺漏的已完成 Session。Agent 取得 context 後應檢查對應 worktree、diff 或 handoff，再用 metadata tool 回填已確認的內容；系統不會自行猜測檔案變更。
+傳入 `projectRoot` 時只回傳該 tracked project 的內容；不傳則涵蓋所有 tracked projects。回傳的是精簡摘要（digest），讓一次呼叫能放進 Agent 的 tool-result 上限，完整內容再用對應工具讀取：
+
+| 欄位 | 內容 | 讀取完整內容 |
+| --- | --- | --- |
+| `recentSessions` | 最近 12 筆 Session 的 id、標題、摘要（超過 400 字截斷）、完成時間、branch、verification 狀態、changed files 數量，以及前 3 項 `openItems`（`workSummary.nextSteps`） | `work_get_session` |
+| `recentDecisions` | 最近 Session 的 `workSummary.decisions`（最多 12 條），每條附 `sessionId`、Session 標題與完成時間，方便引用來源 | `work_get_session` |
+| `recentKnowledge` | 最近 12 筆 active Knowledge 的 id、kind、標題、tags 與 `excerpt`（本文超過 400 字截斷） | `work_search_knowledge` |
+| `metadataFollowUps` | 只有筆數：`needsBackfill`、`changedFilesMissing`、`verificationMissing`、`verificationNotRun` | `work_preview_metadata_backfill` |
+
+`recentDecisions` 不取 note／closing 事件，因為那些多半是 commit、工作區狀態等流程記錄。metadata 缺口指 verification 尚未回報／明確 `not_run`，或 changed-files metadata 缺漏的已完成 Session；Agent 應以 preview 取得明細、檢查對應 worktree、diff 或 handoff，再用 metadata tool 回填已確認的內容，系統不會自行猜測檔案變更。
 
 `pendingRequests.reportSynthesis`／`pendingRequests.metadataBackfill` 列出 pending 或 processing、等待 Agent 處理的請求（新到舊，各最多 5 筆）。指定專案時也包含「所有專案」範圍的請求。
 
@@ -106,7 +115,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_search`
 
-搜尋已保存的 title、summary、events，最多 50 筆並附上命中的片段。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。`%`、`_` 會照字面比對。
+搜尋已保存的 title、summary、events，最多 50 筆並附上命中的片段；每筆的 `session` 是與 `work_get_context` 相同的精簡摘要，完整內容用 `work_get_session` 讀取。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。`%`、`_` 會照字面比對。
 
 ## Tool annotations 與 prompts
 

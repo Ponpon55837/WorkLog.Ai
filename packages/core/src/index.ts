@@ -1202,14 +1202,57 @@ export type UpdateSessionWorkSummaryResult =
   | SessionVerificationNotFoundResult
   | SessionVerificationSkippedResult;
 
+/**
+ * Compact Session view for Agent context and search results, sized to stay within an Agent's
+ * tool-result budget. Changed-file lists, provenance and events are left out; read the full
+ * record with work_get_session.
+ */
+export interface SessionDigest {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  title: string;
+  /** Truncated with a trailing "…" when longer than the digest limit. */
+  summary: string;
+  completedAt: string;
+  gitBranch?: string;
+  verificationStatus: ReportVerificationStatus;
+  changedFilesCount: number;
+  /** Leading items of workSummary.nextSteps (known limits and unfinished work), each truncated. */
+  openItems: string[];
+}
+
+/** Compact Knowledge view; the full body is available through work_search_knowledge. */
+export interface KnowledgeDigest {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  sessionId?: string;
+  kind: KnowledgeKind;
+  title: string;
+  /** Body truncated with a trailing "…" when longer than the digest limit. */
+  excerpt: string;
+  tags: string[];
+  updatedAt: string;
+}
+
+/** A confirmed decision from a Session's workSummary.decisions, with its source for citation. */
+export interface DecisionDigest {
+  sessionId: string;
+  sessionTitle: string;
+  completedAt: string;
+  text: string;
+}
+
 export interface ContextResult {
   outcome: "context";
   project?: ProjectRecord;
   projects: ProjectRecord[];
-  recentSessions: WorkSessionRecord[];
-  recentDecisions: string[];
-  recentKnowledge: KnowledgeRecord[];
-  metadataFollowUps: MetadataBackfillItem[];
+  recentSessions: SessionDigest[];
+  recentDecisions: DecisionDigest[];
+  recentKnowledge: KnowledgeDigest[];
+  /** Counts only; list the affected Sessions with work_preview_metadata_backfill. */
+  metadataFollowUps: MetadataBackfillPreview["totals"];
   /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
   pendingRequests: {
     reportSynthesis: ReportSynthesisRequest[];
@@ -1218,7 +1261,7 @@ export interface ContextResult {
 }
 
 export interface SearchResult {
-  session: WorkSessionRecord;
+  session: SessionDigest;
   matchedIn: "title" | "summary" | "event";
   excerpt: string;
 }

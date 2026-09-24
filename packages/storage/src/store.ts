@@ -12,6 +12,7 @@ import type {
   ChangedFileSource,
   ContextQueryResult,
   ContextResult,
+  DecisionDigest,
   CancelMetadataBackfillRequestResult,
   CancelReportSynthesisRequestResult,
   CreateMetadataBackfillRequestInput,
@@ -33,6 +34,7 @@ import type {
   KnowledgeKind,
   KnowledgeHistoryQuery,
   KnowledgeHistoryResult,
+  KnowledgeDigest,
   KnowledgeQuery,
   KnowledgeQueryResult,
   KnowledgeRecord,
@@ -138,6 +140,9 @@ import { ReportSynthesisRequestRepository } from "./report-synthesis-request-rep
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
 import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
+import { DIGEST_ITEM_LENGTH, toKnowledgeDigest, toSessionDigest } from "./digest.js";
+
+const RECENT_DECISION_LIMIT = 12;
 
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
@@ -445,7 +450,8 @@ CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_project_completed ON sessions(project_id, completed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_completed ON sessions(completed_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_events_session_occurred ON work_events(session_id, occurred_at ASC);
-CREATE INDEX IF NOT EXISTS idx_events_decisions_occurred ON work_events(occurred_at DESC) WHERE type IN ('note', 'closing');
+-- Context decisions now come from workSummary.decisions; drop the old note/closing event index.
+DROP INDEX IF EXISTS idx_events_decisions_occurred;
 CREATE INDEX IF NOT EXISTS idx_snapshots_session ON raw_snapshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_session_captured ON evidence(session_id, captured_at ASC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_project_updated ON knowledge(project_id, updated_at DESC);
@@ -4088,8 +4094,8 @@ export class WorkIntelligenceStore {
     return {
       outcome: "context",
       projects,
-      recentSessions: this.listSessions({ limit: 12, trackedOnly: true }),
-      recentDecisions: this.getRecentDecisionSummaries(),
+      recentSessions: this.listSessions({ limit: 12, trackedOnly: true }).map(toSessionDigest),
+      recentDecisions: this.getRecentDecisions(),
       recentKnowledge: this.getRecentKnowledge(),
       metadataFollowUps: this.getMetadataFollowUps(),
       pendingRequests: this.getPendingRequests(),
@@ -4112,13 +4118,14 @@ export class WorkIntelligenceStore {
     }
 
     const sessions = this.listSessions({ query, projectId, limit: 50, trackedOnly: true });
-    return sessions.map((session) => {
+    return sessions.map((record) => {
       const needle = query.toLowerCase();
-      if (session.title.toLowerCase().includes(needle)) {
-        return { session, matchedIn: "title", excerpt: truncateText(session.title) };
+      const session = toSessionDigest(record);
+      if (record.title.toLowerCase().includes(needle)) {
+        return { session, matchedIn: "title", excerpt: truncateText(record.title) };
       }
-      if (session.summary.toLowerCase().includes(needle)) {
-        return { session, matchedIn: "summary", excerpt: truncateText(session.summary) };
+      if (record.summary.toLowerCase().includes(needle)) {
+        return { session, matchedIn: "summary", excerpt: truncateText(record.summary) };
       }
 
       const event = this.db
@@ -4131,7 +4138,7 @@ export class WorkIntelligenceStore {
       return {
         session,
         matchedIn: "event",
-        excerpt: truncateText(event?.summary ?? session.summary),
+        excerpt: truncateText(event?.summary ?? record.summary),
       };
     });
   }
@@ -4327,8 +4334,8 @@ export class WorkIntelligenceStore {
       outcome: "context",
       project,
       projects: [project],
-      recentSessions: this.listSessions({ projectId: project.id, limit: 12, trackedOnly: true }),
-      recentDecisions: this.getRecentDecisionSummaries(project.id),
+      recentSessions: this.listSessions({ projectId: project.id, limit: 12, trackedOnly: true }).map(toSessionDigest),
+      recentDecisions: this.getRecentDecisions(project.id),
       recentKnowledge: this.getRecentKnowledge(project.id),
       metadataFollowUps: this.getMetadataFollowUps(project.id),
       pendingRequests: this.getPendingRequests(project.id),
@@ -4362,10 +4369,12 @@ export class WorkIntelligenceStore {
     };
   }
 
-  private getMetadataFollowUps(projectId?: string): MetadataBackfillItem[] {
+  private getMetadataFollowUps(projectId?: string): ContextResult["metadataFollowUps"] {
     const projectRoot = projectId ? this.getProjectById(projectId)?.rootPath : undefined;
-    const preview = this.previewMetadataBackfill({ projectRoot, limit: 12 });
-    return preview.outcome === "backfill_preview" ? preview.items : [];
+    const preview = this.previewMetadataBackfill({ projectRoot, limit: 1 });
+    return preview.outcome === "backfill_preview"
+      ? preview.totals
+      : { needsBackfill: 0, changedFilesMissing: 0, verificationMissing: 0, verificationNotRun: 0 };
   }
 
   private insertKnowledgeAudit(input: {
@@ -4408,25 +4417,47 @@ export class WorkIntelligenceStore {
       });
   }
 
-  private getRecentKnowledge(projectId?: string): KnowledgeRecord[] {
+  private getRecentKnowledge(projectId?: string): KnowledgeDigest[] {
     const result = this.searchKnowledge({ projectId, status: "active", limit: 12 });
-    return result.outcome === "knowledge" ? result.items : [];
+    return result.outcome === "knowledge" ? result.items.map(toKnowledgeDigest) : [];
   }
 
-  private getRecentDecisionSummaries(projectId?: string): string[] {
+  /*
+   * Decisions come from workSummary.decisions, the confirmed technical decisions an Agent wrote at
+   * finalize. note/closing events are not used: they mostly record process state (commits,
+   * worktree status), not decisions.
+   */
+  private getRecentDecisions(projectId?: string): DecisionDigest[] {
     const rows = this.db
       .prepare(
-        `SELECT e.summary
-         FROM work_events e
-         CROSS JOIN sessions s ON s.id = e.session_id
-         CROSS JOIN projects p ON p.id = s.project_id
-         WHERE e.type IN ('note', 'closing')
-           AND p.status = 'tracked'
+        `SELECT s.id, s.title, s.completed_at, json_extract(s.work_summary_json, '$.decisions') AS decisions_json
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         WHERE p.status = 'tracked'
            ${projectId ? "AND p.id = ?" : ""}
-         ORDER BY e.occurred_at DESC
-         LIMIT 8`,
+           AND json_valid(s.work_summary_json)
+           AND json_type(s.work_summary_json, '$.decisions') = 'array'
+           AND json_array_length(s.work_summary_json, '$.decisions') > 0
+         ORDER BY s.completed_at DESC, s.id DESC
+         LIMIT ${RECENT_DECISION_LIMIT}`,
       )
-      .all(...(projectId ? [projectId] : [])) as Array<{ summary: string }>;
-    return rows.map((row) => row.summary);
+      .all(...(projectId ? [projectId] : [])) as Array<{
+      id: string;
+      title: string;
+      completed_at: string;
+      decisions_json: string;
+    }>;
+    return rows
+      .flatMap((row) =>
+        parseJson<unknown[]>(row.decisions_json, [])
+          .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          .map((text) => ({
+            sessionId: row.id,
+            sessionTitle: row.title,
+            completedAt: row.completed_at,
+            text: truncateText(text, DIGEST_ITEM_LENGTH),
+          })),
+      )
+      .slice(0, RECENT_DECISION_LIMIT);
   }
 }

@@ -2402,13 +2402,75 @@ Result: PASSED
     expect(context).toMatchObject({
       outcome: "context",
       project: { status: "tracked" },
-      metadataFollowUps: [
-        expect.objectContaining({
-          title: "Context metadata follow-up",
-          gaps: ["changed_files", "verification"],
-          changedFileChangesCount: 0,
-        }),
-      ],
+      metadataFollowUps: { needsBackfill: 1, changedFilesMissing: 1, verificationMissing: 1, verificationNotRun: 0 },
     });
+  });
+
+  it("returns compact digests from context and search instead of full records", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Digest project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const longSummary = `Search digest ${"x".repeat(600)}`;
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "digest-001",
+      title: "Digest session",
+      summary: longSummary,
+      workSummary: {
+        outcomes: ["Shipped the digest."],
+        scope: [],
+        decisions: ["Keep context small.", "Cite the source Session."],
+        verification: [],
+        nextSteps: ["One", "Two", "Three", "Four"],
+      },
+      changedFiles: Array.from({ length: 40 }, (_, index) => `src/file-${index}.ts`),
+      verification: { status: "passed" },
+    });
+    if (finalized.outcome !== "finalized") {
+      throw new Error("Expected a finalized Session");
+    }
+    store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "digest-knowledge-001",
+      kind: "gotcha",
+      title: "Digest gotcha",
+      body: "y".repeat(900),
+      sessionId: finalized.session.id,
+      tags: ["digest"],
+    });
+
+    const context = store.getContext(root);
+    if (context.outcome !== "context") {
+      throw new Error("Expected context");
+    }
+    const [session] = context.recentSessions;
+    expect(session).toMatchObject({
+      id: finalized.session.id,
+      title: "Digest session",
+      verificationStatus: "passed",
+      changedFilesCount: 40,
+      openItems: ["One", "Two", "Three"],
+    });
+    expect(session?.summary).toHaveLength(400);
+    expect(session?.summary.endsWith("…")).toBe(true);
+    expect(session).not.toHaveProperty("changedFiles");
+    expect(session).not.toHaveProperty("changedFilesProvenance");
+    expect(context.recentDecisions).toEqual([
+      expect.objectContaining({ sessionId: finalized.session.id, text: "Keep context small." }),
+      expect.objectContaining({ sessionId: finalized.session.id, text: "Cite the source Session." }),
+    ]);
+    expect(context.recentKnowledge).toEqual([
+      expect.objectContaining({ title: "Digest gotcha", kind: "gotcha", sessionId: finalized.session.id }),
+    ]);
+    expect(context.recentKnowledge[0]?.excerpt).toHaveLength(400);
+    expect(context.recentKnowledge[0]).not.toHaveProperty("body");
+
+    const results = store.search("search digest", root);
+    if (!Array.isArray(results)) {
+      throw new Error("Expected search results");
+    }
+    expect(results).toEqual([expect.objectContaining({ matchedIn: "summary" })]);
+    expect(results[0]?.session).toMatchObject({ id: finalized.session.id, changedFilesCount: 40 });
+    expect(results[0]?.session).not.toHaveProperty("changedFiles");
   });
 });

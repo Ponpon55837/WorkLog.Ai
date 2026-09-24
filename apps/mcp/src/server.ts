@@ -163,7 +163,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_search", {
     title: "Search work history",
     description:
-      "Search finalized work sessions by title, summary, or event text (up to 50 matches with the matched excerpt). Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
+      "Search finalized work sessions by title, summary, or event text (up to 50 matches with the matched excerpt). Each match carries a compact Session digest; read the full record with work_get_session. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
     inputShape: searchQuerySchema.shape,
     schema: searchQuerySchema,
     annotations: READ_ONLY,
@@ -174,7 +174,7 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      "Return recent tracked-project sessions, recorded decisions, explicit recentKnowledge, metadataFollowUps, and pendingRequests (pending or processing report synthesis and metadata backfill requests waiting for an Agent). metadataFollowUps lists completed Sessions whose verification is missing or not_run, or whose changed-files metadata is empty. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.",
+      "Return compact digests of recent tracked-project sessions (with open items), recent decisions from workSummary.decisions (each citing its sessionId), recentKnowledge excerpts, metadataFollowUps counts, and pendingRequests (pending or processing report synthesis and metadata backfill requests waiting for an Agent). Read a full Session with work_get_session, full Knowledge with work_search_knowledge, and the Sessions behind metadataFollowUps (missing or not_run verification, empty changed files) with work_preview_metadata_backfill. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.",
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,

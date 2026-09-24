@@ -48,8 +48,8 @@
 
 1. 加 schema 版本表，讓索引建立與既有資料回填有 migration；檢索邏輯獨立成 `search-repository.ts`，不再擴大 `store.ts`。
 2. 建立檢索索引：Session 擴充欄位、Knowledge，加上 raw snapshot 依標題切段；兩字詞退回 LIKE、較長中文切雙字；BM25 排序加時間權重；changedFiles 異常多的 Session 降權。
-3. 新增 `work_recall(q, paths?, projectRoot?)`：一次回傳 Session＋Knowledge 混合的精簡結果（id、類型、標題、命中欄位或段落標題、片段、分數），要全文再用 `work_get_session`。0 筆時回傳各關鍵字單獨的命中數，讓 Agent 自己調整查詢。`work_search` 改走同一個引擎並改為精簡回傳。
-4. 修正 `work_get_context`：`recentSessions` 改精簡格式；`metadataFollowUps` 只回傳筆數；`recentDecisions` 改用 `workSummary.decisions`；新增 `task`、`paths` 參數，依序回傳相關 gotcha、決策、改過同批檔案的 Session 與其未結項。
+3. 新增 `work_recall(q, paths?, projectRoot?)`：一次回傳 Session＋Knowledge 混合的精簡結果（id、類型、標題、命中欄位或段落標題、片段、分數），要全文再用 `work_get_session`。0 筆時回傳各關鍵字單獨的命中數，讓 Agent 自己調整查詢。`work_search` 改走同一個引擎（精簡回傳已完成）。
+4. `work_get_context` 新增 `task`、`paths` 參數（精簡格式、`metadataFollowUps` 改筆數、`recentDecisions` 改用 `workSummary.decisions` 已完成），依序回傳相關 gotcha、決策、改過同批檔案的 Session 與其未結項。
 5. Knowledge `references` 路徑正規化（commit SHA 與路徑分開處理）。
 6. 更新 `.agents/skills/work-intelligence`：開工前用任務描述與要改的檔案 recall；遇到錯誤時用錯誤訊息查；套用記錄時引用 `sessionId`／`knowledgeId`。
 7. 檢索行為的單元測試只使用虛構的合成資料（專案、Session、Knowledge、raw snapshot 皆為測試自建），涵蓋多關鍵字、兩字中文詞、自然語句、raw 切段與路徑正規化等情境。真實資料的評估題與腳本只在使用者本機執行，不進 repo。
@@ -77,6 +77,7 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **Agent context 與搜尋改為精簡回傳**（Agent 檢索第一階段）：`work_get_context` 的 Session、Knowledge 改回傳 digest（摘要與 Knowledge 本文超過 400 字截斷、不含 changed files 清單與 provenance），Session 附前 3 項未結項；`recentDecisions` 改取 `workSummary.decisions` 並附來源 `sessionId`；`metadataFollowUps` 只回傳筆數，明細改用 `work_preview_metadata_backfill`。`work_search` 的每筆結果也改成同樣的 Session digest。以本機資料量測，單一專案 context 由約 107 KB 降到約 12.6 KB，單一關鍵字搜尋由 67 KB 降到約 0.5 KB。原本給 note／closing 事件用的近期決策 partial index 已不再使用並移除。
 - **報告日期改用系統時區**（PR #10）：報告、趨勢與工作歷程日期篩選改依 server 所在系統時區計算，報告回傳 `timezone`，報告頁頁首顯示時區名稱。另外修正搜尋把 `%`、`_` 當萬用字元的問題，API 拒絕非 loopback 的 `Host`（防 DNS rebinding），Prettier 改為檢查全專案。
 - **Session 摘要可在 UI 編輯**：Session 面板新增「編輯摘要」，可修改主摘要與五段 workSummary（每行一項）；只送出有變更的欄位，同一筆 Session 就地更新並留下 audit，其他欄位維持唯讀。
 - **MCP 補強**（PR #11）：新增 `work_get_project_status`（唯讀記錄狀態）、`work_list_sessions`、`work_get_session`、`work_request_report_synthesis`、`work_request_metadata_backfill`；`work_get_context` 多回傳 `pendingRequests`。所有工具加上 MCP annotations，新增 `finalize-work`／`synthesize-report` prompts。Server instructions 精簡為路由規則（原本會被用戶端截斷），三份 contract 只附在負責寫入的工具上。
