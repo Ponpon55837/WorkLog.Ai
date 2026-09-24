@@ -67,6 +67,9 @@ export type SessionListRequest = {
 export type ReportRequest = {
   period: ReportPeriod;
   date?: string;
+  /** An explicit calendar range; the server then ignores period and date. */
+  from?: string;
+  to?: string;
   projectId?: string;
   evidencePage?: number;
   evidencePageSize?: number | "all";
@@ -312,6 +315,8 @@ export class ApiClient {
       appendQuery("/api/reports", {
         period: options.period,
         date: options.date,
+        from: options.from,
+        to: options.to,
         projectId: options.projectId,
         evidencePage: options.evidencePage,
         evidencePageSize: options.evidencePageSize === "all" ? 0 : options.evidencePageSize,
@@ -419,6 +424,8 @@ export class ApiClient {
       appendQuery("/api/reports/export", {
         period: options.period,
         date: options.date,
+        from: options.from,
+        to: options.to,
         projectId: options.projectId,
         format: options.format,
         evidencePage: options.evidencePage,

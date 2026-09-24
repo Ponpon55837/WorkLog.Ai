@@ -273,6 +273,22 @@ test.describe("Work Intelligence browser regression", () => {
     await expectBoundedVirtualList(page, "報告來源證據清單");
   });
 
+  test("builds a report for a custom date range", async ({ page }) => {
+    await page.goto("/reports");
+    await page.getByRole("radiogroup", { name: "選擇報表區間" }).getByRole("radio", { name: "自訂" }).click();
+    // Switching to a custom range starts from the last 14 days.
+    await expect(page).toHaveURL(
+      /period=custom.*from=\d{4}-\d{2}-\d{2}.*to=\d{4}-\d{2}-\d{2}|period=custom.*to=.*from=/,
+    );
+    await expect(page.getByText(/自訂期間 · \d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}/)).toBeVisible();
+    await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+    await expect(page.getByTestId("report-synthesis")).toContainText("自訂期間的報告暫不支援 AI 整理");
+
+    await page.goto(`/reports?period=custom&from=${reportDate}&to=${reportDate}`);
+    await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+    await expect(page.getByText(`自訂期間 · ${reportDate} – ${reportDate}`)).toBeVisible();
+  });
+
   test("keeps Worklog and Knowledge page-size controls at the intended default", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("nav-sessions").click();

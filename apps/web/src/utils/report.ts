@@ -14,16 +14,39 @@ export interface ReportShare {
   percent: number;
 }
 
-/** The sub-period one level below each report period; a daily report has none and lists its Sessions instead. */
-export const reportBucketUnits: Record<
-  Exclude<ReportPeriod, "day">,
-  { unit: string; title: string; eyebrow: string }
-> = {
-  week: { unit: "天", title: "每日分布", eyebrow: "By day" },
-  month: { unit: "週", title: "每週分布", eyebrow: "By week" },
-  quarter: { unit: "個月", title: "每月分布", eyebrow: "By month" },
-  year: { unit: "季", title: "每季分布", eyebrow: "By quarter" },
+/** How a report's trend points are grouped for the overview. */
+export type ReportBucketMode = "day" | "week" | "month" | "quarter";
+
+export const reportBucketUnits: Record<ReportBucketMode, { unit: string; title: string; eyebrow: string }> = {
+  day: { unit: "天", title: "每日分布", eyebrow: "By day" },
+  week: { unit: "週", title: "每週分布", eyebrow: "By week" },
+  month: { unit: "個月", title: "每月分布", eyebrow: "By month" },
+  quarter: { unit: "季", title: "每季分布", eyebrow: "By quarter" },
 };
+
+/**
+ * The sub-period one level below the report period, or null for a daily report (it lists its Sessions
+ * instead). A custom range uses days up to two weeks, weeks up to the 92 days the server trends daily,
+ * and months beyond that.
+ */
+export function reportBucketMode(
+  report: Pick<WorkReport, "period" | "trends" | "trendGranularity">,
+): ReportBucketMode | null {
+  const modes: Record<ReportPeriod, ReportBucketMode | null> = {
+    day: null,
+    week: "day",
+    month: "week",
+    quarter: "month",
+    year: "quarter",
+  };
+  if (report.period !== "custom") {
+    return modes[report.period];
+  }
+  if (report.trendGranularity === "month") {
+    return "month";
+  }
+  return report.trends.length <= 14 ? "day" : "week";
+}
 
 const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -42,42 +65,44 @@ function mondayOf(value: string): string {
   return date.toISOString().slice(0, 10);
 }
 
-function bucketKey(period: Exclude<ReportPeriod, "day">, date: string): string {
-  if (period === "month") {
+function bucketKey(mode: ReportBucketMode, date: string): string {
+  if (mode === "week") {
     return mondayOf(date);
   }
-  if (period === "year") {
+  if (mode === "quarter") {
     return `Q${Math.floor((Number(date.slice(5, 7)) - 1) / 3) + 1}`;
   }
   return date;
 }
 
 /**
- * Groups the deterministic trend points into the sub-periods of the report: days of a week, weeks
- * (Monday start, clipped to the month) of a month, months of a quarter, and quarters of a year.
+ * Groups the deterministic trend points into sub-periods: days, weeks (Monday start, clipped to the
+ * report range), months, or quarters, as chosen by {@link reportBucketMode}.
  */
-export function buildReportBuckets(report: Pick<WorkReport, "period" | "trends">): ReportBucket[] {
-  const period = report.period;
-  if (period === "day") {
+export function buildReportBuckets(report: Pick<WorkReport, "period" | "trends" | "trendGranularity">): ReportBucket[] {
+  const mode = reportBucketMode(report);
+  if (!mode) {
     return [];
   }
   const buckets = new Map<string, ReportBucket & { first: string; last: string }>();
   for (const point of report.trends) {
-    const key = bucketKey(period, point.date);
+    const key = bucketKey(mode, point.date);
     const bucket = buckets.get(key) ?? { key, label: "", sessions: 0, events: 0, first: point.date, last: point.date };
     bucket.sessions += point.sessions;
     bucket.events += point.events;
     bucket.last = point.date;
     buckets.set(key, bucket);
   }
+  // Months carry their year when the range crosses a year boundary.
+  const spansYears = new Set(report.trends.map((point) => point.date.slice(0, 4))).size > 1;
   return [...buckets.values()].map(({ first, last, ...bucket }) => {
-    const labels: Record<Exclude<ReportPeriod, "day">, string> = {
-      week: `週${weekdayLabels[calendarDate(first).getUTCDay()]} ${monthDay(first)}`,
-      month: first === last ? monthDay(first) : `${monthDay(first)}–${monthDay(last)}`,
-      quarter: `${Number(first.slice(5, 7))} 月`,
-      year: `${bucket.key} · ${Number(first.slice(5, 7))}–${Number(last.slice(5, 7))} 月`,
+    const labels: Record<ReportBucketMode, string> = {
+      day: `週${weekdayLabels[calendarDate(first).getUTCDay()]} ${monthDay(first)}`,
+      week: first === last ? monthDay(first) : `${monthDay(first)}–${monthDay(last)}`,
+      month: spansYears ? `${first.slice(0, 4)}/${first.slice(5, 7)}` : `${Number(first.slice(5, 7))} 月`,
+      quarter: `${bucket.key} · ${Number(first.slice(5, 7))}–${Number(last.slice(5, 7))} 月`,
     };
-    return { ...bucket, label: labels[period] };
+    return { ...bucket, label: labels[mode] };
   });
 }
 

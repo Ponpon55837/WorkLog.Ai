@@ -141,6 +141,7 @@ import type {
   WorkEventRecord,
   WorkEventType,
   WorkSessionRecord,
+  WorkReportPeriod,
   DatabaseBackupCreated,
   DatabaseBackupList,
   DatabaseBackupUnavailable,
@@ -1207,17 +1208,34 @@ function listCalendarMonths(range: ReportRange): string[] {
   return dates;
 }
 
-function getReportTrendGranularity(period: ReportPeriod): ReportTrendGranularity {
+function reportRangeDays(range: ReportRange): number {
+  return (parseUtcCalendarDate(range.to).getTime() - parseUtcCalendarDate(range.from).getTime()) / 86_400_000 + 1;
+}
+
+/** Days for up to a quarter's worth of dates (a custom range longer than 92 days trends by month). */
+function getReportTrendGranularity(period: WorkReportPeriod, range: ReportRange): ReportTrendGranularity {
+  if (period === "custom") {
+    return reportRangeDays(range) > 92 ? "month" : "day";
+  }
   return period === "quarter" || period === "year" ? "month" : "day";
 }
 
+/** The same number of days immediately before a custom range. */
+function getPreviousCustomRange(range: ReportRange): ReportRange {
+  const days = reportRangeDays(range);
+  const to = parseUtcCalendarDate(range.from);
+  to.setUTCDate(to.getUTCDate() - 1);
+  const from = new Date(to);
+  from.setUTCDate(from.getUTCDate() - (days - 1));
+  return { from: formatUtcCalendarDate(from), to: formatUtcCalendarDate(to) };
+}
+
 function buildReportTrends(
-  period: ReportPeriod,
+  granularity: ReportTrendGranularity,
   range: ReportRange,
   sessions: WorkSessionRecord[],
   eventsBySession: Map<string, ReportEventRow[]>,
 ): ReportTrendPoint[] {
-  const granularity = getReportTrendGranularity(period);
   const dates = granularity === "month" ? listCalendarMonths(range) : listCalendarDates(range);
   return dates.map((date) => {
     const keyLength = granularity === "month" ? 7 : 10;
@@ -2270,6 +2288,9 @@ export class WorkIntelligenceStore {
   public getReport(options: {
     period: ReportPeriod;
     date?: string;
+    /** An explicit calendar range (both or neither); the report's period is then "custom". */
+    from?: string;
+    to?: string;
     projectId?: string;
     evidencePage?: number;
     evidencePageSize?: number;
@@ -2298,8 +2319,10 @@ export class WorkIntelligenceStore {
       }
     }
 
-    const range = getReportRange(options.period, options.date ?? toLocalCalendarDate());
-    const previousRange = getPreviousReportRange(options.period, range);
+    const customRange = options.from && options.to ? { from: options.from, to: options.to } : undefined;
+    const period: WorkReportPeriod = customRange ? "custom" : options.period;
+    const range = customRange ?? getReportRange(options.period, options.date ?? toLocalCalendarDate());
+    const previousRange = customRange ? getPreviousCustomRange(range) : getPreviousReportRange(options.period, range);
     const sessions = this.listSessions({
       from: range.from,
       to: range.to,
@@ -2481,8 +2504,8 @@ export class WorkIntelligenceStore {
           : [];
       });
 
-    const trendGranularity = getReportTrendGranularity(options.period);
-    const trends = buildReportTrends(options.period, range, sessions, eventsBySession);
+    const trendGranularity = getReportTrendGranularity(period, range);
+    const trends = buildReportTrends(trendGranularity, range, sessions, eventsBySession);
 
     const evidence: ReportEvidence[] = [];
     for (const session of sessions) {
@@ -2573,7 +2596,7 @@ export class WorkIntelligenceStore {
 
     return {
       outcome: "report",
-      period: options.period,
+      period,
       range,
       previousRange,
       timezone: localTimeZone(),
@@ -2607,6 +2630,8 @@ export class WorkIntelligenceStore {
   public exportReport(options: {
     period: ReportPeriod;
     date?: string;
+    from?: string;
+    to?: string;
     projectId?: string;
     format: ReportExportFormat;
     evidencePage?: number;

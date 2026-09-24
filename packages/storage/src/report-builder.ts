@@ -14,6 +14,15 @@ function reportMetricMarkdown(label: string, metric: ReportMetricComparison): st
 }
 
 /** Deterministic report presentation and filename policy, independent of SQLite queries. */
+const reportPeriodNames: Record<string, string> = {
+  day: "日報",
+  week: "週報",
+  month: "月報",
+  quarter: "季報",
+  year: "年報",
+  custom: "自訂期間",
+};
+
 export class ReportBuilder {
   public filenamePart(value: string): string {
     const normalized = value
@@ -29,7 +38,7 @@ export class ReportBuilder {
     const lines: string[] = [
       "# Work Intelligence 工作報告",
       "",
-      "- 報告類型：" + report.period,
+      "- 報告類型：" + (reportPeriodNames[report.period] ?? report.period),
       "- 報告區間：" + report.range.from + " 至 " + report.range.to,
       "- 上一期：" + report.previousRange.from + " 至 " + report.previousRange.to,
       "- 專案範圍：" + markdownInline(projectLabel),

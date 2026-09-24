@@ -251,6 +251,8 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         const parsed = reportQuerySchema.safeParse({
           period: requestUrl.searchParams.get("period") ?? undefined,
           date: requestUrl.searchParams.get("date") ?? undefined,
+          from: requestUrl.searchParams.get("from") ?? undefined,
+          to: requestUrl.searchParams.get("to") ?? undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           evidenceKind: requestUrl.searchParams.get("evidenceKind") ?? undefined,
           evidenceQuery: requestUrl.searchParams.get("evidenceQuery")?.trim() || undefined,
@@ -273,6 +275,8 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         const parsed = reportExportQuerySchema.safeParse({
           period: requestUrl.searchParams.get("period") ?? undefined,
           date: requestUrl.searchParams.get("date") ?? undefined,
+          from: requestUrl.searchParams.get("from") ?? undefined,
+          to: requestUrl.searchParams.get("to") ?? undefined,
           projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
           evidenceKind: requestUrl.searchParams.get("evidenceKind") ?? undefined,
           evidenceQuery: requestUrl.searchParams.get("evidenceQuery")?.trim() || undefined,

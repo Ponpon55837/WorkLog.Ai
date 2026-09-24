@@ -40,6 +40,7 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | POST     | `/api/backfill/metadata-requests/:id/cancel`     | 取消 pending／processing metadata 回補請求                                             |
 | POST     | `/api/backfill/metadata`                         | Agent 回寫已確認的 Session metadata                                                    |
 | GET      | `/api/reports?period=week&date=YYYY-MM-DD`       | 日/週/月/季/年工作報告，可加 `projectId`                                               |
+| GET      | `/api/reports?from=YYYY-MM-DD&to=YYYY-MM-DD`     | 自訂期間工作報告（最長 366 天，`period` 為 `custom`）；`/api/reports/export` 同樣接受 |
 | GET/POST | `/api/reports/synthesis-requests`                | 建立或查詢 Agent 報告提煉請求                                                          |
 | POST     | `/api/reports/synthesis-requests/:id/cancel`     | 取消 pending／processing 報告提煉請求                                                  |
 | POST     | `/api/reports/synthesis-requests/:id/retry`      | 將失敗／逾時的提煉請求建立為新的 pending attempt                                       |

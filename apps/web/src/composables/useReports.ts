@@ -20,8 +20,12 @@ import { useToast } from "./useToast";
 export const reportSynthesisInstruction = "請處理我剛在 Work Intelligence 建立的報告提煉請求。";
 
 const report = ref<WorkReport | null>(null);
-const reportPeriod = ref<ReportPeriod>("week");
+/** A calendar period, or "custom" for the from/to range in reportRange. */
+export type ReportViewPeriod = ReportPeriod | "custom";
+
+const reportPeriod = ref<ReportViewPeriod>("week");
 const reportDate = ref(toDateInputValue(new Date()));
+const reportRange = ref<{ from: string; to: string }>({ from: "", to: "" });
 const reportProjectId = ref("");
 const reportLoading = ref(false);
 const reportError = ref("");
@@ -71,12 +75,24 @@ const reportComparisons = computed(() => {
   ];
 });
 
-function reportScope(): { period: ReportPeriod; date?: string; projectId?: string } {
-  return {
-    period: reportPeriod.value,
-    date: reportDate.value || undefined,
-    projectId: reportProjectId.value || undefined,
-  };
+const MAX_CUSTOM_DAYS = 366;
+
+function customRangeProblem(): string {
+  const { from, to } = reportRange.value;
+  if (!from || !to) {
+    return "請選擇自訂期間的起訖日期。";
+  }
+  const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
+  return days > MAX_CUSTOM_DAYS ? `自訂期間最長 ${MAX_CUSTOM_DAYS} 天。` : "";
+}
+
+function reportScope(): { period: ReportPeriod; date?: string; from?: string; to?: string; projectId?: string } {
+  const projectId = reportProjectId.value || undefined;
+  if (reportPeriod.value === "custom") {
+    // The server ignores period when from/to are given; it still needs a valid value.
+    return { period: "week", from: reportRange.value.from, to: reportRange.value.to, projectId };
+  }
+  return { period: reportPeriod.value, date: reportDate.value || undefined, projectId };
 }
 
 /** Without a project, only all-project syntheses belong to this report; a single project's must not stand in. */
@@ -86,6 +102,13 @@ function synthesisScope(): ReturnType<typeof reportScope> & { scopeType?: "all" 
 }
 
 async function fetchReportSynthesis(quiet = false): Promise<void> {
+  if (reportPeriod.value === "custom") {
+    // Synthesis requests and summaries only exist for calendar periods.
+    reportSynthesisRequest.value = null;
+    reportSynthesisSummary.value = null;
+    reportSynthesisHistory.value = [];
+    return;
+  }
   if (!quiet) {
     reportSynthesisLoading.value = true;
   }
@@ -133,7 +156,7 @@ function selectReportSynthesisVersion(summary: ReportSummary): void {
 }
 
 async function createReportSynthesisRequest(): Promise<void> {
-  if (!report.value || reportSynthesisCreating.value) {
+  if (!report.value || reportSynthesisCreating.value || reportPeriod.value === "custom") {
     return;
   }
   reportSynthesisCreating.value = true;
@@ -333,6 +356,11 @@ async function loadReport(resetEvidencePage = false): Promise<void> {
   if (resetEvidencePage) {
     reportEvidencePage.value = 1;
   }
+  if (reportPeriod.value === "custom" && customRangeProblem()) {
+    report.value = null;
+    reportError.value = customRangeProblem();
+    return;
+  }
   reportLoading.value = true;
   reportError.value = "";
   await runKeyed(
@@ -419,6 +447,7 @@ export function useReports() {
     report,
     reportPeriod,
     reportDate,
+    reportRange,
     reportProjectId,
     reportLoading,
     reportError,

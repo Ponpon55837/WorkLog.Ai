@@ -9,6 +9,7 @@ import {
   PROJECT_STATUSES,
   REPORT_EXPORT_FORMATS,
   REPORT_EVIDENCE_KINDS,
+  MAX_CUSTOM_REPORT_DAYS,
   REPORT_PERIODS,
   REPORT_SYNTHESIS_SCOPE_TYPES,
   REPORT_SYNTHESIS_STATUSES,
@@ -259,9 +260,32 @@ export const mcpListSessionsInputSchema = mcpListSessionsInputSchemaBase.superRe
   }
 });
 
-export const reportQuerySchema = z.object({
+/** from/to come together, in order, and span at most MAX_CUSTOM_REPORT_DAYS. */
+function checkCustomReportRange(value: { from?: string; to?: string }, context: z.RefinementCtx): void {
+  if ((value.from === undefined) !== (value.to === undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "from and to must be given together." });
+    return;
+  }
+  if (value.from && value.to) {
+    const days = (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 + 1;
+    if (!(days >= 1)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "to must not be before from." });
+    } else if (days > MAX_CUSTOM_REPORT_DAYS) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["to"],
+        message: `A custom report covers at most ${MAX_CUSTOM_REPORT_DAYS} days.`,
+      });
+    }
+  }
+}
+
+export const reportQueryObjectSchema = z.object({
   period: z.enum(REPORT_PERIODS).default("week"),
   date: calendarDateSchema.optional(),
+  /** An explicit calendar range (e.g. a sprint); when given, period and date are ignored. */
+  from: calendarDateSchema.optional(),
+  to: calendarDateSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
   evidenceKind: z.enum(REPORT_EVIDENCE_KINDS).optional(),
   evidenceQuery: z.string().trim().max(500).optional(),
@@ -269,9 +293,12 @@ export const reportQuerySchema = z.object({
   evidencePageSize: listPageSizeSchema.default(20),
 });
 
-export const reportExportQuerySchema = reportQuerySchema.extend({
+export const reportQuerySchema = reportQueryObjectSchema.superRefine(checkCustomReportRange);
+
+export const reportExportQueryObjectSchema = reportQueryObjectSchema.extend({
   format: z.enum(REPORT_EXPORT_FORMATS).default("markdown"),
 });
+export const reportExportQuerySchema = reportExportQueryObjectSchema.superRefine(checkCustomReportRange);
 
 export const reportSynthesisStatusSchema = z.enum(REPORT_SYNTHESIS_STATUSES);
 export const reportSynthesisScopeTypeSchema = z.enum(REPORT_SYNTHESIS_SCOPE_TYPES);

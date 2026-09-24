@@ -5,9 +5,9 @@ import type {
   KnowledgeAuditAction,
   ProjectStatus,
   ReportEvidence,
-  ReportPeriod,
   SessionLinkDirection,
   SessionVoidedFilter,
+  WorkReportPeriod,
   WorkSummarySections,
 } from "@work-intelligence/core";
 import { knowledgeKindVisual, knowledgeStatusVisual, trackingStatus, type StatusVisual } from "./status";
@@ -94,12 +94,13 @@ export const changedFileChangeStatusLabels: Record<ChangedFileChangeStatus, stri
   renamed: "重新命名",
 };
 
-export const reportPeriodLabels: Record<ReportPeriod, string> = {
+export const reportPeriodLabels: Record<WorkReportPeriod, string> = {
   day: "今日",
   week: "本週",
   month: "本月",
   quarter: "本季",
   year: "本年",
+  custom: "自訂期間",
 };
 
 export const insightKindLabels: Record<"verification" | "metadata" | "event", string> = {
