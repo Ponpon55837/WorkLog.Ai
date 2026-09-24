@@ -1,0 +1,30 @@
+{
+  "description": "Remind Codex to save completed Work Intelligence work after tracked-project edits.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|.*work_finalize_session)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "commandWindows": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "commandWindows": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
