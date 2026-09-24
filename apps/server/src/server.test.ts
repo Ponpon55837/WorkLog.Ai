@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -256,5 +256,35 @@ describe("Work Intelligence REST API", () => {
       },
       events: [expect.objectContaining({ type: "verification" }), expect.objectContaining({ type: "finalized" })],
     });
+  });
+
+  it("lists and counts Sessions of tracked projects only", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-tracked-only-test-"));
+    const pausedRoot = join(root, "paused");
+    mkdirSync(pausedRoot);
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const tracked = store.addProject("Tracked project", root);
+    const paused = store.addProject("Paused project", pausedRoot);
+    store.updateProject(tracked.id, { status: "tracked" });
+    store.updateProject(paused.id, { status: "tracked" });
+    const visible = store.finalizeSession({ projectRoot: root, idempotencyKey: "tracked-visible", title: "Visible Session", summary: "Tracked." });
+    const hidden = store.finalizeSession({ projectRoot: pausedRoot, idempotencyKey: "paused-hidden", title: "Hidden Session", summary: "Paused later." });
+    expect(visible).toMatchObject({ outcome: "finalized" });
+    expect(hidden).toMatchObject({ outcome: "finalized" });
+    store.updateProject(paused.id, { status: "paused" });
+
+    const list = await requestJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(baseUrl, "/api/sessions");
+    expect(list.status).toBe(200);
+    expect(list.body.items.map((item) => item.title)).toEqual(["Visible Session"]);
+    expect(list.body.pageInfo.total).toBe(1);
+
+    const scoped = await requestJson<{ items: unknown[] }>(baseUrl, `/api/sessions?projectId=${paused.id}`);
+    expect(scoped.body.items).toEqual([]);
+
+    const dashboard = await requestJson<{ finalizedSessions: number; recentSessions: Array<{ title: string }> }>(baseUrl, "/api/dashboard");
+    expect(dashboard.body.finalizedSessions).toBe(1);
+    expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });
 });
