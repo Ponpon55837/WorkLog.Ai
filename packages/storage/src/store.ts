@@ -841,8 +841,10 @@ function toSession(row: SessionRow): WorkSessionRecord {
     workSummary: parseWorkSummarySections(row.work_summary_json),
     status: row.status,
     executionStatus: row.execution_status ?? "completed",
+    ...(row.started_at ? { startedAt: row.started_at } : {}),
     completedAt: row.completed_at,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
     commitSha: row.commit_sha ?? undefined,
     gitBranch: row.git_branch ?? undefined,
     changedFiles: parseJson<string[]>(row.changed_files_json, []),
@@ -935,6 +937,25 @@ function normalizeVerification(verification: VerificationSummary): VerificationS
 
 function sameVerification(left: VerificationSummary | undefined, right: VerificationSummary): boolean {
   return left?.status === right.status && (left.summary?.trim() || undefined) === right.summary;
+}
+
+/**
+ * The reported start wins when it is not after completion; otherwise the earliest event recorded
+ * before completion. No start is invented when neither exists.
+ */
+function resolveStartedAt(
+  reported: string | undefined,
+  events: ReadonlyArray<{ occurredAt?: string }> | undefined,
+  completedAt: string,
+): string | undefined {
+  if (reported && reported <= completedAt) {
+    return reported;
+  }
+  const earliest = (events ?? [])
+    .map((event) => event.occurredAt)
+    .filter((value): value is string => Boolean(value) && value! < completedAt)
+    .sort()[0];
+  return earliest;
 }
 
 /** Voiding needs a reason so the audit explains it; a restore reason is optional. */
@@ -3379,6 +3400,7 @@ export class WorkIntelligenceStore {
       const updatedAt = nowIso();
       this.runImmediateTransaction(() => {
         this.db.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run(JSON.stringify(next), sessionId);
+        this.touchSession(sessionId, updatedAt);
         this.insertVerificationUpdate(sessionId, source, previous, next, updatedAt);
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
       });
@@ -3545,9 +3567,12 @@ export class WorkIntelligenceStore {
              WHERE (session_id = ? AND related_session_id = ?) OR (session_id = ? AND related_session_id = ?)`,
           )
           .run(input.sessionId, input.relatedSessionId, input.relatedSessionId, input.sessionId);
+        const changedAt = nowIso();
         if (input.linked) {
-          this.writeSessionLink(input.sessionId, input.relatedSessionId, input.relation, source, nowIso());
+          this.writeSessionLink(input.sessionId, input.relatedSessionId, input.relation, source, changedAt);
         }
+        this.touchSession(input.sessionId, changedAt);
+        this.touchSession(input.relatedSessionId, changedAt);
       }
       return {
         outcome: "session_link_updated",
@@ -3617,6 +3642,10 @@ export class WorkIntelligenceStore {
       relation: row.relation === "related" ? "related" : row.session_id === sessionId ? "continues" : "continued_by",
       ...(row.voided_at ? { voided: true } : {}),
     }));
+  }
+
+  private touchSession(sessionId: string, at: string): void {
+    this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(at, sessionId);
   }
 
   private insertVerificationUpdate(
@@ -3716,6 +3745,10 @@ export class WorkIntelligenceStore {
           commitSha: input.git?.commitSha ?? current.commitSha ?? null,
           gitBranch: input.git?.branch ?? current.gitBranch ?? null,
         });
+      if (input.startedAt && input.startedAt <= current.completedAt) {
+        this.db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?").run(input.startedAt, input.sessionId);
+      }
+      this.touchSession(input.sessionId, updatedAt);
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
     });
 
@@ -3809,6 +3842,7 @@ export class WorkIntelligenceStore {
       const appliedSummary = mode === "append" ? `${previousSummary.trim()}\n\n${summary}` : summary;
       const createdAt = nowIso();
       this.db.prepare("UPDATE sessions SET summary = ? WHERE id = ?").run(appliedSummary, input.sessionId);
+      this.touchSession(input.sessionId, createdAt);
       this.db
         .prepare(
           `INSERT INTO session_summary_updates (
@@ -3941,6 +3975,7 @@ export class WorkIntelligenceStore {
       this.db
         .prepare("UPDATE sessions SET work_summary_json = ? WHERE id = ?")
         .run(JSON.stringify(appliedWorkSummary), input.sessionId);
+      this.touchSession(input.sessionId, createdAt);
       this.db
         .prepare(
           `INSERT INTO session_work_summary_updates (
@@ -4061,6 +4096,7 @@ export class WorkIntelligenceStore {
           .prepare("UPDATE sessions SET voided_at = ?, void_reason = ? WHERE id = ?")
           .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.sessionId);
         this.insertVoidAudit("session", input.sessionId, input.sessionId, projectId, input.voided, reason, occurredAt);
+        this.touchSession(input.sessionId, occurredAt);
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
       }
       const session = this.getSessionById(input.sessionId);
@@ -4096,6 +4132,7 @@ export class WorkIntelligenceStore {
           .prepare("UPDATE evidence SET voided_at = ?, void_reason = ? WHERE id = ?")
           .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.evidenceId);
         this.insertVoidAudit("evidence", input.evidenceId, row.session_id, projectId, input.voided, reason, occurredAt);
+        this.touchSession(row.session_id, occurredAt);
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
       }
       const updated = this.db.prepare("SELECT * FROM evidence WHERE id = ?").get(input.evidenceId) as EvidenceRow;
@@ -4470,6 +4507,7 @@ export class WorkIntelligenceStore {
           summary: evidence.summary ?? null,
           capturedAt: evidence.capturedAt,
         });
+      this.touchSession(evidence.sessionId, evidence.capturedAt);
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(evidence.capturedAt, project.id);
 
       return { outcome: "evidence_attached", duplicate: false, evidence };
@@ -4506,6 +4544,7 @@ export class WorkIntelligenceStore {
     const sessionId = randomUUID();
     const createdAt = nowIso();
     const completedAt = input.completedAt ?? createdAt;
+    const startedAt = resolveStartedAt(input.startedAt, input.events, completedAt);
     const events = [
       ...(input.events ?? []),
       {
@@ -4544,11 +4583,13 @@ export class WorkIntelligenceStore {
           `INSERT INTO sessions (
              id, project_id, external_session_id, idempotency_key, title, summary,
              work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
-             changed_files_json, changed_files_provenance_json, changed_file_changes_json, verification_json
+             changed_files_json, changed_files_provenance_json, changed_file_changes_json, verification_json,
+             started_at, updated_at
            ) VALUES (
              @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
              @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
-             @changedFiles, @changedFilesProvenance, @changedFileChanges, @verification
+             @changedFiles, @changedFilesProvenance, @changedFileChanges, @verification,
+             @startedAt, @createdAt
            )`,
         )
         .run({
@@ -4567,6 +4608,7 @@ export class WorkIntelligenceStore {
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(normalizedChangedFileChanges),
           verification: input.verification ? JSON.stringify(input.verification) : null,
+          startedAt: startedAt ?? null,
         });
 
       for (const event of events) {

@@ -122,3 +122,24 @@ export function formatDayGroup(value: string, now = new Date()): string {
     sameYear ? { month: "long", day: "numeric", weekday: "short" } : { dateStyle: "long" },
   ).format(date);
 }
+
+/** Elapsed time between two ISO instants, e.g. 「1 天 3 小時」「45 分鐘」; empty when the order is reversed. */
+export function formatDuration(from: string, to: string): string {
+  const minutes = Math.round((Date.parse(to) - Date.parse(from)) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return "";
+  }
+  if (minutes < 1) {
+    return "不到 1 分鐘";
+  }
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  const rest = minutes % 60;
+  const parts = [days ? `${days} 天` : "", hours ? `${hours} 小時` : "", !days && rest ? `${rest} 分鐘` : ""];
+  return parts.filter(Boolean).join(" ");
+}
+
+/** A Session counts as updated when it changed more than a minute after it was finalized. */
+export function wasUpdatedAfterFinalize(session: { createdAt: string; updatedAt: string }): boolean {
+  return Date.parse(session.updatedAt) - Date.parse(session.createdAt) > 60_000;
+}

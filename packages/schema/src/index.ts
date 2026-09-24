@@ -112,6 +112,11 @@ export const finalizeSessionInputSchema = z.object({
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
   verification: verificationSchema,
   git: gitSchema.optional(),
+  startedAt: z
+    .string()
+    .datetime()
+    .optional()
+    .describe("When the work began, e.g. the first message of the conversation; must not be after completedAt."),
   completedAt: z.string().datetime().optional(),
   parentSessionId: z
     .string()
@@ -378,6 +383,7 @@ export const updateSessionMetadataInputSchema = z.object({
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
   verification: verificationSchema.optional(),
   git: gitSchema.optional(),
+  startedAt: z.string().datetime().optional(),
 });
 
 const voidReasonSchema = z.string().trim().min(1).max(1_000);

@@ -160,6 +160,30 @@ const MIGRATIONS: SchemaMigration[] = [
       ALTER TABLE knowledge ADD COLUMN review_json TEXT;
     `,
   },
+  {
+    version: 6,
+    name: "session-started-updated-at",
+    // Backfill: startedAt only from events recorded before completion (never guessed); updatedAt is
+    // the latest recorded change to the Session, its evidence, or its links.
+    sql: `
+      ALTER TABLE sessions ADD COLUMN started_at TEXT;
+      ALTER TABLE sessions ADD COLUMN updated_at TEXT;
+      UPDATE sessions SET started_at = (
+        SELECT MIN(e.occurred_at) FROM work_events e
+        WHERE e.session_id = sessions.id AND e.occurred_at < sessions.completed_at
+      );
+      UPDATE sessions SET updated_at = MAX(
+        created_at,
+        COALESCE((SELECT MAX(created_at) FROM session_summary_updates u WHERE u.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(created_at) FROM session_work_summary_updates u WHERE u.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(created_at) FROM session_verification_updates u WHERE u.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(occurred_at) FROM void_audit a WHERE a.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(captured_at) FROM evidence v WHERE v.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(created_at) FROM session_links l
+          WHERE l.session_id = sessions.id OR l.related_session_id = sessions.id), '')
+      );
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

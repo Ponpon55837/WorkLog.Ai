@@ -245,6 +245,12 @@ Server instructions 只放路由規則；Work record、Report synthesis、Metada
 }
 ```
 
+## Session 時間：`startedAt`、`completedAt`、`updatedAt`
+
+- `startedAt`：工作實際開始的時間。finalize 時由 Agent 回報（例如這段對話的第一則訊息）；沒回報時，若 `events` 有早於完成時間的 `occurredAt`，取最早的一筆；兩者都沒有就留空，UI 顯示「未回報」，不會推測。晚於 `completedAt` 的值會被忽略。舊 Session 可用 `work_update_session_metadata` 的 `startedAt` 補上已確認的值。
+- `completedAt`：完成時間，預設為 finalize 的時間；報告與日期篩選仍以它為準。
+- `updatedAt`：完成後最後一次修改的時間。摘要、workSummary、verification、metadata、作廢／還原、附加或標示 Evidence、建立或移除關聯都會更新它；finalize 當下等於 `createdAt`。既有資料在 migration 6 以修改紀錄回填。
+
 ## `work_link_sessions`
 
 連結兩筆 tracked Session（`sessionId`、`relatedSessionId`、`relation`、`linked`）。`relation: "continues"` 表示 `sessionId` 接續 `relatedSessionId` 的工作（例如實作接續規劃）；`related` 是一般關聯。同一對 Session 只有一個關聯，新的 relation 會取代舊的；`linked: false` 移除。finalize 時也可以直接帶 `parentSessionId`（這筆接續的 Session）與 `relatedSessionIds`；無法建立的關聯（不存在、非 tracked、自己連自己）會列在回傳的 `linkWarnings`，不影響 Session 保存。

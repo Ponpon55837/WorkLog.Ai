@@ -24,6 +24,8 @@ export type SessionRow = {
   verification_json: string | null;
   voided_at: string | null;
   void_reason: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
 };
 
 export type SessionListOptions = {

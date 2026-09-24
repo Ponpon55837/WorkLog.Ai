@@ -28,7 +28,13 @@ import { useSessionEditor } from "../../composables/useSessionEditor";
 import { useSessionLinks } from "../../composables/useSessionLinks";
 import { useToast } from "../../composables/useToast";
 import { router } from "../../router";
-import { formatDate, formatReadableSummary, formatRelative } from "../../utils/format";
+import {
+  formatDate,
+  formatDuration,
+  formatReadableSummary,
+  formatRelative,
+  wasUpdatedAfterFinalize,
+} from "../../utils/format";
 import { knowledgeKindLabels, sessionLinkDirectionLabels } from "../../utils/labels";
 import { executionStatusVisual, verificationOf, verificationStatus } from "../../utils/status";
 import UiButton from "../ui/UiButton.vue";
@@ -192,11 +198,26 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           <span>{{ selectedDetail.project.name }}</span>
           <code class="session-panel__path">{{ selectedDetail.project.rootPath }}</code>
         </dd>
+        <dt>開始時間</dt>
+        <dd>
+          <template v-if="session.startedAt">
+            <time :datetime="session.startedAt">{{ formatDate(session.startedAt) }}</time>
+            <span class="session-panel__muted">耗時 {{ formatDuration(session.startedAt, session.completedAt) }}</span>
+          </template>
+          <span v-else class="session-panel__muted">未回報</span>
+        </dd>
         <dt>完成時間</dt>
         <dd>
           <time :datetime="session.completedAt"
             >{{ formatDate(session.completedAt) }}（{{ formatRelative(session.completedAt) }}）</time
           >
+        </dd>
+        <dt>最後更新</dt>
+        <dd>
+          <time v-if="wasUpdatedAfterFinalize(session)" :datetime="session.updatedAt"
+            >{{ formatDate(session.updatedAt) }}（{{ formatRelative(session.updatedAt) }}）</time
+          >
+          <span v-else class="session-panel__muted">完成後未修改</span>
         </dd>
         <dt>執行狀態</dt>
         <dd><StatusLabel :status="executionStatusVisual" /></dd>

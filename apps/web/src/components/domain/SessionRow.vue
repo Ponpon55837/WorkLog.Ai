@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { Ban, FileDiff } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
-import { formatDate, formatReadableSummary, formatRelative } from "../../utils/format";
+import { formatDate, formatReadableSummary, formatRelative, wasUpdatedAfterFinalize } from "../../utils/format";
 import { verificationOf, verificationStatus } from "../../utils/status";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiLabel from "../ui/UiLabel.vue";
@@ -36,6 +36,12 @@ const firstOutcome = computed(
       <time :datetime="session.completedAt" :title="formatDate(session.completedAt)">{{
         formatRelative(session.completedAt)
       }}</time>
+      <template v-if="wasUpdatedAfterFinalize(session)">
+        ·
+        <time :datetime="session.updatedAt" :title="`最後更新 ${formatDate(session.updatedAt)}`"
+          >更新於 {{ formatRelative(session.updatedAt) }}</time
+        ></template
+      >
       <template v-if="session.gitBranch"> · {{ session.gitBranch }}</template>
       <template v-if="showSummary && firstOutcome"> · {{ firstOutcome }}</template>
     </template>
