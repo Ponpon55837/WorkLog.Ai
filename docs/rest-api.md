@@ -7,10 +7,10 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | Method   | Route                                            | 用途                                                                                   |
 | -------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | GET      | `/api/health`                                    | API/SQLite health                                                                      |
-| GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions                                                   |
+| GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
-| GET      | `/api/sessions`                                  | Worklog session list；可用 `q`、`projectId`、`from`、`to`（日期格式 `YYYY-MM-DD`）篩選 |
+| GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選 |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
 | PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要                                   |

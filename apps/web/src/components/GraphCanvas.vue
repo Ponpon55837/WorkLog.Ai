@@ -6,7 +6,8 @@ import type { GraphVisualEdge, GraphVisualNode } from "../composables/useGraph";
 /**
  * Lane-based SVG graph (one column per node kind). Lanes stretch to the available width, only
  * nodes near the viewport are rendered, and the lane header stays sticky while scrolling. A
- * selected node keeps its direct neighbours bright and dims everything else.
+ * selected node keeps its direct neighbours bright and dims everything else. A docked panel may
+ * overlay the right edge (`overlayWidth`); the canvas then adds scroll room and reveals nodes left of it.
  */
 const props = defineProps<{
   nodes: readonly GraphVisualNode[];
@@ -20,6 +21,8 @@ const props = defineProps<{
   selectedId?: string;
   /** Search hits; when non-empty, nodes outside it are shown as context only. */
   matchIds?: ReadonlySet<string>;
+  /** Width of a fixed panel covering the right side of the window (0 when none). */
+  overlayWidth?: number;
 }>();
 
 const emit = defineEmits<{ select: [node: GraphNode]; clear: [] }>();
@@ -29,6 +32,7 @@ const scrollTop = ref(0);
 const viewportHeight = ref(660);
 const viewportWidth = ref(1_100);
 const hoveredId = ref<string | null>(null);
+const obscuredRight = ref(0);
 const laneHeaderHeight = 44;
 const overscan = 232;
 const minLaneWidth = 220;
@@ -36,19 +40,33 @@ const nodeHeight = 40;
 let resizeObserver: ResizeObserver | undefined;
 
 const laneWidth = computed(() => Math.max(minLaneWidth, Math.floor(viewportWidth.value / Math.max(props.nodeKindOrder.length, 1))));
-const canvasWidth = computed(() => laneWidth.value * props.nodeKindOrder.length);
+// Extra room on the right lets nodes in the last lanes scroll out from under the overlaying panel.
+const canvasWidth = computed(() => laneWidth.value * props.nodeKindOrder.length + obscuredRight.value);
 const nodeWidth = computed(() => laneWidth.value - 36);
+const laneHeaderStyle = computed(() => ({ width: `${canvasWidth.value}px`, gridTemplateColumns: `repeat(${props.nodeKindOrder.length}, ${laneWidth.value}px) auto` }));
 // ~6.4px per display unit at 12px (CJK counts as 2 units), minus the 12px text inset on each side.
-const laneHeaderStyle = computed(() => ({ width: `${canvasWidth.value}px`, gridTemplateColumns: `repeat(${props.nodeKindOrder.length}, ${laneWidth.value}px)` }));
 const labelUnits = computed(() => Math.max(12, Math.floor((nodeWidth.value - 24) / 6.4)));
 
 function laneCentre(lane: number): number {
   return lane * laneWidth.value + laneWidth.value / 2;
 }
 
+function updateObscuredRight(): void {
+  const element = viewport.value;
+  const overlay = props.overlayWidth ?? 0;
+  if (!element || overlay <= 0) {
+    obscuredRight.value = 0;
+    return;
+  }
+  const right = element.getBoundingClientRect().right;
+  obscuredRight.value = Math.max(0, Math.round(right - (window.innerWidth - overlay)));
+}
+
 function updateViewportSize(): void {
+  // Lane width uses the whole canvas: the panel overlays it instead of squeezing the lanes.
   viewportHeight.value = viewport.value?.clientHeight || 660;
   viewportWidth.value = viewport.value?.clientWidth || 1_100;
+  updateObscuredRight();
 }
 
 function handleScroll(event: Event): void {
@@ -131,27 +149,35 @@ async function revealSelected(): Promise<void> {
     return;
   }
   await nextTick();
+  updateObscuredRight();
   const nodeTop = target.y + laneHeaderHeight - nodeHeight / 2;
   const nodeBottom = target.y + laneHeaderHeight + nodeHeight / 2;
   const visibleTop = element.scrollTop + laneHeaderHeight;
   const visibleBottom = element.scrollTop + element.clientHeight;
   const centreX = laneCentre(target.lane);
-  const horizontallyVisible = centreX - nodeWidth.value / 2 >= element.scrollLeft && centreX + nodeWidth.value / 2 <= element.scrollLeft + element.clientWidth;
+  // Only the part of the canvas left of an overlaying panel counts as visible.
+  const visibleWidth = Math.max(nodeWidth.value, element.clientWidth - obscuredRight.value);
+  const horizontallyVisible = centreX - nodeWidth.value / 2 >= element.scrollLeft && centreX + nodeWidth.value / 2 <= element.scrollLeft + visibleWidth;
   if (nodeTop >= visibleTop && nodeBottom <= visibleBottom && horizontallyVisible) {
     return;
   }
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   element.scrollTo({
     top: Math.max(0, target.y + laneHeaderHeight - element.clientHeight / 2),
-    left: horizontallyVisible ? element.scrollLeft : Math.max(0, centreX - element.clientWidth / 2),
+    left: horizontallyVisible ? element.scrollLeft : Math.max(0, centreX - visibleWidth / 2),
     behavior: reduceMotion ? "auto" : "smooth"
   });
 }
 
 watch(() => props.selectedId, () => void revealSelected());
+watch(() => props.overlayWidth, () => {
+  updateObscuredRight();
+  void revealSelected();
+});
 
 onMounted(() => {
   updateViewportSize();
+  window.addEventListener("resize", updateObscuredRight);
   if (typeof ResizeObserver === "undefined") {
     return;
   }
@@ -161,7 +187,10 @@ onMounted(() => {
   }
 });
 
-onBeforeUnmount(() => resizeObserver?.disconnect());
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  window.removeEventListener("resize", updateObscuredRight);
+});
 </script>
 
 <template>

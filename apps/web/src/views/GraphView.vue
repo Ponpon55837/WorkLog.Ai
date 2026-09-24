@@ -78,8 +78,6 @@ const truncationNote = computed(() => {
   return parts.join(" ");
 });
 
-const graphStyle = computed(() => (selectedGraphNode.value ? { "--graph-panel-width": `${graphPanelWidth.value}px` } : {}));
-
 const countLabel = computed(() =>
   graphSearch.value.trim()
     ? `符合 ${graphVisual.value.searchMatches} 個節點 · 顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`
@@ -107,7 +105,7 @@ function selectFirstMatch(): void {
     <template #actions><UiButton size="sm" @click="load">重試</UiButton></template>
   </UiFlash>
 
-  <UiBox :class="['graph', { 'graph--with-panel': selectedGraphNode }]" :style="graphStyle">
+  <UiBox class="graph">
     <template #header>
       <form class="graph__toolbar" @submit.prevent="load">
         <UiTextInput v-model="graphSearch" type="search" :icon="Search" size="sm" placeholder="搜尋節點名稱…" label="搜尋 Graph 節點" class="graph__search" @keydown.enter.prevent="selectFirstMatch" />
@@ -144,6 +142,7 @@ function selectFirstMatch(): void {
       :node-description="graphNodeDescription"
       :selected-id="selectedGraphNode?.id"
       :match-ids="graphSearchMatchIds"
+      :overlay-width="selectedGraphNode ? graphPanelWidth : 0"
       @select="onSelect"
       @clear="selectGraphNode(null)"
     />
@@ -158,10 +157,6 @@ function selectFirstMatch(): void {
 </template>
 
 <style scoped>
-.graph--with-panel {
-  margin-right: var(--graph-panel-width, 460px);
-}
-
 .graph__search {
   width: 200px;
 }
@@ -207,9 +202,4 @@ function selectFirstMatch(): void {
 .graph__legend-item--knowledge i { border-color: var(--done-border); background: var(--done-soft); }
 .graph__legend-item--evidence i { border-color: var(--attention-border); background: var(--attention-soft); }
 
-@media (max-width: 959px) {
-  .graph--with-panel {
-    margin-right: 0;
-  }
-}
 </style>

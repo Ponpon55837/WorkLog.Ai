@@ -2017,15 +2017,28 @@ export class WorkIntelligenceStore {
       .prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'tracked'")
       .get() as { count: number };
     const activeProjects = trackedProjects;
-    const finalizedSessions = this.db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count: number };
-    const recordedEvents = this.db.prepare("SELECT COUNT(*) AS count FROM work_events").get() as { count: number };
+    // Only tracked projects are shown: history of paused/ignored projects stays in SQLite but is hidden.
+    const finalizedSessions = this.db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM sessions s JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked'",
+      )
+      .get() as { count: number };
+    const recordedEvents = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM work_events e
+         JOIN sessions s ON s.id = e.session_id
+         JOIN projects p ON p.id = s.project_id
+         WHERE p.status = 'tracked'`,
+      )
+      .get() as { count: number };
 
     return {
       trackedProjects: trackedProjects.count,
       activeProjects: activeProjects.count,
       finalizedSessions: finalizedSessions.count,
       recordedEvents: recordedEvents.count,
-      recentSessions: this.listSessions({ limit: 6 }),
+      recentSessions: this.listSessions({ limit: 6, trackedOnly: true }),
     };
   }
 

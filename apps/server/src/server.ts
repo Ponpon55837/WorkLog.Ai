@@ -490,6 +490,8 @@ export function createApiHandler(store: WorkIntelligenceStore) {
             to: parsed.data.to,
             page: parsed.data.page,
             pageSize: parsed.data.pageSize,
+            // Worklog shows tracked projects only, matching Session detail, search and reports.
+            trackedOnly: true,
           }),
         );
         return;
