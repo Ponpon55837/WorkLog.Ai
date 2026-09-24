@@ -63,7 +63,7 @@
 | 自訂期間的 AI 整理 | 限制 | `report_synthesis_requests`／`report_summaries` 的 `period` 有 CHECK 限制，自訂期間無法建立整理請求；支援需要 migration 重建兩張表。 |
 | 報告 Session 上限 | 限制 | 報告取 Session 的上限是 200 筆，很長的自訂期間或年報可能被截斷且沒有標示。 |
 | 測試缺口 | 待補 | Knowledge 候選的「修改後接受」「拒絕」沒有 E2E；Web 沒有單元測試；原生選擇資料夾視窗只在 macOS 以 `osacompile` 確認語法，Windows／Linux 未實機驗證；備份還原未在 Windows 實機手動驗證。 |
-| 工程整理 | 提案 | `store.ts` 目前約 5,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；schema 版本表已加入（`schema_migrations`），既有的欄位補齊檢查仍留在 `store.ts`。 |
+| 工程整理 | 進行中 | `store.ts` 的報告讀取／匯出與期間函式已移至 `report-service.ts`、`report-utils.ts`；剩餘 synthesis、metadata 回補、context／recall 拆分，以及 Web 單元測試與 server／mcp／web 覆蓋率門檻仍待處理。`store.ts` 現為 4,787 行；schema 版本表已加入，既有欄位補齊檢查仍留在其中。 |
 
 ## 最近完成（2026-09-23～24）
 
@@ -73,6 +73,7 @@
 - **圖譜跨頁的 Session 關聯**：分頁取回圖譜時，只要關聯的一端在該頁就送出 `session_link`（另一端必須是範圍內的有效 Session），Web 合併各頁後即可畫出兩端落在不同頁的關聯。
 - **保存提醒 hook**：Claude Code 使用 `apps/mcp/dist/finalize-reminder.js`；Codex 專案設定 `.codex/hooks.json` 使用 `apps/mcp/dist/codex-finalize-reminder.js`。在記錄中的專案裡，Codex 的 `apply_patch` 改檔後若未成功呼叫 `work_finalize_session`，Stop 時提醒一次（同一段未保存工作只提醒一次，`stop_hook_active` 時放行）。兩者都唯讀查專案清單、判斷失敗時放行；Codex hook 需在 `/hooks` 檢查並信任，Bash 改檔不會觸發。設定方式見 agent-setup。
 - **changedFiles 開工基準排除**：`work_finalize_session` 可傳入工作開始時擷取的 `baselineChangedFiles`，系統會從該 Session 的 changed files、來源與變更事件排除開工前已變更的路徑；從基準路徑改名時只記新路徑為新增檔案。相同基準檔案後續又修改也會保守排除，避免把先前工作錯算成本次成果。
+- **Storage 報告讀取服務拆分**：將報告產生、跨期 Session、證據整理與 Markdown／JSON 匯出搬至 `report-service.ts`，期間計算與趨勢函式移至 `report-utils.ts`；`WorkIntelligenceStore` 對外方法維持原樣並轉呼叫新服務，未改變報告行為。
 - **加入專案改為選擇資料夾**（使用者提出）：「加入專案」對話框新增「選擇資料夾」，由本機 API server 叫出作業系統的選擇資料夾視窗（macOS `osascript`、Windows PowerShell、Linux `zenity`／`kdialog`），選完自動填入路徑，名稱空白時以資料夾名稱帶入；仍可手動輸入。新增 `POST /api/system/pick-folder`，指令固定、不經過 shell，區分「取消」與「無法開啟」，同時只開一個視窗。
 - **資料庫備份與換電腦**（使用者提出）：API server 每天自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700、保留 14 份）；專案頁新增「資料備份」分頁，可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。
 - **Agent 完成請求後頁面自動更新**（使用者提出）：報告整理、Knowledge 候選、metadata 回補的請求在待處理或處理中時，頁面每 5 秒安靜地重新檢查（不顯示載入動畫，分頁不在前景時暫停、回到前景立即檢查），請求結束就停止；Agent 完成時自動載入結果並提示，失敗時也會提示。切換報告區間或專案時會重設追蹤，不會誤報完成。只改前端，API 不變；E2E 以 API 模擬 Agent 存入整理結果驗證。
