@@ -60,7 +60,6 @@
 | TypeSafe Adapter（Insight Provider Phase 2） | BLOCKED：等待外部契約 | Provider abstraction、No-op 與 optional injection 已完成，`WorkIntelligenceStore` 預設使用 No-op。開始實作前需要 TypeSafe／產品方先定稿：SDK 或 HTTP endpoint 與版本；backend-only credential 注入、日誌遮罩與資料外送規則；evaluation request／response／error schema（signal、confidence、usage、timeout）；timeout、retry、circuit-breaker 契約；egress guard 的呼叫邊界。這些到位前不新增依賴、網路呼叫、設定開關或假 adapter。 |
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
-| 報告總覽依區間差異化 | 提案 | 2026-09-24 檢查：總覽的數字、比較期間與 AI 整理都已依日／週／月／季／年分開計算與保存，但 deterministic 部分五種區間用同一個版型（三張比較卡、驗證卡、一句「這段時間發生了什麼」模板句），只有數字不同；依區間分組的內容只存在於 AI 整理，而 AI 整理要逐一區間請 Agent 產生。資料集中在少數幾天時，日與週、季與年會涵蓋同一批 Session，數字也會完全相同。可考慮讓總覽依區間顯示不同的 deterministic 內容（例如日報列出 Session、月／季／年列出各子期間與專案分布）。 |
 | 自訂期間報告 | 提案 | `work_get_report`／報告頁只支援日／週／月／季／年；sprint 或「上次 release 到現在」這類 `from`／`to` 區間尚未支援。 |
 | changedFiles 品質 | 提案（檢索降權在第一階段） | 有「唯讀盤點」Session 記到 41 個 changed files，疑似把既有 dirty worktree 算進去，檢索評估中已實際擠進檔名查詢前 3 名。第一階段先在排序時降權；根本解法仍是在 finalize 記錄 baseline，或在 UI 標示異常。 |
 | finalize 提醒 | 提案 | 目前完全依賴 Agent 記得 finalize；可提供 Claude Code Stop／SessionEnd hook 範例提醒保存。 |
@@ -68,6 +67,7 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **報告總覽依區間顯示不同內容**：總覽原本五種區間用同一個版型、只有數字不同。現在依區間加上 deterministic 的分組：日報列出當日完成的 Session，週報分成每日、月報分成每週（週一起算、以月界截斷）、季報分成每月、年報分成每季，標出最多的一期與有完成工作的期數；各區間都顯示專案占比。只用既有的報告資料（`sessions`、`trends`、`projects`）在前端計算，API 沒有變動。
 - **報告 AI 整理的範圍隔離**：選「所有記錄中專案」時，提煉請求與摘要原本只依區間篩選，同一區間的單一專案 AI 整理會被當成全專案報告顯示，且其待處理請求會擋住建立全專案請求。請求與摘要查詢新增 `scopeType`（REST 同名參數），Web 在未選專案時只取全專案的整理；MCP 行為不變。
 - **Knowledge 候選**（Agent 檢索第二階段）：migration 7 新增 `knowledge_candidate_requests`、`knowledge_candidates`。Agent 以 `work_request_knowledge_candidates` → `work_get_knowledge_candidate_context` → `work_submit_knowledge_candidates` 從專案尚未整理過的 Session（含 raw handoff，40,000 字內）提出候選，每筆附來源 Session 與依據；候選只有在工作知識頁由使用者接受（可先修改）後才寫成 Knowledge，MCP 沒有接受工具。`work_get_context` 的 `pendingRequests` 新增 `knowledgeCandidates`；請求超過 30 分鐘未完成會標為可重新處理。Web：工作知識頁新增「Knowledge 候選」區塊（整理候選、接受、修改後接受、拒絕、查看來源 Session）。
 - **Session 開始時間與最後更新時間**（使用者提出）：migration 6 為 Session 加上 `started_at`、`updated_at`。finalize 可回報 `startedAt`（沒回報時取早於完成時間的最早 event，都沒有就留空，不推測），`work_update_session_metadata` 可補上已確認的開始時間；摘要、workSummary、verification、metadata、作廢、Evidence、關聯等修改都會更新 `updatedAt`，既有資料以修改紀錄回填。Session 詳情顯示開始時間與耗時、完成時間、最後更新，工作歷程列表在完成後有修改時顯示「更新於」。報告與日期篩選仍以完成時間分組。
