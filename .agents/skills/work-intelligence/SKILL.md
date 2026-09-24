@@ -31,6 +31,7 @@ Write:
   - `decisions` / 決策 — explicit technical/product decisions; include rationale only when the source states it.
   - `verification` / 驗證 — commands and actual results, coverage, manual confirmation, failures, and unverified areas.
   - `nextSteps` / 狀態／未結項 — only current known limitations, unresolved items, evidence gaps, or unverified scenarios. Never invent a recommendation, roadmap, or future plan. Use `[]` when none are known.
+- `startedAt`: when this work actually began (for example the first user message of this conversation or the handoff's start), so work that spans days shows both days. Omit it when you do not know; never estimate it. `completedAt` defaults to the finalize time.
 - `verification.status`: the machine-readable result (`passed`, `failed`, or `not_run`). Historical `not_supplied` means the original record omitted the status; do not rewrite it as `not_run` or assume success.
 - Git fields: optional separate metadata containing only observed values. Changed files do not prove a commit.
 - Events and evidence: record only supported facts and keep them separate from the five-section summary.

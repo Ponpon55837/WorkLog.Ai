@@ -78,8 +78,12 @@ export interface WorkSessionRecord {
   workSummary?: WorkSummarySections;
   status: "finalized";
   executionStatus: ExecutionStatus;
+  /** When the work began, if the Agent reported it or an event predates completion; never guessed. */
+  startedAt?: string;
   completedAt: string;
   createdAt: string;
+  /** Last change to the record after finalize (summary, workSummary, verification, metadata, void, evidence, links). */
+  updatedAt: string;
   commitSha?: string;
   gitBranch?: string;
   changedFiles: string[];
@@ -915,6 +919,8 @@ export interface FinalizeSessionInput {
   changedFileChanges?: ChangedFileChange[];
   verification?: VerificationSummary;
   git?: GitSummary;
+  /** When the work began (e.g. the first message of the conversation); must not be after completedAt. */
+  startedAt?: string;
   completedAt?: string;
   /** An earlier Session this one continues (e.g. the planning Session it implements). */
   parentSessionId?: string;
@@ -1015,6 +1021,8 @@ export interface UpdateSessionMetadataInput {
   changedFileChanges?: ChangedFileChange[];
   verification?: VerificationSummary;
   git?: GitSummary;
+  /** Confirmed start of the work; ignored when after completedAt. */
+  startedAt?: string;
 }
 
 export type MetadataBackfillGap = "changed_files" | "verification";
@@ -1360,7 +1368,9 @@ export interface SessionDigest {
   title: string;
   /** Truncated with a trailing "…" when longer than the digest limit. */
   summary: string;
+  startedAt?: string;
   completedAt: string;
+  updatedAt: string;
   gitBranch?: string;
   verificationStatus: ReportVerificationStatus;
   changedFilesCount: number;

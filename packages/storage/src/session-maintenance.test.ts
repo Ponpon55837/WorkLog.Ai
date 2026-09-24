@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FinalizeSessionInput } from "@work-intelligence/core";
 import { WorkIntelligenceStore } from "./store.js";
@@ -289,6 +290,132 @@ describe("linking Sessions", () => {
       store.linkSessions({ sessionId: first, relatedSessionId: second, relation: "related", linked: true }),
     ).toMatchObject({
       outcome: "skipped",
+    });
+  });
+});
+
+describe("Session start and update times", () => {
+  it("keeps a reported start, derives one from earlier events, and never invents one", () => {
+    const { store, root } = setup();
+    const base = {
+      projectRoot: root,
+      summary: "Times.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [],
+      verification: { status: "passed" as const },
+      completedAt: "2030-01-02T09:00:00.000Z",
+    };
+    const finalizeWith = (key: string, extra: Partial<FinalizeSessionInput>) => {
+      const result = store.finalizeSession({ ...base, idempotencyKey: key, title: key, ...extra });
+      if (result.outcome !== "finalized") {
+        throw new Error("Expected finalize");
+      }
+      return result.session;
+    };
+
+    expect(finalizeWith("reported", { startedAt: "2030-01-01T15:00:00.000Z" })).toMatchObject({
+      startedAt: "2030-01-01T15:00:00.000Z",
+      completedAt: "2030-01-02T09:00:00.000Z",
+    });
+    expect(
+      finalizeWith("derived", {
+        events: [
+          { type: "planning", summary: "Planned.", occurredAt: "2030-01-01T20:00:00.000Z" },
+          { type: "execution", summary: "Built.", occurredAt: "2030-01-02T08:00:00.000Z" },
+        ],
+      }).startedAt,
+    ).toBe("2030-01-01T20:00:00.000Z");
+    expect(finalizeWith("after-completion", { startedAt: "2030-01-03T00:00:00.000Z" }).startedAt).toBeUndefined();
+    expect(finalizeWith("unknown", {}).startedAt).toBeUndefined();
+
+    const unknown = store.listSessions({ voided: "include" }).find((session) => session.title === "unknown")!;
+    store.updateSessionMetadata({
+      sessionId: unknown.id,
+      changedFiles: [],
+      changedFilesMode: "merge",
+      startedAt: "2030-01-02T07:30:00.000Z",
+    });
+    expect(store.getSessionById(unknown.id)?.startedAt).toBe("2030-01-02T07:30:00.000Z");
+  });
+
+  it("moves updatedAt forward on every later change but not on finalize", () => {
+    const { store, finalize } = setup();
+    const sessionId = finalize("updates");
+    const other = finalize("other");
+    const created = store.getSessionById(sessionId)!;
+    expect(created.updatedAt).toBe(created.createdAt);
+
+    let last = created.updatedAt;
+    const expectMoved = () => {
+      const now = store.getSessionById(sessionId)!.updatedAt;
+      expect(now >= last).toBe(true);
+      last = now;
+      return now;
+    };
+    const wait = () => {
+      const until = Date.now() + 5;
+      while (Date.now() < until) {
+        // Timestamps have millisecond precision; make each change observable.
+      }
+    };
+
+    wait();
+    store.updateSessionSummary({ sessionId, idempotencyKey: "u-1", mode: "append", summary: "Follow-up." });
+    expect(expectMoved() > created.updatedAt).toBe(true);
+    wait();
+    store.attachEvidence({ sessionId, kind: "command", reference: "pnpm test" });
+    const afterEvidence = expectMoved();
+    wait();
+    store.linkSessions({ sessionId, relatedSessionId: other, relation: "related", linked: true });
+    expect(expectMoved() > afterEvidence).toBe(true);
+    expect(store.getSessionById(other)!.updatedAt).toBe(last);
+    wait();
+    store.updateSessionVerification(sessionId, { status: "passed" }, "web");
+    expect(expectMoved() > afterEvidence).toBe(true);
+  });
+
+  it("backfills start and update times for Sessions written before the migration", () => {
+    const databasePath = join(mkdtempSync(join(tmpdir(), "work-intelligence-times-")), "times.sqlite");
+    tempDirs.push(dirname(databasePath));
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-times-root-"));
+    tempDirs.push(root);
+    const store = new WorkIntelligenceStore(databasePath);
+    const project = store.addProject("Times", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "legacy-times",
+      title: "Legacy",
+      summary: "Legacy.",
+      changedFiles: [],
+      verification: { status: "passed" },
+      events: [{ type: "planning", summary: "Planned.", occurredAt: "2020-01-01T00:00:00.000Z" }],
+    });
+    if (finalized.outcome !== "finalized") {
+      throw new Error("Expected finalize");
+    }
+    store.updateSessionSummary({
+      sessionId: finalized.session.id,
+      idempotencyKey: "legacy-edit",
+      mode: "append",
+      summary: "Edited later.",
+    });
+    const editedAt = store.getSessionById(finalized.session.id)!.updatedAt;
+    store.close();
+
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      ALTER TABLE sessions DROP COLUMN started_at;
+      ALTER TABLE sessions DROP COLUMN updated_at;
+      DELETE FROM schema_migrations WHERE version = 6;
+    `);
+    database.close();
+
+    const reopened = new WorkIntelligenceStore(databasePath);
+    stores.push(reopened);
+    expect(reopened.getSessionById(finalized.session.id)).toMatchObject({
+      startedAt: "2020-01-01T00:00:00.000Z",
+      updatedAt: editedAt,
     });
   });
 });
