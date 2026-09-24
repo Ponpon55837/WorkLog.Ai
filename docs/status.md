@@ -66,6 +66,7 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **圖譜跨頁的 Session 關聯**：分頁取回圖譜時，只要關聯的一端在該頁就送出 `session_link`（另一端必須是範圍內的有效 Session），Web 合併各頁後即可畫出兩端落在不同頁的關聯。
 - **保存提醒 hook**：新增 Claude Code Stop hook（`apps/mcp/dist/finalize-reminder.js`）。在記錄中的專案裡，上次保存後又用 Edit／Write 類工具改了檔案、這一輪結束卻沒保存時提醒 Agent 一次（同一段工作只提醒一次，`stop_hook_active` 時不再擋）；唯讀查專案清單、判斷失敗一律放行。設定方式見 agent-setup。
 - **加入專案改為選擇資料夾**（使用者提出）：「加入專案」對話框新增「選擇資料夾」，由本機 API server 叫出作業系統的選擇資料夾視窗（macOS `osascript`、Windows PowerShell、Linux `zenity`／`kdialog`），選完自動填入路徑，名稱空白時以資料夾名稱帶入；仍可手動輸入。新增 `POST /api/system/pick-folder`，指令固定、不經過 shell，區分「取消」與「無法開啟」，同時只開一個視窗。
 - **資料庫備份與換電腦**（使用者提出）：API server 每天自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700、保留 14 份）；專案頁新增「資料備份」分頁，可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。

@@ -256,7 +256,7 @@ Server instructions 只放路由規則；Work record、Report synthesis、Metada
 
 連結兩筆 tracked Session（`sessionId`、`relatedSessionId`、`relation`、`linked`）。`relation: "continues"` 表示 `sessionId` 接續 `relatedSessionId` 的工作（例如實作接續規劃）；`related` 是一般關聯。同一對 Session 只有一個關聯，新的 relation 會取代舊的；`linked: false` 移除。finalize 時也可以直接帶 `parentSessionId`（這筆接續的 Session）與 `relatedSessionIds`；無法建立的關聯（不存在、非 tracked、自己連自己）會列在回傳的 `linkWarnings`，不影響 Session 保存。
 
-關聯會出現在 `work_get_session` 的 `links`（從該 Session 看是 `continues`／`continued_by`／`related`，已作廢的會標 `voided`）、`work_recall` Session hit 的 `related`（不含已作廢）與圖譜的 `session_link` 連線（兩端 Session 需在同一次回傳中）。只在使用者或記錄本身能確認關係時才連結。
+關聯會出現在 `work_get_session` 的 `links`（從該 Session 看是 `continues`／`continued_by`／`related`，已作廢的會標 `voided`）、`work_recall` Session hit 的 `related`（不含已作廢）與圖譜的 `session_link` 連線（分頁取回時，只要一端在該頁就會送出這條連線，另一端的 Session 節點可能在其他頁；合併各頁後即可畫出）。只在使用者或記錄本身能確認關係時才連結。
 
 ```json
 { "sessionId": "implementation-session-id", "relatedSessionId": "planning-session-id", "relation": "continues" }
