@@ -126,7 +126,39 @@ export interface SessionDetail {
   voidHistory: VoidAuditRecord[];
   /** Verification corrections after finalize, newest first. */
   verificationHistory: VerificationUpdateRecord[];
+  /** Sessions linked to this one (planning ↔ implementation, follow-ups), oldest first. */
+  links: SessionLinkRecord[];
 }
+
+/** Stored relation: `continues` means the Session continues the other one's work (e.g. implements its plan). */
+export type SessionLinkRelation = "continues" | "related";
+
+/** A link as seen from one Session: it continues the other, is continued by it, or is related. */
+export type SessionLinkDirection = "continues" | "continued_by" | "related";
+
+export interface SessionLinkRecord {
+  sessionId: string;
+  title: string;
+  projectName?: string;
+  completedAt: string;
+  relation: SessionLinkDirection;
+  /** The linked Session was voided; it stays listed here but leaves recall. */
+  voided?: boolean;
+}
+
+export interface LinkSessionsInput {
+  sessionId: string;
+  relatedSessionId: string;
+  relation: SessionLinkRelation;
+  /** false removes any link between the two Sessions. */
+  linked: boolean;
+}
+
+export type LinkSessionsResult =
+  | { outcome: "session_link_updated"; duplicate: boolean; sessionId: string; links: SessionLinkRecord[] }
+  | { outcome: "not_found"; sessionId: string }
+  | { outcome: "invalid_link"; sessionId: string; reason: string }
+  | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
 
 export type VerificationUpdateSource = "web" | "agent";
 
@@ -367,7 +399,7 @@ export type KnowledgeHistoryResult =
 
 export const GRAPH_NODE_KINDS = ["project", "session", "knowledge", "evidence", "file"] as const;
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
-export const GRAPH_EDGE_KINDS = ["contains", "changed_file", "has_knowledge", "has_evidence"] as const;
+export const GRAPH_EDGE_KINDS = ["contains", "changed_file", "has_knowledge", "has_evidence", "session_link"] as const;
 export type GraphEdgeKind = (typeof GRAPH_EDGE_KINDS)[number];
 
 export interface GraphNode {
@@ -846,6 +878,9 @@ export interface FinalizeSessionInput {
   verification?: VerificationSummary;
   git?: GitSummary;
   completedAt?: string;
+  /** An earlier Session this one continues (e.g. the planning Session it implements). */
+  parentSessionId?: string;
+  relatedSessionIds?: string[];
 }
 
 export interface UpdateSessionVerificationInput {
@@ -868,6 +903,8 @@ export interface FinalizedSessionResult {
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
   workSummaryFollowUp?: WorkSummaryFollowUp;
+  /** Requested links that were not created (unknown, non-tracked, or same Session). */
+  linkWarnings?: string[];
 }
 
 export interface FinalizeIdempotencyConflictResult {
@@ -1358,6 +1395,8 @@ export interface RecallHit {
   /** Stored paths that matched the queried paths. */
   matchedPaths?: string[];
   score: number;
+  /** Linked, non-voided Sessions (planning ↔ implementation), so one hit leads to the other. */
+  related?: Array<{ id: string; title: string; relation: SessionLinkDirection }>;
 }
 
 /** Per query word: how many in-scope records contain all of its terms. */

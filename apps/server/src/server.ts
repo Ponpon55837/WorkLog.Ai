@@ -28,6 +28,7 @@ import {
   sessionsQuerySchema,
   setEvidenceVoidInputSchema,
   setSessionVoidInputSchema,
+  linkSessionsInputSchema,
   updateSessionVerificationInputSchema,
   updateProjectInputSchema,
   updateKnowledgeInputSchema,
@@ -717,6 +718,27 @@ export function createApiHandler(store: WorkIntelligenceStore) {
           return;
         }
         sendJson(response, 200, store.attachEvidence(parsed.data));
+        return;
+      }
+
+      if (
+        (request.method === "POST" || request.method === "DELETE") &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "sessions" &&
+        pathParts[2] &&
+        pathParts[3] === "links"
+      ) {
+        const body = request.method === "POST" ? ((await readJsonBody(request)) as Record<string, unknown>) : {};
+        const parsed = linkSessionsInputSchema.safeParse({
+          ...body,
+          ...(request.method === "DELETE" ? { relatedSessionId: pathParts[4], linked: false } : { linked: true }),
+          sessionId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid session link payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.linkSessions(parsed.data, "web"));
         return;
       }
 

@@ -197,3 +197,98 @@ describe("correcting verification", () => {
     ]);
   });
 });
+
+describe("linking Sessions", () => {
+  it("links a planning Session to its implementation both ways and surfaces the link in recall and the graph", () => {
+    const { store, root, finalize } = setup();
+    const plan = finalize("plan", { title: "Plan the pollination scheduler" });
+    const build = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "build",
+      title: "Implement the pollination scheduler",
+      summary: "Built it.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [],
+      verification: { status: "passed" },
+      parentSessionId: plan,
+      relatedSessionIds: ["missing-session"],
+    });
+    if (build.outcome !== "finalized") {
+      throw new Error("Expected finalize");
+    }
+    expect(build.linkWarnings).toEqual(["missing-session: The related Session does not exist."]);
+
+    expect(store.getSessionDetail(build.session.id)?.links).toEqual([
+      expect.objectContaining({ sessionId: plan, relation: "continues" }),
+    ]);
+    expect(store.getSessionDetail(plan)?.links).toEqual([
+      expect.objectContaining({ sessionId: build.session.id, relation: "continued_by" }),
+    ]);
+
+    const recall = store.recall({ q: "plan pollination" });
+    const planHit = recall.outcome === "recall" ? recall.hits.find((hit) => hit.id === plan) : undefined;
+    expect(planHit?.related).toEqual([
+      { id: build.session.id, title: "Implement the pollination scheduler", relation: "continued_by" },
+    ]);
+
+    const graph = store.getGraph({});
+    expect(graph.outcome === "graph" && graph.edges.filter((edge) => edge.kind === "session_link")).toEqual([
+      expect.objectContaining({ from: `session:${plan}`, to: `session:${build.session.id}` }),
+    ]);
+
+    store.setSessionVoid({ sessionId: build.session.id, voided: true, reason: "test" });
+    const afterVoid = store.recall({ q: "plan pollination" });
+    expect(afterVoid.outcome === "recall" && afterVoid.hits.find((hit) => hit.id === plan)?.related).toBeUndefined();
+    expect(store.getSessionDetail(plan)?.links[0]).toMatchObject({ voided: true });
+  });
+
+  it("replaces, removes, and rejects links", () => {
+    const { store, projectId, finalize } = setup();
+    const first = finalize("first");
+    const second = finalize("second");
+
+    expect(
+      store.linkSessions({ sessionId: first, relatedSessionId: second, relation: "related", linked: true }),
+    ).toMatchObject({
+      outcome: "session_link_updated",
+      duplicate: false,
+      links: [expect.objectContaining({ sessionId: second, relation: "related" })],
+    });
+    expect(
+      store.linkSessions({ sessionId: first, relatedSessionId: second, relation: "related", linked: true }),
+    ).toMatchObject({
+      duplicate: true,
+    });
+    expect(
+      store.linkSessions({ sessionId: second, relatedSessionId: first, relation: "continues", linked: true }, "web"),
+    ).toMatchObject({
+      duplicate: false,
+      links: [expect.objectContaining({ sessionId: first, relation: "continues" })],
+    });
+    expect(store.getSessionDetail(first)?.links).toEqual([expect.objectContaining({ relation: "continued_by" })]);
+
+    expect(
+      store.linkSessions({ sessionId: first, relatedSessionId: second, relation: "related", linked: false }),
+    ).toMatchObject({
+      duplicate: false,
+      links: [],
+    });
+    expect(
+      store.linkSessions({ sessionId: first, relatedSessionId: first, relation: "related", linked: true }),
+    ).toMatchObject({
+      outcome: "invalid_link",
+    });
+    expect(
+      store.linkSessions({ sessionId: "missing", relatedSessionId: first, relation: "related", linked: true }),
+    ).toEqual({
+      outcome: "not_found",
+      sessionId: "missing",
+    });
+    store.updateProject(projectId, { status: "paused" });
+    expect(
+      store.linkSessions({ sessionId: first, relatedSessionId: second, relation: "related", linked: true }),
+    ).toMatchObject({
+      outcome: "skipped",
+    });
+  });
+});
