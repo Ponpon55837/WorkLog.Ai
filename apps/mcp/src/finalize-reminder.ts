@@ -91,32 +91,34 @@ export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | 
   return deps.markOnce(`${input.session_id}:${lastFinalize}`) ? REMINDER : null;
 }
 
-function databasePath(): string {
+export function databasePath(): string {
   return (
     process.env.WORK_INTELLIGENCE_DB ??
     resolve(dirname(fileURLToPath(import.meta.url)), "../../../data", "work-intelligence.sqlite")
   );
 }
 
+export function readTrackedRoots(): string[] {
+  const path = databasePath();
+  if (!existsSync(path)) {
+    return [];
+  }
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return (
+      db.prepare("SELECT root_path FROM projects WHERE status = 'tracked'").all() as Array<{
+        root_path: string;
+      }>
+    ).map((row) => row.root_path);
+  } finally {
+    db.close();
+  }
+}
+
 const defaultDeps: ReminderDeps = {
   readTranscript: (path) => readFileSync(path, "utf8"),
   realpath: (path) => realpathSync(path),
-  trackedRoots: () => {
-    const path = databasePath();
-    if (!existsSync(path)) {
-      return [];
-    }
-    const db = new DatabaseSync(path, { readOnly: true });
-    try {
-      return (
-        db.prepare("SELECT root_path FROM projects WHERE status = 'tracked'").all() as Array<{
-          root_path: string;
-        }>
-      ).map((row) => row.root_path);
-    } finally {
-      db.close();
-    }
-  },
+  trackedRoots: readTrackedRoots,
   markOnce: (key) => {
     // One directory per user: /tmp is shared on Linux, and another user must not own our markers.
     const user = createHash("sha256").update(userInfo().username).digest("hex").slice(0, 12);

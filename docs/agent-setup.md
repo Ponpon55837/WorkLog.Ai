@@ -72,7 +72,9 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 
 ### 保存提醒（選用）
 
-工作記錄要靠 Agent 記得保存。Claude Code 可以加一個 Stop hook：在「記錄中」的專案裡，Agent 上次保存之後又改了檔案、這一輪結束卻還沒保存時，提醒它一次；同一段工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
+工作記錄要靠 Agent 記得保存。Claude Code 與 Codex 都能加 Stop hook：在「記錄中」的專案裡，Agent 上次保存之後又改了檔案、這一輪結束卻還沒保存時，提醒它一次；同一段未保存工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
+
+#### Claude Code
 
 先執行 `pnpm build`，再把下面的設定加到 `~/.claude/settings.json`（路徑換成你的 repo 位置）：
 
@@ -97,7 +99,16 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 - 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
 - 「改了檔案」以 Edit／Write／MultiEdit／NotebookEdit 判斷；只用 Bash 改檔不會觸發。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
-- Codex 目前沒有對應的 hook，依 `work-intelligence` skill 的規則保存。
+
+#### Codex
+
+本 repo 已附上專案層級的 `.codex/hooks.json` 與 `apps/mcp/src/codex-finalize-reminder.ts`。它在 Codex 使用 `apply_patch` 改檔後標記未保存工作；成功呼叫 `work_finalize_session` 會清除標記；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。
+
+先執行 `pnpm --filter @work-intelligence/mcp build`，讓 hook script 出現在 `apps/mcp/dist/`。重新載入專案後，在 Codex 輸入 `/hooks`，檢查並信任 Work Intelligence 保存提醒 hook；Codex 會先略過尚未信任的專案 hook。
+
+- 只讀取專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置可用 `WORK_INTELLIGENCE_DB` 指定。
+- hook marker 僅存放在目前使用者的暫存目錄，以權限 `0700` 建立資料夾、`0600` 建立標記檔；不儲存 Session 內容。
+- 只要讀不到資料或判斷失敗，就放行 Codex。
 
 ## Claude Desktop
 
