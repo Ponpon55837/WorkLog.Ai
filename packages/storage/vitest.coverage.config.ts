@@ -1,8 +1,10 @@
 import { defineConfig } from "vitest/config";
+import { storageTestTimeout } from "./vitest.config";
 
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
+    testTimeout: storageTestTimeout,
     coverage: {
       enabled: true,
       provider: "v8",
