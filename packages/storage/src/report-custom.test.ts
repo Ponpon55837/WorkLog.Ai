@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkIntelligenceStore } from "./store.js";
 
 // Fictional fixtures only. Storage tests run with TZ=UTC, so calendar days match the ISO dates.
@@ -9,6 +9,7 @@ const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const store of stores.splice(0)) {
     store.close();
   }
@@ -67,5 +68,56 @@ describe("custom-range reports", () => {
     const exported = store.exportReport({ period: "week", from: "2030-01-01", to: "2030-01-14", format: "markdown" });
     expect(exported).toMatchObject({ filename: "work-report-custom-2030-01-01-to-2030-01-14-all-projects.md" });
     expect(exported.outcome === "report_export" ? exported.content : "").toContain("報告類型：自訂期間");
+  });
+});
+
+describe("work that crosses the report period", () => {
+  it("lists earlier starts, later completions and later corrections without counting them twice", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-spanning-"));
+    tempDirs.push(root);
+    const store = new WorkIntelligenceStore(":memory:");
+    stores.push(store);
+    const project = store.addProject("Apiary", root);
+    store.updateProject(project.id, { status: "tracked" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const finalize = (key: string, now: string, startedAt: string | undefined, completedAt: string) => {
+      vi.setSystemTime(new Date(now));
+      const result = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: key,
+        summary: "Tended the hives.",
+        verification: { status: "passed" },
+        changedFiles: [],
+        ...(startedAt ? { startedAt } : {}),
+        completedAt,
+      });
+      if (result.outcome !== "finalized") {
+        throw new Error("Expected finalize");
+      }
+      return result.session.id;
+    };
+    // The period is 2030-01-05 .. 2030-01-11.
+    finalize("started-earlier", "2030-01-06T12:00:00Z", "2030-01-03T09:00:00Z", "2030-01-06T12:00:00Z");
+    finalize("continued-later", "2030-01-13T12:00:00Z", "2030-01-10T09:00:00Z", "2030-01-13T12:00:00Z");
+    const corrected = finalize("corrected", "2030-01-02T12:00:00Z", undefined, "2030-01-02T12:00:00Z");
+    // Imported during the period for older work: created, not corrected, in the period.
+    finalize("imported", "2030-01-08T12:00:00Z", undefined, "2029-12-20T12:00:00Z");
+    vi.setSystemTime(new Date("2030-01-09T12:00:00Z"));
+    store.updateSessionSummary({
+      sessionId: corrected,
+      idempotencyKey: "correct-summary",
+      summary: "Tended the hives, corrected.",
+      mode: "replace",
+    });
+
+    const report = store.getReport({ period: "week", from: "2030-01-05", to: "2030-01-11" });
+    if (report.outcome !== "report") {
+      throw new Error("Expected a report");
+    }
+    expect(report.totals.sessions).toBe(1);
+    expect(report.spanning.startedEarlier.map((session) => session.title)).toEqual(["started-earlier"]);
+    expect(report.spanning.continuedLater.map((session) => session.title)).toEqual(["continued-later"]);
+    expect(report.spanning.updatedInPeriod.map((session) => session.title)).toEqual(["corrected"]);
   });
 });

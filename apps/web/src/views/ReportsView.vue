@@ -14,7 +14,12 @@ import {
   TrendingUp,
   TriangleAlert,
 } from "lucide-vue-next";
-import type { ReportEvidence, ReportExportFormat, WorkSessionRecord } from "@work-intelligence/core";
+import type {
+  ReportEvidence,
+  ReportExportFormat,
+  ReportSpanningSession,
+  WorkSessionRecord,
+} from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import ReportPeriodBreakdown from "../components/domain/ReportPeriodBreakdown.vue";
@@ -29,6 +34,7 @@ import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
 import UiDateRangeMenu from "../components/ui/UiDateRangeMenu.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
+import UiGroupLabel from "../components/ui/UiGroupLabel.vue";
 import UiIconButton from "../components/ui/UiIconButton.vue";
 import UiLabel from "../components/ui/UiLabel.vue";
 import UiPagination from "../components/ui/UiPagination.vue";
@@ -209,6 +215,34 @@ const trend = computed(() => {
   };
 });
 
+const spanningGroups = computed(() => {
+  const spanning = report.value?.spanning;
+  const project = (item: ReportSpanningSession) => (item.projectName ? `${item.projectName} · ` : "");
+  return [
+    {
+      key: "startedEarlier",
+      title: "更早開始、在這段期間完成",
+      items: spanning?.startedEarlier ?? [],
+      meta: (item: ReportSpanningSession) => `${project(item)}開始於 ${formatDate(item.startedAt ?? item.completedAt)}`,
+    },
+    {
+      key: "continuedLater",
+      title: "在這段期間開始、之後才完成",
+      items: spanning?.continuedLater ?? [],
+      meta: (item: ReportSpanningSession) =>
+        `${project(item)}開始於 ${formatDate(item.startedAt ?? item.completedAt)} · 完成於 ${formatDate(item.completedAt)}`,
+    },
+    {
+      key: "updatedInPeriod",
+      title: "更早完成、在這段期間修改",
+      items: spanning?.updatedInPeriod ?? [],
+      meta: (item: ReportSpanningSession) =>
+        `${project(item)}完成於 ${formatDate(item.completedAt)} · 更新於 ${formatDate(item.updatedAt)}`,
+    },
+  ];
+});
+const spanningCount = computed(() => spanningGroups.value.reduce((total, group) => total + group.items.length, 0));
+
 const evidenceKindItems = [
   { value: "" as const, label: "所有類型" },
   ...(Object.keys(evidenceKindLabels) as ReportEvidence["kind"][]).map((kind) => ({
@@ -377,13 +411,34 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           @open="openSession($event, report.completedWork)"
         />
       </UiBox>
-      <UiBox padded>
-        <template #header><UiBoxTitle eyebrow="Verification" title="驗證狀態" /></template>
-        <VerificationBreakdown :counts="verificationCounts" />
-        <p class="reports__note">
-          未回報代表沒有結構化 verification；未執行代表 Agent 明確表示尚未驗證。報告不會替 Agent 推測驗證結果。
-        </p>
-      </UiBox>
+      <div class="reports__side">
+        <UiBox padded>
+          <template #header><UiBoxTitle eyebrow="Verification" title="驗證狀態" /></template>
+          <VerificationBreakdown :counts="verificationCounts" />
+          <p class="reports__note">
+            未回報代表沒有結構化 verification；未執行代表 Agent 明確表示尚未驗證。報告不會替 Agent 推測驗證結果。
+          </p>
+        </UiBox>
+        <UiBox v-if="spanningCount > 0" data-testid="report-spanning">
+          <template #header><UiBoxTitle eyebrow="Across periods" title="跨期工作" :count="spanningCount" /></template>
+          <template v-for="group in spanningGroups" :key="group.key">
+            <template v-if="group.items.length">
+              <UiGroupLabel>{{ group.title }}</UiGroupLabel>
+              <UiBoxRow
+                v-for="item in group.items"
+                :key="`${group.key}-${item.id}`"
+                clickable
+                :title="item.title"
+                :meta="group.meta(item)"
+                @select="openSessionDetail(item.id)"
+              />
+            </template>
+          </template>
+          <p class="reports__spanning-note">
+            數字只計算這段期間完成的 Session；這裡列出跨越期間邊界的工作，不重複計算。
+          </p>
+        </UiBox>
+      </div>
     </section>
 
     <section
@@ -594,6 +649,24 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-4);
+}
+
+.reports__side {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
+
+.reports__side > .ui-box + .ui-box {
+  margin-top: 0;
+}
+
+.reports__spanning-note {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-muted);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
 .reports__summary {

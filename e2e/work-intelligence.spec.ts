@@ -632,6 +632,22 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   // Opt-in visual baseline: UI_SCREENSHOTS=<label> pnpm test:e2e writes docs/ui-baseline/<label>/*.png
+  test("lists work that started before the report period", async ({ page, request }) => {
+    await postJson(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-spanning-${process.pid}`,
+      title: "Long-running fixture work",
+      summary: "Started ten days ago and finished today.",
+      changedFiles: [],
+      verification: { status: "passed" },
+      startedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    await page.goto("/reports/work?period=week");
+    const spanning = page.getByTestId("report-spanning");
+    await expect(spanning).toContainText("更早開始、在這段期間完成");
+    await expect(spanning).toContainText("Long-running fixture work");
+  });
+
   test("shows Agent-proposed Knowledge as soon as the Agent submits it, and accepts it", async ({ page }) => {
     await page.goto("/knowledge");
     const candidates = page.getByTestId("knowledge-candidates");
