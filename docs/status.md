@@ -60,10 +60,15 @@
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
 | changedFiles 品質 | 提案（檢索降權在第一階段） | 有「唯讀盤點」Session 記到 41 個 changed files，疑似把既有 dirty worktree 算進去，檢索評估中已實際擠進檔名查詢前 3 名。第一階段先在排序時降權；根本解法仍是在 finalize 記錄 baseline，或在 UI 標示異常。 |
-| 工程整理 | 提案 | `store.ts` 仍約 4,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；schema 版本表已加入（`schema_migrations`），既有的欄位補齊檢查仍留在 `store.ts`。 |
+| 即時更新新的 Session | 提案 | 目前只有進行中的 Agent 請求（報告整理、Knowledge 候選、metadata 回補）會自動檢查；Agent 新存的 Session 要手動重新整理才會出現。建議以 `PRAGMA data_version` 偵測寫入並用 SSE 推送「有變化」訊號（見 `.openspec/handoffs/2026-09-24-claude-to-codex.md`）。 |
+| 自訂期間的 AI 整理 | 限制 | `report_synthesis_requests`／`report_summaries` 的 `period` 有 CHECK 限制，自訂期間無法建立整理請求；支援需要 migration 重建兩張表。 |
+| 報告 Session 上限 | 限制 | 報告取 Session 的上限是 200 筆，很長的自訂期間或年報可能被截斷且沒有標示。 |
+| 測試缺口 | 待補 | Knowledge 候選的「修改後接受」「拒絕」沒有 E2E；Web 沒有單元測試；原生選擇資料夾視窗只在 macOS 以 `osacompile` 確認語法，Windows／Linux 未實機驗證；備份還原未在 Windows 實機手動驗證。 |
+| 工程整理 | 提案 | `store.ts` 目前約 5,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；schema 版本表已加入（`schema_migrations`），既有的欄位補齊檢查仍留在 `store.ts`。 |
 
 ## 最近完成（2026-09-23～24）
 
+- **報告的跨期工作**：報告新增 `spanning`，列出在期間內完成但更早開始、在期間內開始但之後才完成、更早完成但在期間內修改（比 finalize 晚一分鐘以上）的 Session；統計數字仍只算期間內完成的 Session。報告頁「工作」分頁與 Markdown 匯出都會顯示。
 - **自訂期間報告**：報告查詢（REST、MCP `work_get_report`／`work_export_report`、Web）接受 `from`／`to`（最長 366 天），回傳 `period: "custom"`，上一期為緊接在前的同樣天數，超過 92 天趨勢以月份為單位。報告頁新增「自訂」區間與日期範圍選擇，總覽依長度按日／週／月分組。自訂期間暫不支援 AI 整理：synthesis 的資料表以 CHECK 限制 period，支援需要重建資料表，先在 UI 說明。
 - **列表搜尋改為多關鍵字**：Web 的 Session 列表、Knowledge 搜尋與 `work_search_knowledge` 原本把整句當成一個 LIKE。現在依空白拆詞（雙引號可保留片語），每個詞都要出現在某個欄位；Session 另外比對五段 workSummary 與 changed files（以 `json_each` 只比對內容，不會因欄位名稱如 decisions 命中每一筆）。列表維持時間排序與分頁，排序檢索仍由 Agent 的 `work_recall` 負責（評估的 S1 策略：0 筆題數 31→16）。
 - **圖譜跨頁的 Session 關聯**：分頁取回圖譜時，只要關聯的一端在該頁就送出 `session_link`（另一端必須是範圍內的有效 Session），Web 合併各頁後即可畫出兩端落在不同頁的關聯。
