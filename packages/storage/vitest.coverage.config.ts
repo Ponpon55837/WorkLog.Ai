@@ -1,17 +1,18 @@
 import { defineConfig } from "vitest/config";
-import { storageTestTimeout } from "./vitest.config";
+import { storageAliases, storageTestTimeout } from "./vitest.config";
 
 export default defineConfig({
+  resolve: { alias: storageAliases },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["tests/storage/**/*.test.ts"],
     testTimeout: storageTestTimeout,
     env: { TZ: "UTC" },
     coverage: {
       enabled: true,
       provider: "v8",
       reporter: ["text", "json-summary"],
-      include: ["src/handoff-parser.ts"],
-      exclude: ["src/**/*.test.ts"],
+      include: ["packages/storage/src/handoff-parser.ts"],
+      exclude: ["tests/storage/**/*.test.ts"],
       thresholds: {
         statements: 85,
         branches: 70,

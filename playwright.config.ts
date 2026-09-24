@@ -20,7 +20,7 @@ const browserExecutablePath = chromeCandidates.find((candidate) => fs.existsSync
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./tests/e2e",
   timeout: 30_000,
   expect: {
     timeout: 8_000,
