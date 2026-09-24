@@ -16,6 +16,9 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **報告日期改用系統時區**（PR #10）：報告、趨勢與工作歷程日期篩選改依 server 所在系統時區計算，報告回傳 `timezone`，報告頁頁首顯示時區名稱。另外修正搜尋把 `%`、`_` 當萬用字元的問題，API 拒絕非 loopback 的 `Host`（防 DNS rebinding），Prettier 改為檢查全專案。
+- **MCP 補強**：新增 `work_get_project_status`（唯讀記錄狀態）、`work_list_sessions`、`work_get_session`、`work_request_report_synthesis`、`work_request_metadata_backfill`；`work_get_context` 多回傳 `pendingRequests`。所有工具加上 MCP annotations，新增 `finalize-work`／`synthesize-report` prompts。Server instructions 精簡為路由規則（原本會被用戶端截斷），三份 contract 只附在負責寫入的工具上。
+
 - **只顯示 tracked 專案的 Session**：Dashboard 的 Session／事件計數、最近完成的工作與工作歷程列表（`/api/sessions`）都排除已暫停、忽略的專案；資料仍保留在 SQLite，恢復記錄中後會再出現。這也修正了列表會列出、但點進去詳情卻 404 的不一致。
 - **圖譜節點面板改為覆蓋**：面板覆蓋在圖譜右側，不再把圖譜往左推，欄寬維持不變；畫布右側多出可捲動空間，選取的節點會自動捲到面板左側。
 - **資料盤點**：2 個 tracked 專案（DevTools、Assistant）共 62 筆 Session 全部有五段 workSummary。修正 5 筆重複或放錯區段的內容，只重新安排既有句子，沒有加入新內容。報告摘要目前有 3 份現行版本，全部是 `report-synthesis-v3`，每個區塊都有可對應的 `sourceSessionIds`。

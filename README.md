@@ -62,8 +62,8 @@ Claude Desktop 設定、驗證方式與常見問題見 **[docs/agent-setup.md](d
 |---|---|---|
 | 保存這次工作 | 「完成了，請把這次工作記錄到 Work Intelligence。」 | — |
 | 取回專案脈絡 | 「先看一下 Work Intelligence 裡這個專案最近做了什麼。」 | 工作歷程、工作知識 |
-| 整理報告 | 「請處理我剛在 Work Intelligence 建立的報告提煉請求。」 | 工作報告 →「請 Agent 整理這份報告」 |
-| 補齊缺漏的 metadata | 「請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。」 | 專案 → Metadata 回補 →「掃描 metadata 缺口」 |
+| 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立） | 工作報告 →「請 Agent 整理這份報告」 |
+| 補齊缺漏的 metadata | 「幫我補齊 Work Intelligence 的 metadata 缺口。」（沒有請求時 Agent 會自己建立） | 專案 → Metadata 回補 →「掃描 metadata 缺口」 |
 | 修正已保存的摘要 | 「幫我修正上一筆 Session 的摘要：……」 | — |
 | 匯入歷史 handoff | 「幫我預覽這個專案可以匯入的 handoff。」 | 專案 → Handoff 匯入 |
 

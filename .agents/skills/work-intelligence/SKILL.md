@@ -12,7 +12,7 @@ For the canonical field definitions, reporting granularity, and examples, read [
 ## Privacy and project policy
 
 - Project recording is explicit opt-in and default-deny. A project must be `tracked` before any project-scoped source, handoff, Git/worktree, or evidence inspection or write.
-- Before reading project files outside MCP, use the project-scoped policy-gated context lookup. If the result is `outcome: "skipped"`, or tracking cannot be confirmed, stop without inspecting or writing project data. Do not scan for handoffs or Git metadata first.
+- Before reading project files outside MCP, check the workspace's recording status (the read-only project status lookup, or the project-scoped context lookup). If it is not tracked, or the result is `outcome: "skipped"`, or tracking cannot be confirmed, stop without inspecting or writing project data. Do not scan for handoffs or Git metadata first.
 - `unregistered`, `paused`, and `ignored` are quiet skips. Do not create a Session, event, snapshot, metadata, evidence, Knowledge, or report source from them. Ask the user to enable tracking only when needed to explain why no record was made.
 - Prefer MCP operations that enforce the policy gate. Honor every skipped result; never retry through direct filesystem access.
 
@@ -45,13 +45,13 @@ Never create a replacement Session just to fix its text or metadata.
 - For `workSummary`, use `patch` when changing only confirmed sections and preserve every omitted section. Use `replace` only when supplying all five arrays. An explicit `[]` clears that section. Use a distinct idempotency key for this operation.
 - Preserve the Session ID, original finalize key, events, raw handoff snapshot, changed files and provenance, verification, Git metadata, evidence, and Knowledge unless the specific update contract says otherwise.
 - Evidence is not a substitute for correcting the main summary or structured workSummary.
-- For metadata-backfill requests, inspect the tracked project's actual diff/worktree or available handoff evidence before applying changes. Update only confirmed changed files, verification, provenance, or Git metadata. If no files were intentionally changed, explicitly use an empty replacement list; do not infer file changes from a commit or summary. Keep missing verification distinct from `not_run`.
+- For metadata-backfill requests, inspect the tracked project's actual diff/worktree or available handoff evidence before applying changes. Update only confirmed changed files, verification, provenance, or Git metadata. If no files were intentionally changed, explicitly use an empty replacement list; do not infer file changes from a commit or summary. Keep missing verification distinct from `not_run`. When the user asks to fill metadata gaps and no request is pending, create one yourself (same scope rules as the Projects page); if nothing needs backfilling, say so.
 
 ## Synthesize a report
 
 When the user asks to organize or refine a Work Intelligence report, handle the pending request end-to-end without exposing internal tool names or request IDs:
 
-1. Find the newest applicable pending report-synthesis request. If there is no request, tell the user in plain language that a report request needs to be created in Work Intelligence first.
+1. Find the newest applicable pending report-synthesis request. If there is none, create one yourself for the period and scope the user asked for (default: this week, all tracked projects) — the user does not need to open the Web UI first.
 2. Obtain that request's bounded deterministic context. If the request timed out or was interrupted, use the supported retry operation before getting fresh context. Do not retry a still-processing request or work from a stale context.
 3. Read source Sessions directly and synthesize across the entire requested period; do not create weekly reports from daily summaries or annual reports from monthly summaries. Use the period's correct grain: daily Task/Feature/Issue; weekly Feature/Workstream; monthly Project/Milestone; quarterly Initiative; annual Major Contribution.
 4. Write the period and scope plus an outcome-first executive summary. Use themes for work groups, highlights for outcomes, verification for exact status/evidence, comparison only with deterministic prior-period data, risks only when evidenced, decisions only when explicit, and `nextSteps` only for current status/open items/limitations.
@@ -59,6 +59,8 @@ When the user asks to organize or refine a Work Intelligence report, handle the 
 6. Every material report block must include its supporting `sourceSessionIds`; the top-level source list must include the Sessions actually used. Validate source IDs against the request context before saving. Preserve prior report versions as the product contract requires; do not delete them as part of synthesis.
 
 ## Context, search, and Knowledge
+
+To find a specific Session (for example before correcting it), list or search Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.
 
 Use saved Work Intelligence context and search for questions about recorded work; constrain queries to the requested tracked project when appropriate. Do not substitute an unrestricted repository scan for missing recorded context. Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; do not turn guesses or an entire Session transcript into Knowledge.
 

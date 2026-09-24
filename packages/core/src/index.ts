@@ -1210,6 +1210,11 @@ export interface ContextResult {
   recentDecisions: string[];
   recentKnowledge: KnowledgeRecord[];
   metadataFollowUps: MetadataBackfillItem[];
+  /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
+  pendingRequests: {
+    reportSynthesis: ReportSynthesisRequest[];
+    metadataBackfill: MetadataBackfillRequest[];
+  };
 }
 
 export interface SearchResult {
@@ -1232,3 +1237,31 @@ export interface ProjectReader {
 }
 
 export * from "./insights.js";
+
+/** Read-only recording state for one workspace root; never grants or changes tracking. */
+export interface ProjectStatusResult {
+  outcome: "project_status";
+  projectRoot: string;
+  projectStatus: PolicyStatus;
+  tracked: boolean;
+  project?: ProjectRecord;
+  reason?: string;
+}
+
+/** Raw handoff snapshot metadata without its content, for bounded Agent payloads. */
+export type RawSnapshotSummary = Omit<RawSnapshotRecord, "content"> & { contentLength: number };
+
+export interface SessionDetailResult extends Omit<SessionDetail, "rawSnapshots"> {
+  outcome: "session_detail";
+  rawSnapshots: Array<RawSnapshotRecord | RawSnapshotSummary>;
+}
+
+export interface SessionNotFoundResult {
+  outcome: "not_found";
+  sessionId: string;
+  reason: string;
+}
+
+export type SessionDetailQueryResult = SessionDetailResult | SessionVerificationSkippedResult | SessionNotFoundResult;
+
+export type SessionListQueryResult = SessionListResult | SkippedResult | ProjectIdSkippedResult;
