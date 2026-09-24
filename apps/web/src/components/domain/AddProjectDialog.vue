@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { FolderOpen } from "lucide-vue-next";
 import { useProjects } from "../../composables/useProjects";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
@@ -6,7 +7,7 @@ import UiField from "../ui/UiField.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 
 const open = defineModel<boolean>("open", { required: true });
-const { projectName, projectRoot, addingProject, addProject } = useProjects();
+const { projectName, projectRoot, addingProject, addProject, pickingFolder, pickProjectFolder } = useProjects();
 
 async function submit(): Promise<void> {
   if (await addProject()) {
@@ -27,9 +28,15 @@ async function submit(): Promise<void> {
       <UiField label="專案名稱"
         ><UiTextInput v-model="projectName" placeholder="例如：Assistant Console" required autofocus
       /></UiField>
-      <UiField label="Workspace 根目錄" hint="專案 repo 的絕對路徑"
-        ><UiTextInput v-model="projectRoot" placeholder="C:\Users\you\project" mono required
-      /></UiField>
+      <UiField
+        label="Workspace 根目錄"
+        :hint="pickingFolder ? '請在跳出的視窗中選擇資料夾。' : '按「選擇資料夾」挑選專案 repo，或直接輸入絕對路徑。'"
+      >
+        <div class="add-project__root">
+          <UiTextInput v-model="projectRoot" placeholder="/Users/you/project" mono required />
+          <UiButton :icon="FolderOpen" :loading="pickingFolder" @click.prevent="pickProjectFolder">選擇資料夾</UiButton>
+        </div>
+      </UiField>
     </form>
     <template #footer>
       <UiButton :disabled="addingProject" @click="open = false">取消</UiButton>
@@ -42,5 +49,21 @@ async function submit(): Promise<void> {
 .add-project {
   display: grid;
   gap: var(--space-4);
+}
+
+.add-project__root {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.add-project__root > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 639px) {
+  .add-project__root {
+    flex-direction: column;
+  }
 }
 </style>

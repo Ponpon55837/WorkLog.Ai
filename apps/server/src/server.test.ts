@@ -375,4 +375,33 @@ describe("Work Intelligence REST API", () => {
       body: { outcome: "backup_unavailable" },
     });
   });
+
+  it("returns the folder chosen in the native dialog, only for JSON posts", async () => {
+    const store = new WorkIntelligenceStore(":memory:");
+    let opened = 0;
+    const server = createServer(
+      createApiHandler(store, {
+        pickFolder: async () => {
+          opened += 1;
+          return { outcome: "folder_picked", path: "/Users/me/apiary", name: "apiary" };
+        },
+      }),
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+    resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-pick-")) });
+
+    const formPost = await fetch(`${baseUrl}/api/system/pick-folder`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "x",
+    });
+    expect(formPost.status).toBe(415);
+    expect(opened).toBe(0);
+    expect(await requestJson(baseUrl, "/api/system/pick-folder", { method: "POST", body: {} })).toMatchObject({
+      status: 200,
+      body: { outcome: "folder_picked", path: "/Users/me/apiary", name: "apiary" },
+    });
+  });
 });
