@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { CircleCheckBig, RefreshCw, ScanSearch, X } from "lucide-vue-next";
+import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { metadataBackfillInstruction, useMetadataBackfill } from "../../composables/useMetadataBackfill";
+import { useToast } from "../../composables/useToast";
 import { formatDate, formatRelative } from "../../utils/format";
 import { metadataGapsOf, metadataGapStatus, requestStatus, verificationStatus } from "../../utils/status";
 import UiBox from "../ui/UiBox.vue";
@@ -29,11 +31,27 @@ const {
   metadataBackfillRequestCreating,
   metadataBackfillRequestError,
   loadMetadataBackfillRequest,
+  refreshMetadataBackfillRequest,
   createMetadataBackfillRequest,
   cancelMetadataBackfillRequest,
   previewMetadataBackfill,
   openMetadataBackfillSession,
 } = useMetadataBackfill();
+const { showToast } = useToast();
+
+useActiveRequestWatch({
+  requests: () => (request.value ? [request.value] : []),
+  check: refreshMetadataBackfillRequest,
+  onSettled: (_request, status) => {
+    if (status === "completed") {
+      showToast("Agent 已完成 metadata 回補。", "success");
+      // The gap list is a separate scan; rerun it so resolved gaps disappear.
+      void previewMetadataBackfill();
+    } else if (status === "failed") {
+      showToast("metadata 回補沒有完成。", "danger");
+    }
+  },
+});
 
 const requestMessage = computed(() => {
   if (!request.value) {

@@ -2,8 +2,10 @@
 import { computed, watch } from "vue";
 import { Check, ExternalLink, Pencil, Sparkles, X } from "lucide-vue-next";
 import type { ProjectRecord } from "@work-intelligence/core";
+import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useKnowledgeCandidates } from "../../composables/useKnowledgeCandidates";
 import { useSessionDetail } from "../../composables/useSessionDetail";
+import { useToast } from "../../composables/useToast";
 import { formatRelative } from "../../utils/format";
 import { knowledgeKindVisual } from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
@@ -26,12 +28,29 @@ const {
   openCandidateRequests,
   candidatesError,
   loadCandidates,
+  refreshCandidates,
   requestCandidates,
   acceptCandidate,
   rejectCandidate,
   openCandidateEditor,
 } = useKnowledgeCandidates();
 const { openSessionDetail } = useSessionDetail();
+const { showToast } = useToast();
+
+// A finished request leaves the open list, so a missing request means the Agent submitted its candidates.
+useActiveRequestWatch({
+  requests: () => openCandidateRequests.value,
+  check: () => refreshCandidates(props.projectRoot),
+  scope: () => props.projectRoot ?? "",
+  onSettled: (request, status) => {
+    const project = request.projectName ? `${request.projectName} 的` : "";
+    if (status === "failed") {
+      showToast(`${project}Knowledge 候選整理沒有完成。`, "danger");
+    } else if (!status) {
+      showToast(`Agent 已送出${project}Knowledge 候選，請檢視。`, "success");
+    }
+  },
+});
 
 const requestItems = computed(() => props.projects.map((project) => ({ value: project.id, label: project.name })));
 

@@ -67,6 +67,7 @@
 
 ## 最近完成（2026-09-23～24）
 
+- **Agent 完成請求後頁面自動更新**（使用者提出）：報告整理、Knowledge 候選、metadata 回補的請求在待處理或處理中時，頁面每 5 秒安靜地重新檢查（不顯示載入動畫，分頁不在前景時暫停、回到前景立即檢查），請求結束就停止；Agent 完成時自動載入結果並提示，失敗時也會提示。切換報告區間或專案時會重設追蹤，不會誤報完成。只改前端，API 不變；E2E 以 API 模擬 Agent 存入整理結果驗證。
 - **報告總覽依區間顯示不同內容**：總覽原本五種區間用同一個版型、只有數字不同。現在依區間加上 deterministic 的分組：日報列出當日完成的 Session，週報分成每日、月報分成每週（週一起算、以月界截斷）、季報分成每月、年報分成每季，標出最多的一期與有完成工作的期數；各區間都顯示專案占比。只用既有的報告資料（`sessions`、`trends`、`projects`）在前端計算，API 沒有變動。
 - **報告 AI 整理的範圍隔離**：選「所有記錄中專案」時，提煉請求與摘要原本只依區間篩選，同一區間的單一專案 AI 整理會被當成全專案報告顯示，且其待處理請求會擋住建立全專案請求。請求與摘要查詢新增 `scopeType`（REST 同名參數），Web 在未選專案時只取全專案的整理；MCP 行為不變。
 - **Knowledge 候選**（Agent 檢索第二階段）：migration 7 新增 `knowledge_candidate_requests`、`knowledge_candidates`。Agent 以 `work_request_knowledge_candidates` → `work_get_knowledge_candidate_context` → `work_submit_knowledge_candidates` 從專案尚未整理過的 Session（含 raw handoff，40,000 字內）提出候選，每筆附來源 Session 與依據；候選只有在工作知識頁由使用者接受（可先修改）後才寫成 Knowledge，MCP 沒有接受工具。`work_get_context` 的 `pendingRequests` 新增 `knowledgeCandidates`；請求超過 30 分鐘未完成會標為可重新處理。Web：工作知識頁新增「Knowledge 候選」區塊（整理候選、接受、修改後接受、拒絕、查看來源 Session）。
