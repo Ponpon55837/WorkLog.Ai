@@ -336,6 +336,17 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   />
 
   <template v-else>
+    <UiFlash
+      v-if="report.sessionTruncation?.currentPeriod || report.sessionTruncation?.previousPeriod"
+      tone="attention"
+      title="報告只涵蓋部分資料"
+      data-testid="report-session-truncation"
+    >
+      <span v-if="report.sessionTruncation?.currentPeriod">本期超過 200 個 Session 的報告上限；</span>
+      <span v-if="report.sessionTruncation?.previousPeriod">比較期間超過 200 個 Session 的報告上限；</span>
+      摘要、趨勢、專案占比與比較數值只依納入報告的 Session 計算。
+    </UiFlash>
+
     <PageToolbar>
       <UiUnderlineNav v-model="tab" :items="tabs" label="工作報告內容分頁" id-prefix="report" />
       <div v-if="tab === 'evidence'" class="reports__evidence-search">

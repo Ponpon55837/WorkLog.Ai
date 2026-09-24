@@ -13,6 +13,7 @@ import type {
   ReportProjectSummary,
   ReportSpanningSession,
   ReportSpanningSessions,
+  SessionListResult,
   WorkReportPeriod,
   WorkSessionRecord,
 } from "@work-intelligence/core";
@@ -34,6 +35,7 @@ import {
 interface ReportStoreReader {
   getProjectById(projectId: string): ProjectRecord | undefined;
   listSessions(options: SessionListOptions): WorkSessionRecord[];
+  listSessionsPage(options: SessionListOptions): SessionListResult;
 }
 
 type ReportAttachedEvidenceRow = {
@@ -49,6 +51,8 @@ type ReportSnapshotSummaryRow = {
   session_id: string;
   source_path: string | null;
 };
+
+const REPORT_SESSION_LIMIT = 200;
 
 export class ReportReadService {
   private readonly reportBuilder = new ReportBuilder();
@@ -141,20 +145,28 @@ export class ReportReadService {
     const period: WorkReportPeriod = customRange ? "custom" : options.period;
     const range = customRange ?? getReportRange(options.period, options.date ?? toLocalCalendarDate());
     const previousRange = customRange ? getPreviousCustomRange(range) : getPreviousReportRange(options.period, range);
-    const sessions = this.listSessions({
+    const currentSessionScope: SessionListOptions = {
       from: range.from,
       to: range.to,
       projectId: project?.id,
-      limit: 200,
       trackedOnly: true,
-    });
-    const previousSessions = this.listSessions({
+    };
+    const previousSessionScope: SessionListOptions = {
       from: previousRange.from,
       to: previousRange.to,
       projectId: project?.id,
-      limit: 200,
       trackedOnly: true,
-    });
+    };
+    const sessions = this.listSessions({ ...currentSessionScope, limit: REPORT_SESSION_LIMIT });
+    const previousSessions = this.listSessions({ ...previousSessionScope, limit: REPORT_SESSION_LIMIT });
+    const sessionTruncation = {
+      currentPeriod:
+        this.store.listSessionsPage({ ...currentSessionScope, page: 1, pageSize: 1 }).pageInfo.total >
+        REPORT_SESSION_LIMIT,
+      previousPeriod:
+        this.store.listSessionsPage({ ...previousSessionScope, page: 1, pageSize: 1 }).pageInfo.total >
+        REPORT_SESSION_LIMIT,
+    };
     const sessionIds = sessions.map((session) => session.id);
     const previousSessionIds = previousSessions.map((session) => session.id);
     const eventRows = this.getReportEvents(sessionIds);
@@ -423,6 +435,7 @@ export class ReportReadService {
       periodSummary,
       sourceSessionIds: sessionIds,
       sessions,
+      sessionTruncation,
       completedWork: sessions.slice(0, 6),
       projects: [...projectSummaries.values()].sort((left, right) => {
         if (right.sessionCount !== left.sessionCount) {

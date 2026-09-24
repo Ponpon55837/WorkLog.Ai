@@ -44,6 +44,20 @@ export class ReportBuilder {
       "- 專案範圍：" + markdownInline(projectLabel),
       "- 時區：" + report.timezone,
       "",
+    ];
+
+    if (report.sessionTruncation.currentPeriod || report.sessionTruncation.previousPeriod) {
+      lines.push("## 資料範圍提醒", "");
+      if (report.sessionTruncation.currentPeriod) {
+        lines.push("本期符合條件的 Session 超過 200 筆，部分資料未納入報告。", "");
+      }
+      if (report.sessionTruncation.previousPeriod) {
+        lines.push("比較期間符合條件的 Session 超過 200 筆，部分資料未納入比較。", "");
+      }
+      lines.push("摘要、趨勢、專案分布與比較數值只依納入報告的 Session 計算。", "");
+    }
+
+    lines.push(
       "## 期間摘要",
       "",
       report.periodSummary,
@@ -58,7 +72,7 @@ export class ReportBuilder {
       "",
       "## 主要完成事項",
       "",
-    ];
+    );
 
     if (report.sessions.length === 0) {
       lines.push("這段期間沒有可彙整的完成工作。", "");
