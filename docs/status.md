@@ -59,6 +59,8 @@
 | TypeSafe Adapter（Insight Provider Phase 2） | BLOCKED：等待外部契約 | Provider abstraction、No-op 與 optional injection 已完成，`WorkIntelligenceStore` 預設使用 No-op。開始實作前需要 TypeSafe／產品方先定稿：SDK 或 HTTP endpoint 與版本；backend-only credential 注入、日誌遮罩與資料外送規則；evaluation request／response／error schema（signal、confidence、usage、timeout）；timeout、retry、circuit-breaker 契約；egress guard 的呼叫邊界。這些到位前不新增依賴、網路呼叫、設定開關或假 adapter。 |
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
+| 依專案匯出／匯入 | 已交接 Codex | 使用者需求：資料備份與還原可選單一專案或全部專案匯出、匯入（合併而非取代，可預覽、可重複執行）。設計建議見 `.openspec/handoffs/2026-09-25-claude-to-codex.md`。 |
+| 複檢改善項目 | 已交接 Codex | 第一輪複檢發現：Codex hook 缺測試與 Windows 指令未驗證、備份只依份數保留（手動連續備份會擠掉每日備份）、`work_list_sessions` 回傳過大、build 未清空 `dist`、其他長清單需改為 Box 內捲動。 |
 | 人工平台驗證 | 待確認 | 資料夾選擇器尚未在 macOS、Windows、Linux 實機驗證；備份還原尚未在 Windows 實機手動驗證。 |
 | 工程整理 | 進行中 | 報告、synthesis、metadata 回補、context／recall 等 Storage 服務已拆分，Web 單元測試與 server／mcp／web 覆蓋率門檻已加入。`store.ts` 目前 3,223 行；既有資料欄位檢查與升級相容處理仍留在其中。 |
 
