@@ -6,6 +6,61 @@
 
 - 最後更新：2026-09-24
 
+## 優先改善：Agent 檢索品質
+
+目標：讓 Agent 透過 MCP 查工作記錄與 Knowledge 時「找得到、放得進 context、敢用」，工作記錄才會成為可靠的幫手。以下是 2026-09-24 在本機以真實 DB 快照做的評估；評估只讀快照副本、沒有修改資料。為保護使用者資料，這裡只記錄彙總數字與機制層面的發現，不收錄任何查詢內容、Session／Knowledge 內容、id 或專案檔名；評估題與腳本只留在本機，不進 repo。
+
+### 評估發現
+
+1. **搜尋幾乎找不到資料**：`work_search` 把整個查詢字串當成一個 `LIKE '%…%'`，Agent 慣用的多關鍵字查詢一律 0 筆；`work_search_knowledge` 同樣如此。36 題評估題中，現行搜尋 hit@5 只有 14%，31 題回傳 0 筆；唯一有命中的檔名題型，是剛好比對到 Knowledge 的 `references` 欄位。
+2. **約 69% 的 Session 內容搜不到**：歷史 handoff 匯入的 Session，title 只有 slug，summary 與 events 是固定句，真正內容在 raw snapshot（平均約 4.2 萬字、最大約 20 萬字），完全不在搜尋範圍。重要的事故與決策因此無法被找回。
+3. **回傳過大，入口工具本身超出 Agent 上限**：`work_get_context` 單一專案回傳約 107 KB，被用戶端改寫到暫存檔；其中 `recentSessions` 約 49 KB（`changedFilesProvenance`、`changedFileChanges`、`changedFiles` 合計約 27 KB），`metadataFollowUps` 約 17 KB 是回補用資料、與開工無關。`work_search` 單一關鍵字只命中 1 筆也可能回傳 67 KB，因為回傳完整 Session 物件（該筆有近 200 個 changedFiles）。
+4. **context 與任務無關**：`recentDecisions` 取最近 8 個 `note`／`closing` 事件，實際內容多是 commit、工作區狀態這類流程記錄，不是技術決策；真正的決策在 `workSummary.decisions`（只有約 10% 的 Session 有填），context 沒有回傳。`recentKnowledge` 只依更新時間取 12 筆，與要做的工作無關。也沒有「我要改這個檔案，過去有什麼記錄」的查法。
+5. **Knowledge 量少、路徑格式不一**：active Knowledge 只有個位數。`references` 混用「專案名／相對路徑」、「相對路徑」與絕對路徑三種格式，也夾雜 commit SHA，要先正規化才能做路徑比對。
+6. **changedFiles 異常會汙染路徑檢索**：changed files 異常多的 Session 在檔名查詢中經常擠進前 3 名。
+7. **Skill 沒有「何時該查」的規則**：只要求在使用者問到過去工作時才查，Agent 不會在開工前或遇到錯誤時主動查。
+
+### 候選檢索策略實測
+
+評估題共 36 題、5 類：K＝找 gotcha／pattern（7）、S＝Session 主題（10）、R＝答案只在 raw handoff（10）、N＝自然語句提問（4）、P＝以檔名／路徑查（5）。指標為 hit@5（答案出現在前 5 筆）、MRR（正確答案排名倒數平均）、0 筆題數。
+
+| 策略 | K | S | R | N | P | 全部 hit@5／MRR／0 筆 | 前 5 筆回傳大小 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S0 現行（整句 LIKE、依時間排序） | 0% | 0% | 0% | 0% | 100% | 14%／0.14／31 | 最大 67 KB |
+| S1 拆字 AND ＋ 擴充欄位 | 71% | 100% | 0% | 0% | 100% | 56%／0.49／16 | 約 1.5 KB |
+| S2 拆字 OR ＋ 欄位權重排名 ＋ 中文雙字切詞 | 100% | 100% | 30% | 75% | 100% | 78%／0.73／0 | 約 1.3 KB |
+| S3 S2 ＋ raw snapshot 整份索引 | 100% | 100% | 90% | 100% | 100% | 97%／0.89／0 | 約 1.2 KB |
+| S4 S3 ＋ 路徑正規化比對 | 100% | 100% | 90% | 100% | 100% | 97%／0.91／0 | 約 1.2 KB |
+| **S5 S2 ＋ raw 依標題切段 BM25 ＋ 路徑比對** | 100% | 100% | 100% | 100% | 100% | **100%／0.95／0** | 約 1.3 KB |
+
+擴充欄位＝title、summary、workSummary 五段、changedFiles、branch、events，以及 Knowledge 的 title、body、tags、references。欄位權重：title 3、Knowledge tags 2、summary／workSummary／Knowledge body 1.5、其他 1、raw 0.6（S5 的 raw 段落分數 ×0.5 加權）；分數再乘上「命中關鍵字比例的平方」，偏好命中多數關鍵字的結果。
+
+從實測得到的設計結論：
+
+- **raw snapshot 必須切段索引**：整份索引時，超長文件幾乎包含所有字詞，會把正確答案擠下去。依 `#`～`###` 標題切段（每份平均約 70 段）並以 BM25 做長度正規化後修正，結果也能附上命中的段落標題。
+- **FTS5 trigram 不能單獨使用**：trigram 至少要 3 個字元，實測兩字中文詞 trigram 0 筆、LIKE 有結果。兩字中文詞要退回 LIKE 或另做雙字切詞；超過 3 字的中文連續字串切成雙字 token。
+- **路徑查詢要先正規化**：去掉專案名前綴與絕對路徑前段後比對尾端，P 類 MRR 由 0.87 提升到 1.00。
+- **限制**：評估題是看過資料後撰寫，絕對數字偏樂觀、題數也少；適合比較方案間的相對差異。
+
+### 改善計畫
+
+**第一階段：找得到、放得進 context**（合併原「全文搜尋」，並處理「工程整理」中的 schema 版本表）
+
+1. 加 schema 版本表，讓索引建立與既有資料回填有 migration；檢索邏輯獨立成 `search-repository.ts`，不再擴大 `store.ts`。
+2. 建立檢索索引：Session 擴充欄位、Knowledge，加上 raw snapshot 依標題切段；兩字詞退回 LIKE、較長中文切雙字；BM25 排序加時間權重；changedFiles 異常多的 Session 降權。
+3. 新增 `work_recall(q, paths?, projectRoot?)`：一次回傳 Session＋Knowledge 混合的精簡結果（id、類型、標題、命中欄位或段落標題、片段、分數），要全文再用 `work_get_session`。0 筆時回傳各關鍵字單獨的命中數，讓 Agent 自己調整查詢。`work_search` 改走同一個引擎並改為精簡回傳。
+4. 修正 `work_get_context`：`recentSessions` 改精簡格式；`metadataFollowUps` 只回傳筆數；`recentDecisions` 改用 `workSummary.decisions`；新增 `task`、`paths` 參數，依序回傳相關 gotcha、決策、改過同批檔案的 Session 與其未結項。
+5. Knowledge `references` 路徑正規化（commit SHA 與路徑分開處理）。
+6. 更新 `.agents/skills/work-intelligence`：開工前用任務描述與要改的檔案 recall；遇到錯誤時用錯誤訊息查；套用記錄時引用 `sessionId`／`knowledgeId`。
+7. 檢索行為的單元測試只使用虛構的合成資料（專案、Session、Knowledge、raw snapshot 皆為測試自建），涵蓋多關鍵字、兩字中文詞、自然語句、raw 切段與路徑正規化等情境。真實資料的評估題與腳本只在使用者本機執行，不進 repo。
+
+**第二階段：可信度與回饋**
+
+- 併入下方「Session 關聯」「Session 作廢」：找到規劃 Session 時帶出實作 Session；作廢的 Session 排除在檢索與 context 之外。
+- Knowledge 加 `appliesTo`（路徑／glob）、`lastConfirmedAt`／`lastConfirmedSessionId`、`supersedes`；`appliesTo` 的檔案在確認時間後被其他 Session 改過時，標示 `possiblyStale`（規則判斷，不靠推測）。
+- `work_finalize_session` 可選回報 `appliedKnowledgeIds`／`contradictedKnowledgeIds`：用過且有效的更新確認時間，被推翻的在 Knowledge 頁與 context 提示更新或封存。
+- 以 Agent 請求流程（比照 metadata backfill）從 raw snapshot 整理 Knowledge 候選，經確認後才寫入，維持 Knowledge 必須明確提交的原則。
+
 ## 未結項
 
 | 項目 | 狀態 | 說明 |
@@ -14,12 +69,11 @@
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
 | 自訂期間報告 | 提案 | `work_get_report`／報告頁只支援日／週／月／季／年；sprint 或「上次 release 到現在」這類 `from`／`to` 區間尚未支援。 |
-| Session 作廢與 Evidence 更正 | 提案 | 誤記錄或測試用的 Session、錯誤的 Evidence 目前只能保留；需要 soft-delete／`voided` 狀態並保留 audit。 |
-| 全文搜尋 | 提案 | 搜尋仍是 `LOWER LIKE` 全表掃描，也不含 workSummary、changed files、branch；可評估 SQLite FTS5 + trigram（支援中文子字串）。 |
-| Session 關聯 | 提案 | 規劃與實作常拆成兩筆 Session 且沒有關聯；可加 `relatedSessionIds`／`parentSessionId`，圖譜也能畫出工作流。 |
-| changedFiles 品質 | 提案 | 有「唯讀盤點」Session 記到 41 個 changed files，疑似把既有 dirty worktree 算進去；可在 finalize 記錄 baseline，或在 UI 標示異常。 |
+| Session 作廢與 Evidence 更正 | 提案（併入 Agent 檢索第二階段） | 誤記錄或測試用的 Session、錯誤的 Evidence 目前只能保留；需要 soft-delete／`voided` 狀態並保留 audit，作廢的 Session 也要排除在檢索與 context 之外。 |
+| Session 關聯 | 提案（併入 Agent 檢索第二階段） | 規劃與實作常拆成兩筆 Session 且沒有關聯；可加 `relatedSessionIds`／`parentSessionId`，檢索找到一筆時帶出另一筆，圖譜也能畫出工作流。 |
+| changedFiles 品質 | 提案（檢索降權在第一階段） | 有「唯讀盤點」Session 記到 41 個 changed files，疑似把既有 dirty worktree 算進去，檢索評估中已實際擠進檔名查詢前 3 名。第一階段先在排序時降權；根本解法仍是在 finalize 記錄 baseline，或在 UI 標示異常。 |
 | finalize 提醒 | 提案 | 目前完全依賴 Agent 記得 finalize；可提供 Claude Code Stop／SessionEnd hook 範例提醒保存。 |
-| 工程整理 | 提案 | `store.ts` 仍約 4,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；沒有 DB 備份與 schema 版本表。 |
+| 工程整理 | 提案 | `store.ts` 仍約 4,300 行（report、synthesis、backfill、context 可再拆 service）；Web 沒有單元測試；server／mcp／web 沒有 coverage 門檻；沒有 DB 備份與 schema 版本表（schema 版本表併入 Agent 檢索第一階段）。 |
 
 ## 最近完成（2026-09-23～24）
 
