@@ -1,7 +1,8 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 const projectRoot = process.cwd();
-const reportDate = new Date().toISOString().slice(0, 10);
+// Report calendar dates follow the host time zone, like the server computing them.
+const reportDate = new Date().toLocaleDateString("sv-SE");
 
 type ProjectRecord = { id: string };
 type SessionRecord = { id: string };
@@ -343,6 +344,51 @@ test.describe("Work Intelligence browser regression", () => {
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
     await expect(page).not.toHaveURL(/session=/);
+  });
+
+  test("edits a Session summary and workSummary in place from the panel", async ({ page, request }) => {
+    const editable = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-editable-${process.pid}`,
+      title: "Editable fixture session",
+      summary: "Original editable summary.",
+      workSummary: {
+        outcomes: ["Original outcome."],
+        scope: ["Original scope."],
+        decisions: [],
+        verification: [],
+        nextSteps: [],
+      },
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+    const editableId = editable.session.id;
+
+    await page.goto(`/sessions?session=${editableId}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    await expect(panel).toContainText("Original editable summary.");
+    await panel.getByRole("button", { name: "編輯摘要" }).click();
+
+    const editor = page.getByRole("dialog", { name: "編輯 Session 摘要" });
+    await expect(editor).toBeVisible();
+    await editor.getByLabel("主摘要").fill("Edited summary from the Web UI.");
+    await editor.getByLabel("成果").fill("Edited outcome one.\nEdited outcome two.");
+    await editor.getByRole("button", { name: "儲存變更" }).click();
+
+    await expect(editor).toBeHidden();
+    await expect(panel).toContainText("Edited summary from the Web UI.");
+    await expect(panel).toContainText("Edited outcome two.");
+    // Untouched sections are patched around, not cleared.
+    await expect(panel).toContainText("Original scope.");
+
+    const detail = (await (await request.get(`/api/sessions/${editableId}`)).json()) as {
+      session: { id: string; summary: string; workSummary: { outcomes: string[]; scope: string[] } };
+    };
+    expect(detail.session).toMatchObject({
+      id: editableId,
+      summary: "Edited summary from the Web UI.",
+      workSummary: { outcomes: ["Edited outcome one.", "Edited outcome two."], scope: ["Original scope."] },
+    });
   });
 
   test("resizes the Session panel from its edge and remembers the width", async ({ page }) => {

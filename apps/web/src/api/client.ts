@@ -29,6 +29,10 @@ import type {
   SessionListResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
+  UpdateSessionSummaryInput,
+  UpdateSessionSummaryResult,
+  UpdateSessionWorkSummaryInput,
+  UpdateSessionWorkSummaryResult,
 } from "@work-intelligence/core";
 
 type ApiErrorPayload = { error?: string };
@@ -111,6 +115,32 @@ export class ApiClient {
 
   public getSessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
     return this.request<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal });
+  }
+
+  public updateSessionSummary(
+    input: UpdateSessionSummaryInput,
+    signal?: AbortSignal,
+  ): Promise<UpdateSessionSummaryResult> {
+    const { sessionId, ...body } = input;
+    return this.write<UpdateSessionSummaryResult>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/summary`,
+      "PATCH",
+      body,
+      signal,
+    );
+  }
+
+  public updateSessionWorkSummary(
+    input: UpdateSessionWorkSummaryInput,
+    signal?: AbortSignal,
+  ): Promise<UpdateSessionWorkSummaryResult> {
+    const { sessionId, ...body } = input;
+    return this.write<UpdateSessionWorkSummaryResult>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/work-summary`,
+      "PATCH",
+      body,
+      signal,
+    );
   }
 
   public searchKnowledge(options: KnowledgeRequest = {}, signal?: AbortSignal): Promise<KnowledgeSearchResult> {

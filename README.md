@@ -64,7 +64,7 @@ Claude Desktop 設定、驗證方式與常見問題見 **[docs/agent-setup.md](d
 | 取回專案脈絡 | 「先看一下 Work Intelligence 裡這個專案最近做了什麼。」 | 工作歷程、工作知識 |
 | 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立） | 工作報告 →「請 Agent 整理這份報告」 |
 | 補齊缺漏的 metadata | 「幫我補齊 Work Intelligence 的 metadata 缺口。」（沒有請求時 Agent 會自己建立） | 專案 → Metadata 回補 →「掃描 metadata 缺口」 |
-| 修正已保存的摘要 | 「幫我修正上一筆 Session 的摘要：……」 | — |
+| 修正已保存的摘要 | 「幫我修正上一筆 Session 的摘要：……」 | Session 面板 →「編輯摘要」 |
 | 匯入歷史 handoff | 「幫我預覽這個專案可以匯入的 handoff。」 | 專案 → Handoff 匯入 |
 
 每筆 Session 都包含一句話摘要與固定五段內容：**成果／範圍／決策／驗證／狀態與未結項**。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。

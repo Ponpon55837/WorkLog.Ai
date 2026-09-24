@@ -42,7 +42,7 @@ MANAGE     專案 /projects/:tab?（registry | backfill | import）
 | 頁面 | 重點 |
 |---|---|
 | 總覽 | 4 張 StatCard（記錄中專案、本週 Sessions + 7 日 sparkline〔註明不等同 Git commit〕、Verification 四態分布「21 / 24 通過」而非單一百分比、待處理）；「ACTION REQUIRED」Box 列出報告整理請求 / metadata 缺口並附直接操作；最近工作；右欄專案狀態。移除 hero、orbit、靜態 policy 卡 |
-| 工作歷程 | 搜尋列（支援 `key:value` qualifier 顯示）；Box header 放「專案 / 驗證 / 日期 / 排序」ActionMenu；依日期分組；列＝驗證 icon + 標題 + Label + meta；SidePanel（唯讀）依序顯示主摘要句、meta、五段 workSummary（第五段標為「狀態／未結項」）、Changed files（A/M/D/R + provenance）、Git（有值才顯示）、Evidence、Knowledge、Events、snapshot；`J`/`K` 切換 |
+| 工作歷程 | 搜尋列（支援 `key:value` qualifier 顯示）；Box header 放「專案 / 驗證 / 日期 / 排序」ActionMenu；依日期分組；列＝驗證 icon + 標題 + Label + meta；SidePanel 依序顯示主摘要句、meta、五段 workSummary（第五段標為「狀態／未結項」）、Changed files（A/M/D/R + provenance）、Git（有值才顯示）、Evidence、Knowledge、Events、snapshot；`J`/`K` 切換 |
 | 工作報告 | PageHeader 操作列：SegmentedControl（日週月季年）、日期、專案、匯出▾；UnderlineNav 6 分頁附 Counter；總覽頂部 AI synthesis 卡依 `ReportSummary` 欄位呈現（主題／重點成果／驗證／比較／風險與限制／決策／狀態／未結項），每個區塊附來源 Session chip；前期比較 ▲▼ 只用 deterministic 報表資料 |
 | 工作知識 | ≥ 960px 左側 facet 篩選欄；Box 列表；每筆 `…` 選單（編輯 / 變更紀錄 / 封存 / 來源 Session） |
 | 工作圖譜 | 全寬畫布、浮動工具列、一行統計兼圖例、節點用 non-modal 固定面板 |
@@ -56,7 +56,7 @@ MANAGE     專案 /projects/:tab?（registry | backfill | import）
 2. `executionStatus: completed` 只代表 finalize 完成，用中性 Label，不用綠色。
 3. Verification 四態分開呈現：通過、失敗、明確未執行（`not_run`）、未回報（歷史 `not_supplied`）；Dashboard 不用單一通過率百分比。
 4. Changed files 不等於 Git commit；Git 欄位獨立一區，有值才顯示。provenance 空值顯示「未提供來源」。
-5. Evidence、Knowledge 與五段摘要分開呈現；主摘要與 workSummary 在 UI 唯讀，修正由 Agent 就地更新同一 Session。
+5. Evidence、Knowledge 與五段摘要分開呈現；主摘要與 workSummary 可由 Agent 或 Session 面板的「編輯摘要」就地更新同一 Session（有 audit），其他欄位維持唯讀。
 6. 報表數字（指標、趨勢、比較）只取 deterministic 報表資料；AI synthesis 每個區塊顯示來源 Session，`資料不足` 與截斷提示正常呈現、不當錯誤。
 7. Metadata 缺口三類分開：changed-files 缺漏、verification 未回報、verification 明確 not_run。
 8. 給使用者複製的 Agent 指令只用自然語言，不含 MCP tool 名稱、request ID 或 JSON。

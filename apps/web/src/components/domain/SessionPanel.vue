@@ -12,9 +12,11 @@ import {
   GitCommitHorizontal,
   Link,
   Paperclip,
+  Pencil,
   X,
 } from "lucide-vue-next";
 import { useSessionDetail } from "../../composables/useSessionDetail";
+import { useSessionEditor } from "../../composables/useSessionEditor";
 import { useToast } from "../../composables/useToast";
 import { router } from "../../router";
 import { formatDate, formatReadableSummary, formatRelative } from "../../utils/format";
@@ -29,11 +31,12 @@ import StatusLabel from "./StatusLabel.vue";
 import WorkSummarySections from "./WorkSummarySections.vue";
 
 /**
- * Read-only Session detail, mounted once in App. Opened from any list or via `?session=<id>`;
- * J/K move through the list it was opened from.
+ * Session detail, mounted once in App. Opened from any list or via `?session=<id>`; J/K move
+ * through the list it was opened from. The summary texts are edited through a separate Dialog.
  */
 const route = useRoute();
 const { selectedDetail, position, openSessionDetail, closeSessionDetail, openAdjacentSession } = useSessionDetail();
+const { openSessionEditor } = useSessionEditor();
 const body = ref<HTMLElement | null>(null);
 
 const session = computed(() => selectedDetail.value?.session);
@@ -120,6 +123,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             :disabled="position.index < 0 || position.index >= position.total - 1"
             @click="openAdjacentSession(1)"
           />
+          <UiIconButton :icon="Pencil" label="編輯摘要" size="sm" @click="openSessionEditor(session)" />
           <UiIconButton :icon="Link" label="複製連結" size="sm" @click="copyLink" />
           <UiIconButton :icon="X" label="關閉" @click="closeSessionDetail" />
         </div>
