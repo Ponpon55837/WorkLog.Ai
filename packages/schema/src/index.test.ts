@@ -12,6 +12,8 @@ import {
   mcpListSessionsInputSchema,
   metadataBackfillApplyInputSchema,
   projectStatusQuerySchema,
+  contextQuerySchema,
+  recallQuerySchema,
   sessionDetailQuerySchema,
   sessionsQuerySchema,
   updateKnowledgeInputSchema,
@@ -266,5 +268,14 @@ describe("MCP-only input schemas", () => {
     expect(mcpCreateReportSynthesisRequestInputSchema.parse({})).toMatchObject({ period: "week" });
     expect(mcpCreateMetadataBackfillRequestInputSchema.safeParse({ projectRoot: "" }).success).toBe(false);
     expect(mcpCreateMetadataBackfillRequestInputSchema.safeParse({ projectId: "project-1" }).success).toBe(true);
+  });
+
+  it("requires q or paths for recall and bounds context focus", () => {
+    expect(recallQuerySchema.safeParse({ q: "cache" }).success).toBe(true);
+    expect(recallQuerySchema.safeParse({ paths: ["src/a.ts"] }).success).toBe(true);
+    expect(recallQuerySchema.safeParse({ projectRoot: "/tmp/p" }).success).toBe(false);
+    expect(recallQuerySchema.safeParse({ q: "x", limit: 31 }).success).toBe(false);
+    expect(contextQuerySchema.safeParse({ task: "fix", paths: ["src/a.ts"] }).success).toBe(true);
+    expect(contextQuerySchema.safeParse({ paths: Array.from({ length: 21 }, () => "a.ts") }).success).toBe(false);
   });
 });

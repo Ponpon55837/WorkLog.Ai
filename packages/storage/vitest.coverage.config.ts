@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     testTimeout: storageTestTimeout,
+    env: { TZ: "UTC" },
     coverage: {
       enabled: true,
       provider: "v8",

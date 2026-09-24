@@ -64,13 +64,15 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 
 REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Evidence、Report synthesis、Metadata backfill 與 Session summary update 的查重及寫入會在 `BEGIN IMMEDIATE` transaction 內完成；跨程序同時重試時會等待既有寫入，再回傳 `duplicate: true`，不會把 SQLite UNIQUE constraint 例外當成一般 500 錯誤。Metadata backfill 的 schema rebuild migration 也在 transaction 內執行。
 
+新的 schema 變更改用版本化 migration（`packages/storage/src/schema-migrations.ts`）：套用過的版本記在 `schema_migrations`，每個 migration 只在啟動時的 transaction 內執行一次。目前的 migration 1 建立檢索索引（`search_chunks`、FTS5 `search_fts`、`search_paths`、`search_dirty` 與標記用 trigger），並把既有 Session／Knowledge 全部標記為待索引。檢索邏輯在 `search-repository.ts`，tokenizer 與路徑正規化在 `search-text.ts`，詳見 [MCP tools 的 `work_recall`](mcp-tools.md#work_recall)。
+
 既有 SQLite 檔案若仍有歷史 `commit_required` 欄位，Work Intelligence 啟動時會以 idempotent migration 移除；公開 Session contract 與新寫入流程不使用此欄位。Git commit 仍是可選的獨立流程。
 
 Processing 中的 report synthesis 與 metadata backfill 請求超過 30 分鐘會標記為 `failed`，保留原始資料並允許後續 Agent／UI 重新處理。更新 Session metadata、verification 與 summary 時，Session 與 Project timestamp 會一起原子更新。
 
 REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`，以及 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），其他一律回 421，避免 DNS rebinding 的網頁在同源情況下讀取資料；帶 `Origin` 的請求還必須在 origin 白名單內。
 
-日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。搜尋關鍵字中的 `%`、`_`、`\` 照字面比對。
+日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 
 主摘要與五段 workSummary 可以由 Agent（MCP）或 Web UI（Session 面板「編輯摘要」）就地更新，兩者都走同一組具 idempotency 與 audit row 的更新流程；changed files、verification、events、evidence 在 UI 維持唯讀。
 
@@ -85,7 +87,7 @@ REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdi
 5. registry 位於中央 SQLite；side project 不會因 MCP 連線而自動被記錄。
 6. Agent 可以用 `work_get_project_status` 唯讀查詢記錄狀態，但沒有任何 MCP 工具能變更它；切換為 `tracked` 只能由使用者在 Web UI 確認。
 
-任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_get_context`、project-scoped `work_search`、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
+任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_get_context`、project-scoped `work_recall`／`work_search`、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
 
 ## 後續擴充邊界
 

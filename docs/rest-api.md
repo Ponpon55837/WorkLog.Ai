@@ -24,7 +24,7 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
 | GET      | `/api/graph`                                     | 讀取 tracked-only deterministic work graph                                             |
 | GET      | `/api/context`                                   | Agent context query（含 `pendingRequests`：等待 Agent 的報告整理與 metadata 回補請求）     |
-| GET      | `/api/search?q=...`                              | Work history search（`%`、`_` 照字面比對，最多 50 筆）                                 |
+| GET      | `/api/search?q=...`                              | Work history search（與 MCP `work_recall` 同一個排序引擎，只查 Session，最多 20 筆）   |
 | GET      | `/api/backfill/metadata/preview?projectRoot=...` | 唯讀掃描 metadata 缺口                                                                 |
 | GET/POST | `/api/backfill/metadata-requests`                | 建立或查詢 Agent metadata 回補請求                                                     |
 | GET      | `/api/backfill/metadata-requests/:id/context`    | 取得受控 metadata 回補 context                                                         |

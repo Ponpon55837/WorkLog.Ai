@@ -70,6 +70,7 @@ Unit／integration 測試涵蓋：
 - Reports 的 Evidence 類型／關鍵字篩選只更新證據區塊，不重新渲染整份報告；原始工作紀錄與來源證據提供 10／20／50／100／All 的局部分頁控制
 - project root 之外的 source path 會被拒絕
 - 日期邊界依系統時區：storage 測試固定以 `TZ=UTC` 執行（`packages/storage/vitest.config.ts`），另有 `Asia/Taipei` 案例驗證篩選、日報與週趨勢的分桶
-- Session 列表與 `search` 把 `%`、`_` 當字面字元（Knowledge 搜尋共用同一個跳脫函式）
+- Session 列表把 `%`、`_` 當字面字元（Knowledge 搜尋共用同一個跳脫函式）
+- 檢索（`search-repository.test.ts`，全部使用虛構合成資料）：多關鍵字、兩字與較長中文詞、自然語句、raw handoff 切段與段落標題、路徑正規化與 changed files 異常降權、Knowledge references 的 commit SHA 分離、編輯／封存／專案狀態變更後索引同步、`termHits`、既有資料庫的索引回填，以及 context 的 `task`／`paths`
 - REST 拒絕非 loopback 的 `Host`（421）與不在白名單的 `Origin`（403）
 - MCP server 以 in-memory transport 端對端測試：工具清單、annotations、instructions 長度、contract 只掛在寫入工具、prompts、`work_get_project_status`、`work_list_sessions`／`work_get_session` 與 paused 專案 skip、Agent 建立報告／metadata 請求並出現在 context 的 `pendingRequests`

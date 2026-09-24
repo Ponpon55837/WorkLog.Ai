@@ -1202,24 +1202,132 @@ export type UpdateSessionWorkSummaryResult =
   | SessionVerificationNotFoundResult
   | SessionVerificationSkippedResult;
 
+/**
+ * Compact Session view for Agent context and search results, sized to stay within an Agent's
+ * tool-result budget. Changed-file lists, provenance and events are left out; read the full
+ * record with work_get_session.
+ */
+export interface SessionDigest {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  title: string;
+  /** Truncated with a trailing "…" when longer than the digest limit. */
+  summary: string;
+  completedAt: string;
+  gitBranch?: string;
+  verificationStatus: ReportVerificationStatus;
+  changedFilesCount: number;
+  /** Leading items of workSummary.nextSteps (known limits and unfinished work), each truncated. */
+  openItems: string[];
+}
+
+/** Compact Knowledge view; the full body is available through work_search_knowledge. */
+export interface KnowledgeDigest {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  sessionId?: string;
+  kind: KnowledgeKind;
+  title: string;
+  /** Body truncated with a trailing "…" when longer than the digest limit. */
+  excerpt: string;
+  tags: string[];
+  updatedAt: string;
+}
+
+/** A confirmed decision from a Session's workSummary.decisions, with its source for citation. */
+export interface DecisionDigest {
+  sessionId: string;
+  sessionTitle: string;
+  completedAt: string;
+  text: string;
+}
+
 export interface ContextResult {
   outcome: "context";
   project?: ProjectRecord;
   projects: ProjectRecord[];
-  recentSessions: WorkSessionRecord[];
-  recentDecisions: string[];
-  recentKnowledge: KnowledgeRecord[];
-  metadataFollowUps: MetadataBackfillItem[];
+  recentSessions: SessionDigest[];
+  recentDecisions: DecisionDigest[];
+  recentKnowledge: KnowledgeDigest[];
+  /** Counts only; list the affected Sessions with work_preview_metadata_backfill. */
+  metadataFollowUps: MetadataBackfillPreview["totals"];
   /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
   pendingRequests: {
     reportSynthesis: ReportSynthesisRequest[];
     metadataBackfill: MetadataBackfillRequest[];
   };
+  /** Present when the context query named a task or paths: records ranked for that work. */
+  relevant?: RelevantContext;
+}
+
+/** Where a recall hit matched; `raw` is a section of the imported handoff snapshot. */
+export type RecallField =
+  | "title"
+  | "summary"
+  | "workSummary"
+  | "changedFiles"
+  | "branch"
+  | "event"
+  | "raw"
+  | "body"
+  | "tags"
+  | "references"
+  | "path";
+
+export interface RecallHit {
+  type: "session" | "knowledge";
+  id: string;
+  projectId: string;
+  projectName?: string;
+  title: string;
+  /** Knowledge kind; absent on Sessions. */
+  kind?: KnowledgeKind;
+  /** Session completedAt or Knowledge updatedAt. */
+  date: string;
+  matchedIn: RecallField[];
+  /** Heading of the matched raw handoff section. */
+  section?: string;
+  excerpt: string;
+  /** Stored paths that matched the queried paths. */
+  matchedPaths?: string[];
+  score: number;
+}
+
+/** Per query word: how many in-scope records contain all of its terms. */
+export interface RecallTermHits {
+  term: string;
+  count: number;
+}
+
+export interface RecallResult {
+  outcome: "recall";
+  project?: ProjectRecord;
+  hits: RecallHit[];
+  /** Present when some query word matched nothing, so the Agent can reshape the query. */
+  termHits?: RecallTermHits[];
+}
+
+export type RecallQueryResult = RecallResult | SkippedContextResult;
+
+export interface RelevantContext {
+  task?: string;
+  paths?: string[];
+  /** Knowledge (gotchas, patterns, decisions, …) ranked for the task and paths. */
+  knowledge: RecallHit[];
+  /** workSummary.decisions of the relevant Sessions, each citing its Session. */
+  decisions: DecisionDigest[];
+  /** Relevant Sessions, including those that changed the same paths, with their open items. */
+  sessions: Array<RecallHit & { openItems: string[] }>;
+  termHits?: RecallTermHits[];
 }
 
 export interface SearchResult {
-  session: WorkSessionRecord;
-  matchedIn: "title" | "summary" | "event";
+  session: SessionDigest;
+  matchedIn: RecallField;
+  /** Heading of the matched raw handoff section. */
+  section?: string;
   excerpt: string;
 }
 

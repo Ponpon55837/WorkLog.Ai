@@ -20,6 +20,8 @@ import {
   metadataBackfillRequestContextQuerySchema,
   metadataBackfillRequestQuerySchema,
   projectStatusQuerySchema,
+  recallQuerySchema,
+  recallQuerySchemaBase,
   recordKnowledgeInputSchema,
   reportExportQuerySchema,
   reportQuerySchema,
@@ -160,10 +162,21 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
     run: (input) => store.listSessionsForAgent(input),
   });
 
+  registerStoreTool("work_recall", {
+    title: "Recall related work",
+    description:
+      "Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns compact hits with id, type, title, matchedIn, raw section heading, excerpt, and score; read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. A projectRoot scope is policy-gated first.",
+    inputShape: recallQuerySchemaBase.shape,
+    schema: recallQuerySchema,
+    annotations: READ_ONLY,
+    invalidMessage: "Invalid recall query.",
+    run: (input) => store.recall(input),
+  });
+
   registerStoreTool("work_search", {
     title: "Search work history",
     description:
-      "Search finalized work sessions by title, summary, or event text (up to 50 matches with the matched excerpt). Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
+      "Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 matches, each with a compact Session digest, the field it matched in, and an excerpt). Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
     inputShape: searchQuerySchema.shape,
     schema: searchQuerySchema,
     annotations: READ_ONLY,
@@ -174,12 +187,12 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      "Return recent tracked-project sessions, recorded decisions, explicit recentKnowledge, metadataFollowUps, and pendingRequests (pending or processing report synthesis and metadata backfill requests waiting for an Agent). metadataFollowUps lists completed Sessions whose verification is missing or not_run, or whose changed-files metadata is empty. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.",
+      "Return compact digests of recent tracked-project sessions (with open items), recent decisions from workSummary.decisions (each citing its sessionId), recentKnowledge excerpts, metadataFollowUps counts, and pendingRequests (pending or processing report synthesis and metadata backfill requests waiting for an Agent). Pass task (what you are about to do) and/or paths (files you will change) to also get relevant: ranked Knowledge, decisions from related Sessions, and related Sessions (including ones that changed the same files) with their open items. Read a full Session with work_get_session, full Knowledge with work_search_knowledge, and the Sessions behind metadataFollowUps (missing or not_run verification, empty changed files) with work_preview_metadata_backfill. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.",
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid context query.",
-    run: (input) => store.getContext(input.projectRoot),
+    run: (input) => store.getContext(input.projectRoot, { task: input.task, paths: input.paths }),
   });
 
   registerStoreTool("work_update_session_metadata", {
