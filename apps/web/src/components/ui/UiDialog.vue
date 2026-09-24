@@ -4,14 +4,17 @@ import { X } from "lucide-vue-next";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 
 /** Centered dialog for forms and decisions. Footer actions are right-aligned, primary last. */
-const props = withDefaults(defineProps<{
-  open: boolean;
-  title: string;
-  description?: string;
-  size?: "sm" | "md" | "lg";
-  /** Prevents closing (Escape, backdrop, close button) while a save is in flight. */
-  busy?: boolean;
-}>(), { size: "md", busy: false });
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    title: string;
+    description?: string;
+    size?: "sm" | "md" | "lg";
+    /** Prevents closing (Escape, backdrop, close button) while a save is in flight. */
+    busy?: boolean;
+  }>(),
+  { size: "md", busy: false },
+);
 
 const emit = defineEmits<{ close: [] }>();
 const dialog = ref<HTMLElement | null>(null);
@@ -29,13 +32,26 @@ useFocusTrap(dialog, toRef(props, "open"), { onEscape: requestClose });
   <Teleport to="body">
     <Transition name="ui-dialog">
       <div v-if="open" class="ui-dialog__backdrop" @click.self="requestClose">
-        <section ref="dialog" :class="['ui-dialog', `ui-dialog--${size}`]" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1">
+        <section
+          ref="dialog"
+          :class="['ui-dialog', `ui-dialog--${size}`]"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title"
+          tabindex="-1"
+        >
           <header class="ui-dialog__header">
             <div class="ui-dialog__heading">
               <h2>{{ title }}</h2>
               <p v-if="description">{{ description }}</p>
             </div>
-            <button type="button" class="ui-dialog__close" aria-label="關閉對話框" :disabled="busy" @click="requestClose">
+            <button
+              type="button"
+              class="ui-dialog__close"
+              aria-label="關閉對話框"
+              :disabled="busy"
+              @click="requestClose"
+            >
               <X :size="16" :stroke-width="1.75" aria-hidden="true" />
             </button>
           </header>
@@ -70,9 +86,15 @@ useFocusTrap(dialog, toRef(props, "open"), { onEscape: requestClose });
   outline: none;
 }
 
-.ui-dialog--sm { max-width: 440px; }
-.ui-dialog--md { max-width: 640px; }
-.ui-dialog--lg { max-width: 880px; }
+.ui-dialog--sm {
+  max-width: 440px;
+}
+.ui-dialog--md {
+  max-width: 640px;
+}
+.ui-dialog--lg {
+  max-width: 880px;
+}
 
 .ui-dialog__header {
   display: flex;

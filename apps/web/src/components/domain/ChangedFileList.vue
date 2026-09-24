@@ -10,7 +10,9 @@ const statusLetter: Record<ChangedFileChangeStatus, string> = { added: "A", modi
 
 const rows = computed(() => {
   const changes = new Map(props.session.changedFileChanges.map((change) => [change.path, change]));
-  const renamedFrom = new Set(props.session.changedFileChanges.flatMap((change) => (change.previousPath ? [change.previousPath] : [])));
+  const renamedFrom = new Set(
+    props.session.changedFileChanges.flatMap((change) => (change.previousPath ? [change.previousPath] : [])),
+  );
   return props.session.changedFiles
     .filter((path) => !renamedFrom.has(path))
     .map((path) => {
@@ -20,7 +22,7 @@ const rows = computed(() => {
         path,
         status: change?.status,
         previousPath: change?.previousPath,
-        sources: provenance?.sources.map((source) => changedFileSourceLabels[source]).join(" · ") || "未提供來源"
+        sources: provenance?.sources.map((source) => changedFileSourceLabels[source]).join(" · ") || "未提供來源",
       };
     });
 });
@@ -32,8 +34,11 @@ const rows = computed(() => {
       <span
         :class="['changed-files__badge', row.status && `is-${row.status}`]"
         :title="row.status ? changedFileChangeStatusLabels[row.status] : '未提供變更類型'"
-      >{{ row.status ? statusLetter[row.status] : "·" }}</span>
-      <code class="changed-files__path">{{ row.path }}<span v-if="row.previousPath" class="changed-files__prev"> ← {{ row.previousPath }}</span></code>
+        >{{ row.status ? statusLetter[row.status] : "·" }}</span
+      >
+      <code class="changed-files__path"
+        >{{ row.path }}<span v-if="row.previousPath" class="changed-files__prev"> ← {{ row.previousPath }}</span></code
+      >
       <span class="changed-files__source">{{ row.sources }}</span>
     </div>
     <p v-if="!rows.length" class="changed-files__empty">尚未提供檔案 metadata</p>
@@ -67,10 +72,22 @@ const rows = computed(() => {
   font-weight: 700;
 }
 
-.changed-files__badge.is-added { border-color: var(--success); color: var(--success); }
-.changed-files__badge.is-modified { border-color: var(--attention); color: var(--attention); }
-.changed-files__badge.is-deleted { border-color: var(--danger); color: var(--danger); }
-.changed-files__badge.is-renamed { border-color: var(--done); color: var(--done); }
+.changed-files__badge.is-added {
+  border-color: var(--success);
+  color: var(--success);
+}
+.changed-files__badge.is-modified {
+  border-color: var(--attention);
+  color: var(--attention);
+}
+.changed-files__badge.is-deleted {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.changed-files__badge.is-renamed {
+  border-color: var(--done);
+  color: var(--done);
+}
 
 .changed-files__path {
   flex: 1;

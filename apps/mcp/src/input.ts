@@ -9,22 +9,26 @@ export function parseMcpInput<T extends z.ZodTypeAny>(schema: T, input: unknown)
   } catch {
     return {
       success: false as const,
-      error: new z.ZodError([{
-        code: z.ZodIssueCode.custom,
-        path: [],
-        message: "MCP request payload must be JSON serializable."
-      }])
+      error: new z.ZodError([
+        {
+          code: z.ZodIssueCode.custom,
+          path: [],
+          message: "MCP request payload must be JSON serializable.",
+        },
+      ]),
     };
   }
 
   if (Buffer.byteLength(serialized, "utf8") > MAX_INPUT_PAYLOAD_BYTES) {
     return {
       success: false as const,
-      error: new z.ZodError([{
-        code: z.ZodIssueCode.custom,
-        path: [],
-        message: `MCP request payload must not exceed ${MAX_INPUT_PAYLOAD_BYTES} bytes.`
-      }])
+      error: new z.ZodError([
+        {
+          code: z.ZodIssueCode.custom,
+          path: [],
+          message: `MCP request payload must not exceed ${MAX_INPUT_PAYLOAD_BYTES} bytes.`,
+        },
+      ]),
     };
   }
 

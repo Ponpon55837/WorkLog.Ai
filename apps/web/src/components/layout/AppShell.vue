@@ -19,12 +19,21 @@ const route = useRoute();
 
 // <main> is the scroll container, so router scrollBehavior (window) cannot reset it. A path change
 // (new page or tab) starts at the top; query-only changes (filters, pagination, ?session) keep position.
-watch(() => route.path, () => main.value?.scrollTo({ top: 0 }));
+watch(
+  () => route.path,
+  () => main.value?.scrollTo({ top: 0 }),
+);
 </script>
 
 <template>
   <div class="app-shell">
-    <AppHeader :refreshing="refreshing" :menu-open="menuOpen" @refresh="emit('refresh')" @search="emit('search')" @toggle-menu="menuOpen = !menuOpen" />
+    <AppHeader
+      :refreshing="refreshing"
+      :menu-open="menuOpen"
+      @refresh="emit('refresh')"
+      @search="emit('search')"
+      @toggle-menu="menuOpen = !menuOpen"
+    />
     <div class="app-shell__body">
       <AppSidebar :open="menuOpen" :counts="counts" @close="menuOpen = false" />
       <main id="main" ref="main" class="app-shell__main">

@@ -12,7 +12,7 @@ export const emptyPageInfo: PageInfo = {
   to: 0,
   hasPrevious: false,
   hasNext: false,
-  truncated: false
+  truncated: false,
 };
 
 const sessions = ref<WorkSessionRecord[]>([]);
@@ -26,7 +26,9 @@ const sessionPageInfo = ref<PageInfo>({ ...emptyPageInfo, pageSize: 10 });
 const dateFrom = ref("");
 const dateTo = ref("");
 const sessionFilterError = ref("");
-const hasSessionFilters = computed(() => Boolean(searchTerm.value || selectedProjectId.value || dateFrom.value || dateTo.value));
+const hasSessionFilters = computed(() =>
+  Boolean(searchTerm.value || selectedProjectId.value || dateFrom.value || dateTo.value),
+);
 
 async function loadSessions(): Promise<void> {
   if (dateFrom.value && dateTo.value && dateFrom.value > dateTo.value) {
@@ -38,14 +40,17 @@ async function loadSessions(): Promise<void> {
   await runKeyed(
     "worklog-sessions",
     async (signal) => {
-      const result = await useApi().client.listSessions({
-        q: searchTerm.value.trim() || undefined,
-        projectId: selectedProjectId.value || undefined,
-        from: dateFrom.value || undefined,
-        to: dateTo.value || undefined,
-        page: sessionPage.value,
-        pageSize: sessionPageSize.value
-      }, signal);
+      const result = await useApi().client.listSessions(
+        {
+          q: searchTerm.value.trim() || undefined,
+          projectId: selectedProjectId.value || undefined,
+          from: dateFrom.value || undefined,
+          to: dateTo.value || undefined,
+          page: sessionPage.value,
+          pageSize: sessionPageSize.value,
+        },
+        signal,
+      );
       sessions.value = result.items;
       sessionPageInfo.value = result.pageInfo;
       if (sessionPage.value !== result.pageInfo.page) {
@@ -56,8 +61,8 @@ async function loadSessions(): Promise<void> {
     {
       onSettled: () => {
         sessionsLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -83,6 +88,6 @@ export function useSessions() {
     sessionFilterError,
     hasSessionFilters,
     loadSessions,
-    clearSessionFilters
+    clearSessionFilters,
   };
 }

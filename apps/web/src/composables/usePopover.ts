@@ -15,7 +15,7 @@ export function usePopover(options: { align?: Ref<Align> | Align; width?: number
 
   function align(): Align {
     const value = options.align;
-    return typeof value === "string" ? value : value?.value ?? "start";
+    return typeof value === "string" ? value : (value?.value ?? "start");
   }
 
   function position(): void {
@@ -28,7 +28,10 @@ export function usePopover(options: { align?: Ref<Align> | Align; width?: number
     const preferredLeft = align() === "end" ? anchor.right - width : anchor.left;
     const left = Math.min(Math.max(gutter, preferredLeft), window.innerWidth - width - gutter);
     const below = anchor.bottom + 4;
-    const top = below + height > window.innerHeight - gutter && anchor.top - height - 4 > gutter ? anchor.top - height - 4 : below;
+    const top =
+      below + height > window.innerHeight - gutter && anchor.top - height - 4 > gutter
+        ? anchor.top - height - 4
+        : below;
     style.value = { left: `${left}px`, top: `${top}px`, width: `${width}px` };
   }
 

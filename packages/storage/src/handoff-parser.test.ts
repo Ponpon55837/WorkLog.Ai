@@ -9,7 +9,7 @@ import {
   MAX_PARSED_CHANGED_FILES,
   parseHandoffContent,
   parseVerification,
-  stripFencedCodeBlocks
+  stripFencedCodeBlocks,
 } from "./handoff-parser.js";
 
 describe("handoff parser", () => {
@@ -33,10 +33,12 @@ describe("handoff parser", () => {
 
     expect(findStatusSignals(content)).toEqual(["pending"]);
     expect(extractChangedFiles(content, "C:/work/project")).toEqual(["src/real.ts"]);
-    expect(parseHandoffContent(content, "C:/work/project", ".openspec/handoffs/draft.md").classification).toMatchObject({
-      decision: "excluded",
-      reason: "pending"
-    });
+    expect(parseHandoffContent(content, "C:/work/project", ".openspec/handoffs/draft.md").classification).toMatchObject(
+      {
+        decision: "excluded",
+        reason: "pending",
+      },
+    );
   });
 
   it("removes unclosed fences and bounds parser input", () => {
@@ -51,7 +53,9 @@ describe("handoff parser", () => {
     expect(fileTokenFromLine("- WorkLog.Ai/src/components/Button.vue")).toBe("WorkLog.Ai/src/components/Button.vue");
     expect(fileTokenFromLine("- ../outside.ts")).toBeUndefined();
     expect(fileTokenFromLine("- C:/outside.ts")).toBeUndefined();
-    expect(extractChangedFiles("## Changed Files\n- ../outside.ts\n- src/inside.ts", "C:/work/project")).toEqual(["src/inside.ts"]);
+    expect(extractChangedFiles("## Changed Files\n- ../outside.ts\n- src/inside.ts", "C:/work/project")).toEqual([
+      "src/inside.ts",
+    ]);
   });
 
   it("normalizes inline changedFiles and removes duplicates case-insensitively", () => {
@@ -60,10 +64,18 @@ describe("handoff parser", () => {
   });
 
   it("caps parser output to the public metadata limits", () => {
-    const changedFiles = Array.from({ length: MAX_PARSED_CHANGED_FILES + 20 }, (_, index) => `- src/file-${index}.ts`).join("\n");
-    const statusSignals = Array.from({ length: MAX_HANDOFF_STATUS_SIGNALS + 20 }, (_, index) => `Status: completed-${index}`).join("\n");
+    const changedFiles = Array.from(
+      { length: MAX_PARSED_CHANGED_FILES + 20 },
+      (_, index) => `- src/file-${index}.ts`,
+    ).join("\n");
+    const statusSignals = Array.from(
+      { length: MAX_HANDOFF_STATUS_SIGNALS + 20 },
+      (_, index) => `Status: completed-${index}`,
+    ).join("\n");
 
-    expect(extractChangedFiles(`## Changed Files\n${changedFiles}`, "C:/work/project")).toHaveLength(MAX_PARSED_CHANGED_FILES);
+    expect(extractChangedFiles(`## Changed Files\n${changedFiles}`, "C:/work/project")).toHaveLength(
+      MAX_PARSED_CHANGED_FILES,
+    );
     expect(findStatusSignals(statusSignals)).toHaveLength(MAX_HANDOFF_STATUS_SIGNALS);
   });
 });

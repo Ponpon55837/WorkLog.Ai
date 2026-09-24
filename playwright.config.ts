@@ -10,7 +10,7 @@ const chromeCandidates = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
 ];
 const browserExecutablePath = chromeCandidates.find((candidate) => fs.existsSync(candidate));
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -19,7 +19,7 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
   expect: {
-    timeout: 8_000
+    timeout: 8_000,
   },
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
@@ -30,7 +30,7 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    ...(browserExecutablePath ? { launchOptions: { executablePath: browserExecutablePath } } : {})
+    ...(browserExecutablePath ? { launchOptions: { executablePath: browserExecutablePath } } : {}),
   },
   webServer: [
     {
@@ -42,8 +42,8 @@ export default defineConfig({
         ...process.env,
         WORK_INTELLIGENCE_PORT: String(apiPort),
         WORK_INTELLIGENCE_DB: databasePath,
-        WORK_INTELLIGENCE_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort},http://localhost:${webPort}`
-      }
+        WORK_INTELLIGENCE_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort},http://localhost:${webPort}`,
+      },
     },
     {
       command: `${pnpm} --filter @work-intelligence/web dev -- --host 127.0.0.1`,
@@ -53,8 +53,8 @@ export default defineConfig({
       env: {
         ...process.env,
         WORK_INTELLIGENCE_WEB_PORT: String(webPort),
-        WORK_INTELLIGENCE_API_PORT: String(apiPort)
-      }
-    }
-  ]
+        WORK_INTELLIGENCE_API_PORT: String(apiPort),
+      },
+    },
+  ],
 });

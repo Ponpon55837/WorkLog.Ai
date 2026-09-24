@@ -14,7 +14,7 @@ export class ReportSynthesisRequestRepository {
         .prepare(
           `SELECT id, started_at
            FROM report_synthesis_requests
-           WHERE status = 'processing' AND started_at IS NOT NULL`
+           WHERE status = 'processing' AND started_at IS NOT NULL`,
         )
         .all() as Array<{ id: string; started_at: string | null }>;
       const staleRows = rows.filter((row) => {
@@ -30,7 +30,7 @@ export class ReportSynthesisRequestRepository {
       const update = this.db.prepare(
         `UPDATE report_synthesis_requests
          SET status = 'failed', failure_reason = ?, completed_at = NULL
-         WHERE id = ? AND status = 'processing'`
+         WHERE id = ? AND status = 'processing'`,
       );
       for (const row of staleRows) {
         update.run(failureReason, row.id);

@@ -40,15 +40,21 @@ const policyDismissed = ref(readDismissed());
 const statusRevision = ref(0);
 
 const tab = computed<ProjectsTab>({
-  get: () => (["registry", "backfill", "import"].includes(String(route.params.tab)) ? (route.params.tab as ProjectsTab) : "registry"),
-  set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } })
+  get: () =>
+    ["registry", "backfill", "import"].includes(String(route.params.tab))
+      ? (route.params.tab as ProjectsTab)
+      : "registry",
+  set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } }),
 });
 const tabs = computed(() => [
   { value: "registry" as const, label: "專案清單", icon: FolderGit2, count: projects.value.length },
   { value: "backfill" as const, label: "Metadata 回補", icon: ScanSearch },
-  { value: "import" as const, label: "Handoff 匯入", icon: FileInput, count: trackedProjects.value.length }
+  { value: "import" as const, label: "Handoff 匯入", icon: FileInput, count: trackedProjects.value.length },
 ]);
-const statusOptions = (Object.keys(statusLabels) as ProjectStatus[]).map((status) => ({ value: status, label: statusLabels[status] }));
+const statusOptions = (Object.keys(statusLabels) as ProjectStatus[]).map((status) => ({
+  value: status,
+  label: statusLabels[status],
+}));
 
 function readDismissed(): boolean {
   try {
@@ -84,25 +90,45 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
     <UiUnderlineNav v-model="tab" :items="tabs" label="專案管理分頁" id-prefix="projects" />
   </PageToolbar>
 
-  <section v-if="tab === 'registry'" id="projects-panel-registry" role="tabpanel" aria-labelledby="projects-tab-registry">
+  <section
+    v-if="tab === 'registry'"
+    id="projects-panel-registry"
+    role="tabpanel"
+    aria-labelledby="projects-tab-registry"
+  >
     <UiFlash v-if="!policyDismissed" tone="accent" title="Default deny" dismissible @dismiss="dismissPolicy">
-      任何 handoff、Git 或 source 讀取，都必須先通過 project policy gate：專案被發現 → 你明確切換為「記錄中」→ Agent 才能 finalize Session。
+      任何 handoff、Git 或 source 讀取，都必須先通過 project policy gate：專案被發現 → 你明確切換為「記錄中」→ Agent
+      才能 finalize Session。
     </UiFlash>
     <UiBox sticky-header>
       <template #header>
         <UiBoxTitle :icon="FolderGit2" title="所有專案" :count="projects.length" />
         <span class="projects__tracked">{{ trackedProjects.length }} 個記錄中</span>
       </template>
-      <UiEmptyState v-if="projects.length === 0" :icon="FolderGit2" title="還沒有專案" description="加入第一個 workspace，建立你的中央 project registry。">
-        <template #action><UiButton variant="primary" :icon="Plus" @click="addOpen = true">加入專案</UiButton></template>
+      <UiEmptyState
+        v-if="projects.length === 0"
+        :icon="FolderGit2"
+        title="還沒有專案"
+        description="加入第一個 workspace，建立你的中央 project registry。"
+      >
+        <template #action
+          ><UiButton variant="primary" :icon="Plus" @click="addOpen = true">加入專案</UiButton></template
+        >
       </UiEmptyState>
       <UiBoxRow v-for="project in projects" :key="project.id" :title="project.name" data-testid="project-row">
-        <template #leading><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
+        <template #leading
+          ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
+        /></template>
         <template #labels><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
-        <template #meta><code>{{ project.rootPath }}</code></template>
+        <template #meta
+          ><code>{{ project.rootPath }}</code></template
+        >
         <p class="projects__description">
           {{ statusDescriptions[project.status] }}
-          <span v-if="project.lastIngestedAt" class="projects__ingest">最後寫入 <time :title="formatDate(project.lastIngestedAt)">{{ formatRelative(project.lastIngestedAt) }}</time></span>
+          <span v-if="project.lastIngestedAt" class="projects__ingest"
+            >最後寫入
+            <time :title="formatDate(project.lastIngestedAt)">{{ formatRelative(project.lastIngestedAt) }}</time></span
+          >
         </p>
         <template #trailing>
           <UiSelect
@@ -118,7 +144,12 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
     </UiBox>
   </section>
 
-  <section v-else-if="tab === 'backfill'" id="projects-panel-backfill" role="tabpanel" aria-labelledby="projects-tab-backfill">
+  <section
+    v-else-if="tab === 'backfill'"
+    id="projects-panel-backfill"
+    role="tabpanel"
+    aria-labelledby="projects-tab-backfill"
+  >
     <MetadataBackfillSection />
   </section>
 
@@ -127,14 +158,28 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
       <template #header>
         <UiBoxTitle eyebrow="Handoff import" title="匯入歷史 handoff" />
       </template>
-      <UiEmptyState v-if="trackedProjects.length === 0" compact :icon="FileInput" title="沒有記錄中的專案" description="只有「記錄中」的專案可以預覽與匯入 handoff。">
+      <UiEmptyState
+        v-if="trackedProjects.length === 0"
+        compact
+        :icon="FileInput"
+        title="沒有記錄中的專案"
+        description="只有「記錄中」的專案可以預覽與匯入 handoff。"
+      >
         <template #action><UiButton @click="tab = 'registry'">前往專案清單</UiButton></template>
       </UiEmptyState>
       <UiBoxRow v-for="project in trackedProjects" :key="project.id" :title="project.name">
         <template #leading><FolderGit2 :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
-        <template #meta><code>{{ project.rootPath }}</code></template>
+        <template #meta
+          ><code>{{ project.rootPath }}</code></template
+        >
         <template #trailing>
-          <UiButton size="sm" :icon="FileInput" :loading="handoffImportLoading && handoffImportProjectId === project.id" @click="previewHandoffs(project)">預覽 handoff</UiButton>
+          <UiButton
+            size="sm"
+            :icon="FileInput"
+            :loading="handoffImportLoading && handoffImportProjectId === project.id"
+            @click="previewHandoffs(project)"
+            >預覽 handoff</UiButton
+          >
         </template>
       </UiBoxRow>
     </UiBox>

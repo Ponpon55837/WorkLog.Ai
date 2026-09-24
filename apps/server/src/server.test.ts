@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -57,6 +57,31 @@ describe("Work Intelligence REST API", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5966");
     expect(await allowed.json()).toMatchObject({ ok: true, database: "connected" });
+  });
+
+  it("rejects non-loopback Host headers so DNS-rebound pages cannot read the API", async () => {
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-host-test-")) });
+    const { port } = new URL(baseUrl);
+
+    const statusForHost = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const request = httpRequest(
+          { host: "127.0.0.1", port, path: "/api/sessions", headers: { host } },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode ?? 0);
+          },
+        );
+        request.once("error", reject);
+        request.end();
+      });
+
+    expect(await statusForHost("rebind.evil.example")).toBe(421);
+    expect(await statusForHost(`evil.example:${port}`)).toBe(421);
+    expect(await statusForHost(`127.0.0.1:${port}`)).toBe(200);
+    expect(await statusForHost("localhost:5966")).toBe(200);
   });
 
   it("returns a safe client error for malformed JSON", async () => {
@@ -269,13 +294,26 @@ describe("Work Intelligence REST API", () => {
     const paused = store.addProject("Paused project", pausedRoot);
     store.updateProject(tracked.id, { status: "tracked" });
     store.updateProject(paused.id, { status: "tracked" });
-    const visible = store.finalizeSession({ projectRoot: root, idempotencyKey: "tracked-visible", title: "Visible Session", summary: "Tracked." });
-    const hidden = store.finalizeSession({ projectRoot: pausedRoot, idempotencyKey: "paused-hidden", title: "Hidden Session", summary: "Paused later." });
+    const visible = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "tracked-visible",
+      title: "Visible Session",
+      summary: "Tracked.",
+    });
+    const hidden = store.finalizeSession({
+      projectRoot: pausedRoot,
+      idempotencyKey: "paused-hidden",
+      title: "Hidden Session",
+      summary: "Paused later.",
+    });
     expect(visible).toMatchObject({ outcome: "finalized" });
     expect(hidden).toMatchObject({ outcome: "finalized" });
     store.updateProject(paused.id, { status: "paused" });
 
-    const list = await requestJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(baseUrl, "/api/sessions");
+    const list = await requestJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(
+      baseUrl,
+      "/api/sessions",
+    );
     expect(list.status).toBe(200);
     expect(list.body.items.map((item) => item.title)).toEqual(["Visible Session"]);
     expect(list.body.pageInfo.total).toBe(1);
@@ -283,7 +321,10 @@ describe("Work Intelligence REST API", () => {
     const scoped = await requestJson<{ items: unknown[] }>(baseUrl, `/api/sessions?projectId=${paused.id}`);
     expect(scoped.body.items).toEqual([]);
 
-    const dashboard = await requestJson<{ finalizedSessions: number; recentSessions: Array<{ title: string }> }>(baseUrl, "/api/dashboard");
+    const dashboard = await requestJson<{ finalizedSessions: number; recentSessions: Array<{ title: string }> }>(
+      baseUrl,
+      "/api/dashboard",
+    );
     expect(dashboard.body.finalizedSessions).toBe(1);
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });

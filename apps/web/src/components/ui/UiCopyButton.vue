@@ -4,14 +4,17 @@ import { Check, Copy } from "lucide-vue-next";
 import { useToast } from "../../composables/useToast";
 import UiButton from "./UiButton.vue";
 
-const props = withDefaults(defineProps<{
-  text: string;
-  label?: string;
-  successMessage?: string;
-  variant?: "default" | "primary" | "invisible";
-  size?: "md" | "sm";
-  iconOnly?: boolean;
-}>(), { label: "複製", successMessage: "已複製到剪貼簿。", variant: "default", size: "md" });
+const props = withDefaults(
+  defineProps<{
+    text: string;
+    label?: string;
+    successMessage?: string;
+    variant?: "default" | "primary" | "invisible";
+    size?: "md" | "sm";
+    iconOnly?: boolean;
+  }>(),
+  { label: "複製", successMessage: "已複製到剪貼簿。", variant: "default", size: "md" },
+);
 
 const copied = ref(false);
 
@@ -23,7 +26,15 @@ async function copy(): Promise<void> {
 </script>
 
 <template>
-  <UiButton :variant="variant" :size="size" :icon="copied ? Check : Copy" :icon-only="iconOnly" :label="label" :aria-label="iconOnly ? label : undefined" @click="copy">
+  <UiButton
+    :variant="variant"
+    :size="size"
+    :icon="copied ? Check : Copy"
+    :icon-only="iconOnly"
+    :label="label"
+    :aria-label="iconOnly ? label : undefined"
+    @click="copy"
+  >
     {{ label }}
   </UiButton>
 </template>

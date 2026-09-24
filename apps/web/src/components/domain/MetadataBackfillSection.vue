@@ -32,7 +32,7 @@ const {
   createMetadataBackfillRequest,
   cancelMetadataBackfillRequest,
   previewMetadataBackfill,
-  openMetadataBackfillSession
+  openMetadataBackfillSession,
 } = useMetadataBackfill();
 
 const requestMessage = computed(() => {
@@ -61,44 +61,115 @@ const requestMessage = computed(() => {
         <UiBoxTitle eyebrow="Agent request" title="請 Agent 回補 metadata" />
         <div class="backfill__request-actions">
           <StatusLabel :status="requestStatus[request.status]" />
-          <UiIconButton :icon="RefreshCw" label="重新整理回補狀態" size="sm" :loading="metadataBackfillRequestLoading" @click="loadMetadataBackfillRequest" />
+          <UiIconButton
+            :icon="RefreshCw"
+            label="重新整理回補狀態"
+            size="sm"
+            :loading="metadataBackfillRequestLoading"
+            @click="loadMetadataBackfillRequest"
+          />
         </div>
       </template>
       <p class="backfill__message">{{ requestMessage }}</p>
-      <UiCommandBlock v-if="metadataBackfillRequestIsActive" :text="metadataBackfillInstruction" success-message="已複製自然語言 metadata 回補指令。" />
+      <UiCommandBlock
+        v-if="metadataBackfillRequestIsActive"
+        :text="metadataBackfillInstruction"
+        success-message="已複製自然語言 metadata 回補指令。"
+      />
       <div class="backfill__buttons">
-        <UiButton v-if="metadataBackfillRequestIsActive" variant="danger" size="sm" :icon="X" :disabled="metadataBackfillRequestLoading" @click="cancelMetadataBackfillRequest">取消回補</UiButton>
-        <UiButton v-else-if="preview?.items.length" size="sm" :loading="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest">重新建立回補請求</UiButton>
+        <UiButton
+          v-if="metadataBackfillRequestIsActive"
+          variant="danger"
+          size="sm"
+          :icon="X"
+          :disabled="metadataBackfillRequestLoading"
+          @click="cancelMetadataBackfillRequest"
+          >取消回補</UiButton
+        >
+        <UiButton
+          v-else-if="preview?.items.length"
+          size="sm"
+          :loading="metadataBackfillRequestCreating"
+          @click="createMetadataBackfillRequest"
+          >重新建立回補請求</UiButton
+        >
       </div>
     </UiBox>
     <UiFlash v-else-if="preview?.items.length" tone="attention" title="這些缺口需要 Agent 確認">
       掃描結果不會自行猜測檔案或驗證狀態；建立請求後，Agent 才能在目前對話中檢查並回寫。
-      <template #actions><UiButton variant="primary" size="sm" :loading="metadataBackfillRequestCreating" @click="createMetadataBackfillRequest">請 Agent 回補</UiButton></template>
+      <template #actions
+        ><UiButton
+          variant="primary"
+          size="sm"
+          :loading="metadataBackfillRequestCreating"
+          @click="createMetadataBackfillRequest"
+          >請 Agent 回補</UiButton
+        ></template
+      >
     </UiFlash>
 
     <UiBox sticky-header>
       <template #header>
         <UiBoxTitle eyebrow="Agent follow-ups" title="需要回補的 Session" :count="preview?.items.length" />
-        <UiButton size="sm" :icon="ScanSearch" :loading="metadataBackfillLoading" @click="previewMetadataBackfill">{{ preview ? "重新掃描" : "掃描 metadata 缺口" }}</UiButton>
+        <UiButton size="sm" :icon="ScanSearch" :loading="metadataBackfillLoading" @click="previewMetadataBackfill">{{
+          preview ? "重新掃描" : "掃描 metadata 缺口"
+        }}</UiButton>
       </template>
-      <UiEmptyState v-if="!preview" compact :icon="ScanSearch" title="尚未掃描" description="掃描只讀取中央 SQLite 中已保存的 Session metadata，不會讀取專案檔案。" />
+      <UiEmptyState
+        v-if="!preview"
+        compact
+        :icon="ScanSearch"
+        title="尚未掃描"
+        description="掃描只讀取中央 SQLite 中已保存的 Session metadata，不會讀取專案檔案。"
+      />
       <template v-else>
         <div class="backfill__stats">
-          <UiStatCard label="需要回補" :value="preview.totals.needsBackfill" :value-tone="preview.totals.needsBackfill ? 'attention' : undefined" />
-          <UiStatCard :label="metadataGapStatus.changed_files.label" :icon="metadataGapStatus.changed_files.icon" :value="preview.totals.changedFilesMissing" />
-          <UiStatCard :label="metadataGapStatus.verification_missing.label" :icon="metadataGapStatus.verification_missing.icon" :value="preview.totals.verificationMissing" />
-          <UiStatCard :label="metadataGapStatus.verification_not_run.label" :icon="metadataGapStatus.verification_not_run.icon" :value="preview.totals.verificationNotRun" />
+          <UiStatCard
+            label="需要回補"
+            :value="preview.totals.needsBackfill"
+            :value-tone="preview.totals.needsBackfill ? 'attention' : undefined"
+          />
+          <UiStatCard
+            :label="metadataGapStatus.changed_files.label"
+            :icon="metadataGapStatus.changed_files.icon"
+            :value="preview.totals.changedFilesMissing"
+          />
+          <UiStatCard
+            :label="metadataGapStatus.verification_missing.label"
+            :icon="metadataGapStatus.verification_missing.icon"
+            :value="preview.totals.verificationMissing"
+          />
+          <UiStatCard
+            :label="metadataGapStatus.verification_not_run.label"
+            :icon="metadataGapStatus.verification_not_run.icon"
+            :value="preview.totals.verificationNotRun"
+          />
         </div>
-        <UiEmptyState v-if="!preview.items.length" compact :icon="CircleCheckBig" title="目前沒有待回補資料" description="所有 tracked Session 都已提供必要的結構化 metadata。" />
-        <UiBoxRow v-for="item in preview.items" :key="item.sessionId" clickable :title="item.title" @select="openMetadataBackfillSession(item)">
+        <UiEmptyState
+          v-if="!preview.items.length"
+          compact
+          :icon="CircleCheckBig"
+          title="目前沒有待回補資料"
+          description="所有 tracked Session 都已提供必要的結構化 metadata。"
+        />
+        <UiBoxRow
+          v-for="item in preview.items"
+          :key="item.sessionId"
+          clickable
+          :title="item.title"
+          @select="openMetadataBackfillSession(item)"
+        >
           <template #labels>
             <StatusLabel v-for="gap in metadataGapsOf(item)" :key="gap" :status="metadataGapStatus[gap]" />
           </template>
           <template #meta>
-            {{ item.projectName }} · <time :title="formatDate(item.completedAt)">{{ formatRelative(item.completedAt) }}</time>
-            · {{ item.changedFilesCount }} 個檔案 · {{ item.rawSnapshotCount }} 份 handoff snapshot
+            {{ item.projectName }} ·
+            <time :title="formatDate(item.completedAt)">{{ formatRelative(item.completedAt) }}</time> ·
+            {{ item.changedFilesCount }} 個檔案 · {{ item.rawSnapshotCount }} 份 handoff snapshot
           </template>
-          <template #trailing><StatusLabel class="hide-sm" :status="verificationStatus[item.verificationStatus]" :show-icon="false" /></template>
+          <template #trailing
+            ><StatusLabel class="hide-sm" :status="verificationStatus[item.verificationStatus]" :show-icon="false"
+          /></template>
         </UiBoxRow>
         <p v-if="preview.truncated" class="backfill__note">結果已達顯示上限，其餘 Session 會由 Agent 分頁檢查。</p>
       </template>

@@ -7,7 +7,7 @@ import type {
   ReportSummary,
   ReportSynthesisRequest,
   WorkReport,
-  WorkSessionRecord
+  WorkSessionRecord,
 } from "@work-intelligence/core";
 import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { errorMessage, toDateInputValue } from "../utils/format";
@@ -62,7 +62,12 @@ const reportComparisons = computed(() => {
   return [
     { key: "sessions", label: "完成 Sessions", comparison: report.value.comparison.sessions, foot: "與上一期比較" },
     { key: "events", label: "Recorded Events", comparison: report.value.comparison.events, foot: "可追溯事件" },
-    { key: "changedFiles", label: "Changed Files", comparison: report.value.comparison.changedFiles, foot: "不等同 Git commit" }
+    {
+      key: "changedFiles",
+      label: "Changed Files",
+      comparison: report.value.comparison.changedFiles,
+      foot: "不等同 Git commit",
+    },
   ];
 });
 
@@ -70,7 +75,7 @@ function reportScope(): { period: ReportPeriod; date?: string; projectId?: strin
   return {
     period: reportPeriod.value,
     date: reportDate.value || undefined,
-    projectId: reportProjectId.value || undefined
+    projectId: reportProjectId.value || undefined,
   };
 }
 
@@ -83,7 +88,7 @@ async function loadReportSynthesis(): Promise<void> {
       const client = useApi().client;
       const [requests, summaries] = await Promise.all([
         client.listReportSynthesisRequests({ ...reportScope(), limit: 10 }, signal),
-        client.listReportSummaries({ ...reportScope(), currentOnly: false }, signal)
+        client.listReportSummaries({ ...reportScope(), currentOnly: false }, signal),
       ]);
       if (requests.outcome === "report_synthesis_requests") {
         reportSynthesisRequest.value = requests.requests[0] ?? null;
@@ -93,7 +98,8 @@ async function loadReportSynthesis(): Promise<void> {
       }
       if (summaries.outcome === "report_summaries") {
         reportSynthesisHistory.value = summaries.summaries;
-        reportSynthesisSummary.value = summaries.summaries.find((summary) => summary.isCurrent) ?? summaries.summaries[0] ?? null;
+        reportSynthesisSummary.value =
+          summaries.summaries.find((summary) => summary.isCurrent) ?? summaries.summaries[0] ?? null;
       } else {
         reportSynthesisHistory.value = [];
         reportSynthesisSummary.value = null;
@@ -109,8 +115,8 @@ async function loadReportSynthesis(): Promise<void> {
       },
       onSettled: () => {
         reportSynthesisLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -125,15 +131,20 @@ async function createReportSynthesisRequest(): Promise<void> {
   reportSynthesisCreating.value = true;
   reportSynthesisError.value = "";
   try {
-    const result = await useApi().client.createReportSynthesisRequest({ ...reportScope(), idempotencyKey: crypto.randomUUID() });
+    const result = await useApi().client.createReportSynthesisRequest({
+      ...reportScope(),
+      idempotencyKey: crypto.randomUUID(),
+    });
     if (result.outcome !== "report_synthesis_request") {
       reportSynthesisError.value = result.reason;
       return;
     }
     reportSynthesisRequest.value = result.request;
-    useToast().showToast(reportSynthesisSummary.value
-      ? "已建立重新提煉請求。上一版摘要會先保留，新的 Agent 摘要完成後才會替換。"
-      : `報告請求已建立。請在目前的 Agent 對話中說：「${reportSynthesisInstruction}」`);
+    useToast().showToast(
+      reportSynthesisSummary.value
+        ? "已建立重新提煉請求。上一版摘要會先保留，新的 Agent 摘要完成後才會替換。"
+        : `報告請求已建立。請在目前的 Agent 對話中說：「${reportSynthesisInstruction}」`,
+    );
   } catch (error) {
     reportSynthesisError.value = errorMessage(error, "建立報告提煉請求失敗。");
   } finally {
@@ -168,7 +179,15 @@ async function cancelReportSynthesisRequest(): Promise<void> {
   if (!requestToCancel || !reportSynthesisIsActive.value || reportSynthesisCancelling.value) {
     return;
   }
-  if (!(await confirmAction({ title: "取消這次報告提煉？", message: "既有報告與歷史版本會保留。", confirmLabel: "取消提煉", cancelLabel: "繼續等待", danger: true }))) {
+  if (
+    !(await confirmAction({
+      title: "取消這次報告提煉？",
+      message: "既有報告與歷史版本會保留。",
+      confirmLabel: "取消提煉",
+      cancelLabel: "繼續等待",
+      danger: true,
+    }))
+  ) {
     return;
   }
   reportSynthesisCancelling.value = true;
@@ -196,7 +215,14 @@ async function deleteReportSynthesisVersion(summary: ReportSummary): Promise<voi
   if (summary.isCurrent) {
     return;
   }
-  if (!(await confirmAction({ title: "移除這個歷史版本？", message: `「${summary.title}」將被移除，此操作無法復原。`, confirmLabel: "移除版本", danger: true }))) {
+  if (
+    !(await confirmAction({
+      title: "移除這個歷史版本？",
+      message: `「${summary.title}」將被移除，此操作無法復原。`,
+      confirmLabel: "移除版本",
+      danger: true,
+    }))
+  ) {
     return;
   }
   reportSynthesisError.value = "";
@@ -227,13 +253,16 @@ async function loadReportSessions(resetPage = false): Promise<void> {
   await runKeyed(
     "report-sessions",
     async (signal) => {
-      const result = await useApi().client.listSessions({
-        from: current.range.from,
-        to: current.range.to,
-        projectId: reportProjectId.value || undefined,
-        page: reportSessionPage.value,
-        pageSize: reportSessionPageSize.value
-      }, signal);
+      const result = await useApi().client.listSessions(
+        {
+          from: current.range.from,
+          to: current.range.to,
+          projectId: reportProjectId.value || undefined,
+          page: reportSessionPage.value,
+          pageSize: reportSessionPageSize.value,
+        },
+        signal,
+      );
       reportSessionItems.value = result.items;
       if (reportSessionPage.value !== result.pageInfo.page) {
         reportSessionPage.value = result.pageInfo.page;
@@ -248,8 +277,8 @@ async function loadReportSessions(resetPage = false): Promise<void> {
       },
       onSettled: () => {
         reportSessionLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -259,7 +288,7 @@ function evidenceScope() {
     evidencePage: reportEvidencePage.value,
     evidencePageSize: reportEvidencePageSize.value,
     evidenceKind: reportEvidenceKind.value || undefined,
-    evidenceQuery: reportEvidenceQuery.value.trim() || undefined
+    evidenceQuery: reportEvidenceQuery.value.trim() || undefined,
   };
 }
 
@@ -287,8 +316,8 @@ async function loadReportEvidence(): Promise<void> {
       },
       onSettled: () => {
         reportEvidenceLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -319,8 +348,8 @@ async function loadReport(resetEvidencePage = false): Promise<void> {
       },
       onSettled: () => {
         reportLoading.value = false;
-      }
-    }
+      },
+    },
   );
 }
 
@@ -336,7 +365,7 @@ async function exportReport(format: ReportExportFormat): Promise<void> {
       ...reportScope(),
       format,
       evidenceKind: reportEvidenceKind.value || undefined,
-      evidenceQuery: reportEvidenceQuery.value.trim() || undefined
+      evidenceQuery: reportEvidenceQuery.value.trim() || undefined,
     });
     if (result.outcome !== "report_export") {
       showToast(result.reason);
@@ -410,6 +439,6 @@ export function useReports() {
     loadReportEvidence,
     exportReport,
     openReportSession,
-    openReportEvidence
+    openReportEvidence,
   };
 }

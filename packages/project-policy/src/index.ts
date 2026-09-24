@@ -13,7 +13,14 @@ export function isPathWithinProject(projectRoot: string, candidatePath: string):
   const root = resolve(projectRoot);
   const candidate = resolve(root, candidatePath);
   const relativePath = relative(root, candidate);
-  return relativePath === "" || (relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !relativePath.startsWith("..\\") && !relativePath.startsWith("../") && !relativePath.includes(":\\"));
+  return (
+    relativePath === "" ||
+    (relativePath !== ".." &&
+      !relativePath.startsWith(`..${sep}`) &&
+      !relativePath.startsWith("..\\") &&
+      !relativePath.startsWith("../") &&
+      !relativePath.includes(":\\"))
+  );
 }
 
 export class ProjectPolicyGate {
@@ -28,7 +35,7 @@ export class ProjectPolicyGate {
         allowed: false,
         projectStatus: "unregistered",
         canonicalRoot,
-        reason: "Project is not registered. No work data was read or stored."
+        reason: "Project is not registered. No work data was read or stored.",
       };
     }
 
@@ -38,7 +45,7 @@ export class ProjectPolicyGate {
         project,
         projectStatus: project.status,
         canonicalRoot,
-        reason: `Project recording is ${project.status}. No work data was read or stored.`
+        reason: `Project recording is ${project.status}. No work data was read or stored.`,
       };
     }
 
@@ -46,7 +53,7 @@ export class ProjectPolicyGate {
       allowed: true,
       project,
       projectStatus: project.status,
-      canonicalRoot
+      canonicalRoot,
     };
   }
 }
@@ -69,13 +76,15 @@ export interface AsyncProjectPathResolver {
  * chain so symlinks cannot escape the policy boundary.
  */
 export function createProjectPathResolver(projectRoot: string): ProjectPathResolver {
-  const realRoot = existsSync(projectRoot) ? (() => {
-    try {
-      return realpathSync(projectRoot);
-    } catch {
-      return undefined;
-    }
-  })() : undefined;
+  const realRoot = existsSync(projectRoot)
+    ? (() => {
+        try {
+          return realpathSync(projectRoot);
+        } catch {
+          return undefined;
+        }
+      })()
+    : undefined;
   const safePathCache = new Map<string, string | undefined>();
   const safeExistingPathCache = new Map<string, string | undefined>();
   const cacheKeyFor = (relativeOrAbsolutePath: string): string => {
@@ -151,7 +160,7 @@ export function createProjectPathResolver(projectRoot: string): ProjectPathResol
         safeExistingPathCache.set(cacheKey, undefined);
         return undefined;
       }
-    }
+    },
   };
 }
 
@@ -263,15 +272,21 @@ export function createAsyncProjectPathResolver(projectRoot: string): AsyncProjec
     safePath: resolveCandidate,
     safeExistingPath: resolveExistingCandidate,
     safePaths: (relativeOrAbsolutePaths) => Promise.all(relativeOrAbsolutePaths.map(resolveCandidate)),
-    safeExistingPaths: (relativeOrAbsolutePaths) => Promise.all(relativeOrAbsolutePaths.map(resolveExistingCandidate))
+    safeExistingPaths: (relativeOrAbsolutePaths) => Promise.all(relativeOrAbsolutePaths.map(resolveExistingCandidate)),
   };
 }
 
-export async function safeProjectPaths(projectRoot: string, relativeOrAbsolutePaths: readonly string[]): Promise<Array<string | undefined>> {
+export async function safeProjectPaths(
+  projectRoot: string,
+  relativeOrAbsolutePaths: readonly string[],
+): Promise<Array<string | undefined>> {
   return createAsyncProjectPathResolver(projectRoot).safePaths(relativeOrAbsolutePaths);
 }
 
-export async function safeExistingProjectPaths(projectRoot: string, relativeOrAbsolutePaths: readonly string[]): Promise<Array<string | undefined>> {
+export async function safeExistingProjectPaths(
+  projectRoot: string,
+  relativeOrAbsolutePaths: readonly string[],
+): Promise<Array<string | undefined>> {
   return createAsyncProjectPathResolver(projectRoot).safeExistingPaths(relativeOrAbsolutePaths);
 }
 

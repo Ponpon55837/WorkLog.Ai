@@ -8,14 +8,17 @@ import { useFocusTrap } from "../../composables/useFocusTrap";
  * The left edge can be dragged (or moved with the arrow keys) to resize; with `storageKey` the
  * chosen width is remembered per panel.
  */
-const props = withDefaults(defineProps<{
-  open: boolean;
-  label: string;
-  modal?: boolean;
-  width?: number;
-  minWidth?: number;
-  storageKey?: string;
-}>(), { modal: true, width: 640, minWidth: 360 });
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    label: string;
+    modal?: boolean;
+    width?: number;
+    minWidth?: number;
+    storageKey?: string;
+  }>(),
+  { modal: true, width: 640, minWidth: 360 },
+);
 
 const emit = defineEmits<{ close: []; resize: [width: number] }>();
 const panel = ref<HTMLElement | null>(null);
@@ -106,15 +109,19 @@ function onResizeKey(event: KeyboardEvent): void {
 useFocusTrap(panel, toRef(props, "open"), {
   onEscape: () => emit("close"),
   lockScroll: props.modal,
-  trapTab: props.modal
+  trapTab: props.modal,
 });
 
 // Report the (possibly remembered) width whenever the panel opens so a docked layout can make room.
-watch(() => props.open, (open) => {
-  if (open) {
-    setWidth(currentWidth.value, false);
-  }
-}, { immediate: true });
+watch(
+  () => props.open,
+  (open) => {
+    if (open) {
+      setWidth(currentWidth.value, false);
+    }
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(stopResize);
 

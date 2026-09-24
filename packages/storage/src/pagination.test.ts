@@ -12,7 +12,7 @@ describe("createPageInfo", () => {
       to: 100,
       hasPrevious: false,
       hasNext: true,
-      truncated: true
+      truncated: true,
     });
     expect(createPageInfo(2, 0, 250, 100)).toMatchObject({
       page: 2,
@@ -21,7 +21,7 @@ describe("createPageInfo", () => {
       to: 200,
       hasPrevious: true,
       hasNext: true,
-      truncated: true
+      truncated: true,
     });
   });
 
@@ -29,7 +29,7 @@ describe("createPageInfo", () => {
     expect(createPageInfo(1, 20, 250, 100)).toMatchObject({
       pageSize: 20,
       totalPages: 13,
-      truncated: false
+      truncated: false,
     });
   });
 });

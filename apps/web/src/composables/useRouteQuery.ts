@@ -14,14 +14,18 @@ export function stringQuery(defaultValue = ""): QueryCodec<string> {
 }
 
 export function enumQuery<T extends string | number>(values: readonly T[], defaultValue: T): QueryCodec<T> {
-  return { defaultValue, parse: (raw) => values.find((value) => String(value) === raw), serialize: (value) => String(value) };
+  return {
+    defaultValue,
+    parse: (raw) => values.find((value) => String(value) === raw),
+    serialize: (value) => String(value),
+  };
 }
 
 export function pageQuery(): QueryCodec<number> {
   return {
     defaultValue: 1,
     parse: (raw) => (/^\d+$/.test(raw) && Number(raw) >= 1 ? Number(raw) : undefined),
-    serialize: (value) => String(value)
+    serialize: (value) => String(value),
   };
 }
 
@@ -81,13 +85,16 @@ export function useRouteQuery<T>(key: string, state: Ref<T>, codec: QueryCodec<T
     }
   });
 
-  watch(() => route.query[key], () => {
-    if (route.name !== routeName) {
-      return;
-    }
-    const next = fromUrl();
-    if (codec.serialize(next) !== codec.serialize(state.value)) {
-      state.value = next;
-    }
-  });
+  watch(
+    () => route.query[key],
+    () => {
+      if (route.name !== routeName) {
+        return;
+      }
+      const next = fromUrl();
+      if (codec.serialize(next) !== codec.serialize(state.value)) {
+        state.value = next;
+      }
+    },
+  );
 }

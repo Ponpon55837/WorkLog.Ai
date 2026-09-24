@@ -22,7 +22,7 @@ const actions = computed(() => [
   ...(props.item.sessionId ? [{ value: "source" as const, label: "查看來源 Session", icon: ExternalLink }] : []),
   props.item.status === "active"
     ? { value: "toggle-status" as const, label: "封存", icon: Archive }
-    : { value: "toggle-status" as const, label: "恢復使用", icon: ArchiveRestore }
+    : { value: "toggle-status" as const, label: "恢復使用", icon: ArchiveRestore },
 ]);
 </script>
 
@@ -38,16 +38,30 @@ const actions = computed(() => [
     </template>
     <template #meta>
       <span v-if="item.projectName">{{ item.projectName }} · </span>
-      <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)">更新於 {{ formatRelative(item.updatedAt) }}</time>
+      <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)"
+        >更新於 {{ formatRelative(item.updatedAt) }}</time
+      >
     </template>
     <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
-    <button v-if="item.body.length > 180" type="button" class="knowledge-row__more" @click="expanded = !expanded">{{ expanded ? "收合" : "展開全文" }}</button>
+    <button v-if="item.body.length > 180" type="button" class="knowledge-row__more" @click="expanded = !expanded">
+      {{ expanded ? "收合" : "展開全文" }}
+    </button>
     <div v-if="item.tags.length || item.references.length" class="knowledge-row__chips">
       <UiLabel v-for="tag in item.tags" :key="`tag-${tag}`">#{{ tag }}</UiLabel>
-      <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{ reference }}</code>
+      <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
+        reference
+      }}</code>
     </div>
     <template #trailing>
-      <UiActionMenu label="更多" hide-label-on-mobile variant="button" size="sm" align="end" :items="actions" @select="emit('action', $event, item)" />
+      <UiActionMenu
+        label="更多"
+        hide-label-on-mobile
+        variant="button"
+        size="sm"
+        align="end"
+        :items="actions"
+        @select="emit('action', $event, item)"
+      />
     </template>
   </UiBoxRow>
 </template>
@@ -93,9 +107,19 @@ const actions = computed(() => [
   overflow-wrap: anywhere;
 }
 
-.tone-accent { color: var(--accent); }
-.tone-done { color: var(--done); }
-.tone-attention { color: var(--attention); }
-.tone-success { color: var(--success); }
-.tone-neutral { color: var(--fg-muted); }
+.tone-accent {
+  color: var(--accent);
+}
+.tone-done {
+  color: var(--done);
+}
+.tone-attention {
+  color: var(--attention);
+}
+.tone-success {
+  color: var(--success);
+}
+.tone-neutral {
+  color: var(--fg-muted);
+}
 </style>

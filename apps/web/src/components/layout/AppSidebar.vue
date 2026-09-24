@@ -4,10 +4,16 @@ import UiCounter from "../ui/UiCounter.vue";
 import { navGroups, navItems } from "./navigation";
 
 /** Grouped primary navigation. Full width ≥ 960px, icon rail 640–959px, drawer below 640px. */
-withDefaults(defineProps<{ open?: boolean; counts?: Partial<Record<string, { value: number; tone?: "default" | "attention" }>> }>(), {
-  open: false,
-  counts: () => ({})
-});
+withDefaults(
+  defineProps<{
+    open?: boolean;
+    counts?: Partial<Record<string, { value: number; tone?: "default" | "attention" }>>;
+  }>(),
+  {
+    open: false,
+    counts: () => ({}),
+  },
+);
 const emit = defineEmits<{ close: [] }>();
 </script>
 
@@ -29,7 +35,12 @@ const emit = defineEmits<{ close: [] }>();
         >
           <component :is="item.icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
           <span class="app-sidebar__label">{{ item.label }}</span>
-          <UiCounter v-if="counts[item.name]?.value" class="app-sidebar__counter" :count="counts[item.name]!.value" :tone="counts[item.name]!.tone" />
+          <UiCounter
+            v-if="counts[item.name]?.value"
+            class="app-sidebar__counter"
+            :count="counts[item.name]!.value"
+            :tone="counts[item.name]!.tone"
+          />
         </RouterLink>
       </div>
     </nav>

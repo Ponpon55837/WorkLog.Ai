@@ -9,6 +9,8 @@ export const storageTestTimeout = 20_000;
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
-    testTimeout: storageTestTimeout
-  }
+    testTimeout: storageTestTimeout,
+    // Calendar dates follow the host time zone; pin it so date fixtures behave the same on every machine.
+    env: { TZ: "UTC" },
+  },
 });

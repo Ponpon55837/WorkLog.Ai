@@ -14,7 +14,13 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 
 <template>
   <header class="app-header">
-    <button class="app-header__menu" type="button" :aria-expanded="menuOpen" aria-label="開啟主選單" @click="emit('toggleMenu')">
+    <button
+      class="app-header__menu"
+      type="button"
+      :aria-expanded="menuOpen"
+      aria-label="開啟主選單"
+      @click="emit('toggleMenu')"
+    >
       <Menu :size="16" :stroke-width="1.75" aria-hidden="true" />
     </button>
     <RouterLink :to="{ name: 'dashboard' }" class="app-header__logo" aria-label="Work Intelligence 首頁">WI</RouterLink>

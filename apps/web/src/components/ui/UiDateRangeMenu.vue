@@ -9,7 +9,7 @@ import type { DateRange } from "./types";
 const props = withDefaults(defineProps<{ label?: string; variant?: "filter" | "button"; align?: "start" | "end" }>(), {
   label: "日期",
   variant: "filter",
-  align: "end"
+  align: "end",
 });
 const model = defineModel<DateRange>({ required: true });
 
@@ -29,13 +29,19 @@ const presets = computed(() => {
   return [
     { key: "all", label: "不限日期", range: { from: "", to: "" } },
     { key: "today", label: "今天", range: { from: todayValue, to: todayValue } },
-    { key: "yesterday", label: "昨天", range: { from: toDateInputValue(shift(today, -1)), to: toDateInputValue(shift(today, -1)) } },
+    {
+      key: "yesterday",
+      label: "昨天",
+      range: { from: toDateInputValue(shift(today, -1)), to: toDateInputValue(shift(today, -1)) },
+    },
     { key: "7d", label: "近 7 天", range: { from: toDateInputValue(shift(today, -6)), to: todayValue } },
-    { key: "month", label: "本月", range: { from: toDateInputValue(startOfMonth(today)), to: todayValue } }
+    { key: "month", label: "本月", range: { from: toDateInputValue(startOfMonth(today)), to: todayValue } },
   ];
 });
 
-const activePreset = computed(() => presets.value.find((preset) => preset.range.from === model.value.from && preset.range.to === model.value.to));
+const activePreset = computed(() =>
+  presets.value.find((preset) => preset.range.from === model.value.from && preset.range.to === model.value.to),
+);
 const applied = computed(() => Boolean(model.value.from || model.value.to));
 const triggerText = computed(() => {
   if (!applied.value) {
@@ -45,10 +51,14 @@ const triggerText = computed(() => {
     return activePreset.value.label;
   }
   const format = (value: string) => value.replaceAll("-", "/");
-  return model.value.from === model.value.to ? format(model.value.from) : `${format(model.value.from || "…")} – ${format(model.value.to || "…")}`;
+  return model.value.from === model.value.to
+    ? format(model.value.from)
+    : `${format(model.value.from || "…")} – ${format(model.value.to || "…")}`;
 });
 
-const monthLabel = computed(() => new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "long" }).format(month.value));
+const monthLabel = computed(() =>
+  new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "long" }).format(month.value),
+);
 const days = computed(() => {
   const start = shift(month.value, -month.value.getDay());
   const today = toDateInputValue(new Date());
@@ -63,7 +73,7 @@ const days = computed(() => {
       outside: date.getMonth() !== month.value.getMonth(),
       today: value === today,
       edge: value === from || value === to,
-      inRange: Boolean(from && to && value > from && value < to)
+      inRange: Boolean(from && to && value > from && value < to),
     };
   });
 });
@@ -97,7 +107,11 @@ watch(open, (value) => {
   <button
     ref="trigger"
     type="button"
-    :class="['ui-date-range__trigger', `ui-date-range__trigger--${variant}`, { 'is-applied': applied, 'is-open': open }]"
+    :class="[
+      'ui-date-range__trigger',
+      `ui-date-range__trigger--${variant}`,
+      { 'is-applied': applied, 'is-open': open },
+    ]"
     aria-haspopup="dialog"
     :aria-expanded="open"
     @click="toggle"
@@ -121,11 +135,19 @@ watch(open, (value) => {
       </div>
       <div class="ui-date-range__calendar">
         <div class="ui-date-range__toolbar">
-          <button type="button" aria-label="上一個月" @click="month = new Date(month.getFullYear(), month.getMonth() - 1, 1)">
+          <button
+            type="button"
+            aria-label="上一個月"
+            @click="month = new Date(month.getFullYear(), month.getMonth() - 1, 1)"
+          >
             <ChevronLeft :size="16" :stroke-width="1.75" aria-hidden="true" />
           </button>
           <strong>{{ monthLabel }}</strong>
-          <button type="button" aria-label="下一個月" @click="month = new Date(month.getFullYear(), month.getMonth() + 1, 1)">
+          <button
+            type="button"
+            aria-label="下一個月"
+            @click="month = new Date(month.getFullYear(), month.getMonth() + 1, 1)"
+          >
             <ChevronRight :size="16" :stroke-width="1.75" aria-hidden="true" />
           </button>
         </div>
@@ -139,13 +161,20 @@ watch(open, (value) => {
             type="button"
             :aria-label="day.value"
             :aria-pressed="day.edge"
-            :class="{ 'is-outside': day.outside, 'is-today': day.today, 'is-edge': day.edge, 'is-in-range': day.inRange }"
+            :class="{
+              'is-outside': day.outside,
+              'is-today': day.today,
+              'is-edge': day.edge,
+              'is-in-range': day.inRange,
+            }"
             @click="pickDay(day.value)"
           >
             {{ day.label }}
           </button>
         </div>
-        <p class="ui-date-range__hint">{{ draftFrom ? `起始 ${draftFrom}，請選擇結束日期` : "點選兩個日期作為自訂區間" }}</p>
+        <p class="ui-date-range__hint">
+          {{ draftFrom ? `起始 ${draftFrom}，請選擇結束日期` : "點選兩個日期作為自訂區間" }}
+        </p>
       </div>
     </div>
   </Teleport>
@@ -280,10 +309,22 @@ watch(open, (value) => {
   background: var(--bg-hover);
 }
 
-.ui-date-range__grid .is-outside { color: var(--fg-muted); opacity: 0.7; }
-.ui-date-range__grid .is-today { box-shadow: inset 0 0 0 1px var(--border-strong); }
-.ui-date-range__grid .is-in-range { border-radius: 0; background: var(--accent-soft); }
-.ui-date-range__grid .is-edge { background: var(--accent-emphasis); color: var(--fg-on-emphasis); font-weight: 600; }
+.ui-date-range__grid .is-outside {
+  color: var(--fg-muted);
+  opacity: 0.7;
+}
+.ui-date-range__grid .is-today {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.ui-date-range__grid .is-in-range {
+  border-radius: 0;
+  background: var(--accent-soft);
+}
+.ui-date-range__grid .is-edge {
+  background: var(--accent-emphasis);
+  color: var(--fg-on-emphasis);
+  font-weight: 600;
+}
 
 .ui-date-range__hint {
   margin-top: var(--space-2);

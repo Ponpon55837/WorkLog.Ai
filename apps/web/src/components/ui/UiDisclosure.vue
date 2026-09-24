@@ -4,14 +4,23 @@ import type { IconComponent } from "./types";
 import UiCounter from "./UiCounter.vue";
 
 /** Collapsible bordered section (native <details>) used for secondary detail blocks. */
-withDefaults(defineProps<{ title: string; icon?: IconComponent; count?: number; hint?: string; open?: boolean }>(), { open: false });
+withDefaults(defineProps<{ title: string; icon?: IconComponent; count?: number; hint?: string; open?: boolean }>(), {
+  open: false,
+});
 </script>
 
 <template>
   <details class="ui-disclosure" :open="open">
     <summary>
       <ChevronRight :size="16" :stroke-width="1.75" class="ui-disclosure__chevron" aria-hidden="true" />
-      <component :is="icon" v-if="icon" :size="16" :stroke-width="1.75" class="ui-disclosure__icon" aria-hidden="true" />
+      <component
+        :is="icon"
+        v-if="icon"
+        :size="16"
+        :stroke-width="1.75"
+        class="ui-disclosure__icon"
+        aria-hidden="true"
+      />
       <span class="ui-disclosure__title">{{ title }}</span>
       <UiCounter v-if="count !== undefined" :count="count" />
       <span v-if="hint" class="ui-disclosure__hint">{{ hint }}</span>

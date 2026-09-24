@@ -10,7 +10,7 @@ import {
   ProjectPolicyGate,
   safeExistingProjectPaths,
   safeProjectPath,
-  safeProjectPaths
+  safeProjectPaths,
 } from "./index.js";
 
 function project(status: ProjectRecord["status"]): ProjectRecord {
@@ -20,7 +20,7 @@ function project(status: ProjectRecord["status"]): ProjectRecord {
     rootPath: canonicalizeProjectRoot("C:/work/tracked"),
     status,
     createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z"
+    updatedAt: "2026-01-01T00:00:00.000Z",
   };
 }
 
@@ -90,7 +90,11 @@ describe("ProjectPolicyGate", () => {
       expect(safePaths[1]).toContain(`${join("src", "new.ts")}`);
       expect(safePaths[2]).toBeUndefined();
 
-      const existingPaths = await safeExistingProjectPaths(root, ["src/inside.ts", "src/new.ts", "../outside/secret.txt"]);
+      const existingPaths = await safeExistingProjectPaths(root, [
+        "src/inside.ts",
+        "src/new.ts",
+        "../outside/secret.txt",
+      ]);
       expect(existingPaths[0]).toContain(`${join("src", "inside.ts")}`);
       expect(existingPaths[1]).toBeUndefined();
       expect(existingPaths[2]).toBeUndefined();

@@ -13,7 +13,7 @@ const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/reports", "工作報告"],
   ["/knowledge", "工作知識"],
   ["/graph", "工作圖譜"],
-  ["/projects", "專案"]
+  ["/projects", "專案"],
 ];
 
 async function postJson<T>(request: APIRequestContext, endpoint: string, body: unknown): Promise<ApiResult<T>> {
@@ -35,7 +35,7 @@ async function expectBoundedVirtualList(page: Page, name: string): Promise<Locat
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
     viewport: window.innerWidth,
-    document: document.documentElement.scrollWidth
+    document: document.documentElement.scrollWidth,
   }));
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
@@ -49,12 +49,12 @@ test.describe("Work Intelligence browser regression", () => {
   test.beforeAll(async ({ request }) => {
     const project = await postJson<ProjectRecord>(request, "/api/projects", {
       name: "Browser Regression Fixture",
-      rootPath: projectRoot
+      rootPath: projectRoot,
     });
     projectId = project.id;
 
     const trackedProject = await request.patch(`/api/projects/${projectId}`, {
-      data: { status: "tracked" }
+      data: { status: "tracked" },
     });
     expect(trackedProject.ok()).toBeTruthy();
 
@@ -68,17 +68,15 @@ test.describe("Work Intelligence browser regression", () => {
         scope: ["The primary Work Intelligence views."],
         decisions: ["Use one isolated SQLite fixture."],
         verification: ["Browser regression fixture is deterministic."],
-        nextSteps: ["Keep the UI regression suite green."]
+        nextSteps: ["Keep the UI regression suite green."],
       },
       changedFiles: ["README.md"],
       verification: {
         status: "passed",
-        summary: "Browser regression fixture is deterministic."
+        summary: "Browser regression fixture is deterministic.",
       },
-      events: [
-        { type: "verification", summary: "Fixture verification completed." }
-      ],
-      completedAt: new Date().toISOString()
+      events: [{ type: "verification", summary: "Fixture verification completed." }],
+      completedAt: new Date().toISOString(),
     });
     sessionId = finalized.session.id;
 
@@ -86,8 +84,8 @@ test.describe("Work Intelligence browser regression", () => {
       data: {
         kind: "test",
         reference: "pnpm test:e2e",
-        summary: "Browser regression fixture evidence."
-      }
+        summary: "Browser regression fixture evidence.",
+      },
     });
     expect(evidence.ok()).toBeTruthy();
 
@@ -99,7 +97,7 @@ test.describe("Work Intelligence browser regression", () => {
       body: "The browser suite uses an isolated SQLite database.",
       sessionId,
       tags: ["e2e", "testing"],
-      references: ["playwright.config.ts"]
+      references: ["playwright.config.ts"],
     });
     expect(knowledge.outcome).toBe("knowledge_recorded");
 
@@ -112,16 +110,16 @@ test.describe("Work Intelligence browser regression", () => {
         changedFiles: ["README.md"],
         verification: {
           status: "passed",
-          summary: "Virtual list fixture is deterministic."
+          summary: "Virtual list fixture is deterministic.",
         },
-        completedAt: new Date(Date.now() - index * 60_000).toISOString()
+        completedAt: new Date(Date.now() - index * 60_000).toISOString(),
       });
       const extraEvidence = await request.post(`/api/sessions/${extraSession.session.id}/evidence`, {
         data: {
           kind: "test",
           reference: `virtual-list-${index}`,
-          summary: "Virtual list fixture evidence."
-        }
+          summary: "Virtual list fixture evidence.",
+        },
       });
       expect(extraEvidence.ok()).toBeTruthy();
       const extraKnowledge = await postJson(request, "/api/knowledge", {
@@ -132,7 +130,7 @@ test.describe("Work Intelligence browser regression", () => {
         body: "Additional fixture knowledge used to verify bounded virtual lists.",
         sessionId: extraSession.session.id,
         tags: ["e2e", "virtual-list"],
-        references: ["apps/web/src/components/VirtualList.vue"]
+        references: ["apps/web/src/components/VirtualList.vue"],
       });
       expect(extraKnowledge.outcome).toBe("knowledge_recorded");
     }
@@ -141,14 +139,14 @@ test.describe("Work Intelligence browser regression", () => {
       period: "week",
       date: reportDate,
       projectId,
-      idempotencyKey: `browser-regression-report-${process.pid}`
+      idempotencyKey: `browser-regression-report-${process.pid}`,
     });
     expect(synthesisRequest.outcome).toBe("report_synthesis_request");
 
     const sourceBlock = {
       title: "Browser validation",
       detail: "The regression fixture confirms the primary Work Intelligence views remain navigable.",
-      sourceSessionIds: [sessionId]
+      sourceSessionIds: [sessionId],
     };
     const summaryPayload = {
       executiveSummary: "The primary Work Intelligence flows are available for browser validation.",
@@ -161,13 +159,13 @@ test.describe("Work Intelligence browser regression", () => {
       nextSteps: [sourceBlock],
       sourceSessionIds: [sessionId],
       generatedByAgent: "Playwright fixture",
-      generatedByModel: "test-fixture"
+      generatedByModel: "test-fixture",
     };
     const summary = await postJson(request, "/api/reports/summaries", {
       requestId: synthesisRequest.request.id,
       title: "Browser regression report",
       ...summaryPayload,
-      promptVersion: "e2e-fixture-v1"
+      promptVersion: "e2e-fixture-v1",
     });
     expect(summary.outcome).toBe("report_summary_saved");
 
@@ -175,14 +173,14 @@ test.describe("Work Intelligence browser regression", () => {
       period: "week",
       date: reportDate,
       projectId,
-      idempotencyKey: `browser-regression-report-v2-${process.pid}`
+      idempotencyKey: `browser-regression-report-v2-${process.pid}`,
     });
     expect(newerRequest.outcome).toBe("report_synthesis_request");
     const newerSummary = await postJson(request, "/api/reports/summaries", {
       requestId: newerRequest.request.id,
       title: "Browser regression report updated",
       ...summaryPayload,
-      promptVersion: "e2e-fixture-v2"
+      promptVersion: "e2e-fixture-v2",
     });
     expect(newerSummary.outcome).toBe("report_summary_saved");
   });
@@ -236,9 +234,11 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(sessionPageSize).toHaveValue("20");
     await sessionPageSize.selectOption("all");
     const sessionList = await expectBoundedVirtualList(page, "工作歷程清單");
-    const sessionRowBoxes = await sessionList.getByTestId("session-row").evaluateAll((rows) =>
-      rows.map((row) => row.getBoundingClientRect()).map((box) => ({ top: box.top, bottom: box.bottom }))
-    );
+    const sessionRowBoxes = await sessionList
+      .getByTestId("session-row")
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getBoundingClientRect()).map((box) => ({ top: box.top, bottom: box.bottom })),
+      );
     for (let index = 1; index < sessionRowBoxes.length; index += 1) {
       expect(sessionRowBoxes[index]?.top ?? 0).toBeGreaterThanOrEqual((sessionRowBoxes[index - 1]?.bottom ?? 0) - 1);
     }

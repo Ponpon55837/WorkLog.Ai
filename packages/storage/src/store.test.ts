@@ -452,7 +452,7 @@ describe("WorkIntelligenceStore", () => {
     ]);
   });
 
-  it("treats from/to as inclusive UTC calendar dates at the day boundaries", () => {
+  it("treats from/to as inclusive calendar dates at the day boundaries (TZ=UTC)", () => {
     const { store, root } = createStore();
     const project = store.addProject("Boundary project", root);
     store.updateProject(project.id, { status: "tracked" });
@@ -481,11 +481,81 @@ describe("WorkIntelligenceStore", () => {
     expect(store.listSessionsPage({ from: "2026-09-30", to: "2026-09-30" }).pageInfo.total).toBe(1);
   });
 
+  it("buckets calendar dates in the host time zone for filters, reports, and trends", () => {
+    process.env.TZ = "Asia/Taipei";
+    try {
+      const { store, root } = createStore();
+      const project = store.addProject("Taipei project", root);
+      store.updateProject(project.id, { status: "tracked" });
+      // 2026-09-21T23:30Z is 07:30 on 2026-09-22 in Taipei; 2026-09-22T16:30Z is 00:30 on 2026-09-23.
+      for (const [title, completedAt] of [
+        ["early-morning", "2026-09-21T23:30:00.000Z"],
+        ["after-midnight", "2026-09-22T16:30:00.000Z"],
+      ] as const) {
+        store.finalizeSession({
+          projectRoot: root,
+          idempotencyKey: `tz-${title}`,
+          title,
+          summary: "Time zone boundary check.",
+          completedAt,
+        });
+      }
+
+      expect(store.listSessions({ from: "2026-09-22", to: "2026-09-22" }).map((session) => session.title)).toEqual([
+        "early-morning",
+      ]);
+      expect(store.listSessions({ to: "2026-09-21" })).toEqual([]);
+
+      const dayReport = store.getReport({ period: "day", date: "2026-09-22" });
+      expect(dayReport).toMatchObject({ outcome: "report", timezone: "Asia/Taipei" });
+      if (dayReport.outcome !== "report") {
+        return;
+      }
+      expect(dayReport.sessions.map((session) => session.title)).toEqual(["early-morning"]);
+
+      const weekReport = store.getReport({ period: "week", date: "2026-09-22" });
+      if (weekReport.outcome !== "report") {
+        throw new Error("Expected a week report.");
+      }
+      const trendByDate = Object.fromEntries(weekReport.trends.map((point) => [point.date, point.sessions]));
+      expect(trendByDate).toMatchObject({ "2026-09-21": 0, "2026-09-22": 1, "2026-09-23": 1 });
+    } finally {
+      process.env.TZ = "UTC";
+    }
+  });
+
+  it("matches LIKE wildcards in search queries literally", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Wildcard project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "wildcard-001",
+      title: "Coverage reached 100% for storage",
+      summary: "Percent sign in the title.",
+    });
+    store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "wildcard-002",
+      title: "Plain session",
+      summary: "No special characters here.",
+    });
+
+    expect(store.listSessions({ query: "%" }).map((session) => session.title)).toEqual([
+      "Coverage reached 100% for storage",
+    ]);
+    expect(store.listSessions({ query: "_" })).toEqual([]);
+    expect(store.search("100%")).toHaveLength(1);
+  });
+
   it("keeps metadata backfill gaps exact for edge-case and legacy metadata rows", () => {
     const { store, root } = createStore();
     const project = store.addProject("Backfill edge project", root);
     store.updateProject(project.id, { status: "tracked" });
-    const finalize = (key: string, input: { changedFiles?: string[]; verification?: { status: "passed" | "failed" | "not_run" } }) => {
+    const finalize = (
+      key: string,
+      input: { changedFiles?: string[]; verification?: { status: "passed" | "failed" | "not_run" } },
+    ) => {
       const result = store.finalizeSession({
         projectRoot: root,
         idempotencyKey: key,
@@ -500,7 +570,10 @@ describe("WorkIntelligenceStore", () => {
     };
     finalize("failed-with-files", { changedFiles: ["src/a.ts"], verification: { status: "failed" } });
     finalize("passed-without-files", { changedFiles: [], verification: { status: "passed" } });
-    const statusless = finalize("statusless-verification", { changedFiles: ["src/b.ts"], verification: { status: "passed" } });
+    const statusless = finalize("statusless-verification", {
+      changedFiles: ["src/b.ts"],
+      verification: { status: "passed" },
+    });
     const corrupted = finalize("corrupted-json", { changedFiles: ["src/c.ts"], verification: { status: "passed" } });
     const database = (store as unknown as { db: DatabaseSync }).db;
     database.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run('{"summary":"legacy"}', statusless);
@@ -2311,17 +2384,13 @@ Result: PASSED
     expect(migratedSessionColumns).not.toContain("commit_required");
   });
 
-  it("gates source reads and context by the same project policy", () => {
+  it("gates context by the project policy", () => {
     const { store, root } = createStore();
     const project = store.addProject("Context project", root);
-    const sourcePath = join(root, "notes.md");
-    writeFileSync(sourcePath, "tracked source", "utf8");
 
-    expect(store.readProjectSource(root, "notes.md")).toMatchObject({ outcome: "skipped" });
     expect(store.getContext(root)).toMatchObject({ outcome: "skipped", projectStatus: "unregistered" });
 
     store.updateProject(project.id, { status: "tracked" });
-    expect(store.readProjectSource(root, "notes.md")).toBe("tracked source");
     const finalized = store.finalizeSession({
       projectRoot: root,
       idempotencyKey: "context-follow-up-001",

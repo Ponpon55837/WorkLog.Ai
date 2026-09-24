@@ -38,7 +38,7 @@ const {
   setKnowledgeStatus,
   openKnowledgeSession,
   openKnowledgeEditor,
-  openKnowledgeHistory
+  openKnowledgeHistory,
 } = useKnowledge();
 
 const kinds = Object.keys(knowledgeKindLabels) as KnowledgeKind[];
@@ -47,17 +47,44 @@ useRouteQuery("kind", knowledgeKind, enumQuery<KnowledgeKind | "">(["", ...kinds
 useRouteQuery("project", knowledgeProjectId, stringQuery());
 useRouteQuery("status", knowledgeStatus, enumQuery<KnowledgeStatus>(["active", "archived"], "active"));
 useRouteQuery("page", knowledgePage, pageQuery());
-useRouteQuery("size", knowledgePageSize, enumQuery(listPageSizeOptions.map((option) => option.value), 10));
-const { reloadNow } = useListReload({ load: loadKnowledge, page: knowledgePage, filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize], search: knowledgeQuery });
+useRouteQuery(
+  "size",
+  knowledgePageSize,
+  enumQuery(
+    listPageSizeOptions.map((option) => option.value),
+    10,
+  ),
+);
+const { reloadNow } = useListReload({
+  load: loadKnowledge,
+  page: knowledgePage,
+  filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize],
+  search: knowledgeQuery,
+});
 useViewLoader(loadKnowledge);
 
-const hasFilters = computed(() => Boolean(knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeStatus.value !== "active"));
-const projectItems = computed(() => [{ value: "", label: "所有記錄中專案" }, ...knowledgeProjects.value.map((project) => ({ value: project.id, label: project.name }))]);
+const hasFilters = computed(() =>
+  Boolean(
+    knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeStatus.value !== "active",
+  ),
+);
+const projectItems = computed(() => [
+  { value: "", label: "所有記錄中專案" },
+  ...knowledgeProjects.value.map((project) => ({ value: project.id, label: project.name })),
+]);
 const kindItems = [
   { value: "" as const, label: "所有類型" },
-  ...kinds.map((kind) => ({ value: kind, label: knowledgeKindLabels[kind], icon: knowledgeKindVisual[kind].icon, tone: knowledgeKindVisual[kind].tone }))
+  ...kinds.map((kind) => ({
+    value: kind,
+    label: knowledgeKindLabels[kind],
+    icon: knowledgeKindVisual[kind].icon,
+    tone: knowledgeKindVisual[kind].tone,
+  })),
 ];
-const statusItems = (Object.keys(knowledgeStatusLabels) as KnowledgeStatus[]).map((status) => ({ value: status, label: knowledgeStatusLabels[status] }));
+const statusItems = (Object.keys(knowledgeStatusLabels) as KnowledgeStatus[]).map((status) => ({
+  value: status,
+  label: knowledgeStatusLabels[status],
+}));
 
 function clearFilters(): void {
   knowledgeQuery.value = "";
@@ -84,7 +111,14 @@ function onAction(action: "edit" | "history" | "toggle-status" | "source", item:
 
   <PageToolbar>
     <form class="knowledge-search" role="search" @submit.prevent="reloadNow">
-      <UiTextInput v-model="knowledgeQuery" class="knowledge-search__input" type="search" :icon="Search" label="搜尋 Knowledge" placeholder="搜尋標題、內容、標籤或參考" />
+      <UiTextInput
+        v-model="knowledgeQuery"
+        class="knowledge-search__input"
+        type="search"
+        :icon="Search"
+        label="搜尋 Knowledge"
+        placeholder="搜尋標題、內容、標籤或參考"
+      />
       <UiButton v-if="hasFilters" :icon="X" @click="clearFilters">清除篩選</UiButton>
     </form>
   </PageToolbar>
@@ -96,11 +130,35 @@ function onAction(action: "edit" | "history" | "toggle-status" | "source", item:
 
   <UiBox sticky-header>
     <template #header>
-      <UiBoxTitle :icon="BookOpen" :title="`${knowledgePageInfo.total} 筆${knowledgeStatus === 'active' ? '使用中' : '已封存'} Knowledge`" />
+      <UiBoxTitle
+        :icon="BookOpen"
+        :title="`${knowledgePageInfo.total} 筆${knowledgeStatus === 'active' ? '使用中' : '已封存'} Knowledge`"
+      />
       <div class="knowledge__filters">
-        <UiActionMenu v-model="knowledgeProjectId" label="專案" header="篩選專案" default-value="" align="end" :items="projectItems" />
-        <UiActionMenu v-model="knowledgeKind" label="類型" header="篩選類型" default-value="" align="end" :items="kindItems" />
-        <UiActionMenu v-model="knowledgeStatus" label="狀態" header="篩選狀態" default-value="active" align="end" :items="statusItems" />
+        <UiActionMenu
+          v-model="knowledgeProjectId"
+          label="專案"
+          header="篩選專案"
+          default-value=""
+          align="end"
+          :items="projectItems"
+        />
+        <UiActionMenu
+          v-model="knowledgeKind"
+          label="類型"
+          header="篩選類型"
+          default-value=""
+          align="end"
+          :items="kindItems"
+        />
+        <UiActionMenu
+          v-model="knowledgeStatus"
+          label="狀態"
+          header="篩選狀態"
+          default-value="active"
+          align="end"
+          :items="statusItems"
+        />
       </div>
     </template>
 
@@ -109,18 +167,33 @@ function onAction(action: "edit" | "history" | "toggle-status" | "source", item:
       v-else-if="knowledgeItems.length === 0"
       :icon="BookOpen"
       :title="hasFilters ? '沒有符合條件的 Knowledge' : '還沒有已確認的 Knowledge'"
-      :description="hasFilters ? '調整搜尋或篩選條件後再試一次。' : 'Agent 明確提交 decision、pattern、gotcha、procedure 或 skill 後，會出現在這裡。'"
+      :description="
+        hasFilters
+          ? '調整搜尋或篩選條件後再試一次。'
+          : 'Agent 明確提交 decision、pattern、gotcha、procedure 或 skill 後，會出現在這裡。'
+      "
     >
       <template v-if="hasFilters" #action><UiButton @click="clearFilters">清除篩選</UiButton></template>
     </UiEmptyState>
-    <VirtualList v-else :items="knowledgeItems" :enabled="knowledgePageSize === 'all'" :estimate-item-height="140" label="工作知識清單">
+    <VirtualList
+      v-else
+      :items="knowledgeItems"
+      :enabled="knowledgePageSize === 'all'"
+      :estimate-item-height="140"
+      label="工作知識清單"
+    >
       <template #default="{ item }">
         <KnowledgeRow :item="item" @action="onAction" />
       </template>
     </VirtualList>
 
     <template #footer>
-      <UiPagination v-model:page-size="knowledgePageSize" :page-info="knowledgePageInfo" size-label="Knowledge 每頁筆數" @page="knowledgePage = $event" />
+      <UiPagination
+        v-model:page-size="knowledgePageSize"
+        :page-info="knowledgePageInfo"
+        size-label="Knowledge 每頁筆數"
+        @page="knowledgePage = $event"
+      />
     </template>
   </UiBox>
 </template>

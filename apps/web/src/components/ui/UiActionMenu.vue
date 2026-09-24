@@ -8,24 +8,29 @@ import type { IconComponent, SelectOption } from "./types";
  * Dropdown menu. With `v-model` it is a single-select filter (check marks, "applied" trigger state);
  * without it, items are actions and `select` is emitted.
  */
-const props = withDefaults(defineProps<{
-  label: string;
-  items: readonly SelectOption<T>[];
-  header?: string;
-  icon?: IconComponent;
-  align?: "start" | "end";
-  /** Value that means "no filter"; when the model differs the trigger shows as applied. */
-  defaultValue?: T;
-  variant?: "filter" | "button";
-  size?: "md" | "sm";
-  hideLabelOnMobile?: boolean;
-}>(), { align: "start", variant: "filter", size: "md" });
+const props = withDefaults(
+  defineProps<{
+    label: string;
+    items: readonly SelectOption<T>[];
+    header?: string;
+    icon?: IconComponent;
+    align?: "start" | "end";
+    /** Value that means "no filter"; when the model differs the trigger shows as applied. */
+    defaultValue?: T;
+    variant?: "filter" | "button";
+    size?: "md" | "sm";
+    hideLabelOnMobile?: boolean;
+  }>(),
+  { align: "start", variant: "filter", size: "md" },
+);
 
 const model = defineModel<T>();
 const emit = defineEmits<{ select: [value: T] }>();
 
 const { open, trigger, panel, style, toggle, close } = usePopover({ align: computed(() => props.align), width: 260 });
-const applied = computed(() => model.value !== undefined && props.defaultValue !== undefined && model.value !== props.defaultValue);
+const applied = computed(
+  () => model.value !== undefined && props.defaultValue !== undefined && model.value !== props.defaultValue,
+);
 
 function choose(value: T): void {
   if (model.value !== undefined || props.defaultValue !== undefined) {
@@ -37,7 +42,9 @@ function choose(value: T): void {
 }
 
 function itemButtons(): HTMLButtonElement[] {
-  return Array.from(panel.value?.querySelectorAll<HTMLButtonElement>("button[role='menuitemradio'], button[role='menuitem']") ?? []);
+  return Array.from(
+    panel.value?.querySelectorAll<HTMLButtonElement>("button[role='menuitemradio'], button[role='menuitem']") ?? [],
+  );
 }
 
 function moveFocus(event: KeyboardEvent): void {
@@ -67,7 +74,12 @@ watch(open, async (value) => {
   <button
     ref="trigger"
     type="button"
-    :class="['ui-action-menu__trigger', `ui-action-menu__trigger--${variant}`, `ui-action-menu__trigger--${size}`, { 'is-applied': applied, 'is-open': open }]"
+    :class="[
+      'ui-action-menu__trigger',
+      `ui-action-menu__trigger--${variant}`,
+      `ui-action-menu__trigger--${size}`,
+      { 'is-applied': applied, 'is-open': open },
+    ]"
     aria-haspopup="menu"
     :aria-expanded="open"
     @click="toggle"
@@ -77,7 +89,15 @@ watch(open, async (value) => {
     <ChevronDown :size="14" :stroke-width="1.75" aria-hidden="true" />
   </button>
   <Teleport to="body">
-    <div v-if="open" ref="panel" class="ui-action-menu__panel" :style="style" role="menu" :aria-label="header ?? label" @keydown="moveFocus">
+    <div
+      v-if="open"
+      ref="panel"
+      class="ui-action-menu__panel"
+      :style="style"
+      role="menu"
+      :aria-label="header ?? label"
+      @keydown="moveFocus"
+    >
       <div v-if="header" class="ui-action-menu__header">{{ header }}</div>
       <button
         v-for="item in items"
@@ -91,7 +111,14 @@ watch(open, async (value) => {
         <span v-if="model !== undefined" class="ui-action-menu__check">
           <Check v-if="model === item.value" :size="16" :stroke-width="2" aria-hidden="true" />
         </span>
-        <component :is="item.icon" v-if="item.icon" :size="16" :stroke-width="1.75" :class="['ui-action-menu__item-icon', item.tone && `tone-${item.tone}`]" aria-hidden="true" />
+        <component
+          :is="item.icon"
+          v-if="item.icon"
+          :size="16"
+          :stroke-width="1.75"
+          :class="['ui-action-menu__item-icon', item.tone && `tone-${item.tone}`]"
+          aria-hidden="true"
+        />
         <span class="ui-action-menu__item-copy">
           <span>{{ item.label }}</span>
           <small v-if="item.description">{{ item.description }}</small>
@@ -223,11 +250,21 @@ watch(open, async (value) => {
   font-size: var(--text-xs);
 }
 
-.tone-success { color: var(--success); }
-.tone-danger { color: var(--danger); }
-.tone-attention { color: var(--attention); }
-.tone-accent { color: var(--accent); }
-.tone-done { color: var(--done); }
+.tone-success {
+  color: var(--success);
+}
+.tone-danger {
+  color: var(--danger);
+}
+.tone-attention {
+  color: var(--attention);
+}
+.tone-accent {
+  color: var(--accent);
+}
+.tone-done {
+  color: var(--done);
+}
 
 @media (max-width: 639px) {
   .ui-action-menu__label--hide-sm {

@@ -22,7 +22,7 @@ export function toProject(row: ProjectRow): ProjectRecord {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    lastIngestedAt: row.last_ingested_at ?? undefined
+    lastIngestedAt: row.last_ingested_at ?? undefined,
   };
 }
 
@@ -34,9 +34,8 @@ export class ProjectRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
   public getByRootPath(rootPath: string): ProjectRecord | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM projects WHERE root_path = ?")
-      .get(canonicalizeProjectRoot(rootPath)) as ProjectRow | undefined;
+    const row = this.db.prepare("SELECT * FROM projects WHERE root_path = ?").get(canonicalizeProjectRoot(rootPath)) as
+      ProjectRow | undefined;
     return row ? toProject(row) : undefined;
   }
 
@@ -64,13 +63,13 @@ export class ProjectRepository {
       rootPath: canonicalRoot,
       status: "unregistered",
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     };
 
     this.db
       .prepare(
         `INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
-         VALUES (@id, @name, @rootPath, @status, @createdAt, @updatedAt)`
+         VALUES (@id, @name, @rootPath, @status, @createdAt, @updatedAt)`,
       )
       .run({
         id: project.id,
@@ -78,7 +77,7 @@ export class ProjectRepository {
         rootPath: project.rootPath,
         status: project.status,
         createdAt: project.createdAt,
-        updatedAt: project.updatedAt
+        updatedAt: project.updatedAt,
       });
     return project;
   }
@@ -93,14 +92,14 @@ export class ProjectRepository {
       ...existing,
       name: update.name?.trim() || existing.name,
       status: update.status ?? existing.status,
-      updatedAt: nowIso()
+      updatedAt: nowIso(),
     };
 
     this.db
       .prepare(
         `UPDATE projects
          SET name = @name, status = @status, updated_at = @updatedAt
-         WHERE id = @id`
+         WHERE id = @id`,
       )
       .run({ id: projectId, name: next.name, status: next.status, updatedAt: next.updatedAt });
     return next;

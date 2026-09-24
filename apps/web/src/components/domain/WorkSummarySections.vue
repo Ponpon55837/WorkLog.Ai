@@ -13,7 +13,9 @@ defineProps<{ summary?: WorkSummarySections }>();
   <div class="work-summary" data-testid="session-work-summary">
     <p v-if="!summary" class="work-summary__legacy">此 Session 尚未提供五段摘要。</p>
     <section v-for="section in workSummarySectionLabels" :key="section.key" class="work-summary__section">
-      <h3>{{ section.label }} <span class="work-summary__key">{{ section.key }}</span></h3>
+      <h3>
+        {{ section.label }} <span class="work-summary__key">{{ section.key }}</span>
+      </h3>
       <ul v-if="summary?.[section.key]?.length">
         <li v-for="(item, index) in summary[section.key]" :key="index">{{ item }}</li>
       </ul>

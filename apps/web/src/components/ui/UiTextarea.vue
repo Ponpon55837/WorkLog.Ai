@@ -1,11 +1,21 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ rows?: number; placeholder?: string; maxlength?: number; required?: boolean; mono?: boolean }>(), { rows: 4 });
+withDefaults(
+  defineProps<{ rows?: number; placeholder?: string; maxlength?: number; required?: boolean; mono?: boolean }>(),
+  { rows: 4 },
+);
 
 const model = defineModel<string>({ default: "" });
 </script>
 
 <template>
-  <textarea v-model="model" :class="['ui-textarea', { mono }]" :rows="rows" :placeholder="placeholder" :maxlength="maxlength" :required="required"></textarea>
+  <textarea
+    v-model="model"
+    :class="['ui-textarea', { mono }]"
+    :rows="rows"
+    :placeholder="placeholder"
+    :maxlength="maxlength"
+    :required="required"
+  ></textarea>
 </template>
 
 <style scoped>

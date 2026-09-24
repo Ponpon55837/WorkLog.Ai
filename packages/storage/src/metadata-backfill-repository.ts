@@ -18,7 +18,7 @@ export class MetadataBackfillRepository {
              AND r.started_at IS NOT NULL
              AND (r.project_id IS NULL OR EXISTS (
                SELECT 1 FROM projects p WHERE p.id = r.project_id AND p.status = 'tracked'
-             ))`
+             ))`,
         )
         .all() as Array<{ id: string; started_at: string | null }>;
       const staleRows = rows.filter((row) => {
@@ -37,7 +37,7 @@ export class MetadataBackfillRepository {
          WHERE id = ? AND status = 'processing'
            AND (project_id IS NULL OR EXISTS (
              SELECT 1 FROM projects p WHERE p.id = metadata_backfill_requests.project_id AND p.status = 'tracked'
-           ))`
+           ))`,
       );
       for (const row of staleRows) {
         update.run(failureReason, row.id);

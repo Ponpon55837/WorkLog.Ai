@@ -8,7 +8,12 @@ const max = computed(() => Math.max(1, ...props.values));
 
 <template>
   <div class="ui-sparkline" role="img" :aria-label="label">
-    <span v-for="(value, index) in values" :key="index" :style="{ height: `${Math.max(8, (value / max) * 100)}%` }" :title="String(value)"></span>
+    <span
+      v-for="(value, index) in values"
+      :key="index"
+      :style="{ height: `${Math.max(8, (value / max) * 100)}%` }"
+      :title="String(value)"
+    ></span>
   </div>
 </template>
 

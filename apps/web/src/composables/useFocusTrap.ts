@@ -6,7 +6,7 @@ const focusableSelector = [
   "input:not(:disabled):not([type='hidden'])",
   "select:not(:disabled)",
   "textarea:not(:disabled)",
-  "[tabindex]:not([tabindex='-1'])"
+  "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
 let scrollLocks = 0;
@@ -23,14 +23,14 @@ function lockScroll(lock: boolean): void {
 export function useFocusTrap(
   container: Ref<HTMLElement | null>,
   active: Ref<boolean>,
-  options: { onEscape: () => void; lockScroll?: boolean; trapTab?: boolean }
+  options: { onEscape: () => void; lockScroll?: boolean; trapTab?: boolean },
 ): void {
   let previousFocus: HTMLElement | null = null;
   let locked = false;
 
   function focusables(): HTMLElement[] {
     return Array.from(container.value?.querySelectorAll<HTMLElement>(focusableSelector) ?? []).filter(
-      (element) => element.getClientRects().length > 0
+      (element) => element.getClientRects().length > 0,
     );
   }
 
@@ -86,13 +86,17 @@ export function useFocusTrap(
     previousFocus = null;
   }
 
-  watch(active, (value) => {
-    if (value) {
-      void activate();
-    } else {
-      deactivate();
-    }
-  }, { immediate: true });
+  watch(
+    active,
+    (value) => {
+      if (value) {
+        void activate();
+      } else {
+        deactivate();
+      }
+    },
+    { immediate: true },
+  );
 
   onBeforeUnmount(deactivate);
 }

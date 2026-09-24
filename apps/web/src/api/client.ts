@@ -28,7 +28,7 @@ import type {
   SessionDetail,
   SessionListResult,
   UpdateKnowledgeInput,
-  UpdateKnowledgeResult
+  UpdateKnowledgeResult,
 } from "@work-intelligence/core";
 
 type ApiErrorPayload = { error?: string };
@@ -73,8 +73,8 @@ export class ApiClient {
       ...init,
       headers: {
         "Content-Type": "application/json",
-        ...(init?.headers ?? {})
-      }
+        ...(init?.headers ?? {}),
+      },
     });
     const payload = (await response.json()) as T & ApiErrorPayload;
     if (!response.ok) {
@@ -96,14 +96,17 @@ export class ApiClient {
   }
 
   public listSessions(options: SessionListRequest = {}, signal?: AbortSignal): Promise<SessionListResult> {
-    return this.request<SessionListResult>(appendQuery("/api/sessions", {
-      q: options.q,
-      projectId: options.projectId,
-      from: options.from,
-      to: options.to,
-      page: options.page,
-      pageSize: options.pageSize === "all" ? 0 : options.pageSize
-    }), { signal });
+    return this.request<SessionListResult>(
+      appendQuery("/api/sessions", {
+        q: options.q,
+        projectId: options.projectId,
+        from: options.from,
+        to: options.to,
+        page: options.page,
+        pageSize: options.pageSize === "all" ? 0 : options.pageSize,
+      }),
+      { signal },
+    );
   }
 
   public getSessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
@@ -111,160 +114,240 @@ export class ApiClient {
   }
 
   public searchKnowledge(options: KnowledgeRequest = {}, signal?: AbortSignal): Promise<KnowledgeSearchResult> {
-    return this.request<KnowledgeSearchResult>(appendQuery("/api/knowledge", {
-      projectId: options.projectId,
-      q: options.q ?? options.query,
-      kind: options.kind,
-      status: options.status,
-      page: options.page,
-      pageSize: options.pageSize === "all" ? 0 : options.pageSize,
-      limit: options.limit
-    }), { signal });
+    return this.request<KnowledgeSearchResult>(
+      appendQuery("/api/knowledge", {
+        projectId: options.projectId,
+        q: options.q ?? options.query,
+        kind: options.kind,
+        status: options.status,
+        page: options.page,
+        pageSize: options.pageSize === "all" ? 0 : options.pageSize,
+        limit: options.limit,
+      }),
+      { signal },
+    );
   }
 
   public getGraph(options: GraphQuery = {}, signal?: AbortSignal): Promise<GraphQueryResult> {
-    return this.request<GraphQueryResult>(appendQuery("/api/graph", {
-      projectRoot: options.projectRoot,
-      projectId: options.projectId,
-      limit: options.limit,
-      maxNodes: options.maxNodes,
-      maxEdges: options.maxEdges,
-      pageSize: options.pageSize,
-      cursor: options.cursor
-    }), { signal });
+    return this.request<GraphQueryResult>(
+      appendQuery("/api/graph", {
+        projectRoot: options.projectRoot,
+        projectId: options.projectId,
+        limit: options.limit,
+        maxNodes: options.maxNodes,
+        maxEdges: options.maxEdges,
+        pageSize: options.pageSize,
+        cursor: options.cursor,
+      }),
+      { signal },
+    );
   }
 
   public getReport(options: ReportRequest, signal?: AbortSignal): Promise<ReportQueryResult> {
-    return this.request<ReportQueryResult>(appendQuery("/api/reports", {
-      period: options.period,
-      date: options.date,
-      projectId: options.projectId,
-      evidencePage: options.evidencePage,
-      evidencePageSize: options.evidencePageSize === "all" ? 0 : options.evidencePageSize,
-      evidenceKind: options.evidenceKind,
-      evidenceQuery: options.evidenceQuery
-    }), { signal });
+    return this.request<ReportQueryResult>(
+      appendQuery("/api/reports", {
+        period: options.period,
+        date: options.date,
+        projectId: options.projectId,
+        evidencePage: options.evidencePage,
+        evidencePageSize: options.evidencePageSize === "all" ? 0 : options.evidencePageSize,
+        evidenceKind: options.evidenceKind,
+        evidenceQuery: options.evidenceQuery,
+      }),
+      { signal },
+    );
   }
 
-  public listReportSynthesisRequests(options: {
-    period?: ReportPeriod;
-    date?: string;
-    projectId?: string;
-    limit?: number;
-  } = {}, signal?: AbortSignal): Promise<ReportSynthesisRequestListQueryResult> {
-    return this.request<ReportSynthesisRequestListQueryResult>(appendQuery("/api/reports/synthesis-requests", {
-      period: options.period,
-      date: options.date,
-      projectId: options.projectId,
-      limit: options.limit
-    }), { signal });
+  public listReportSynthesisRequests(
+    options: {
+      period?: ReportPeriod;
+      date?: string;
+      projectId?: string;
+      limit?: number;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<ReportSynthesisRequestListQueryResult> {
+    return this.request<ReportSynthesisRequestListQueryResult>(
+      appendQuery("/api/reports/synthesis-requests", {
+        period: options.period,
+        date: options.date,
+        projectId: options.projectId,
+        limit: options.limit,
+      }),
+      { signal },
+    );
   }
 
-  public listReportSummaries(options: {
-    period?: ReportPeriod;
-    date?: string;
-    projectId?: string;
-    currentOnly?: boolean;
-  } = {}, signal?: AbortSignal): Promise<ReportSummaryQueryResult> {
-    return this.request<ReportSummaryQueryResult>(appendQuery("/api/reports/summaries", {
-      period: options.period,
-      date: options.date,
-      projectId: options.projectId,
-      currentOnly: options.currentOnly
-    }), { signal });
+  public listReportSummaries(
+    options: {
+      period?: ReportPeriod;
+      date?: string;
+      projectId?: string;
+      currentOnly?: boolean;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<ReportSummaryQueryResult> {
+    return this.request<ReportSummaryQueryResult>(
+      appendQuery("/api/reports/summaries", {
+        period: options.period,
+        date: options.date,
+        projectId: options.projectId,
+        currentOnly: options.currentOnly,
+      }),
+      { signal },
+    );
   }
 
-  public createReportSynthesisRequest(input: {
-    period: ReportPeriod;
-    date?: string;
-    projectId?: string;
-    idempotencyKey?: string;
-  }, signal?: AbortSignal): Promise<CreateReportSynthesisRequestResult> {
+  public createReportSynthesisRequest(
+    input: {
+      period: ReportPeriod;
+      date?: string;
+      projectId?: string;
+      idempotencyKey?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<CreateReportSynthesisRequestResult> {
     return this.write<CreateReportSynthesisRequestResult>("/api/reports/synthesis-requests", "POST", input, signal);
   }
 
-  public retryReportSynthesisRequest(requestId: string, signal?: AbortSignal): Promise<RetryReportSynthesisRequestResult> {
+  public retryReportSynthesisRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<RetryReportSynthesisRequestResult> {
     return this.write<RetryReportSynthesisRequestResult>(
       `/api/reports/synthesis-requests/${encodeURIComponent(requestId)}/retry`,
       "POST",
       {},
-      signal
+      signal,
     );
   }
 
-  public cancelReportSynthesisRequest(requestId: string, signal?: AbortSignal): Promise<CancelReportSynthesisRequestResult> {
+  public cancelReportSynthesisRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<CancelReportSynthesisRequestResult> {
     return this.write<CancelReportSynthesisRequestResult>(
       `/api/reports/synthesis-requests/${encodeURIComponent(requestId)}/cancel`,
       "POST",
       {},
-      signal
+      signal,
     );
   }
 
   public deleteReportSummary(summaryId: string, signal?: AbortSignal): Promise<DeleteReportSummaryResult> {
-    return this.write<DeleteReportSummaryResult>(`/api/reports/summaries/${encodeURIComponent(summaryId)}`, "DELETE", {}, signal);
+    return this.write<DeleteReportSummaryResult>(
+      `/api/reports/summaries/${encodeURIComponent(summaryId)}`,
+      "DELETE",
+      {},
+      signal,
+    );
   }
 
-  public exportReport(options: ReportRequest & { format: ReportExportFormat }, signal?: AbortSignal): Promise<ReportExportResult> {
-    return this.request<ReportExportResult>(appendQuery("/api/reports/export", {
-      period: options.period,
-      date: options.date,
-      projectId: options.projectId,
-      format: options.format,
-      evidencePage: options.evidencePage,
-      evidencePageSize: options.evidencePageSize === "all" ? 0 : options.evidencePageSize,
-      evidenceKind: options.evidenceKind,
-      evidenceQuery: options.evidenceQuery
-    }), { signal });
+  public exportReport(
+    options: ReportRequest & { format: ReportExportFormat },
+    signal?: AbortSignal,
+  ): Promise<ReportExportResult> {
+    return this.request<ReportExportResult>(
+      appendQuery("/api/reports/export", {
+        period: options.period,
+        date: options.date,
+        projectId: options.projectId,
+        format: options.format,
+        evidencePage: options.evidencePage,
+        evidencePageSize: options.evidencePageSize === "all" ? 0 : options.evidencePageSize,
+        evidenceKind: options.evidenceKind,
+        evidenceQuery: options.evidenceQuery,
+      }),
+      { signal },
+    );
   }
 
   public createProject(input: { name: string; rootPath: string }, signal?: AbortSignal): Promise<ProjectRecord> {
     return this.write<ProjectRecord>("/api/projects", "POST", input, signal);
   }
 
-  public updateProject(projectId: string, input: { name?: string; status?: ProjectStatus }, signal?: AbortSignal): Promise<ProjectRecord> {
+  public updateProject(
+    projectId: string,
+    input: { name?: string; status?: ProjectStatus },
+    signal?: AbortSignal,
+  ): Promise<ProjectRecord> {
     return this.write<ProjectRecord>(`/api/projects/${encodeURIComponent(projectId)}`, "PATCH", input, signal);
   }
 
   public listMetadataBackfillRequests(signal?: AbortSignal): Promise<MetadataBackfillRequestListQueryResult> {
-    return this.request<MetadataBackfillRequestListQueryResult>("/api/backfill/metadata-requests?scopeType=all&limit=1", { signal });
+    return this.request<MetadataBackfillRequestListQueryResult>(
+      "/api/backfill/metadata-requests?scopeType=all&limit=1",
+      { signal },
+    );
   }
 
-  public createMetadataBackfillRequest(projectId?: string, signal?: AbortSignal): Promise<CreateMetadataBackfillRequestResult> {
-    return this.write<CreateMetadataBackfillRequestResult>("/api/backfill/metadata-requests", "POST", { projectId }, signal);
+  public createMetadataBackfillRequest(
+    projectId?: string,
+    signal?: AbortSignal,
+  ): Promise<CreateMetadataBackfillRequestResult> {
+    return this.write<CreateMetadataBackfillRequestResult>(
+      "/api/backfill/metadata-requests",
+      "POST",
+      { projectId },
+      signal,
+    );
   }
 
-  public cancelMetadataBackfillRequest(requestId: string, signal?: AbortSignal): Promise<CancelMetadataBackfillRequestResult> {
+  public cancelMetadataBackfillRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<CancelMetadataBackfillRequestResult> {
     return this.write<CancelMetadataBackfillRequestResult>(
       `/api/backfill/metadata-requests/${encodeURIComponent(requestId)}/cancel`,
       "POST",
       {},
-      signal
+      signal,
     );
   }
 
   public previewMetadataBackfill(limit = 50, signal?: AbortSignal): Promise<MetadataBackfillPreviewResult> {
-    return this.request<MetadataBackfillPreviewResult>(appendQuery("/api/backfill/metadata/preview", { limit }), { signal });
+    return this.request<MetadataBackfillPreviewResult>(appendQuery("/api/backfill/metadata/preview", { limit }), {
+      signal,
+    });
   }
 
-  public previewHandoffs(projectRoot: string, handoffDirectory?: string, signal?: AbortSignal): Promise<HandoffImportPreviewResult> {
-    return this.request<HandoffImportPreviewResult>(appendQuery("/api/imports/handoffs/preview", { projectRoot, handoffDirectory }), { signal });
+  public previewHandoffs(
+    projectRoot: string,
+    handoffDirectory?: string,
+    signal?: AbortSignal,
+  ): Promise<HandoffImportPreviewResult> {
+    return this.request<HandoffImportPreviewResult>(
+      appendQuery("/api/imports/handoffs/preview", { projectRoot, handoffDirectory }),
+      { signal },
+    );
   }
 
   public importHandoffs(input: HandoffImportApplyInput, signal?: AbortSignal): Promise<HandoffImportBatchResult> {
     return this.write<HandoffImportBatchResult>("/api/imports/handoffs", "POST", input, signal);
   }
 
-  public getKnowledgeHistory(knowledgeId: string, options: { projectRoot: string; limit?: number }, signal?: AbortSignal): Promise<KnowledgeHistoryResult> {
-    return this.request<KnowledgeHistoryResult>(appendQuery(`/api/knowledge/${encodeURIComponent(knowledgeId)}/history`, options), { signal });
+  public getKnowledgeHistory(
+    knowledgeId: string,
+    options: { projectRoot: string; limit?: number },
+    signal?: AbortSignal,
+  ): Promise<KnowledgeHistoryResult> {
+    return this.request<KnowledgeHistoryResult>(
+      appendQuery(`/api/knowledge/${encodeURIComponent(knowledgeId)}/history`, options),
+      { signal },
+    );
   }
 
   public updateKnowledge(
     knowledgeId: string,
     input: Omit<UpdateKnowledgeInput, "knowledgeId">,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<UpdateKnowledgeResult> {
-    return this.write<UpdateKnowledgeResult>(`/api/knowledge/${encodeURIComponent(knowledgeId)}`, "PATCH", { ...input, knowledgeId }, signal);
+    return this.write<UpdateKnowledgeResult>(
+      `/api/knowledge/${encodeURIComponent(knowledgeId)}`,
+      "PATCH",
+      { ...input, knowledgeId },
+      signal,
+    );
   }
 
   public static pageInfo(total: number, page: number, pageSize: number): PageInfo {
@@ -282,7 +365,7 @@ export class ApiClient {
       to,
       hasPrevious: normalizedPage > 1,
       hasNext: normalizedPage < totalPages,
-      truncated: false
+      truncated: false,
     };
   }
 }

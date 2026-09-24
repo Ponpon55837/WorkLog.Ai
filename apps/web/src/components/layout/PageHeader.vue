@@ -14,7 +14,9 @@ const resolvedEyebrow = computed(() => props.eyebrow ?? route.meta.eyebrow);
     <div class="page-header__copy">
       <div v-if="resolvedEyebrow" class="page-header__eyebrow">{{ resolvedEyebrow }}</div>
       <h1>{{ resolvedTitle }}</h1>
-      <p v-if="description || $slots.description"><slot name="description">{{ description }}</slot></p>
+      <p v-if="description || $slots.description">
+        <slot name="description">{{ description }}</slot>
+      </p>
     </div>
     <div v-if="$slots.actions" class="page-header__actions"><slot name="actions" /></div>
   </header>

@@ -14,7 +14,10 @@ const position = computed(() => {
   return { index, total: sequence.value.length };
 });
 
-async function openSessionDetail(sessionId: string | undefined, failureMessage = "無法載入 Session detail。"): Promise<void> {
+async function openSessionDetail(
+  sessionId: string | undefined,
+  failureMessage = "無法載入 Session detail。",
+): Promise<void> {
   if (!sessionId) {
     return;
   }
@@ -24,8 +27,8 @@ async function openSessionDetail(sessionId: string | undefined, failureMessage =
       selectedDetail.value = await useApi().client.getSessionDetail(sessionId, signal);
     },
     {
-      onError: (error) => useToast().showToast(errorMessage(error, failureMessage), "danger")
-    }
+      onError: (error) => useToast().showToast(errorMessage(error, failureMessage), "danger"),
+    },
   );
 }
 
@@ -50,6 +53,6 @@ export function useSessionDetail() {
     openSessionDetail,
     closeSessionDetail,
     setSessionSequence,
-    openAdjacentSession
+    openAdjacentSession,
   };
 }

@@ -28,7 +28,7 @@ const paletteOpen = ref(false);
 const counts = computed(() => ({
   dashboard: { value: inbox.value.length, tone: "attention" as const },
   sessions: { value: dashboard.value.finalizedSessions },
-  projects: { value: trackedProjects.value.length }
+  projects: { value: trackedProjects.value.length },
 }));
 
 async function loadShared(): Promise<void> {
@@ -58,7 +58,13 @@ onBeforeUnmount(() => useApi().abortAll());
 </script>
 
 <template>
-  <AppShell :refreshing="refreshing" :counts="counts" :full-width="route.name === 'graph'" @refresh="refresh" @search="paletteOpen = true">
+  <AppShell
+    :refreshing="refreshing"
+    :counts="counts"
+    :full-width="route.name === 'graph'"
+    @refresh="refresh"
+    @search="paletteOpen = true"
+  >
     <UiFlash v-if="errorMessage" tone="danger" title="無法連線">
       {{ errorMessage }}
       <template #actions><UiButton size="sm" @click="refresh">重試</UiButton></template>

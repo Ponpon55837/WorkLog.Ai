@@ -1,4 +1,5 @@
 import type { ReportMetricComparison, WorkReport } from "@work-intelligence/core";
+import { toLocalCalendarDate } from "@work-intelligence/shared";
 
 function markdownInline(value: string | number | undefined): string {
   return String(value ?? "—")
@@ -47,7 +48,7 @@ export class ReportBuilder {
       reportMetricMarkdown("Changed files", report.comparison.changedFiles),
       "",
       "## 主要完成事項",
-      ""
+      "",
     ];
 
     if (report.sessions.length === 0) {
@@ -56,9 +57,14 @@ export class ReportBuilder {
       for (const session of report.sessions) {
         const projectSuffix = session.projectName ? " · " + markdownInline(session.projectName) : "";
         lines.push(
-          "- **" + markdownInline(session.title) + "** — " +
+          "- **" +
+            markdownInline(session.title) +
+            "** — " +
             markdownInline(session.summary) +
-            "（" + session.completedAt.slice(0, 10) + projectSuffix + "）"
+            "（" +
+            toLocalCalendarDate(session.completedAt) +
+            projectSuffix +
+            "）",
         );
       }
       lines.push("");
@@ -73,7 +79,7 @@ export class ReportBuilder {
       "| Failed | " + report.totals.verification.failed + " |",
       "| Not run | " + report.totals.verification.not_run + " |",
       "| Not supplied | " + report.totals.verification.not_supplied + " |",
-      ""
+      "",
     );
 
     lines.push("## 風險與待確認事項", "");
@@ -82,9 +88,13 @@ export class ReportBuilder {
     } else {
       for (const risk of report.risks) {
         lines.push(
-          "- **" + markdownInline(risk.label) + "** — " +
+          "- **" +
+            markdownInline(risk.label) +
+            "** — " +
             markdownInline(risk.detail) +
-            "（來源 Session：" + risk.sourceSessionIds.length + "）"
+            "（來源 Session：" +
+            risk.sourceSessionIds.length +
+            "）",
         );
       }
       lines.push("");
@@ -96,20 +106,19 @@ export class ReportBuilder {
     } else {
       for (const decision of report.decisions) {
         lines.push(
-          "- **" + markdownInline(decision.summary) + "** — " +
+          "- **" +
+            markdownInline(decision.summary) +
+            "** — " +
             markdownInline(decision.sessionTitle) +
-            "（" + decision.occurredAt + "）"
+            "（" +
+            decision.occurredAt +
+            "）",
         );
       }
       lines.push("");
     }
 
-    lines.push(
-      "## 活動趨勢",
-      "",
-      "| 日期 | Sessions | Events |",
-      "| --- | ---: | ---: |"
-    );
+    lines.push("## 活動趨勢", "", "| 日期 | Sessions | Events |", "| --- | ---: | ---: |");
     for (const trend of report.trends) {
       lines.push("| " + trend.date + " | " + trend.sessions + " | " + trend.events + " |");
     }
@@ -119,16 +128,18 @@ export class ReportBuilder {
     if (report.projects.length === 0) {
       lines.push("目前期間沒有 tracked project 資料。", "");
     } else {
-      lines.push(
-        "| 專案 | Sessions | Events | Source sessions |",
-        "| --- | ---: | ---: | ---: |"
-      );
+      lines.push("| 專案 | Sessions | Events | Source sessions |", "| --- | ---: | ---: | ---: |");
       for (const project of report.projects) {
         lines.push(
-          "| " + markdownInline(project.projectName) +
-            " | " + project.sessionCount +
-            " | " + project.eventCount +
-            " | " + project.sourceSessionIds.length + " |"
+          "| " +
+            markdownInline(project.projectName) +
+            " | " +
+            project.sessionCount +
+            " | " +
+            project.eventCount +
+            " | " +
+            project.sourceSessionIds.length +
+            " |",
         );
       }
       lines.push("");
@@ -141,9 +152,14 @@ export class ReportBuilder {
       for (const evidence of report.evidence) {
         const reference = evidence.reference ? " · " + markdownInline(evidence.reference) : "";
         lines.push(
-          "- **" + markdownInline(evidence.label) + "** — " +
+          "- **" +
+            markdownInline(evidence.label) +
+            "** — " +
             markdownInline(evidence.detail) +
-            "（" + markdownInline(evidence.sessionTitle) + reference + "）"
+            "（" +
+            markdownInline(evidence.sessionTitle) +
+            reference +
+            "）",
         );
       }
       lines.push("");
@@ -152,7 +168,7 @@ export class ReportBuilder {
     lines.push(
       "---",
       "",
-      "來源 Session IDs：" + (report.sourceSessionIds.length ? report.sourceSessionIds.join(", ") : "無")
+      "來源 Session IDs：" + (report.sourceSessionIds.length ? report.sourceSessionIds.join(", ") : "無"),
     );
     return lines.join("\n") + "\n";
   }

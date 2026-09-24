@@ -39,11 +39,16 @@ const minLaneWidth = 220;
 const nodeHeight = 40;
 let resizeObserver: ResizeObserver | undefined;
 
-const laneWidth = computed(() => Math.max(minLaneWidth, Math.floor(viewportWidth.value / Math.max(props.nodeKindOrder.length, 1))));
+const laneWidth = computed(() =>
+  Math.max(minLaneWidth, Math.floor(viewportWidth.value / Math.max(props.nodeKindOrder.length, 1))),
+);
 // Extra room on the right lets nodes in the last lanes scroll out from under the overlaying panel.
 const canvasWidth = computed(() => laneWidth.value * props.nodeKindOrder.length + obscuredRight.value);
 const nodeWidth = computed(() => laneWidth.value - 36);
-const laneHeaderStyle = computed(() => ({ width: `${canvasWidth.value}px`, gridTemplateColumns: `repeat(${props.nodeKindOrder.length}, ${laneWidth.value}px) auto` }));
+const laneHeaderStyle = computed(() => ({
+  width: `${canvasWidth.value}px`,
+  gridTemplateColumns: `repeat(${props.nodeKindOrder.length}, ${laneWidth.value}px) auto`,
+}));
 // ~6.4px per display unit at 12px (CJK counts as 2 units), minus the 12px text inset on each side.
 const labelUnits = computed(() => Math.max(12, Math.floor((nodeWidth.value - 24) / 6.4)));
 
@@ -115,8 +120,8 @@ function nodeClasses(item: GraphVisualNode): (string | Record<string, boolean>)[
       "is-selected": item.node.id === props.selectedId,
       "is-dimmed": focus ? !focus.has(item.node.id) : false,
       "is-context": !focus && Boolean(matches?.size) && !matches?.has(item.node.id),
-      "is-match": Boolean(matches?.has(item.node.id))
-    }
+      "is-match": Boolean(matches?.has(item.node.id)),
+    },
   ];
 }
 
@@ -125,7 +130,7 @@ function edgeClasses(item: GraphVisualEdge): Record<string, boolean> {
   return {
     "graph-canvas__edge": true,
     "is-highlighted": touches(item, focus) || touches(item, hoveredId.value),
-    "is-dimmed": Boolean(focus) && !touches(item, focus)
+    "is-dimmed": Boolean(focus) && !touches(item, focus),
   };
 }
 
@@ -138,7 +143,9 @@ const renderedNodes = computed(() => {
 const renderedNodeIds = computed(() => new Set(renderedNodes.value.map((item) => item.node.id)));
 // An edge is drawn when either end is on screen, so a link to a far-away node is not cut off.
 const renderedEdges = computed(() =>
-  props.edges.filter((item) => renderedNodeIds.value.has(item.from.node.id) || renderedNodeIds.value.has(item.to.node.id))
+  props.edges.filter(
+    (item) => renderedNodeIds.value.has(item.from.node.id) || renderedNodeIds.value.has(item.to.node.id),
+  ),
 );
 
 /** Brings the selected node into view (e.g. when it was picked from the panel's relation list). */
@@ -157,7 +164,9 @@ async function revealSelected(): Promise<void> {
   const centreX = laneCentre(target.lane);
   // Only the part of the canvas left of an overlaying panel counts as visible.
   const visibleWidth = Math.max(nodeWidth.value, element.clientWidth - obscuredRight.value);
-  const horizontallyVisible = centreX - nodeWidth.value / 2 >= element.scrollLeft && centreX + nodeWidth.value / 2 <= element.scrollLeft + visibleWidth;
+  const horizontallyVisible =
+    centreX - nodeWidth.value / 2 >= element.scrollLeft &&
+    centreX + nodeWidth.value / 2 <= element.scrollLeft + visibleWidth;
   if (nodeTop >= visibleTop && nodeBottom <= visibleBottom && horizontallyVisible) {
     return;
   }
@@ -165,15 +174,21 @@ async function revealSelected(): Promise<void> {
   element.scrollTo({
     top: Math.max(0, target.y + laneHeaderHeight - element.clientHeight / 2),
     left: horizontallyVisible ? element.scrollLeft : Math.max(0, centreX - visibleWidth / 2),
-    behavior: reduceMotion ? "auto" : "smooth"
+    behavior: reduceMotion ? "auto" : "smooth",
   });
 }
 
-watch(() => props.selectedId, () => void revealSelected());
-watch(() => props.overlayWidth, () => {
-  updateObscuredRight();
-  void revealSelected();
-});
+watch(
+  () => props.selectedId,
+  () => void revealSelected(),
+);
+watch(
+  () => props.overlayWidth,
+  () => {
+    updateObscuredRight();
+    void revealSelected();
+  },
+);
 
 onMounted(() => {
   updateViewportSize();
@@ -206,16 +221,40 @@ onBeforeUnmount(() => {
     <div class="graph-canvas__lanes" data-testid="graph-lane-header" aria-hidden="true" :style="laneHeaderStyle">
       <span v-for="kind in nodeKindOrder" :key="kind">{{ nodeKindLabels[kind] }}</span>
     </div>
-    <svg class="graph-canvas__svg" :viewBox="`0 0 ${canvasWidth} ${height}`" :style="{ width: `${canvasWidth}px` }" preserveAspectRatio="xMinYMin meet">
+    <svg
+      class="graph-canvas__svg"
+      :viewBox="`0 0 ${canvasWidth} ${height}`"
+      :style="{ width: `${canvasWidth}px` }"
+      preserveAspectRatio="xMinYMin meet"
+    >
       <defs>
-        <marker id="graph-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+        <marker
+          id="graph-arrow"
+          markerWidth="7"
+          markerHeight="7"
+          refX="6"
+          refY="3.5"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
           <path d="M0,0 L7,3.5 L0,7 z" class="graph-canvas__arrow"></path>
         </marker>
-        <clipPath v-for="item in renderedNodes" :id="clipId(item.node.id)" :key="clipId(item.node.id)" clipPathUnits="userSpaceOnUse">
+        <clipPath
+          v-for="item in renderedNodes"
+          :id="clipId(item.node.id)"
+          :key="clipId(item.node.id)"
+          clipPathUnits="userSpaceOnUse"
+        >
           <rect :x="-nodeWidth / 2 + 12" y="-17" :width="nodeWidth - 24" height="34" rx="3"></rect>
         </clipPath>
       </defs>
-      <path v-for="item in renderedEdges" :key="item.edge.id" :class="edgeClasses(item)" :d="edgePath(item)" marker-end="url(#graph-arrow)">
+      <path
+        v-for="item in renderedEdges"
+        :key="item.edge.id"
+        :class="edgeClasses(item)"
+        :d="edgePath(item)"
+        marker-end="url(#graph-arrow)"
+      >
         <title>{{ edgeKindLabels[item.edge.kind] }}</title>
       </path>
       <g
@@ -235,10 +274,28 @@ onBeforeUnmount(() => {
       >
         <title>{{ item.node.label }} · {{ nodeKindLabels[item.node.kind] }}</title>
         <!-- Opaque base so edges passing behind a node never show through its tinted fill. -->
-        <rect class="graph-canvas__node-base" :x="-nodeWidth / 2" :y="-nodeHeight / 2" :width="nodeWidth" :height="nodeHeight" rx="6"></rect>
-        <rect class="graph-canvas__node-box" :x="-nodeWidth / 2" :y="-nodeHeight / 2" :width="nodeWidth" :height="nodeHeight" rx="6"></rect>
-        <text class="graph-canvas__label" :x="-nodeWidth / 2 + 12" y="-3" :clip-path="`url(#${clipId(item.node.id)})`">{{ nodeLabel(item.node, labelUnits) }}</text>
-        <text class="graph-canvas__meta" :x="-nodeWidth / 2 + 12" y="13" :clip-path="`url(#${clipId(item.node.id)})`">{{ nodeDescription(item.node, labelUnits) }}</text>
+        <rect
+          class="graph-canvas__node-base"
+          :x="-nodeWidth / 2"
+          :y="-nodeHeight / 2"
+          :width="nodeWidth"
+          :height="nodeHeight"
+          rx="6"
+        ></rect>
+        <rect
+          class="graph-canvas__node-box"
+          :x="-nodeWidth / 2"
+          :y="-nodeHeight / 2"
+          :width="nodeWidth"
+          :height="nodeHeight"
+          rx="6"
+        ></rect>
+        <text class="graph-canvas__label" :x="-nodeWidth / 2 + 12" y="-3" :clip-path="`url(#${clipId(item.node.id)})`">
+          {{ nodeLabel(item.node, labelUnits) }}
+        </text>
+        <text class="graph-canvas__meta" :x="-nodeWidth / 2 + 12" y="13" :clip-path="`url(#${clipId(item.node.id)})`">
+          {{ nodeDescription(item.node, labelUnits) }}
+        </text>
       </g>
     </svg>
   </div>
@@ -282,7 +339,9 @@ onBeforeUnmount(() => {
   fill: none;
   stroke: var(--border);
   stroke-width: 1.4;
-  transition: opacity 0.15s, stroke 0.15s;
+  transition:
+    opacity 0.15s,
+    stroke 0.15s;
 }
 
 .graph-canvas__edge.is-highlighted {
@@ -318,10 +377,22 @@ onBeforeUnmount(() => {
   stroke-width: 1.2;
 }
 
-.graph-canvas__node--project .graph-canvas__node-box { fill: var(--success-soft); stroke: var(--success-border); }
-.graph-canvas__node--session .graph-canvas__node-box { fill: var(--accent-soft); stroke: var(--accent-border); }
-.graph-canvas__node--knowledge .graph-canvas__node-box { fill: var(--done-soft); stroke: var(--done-border); }
-.graph-canvas__node--evidence .graph-canvas__node-box { fill: var(--attention-soft); stroke: var(--attention-border); }
+.graph-canvas__node--project .graph-canvas__node-box {
+  fill: var(--success-soft);
+  stroke: var(--success-border);
+}
+.graph-canvas__node--session .graph-canvas__node-box {
+  fill: var(--accent-soft);
+  stroke: var(--accent-border);
+}
+.graph-canvas__node--knowledge .graph-canvas__node-box {
+  fill: var(--done-soft);
+  stroke: var(--done-border);
+}
+.graph-canvas__node--evidence .graph-canvas__node-box {
+  fill: var(--attention-soft);
+  stroke: var(--attention-border);
+}
 
 .graph-canvas__node:hover .graph-canvas__node-box,
 .graph-canvas__node:focus-visible .graph-canvas__node-box {

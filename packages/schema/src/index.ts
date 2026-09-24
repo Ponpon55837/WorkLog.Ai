@@ -79,15 +79,11 @@ const eventSchema = z.object({
 
 const workSummarySectionSchema = z.array(z.string().trim().min(1).max(4_000)).max(20);
 export const workSummarySectionsSchema = z.object({
-  outcomes: workSummarySectionSchema.describe(
-    "成果：確認完成的交付或已解決問題，使用符合證據的完成程度用語。",
-  ),
+  outcomes: workSummarySectionSchema.describe("成果：確認完成的交付或已解決問題，使用符合證據的完成程度用語。"),
   scope: workSummarySectionSchema.describe(
     "範圍：重要 module、component、API、UI、locale、test 與可確認的變更數量；避免重複其他區段。",
   ),
-  decisions: workSummarySectionSchema.describe(
-    "決策：只記錄來源明確提及的技術、API、相容性或安全決策；理由不得推測。",
-  ),
+  decisions: workSummarySectionSchema.describe("決策：只記錄來源明確提及的技術、API、相容性或安全決策；理由不得推測。"),
   verification: workSummarySectionSchema.describe(
     "驗證：實際命令、結果、數量、瀏覽器／平台覆蓋、人工確認與未驗證範圍；不可把局部驗證寫成全面通過。",
   ),
@@ -249,25 +245,35 @@ export const saveReportSummaryInputSchema = z.object({
     .array(reportSummaryBlockSchema)
     .max(30)
     .default([])
-    .describe("Group at period scale: daily task/feature, weekly workstream, monthly project/milestone, quarterly initiative, annual major contribution."),
+    .describe(
+      "Group at period scale: daily task/feature, weekly workstream, monthly project/milestone, quarterly initiative, annual major contribution.",
+    ),
   highlights: z
     .array(reportSummaryBlockSchema)
     .max(50)
-    .describe("Evidence-backed outcomes and material scope; group related Sessions and avoid chronology or duplicate facts."),
+    .describe(
+      "Evidence-backed outcomes and material scope; group related Sessions and avoid chronology or duplicate facts.",
+    ),
   verification: z
     .array(reportSummaryBlockSchema)
     .max(30)
     .default([])
-    .describe("Exact representative verification evidence; distinguish passed, failed, not_run, not_supplied, partial coverage, and unverified platforms."),
+    .describe(
+      "Exact representative verification evidence; distinguish passed, failed, not_run, not_supplied, partial coverage, and unverified platforms.",
+    ),
   comparison: z
     .array(reportSummaryBlockSchema)
     .max(30)
     .default([])
-    .describe("Previous-period comparisons or objective trends only when deterministic source data supports them; otherwise use an empty array."),
+    .describe(
+      "Previous-period comparisons or objective trends only when deterministic source data supports them; otherwise use an empty array.",
+    ),
   risks: z
     .array(reportSummaryBlockSchema)
     .max(50)
-    .describe("Evidence-backed risks and known limitations that remain; do not turn them into future-work recommendations."),
+    .describe(
+      "Evidence-backed risks and known limitations that remain; do not turn them into future-work recommendations.",
+    ),
   decisions: z
     .array(reportSummaryBlockSchema)
     .max(50)
@@ -275,7 +281,9 @@ export const saveReportSummaryInputSchema = z.object({
   nextSteps: z
     .array(reportSummaryBlockSchema)
     .max(50)
-    .describe("Compatibility field for confirmed current status/open items/limitations only. Do not add plans, recommendations, or future outlook; use an empty array when none."),
+    .describe(
+      "Compatibility field for confirmed current status/open items/limitations only. Do not add plans, recommendations, or future outlook; use an empty array when none.",
+    ),
   sourceSessionIds: z.array(z.string().trim().min(1).max(200)).max(200),
   generatedByAgent: z.string().trim().min(1).max(120),
   generatedByModel: z.string().trim().max(200).optional(),

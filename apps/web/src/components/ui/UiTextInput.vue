@@ -2,17 +2,20 @@
 import { ref } from "vue";
 import type { IconComponent } from "./types";
 
-withDefaults(defineProps<{
-  icon?: IconComponent;
-  type?: "text" | "search" | "date";
-  placeholder?: string;
-  label?: string;
-  size?: "md" | "sm";
-  mono?: boolean;
-  maxlength?: number;
-  required?: boolean;
-  autofocus?: boolean;
-}>(), { type: "text", size: "md" });
+withDefaults(
+  defineProps<{
+    icon?: IconComponent;
+    type?: "text" | "search" | "date";
+    placeholder?: string;
+    label?: string;
+    size?: "md" | "sm";
+    mono?: boolean;
+    maxlength?: number;
+    required?: boolean;
+    autofocus?: boolean;
+  }>(),
+  { type: "text", size: "md" },
+);
 
 const model = defineModel<string>({ default: "" });
 const input = ref<HTMLInputElement | null>(null);

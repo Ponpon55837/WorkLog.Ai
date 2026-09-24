@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, watch } from "vue";
-import { ArrowRight, ChartColumn, CircleCheckBig, FolderGit2, Inbox, ListChecks, RotateCcw, ShieldCheck } from "lucide-vue-next";
+import {
+  ArrowRight,
+  ChartColumn,
+  CircleCheckBig,
+  FolderGit2,
+  Inbox,
+  ListChecks,
+  RotateCcw,
+  ShieldCheck,
+} from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
@@ -35,7 +44,7 @@ useViewLoader(ensureDashboardData);
 const today = new Intl.DateTimeFormat("zh-TW", { dateStyle: "full" }).format(new Date());
 const pausedCount = computed(() => projects.value.filter((project) => project.status === "paused").length);
 const visibleProjects = computed(() =>
-  [...projects.value].sort((a, b) => Number(b.status === "tracked") - Number(a.status === "tracked")).slice(0, 6)
+  [...projects.value].sort((a, b) => Number(b.status === "tracked") - Number(a.status === "tracked")).slice(0, 6),
 );
 const weekTrend = computed(() => weekReport.value?.trends.map((point) => point.sessions) ?? []);
 const weekDelta = computed(() => {
@@ -63,7 +72,11 @@ async function openRequest(item: InboxItem): Promise<void> {
   reports.reportProjectId.value = item.request.projectId ?? "";
   await router.push({
     name: "reports",
-    query: { period: item.request.period, date: item.request.range.from, ...(item.request.projectId ? { project: item.request.projectId } : {}) }
+    query: {
+      period: item.request.period,
+      date: item.request.range.from,
+      ...(item.request.projectId ? { project: item.request.projectId } : {}),
+    },
   });
 }
 
@@ -79,15 +92,36 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
   </PageHeader>
 
   <div class="dashboard__stats">
-    <UiStatCard label="記錄中專案" :icon="FolderGit2" :value="dashboard.trackedProjects" :foot="`explicit opt-in${pausedCount ? ` · ${pausedCount} 個已暫停` : ''}`" />
-    <UiStatCard label="本週完成 Sessions" :icon="CircleCheckBig" :value="weekReport?.totals.sessions ?? 0" :delta="weekDelta">
+    <UiStatCard
+      label="記錄中專案"
+      :icon="FolderGit2"
+      :value="dashboard.trackedProjects"
+      :foot="`explicit opt-in${pausedCount ? ` · ${pausedCount} 個已暫停` : ''}`"
+    />
+    <UiStatCard
+      label="本週完成 Sessions"
+      :icon="CircleCheckBig"
+      :value="weekReport?.totals.sessions ?? 0"
+      :delta="weekDelta"
+    >
       <UiSparkline v-if="weekTrend.length" :values="weekTrend" label="本週每日完成 Session 數" />
       <template #foot>不等同 Git commit · 累計 {{ dashboard.finalizedSessions }}</template>
     </UiStatCard>
-    <UiStatCard label="本週 Verification" :icon="ShieldCheck" :value="weekVerification.passed" :suffix="`/ ${weekVerification.total} 通過`">
+    <UiStatCard
+      label="本週 Verification"
+      :icon="ShieldCheck"
+      :value="weekVerification.passed"
+      :suffix="`/ ${weekVerification.total} 通過`"
+    >
       <VerificationBreakdown :counts="weekVerification" />
     </UiStatCard>
-    <UiStatCard label="待處理" :icon="Inbox" :value="inbox.length" :value-tone="inbox.length ? 'attention' : undefined" :foot="inbox.length ? '等待 Agent 或需要重試' : '全部處理完畢'" />
+    <UiStatCard
+      label="待處理"
+      :icon="Inbox"
+      :value="inbox.length"
+      :value-tone="inbox.length ? 'attention' : undefined"
+      :foot="inbox.length ? '等待 Agent 或需要重試' : '全部處理完畢'"
+    />
   </div>
 
   <div class="dashboard__grid">
@@ -97,10 +131,22 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
           <UiBoxTitle eyebrow="Action required" title="需要處理" />
           <UiCounter v-if="inbox.length" :count="inbox.length" tone="attention" />
         </template>
-        <UiEmptyState v-if="inbox.length === 0" compact :icon="CircleCheckBig" title="全部處理完畢" description="沒有等待 Agent 的報告整理或 metadata 回補請求。" />
+        <UiEmptyState
+          v-if="inbox.length === 0"
+          compact
+          :icon="CircleCheckBig"
+          title="全部處理完畢"
+          description="沒有等待 Agent 的報告整理或 metadata 回補請求。"
+        />
         <UiBoxRow v-for="item in inbox" :key="`${item.kind}-${item.request.id}`" :title="item.title" :meta="item.meta">
           <template #leading>
-            <component :is="requestStatus[item.request.status].icon" :size="16" :stroke-width="1.75" :class="`tone-${requestStatus[item.request.status].tone}`" aria-hidden="true" />
+            <component
+              :is="requestStatus[item.request.status].icon"
+              :size="16"
+              :stroke-width="1.75"
+              :class="`tone-${requestStatus[item.request.status].tone}`"
+              aria-hidden="true"
+            />
           </template>
           <template #labels><StatusLabel :status="requestStatus[item.request.status]" :show-icon="false" /></template>
           <template #trailing>
@@ -112,7 +158,9 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
               success-message="已複製自然語言指令。"
             />
             <UiButton v-else size="sm" :icon="RotateCcw" @click="openRequest(item)">前往重試</UiButton>
-            <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" @click="openRequest(item)">前往</UiButton>
+            <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" @click="openRequest(item)"
+              >前往</UiButton
+            >
           </template>
         </UiBoxRow>
       </UiBox>
@@ -120,9 +168,17 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
       <UiBox>
         <template #header>
           <UiBoxTitle eyebrow="Latest memory" title="最近完成的工作" />
-          <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" :to="{ name: 'sessions' }">查看全部</UiButton>
+          <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" :to="{ name: 'sessions' }"
+            >查看全部</UiButton
+          >
         </template>
-        <UiEmptyState v-if="recentSessions.length === 0" compact :icon="ListChecks" title="還沒有工作紀錄" description="先到專案頁加入一個專案，並明確切換為「記錄中」。">
+        <UiEmptyState
+          v-if="recentSessions.length === 0"
+          compact
+          :icon="ListChecks"
+          title="還沒有工作紀錄"
+          description="先到專案頁加入一個專案，並明確切換為「記錄中」。"
+        >
           <template #action><UiButton :to="{ name: 'projects' }">前往專案</UiButton></template>
         </UiEmptyState>
         <SessionRow v-for="session in recentSessions" :key="session.id" :session="session" @open="openSession" />
@@ -136,9 +192,19 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
       </template>
       <UiEmptyState v-if="projects.length === 0" compact :icon="FolderGit2" title="尚未加入專案" />
       <UiBoxRow v-for="project in visibleProjects" :key="project.id" :title="project.name">
-        <template #leading><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
-        <template #meta><code class="dashboard__path">{{ project.rootPath }}</code></template>
-        <div class="dashboard__project-meta">{{ project.lastIngestedAt ? `最後寫入 ${formatRelative(project.lastIngestedAt)}` : `更新於 ${formatRelative(project.updatedAt)}` }}</div>
+        <template #leading
+          ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
+        /></template>
+        <template #meta
+          ><code class="dashboard__path">{{ project.rootPath }}</code></template
+        >
+        <div class="dashboard__project-meta">
+          {{
+            project.lastIngestedAt
+              ? `最後寫入 ${formatRelative(project.lastIngestedAt)}`
+              : `更新於 ${formatRelative(project.updatedAt)}`
+          }}
+        </div>
         <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
       </UiBoxRow>
     </UiBox>
@@ -180,11 +246,21 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
   font-size: var(--text-xs);
 }
 
-.tone-attention { color: var(--attention); }
-.tone-accent { color: var(--accent); }
-.tone-danger { color: var(--danger); }
-.tone-done { color: var(--done); }
-.tone-neutral { color: var(--fg-muted); }
+.tone-attention {
+  color: var(--attention);
+}
+.tone-accent {
+  color: var(--accent);
+}
+.tone-danger {
+  color: var(--danger);
+}
+.tone-done {
+  color: var(--done);
+}
+.tone-neutral {
+  color: var(--fg-muted);
+}
 
 @media (max-width: 1279px) {
   .dashboard__grid {

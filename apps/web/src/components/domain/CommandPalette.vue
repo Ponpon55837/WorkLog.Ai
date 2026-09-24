@@ -39,7 +39,7 @@ const items = computed<PaletteItem[]>(() => {
       label: item.label,
       hint: item.shortcut,
       icon: item.icon,
-      run: () => void router.push({ name: item.name })
+      run: () => void router.push({ name: item.name }),
     }));
   const sessionItems = sessions.value.map((session) => ({
     id: `session-${session.id}`,
@@ -47,7 +47,7 @@ const items = computed<PaletteItem[]>(() => {
     label: session.title,
     hint: `${session.projectName ?? ""} · ${formatRelative(session.completedAt)}`,
     icon: ListChecks,
-    run: () => void useSessionDetail().openSessionDetail(session.id)
+    run: () => void useSessionDetail().openSessionDetail(session.id),
   }));
   const knowledgeItems = knowledge.value.map((item) => ({
     id: `knowledge-${item.id}`,
@@ -55,7 +55,7 @@ const items = computed<PaletteItem[]>(() => {
     label: item.title,
     hint: item.projectName,
     icon: BookOpen,
-    run: () => void router.push({ name: "knowledge", query: { q: item.title } })
+    run: () => void router.push({ name: "knowledge", query: { q: item.title } }),
   }));
   return [...pages, ...sessionItems, ...knowledgeItems];
 });
@@ -93,13 +93,21 @@ async function search(term: string): Promise<void> {
   }
   const client = useApi().client;
   await Promise.all([
-    runKeyed("palette-sessions", async (signal) => {
-      sessions.value = (await client.listSessions({ q: term, pageSize: 5 }, signal)).items;
-    }, { onError: () => (sessions.value = []) }),
-    runKeyed("palette-knowledge", async (signal) => {
-      const result = await client.searchKnowledge({ q: term, pageSize: 5 }, signal);
-      knowledge.value = result.outcome === "knowledge" ? result.items : [];
-    }, { onError: () => (knowledge.value = []) })
+    runKeyed(
+      "palette-sessions",
+      async (signal) => {
+        sessions.value = (await client.listSessions({ q: term, pageSize: 5 }, signal)).items;
+      },
+      { onError: () => (sessions.value = []) },
+    ),
+    runKeyed(
+      "palette-knowledge",
+      async (signal) => {
+        const result = await client.searchKnowledge({ q: term, pageSize: 5 }, signal);
+        knowledge.value = result.outcome === "knowledge" ? result.items : [];
+      },
+      { onError: () => (knowledge.value = []) },
+    ),
   ]);
 }
 
@@ -153,7 +161,13 @@ watch(open, async (value) => {
               <component :is="item.icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
               <span class="palette__label">{{ item.label }}</span>
               <span v-if="item.hint" class="palette__hint">{{ item.hint }}</span>
-              <CornerDownLeft v-if="index === active" :size="14" :stroke-width="1.75" class="palette__enter" aria-hidden="true" />
+              <CornerDownLeft
+                v-if="index === active"
+                :size="14"
+                :stroke-width="1.75"
+                class="palette__enter"
+                aria-hidden="true"
+              />
             </li>
           </template>
           <li v-if="items.length === 0" class="palette__empty">找不到符合的項目</li>

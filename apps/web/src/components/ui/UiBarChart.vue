@@ -34,11 +34,23 @@ function height(seriesIndex: number, value: number): string {
       <span v-for="item in series" :key="item.name"><i :class="`tone-${item.tone}`"></i>{{ item.name }}</span>
     </figcaption>
     <div class="ui-bar-chart__plot" role="img" :aria-label="label">
-      <div v-for="(point, index) in labels" :key="point" class="ui-bar-chart__column" :title="`${point} · ${series.map((item) => `${item.name} ${item.values[index] ?? 0}`).join(' · ')}`">
+      <div
+        v-for="(point, index) in labels"
+        :key="point"
+        class="ui-bar-chart__column"
+        :title="`${point} · ${series.map((item) => `${item.name} ${item.values[index] ?? 0}`).join(' · ')}`"
+      >
         <div class="ui-bar-chart__bars">
-          <i v-for="(item, seriesIndex) in series" :key="item.name" :class="`tone-${item.tone}`" :style="{ height: height(seriesIndex, item.values[index] ?? 0) }"></i>
+          <i
+            v-for="(item, seriesIndex) in series"
+            :key="item.name"
+            :class="`tone-${item.tone}`"
+            :style="{ height: height(seriesIndex, item.values[index] ?? 0) }"
+          ></i>
         </div>
-        <span class="ui-bar-chart__x"><span v-if="showLabel(index)">{{ point }}</span></span>
+        <span class="ui-bar-chart__x"
+          ><span v-if="showLabel(index)">{{ point }}</span></span
+        >
       </div>
     </div>
   </figure>
@@ -112,10 +124,22 @@ function height(seriesIndex: number, value: number): string {
   transform: translateX(-50%);
 }
 
-.tone-accent { background: var(--accent); }
-.tone-done { background: var(--done); }
-.tone-success { background: var(--success); }
-.tone-attention { background: var(--attention); }
-.tone-danger { background: var(--danger); }
-.tone-neutral { background: var(--fg-subtle); }
+.tone-accent {
+  background: var(--accent);
+}
+.tone-done {
+  background: var(--done);
+}
+.tone-success {
+  background: var(--success);
+}
+.tone-attention {
+  background: var(--attention);
+}
+.tone-danger {
+  background: var(--danger);
+}
+.tone-neutral {
+  background: var(--fg-subtle);
+}
 </style>

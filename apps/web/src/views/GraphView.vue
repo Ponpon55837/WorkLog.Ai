@@ -39,7 +39,7 @@ const {
   loadMoreGraph,
   selectedGraphNode,
   graphPanelWidth,
-  selectGraphNode
+  selectGraphNode,
 } = useGraph();
 
 const load = (): Promise<void> => loadGraph();
@@ -49,15 +49,18 @@ useViewLoader(load);
 watch([graphProjectId, graphLoadPreset], () => void load());
 onBeforeUnmount(() => selectGraphNode(null));
 
-const projectOptions = computed(() => [{ value: "", label: "所有記錄中專案" }, ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name }))]);
+const projectOptions = computed(() => [
+  { value: "", label: "所有記錄中專案" },
+  ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
+]);
 const kindOptions: { value: GraphNodeFilter; label: string }[] = [
   { value: "all", label: "全部類型" },
-  ...graphNodeKindOrder.map((kind) => ({ value: kind, label: graphNodeKindLabels[kind] }))
+  ...graphNodeKindOrder.map((kind) => ({ value: kind, label: graphNodeKindLabels[kind] })),
 ];
 const previewOptions = [
   { value: 60, label: "精簡（最多 60）" },
   { value: 120, label: "標準（最多 120）" },
-  { value: 180, label: "展開（最多 180）" }
+  { value: 180, label: "展開（最多 180）" },
 ];
 const presetOptions = graphLoadPresetOptions.map((preset) => ({ value: preset.value as string, label: preset.label }));
 
@@ -67,7 +70,9 @@ const truncationNote = computed(() => {
     return "";
   }
   const parts = [
-    current.truncation.nodesTruncated || current.truncation.edgesTruncated ? "資料已依載入上限受控，可提高上限或載入更多。" : "目前範圍的資料已完整載入。"
+    current.truncation.nodesTruncated || current.truncation.edgesTruncated
+      ? "資料已依載入上限受控，可提高上限或載入更多。"
+      : "目前範圍的資料已完整載入。",
   ];
   if (graphVisual.value.hiddenNodes) {
     parts.push(`畫面另省略 ${graphVisual.value.hiddenNodes} 個節點。`);
@@ -81,7 +86,7 @@ const truncationNote = computed(() => {
 const countLabel = computed(() =>
   graphSearch.value.trim()
     ? `符合 ${graphVisual.value.searchMatches} 個節點 · 顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`
-    : `顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`
+    : `顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`,
 );
 
 function onSelect(node: GraphNode): void {
@@ -108,26 +113,62 @@ function selectFirstMatch(): void {
   <UiBox class="graph">
     <template #header>
       <form class="graph__toolbar" @submit.prevent="load">
-        <UiTextInput v-model="graphSearch" type="search" :icon="Search" size="sm" placeholder="搜尋節點名稱…" label="搜尋 Graph 節點" class="graph__search" @keydown.enter.prevent="selectFirstMatch" />
-        <UiSelect v-model="graphProjectId" :options="projectOptions" :icon="FolderGit2" size="sm" label="選擇 Graph 專案範圍" />
+        <UiTextInput
+          v-model="graphSearch"
+          type="search"
+          :icon="Search"
+          size="sm"
+          placeholder="搜尋節點名稱…"
+          label="搜尋 Graph 節點"
+          class="graph__search"
+          @keydown.enter.prevent="selectFirstMatch"
+        />
+        <UiSelect
+          v-model="graphProjectId"
+          :options="projectOptions"
+          :icon="FolderGit2"
+          size="sm"
+          label="選擇 Graph 專案範圍"
+        />
         <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" label="選擇 Graph 節點類型" />
         <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
         <UiSelect v-model="graphLoadPreset" :options="presetOptions" size="sm" label="選擇 Graph 資料載入上限" />
         <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
-        <UiButton v-if="graphCanLoadMore" size="sm" variant="invisible" :disabled="graphLoading" @click="loadMoreGraph">載入更多資料</UiButton>
+        <UiButton v-if="graphCanLoadMore" size="sm" variant="invisible" :disabled="graphLoading" @click="loadMoreGraph"
+          >載入更多資料</UiButton
+        >
       </form>
       <span v-if="graph" class="graph__count" data-testid="graph-visible-count">{{ countLabel }}</span>
     </template>
 
     <div v-if="graph" class="graph__legend" aria-label="節點分布">
-      <span><strong>{{ graph.totalNodes }}</strong> 節點</span>
-      <span><strong>{{ graph.totalEdges }}</strong> 關係</span>
-      <span v-for="item in graphNodeCounts" :key="item.kind" :class="`graph__legend-item graph__legend-item--${item.kind}`"><i aria-hidden="true"></i>{{ item.label }} {{ item.count }}</span>
+      <span
+        ><strong>{{ graph.totalNodes }}</strong> 節點</span
+      >
+      <span
+        ><strong>{{ graph.totalEdges }}</strong> 關係</span
+      >
+      <span
+        v-for="item in graphNodeCounts"
+        :key="item.kind"
+        :class="`graph__legend-item graph__legend-item--${item.kind}`"
+        ><i aria-hidden="true"></i>{{ item.label }} {{ item.count }}</span
+      >
     </div>
 
     <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" />
-    <UiEmptyState v-else-if="!graph || graph.nodes.length === 0" :icon="Share2" title="目前沒有可視化資料" description="記錄中的專案完成 Session 後，這裡會出現工作關係。" />
-    <UiEmptyState v-else-if="graphSearch.trim() && graphVisual.nodes.length === 0" :icon="SearchX" title="沒有符合的節點" description="搜尋只比對目前已載入的節點；可以換個關鍵字，或提高資料載入上限。">
+    <UiEmptyState
+      v-else-if="!graph || graph.nodes.length === 0"
+      :icon="Share2"
+      title="目前沒有可視化資料"
+      description="記錄中的專案完成 Session 後，這裡會出現工作關係。"
+    />
+    <UiEmptyState
+      v-else-if="graphSearch.trim() && graphVisual.nodes.length === 0"
+      :icon="SearchX"
+      title="沒有符合的節點"
+      description="搜尋只比對目前已載入的節點；可以換個關鍵字，或提高資料載入上限。"
+    >
       <template #action><UiButton size="sm" @click="graphSearch = ''">清除搜尋</UiButton></template>
     </UiEmptyState>
     <GraphCanvas
@@ -197,9 +238,20 @@ function selectFirstMatch(): void {
   vertical-align: -1px;
 }
 
-.graph__legend-item--project i { border-color: var(--success-border); background: var(--success-soft); }
-.graph__legend-item--session i { border-color: var(--accent-border); background: var(--accent-soft); }
-.graph__legend-item--knowledge i { border-color: var(--done-border); background: var(--done-soft); }
-.graph__legend-item--evidence i { border-color: var(--attention-border); background: var(--attention-soft); }
-
+.graph__legend-item--project i {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+}
+.graph__legend-item--session i {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+.graph__legend-item--knowledge i {
+  border-color: var(--done-border);
+  background: var(--done-soft);
+}
+.graph__legend-item--evidence i {
+  border-color: var(--attention-border);
+  background: var(--attention-soft);
+}
 </style>

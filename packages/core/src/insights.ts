@@ -49,13 +49,7 @@ export interface InsightEvaluation {
   adapterVersion?: string;
 }
 
-export const INSIGHT_AVAILABILITIES = [
-  "available",
-  "disabled",
-  "policy_denied",
-  "failed",
-  "budget_exceeded"
-] as const;
+export const INSIGHT_AVAILABILITIES = ["available", "disabled", "policy_denied", "failed", "budget_exceeded"] as const;
 
 export type InsightAvailability = (typeof INSIGHT_AVAILABILITIES)[number];
 
@@ -70,7 +64,7 @@ export interface InsightProvider {
 export const NOOP_INSIGHT_PROVIDER_DESCRIPTOR = {
   id: "noop",
   execution: "local",
-  model: "none"
+  model: "none",
 } as const satisfies InsightProviderDescriptor;
 
 /**
@@ -89,7 +83,7 @@ export class NoopInsightProvider implements InsightProvider {
       model: this.descriptor.model,
       results: {},
       latencyMs: 0,
-      evaluatedAt: new Date().toISOString()
+      evaluatedAt: new Date().toISOString(),
     };
   }
 }
