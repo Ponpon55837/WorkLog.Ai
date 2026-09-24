@@ -13,6 +13,14 @@ import type {
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
+  DecideKnowledgeCandidateInput,
+  DecideKnowledgeCandidateResult,
+  KnowledgeCandidateContextResult,
+  KnowledgeCandidateInput,
+  KnowledgeCandidateListResult,
+  KnowledgeCandidateStatus,
+  RequestKnowledgeCandidatesResult,
+  SubmitKnowledgeCandidatesResult,
   KnowledgeReview,
   KnowledgeStaleness,
   LinkSessionsInput,
@@ -160,6 +168,7 @@ import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-
 import { DIGEST_ITEM_LENGTH, toKnowledgeDigest, toSessionDigest } from "./digest.js";
 import { applySchemaMigrations } from "./schema-migrations.js";
 import { matchesAppliesTo, normalizePath } from "./search-text.js";
+import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { SearchRepository } from "./search-repository.js";
 
 const RECENT_DECISION_LIMIT = 12;
@@ -1368,6 +1377,7 @@ export class WorkIntelligenceStore {
   private readonly reportSynthesisRequests: ReportSynthesisRequestRepository;
   private readonly metadataBackfills: MetadataBackfillRepository;
   private readonly searchIndex: SearchRepository;
+  private readonly knowledgeCandidates: KnowledgeCandidateService;
   private readonly policyGate: ProjectPolicyGate;
   public readonly insightProvider: InsightProvider;
 
@@ -1402,6 +1412,11 @@ export class WorkIntelligenceStore {
     this.reportSynthesisRequests = new ReportSynthesisRequestRepository(this.db);
     this.metadataBackfills = new MetadataBackfillRepository(this.db);
     this.searchIndex = new SearchRepository(this.db);
+    this.knowledgeCandidates = new KnowledgeCandidateService(this.db, {
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
+      recordKnowledge: (input) => this.recordKnowledge(input),
+    });
     this.policyGate = new ProjectPolicyGate(this);
   }
 
@@ -3527,6 +3542,35 @@ export class WorkIntelligenceStore {
     return first ? { ...first, sessionCount } : undefined;
   }
 
+  /** Opens a request for an Agent to propose Knowledge from the project's not-yet-reviewed Sessions. */
+  public requestKnowledgeCandidates(projectRoot: string): RequestKnowledgeCandidatesResult {
+    return this.knowledgeCandidates.request(projectRoot);
+  }
+
+  public getKnowledgeCandidateContext(input: {
+    requestId?: string;
+    projectRoot?: string;
+  }): KnowledgeCandidateContextResult {
+    return this.knowledgeCandidates.context(input);
+  }
+
+  public submitKnowledgeCandidates(input: {
+    requestId: string;
+    candidates: KnowledgeCandidateInput[];
+  }): SubmitKnowledgeCandidatesResult {
+    return this.knowledgeCandidates.submit(input);
+  }
+
+  public listKnowledgeCandidates(
+    input: { projectRoot?: string; status?: KnowledgeCandidateStatus } = {},
+  ): KnowledgeCandidateListResult {
+    return this.knowledgeCandidates.list(input);
+  }
+
+  public decideKnowledgeCandidate(input: DecideKnowledgeCandidateInput): DecideKnowledgeCandidateResult {
+    return this.knowledgeCandidates.decide(input);
+  }
+
   /** Links or unlinks two Sessions; a pair has at most one link, so a new relation replaces the old one. */
   public linkSessions(input: LinkSessionsInput, source: VerificationUpdateSource = "agent"): LinkSessionsResult {
     const row = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
@@ -5056,6 +5100,7 @@ export class WorkIntelligenceStore {
               .sort(byNewest)
               .slice(0, 5)
           : [],
+      knowledgeCandidates: this.knowledgeCandidates.openRequests(projectId),
     };
   }
 

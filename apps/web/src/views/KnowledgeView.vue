@@ -4,6 +4,8 @@ import { BookOpen, Search, X } from "lucide-vue-next";
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
+import KnowledgeCandidateEditorDialog from "../components/domain/KnowledgeCandidateEditorDialog.vue";
+import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.vue";
 import KnowledgeRow, { type KnowledgeAction } from "../components/domain/KnowledgeRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -70,6 +72,9 @@ const hasFilters = computed(() =>
     knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeStatus.value !== "active",
   ),
 );
+const selectedProjectRoot = computed(
+  () => knowledgeProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
+);
 const projectItems = computed(() => [
   { value: "", label: "所有記錄中專案" },
   ...knowledgeProjects.value.map((project) => ({ value: project.id, label: project.name })),
@@ -133,6 +138,9 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
     {{ knowledgeError }}
     <template #actions><UiButton size="sm" @click="loadKnowledge">重試</UiButton></template>
   </UiFlash>
+
+  <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
+  <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
 
   <UiBox sticky-header>
     <template #header>

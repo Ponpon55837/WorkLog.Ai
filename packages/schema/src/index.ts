@@ -445,6 +445,61 @@ export const recordKnowledgeInputSchema = z.object({
   supersedesId: z.string().trim().min(1).max(200).optional(),
 });
 
+export const requestKnowledgeCandidatesInputSchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000),
+});
+
+export const knowledgeCandidateContextQuerySchemaBase = z.object({
+  requestId: z.string().trim().min(1).max(200).optional(),
+  projectRoot: z.string().trim().min(1).max(1_000).optional(),
+});
+
+export const knowledgeCandidateContextQuerySchema = knowledgeCandidateContextQuerySchemaBase.refine(
+  (value) => Boolean(value.requestId || value.projectRoot),
+  { message: "Provide requestId or projectRoot." },
+);
+
+const knowledgeCandidateSchema = z.object({
+  sourceSessionId: z.string().trim().min(1).max(200),
+  kind: knowledgeKindSchema,
+  title: z.string().trim().min(1).max(300),
+  body: z.string().trim().min(1).max(20_000),
+  tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+  references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
+  appliesTo: knowledgeAppliesToSchema.optional(),
+  rationale: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2_000)
+    .describe("Why this is reusable, pointing to the supporting part of the source Session."),
+});
+
+export const submitKnowledgeCandidatesInputSchema = z.object({
+  requestId: z.string().trim().min(1).max(200),
+  candidates: z.array(knowledgeCandidateSchema).max(30),
+});
+
+export const knowledgeCandidateListQuerySchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000).optional(),
+  status: z.enum(["proposed", "accepted", "rejected"]).default("proposed"),
+});
+
+export const decideKnowledgeCandidateInputSchema = z.object({
+  candidateId: z.string().trim().min(1).max(200),
+  decision: z.enum(["accept", "reject"]),
+  edits: z
+    .object({
+      kind: knowledgeKindSchema.optional(),
+      title: z.string().trim().min(1).max(300).optional(),
+      body: z.string().trim().min(1).max(20_000).optional(),
+      tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+      references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
+      appliesTo: knowledgeAppliesToSchema.optional(),
+    })
+    .optional(),
+});
+
 export const updateKnowledgeInputSchemaBase = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   knowledgeId: z.string().trim().min(1).max(200),

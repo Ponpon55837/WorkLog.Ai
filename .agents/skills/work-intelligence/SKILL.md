@@ -77,6 +77,10 @@ In a tracked project, check recorded work proactively — not only when the user
 - Hits are compact. Open the full Session or Knowledge before relying on it, and cite the sessionId or knowledgeId you applied when you explain a decision or fix. If the record contradicts the current code, trust the code and say the record looks outdated.
 - Stay within the tracked project's scope when the question is about this project. Do not substitute an unrestricted repository scan for missing recorded context; if nothing relevant is recorded, say so briefly and continue.
 
+## Propose Knowledge candidates
+
+When the user asks to organize or extract Knowledge from recorded work (整理 Knowledge 候選), use the project's open candidate request or create one, read its context, and submit only reusable, source-supported candidates, each naming its source Session and the part of the record that supports it. Skip one-off status and anything already in the existing Knowledge list; an empty submission is fine. Candidates are not Knowledge: tell the user how many you proposed and that they accept or reject them on the Knowledge page. Never record candidates as Knowledge yourself.
+
 ## Context, search, and Knowledge
 
 To find a specific Session (for example before correcting it), recall or list Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.

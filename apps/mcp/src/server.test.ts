@@ -289,4 +289,43 @@ describe("Work Intelligence MCP server", () => {
       }),
     ).toMatchObject({ outcome: "session_link_updated", links: [] });
   });
+
+  it("lets an Agent propose Knowledge candidates but not accept them", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Candidate project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-candidate-001", "Source"),
+    );
+
+    const request = await callJson<{ outcome: string; request: { id: string } }>(
+      client,
+      "work_request_knowledge_candidates",
+      { projectRoot: root },
+    );
+    expect(request.outcome).toBe("knowledge_candidate_request");
+    expect(await callJson(client, "work_get_knowledge_candidate_context", { projectRoot: root })).toMatchObject({
+      outcome: "knowledge_candidate_context",
+      sessions: [{ id: finalized.session.id }],
+    });
+    expect(
+      await callJson(client, "work_submit_knowledge_candidates", {
+        requestId: request.request.id,
+        candidates: [
+          {
+            sourceSessionId: finalized.session.id,
+            kind: "pattern",
+            title: "Proposed pattern",
+            body: "Body.",
+            rationale: "Stated in the Session outcomes.",
+          },
+        ],
+      }),
+    ).toMatchObject({ outcome: "knowledge_candidates_submitted", candidates: [{ status: "proposed" }] });
+
+    const { tools } = await client.listTools();
+    expect(tools.some((tool) => /accept|decide/.test(tool.name))).toBe(false);
+  });
 });

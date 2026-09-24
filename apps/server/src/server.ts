@@ -29,6 +29,9 @@ import {
   setEvidenceVoidInputSchema,
   setSessionVoidInputSchema,
   linkSessionsInputSchema,
+  decideKnowledgeCandidateInputSchema,
+  knowledgeCandidateListQuerySchema,
+  requestKnowledgeCandidatesInputSchema,
   updateSessionVerificationInputSchema,
   updateProjectInputSchema,
   updateKnowledgeInputSchema,
@@ -380,6 +383,49 @@ export function createApiHandler(store: WorkIntelligenceStore) {
 
       if (request.method === "GET" && requestUrl.pathname === "/api/projects") {
         sendJson(response, 200, store.listProjects());
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/knowledge/candidates") {
+        const parsed = knowledgeCandidateListQuerySchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
+          status: requestUrl.searchParams.get("status") || undefined,
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge candidate query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.listKnowledgeCandidates(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/knowledge/candidate-requests") {
+        const parsed = requestKnowledgeCandidatesInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge candidate request.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.requestKnowledgeCandidates(parsed.data.projectRoot));
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "knowledge" &&
+        pathParts[2] === "candidates" &&
+        pathParts[3] &&
+        pathParts[4] === "decision"
+      ) {
+        const parsed = decideKnowledgeCandidateInputSchema.safeParse({
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          candidateId: pathParts[3],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge candidate decision.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.decideKnowledgeCandidate(parsed.data));
         return;
       }
 

@@ -1402,6 +1402,125 @@ export interface DecisionDigest {
   text: string;
 }
 
+export const KNOWLEDGE_CANDIDATE_REQUEST_STATUSES = [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+export type KnowledgeCandidateRequestStatus = (typeof KNOWLEDGE_CANDIDATE_REQUEST_STATUSES)[number];
+export type KnowledgeCandidateStatus = "proposed" | "accepted" | "rejected";
+
+/** An Agent request to propose Knowledge from a project's recorded Sessions; nothing is written as Knowledge until a person accepts it. */
+export interface KnowledgeCandidateRequest {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  status: KnowledgeCandidateRequestStatus;
+  requestedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  failureReason?: string;
+  sourceSessionIds: string[];
+  candidateCount: number;
+}
+
+export interface KnowledgeCandidateInput {
+  /** The Session whose record supports this candidate; must be one of the request's sources. */
+  sourceSessionId: string;
+  kind: KnowledgeKind;
+  title: string;
+  body: string;
+  tags?: string[];
+  references?: string[];
+  appliesTo?: string[];
+  /** Why this is reusable, quoting or pointing to the supporting part of the Session record. */
+  rationale: string;
+}
+
+export interface KnowledgeCandidate {
+  id: string;
+  requestId: string;
+  projectId: string;
+  projectName?: string;
+  sessionId?: string;
+  sessionTitle?: string;
+  kind: KnowledgeKind;
+  title: string;
+  body: string;
+  tags: string[];
+  references: string[];
+  appliesTo: string[];
+  rationale: string;
+  status: KnowledgeCandidateStatus;
+  /** The Knowledge created when the candidate was accepted. */
+  knowledgeId?: string;
+  createdAt: string;
+  decidedAt?: string;
+}
+
+export interface KnowledgeCandidateSourceSession {
+  id: string;
+  title: string;
+  summary: string;
+  completedAt: string;
+  workSummary?: WorkSummarySections;
+  /** Raw handoff text, truncated to the request's character budget. */
+  handoff?: string;
+  handoffTruncated?: boolean;
+}
+
+export interface KnowledgeCandidateContext {
+  outcome: "knowledge_candidate_context";
+  request: KnowledgeCandidateRequest;
+  sessions: KnowledgeCandidateSourceSession[];
+  /** Active Knowledge of the project, so proposals do not repeat it. */
+  existingKnowledge: Array<{ id: string; kind: KnowledgeKind; title: string }>;
+}
+
+export type KnowledgeCandidateSkippedResult = {
+  outcome: "skipped";
+  projectRoot?: string;
+  projectStatus: PolicyStatus;
+  reason: string;
+};
+
+export type RequestKnowledgeCandidatesResult =
+  | { outcome: "knowledge_candidate_request"; duplicate: boolean; request: KnowledgeCandidateRequest }
+  | { outcome: "knowledge_candidates_not_needed"; reason: string }
+  | KnowledgeCandidateSkippedResult;
+
+export type KnowledgeCandidateContextResult =
+  | KnowledgeCandidateContext
+  | { outcome: "not_found"; requestId?: string; reason: string }
+  | { outcome: "request_not_open"; request: KnowledgeCandidateRequest; reason: string }
+  | KnowledgeCandidateSkippedResult;
+
+export type SubmitKnowledgeCandidatesResult =
+  | { outcome: "knowledge_candidates_submitted"; request: KnowledgeCandidateRequest; candidates: KnowledgeCandidate[] }
+  | { outcome: "not_found"; requestId: string; reason: string }
+  | { outcome: "request_not_open"; request: KnowledgeCandidateRequest; reason: string }
+  | { outcome: "invalid_candidates"; reason: string }
+  | KnowledgeCandidateSkippedResult;
+
+export type KnowledgeCandidateListResult =
+  | { outcome: "knowledge_candidates"; items: KnowledgeCandidate[]; openRequests: KnowledgeCandidateRequest[] }
+  | KnowledgeCandidateSkippedResult;
+
+export interface DecideKnowledgeCandidateInput {
+  candidateId: string;
+  decision: "accept" | "reject";
+  /** Edits applied before accepting; omitted fields keep the proposal. */
+  edits?: Partial<Pick<KnowledgeCandidate, "kind" | "title" | "body" | "tags" | "references" | "appliesTo">>;
+}
+
+export type DecideKnowledgeCandidateResult =
+  | { outcome: "knowledge_candidate_decided"; candidate: KnowledgeCandidate; knowledge?: KnowledgeRecord }
+  | { outcome: "not_found"; candidateId: string }
+  | { outcome: "already_decided"; candidate: KnowledgeCandidate }
+  | KnowledgeCandidateSkippedResult;
+
 export interface ContextResult {
   outcome: "context";
   project?: ProjectRecord;
@@ -1415,6 +1534,7 @@ export interface ContextResult {
   pendingRequests: {
     reportSynthesis: ReportSynthesisRequest[];
     metadataBackfill: MetadataBackfillRequest[];
+    knowledgeCandidates: KnowledgeCandidateRequest[];
   };
   /** Present when the context query named a task or paths: records ranked for that work. */
   relevant?: RelevantContext;
