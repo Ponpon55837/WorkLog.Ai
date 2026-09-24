@@ -28,7 +28,7 @@ Additional rules:
 
 ## Report synthesis by period
 
-Always read the bounded deterministic report context and its source Sessions directly. Re-cluster related work across the whole requested period, deduplicate repeated facts, and cite `sourceSessionIds` on every material report block. If context is truncated, do not imply that the report covers unseen Sessions. Do not invent metrics or aggregate counts; use only deterministic values or exact source evidence.
+Report periods are calendar dates in the server's local time zone; the report context states it as `timezone`, so describe the period in that zone. Always read the bounded deterministic report context and its source Sessions directly. Re-cluster related work across the whole requested period, deduplicate repeated facts, and cite `sourceSessionIds` on every material report block. If context is truncated, do not imply that the report covers unseen Sessions. Do not invent metrics or aggregate counts; use only deterministic values or exact source evidence.
 
 | Period | Primary grouping | Detail level and report focus |
 | --- | --- | --- |
@@ -54,4 +54,4 @@ The current `ReportSummary` API fields remain unchanged. Use them consistently:
 
 ## Backfilling existing Sessions
 
-When normalizing existing records, update the same finalized Session with `work_update_session_work_summary`; do not create replacement Sessions or alter their primary summary, events, evidence, changed files, verification status, Git metadata, or snapshots. Read all available structured and raw source under the tracked-project policy gate. Preserve confirmed facts, remove unsupported or duplicated claims, and replace future-looking `nextSteps` with objective current-state facts or `[]`. If source data is unavailable or a project is not tracked, do not read it or fabricate a replacement.
+When normalizing existing records, update the same finalized Session with `work_update_session_work_summary` (the Web UI Session editor uses the same in-place update); read the current Session first, because the user may already have edited it; do not create replacement Sessions or alter their primary summary, events, evidence, changed files, verification status, Git metadata, or snapshots. Read all available structured and raw source under the tracked-project policy gate. Preserve confirmed facts, remove unsupported or duplicated claims, and replace future-looking `nextSteps` with objective current-state facts or `[]`. If source data is unavailable or a project is not tracked, do not read it or fabricate a replacement.

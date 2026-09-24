@@ -107,22 +107,23 @@ pnpm dev
 
 1. 按「加入專案」填入要記錄的 workspace。
 2. 將該專案狀態切換成「記錄中」，並在確認對話框中同意。
-3. 在 Codex 或 Claude Code 中測試 `work_get_context`。
-4. Agent 完成既有 planning → execution → verification → closing 後，呼叫 `work_finalize_session`。
+3. 在 Codex 或 Claude Code 中確認連線與記錄狀態。
+4. Agent 完成既有 planning → execution → verification → closing 後，請它保存這次工作。
 
-可以用以下提示測試：
-
-```text
-請使用 work_get_context，projectRoot 為
-C:\path\to\WorkLog.Ai
-```
-
-完成工作時：
+平常只需要用自然語言；工具名稱、JSON 與呼叫順序由 Agent 依 [`work-intelligence` skill](../.agents/skills/work-intelligence/SKILL.md) 處理。可以用以下提示測試：
 
 ```text
-完成這次工作後，請呼叫 work_finalize_session。
-projectRoot 為 C:\path\to\WorkLog.Ai，
-請提供唯一的 idempotencyKey、title、summary、workSummary（成果／範圍／決策／驗證／狀態與未結項五個陣列）、changedFiles 與 verification。
+這個專案有在 Work Intelligence 記錄嗎？順便看一下最近做了什麼。
 ```
 
-如果專案還是 `unregistered`、`paused` 或 `ignored`，MCP 會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git、source 資料；這是 default-deny 的預期行為。
+Agent 會先查詢記錄狀態（`work_get_project_status`），再取回 context（`work_get_context`）。完成工作時：
+
+```text
+完成了，請把這次工作記錄到 Work Intelligence。
+```
+
+Claude Code 也可以直接使用 MCP prompts：`/mcp__work-intelligence__finalize-work`（保存這次工作）與 `/mcp__work-intelligence__synthesize-report`（整理報告，可帶 `period`）。
+
+連線正確時，`/mcp` 會列出 31 個工具與 2 個 prompts；查詢類工具帶有 `readOnlyHint`，可以在用戶端的權限設定中放行。完整清單見 [mcp-tools.md](mcp-tools.md)。
+
+如果專案還是 `unregistered`、`paused` 或 `ignored`，Agent 會在記錄狀態查詢時就停下來，MCP 也會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git、source 資料；這是 default-deny 的預期行為。Agent 無法替你切換成「記錄中」，這一步只能在 Web UI 完成。
