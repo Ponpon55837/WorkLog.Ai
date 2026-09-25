@@ -8,7 +8,7 @@
           {
             "type": "command",
             "command": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "commandWindows": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JAByAG8AbwB0ACAAPQAgAGcAaQB0ACAAcgBlAHYALQBwAGEAcgBzAGUAIAAtAC0AcwBoAG8AdwAtAHQAbwBwAGwAZQB2AGUAbAA7ACAAaQBmACAAKAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFACAALQBlAHEAIAAwACkAIAB7ACAAJgAgAG4AbwBkAGUAIAAoAEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwBhAHAAcABzAC8AbQBjAHAALwBkAGkAcwB0AC8AYwBvAGQAZQBYAC0AZgBpAG4AYQBsAGkAegBlAC0AcgBlAG0AaQBuAGQAZQByAC4AagBzACcAKQAgAH0A",
             "timeout": 3
           }
         ]
@@ -20,7 +20,7 @@
           {
             "type": "command",
             "command": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "commandWindows": "node \"$(git rev-parse --show-toplevel)/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JAByAG8AbwB0ACAAPQAgAGcAaQB0ACAAcgBlAHYALQBwAGEAcgBzAGUAIAAtAC0AcwBoAG8AdwAtAHQAbwBwAGwAZQB2AGUAbAA7ACAAaQBmACAAKAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFACAALQBlAHEAIAAwACkAIAB7ACAAJgAgAG4AbwBkAGUAIAAoAEoAbwBpAG4ALQBQAGEAdABoACAAJAByAG8AbwB0ACAAJwBhAHAAcABzAC8AbQBjAHAALwBkAGkAcwB0AC8AYwBvAGQAZQB4AC0AZgBpAG4AYQBsAGkAegBlAC0AcgBlAG0AaQBuAGQAZQByAC4AagBzACcAKQAgAH0A",
             "timeout": 3
           }
         ]

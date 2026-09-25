@@ -109,6 +109,8 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 - 只讀取專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置可用 `WORK_INTELLIGENCE_DB` 指定。
 - hook marker 僅存放在目前使用者的暫存目錄，以權限 `0700` 建立資料夾、`0600` 建立標記檔；不儲存 Session 內容。
 - 只要讀不到資料或判斷失敗，就放行 Codex。
+- Windows 上 Codex 預設會透過 `cmd.exe /C` 執行 hook；`commandWindows` 因此明確啟動 `powershell.exe`，並用 `-EncodedCommand` 傳入指令，避免把 POSIX 的 `$(...)` 寫法交給 `cmd.exe`。PowerShell 會從 hook 的工作目錄執行 `git rev-parse --show-toplevel`，再組出 hook 腳本路徑，所以可從 repo 子目錄啟動，也可處理含空白的路徑。
+- Windows CI 會從 `apps/mcp` 子目錄以 `cmd.exe /d /s /c` 執行 `.codex/hooks.json` 中的原始 `commandWindows`，並把格式錯誤的輸入傳給 hook，確認指令可啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認載入；官方說明見 [Codex hooks](https://developers.openai.com/docs/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
 
 ## Claude Desktop
 
