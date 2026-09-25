@@ -23,6 +23,7 @@
     "test": "pnpm lint && pnpm format:check && pnpm --filter @work-intelligence/core test && pnpm --filter @work-intelligence/project-policy test && pnpm --filter @work-intelligence/schema test && pnpm --filter @work-intelligence/storage test && pnpm --filter @work-intelligence/server test && pnpm --filter @work-intelligence/mcp test && pnpm --filter @work-intelligence/web test",
     "test:coverage": "pnpm --filter @work-intelligence/schema test:coverage && pnpm --filter @work-intelligence/storage test:coverage && pnpm --filter @work-intelligence/server test:coverage && pnpm --filter @work-intelligence/mcp test:coverage && pnpm --filter @work-intelligence/web test:coverage",
     "test:e2e": "pnpm build && pnpm exec playwright test --project=chromium && pnpm exec playwright test --project=firefox",
+    "test:performance": "pnpm exec node packages/storage/bench/read-paths.bench.mjs 5000 --check",
     "typecheck": "pnpm -r typecheck && pnpm run typecheck:e2e",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"
   },
