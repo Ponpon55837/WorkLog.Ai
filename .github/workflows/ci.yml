@@ -46,7 +46,7 @@ jobs:
       - run: pnpm test:coverage
 
   e2e:
-    name: E2E (Chromium)
+    name: E2E (Chromium + Firefox)
     runs-on: ubuntu-latest
     needs: quality
     steps:
@@ -61,7 +61,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install --with-deps chromium firefox
 
       # Builds production packages, then runs Playwright against an isolated temp SQLite.
       - run: pnpm test:e2e

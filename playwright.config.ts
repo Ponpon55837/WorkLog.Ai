@@ -35,8 +35,21 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    ...(browserExecutablePath ? { launchOptions: { executablePath: browserExecutablePath } } : {}),
   },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        browserName: "chromium",
+        ...(browserExecutablePath ? { launchOptions: { executablePath: browserExecutablePath } } : {}),
+      },
+    },
+    {
+      name: "firefox",
+      grep: /@cross-browser/,
+      use: { browserName: "firefox" },
+    },
+  ],
   webServer: [
     {
       command: `${pnpm} start`,
