@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 
@@ -18,7 +18,7 @@ afterEach(async () => {
 async function connect() {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-test-"));
   const store = new WorkIntelligenceStore(":memory:");
-  const server = createWorkIntelligenceMcpServer(store, "9.9.9");
+  const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION);
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -57,6 +57,7 @@ describe("Work Intelligence MCP server", () => {
     const { client } = await connect();
 
     expect(client.getServerVersion()).toMatchObject({ name: "work-intelligence", version: "9.9.9" });
+    expect(client.getInstructions()).toContain(`Application version: 9.9.9; schema version: ${LATEST_SCHEMA_VERSION}.`);
     // Clients truncate long instructions; routing text must stay well under a few KB.
     expect(client.getInstructions()?.length ?? 0).toBeLessThan(2_500);
 

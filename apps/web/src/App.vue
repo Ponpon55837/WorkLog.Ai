@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useRoute } from "vue-router";
+import type { ApiHealth } from "./api/client";
 import AppShell from "./components/layout/AppShell.vue";
 import CommandPalette from "./components/domain/CommandPalette.vue";
 import HandoffImportDialog from "./components/domain/HandoffImportDialog.vue";
@@ -25,6 +26,7 @@ const route = useRoute();
 const { dashboard, trackedProjects, loadProjects } = useProjects();
 const { inbox, loadDashboardData } = useDashboard();
 const { isApiOffline } = useApiConnection();
+const appHealth = ref<ApiHealth | null>(null);
 const loading = ref(true);
 const refreshing = ref(false);
 const errorMessage = ref("");
@@ -39,7 +41,8 @@ const counts = computed(() => ({
 async function loadShared(): Promise<void> {
   errorMessage.value = "";
   try {
-    await Promise.all([loadDashboardData(), loadProjects()]);
+    const [, , health] = await Promise.all([loadDashboardData(), loadProjects(), useApi().client.getHealth()]);
+    appHealth.value = health;
   } catch (error) {
     errorMessage.value = toErrorMessage(error, "無法載入 Work Intelligence，請確認本機 API 是否已啟動。");
   }
@@ -68,6 +71,7 @@ onBeforeUnmount(() => useApi().abortAll());
   <AppShell
     :refreshing="refreshing"
     :counts="counts"
+    :app-health="appHealth"
     :full-width="route.name === 'graph'"
     @refresh="refresh"
     @search="paletteOpen = true"

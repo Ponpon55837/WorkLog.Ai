@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ShieldCheck } from "lucide-vue-next";
+import type { ApiHealth } from "../../api/client";
 import UiCounter from "../ui/UiCounter.vue";
 import { navGroups, navItems } from "./navigation";
 
@@ -8,6 +9,7 @@ withDefaults(
   defineProps<{
     open?: boolean;
     counts?: Partial<Record<string, { value: number; tone?: "default" | "attention" }>>;
+    appHealth?: ApiHealth | null;
   }>(),
   {
     open: false,
@@ -50,6 +52,10 @@ const emit = defineEmits<{ close: [] }>();
         <strong>Policy gate enabled</strong>
         <span>未明確加入的專案，不讀取、不保存。</span>
       </div>
+    </div>
+    <div v-if="appHealth" class="app-sidebar__app-info" aria-label="Work Intelligence 版本資訊">
+      <span data-testid="app-version">v{{ appHealth.version }}</span>
+      <span data-testid="schema-version">Schema v{{ appHealth.schemaVersion }}</span>
     </div>
   </aside>
 </template>
@@ -150,6 +156,16 @@ const emit = defineEmits<{ close: [] }>();
   font-weight: 600;
 }
 
+.app-sidebar__app-info {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
 .app-sidebar__scrim {
   display: none;
 }
@@ -163,7 +179,8 @@ const emit = defineEmits<{ close: [] }>();
   .app-sidebar__group-label,
   .app-sidebar__label,
   .app-sidebar__counter,
-  .app-sidebar__policy-copy {
+  .app-sidebar__policy-copy,
+  .app-sidebar__app-info {
     display: none;
   }
 

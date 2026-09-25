@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import type { ApiHealth } from "../../api/client";
 import UiConfirmHost from "../ui/UiConfirmHost.vue";
 import UiToastHost from "../ui/UiToastHost.vue";
 import AppHeader from "./AppHeader.vue";
@@ -8,6 +9,7 @@ import AppSidebar from "./AppSidebar.vue";
 
 defineProps<{
   refreshing?: boolean;
+  appHealth?: ApiHealth | null;
   counts?: Partial<Record<string, { value: number; tone?: "default" | "attention" }>>;
   /** Removes the max-width content column (Graph canvas). */
   fullWidth?: boolean;
@@ -35,7 +37,7 @@ watch(
       @toggle-menu="menuOpen = !menuOpen"
     />
     <div class="app-shell__body">
-      <AppSidebar :open="menuOpen" :counts="counts" @close="menuOpen = false" />
+      <AppSidebar :open="menuOpen" :counts="counts" :app-health="appHealth" @close="menuOpen = false" />
       <main id="main" ref="main" class="app-shell__main">
         <div :class="['app-shell__content', { 'app-shell__content--full': fullWidth }]">
           <slot />

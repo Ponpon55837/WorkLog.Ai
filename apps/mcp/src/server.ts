@@ -102,8 +102,13 @@ interface StoreToolDefinition<S extends z.ZodTypeAny> {
   run: (input: z.infer<S>) => unknown;
 }
 
-export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, version: string): McpServer {
-  const server = new McpServer({ name: "work-intelligence", version }, { instructions: serverInstructions });
+export function createWorkIntelligenceMcpServer(
+  store: WorkIntelligenceStore,
+  version: string,
+  schemaVersion: number,
+): McpServer {
+  const instructions = `${serverInstructions} Application version: ${version}; schema version: ${schemaVersion}.`;
+  const server = new McpServer({ name: "work-intelligence", version }, { instructions });
 
   function registerStoreTool<S extends z.ZodTypeAny>(name: string, definition: StoreToolDefinition<S>): void {
     server.registerTool(

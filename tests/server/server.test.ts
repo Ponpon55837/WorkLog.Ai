@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
+import { APP_VERSION } from "../../packages/shared/src/app-version.js";
+import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 
@@ -93,7 +95,12 @@ describe("Work Intelligence REST API", () => {
     const allowed = await fetch(`${baseUrl}/api/health`, { headers: { origin: "http://127.0.0.1:5966" } });
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5966");
-    expect(await allowed.json()).toMatchObject({ ok: true, database: "connected" });
+    expect(await allowed.json()).toMatchObject({
+      ok: true,
+      database: "connected",
+      version: APP_VERSION,
+      schemaVersion: LATEST_SCHEMA_VERSION,
+    });
   });
 
   it("rejects non-loopback Host headers so DNS-rebound pages cannot read the API", async () => {

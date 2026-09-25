@@ -50,6 +50,9 @@ importers:
       '@work-intelligence/schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      '@work-intelligence/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@work-intelligence/storage':
         specifier: workspace:*
         version: link:../../packages/storage

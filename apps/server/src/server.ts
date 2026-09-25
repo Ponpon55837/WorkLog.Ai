@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
 import type { FolderPickResult, ProjectDataExportScope, ProjectDataImportInput } from "@work-intelligence/core";
+import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import {
   attachEvidenceInputSchema,
   cancelMetadataBackfillRequestInputSchema,
@@ -46,7 +47,7 @@ import {
   projectDataExportRequestSchema,
   projectDataImportInputSchema,
 } from "@work-intelligence/schema";
-import { ProjectDataTransferError, WorkIntelligenceStore } from "@work-intelligence/storage";
+import { LATEST_SCHEMA_VERSION, ProjectDataTransferError, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
@@ -366,6 +367,8 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         sendJson(response, databaseHealthy ? 200 : 503, {
           ok: true,
           app: "Work Intelligence",
+          version: APP_VERSION,
+          schemaVersion: LATEST_SCHEMA_VERSION,
           policy: "explicit-opt-in/default-deny",
           database: databaseHealthy ? "connected" : "unavailable",
         });

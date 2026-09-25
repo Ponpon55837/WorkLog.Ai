@@ -280,7 +280,15 @@ test.describe("Work Intelligence browser regression", () => {
     const health = await page.request.get("/api/health");
     expect(health.ok()).toBeTruthy();
     expect(new URL(health.url()).origin).toBe(new URL(page.url()).origin);
-    expect(await health.json()).toMatchObject({ ok: true, database: "connected" });
+    const healthBody = await health.json();
+    expect(healthBody).toMatchObject({
+      ok: true,
+      database: "connected",
+      version: expect.stringMatching(/^\d+\.\d+\.\d+/),
+      schemaVersion: expect.any(Number),
+    });
+    await expect(page.getByTestId("app-version")).toHaveText(`v${healthBody.version}`);
+    await expect(page.getByTestId("schema-version")).toHaveText(`Schema v${healthBody.schemaVersion}`);
   });
 
   test("shows the global API offline banner and refreshes after the API reconnects", async ({ page }) => {

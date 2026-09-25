@@ -9,6 +9,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
     "@work-intelligence/schema": "workspace:*",
+    "@work-intelligence/shared": "workspace:*",
     "@work-intelligence/storage": "workspace:*",
     "zod": "^3.25.76"
   },
