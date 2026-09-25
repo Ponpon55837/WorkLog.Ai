@@ -1722,6 +1722,84 @@ export interface DatabaseBackupUnavailable {
   reason: string;
 }
 
+export const PROJECT_DATA_TABLES = [
+  "projects",
+  "sessions",
+  "work_events",
+  "raw_snapshots",
+  "evidence",
+  "void_audit",
+  "session_verification_updates",
+  "session_links",
+  "knowledge",
+  "knowledge_audit",
+  "knowledge_candidate_requests",
+  "knowledge_candidates",
+  "report_synthesis_requests",
+  "report_summaries",
+  "metadata_backfill_requests",
+  "session_summary_updates",
+  "session_work_summary_updates",
+] as const;
+
+export type ProjectDataTable = (typeof PROJECT_DATA_TABLES)[number];
+export type ProjectDataValue = string | number | null;
+
+/** One validated SQLite row in a portable project export. */
+export type ProjectDataRow = Record<string, ProjectDataValue>;
+
+export type ProjectDataExportScope = { type: "all" } | { type: "project"; projectId: string };
+
+/** Portable project data; derived search indexes are rebuilt after import. */
+export interface ProjectDataExport {
+  format: "work-intelligence-export";
+  formatVersion: 1;
+  schemaVersion: number;
+  exportedAt: string;
+  scope: ProjectDataExportScope;
+  tables: Record<ProjectDataTable, ProjectDataRow[]>;
+}
+
+export interface ProjectPathRemap {
+  from: string;
+  to: string;
+}
+
+export interface ProjectDataImportInput {
+  bundle: ProjectDataExport;
+  projectId?: string;
+  remap?: ProjectPathRemap[];
+}
+
+export type ProjectDataCounts = Partial<Record<ProjectDataTable, number>>;
+
+export interface ProjectDataImportConflict {
+  table: ProjectDataTable;
+  id: string;
+  reason: string;
+}
+
+export interface ProjectDataPathRemapCount {
+  projects: number;
+  snapshots: number;
+}
+
+export interface ProjectDataImportPreview {
+  outcome: "project_data_import_preview";
+  additions: ProjectDataCounts;
+  skipped: ProjectDataCounts;
+  conflicts: ProjectDataCounts;
+  selectedProjects: Array<{ id: string; name: string }>;
+  remappedPaths: ProjectDataPathRemapCount[];
+  conflictDetails: ProjectDataImportConflict[];
+  conflictDetailsTruncated: boolean;
+}
+
+export interface ProjectDataImportResult extends Omit<ProjectDataImportPreview, "outcome"> {
+  outcome: "project_data_imported";
+  importedAt: string;
+}
+
 /** The folder chosen in the native dialog the API server shows when adding a project. */
 export type FolderPickResult =
   | { outcome: "folder_picked"; path: string; name: string }

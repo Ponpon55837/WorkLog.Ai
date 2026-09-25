@@ -1,5 +1,5 @@
 import { createServer, request as httpRequest, type Server } from "node:http";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -431,7 +431,116 @@ describe("Work Intelligence REST API", () => {
     expect(exported.headers.get("content-disposition")).toMatch(/attachment; filename="work-intelligence-export-/);
     const bytes = Buffer.from(await exported.arrayBuffer());
     expect(bytes.subarray(0, 15).toString("utf8")).toBe("SQLite format 3");
+
+    const portable = await requestJson<{ format: string; scope: { type: string }; tables: { projects: unknown[] } }>(
+      baseUrl,
+      "/api/export",
+      { method: "POST", body: { scope: "all" } },
+    );
+    expect(portable.status).toBe(200);
+    expect(portable.body).toMatchObject({
+      format: "work-intelligence-export",
+      scope: { type: "all" },
+      tables: { projects: [] },
+    });
+
+    const missingProject = await requestJson<{ error: string }>(baseUrl, "/api/export", {
+      method: "POST",
+      body: { scope: "project", projectId: "missing-project" },
+    });
+    expect(missingProject.status).toBe(404);
+    expect(missingProject.body.error).toContain("找不到要匯出的專案");
   });
+
+  it("previews and merges portable project data while the server is running", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-transfer-"));
+    const projectRoot = join(root, "path-must-not-be-created");
+    const source = new WorkIntelligenceStore(":memory:");
+    const project = source.addProject("Portable API fixture", projectRoot);
+    source.updateProject(project.id, { status: "tracked" });
+    const finalized = source.finalizeSession({
+      projectRoot,
+      idempotencyKey: "portable-api-session",
+      title: "可攜式匯入 API 測試",
+      summary: "確認 API 預覽和匯入可在服務執行時完成。",
+      completedAt: "2026-09-25T10:00:00.000Z",
+    });
+    if (finalized.outcome !== "finalized") {
+      throw new Error(`Expected a finalized source Session, got ${finalized.outcome}.`);
+    }
+    const bundle = source.exportProjectData({ type: "project", projectId: project.id });
+    const destination = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(destination);
+    resources.push({ server, store: destination, root });
+
+    try {
+      const preview = await requestJson<{
+        outcome: string;
+        additions: { projects: number; sessions: number };
+        selectedProjects: Array<{ name: string }>;
+      }>(baseUrl, "/api/import/preview", { method: "POST", body: { bundle } });
+      expect(preview.status).toBe(200);
+      expect(preview.body).toMatchObject({
+        outcome: "project_data_import_preview",
+        additions: { projects: 1, sessions: 1 },
+        selectedProjects: [{ name: "Portable API fixture" }],
+      });
+      expect(JSON.stringify(preview.body)).not.toContain(projectRoot);
+
+      const unsupportedSchema = await requestJson<{ error: string }>(baseUrl, "/api/import/preview", {
+        method: "POST",
+        body: { bundle: { ...bundle, schemaVersion: bundle.schemaVersion + 1 } },
+      });
+      expect(unsupportedSchema.status).toBe(400);
+      expect(unsupportedSchema.body.error).toContain("schema 版本");
+
+      const rejectedOrigin = await fetch(`${baseUrl}/api/import/preview`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://evil.example" },
+        body: JSON.stringify({ bundle }),
+      });
+      expect(rejectedOrigin.status).toBe(403);
+
+      const imported = await requestJson<{ outcome: string; additions: { projects: number; sessions: number } }>(
+        baseUrl,
+        "/api/import",
+        { method: "POST", body: { bundle } },
+      );
+      expect(imported.status).toBe(200);
+      expect(imported.body).toMatchObject({
+        outcome: "project_data_imported",
+        additions: { projects: 1, sessions: 1 },
+      });
+      expect(destination.listProjects().find((item) => item.id === project.id)?.status).toBe("paused");
+      expect(destination.getSessionById(finalized.session.id)?.summary).toBe(finalized.session.summary);
+      expect(existsSync(projectRoot)).toBe(false);
+
+      const repeated = await requestJson<{ skipped: { projects: number; sessions: number } }>(
+        baseUrl,
+        "/api/import/preview",
+        { method: "POST", body: { bundle } },
+      );
+      expect(repeated.status).toBe(200);
+      expect(repeated.body.skipped).toMatchObject({ projects: 1, sessions: 1 });
+
+      // Import routes have their own 50 MiB limit; other JSON routes keep the smaller default.
+      const largerThanDefault = await fetch(`${baseUrl}/api/import/preview`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ padding: "x".repeat(1_600_000) }),
+      });
+      expect(largerThanDefault.status).toBe(400);
+
+      const tooLarge = await fetch(`${baseUrl}/api/import`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: Buffer.alloc(50 * 1024 * 1024 + 1, 0x20),
+      });
+      expect(tooLarge.status).toBe(413);
+    } finally {
+      source.close();
+    }
+  }, 30_000);
 
   it("reports that an in-memory database has no backups", async () => {
     const store = new WorkIntelligenceStore(":memory:");

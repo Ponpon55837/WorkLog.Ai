@@ -19,6 +19,7 @@ import {
   WORK_EVENT_TYPES,
   INSIGHT_AVAILABILITIES,
   INSIGHT_PROVIDER_EXECUTIONS,
+  PROJECT_DATA_TABLES,
 } from "@work-intelligence/core";
 import { z } from "zod";
 
@@ -761,3 +762,515 @@ export type SessionDetailQuery = z.infer<typeof sessionDetailQuerySchema>;
 export type McpListSessionsInput = z.infer<typeof mcpListSessionsInputSchema>;
 export type McpCreateReportSynthesisRequestInput = z.infer<typeof mcpCreateReportSynthesisRequestInputSchema>;
 export type McpCreateMetadataBackfillRequestInput = z.infer<typeof mcpCreateMetadataBackfillRequestInputSchema>;
+
+export const projectDataExportTableColumns = {
+  projects: ["id", "name", "root_path", "status", "created_at", "updated_at", "last_ingested_at"],
+  sessions: [
+    "id",
+    "project_id",
+    "external_session_id",
+    "idempotency_key",
+    "title",
+    "summary",
+    "work_summary_json",
+    "status",
+    "execution_status",
+    "completed_at",
+    "created_at",
+    "commit_sha",
+    "git_branch",
+    "changed_files_json",
+    "changed_files_provenance_json",
+    "changed_file_changes_json",
+    "verification_json",
+    "voided_at",
+    "void_reason",
+    "started_at",
+    "updated_at",
+  ],
+  work_events: ["id", "session_id", "type", "summary", "details_json", "occurred_at"],
+  raw_snapshots: ["id", "session_id", "project_id", "kind", "source_path", "content", "captured_at"],
+  evidence: [
+    "id",
+    "session_id",
+    "project_id",
+    "kind",
+    "reference",
+    "summary",
+    "captured_at",
+    "voided_at",
+    "void_reason",
+  ],
+  void_audit: ["id", "target_type", "target_id", "session_id", "project_id", "action", "reason", "occurred_at"],
+  session_verification_updates: ["id", "session_id", "source", "previous_json", "resulting_json", "created_at"],
+  session_links: ["id", "session_id", "related_session_id", "relation", "source", "created_at"],
+  knowledge: [
+    "id",
+    "project_id",
+    "session_id",
+    "idempotency_key",
+    "kind",
+    "title",
+    "body",
+    "tags_json",
+    "references_json",
+    "status",
+    "created_at",
+    "updated_at",
+    "applies_to_json",
+    "last_confirmed_at",
+    "last_confirmed_session_id",
+    "supersedes_id",
+    "review_json",
+  ],
+  knowledge_audit: [
+    "id",
+    "knowledge_id",
+    "project_id",
+    "action",
+    "before_json",
+    "after_json",
+    "changed_fields_json",
+    "occurred_at",
+  ],
+  knowledge_candidate_requests: [
+    "id",
+    "project_id",
+    "status",
+    "requested_at",
+    "started_at",
+    "completed_at",
+    "failure_reason",
+    "source_session_ids_json",
+    "candidate_count",
+  ],
+  knowledge_candidates: [
+    "id",
+    "request_id",
+    "project_id",
+    "session_id",
+    "kind",
+    "title",
+    "body",
+    "tags_json",
+    "references_json",
+    "applies_to_json",
+    "rationale",
+    "status",
+    "knowledge_id",
+    "created_at",
+    "decided_at",
+  ],
+  report_synthesis_requests: [
+    "id",
+    "idempotency_key",
+    "scope_type",
+    "project_id",
+    "period",
+    "range_from",
+    "range_to",
+    "status",
+    "requested_at",
+    "started_at",
+    "completed_at",
+    "failure_reason",
+    "source_session_ids_json",
+  ],
+  report_summaries: [
+    "id",
+    "request_id",
+    "period",
+    "range_from",
+    "range_to",
+    "project_id",
+    "title",
+    "executive_summary",
+    "themes_json",
+    "highlights_json",
+    "verification_json",
+    "comparison_json",
+    "risks_json",
+    "decisions_json",
+    "next_steps_json",
+    "source_session_ids_json",
+    "generated_by_agent",
+    "generated_by_model",
+    "prompt_version",
+    "created_at",
+    "is_current",
+  ],
+  metadata_backfill_requests: [
+    "id",
+    "idempotency_key",
+    "scope_type",
+    "project_id",
+    "status",
+    "requested_at",
+    "started_at",
+    "completed_at",
+    "failure_reason",
+    "source_session_ids_json",
+  ],
+  session_summary_updates: [
+    "id",
+    "session_id",
+    "idempotency_key",
+    "mode",
+    "summary",
+    "previous_summary",
+    "resulting_summary",
+    "created_at",
+  ],
+  session_work_summary_updates: [
+    "id",
+    "session_id",
+    "idempotency_key",
+    "mode",
+    "work_summary_json",
+    "previous_work_summary_json",
+    "resulting_work_summary_json",
+    "created_at",
+  ],
+} as const satisfies Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>;
+
+const projectDataValueSchema = z.union([z.string().max(2_000_000), z.number().finite(), z.null()]);
+const projectDataRowSchema = z.record(z.string().regex(/^[a-z_]+$/), projectDataValueSchema);
+const projectDataRows = z.array(projectDataRowSchema).max(200_000);
+const projectDataTablesShape = {
+  projects: projectDataRows,
+  sessions: projectDataRows,
+  work_events: projectDataRows,
+  raw_snapshots: projectDataRows,
+  evidence: projectDataRows,
+  void_audit: projectDataRows,
+  session_verification_updates: projectDataRows,
+  session_links: projectDataRows,
+  knowledge: projectDataRows,
+  knowledge_audit: projectDataRows,
+  knowledge_candidate_requests: projectDataRows,
+  knowledge_candidates: projectDataRows,
+  report_synthesis_requests: projectDataRows,
+  report_summaries: projectDataRows,
+  metadata_backfill_requests: projectDataRows,
+  session_summary_updates: projectDataRows,
+  session_work_summary_updates: projectDataRows,
+};
+
+export const projectDataExportScopeSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("all") }).strict(),
+  z.object({ type: z.literal("project"), projectId: z.string().trim().min(1).max(200) }).strict(),
+]);
+
+const projectDataImportStatusValues: Partial<
+  Record<(typeof PROJECT_DATA_TABLES)[number], Record<string, readonly string[]>>
+> = {
+  projects: { status: PROJECT_STATUSES },
+  sessions: { status: ["finalized"], execution_status: ["completed"] },
+  work_events: { type: WORK_EVENT_TYPES },
+  raw_snapshots: { kind: ["handoff"] },
+  void_audit: { target_type: ["session", "evidence"], action: ["voided", "restored"] },
+  session_verification_updates: { source: ["web", "agent"] },
+  session_links: { relation: ["continues", "related"], source: ["web", "agent"] },
+  knowledge: { kind: KNOWLEDGE_KINDS, status: KNOWLEDGE_STATUSES },
+  knowledge_audit: { action: ["created", "updated", "archived", "restored"] },
+  knowledge_candidate_requests: { status: METADATA_BACKFILL_REQUEST_STATUSES },
+  knowledge_candidates: { kind: KNOWLEDGE_KINDS, status: ["proposed", "accepted", "rejected"] },
+  report_synthesis_requests: {
+    scope_type: REPORT_SYNTHESIS_SCOPE_TYPES,
+    period: WORK_REPORT_PERIODS,
+    status: REPORT_SYNTHESIS_STATUSES,
+  },
+  report_summaries: { period: WORK_REPORT_PERIODS },
+  metadata_backfill_requests: { scope_type: METADATA_BACKFILL_SCOPE_TYPES, status: METADATA_BACKFILL_REQUEST_STATUSES },
+  session_summary_updates: { mode: SESSION_SUMMARY_UPDATE_MODES },
+  session_work_summary_updates: { mode: WORK_SUMMARY_UPDATE_MODES },
+};
+
+const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]> = {
+  projects: ["id", "name", "root_path", "status", "created_at", "updated_at"],
+  sessions: [
+    "id",
+    "project_id",
+    "idempotency_key",
+    "title",
+    "summary",
+    "work_summary_json",
+    "status",
+    "execution_status",
+    "completed_at",
+    "created_at",
+    "changed_files_json",
+    "changed_files_provenance_json",
+    "changed_file_changes_json",
+  ],
+  work_events: ["id", "session_id", "type", "summary", "occurred_at"],
+  raw_snapshots: ["id", "session_id", "project_id", "kind", "content", "captured_at"],
+  evidence: ["id", "session_id", "project_id", "kind", "reference", "captured_at"],
+  void_audit: ["id", "target_type", "target_id", "session_id", "project_id", "action", "occurred_at"],
+  session_verification_updates: ["id", "session_id", "source", "resulting_json", "created_at"],
+  session_links: ["id", "session_id", "related_session_id", "relation", "source", "created_at"],
+  knowledge: [
+    "id",
+    "project_id",
+    "idempotency_key",
+    "kind",
+    "title",
+    "body",
+    "tags_json",
+    "references_json",
+    "status",
+    "created_at",
+    "updated_at",
+    "applies_to_json",
+  ],
+  knowledge_audit: ["id", "knowledge_id", "project_id", "action", "after_json", "changed_fields_json", "occurred_at"],
+  knowledge_candidate_requests: [
+    "id",
+    "project_id",
+    "status",
+    "requested_at",
+    "source_session_ids_json",
+    "candidate_count",
+  ],
+  knowledge_candidates: [
+    "id",
+    "request_id",
+    "project_id",
+    "kind",
+    "title",
+    "body",
+    "tags_json",
+    "references_json",
+    "applies_to_json",
+    "rationale",
+    "status",
+    "created_at",
+  ],
+  report_synthesis_requests: [
+    "id",
+    "idempotency_key",
+    "scope_type",
+    "period",
+    "range_from",
+    "range_to",
+    "status",
+    "requested_at",
+    "source_session_ids_json",
+  ],
+  report_summaries: [
+    "id",
+    "request_id",
+    "period",
+    "range_from",
+    "range_to",
+    "title",
+    "executive_summary",
+    "themes_json",
+    "highlights_json",
+    "verification_json",
+    "comparison_json",
+    "risks_json",
+    "decisions_json",
+    "next_steps_json",
+    "source_session_ids_json",
+    "generated_by_agent",
+    "prompt_version",
+    "created_at",
+    "is_current",
+  ],
+  metadata_backfill_requests: [
+    "id",
+    "idempotency_key",
+    "scope_type",
+    "status",
+    "requested_at",
+    "source_session_ids_json",
+  ],
+  session_summary_updates: [
+    "id",
+    "session_id",
+    "idempotency_key",
+    "mode",
+    "summary",
+    "previous_summary",
+    "resulting_summary",
+    "created_at",
+  ],
+  session_work_summary_updates: [
+    "id",
+    "session_id",
+    "idempotency_key",
+    "mode",
+    "work_summary_json",
+    "previous_work_summary_json",
+    "resulting_work_summary_json",
+    "created_at",
+  ],
+};
+const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>> = {
+  knowledge_candidate_requests: ["candidate_count"],
+  report_summaries: ["is_current"],
+};
+
+export const projectDataExportSchema = z
+  .object({
+    format: z.literal("work-intelligence-export"),
+    formatVersion: z.literal(1),
+    schemaVersion: z.number().int().min(1).max(100),
+    exportedAt: z.string().datetime(),
+    scope: projectDataExportScopeSchema,
+    tables: z.object(projectDataTablesShape).strict(),
+  })
+  .strict()
+  .superRefine((bundle, context) => {
+    let totalRows = 0;
+    for (const table of PROJECT_DATA_TABLES) {
+      const rows = bundle.tables[table];
+      totalRows += rows.length;
+      const expected = new Set<string>(projectDataExportTableColumns[table]);
+      const ids = new Set<string>();
+      rows.forEach((row, index) => {
+        const keys = Object.keys(row);
+        if (keys.length !== expected.size || keys.some((key) => !expected.has(key))) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["tables", table, index],
+            message: `Each ${table} row must contain exactly the supported columns.`,
+          });
+        }
+        if (typeof row.id !== "string" || row.id.length === 0 || ids.has(row.id)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["tables", table, index, "id"],
+            message: "Each row id must be unique and non-empty.",
+          });
+        } else {
+          ids.add(row.id);
+        }
+        const required = new Set(projectDataRequiredColumns[table]);
+        const numeric = new Set(projectDataNumericColumns[table] ?? []);
+        for (const column of projectDataExportTableColumns[table]) {
+          const value = row[column];
+          if (numeric.has(column)) {
+            if (
+              typeof value !== "number" ||
+              !Number.isInteger(value) ||
+              value < 0 ||
+              (column === "is_current" && value > 1)
+            ) {
+              context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["tables", table, index, column],
+                message: `${table}.${column} 必須是有效的整數。`,
+              });
+            }
+          } else if (required.has(column) ? typeof value !== "string" : value !== null && typeof value !== "string") {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["tables", table, index, column],
+              message: `${table}.${column} 必須是文字或允許的空值。`,
+            });
+          }
+          if (typeof value === "string" && column.endsWith("_json")) {
+            try {
+              JSON.parse(value);
+            } catch {
+              context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["tables", table, index, column],
+                message: `${table}.${column} 必須包含有效的 JSON。`,
+              });
+            }
+          }
+        }
+        if (
+          table === "projects" &&
+          typeof row.root_path === "string" &&
+          !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(row.root_path)
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["tables", table, index, "root_path"],
+            message: "專案根路徑必須是絕對路徑。",
+          });
+        }
+        for (const [column, allowed] of Object.entries(projectDataImportStatusValues[table] ?? {})) {
+          if (typeof row[column] !== "string" || !allowed.includes(row[column])) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["tables", table, index, column],
+              message: `The ${column} value is not supported for ${table}.`,
+            });
+          }
+        }
+      });
+    }
+    if (totalRows > 200_000) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tables"],
+        message: "The export contains too many records.",
+      });
+    }
+    if (bundle.scope.type === "project") {
+      const projectId = bundle.scope.projectId;
+      if (!bundle.tables.projects.some((project) => project.id === projectId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["scope", "projectId"],
+          message: "The selected project is missing from the export.",
+        });
+      }
+    }
+  });
+
+export const projectDataExportRequestSchema = z
+  .object({ scope: z.enum(["all", "project"]), projectId: z.string().trim().min(1).max(200).optional() })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.scope === "project" && !value.projectId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["projectId"],
+        message: "projectId is required for a project export.",
+      });
+    }
+    if (value.scope === "all" && value.projectId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["projectId"],
+        message: "projectId is not allowed for an all-project export.",
+      });
+    }
+  });
+
+export const projectPathRemapSchema = z
+  .object({ from: z.string().trim().min(1).max(1_000), to: z.string().trim().min(1).max(1_000) })
+  .strict()
+  .refine((entry) => entry.from !== entry.to, "The source and destination paths must differ.")
+  .refine(
+    (entry) => /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(entry.from) && /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(entry.to),
+    "The source and destination path prefixes must be absolute paths.",
+  );
+
+export const projectDataImportInputSchema = z
+  .object({
+    bundle: projectDataExportSchema,
+    projectId: z.string().trim().min(1).max(200).optional(),
+    remap: z.array(projectPathRemapSchema).max(20).optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const seen = new Set<string>();
+    for (const [index, entry] of (input.remap ?? []).entries()) {
+      const key = entry.from.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+      if (seen.has(key)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["remap", index, "from"],
+          message: "Each source path prefix can only be mapped once.",
+        });
+      }
+      seen.add(key);
+    }
+  });

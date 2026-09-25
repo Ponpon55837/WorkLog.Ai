@@ -298,6 +298,23 @@ const MIGRATIONS: SchemaMigration[] = [
         ON report_summaries(is_current, project_id, period, range_from, range_to, created_at DESC);
     `,
   },
+  {
+    version: 9,
+    name: "project-data-import-audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_data_import_audits (
+        id TEXT PRIMARY KEY,
+        source_digest TEXT NOT NULL,
+        imported_at TEXT NOT NULL,
+        additions_json TEXT NOT NULL,
+        skipped_json TEXT NOT NULL,
+        conflicts_json TEXT NOT NULL,
+        remapped_paths_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_data_import_audits_imported_at
+        ON project_data_import_audits(imported_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

@@ -81,6 +81,9 @@ importers:
       '@work-intelligence/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@work-intelligence/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
       lucide-vue-next:
         specifier: ^1.0.0
         version: 1.0.0(vue@3.5.42(typescript@5.9.3))
@@ -128,6 +131,9 @@ importers:
       '@work-intelligence/project-policy':
         specifier: workspace:*
         version: link:../project-policy
+      '@work-intelligence/schema':
+        specifier: workspace:*
+        version: link:../schema
       '@work-intelligence/shared':
         specifier: workspace:*
         version: link:../shared

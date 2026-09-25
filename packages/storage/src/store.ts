@@ -119,6 +119,11 @@ import type {
   DatabaseBackupCreated,
   DatabaseBackupList,
   DatabaseBackupUnavailable,
+  ProjectDataExport,
+  ProjectDataExportScope,
+  ProjectDataImportInput,
+  ProjectDataImportPreview,
+  ProjectDataImportResult,
   ProjectStatusResult,
   SessionDetailQueryResult,
   SessionListQueryResult,
@@ -158,6 +163,7 @@ import { matchesAppliesTo, normalizePath } from "./search-text.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
+import { ProjectDataTransferService } from "./project-data-transfer.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
@@ -1089,6 +1095,7 @@ export class WorkIntelligenceStore {
   private readonly knowledge: KnowledgeRepository;
   private readonly graphBuilder: GraphBuilder;
   private readonly handoffImportService = new HandoffImportService();
+  private readonly projectDataTransfer: ProjectDataTransferService;
   private readonly reportReader: ReportReadService;
   private readonly reportSynthesis: ReportSynthesisService;
   private readonly metadataBackfillService: MetadataBackfillService;
@@ -1112,6 +1119,7 @@ export class WorkIntelligenceStore {
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.db.exec(schema);
     this.ensureSchemaMigrations();
+    this.projectDataTransfer = new ProjectDataTransferService(this.db);
     this.projects = new ProjectRepository(this.db);
     this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
     this.reportReader = new ReportReadService(this.db, this);
@@ -1301,6 +1309,21 @@ export class WorkIntelligenceStore {
       throw new Error("An in-memory database cannot be exported.");
     }
     return exportDatabase(this.db, target);
+  }
+
+  /** Exports portable data for every project or one selected project. */
+  public exportProjectData(scope: ProjectDataExportScope): ProjectDataExport {
+    return this.projectDataTransfer.export(scope);
+  }
+
+  /** Counts additions, duplicates, and conflicts without writing imported data. */
+  public previewProjectDataImport(input: ProjectDataImportInput): ProjectDataImportPreview {
+    return this.projectDataTransfer.preview(input);
+  }
+
+  /** Merges portable project data inside one transaction while this store remains open. */
+  public importProjectData(input: ProjectDataImportInput): ProjectDataImportResult {
+    return this.projectDataTransfer.import(input);
   }
 
   /** Backs up only when there is no backup yet or the newest is a day old; used by the API server's schedule. */
