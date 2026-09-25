@@ -83,7 +83,9 @@ async function submitKnowledgeCandidateForReview(
     return candidate.id;
   });
 
-  await expect(page.getByText(/Agent 已送出.*Knowledge 候選/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("knowledge-candidate").filter({ hasText: input.title })).toBeVisible({
+    timeout: 15_000,
+  });
   return candidateId;
 }
 
@@ -122,7 +124,8 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
 }
 
 test.describe("Work Intelligence browser regression", () => {
-  test.describe.configure({ mode: "serial" });
+  // This suite shares fixtures created in beforeAll; retrying it recreates and layers those fixtures.
+  test.describe.configure({ mode: "serial", retries: 0 });
 
   let projectId = "";
   let sessionId = "";
