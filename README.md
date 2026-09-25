@@ -47,7 +47,7 @@ pnpm start
 
 ## 連接 Codex／Claude
 
-Work Intelligence 的 MCP 是**本機 stdio server**（`5966` 是 Web UI，不是 MCP endpoint）。先執行一次 `pnpm build`，再依你的 Agent 註冊：
+Work Intelligence 的 MCP 是**本機 stdio server**（正式模式 Web 預設在 `3210`，開發模式 Web 在 `5966`；兩者都不是 MCP endpoint）。先執行一次 `pnpm build`，再依你的 Agent 註冊：
 
 ```powershell
 # Codex CLI
@@ -107,7 +107,7 @@ GitHub 深色風格的介面，左側選單分三組：
 
 所有記錄都在一個 SQLite 檔案裡。
 
-- **自動備份**：API server 每個 UTC 日備份一次到資料庫旁的 `backups/`，自動備份與手動備份分開保留，預設各保留最近 14 份（`WORK_INTELLIGENCE_BACKUP_KEEP` 可調整手動備份份數，`WORK_INTELLIGENCE_BACKUP_DIR` 可改位置，`WORK_INTELLIGENCE_BACKUP=off` 關閉）。手動備份不會擠掉每日自動備份；備份檔只有目前使用者可以讀寫。
+- **自動備份**：API server 每個本機日曆日備份一次到資料庫旁的 `backups/`，自動備份與手動備份分開保留，預設各保留最近 14 份（`WORK_INTELLIGENCE_BACKUP_KEEP` 可調整手動備份份數，`WORK_INTELLIGENCE_BACKUP_DIR` 可改位置，`WORK_INTELLIGENCE_BACKUP=off` 關閉）。手動備份不會擠掉每日自動備份；備份檔只有目前使用者可以讀寫。
 - **手動備份**：Web UI 的專案 → 資料備份 →「立即備份」，或執行 `pnpm db:backup`。
 - **依專案攜帶資料**：在專案 → 資料備份可匯出全部專案或單一專案的 JSON。CLI 可用 `pnpm db:export --all` 或 `pnpm db:export --project <專案名稱或 id>`；加上 `--out <檔案.json>` 可指定輸出位置。JSON 未加密，請妥善保管。
 - **合併匯入**：在同一分頁選擇 JSON 檔，先看新增、略過、衝突與路徑轉換預覽，再確認匯入；也可執行 `pnpm db:import <檔案.json> --dry-run` 只預覽，或在互動終端執行 `pnpm db:import <檔案.json> --remap-root <舊路徑>=<新路徑>` 後輸入 `yes` 確認。可重複執行，不會覆寫既有資料；新匯入專案會先暫停。匯入透過正在運作的 API／SQLite 合併，不必先停服務。
@@ -176,7 +176,7 @@ pnpm typecheck      # packages + Vue + e2e 型別
 pnpm test:e2e       # Playwright（獨立暫存 SQLite，不影響你的資料）
 ```
 
-設定：`WORK_INTELLIGENCE_DB` 指定 SQLite 位置；Web UI 若不是從 `127.0.0.1:5966` 連線，請在 `.env` 設定 `WORK_INTELLIGENCE_ALLOWED_ORIGINS`（逗號分隔，不要用 `*`），其中的主機也會加入 API 的 `Host` 白名單。報告與日期篩選依 server 所在的系統時區切日（Node 會遵守 `TZ` 環境變數）。
+設定：`WORK_INTELLIGENCE_DB` 指定 SQLite 位置；正式模式的 Web 與 API 同源，不需額外 CORS 設定。若在開發模式或自訂來源下使用非預設 Web origin，請在 `.env` 設定 `WORK_INTELLIGENCE_ALLOWED_ORIGINS`（逗號分隔，不要用 `*`），其中的主機也會加入 API 的 `Host` 白名單。報告與日期篩選依 server 所在的系統時區切日（Node 會遵守 `TZ` 環境變數）。
 
 改 Web UI 前請先看共用 skill：[`worklog-ui`](.agents/skills/worklog-ui/SKILL.md)（設計與資料語意）與 [`worklog-web-code-style`](.agents/skills/worklog-web-code-style/SKILL.md)（程式碼規範）。
 
@@ -184,12 +184,16 @@ pnpm test:e2e       # Playwright（獨立暫存 SQLite，不影響你的資料�
 
 | 文件 | 內容 |
 |---|---|
+| [docs/user-guide.md](docs/user-guide.md) | 安裝、正式模式、日常使用、備份、換電腦與升級 |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | API、MCP、全域 hook、還原與匯入的常見問題 |
 | [docs/agent-setup.md](docs/agent-setup.md) | 註冊到 Codex CLI、Claude Code、Claude Desktop 與第一次使用 |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | 每個 MCP tool 的用途、欄位、範例、policy 行為、annotations 與 prompts |
 | [docs/rest-api.md](docs/rest-api.md) | REST endpoints、metadata backfill、報告匯出、備份與專案資料匯出／匯入、即時更新串流 |
 | [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | Session 五段格式、報告粒度與回填邊界 |
 | [docs/architecture.md](docs/architecture.md) | 資料契約、一致性與輸入邊界、Recording Policy、設計原則 |
 | [docs/testing.md](docs/testing.md) | 測試指令、覆蓋率門檻與 E2E 範圍 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 開發流程、健康檢查、PR 與工作記錄規則 |
+| [SECURITY.md](SECURITY.md) | 本機安全邊界與私密漏洞回報方式 |
 | [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Web UI 改版的決策與實作紀錄 |
 | [docs/status.md](docs/status.md) | 專案現況、未結項與最近完成的工作 |
 

@@ -8,7 +8,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
-- Node 24 內建 `node:sqlite` SQLite 儲存，避免額外 native binding
+- Node.js 22.5 以上的內建 `node:sqlite` SQLite 儲存（建議 Node.js 24），避免額外 native binding
 - MCP stdio server：31 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
 - Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
@@ -27,6 +27,8 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Graph UI：以關係圖、節點分布與關係類型呈現 tracked-only graph，並可從 Session／Knowledge 節點回到來源
 - `idempotencyKey` 保證 finalize retry 不會重複建立 session
 - 預留 reports、evidence、knowledge、graph extension interfaces
+- Production 模式由單一本機 HTTP server 在同一個 port 提供 REST API 與 build 後的 Web UI；開發模式仍分開使用 Vite 與 API。
+- 根目錄 `package.json` 是唯一應用程式版本來源；REST health、MCP metadata 與 Web UI 共用該版本，並另回報資料庫 schema 版本。
 
 ## 設計原則與驗收基準
 
@@ -64,13 +66,17 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 
 REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Evidence、Report synthesis、Metadata backfill 與 Session summary update 的查重及寫入會在 `BEGIN IMMEDIATE` transaction 內完成；跨程序同時重試時會等待既有寫入，再回傳 `duplicate: true`，不會把 SQLite UNIQUE constraint 例外當成一般 500 錯誤。Metadata backfill 的 schema rebuild migration 也在 transaction 內執行。
 
-新的 schema 變更改用版本化 migration（`packages/storage/src/schema-migrations.ts`）：套用過的版本記在 `schema_migrations`，每個 migration 只在啟動時的 transaction 內執行一次。目前的 migration 1 建立檢索索引（`search_chunks`、FTS5 `search_fts`、`search_paths`、`search_dirty` 與標記用 trigger），並把既有 Session／Knowledge 全部標記為待索引。檢索邏輯在 `search-repository.ts`，tokenizer 與路徑正規化在 `search-text.ts`，詳見 [MCP tools 的 `work_recall`](mcp-tools.md#work_recall)。
+新的 schema 變更改用版本化 migration（`packages/storage/src/schema-migrations.ts`）：套用過的版本記在 `schema_migrations`，每個 migration 只在啟動時的 transaction 內執行一次。若既有檔案資料庫有待套用的 migration，初始化程序會先寫一份帶目標版本標記的 `pre-migration-vN-...` 快照，然後才在 transaction 內升級；新資料庫與記憶體資料庫不需要這份升級前快照。若資料庫 schema 版本比目前程式支援的新，初始化會拒絕開啟並要求更新 Work Intelligence，不會嘗試降級或部分啟動。若 migration 前備份失敗，初始化也會停止，以免沒有安全備份仍繼續升級。檢索索引由 `search_chunks`、FTS5 `search_fts`、`search_paths`、`search_dirty` 與 trigger 維護，檢索邏輯在 `search-repository.ts`，tokenizer 與路徑正規化在 `search-text.ts`，詳見 [MCP tools 的 `work_recall`](mcp-tools.md#work_recall)。
 
 既有 SQLite 檔案若仍有歷史 `commit_required` 欄位，Work Intelligence 啟動時會以 idempotent migration 移除；公開 Session contract 與新寫入流程不使用此欄位。Git commit 仍是可選的獨立流程。
 
 Processing 中的 report synthesis 與 metadata backfill 請求超過 30 分鐘會標記為 `failed`，保留原始資料並允許後續 Agent／UI 重新處理。更新 Session metadata、verification 與 summary 時，Session 與 Project timestamp 會一起原子更新。
 
 REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`，以及 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），其他一律回 421，避免 DNS rebinding 的網頁在同源情況下讀取資料；帶 `Origin` 的請求還必須在 origin 白名單內。
+
+正式模式由 `pnpm start` 啟動單一 API server，預設綁定 `127.0.0.1:3210`，同時提供 `apps/web/dist` 與 `/api/*`。SPA 路由 fallback 回 `index.html`；HTML 不快取、Vite 雜湊 assets 長期快取。靜態請求先用 Zod 驗證路徑，再拒絕 dot-segment、百分比解碼後 traversal、反斜線與控制字元；解析 symlink 後還會再次確認真實路徑仍位於 Web 根目錄內。正式 Web 回應附 CSP（script 只允許同源，style attribute 依 Vue 版面需求允許 inline）、`X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。開發模式 `pnpm dev` 維持 Vite 與 API 分開。
+
+應用程式 semver 取自根目錄 `package.json`；`/api/health` 回傳 `version` 與 `schemaVersion`，MCP server metadata/instructions 與 UI 側欄使用相同版本來源。`pnpm run doctor` 以只讀方式檢查環境與資料庫 metadata；hook 診斷只檢查全域 `~/.claude/settings.json` 與 `~/.codex/hooks.json`、以及目前 repo 的 hook dist 檔，不讀取或修改 repo 內的 Agent 設定。診斷命令刻意以 `pnpm run doctor` 執行，因為 pnpm 11 的 `pnpm doctor` 是套件管理器自身命令。
 
 日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 
