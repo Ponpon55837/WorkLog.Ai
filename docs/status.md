@@ -14,10 +14,10 @@
 | B. 升級安全與版本 | 已完成 | PR #72：檔案資料庫套用 migration 前自動備份，較新 schema 會被拒絕；PR #73：單一 semver 來源、CHANGELOG、health／MCP／UI 版本資訊。 |
 | C1. 診斷 | 已完成 | PR #74：新增唯讀 `pnpm run doctor`，檢查環境、build、資料庫、API、MCP 與 hook；hook 只查使用者全域設定，不查 repo 內設定。 |
 | C2. 文件 | 已完成 | PR #75：新增使用手冊、疑難排解、CONTRIBUTING、SECURITY，並更新架構與狀態文件。 |
-| D. 品質門檻 | 進行中 | D1 PR #76 macOS CI、D2 PR #77 Firefox E2E、D3 PR #78 效能回歸門檻已完成；D4 加入合成檢索品質評估；D5 axe 無障礙檢查待處理。 |
+| D. 品質門檻 | 已完成 | D1 PR #76 macOS CI、D2 PR #77 Firefox E2E、D3 PR #78 效能回歸門檻、D4 合成檢索品質評估均已完成；D5 在六個主要頁面加入 axe 掃描，CI 阻擋 critical／serious 問題。 |
 | E. 資料生命週期 | 尚未開始 | 永久刪除專案與資料（先備份、輸入名稱確認、MCP 無刪除工具），以及 `pnpm db:maintain`。 |
 
-暫緩項目：A2 開機自動啟動、發行 workflow／tag／release，以及實機平台驗證。D4 已加入 20 題虛構合成檢索品質評估；私有 36 題真實資料檢索評估仍留在本機，不會放進 repository。
+暫緩項目：A2 開機自動啟動、發行 workflow／tag／release，以及實機平台驗證。D4 使用 20 題虛構合成檢索品質評估；私有 36 題真實資料檢索評估仍留在本機，不會放進 repository。
 
 ## 優先改善：Agent 檢索品質
 

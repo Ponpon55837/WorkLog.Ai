@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
+import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 
@@ -518,6 +519,25 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/worklog");
     await expect(page).toHaveURL(/\/sessions$/);
     await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
+  });
+
+  test("has no critical or serious axe violations on the six primary pages", async ({ page }) => {
+    const failures: string[] = [];
+
+    for (const [path, heading] of pageRoutes) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+
+      const { violations } = await new AxeBuilder({ page }).analyze();
+      for (const violation of violations) {
+        if (violation.impact !== "critical" && violation.impact !== "serious") continue;
+
+        const selectors = violation.nodes.map((node) => node.target.join(" ")).join("; ");
+        failures.push(`${path}: ${violation.id} — ${violation.help}${selectors ? ` (${selectors})` : ""}`);
+      }
+    }
+
+    expect(failures, `axe found critical or serious accessibility issues:\n${failures.join("\n")}`).toEqual([]);
   });
 
   test("opens the Session panel from a ?session deep link and closes it", async ({ page }) => {
