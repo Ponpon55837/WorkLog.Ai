@@ -114,16 +114,30 @@ useRouteQuery("date", reportDate, stringQuery(toDateInputValue(new Date())));
 useRouteQuery("from", reportFrom, stringQuery());
 useRouteQuery("to", reportTo, stringQuery());
 useRouteQuery("project", reportProjectId, stringQuery());
+
+function setDefaultCustomRange(): void {
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 13);
+  reportRange.value = { from: toDateInputValue(start), to: toDateInputValue(today) };
+}
+
+function hasIncompleteCustomRange(): boolean {
+  return !reportRange.value.from || !reportRange.value.to;
+}
+
+// A deep link can select custom before any watcher runs, so establish valid bounds before loading.
+if (reportPeriod.value === "custom" && hasIncompleteCustomRange()) {
+  setDefaultCustomRange();
+}
+
 useViewLoader(() => loadReport(true));
-watch([reportPeriod, reportDate, reportRange, reportProjectId], () => void loadReport(true));
-// Switching to a custom range starts from the last 14 days instead of an empty range.
-watch(reportPeriod, (period) => {
-  if (period === "custom" && !reportRange.value.from && !reportRange.value.to) {
-    const today = new Date();
-    const start = new Date(today);
-    start.setDate(start.getDate() - 13);
-    reportRange.value = { from: toDateInputValue(start), to: toDateInputValue(today) };
+watch([reportPeriod, reportDate, reportRange, reportProjectId], ([period]) => {
+  if (period === "custom" && hasIncompleteCustomRange()) {
+    setDefaultCustomRange();
+    return;
   }
+  void loadReport(true);
 });
 
 const tabIds = reportTabOptions.map((option) => option.id);
@@ -319,8 +333,17 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   <PageHeader :description="description">
     <template #actions>
       <UiSegmentedControl v-model="reportPeriod" :options="periodOptions" label="選擇報表區間" />
-      <UiDateRangeMenu v-if="reportPeriod === 'custom'" v-model="reportRange" variant="button" label="自訂期間" />
-      <UiTextInput v-else v-model="reportDate" type="date" class="reports__date" label="選擇報告日期" />
+      <div class="reports__period-control" data-testid="report-period-date-control">
+        <!-- The report API requires both bounds and has no unbounded custom-range mode. -->
+        <UiDateRangeMenu
+          v-if="reportPeriod === 'custom'"
+          v-model="reportRange"
+          variant="button"
+          label="自訂期間"
+          :allow-all-dates="false"
+        />
+        <UiTextInput v-else v-model="reportDate" type="date" label="選擇報告日期" />
+      </div>
       <UiActionMenu
         v-model="reportProjectId"
         :label="projectLabel"
@@ -438,12 +461,18 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :icon="CircleCheckBig"
           title="這段期間沒有完成工作"
         />
-        <SessionRow
-          v-for="session in report.completedWork"
-          :key="session.id"
-          :session="session"
-          @open="openSession($event, report.completedWork)"
-        />
+        <VirtualList
+          v-else
+          :items="report.completedWork"
+          :enabled="true"
+          :estimate-item-height="112"
+          max-height="min(40vh, 360px)"
+          label="報表完成事項清單"
+        >
+          <template #default="{ item: session }">
+            <SessionRow :session="session" @open="openSession($event, report.completedWork)" />
+          </template>
+        </VirtualList>
       </UiBox>
       <div class="reports__side">
         <UiBox padded>
@@ -457,7 +486,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           <template #header><UiBoxTitle eyebrow="Across periods" title="跨期工作" :count="spanningCount" /></template>
           <VirtualList
             :items="spanningRows"
-            :enabled="spanningRows.length > 5"
+            :enabled="true"
             :estimate-item-height="64"
             max-height="min(56vh, 560px)"
             label="跨期工作清單"
@@ -496,17 +525,25 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           ><UiBoxTitle eyebrow="Project breakdown" title="專案分布" :count="report.projects.length"
         /></template>
         <UiEmptyState v-if="report.projects.length === 0" compact :icon="FolderGit2" title="沒有專案資料" />
-        <UiBoxRow
-          v-for="project in report.projects"
-          :key="project.projectId"
-          :title="project.projectName"
-          :meta="`${project.sessionCount} 個 Session · ${project.eventCount} 個事件`"
+        <VirtualList
+          v-else
+          :items="report.projects"
+          :enabled="true"
+          :estimate-item-height="72"
+          label="報表專案分布清單"
         >
-          <template #leading><FolderGit2 :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
-          <template #trailing
-            ><UiLabel>{{ project.sourceSessionIds.length }} 個來源</UiLabel></template
-          >
-        </UiBoxRow>
+          <template #default="{ item: project }">
+            <UiBoxRow
+              :title="project.projectName"
+              :meta="`${project.sessionCount} 個 Session · ${project.eventCount} 個事件`"
+            >
+              <template #leading><FolderGit2 :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
+              <template #trailing
+                ><UiLabel>{{ project.sourceSessionIds.length }} 個來源</UiLabel></template
+              >
+            </UiBoxRow>
+          </template>
+        </VirtualList>
       </UiBox>
     </section>
 
@@ -522,19 +559,21 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           ><UiBoxTitle eyebrow="Risks to review" title="資料型風險" :count="report.risks.length"
         /></template>
         <UiEmptyState v-if="report.risks.length === 0" compact :icon="TriangleAlert" title="沒有偵測到資料型風險" />
-        <UiBoxRow
-          v-for="insight in report.risks"
-          :key="`${insight.kind}-${insight.label}`"
-          clickable
-          :title="insight.label"
-          :meta="`${insight.sourceSessionIds.length} 筆來源 Session`"
-          @select="openReportSession(insight.sourceSessionIds[0])"
-        >
-          <template #labels
-            ><UiLabel tone="attention">{{ insightKindLabels[insight.kind] }}</UiLabel></template
-          >
-          <p class="reports__row-detail">{{ insight.detail }}</p>
-        </UiBoxRow>
+        <VirtualList v-else :items="report.risks" :enabled="true" :estimate-item-height="112" label="報表風險清單">
+          <template #default="{ item: insight }">
+            <UiBoxRow
+              clickable
+              :title="insight.label"
+              :meta="`${insight.sourceSessionIds.length} 筆來源 Session`"
+              @select="openReportSession(insight.sourceSessionIds[0])"
+            >
+              <template #labels
+                ><UiLabel tone="attention">{{ insightKindLabels[insight.kind] }}</UiLabel></template
+              >
+              <p class="reports__row-detail">{{ insight.detail }}</p>
+            </UiBoxRow>
+          </template>
+        </VirtualList>
       </UiBox>
       <UiBox sticky-header>
         <template #header
@@ -546,18 +585,18 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           title="這段期間沒有決策事件"
           description="Agent 提交 note 或 closing event 後，會在這裡保留來源。"
         />
-        <UiBoxRow
-          v-for="decision in report.decisions"
-          :key="`${decision.sessionId}-${decision.occurredAt}`"
-          clickable
-          :title="decision.summary"
-          @select="openReportSession(decision.sessionId)"
-        >
-          <template #meta
-            >{{ decision.sessionTitle }} ·
-            <time :title="formatDate(decision.occurredAt)">{{ formatRelative(decision.occurredAt) }}</time></template
-          >
-        </UiBoxRow>
+        <VirtualList v-else :items="report.decisions" :enabled="true" :estimate-item-height="88" label="報表決策清單">
+          <template #default="{ item: decision }">
+            <UiBoxRow clickable :title="decision.summary" @select="openReportSession(decision.sessionId)">
+              <template #meta
+                >{{ decision.sessionTitle }} ·
+                <time :title="formatDate(decision.occurredAt)">{{
+                  formatRelative(decision.occurredAt)
+                }}</time></template
+              >
+            </UiBoxRow>
+          </template>
+        </VirtualList>
       </UiBox>
     </section>
 
@@ -579,12 +618,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :icon="FileText"
           title="這段期間沒有原始 Session"
         />
-        <VirtualList
-          v-else
-          :items="reportSessionItems"
-          :enabled="reportSessionPageSize === 'all'"
-          label="報告原始工作紀錄清單"
-        >
+        <VirtualList v-else :items="reportSessionItems" :enabled="true" label="報告原始工作紀錄清單">
           <template #default="{ item }">
             <SessionRow :session="item" @open="openSession($event, reportSessionItems)" />
           </template>
@@ -630,7 +664,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         <VirtualList
           v-else
           :items="report.evidence"
-          :enabled="reportEvidencePageSize === 'all'"
+          :enabled="true"
           :estimate-item-height="72"
           label="報告來源證據清單"
         >
@@ -666,8 +700,19 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
 </template>
 
 <style scoped>
-.reports__date {
-  width: 150px;
+.reports__period-control {
+  flex: 0 0 236px;
+  width: 236px;
+  min-width: 0;
+}
+
+.reports__period-control :deep(.ui-date-range__trigger),
+.reports__period-control :deep(.ui-text-input) {
+  width: 100%;
+}
+
+.reports__period-control :deep(.ui-date-range__trigger) {
+  justify-content: space-between;
 }
 
 .reports__panel {
@@ -758,9 +803,9 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
 }
 
 @media (max-width: 639px) {
-  .reports__date {
-    flex: 1;
-    width: auto;
+  .reports__period-control {
+    flex: 1 1 100%;
+    width: 100%;
   }
 }
 </style>

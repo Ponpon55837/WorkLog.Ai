@@ -10,6 +10,7 @@ import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
+import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 
 /** Import confirmation: shows what will be imported and what is excluded, with reasons. */
@@ -82,8 +83,16 @@ function filesText(item: HandoffImportPreviewItem): string {
         title="找不到 handoff 目錄"
         :description="`${handoffImportPreview.handoffDirectory} 不存在或沒有可讀取的 Markdown 文件。`"
       />
-      <ul v-else class="handoff__list">
-        <li v-for="item in handoffImportPreview.items" :key="item.sourcePath">
+      <VirtualList
+        v-else
+        class="handoff__list"
+        :items="handoffImportPreview.items"
+        :enabled="true"
+        :estimate-item-height="128"
+        max-height="min(56vh, 560px)"
+        label="Handoff 匯入預覽清單"
+      >
+        <template #default="{ item }">
           <label :class="['handoff__item', { 'is-disabled': item.decision !== 'eligible' }]">
             <input
               type="checkbox"
@@ -105,8 +114,8 @@ function filesText(item: HandoffImportPreviewItem): string {
               </small>
             </span>
           </label>
-        </li>
-      </ul>
+        </template>
+      </VirtualList>
     </template>
     <template #footer>
       <span class="handoff__selection">
@@ -156,10 +165,9 @@ function filesText(item: HandoffImportPreviewItem): string {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  list-style: none;
 }
 
-.handoff__list li + li {
+.handoff__list :deep(.virtual-list-item + .virtual-list-item) {
   border-top: 1px solid var(--border-muted);
 }
 

@@ -250,7 +250,7 @@ onMounted(() => {
         <p>匯入專案與套用路徑</p>
         <VirtualList
           :items="importPreview.selectedProjects"
-          :enabled="importPreview.selectedProjects.length > scrollAfter"
+          :enabled="importPreview.selectedProjects.length > 4"
           :estimate-item-height="68"
           max-height="min(40vh, 320px)"
           label="匯入專案與路徑"
@@ -290,7 +290,7 @@ onMounted(() => {
         <VirtualList
           v-if="importPreview.conflictDetails.length > 0"
           :items="importPreview.conflictDetails"
-          :enabled="importPreview.conflictDetails.length > 6"
+          :enabled="importPreview.conflictDetails.length > 4"
           :estimate-item-height="68"
           max-height="min(40vh, 320px)"
           label="匯入衝突"

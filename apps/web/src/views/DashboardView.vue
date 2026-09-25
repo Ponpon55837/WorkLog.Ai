@@ -24,6 +24,7 @@ import UiCounter from "../components/ui/UiCounter.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiSparkline from "../components/ui/UiSparkline.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
+import VirtualList from "../components/VirtualList.vue";
 import { useViewLoader } from "../composables/useAppRefresh";
 import { useDashboard, type InboxItem } from "../composables/useDashboard";
 import { metadataBackfillInstruction } from "../composables/useMetadataBackfill";
@@ -138,31 +139,37 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
           title="全部處理完畢"
           description="沒有等待 Agent 的報告整理或 metadata 回補請求。"
         />
-        <UiBoxRow v-for="item in inbox" :key="`${item.kind}-${item.request.id}`" :title="item.title" :meta="item.meta">
-          <template #leading>
-            <component
-              :is="requestStatus[item.request.status].icon"
-              :size="16"
-              :stroke-width="1.75"
-              :class="`tone-${requestStatus[item.request.status].tone}`"
-              aria-hidden="true"
-            />
+        <VirtualList v-else :items="inbox" :enabled="true" :estimate-item-height="104" label="待處理請求清單">
+          <template #default="{ item }">
+            <UiBoxRow :title="item.title" :meta="item.meta">
+              <template #leading>
+                <component
+                  :is="requestStatus[item.request.status].icon"
+                  :size="16"
+                  :stroke-width="1.75"
+                  :class="`tone-${requestStatus[item.request.status].tone}`"
+                  aria-hidden="true"
+                />
+              </template>
+              <template #labels
+                ><StatusLabel :status="requestStatus[item.request.status]" :show-icon="false"
+              /></template>
+              <template #trailing>
+                <UiCopyButton
+                  v-if="item.request.status !== 'failed'"
+                  size="sm"
+                  label="複製 Agent 指令"
+                  :text="item.kind === 'synthesis' ? reportSynthesisInstruction : metadataBackfillInstruction"
+                  success-message="已複製自然語言指令。"
+                />
+                <UiButton v-else size="sm" :icon="RotateCcw" @click="openRequest(item)">前往重試</UiButton>
+                <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" @click="openRequest(item)"
+                  >前往</UiButton
+                >
+              </template>
+            </UiBoxRow>
           </template>
-          <template #labels><StatusLabel :status="requestStatus[item.request.status]" :show-icon="false" /></template>
-          <template #trailing>
-            <UiCopyButton
-              v-if="item.request.status !== 'failed'"
-              size="sm"
-              label="複製 Agent 指令"
-              :text="item.kind === 'synthesis' ? reportSynthesisInstruction : metadataBackfillInstruction"
-              success-message="已複製自然語言指令。"
-            />
-            <UiButton v-else size="sm" :icon="RotateCcw" @click="openRequest(item)">前往重試</UiButton>
-            <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" @click="openRequest(item)"
-              >前往</UiButton
-            >
-          </template>
-        </UiBoxRow>
+        </VirtualList>
       </UiBox>
 
       <UiBox>
@@ -181,7 +188,18 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
         >
           <template #action><UiButton :to="{ name: 'projects' }">前往專案</UiButton></template>
         </UiEmptyState>
-        <SessionRow v-for="session in recentSessions" :key="session.id" :session="session" @open="openSession" />
+        <VirtualList
+          v-else
+          :items="recentSessions"
+          :enabled="recentSessions.length > 5"
+          :estimate-item-height="112"
+          max-height="min(40vh, 360px)"
+          label="最近完成工作清單"
+        >
+          <template #default="{ item: session }">
+            <SessionRow :session="session" @open="openSession" />
+          </template>
+        </VirtualList>
       </UiBox>
     </div>
 
@@ -191,22 +209,33 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
         <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">管理</UiButton>
       </template>
       <UiEmptyState v-if="projects.length === 0" compact :icon="FolderGit2" title="尚未加入專案" />
-      <UiBoxRow v-for="project in visibleProjects" :key="project.id" :title="project.name">
-        <template #leading
-          ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
-        /></template>
-        <template #meta
-          ><code class="dashboard__path">{{ project.rootPath }}</code></template
-        >
-        <div class="dashboard__project-meta">
-          {{
-            project.lastIngestedAt
-              ? `最後寫入 ${formatRelative(project.lastIngestedAt)}`
-              : `更新於 ${formatRelative(project.updatedAt)}`
-          }}
-        </div>
-        <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
-      </UiBoxRow>
+      <VirtualList
+        v-else
+        :items="visibleProjects"
+        :enabled="visibleProjects.length > 5"
+        :estimate-item-height="96"
+        max-height="min(48vh, 520px)"
+        label="專案狀態清單"
+      >
+        <template #default="{ item: project }">
+          <UiBoxRow :title="project.name">
+            <template #leading
+              ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
+            /></template>
+            <template #meta
+              ><code class="dashboard__path">{{ project.rootPath }}</code></template
+            >
+            <div class="dashboard__project-meta">
+              {{
+                project.lastIngestedAt
+                  ? `最後寫入 ${formatRelative(project.lastIngestedAt)}`
+                  : `更新於 ${formatRelative(project.updatedAt)}`
+              }}
+            </div>
+            <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
+          </UiBoxRow>
+        </template>
+      </VirtualList>
     </UiBox>
   </div>
 </template>

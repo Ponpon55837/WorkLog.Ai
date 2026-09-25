@@ -31,6 +31,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **Gi
 
 - **State lives in composables, not App.vue.** Views call `useXxx()` directly; no prop-drilling of data, labels or formatter functions. Formatters go in `utils/format.ts`, label maps in `utils/labels.ts`.
 - **URL is the state for filters.** Filters, pagination, report tabs and the open Session (`?session=<id>`) are synced through `useRouteQuery`.
+- **Long data tables own their scrolling.** When rows exceed the available height, put bounded vertical scrolling on the list/table body (reuse `VirtualList` with a finite `maxHeight` where appropriate); keep the box header, filters, and pagination outside that scroller. Do not make the whole page the only scroll surface for long rows. Verify that wheel/keyboard scrolling moves the list while its page remains in place.
 - **Navigation uses `RouterLink`**, page title/eyebrow come from route `meta`.
 - **Styling**: component styles use `<style scoped>` and tokens. Global CSS is only `styles/tokens.css` + `styles/base.css`. Never append "refinement" override blocks to a global stylesheet.
 - **Minimum font size 12px.** Body text is 14px.
@@ -53,6 +54,7 @@ pnpm test:e2e
 Then check in a browser at **1440 / 960 / 375** px widths:
 
 - [ ] No horizontal page scroll; no overlapping or clipped text.
+- [ ] Long lists and tables scroll inside a bounded body; headers, filters, and pagination stay in place while wheel and keyboard scrolling move the list.
 - [ ] Sidebar: full at ≥ 960, icon rail at 640–959, drawer at < 640.
 - [ ] Loading shows Skeleton, empty state has a next-step action, errors show a Flash with retry.
 - [ ] All interactive elements reachable by keyboard with visible focus.

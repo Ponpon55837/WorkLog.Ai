@@ -162,7 +162,7 @@ watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { i
     >
       <template v-if="hasSessionFilters" #action><UiButton @click="clearSessionFilters">清除篩選</UiButton></template>
     </UiEmptyState>
-    <VirtualList v-else :items="sessions" :enabled="sessionPageSize === 'all'" label="工作歷程清單">
+    <VirtualList v-else :items="sessions" :enabled="true" label="工作歷程清單">
       <template #default="{ item, index }">
         <UiGroupLabel v-if="dayGroupAt(index)">{{ dayGroupAt(index) }}</UiGroupLabel>
         <SessionRow :session="item" @open="openSession" />

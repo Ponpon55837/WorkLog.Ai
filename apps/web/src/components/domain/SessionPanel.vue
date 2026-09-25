@@ -258,7 +258,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         >
           <VirtualList
             :items="selectedDetail.evidence"
-            :enabled="selectedDetail.evidence.length > 5"
+            :enabled="selectedDetail.evidence.length > 3"
             :estimate-item-height="112"
             max-height="min(38vh, 360px)"
             label="Session Evidence 清單"
@@ -301,7 +301,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         >
           <VirtualList
             :items="selectedDetail.knowledge"
-            :enabled="selectedDetail.knowledge.length > 5"
+            :enabled="selectedDetail.knowledge.length > 2"
             :estimate-item-height="160"
             max-height="min(38vh, 360px)"
             label="Session Knowledge 清單"
@@ -326,7 +326,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         >
           <VirtualList
             :items="selectedDetail.links"
-            :enabled="selectedDetail.links.length > 5"
+            :enabled="selectedDetail.links.length > 4"
             :estimate-item-height="80"
             max-height="min(38vh, 360px)"
             label="關聯 Session 清單"
@@ -387,7 +387,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         >
           <VirtualList
             :items="selectedDetail.verificationHistory"
-            :enabled="selectedDetail.verificationHistory.length > 5"
+            :enabled="selectedDetail.verificationHistory.length > 4"
             :estimate-item-height="72"
             max-height="min(32vh, 320px)"
             label="Verification 修改紀錄清單"
@@ -414,7 +414,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         >
           <VirtualList
             :items="selectedDetail.voidHistory"
-            :enabled="selectedDetail.voidHistory.length > 5"
+            :enabled="selectedDetail.voidHistory.length > 4"
             :estimate-item-height="72"
             max-height="min(32vh, 320px)"
             label="Session 作廢紀錄清單"

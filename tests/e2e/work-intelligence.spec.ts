@@ -103,17 +103,28 @@ async function expectBoundedVirtualList(page: Page, name: string): Promise<Locat
     scrollHeight: element.scrollHeight,
   }));
   expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
-  await list.evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-  });
-  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  return list;
+}
+
+async function expectUserScrollsListInternally(page: Page, name: string): Promise<void> {
+  const list = page.getByRole("list", { name });
+  const pageScroller = page.locator("#main");
   await list.evaluate((element) => {
     element.scrollTop = 0;
   });
-  await list.focus();
-  await page.keyboard.press("PageDown");
+  await list.scrollIntoViewIfNeeded();
+  await list.getByRole("listitem").first().hover();
+  const pageScrollTop = await pageScroller.evaluate((element) => element.scrollTop);
+  await page.mouse.wheel(0, 240);
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  return list;
+  await expect(pageScroller).toHaveJSProperty("scrollTop", pageScrollTop);
+
+  await list.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await list.press("PageDown");
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(pageScroller).toHaveJSProperty("scrollTop", pageScrollTop);
 }
 
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
@@ -390,14 +401,46 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("builds a report for a custom date range", async ({ page }) => {
-    await page.goto("/reports");
-    await page.getByRole("radiogroup", { name: "選擇報表區間" }).getByRole("radio", { name: "自訂" }).click();
-    // Switching to a custom range starts from the last 14 days.
-    await expect(page).toHaveURL(
-      /period=custom.*from=\d{4}-\d{2}-\d{2}.*to=\d{4}-\d{2}-\d{2}|period=custom.*to=.*from=/,
-    );
-    await expect(page.getByText(/自訂期間 · \d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}/)).toBeVisible();
-    await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/reports");
+      await expect(page.getByTestId("report-breakdown")).toBeVisible();
+      const periodControl = page.getByTestId("report-period-date-control");
+      const controlBounds = () =>
+        periodControl.evaluate((element) => {
+          const { x, y, width: controlWidth, height } = element.getBoundingClientRect();
+          return { x, y, width: controlWidth, height };
+        });
+      const defaultBounds = await controlBounds();
+
+      await page.getByRole("radiogroup", { name: "選擇報表區間" }).getByRole("radio", { name: "自訂" }).click();
+      // Switching to a custom range starts from the last 14 days without a transient invalid query.
+      await expect(page).toHaveURL(
+        /period=custom.*from=\d{4}-\d{2}-\d{2}.*to=\d{4}-\d{2}-\d{2}|period=custom.*to=.*from=/,
+      );
+      await expect(page.getByText(/自訂期間 · \d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}/)).toBeVisible();
+      await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+      await expect(page.getByText("請選擇自訂期間的起訖日期。", { exact: true })).toHaveCount(0);
+      expect(await controlBounds()).toEqual(defaultBounds);
+
+      await periodControl.getByRole("button").click();
+      const picker = page.getByRole("dialog", { name: "選擇日期區間" });
+      await expect(picker.getByRole("button", { name: "不限日期", exact: true })).toHaveCount(0);
+      await picker.getByRole("button", { name: "近 7 天", exact: true }).click();
+      await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+      expect(await controlBounds()).toEqual(defaultBounds);
+
+      await periodControl.getByRole("button").click();
+      const calendarDays = picker.locator(".ui-date-range__grid button");
+      await calendarDays.nth(10).click();
+      await expect(picker).toContainText("請選擇結束日期");
+      await calendarDays.nth(12).click();
+      await expect(picker).toHaveCount(0);
+      await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+      await expect(page.getByText("請選擇自訂期間的起訖日期。", { exact: true })).toHaveCount(0);
+      expect(await controlBounds()).toEqual(defaultBounds);
+    }
+
     await expect(
       page.getByTestId("report-synthesis").getByRole("button", { name: "請 Agent 整理這份報告" }),
     ).toBeEnabled();
@@ -405,6 +448,14 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto(`/reports?period=custom&from=${reportDate}&to=${reportDate}`);
     await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
     await expect(page.getByText(`自訂期間 · ${reportDate} – ${reportDate}`)).toBeVisible();
+
+    await page.goto("/reports?period=custom");
+    await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+    await expect(page).toHaveURL(/period=custom.*from=\d{4}-\d{2}-\d{2}.*to=\d{4}-\d{2}-\d{2}/);
+
+    await page.goto(`/reports?period=custom&from=${reportDate}`);
+    await expect(page.getByTestId("report-breakdown")).toContainText("每日分布");
+    await expect(page).toHaveURL(/period=custom.*from=\d{4}-\d{2}-\d{2}.*to=\d{4}-\d{2}-\d{2}/);
   });
 
   test("keeps Worklog and Knowledge page-size controls at the intended default", async ({ page }) => {
@@ -1209,7 +1260,7 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
-  test("keeps unpaginated long lists scrollable and error-free at desktop, tablet, and mobile widths", async ({
+  test("keeps long lists and report/project tables internally scrollable at desktop, tablet, and mobile widths", async ({
     page,
     request,
   }) => {
@@ -1357,11 +1408,56 @@ test.describe("Work Intelligence browser regression", () => {
       });
     }
 
+    for (let index = 1; index <= 12; index += 1) {
+      const longProjectRoot = join(tmpdir(), fixtureKey, `report-project-${index}`);
+      const project = await postJson<ProjectRecord>(request, "/api/projects", {
+        name: `Long list report project ${index}`,
+        rootPath: longProjectRoot,
+      });
+      const tracked = await request.patch(`/api/projects/${project.id}`, { data: { status: "tracked" } });
+      expect(tracked.ok()).toBeTruthy();
+
+      const projectSession = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+        projectRoot: longProjectRoot,
+        idempotencyKey: `${fixtureKey}-report-project-session-${index}`,
+        title: `Long list project Session ${index}`,
+        summary: "A tracked-project Session for report table scrolling.",
+        changedFiles: [`src/report-project-${index}.ts`],
+        verification: { status: "passed", summary: "The synthetic report fixture is valid." },
+        events: [
+          {
+            type: "note",
+            summary: `Long list decision ${index}: ${"決策範例內容".repeat(60)}`,
+          },
+        ],
+        completedAt: new Date().toISOString(),
+      });
+      expect(projectSession.session.id).toBeTruthy();
+    }
+
+    for (let index = 0; index < 8; index += 1) {
+      await postJson(request, "/api/backups", {});
+    }
+
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
 
+      await page.goto("/sessions");
+      await expectBoundedVirtualList(page, "工作歷程清單");
+      await expectUserScrollsListInternally(page, "工作歷程清單");
+      await expectNoHorizontalOverflow(page);
+
       await page.goto("/knowledge");
+      await expectBoundedVirtualList(page, "工作知識清單");
       await expectBoundedVirtualList(page, "Knowledge 候選清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/projects");
+      await expectBoundedVirtualList(page, "專案清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/projects/import");
+      await expectBoundedVirtualList(page, "Handoff 匯入專案清單");
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/projects/backfill");
@@ -1371,9 +1467,26 @@ test.describe("Work Intelligence browser regression", () => {
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/reports/work?period=week");
+      await expectBoundedVirtualList(page, "報表完成事項清單");
       const spanning = page.getByTestId("report-spanning");
       await expect(spanning).toContainText("Long list spanning work 1");
       await expectBoundedVirtualList(page, "跨期工作清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.getByRole("tab", { name: "趨勢" }).click();
+      await expectBoundedVirtualList(page, "報表專案分布清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.getByRole("tab", { name: "風險" }).click();
+      await expectBoundedVirtualList(page, "報表決策清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.getByRole("tab", { name: "原始紀錄" }).click();
+      await expectBoundedVirtualList(page, "報告原始工作紀錄清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.getByRole("tab", { name: "證據" }).click();
+      await expectBoundedVirtualList(page, "報告來源證據清單");
       await expectNoHorizontalOverflow(page);
 
       await page.goto(`/sessions?session=${detailSessionId}`);
@@ -1394,6 +1507,17 @@ test.describe("Work Intelligence browser regression", () => {
         }
         await expectBoundedVirtualList(page, label);
       }
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/dashboard");
+      await expectBoundedVirtualList(page, "最近完成工作清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/graph");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/projects/backup");
+      await expectBoundedVirtualList(page, "備份清單");
       await expectNoHorizontalOverflow(page);
     }
 

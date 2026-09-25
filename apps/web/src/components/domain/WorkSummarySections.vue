@@ -18,7 +18,7 @@ defineProps<{ summary?: WorkSummarySections }>();
         {{ section.label }} <span class="work-summary__key">{{ section.key }}</span>
       </h3>
       <VirtualList
-        v-if="(summary?.[section.key]?.length ?? 0) > 5"
+        v-if="(summary?.[section.key]?.length ?? 0) > 4"
         :items="summary?.[section.key] ?? []"
         :enabled="true"
         :estimate-item-height="56"

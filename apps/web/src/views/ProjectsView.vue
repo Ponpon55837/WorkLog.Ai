@@ -18,6 +18,7 @@ import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
+import VirtualList from "../components/VirtualList.vue";
 import { useViewLoader } from "../composables/useAppRefresh";
 import { useHandoffImport } from "../composables/useHandoffImport";
 import { useMetadataBackfill } from "../composables/useMetadataBackfill";
@@ -126,41 +127,47 @@ async function confirmDelete(project: ProjectRecord, confirmationName: string): 
           ><UiButton variant="primary" :icon="Plus" @click="addOpen = true">加入專案</UiButton></template
         >
       </UiEmptyState>
-      <UiBoxRow v-for="project in projects" :key="project.id" :title="project.name" data-testid="project-row">
-        <template #leading
-          ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
-        /></template>
-        <template #labels><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
-        <template #meta
-          ><code>{{ project.rootPath }}</code></template
-        >
-        <p class="projects__description">
-          {{ statusDescriptions[project.status] }}
-          <span v-if="project.lastIngestedAt" class="projects__ingest"
-            >最後寫入
-            <time :title="formatDate(project.lastIngestedAt)">{{ formatRelative(project.lastIngestedAt) }}</time></span
-          >
-        </p>
-        <template #trailing>
-          <UiSelect
-            :key="`${project.id}-${project.status}-${statusRevision}`"
-            :model-value="project.status"
-            :options="statusOptions"
-            size="sm"
-            :label="`更新 ${project.name} 的專案記錄狀態`"
-            @update:model-value="changeStatus(project, $event)"
-          />
-          <UiButton
-            variant="danger"
-            size="sm"
-            :icon="Trash2"
-            icon-only
-            :label="`永久刪除 ${project.name}`"
-            :disabled="deletingProjectId === project.id"
-            @click="deleteTarget = project"
-          />
+      <VirtualList v-else :items="projects" :enabled="true" :estimate-item-height="128" label="專案清單">
+        <template #default="{ item: project }">
+          <UiBoxRow :title="project.name" data-testid="project-row">
+            <template #leading
+              ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
+            /></template>
+            <template #labels><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
+            <template #meta
+              ><code>{{ project.rootPath }}</code></template
+            >
+            <p class="projects__description">
+              {{ statusDescriptions[project.status] }}
+              <span v-if="project.lastIngestedAt" class="projects__ingest"
+                >最後寫入
+                <time :title="formatDate(project.lastIngestedAt)">{{
+                  formatRelative(project.lastIngestedAt)
+                }}</time></span
+              >
+            </p>
+            <template #trailing>
+              <UiSelect
+                :key="`${project.id}-${project.status}-${statusRevision}`"
+                :model-value="project.status"
+                :options="statusOptions"
+                size="sm"
+                :label="`更新 ${project.name} 的專案記錄狀態`"
+                @update:model-value="changeStatus(project, $event)"
+              />
+              <UiButton
+                variant="danger"
+                size="sm"
+                :icon="Trash2"
+                icon-only
+                :label="`永久刪除 ${project.name}`"
+                :disabled="deletingProjectId === project.id"
+                @click="deleteTarget = project"
+              />
+            </template>
+          </UiBoxRow>
         </template>
-      </UiBoxRow>
+      </VirtualList>
     </UiBox>
   </section>
 
@@ -196,21 +203,31 @@ async function confirmDelete(project: ProjectRecord, confirmationName: string): 
       >
         <template #action><UiButton @click="tab = 'registry'">前往專案清單</UiButton></template>
       </UiEmptyState>
-      <UiBoxRow v-for="project in trackedProjects" :key="project.id" :title="project.name">
-        <template #leading><FolderGit2 :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
-        <template #meta
-          ><code>{{ project.rootPath }}</code></template
-        >
-        <template #trailing>
-          <UiButton
-            size="sm"
-            :icon="FileInput"
-            :loading="handoffImportLoading && handoffImportProjectId === project.id"
-            @click="previewHandoffs(project)"
-            >預覽 handoff</UiButton
-          >
+      <VirtualList
+        v-else
+        :items="trackedProjects"
+        :enabled="true"
+        :estimate-item-height="80"
+        label="Handoff 匯入專案清單"
+      >
+        <template #default="{ item: project }">
+          <UiBoxRow :title="project.name">
+            <template #leading><FolderGit2 :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
+            <template #meta
+              ><code>{{ project.rootPath }}</code></template
+            >
+            <template #trailing>
+              <UiButton
+                size="sm"
+                :icon="FileInput"
+                :loading="handoffImportLoading && handoffImportProjectId === project.id"
+                @click="previewHandoffs(project)"
+                >預覽 handoff</UiButton
+              >
+            </template>
+          </UiBoxRow>
         </template>
-      </UiBoxRow>
+      </VirtualList>
     </UiBox>
   </section>
 
