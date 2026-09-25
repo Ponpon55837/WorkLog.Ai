@@ -18,7 +18,7 @@
 | Session | `work_void_session`<br>`work_void_evidence` | 作廢誤記錄的 Session、標示錯誤的 Evidence（可還原，保留作廢紀錄） |
 | Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求；帶 `task`／`paths` 時另回傳與這次工作相關的記錄 |
 | Context | `work_recall` | 以關鍵字與檔案路徑排序查詢 Session（含 raw handoff 段落）與 Knowledge，開工前、遇到錯誤時使用 |
-| Context | `work_list_sessions`<br>`work_get_session` | 依關鍵字、日期、專案分頁列出 Session；讀取單筆 Session 完整內容 |
+| Context | `work_list_sessions`<br>`work_get_session` | 依關鍵字、日期、專案分頁列出精簡 Session 摘要；需要細節時讀取單筆完整內容 |
 | Context | `work_search` | 與 `work_recall` 同一個引擎，只查 Session |
 | Knowledge | `work_record_knowledge`<br>`work_search_knowledge` | 明確提交與搜尋 Knowledge |
 | Knowledge | `work_update_knowledge` | 編輯、封存或恢復 Knowledge |
@@ -123,9 +123,11 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_list_sessions` / `work_get_session`
 
-`work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的 Session。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。
+`work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的精簡 Session digest。每筆包含 id、專案、標題、最多 400 字摘要、完成／更新時間、Verification 狀態、changed-file 數量，以及最多 3 個截斷後的未結項；不含 changed-file 路徑、events、Evidence 或完整 workSummary。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。需要完整資料時，依 digest 的 `id` 呼叫 `work_get_session`。
 
 `work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
+
+Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 MCP 的 digest 瘦身。
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "from": "2026-09-21", "to": "2026-09-27", "pageSize": 20 }

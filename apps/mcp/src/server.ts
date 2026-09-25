@@ -51,7 +51,7 @@ import {
   updateSessionWorkSummaryInputSchema,
   updateSessionWorkSummaryInputSchemaBase,
 } from "@work-intelligence/schema";
-import type { WorkIntelligenceStore } from "@work-intelligence/storage";
+import { toSessionDigest, type WorkIntelligenceStore } from "@work-intelligence/storage";
 import { z } from "zod";
 import {
   implementationDetail,
@@ -168,12 +168,15 @@ export function createWorkIntelligenceMcpServer(store: WorkIntelligenceStore, ve
   registerStoreTool("work_list_sessions", {
     title: "List work sessions",
     description:
-      "List finalized tracked-project Sessions, newest first, with optional keyword (q), inclusive from/to calendar dates in the server's local time zone, a projectRoot or projectId scope, and voided (exclude by default, include, or only). Results are paged (pageSize up to 100) and include pageInfo.total. Non-tracked scopes are skipped quietly.",
+      "List finalized tracked-project Session digests, newest first, with optional keyword (q), inclusive from/to calendar dates in the server's local time zone, a projectRoot or projectId scope, and voided (exclude by default, include, or only). Each digest has a truncated summary, verification status, changed-file count, and up to three open items; it omits changed-file paths, events, evidence, and full workSummary. Results are paged (pageSize up to 100) and include pageInfo.total. Read one full record with work_get_session. Non-tracked scopes are skipped quietly.",
     inputShape: mcpListSessionsInputSchemaBase.shape,
     schema: mcpListSessionsInputSchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid session list query.",
-    run: (input) => store.listSessionsForAgent(input),
+    run: (input) => {
+      const result = store.listSessionsForAgent(input);
+      return result.outcome === "sessions" ? { ...result, items: result.items.map(toSessionDigest) } : result;
+    },
   });
 
   registerStoreTool("work_recall", {
