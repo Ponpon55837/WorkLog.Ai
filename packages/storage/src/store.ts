@@ -1329,7 +1329,7 @@ export class WorkIntelligenceStore {
     return this.projectDataTransfer.import(input);
   }
 
-  /** Writes one automatic backup per UTC day, independently of manual backups. */
+  /** Writes one automatic backup per local calendar day, independently of manual backups. */
   public backupIfDue(now = new Date()): DatabaseBackupCreated | null {
     if (this.backupUnavailable() || !isBackupDue(this.databasePath, this.backupOptions.directory, now)) {
       return null;

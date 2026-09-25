@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, stat
 import { basename, dirname, extname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DatabaseBackup, DatabaseBackupCreated } from "@work-intelligence/core";
+import { toLocalCalendarDate } from "@work-intelligence/shared";
 import { remapPathPrefix } from "./project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
@@ -153,10 +154,10 @@ export function backupDatabase(
   return { outcome: "database_backups", keep, automaticKeep, backups: kept, created };
 }
 
-/** True until an automatic backup has been made during the current UTC day. */
+/** True until an automatic backup has been made during the current local calendar day. */
 export function isBackupDue(databasePath: string, directory?: string, now = new Date()): boolean {
   const latest = listDatabaseBackups(databasePath, directory).find((backup) => backup.kind === "automatic");
-  return !latest || latest.createdAt.slice(0, 10) !== now.toISOString().slice(0, 10);
+  return !latest || toLocalCalendarDate(latest.createdAt) !== toLocalCalendarDate(now);
 }
 
 export interface RestorePathRemap {
