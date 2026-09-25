@@ -6,6 +6,7 @@ import { useToast } from "./useToast";
 
 const backups = ref<DatabaseBackup[]>([]);
 const backupKeep = ref(0);
+const automaticBackupKeep = ref(0);
 const backupsLoading = ref(false);
 const backupsError = ref("");
 const backupCreating = ref(false);
@@ -20,6 +21,7 @@ async function loadBackups(): Promise<void> {
       const result = await useApi().client.listBackups(signal);
       backups.value = result.backups;
       backupKeep.value = result.keep;
+      automaticBackupKeep.value = result.automaticKeep;
       backupsError.value = "";
     },
     {
@@ -40,6 +42,7 @@ async function createBackup(): Promise<void> {
     const result = await useApi().client.createBackup();
     backups.value = result.backups;
     backupKeep.value = result.keep;
+    automaticBackupKeep.value = result.automaticKeep;
     showToast("已備份目前的資料。", "success");
   } catch (error) {
     showToast(errorMessage(error, "備份失敗。"), "danger");
@@ -73,6 +76,7 @@ export function useBackups() {
   return {
     backups,
     backupKeep,
+    automaticBackupKeep,
     backupsLoading,
     backupsError,
     backupCreating,

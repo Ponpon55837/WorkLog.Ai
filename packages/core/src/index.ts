@@ -1701,6 +1701,7 @@ export type SessionListQueryResult = SessionListResult | SkippedResult | Project
 
 /** One SQLite snapshot written beside the database; `createdAt` comes from its UTC file name. */
 export interface DatabaseBackup {
+  kind: "automatic" | "manual";
   fileName: string;
   createdAt: string;
   bytes: number;
@@ -1709,7 +1710,9 @@ export interface DatabaseBackup {
 /** Backups of the database. File names only: the API never exposes filesystem paths. */
 export interface DatabaseBackupList {
   outcome: "database_backups";
+  /** Maximum retained manual copies. Automatic retention is independent. */
   keep: number;
+  automaticKeep: number;
   backups: DatabaseBackup[];
 }
 

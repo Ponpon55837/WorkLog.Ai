@@ -133,11 +133,13 @@ import { nowIso, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
 import {
   backupDatabase,
+  DEFAULT_AUTOMATIC_BACKUP_KEEP,
   DEFAULT_BACKUP_KEEP,
   defaultBackupDirectory,
   exportDatabase,
   isBackupDue,
   listDatabaseBackups,
+  type BackupRetentionOptions,
 } from "./backup.js";
 import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
@@ -1083,13 +1085,13 @@ function countHandoffPreviewItems(items: HandoffImportPreviewItem[]): HandoffImp
 
 export interface WorkIntelligenceStoreOptions {
   insightProvider?: InsightProvider;
-  /** Where database backups go (default: `backups/` beside the database) and how many to keep. */
-  backup?: { directory?: string; keep?: number };
+  /** Where backups go and how many manual and automatic copies to retain independently. */
+  backup?: BackupRetentionOptions;
 }
 
 export class WorkIntelligenceStore {
   private readonly db: DatabaseSync;
-  private readonly backupOptions: { directory?: string; keep?: number };
+  private readonly backupOptions: BackupRetentionOptions;
   private readonly projects: ProjectRepository;
   private readonly sessions: SessionRepository;
   private readonly knowledge: KnowledgeRepository;
@@ -1299,6 +1301,7 @@ export class WorkIntelligenceStore {
     return {
       outcome: "database_backups",
       keep: this.backupOptions.keep ?? DEFAULT_BACKUP_KEEP,
+      automaticKeep: this.backupOptions.automaticKeep ?? DEFAULT_AUTOMATIC_BACKUP_KEEP,
       backups: listDatabaseBackups(this.databasePath, directory),
     };
   }
@@ -1326,12 +1329,12 @@ export class WorkIntelligenceStore {
     return this.projectDataTransfer.import(input);
   }
 
-  /** Backs up only when there is no backup yet or the newest is a day old; used by the API server's schedule. */
+  /** Writes one automatic backup per UTC day, independently of manual backups. */
   public backupIfDue(now = new Date()): DatabaseBackupCreated | null {
     if (this.backupUnavailable() || !isBackupDue(this.databasePath, this.backupOptions.directory, now)) {
       return null;
     }
-    return backupDatabase(this.db, this.databasePath, { ...this.backupOptions, now });
+    return backupDatabase(this.db, this.databasePath, { ...this.backupOptions, kind: "automatic", now });
   }
 
   public getProjectByRootPath(rootPath: string): ProjectRecord | undefined {

@@ -92,7 +92,7 @@ GitHub 深色風格的介面，左側選單分三組：
 
 所有記錄都在一個 SQLite 檔案裡。
 
-- **自動備份**：API server 執行時每天備份一次到資料庫旁的 `backups/`，保留最近 14 份（`WORK_INTELLIGENCE_BACKUP_KEEP` 可調整，`WORK_INTELLIGENCE_BACKUP_DIR` 可改位置，`WORK_INTELLIGENCE_BACKUP=off` 關閉）。備份檔只有目前使用者可以讀寫。
+- **自動備份**：API server 每個 UTC 日備份一次到資料庫旁的 `backups/`，自動備份與手動備份分開保留，預設各保留最近 14 份（`WORK_INTELLIGENCE_BACKUP_KEEP` 可調整手動備份份數，`WORK_INTELLIGENCE_BACKUP_DIR` 可改位置，`WORK_INTELLIGENCE_BACKUP=off` 關閉）。手動備份不會擠掉每日自動備份；備份檔只有目前使用者可以讀寫。
 - **手動備份**：Web UI 的專案 → 資料備份 →「立即備份」，或執行 `pnpm db:backup`。
 - **依專案攜帶資料**：在專案 → 資料備份可匯出全部專案或單一專案的 JSON。CLI 可用 `pnpm db:export --all` 或 `pnpm db:export --project <專案名稱或 id>`；加上 `--out <檔案.json>` 可指定輸出位置。JSON 未加密，請妥善保管。
 - **合併匯入**：在同一分頁選擇 JSON 檔，先看新增、略過、衝突與路徑轉換預覽，再確認匯入；也可執行 `pnpm db:import <檔案.json> --dry-run` 只預覽，或在互動終端執行 `pnpm db:import <檔案.json> --remap-root <舊路徑>=<新路徑>` 後輸入 `yes` 確認。可重複執行，不會覆寫既有資料；新匯入專案會先暫停。匯入透過正在運作的 API／SQLite 合併，不必先停服務。
