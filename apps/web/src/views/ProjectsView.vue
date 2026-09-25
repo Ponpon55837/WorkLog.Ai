@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Archive, FileInput, FolderGit2, Plus, ScanSearch } from "lucide-vue-next";
+import { Archive, FileInput, FolderGit2, Plus, ScanSearch, Trash2 } from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import AddProjectDialog from "../components/domain/AddProjectDialog.vue";
+import DeleteProjectDialog from "../components/domain/DeleteProjectDialog.vue";
 import BackupSection from "../components/domain/BackupSection.vue";
 import MetadataBackfillSection from "../components/domain/MetadataBackfillSection.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
@@ -29,13 +30,15 @@ import { trackingStatus } from "../utils/status";
 type ProjectsTab = "registry" | "backfill" | "import" | "backup";
 
 const route = useRoute();
-const { projects, trackedProjects, loadProjects, updateProjectStatus } = useProjects();
+const { projects, trackedProjects, loadProjects, updateProjectStatus, deleteProject, deletingProjectId } =
+  useProjects();
 const { loadMetadataBackfillRequest } = useMetadataBackfill();
 const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
 
 useViewLoader(() => Promise.all([loadProjects(), loadMetadataBackfillRequest()]));
 
 const addOpen = ref(false);
+const deleteTarget = ref<ProjectRecord | null>(null);
 const policyDismissed = ref(readDismissed());
 /** Bumped after every status change so a cancelled confirm re-renders the select to the saved value. */
 const statusRevision = ref(0);
@@ -78,6 +81,12 @@ function dismissPolicy(): void {
 async function changeStatus(project: ProjectRecord, status: ProjectStatus): Promise<void> {
   await updateProjectStatus(project, status);
   statusRevision.value += 1;
+}
+
+async function confirmDelete(project: ProjectRecord, confirmationName: string): Promise<void> {
+  if (await deleteProject(project, confirmationName)) {
+    deleteTarget.value = null;
+  }
 }
 </script>
 
@@ -141,6 +150,15 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
             :label="`更新 ${project.name} 的專案記錄狀態`"
             @update:model-value="changeStatus(project, $event)"
           />
+          <UiButton
+            variant="danger"
+            size="sm"
+            :icon="Trash2"
+            icon-only
+            :label="`永久刪除 ${project.name}`"
+            :disabled="deletingProjectId === project.id"
+            @click="deleteTarget = project"
+          />
         </template>
       </UiBoxRow>
     </UiBox>
@@ -197,6 +215,13 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
   </section>
 
   <AddProjectDialog v-model:open="addOpen" />
+  <DeleteProjectDialog
+    :open="!!deleteTarget"
+    :project="deleteTarget"
+    :busy="!!deleteTarget && deletingProjectId === deleteTarget.id"
+    @close="deleteTarget = null"
+    @confirm="confirmDelete"
+  />
 </template>
 
 <style scoped>

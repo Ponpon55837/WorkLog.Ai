@@ -44,6 +44,38 @@ export interface ProjectRecord {
   lastIngestedAt?: string;
 }
 
+export interface ProjectDeletionCounts {
+  projects: number;
+  sessions: number;
+  workEvents: number;
+  rawSnapshots: number;
+  evidence: number;
+  knowledge: number;
+  knowledgeAudit: number;
+  voidAudit: number;
+  sessionVerificationUpdates: number;
+  sessionLinks: number;
+  knowledgeCandidateRequests: number;
+  knowledgeCandidates: number;
+  reportSynthesisRequests: number;
+  reportSummaries: number;
+  metadataBackfillRequests: number;
+  sessionSummaryUpdates: number;
+  sessionWorkSummaryUpdates: number;
+  searchChunks: number;
+  searchFts: number;
+  searchPaths: number;
+  searchDirty: number;
+}
+
+export interface DeleteProjectResult {
+  outcome: "project_deleted";
+  projectId: string;
+  deletedAt: string;
+  backupFileName: string;
+  deletedCounts: ProjectDeletionCounts;
+}
+
 export interface VerificationSummary {
   status: VerificationStatus;
   summary?: string;

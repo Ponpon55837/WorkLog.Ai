@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -780,6 +780,50 @@ test.describe("Work Intelligence browser regression", () => {
     await consent.getByRole("button", { name: "取消" }).click();
     await expect(consent).toBeHidden();
     await expect(page.getByLabel("更新 Consent Fixture 的專案記錄狀態")).toHaveValue("unregistered");
+  });
+
+  test("requires the exact project name and reports the pre-deletion backup", async ({ page, request }) => {
+    const workspace = mkdtempSync(join(tmpdir(), "work-intelligence-delete-workspace-"));
+    const sentinel = join(workspace, "keep-this-file.txt");
+    writeFileSync(sentinel, "Workspace files are outside WorkLog deletion.", "utf8");
+    const name = "Permanent Delete E2E Fixture";
+    try {
+      const project = await postJson<ProjectRecord>(request, "/api/projects", { name, rootPath: workspace });
+      await page.goto("/projects");
+      const row = page.getByTestId("project-row").filter({ hasText: name });
+      await row.getByRole("button", { name: `永久刪除 ${name}` }).click();
+
+      const dialog = page.getByRole("dialog", { name: "永久刪除專案資料？" });
+      await expect(dialog).toContainText("刪除前會先建立整份資料庫備份");
+      await expect(dialog).toContainText("專案資料夾與原始檔案不會被刪除");
+      const confirmation = dialog.getByLabel(`輸入 ${name} 以確認永久刪除`);
+      const deleteButton = dialog.getByRole("button", { name: "永久刪除", exact: true });
+      await confirmation.fill("Wrong name");
+      await expect(deleteButton).toBeDisabled();
+      await confirmation.fill(name);
+      await expect(deleteButton).toBeEnabled();
+      await deleteButton.click();
+
+      const success = page.getByText(/專案已永久刪除；刪除前資料庫備份：/);
+      await expect(success).toBeVisible();
+      await expect(dialog).toBeHidden();
+      await expect(row).toHaveCount(0);
+      expect(existsSync(sentinel)).toBe(true);
+
+      const backupResponse = await request.get("/api/backups");
+      expect(backupResponse.ok()).toBeTruthy();
+      const backupList = (await backupResponse.json()) as { backups: Array<{ fileName: string }> };
+      const toast = await success.textContent();
+      const backupFileName = toast?.split("：").at(-1);
+      expect(backupFileName).toMatch(/^work-intelligence-e2e-\d+-pre-delete-.*\.sqlite$/);
+      expect(backupList.backups.some((backup) => backup.fileName === backupFileName)).toBe(true);
+
+      const projectsResponse = await request.get("/api/projects");
+      const remainingProjects = (await projectsResponse.json()) as Array<{ id: string }>;
+      expect(remainingProjects.some((remaining) => remaining.id === project.id)).toBe(false);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   test("fills the project root from the folder dialog", async ({ page }) => {

@@ -243,6 +243,76 @@ export class SearchRepository {
     };
   }
 
+  /** Removes every cached retrieval row for a project and its source documents. Call inside the delete transaction. */
+  public deleteProjectDocuments(
+    projectId: string,
+    sessionIds: string[],
+    knowledgeIds: string[],
+  ): { chunks: number; fts: number; paths: number; dirty: number } {
+    const indexedDocuments = this.db
+      .prepare(
+        `SELECT doc_type, doc_id FROM search_chunks WHERE project_id = ?
+         UNION SELECT doc_type, doc_id FROM search_paths WHERE project_id = ?`,
+      )
+      .all(projectId, projectId) as Array<{ doc_type: DocType; doc_id: string }>;
+    const documents = new Map<string, { type: DocType; id: string }>();
+    for (const document of indexedDocuments) {
+      documents.set(docKey(document.doc_type, document.doc_id), { type: document.doc_type, id: document.doc_id });
+    }
+    for (const id of sessionIds) {
+      documents.set(docKey("session", id), { type: "session", id });
+    }
+    for (const id of knowledgeIds) {
+      documents.set(docKey("knowledge", id), { type: "knowledge", id });
+    }
+
+    const sessionIdJson = JSON.stringify([
+      ...new Set([
+        ...sessionIds,
+        ...indexedDocuments.filter((document) => document.doc_type === "session").map((document) => document.doc_id),
+      ]),
+    ]);
+    const knowledgeIdJson = JSON.stringify([
+      ...new Set([
+        ...knowledgeIds,
+        ...indexedDocuments.filter((document) => document.doc_type === "knowledge").map((document) => document.doc_id),
+      ]),
+    ]);
+    const chunks = (
+      this.db.prepare("SELECT COUNT(*) AS count FROM search_chunks WHERE project_id = ?").get(projectId) as {
+        count: number;
+      }
+    ).count;
+    const fts = (
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM search_fts f JOIN search_chunks c ON c.id = f.rowid WHERE c.project_id = ?",
+        )
+        .get(projectId) as { count: number }
+    ).count;
+    const paths = (
+      this.db.prepare("SELECT COUNT(*) AS count FROM search_paths WHERE project_id = ?").get(projectId) as {
+        count: number;
+      }
+    ).count;
+    const dirtyPredicate = `
+      (doc_type = 'session' AND doc_id IN (SELECT value FROM json_each(?)))
+      OR (doc_type = 'knowledge' AND doc_id IN (SELECT value FROM json_each(?)))`;
+    const dirty = (
+      this.db
+        .prepare(`SELECT COUNT(*) AS count FROM search_dirty WHERE ${dirtyPredicate}`)
+        .get(sessionIdJson, knowledgeIdJson) as {
+        count: number;
+      }
+    ).count;
+
+    for (const document of documents.values()) {
+      this.removeDocument(document.type, document.id);
+    }
+    this.db.prepare(`DELETE FROM search_dirty WHERE ${dirtyPredicate}`).run(sessionIdJson, knowledgeIdJson);
+    return { chunks, fts, paths, dirty };
+  }
+
   private scoreTerms(
     terms: string[],
     accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,

@@ -37,6 +37,10 @@ export const updateProjectInputSchema = z.object({
   status: projectStatusSchema.optional(),
 });
 
+export const deleteProjectInputSchema = z.object({
+  confirmationName: z.string().trim().min(1).max(120),
+});
+
 export const verificationSchema = z.object({
   status: z.enum(["passed", "failed", "not_run"]),
   summary: z.string().max(2_000).optional(),
@@ -729,6 +733,7 @@ export const insightEvaluationSchema = z.object({
 
 export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
+export type DeleteProjectInput = z.infer<typeof deleteProjectInputSchema>;
 export type FinalizeSessionInput = z.infer<typeof finalizeSessionInputSchema>;
 export type McpFinalizeSessionInput = z.infer<typeof mcpFinalizeSessionInputSchema>;
 export type UpdateSessionSummaryInput = z.infer<typeof updateSessionSummaryInputSchema>;

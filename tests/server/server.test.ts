@@ -2,6 +2,7 @@ import { createServer, request as httpRequest, type Server } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { APP_VERSION } from "../../packages/shared/src/app-version.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
@@ -437,6 +438,93 @@ describe("Work Intelligence REST API", () => {
     );
     expect(dashboard.body.finalizedSessions).toBe(1);
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
+  });
+
+  it("validates project deletion names, requires a disk backup, and returns a safe backup file name", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("API Delete Fixture", join(root, "workspace"));
+
+    const invalid = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+      method: "DELETE",
+      body: { confirmationName: " " },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error).toBe("Invalid project deletion confirmation.");
+
+    const mismatch = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+      method: "DELETE",
+      body: { confirmationName: "Wrong name" },
+    });
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.body.error).toBe("The confirmation name does not match the project name.");
+    expect(store.getProjectById(project.id)).toBeDefined();
+
+    const deleted = await requestJson<{
+      outcome: string;
+      backupFileName: string;
+      deletedCounts: { projects: number };
+    }>(baseUrl, `/api/projects/${project.id}`, {
+      method: "DELETE",
+      body: { confirmationName: project.name },
+    });
+    expect(deleted.status).toBe(200);
+    expect(deleted.body).toMatchObject({
+      outcome: "project_deleted",
+      backupFileName: expect.stringMatching(/pre-delete-.*\.sqlite$/),
+      deletedCounts: { projects: 1 },
+    });
+    expect(existsSync(join(root, "backups", deleted.body.backupFileName))).toBe(true);
+    expect(store.getProjectById(project.id)).toBeUndefined();
+  });
+
+  it("returns an explicit safe failure when in-memory databases cannot be backed up", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-memory-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Memory Delete Fixture", join(root, "workspace"));
+
+    const result = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+      method: "DELETE",
+      body: { confirmationName: project.name },
+    });
+    expect(result.status).toBe(503);
+    expect(result.body.error).toBe(
+      "The required pre-deletion backup could not be created; the project was not deleted.",
+    );
+    expect(store.getProjectById(project.id)).toBeDefined();
+  });
+
+  it("does not expose SQLite details when the project deletion transaction rolls back", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-rollback-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Rollback API Fixture", join(root, "workspace"));
+    const sabotage = new DatabaseSync(databasePath);
+    try {
+      sabotage.exec(
+        `CREATE TRIGGER reject_api_fixture_delete BEFORE DELETE ON projects
+         WHEN OLD.id = '${project.id}'
+         BEGIN SELECT RAISE(ABORT, 'private SQLite detail'); END;`,
+      );
+    } finally {
+      sabotage.close();
+    }
+
+    const result = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+      method: "DELETE",
+      body: { confirmationName: project.name },
+    });
+    expect(result.status).toBe(500);
+    expect(result.body.error).toBe("Project deletion failed; the pre-deletion backup is preserved.");
+    expect(result.body.error).not.toContain("private SQLite detail");
+    expect(store.getProjectById(project.id)).toBeDefined();
   });
 
   it("lists and creates backups and exports the database without exposing paths", async () => {

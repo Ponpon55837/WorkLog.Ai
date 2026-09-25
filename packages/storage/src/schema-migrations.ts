@@ -328,6 +328,20 @@ const MIGRATIONS: SchemaMigration[] = [
         AND json_array_length(changed_files_json) > 0;
     `,
   },
+  {
+    version: 11,
+    name: "project-deletion-audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_deletion_audit (
+        id TEXT PRIMARY KEY,
+        deleted_at TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        deleted_counts_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_deletion_audit_project_deleted
+        ON project_deletion_audit(project_id, deleted_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

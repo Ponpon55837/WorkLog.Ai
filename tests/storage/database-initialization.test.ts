@@ -7,6 +7,7 @@ import { DatabaseInitializationError, WorkIntelligenceStore } from "../../packag
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 
 const tempDirs: string[] = [];
+const CHANGED_FILES_CONFIRMED_MIGRATION_VERSION = 10;
 
 afterEach(() => {
   for (const directory of tempDirs.splice(0)) {
@@ -28,6 +29,10 @@ function maxSchemaVersion(db: DatabaseSync): number {
   return (db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version;
 }
 
+function hasSchemaVersion(db: DatabaseSync, version: number): boolean {
+  return Boolean(db.prepare("SELECT 1 AS found FROM schema_migrations WHERE version = ?").get(version));
+}
+
 function hasSessionColumn(db: DatabaseSync, name: string): boolean {
   return (db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).some(
     (column) => column.name === name,
@@ -45,8 +50,11 @@ describe("database initialization", () => {
 
     const oldDatabase = new DatabaseSync(paths.databasePath);
     oldDatabase.exec(`ALTER TABLE sessions DROP COLUMN changed_files_confirmed`);
-    oldDatabase.prepare("DELETE FROM schema_migrations WHERE version = ?").run(LATEST_SCHEMA_VERSION);
-    expect(maxSchemaVersion(oldDatabase)).toBe(LATEST_SCHEMA_VERSION - 1);
+    oldDatabase
+      .prepare("DELETE FROM schema_migrations WHERE version = ?")
+      .run(CHANGED_FILES_CONFIRMED_MIGRATION_VERSION);
+    expect(hasSchemaVersion(oldDatabase, CHANGED_FILES_CONFIRMED_MIGRATION_VERSION)).toBe(false);
+    expect(maxSchemaVersion(oldDatabase)).toBe(LATEST_SCHEMA_VERSION);
     oldDatabase.close();
 
     const upgradedStore = new WorkIntelligenceStore(paths.databasePath, {
@@ -60,12 +68,13 @@ describe("database initialization", () => {
       }
       expect(backups.backups).toHaveLength(1);
       expect(backups.backups[0]).toMatchObject({ kind: "manual" });
-      expect(backups.backups[0]?.fileName).toContain(`pre-migration-v${LATEST_SCHEMA_VERSION}-`);
+      expect(backups.backups[0]?.fileName).toContain(`pre-migration-v${CHANGED_FILES_CONFIRMED_MIGRATION_VERSION}-`);
 
       const snapshotPath = join(paths.backupDirectory, backups.backups[0]?.fileName ?? "");
       const snapshot = new DatabaseSync(snapshotPath, { readOnly: true });
       try {
-        expect(maxSchemaVersion(snapshot)).toBe(LATEST_SCHEMA_VERSION - 1);
+        expect(hasSchemaVersion(snapshot, CHANGED_FILES_CONFIRMED_MIGRATION_VERSION)).toBe(false);
+        expect(maxSchemaVersion(snapshot)).toBe(LATEST_SCHEMA_VERSION);
         expect(hasSessionColumn(snapshot, "changed_files_confirmed")).toBe(false);
       } finally {
         snapshot.close();
@@ -74,6 +83,7 @@ describe("database initialization", () => {
       const upgraded = new DatabaseSync(paths.databasePath, { readOnly: true });
       try {
         expect(maxSchemaVersion(upgraded)).toBe(LATEST_SCHEMA_VERSION);
+        expect(hasSchemaVersion(upgraded, CHANGED_FILES_CONFIRMED_MIGRATION_VERSION)).toBe(true);
         expect(hasSessionColumn(upgraded, "changed_files_confirmed")).toBe(true);
       } finally {
         upgraded.close();
@@ -139,7 +149,9 @@ describe("database initialization", () => {
 
     const oldDatabase = new DatabaseSync(paths.databasePath);
     oldDatabase.exec("ALTER TABLE sessions DROP COLUMN changed_files_confirmed");
-    oldDatabase.prepare("DELETE FROM schema_migrations WHERE version = ?").run(LATEST_SCHEMA_VERSION);
+    oldDatabase
+      .prepare("DELETE FROM schema_migrations WHERE version = ?")
+      .run(CHANGED_FILES_CONFIRMED_MIGRATION_VERSION);
     oldDatabase.close();
     writeFileSync(paths.backupDirectory, "the backup directory is unavailable", "utf8");
 
@@ -156,7 +168,8 @@ describe("database initialization", () => {
 
     const unchanged = new DatabaseSync(paths.databasePath, { readOnly: true });
     try {
-      expect(maxSchemaVersion(unchanged)).toBe(LATEST_SCHEMA_VERSION - 1);
+      expect(maxSchemaVersion(unchanged)).toBe(LATEST_SCHEMA_VERSION);
+      expect(hasSchemaVersion(unchanged, CHANGED_FILES_CONFIRMED_MIGRATION_VERSION)).toBe(false);
       expect(hasSessionColumn(unchanged, "changed_files_confirmed")).toBe(false);
     } finally {
       unchanged.close();

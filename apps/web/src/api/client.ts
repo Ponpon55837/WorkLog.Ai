@@ -1,6 +1,7 @@
 import type {
   DatabaseBackupCreated,
   DatabaseBackupList,
+  DeleteProjectResult,
   FolderPickResult,
   DashboardSummary,
   CancelMetadataBackfillRequestResult,
@@ -535,6 +536,21 @@ export class ApiClient {
     signal?: AbortSignal,
   ): Promise<ProjectRecord> {
     return this.write<ProjectRecord>(`/api/projects/${encodeURIComponent(projectId)}`, "PATCH", input, signal);
+  }
+
+  public deleteProject(
+    projectId: string,
+    confirmationName: string,
+    signal?: AbortSignal,
+  ): Promise<DeleteProjectResult> {
+    return this.write<DeleteProjectResult>(
+      `/api/projects/${encodeURIComponent(projectId)}`,
+      "DELETE",
+      {
+        confirmationName,
+      },
+      signal,
+    );
   }
 
   public listMetadataBackfillRequests(signal?: AbortSignal): Promise<MetadataBackfillRequestListQueryResult> {

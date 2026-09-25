@@ -39,8 +39,9 @@ function timestamp(date: Date): string {
 function parseName(value: string): { kind: "automatic" | "manual"; createdAt: string; sequence: number } | null {
   const standardName = /^(automatic|manual)-(.+)$/.exec(value);
   const migrationName = /^pre-migration-v\d+-(.+)$/.exec(value);
+  const deletionName = /^pre-delete-(.+)$/.exec(value);
   const kind = standardName?.[1] === "automatic" ? "automatic" : "manual";
-  const stamp = standardName?.[2] ?? migrationName?.[1] ?? value;
+  const stamp = standardName?.[2] ?? migrationName?.[1] ?? deletionName?.[1] ?? value;
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
   return match
     ? {
@@ -168,6 +169,15 @@ export function backupDatabaseBeforeMigration(
     throw new TypeError("The pre-migration schema version must be a positive integer.");
   }
   return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, `pre-migration-v${schemaVersion}-`);
+}
+
+/** Writes a checked full-database snapshot before a project is permanently deleted. */
+export function backupDatabaseBeforeProjectDeletion(
+  db: DatabaseSync,
+  databasePath: string,
+  options: BackupRetentionOptions = {},
+): DatabaseBackupCreated {
+  return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, "pre-delete-");
 }
 
 export function backupDatabase(

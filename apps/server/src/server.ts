@@ -36,6 +36,7 @@ import {
   setSessionVoidInputSchema,
   linkSessionsInputSchema,
   decideKnowledgeCandidateInputSchema,
+  deleteProjectInputSchema,
   knowledgeCandidateListQuerySchema,
   requestKnowledgeCandidatesInputSchema,
   updateSessionVerificationInputSchema,
@@ -47,7 +48,12 @@ import {
   projectDataExportRequestSchema,
   projectDataImportInputSchema,
 } from "@work-intelligence/schema";
-import { LATEST_SCHEMA_VERSION, ProjectDataTransferError, WorkIntelligenceStore } from "@work-intelligence/storage";
+import {
+  LATEST_SCHEMA_VERSION,
+  ProjectDataTransferError,
+  ProjectDeletionError,
+  WorkIntelligenceStore,
+} from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
@@ -817,6 +823,46 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           return;
         }
         sendJson(response, 201, store.addProject(parsed.data.name, parsed.data.rootPath));
+        return;
+      }
+
+      if (
+        request.method === "DELETE" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "projects" &&
+        pathParts[2] &&
+        pathParts.length === 3
+      ) {
+        const parsed = deleteProjectInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid project deletion confirmation.", parsed.error.flatten());
+          return;
+        }
+        try {
+          sendJson(response, 200, store.deleteProject(pathParts[2], parsed.data.confirmationName));
+        } catch (error) {
+          if (!(error instanceof ProjectDeletionError)) {
+            throw error;
+          }
+          switch (error.code) {
+            case "PROJECT_NOT_FOUND":
+              sendError(response, 404, "Project not found.");
+              return;
+            case "PROJECT_NAME_MISMATCH":
+              sendError(response, 409, "The confirmation name does not match the project name.");
+              return;
+            case "PROJECT_BACKUP_FAILED":
+              sendError(
+                response,
+                503,
+                "The required pre-deletion backup could not be created; the project was not deleted.",
+              );
+              return;
+            case "PROJECT_DELETE_FAILED":
+              sendError(response, 500, "Project deletion failed; the pre-deletion backup is preserved.");
+              return;
+          }
+        }
         return;
       }
 
