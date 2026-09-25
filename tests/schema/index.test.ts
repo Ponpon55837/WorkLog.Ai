@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   reportQuerySchema,
+  staticFileRequestPathSchema,
   reportExportQuerySchema,
   createReportSynthesisRequestInputSchema,
   reportSynthesisRequestQuerySchema,
@@ -48,6 +49,12 @@ const validStructuredWorkSummary = {
 };
 
 describe("schema input boundaries", () => {
+  it("validates root-relative static file request paths", () => {
+    expect(staticFileRequestPathSchema.safeParse("/assets/app-12345678.js").success).toBe(true);
+    expect(staticFileRequestPathSchema.safeParse("assets/app-12345678.js").success).toBe(false);
+    expect(staticFileRequestPathSchema.safeParse(`/${"a".repeat(4_096)}`).success).toBe(false);
+  });
+
   it("mirrors the frozen InsightProvider contracts", () => {
     expect(
       insightProviderDescriptorSchema.safeParse({

@@ -48,6 +48,7 @@ import {
 } from "@work-intelligence/schema";
 import { ProjectDataTransferError, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
+import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -59,8 +60,11 @@ const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
 };
 
+const defaultAllowedOrigins = process.env.WORK_INTELLIGENCE_WEB_DIST
+  ? ""
+  : "http://127.0.0.1:5966,http://localhost:5966";
 const allowedOrigins = new Set(
-  (process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "http://127.0.0.1:5966,http://localhost:5966")
+  (process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? defaultAllowedOrigins)
     .split(",")
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0 && origin !== "*"),
@@ -105,7 +109,7 @@ class RequestBodyError extends Error {
 
 function applyCorsHeaders(request: IncomingMessage, response: ServerResponse): void {
   const origin = request.headers.origin;
-  if (!origin || !allowedOrigins.has(origin)) {
+  if (!origin || isSameOrigin(request, origin) || !allowedOrigins.has(origin)) {
     return;
   }
 
@@ -113,6 +117,17 @@ function applyCorsHeaders(request: IncomingMessage, response: ServerResponse): v
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   response.setHeader("Access-Control-Allow-Origin", origin);
   response.setHeader("Vary", "Origin");
+}
+
+function isSameOrigin(request: IncomingMessage, origin: string): boolean {
+  if (!request.headers.host) {
+    return false;
+  }
+  try {
+    return new URL(origin).origin === new URL(`http://${request.headers.host}`).origin;
+  } catch {
+    return false;
+  }
 }
 
 async function readJsonBody(request: IncomingMessage, maxBytes = MAX_INPUT_PAYLOAD_BYTES): Promise<unknown> {
@@ -220,10 +235,13 @@ export interface ApiHandlerOptions {
   eventPollIntervalMs?: number;
   /** Maximum number of simultaneous SSE clients. */
   maxEventClients?: number;
+  /** Serves a built Web distribution on the same origin as this API server. */
+  webDirectory?: string;
 }
 
 export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}) {
   const pickFolder = options.pickFolder ?? createFolderPicker();
+  const serveWebFiles = options.webDirectory ? createStaticFilesHandler(options.webDirectory) : undefined;
   const eventClients = new Set<ServerResponse>();
   const eventPollIntervalMs = Math.max(1, options.eventPollIntervalMs ?? DEFAULT_EVENT_POLL_INTERVAL_MS);
   const requestedMaxEventClients = options.maxEventClients ?? DEFAULT_MAX_EVENT_CLIENTS;
@@ -312,6 +330,9 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   }
 
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    if (serveWebFiles) {
+      applyProductionSecurityHeaders(response);
+    }
     if (!isAllowedHost(request.headers.host)) {
       sendError(response, 421, "Host is not allowed.");
       return;
@@ -320,7 +341,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     applyCorsHeaders(request, response);
 
     const origin = request.headers.origin;
-    if (origin && !allowedOrigins.has(origin)) {
+    if (origin && !allowedOrigins.has(origin) && !isSameOrigin(request, origin)) {
       sendError(response, 403, "Origin is not allowed.");
       return;
     }
@@ -1153,6 +1174,10 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           return;
         }
         sendJson(response, 200, store.finalizeSession(parsed.data));
+        return;
+      }
+
+      if (serveWebFiles && pathParts[0] !== "api" && (await serveWebFiles(request, response))) {
         return;
       }
 

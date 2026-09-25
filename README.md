@@ -28,14 +28,16 @@
 ```powershell
 pnpm install
 pnpm build
-pnpm dev
+pnpm start
 ```
 
 | 服務 | 位址 |
 |---|---|
-| Web UI | <http://127.0.0.1:5966> |
+| Web UI | <http://127.0.0.1:3210> |
 | REST API | <http://127.0.0.1:3210/api/health> |
 | SQLite | `data/work-intelligence.sqlite`（可用 `WORK_INTELLIGENCE_DB` 指定） |
+
+開發時可改用 `pnpm dev`（Web UI `5966`、REST API `3210`）；一般使用請用正式模式的 `pnpm start`，由同一個 API server 提供 Web 與 API。
 
 第一次開啟 Web UI 後：
 

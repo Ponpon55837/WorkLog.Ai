@@ -268,6 +268,21 @@ test.describe("Work Intelligence browser regression", () => {
     expect(newerSummary.outcome).toBe("report_summary_saved");
   });
 
+  test("serves the production Web UI and API from one origin", async ({ page }) => {
+    const response = await page.goto("/dashboard");
+    expect(response?.status()).toBe(200);
+    await expect(page.getByRole("heading", { name: "工作總覽" })).toBeVisible();
+
+    const policy = response?.headers()["content-security-policy"] ?? "";
+    expect(policy).toContain("script-src 'self'");
+    expect(policy).not.toContain("unsafe-eval");
+
+    const health = await page.request.get("/api/health");
+    expect(health.ok()).toBeTruthy();
+    expect(new URL(health.url()).origin).toBe(new URL(page.url()).origin);
+    expect(await health.json()).toMatchObject({ ok: true, database: "connected" });
+  });
+
   test("keeps the report synthesis card readable with sourced sections and versions", async ({ page, request }) => {
     await page.goto("/");
     await page.getByTestId("nav-reports").click();
