@@ -13,6 +13,7 @@ pnpm test         # ESLint、全專案格式檢查，以及 core、政策、sche
 pnpm format       # 格式化全專案（文件與 Agent 技能除外）
 pnpm test:coverage # schema、storage、server、MCP、Web 覆蓋率與最低門檻
 pnpm test:performance # 合成資料的匯入與關鍵讀取路徑效能門檻（需先 build）
+pnpm test:retrieval-quality # 只執行合成資料的 work_recall 檢索品質評估
 pnpm typecheck    # 套件、Vue 樣板、單元測試與 E2E 設定型別
 pnpm build        # 工作區套件、server／MCP 與 Vite 正式版
 pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
@@ -24,6 +25,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 - **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。Windows 是主要開發平台；Linux 與 macOS 會守住非 Windows 的路徑處理，macOS 也符合維護者的主要使用平台。
 - **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。
+- **檢索品質門檻**：`pnpm test` 在三個 OS 都包含虛構合成資料的 storage 評估；Ubuntu 另以 `pnpm test:retrieval-quality` 明確顯示 hit@5／MRR 門檻結果。
 - **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 與 Firefox 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行帶有 `@cross-browser` 標記的正式模式啟動/API 同源與主要頁面路由流程。兩個瀏覽器分開執行，使用各自的暫存 SQLite；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。
 
 Coverage 門檻維持下方的模組局部門檻；尚未量測其他 workspace 的基線，所以沒有設定全域門檻。
@@ -53,6 +55,18 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; pnpm exec node packages/storage/benc
 ```
 
 設定 `WI_BENCH_CACHE` 會保留合成資料庫供修改前後比較；不設定時資料庫會在執行後移除。
+
+## 檢索品質回歸門檻
+
+`tests/storage/retrieval-quality.test.ts` 以 20 題虛構查詢和暫存目錄的合成專案資料，透過 `WorkIntelligenceStore.recall` 評估 `work_recall` 使用的排序路徑。評估包含 K（gotcha／pattern）、S（Session 主題）、R（答案只在 raw handoff）、N（自然語句）與 P（路徑查詢）五類，各 4 題；題目涵蓋中文雙字詞、原始交接文件與絕對／相對／Windows 形式路徑。每題都放入合成近似干擾紀錄，以檢查正確答案排名。
+
+目前合成基線為整體 hit@5 1.00、MRR 0.90。門檻設定為整體 hit@5 ≥ 0.95、MRR ≥ 0.90；每一類 hit@5 ≥ 0.75，K／S／N／P 的 MRR ≥ 0.70，R 類 MRR ≥ 0.50。R 類答案只在 raw handoff，並刻意搭配共享部分查詢詞的標題干擾項；目前四題都排第 2，反映 raw 欄位較低的權重，因此以 0.50 作為該類不退化的基線。hit@5 表示正確 Session／Knowledge 是否進入前 5 筆，MRR 以正確項目的排名倒數取平均；沒有命中時計 0。測試不開啟 `data/work-intelligence.sqlite`，不使用私有的 36 題評估資料，也不將真實工作記錄寫入 repository。
+
+```powershell
+pnpm test:retrieval-quality
+```
+
+一般 `pnpm test` 已包含此評估；Ubuntu CI 另有獨立步驟，方便直接看到檢索指標回歸。
 
 `pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%（新增 schema，包括 MCP 專用的 input schema，都要補測試才會過），storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
 

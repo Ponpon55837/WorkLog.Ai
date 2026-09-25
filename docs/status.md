@@ -13,11 +13,11 @@
 | A. 正式執行模式 | 已完成 | PR #69：`pnpm start` 同一個本機 port 提供 Web 與 API，包含安全標頭、SPA fallback 與 traversal 防護；PR #71：API 離線時顯示全域提示並在恢復後更新資料。全域 Codex hook 設定見 PR #70。 |
 | B. 升級安全與版本 | 已完成 | PR #72：檔案資料庫套用 migration 前自動備份，較新 schema 會被拒絕；PR #73：單一 semver 來源、CHANGELOG、health／MCP／UI 版本資訊。 |
 | C1. 診斷 | 已完成 | PR #74：新增唯讀 `pnpm run doctor`，檢查環境、build、資料庫、API、MCP 與 hook；hook 只查使用者全域設定，不查 repo 內設定。 |
-| C2. 文件 | 本 PR 完成 | 新增使用手冊、疑難排解、CONTRIBUTING、SECURITY，並更新架構與狀態文件。 |
-| D. 品質門檻 | 尚未開始 | macOS CI、第二種 E2E 瀏覽器、效能門檻、虛構合成檢索評估、axe 無障礙檢查。 |
+| C2. 文件 | 已完成 | PR #75：新增使用手冊、疑難排解、CONTRIBUTING、SECURITY，並更新架構與狀態文件。 |
+| D. 品質門檻 | 進行中 | D1 PR #76 macOS CI、D2 PR #77 Firefox E2E、D3 PR #78 效能回歸門檻已完成；D4 加入合成檢索品質評估；D5 axe 無障礙檢查待處理。 |
 | E. 資料生命週期 | 尚未開始 | 永久刪除專案與資料（先備份、輸入名稱確認、MCP 無刪除工具），以及 `pnpm db:maintain`。 |
 
-暫緩項目：A2 開機自動啟動、發行 workflow／tag／release，以及實機平台驗證。私有 36 題真實資料檢索評估也留在本機，不會放進 repository。
+暫緩項目：A2 開機自動啟動、發行 workflow／tag／release，以及實機平台驗證。D4 已加入 20 題虛構合成檢索品質評估；私有 36 題真實資料檢索評估仍留在本機，不會放進 repository。
 
 ## 優先改善：Agent 檢索品質
 
@@ -59,9 +59,7 @@
 
 **第一階段：找得到、放得進 context**（已完成實作，見下方「最近完成」）
 
-剩下的項目：
-
-- 以本機真實 DB 快照重跑上面 36 題評估，確認實作後的 hit@5／MRR 與 S5 預期一致；評估題與腳本仍只留在本機。
+repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與分類 hit@5／MRR 下限，並在 Ubuntu CI 單獨執行。私有 36 題評估與真實資料仍留在使用者本機；本 repo 不含其題目、資料或腳本。
 
 **第二階段：可信度與回饋**：已全部完成（Session 作廢、Session 關聯、Knowledge 可信度、Session 開始／更新時間、Knowledge 候選），見下方「最近完成」。
 
