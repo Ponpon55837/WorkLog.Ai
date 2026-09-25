@@ -18,6 +18,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - 歷史 handoff 可先 preview/dry-run，再由使用者明確選取套用；pending、blocked、planning-only 不會自動匯入
 - 中央 project registry：不往任何專案 repo 寫設定檔
 - 永久刪除由獨立 `project-deletion-service.ts` 負責：先建立整份 checked snapshot，再以單一 SQLite transaction 刪除中央資料與搜尋索引；`store.ts` 只轉接，不提供 MCP 刪除工具
+- 資料庫維護由獨立 `database-maintenance.ts` 與 CLI 執行：取得 SQLite 獨佔鎖、檢查 integrity、建立快照、`VACUUM`、`ANALYZE` 並重建檢索索引；結果只記錄維護時間、備份檔名、索引計數與安全錯誤分類
 - Explicit opt-in / default deny：`unregistered`、`tracked`、`paused`、`ignored`
 - policy gate 先於 handoff、Git、source 讀取
 - raw handoff snapshot、events、changed-files metadata、changed-file lifecycle history、verification metadata
@@ -71,6 +72,8 @@ REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Eviden
 
 永久刪除會先用 `VACUUM INTO` 建立並驗證整份資料庫快照，備份建立失敗時拒絕操作；備份列為手動備份，依相同保留額度管理。之後在一個 `BEGIN IMMEDIATE` transaction 中清理 project、Session、衍生資料、跨專案 Session 關聯、引用目標 Session 的全域請求／報告與搜尋索引。刪除失敗會 rollback 並保留備份。migration v11 的 `project_deletion_audit` 僅保存刪除時間、project id 與刪除筆數，不保存名稱、路徑或內容。API 允許使用者在 Web UI 或 REST 以名稱確認，MCP 刻意不提供此破壞性操作；workspace 原始檔案不會被刪除。
 
+`pnpm db:maintain` 是明確的離線維護操作。執行前以 `BEGIN EXCLUSIVE` 檢查 SQLite 寫入鎖，完整性檢查與資料庫升級成功後先建立 `pre-maintenance-...` 驗證快照，再執行 `VACUUM`、`ANALYZE` 與完整搜尋索引重建。migration v12 的 `database_maintenance_runs` 只保留開始／完成時間、狀態、備份檔名、索引筆數與安全錯誤分類；`pnpm run doctor` 以唯讀方式讀取最近結果。維護失敗時會保留備份，並將執行標為失敗或未完成。
+
 既有 SQLite 檔案若仍有歷史 `commit_required` 欄位，Work Intelligence 啟動時會以 idempotent migration 移除；公開 Session contract 與新寫入流程不使用此欄位。Git commit 仍是可選的獨立流程。
 
 Processing 中的 report synthesis 與 metadata backfill 請求超過 30 分鐘會標記為 `failed`，保留原始資料並允許後續 Agent／UI 重新處理。更新 Session metadata、verification 與 summary 時，Session 與 Project timestamp 會一起原子更新。
@@ -79,7 +82,7 @@ REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`，以�
 
 正式模式由 `pnpm start` 啟動單一 API server，預設綁定 `127.0.0.1:3210`，同時提供 `apps/web/dist` 與 `/api/*`。SPA 路由 fallback 回 `index.html`；HTML 不快取、Vite 雜湊 assets 長期快取。靜態請求先用 Zod 驗證路徑，再拒絕 dot-segment、百分比解碼後 traversal、反斜線與控制字元；解析 symlink 後還會再次確認真實路徑仍位於 Web 根目錄內。正式 Web 回應附 CSP（script 只允許同源，style attribute 依 Vue 版面需求允許 inline）、`X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。開發模式 `pnpm dev` 維持 Vite 與 API 分開。
 
-應用程式 semver 取自根目錄 `package.json`；`/api/health` 回傳 `version` 與 `schemaVersion`，MCP server metadata/instructions 與 UI 側欄使用相同版本來源。`pnpm run doctor` 以只讀方式檢查環境與資料庫 metadata；hook 診斷只檢查全域 `~/.claude/settings.json` 與 `~/.codex/hooks.json`、以及目前 repo 的 hook dist 檔，不讀取或修改 repo 內的 Agent 設定。診斷命令刻意以 `pnpm run doctor` 執行，因為 pnpm 11 的 `pnpm doctor` 是套件管理器自身命令。
+應用程式 semver 取自根目錄 `package.json`；`/api/health` 回傳 `version` 與 `schemaVersion`，MCP server metadata/instructions 與 UI 側欄使用相同版本來源。`pnpm run doctor` 以只讀方式檢查環境與資料庫 metadata，並顯示最近一次維護結果；hook 診斷只檢查全域 `~/.claude/settings.json` 與 `~/.codex/hooks.json`、以及目前 repo 的 hook dist 檔，不讀取或修改 repo 內的 Agent 設定。診斷命令刻意以 `pnpm run doctor` 執行，因為 pnpm 11 的 `pnpm doctor` 是套件管理器自身命令。
 
 日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 

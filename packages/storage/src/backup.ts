@@ -39,9 +39,10 @@ function timestamp(date: Date): string {
 function parseName(value: string): { kind: "automatic" | "manual"; createdAt: string; sequence: number } | null {
   const standardName = /^(automatic|manual)-(.+)$/.exec(value);
   const migrationName = /^pre-migration-v\d+-(.+)$/.exec(value);
+  const maintenanceName = /^pre-maintenance-(.+)$/.exec(value);
   const deletionName = /^pre-delete-(.+)$/.exec(value);
   const kind = standardName?.[1] === "automatic" ? "automatic" : "manual";
-  const stamp = standardName?.[2] ?? migrationName?.[1] ?? deletionName?.[1] ?? value;
+  const stamp = standardName?.[2] ?? migrationName?.[1] ?? maintenanceName?.[1] ?? deletionName?.[1] ?? value;
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
   return match
     ? {
@@ -178,6 +179,15 @@ export function backupDatabaseBeforeProjectDeletion(
   options: BackupRetentionOptions = {},
 ): DatabaseBackupCreated {
   return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, "pre-delete-");
+}
+
+/** Writes a checked, manually retained safety snapshot before database maintenance. */
+export function backupDatabaseBeforeMaintenance(
+  db: DatabaseSync,
+  databasePath: string,
+  options: BackupRetentionOptions = {},
+): DatabaseBackupCreated {
+  return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, "pre-maintenance-");
 }
 
 export function backupDatabase(

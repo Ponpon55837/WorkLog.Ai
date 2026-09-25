@@ -9,12 +9,21 @@ import type {
   ProjectPathRemap,
 } from "@work-intelligence/core";
 import { projectDataExportSchema, projectDataImportInputSchema } from "@work-intelligence/schema";
-import { restoreDatabase, WorkIntelligenceStore, type RestorePathRemap } from "@work-intelligence/storage";
+import { z } from "zod";
+import {
+  maintainDatabase,
+  restoreDatabase,
+  WorkIntelligenceStore,
+  type DatabaseMaintenanceResult,
+  type RestorePathRemap,
+} from "@work-intelligence/storage";
 import { databasePath, storeOptions } from "./config.js";
 
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
+const NO_MAINTENANCE_ARGS_SCHEMA = z.array(z.never());
 const usage = `用法：
+  pnpm db:maintain                    備份後檢查、整理資料庫並重建搜尋索引
   pnpm db:backup                      立即備份（存到資料庫旁的 backups/）
   pnpm db:export <檔案>               把整份資料匯出成一個 .sqlite 檔，帶到別台電腦
   pnpm db:export --all [選項]         匯出全部專案為可攜式 JSON
@@ -122,6 +131,7 @@ async function confirmPortableImport(): Promise<boolean> {
 
 export interface DatabaseCliDependencies {
   withStore?: <T>(task: (store: WorkIntelligenceStore) => T) => T;
+  runMaintenance?: () => DatabaseMaintenanceResult;
   invocationDirectory?: string;
   log?: (message: string) => void;
   error?: (message: string) => void;
@@ -136,12 +146,23 @@ export async function runDatabaseCli(
   const invocationDirectory = dependencies.invocationDirectory ?? process.env.INIT_CWD ?? process.cwd();
   const fromInvocation = (path: string): string => resolve(invocationDirectory, path);
   const runWithStore = dependencies.withStore ?? withStore;
+  const runMaintenance =
+    dependencies.runMaintenance ?? (() => maintainDatabase({ databasePath, backup: storeOptions.backup }));
   const print = dependencies.log ?? ((message: string) => console.log(message));
   const printError = dependencies.error ?? ((message: string) => console.error(message));
   const confirmImport = dependencies.confirmPortableImport ?? confirmPortableImport;
   const [command, ...args] = argv;
   try {
-    if (command === "backup") {
+    if (command === "maintain") {
+      if (!NO_MAINTENANCE_ARGS_SCHEMA.safeParse(args).success) {
+        fail("pnpm db:maintain 不接受參數。");
+      }
+      const result = runMaintenance();
+      print(
+        `維護完成：備份 ${result.backupFileName}；重新索引 ${result.indexedSessions} 筆 Session、${result.indexedKnowledge} 筆 Knowledge，共 ${result.indexedChunks} 個搜尋段落與 ${result.indexedPaths} 個路徑。`,
+      );
+      print("doctor 已記錄最近一次維護結果。");
+    } else if (command === "backup") {
       const result = runWithStore((store) => store.createBackup());
       if (result.outcome !== "database_backups") {
         fail(result.reason);

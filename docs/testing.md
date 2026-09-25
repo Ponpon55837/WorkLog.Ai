@@ -80,6 +80,8 @@ E2E 涵蓋：Knowledge 候選（網頁建立請求、以 storage 套件模擬 Ag
 
 設定 `UI_SCREENSHOTS=<label>` 會額外把六頁 × 1440／960／375 的截圖寫到 `docs/ui-baseline/<label>/`（已被 `.gitignore` 排除），方便改版前後比對。
 
+資料庫維護測試只使用暫存 SQLite 與虛構 Session：確認搜尋索引可完整重建、維護前會建立並驗證快照、另一連線持有寫入鎖時會拒絕操作，以及 doctor 讀取維護結果時不會改變資料庫檔案雜湊。
+
 Unit／integration 測試涵蓋：
 
 - unknown/unregistered、paused、ignored 不會建立 session
