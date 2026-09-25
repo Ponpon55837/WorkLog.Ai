@@ -366,6 +366,14 @@ describe("Work Intelligence REST API", () => {
       idempotencyKey: "tracked-visible",
       title: "Visible Session",
       summary: "Tracked.",
+      changedFiles: ["src/full-list.ts"],
+      workSummary: {
+        outcomes: ["REST keeps complete list rows."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [],
+      },
     });
     const hidden = store.finalizeSession({
       projectRoot: pausedRoot,
@@ -377,12 +385,16 @@ describe("Work Intelligence REST API", () => {
     expect(hidden).toMatchObject({ outcome: "finalized" });
     store.updateProject(paused.id, { status: "paused" });
 
-    const list = await requestJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(
-      baseUrl,
-      "/api/sessions",
-    );
+    const list = await requestJson<{
+      items: Array<{ title: string; changedFiles: string[]; workSummary: { outcomes: string[] } }>;
+      pageInfo: { total: number };
+    }>(baseUrl, "/api/sessions");
     expect(list.status).toBe(200);
     expect(list.body.items.map((item) => item.title)).toEqual(["Visible Session"]);
+    expect(list.body.items[0]).toMatchObject({
+      changedFiles: ["src/full-list.ts"],
+      workSummary: { outcomes: ["REST keeps complete list rows."] },
+    });
     expect(list.body.pageInfo.total).toBe(1);
 
     const scoped = await requestJson<{ items: unknown[] }>(baseUrl, `/api/sessions?projectId=${paused.id}`);

@@ -74,6 +74,7 @@ In a tracked project, check recorded work proactively — not only when the user
 - **When the user asks about past work**: recall with their words; words are matched independently, so natural-language and Chinese questions work. If some words matched nothing (the result lists per-word hit counts), rephrase with other terms instead of concluding nothing exists.
 - Knowledge marked possibly stale (its files changed after it was last confirmed) or needs review (a Session reported it wrong) must be checked against the current code before you rely on it.
 - A Session hit may list related Sessions (the plan it implements, or its follow-up); check them when the hit alone does not explain the decision.
+- `work_list_sessions` returns compact digests by default: summaries are truncated and changed-file paths, events, Evidence, and full `workSummary` are omitted. Use `work_get_session` with the returned `id` when you need the complete record. This compact behavior applies to MCP only; the Web REST Session list keeps its existing full list items.
 - Hits are compact. Open the full Session or Knowledge before relying on it, and cite the sessionId or knowledgeId you applied when you explain a decision or fix. If the record contradicts the current code, trust the code and say the record looks outdated.
 - Stay within the tracked project's scope when the question is about this project. Do not substitute an unrestricted repository scan for missing recorded context; if nothing relevant is recorded, say so briefly and continue.
 

@@ -107,11 +107,18 @@ describe("Work Intelligence MCP server", () => {
       project: { id: project.id },
     });
 
-    const finalized = await callJson<{ session: { id: string } }>(
-      client,
-      "work_finalize_session",
-      finalizePayload(root, "mcp-list-001", "First"),
-    );
+    const firstPayload = {
+      ...finalizePayload(root, "mcp-list-001", "First"),
+      summary: "A".repeat(450),
+      workSummary: {
+        outcomes: ["First done."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["unfinished ".repeat(30)],
+      },
+    };
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", firstPayload);
     await callJson(client, "work_finalize_session", finalizePayload(root, "mcp-list-002", "Second"));
 
     const list = await callJson<{ items: Array<{ title: string }>; pageInfo: { total: number } }>(
@@ -125,10 +132,38 @@ describe("Work Intelligence MCP server", () => {
       items: [{ title: "First" }],
     });
 
+    const compact = await callJson<{
+      items: Array<{
+        title: string;
+        summary: string;
+        changedFilesCount: number;
+        verificationStatus: string;
+        openItems: string[];
+        changedFiles?: unknown;
+        workSummary?: unknown;
+        events?: unknown;
+      }>;
+    }>(client, "work_list_sessions", { q: "First" });
+    expect(compact.items[0]).toMatchObject({
+      title: "First",
+      changedFilesCount: 1,
+      verificationStatus: "passed",
+    });
+    expect(compact.items[0]?.summary).toHaveLength(400);
+    expect(compact.items[0]?.summary.endsWith("…")).toBe(true);
+    expect(compact.items[0]?.openItems[0]).toHaveLength(200);
+    expect(compact.items[0]).not.toHaveProperty("changedFiles");
+    expect(compact.items[0]).not.toHaveProperty("workSummary");
+    expect(compact.items[0]).not.toHaveProperty("events");
+
     const detail = await callJson(client, "work_get_session", { sessionId: finalized.session.id });
     expect(detail).toMatchObject({
       outcome: "session_detail",
-      session: { id: finalized.session.id, workSummary: { outcomes: ["First done."] } },
+      session: {
+        id: finalized.session.id,
+        changedFiles: ["src/a.ts"],
+        workSummary: { outcomes: ["First done."] },
+      },
     });
     expect(await callJson(client, "work_get_session", { sessionId: "missing" })).toMatchObject({
       outcome: "not_found",
