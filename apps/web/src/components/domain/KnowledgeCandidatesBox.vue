@@ -15,6 +15,7 @@ import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 
 /**
@@ -96,42 +97,57 @@ watch(
       沒有待審核的候選。按「整理候選」選擇專案，再請 Agent 從已記錄的 Session 整理；候選要在這裡接受後才會成為
       Knowledge。
     </p>
-    <UiBoxRow v-for="candidate in candidates" :key="candidate.id" tag="article" data-testid="knowledge-candidate">
-      <template #leading>
-        <component :is="knowledgeKindVisual[candidate.kind].icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+    <VirtualList
+      :items="candidates"
+      :enabled="candidates.length > 5"
+      :estimate-item-height="220"
+      max-height="min(56vh, 560px)"
+      label="Knowledge 候選清單"
+    >
+      <template #default="{ item: candidate }">
+        <UiBoxRow tag="article" data-testid="knowledge-candidate">
+          <template #leading>
+            <component
+              :is="knowledgeKindVisual[candidate.kind].icon"
+              :size="16"
+              :stroke-width="1.75"
+              aria-hidden="true"
+            />
+          </template>
+          <template #title>{{ candidate.title }}</template>
+          <template #labels>
+            <StatusLabel :status="knowledgeKindVisual[candidate.kind]" :show-icon="false" />
+          </template>
+          <template #meta>
+            <span v-if="candidate.projectName">{{ candidate.projectName }} · </span>
+            <span>提出於 {{ formatRelative(candidate.createdAt) }}</span>
+          </template>
+          <p class="knowledge-candidates__body">{{ candidate.body }}</p>
+          <p class="knowledge-candidates__rationale">依據：{{ candidate.rationale }}</p>
+          <div class="knowledge-candidates__chips">
+            <UiButton
+              v-if="candidate.sessionId"
+              size="sm"
+              variant="invisible"
+              :icon="ExternalLink"
+              @click="openSessionDetail(candidate.sessionId)"
+              >{{ candidate.sessionTitle ?? "來源 Session" }}</UiButton
+            >
+            <UiLabel v-for="tag in candidate.tags" :key="`tag-${tag}`">#{{ tag }}</UiLabel>
+            <code v-for="pattern in candidate.appliesTo" :key="`applies-${pattern}`">適用 {{ pattern }}</code>
+          </div>
+          <template #trailing>
+            <div class="knowledge-candidates__actions">
+              <UiButton size="sm" variant="primary" :icon="Check" @click="acceptCandidate(candidate, projectRoot)"
+                >接受</UiButton
+              >
+              <UiButton size="sm" :icon="Pencil" @click="openCandidateEditor(candidate)">修改後接受</UiButton>
+              <UiButton size="sm" :icon="X" @click="rejectCandidate(candidate, projectRoot)">拒絕</UiButton>
+            </div>
+          </template>
+        </UiBoxRow>
       </template>
-      <template #title>{{ candidate.title }}</template>
-      <template #labels>
-        <StatusLabel :status="knowledgeKindVisual[candidate.kind]" :show-icon="false" />
-      </template>
-      <template #meta>
-        <span v-if="candidate.projectName">{{ candidate.projectName }} · </span>
-        <span>提出於 {{ formatRelative(candidate.createdAt) }}</span>
-      </template>
-      <p class="knowledge-candidates__body">{{ candidate.body }}</p>
-      <p class="knowledge-candidates__rationale">依據：{{ candidate.rationale }}</p>
-      <div class="knowledge-candidates__chips">
-        <UiButton
-          v-if="candidate.sessionId"
-          size="sm"
-          variant="invisible"
-          :icon="ExternalLink"
-          @click="openSessionDetail(candidate.sessionId)"
-          >{{ candidate.sessionTitle ?? "來源 Session" }}</UiButton
-        >
-        <UiLabel v-for="tag in candidate.tags" :key="`tag-${tag}`">#{{ tag }}</UiLabel>
-        <code v-for="pattern in candidate.appliesTo" :key="`applies-${pattern}`">適用 {{ pattern }}</code>
-      </div>
-      <template #trailing>
-        <div class="knowledge-candidates__actions">
-          <UiButton size="sm" variant="primary" :icon="Check" @click="acceptCandidate(candidate, projectRoot)"
-            >接受</UiButton
-          >
-          <UiButton size="sm" :icon="Pencil" @click="openCandidateEditor(candidate)">修改後接受</UiButton>
-          <UiButton size="sm" :icon="X" @click="rejectCandidate(candidate, projectRoot)">拒絕</UiButton>
-        </div>
-      </template>
-    </UiBoxRow>
+    </VirtualList>
   </UiBox>
 </template>
 

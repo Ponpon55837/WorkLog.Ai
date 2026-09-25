@@ -43,6 +43,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import VirtualList from "../VirtualList.vue";
 import ChangedFileList from "./ChangedFileList.vue";
 import StatusLabel from "./StatusLabel.vue";
 import WorkSummarySections from "./WorkSummarySections.vue";
@@ -255,37 +256,42 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           :count="selectedDetail.evidence.length"
           :hint="voidedEvidenceCount ? `${voidedEvidenceCount} 筆已標示錯誤` : undefined"
         >
-          <div
-            v-for="item in selectedDetail.evidence"
-            :key="item.id"
-            :class="['session-panel__item', { 'is-voided': item.voided }]"
-            data-testid="session-evidence"
+          <VirtualList
+            :items="selectedDetail.evidence"
+            :enabled="selectedDetail.evidence.length > 5"
+            :estimate-item-height="112"
+            max-height="min(38vh, 360px)"
+            label="Session Evidence 清單"
           >
-            <div class="session-panel__item-head">
-              <UiLabel>{{ item.kind }}</UiLabel
-              ><UiLabel v-if="item.voided" tone="danger" :icon="Ban">已標示錯誤</UiLabel
-              ><time :title="formatDate(item.capturedAt)">{{ formatRelative(item.capturedAt) }}</time>
-              <UiIconButton
-                v-if="item.voided"
-                class="session-panel__item-action"
-                :icon="RotateCcw"
-                label="還原 Evidence"
-                size="sm"
-                @click="restoreRecord(evidenceTarget(item))"
-              />
-              <UiIconButton
-                v-else
-                class="session-panel__item-action"
-                :icon="Ban"
-                label="標示 Evidence 為錯誤"
-                size="sm"
-                @click="openVoidDialog(evidenceTarget(item))"
-              />
-            </div>
-            <p v-if="item.voided" class="session-panel__void-reason">原因：{{ item.voided.reason }}</p>
-            <p v-if="item.summary">{{ item.summary }}</p>
-            <code>{{ item.reference }}</code>
-          </div>
+            <template #default="{ item }">
+              <div :class="['session-panel__item', { 'is-voided': item.voided }]" data-testid="session-evidence">
+                <div class="session-panel__item-head">
+                  <UiLabel>{{ item.kind }}</UiLabel
+                  ><UiLabel v-if="item.voided" tone="danger" :icon="Ban">已標示錯誤</UiLabel
+                  ><time :title="formatDate(item.capturedAt)">{{ formatRelative(item.capturedAt) }}</time>
+                  <UiIconButton
+                    v-if="item.voided"
+                    class="session-panel__item-action"
+                    :icon="RotateCcw"
+                    label="還原 Evidence"
+                    size="sm"
+                    @click="restoreRecord(evidenceTarget(item))"
+                  />
+                  <UiIconButton
+                    v-else
+                    class="session-panel__item-action"
+                    :icon="Ban"
+                    label="標示 Evidence 為錯誤"
+                    size="sm"
+                    @click="openVoidDialog(evidenceTarget(item))"
+                  />
+                </div>
+                <p v-if="item.voided" class="session-panel__void-reason">原因：{{ item.voided.reason }}</p>
+                <p v-if="item.summary">{{ item.summary }}</p>
+                <code>{{ item.reference }}</code>
+              </div>
+            </template>
+          </VirtualList>
         </UiDisclosure>
         <UiDisclosure
           v-if="selectedDetail.knowledge.length"
@@ -293,13 +299,23 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           :icon="BookOpen"
           :count="selectedDetail.knowledge.length"
         >
-          <div v-for="item in selectedDetail.knowledge" :key="item.id" class="session-panel__item">
-            <div class="session-panel__item-head">
-              <UiLabel tone="accent">{{ knowledgeKindLabels[item.kind] }}</UiLabel
-              ><strong>{{ item.title }}</strong>
-            </div>
-            <p>{{ item.body }}</p>
-          </div>
+          <VirtualList
+            :items="selectedDetail.knowledge"
+            :enabled="selectedDetail.knowledge.length > 5"
+            :estimate-item-height="160"
+            max-height="min(38vh, 360px)"
+            label="Session Knowledge 清單"
+          >
+            <template #default="{ item }">
+              <div class="session-panel__item">
+                <div class="session-panel__item-head">
+                  <UiLabel tone="accent">{{ knowledgeKindLabels[item.kind] }}</UiLabel
+                  ><strong>{{ item.title }}</strong>
+                </div>
+                <p>{{ item.body }}</p>
+              </div>
+            </template>
+          </VirtualList>
         </UiDisclosure>
         <UiDisclosure
           title="關聯 Session"
@@ -308,39 +324,57 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           :open="selectedDetail.links.length > 0"
           data-testid="session-links"
         >
-          <div v-for="link in selectedDetail.links" :key="link.sessionId" class="session-panel__item">
-            <div class="session-panel__item-head">
-              <UiLabel :tone="link.relation === 'related' ? 'neutral' : 'accent'">{{
-                sessionLinkDirectionLabels[link.relation]
-              }}</UiLabel
-              ><UiLabel v-if="link.voided" tone="danger" :icon="Ban">已作廢</UiLabel
-              ><time :title="formatDate(link.completedAt)">{{ formatRelative(link.completedAt) }}</time>
-              <UiIconButton
-                class="session-panel__item-action"
-                :icon="Unlink"
-                label="移除關聯"
-                size="sm"
-                @click="removeLink(session.id, link.sessionId, link.title)"
-              />
-            </div>
-            <RouterLink class="session-panel__link" :to="{ query: { ...route.query, session: link.sessionId } }">{{
-              link.title
-            }}</RouterLink>
-          </div>
+          <VirtualList
+            :items="selectedDetail.links"
+            :enabled="selectedDetail.links.length > 5"
+            :estimate-item-height="80"
+            max-height="min(38vh, 360px)"
+            label="關聯 Session 清單"
+          >
+            <template #default="{ item: link }">
+              <div class="session-panel__item">
+                <div class="session-panel__item-head">
+                  <UiLabel :tone="link.relation === 'related' ? 'neutral' : 'accent'">{{
+                    sessionLinkDirectionLabels[link.relation]
+                  }}</UiLabel
+                  ><UiLabel v-if="link.voided" tone="danger" :icon="Ban">已作廢</UiLabel
+                  ><time :title="formatDate(link.completedAt)">{{ formatRelative(link.completedAt) }}</time>
+                  <UiIconButton
+                    class="session-panel__item-action"
+                    :icon="Unlink"
+                    label="移除關聯"
+                    size="sm"
+                    @click="removeLink(session.id, link.sessionId, link.title)"
+                  />
+                </div>
+                <RouterLink class="session-panel__link" :to="{ query: { ...route.query, session: link.sessionId } }">{{
+                  link.title
+                }}</RouterLink>
+              </div>
+            </template>
+          </VirtualList>
           <div class="session-panel__item session-panel__item--action">
             <UiButton size="sm" :icon="Plus" @click="openLinkDialog(session)">新增關聯</UiButton>
           </div>
         </UiDisclosure>
         <UiDisclosure title="Events" :icon="GitCommitHorizontal" :count="selectedDetail.events.length">
-          <ol class="session-panel__events">
-            <li v-for="event in selectedDetail.events" :key="event.id">
-              <code>{{ event.type }}</code>
-              <div>
-                <span>{{ event.summary }}</span>
-                <time :title="formatDate(event.occurredAt)">{{ formatRelative(event.occurredAt) }}</time>
+          <VirtualList
+            :items="selectedDetail.events"
+            :enabled="selectedDetail.events.length > 5"
+            :estimate-item-height="72"
+            max-height="min(38vh, 360px)"
+            label="Session Events 清單"
+          >
+            <template #default="{ item: event }">
+              <div class="session-panel__event">
+                <code>{{ event.type }}</code>
+                <div>
+                  <span>{{ event.summary }}</span>
+                  <time :title="formatDate(event.occurredAt)">{{ formatRelative(event.occurredAt) }}</time>
+                </div>
               </div>
-            </li>
-          </ol>
+            </template>
+          </VirtualList>
         </UiDisclosure>
         <UiDisclosure v-if="selectedDetail.rawSnapshots.length" title="Handoff snapshot" :icon="FileText">
           <pre class="session-panel__snapshot">{{ selectedDetail.rawSnapshots[0]?.content }}</pre>
@@ -351,18 +385,26 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           :icon="History"
           :count="selectedDetail.verificationHistory.length"
         >
-          <ol class="session-panel__events">
-            <li v-for="entry in selectedDetail.verificationHistory" :key="entry.id">
-              <code>{{ entry.source === "web" ? "Web UI" : "Agent" }}</code>
-              <div>
-                <span
-                  >{{ verificationLabel(entry.previous) }} → {{ verificationLabel(entry.resulting)
-                  }}<template v-if="entry.resulting.summary">：{{ entry.resulting.summary }}</template></span
-                >
-                <time :title="formatDate(entry.createdAt)">{{ formatRelative(entry.createdAt) }}</time>
+          <VirtualList
+            :items="selectedDetail.verificationHistory"
+            :enabled="selectedDetail.verificationHistory.length > 5"
+            :estimate-item-height="72"
+            max-height="min(32vh, 320px)"
+            label="Verification 修改紀錄清單"
+          >
+            <template #default="{ item: entry }">
+              <div class="session-panel__event">
+                <code>{{ entry.source === "web" ? "Web UI" : "Agent" }}</code>
+                <div>
+                  <span
+                    >{{ verificationLabel(entry.previous) }} → {{ verificationLabel(entry.resulting)
+                    }}<template v-if="entry.resulting.summary">：{{ entry.resulting.summary }}</template></span
+                  >
+                  <time :title="formatDate(entry.createdAt)">{{ formatRelative(entry.createdAt) }}</time>
+                </div>
               </div>
-            </li>
-          </ol>
+            </template>
+          </VirtualList>
         </UiDisclosure>
         <UiDisclosure
           v-if="selectedDetail.voidHistory.length"
@@ -370,15 +412,23 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           :icon="History"
           :count="selectedDetail.voidHistory.length"
         >
-          <ol class="session-panel__events">
-            <li v-for="entry in selectedDetail.voidHistory" :key="entry.id">
-              <code>{{ voidHistoryLabel(entry) }}</code>
-              <div>
-                <span>{{ entry.reason ?? "未填原因" }}</span>
-                <time :title="formatDate(entry.occurredAt)">{{ formatRelative(entry.occurredAt) }}</time>
+          <VirtualList
+            :items="selectedDetail.voidHistory"
+            :enabled="selectedDetail.voidHistory.length > 5"
+            :estimate-item-height="72"
+            max-height="min(32vh, 320px)"
+            label="Session 作廢紀錄清單"
+          >
+            <template #default="{ item: entry }">
+              <div class="session-panel__event">
+                <code>{{ voidHistoryLabel(entry) }}</code>
+                <div>
+                  <span>{{ entry.reason ?? "未填原因" }}</span>
+                  <time :title="formatDate(entry.occurredAt)">{{ formatRelative(entry.occurredAt) }}</time>
+                </div>
               </div>
-            </li>
-          </ol>
+            </template>
+          </VirtualList>
         </UiDisclosure>
       </div>
     </div>
@@ -532,31 +582,32 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   overflow-wrap: anywhere;
 }
 
-.session-panel__events {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  list-style: none;
-}
-
-.session-panel__events li {
+.session-panel__event {
   display: flex;
   gap: var(--space-3);
-  padding: 6px 0;
+  padding: 6px var(--space-3);
+  border-top: 1px solid var(--border-muted);
   font-size: var(--text-sm);
 }
 
-.session-panel__events code {
-  flex: 0 0 90px;
-  color: var(--fg-muted);
+.session-panel__event:first-child {
+  border-top: 0;
 }
 
-.session-panel__events div {
+.session-panel__event code {
+  flex: 0 0 90px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.session-panel__event > div {
   display: grid;
   gap: 2px;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.session-panel__events time {
+.session-panel__event time {
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }

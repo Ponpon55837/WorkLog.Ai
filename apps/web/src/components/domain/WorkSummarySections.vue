@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { WorkSummarySections } from "@work-intelligence/core";
 import { workSummarySectionLabels } from "../../utils/labels";
+import VirtualList from "../VirtualList.vue";
 
 /**
  * The five workSummary sections in fixed order. `nextSteps` is shown as 狀態／未結項 and never
@@ -16,7 +17,19 @@ defineProps<{ summary?: WorkSummarySections }>();
       <h3>
         {{ section.label }} <span class="work-summary__key">{{ section.key }}</span>
       </h3>
-      <ul v-if="summary?.[section.key]?.length">
+      <VirtualList
+        v-if="(summary?.[section.key]?.length ?? 0) > 5"
+        :items="summary?.[section.key] ?? []"
+        :enabled="true"
+        :estimate-item-height="56"
+        max-height="min(24vh, 240px)"
+        :label="`${section.label}清單`"
+      >
+        <template #default="{ item }">
+          <p class="work-summary__item">{{ item }}</p>
+        </template>
+      </VirtualList>
+      <ul v-else-if="summary?.[section.key]?.length">
         <li v-for="(item, index) in summary[section.key]" :key="index">{{ item }}</li>
       </ul>
       <p v-else class="work-summary__empty">—</p>
@@ -58,6 +71,12 @@ defineProps<{ summary?: WorkSummarySections }>();
   gap: var(--space-1);
   margin: 0;
   padding-left: 20px;
+  line-height: 1.6;
+}
+
+.work-summary__item {
+  margin: 0;
+  padding: 2px 0 2px 20px;
   line-height: 1.6;
 }
 
