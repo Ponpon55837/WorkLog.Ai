@@ -41,20 +41,18 @@ Claude 自己已修正一項：**F12 的 `Unexpected end of JSON input`**（PR #
 
 請在預覽回傳並在 UI 顯示每個專案套用路徑轉換後的 `root_path`，以及它會對應到既有專案、新增，還是衝突。也請移除 `parsed.data as ProjectDataImportInput` 這類強制轉型，讓 schema 推導出的型別與 core 型別由編譯器檢查一致（例如用 `satisfies`，或以 schema 為型別來源）。
 
-### 4. E2E 在本機的偶發失敗（疑似與即時更新有關）
+### 4. E2E 的偶發失敗
 
-Claude 在本機跑了 4 次 E2E，失敗 2 次，失敗的是不同測試：
+偶發失敗在 CI 上也會發生：#57（只改文件）的 E2E 就失敗了。Claude 已修正其中最常見的一項，同樣放在 #57：
 
-- 「rejects an Agent-proposed Knowledge candidate」：等待「Agent 已送出…Knowledge 候選」提示時逾時。
-- 「keeps Worklog and Knowledge page-size controls at the intended default」：`expectBoundedVirtualList` 的位置檢查拿到 -52。
+- **已修正**：「keeps Worklog and Knowledge page-size controls」的列重疊檢查只取樣一次。虛擬清單先用預估高度排版、量到實際高度後才修正位置，取樣時列會短暫重疊（-52、-98）。現在改成輪詢，等排版穩定再判斷；本機連跑 5 次 28 項全過。
 
-CI 目前都通過。推測原因：#39 的 SSE 在測試用 REST 寫入時推送「有變化」，頁面在量測或斷言中途重新載入。請確認原因並讓測試穩定，例如：
+還要請 Codex 處理：
 
-- 等待重新載入完成後再斷言；
-- 對短暫出現的 toast 用更可靠的等待方式；
-- 或在 E2E 提供關閉 SSE 的設定，另寫專門的即時更新測試。
-
-請連跑至少 5 次，全部通過再附上結果。
+- 「rejects an Agent-proposed Knowledge candidate」偶爾等不到「Agent 已送出…Knowledge 候選」提示。提示 4 秒後就會消失，SSE 觸發的重新載入與請求監看器可能搶先或錯過時機。請改成更可靠的等待方式，例如以候選列出現作為判斷依據，或確認提示確實只觸發一次。
+- 序列模式的重試會連鎖失敗：一項測試失敗後重試，會重新跑 `beforeAll`、疊加資料，讓後面的數量檢查全部失敗（CI 記錄中 `Expected: 2, Received: 5／7`）。請讓重試不受前一次資料影響，例如每次重試用新的資料庫或不同的 fixture 前綴，或在序列模式下關閉重試。
+- 整體確認 SSE 推送的重新載入不會在斷言中途改變畫面；需要時提供關閉 SSE 的 E2E 設定，另寫專門的即時更新測試。
+- 修改後請連跑至少 5 次，全部通過再附上結果。
 
 ### 5. 自動備份「今天」的判斷改用 server 的時區
 
