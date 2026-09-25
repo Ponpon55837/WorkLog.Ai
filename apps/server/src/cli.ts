@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type {
   ProjectDataExport,
   ProjectDataImportInput,
@@ -37,8 +38,7 @@ restore 選項：
 還原會先自動備份目前的資料。`;
 
 function fail(message: string): never {
-  console.error(`錯誤：${message}\n\n${usage}`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 function parseRemap(value: string | undefined): RestorePathRemap {
@@ -73,7 +73,7 @@ function findProjectId(projects: Array<{ id: string; name: string }>, value: str
   return matches[0]?.id ?? fail(`找不到專案「${value}」。`);
 }
 
-function defaultPortableFileName(scope: "all" | "project", projectId?: string): string {
+function defaultPortableFileName(scope: "all" | "project", invocationDirectory: string, projectId?: string): string {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const safeProjectId = projectId?.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 8) || "data";
   const suffix = scope === "all" ? "all-projects" : `project-${safeProjectId}`;
@@ -120,190 +120,208 @@ async function confirmPortableImport(): Promise<boolean> {
   }
 }
 
-// pnpm runs root scripts from the repo root; resolve paths against where the user ran the command.
-const invocationDirectory = process.env.INIT_CWD ?? process.cwd();
-const fromInvocation = (path: string): string => resolve(invocationDirectory, path);
+export interface DatabaseCliDependencies {
+  withStore?: <T>(task: (store: WorkIntelligenceStore) => T) => T;
+  invocationDirectory?: string;
+  log?: (message: string) => void;
+  error?: (message: string) => void;
+  confirmPortableImport?: () => Promise<boolean>;
+}
 
-const [command, ...args] = process.argv.slice(2);
-try {
-  if (command === "backup") {
-    const result = withStore((store) => store.createBackup());
-    if (result.outcome !== "database_backups") {
-      fail(result.reason);
-    }
-    console.log(
-      `已備份：${result.created.fileName}（手動保留 ${result.keep} 份、自動保留 ${result.automaticKeep} 份）`,
-    );
-  } else if (command === "export") {
-    if (args[0] === "--all" || args[0] === "--project") {
-      const scopeType = args[0] === "--all" ? "all" : "project";
-      let projectValue: string | undefined = scopeType === "project" ? args[1] : undefined;
-      let output: string | undefined;
-      for (let index = scopeType === "project" ? 2 : 1; index < args.length; index += 1) {
+export async function runDatabaseCli(
+  argv: readonly string[] = process.argv.slice(2),
+  dependencies: DatabaseCliDependencies = {},
+): Promise<number> {
+  // pnpm runs root scripts from the repo root; resolve paths against where the user ran the command.
+  const invocationDirectory = dependencies.invocationDirectory ?? process.env.INIT_CWD ?? process.cwd();
+  const fromInvocation = (path: string): string => resolve(invocationDirectory, path);
+  const runWithStore = dependencies.withStore ?? withStore;
+  const print = dependencies.log ?? ((message: string) => console.log(message));
+  const printError = dependencies.error ?? ((message: string) => console.error(message));
+  const confirmImport = dependencies.confirmPortableImport ?? confirmPortableImport;
+  const [command, ...args] = argv;
+  try {
+    if (command === "backup") {
+      const result = runWithStore((store) => store.createBackup());
+      if (result.outcome !== "database_backups") {
+        fail(result.reason);
+      }
+      print(
+        `已備份：${result.created.fileName}（手動保留 ${result.keep} 份、自動保留 ${result.automaticKeep} 份）`,
+      );
+    } else if (command === "export") {
+      if (args[0] === "--all" || args[0] === "--project") {
+        const scopeType = args[0] === "--all" ? "all" : "project";
+        let projectValue: string | undefined = scopeType === "project" ? args[1] : undefined;
+        let output: string | undefined;
+        for (let index = scopeType === "project" ? 2 : 1; index < args.length; index += 1) {
+          const arg = args[index];
+          if (!arg) {
+            fail("缺少 export 選項的值。");
+          }
+          if (arg === "--out") {
+            index += 1;
+            output = args[index];
+          } else if (arg.startsWith("--out=")) {
+            output = arg.slice("--out=".length);
+          } else {
+            fail(`看不懂的參數：${arg}`);
+          }
+        }
+        if (scopeType === "project" && !projectValue) {
+          fail("--project 需要專案名稱或 id。");
+        }
+        const result = runWithStore((store) => {
+          const projectId =
+            scopeType === "project"
+              ? findProjectId(
+                  store.listProjects().map(({ id, name }) => ({ id, name })),
+                  projectValue ?? "",
+                )
+              : undefined;
+          const scope = projectId ? { type: "project" as const, projectId } : { type: "all" as const };
+          const bundle = store.exportProjectData(scope);
+          const target = output
+            ? fromInvocation(output)
+            : defaultPortableFileName(scopeType, invocationDirectory, projectId);
+          return { target, bytes: writePortableExport(target, bundle) };
+        });
+        print(`已匯出到 ${result.target}（${(result.bytes / 1024 / 1024).toFixed(1)} MiB）。JSON 未加密，請妥善保管。`);
+      } else {
+        const target = args[0] ? fromInvocation(args[0]) : fail("請指定匯出檔案的路徑。");
+        const { bytes } = runWithStore((store) => store.exportTo(target));
+        print(`已匯出到 ${target}（${(bytes / 1024 / 1024).toFixed(1)} MB）。這個檔案包含全部工作記錄，請妥善保管。`);
+      }
+    } else if (command === "import") {
+      let source: string | undefined;
+      let projectValue: string | undefined;
+      let dryRun = false;
+      const remap: ProjectPathRemap[] = [];
+      for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
         if (!arg) {
-          fail("缺少 export 選項的值。");
+          fail("缺少 import 選項的值。");
         }
-        if (arg === "--out") {
+        if (arg === "--project") {
           index += 1;
-          output = args[index];
-        } else if (arg.startsWith("--out=")) {
-          output = arg.slice("--out=".length);
+          projectValue = args[index];
+        } else if (arg.startsWith("--project=")) {
+          projectValue = arg.slice("--project=".length);
+        } else if (arg === "--remap-root") {
+          index += 1;
+          remap.push(parseRemap(args[index]));
+        } else if (arg.startsWith("--remap-root=")) {
+          remap.push(parseRemap(arg.slice("--remap-root=".length)));
+        } else if (arg === "--dry-run") {
+          dryRun = true;
+        } else if (arg && !arg.startsWith("--") && !source) {
+          source = fromInvocation(arg);
         } else {
           fail(`看不懂的參數：${arg}`);
         }
       }
-      if (scopeType === "project" && !projectValue) {
-        fail("--project 需要專案名稱或 id。");
+      if (!source) {
+        fail("請指定要匯入的 JSON 檔案。");
       }
-      const result = withStore((store) => {
-        const projectId =
-          scopeType === "project"
-            ? findProjectId(
-                store.listProjects().map(({ id, name }) => ({ id, name })),
-                projectValue ?? "",
-              )
-            : undefined;
-        const scope = projectId ? { type: "project" as const, projectId } : { type: "all" as const };
-        const bundle = store.exportProjectData(scope);
-        const target = output ? fromInvocation(output) : defaultPortableFileName(scopeType, projectId);
-        return { target, bytes: writePortableExport(target, bundle) };
+      if (statSync(source).size > MAX_PROJECT_IMPORT_BYTES) {
+        fail("匯入檔不可超過 50 MiB。");
+      }
+      const file = readFileSync(source);
+      if (file.byteLength > MAX_PROJECT_IMPORT_BYTES) {
+        fail("匯入檔不可超過 50 MiB。");
+      }
+      let parsedJson: unknown;
+      try {
+        parsedJson = JSON.parse(file.toString("utf8"));
+      } catch {
+        fail("匯入檔不是有效的 JSON。");
+      }
+      const parsedBundle = projectDataExportSchema.safeParse(parsedJson);
+      if (!parsedBundle.success) {
+        fail(`匯入檔格式錯誤：${parsedBundle.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+      }
+      const bundle = parsedBundle.data as unknown as ProjectDataExport;
+      const projectId = projectValue
+        ? findProjectId(
+            bundle.tables.projects.map((project) => ({ id: String(project.id), name: String(project.name) })),
+            projectValue,
+          )
+        : undefined;
+      const input: ProjectDataImportInput = {
+        bundle,
+        ...(projectId ? { projectId } : {}),
+        ...(remap.length > 0 ? { remap } : {}),
+      };
+      const parsedInput = projectDataImportInputSchema.safeParse(input);
+      if (!parsedInput.success) {
+        fail(`匯入選項格式錯誤：${parsedInput.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+      }
+      const validatedInput = parsedInput.data as unknown as ProjectDataImportInput;
+      const preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
+      printImportPreview(preview);
+      if (dryRun) {
+        print("僅預覽，資料沒有變更。");
+      } else if (await confirmImport()) {
+        const result = runWithStore((store) => store.importProjectData(validatedInput));
+        print(
+          `匯入完成：新增 ${totalCounts(result.additions)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
+        );
+        print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
+      } else {
+        print("已取消匯入，資料沒有變更。");
+      }
+    } else if (command === "restore") {
+      const remap: RestorePathRemap[] = [];
+      let source: string | undefined;
+      let force = false;
+      for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (arg === "--remap-root") {
+          index += 1;
+          remap.push(parseRemap(args[index]));
+        } else if (arg?.startsWith("--remap-root=")) {
+          remap.push(parseRemap(arg.slice("--remap-root=".length)));
+        } else if (arg === "--force") {
+          force = true;
+        } else if (arg && !arg.startsWith("--") && !source) {
+          source = fromInvocation(arg);
+        } else {
+          fail(`看不懂的參數：${arg}`);
+        }
+      }
+      if (!source) {
+        fail("請指定要還原的檔案。");
+      }
+      const result = restoreDatabase({
+        source,
+        databasePath,
+        remap,
+        force,
+        backupDirectory: storeOptions.backup?.directory,
       });
-      console.log(
-        `已匯出到 ${result.target}（${(result.bytes / 1024 / 1024).toFixed(1)} MiB）。JSON 未加密，請妥善保管。`,
-      );
+      if (result.safetyBackup) {
+        print(`已先備份原本的資料：${result.safetyBackup}`);
+      }
+      print(`已還原 ${result.projects} 個專案、${result.sessions} 筆 Session（schema 版本 ${result.schemaVersion}）。`);
+      if (remap.length) {
+        print(`已更新 ${result.remapped.projects} 個專案路徑、${result.remapped.handoffSnapshots} 個 handoff 路徑。`);
+      }
+      // Opening the store once applies any newer migrations before the server or an Agent uses it.
+      runWithStore(() => undefined);
+      print("完成。重新啟動 API server 與 Agent 對話即可使用。");
     } else {
-      const target = args[0] ? fromInvocation(args[0]) : fail("請指定匯出檔案的路徑。");
-      const { bytes } = withStore((store) => store.exportTo(target));
-      console.log(
-        `已匯出到 ${target}（${(bytes / 1024 / 1024).toFixed(1)} MB）。這個檔案包含全部工作記錄，請妥善保管。`,
-      );
+      print(usage);
+      return command ? 1 : 0;
     }
-  } else if (command === "import") {
-    let source: string | undefined;
-    let projectValue: string | undefined;
-    let dryRun = false;
-    const remap: ProjectPathRemap[] = [];
-    for (let index = 0; index < args.length; index += 1) {
-      const arg = args[index];
-      if (!arg) {
-        fail("缺少 import 選項的值。");
-      }
-      if (arg === "--project") {
-        index += 1;
-        projectValue = args[index];
-      } else if (arg.startsWith("--project=")) {
-        projectValue = arg.slice("--project=".length);
-      } else if (arg === "--remap-root") {
-        index += 1;
-        remap.push(parseRemap(args[index]));
-      } else if (arg.startsWith("--remap-root=")) {
-        remap.push(parseRemap(arg.slice("--remap-root=".length)));
-      } else if (arg === "--dry-run") {
-        dryRun = true;
-      } else if (arg && !arg.startsWith("--") && !source) {
-        source = fromInvocation(arg);
-      } else {
-        fail(`看不懂的參數：${arg}`);
-      }
-    }
-    if (!source) {
-      fail("請指定要匯入的 JSON 檔案。");
-    }
-    if (statSync(source).size > MAX_PROJECT_IMPORT_BYTES) {
-      fail("匯入檔不可超過 50 MiB。");
-    }
-    const file = readFileSync(source);
-    if (file.byteLength > MAX_PROJECT_IMPORT_BYTES) {
-      fail("匯入檔不可超過 50 MiB。");
-    }
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(file.toString("utf8"));
-    } catch {
-      fail("匯入檔不是有效的 JSON。");
-    }
-    const parsedBundle = projectDataExportSchema.safeParse(parsedJson);
-    if (!parsedBundle.success) {
-      fail(`匯入檔格式錯誤：${parsedBundle.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
-    }
-    const bundle = parsedBundle.data as unknown as ProjectDataExport;
-    const projectId = projectValue
-      ? findProjectId(
-          bundle.tables.projects.map((project) => ({ id: String(project.id), name: String(project.name) })),
-          projectValue,
-        )
-      : undefined;
-    const input: ProjectDataImportInput = {
-      bundle,
-      ...(projectId ? { projectId } : {}),
-      ...(remap.length > 0 ? { remap } : {}),
-    };
-    const parsedInput = projectDataImportInputSchema.safeParse(input);
-    if (!parsedInput.success) {
-      fail(`匯入選項格式錯誤：${parsedInput.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
-    }
-    const validatedInput = parsedInput.data as unknown as ProjectDataImportInput;
-    const preview = withStore((store) => store.previewProjectDataImport(validatedInput));
-    printImportPreview(preview);
-    if (dryRun) {
-      console.log("僅預覽，資料沒有變更。");
-    } else if (await confirmPortableImport()) {
-      const result = withStore((store) => store.importProjectData(validatedInput));
-      console.log(
-        `匯入完成：新增 ${totalCounts(result.additions)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
-      );
-      console.log("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
-    } else {
-      console.log("已取消匯入，資料沒有變更。");
-    }
-  } else if (command === "restore") {
-    const remap: RestorePathRemap[] = [];
-    let source: string | undefined;
-    let force = false;
-    for (let index = 0; index < args.length; index += 1) {
-      const arg = args[index];
-      if (arg === "--remap-root") {
-        index += 1;
-        remap.push(parseRemap(args[index]));
-      } else if (arg?.startsWith("--remap-root=")) {
-        remap.push(parseRemap(arg.slice("--remap-root=".length)));
-      } else if (arg === "--force") {
-        force = true;
-      } else if (arg && !arg.startsWith("--") && !source) {
-        source = fromInvocation(arg);
-      } else {
-        fail(`看不懂的參數：${arg}`);
-      }
-    }
-    if (!source) {
-      fail("請指定要還原的檔案。");
-    }
-    const result = restoreDatabase({
-      source,
-      databasePath,
-      remap,
-      force,
-      backupDirectory: storeOptions.backup?.directory,
-    });
-    if (result.safetyBackup) {
-      console.log(`已先備份原本的資料：${result.safetyBackup}`);
-    }
-    console.log(
-      `已還原 ${result.projects} 個專案、${result.sessions} 筆 Session（schema 版本 ${result.schemaVersion}）。`,
-    );
-    if (remap.length) {
-      console.log(
-        `已更新 ${result.remapped.projects} 個專案路徑、${result.remapped.handoffSnapshots} 個 handoff 路徑。`,
-      );
-    }
-    // Opening the store once applies any newer migrations before the server or an Agent uses it.
-    withStore(() => undefined);
-    console.log("完成。重新啟動 API server 與 Agent 對話即可使用。");
-  } else {
-    console.log(usage);
-    process.exit(command ? 1 : 0);
+    return 0;
+  } catch (error) {
+    printError(`錯誤：${error instanceof Error ? error.message : String(error)}\n\n${usage}`);
+    return 1;
   }
-} catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  void runDatabaseCli().then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }
