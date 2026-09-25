@@ -20,8 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows is the primary development platform; Linux guards the POSIX path handling.
-        os: [ubuntu-latest, windows-latest]
+        # Cover the primary Windows platform plus the macOS and Linux environments.
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
 
