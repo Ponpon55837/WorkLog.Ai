@@ -103,3 +103,9 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 - 回應為 `folder_picked`（`path`、`name`）、`folder_pick_cancelled`、`folder_pick_busy`（已有一個視窗開著），或 `folder_pick_unavailable`（沒有桌面環境或找不到對話框程式）。
 - 指令與參數都是固定字串、不經過 shell，也不帶入任何請求內容；要求 JSON body，跨站表單無法觸發視窗。
 - 視窗 5 分鐘沒有選擇即放棄；同一時間只開一個。
+
+## 即時更新串流
+
+- REST：GET /api/events 回傳 `text/event-stream`。連線時先送出 `: connected`，之後 server 每 2 秒檢查一次 SQLite 的 `PRAGMA data_version`；包括 Agent 的 MCP 在內，任何連線寫入資料後，都會推送 `event: changed`。每 15 秒送一次 `: keep-alive`。
+- 事件不帶任何資料或路徑，只是「有變化」的訊號；Web 收到後重新載入目前頁面，分頁在背景時會關閉串流，回到前景再補抓一次。
+- 與其他端點一樣檢查 `Host` 白名單與 `Origin`；沒有連線時停止輪詢。
