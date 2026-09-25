@@ -424,7 +424,7 @@ describe("portable project data transfer", () => {
 
     destination.importProjectData(input);
     expect(destination.listProjects()).toMatchObject([
-      { id: existingProject.id, name: "Local project name", rootPath: existingRoot, status: "tracked" },
+      { id: existingProject.id, name: "Local project name", rootPath: existingProject.rootPath, status: "tracked" },
     ]);
     expect(destination.getSessionById(source.sessionIds[0])?.projectId).toBe(existingProject.id);
   });
