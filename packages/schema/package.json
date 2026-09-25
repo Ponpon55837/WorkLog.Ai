@@ -16,7 +16,7 @@
     "zod": "^3.25.76"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
     "test": "vitest run --root ../.. tests/schema",
     "test:coverage": "vitest run --root ../.. --config packages/schema/vitest.coverage.config.ts"

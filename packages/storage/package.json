@@ -18,7 +18,7 @@
     "@work-intelligence/schema": "workspace:*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",
     "test": "vitest run --root ../.. --config packages/storage/vitest.config.ts",
     "test:coverage": "vitest run --root ../.. --config packages/storage/vitest.coverage.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json"

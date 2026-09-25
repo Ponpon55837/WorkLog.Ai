@@ -91,18 +91,22 @@ describe("Codex finalize reminder hook", () => {
     expect(responseForCodexHook(JSON.stringify({ hook_event_name: "Stop", stop_hook_active: true }), deps)).toBeNull();
   });
 
-  it.skipIf(process.platform !== "win32")("runs commandWindows through cmd.exe from a nested project directory", () => {
-    const config = JSON.parse(readFileSync(join(repoRoot, ".codex/hooks.json"), "utf8")) as {
-      hooks: { PostToolUse: Array<{ hooks: Array<{ commandWindows: string }> }> };
-    };
-    const command = config.hooks.PostToolUse[0]?.hooks[0]?.commandWindows;
-    expect(command).toBeTruthy();
-    const output = execFileSync("cmd.exe", ["/d", "/s", "/c", command ?? ""], {
-      cwd: trackedCwd,
-      input: "not json",
-      encoding: "utf8",
-      timeout: 15_000,
-    });
-    expect(output).toBe("");
-  });
+  it.skipIf(process.platform !== "win32")(
+    "runs commandWindows through cmd.exe from a nested project directory",
+    () => {
+      const config = JSON.parse(readFileSync(join(repoRoot, ".codex/hooks.json"), "utf8")) as {
+        hooks: { PostToolUse: Array<{ hooks: Array<{ commandWindows: string }> }> };
+      };
+      const command = config.hooks.PostToolUse[0]?.hooks[0]?.commandWindows;
+      expect(command).toBeTruthy();
+      const output = execFileSync("cmd.exe", ["/d", "/s", "/c", command ?? ""], {
+        cwd: trackedCwd,
+        input: "not json",
+        encoding: "utf8",
+        timeout: 15_000,
+      });
+      expect(output).toBe("");
+    },
+    20_000,
+  );
 });
