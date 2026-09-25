@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "start:server": "pnpm --filter @work-intelligence/server start",
+    "start": "node scripts/start.mjs",
     "start:mcp": "pnpm --filter @work-intelligence/mcp start",
     "db:backup": "node apps/server/dist/cli.js backup",
     "db:export": "node apps/server/dist/cli.js export",

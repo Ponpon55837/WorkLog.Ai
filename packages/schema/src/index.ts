@@ -25,6 +25,7 @@ import { z } from "zod";
 
 export const projectStatusSchema = z.enum(PROJECT_STATUSES);
 export const workEventTypeSchema = z.enum(WORK_EVENT_TYPES);
+export const staticFileRequestPathSchema = z.string().min(1).max(4_096).startsWith("/");
 
 export const createProjectInputSchema = z.object({
   name: z.string().trim().min(1).max(120),

@@ -6,7 +6,8 @@ import { createApiHandler } from "./server.js";
 
 const port = Number(process.env.WORK_INTELLIGENCE_PORT ?? DEFAULT_SERVER_PORT);
 const store = new WorkIntelligenceStore(databasePath, storeOptions);
-const server = createServer(createApiHandler(store));
+const webDirectory = process.env.WORK_INTELLIGENCE_WEB_DIST;
+const server = createServer(createApiHandler(store, webDirectory ? { webDirectory } : {}));
 
 server.listen(port, "127.0.0.1", () => {
   console.error(`Work Intelligence API listening on http://127.0.0.1:${port}`);

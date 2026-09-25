@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { defineConfig } from "@playwright/test";
 
-const webPort = Number(process.env.WORK_INTELLIGENCE_E2E_WEB_PORT ?? 5967);
-const apiPort = Number(process.env.WORK_INTELLIGENCE_E2E_API_PORT ?? 3211);
+const webPort = Number(
+  process.env.WORK_INTELLIGENCE_E2E_WEB_PORT ?? process.env.WORK_INTELLIGENCE_E2E_API_PORT ?? 5967,
+);
 // Workers load this config again with their own pid; they inherit the runner's path through the env so
 // tests that act as an Agent (writing through the storage package) use the server's database.
 const databasePath =
@@ -38,28 +39,17 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `${pnpm} --filter @work-intelligence/server start`,
-      url: `http://127.0.0.1:${apiPort}/api/health`,
+      command: `${pnpm} start`,
+      url: `http://127.0.0.1:${webPort}/api/health`,
       timeout: 120_000,
       reuseExistingServer: false,
       env: {
         ...process.env,
-        WORK_INTELLIGENCE_PORT: String(apiPort),
+        WORK_INTELLIGENCE_PORT: String(webPort),
         WORK_INTELLIGENCE_DB: databasePath,
         WORK_INTELLIGENCE_BACKUP: "off",
         WORK_INTELLIGENCE_BACKUP_DIR: path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}-backups`),
-        WORK_INTELLIGENCE_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort},http://localhost:${webPort}`,
-      },
-    },
-    {
-      command: `${pnpm} --filter @work-intelligence/web dev -- --host 127.0.0.1`,
-      url: `http://127.0.0.1:${webPort}`,
-      timeout: 120_000,
-      reuseExistingServer: false,
-      env: {
-        ...process.env,
-        WORK_INTELLIGENCE_WEB_PORT: String(webPort),
-        WORK_INTELLIGENCE_API_PORT: String(apiPort),
+        WORK_INTELLIGENCE_ALLOWED_ORIGINS: "",
       },
     },
   ],

@@ -22,7 +22,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 `.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：
 
 - **Quality**（`ubuntu-latest` + `windows-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。Windows 是主要開發平台，Linux 用來守住非 Windows 的路徑處理。
-- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 後執行 `pnpm test:e2e`；失敗時上傳 `test-results/` 供除錯。
+- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 後執行 `pnpm test:e2e`；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。
 
 Coverage 門檻維持下方的模組局部門檻；尚未量測其他 workspace 的基線，所以沒有設定全域門檻。
 
@@ -37,10 +37,10 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; node packages/storage/bench/read-pat
 
 `pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%（新增 schema，包括 MCP 專用的 input schema，都要補測試才會過），storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
 
-`pnpm test:e2e` 會先建置 production packages，再以獨立的暫存 SQLite、API `3211` 與 Web `5967` 啟動測試服務，不會讀寫目前使用中的 `data/work-intelligence.sqlite` 或 `5966` 開發畫面。若這兩個 port 已被占用，可改用其他 port：
+`pnpm test:e2e` 會先建置 production packages，再以獨立的暫存 SQLite、單一 port `5967` 啟動正式模式測試服務，不會讀寫目前使用中的 `data/work-intelligence.sqlite` 或 `5966` 開發畫面。若 port 已被占用，可改用其他 port：
 
 ```powershell
-$env:WORK_INTELLIGENCE_E2E_WEB_PORT = "5987"; $env:WORK_INTELLIGENCE_E2E_API_PORT = "3231"; npx playwright test
+$env:WORK_INTELLIGENCE_E2E_WEB_PORT = "5987"; npx playwright test
 ```
 
 E2E 涵蓋：Knowledge 候選（網頁建立請求、以 storage 套件模擬 Agent 回寫後頁面自動出現並接受）、Knowledge 可信度（改到 appliesTo 檔案後標示可能過時、確認仍有效後清除）、metadata 回補請求在 Agent 回寫後自動更新、專案頁「資料備份」立即備份、AI 報告整理卡（來源 Session、歷史版本、重新整理、Agent 存入結果後頁面自動更新並提示）、報告總覽依區間切換內容、工作歷程／知識的每頁筆數與 virtual list、Graph 篩選、節點搜尋（`?q=`、Enter 選取第一筆、無結果狀態）與節點面板、390px 寬度的 Session 面板、640／390px 各頁無水平捲動、直接路由與 `/worklog` 轉址、`?session=` 深連結、側邊面板拖曳調整寬度並記住、切換為記錄中前的同意對話框、Ctrl／⌘ K 指令面板、Session 面板「編輯 Session」（改主摘要、一段 workSummary 與 verification，未改的段落保留，verification 留下修改紀錄）、Session 作廢／「只看已作廢」篩選／還原。報告日期以測試機器的系統時區計算，與 server 一致。
