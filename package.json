@@ -29,6 +29,7 @@
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.15.0",
