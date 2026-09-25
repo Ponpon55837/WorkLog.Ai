@@ -418,6 +418,9 @@ describe("portable project data transfer", () => {
     expect(preview.additions.projects).toBe(1);
     expect(preview.additions.sessions).toBe(2);
     expect(total(preview.conflicts)).toBe(0);
+    expect(preview.selectedProjects).toMatchObject([
+      { id: source.projectId, rootPath: destinationRoot, resolution: "new" },
+    ]);
     expect(preview.remappedPaths).toEqual([{ projects: 1, snapshots: 1 }]);
     expect(destination.listProjects()).toHaveLength(0);
 
@@ -495,6 +498,9 @@ describe("portable project data transfer", () => {
     expect(preview.additions.projects).toBe(0);
     expect(preview.skipped.projects).toBe(1);
     expect(preview.additions.sessions).toBe(2);
+    expect(preview.selectedProjects).toMatchObject([
+      { id: source.projectId, rootPath: existingRoot, resolution: "existing" },
+    ]);
 
     destination.importProjectData(input);
     expect(destination.listProjects()).toMatchObject([
@@ -539,6 +545,32 @@ describe("portable project data transfer", () => {
     expect(destination.getSessionById(String(bundle.tables.sessions[0]?.id ?? ""))?.summary).toBe(
       "不同內容的既有 Session",
     );
+  });
+
+  it("marks a project with an ID and root-path mismatch as conflicted in the preview", () => {
+    const source = createSource();
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const project = bundle.tables.projects[0];
+    if (!project) {
+      throw new Error("The fixture should contain a project.");
+    }
+    const targetRoot = join(source.root, "project-path-conflict.sqlite");
+    const conflictingRoot = join(source.root, "different-project-location");
+    const destination = new WorkIntelligenceStore(targetRoot);
+    stores.push(destination);
+    const db = new DatabaseSync(targetRoot);
+    try {
+      insertRow(db, "projects", row("projects", { ...project, root_path: conflictingRoot }));
+    } finally {
+      db.close();
+    }
+
+    const preview = destination.previewProjectDataImport({ bundle });
+
+    expect(preview.conflicts.projects).toBe(1);
+    expect(preview.selectedProjects).toMatchObject([
+      { id: source.projectId, rootPath: source.projectRoot, resolution: "conflict" },
+    ]);
   });
 
   it("rejects supersedes and link references that are outside the selected scope", () => {

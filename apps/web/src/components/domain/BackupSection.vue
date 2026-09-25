@@ -80,6 +80,11 @@ const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
     knowledge: preview.additions.knowledge ?? 0,
   };
 });
+const importProjectResolutionLabels = {
+  existing: "對應既有專案",
+  new: "將新增專案",
+  conflict: "專案衝突",
+} as const;
 
 function exportPortableData(): Promise<void> {
   if (exportScope.value === "project") {
@@ -242,7 +247,23 @@ onMounted(() => {
 
       <UiFlash v-if="importError" tone="danger">{{ importError }}</UiFlash>
       <div v-if="importPreview" class="transfer-preview" data-testid="project-import-preview" aria-live="polite">
-        <p>匯入範圍：{{ importPreview.selectedProjects.map((project) => project.name).join("、") }}</p>
+        <p>匯入專案與套用路徑</p>
+        <VirtualList
+          :items="importPreview.selectedProjects"
+          :enabled="importPreview.selectedProjects.length > scrollAfter"
+          :estimate-item-height="68"
+          max-height="min(40vh, 320px)"
+          label="匯入專案與路徑"
+          data-testid="project-import-selected-projects"
+        >
+          <template #default="{ item }">
+            <UiBoxRow
+              class="transfer-preview__project-row"
+              :title="item.name"
+              :meta="`${item.rootPath} · ${importProjectResolutionLabels[item.resolution]}`"
+            />
+          </template>
+        </VirtualList>
         <div class="transfer-preview__counts">
           <div data-testid="project-import-additions">
             <span>新增</span>
@@ -393,6 +414,12 @@ onMounted(() => {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-muted);
+}
+
+.transfer-preview__project-row :deep(.ui-box-row__meta) {
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .transfer-preview__counts {

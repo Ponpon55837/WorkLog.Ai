@@ -238,7 +238,7 @@ export async function runDatabaseCli(
       if (!parsedBundle.success) {
         fail(`匯入檔格式錯誤：${parsedBundle.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
       }
-      const bundle = parsedBundle.data as unknown as ProjectDataExport;
+      const bundle = parsedBundle.data satisfies ProjectDataExport;
       const projectId = projectValue
         ? findProjectId(
             bundle.tables.projects.map((project) => ({ id: String(project.id), name: String(project.name) })),
@@ -254,7 +254,7 @@ export async function runDatabaseCli(
       if (!parsedInput.success) {
         fail(`匯入選項格式錯誤：${parsedInput.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
       }
-      const validatedInput = parsedInput.data as unknown as ProjectDataImportInput;
+      const validatedInput = parsedInput.data satisfies ProjectDataImportInput;
       const preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
       printImportPreview(preview);
       if (dryRun) {

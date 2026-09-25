@@ -1792,7 +1792,12 @@ export interface ProjectDataImportPreview {
   additions: ProjectDataCounts;
   skipped: ProjectDataCounts;
   conflicts: ProjectDataCounts;
-  selectedProjects: Array<{ id: string; name: string }>;
+  selectedProjects: Array<{
+    id: string;
+    name: string;
+    rootPath: string;
+    resolution: "existing" | "new" | "conflict";
+  }>;
   remappedPaths: ProjectDataPathRemapCount[];
   conflictDetails: ProjectDataImportConflict[];
   conflictDetailsTruncated: boolean;

@@ -467,6 +467,7 @@ describe("Work Intelligence REST API", () => {
   it("previews and merges portable project data while the server is running", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-transfer-"));
     const projectRoot = join(root, "path-must-not-be-created");
+    const remappedProjectRoot = join(root, "remapped-project-path");
     const source = new WorkIntelligenceStore(":memory:");
     const project = source.addProject("Portable API fixture", projectRoot);
     source.updateProject(project.id, { status: "tracked" });
@@ -489,15 +490,18 @@ describe("Work Intelligence REST API", () => {
       const preview = await requestJson<{
         outcome: string;
         additions: { projects: number; sessions: number };
-        selectedProjects: Array<{ name: string }>;
-      }>(baseUrl, "/api/import/preview", { method: "POST", body: { bundle } });
+        selectedProjects: Array<{ name: string; rootPath: string; resolution: string }>;
+      }>(baseUrl, "/api/import/preview", {
+        method: "POST",
+        body: { bundle, remap: [{ from: projectRoot, to: remappedProjectRoot }] },
+      });
       expect(preview.status).toBe(200);
       expect(preview.body).toMatchObject({
         outcome: "project_data_import_preview",
         additions: { projects: 1, sessions: 1 },
-        selectedProjects: [{ name: "Portable API fixture" }],
+        selectedProjects: [{ name: "Portable API fixture", rootPath: remappedProjectRoot, resolution: "new" }],
       });
-      expect(JSON.stringify(preview.body)).not.toContain(projectRoot);
+      expect(JSON.stringify(preview.body)).not.toContain(`"rootPath":"${projectRoot}"`);
 
       const unsupportedSchema = await requestJson<{ error: string }>(baseUrl, "/api/import/preview", {
         method: "POST",
@@ -516,7 +520,7 @@ describe("Work Intelligence REST API", () => {
       const imported = await requestJson<{ outcome: string; additions: { projects: number; sessions: number } }>(
         baseUrl,
         "/api/import",
-        { method: "POST", body: { bundle } },
+        { method: "POST", body: { bundle, remap: [{ from: projectRoot, to: remappedProjectRoot }] } },
       );
       expect(imported.status).toBe(200);
       expect(imported.body).toMatchObject({
@@ -530,7 +534,7 @@ describe("Work Intelligence REST API", () => {
       const repeated = await requestJson<{ skipped: { projects: number; sessions: number } }>(
         baseUrl,
         "/api/import/preview",
-        { method: "POST", body: { bundle } },
+        { method: "POST", body: { bundle, remap: [{ from: projectRoot, to: remappedProjectRoot }] } },
       );
       expect(repeated.status).toBe(200);
       expect(repeated.body.skipped).toMatchObject({ projects: 1, sessions: 1 });

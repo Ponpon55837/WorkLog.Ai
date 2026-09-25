@@ -76,7 +76,7 @@ async function loadImportFile(file: File | undefined): Promise<void> {
       importError.value = `匯出檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`;
       return;
     }
-    importBundle.value = parsed.data as unknown as ProjectDataExport;
+    importBundle.value = parsed.data satisfies ProjectDataExport;
     importFileName.value = file.name;
     if (parsed.data.scope.type === "project") {
       importProjectId.value = parsed.data.scope.projectId;

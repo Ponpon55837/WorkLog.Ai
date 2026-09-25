@@ -681,6 +681,8 @@ test.describe("Work Intelligence browser regression", () => {
     const preview = backups.getByTestId("project-import-preview");
     await expect(preview).toBeVisible();
     await expect(preview).toContainText("Browser Regression Fixture");
+    await expect(preview.getByTestId("project-import-selected-projects")).toContainText(projectRoot);
+    await expect(preview.getByTestId("project-import-selected-projects")).toContainText("對應既有專案");
     await expect(preview.getByTestId("project-import-additions")).toContainText("新增");
     await expect(preview.getByTestId("project-import-skipped")).toContainText("略過");
     await expect(preview.getByTestId("project-import-conflicts")).toContainText("衝突");
