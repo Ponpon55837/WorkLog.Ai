@@ -59,6 +59,15 @@ import type {
 
 type ApiErrorPayload = { error?: string };
 
+export type ApiHealth = {
+  ok: boolean;
+  app: string;
+  version: string;
+  schemaVersion: number;
+  policy: string;
+  database: "connected" | "unavailable";
+};
+
 export type SessionListRequest = {
   q?: string;
   projectId?: string;
@@ -109,6 +118,10 @@ export class ApiClient {
       source.addEventListener("open", onReconnected);
     }
     return source;
+  }
+
+  public getHealth(signal?: AbortSignal): Promise<ApiHealth> {
+    return this.request<ApiHealth>("/api/health", { signal });
   }
 
   private async fetchResponse(path: string, init?: RequestInit): Promise<Response> {
