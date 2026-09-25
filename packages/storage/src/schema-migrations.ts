@@ -332,6 +332,23 @@ const MIGRATIONS: SchemaMigration[] = [
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
 
+export function getAppliedSchemaVersions(db: DatabaseSync): number[] {
+  const tableExists = db
+    .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
+    .get();
+  if (!tableExists) {
+    return [];
+  }
+  return (db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>).map(
+    (row) => row.version,
+  );
+}
+
+export function getNextPendingSchemaMigrationVersion(db: DatabaseSync): number | undefined {
+  const applied = new Set(getAppliedSchemaVersions(db));
+  return MIGRATIONS.find((migration) => !applied.has(migration.version))?.version;
+}
+
 /** Applies pending versioned migrations. Call inside an immediate transaction. */
 export function applySchemaMigrations(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -339,9 +356,7 @@ export function applySchemaMigrations(db: DatabaseSync): void {
     name TEXT NOT NULL,
     applied_at TEXT NOT NULL
   )`);
-  const applied = new Set(
-    (db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>).map((row) => row.version),
-  );
+  const applied = new Set(getAppliedSchemaVersions(db));
   const record = db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)");
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.version)) {

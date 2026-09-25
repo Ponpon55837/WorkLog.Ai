@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
-import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import { DatabaseInitializationError, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
@@ -134,5 +134,24 @@ describe("database maintenance CLI", () => {
     writeFileSync(bundleFile, "not JSON");
     expect(await runDatabaseCli(["import", "portable.json", "--dry-run"], deps)).toBe(1);
     expect(messages.error.join("\n")).toContain("不是有效的 JSON");
+  });
+
+  it("prints the safe newer-schema refusal when startup cannot open the database", async () => {
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps: DatabaseCliDependencies = {
+      invocationDirectory: createRoot(),
+      withStore: () => {
+        throw new DatabaseInitializationError(
+          "DATABASE_SCHEMA_VERSION_TOO_NEW",
+          "資料庫 schema 版本 11 比此程式支援的版本 10 新。請更新 Work Intelligence 後再開啟資料庫。",
+        );
+      },
+      log: (message) => messages.log.push(message),
+      error: (message) => messages.error.push(message),
+    };
+
+    expect(await runDatabaseCli(["backup"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("請更新 Work Intelligence");
+    expect(messages.error.join("\n")).not.toContain("SQLITE");
   });
 });
