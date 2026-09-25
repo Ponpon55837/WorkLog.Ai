@@ -554,6 +554,30 @@ describe("Work Intelligence REST API", () => {
     }
   }, 30_000);
 
+  it("returns a fixed 500 response when project-data storage throws an internal error", async () => {
+    const store = new WorkIntelligenceStore(":memory:");
+    const bundle = store.exportProjectData({ type: "all" });
+    const internalMessage = "UNIQUE constraint failed: sessions.idempotency_key";
+    store.previewProjectDataImport = () => {
+      throw new Error(internalMessage);
+    };
+    store.importProjectData = () => {
+      throw new Error(internalMessage);
+    };
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-transfer-error-")) });
+
+    for (const path of ["/api/import/preview", "/api/import"]) {
+      const result = await requestJson<{ error: string }>(baseUrl, path, {
+        method: "POST",
+        body: { bundle },
+      });
+      expect(result.status).toBe(500);
+      expect(result.body.error).toBe("Internal server error.");
+      expect(JSON.stringify(result.body)).not.toContain(internalMessage);
+    }
+  });
+
   it("reports that an in-memory database has no backups", async () => {
     const store = new WorkIntelligenceStore(":memory:");
     const { server, baseUrl } = await startApi(store);
