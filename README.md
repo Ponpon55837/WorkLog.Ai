@@ -1,10 +1,11 @@
 # Work Intelligence
 
-**Local-first 的開發工作記憶。** Codex／Claude 等 Agent 完成一次工作後，把「做了什麼、改了哪些檔案、怎麼驗證的」寫進本機的中央 SQLite；你可以在 Web UI 回顧工作歷程、產生日／週／月報，後續 Agent 也能從這裡取回脈絡。
+**Local-first 的開發工作記憶。** Codex／Claude 等 Agent 完成一次工作後，把「做了什麼、改了哪些檔案、怎麼驗證的」寫進本機的中央 SQLite；你可以在 Web UI 回顧工作歷程、產生日／週／月／季／年或自訂期間的報告，後續 Agent 開工前或遇到錯誤時，也能從這裡檢索過去的工作與 Knowledge。
 
 - 🔒 **預設不記錄**：只有你明確切換為「記錄中」的專案會被讀取與保存，其他專案一律安靜略過。
 - 🏠 **資料只在本機**：API 只綁 `127.0.0.1`，不會往任何專案 repo 寫設定檔。
-- 🧾 **可追溯**：每筆摘要、報告結論都能回到來源 Session、檔案與證據；不把 changed files 當成 Git commit，也不替 Agent 猜測驗證結果。
+- 🧾 **可追溯**：每筆摘要、報告結論都能回到來源 Session、檔案與證據；不把 changed files 當成 Git commit，也不替 Agent 猜測驗證結果；修正與作廢都會留下紀錄。
+- 💾 **帶得走**：每日自動備份、整份 SQLite 快照，以及可選單一專案或全部專案的 JSON 匯出與合併匯入。
 
 ---
 
@@ -64,9 +65,13 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 | 確認有沒有在記錄 | 「這個專案有在 Work Intelligence 記錄嗎？」 | 專案 |
 | 保存這次工作 | 「完成了，請把這次工作記錄到 Work Intelligence。」（非記錄中的專案會直接略過） | — |
 | 取回專案脈絡 | 「先看一下 Work Intelligence 裡這個專案最近做了什麼。」 | 工作歷程、工作知識 |
-| 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立） | 工作報告 →「請 Agent 整理這份報告」 |
+| 查過去做過的事、遇過的錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
+| 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立；自訂期間也可以） | 工作報告 →「請 Agent 整理這份報告」，Agent 完成後頁面會自動更新 |
+| 整理 Knowledge 候選 | 「幫我整理 Work Intelligence 的 Knowledge 候選。」 | 工作知識 →「整理候選」，接受（可先修改）或拒絕後才會成為 Knowledge |
 | 補齊缺漏的 metadata | 「幫我補齊 Work Intelligence 的 metadata 缺口。」（沒有請求時 Agent 會自己建立） | 專案 → Metadata 回補 →「掃描 metadata 缺口」 |
 | 修正已保存的摘要 | 「幫我修正上一筆 Session 的摘要：……」 | Session 面板 →「編輯 Session」 |
+| 連結相關的工作 | 「這次是接續昨天那筆規劃的實作。」 | Session 面板 →「關聯 Session」 |
+| 撤掉記錯的 Session | 「上一筆記到錯的專案，請作廢。」（可還原） | Session 面板 →「作廢」 |
 | 匯入歷史 handoff | 「幫我預覽這個專案可以匯入的 handoff。」 | 專案 → Handoff 匯入 |
 
 每筆 Session 都包含一句話摘要與固定五段內容：**成果／範圍／決策／驗證／狀態與未結項**。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。
@@ -80,11 +85,11 @@ GitHub 深色風格的介面，左側選單分三組：
 | 頁面 | 用途 |
 |---|---|
 | **總覽** | 本週 Sessions、驗證分布、待處理事項（等待 Agent 的報告整理或 metadata 回補）、最近工作 |
-| **工作歷程** | 搜尋與依專案／日期篩選所有 Session；點任一筆從右側開啟詳情，`J`/`K` 切換上下筆，「編輯 Session」可直接修正主摘要、五段內容與 verification，也可作廢誤記錄的 Session |
-| **工作報告** | 日／週／月／季／年報告（依系統時區切日，頁首標示時區）、AI 報告整理（每段附來源 Session）、趨勢、風險、原始紀錄、來源證據；可匯出 Markdown／JSON |
-| **工作知識** | Agent 明確提交的決策、模式、注意事項、流程與技能；可編輯、封存與查看變更紀錄 |
-| **工作圖譜** | Project、Session、Knowledge、Evidence、檔案之間的關聯圖 |
-| **專案** | 專案清單與記錄狀態、Metadata 回補、Handoff 匯入 |
+| **工作歷程** | 多關鍵字搜尋與依專案／日期篩選所有 Session；點任一筆從右側開啟詳情（開始時間、耗時、最後更新），`J`/`K` 切換上下筆。「編輯 Session」可修正主摘要、五段內容與 verification（留修改紀錄），也可建立 Session 關聯、作廢或還原，並逐筆標示錯誤的 Evidence。Agent 新存的 Session 會自動出現 |
+| **工作報告** | 日／週／月／季／年與自訂期間（最長 366 天）報告，依系統時區切日並在頁首標示時區。總覽依區間分組（當日 Session、每日／每週／每月／每季分布、專案占比）；另有 AI 報告整理（每段附來源 Session）、趨勢、風險、跨期工作（更早開始、之後完成、事後修改）、原始紀錄、來源證據，資料超過上限時會提醒。可匯出 Markdown／JSON |
+| **工作知識** | Agent 明確提交的決策、模式、注意事項、流程與技能，以及待審核的 Knowledge 候選；相關檔案被改動時標示「可能過時」，被 Session 推翻時標示「需要檢視」，可「確認仍有效」、編輯、封存與查看變更紀錄 |
+| **工作圖譜** | Project、Session、Knowledge、Evidence、檔案與 Session 關聯的關係圖 |
+| **專案** | 專案清單與記錄狀態（加入時可用系統視窗選資料夾）、Metadata 回補、Handoff 匯入、資料備份（備份、匯出、匯入） |
 
 快捷鍵：`Ctrl`/`⌘` + `K` 搜尋或跳頁、`/` 聚焦頁面搜尋、`g` + `d`／`s`／`r`／`k`／`g`／`p` 切換頁面。篩選條件與開啟中的 Session 都會寫進網址，可以直接分享或重新整理。
 
@@ -124,7 +129,9 @@ pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=
 - **Verification 四種狀態分開**：通過、失敗、明確未執行（`not_run`）、未回報（歷史資料沒有提供）。
 - **報表數字 ≠ AI 摘要**：統計與趨勢由系統 deterministic 計算；AI 整理的每段結論都必須引用來源 Session，資料不足時會直接寫「資料不足」。
 - **Knowledge 只收明確提交**：不會從 handoff 或原始碼自動抽取。
-- **摘要可修正，其他欄位不改**：主摘要與五段 workSummary 可由 Agent 或 Session 面板就地修正（同一筆 Session、留 audit）；changed files、verification、events、evidence 在 UI 維持唯讀。
+- **修正留痕跡，不重寫歷史**：主摘要、五段 workSummary 與 verification 可由 Agent 或 Session 面板就地修正（同一筆 Session、留修改紀錄）；誤記的 Session 與錯誤的 Evidence 用作廢處理（需填原因、可還原）。changed files、events 與 Evidence 內容維持唯讀。
+- **開工前的改動不算這次的成果**：Agent 可在開工時記下已存在的改動（`baselineChangedFiles`），finalize 時會從 changed files 排除。
+- **Knowledge 會提醒自己過時**：`appliesTo` 的檔案之後被改動時標示「可能過時」；候選由 Agent 提出、由你接受才成為 Knowledge。
 
 更完整的資料契約、一致性保證與設計原則見 [docs/architecture.md](docs/architecture.md)。
 
@@ -138,10 +145,12 @@ apps/
 packages/
   core/            domain types 與 extension interfaces
   schema/          Zod 輸入契約
-  storage/         SQLite schema 與 work/session service
+  storage/         SQLite schema、migration，以及 report、synthesis、backfill、recall、backup、資料轉移等 service
   project-policy/  default-deny policy gate 與安全路徑
   shared/          共用常數與 helpers
-data/              本機 SQLite（不進版控）
+tests/             各 package 的單元／整合測試與 Playwright E2E（依 package 分資料夾）
+scripts/           build 前清除 dist 等共用腳本
+data/              本機 SQLite 與 backups/（不進版控）
 ```
 
 ```powershell
@@ -150,7 +159,8 @@ pnpm start:server   # 只啟動 API
 pnpm start:mcp      # 只啟動 MCP stdio server
 pnpm db:backup      # 立即備份（db:export、db:restore 見「備份與換電腦」）
 pnpm db:import <檔案.json> --dry-run # 預覽可攜式專案資料匯入，不寫入
-pnpm test           # lint + Prettier check + 各 package 測試
+pnpm test           # lint + Prettier check + 各 package 與 Web 單元測試
+pnpm test:coverage  # 覆蓋率（schema、storage、server、mcp、web 各有門檻）
 pnpm format         # 用 Prettier 格式化整個 repo
 pnpm typecheck      # packages + Vue + e2e 型別
 pnpm test:e2e       # Playwright（獨立暫存 SQLite，不影響你的資料）
@@ -166,7 +176,7 @@ pnpm test:e2e       # Playwright（獨立暫存 SQLite，不影響你的資料�
 |---|---|
 | [docs/agent-setup.md](docs/agent-setup.md) | 註冊到 Codex CLI、Claude Code、Claude Desktop 與第一次使用 |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | 每個 MCP tool 的用途、欄位、範例、policy 行為、annotations 與 prompts |
-| [docs/rest-api.md](docs/rest-api.md) | REST endpoints、metadata backfill、報告匯出 |
+| [docs/rest-api.md](docs/rest-api.md) | REST endpoints、metadata backfill、報告匯出、備份與專案資料匯出／匯入、即時更新串流 |
 | [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | Session 五段格式、報告粒度與回填邊界 |
 | [docs/architecture.md](docs/architecture.md) | 資料契約、一致性與輸入邊界、Recording Policy、設計原則 |
 | [docs/testing.md](docs/testing.md) | 測試指令、覆蓋率門檻與 E2E 範圍 |
