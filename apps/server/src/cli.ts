@@ -146,9 +146,7 @@ export async function runDatabaseCli(
       if (result.outcome !== "database_backups") {
         fail(result.reason);
       }
-      print(
-        `已備份：${result.created.fileName}（手動保留 ${result.keep} 份、自動保留 ${result.automaticKeep} 份）`,
-      );
+      print(`已備份：${result.created.fileName}（手動保留 ${result.keep} 份、自動保留 ${result.automaticKeep} 份）`);
     } else if (command === "export") {
       if (args[0] === "--all" || args[0] === "--project") {
         const scopeType = args[0] === "--all" ? "all" : "project";
