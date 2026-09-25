@@ -52,6 +52,7 @@ import { createFolderPicker } from "./folder-picker.js";
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 
 const JSON_HEADERS = {
@@ -217,12 +218,18 @@ export interface ApiHandlerOptions {
   pickFolder?: () => Promise<FolderPickResult>;
   /** Polling interval for the SQLite change stream; configurable to keep integration tests fast. */
   eventPollIntervalMs?: number;
+  /** Maximum number of simultaneous SSE clients. */
+  maxEventClients?: number;
 }
 
 export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}) {
   const pickFolder = options.pickFolder ?? createFolderPicker();
   const eventClients = new Set<ServerResponse>();
   const eventPollIntervalMs = Math.max(1, options.eventPollIntervalMs ?? DEFAULT_EVENT_POLL_INTERVAL_MS);
+  const requestedMaxEventClients = options.maxEventClients ?? DEFAULT_MAX_EVENT_CLIENTS;
+  const maxEventClients = Number.isFinite(requestedMaxEventClients)
+    ? Math.max(1, Math.trunc(requestedMaxEventClients))
+    : DEFAULT_MAX_EVENT_CLIENTS;
   let lastChangeToken = store.getChangeToken();
   let lastHeartbeatAt = Date.now();
   let eventPollTimer: ReturnType<typeof setInterval> | undefined;
@@ -274,6 +281,12 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   }
 
   function startEventStream(response: ServerResponse): void {
+    if (eventClients.size >= maxEventClients) {
+      response.setHeader("Retry-After", "5");
+      sendError(response, 503, "SSE connection limit reached.");
+      return;
+    }
+
     response.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",

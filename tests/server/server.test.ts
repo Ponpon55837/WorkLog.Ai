@@ -151,6 +151,30 @@ describe("Work Intelligence REST API", () => {
     }
   });
 
+  it("rejects excess simultaneous SSE streams with retry guidance", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-events-limit-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store, { maxEventClients: 1 });
+    resources.push({ server, store, root });
+
+    const first = await fetch(`${baseUrl}/api/events`);
+    expect(first.status).toBe(200);
+    const reader = first.body?.getReader();
+    if (!reader) {
+      throw new Error("The SSE response did not expose a readable stream.");
+    }
+
+    try {
+      expect(await readSseUntil(reader, ": connected")).toContain(": connected");
+      const rejected = await fetch(`${baseUrl}/api/events`);
+      expect(rejected.status).toBe(503);
+      expect(rejected.headers.get("retry-after")).toBe("5");
+      expect(await rejected.json()).toEqual({ error: "SSE connection limit reached." });
+    } finally {
+      await reader.cancel();
+    }
+  });
+
   it("returns a safe client error for malformed JSON", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-body-test-"));
     const store = new WorkIntelligenceStore(":memory:");
