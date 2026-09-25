@@ -90,6 +90,7 @@ async function submitKnowledgeCandidateForReview(
 async function expectBoundedVirtualList(page: Page, name: string): Promise<Locator> {
   const list = page.getByRole("list", { name });
   await expect(list).toBeVisible();
+  await expect(list).toHaveAttribute("tabindex", "0");
   await expect(list).toHaveCSS("overflow-y", "auto");
   const visibleItems = await list.getByRole("listitem").count();
   expect(visibleItems).toBeGreaterThan(0);
@@ -102,6 +103,12 @@ async function expectBoundedVirtualList(page: Page, name: string): Promise<Locat
   await list.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await list.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await list.focus();
+  await page.keyboard.press("PageDown");
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   return list;
 }

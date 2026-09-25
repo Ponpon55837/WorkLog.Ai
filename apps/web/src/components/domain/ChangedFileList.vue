@@ -80,7 +80,7 @@ const rows = computed(() => {
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 

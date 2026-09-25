@@ -267,6 +267,7 @@ onBeforeUnmount(() => {
     :style="enabled ? { maxHeight } : undefined"
     :role="enabled ? 'list' : undefined"
     :aria-label="enabled ? label : undefined"
+    :tabindex="enabled ? 0 : undefined"
     @scroll="handleScroll"
     @keydown="handleKeydown"
   >
