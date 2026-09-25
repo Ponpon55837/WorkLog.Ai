@@ -23,6 +23,7 @@ import type {
   WorkSessionRecord,
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
+import { isChangedFilesMetadataConfirmed } from "./changed-files-confirmation.js";
 import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import type { SessionRow } from "./session-repository.js";
@@ -87,7 +88,9 @@ function toMetadataBackfillItem(
 ): MetadataBackfillItem {
   const session = mapSession(row);
   const gaps = [
-    ...(session.changedFiles.length === 0 ? ["changed_files" as const] : []),
+    ...(!isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed)
+      ? ["changed_files" as const]
+      : []),
     ...(!session.verification || session.verification.status === "not_run" ? ["verification" as const] : []),
   ];
   return {
@@ -159,8 +162,8 @@ export class MetadataBackfillService {
           projectClause,
       )
       .get(...parameters) as { count: number };
-    // SQL pre-filter only drops rows that certainly have no gap (non-empty changed files and a
-    // passed/failed verification); toMetadataBackfillItem still decides the exact gaps.
+    // SQL pre-filter only drops rows with confirmed changed-files metadata and a passed/failed
+    // verification; toMetadataBackfillItem still decides the exact gaps.
     const rows = this.db
       .prepare(
         "SELECT s.*, p.name AS project_name, p.root_path AS project_root, " +
@@ -169,8 +172,9 @@ export class MetadataBackfillService {
           "WHERE p.status = 'tracked' AND s.voided_at IS NULL" +
           projectClause +
           " AND NOT (" +
-          "COALESCE(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json) = 'array' " +
-          "THEN json_array_length(s.changed_files_json) END, 0) > 0 " +
+          "COALESCE(s.changed_files_confirmed, 0) = 1 " +
+          "AND COALESCE(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json) = 'array' " +
+          "THEN 1 END, 0) = 1 " +
           "AND COALESCE(CASE WHEN json_valid(s.verification_json) " +
           "THEN json_extract(s.verification_json, '$.status') END, 'not_run') IN ('passed', 'failed')" +
           ") " +

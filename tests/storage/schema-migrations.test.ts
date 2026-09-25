@@ -23,6 +23,14 @@ describe("custom report synthesis migration", () => {
           (6, 'session-started-updated-at', '2026-09-01T00:00:00.000Z'),
           (7, 'knowledge-candidates', '2026-09-01T00:00:00.000Z');
         CREATE TABLE projects (id TEXT PRIMARY KEY);
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          changed_files_json TEXT NOT NULL DEFAULT '[]'
+        );
+        INSERT INTO sessions (id, changed_files_json)
+        VALUES
+          ('legacy-files', '["src/legacy.ts"]'),
+          ('legacy-empty', '[]');
         CREATE TABLE report_synthesis_requests (
           id TEXT PRIMARY KEY,
           idempotency_key TEXT NOT NULL UNIQUE,
@@ -87,6 +95,14 @@ describe("custom report synthesis migration", () => {
         version: 8,
         name: "custom-report-synthesis-ranges",
       });
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 10").get()).toEqual({
+        version: 10,
+        name: "confirmed-empty-changed-files",
+      });
+      expect(db.prepare("SELECT id, changed_files_confirmed FROM sessions ORDER BY id").all()).toEqual([
+        { id: "legacy-empty", changed_files_confirmed: 0 },
+        { id: "legacy-files", changed_files_confirmed: 1 },
+      ]);
       expect(
         db
           .prepare("SELECT id, period, range_from, range_to, source_session_ids_json FROM report_synthesis_requests")

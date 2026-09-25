@@ -569,7 +569,21 @@ describe("WorkIntelligenceStore", () => {
       return result.session.id;
     };
     finalize("failed-with-files", { changedFiles: ["src/a.ts"], verification: { status: "failed" } });
-    finalize("passed-without-files", { changedFiles: [], verification: { status: "passed" } });
+    const passedWithoutFiles = finalize("passed-without-files", {
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    const confirmedEmptyRetry = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "passed-without-files",
+      title: "passed-without-files",
+      summary: "Backfill edge case.",
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    expect(confirmedEmptyRetry).toMatchObject({ outcome: "finalized", duplicate: true });
+    expect(confirmedEmptyRetry).not.toHaveProperty("changedFilesFollowUp");
+    finalize("unspecified-files", { verification: { status: "passed" } });
     const statusless = finalize("statusless-verification", {
       changedFiles: ["src/b.ts"],
       verification: { status: "passed" },
@@ -585,11 +599,12 @@ describe("WorkIntelligenceStore", () => {
     if (preview.outcome !== "backfill_preview") {
       throw new Error("Expected a metadata backfill preview");
     }
-    expect(preview.scannedSessions).toBe(4);
+    expect(preview.scannedSessions).toBe(5);
     expect(Object.fromEntries(preview.items.map((item) => [item.title, item.gaps]))).toEqual({
-      "passed-without-files": ["changed_files"],
+      "unspecified-files": ["changed_files"],
       "corrupted-json": ["changed_files", "verification"],
     });
+    expect(preview.items.some((item) => item.sessionId === passedWithoutFiles)).toBe(false);
   });
 
   it("builds tracked-only reports with a deterministic UTC range and provenance", () => {
@@ -1074,6 +1089,14 @@ describe("WorkIntelligenceStore", () => {
       changedFiles: ["src/not-run.ts"],
       verification: { status: "not_run" },
     });
+    const noFiles = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "batch-backfill-confirmed-empty",
+      title: "Confirmed empty changed-files session",
+      summary: "This session intentionally changed no repository files.",
+      completedAt: "2026-09-18T12:00:00.000Z",
+      verification: { status: "passed" },
+    });
     store.finalizeSession({
       projectRoot: root,
       idempotencyKey: "batch-backfill-complete",
@@ -1095,19 +1118,25 @@ describe("WorkIntelligenceStore", () => {
 
     expect(missing).toMatchObject({ outcome: "finalized" });
     expect(notRun).toMatchObject({ outcome: "finalized" });
+    expect(noFiles).toMatchObject({ outcome: "finalized" });
     expect(paused).toMatchObject({ outcome: "finalized" });
-    if (missing.outcome !== "finalized" || notRun.outcome !== "finalized" || paused.outcome !== "finalized") {
+    if (
+      missing.outcome !== "finalized" ||
+      notRun.outcome !== "finalized" ||
+      noFiles.outcome !== "finalized" ||
+      paused.outcome !== "finalized"
+    ) {
       throw new Error("Expected metadata backfill sessions to be finalized");
     }
 
     const preview = store.previewMetadataBackfill({ limit: 10 });
     expect(preview).toMatchObject({
       outcome: "backfill_preview",
-      scannedSessions: 3,
+      scannedSessions: 4,
       truncated: false,
       totals: {
-        needsBackfill: 2,
-        changedFilesMissing: 1,
+        needsBackfill: 3,
+        changedFilesMissing: 2,
         verificationMissing: 1,
         verificationNotRun: 1,
       },
@@ -1131,6 +1160,12 @@ describe("WorkIntelligenceStore", () => {
           gaps: ["verification"],
           changedFilesCount: 1,
         }),
+        expect.objectContaining({
+          sessionId: noFiles.session.id,
+          changedFiles: [],
+          verificationStatus: "passed",
+          gaps: ["changed_files"],
+        }),
       ]),
     );
 
@@ -1138,7 +1173,10 @@ describe("WorkIntelligenceStore", () => {
     expect(request).toMatchObject({
       outcome: "metadata_backfill_request",
       duplicate: false,
-      request: { status: "pending", sourceSessionIds: expect.arrayContaining([missing.session.id, notRun.session.id]) },
+      request: {
+        status: "pending",
+        sourceSessionIds: expect.arrayContaining([missing.session.id, notRun.session.id, noFiles.session.id]),
+      },
     });
     if (request.outcome !== "metadata_backfill_request") {
       throw new Error("Expected a metadata backfill request");
@@ -1155,6 +1193,7 @@ describe("WorkIntelligenceStore", () => {
       items: expect.arrayContaining([
         expect.objectContaining({ sessionId: missing.session.id, changedFiles: [] }),
         expect.objectContaining({ sessionId: notRun.session.id, changedFiles: ["src/not-run.ts"] }),
+        expect.objectContaining({ sessionId: noFiles.session.id, changedFiles: [] }),
       ]),
     });
 
@@ -1184,7 +1223,10 @@ describe("WorkIntelligenceStore", () => {
     });
     expect(updated).toMatchObject({
       request: { id: request.request.id, status: "processing" },
-      remainingItems: [expect.objectContaining({ sessionId: notRun.session.id })],
+      remainingItems: expect.arrayContaining([
+        expect.objectContaining({ sessionId: notRun.session.id }),
+        expect.objectContaining({ sessionId: noFiles.session.id }),
+      ]),
     });
     expect(updated.outcome).toBe("backfill_applied");
     if (updated.outcome !== "backfill_applied") {
@@ -1201,7 +1243,7 @@ describe("WorkIntelligenceStore", () => {
       gitBranch: "feature/backfill",
     });
 
-    const completed = store.applyMetadataBackfill({
+    const remaining = store.applyMetadataBackfill({
       requestId: request.request.id,
       updates: [
         {
@@ -1211,6 +1253,16 @@ describe("WorkIntelligenceStore", () => {
           verification: { status: "passed", summary: "Agent confirmed the verification evidence." },
         },
       ],
+    });
+    expect(remaining).toMatchObject({
+      outcome: "backfill_applied",
+      request: { id: request.request.id, status: "processing" },
+      remainingItems: [expect.objectContaining({ sessionId: noFiles.session.id })],
+    });
+
+    const completed = store.applyMetadataBackfill({
+      requestId: request.request.id,
+      updates: [{ sessionId: noFiles.session.id, changedFiles: [], changedFilesMode: "replace" }],
     });
     expect(completed).toMatchObject({
       outcome: "backfill_applied",

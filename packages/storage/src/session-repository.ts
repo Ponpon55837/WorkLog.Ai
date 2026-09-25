@@ -19,6 +19,7 @@ export type SessionRow = {
   commit_sha: string | null;
   git_branch: string | null;
   changed_files_json: string;
+  changed_files_confirmed?: number;
   changed_files_provenance_json: string;
   changed_file_changes_json: string | null;
   verification_json: string | null;

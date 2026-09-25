@@ -315,6 +315,19 @@ const MIGRATIONS: SchemaMigration[] = [
         ON project_data_import_audits(imported_at DESC);
     `,
   },
+  {
+    version: 10,
+    name: "confirmed-empty-changed-files",
+    sql: `
+      ALTER TABLE sessions ADD COLUMN changed_files_confirmed INTEGER NOT NULL DEFAULT 0
+        CHECK (changed_files_confirmed IN (0, 1));
+      UPDATE sessions
+      SET changed_files_confirmed = 1
+      WHERE json_valid(changed_files_json)
+        AND json_type(changed_files_json) = 'array'
+        AND json_array_length(changed_files_json) > 0;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
