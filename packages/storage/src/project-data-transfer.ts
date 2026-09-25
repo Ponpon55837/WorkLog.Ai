@@ -64,6 +64,8 @@ interface PlannedRow {
   reason?: string;
 }
 
+type InsertStatement = ReturnType<DatabaseSync["prepare"]>;
+
 interface TransferPlan {
   rows: Record<ProjectDataTable, PlannedRow[]>;
   projectIds: Map<string, string>;
@@ -287,17 +289,25 @@ function applyPathRemaps(
 }
 
 function equalProjectRoot(left: string, right: string): boolean {
-  const normalize = (value: string): string => value.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
-  const normalizedLeft = normalize(left);
-  const normalizedRight = normalize(right);
-  const windowsPath =
-    /^[A-Za-z]:\//.test(normalizedLeft) ||
-    /^[A-Za-z]:\//.test(normalizedRight) ||
-    normalizedLeft.startsWith("//") ||
-    normalizedRight.startsWith("//");
-  return windowsPath
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
+  return projectRootKey(left) === projectRootKey(right);
+}
+
+function projectRootKey(value: string): string {
+  const normalized = value.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const windowsPath = /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//");
+  return windowsPath ? normalized.toLowerCase() : normalized;
+}
+
+function uniqueIndexKey(fields: readonly string[], row: ProjectDataRow): string | undefined {
+  const values: ProjectDataValue[] = [];
+  for (const field of fields) {
+    const value = row[field];
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    values.push(value);
+  }
+  return JSON.stringify([fields, values]);
 }
 
 function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
@@ -362,12 +372,9 @@ function isAvailable(
   id: string,
   selectedIds: Set<string>,
   availableIds: Record<ProjectDataTable, Set<string>>,
-  planned: Record<ProjectDataTable, PlannedRow[]>,
+  conflictIds: Record<ProjectDataTable, Set<string>>,
 ): boolean {
-  if (
-    selectedIds.has(id) &&
-    planned[table].some((entry) => String(entry.row.id) === id && entry.disposition === "conflict")
-  ) {
+  if (selectedIds.has(id) && conflictIds[table].has(id)) {
     return false;
   }
   return availableIds[table].has(id);
@@ -379,18 +386,21 @@ function dependencyIssue(
   projectIds: Map<string, string>,
   selectedIds: Record<ProjectDataTable, Set<string>>,
   availableIds: Record<ProjectDataTable, Set<string>>,
-  planned: Record<ProjectDataTable, PlannedRow[]>,
+  conflictIds: Record<ProjectDataTable, Set<string>>,
 ): string | undefined {
   if (table !== "projects" && typeof row.project_id === "string") {
     const mappedProjectId = projectIds.get(row.project_id);
-    if (!mappedProjectId || !isAvailable("projects", mappedProjectId, selectedIds.projects, availableIds, planned)) {
+    if (
+      !mappedProjectId ||
+      !isAvailable("projects", mappedProjectId, selectedIds.projects, availableIds, conflictIds)
+    ) {
       return "所屬專案發生衝突或不存在。";
     }
     row.project_id = mappedProjectId;
   }
 
   const sessionId = typeof row.session_id === "string" ? row.session_id : undefined;
-  if (sessionId && !isAvailable("sessions", sessionId, selectedIds.sessions, availableIds, planned)) {
+  if (sessionId && !isAvailable("sessions", sessionId, selectedIds.sessions, availableIds, conflictIds)) {
     return "關聯的 Session 發生衝突或不存在。";
   }
   if (table === "session_links") {
@@ -401,7 +411,7 @@ function dependencyIssue(
     if (!selectedIds.sessions.has(sessionId ?? "") || !selectedIds.sessions.has(relatedSessionId)) {
       return "Session 關聯的兩端都必須包含在匯入範圍內。";
     }
-    if (!isAvailable("sessions", relatedSessionId, selectedIds.sessions, availableIds, planned)) {
+    if (!isAvailable("sessions", relatedSessionId, selectedIds.sessions, availableIds, conflictIds)) {
       return "關聯的另一端 Session 發生衝突或不存在。";
     }
   }
@@ -411,7 +421,7 @@ function dependencyIssue(
       typeof row.last_confirmed_session_id === "string" ? row.last_confirmed_session_id : undefined;
     if (
       lastConfirmedSessionId &&
-      !isAvailable("sessions", lastConfirmedSessionId, selectedIds.sessions, availableIds, planned)
+      !isAvailable("sessions", lastConfirmedSessionId, selectedIds.sessions, availableIds, conflictIds)
     ) {
       return "Knowledge 的最後確認 Session 發生衝突或不存在。";
     }
@@ -419,14 +429,14 @@ function dependencyIssue(
     if (supersedesId && !selectedIds.knowledge.has(supersedesId)) {
       return "Knowledge 的 supersedes 關聯不在匯入範圍內。";
     }
-    if (supersedesId && !isAvailable("knowledge", supersedesId, selectedIds.knowledge, availableIds, planned)) {
+    if (supersedesId && !isAvailable("knowledge", supersedesId, selectedIds.knowledge, availableIds, conflictIds)) {
       return "Knowledge 的 supersedes 目標發生衝突或不存在。";
     }
   }
 
   if (table === "knowledge_audit" || table === "knowledge_candidates") {
     const knowledgeId = typeof row.knowledge_id === "string" ? row.knowledge_id : undefined;
-    if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, planned)) {
+    if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
       return "關聯的 Knowledge 發生衝突或不存在。";
     }
   }
@@ -434,14 +444,14 @@ function dependencyIssue(
   const requestId = typeof row.request_id === "string" ? row.request_id : undefined;
   const requestTable = table === "report_summaries" ? "report_synthesis_requests" : "knowledge_candidate_requests";
   if (requestId && (table === "report_summaries" || table === "knowledge_candidates")) {
-    if (!isAvailable(requestTable, requestId, selectedIds[requestTable], availableIds, planned)) {
+    if (!isAvailable(requestTable, requestId, selectedIds[requestTable], availableIds, conflictIds)) {
       return "關聯的請求發生衝突或不存在。";
     }
   }
 
   if (table === "void_audit") {
     const targetTable = row.target_type === "session" ? "sessions" : "evidence";
-    if (!isAvailable(targetTable, String(row.target_id), selectedIds[targetTable], availableIds, planned)) {
+    if (!isAvailable(targetTable, String(row.target_id), selectedIds[targetTable], availableIds, conflictIds)) {
       return "作廢紀錄的目標發生衝突或不存在。";
     }
   }
@@ -489,6 +499,13 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
   const selectedBundle = bundleForScope(input.bundle, input.projectId);
   const remappedPaths = applyPathRemaps(selectedBundle.tables, input.remap ?? []);
   const rows = emptyRows();
+  const conflictIds = Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, new Set<string>()])) as Record<
+    ProjectDataTable,
+    Set<string>
+  >;
+  const plannedUniqueKeys = Object.fromEntries(
+    PROJECT_DATA_TABLES.map((table) => [table, new Set<string>()]),
+  ) as Record<ProjectDataTable, Set<string>>;
   const conflicts: ProjectDataImportConflict[] = [];
   let conflictDetailsTruncated = false;
   const addPlan = (
@@ -499,10 +516,18 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
   ) => {
     rows[table].push({ row, disposition, reason });
     if (disposition === "conflict") {
+      conflictIds[table].add(String(row.id));
       if (conflicts.length < CONFLICT_DETAIL_LIMIT) {
         conflicts.push({ table, id: String(row.id).slice(0, MAX_CONFLICT_ID_LENGTH), reason: reason ?? "資料衝突。" });
       } else {
         conflictDetailsTruncated = true;
+      }
+    } else {
+      for (const fields of UNIQUE_FIELDS[table] ?? []) {
+        const key = uniqueIndexKey(fields, row);
+        if (key !== undefined) {
+          plannedUniqueKeys[table].add(key);
+        }
       }
     }
   };
@@ -511,6 +536,19 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     ProjectDataTable,
     Set<string>
   >;
+  const existingRowsById = Object.fromEntries(
+    PROJECT_DATA_TABLES.map((table) => [
+      table,
+      new Map(
+        rowsByIds(
+          db,
+          table,
+          "id",
+          selectedBundle.tables[table].map((row) => String(row.id)),
+        ).map((row) => [String(row.id), row]),
+      ),
+    ]),
+  ) as Record<ProjectDataTable, Map<string, ProjectDataRow>>;
   const selectedIds = Object.fromEntries(
     PROJECT_DATA_TABLES.map((table) => [table, new Set(selectedBundle.tables[table].map((row) => String(row.id)))]),
   ) as Record<ProjectDataTable, Set<string>>;
@@ -519,15 +557,25 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     id: string;
     root_path: string;
   }>;
-  const plannedRoots = new Array<{ rootPath: string; projectId: string }>();
+  const existingProjectsById = new Map(existingProjects.map((project) => [project.id, project]));
+  const existingProjectsByRoot = new Map<string, (typeof existingProjects)[number]>();
+  for (const project of existingProjects) {
+    const rootKey = projectRootKey(project.root_path);
+    if (!existingProjectsByRoot.has(rootKey)) {
+      existingProjectsByRoot.set(rootKey, project);
+    }
+  }
+  const plannedProjectsByRoot = new Map<string, { rootPath: string; projectId: string }>();
+  const plannedProjectIds = new Set<string>();
 
   for (const original of selectedBundle.tables.projects) {
     const row = { ...original };
     const sourceId = String(row.id);
     const rootPath = String(row.root_path);
-    const byId = existingProjects.find((project) => project.id === sourceId);
-    const byRoot = existingProjects.find((project) => equalProjectRoot(project.root_path, rootPath));
-    const plannedByRoot = plannedRoots.find((project) => equalProjectRoot(project.rootPath, rootPath));
+    const rootKey = projectRootKey(rootPath);
+    const byId = existingProjectsById.get(sourceId);
+    const byRoot = existingProjectsByRoot.get(rootKey);
+    const plannedByRoot = plannedProjectsByRoot.get(rootKey);
 
     if (byId && byRoot && byId.id !== byRoot.id) {
       addPlan("projects", row, "conflict", "專案 ID 與根路徑分別對應到不同的既有專案。");
@@ -545,13 +593,14 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
       addPlan("projects", row, "skip");
       continue;
     }
-    if (plannedRoots.some((project) => project.projectId === sourceId)) {
+    if (plannedProjectIds.has(sourceId)) {
       addPlan("projects", row, "conflict", "匯入檔中有重複的專案 ID。");
       continue;
     }
     projectIds.set(sourceId, sourceId);
     row.status = "paused";
-    plannedRoots.push({ rootPath, projectId: sourceId });
+    plannedProjectsByRoot.set(rootKey, { rootPath, projectId: sourceId });
+    plannedProjectIds.add(sourceId);
     existingIds.projects.add(sourceId);
     addPlan("projects", row, "add");
   }
@@ -564,13 +613,13 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
       table === "knowledge" ? orderKnowledgeRows(selectedBundle.tables.knowledge) : selectedBundle.tables[table];
     for (const sourceRow of sourceRows) {
       const row = { ...sourceRow };
-      const dependencyError = dependencyIssue(table, row, projectIds, selectedIds, existingIds, rows);
+      const dependencyError = dependencyIssue(table, row, projectIds, selectedIds, existingIds, conflictIds);
       if (dependencyError) {
         addPlan(table, row, "conflict", dependencyError);
         continue;
       }
       const id = String(row.id);
-      const current = existingRow(db, table, id);
+      const current = existingRowsById[table].get(id);
       if (current) {
         if (equalRows(table, current, row)) {
           addPlan(table, row, "skip");
@@ -585,12 +634,11 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
         addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。");
         continue;
       }
-      const plannedUnique = rows[table].find(
-        (entry) =>
-          entry.disposition !== "conflict" &&
-          (UNIQUE_FIELDS[table] ?? []).some((fields) => fields.every((field) => entry.row[field] === row[field])),
-      );
-      if (plannedUnique) {
+      const hasPlannedUnique = (UNIQUE_FIELDS[table] ?? []).some((fields) => {
+        const key = uniqueIndexKey(fields, row);
+        return key !== undefined && plannedUniqueKeys[table].has(key);
+      });
+      if (hasPlannedUnique) {
         addPlan(table, row, "conflict", "匯入檔內有重複的唯一識別值。");
         continue;
       }
@@ -625,9 +673,8 @@ function previewFromPlan(plan: TransferPlan): ProjectDataImportPreview {
   };
 }
 
-function insertRow(db: DatabaseSync, table: ProjectDataTable, row: ProjectDataRow): void {
+function insertRow(db: DatabaseSync, table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {
   const columns = projectDataExportTableColumns[table];
-  const placeholders = columns.map(() => "?").join(", ");
   const values = columns.map((column) => {
     const value = row[column];
     if (value === undefined) {
@@ -635,7 +682,7 @@ function insertRow(db: DatabaseSync, table: ProjectDataTable, row: ProjectDataRo
     }
     return value;
   });
-  db.prepare(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`).run(...values);
+  statement.run(...values);
 }
 
 /** Exports complete project-scoped data and merges validated portable data without closing SQLite. */
@@ -665,10 +712,18 @@ export class ProjectDataTransferService {
   public import(input: ProjectDataImportInput): ProjectDataImportResult {
     return runImmediateTransaction(this.db, () => {
       const plan = makePlan(this.db, input);
+      const insertStatements = new Map<ProjectDataTable, InsertStatement>();
       for (const table of TABLE_ORDER) {
         for (const entry of plan.rows[table]) {
           if (entry.disposition === "add") {
-            insertRow(this.db, table, entry.row);
+            let statement = insertStatements.get(table);
+            if (!statement) {
+              const columns = projectDataExportTableColumns[table];
+              const placeholders = columns.map(() => "?").join(", ");
+              statement = this.db.prepare(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`);
+              insertStatements.set(table, statement);
+            }
+            insertRow(this.db, table, entry.row, statement);
           }
         }
       }

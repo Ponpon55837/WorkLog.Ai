@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
@@ -324,6 +325,79 @@ function total(counts: Record<string, number | undefined>): number {
 }
 
 describe("portable project data transfer", () => {
+  it("imports 5,000 sessions and 50,000 events and reports the elapsed time", () => {
+    const source = createSource();
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const baseSession = bundle.tables.sessions[0];
+    const baseEvent = bundle.tables.work_events[0];
+    if (!baseSession || !baseEvent) {
+      throw new Error("The benchmark fixture needs a Session and work event template.");
+    }
+
+    const sessionRows = [...bundle.tables.sessions];
+    const db = new DatabaseSync(source.store.databasePath);
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      const sessionColumns = projectDataExportTableColumns.sessions;
+      const insertSession = db.prepare(
+        `INSERT INTO sessions (${sessionColumns.join(", ")}) VALUES (${sessionColumns.map(() => "?").join(", ")})`,
+      );
+      for (let index = sessionRows.length; index < 5_000; index += 1) {
+        const session: ProjectDataRow = {
+          ...baseSession,
+          id: `benchmark-session-${index}`,
+          project_id: source.projectId,
+          idempotency_key: `benchmark-session-key-${index}`,
+          title: `Benchmark session ${index}`,
+          summary: `Synthetic import benchmark session ${index}.`,
+        };
+        insertSession.run(...sessionColumns.map((column) => session[column] ?? null));
+        sessionRows.push(session);
+      }
+
+      const eventColumns = projectDataExportTableColumns.work_events;
+      const insertEvent = db.prepare(
+        `INSERT INTO work_events (${eventColumns.join(", ")}) VALUES (${eventColumns.map(() => "?").join(", ")})`,
+      );
+      const existingEvents = bundle.tables.work_events.length;
+      for (let index = existingEvents; index < 50_000; index += 1) {
+        const session = sessionRows[index % sessionRows.length];
+        if (!session) {
+          throw new Error("The benchmark fixture needs a Session for every event.");
+        }
+        const event: ProjectDataRow = {
+          ...baseEvent,
+          id: `benchmark-event-${index}`,
+          session_id: String(session.id),
+          summary: `Synthetic import benchmark event ${index}.`,
+        };
+        insertEvent.run(...eventColumns.map((column) => event[column] ?? null));
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      if (db.isTransaction) {
+        db.exec("ROLLBACK");
+      }
+      throw error;
+    } finally {
+      db.close();
+    }
+
+    const largeBundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const startedAt = performance.now();
+    const result = destination.importProjectData({ bundle: largeBundle });
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(result.additions.sessions).toBe(5_000);
+    expect(result.additions.work_events).toBe(50_000);
+    expect(total(result.conflicts)).toBe(0);
+    console.info(
+      `Synthetic portable import: 5,000 sessions + 50,000 events in ${elapsedMs.toFixed(1)} ms (Node ${process.version}).`,
+    );
+  }, 30_000);
+
   it("round-trips project data, pauses new projects, marks search state dirty, and stays idempotent while open", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
