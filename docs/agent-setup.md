@@ -4,7 +4,7 @@
 
 > 回到 [README](../README.md)
 
-這個 MCP 是本機 stdio server。`http://127.0.0.1:5966` 是 Dashboard，不是 MCP endpoint；Codex 與 Claude 會各自啟動 `pnpm.cmd`，並共用同一個中央 SQLite。
+這個 MCP 是本機 stdio server。正式模式 Dashboard 預設是 `http://127.0.0.1:3210`，開發模式 Web 是 `http://127.0.0.1:5966`；兩者都不是 MCP endpoint。Codex 與 Claude 會各自啟動 `pnpm.cmd`，並共用同一個中央 SQLite。
 
 ## 共用準備
 
@@ -172,19 +172,22 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它在 Codex 使用 `
 
 ## 第一次使用
 
-先啟動 Dashboard 與 REST API：
+一般使用先 build，再用正式模式啟動 Web UI 與 REST API（預設共用 port 3210）：
 
 ```powershell
 cd C:\path\to\WorkLog.Ai
-pnpm dev
+pnpm build
+pnpm start
 ```
 
-開啟 <http://127.0.0.1:5966>，進入左側選單的「專案」：
+開啟 <http://127.0.0.1:3210>，進入左側選單的「專案」：
 
 1. 按「加入專案」填入要記錄的 workspace。
 2. 將該專案狀態切換成「記錄中」，並在確認對話框中同意。
 3. 在 Codex 或 Claude Code 中確認連線與記錄狀態。
 4. Agent 完成既有 planning → execution → verification → closing 後，請它保存這次工作。
+
+開發時可改用 `pnpm dev`；此時 Web 使用 port 5966，REST API 使用 port 3210。更多安裝、日常使用、備份與升級說明見[使用手冊](user-guide.md)；hook 沒有觸發時見[疑難排解](troubleshooting.md#全域保存提醒-hook-沒有觸發)。
 
 平常只需要用自然語言；工具名稱、JSON 與呼叫順序由 Agent 依 [`work-intelligence` skill](../.agents/skills/work-intelligence/SKILL.md) 處理。可以用以下提示測試：
 

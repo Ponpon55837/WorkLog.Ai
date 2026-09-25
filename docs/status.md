@@ -6,6 +6,19 @@
 
 - 最後更新：2026-09-25
 
+## 第四輪：1.0 完整專案工作
+
+| 階段 | 狀態 | 已完成／待處理 |
+| --- | --- | --- |
+| A. 正式執行模式 | 已完成 | PR #69：`pnpm start` 同一個本機 port 提供 Web 與 API，包含安全標頭、SPA fallback 與 traversal 防護；PR #71：API 離線時顯示全域提示並在恢復後更新資料。全域 Codex hook 設定見 PR #70。 |
+| B. 升級安全與版本 | 已完成 | PR #72：檔案資料庫套用 migration 前自動備份，較新 schema 會被拒絕；PR #73：單一 semver 來源、CHANGELOG、health／MCP／UI 版本資訊。 |
+| C1. 診斷 | 已完成 | PR #74：新增唯讀 `pnpm run doctor`，檢查環境、build、資料庫、API、MCP 與 hook；hook 只查使用者全域設定，不查 repo 內設定。 |
+| C2. 文件 | 本 PR 完成 | 新增使用手冊、疑難排解、CONTRIBUTING、SECURITY，並更新架構與狀態文件。 |
+| D. 品質門檻 | 尚未開始 | macOS CI、第二種 E2E 瀏覽器、效能門檻、虛構合成檢索評估、axe 無障礙檢查。 |
+| E. 資料生命週期 | 尚未開始 | 永久刪除專案與資料（先備份、輸入名稱確認、MCP 無刪除工具），以及 `pnpm db:maintain`。 |
+
+暫緩項目：A2 開機自動啟動、發行 workflow／tag／release，以及實機平台驗證。私有 36 題真實資料檢索評估也留在本機，不會放進 repository。
+
 ## 優先改善：Agent 檢索品質
 
 目標：讓 Agent 透過 MCP 查工作記錄與 Knowledge 時「找得到、放得進 context、敢用」，工作記錄才會成為可靠的幫手。以下是 2026-09-24 在本機以真實 DB 快照做的評估；評估只讀快照副本、沒有修改資料。為保護使用者資料，這裡只記錄彙總數字與機制層面的發現，不收錄任何查詢內容、Session／Knowledge 內容、id 或專案檔名；評估題與腳本只留在本機，不進 repo。
@@ -56,15 +69,11 @@
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| 1.0 發行準備 | 已交接 Codex | 目標：從 MVP 變成正式可用的專案。依序處理：正式執行模式（單一 port 提供 Web 與 API、API 離線提示）、升級安全與版本（migration 前自動備份、semver、CHANGELOG）、診斷與文件（`pnpm doctor`、使用手冊、疑難排解、CONTRIBUTING、SECURITY）、品質門檻（CI 加 macOS、第二種瀏覽器、效能與檢索回歸門檻、無障礙檢查）、資料生命週期（永久刪除專案、資料庫維護）。細節見 `.openspec/handoffs/2026-09-25-claude-to-codex-round4.md`。授權已定為 MIT；開機自動啟動、發行與實機驗證等功能全部完成後再處理。 |
 | TypeSafe Adapter（Insight Provider Phase 2） | BLOCKED：等待外部契約 | Provider abstraction、No-op 與 optional injection 已完成，`WorkIntelligenceStore` 預設使用 No-op。開始實作前需要 TypeSafe／產品方先定稿：SDK 或 HTTP endpoint 與版本；backend-only credential 注入、日誌遮罩與資料外送規則；evaluation request／response／error schema（signal、confidence、usage、timeout）；timeout、retry、circuit-breaker 契約；egress guard 的呼叫邊界。這些到位前不新增依賴、網路呼叫、設定開關或假 adapter。 |
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
-| 依專案匯出／匯入 | 實作完成（PR 待建立） | JSON 可攜式匯出支援單一／全部專案；匯入先預覽、在單一交易內合併、可重複執行，並支援路徑前綴轉換。新匯入的專案先暫停。 |
-| 複檢改善項目 | 進行中 | Codex hook 測試與 Windows 指令、備份分開保留、MCP Session 摘要回傳及 build 清理已有實作，PR／CI 仍待完成；目前剩下長清單 UI 盤點。 |
-| Build 清除舊產物 | 實作完成（PR 待建立） | 各工作區 build 前由 Node.js 清除自己的 `dist`，不依賴作業系統 shell 指令。 |
-| 人工平台驗證 | 待確認 | 資料夾選擇器尚未在 macOS、Windows、Linux 實機驗證；備份還原尚未在 Windows 實機手動驗證。 |
-| 工程整理 | 進行中 | 報告、synthesis、metadata 回補、context／recall 等 Storage 服務已拆分，Web 單元測試與 server／mcp／web 覆蓋率門檻已加入。`store.ts` 目前 3,223 行；既有資料欄位檢查與升級相容處理仍留在其中。 |
+| 人工平台驗證 | 暫緩 | 資料夾選擇器尚未在 macOS、Windows、Linux 實機驗證；備份還原尚未在 Windows 實機手動驗證。依使用者決定，待本輪所有功能完成後再處理。 |
+| 工程整理 | 進行中 | 報告、synthesis、metadata 回補、context／recall 等 Storage 服務已拆分，Web 單元測試與 server／mcp／web 覆蓋率門檻已加入。`store.ts` 目前 3,011 行；既有資料欄位檢查與升級相容處理仍留在其中。 |
 
 ## 最近完成（2026-09-23～25）
 
@@ -78,9 +87,9 @@
 - **changedFiles 開工基準排除**：`work_finalize_session` 可傳入工作開始時擷取的 `baselineChangedFiles`，系統會從該 Session 的 changed files、來源與變更事件排除開工前已變更的路徑；從基準路徑改名時只記新路徑為新增檔案。相同基準檔案後續又修改也會保守排除，避免把先前工作錯算成本次成果。
 - **Storage 報告讀取服務拆分**：將報告產生、跨期 Session、證據整理與 Markdown／JSON 匯出搬至 `report-service.ts`，期間計算與趨勢函式移至 `report-utils.ts`；`WorkIntelligenceStore` 對外方法維持原樣並轉呼叫新服務，未改變報告行為。
 - **加入專案改為選擇資料夾**（使用者提出）：「加入專案」對話框新增「選擇資料夾」，由本機 API server 叫出作業系統的選擇資料夾視窗（macOS `osascript`、Windows PowerShell、Linux `zenity`／`kdialog`），選完自動填入路徑，名稱空白時以資料夾名稱帶入；仍可手動輸入。新增 `POST /api/system/pick-folder`，指令固定、不經過 shell，區分「取消」與「無法開啟」，同時只開一個視窗。
-- **資料庫備份與換電腦**（使用者提出）：API server 每個 UTC 日自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700）；自動與手動備份分開保留，預設各 14 份，手動備份不會擠掉每日自動備份。專案頁可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。
-- **依專案匯出與合併匯入**：Web 與 CLI 支援單一／全部專案的 JSON 可攜式資料包；所有匯入欄位經 schema 驗證並限制檔案大小、筆數與字串長度。匯入先顯示新增、略過、衝突與路徑轉換預覽，再由使用者確認，在單一 SQLite 交易內合併；相同資料可重複匯入，既有資料不覆寫，新專案先暫停，且以計數與檔案摘要寫入匯入稽核。`--remap-root` 使用完整路徑片段比對並支援跨平台分隔符號。PR 待建立。
-- **Build 清除舊產物**：所有工作區在 build 前用共用 Node.js 腳本清理各自的 `dist`，避免 TypeScript 將搬入 `tests/` 前的舊測試輸出留在建置目錄。以 `pnpm build` 驗證所有八個工作區建置成功，並確認預先放入 `apps/server/dist` 的舊檔已清除。PR 待建立。
+- **資料庫備份與換電腦**（使用者提出）：API server 每個本機日曆日自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700）；自動與手動備份分開保留，預設各 14 份，手動備份不會擠掉每日自動備份。專案頁可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。
+- **依專案匯出與合併匯入**：Web 與 CLI 支援單一／全部專案的 JSON 可攜式資料包；所有匯入欄位經 schema 驗證並限制檔案大小、筆數與字串長度。匯入先顯示新增、略過、衝突與路徑轉換預覽，再由使用者確認，在單一 SQLite 交易內合併；相同資料可重複匯入，既有資料不覆寫，新專案先暫停，且以計數與檔案摘要寫入匯入稽核。`--remap-root` 使用完整路徑片段比對並支援跨平台分隔符號。
+- **Build 清除舊產物**：所有工作區在 build 前用共用 Node.js 腳本清理各自的 `dist`，避免 TypeScript 將搬入 `tests/` 前的舊測試輸出留在建置目錄。以 `pnpm build` 驗證所有八個工作區建置成功，並確認預先放入 `apps/server/dist` 的舊檔已清除。
 - **Agent 完成請求後頁面自動更新**（使用者提出）：報告整理、Knowledge 候選、metadata 回補的請求在待處理或處理中時，頁面每 5 秒安靜地重新檢查（不顯示載入動畫，分頁不在前景時暫停、回到前景立即檢查），請求結束就停止；Agent 完成時自動載入結果並提示，失敗時也會提示。切換報告區間或專案時會重設追蹤，不會誤報完成。只改前端，API 不變；E2E 以 API 模擬 Agent 存入整理結果驗證。
 - **報告總覽依區間顯示不同內容**：總覽原本五種區間用同一個版型、只有數字不同。現在依區間加上 deterministic 的分組：日報列出當日完成的 Session，週報分成每日、月報分成每週（週一起算、以月界截斷）、季報分成每月、年報分成每季，標出最多的一期與有完成工作的期數；各區間都顯示專案占比。只用既有的報告資料（`sessions`、`trends`、`projects`）在前端計算，API 沒有變動。
 - **報告 AI 整理的範圍隔離**：選「所有記錄中專案」時，提煉請求與摘要原本只依區間篩選，同一區間的單一專案 AI 整理會被當成全專案報告顯示，且其待處理請求會擋住建立全專案請求。請求與摘要查詢新增 `scopeType`（REST 同名參數），Web 在未選專案時只取全專案的整理；MCP 行為不變。
