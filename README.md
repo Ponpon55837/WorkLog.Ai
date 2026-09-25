@@ -79,7 +79,14 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 
 每筆 Session 都包含一句話摘要與固定五段內容：**成果／範圍／決策／驗證／狀態與未結項**。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。
 
-想讓 Claude Code 或 Codex 在忘記保存時提醒一次，可以參考 [保存提醒 hook](docs/agent-setup.md#保存提醒選用)。
+想讓 Claude Code 或 Codex 在忘記保存時提醒一次，可以加上保存提醒 hook。hook 和 MCP 一樣裝在**全域**，任何專案都能使用。它只會在「記錄中」的專案作用，其他專案一律放行。
+
+| Agent | 全域設定檔 | 使用的腳本 |
+|---|---|---|
+| Claude Code | `~/.claude/settings.json`（`Stop`） | `apps/mcp/dist/finalize-reminder.js` |
+| Codex | `~/.codex/hooks.json`（`PostToolUse`＋`Stop`） | `apps/mcp/dist/codex-finalize-reminder.js` |
+
+設定時請用 repo 的絕對路徑，並先執行 `pnpm build`。Codex 還需要在 `/hooks` 中信任這個 hook。repo 不附專案層級的 `.codex/hooks.json`。完整設定見 [保存提醒 hook](docs/agent-setup.md#保存提醒選用)。
 
 ## Web UI 導覽
 

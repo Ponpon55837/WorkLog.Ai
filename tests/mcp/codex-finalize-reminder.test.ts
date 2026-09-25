@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -92,15 +92,11 @@ describe("Codex finalize reminder hook", () => {
   });
 
   it.skipIf(process.platform !== "win32")(
-    "runs commandWindows through cmd.exe from a nested project directory",
+    "runs the documented global command through cmd.exe from outside the repo",
     () => {
-      const config = JSON.parse(readFileSync(join(repoRoot, ".codex/hooks.json"), "utf8")) as {
-        hooks: { PostToolUse: Array<{ hooks: Array<{ commandWindows: string }> }> };
-      };
-      const command = config.hooks.PostToolUse[0]?.hooks[0]?.commandWindows;
-      expect(command).toBeTruthy();
-      const output = execFileSync("cmd.exe", ["/d", "/s", "/c", command ?? ""], {
-        cwd: trackedCwd,
+      const script = join(repoRoot, "apps", "mcp", "dist", "codex-finalize-reminder.js");
+      const output = execFileSync("cmd.exe", ["/d", "/s", "/c", `node "${script}"`], {
+        cwd: tmpdir(),
         input: "not json",
         encoding: "utf8",
         timeout: 15_000,

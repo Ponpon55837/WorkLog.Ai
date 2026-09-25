@@ -72,11 +72,11 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 
 ### 保存提醒（選用）
 
-工作記錄要靠 Agent 記得保存。Claude Code 與 Codex 都能加 Stop hook：在「記錄中」的專案裡，Agent 上次保存之後又改了檔案、這一輪結束卻還沒保存時，提醒它一次；同一段未保存工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
+工作記錄要靠 Agent 記得保存。Claude Code 與 Codex 都能在**全域**加上 hook（和 MCP 一樣，不綁單一專案）：在「記錄中」的專案裡，Agent 上次保存之後又改了檔案、這一輪結束卻還沒保存時，提醒它一次；同一段未保存工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
 
 #### Claude Code
 
-先執行 `pnpm build`，再把下面的設定加到 `~/.claude/settings.json`（路徑換成你的 repo 位置）：
+先執行 `pnpm build`，再把下面的設定加到全域的 `~/.claude/settings.json`（路徑換成你的 repo 位置）。這樣任何專案都會套用，hook 會自行略過沒有記錄的專案：
 
 ```json
 {
@@ -102,15 +102,49 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 
 #### Codex
 
-本 repo 已附上專案層級的 `.codex/hooks.json` 與 `apps/mcp/src/codex-finalize-reminder.ts`。它在 Codex 使用 `apply_patch` 改檔後標記未保存工作；成功呼叫 `work_finalize_session` 會清除標記；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。
+hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它在 Codex 使用 `apply_patch` 改檔後標記未保存工作；成功呼叫 `work_finalize_session` 會清除標記；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。
 
-先執行 `pnpm --filter @work-intelligence/mcp build`，讓 hook script 出現在 `apps/mcp/dist/`。重新載入專案後，在 Codex 輸入 `/hooks`，檢查並信任 Work Intelligence 保存提醒 hook；Codex 會先略過尚未信任的專案 hook。
+和 MCP 一樣，這個 hook 要裝在**全域**，任何專案都能用；它會自己判斷目前的工作目錄是否屬於「記錄中」的專案，其他專案一律放行。repo 不附專案層級的 `.codex/hooks.json`。
 
-- 只讀取專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置可用 `WORK_INTELLIGENCE_DB` 指定。
-- hook marker 僅存放在目前使用者的暫存目錄，以權限 `0700` 建立資料夾、`0600` 建立標記檔；不儲存 Session 內容。
+先執行 `pnpm build`，再把下面兩段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|.*work_finalize_session)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+確認 `~/.codex/config.toml` 已啟用 hooks，然後在 Codex 輸入 `/hooks`，檢查並信任 Work Intelligence 保存提醒 hook。Codex 會略過尚未信任的 hook。
+
+- 只讀取專案清單（SQLite 唯讀開啟），不寫入資料庫。資料庫預設位置依 hook 腳本所在的 repo 推算，和目前開啟的專案無關；也可用 `WORK_INTELLIGENCE_DB` 指定。
+- hook marker 只存放在目前使用者的暫存目錄：資料夾權限 `0700`，標記檔權限 `0600`。不儲存 Session 內容。
 - 只要讀不到資料或判斷失敗，就放行 Codex。
-- Windows 上 Codex 預設會透過 `cmd.exe /C` 執行 hook；`commandWindows` 因此明確啟動 `powershell.exe`，並用 `-EncodedCommand` 傳入指令，避免把 POSIX 的 `$(...)` 寫法交給 `cmd.exe`。PowerShell 會從 hook 的工作目錄執行 `git rev-parse --show-toplevel`，再組出 hook 腳本路徑，所以可從 repo 子目錄啟動，也可處理含空白的路徑。
-- Windows CI 會從 `apps/mcp` 子目錄以 `cmd.exe /d /s /c` 執行 `.codex/hooks.json` 中的原始 `commandWindows`，並把格式錯誤的輸入傳給 hook，確認指令可啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認載入；官方說明見 [Codex hooks](https://developers.openai.com/docs/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
+- 使用絕對路徑，因此不需要 `git rev-parse`，也不需要 `commandWindows`。Windows 上 Codex 會用 `cmd.exe /C` 執行 hook，`node "C:\path with space\...\codex-finalize-reminder.js"` 可以直接執行。若 `node` 不在 Codex 的 `PATH` 中，請改用 node 的絕對路徑。
+- Windows CI 會在 repo 以外的目錄，用 `cmd.exe /d /s /c` 執行同樣形式的指令，並傳入格式錯誤的輸入，確認 hook 可以啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認是否載入。官方說明見 [Codex hooks](https://developers.openai.com/docs/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
 
 ## Claude Desktop
 
