@@ -99,7 +99,7 @@ watch(
     </p>
     <VirtualList
       :items="candidates"
-      :enabled="candidates.length > 5"
+      :enabled="candidates.length > 2"
       :estimate-item-height="220"
       max-height="min(56vh, 560px)"
       label="Knowledge 候選清單"

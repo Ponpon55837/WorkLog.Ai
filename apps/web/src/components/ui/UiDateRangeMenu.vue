@@ -6,11 +6,15 @@ import { startOfMonth, toDateInputValue } from "../../utils/format";
 import type { DateRange } from "./types";
 
 /** The app's only date picker: preset ranges plus a two-click custom range calendar. */
-const props = withDefaults(defineProps<{ label?: string; variant?: "filter" | "button"; align?: "start" | "end" }>(), {
-  label: "日期",
-  variant: "filter",
-  align: "end",
-});
+const props = withDefaults(
+  defineProps<{
+    label?: string;
+    variant?: "filter" | "button";
+    align?: "start" | "end";
+    allowAllDates?: boolean;
+  }>(),
+  { label: "日期", variant: "filter", align: "end", allowAllDates: true },
+);
 const model = defineModel<DateRange>({ required: true });
 
 const { open, trigger, panel, style, toggle, close } = usePopover({ align: computed(() => props.align), width: 296 });
@@ -27,7 +31,7 @@ const presets = computed(() => {
   const today = new Date();
   const todayValue = toDateInputValue(today);
   return [
-    { key: "all", label: "不限日期", range: { from: "", to: "" } },
+    ...(props.allowAllDates ? [{ key: "all", label: "不限日期", range: { from: "", to: "" } }] : []),
     { key: "today", label: "今天", range: { from: todayValue, to: todayValue } },
     {
       key: "yesterday",

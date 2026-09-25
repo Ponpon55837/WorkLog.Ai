@@ -17,6 +17,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 import SynthesisBlock from "./SynthesisBlock.vue";
 
@@ -205,32 +206,40 @@ function versionMeta(version: ReportSummary): string {
           :count="history.length"
           data-testid="report-synthesis-history"
         >
-          <ul class="synthesis__versions">
-            <li
-              v-for="version in history"
-              :key="version.id"
-              data-testid="report-synthesis-version"
-              :class="{ 'is-selected': version.id === summary.id }"
-            >
-              <button
-                type="button"
-                class="synthesis__version"
-                :aria-pressed="version.id === summary.id"
-                @click="selectReportSynthesisVersion(version)"
+          <VirtualList
+            class="synthesis__versions"
+            :items="history"
+            :enabled="true"
+            :estimate-item-height="64"
+            max-height="min(28vh, 240px)"
+            label="報表整理歷史版本清單"
+          >
+            <template #default="{ item: version }">
+              <div
+                class="synthesis__version-row"
+                data-testid="report-synthesis-version"
+                :class="{ 'is-selected': version.id === summary.id }"
               >
-                <strong>{{ version.title }}</strong>
-                <small>{{ versionMeta(version) }}</small>
-              </button>
-              <UiIconButton
-                v-if="!version.isCurrent"
-                :icon="Trash2"
-                :label="`移除歷史版本 ${version.title}`"
-                size="sm"
-                variant="danger"
-                @click="deleteReportSynthesisVersion(version)"
-              />
-            </li>
-          </ul>
+                <button
+                  type="button"
+                  class="synthesis__version"
+                  :aria-pressed="version.id === summary.id"
+                  @click="selectReportSynthesisVersion(version)"
+                >
+                  <strong>{{ version.title }}</strong>
+                  <small>{{ versionMeta(version) }}</small>
+                </button>
+                <UiIconButton
+                  v-if="!version.isCurrent"
+                  :icon="Trash2"
+                  :label="`移除歷史版本 ${version.title}`"
+                  size="sm"
+                  variant="danger"
+                  @click="deleteReportSynthesisVersion(version)"
+                />
+              </div>
+            </template>
+          </VirtualList>
         </UiDisclosure>
       </template>
     </div>
@@ -290,22 +299,22 @@ function versionMeta(version: ReportSummary): string {
 .synthesis__versions {
   margin: 0;
   padding: 0;
-  list-style: none;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
 }
 
-.synthesis__versions li {
+.synthesis__versions :deep(.virtual-list-item + .virtual-list-item) {
+  border-top: 1px solid var(--border-muted);
+}
+
+.synthesis__version-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--border-muted);
 }
 
-.synthesis__versions li:first-child {
-  border-top: 0;
-}
-
-.synthesis__versions li.is-selected {
+.synthesis__version-row.is-selected {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 

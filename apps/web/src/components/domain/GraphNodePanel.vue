@@ -7,6 +7,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import VirtualList from "../VirtualList.vue";
 
 /** Docked, non-modal node detail: the graph stays interactive while the panel is open. */
 const {
@@ -78,8 +79,16 @@ function relationDetail(edge: GraphEdge, related: GraphNode): string {
       <section>
         <h3 class="node-panel__heading">關聯紀錄</h3>
         <p v-if="relations.length === 0" class="node-panel__empty">這個節點目前沒有其他已保存的關係。</p>
-        <ul v-else class="node-panel__relations">
-          <li v-for="relation in relations" :key="relation.edge.id">
+        <VirtualList
+          v-else
+          class="node-panel__relations"
+          :items="relations"
+          :enabled="true"
+          :estimate-item-height="72"
+          max-height="min(50vh, 420px)"
+          label="Graph 關聯紀錄清單"
+        >
+          <template #default="{ item: relation }">
             <button type="button" class="node-panel__relation" @click="selectGraphNode(relation.relatedNode)">
               <component
                 :is="relation.direction === 'outgoing' ? ArrowRight : ArrowLeft"
@@ -92,8 +101,8 @@ function relationDetail(edge: GraphEdge, related: GraphNode): string {
                 <small>{{ relationDetail(relation.edge, relation.relatedNode) }}</small>
               </span>
             </button>
-          </li>
-        </ul>
+          </template>
+        </VirtualList>
       </section>
     </div>
   </UiSidePanel>
@@ -167,10 +176,9 @@ function relationDetail(edge: GraphEdge, related: GraphNode): string {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  list-style: none;
 }
 
-.node-panel__relations li + li {
+.node-panel__relations :deep(.virtual-list-item + .virtual-list-item) {
   border-top: 1px solid var(--border-muted);
 }
 

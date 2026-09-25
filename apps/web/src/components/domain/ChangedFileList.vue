@@ -33,7 +33,7 @@ const rows = computed(() => {
   <div class="changed-files">
     <VirtualList
       :items="rows"
-      :enabled="rows.length > 5"
+      :enabled="rows.length > 10"
       :estimate-item-height="40"
       max-height="min(40vh, 400px)"
       label="Session changed files 清單"

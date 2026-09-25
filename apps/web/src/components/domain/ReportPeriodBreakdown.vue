@@ -8,6 +8,7 @@ import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import VirtualList from "../VirtualList.vue";
 import SessionRow from "./SessionRow.vue";
 import { buildReportBuckets, buildReportProjectShares, reportBucketMode, reportBucketUnits } from "../../utils/report";
 
@@ -59,13 +60,18 @@ function barWidth(value: number, max: number): string {
         <UiBoxTitle eyebrow="Completed work" title="當日完成的工作" :count="report.totals.sessions" />
       </template>
       <UiEmptyState v-if="daySessions.length === 0" compact :icon="CircleCheckBig" title="這一天沒有完成工作" />
-      <SessionRow
-        v-for="session in daySessions"
-        :key="session.id"
-        :session="session"
-        :show-summary="false"
-        @open="emit('open', $event, report.sessions)"
-      />
+      <VirtualList
+        v-else
+        :items="daySessions"
+        :enabled="daySessions.length > 4"
+        :estimate-item-height="88"
+        max-height="min(56vh, 560px)"
+        label="當日完成工作清單"
+      >
+        <template #default="{ item: session }">
+          <SessionRow :session="session" :show-summary="false" @open="emit('open', $event, report.sessions)" />
+        </template>
+      </VirtualList>
       <template v-if="report.sessions.length > dayLimit" #footer>
         <UiButton variant="invisible" size="sm" @click="emit('showAll')">
           在原始紀錄查看全部 {{ report.sessions.length }} 個 Session
@@ -80,19 +86,24 @@ function barWidth(value: number, max: number): string {
       </template>
       <UiEmptyState v-if="!busiest" compact :icon="CalendarRange" title="這段期間沒有完成工作" />
       <template v-else>
-        <UiBoxRow
-          v-for="bucket in buckets"
-          :key="bucket.key"
-          :title="bucket.label"
-          :meta="`${bucket.sessions} 個 Session · ${bucket.events} 個事件`"
+        <VirtualList
+          :items="buckets"
+          :enabled="true"
+          :estimate-item-height="76"
+          max-height="min(56vh, 560px)"
+          label="報告期間分布清單"
         >
-          <template #labels>
-            <UiLabel v-if="bucket.key === busiest.key" tone="accent">最多</UiLabel>
+          <template #default="{ item: bucket }">
+            <UiBoxRow :title="bucket.label" :meta="`${bucket.sessions} 個 Session · ${bucket.events} 個事件`">
+              <template #labels>
+                <UiLabel v-if="bucket.key === busiest.key" tone="accent">最多</UiLabel>
+              </template>
+              <span class="report-breakdown__bar" aria-hidden="true"
+                ><i :style="{ width: barWidth(bucket.sessions, busiest.sessions) }"></i
+              ></span>
+            </UiBoxRow>
           </template>
-          <span class="report-breakdown__bar" aria-hidden="true"
-            ><i :style="{ width: barWidth(bucket.sessions, busiest.sessions) }"></i
-          ></span>
-        </UiBoxRow>
+        </VirtualList>
       </template>
     </UiBox>
 
@@ -102,14 +113,22 @@ function barWidth(value: number, max: number): string {
         <span v-if="shareSummary" class="report-breakdown__muted">{{ shareSummary }}</span>
       </template>
       <UiEmptyState v-if="shares.length === 0" compact :icon="FolderGit2" title="沒有專案資料" />
-      <UiBoxRow
-        v-for="share in shares"
-        :key="share.key"
-        :title="share.label"
-        :meta="`${share.sessions} 個 Session · ${share.percent}%`"
+      <VirtualList
+        v-else
+        :items="shares"
+        :enabled="true"
+        :estimate-item-height="72"
+        max-height="min(56vh, 560px)"
+        label="報告專案占比清單"
       >
-        <span class="report-breakdown__bar" aria-hidden="true"><i :style="{ width: `${share.percent}%` }"></i></span>
-      </UiBoxRow>
+        <template #default="{ item: share }">
+          <UiBoxRow :title="share.label" :meta="`${share.sessions} 個 Session · ${share.percent}%`">
+            <span class="report-breakdown__bar" aria-hidden="true"
+              ><i :style="{ width: `${share.percent}%` }"></i
+            ></span>
+          </UiBoxRow>
+        </template>
+      </VirtualList>
     </UiBox>
   </div>
 </template>

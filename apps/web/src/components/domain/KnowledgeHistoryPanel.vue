@@ -9,6 +9,7 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import VirtualList from "../VirtualList.vue";
 
 const {
   knowledgeHistoryItem,
@@ -47,29 +48,39 @@ const actionTone = { created: "success", updated: "accent", archived: "neutral",
       title="尚無變更紀錄"
       description="這筆 Knowledge 可能在 audit history 功能加入前建立，會從下一次變更開始追蹤。"
     />
-    <ol v-else class="history__list">
-      <li v-for="entry in knowledgeHistory" :key="entry.id" class="history__entry">
-        <div class="history__entry-head">
-          <UiLabel :tone="actionTone[entry.action]">{{ knowledgeAuditActionLabels[entry.action] }}</UiLabel>
-          <span class="history__fields">{{ knowledgeAuditFields(entry) }}</span>
-          <time :datetime="entry.occurredAt" :title="formatDate(entry.occurredAt)">{{
-            formatRelative(entry.occurredAt)
-          }}</time>
-        </div>
-        <div class="history__snapshots">
-          <div v-if="entry.before" class="history__snapshot">
-            <span class="history__snapshot-label">變更前</span>
-            <strong>{{ entry.before.title }}</strong>
-            <p>{{ entry.before.body }}</p>
+    <VirtualList
+      v-else
+      class="history__list"
+      :items="knowledgeHistory"
+      :enabled="true"
+      :estimate-item-height="320"
+      max-height="min(64vh, 680px)"
+      label="Knowledge 變更紀錄清單"
+    >
+      <template #default="{ item: entry }">
+        <article class="history__entry">
+          <div class="history__entry-head">
+            <UiLabel :tone="actionTone[entry.action]">{{ knowledgeAuditActionLabels[entry.action] }}</UiLabel>
+            <span class="history__fields">{{ knowledgeAuditFields(entry) }}</span>
+            <time :datetime="entry.occurredAt" :title="formatDate(entry.occurredAt)">{{
+              formatRelative(entry.occurredAt)
+            }}</time>
           </div>
-          <div class="history__snapshot history__snapshot--after">
-            <span class="history__snapshot-label">{{ entry.before ? "變更後" : "初始內容" }}</span>
-            <strong>{{ entry.after.title }}</strong>
-            <p>{{ entry.after.body }}</p>
+          <div class="history__snapshots">
+            <div v-if="entry.before" class="history__snapshot">
+              <span class="history__snapshot-label">變更前</span>
+              <strong>{{ entry.before.title }}</strong>
+              <p>{{ entry.before.body }}</p>
+            </div>
+            <div class="history__snapshot history__snapshot--after">
+              <span class="history__snapshot-label">{{ entry.before ? "變更後" : "初始內容" }}</span>
+              <strong>{{ entry.after.title }}</strong>
+              <p>{{ entry.after.body }}</p>
+            </div>
           </div>
-        </div>
-      </li>
-    </ol>
+        </article>
+      </template>
+    </VirtualList>
   </UiSidePanel>
 </template>
 
@@ -101,11 +112,12 @@ const actionTone = { created: "success", updated: "accent", archived: "neutral",
 }
 
 .history__list {
-  display: grid;
-  gap: var(--space-4);
   margin: 0;
   padding: 0;
-  list-style: none;
+}
+
+.history__list :deep(.virtual-list-item) {
+  padding-block: var(--space-2);
 }
 
 .history__entry-head {

@@ -189,13 +189,7 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
     >
       <template v-if="hasFilters" #action><UiButton @click="clearFilters">清除篩選</UiButton></template>
     </UiEmptyState>
-    <VirtualList
-      v-else
-      :items="knowledgeItems"
-      :enabled="knowledgePageSize === 'all'"
-      :estimate-item-height="140"
-      label="工作知識清單"
-    >
+    <VirtualList v-else :items="knowledgeItems" :enabled="true" :estimate-item-height="140" label="工作知識清單">
       <template #default="{ item }">
         <KnowledgeRow :item="item" @action="onAction" />
       </template>
