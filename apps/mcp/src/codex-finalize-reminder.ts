@@ -5,7 +5,7 @@ import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { findTrackedRoot, readTrackedRoots, REMINDER } from "./finalize-reminder.js";
 
-interface CodexHookInput {
+export interface CodexHookInput {
   session_id?: string;
   cwd?: string;
   hook_event_name?: string;
@@ -14,9 +14,17 @@ interface CodexHookInput {
   stop_hook_active?: boolean;
 }
 
-interface ReminderMarkers {
+export interface ReminderMarkers {
   dirty: string;
   reminded: string;
+}
+
+export interface CodexReminderDeps {
+  isTrackedWorkspace: (cwd: string) => boolean;
+  markerPaths: (sessionId: string) => ReminderMarkers;
+  markerExists: (path: string) => boolean;
+  createMarker: (path: string) => boolean;
+  removeMarker: (path: string) => void;
 }
 
 function markerDirectory(): string {
@@ -106,35 +114,67 @@ function finalizedSuccessfully(response: unknown): boolean {
   return false;
 }
 
-function trackPostToolUse(input: CodexHookInput): void {
-  if (!input.session_id || !input.cwd || !input.tool_name || !isTrackedWorkspace(input.cwd)) {
+export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps): void {
+  if (!input.session_id || !input.cwd || !input.tool_name || !deps.isTrackedWorkspace(input.cwd)) {
     return;
   }
 
-  const markers = markerPaths(input.session_id);
+  const markers = deps.markerPaths(input.session_id);
   if (input.tool_name === "apply_patch") {
-    if (!existsSync(markers.dirty) && createMarker(markers.dirty)) {
-      removeMarker(markers.reminded);
+    if (!deps.markerExists(markers.dirty) && deps.createMarker(markers.dirty)) {
+      deps.removeMarker(markers.reminded);
     }
     return;
   }
 
   if (input.tool_name.endsWith("work_finalize_session") && finalizedSuccessfully(input.tool_response)) {
-    removeMarker(markers.dirty);
-    removeMarker(markers.reminded);
+    deps.removeMarker(markers.dirty);
+    deps.removeMarker(markers.reminded);
   }
 }
 
-function reminderForStop(input: CodexHookInput): string | null {
-  if (input.stop_hook_active || !input.session_id || !input.cwd || !isTrackedWorkspace(input.cwd)) {
+export function reminderForStop(input: CodexHookInput, deps: CodexReminderDeps): string | null {
+  if (input.stop_hook_active || !input.session_id || !input.cwd || !deps.isTrackedWorkspace(input.cwd)) {
     return null;
   }
 
-  const markers = markerPaths(input.session_id);
-  if (!existsSync(markers.dirty) || existsSync(markers.reminded)) {
+  const markers = deps.markerPaths(input.session_id);
+  if (!deps.markerExists(markers.dirty) || deps.markerExists(markers.reminded)) {
     return null;
   }
-  return createMarker(markers.reminded) ? REMINDER : null;
+  return deps.createMarker(markers.reminded) ? REMINDER : null;
+}
+
+const defaultDeps: CodexReminderDeps = {
+  isTrackedWorkspace,
+  markerPaths,
+  markerExists: existsSync,
+  createMarker,
+  removeMarker,
+};
+
+/** Convert one hook event into the optional block response; malformed input always passes through. */
+export function responseForCodexHook(raw: string, deps: CodexReminderDeps = defaultDeps): string | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const input = value as CodexHookInput;
+  if (input.hook_event_name === "PostToolUse") {
+    trackPostToolUse(input, deps);
+    return null;
+  }
+  if (input.hook_event_name === "Stop") {
+    const reason = reminderForStop(input, deps);
+    return reason ? JSON.stringify({ decision: "block", reason }) : null;
+  }
+  return null;
 }
 
 async function main(): Promise<void> {
@@ -143,20 +183,13 @@ async function main(): Promise<void> {
     raw += String(chunk);
   }
 
-  let reason: string | null = null;
   try {
-    const input = JSON.parse(raw) as CodexHookInput;
-    if (input.hook_event_name === "PostToolUse") {
-      trackPostToolUse(input);
-    } else if (input.hook_event_name === "Stop") {
-      reason = reminderForStop(input);
+    const response = responseForCodexHook(raw);
+    if (response) {
+      process.stdout.write(response);
     }
   } catch {
     // The reminder is best-effort: never stop Codex because the check failed.
-  }
-
-  if (reason) {
-    process.stdout.write(JSON.stringify({ decision: "block", reason }));
   }
 }
 
