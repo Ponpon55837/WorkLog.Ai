@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,13 +95,17 @@ describe("Codex finalize reminder hook", () => {
     "runs the documented global command through cmd.exe from outside the repo",
     () => {
       const script = join(repoRoot, "apps", "mcp", "dist", "codex-finalize-reminder.js");
-      const output = execFileSync("cmd.exe", ["/d", "/s", "/c", `node "${script}"`], {
+      // Codex hands the command line to cmd.exe unescaped; mirror that instead of Node's argv quoting.
+      const result = spawnSync("cmd.exe", ["/d", "/s", "/c", `node "${script}"`], {
         cwd: tmpdir(),
         input: "not json",
         encoding: "utf8",
         timeout: 15_000,
+        windowsVerbatimArguments: true,
       });
-      expect(output).toBe("");
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("");
     },
     20_000,
   );
