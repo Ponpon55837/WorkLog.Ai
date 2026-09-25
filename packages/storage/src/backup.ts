@@ -37,8 +37,10 @@ function timestamp(date: Date): string {
 }
 
 function parseName(value: string): { kind: "automatic" | "manual"; createdAt: string; sequence: number } | null {
-  const [kindLabel, stamp] = /^(automatic|manual)-(.+)$/.exec(value)?.slice(1) ?? [];
-  const kind = kindLabel === "automatic" ? "automatic" : "manual";
+  const standardName = /^(automatic|manual)-(.+)$/.exec(value);
+  const migrationName = /^pre-migration-v\d+-(.+)$/.exec(value);
+  const kind = standardName?.[1] === "automatic" ? "automatic" : "manual";
+  const stamp = standardName?.[2] ?? migrationName?.[1] ?? value;
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
   return match
     ? {
@@ -120,10 +122,11 @@ export function exportDatabase(db: DatabaseSync, target: string): { bytes: numbe
 }
 
 /** Writes a checked, owner-only snapshot and prunes only older copies of the same kind. */
-export function backupDatabase(
+function writeDatabaseBackup(
   db: DatabaseSync,
   databasePath: string,
   options: BackupWriteOptions = {},
+  filePrefix: string,
 ): DatabaseBackupCreated {
   const directory = options.directory ?? defaultBackupDirectory(databasePath);
   const kind = options.kind ?? "manual";
@@ -133,9 +136,9 @@ export function backupDatabase(
   mkdirSync(directory, { recursive: true, mode: 0o700 });
 
   const stamp = timestamp(options.now ?? new Date());
-  let fileName = `${backupPrefix(databasePath)}${kind}-${stamp}.sqlite`;
+  let fileName = `${backupPrefix(databasePath)}${filePrefix}${stamp}.sqlite`;
   for (let suffix = 2; existsSync(join(directory, fileName)); suffix += 1) {
-    fileName = `${backupPrefix(databasePath)}${kind}-${stamp}-${suffix}.sqlite`;
+    fileName = `${backupPrefix(databasePath)}${filePrefix}${stamp}-${suffix}.sqlite`;
   }
   const target = join(directory, fileName);
   writeSnapshot(db, target);
@@ -152,6 +155,28 @@ export function backupDatabase(
     bytes: statSync(target).size,
   };
   return { outcome: "database_backups", keep, automaticKeep, backups: kept, created };
+}
+
+/** Writes a manual-retention safety snapshot tagged with the schema version about to be applied. */
+export function backupDatabaseBeforeMigration(
+  db: DatabaseSync,
+  databasePath: string,
+  schemaVersion: number,
+  options: BackupRetentionOptions = {},
+): DatabaseBackupCreated {
+  if (!Number.isSafeInteger(schemaVersion) || schemaVersion < 1) {
+    throw new TypeError("The pre-migration schema version must be a positive integer.");
+  }
+  return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, `pre-migration-v${schemaVersion}-`);
+}
+
+export function backupDatabase(
+  db: DatabaseSync,
+  databasePath: string,
+  options: BackupWriteOptions = {},
+): DatabaseBackupCreated {
+  const kind = options.kind ?? "manual";
+  return writeDatabaseBackup(db, databasePath, options, `${kind}-`);
 }
 
 /** True until an automatic backup has been made during the current local calendar day. */

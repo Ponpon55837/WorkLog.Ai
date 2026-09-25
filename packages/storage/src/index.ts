@@ -4,3 +4,4 @@ export { toSessionDigest } from "./digest.js";
 export type { SessionDigest } from "@work-intelligence/core";
 export { DEFAULT_BACKUP_KEEP, restoreDatabase, type RestoreDatabaseResult, type RestorePathRemap } from "./backup.js";
 export { ProjectDataTransferError, type ProjectDataTransferErrorCode } from "./project-data-transfer.js";
+export { DatabaseInitializationError, type DatabaseInitializationErrorCode } from "./database-initialization.js";
