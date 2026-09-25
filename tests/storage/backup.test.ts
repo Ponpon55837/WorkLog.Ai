@@ -79,7 +79,7 @@ describe("database backups", () => {
     expect(() => statSync(join(directory, first.created.fileName))).toThrow();
   });
 
-  it("creates one automatic backup per UTC day and ignores unrelated files", () => {
+  it("creates one automatic backup per local calendar day and ignores unrelated files", () => {
     const { store, directory } = setup();
     expect(store.backupIfDue(new Date("2030-01-01T00:00:00Z"))).not.toBeNull();
     expect(store.backupIfDue(new Date("2030-01-01T23:59:00Z"))).toBeNull();
@@ -96,6 +96,26 @@ describe("database backups", () => {
       "automatic",
       "automatic",
     ]);
+  });
+
+  it("uses the server time zone when UTC and local dates differ", () => {
+    const previousTimeZone = process.env.TZ;
+    process.env.TZ = "Asia/Taipei";
+    try {
+      const { store } = setup();
+      expect(store.backupIfDue(new Date("2030-01-01T16:30:00Z"))).not.toBeNull();
+      // The first backup was made at 00:30 in Taipei; 08:30 is still the same local day.
+      expect(store.backupIfDue(new Date("2030-01-02T00:30:00Z"))).toBeNull();
+      expect(store.backupIfDue(new Date("2030-01-02T15:59:00Z"))).toBeNull();
+      // Taipei reaches the next calendar day at 16:00 UTC.
+      expect(store.backupIfDue(new Date("2030-01-02T16:00:00Z"))).not.toBeNull();
+    } finally {
+      if (previousTimeZone === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTimeZone;
+      }
+    }
   });
 
   it("keeps manual and automatic backups separately and manual copies do not delay the daily backup", () => {
