@@ -159,6 +159,7 @@ import { ReportReadService } from "./report-service.js";
 import { ReportSynthesisService } from "./report-synthesis-service.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
+import { isChangedFilesMetadataConfirmed } from "./changed-files-confirmation.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { applySchemaMigrations } from "./schema-migrations.js";
 import { matchesAppliesTo, normalizePath } from "./search-text.js";
@@ -1961,6 +1962,13 @@ export class WorkIntelligenceStore {
     this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(at, sessionId);
   }
 
+  private hasConfirmedChangedFilesForSession(sessionId: string): boolean {
+    const row = this.db
+      .prepare("SELECT changed_files_json, changed_files_confirmed FROM sessions WHERE id = ?")
+      .get(sessionId) as { changed_files_json: string | null; changed_files_confirmed?: number } | undefined;
+    return row ? isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed) : false;
+  }
+
   private insertVerificationUpdate(
     sessionId: string,
     source: VerificationUpdateSource,
@@ -2028,6 +2036,11 @@ export class WorkIntelligenceStore {
         : input.changedFileChanges === undefined
           ? current.changedFileChanges
           : incomingChangedFileChanges;
+    const changedFilesConfirmed =
+      normalizedChangedFiles.files.length > 0 ||
+      input.changedFilesMode !== "merge" ||
+      (input.changedFileChanges?.length ?? 0) > 0 ||
+      isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed);
     const updatedAt = nowIso();
     const nextVerification = input.verification ? normalizeVerification(input.verification) : undefined;
     this.runImmediateTransaction(() => {
@@ -2038,6 +2051,7 @@ export class WorkIntelligenceStore {
         .prepare(
           `UPDATE sessions
            SET changed_files_json = @changedFiles,
+               changed_files_confirmed = @changedFilesConfirmed,
                changed_files_provenance_json = @changedFilesProvenance,
                changed_file_changes_json = @changedFileChanges,
                verification_json = @verification,
@@ -2048,6 +2062,7 @@ export class WorkIntelligenceStore {
         .run({
           id: input.sessionId,
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
+          changedFilesConfirmed: changedFilesConfirmed ? 1 : 0,
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(changedFileChanges),
           verification: nextVerification
@@ -2897,7 +2912,9 @@ export class WorkIntelligenceStore {
           duplicate: true,
           session: existing,
           verificationFollowUp: getVerificationFollowUp(existing),
-          changedFilesFollowUp: getChangedFilesFollowUp(existing),
+          ...(this.hasConfirmedChangedFilesForSession(existing.id)
+            ? {}
+            : { changedFilesFollowUp: getChangedFilesFollowUp(existing) }),
           workSummaryFollowUp: getWorkSummaryFollowUp(existing),
         };
       }
@@ -2907,12 +2924,12 @@ export class WorkIntelligenceStore {
           `INSERT INTO sessions (
              id, project_id, external_session_id, idempotency_key, title, summary,
              work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
-             changed_files_json, changed_files_provenance_json, changed_file_changes_json, verification_json,
+             changed_files_json, changed_files_confirmed, changed_files_provenance_json, changed_file_changes_json, verification_json,
              started_at, updated_at
            ) VALUES (
              @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
              @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
-             @changedFiles, @changedFilesProvenance, @changedFileChanges, @verification,
+             @changedFiles, @changedFilesConfirmed, @changedFilesProvenance, @changedFileChanges, @verification,
              @startedAt, @createdAt
            )`,
         )
@@ -2929,6 +2946,7 @@ export class WorkIntelligenceStore {
           commitSha: git?.commitSha ?? null,
           gitBranch: git?.branch ?? null,
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
+          changedFilesConfirmed: input.changedFiles !== undefined || normalizedChangedFiles.files.length > 0 ? 1 : 0,
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(normalizedChangedFileChanges),
           verification: input.verification ? JSON.stringify(input.verification) : null,

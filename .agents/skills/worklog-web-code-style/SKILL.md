@@ -112,7 +112,7 @@ Template rules:
 ## 7. TypeScript
 
 - `strict` stays on. Exported functions declare return types. Prefer `import type` for types.
-- No `any` except the documented `VirtualList` slot. Use `unknown` + narrowing for external data.
+- No `any` types. Use `unknown` + narrowing for external data.
 - Non-null `!` only in templates right after a guarding `v-if`, never in scripts.
 - Shared UI types live in `components/ui/types.ts` (`IconComponent`, `Tone`, `SelectOption`, `DateRange`).
 - Enumerations come from `@work-intelligence/core` types; do not redefine them locally.
