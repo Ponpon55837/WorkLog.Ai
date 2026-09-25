@@ -19,6 +19,7 @@
 - [核心概念](#核心概念)
 - [專案結構與開發](#專案結構與開發)
 - [文件索引](#文件索引)
+- [授權](#授權)
 
 ## 快速開始
 
@@ -182,3 +183,7 @@ pnpm test:e2e       # Playwright（獨立暫存 SQLite，不影響你的資料�
 | [docs/testing.md](docs/testing.md) | 測試指令、覆蓋率門檻與 E2E 範圍 |
 | [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Web UI 改版的決策與實作紀錄 |
 | [docs/status.md](docs/status.md) | 專案現況、未結項與最近完成的工作 |
+
+## 授權
+
+[MIT](LICENSE)

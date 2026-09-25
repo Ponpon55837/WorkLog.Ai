@@ -2,6 +2,8 @@
 
 使用者的目標：**讓 WorkLog.Ai 從 MVP 變成正式可用的完整專案**。這一輪是長任務，請依下方階段順序進行，每一項開獨立 PR。完成後使用者會再請 Claude 複檢。
 
+> **使用者決定（2026-09-25）**：授權採 **MIT**，`LICENSE` 已由 Claude 加上。**開機自動啟動、發行（tag／release／發行 workflow）與實機驗證，都等所有功能完成後再處理**，這一輪不要做。下方相關項目已標示「暫緩」。
+
 ## 第三輪複檢結果
 
 - **流程**：#59～#66 的 CI 都對應最新 commit 且三項全綠；9 筆工作記錄的改動檔案數與 PR 一致。main 上完整健康檢查（build、test、typecheck、coverage、E2E）通過。
@@ -20,9 +22,9 @@
 
 以下都成立時，才算可以發行 1.0：
 
-1. 一般使用者不需要開發模式：一個指令就能以正式模式啟動，Web 與 API 走同一個 port，可以設為開機自動啟動。
+1. 一般使用者不需要開發模式：一個指令就能以正式模式啟動，Web 與 API 走同一個 port。（開機自動啟動暫緩，功能完成後再做。）
 2. 升級安全：新版本第一次開啟資料庫前會自動備份；資料庫比程式新時，會清楚拒絕並說明怎麼處理。
-3. 有版本與發行流程：semver、CHANGELOG、git tag、發行檢查清單；`/api/health` 與 UI 顯示版本。
+3. 有版本資訊：semver、CHANGELOG；`/api/health` 與 UI 顯示版本。（tag、release 與發行 workflow 暫緩。）
 4. 使用者可以自己排除問題：有 `pnpm doctor` 診斷指令、疑難排解文件，API 離線時 UI 有明確提示。
 5. 品質有保障：CI 涵蓋 macOS（使用者的主要平台）；E2E 至少再加一種瀏覽器；有效能與檢索品質的回歸門檻。
 6. 資料有完整的生命週期：可以永久刪除一個專案及其所有資料（有確認與事前備份）。
@@ -39,14 +41,7 @@
 - `pnpm dev` 維持現狀，給開發用。README 的快速開始改成正式模式優先。
 - E2E 請改跑正式模式，或至少新增一組跑正式模式的 E2E。
 
-**A2. 開機自動啟動（需要使用者同意才安裝）**
-
-- 提供 `pnpm service:install`／`service:uninstall`／`service:status`：
-  - macOS：使用者層級的 launchd plist，放在 `~/Library/LaunchAgents`。
-  - Windows：工作排程器，登入時啟動。
-  - Linux：systemd user unit。
-- 安裝前要清楚顯示會寫入哪些檔案並要求確認；不需要系統管理員權限。log 寫到固定位置並有大小上限。
-- 這會改動使用者的系統設定。實作與測試可以用暫存目錄模擬；**不要在使用者的機器上實際安裝**，請使用者自己執行。
+**A2. 開機自動啟動：暫緩**（使用者決定等功能都完成後再處理，這一輪不要做）。
 
 **A3. API 離線時 UI 有明確提示**
 
@@ -65,8 +60,8 @@
 
 - 決定一個版本號來源（例如根目錄 `package.json`），讓 `/api/health`、MCP server 版本、Web UI（例如側欄底部）都顯示同一個版本與 schema 版本。
 - 新增 `CHANGELOG.md`（Keep a Changelog 格式）。依 `docs/status.md` 與 git 歷史，把目前已完成的功能整理成 `1.0.0` 之前的內容（可以先放在 `Unreleased`）。
-- 新增 `docs/release.md`：發行檢查清單（健康檢查、E2E 連跑、升級測試、CHANGELOG、tag）。可以加一個在 tag 時建置並附上產物的 GitHub Actions workflow；**不要自行建立 tag 或 release**，由使用者決定發行時機。
-- **LICENSE 需要使用者決定授權方式**：請在 PR 說明列出建議選項，不要自行選定並加入。
+- 發行相關（`docs/release.md`、發行 workflow、tag、release）：**暫緩**，功能完成後再做。
+- LICENSE 已決定為 MIT，Claude 已加入 `LICENSE` 並在各 `package.json` 標示 `"license": "MIT"`；你不需要再處理。
 
 ## 階段 C：診斷與文件
 
@@ -135,26 +130,23 @@
 - 每完成一段就 finalize；**知道對話或這段工作的開始時間時，填 `startedAt`**。
 - 每項開獨立 PR；CI 對應最新 commit 且全綠才合併；**用 merge commit 合併**（不要 squash），並刪除分支。
 - 健康檢查逐步確認：build、test、typecheck、coverage、E2E。
-- 不修改使用者的實際資料庫、不在使用者機器上安裝系統服務、不修改使用者的 Agent 設定、不自行建立 tag 或 release、不自行選定 LICENSE。
+- 不修改使用者的實際資料庫、不修改使用者的 Agent 設定；這一輪不做服務安裝、發行 workflow、tag 或 release。
 - 新邏輯放在獨立模組，`store.ts` 只做轉接；對外輸入用 zod 驗證；錯誤要分類、不外洩內部訊息；不複製貼上。
 - PR 說明寫清楚設計取捨、沒做的部分與驗證方式。
 
-## 需要使用者決定或自己做的事
+## 已由使用者決定
 
-1. LICENSE 的授權方式。
-2. 是否在自己的電腦上安裝開機自動啟動（`pnpm service:install`）。
-3. 發行 1.0 的時機（建立 tag 與 release）。
-4. 仍待實機確認：
-   - 原生資料夾選擇視窗（macOS、Windows、Linux）。
-   - Windows 備份還原與匯入。
-   - Windows Codex 的 hook 載入狀態。
-   - 私有的 36 題檢索評估。
+- 授權：MIT（已加入）。
+- 開機自動啟動、發行（tag／release）與實機驗證：等所有功能完成後再處理，這一輪不做。實機項目包括：
+  - 原生資料夾選擇視窗（macOS、Windows、Linux）。
+  - Windows 的備份還原與匯入。
+  - Windows Codex 的 hook 載入狀態。
+  - 私有的 36 題檢索評估。
 
 ## 下次複檢 Claude 會特別看
 
 - 正式模式的安全性：靜態檔 path traversal、CSP 與安全標頭、同源下的 Host／Origin 檢查。
 - 升級：migration 前的備份確實產生、新版資料庫被正確拒絕。
 - 刪除：單一交易、刪乾淨（含搜尋索引與關聯）、事前備份、MCP 沒有刪除能力。
-- 服務安裝腳本：只寫入說明中列出的檔案、需要確認、可完整移除。
 - CI：macOS 與第二種瀏覽器實際執行並通過；效能與檢索門檻合理、不易誤判。
 - 程式碼品質與文件的正確性（文件內容要與實際行為一致）。

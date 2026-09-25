@@ -56,7 +56,7 @@
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| 1.0 發行準備 | 已交接 Codex | 目標：從 MVP 變成正式可用的專案。依序處理：正式執行模式（單一 port 提供 Web 與 API、開機自動啟動、API 離線提示）、升級安全與版本（migration 前自動備份、semver、CHANGELOG）、診斷與文件（`pnpm doctor`、使用手冊、疑難排解、CONTRIBUTING、SECURITY）、品質門檻（CI 加 macOS、第二種瀏覽器、效能與檢索回歸門檻、無障礙檢查）、資料生命週期（永久刪除專案、資料庫維護）。細節見 `.openspec/handoffs/2026-09-25-claude-to-codex-round4.md`。LICENSE、服務安裝與發行時機需要使用者決定。 |
+| 1.0 發行準備 | 已交接 Codex | 目標：從 MVP 變成正式可用的專案。依序處理：正式執行模式（單一 port 提供 Web 與 API、API 離線提示）、升級安全與版本（migration 前自動備份、semver、CHANGELOG）、診斷與文件（`pnpm doctor`、使用手冊、疑難排解、CONTRIBUTING、SECURITY）、品質門檻（CI 加 macOS、第二種瀏覽器、效能與檢索回歸門檻、無障礙檢查）、資料生命週期（永久刪除專案、資料庫維護）。細節見 `.openspec/handoffs/2026-09-25-claude-to-codex-round4.md`。授權已定為 MIT；開機自動啟動、發行與實機驗證等功能全部完成後再處理。 |
 | TypeSafe Adapter（Insight Provider Phase 2） | BLOCKED：等待外部契約 | Provider abstraction、No-op 與 optional injection 已完成，`WorkIntelligenceStore` 預設使用 No-op。開始實作前需要 TypeSafe／產品方先定稿：SDK 或 HTTP endpoint 與版本；backend-only credential 注入、日誌遮罩與資料外送規則；evaluation request／response／error schema（signal、confidence、usage、timeout）；timeout、retry、circuit-breaker 契約；egress guard 的呼叫邊界。這些到位前不新增依賴、網路呼叫、設定開關或假 adapter。 |
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
