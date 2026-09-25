@@ -1,9 +1,14 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { backupDatabase, restoreDatabase } from "../../packages/storage/src/backup.js";
+import {
+  backupDatabase,
+  isBackupDue,
+  listDatabaseBackups,
+  restoreDatabase,
+} from "../../packages/storage/src/backup.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -20,11 +25,11 @@ afterEach(() => {
   }
 });
 
-function setup(keep?: number) {
+function setup(backup?: { keep?: number; automaticKeep?: number }) {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-"));
   tempDirs.push(root);
   const databasePath = join(root, "work-intelligence.sqlite");
-  const store = new WorkIntelligenceStore(databasePath, { backup: keep ? { keep } : undefined });
+  const store = new WorkIntelligenceStore(databasePath, { backup });
   stores.push(store);
   store.addProject("Apiary", join(root, "apiary"));
   return { root, databasePath, store, directory: join(root, "backups") };
@@ -38,7 +43,8 @@ describe("database backups", () => {
       throw new Error("Expected a backup");
     }
     expect(JSON.stringify(result)).not.toContain(directory);
-    expect(result.created.fileName).toMatch(/^work-intelligence-\d{8}T\d{6}Z\.sqlite$/);
+    expect(result.created).toMatchObject({ kind: "manual" });
+    expect(result.created.fileName).toMatch(/^work-intelligence-manual-\d{8}T\d{6}Z\.sqlite$/);
     const path = join(directory, result.created.fileName);
     if (process.platform !== "win32") {
       expect(statSync(path).mode & 0o777).toBe(0o600);
@@ -49,12 +55,12 @@ describe("database backups", () => {
   });
 
   it("keeps only the newest copies", () => {
-    const { store } = setup(2);
+    const { store } = setup({ automaticKeep: 2 });
     for (const day of ["01", "02", "03"]) {
       expect(store.backupIfDue(new Date(`2030-01-${day}T00:00:00Z`))).not.toBeNull();
     }
     const list = store.listBackups();
-    expect(list).toMatchObject({ outcome: "database_backups", keep: 2 });
+    expect(list).toMatchObject({ outcome: "database_backups", automaticKeep: 2 });
     expect(list.outcome === "database_backups" ? list.backups.map((backup) => backup.createdAt) : []).toEqual([
       "2030-01-03T00:00:00Z",
       "2030-01-02T00:00:00Z",
@@ -68,12 +74,12 @@ describe("database backups", () => {
     const first = backupDatabase(db, databasePath, { now, keep: 1 });
     const second = backupDatabase(db, databasePath, { now, keep: 1 });
     db.close();
-    expect(second.created.fileName).toBe("work-intelligence-20300101T000000Z-2.sqlite");
+    expect(second.created.fileName).toBe("work-intelligence-manual-20300101T000000Z-2.sqlite");
     expect(second.backups.map((backup) => backup.fileName)).toEqual([second.created.fileName]);
     expect(() => statSync(join(directory, first.created.fileName))).toThrow();
   });
 
-  it("backs up only when no backup is a day old, and ignores unrelated files", () => {
+  it("creates one automatic backup per UTC day and ignores unrelated files", () => {
     const { store, directory } = setup();
     expect(store.backupIfDue(new Date("2030-01-01T00:00:00Z"))).not.toBeNull();
     expect(store.backupIfDue(new Date("2030-01-01T23:59:00Z"))).toBeNull();
@@ -85,6 +91,47 @@ describe("database backups", () => {
     expect(list.outcome === "database_backups" ? list.backups.map((backup) => backup.createdAt) : []).toEqual([
       "2030-01-02T00:00:00Z",
       "2030-01-01T00:00:00Z",
+    ]);
+    expect(list.outcome === "database_backups" ? list.backups.map((backup) => backup.kind) : []).toEqual([
+      "automatic",
+      "automatic",
+    ]);
+  });
+
+  it("keeps manual and automatic backups separately and manual copies do not delay the daily backup", () => {
+    const { databasePath, directory } = setup({ keep: 1, automaticKeep: 2 });
+    const db = new DatabaseSync(databasePath);
+    const dayOne = new Date("2030-01-01T00:00:00Z");
+    const dayTwo = new Date("2030-01-02T00:00:00Z");
+    const dayThree = new Date("2030-01-03T00:00:00Z");
+
+    backupDatabase(db, databasePath, { now: dayOne, kind: "manual", keep: 1, automaticKeep: 2 });
+    expect(isBackupDue(databasePath, directory, dayOne)).toBe(true);
+    backupDatabase(db, databasePath, { now: dayOne, kind: "automatic", keep: 1, automaticKeep: 2 });
+    expect(isBackupDue(databasePath, directory, new Date("2030-01-01T23:59:00Z"))).toBe(false);
+    backupDatabase(db, databasePath, { now: dayTwo, kind: "manual", keep: 1, automaticKeep: 2 });
+    expect(isBackupDue(databasePath, directory, dayTwo)).toBe(true);
+    backupDatabase(db, databasePath, { now: dayTwo, kind: "automatic", keep: 1, automaticKeep: 2 });
+    backupDatabase(db, databasePath, { now: dayThree, kind: "manual", keep: 1, automaticKeep: 2 });
+    db.close();
+
+    const backups = listDatabaseBackups(databasePath, directory);
+    expect(backups.filter((backup) => backup.kind === "manual")).toHaveLength(1);
+    expect(backups.filter((backup) => backup.kind === "automatic")).toHaveLength(2);
+    expect(backups.filter((backup) => backup.kind === "automatic").map((backup) => backup.createdAt)).toEqual([
+      "2030-01-02T00:00:00Z",
+      "2030-01-01T00:00:00Z",
+    ]);
+    expect(isBackupDue(databasePath, directory, new Date("2030-01-03T00:00:00Z"))).toBe(true);
+  });
+
+  it("reads legacy untagged backup names as manual copies", () => {
+    const { databasePath, directory } = setup();
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "work-intelligence-20300101T000000Z.sqlite"), "legacy backup");
+
+    expect(listDatabaseBackups(databasePath, directory)).toMatchObject([
+      { kind: "manual", fileName: "work-intelligence-20300101T000000Z.sqlite" },
     ]);
   });
 

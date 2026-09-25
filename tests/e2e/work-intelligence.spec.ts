@@ -631,7 +631,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(backups).toContainText("pnpm db:restore");
     await backups.getByRole("button", { name: "立即備份" }).click();
     await expect(page.getByText("已備份目前的資料。")).toBeVisible();
-    await expect(backups.getByText(/^work-intelligence-e2e-\d+-\d{8}T\d{6}Z/).first()).toBeVisible();
+    await expect(backups.getByText(/^work-intelligence-e2e-\d+-manual-\d{8}T\d{6}Z/).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
 

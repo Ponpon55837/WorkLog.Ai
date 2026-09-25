@@ -6,7 +6,18 @@ import { remapPathPrefix } from "./project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
 export const DEFAULT_BACKUP_KEEP = 14;
-const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 14;
+
+export interface BackupRetentionOptions {
+  directory?: string;
+  keep?: number;
+  automaticKeep?: number;
+}
+
+export interface BackupWriteOptions extends BackupRetentionOptions {
+  kind?: "automatic" | "manual";
+  now?: Date;
+}
 
 /** Backups live beside the database in `backups/`, named after it with a UTC timestamp. */
 export function defaultBackupDirectory(databasePath: string): string {
@@ -24,10 +35,13 @@ function timestamp(date: Date): string {
     .replace(/\.\d{3}Z$/, "Z");
 }
 
-function parseName(value: string): { createdAt: string; sequence: number } | null {
-  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(value);
+function parseName(value: string): { kind: "automatic" | "manual"; createdAt: string; sequence: number } | null {
+  const [kindLabel, stamp] = /^(automatic|manual)-(.+)$/.exec(value)?.slice(1) ?? [];
+  const kind = kindLabel === "automatic" ? "automatic" : "manual";
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
   return match
     ? {
+        kind,
         createdAt: `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`,
         sequence: Number(match[7] ?? 1),
       }
@@ -51,7 +65,9 @@ export function listDatabaseBackups(
         return [];
       }
       const bytes = statSync(join(directory, fileName)).size;
-      return [{ backup: { fileName, createdAt: parsed.createdAt, bytes }, sequence: parsed.sequence }];
+      return [
+        { backup: { kind: parsed.kind, fileName, createdAt: parsed.createdAt, bytes }, sequence: parsed.sequence },
+      ];
     })
     .sort((left, right) =>
       left.backup.createdAt === right.backup.createdAt
@@ -102,41 +118,45 @@ export function exportDatabase(db: DatabaseSync, target: string): { bytes: numbe
   return { bytes: statSync(target).size };
 }
 
-/** Writes a checked, owner-only snapshot into the backup directory and prunes copies beyond `keep`. */
+/** Writes a checked, owner-only snapshot and prunes only older copies of the same kind. */
 export function backupDatabase(
   db: DatabaseSync,
   databasePath: string,
-  options: { directory?: string; keep?: number; now?: Date } = {},
+  options: BackupWriteOptions = {},
 ): DatabaseBackupCreated {
   const directory = options.directory ?? defaultBackupDirectory(databasePath);
+  const kind = options.kind ?? "manual";
   const keep = Math.max(1, Math.trunc(options.keep ?? DEFAULT_BACKUP_KEEP));
+  const automaticKeep = Math.max(1, Math.trunc(options.automaticKeep ?? DEFAULT_AUTOMATIC_BACKUP_KEEP));
+  const kindKeep = kind === "automatic" ? automaticKeep : keep;
   mkdirSync(directory, { recursive: true, mode: 0o700 });
 
   const stamp = timestamp(options.now ?? new Date());
-  let fileName = `${backupPrefix(databasePath)}${stamp}.sqlite`;
+  let fileName = `${backupPrefix(databasePath)}${kind}-${stamp}.sqlite`;
   for (let suffix = 2; existsSync(join(directory, fileName)); suffix += 1) {
-    fileName = `${backupPrefix(databasePath)}${stamp}-${suffix}.sqlite`;
+    fileName = `${backupPrefix(databasePath)}${kind}-${stamp}-${suffix}.sqlite`;
   }
   const target = join(directory, fileName);
   writeSnapshot(db, target);
 
   const backups = listDatabaseBackups(databasePath, directory);
-  for (const stale of backups.slice(keep)) {
+  for (const stale of backups.filter((backup) => backup.kind === kind).slice(kindKeep)) {
     rmSync(join(directory, stale.fileName), { force: true });
   }
-  const kept = backups.slice(0, keep);
+  const kept = listDatabaseBackups(databasePath, directory);
   const created = kept.find((backup) => backup.fileName === fileName) ?? {
+    kind,
     fileName,
     createdAt: new Date().toISOString(),
     bytes: statSync(target).size,
   };
-  return { outcome: "database_backups", keep, backups: kept, created };
+  return { outcome: "database_backups", keep, automaticKeep, backups: kept, created };
 }
 
-/** True when there is no backup yet or the newest one is at least a day old. */
+/** True until an automatic backup has been made during the current UTC day. */
 export function isBackupDue(databasePath: string, directory?: string, now = new Date()): boolean {
-  const [latest] = listDatabaseBackups(databasePath, directory);
-  return !latest || now.getTime() - Date.parse(latest.createdAt) >= BACKUP_INTERVAL_MS;
+  const latest = listDatabaseBackups(databasePath, directory).find((backup) => backup.kind === "automatic");
+  return !latest || latest.createdAt.slice(0, 10) !== now.toISOString().slice(0, 10);
 }
 
 export interface RestorePathRemap {

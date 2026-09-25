@@ -26,6 +26,7 @@ import VirtualList from "../VirtualList.vue";
 const {
   backups,
   backupKeep,
+  automaticBackupKeep,
   backupsLoading,
   backupsError,
   backupCreating,
@@ -106,7 +107,7 @@ onMounted(() => {
 
     <UiBox>
       <template #header>
-        <UiBoxTitle :icon="Archive" eyebrow="Backups" title="自動備份" :count="backups.length" />
+        <UiBoxTitle :icon="Archive" eyebrow="Backups" title="資料備份" :count="backups.length" />
         <div class="backup-section__actions">
           <UiIconButton
             :icon="RefreshCw"
@@ -119,7 +120,8 @@ onMounted(() => {
         </div>
       </template>
       <p class="backup-section__note">
-        API server 執行時每天自動備份一次，存在資料庫旁的 <code>backups/</code> 資料夾，保留最近 {{ backupKeep }} 份。
+        API server 每個 UTC 日自動備份一次，存在資料庫旁的 <code>backups/</code> 資料夾；自動與手動分開保留， 分別最多
+        {{ automaticBackupKeep }} 份與 {{ backupKeep }} 份。
       </p>
       <UiEmptyState
         v-if="backups.length === 0 && !backupsLoading"
@@ -138,7 +140,10 @@ onMounted(() => {
         label="備份清單"
       >
         <template #default="{ item }">
-          <UiBoxRow :title="item.fileName" :meta="`${formatRelative(item.createdAt)} · ${formatBytes(item.bytes)}`">
+          <UiBoxRow
+            :title="item.fileName"
+            :meta="`${item.kind === 'automatic' ? '每日自動' : '手動'} · ${formatRelative(item.createdAt)} · ${formatBytes(item.bytes)}`"
+          >
             <template #leading><Archive :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
             <template #trailing
               ><time :datetime="item.createdAt" class="backup-section__time">{{
