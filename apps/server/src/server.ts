@@ -395,8 +395,9 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           sendError(response, 400, `匯入檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
           return;
         }
+        const input = parsed.data satisfies ProjectDataImportInput;
         try {
-          const preview = store.previewProjectDataImport(parsed.data as ProjectDataImportInput);
+          const preview = store.previewProjectDataImport(input);
           sendJson(response, 200, preview);
         } catch (error) {
           if (sendProjectDataTransferError(response, error)) {
@@ -414,8 +415,9 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           sendError(response, 400, `匯入檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
           return;
         }
+        const input = parsed.data satisfies ProjectDataImportInput;
         try {
-          const result = store.importProjectData(parsed.data as ProjectDataImportInput);
+          const result = store.importProjectData(input);
           sendJson(response, 200, result);
         } catch (error) {
           if (sendProjectDataTransferError(response, error)) {
