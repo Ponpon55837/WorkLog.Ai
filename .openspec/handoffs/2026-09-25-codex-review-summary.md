@@ -6,14 +6,14 @@
 
 六個 PR 均已合併至 `main`。各 PR 最新提交的 Ubuntu、Windows 與 Chromium E2E 三項 CI 均成功；合併差異的檔案數已與對應 Session 核對。
 
-| PR | 交付內容 | 最新提交 | 合併提交 | 檔案數 | Work Intelligence Session |
-|---|---|---|---|---:|---|
-| [#49](https://github.com/Ponpon55837/WorkLog.Ai/pull/49) | 依專案匯出與合併匯入 | `fb6c0cc` | `95b8e0a` | 25 | `5722fd21-1811-4ed7-8c06-88267488dce0` |
-| [#50](https://github.com/Ponpon55837/WorkLog.Ai/pull/50) | Codex 提醒 Hook 測試與 Windows 指令 | `afec7ee` | `c4be506` | 4 | `3013ebd2-34b7-4029-a652-0b328975a0fd` |
-| [#51](https://github.com/Ponpon55837/WorkLog.Ai/pull/51) | 自動備份與手動備份分開保留 | `5be2b10` | `48db86f` | 12 | `3d8756c4-1ec0-4b09-ac16-916511bf21d5` |
-| [#52](https://github.com/Ponpon55837/WorkLog.Ai/pull/52) | MCP Session 清單改回精簡摘要 | `a32cd0c` | `072d83a` | 7 | `b7bfe98d-53df-4ada-9646-c505889ee53a` |
-| [#53](https://github.com/Ponpon55837/WorkLog.Ai/pull/53) | 各工作區建置前清除 `dist`，並調整 Windows Hook 測試啟動期限 | `33582f2` | `c9343ef` | 11 | `b0b84093-ae9e-4f28-bc11-ec319427dbc3` |
-| [#54](https://github.com/Ponpon55837/WorkLog.Ai/pull/54) | 其他長清單改為框內虛擬捲動 | `032bf58` | `0155647e7be307be22239c1dbe106e92cc8e3da6` | 8 | `946c9ab5-7c53-42b3-b4d9-200f0242ee28` |
+| PR                                                       | 交付內容                                                    | 最新提交  | 合併提交                                   | 檔案數 | Work Intelligence Session              |
+| -------------------------------------------------------- | ----------------------------------------------------------- | --------- | ------------------------------------------ | -----: | -------------------------------------- |
+| [#49](https://github.com/Ponpon55837/WorkLog.Ai/pull/49) | 依專案匯出與合併匯入                                        | `fb6c0cc` | `95b8e0a`                                  |     25 | `5722fd21-1811-4ed7-8c06-88267488dce0` |
+| [#50](https://github.com/Ponpon55837/WorkLog.Ai/pull/50) | Codex 提醒 Hook 測試與 Windows 指令                         | `afec7ee` | `c4be506`                                  |      4 | `3013ebd2-34b7-4029-a652-0b328975a0fd` |
+| [#51](https://github.com/Ponpon55837/WorkLog.Ai/pull/51) | 自動備份與手動備份分開保留                                  | `5be2b10` | `48db86f`                                  |     12 | `3d8756c4-1ec0-4b09-ac16-916511bf21d5` |
+| [#52](https://github.com/Ponpon55837/WorkLog.Ai/pull/52) | MCP Session 清單改回精簡摘要                                | `a32cd0c` | `072d83a`                                  |      7 | `b7bfe98d-53df-4ada-9646-c505889ee53a` |
+| [#53](https://github.com/Ponpon55837/WorkLog.Ai/pull/53) | 各工作區建置前清除 `dist`，並調整 Windows Hook 測試啟動期限 | `33582f2` | `c9343ef`                                  |     11 | `b0b84093-ae9e-4f28-bc11-ec319427dbc3` |
+| [#54](https://github.com/Ponpon55837/WorkLog.Ai/pull/54) | 其他長清單改為框內虛擬捲動                                  | `032bf58` | `0155647e7be307be22239c1dbe106e92cc8e3da6` |      8 | `946c9ab5-7c53-42b3-b4d9-200f0242ee28` |
 
 上述檔案數由各合併提交相對第一父提交的 Git 差異計算，與六筆 Session 的 `changedFiles` 數一致。PR 工作記錄複核另存於 Session `8eeeebd5-2165-4882-a2b7-88ccd50f2477`，涵蓋 #49–#54；較早的 #49–#53 複核記錄為 `6d0b1a47-536f-42a3-81b3-4a67d36b4b64`。
 
@@ -30,15 +30,15 @@
 
 ### 任務 2：複檢改善項目
 
-| 交接項目 | 結果與驗證 |
-|---|---|
-| Codex Hook 測試（#50） | 抽出可注入依賴的提醒邏輯，加入 Hook 測試，涵蓋標記、成功清除、只提醒一次、專案狀態與錯誤輸入放行。本機 MCP 測試 21 項通過、1 項 Windows 專屬測試略過；PR CI 全綠。 |
-| Windows Hook 指令（#50） | 改用 PowerShell `EncodedCommand`，避免依賴 `cmd` 無法解析的 `$(...)`。文件說明驗證方式；Windows CI 通過。實際 Windows Codex 安裝是否載入 Hook 尚未人工確認。 |
-| 備份保留（#51） | 自動與手動備份分開命名、計數及清理；手動備份不會排擠每日自動備份。包含測試；PR CI 全綠。 |
-| Session 摘要（#52） | MCP `work_list_sessions` 預設回傳摘要，完整資料仍可用 `work_get_session` 取得；Web 使用的 REST `/api/sessions` 維持完整資料。說明與 skill 已更新；MCP 測試、型別檢查及 REST 測試通過，PR CI 全綠。 |
-| 清除舊 `dist`（#53） | 新增跨平台清理器並接到八個工作區的 build。另將 Windows Hook 測試啟動期限調至 20 秒；Ubuntu、Windows、Chromium E2E CI 全綠。 |
-| 長清單（#54） | Knowledge 候選、metadata 回補、報告三組跨期工作、Session 面板及工作摘要清單改在內容框內虛擬捲動。E2E 在 1440、960、375 寬度檢查，沒有水平溢位或瀏覽器錯誤；PR CI 全綠。 |
-| 共用 SQLite 交易 helper／SSE 連線上限（可選） | 未實作；原交接明確標為可選，不屬於必要交付。 |
+| 交接項目                                      | 結果與驗證                                                                                                                                                                                         |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex Hook 測試（#50）                        | 抽出可注入依賴的提醒邏輯，加入 Hook 測試，涵蓋標記、成功清除、只提醒一次、專案狀態與錯誤輸入放行。本機 MCP 測試 21 項通過、1 項 Windows 專屬測試略過；PR CI 全綠。                                 |
+| Windows Hook 指令（#50）                      | 改用 PowerShell `EncodedCommand`，避免依賴 `cmd` 無法解析的 `$(...)`。文件說明驗證方式；Windows CI 通過。實際 Windows Codex 安裝是否載入 Hook 尚未人工確認。                                       |
+| 備份保留（#51）                               | 自動與手動備份分開命名、計數及清理；手動備份不會排擠每日自動備份。包含測試；PR CI 全綠。                                                                                                           |
+| Session 摘要（#52）                           | MCP `work_list_sessions` 預設回傳摘要，完整資料仍可用 `work_get_session` 取得；Web 使用的 REST `/api/sessions` 維持完整資料。說明與 skill 已更新；MCP 測試、型別檢查及 REST 測試通過，PR CI 全綠。 |
+| 清除舊 `dist`（#53）                          | 新增跨平台清理器並接到八個工作區的 build。另將 Windows Hook 測試啟動期限調至 20 秒；Ubuntu、Windows、Chromium E2E CI 全綠。                                                                        |
+| 長清單（#54）                                 | Knowledge 候選、metadata 回補、報告三組跨期工作、Session 面板及工作摘要清單改在內容框內虛擬捲動。E2E 在 1440、960、375 寬度檢查，沒有水平溢位或瀏覽器錯誤；PR CI 全綠。                            |
+| 共用 SQLite 交易 helper／SSE 連線上限（可選） | 未實作；原交接明確標為可選，不屬於必要交付。                                                                                                                                                       |
 
 所有指令使用 `pnpm`，沒有使用 `npm`。
 
