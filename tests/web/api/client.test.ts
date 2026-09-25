@@ -33,4 +33,29 @@ describe("ApiClient.request", () => {
     respond(200, "<html></html>", "text/html");
     await expect(new ApiClient().request("/api/dashboard")).rejects.toThrow("API 回應格式不正確");
   });
+
+  it("reports transport failures to the shared connection state", async () => {
+    const onConnectionChange = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("Failed to fetch");
+    expect(onConnectionChange).toHaveBeenCalledWith(false);
+  });
+
+  it("marks server errors offline and client errors as reachable", async () => {
+    const onConnectionChange = vi.fn();
+    respond(503, JSON.stringify({ error: "服務暫時無法回應。" }));
+
+    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("服務暫時無法回應。");
+    expect(onConnectionChange).toHaveBeenLastCalledWith(false);
+
+    respond(400, JSON.stringify({ error: "輸入無效。" }));
+    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("輸入無效。");
+    expect(onConnectionChange).toHaveBeenLastCalledWith(true);
+  });
 });

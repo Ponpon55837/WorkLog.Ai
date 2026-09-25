@@ -1,5 +1,6 @@
 import { onMounted, ref, watch } from "vue";
 import { useApi } from "./useApi";
+import { updateApiConnection, useApiConnection } from "./useApiConnection";
 
 const refreshTick = ref(0);
 
@@ -13,26 +14,26 @@ export function startAppRefreshEvents(): () => void {
   let source: EventSource | undefined;
   let stopped = false;
   const { client } = useApi();
+  const { isApiOffline } = useApiConnection();
+  const stopWatchingConnection = watch(isApiOffline, (isOffline, wasOffline) => {
+    if (wasOffline && !isOffline && document.visibilityState === "visible") {
+      requestAppRefresh();
+    }
+  });
 
   function connect(): void {
     if (stopped || source || document.visibilityState !== "visible") {
       return;
     }
-    let openedOnce = false;
     source = client.openChangeStream(
       () => {
         if (document.visibilityState === "visible") {
           requestAppRefresh();
         }
       },
-      () => {
-        if (openedOnce && document.visibilityState === "visible") {
-          // EventSource reconnects automatically; re-fetch in case a change happened while offline.
-          requestAppRefresh();
-        }
-        openedOnce = true;
-      },
+      () => updateApiConnection(true),
     );
+    source.addEventListener("error", () => updateApiConnection(false));
   }
 
   function onVisibilityChange(): void {
@@ -52,6 +53,7 @@ export function startAppRefreshEvents(): () => void {
   return () => {
     stopped = true;
     document.removeEventListener("visibilitychange", onVisibilityChange);
+    stopWatchingConnection();
     source?.close();
     source = undefined;
   };
