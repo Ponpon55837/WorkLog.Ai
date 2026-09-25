@@ -12,6 +12,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Daily, weekly, monthly, yearly, and custom-range reports with sourced summaries, history, and Markdown export.
 - Knowledge candidates, review and staleness signals, Session relationships, and audit history for record changes.
 - Database backups and restore, full database export, and portable project data import and export.
+- Offline database maintenance with a verified pre-maintenance backup, integrity checks, VACUUM, ANALYZE, and search-index rebuild.
 - Production startup that serves the built web app and API from one local port, plus a global web notice for API disconnections.
 - Application and schema version details in the API health response, MCP server metadata and instructions, and web sidebar.
 

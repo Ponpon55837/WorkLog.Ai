@@ -62,6 +62,30 @@ function createPortableProject(store: WorkIntelligenceStore, root: string) {
 }
 
 describe("database maintenance CLI", () => {
+  it("prints the completed maintenance backup and rebuilt index counts", async () => {
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps: DatabaseCliDependencies = {
+      runMaintenance: () => ({
+        backupFileName: "synthetic-backup.sqlite",
+        startedAt: "2026-09-25T10:00:00.000Z",
+        completedAt: "2026-09-25T10:01:00.000Z",
+        indexedSessions: 4,
+        indexedKnowledge: 2,
+        indexedChunks: 12,
+        indexedPaths: 3,
+      }),
+      log: (message) => messages.log.push(message),
+      error: (message) => messages.error.push(message),
+    };
+
+    expect(await runDatabaseCli(["maintain"], deps)).toBe(0);
+    expect(messages.log.join("\n")).toContain("synthetic-backup.sqlite");
+    expect(messages.log.join("\n")).toContain("重新索引 4 筆 Session、2 筆 Knowledge");
+    expect(messages.error).toEqual([]);
+    expect(await runDatabaseCli(["maintain", "--force"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("不接受參數");
+  });
+
   it("exports all projects and a selected project to portable JSON", async () => {
     const root = createRoot();
     const store = createStore();

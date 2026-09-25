@@ -26,6 +26,17 @@ const HEALTH_SCHEMA = z
     database: z.enum(["connected", "unavailable"]).optional(),
   })
   .passthrough();
+const MAINTENANCE_RUN_SCHEMA = z.object({
+  started_at: z.string(),
+  completed_at: z.string().nullable(),
+  status: z.enum(["running", "completed", "failed"]),
+  backup_file_name: z.string(),
+  indexed_sessions: z.number().int().nonnegative(),
+  indexed_knowledge: z.number().int().nonnegative(),
+  indexed_chunks: z.number().int().nonnegative(),
+  indexed_paths: z.number().int().nonnegative(),
+  failure_code: z.enum(["DATABASE_INTEGRITY_FAILED", "DATABASE_MAINTENANCE_FAILED"]).nullable(),
+});
 
 const REQUIRED_DIST_FILES = [
   "apps/server/dist/index.js",
@@ -64,6 +75,17 @@ export interface ReadOnlyDatabaseInspection {
   bytes?: number;
   integrity?: "ok" | "failed";
   schemaVersion?: number;
+  maintenance?: {
+    startedAt: string;
+    completedAt: string | null;
+    status: "running" | "completed" | "failed";
+    backupFileName: string;
+    indexedSessions: number;
+    indexedKnowledge: number;
+    indexedChunks: number;
+    indexedPaths: number;
+    failureCode: "DATABASE_INTEGRITY_FAILED" | "DATABASE_MAINTENANCE_FAILED" | null;
+  } | null;
 }
 
 export interface GlobalHookInspection {
@@ -210,11 +232,43 @@ export async function inspectDatabaseReadOnly(databasePath: string): Promise<Rea
         return { state: "unhealthy", bytes: statSync(databasePath).size, integrity: "failed" };
       }
     }
+    const maintenanceTable = database
+      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'database_maintenance_runs'")
+      .get();
+    let maintenance: ReadOnlyDatabaseInspection["maintenance"];
+    if (maintenanceTable) {
+      const rawRun = database
+        .prepare(
+          `SELECT started_at, completed_at, status, backup_file_name, indexed_sessions,
+                  indexed_knowledge, indexed_chunks, indexed_paths, failure_code
+           FROM database_maintenance_runs ORDER BY started_at DESC LIMIT 1`,
+        )
+        .get();
+      if (rawRun) {
+        const parsedRun = MAINTENANCE_RUN_SCHEMA.safeParse(rawRun);
+        if (parsedRun.success) {
+          maintenance = {
+            startedAt: parsedRun.data.started_at,
+            completedAt: parsedRun.data.completed_at,
+            status: parsedRun.data.status,
+            backupFileName: parsedRun.data.backup_file_name,
+            indexedSessions: parsedRun.data.indexed_sessions,
+            indexedKnowledge: parsedRun.data.indexed_knowledge,
+            indexedChunks: parsedRun.data.indexed_chunks,
+            indexedPaths: parsedRun.data.indexed_paths,
+            failureCode: parsedRun.data.failure_code,
+          };
+        }
+      } else {
+        maintenance = null;
+      }
+    }
     return {
       state: integrityOk ? "ok" : "unhealthy",
       bytes: statSync(databasePath).size,
       integrity: integrityOk ? "ok" : "failed",
       schemaVersion,
+      ...(maintenanceTable ? { maintenance: maintenance ?? null } : {}),
     };
   } catch {
     return { state: "unreadable" };
@@ -485,6 +539,36 @@ export async function collectDoctorFindings(
         backupDetail +
         "。",
     );
+  }
+
+  if (database.maintenance === null) {
+    addFinding(
+      findings,
+      "warning",
+      "資料庫維護",
+      "尚無維護紀錄。",
+      "執行 pnpm db:maintain 建立備份、整理資料庫並重建搜尋索引。",
+    );
+  } else if (database.maintenance) {
+    const maintenance = database.maintenance;
+    if (maintenance.status === "completed") {
+      addFinding(
+        findings,
+        "ok",
+        "資料庫維護",
+        `完成於 ${maintenance.completedAt ?? maintenance.startedAt}；備份 ${maintenance.backupFileName}；重新索引 ${maintenance.indexedSessions} 筆 Session、${maintenance.indexedKnowledge} 筆 Knowledge，共 ${maintenance.indexedChunks} 個搜尋段落與 ${maintenance.indexedPaths} 個路徑。`,
+      );
+    } else {
+      addFinding(
+        findings,
+        "warning",
+        "資料庫維護",
+        maintenance.status === "running"
+          ? `最近一次維護於 ${maintenance.startedAt} 開始但未完成；備份 ${maintenance.backupFileName}。`
+          : `最近一次維護於 ${maintenance.completedAt ?? maintenance.startedAt} 未完成；備份 ${maintenance.backupFileName}；分類 ${maintenance.failureCode ?? "DATABASE_MAINTENANCE_FAILED"}。`,
+        "確認 server 與 Agent 已停止，再次執行 pnpm db:maintain；如仍失敗，請依疑難排解從維護前備份還原。",
+      );
+    }
   }
 
   const port = parsedEnvironment.data.WORK_INTELLIGENCE_PORT ?? DEFAULT_SERVER_PORT;

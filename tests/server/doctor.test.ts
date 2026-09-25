@@ -27,7 +27,12 @@ describe("pnpm doctor read-only checks", () => {
     const database = new DatabaseSync(databasePath);
     database.exec(
       "CREATE TABLE schema_migrations (version INTEGER NOT NULL, name TEXT NOT NULL, applied_at TEXT NOT NULL);" +
-        "INSERT INTO schema_migrations VALUES (12, 'synthetic', '2026-09-25T00:00:00.000Z');",
+        "INSERT INTO schema_migrations VALUES (12, 'synthetic', '2026-09-25T00:00:00.000Z');" +
+        "CREATE TABLE database_maintenance_runs (id TEXT, started_at TEXT, completed_at TEXT, status TEXT, " +
+        "backup_file_name TEXT, indexed_sessions INTEGER, indexed_knowledge INTEGER, indexed_chunks INTEGER, " +
+        "indexed_paths INTEGER, failure_code TEXT);" +
+        "INSERT INTO database_maintenance_runs VALUES ('synthetic', '2026-09-25T01:00:00.000Z', " +
+        "'2026-09-25T01:01:00.000Z', 'completed', 'synthetic-backup.sqlite', 3, 1, 8, 2, NULL);",
     );
     database.close();
     const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
@@ -36,6 +41,12 @@ describe("pnpm doctor read-only checks", () => {
       state: "ok",
       integrity: "ok",
       schemaVersion: 12,
+      maintenance: {
+        status: "completed",
+        backupFileName: "synthetic-backup.sqlite",
+        indexedSessions: 3,
+        indexedKnowledge: 1,
+      },
     });
 
     const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");

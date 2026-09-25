@@ -105,6 +105,13 @@ export interface RecallComputation {
   termHits?: RecallTermHits[];
 }
 
+export interface SearchIndexRebuildResult {
+  sessions: number;
+  knowledge: number;
+  chunks: number;
+  paths: number;
+}
+
 function parseStringArray(value: string | null | undefined): string[] {
   if (!value) {
     return [];
@@ -142,6 +149,30 @@ function docKey(type: DocType, id: string): string {
 /** Retrieval index over Sessions (with raw handoff sections) and Knowledge, kept in sync lazily. */
 export class SearchRepository {
   public constructor(private readonly db: DatabaseSync) {}
+
+  /** Rebuilds every cached search row from the current Session and Knowledge records. */
+  public rebuildIndex(): SearchIndexRebuildResult {
+    const documents = this.db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count: number };
+    const knowledge = this.db.prepare("SELECT COUNT(*) AS count FROM knowledge").get() as { count: number };
+
+    runImmediateTransaction(this.db, () => {
+      this.db.exec(
+        "DELETE FROM search_fts; DELETE FROM search_chunks; DELETE FROM search_paths; DELETE FROM search_dirty;",
+      );
+      this.db.exec(`
+        INSERT OR IGNORE INTO search_dirty (doc_type, doc_id) SELECT 'session', id FROM sessions;
+        INSERT OR IGNORE INTO search_dirty (doc_type, doc_id) SELECT 'knowledge', id FROM knowledge;
+      `);
+    });
+    this.syncIndex();
+
+    return {
+      sessions: documents.count,
+      knowledge: knowledge.count,
+      chunks: (this.db.prepare("SELECT COUNT(*) AS count FROM search_chunks").get() as { count: number }).count,
+      paths: (this.db.prepare("SELECT COUNT(*) AS count FROM search_paths").get() as { count: number }).count,
+    };
+  }
 
   /** Re-indexes documents marked dirty by the write triggers. */
   public syncIndex(): void {

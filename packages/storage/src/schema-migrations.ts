@@ -342,6 +342,28 @@ const MIGRATIONS: SchemaMigration[] = [
         ON project_deletion_audit(project_id, deleted_at DESC);
     `,
   },
+  {
+    version: 12,
+    name: "database-maintenance-history",
+    sql: `
+      CREATE TABLE IF NOT EXISTS database_maintenance_runs (
+        id TEXT PRIMARY KEY,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+        backup_file_name TEXT NOT NULL,
+        indexed_sessions INTEGER NOT NULL DEFAULT 0 CHECK (indexed_sessions >= 0),
+        indexed_knowledge INTEGER NOT NULL DEFAULT 0 CHECK (indexed_knowledge >= 0),
+        indexed_chunks INTEGER NOT NULL DEFAULT 0 CHECK (indexed_chunks >= 0),
+        indexed_paths INTEGER NOT NULL DEFAULT 0 CHECK (indexed_paths >= 0),
+        failure_code TEXT CHECK (failure_code IS NULL OR failure_code IN (
+          'DATABASE_INTEGRITY_FAILED', 'DATABASE_MAINTENANCE_FAILED'
+        ))
+      );
+      CREATE INDEX IF NOT EXISTS idx_database_maintenance_runs_started
+        ON database_maintenance_runs(started_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
