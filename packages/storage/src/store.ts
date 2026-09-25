@@ -1188,7 +1188,7 @@ export class WorkIntelligenceStore {
   }
 
   private ensureSchemaMigrations(): void {
-    this.runImmediateTransaction(() => {
+    runImmediateSqlTransaction(this.db, () => {
       const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name?: string }>;
       const columnNames = new Set(columns.map((column) => column.name));
       if (!columnNames.has("execution_status")) {
@@ -1256,10 +1256,6 @@ export class WorkIntelligenceStore {
 
       applySchemaMigrations(this.db);
     });
-  }
-
-  private runImmediateTransaction<T>(operation: () => T): T {
-    return runImmediateSqlTransaction(this.db, operation);
   }
 
   private checkProjectRoot(projectRoot: string): PolicyDecision {
@@ -1683,7 +1679,7 @@ export class WorkIntelligenceStore {
     const unchanged = sameVerification(previous, next);
     if (!unchanged) {
       const updatedAt = nowIso();
-      this.runImmediateTransaction(() => {
+      runImmediateSqlTransaction(this.db, () => {
         this.db.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run(JSON.stringify(next), sessionId);
         this.touchSession(sessionId, updatedAt);
         this.insertVerificationUpdate(sessionId, source, previous, next, updatedAt);
@@ -1861,7 +1857,7 @@ export class WorkIntelligenceStore {
     if (problem) {
       return { outcome: "invalid_link", sessionId: input.sessionId, reason: problem };
     }
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const existing = this.db
         .prepare(
           `SELECT session_id, related_session_id, relation FROM session_links
@@ -2043,7 +2039,7 @@ export class WorkIntelligenceStore {
       isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed);
     const updatedAt = nowIso();
     const nextVerification = input.verification ? normalizeVerification(input.verification) : undefined;
-    this.runImmediateTransaction(() => {
+    runImmediateSqlTransaction(this.db, () => {
       if (nextVerification && !sameVerification(current.verification, nextVerification)) {
         this.insertVerificationUpdate(input.sessionId, "agent", current.verification, nextVerification, updatedAt);
       }
@@ -2117,7 +2113,7 @@ export class WorkIntelligenceStore {
       throw new Error("Session summary must not be empty.");
     }
 
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const existingUpdate = this.db
         .prepare(
           "SELECT session_id, idempotency_key, mode, summary, previous_summary, resulting_summary FROM session_summary_updates WHERE idempotency_key = ?",
@@ -2240,7 +2236,7 @@ export class WorkIntelligenceStore {
     const requestJson = JSON.stringify(normalizedPatch);
     const project = decision.project;
 
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const existingUpdate = this.db
         .prepare(
           `SELECT session_id, idempotency_key, mode, work_summary_json, previous_work_summary_json, resulting_work_summary_json
@@ -2415,7 +2411,7 @@ export class WorkIntelligenceStore {
     }
     const projectId = decision.project.id;
     const reason = requireVoidReason(input.voided, input.reason);
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const current = this.db.prepare("SELECT voided_at FROM sessions WHERE id = ?").get(input.sessionId) as {
         voided_at: string | null;
       };
@@ -2454,7 +2450,7 @@ export class WorkIntelligenceStore {
     }
     const projectId = decision.project.id;
     const reason = requireVoidReason(input.voided, input.reason);
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const duplicate = Boolean(row.voided_at) === input.voided;
       if (!duplicate) {
         const occurredAt = nowIso();
@@ -2508,7 +2504,7 @@ export class WorkIntelligenceStore {
     }
 
     const project = decision.project;
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       if (input.sessionId) {
         const session = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
           { project_id?: string } | undefined;
@@ -2806,7 +2802,7 @@ export class WorkIntelligenceStore {
     const project = decision.project;
     const kind = input.kind.trim();
     const reference = input.reference.trim();
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const existing = this.db
         .prepare("SELECT * FROM evidence WHERE session_id = ? AND kind = ? AND reference = ?")
         .get(input.sessionId, kind, reference) as EvidenceRow | undefined;
@@ -2892,7 +2888,7 @@ export class WorkIntelligenceStore {
       },
     ];
 
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const existing = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (existing) {
         const incomingSummary = input.summary.trim();

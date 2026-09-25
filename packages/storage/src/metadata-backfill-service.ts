@@ -120,10 +120,6 @@ export class MetadataBackfillService {
     private readonly repository: MetadataBackfillRepository,
   ) {}
 
-  private runImmediateTransaction<T>(operation: () => T): T {
-    return runImmediateSqlTransaction(this.db, operation);
-  }
-
   private toMetadataBackfillItem(row: MetadataBackfillRow): MetadataBackfillItem {
     return toMetadataBackfillItem(row, (sessionRow) => this.store.toSession(sessionRow));
   }
@@ -243,7 +239,7 @@ export class MetadataBackfillService {
       `metadata-backfill-${createHash("sha256")
         .update(`${scopeType}:${project?.id ?? "all"}:${sourceSessionIds.join(",")}`)
         .digest("hex")}`;
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const existingRow = this.db
         .prepare(
           `SELECT r.*, p.name AS project_name

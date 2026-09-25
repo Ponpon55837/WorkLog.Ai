@@ -218,10 +218,6 @@ export class ReportSynthesisService {
     private readonly repository: ReportSynthesisRequestRepository,
   ) {}
 
-  private runImmediateTransaction<T>(operation: () => T): T {
-    return runImmediateSqlTransaction(this.db, operation);
-  }
-
   private recoverStaleReportSynthesisRequests(): void {
     this.repository.recoverStale();
   }
@@ -268,7 +264,7 @@ export class ReportSynthesisService {
 
     const requestedAt = nowIso();
     const id = randomUUID();
-    return this.runImmediateTransaction(() => {
+    return runImmediateSqlTransaction(this.db, () => {
       const existingRow = this.db
         .prepare(
           `SELECT r.*, p.name AS project_name
