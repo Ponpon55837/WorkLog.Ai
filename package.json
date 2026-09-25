@@ -1,6 +1,7 @@
 {
   "name": "work-intelligence",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Local-first developer work intelligence MVP",
   "packageManager": "pnpm@11.16.0",
