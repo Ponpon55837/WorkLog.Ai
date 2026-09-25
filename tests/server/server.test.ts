@@ -411,7 +411,7 @@ describe("Work Intelligence REST API", () => {
       body: {},
     });
     expect(created.status).toBe(201);
-    expect(created.body.created.fileName).toMatch(/^work-intelligence-\d{8}T\d{6}Z\.sqlite$/);
+    expect(created.body.created.fileName).toMatch(/^work-intelligence-manual-\d{8}T\d{6}Z\.sqlite$/);
     expect(JSON.stringify(created.body)).not.toContain(root);
 
     // A cross-site form post cannot send JSON, so it cannot trigger a backup or an export.
