@@ -367,14 +367,16 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(sessionPageSize).toHaveValue("20");
     await sessionPageSize.selectOption("all");
     const sessionList = await expectBoundedVirtualList(page, "工作歷程清單");
-    const sessionRowBoxes = await sessionList
-      .getByTestId("session-row")
-      .evaluateAll((rows) =>
-        rows.map((row) => row.getBoundingClientRect()).map((box) => ({ top: box.top, bottom: box.bottom })),
-      );
-    for (let index = 1; index < sessionRowBoxes.length; index += 1) {
-      expect(sessionRowBoxes[index]?.top ?? 0).toBeGreaterThanOrEqual((sessionRowBoxes[index - 1]?.bottom ?? 0) - 1);
-    }
+    // The virtual list places rows by estimated heights first and corrects them once ResizeObserver has
+    // measured them, so wait for the layout to settle instead of sampling a single frame.
+    await expect
+      .poll(() =>
+        sessionList.getByTestId("session-row").evaluateAll((rows) => {
+          const boxes = rows.map((row) => row.getBoundingClientRect());
+          return Math.max(0, ...boxes.slice(1).map((box, index) => (boxes[index]?.bottom ?? 0) - box.top));
+        }),
+      )
+      .toBeLessThanOrEqual(1);
 
     await page.getByTestId("nav-knowledge").click();
     await expect(page.getByRole("heading", { name: "工作知識" }).first()).toBeVisible();
