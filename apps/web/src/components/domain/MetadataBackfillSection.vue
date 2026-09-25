@@ -15,6 +15,7 @@ import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
+import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 
 /**
@@ -170,25 +171,29 @@ const requestMessage = computed(() => {
           title="目前沒有待回補資料"
           description="所有 tracked Session 都已提供必要的結構化 metadata。"
         />
-        <UiBoxRow
-          v-for="item in preview.items"
-          :key="item.sessionId"
-          clickable
-          :title="item.title"
-          @select="openMetadataBackfillSession(item)"
+        <VirtualList
+          :items="preview.items"
+          :enabled="preview.items.length > 5"
+          :estimate-item-height="72"
+          max-height="min(56vh, 560px)"
+          label="metadata 回補清單"
         >
-          <template #labels>
-            <StatusLabel v-for="gap in metadataGapsOf(item)" :key="gap" :status="metadataGapStatus[gap]" />
+          <template #default="{ item }">
+            <UiBoxRow clickable :title="item.title" @select="openMetadataBackfillSession(item)">
+              <template #labels>
+                <StatusLabel v-for="gap in metadataGapsOf(item)" :key="gap" :status="metadataGapStatus[gap]" />
+              </template>
+              <template #meta>
+                {{ item.projectName }} ·
+                <time :title="formatDate(item.completedAt)">{{ formatRelative(item.completedAt) }}</time> ·
+                {{ item.changedFilesCount }} 個檔案 · {{ item.rawSnapshotCount }} 份 handoff snapshot
+              </template>
+              <template #trailing
+                ><StatusLabel class="hide-sm" :status="verificationStatus[item.verificationStatus]" :show-icon="false"
+              /></template>
+            </UiBoxRow>
           </template>
-          <template #meta>
-            {{ item.projectName }} ·
-            <time :title="formatDate(item.completedAt)">{{ formatRelative(item.completedAt) }}</time> ·
-            {{ item.changedFilesCount }} 個檔案 · {{ item.rawSnapshotCount }} 份 handoff snapshot
-          </template>
-          <template #trailing
-            ><StatusLabel class="hide-sm" :status="verificationStatus[item.verificationStatus]" :show-icon="false"
-          /></template>
-        </UiBoxRow>
+        </VirtualList>
         <p v-if="preview.truncated" class="backfill__note">結果已達顯示上限，其餘 Session 會由 Agent 分頁檢查。</p>
       </template>
     </UiBox>

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T">
 import {
   computed,
   nextTick,
@@ -12,7 +12,7 @@ import {
 
 const props = withDefaults(
   defineProps<{
-    items: readonly unknown[];
+    items: readonly T[];
     enabled?: boolean;
     estimateItemHeight?: number;
     overscan?: number;
@@ -29,7 +29,7 @@ const props = withDefaults(
 );
 
 defineSlots<{
-  default(props: { item: any; index: number }): any;
+  default(props: { item: T; index: number }): unknown;
 }>();
 
 const viewport = ref<HTMLElement | null>(null);
@@ -88,7 +88,7 @@ const endIndex = computed(() => {
 const visibleItems = computed(() =>
   Array.from({ length: Math.max(0, endIndex.value - startIndex.value) }, (_, offset) => {
     const index = startIndex.value + offset;
-    return { index, item: props.items[index] };
+    return { index, item: props.items[index]! };
   }),
 );
 
@@ -267,6 +267,7 @@ onBeforeUnmount(() => {
     :style="enabled ? { maxHeight } : undefined"
     :role="enabled ? 'list' : undefined"
     :aria-label="enabled ? label : undefined"
+    :tabindex="enabled ? 0 : undefined"
     @scroll="handleScroll"
     @keydown="handleKeydown"
   >

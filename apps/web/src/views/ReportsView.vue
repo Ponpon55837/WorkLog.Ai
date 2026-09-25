@@ -96,6 +96,10 @@ const {
 } = useReports();
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
+type SpanningListRow =
+  | { kind: "group"; key: string; title: string }
+  | { kind: "session"; key: string; sessionId: string; title: string; meta: string };
+
 const periods: ReportViewPeriod[] = ["day", "week", "month", "quarter", "year", "custom"];
 const reportFrom = computed({
   get: () => reportRange.value.from,
@@ -242,6 +246,25 @@ const spanningGroups = computed(() => {
   ];
 });
 const spanningCount = computed(() => spanningGroups.value.reduce((total, group) => total + group.items.length, 0));
+const spanningRows = computed<SpanningListRow[]>(() => {
+  const rows: SpanningListRow[] = [];
+  for (const group of spanningGroups.value) {
+    if (group.items.length === 0) {
+      continue;
+    }
+    rows.push({ kind: "group", key: `${group.key}-heading`, title: group.title });
+    for (const item of group.items) {
+      rows.push({
+        kind: "session",
+        key: `${group.key}-${item.id}`,
+        sessionId: item.id,
+        title: item.title,
+        meta: group.meta(item),
+      });
+    }
+  }
+  return rows;
+});
 
 const evidenceKindItems = [
   { value: "" as const, label: "所有類型" },
@@ -432,19 +455,24 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         </UiBox>
         <UiBox v-if="spanningCount > 0" data-testid="report-spanning">
           <template #header><UiBoxTitle eyebrow="Across periods" title="跨期工作" :count="spanningCount" /></template>
-          <template v-for="group in spanningGroups" :key="group.key">
-            <template v-if="group.items.length">
-              <UiGroupLabel>{{ group.title }}</UiGroupLabel>
+          <VirtualList
+            :items="spanningRows"
+            :enabled="spanningRows.length > 5"
+            :estimate-item-height="64"
+            max-height="min(56vh, 560px)"
+            label="跨期工作清單"
+          >
+            <template #default="{ item }">
+              <UiGroupLabel v-if="item.kind === 'group'">{{ item.title }}</UiGroupLabel>
               <UiBoxRow
-                v-for="item in group.items"
-                :key="`${group.key}-${item.id}`"
+                v-else
                 clickable
                 :title="item.title"
-                :meta="group.meta(item)"
-                @select="openSessionDetail(item.id)"
+                :meta="item.meta"
+                @select="openSessionDetail(item.sessionId)"
               />
             </template>
-          </template>
+          </VirtualList>
           <p class="reports__spanning-note">
             數字只計算這段期間完成的 Session；這裡列出跨越期間邊界的工作，不重複計算。
           </p>

@@ -90,10 +90,26 @@ async function submitKnowledgeCandidateForReview(
 async function expectBoundedVirtualList(page: Page, name: string): Promise<Locator> {
   const list = page.getByRole("list", { name });
   await expect(list).toBeVisible();
+  await expect(list).toHaveAttribute("tabindex", "0");
   await expect(list).toHaveCSS("overflow-y", "auto");
   const visibleItems = await list.getByRole("listitem").count();
   expect(visibleItems).toBeGreaterThan(0);
   expect(visibleItems).toBeLessThan(25);
+  const dimensions = await list.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+  await list.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await list.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await list.focus();
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   return list;
 }
 
@@ -1072,5 +1088,196 @@ test.describe("Work Intelligence browser regression", () => {
     } finally {
       rmSync(truncationProjectRoot, { recursive: true, force: true });
     }
+  });
+
+  test("keeps unpaginated long lists scrollable and error-free at desktop, tablet, and mobile widths", async ({
+    page,
+    request,
+  }) => {
+    const browserErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        browserErrors.push(message.text());
+      }
+    });
+    page.on("pageerror", (error) => browserErrors.push(error.message));
+
+    const fixtureKey = `browser-long-lists-${process.pid}-${Date.now()}`;
+    const longItems = (section: string) =>
+      Array.from({ length: 12 }, (_, index) => `${section} 第 ${index + 1} 筆長清單項目，供捲動檢查使用。`);
+    const detail = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `${fixtureKey}-detail`,
+      title: "Long list detail fixture",
+      summary: "A Session with long summary, changed-file, and activity lists.",
+      workSummary: {
+        outcomes: longItems("成果"),
+        scope: longItems("範圍"),
+        decisions: longItems("決策"),
+        verification: longItems("驗證"),
+        nextSteps: longItems("狀態"),
+      },
+      changedFiles: Array.from({ length: 20 }, (_, index) => `src/long-list-fixture-${index + 1}.ts`),
+      events: Array.from({ length: 20 }, (_, index) => ({
+        type: "note",
+        summary: `Long-list activity event ${index + 1}.`,
+      })),
+      verification: { status: "passed", summary: "Long-list fixture is valid." },
+    });
+    const detailSessionId = detail.session.id;
+
+    for (let index = 1; index <= 12; index += 1) {
+      const evidence = await request.post(`/api/sessions/${detailSessionId}/evidence`, {
+        data: {
+          kind: "test",
+          reference: `${fixtureKey}-evidence-${index}`,
+          summary: `長清單 Evidence 第 ${index} 筆`,
+        },
+      });
+      expect(evidence.ok()).toBeTruthy();
+
+      const knowledge = await postJson(request, "/api/knowledge", {
+        projectRoot,
+        idempotencyKey: `${fixtureKey}-knowledge-${index}`,
+        kind: "pattern",
+        title: `Long list Knowledge ${index}`,
+        body: `Long detail Knowledge entry ${index} for virtual-list verification.`,
+        sessionId: detailSessionId,
+      });
+      expect(knowledge.outcome).toBe("knowledge_recorded");
+
+      const linkedSession = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+        projectRoot,
+        idempotencyKey: `${fixtureKey}-linked-${index}`,
+        title: `Long list linked Session ${index}`,
+        summary: "A linked Session for the detail panel list.",
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      const linked = await request.post(`/api/sessions/${detailSessionId}/links`, {
+        data: { relatedSessionId: linkedSession.session.id, relation: "related" },
+      });
+      expect(linked.ok()).toBeTruthy();
+    }
+
+    const candidateSessions = await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+          projectRoot,
+          idempotencyKey: `${fixtureKey}-candidate-source-${index + 1}`,
+          title: `Long list candidate source ${index + 1}`,
+          summary: "An uncovered Session used for the Knowledge candidate list.",
+          changedFiles: [],
+          verification: { status: "passed" },
+        }),
+      ),
+    );
+    expect(candidateSessions).toHaveLength(12);
+    withAgentStore((store) => {
+      const requested = store.requestKnowledgeCandidates(projectRoot);
+      if (requested.outcome !== "knowledge_candidate_request") {
+        throw new Error(`Expected a Knowledge candidate request, got ${requested.outcome}`);
+      }
+      const context = store.getKnowledgeCandidateContext({ requestId: requested.request.id });
+      if (context.outcome !== "knowledge_candidate_context") {
+        throw new Error(`Expected Knowledge candidate context, got ${context.outcome}`);
+      }
+      const submitted = store.submitKnowledgeCandidates({
+        requestId: requested.request.id,
+        candidates: context.sessions.map((session, index) => ({
+          sourceSessionId: session.id,
+          kind: "gotcha",
+          title: `Long list candidate ${index + 1}`,
+          body: `Knowledge candidate ${index + 1} for the bounded-list check.`,
+          rationale: "The fixture records a separate uncovered Session for this candidate.",
+        })),
+      });
+      if (submitted.outcome !== "knowledge_candidates_submitted") {
+        throw new Error(`Expected Knowledge candidates to submit, got ${submitted.outcome}`);
+      }
+      expect(submitted.candidates.length).toBeGreaterThan(5);
+    });
+
+    const metadataSessions: SessionRecord[] = [];
+    for (let index = 1; index <= 12; index += 1) {
+      const metadataSession = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+        projectRoot,
+        idempotencyKey: `${fixtureKey}-metadata-${index}`,
+        title: `Long list metadata gap ${index}`,
+        summary: "A Session with deliberately missing legacy metadata.",
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      metadataSessions.push(metadataSession.session);
+    }
+    const database = new DatabaseSync(process.env.WORK_INTELLIGENCE_E2E_DB!);
+    const clearMetadata = database.prepare(
+      "UPDATE sessions SET changed_files_json = '[]', verification_json = NULL WHERE id = ?",
+    );
+    for (const session of metadataSessions) {
+      clearMetadata.run(session.id);
+    }
+    database.close();
+
+    const today = new Date(`${reportDate}T12:00:00`);
+    const daysSinceMonday = (today.getDay() + 6) % 7;
+    const weekStart = new Date(today);
+    weekStart.setDate(weekStart.getDate() - daysSinceMonday);
+    weekStart.setHours(0, 0, 0, 0);
+    for (let index = 1; index <= 20; index += 1) {
+      const startedAt = new Date(weekStart.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      await postJson(request, "/api/work/finalize", {
+        projectRoot,
+        idempotencyKey: `${fixtureKey}-spanning-${index}`,
+        title: `Long list spanning work ${index}`,
+        summary: "A Session that started before the report week and finished within it.",
+        changedFiles: [],
+        verification: { status: "passed" },
+        startedAt,
+        completedAt: new Date().toISOString(),
+      });
+    }
+
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+
+      await page.goto("/knowledge");
+      await expectBoundedVirtualList(page, "Knowledge 候選清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/projects/backfill");
+      await page.getByRole("button", { name: "掃描 metadata 缺口" }).click();
+      await expect(page.getByRole("list", { name: "metadata 回補清單" })).toBeVisible();
+      await expectBoundedVirtualList(page, "metadata 回補清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/reports/work?period=week");
+      const spanning = page.getByTestId("report-spanning");
+      await expect(spanning).toContainText("Long list spanning work 1");
+      await expectBoundedVirtualList(page, "跨期工作清單");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto(`/sessions?session=${detailSessionId}`);
+      const panel = page.getByRole("dialog", { name: "Session 詳情" });
+      await expect(panel).toBeVisible();
+      await expectBoundedVirtualList(page, "成果清單");
+      await expectBoundedVirtualList(page, "Session changed files 清單");
+      for (const [title, label] of [
+        ["Evidence", "Session Evidence 清單"],
+        ["Knowledge", "Session Knowledge 清單"],
+        ["關聯 Session", "關聯 Session 清單"],
+        ["Events", "Session Events 清單"],
+      ] as const) {
+        const summary = panel.locator("summary").filter({ hasText: title }).first();
+        const disclosure = summary.locator("..");
+        if ((await disclosure.getAttribute("open")) === null) {
+          await summary.click();
+        }
+        await expectBoundedVirtualList(page, label);
+      }
+      await expectNoHorizontalOverflow(page);
+    }
+
+    expect(browserErrors).toEqual([]);
   });
 });

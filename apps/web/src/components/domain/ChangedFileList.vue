@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { ChangedFileChangeStatus, WorkSessionRecord } from "@work-intelligence/core";
 import { changedFileChangeStatusLabels, changedFileSourceLabels } from "../../utils/labels";
+import VirtualList from "../VirtualList.vue";
 
 /** Changed files with lifecycle badge and provenance. Changed files never imply a Git commit. */
 const props = defineProps<{ session: WorkSessionRecord }>();
@@ -30,17 +31,28 @@ const rows = computed(() => {
 
 <template>
   <div class="changed-files">
-    <div v-for="row in rows" :key="row.path" class="changed-files__row">
-      <span
-        :class="['changed-files__badge', row.status && `is-${row.status}`]"
-        :title="row.status ? changedFileChangeStatusLabels[row.status] : '未提供變更類型'"
-        >{{ row.status ? statusLetter[row.status] : "·" }}</span
-      >
-      <code class="changed-files__path"
-        >{{ row.path }}<span v-if="row.previousPath" class="changed-files__prev"> ← {{ row.previousPath }}</span></code
-      >
-      <span class="changed-files__source">{{ row.sources }}</span>
-    </div>
+    <VirtualList
+      :items="rows"
+      :enabled="rows.length > 5"
+      :estimate-item-height="40"
+      max-height="min(40vh, 400px)"
+      label="Session changed files 清單"
+    >
+      <template #default="{ item: row }">
+        <div class="changed-files__row">
+          <span
+            :class="['changed-files__badge', row.status && `is-${row.status}`]"
+            :title="row.status ? changedFileChangeStatusLabels[row.status] : '未提供變更類型'"
+            >{{ row.status ? statusLetter[row.status] : "·" }}</span
+          >
+          <code class="changed-files__path"
+            >{{ row.path
+            }}<span v-if="row.previousPath" class="changed-files__prev"> ← {{ row.previousPath }}</span></code
+          >
+          <span class="changed-files__source">{{ row.sources }}</span>
+        </div>
+      </template>
+    </VirtualList>
     <p v-if="!rows.length" class="changed-files__empty">尚未提供檔案 metadata</p>
     <p class="changed-files__note">changed files 不代表 Git commit</p>
   </div>
@@ -68,7 +80,7 @@ const rows = computed(() => {
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 
