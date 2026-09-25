@@ -74,6 +74,9 @@ importers:
       '@work-intelligence/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       tsx:
         specifier: ^4.19.4

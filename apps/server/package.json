@@ -10,7 +10,8 @@
     "@work-intelligence/core": "workspace:*",
     "@work-intelligence/schema": "workspace:*",
     "@work-intelligence/shared": "workspace:*",
-    "@work-intelligence/storage": "workspace:*"
+    "@work-intelligence/storage": "workspace:*",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "tsx": "^4.19.4"
