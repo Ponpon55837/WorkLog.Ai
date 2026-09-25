@@ -58,6 +58,19 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
 const CONFLICT_DETAIL_LIMIT = 100;
 const MAX_CONFLICT_ID_LENGTH = 200;
 
+export type ProjectDataTransferErrorCode =
+  "invalid_input" | "invalid_bundle" | "unsupported_schema" | "project_not_found";
+
+export class ProjectDataTransferError extends Error {
+  public constructor(
+    public readonly code: ProjectDataTransferErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProjectDataTransferError";
+  }
+}
+
 interface PlannedRow {
   row: ProjectDataRow;
   disposition: "add" | "skip" | "conflict";
@@ -182,14 +195,14 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     ),
   );
   if (selectedIds.size === 0) {
-    throw new Error("匯入檔中沒有可匯入的專案。");
+    throw new ProjectDataTransferError("invalid_bundle", "匯入檔中沒有可匯入的專案。");
   }
   if (bundle.scope.type === "project" && !selectedIds.has(bundle.scope.projectId)) {
-    throw new Error("所選專案不在這份單一專案匯出檔中。");
+    throw new ProjectDataTransferError("invalid_bundle", "所選專案不在這份單一專案匯出檔中。");
   }
   const selectedProjects = bundle.tables.projects.filter((project) => selectedIds.has(String(project.id)));
   if (selectedProjects.length !== selectedIds.size) {
-    throw new Error("所選專案不在匯入檔中。");
+    throw new ProjectDataTransferError("invalid_bundle", "所選專案不在匯入檔中。");
   }
 
   const sessions = bundle.tables.sessions.filter((session) => selectedIds.has(String(session.project_id)));
@@ -486,14 +499,23 @@ function orderKnowledgeRows(rows: ProjectDataRow[]): ProjectDataRow[] {
 function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan {
   const inputResult = projectDataImportInputSchema.safeParse(input);
   if (!inputResult.success) {
-    throw new Error(`匯入資料不符合格式：${inputResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+    throw new ProjectDataTransferError(
+      "invalid_input",
+      `匯入資料不符合格式：${inputResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`,
+    );
   }
   const bundleResult = projectDataExportSchema.safeParse(input.bundle);
   if (!bundleResult.success) {
-    throw new Error(`匯入檔格式錯誤：${bundleResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+    throw new ProjectDataTransferError(
+      "invalid_bundle",
+      `匯入檔格式錯誤：${bundleResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`,
+    );
   }
   if (input.bundle.schemaVersion !== LATEST_SCHEMA_VERSION) {
-    throw new Error(`匯入檔使用 schema 版本 ${input.bundle.schemaVersion}，目前支援版本為 ${LATEST_SCHEMA_VERSION}。`);
+    throw new ProjectDataTransferError(
+      "unsupported_schema",
+      `匯入檔使用 schema 版本 ${input.bundle.schemaVersion}，目前支援版本為 ${LATEST_SCHEMA_VERSION}。`,
+    );
   }
 
   const selectedBundle = bundleForScope(input.bundle, input.projectId);
@@ -678,7 +700,7 @@ function insertRow(db: DatabaseSync, table: ProjectDataTable, row: ProjectDataRo
   const values = columns.map((column) => {
     const value = row[column];
     if (value === undefined) {
-      throw new Error(`匯入的 ${table} 資料缺少 ${column} 欄位。`);
+      throw new ProjectDataTransferError("invalid_bundle", `匯入的 ${table} 資料缺少 ${column} 欄位。`);
     }
     return value;
   });
@@ -692,7 +714,7 @@ export class ProjectDataTransferService {
   public export(scope: ProjectDataExportScope): ProjectDataExport {
     return runReadTransaction(this.db, () => {
       if (scope.type === "project" && !existingRow(this.db, "projects", scope.projectId)) {
-        throw new Error("找不到要匯出的專案。");
+        throw new ProjectDataTransferError("project_not_found", "找不到要匯出的專案。");
       }
       return {
         format: "work-intelligence-export",

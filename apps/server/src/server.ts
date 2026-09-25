@@ -46,7 +46,7 @@ import {
   projectDataExportRequestSchema,
   projectDataImportInputSchema,
 } from "@work-intelligence/schema";
-import { WorkIntelligenceStore } from "@work-intelligence/storage";
+import { ProjectDataTransferError, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
 
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
@@ -150,6 +150,22 @@ function sendJson(response: ServerResponse, statusCode: number, payload: unknown
 
 function sendError(response: ServerResponse, statusCode: number, message: string, details?: unknown): void {
   sendJson(response, statusCode, { error: message, details });
+}
+
+function sendProjectDataTransferError(response: ServerResponse, error: unknown): boolean {
+  if (!(error instanceof ProjectDataTransferError)) {
+    return false;
+  }
+  switch (error.code) {
+    case "project_not_found":
+      sendError(response, 404, error.message);
+      return true;
+    case "invalid_input":
+    case "invalid_bundle":
+    case "unsupported_schema":
+      sendError(response, 400, error.message);
+      return true;
+  }
 }
 
 /** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
@@ -364,8 +380,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         try {
           sendProjectDataExport(store, scope, response);
         } catch (error) {
-          if (error instanceof Error && error.message === "找不到要匯出的專案。") {
-            sendError(response, 404, error.message);
+          if (sendProjectDataTransferError(response, error)) {
             return;
           }
           throw error;
@@ -384,7 +399,10 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           const preview = store.previewProjectDataImport(parsed.data as ProjectDataImportInput);
           sendJson(response, 200, preview);
         } catch (error) {
-          sendError(response, 400, error instanceof Error ? error.message : "匯入檔無法預覽。");
+          if (sendProjectDataTransferError(response, error)) {
+            return;
+          }
+          throw error;
         }
         return;
       }
@@ -400,7 +418,10 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           const result = store.importProjectData(parsed.data as ProjectDataImportInput);
           sendJson(response, 200, result);
         } catch (error) {
-          sendError(response, 400, error instanceof Error ? error.message : "匯入資料失敗。");
+          if (sendProjectDataTransferError(response, error)) {
+            return;
+          }
+          throw error;
         }
         return;
       }
