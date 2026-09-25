@@ -116,9 +116,20 @@ export class ApiClient {
         ...(init?.headers ?? {}),
       },
     });
-    const payload = (await response.json()) as T & ApiErrorPayload;
+    // While the API restarts, the dev proxy answers 500 with an empty text body; read text first so the
+    // user sees the intended message instead of a JSON parse error.
+    const text = await response.text();
+    let payload: (T & ApiErrorPayload) | undefined;
+    try {
+      payload = text ? ((JSON.parse(text) as T & ApiErrorPayload) ?? undefined) : undefined;
+    } catch {
+      payload = undefined;
+    }
     if (!response.ok) {
-      throw new Error(payload.error ?? "請求失敗，請確認 API 是否已啟動。");
+      throw new Error(payload?.error ?? "請求失敗，請確認 API 是否已啟動。");
+    }
+    if (payload === undefined) {
+      throw new Error("API 回應格式不正確，請重新整理後再試。");
     }
     return payload;
   }
