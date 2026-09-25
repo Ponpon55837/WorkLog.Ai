@@ -1,4 +1,5 @@
 import { createApiClient, type ApiClient } from "../api/client";
+import { updateApiConnection } from "./useApiConnection";
 
 export function useApiRequest(baseUrl = ""): {
   client: ApiClient;
@@ -9,7 +10,7 @@ export function useApiRequest(baseUrl = ""): {
   isAbortError: (error: unknown) => boolean;
   abortAll: () => void;
 } {
-  const client = createApiClient(baseUrl);
+  const client = createApiClient(baseUrl, updateApiConnection);
   const activeRequestControllers = new Map<string, AbortController>();
 
   function beginRequest(key: string): AbortController {

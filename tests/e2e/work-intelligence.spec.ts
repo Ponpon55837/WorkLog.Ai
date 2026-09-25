@@ -283,6 +283,31 @@ test.describe("Work Intelligence browser regression", () => {
     expect(await health.json()).toMatchObject({ ok: true, database: "connected" });
   });
 
+  test("shows the global API offline banner and refreshes after the API reconnects", async ({ page }) => {
+    let dashboardRequestCount = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/dashboard") {
+        dashboardRequestCount += 1;
+      }
+    });
+    await page.route("**/api/**", (route) => route.abort());
+    await page.goto("/");
+
+    const offlineBanner = page.getByRole("alert").filter({ hasText: "無法連線到 Work Intelligence API" });
+    await expect(offlineBanner).toBeVisible();
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(offlineBanner).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+    }
+    const failedRequestCount = dashboardRequestCount;
+
+    await page.unroute("**/api/**");
+    await expect.poll(() => dashboardRequestCount, { timeout: 15_000 }).toBeGreaterThan(failedRequestCount);
+    await expect(offlineBanner).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "工作總覽" })).toBeVisible();
+  });
+
   test("keeps the report synthesis card readable with sourced sections and versions", async ({ page, request }) => {
     await page.goto("/");
     await page.getByTestId("nav-reports").click();

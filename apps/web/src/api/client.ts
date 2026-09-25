@@ -96,7 +96,10 @@ function appendQuery(path: string, values: Record<string, boolean | string | num
 }
 
 export class ApiClient {
-  public constructor(private readonly baseUrl = "") {}
+  public constructor(
+    private readonly baseUrl = "",
+    private readonly onConnectionChange?: (isOnline: boolean) => void,
+  ) {}
 
   /** Opens the data-free change stream used to refresh views from the normal REST API. */
   public openChangeStream(onChanged: () => void, onReconnected?: () => void): EventSource {
@@ -108,8 +111,21 @@ export class ApiClient {
     return source;
   }
 
+  private async fetchResponse(path: string, init?: RequestInit): Promise<Response> {
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, init);
+      this.onConnectionChange?.(response.status < 500);
+      return response;
+    } catch (error) {
+      if (!init?.signal?.aborted) {
+        this.onConnectionChange?.(false);
+      }
+      throw error;
+    }
+  }
+
   public async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await this.fetchResponse(path, {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -153,7 +169,7 @@ export class ApiClient {
 
   /** Downloads a fresh snapshot of the whole database; the JSON body keeps cross-site forms from triggering it. */
   public async exportDatabase(): Promise<{ blob: Blob; fileName: string }> {
-    const response = await fetch(`${this.baseUrl}/api/export`, {
+    const response = await this.fetchResponse("/api/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -168,7 +184,7 @@ export class ApiClient {
 
   /** Downloads a portable export containing every project or one selected project. */
   public async exportProjectData(scope: ProjectDataExportScope): Promise<{ blob: Blob; fileName: string }> {
-    const response = await fetch(`${this.baseUrl}/api/export`, {
+    const response = await this.fetchResponse("/api/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(scope.type === "all" ? { scope: "all" } : { scope: "project", projectId: scope.projectId }),
@@ -604,6 +620,6 @@ export class ApiClient {
   }
 }
 
-export function createApiClient(baseUrl = ""): ApiClient {
-  return new ApiClient(baseUrl);
+export function createApiClient(baseUrl = "", onConnectionChange?: (isOnline: boolean) => void): ApiClient {
+  return new ApiClient(baseUrl, onConnectionChange);
 }

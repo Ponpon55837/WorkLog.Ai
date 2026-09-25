@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { useRoute } from "vue-router";
 import AppShell from "./components/layout/AppShell.vue";
 import CommandPalette from "./components/domain/CommandPalette.vue";
@@ -14,7 +14,8 @@ import UiButton from "./components/ui/UiButton.vue";
 import UiFlash from "./components/ui/UiFlash.vue";
 import UiSkeleton from "./components/ui/UiSkeleton.vue";
 import { useApi } from "./composables/useApi";
-import { requestAppRefresh } from "./composables/useAppRefresh";
+import { useApiConnection } from "./composables/useApiConnection";
+import { requestAppRefresh, useViewLoader } from "./composables/useAppRefresh";
 import { useDashboard } from "./composables/useDashboard";
 import { useHotkeys } from "./composables/useHotkeys";
 import { useProjects } from "./composables/useProjects";
@@ -23,6 +24,7 @@ import { errorMessage as toErrorMessage } from "./utils/format";
 const route = useRoute();
 const { dashboard, trackedProjects, loadProjects } = useProjects();
 const { inbox, loadDashboardData } = useDashboard();
+const { isApiOffline } = useApiConnection();
 const loading = ref(true);
 const refreshing = ref(false);
 const errorMessage = ref("");
@@ -43,19 +45,21 @@ async function loadShared(): Promise<void> {
   }
 }
 
-async function refresh(): Promise<void> {
+function loadRootData(): Promise<void> {
+  return loadShared().finally(() => {
+    loading.value = false;
+    refreshing.value = false;
+  });
+}
+
+function refresh(): void {
   refreshing.value = true;
-  await loadShared();
   requestAppRefresh();
-  refreshing.value = false;
 }
 
 useHotkeys({ openPalette: () => (paletteOpen.value = true) });
 
-onMounted(async () => {
-  await loadShared();
-  loading.value = false;
-});
+useViewLoader(loadRootData);
 
 onBeforeUnmount(() => useApi().abortAll());
 </script>
@@ -68,7 +72,10 @@ onBeforeUnmount(() => useApi().abortAll());
     @refresh="refresh"
     @search="paletteOpen = true"
   >
-    <UiFlash v-if="errorMessage" tone="danger" title="無法連線">
+    <UiFlash v-if="isApiOffline" tone="danger" title="無法連線到 Work Intelligence API">
+      API 恢復連線後會自動重新載入目前頁面資料。
+    </UiFlash>
+    <UiFlash v-if="errorMessage && !isApiOffline" tone="danger" title="無法載入">
       {{ errorMessage }}
       <template #actions><UiButton size="sm" @click="refresh">重試</UiButton></template>
     </UiFlash>
