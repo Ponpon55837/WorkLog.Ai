@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
-import { DEFAULT_SERVER_PORT } from "@work-intelligence/shared";
 import { DatabaseInitializationError, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { databasePath, storeOptions } from "./config.js";
 import { createApiHandler } from "./server.js";
+import { DEFAULT_SERVER_PORT } from "./server-port.js";
 
 function startApi(): void {
   let store: WorkIntelligenceStore;

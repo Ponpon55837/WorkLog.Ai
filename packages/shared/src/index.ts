@@ -1,6 +1,5 @@
 export const APP_NAME = "Work Intelligence";
 export const API_PREFIX = "/api";
-export const DEFAULT_SERVER_PORT = 3210;
 export const DEFAULT_WEB_PORT = 5966;
 
 export function nowIso(): string {
