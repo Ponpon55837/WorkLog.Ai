@@ -569,7 +569,7 @@ describe("portable project data transfer", () => {
 
     expect(preview.conflicts.projects).toBe(1);
     expect(preview.selectedProjects).toMatchObject([
-      { id: source.projectId, rootPath: source.projectRoot, resolution: "conflict" },
+      { id: source.projectId, rootPath: String(project.root_path), resolution: "conflict" },
     ]);
   });
 
