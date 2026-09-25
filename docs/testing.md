@@ -22,7 +22,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 `.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：
 
 - **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。Windows 是主要開發平台；Linux 與 macOS 會守住非 Windows 的路徑處理，macOS 也符合維護者的主要使用平台。
-- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 後執行 `pnpm test:e2e`；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。
+- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 與 Firefox 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行帶有 `@cross-browser` 標記的正式模式啟動/API 同源與主要頁面路由流程。兩個瀏覽器分開執行，使用各自的暫存 SQLite；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。
 
 Coverage 門檻維持下方的模組局部門檻；尚未量測其他 workspace 的基線，所以沒有設定全域門檻。
 

@@ -268,7 +268,7 @@ test.describe("Work Intelligence browser regression", () => {
     expect(newerSummary.outcome).toBe("report_summary_saved");
   });
 
-  test("serves the production Web UI and API from one origin", async ({ page }) => {
+  test("serves the production Web UI and API from one origin @cross-browser", async ({ page }) => {
     const response = await page.goto("/dashboard");
     expect(response?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "工作總覽" })).toBeVisible();
@@ -508,7 +508,7 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
-  test("supports direct page routes", async ({ page }) => {
+  test("supports direct page routes @cross-browser", async ({ page }) => {
     for (const [path, heading] of pageRoutes) {
       await page.goto(path);
       await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
