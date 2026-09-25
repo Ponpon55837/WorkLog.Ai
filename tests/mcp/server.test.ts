@@ -63,6 +63,7 @@ describe("Work Intelligence MCP server", () => {
 
     const { tools } = await client.listTools();
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    expect(byName.has("work_delete_project")).toBe(false);
     for (const name of [
       "work_get_project_status",
       "work_get_session",

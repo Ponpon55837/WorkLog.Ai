@@ -20,6 +20,16 @@ const projectName = ref("");
 const projectRoot = ref("");
 const addingProject = ref(false);
 const pickingFolder = ref(false);
+const deletingProjectId = ref<string | null>(null);
+const projectDeletionMessages: Record<string, string> = {
+  "Invalid project deletion confirmation.": "刪除確認資料無效，請重新輸入完整專案名稱。",
+  "Project not found.": "找不到這個專案；請重新整理專案清單。",
+  "The confirmation name does not match the project name.": "輸入的名稱與專案名稱不相符，專案尚未刪除。",
+  "The required pre-deletion backup could not be created; the project was not deleted.":
+    "無法建立並檢查刪除前備份，專案尚未刪除。請確認資料庫可寫入後再試。",
+  "Project deletion failed; the pre-deletion backup is preserved.": "刪除作業未完成，專案資料已保留；刪除前備份仍在。",
+  "Internal server error.": "刪除作業未完成；請確認 API 與資料庫狀態後再試。",
+};
 const trackedProjects = computed(() => projects.value.filter((project) => project.status === "tracked"));
 const recentSessions = computed(() => dashboard.value.recentSessions);
 
@@ -111,6 +121,24 @@ async function updateProjectStatus(project: ProjectRecord, status: ProjectStatus
   }
 }
 
+async function deleteProject(project: ProjectRecord, confirmationName: string): Promise<boolean> {
+  const { showToast } = useToast();
+  deletingProjectId.value = project.id;
+  try {
+    const result = await useApi().client.deleteProject(project.id, confirmationName);
+    projects.value = projects.value.filter((item) => item.id !== project.id);
+    showToast(`專案已永久刪除；刪除前資料庫備份：${result.backupFileName}`, "success");
+    void loadDashboard().catch(() => undefined);
+    return true;
+  } catch (error) {
+    const message = errorMessage(error, "");
+    showToast(projectDeletionMessages[message] ?? "刪除專案失敗；請確認 API 與資料庫狀態後再試。", "danger");
+    return false;
+  } finally {
+    deletingProjectId.value = null;
+  }
+}
+
 export function useProjects() {
   return {
     dashboard,
@@ -126,5 +154,7 @@ export function useProjects() {
     pickingFolder,
     pickProjectFolder,
     updateProjectStatus,
+    deleteProject,
+    deletingProjectId,
   };
 }

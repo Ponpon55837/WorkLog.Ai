@@ -14,6 +14,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
+| DELETE   | `/api/projects/:id`                              | 先備份，再永久刪除專案與相關 WorkLog 資料；需傳入專案名稱確認                           |
 | POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |
 | GET/POST | `/api/backups`                                   | 列出資料庫備份／立即建立備份（POST body `{}`）                                         |
 | POST     | `/api/export`                                    | body `{}` 匯出整份 SQLite 快照；指定 `scope` 時匯出可攜式 JSON（見下方）                 |
@@ -97,6 +98,14 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 - 可攜式 JSON 未加密，請妥善保管。整份 SQLite 快照與可攜式匯出都要求 `Content-Type: application/json`，跨站表單無法觸發；下載回應只含檔名，不會出現暫存檔路徑。
 - in-memory 資料庫回傳 409 `backup_unavailable`。
 - 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。
+
+## 永久刪除專案
+
+- REST：DELETE `/api/projects/:id` 接受 JSON body `{ "confirmationName": "<專案名稱>" }`。名稱必須與 registry 中的專案名稱完全相同；輸入錯誤回 409，不存在回 404，輸入格式錯誤回 400。
+- 刪除前會建立並檢查整份 SQLite 快照，回應 `backupFileName`；檔案歸類為手動備份，遵循手動備份保留額度。備份失敗回 503 並保留專案；交易失敗回 500 並保留已建立的備份。in-memory database 無法建立必要備份，因此會拒絕刪除。
+- 一個 SQLite transaction 會刪除專案、Sessions、events、handoff、Evidence、Knowledge、候選與請求、稽核記錄、verification／summary 修改紀錄、search index，以及任何一端連到目標 Session 的 Session 關聯。共享報告與回補請求只要引用目標 Sessions，也會整筆移除，避免留下相關內容或 ID；刪除筆數會回傳在 `deletedCounts`。
+- `project_deletion_audit` 只留下時間、被刪除的 project id 與各類筆數，不保存專案名稱、路徑或被刪資料內容。專案 workspace 資料夾及原始檔案不會被 REST 操作觸及。
+- Web UI 在專案清單提供刪除動作，必須輸入完整專案名稱才會啟用確認。MCP 沒有刪除專案的工具。
 
 ## 選擇專案資料夾
 

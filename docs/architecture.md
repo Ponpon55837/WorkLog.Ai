@@ -17,6 +17,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - 工作歷程、Knowledge 與報告來源證據支援 10／20／50／100／All；All 仍由 server cap（Session／證據 100、Knowledge 200），回應會以 `pageInfo.truncated` 明確標示並保留分頁導覽，前端清單則以 `VirtualList` 限制 DOM 渲染量
 - 歷史 handoff 可先 preview/dry-run，再由使用者明確選取套用；pending、blocked、planning-only 不會自動匯入
 - 中央 project registry：不往任何專案 repo 寫設定檔
+- 永久刪除由獨立 `project-deletion-service.ts` 負責：先建立整份 checked snapshot，再以單一 SQLite transaction 刪除中央資料與搜尋索引；`store.ts` 只轉接，不提供 MCP 刪除工具
 - Explicit opt-in / default deny：`unregistered`、`tracked`、`paused`、`ignored`
 - policy gate 先於 handoff、Git、source 讀取
 - raw handoff snapshot、events、changed-files metadata、changed-file lifecycle history、verification metadata
@@ -67,6 +68,8 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Evidence、Report synthesis、Metadata backfill 與 Session summary update 的查重及寫入會在 `BEGIN IMMEDIATE` transaction 內完成；跨程序同時重試時會等待既有寫入，再回傳 `duplicate: true`，不會把 SQLite UNIQUE constraint 例外當成一般 500 錯誤。Metadata backfill 的 schema rebuild migration 也在 transaction 內執行。
 
 新的 schema 變更改用版本化 migration（`packages/storage/src/schema-migrations.ts`）：套用過的版本記在 `schema_migrations`，每個 migration 只在啟動時的 transaction 內執行一次。若既有檔案資料庫有待套用的 migration，初始化程序會先寫一份帶目標版本標記的 `pre-migration-vN-...` 快照，然後才在 transaction 內升級；新資料庫與記憶體資料庫不需要這份升級前快照。若資料庫 schema 版本比目前程式支援的新，初始化會拒絕開啟並要求更新 Work Intelligence，不會嘗試降級或部分啟動。若 migration 前備份失敗，初始化也會停止，以免沒有安全備份仍繼續升級。檢索索引由 `search_chunks`、FTS5 `search_fts`、`search_paths`、`search_dirty` 與 trigger 維護，檢索邏輯在 `search-repository.ts`，tokenizer 與路徑正規化在 `search-text.ts`，詳見 [MCP tools 的 `work_recall`](mcp-tools.md#work_recall)。
+
+永久刪除會先用 `VACUUM INTO` 建立並驗證整份資料庫快照，備份建立失敗時拒絕操作；備份列為手動備份，依相同保留額度管理。之後在一個 `BEGIN IMMEDIATE` transaction 中清理 project、Session、衍生資料、跨專案 Session 關聯、引用目標 Session 的全域請求／報告與搜尋索引。刪除失敗會 rollback 並保留備份。migration v11 的 `project_deletion_audit` 僅保存刪除時間、project id 與刪除筆數，不保存名稱、路徑或內容。API 允許使用者在 Web UI 或 REST 以名稱確認，MCP 刻意不提供此破壞性操作；workspace 原始檔案不會被刪除。
 
 既有 SQLite 檔案若仍有歷史 `commit_required` 欄位，Work Intelligence 啟動時會以 idempotent migration 移除；公開 Session contract 與新寫入流程不使用此欄位。Git commit 仍是可選的獨立流程。
 

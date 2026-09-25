@@ -94,6 +94,7 @@ import type {
   SaveReportSummaryResult,
   CreateReportSynthesisRequestInput,
   CreateReportSynthesisRequestResult,
+  DeleteProjectResult,
   ReportSynthesisRequestLookupResult,
   RawSnapshotRecord,
   SearchResult,
@@ -167,6 +168,7 @@ import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 import { ProjectDataTransferService } from "./project-data-transfer.js";
+import { ProjectDeletionService } from "./project-deletion-service.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
@@ -920,6 +922,7 @@ export class WorkIntelligenceStore {
   private readonly metadataBackfillService: MetadataBackfillService;
   private readonly contextRecallService: ContextRecallService;
   private readonly searchIndex: SearchRepository;
+  private readonly projectDeletionService: ProjectDeletionService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
   private readonly policyGate: ProjectPolicyGate;
   public readonly insightProvider: InsightProvider;
@@ -979,6 +982,12 @@ export class WorkIntelligenceStore {
       new MetadataBackfillRepository(this.db),
     );
     this.searchIndex = new SearchRepository(this.db);
+    this.projectDeletionService = new ProjectDeletionService(
+      this.db,
+      this.databasePath,
+      this.backupOptions,
+      this.searchIndex,
+    );
     this.knowledgeCandidates = new KnowledgeCandidateService(this.db, {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       checkProjectById: (projectId) => this.checkProjectById(projectId),
@@ -1103,6 +1112,11 @@ export class WorkIntelligenceStore {
     update: { name?: string; status?: ProjectStatus },
   ): ProjectRecord | undefined {
     return this.projects.update(projectId, update);
+  }
+
+  /** Deletes a project and its local data after a checked full-database safety snapshot. */
+  public deleteProject(projectId: string, confirmationName: string): DeleteProjectResult {
+    return this.projectDeletionService.deleteProject(projectId, confirmationName);
   }
 
   public previewMetadataBackfill(
