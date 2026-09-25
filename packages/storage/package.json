@@ -14,7 +14,8 @@
   "dependencies": {
     "@work-intelligence/core": "workspace:*",
     "@work-intelligence/project-policy": "workspace:*",
-    "@work-intelligence/shared": "workspace:*"
+    "@work-intelligence/shared": "workspace:*",
+    "@work-intelligence/schema": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

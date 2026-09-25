@@ -26,6 +26,10 @@ import type {
   MetadataBackfillRequestListQueryResult,
   PageInfo,
   ProjectRecord,
+  ProjectDataExportScope,
+  ProjectDataImportInput,
+  ProjectDataImportPreview,
+  ProjectDataImportResult,
   ProjectStatus,
   ReportPeriod,
   WorkReportPeriod,
@@ -149,6 +153,29 @@ export class ApiClient {
     // Content-Disposition is not exposed cross-origin, so the name is made here from the local date.
     const fileName = `work-intelligence-export-${new Date().toLocaleDateString("sv-SE").replace(/-/g, "")}.sqlite`;
     return { blob: await response.blob(), fileName };
+  }
+
+  /** Downloads a portable export containing every project or one selected project. */
+  public async exportProjectData(scope: ProjectDataExportScope): Promise<{ blob: Blob; fileName: string }> {
+    const response = await fetch(`${this.baseUrl}/api/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(scope.type === "all" ? { scope: "all" } : { scope: "project", projectId: scope.projectId }),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+      throw new Error(payload?.error ?? "無法匯出專案資料，請確認 API 是否已啟動。");
+    }
+    const fileName = `work-intelligence-projects-${new Date().toLocaleDateString("sv-SE").replace(/-/g, "")}.json`;
+    return { blob: await response.blob(), fileName };
+  }
+
+  public previewProjectDataImport(input: ProjectDataImportInput): Promise<ProjectDataImportPreview> {
+    return this.write<ProjectDataImportPreview>("/api/import/preview", "POST", input);
+  }
+
+  public importProjectData(input: ProjectDataImportInput): Promise<ProjectDataImportResult> {
+    return this.write<ProjectDataImportResult>("/api/import", "POST", input);
   }
 
   public getDashboard(signal?: AbortSignal): Promise<DashboardSummary> {

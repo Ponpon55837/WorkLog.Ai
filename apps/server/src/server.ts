@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
-import type { FolderPickResult } from "@work-intelligence/core";
+import type { FolderPickResult, ProjectDataExportScope, ProjectDataImportInput } from "@work-intelligence/core";
 import {
   attachEvidenceInputSchema,
   cancelMetadataBackfillRequestInputSchema,
@@ -43,11 +43,14 @@ import {
   updateSessionMetadataInputSchema,
   updateSessionSummaryInputSchema,
   updateSessionWorkSummaryInputSchema,
+  projectDataExportRequestSchema,
+  projectDataImportInputSchema,
 } from "@work-intelligence/schema";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
 
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
+const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -111,7 +114,7 @@ function applyCorsHeaders(request: IncomingMessage, response: ServerResponse): v
   response.setHeader("Vary", "Origin");
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+async function readJsonBody(request: IncomingMessage, maxBytes = MAX_INPUT_PAYLOAD_BYTES): Promise<unknown> {
   const contentType = request.headers["content-type"];
   if (typeof contentType !== "string" || !contentType.toLowerCase().startsWith("application/json")) {
     throw new RequestBodyError(415, "Content-Type must be application/json.");
@@ -123,7 +126,7 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > MAX_INPUT_PAYLOAD_BYTES) {
+    if (total > maxBytes) {
       throw new RequestBodyError(413, "Request body is too large.");
     }
     chunks.push(buffer);
@@ -168,6 +171,29 @@ async function sendDatabaseExport(store: WorkIntelligenceStore, response: Server
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+function sendProjectDataExport(
+  store: WorkIntelligenceStore,
+  scope: ProjectDataExportScope,
+  response: ServerResponse,
+): void {
+  const content = JSON.stringify(store.exportProjectData(scope));
+  const bytes = Buffer.byteLength(content);
+  if (bytes > MAX_PROJECT_IMPORT_BYTES) {
+    sendError(response, 413, "這份專案匯出檔超過 50 MiB，請改用整份 SQLite 快照。");
+    return;
+  }
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const fileName = `work-intelligence-projects-${stamp}.json`;
+  response.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": String(bytes),
+    "Content-Disposition": `attachment; filename="${fileName}"`,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  response.end(content);
 }
 
 export interface ApiHandlerOptions {
@@ -323,8 +349,59 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
       }
 
       if (request.method === "POST" && requestUrl.pathname === "/api/export") {
-        await readJsonBody(request);
-        await sendDatabaseExport(store, response);
+        const body = await readJsonBody(request);
+        if (typeof body === "object" && body !== null && Object.keys(body).length === 0) {
+          await sendDatabaseExport(store, response);
+          return;
+        }
+        const parsed = projectDataExportRequestSchema.safeParse(body);
+        if (!parsed.success) {
+          sendError(response, 400, "匯出範圍無效。", parsed.error.flatten());
+          return;
+        }
+        const scope: ProjectDataExportScope =
+          parsed.data.scope === "all" ? { type: "all" } : { type: "project", projectId: parsed.data.projectId ?? "" };
+        try {
+          sendProjectDataExport(store, scope, response);
+        } catch (error) {
+          if (error instanceof Error && error.message === "找不到要匯出的專案。") {
+            sendError(response, 404, error.message);
+            return;
+          }
+          throw error;
+        }
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/import/preview") {
+        const body = await readJsonBody(request, MAX_PROJECT_IMPORT_BYTES);
+        const parsed = projectDataImportInputSchema.safeParse(body);
+        if (!parsed.success) {
+          sendError(response, 400, `匯入檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+          return;
+        }
+        try {
+          const preview = store.previewProjectDataImport(parsed.data as ProjectDataImportInput);
+          sendJson(response, 200, preview);
+        } catch (error) {
+          sendError(response, 400, error instanceof Error ? error.message : "匯入檔無法預覽。");
+        }
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/import") {
+        const body = await readJsonBody(request, MAX_PROJECT_IMPORT_BYTES);
+        const parsed = projectDataImportInputSchema.safeParse(body);
+        if (!parsed.success) {
+          sendError(response, 400, `匯入檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+          return;
+        }
+        try {
+          const result = store.importProjectData(parsed.data as ProjectDataImportInput);
+          sendJson(response, 200, result);
+        } catch (error) {
+          sendError(response, 400, error instanceof Error ? error.message : "匯入資料失敗。");
+        }
         return;
       }
 

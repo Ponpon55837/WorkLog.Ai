@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { Archive, DatabaseBackup, Download, RefreshCw } from "lucide-vue-next";
+import type { ProjectDataImportPreview } from "@work-intelligence/core";
 import { useBackups } from "../../composables/useBackups";
+import { useProjectDataTransfer } from "../../composables/useProjectDataTransfer";
+import { useProjects } from "../../composables/useProjects";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -9,8 +12,11 @@ import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiCopyButton from "../ui/UiCopyButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
+import UiField from "../ui/UiField.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiSelect from "../ui/UiSelect.vue";
+import UiTextInput from "../ui/UiTextInput.vue";
 import VirtualList from "../VirtualList.vue";
 
 /**
@@ -28,11 +34,70 @@ const {
   createBackup,
   exportDatabase,
 } = useBackups();
+const { projects, loadProjects } = useProjects();
+const {
+  transferError,
+  portableExporting,
+  importProjects,
+  importFileName,
+  importProjectId,
+  importRemapFrom,
+  importRemapTo,
+  importLoading,
+  importPreview,
+  importError,
+  loadImportFile,
+  previewProjectDataImport,
+  applyProjectDataImport,
+  exportProjectData,
+} = useProjectDataTransfer();
 
 const scrollAfter = 6;
 const restoreCommand = "pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>";
+const exportScope = ref<"all" | "project">("all");
+const exportProjectId = ref("");
+const exportScopeOptions = [
+  { value: "all", label: "全部專案" },
+  { value: "project", label: "單一專案" },
+];
+const exportProjectOptions = computed(() =>
+  projects.value.map((project) => ({ value: project.id, label: project.name })),
+);
+const importProjectOptions = computed(() => [
+  { value: "", label: "全部專案" },
+  ...importProjects.value.map((project) => ({ value: project.id, label: project.name })),
+]);
+const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
+  const total = (counts: ProjectDataImportPreview["additions"]): number =>
+    Object.values(counts).reduce((sum, count) => sum + (count ?? 0), 0);
+  return {
+    additions: total(preview.additions),
+    skipped: total(preview.skipped),
+    conflicts: total(preview.conflicts),
+    projects: preview.additions.projects ?? 0,
+    sessions: preview.additions.sessions ?? 0,
+    knowledge: preview.additions.knowledge ?? 0,
+  };
+});
 
-onMounted(() => void loadBackups());
+function exportPortableData(): Promise<void> {
+  if (exportScope.value === "project") {
+    return exportProjectId.value
+      ? exportProjectData({ type: "project", projectId: exportProjectId.value })
+      : Promise.resolve();
+  }
+  return exportProjectData({ type: "all" });
+}
+
+function onImportFileChange(event: Event): Promise<void> {
+  const input = event.target;
+  return loadImportFile(input instanceof HTMLInputElement ? input.files?.[0] : undefined);
+}
+
+onMounted(() => {
+  void loadBackups();
+  void loadProjects();
+});
 </script>
 
 <template>
@@ -112,6 +177,111 @@ onMounted(() => void loadBackups());
         還原前會自動備份新電腦上原本的資料；比目前版本新的資料檔會被拒絕，請先更新 Work Intelligence。
       </p>
     </UiBox>
+
+    <UiBox padded>
+      <template #header>
+        <UiBoxTitle :icon="Archive" eyebrow="Portable project data" title="依專案匯出與匯入" :count="projects.length" />
+      </template>
+      <UiFlash v-if="transferError" tone="danger">{{ transferError }}</UiFlash>
+      <p class="backup-section__hint">
+        JSON 匯出檔沒有加密。匯入會合併資料，先顯示新增、略過與衝突數量，再由你確認執行；新匯入的專案會先暫停記錄。
+      </p>
+
+      <div class="transfer-controls">
+        <UiField label="匯出範圍">
+          <UiSelect v-model="exportScope" :options="exportScopeOptions" label="選擇匯出範圍" />
+        </UiField>
+        <UiField v-if="exportScope === 'project'" label="匯出專案">
+          <UiSelect
+            v-model="exportProjectId"
+            :options="exportProjectOptions"
+            label="選擇匯出專案"
+            :disabled="projects.length === 0"
+          />
+        </UiField>
+        <UiButton
+          size="sm"
+          :icon="Download"
+          :loading="portableExporting"
+          :disabled="exportScope === 'project' && !exportProjectId"
+          @click="exportPortableData"
+        >
+          匯出 JSON
+        </UiButton>
+      </div>
+
+      <div class="transfer-controls transfer-controls--import">
+        <UiField label="匯入檔" hint="選擇 Work Intelligence 的 .json 匯出檔，最大 50 MiB。">
+          <!-- The native file picker is required so the user can select a local export without uploading it elsewhere. -->
+          <input
+            class="backup-section__file-input"
+            type="file"
+            accept=".json,application/json"
+            :disabled="importLoading"
+            @change="onImportFileChange"
+          />
+        </UiField>
+        <UiField v-if="importProjects.length > 1" label="匯入範圍">
+          <UiSelect v-model="importProjectId" :options="importProjectOptions" label="選擇匯入範圍" />
+        </UiField>
+        <UiField label="舊電腦路徑前綴" hint="換電腦且專案位置不同時，填寫原始路徑。">
+          <UiTextInput v-model="importRemapFrom" placeholder="例如：/Users/old/projects" />
+        </UiField>
+        <UiField label="新電腦路徑前綴" hint="留空時不變更路徑。">
+          <UiTextInput v-model="importRemapTo" placeholder="例如：/Users/me/projects" />
+        </UiField>
+        <UiButton size="sm" :loading="importLoading" :disabled="!importFileName" @click="previewProjectDataImport">
+          預覽匯入
+        </UiButton>
+      </div>
+
+      <UiFlash v-if="importError" tone="danger">{{ importError }}</UiFlash>
+      <div v-if="importPreview" class="transfer-preview" data-testid="project-import-preview" aria-live="polite">
+        <p>匯入範圍：{{ importPreview.selectedProjects.map((project) => project.name).join("、") }}</p>
+        <div class="transfer-preview__counts">
+          <div data-testid="project-import-additions">
+            <span>新增</span>
+            <strong>{{ importSummary(importPreview).additions }}</strong>
+            <small
+              >專案 {{ importSummary(importPreview).projects }} · Session {{ importSummary(importPreview).sessions }} ·
+              Knowledge {{ importSummary(importPreview).knowledge }}</small
+            >
+          </div>
+          <div data-testid="project-import-skipped">
+            <span>略過</span>
+            <strong>{{ importSummary(importPreview).skipped }}</strong>
+          </div>
+          <div data-testid="project-import-conflicts">
+            <span>衝突</span>
+            <strong>{{ importSummary(importPreview).conflicts }}</strong>
+          </div>
+        </div>
+        <p v-if="importPreview.remappedPaths.length > 0" class="backup-section__hint">
+          路徑轉換：{{ importRemapFrom }} → {{ importRemapTo }}（專案
+          {{ importPreview.remappedPaths[0]?.projects ?? 0 }} 個、handoff
+          {{ importPreview.remappedPaths[0]?.snapshots ?? 0 }} 個）
+        </p>
+        <VirtualList
+          v-if="importPreview.conflictDetails.length > 0"
+          :items="importPreview.conflictDetails"
+          :enabled="importPreview.conflictDetails.length > 6"
+          :estimate-item-height="68"
+          max-height="min(40vh, 320px)"
+          label="匯入衝突"
+        >
+          <template #default="{ item }">
+            <UiBoxRow :title="item.reason" :meta="`${item.table} · ${item.id}`" />
+          </template>
+        </VirtualList>
+        <p v-if="importPreview.conflictDetailsTruncated" class="backup-section__hint">
+          衝突明細超過 100 筆，僅顯示前 100 筆。
+        </p>
+        <p class="backup-section__hint">匯入不會覆寫衝突或已存在的資料，也不會改變既有專案的記錄狀態。</p>
+        <UiButton size="sm" variant="primary" :loading="importLoading" @click="applyProjectDataImport"
+          >確認並匯入</UiButton
+        >
+      </div>
+    </UiBox>
   </div>
 </template>
 
@@ -169,5 +339,96 @@ onMounted(() => void loadBackups());
   min-width: 0;
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+
+.transfer-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.transfer-controls--import {
+  grid-template-columns: minmax(220px, 1.3fr) repeat(2, minmax(160px, 1fr)) minmax(160px, 1fr) auto;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-muted);
+}
+
+.backup-section__file-input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-muted);
+  color: var(--fg);
+  font-size: var(--text-xs);
+}
+
+.backup-section__file-input::file-selector-button {
+  margin-right: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.backup-section__file-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.transfer-preview {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-muted);
+}
+
+.transfer-preview__counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.transfer-preview__counts > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.transfer-preview__counts span,
+.transfer-preview__counts small {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.transfer-preview__counts strong {
+  font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1279px) {
+  .transfer-controls,
+  .transfer-controls--import {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 639px) {
+  .transfer-controls,
+  .transfer-controls--import,
+  .transfer-preview__counts {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

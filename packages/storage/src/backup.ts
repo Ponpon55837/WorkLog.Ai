@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, stat
 import { basename, dirname, extname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DatabaseBackup, DatabaseBackupCreated } from "@work-intelligence/core";
+import { remapPathPrefix } from "./project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
 export const DEFAULT_BACKUP_KEEP = 14;
@@ -152,10 +153,6 @@ export interface RestoreDatabaseResult {
   safetyBackup?: string;
 }
 
-function trimSeparator(value: string): string {
-  return value.length > 1 ? value.replace(/[\\/]+$/, "") : value;
-}
-
 function inspectSnapshot(source: string): { schemaVersion: number; projects: number; sessions: number } {
   assertHealthy(source, "The file to restore");
   const db = new DatabaseSync(source, { readOnly: true });
@@ -246,29 +243,20 @@ export function restoreDatabase(options: {
   try {
     db.exec("BEGIN IMMEDIATE");
     for (const entry of options.remap ?? []) {
-      const from = trimSeparator(entry.from);
-      const to = trimSeparator(entry.to);
-      // Replace the prefix only on a whole path segment, so /a/app never matches /a/apple. Windows paths
-      // (drive letter) compare case-insensitively, as the file system does.
-      const windowsPath = /^[A-Za-z]:[\\/]/;
-      const fold = windowsPath.test(from) ? "lower" : "";
-      // Moving between Windows and macOS/Linux also switches the separators in the rest of the path.
-      const convert =
-        windowsPath.test(from) === windowsPath.test(to)
-          ? (value: string) => value
-          : windowsPath.test(to)
-            ? (value: string) => `replace(${value}, '/', '\\')`
-            : (value: string) => `replace(${value}, '\\', '/')`;
-      const move = (table: string, column: string): number =>
-        Number(
-          db
-            .prepare(
-              `UPDATE ${table} SET ${column} = ? || ${convert(`substr(${column}, length(?) + 1)`)}
-               WHERE ${fold}(${column}) = ${fold}(?)
-                  OR ${fold}(substr(${column}, 1, length(?) + 1)) IN (${fold}(? || '/'), ${fold}(? || '\\'))`,
-            )
-            .run(to, from, from, from, from, from).changes,
-        );
+      const move = (table: string, column: string): number => {
+        const rows = db.prepare(`SELECT ${column} AS path FROM ${table} WHERE ${column} IS NOT NULL`).all() as Array<{
+          path: string;
+        }>;
+        let updated = 0;
+        for (const row of rows) {
+          const replacement = remapPathPrefix(row.path, entry);
+          if (replacement !== row.path) {
+            db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(replacement, row.path);
+            updated += 1;
+          }
+        }
+        return updated;
+      };
       remapped.projects += move("projects", "root_path");
       remapped.handoffSnapshots += move("raw_snapshots", "source_path");
     }

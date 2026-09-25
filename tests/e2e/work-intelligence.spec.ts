@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -633,6 +633,49 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("已備份目前的資料。")).toBeVisible();
     await expect(backups.getByText(/^work-intelligence-e2e-\d+-\d{8}T\d{6}Z/).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
+  });
+
+  test("exports one project and previews an idempotent import", async ({ page }) => {
+    await page.goto("/projects/backup");
+    const backups = page.getByRole("tabpanel", { name: "資料備份" });
+    await backups.getByLabel("選擇匯出範圍").selectOption("project");
+    await backups.getByLabel("選擇匯出專案").selectOption(projectId);
+
+    const downloadPromise = page.waitForEvent("download");
+    await backups.getByRole("button", { name: "匯出 JSON" }).click();
+    const download = await downloadPromise;
+    const downloadPath = await download.path();
+    expect(downloadPath).toBeTruthy();
+    const exported = readFileSync(downloadPath ?? "");
+    const bundle = JSON.parse(exported.toString("utf8")) as {
+      scope: { type: string; projectId: string };
+      tables: { projects: Array<{ id: string }> };
+    };
+    expect(bundle.scope).toEqual({ type: "project", projectId });
+    expect(bundle.tables.projects).toHaveLength(1);
+
+    await backups.getByLabel("匯入檔").setInputFiles({
+      name: download.suggestedFilename(),
+      mimeType: "application/json",
+      buffer: exported,
+    });
+    await backups.getByRole("button", { name: "預覽匯入" }).click();
+    const preview = backups.getByTestId("project-import-preview");
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText("Browser Regression Fixture");
+    await expect(preview.getByTestId("project-import-additions")).toContainText("新增");
+    await expect(preview.getByTestId("project-import-skipped")).toContainText("略過");
+    await expect(preview.getByTestId("project-import-conflicts")).toContainText("衝突");
+
+    await preview.getByRole("button", { name: "確認並匯入" }).click();
+    const confirmation = page.getByRole("dialog", { name: "確認匯入專案資料" });
+    await expect(confirmation).toContainText("新匯入的專案會先暫停記錄");
+    await confirmation.getByRole("button", { name: "匯入", exact: true }).click();
+    await expect(page.getByText(/匯入完成：新增 0 筆、略過 [1-9]\d* 筆，衝突 0 筆。/)).toBeVisible();
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectNoHorizontalOverflow(page);
+    }
   });
 
   test("asks for consent before a project starts being tracked", async ({ page, request }) => {

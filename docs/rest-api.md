@@ -13,6 +13,10 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
 | POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |
+| GET/POST | `/api/backups`                                   | 列出資料庫備份／立即建立備份（POST body `{}`）                                         |
+| POST     | `/api/export`                                    | body `{}` 匯出整份 SQLite 快照；指定 `scope` 時匯出可攜式 JSON（見下方）                 |
+| POST     | `/api/import/preview`                            | 驗證可攜式 JSON 並預覽新增、略過、衝突與路徑轉換，不寫入資料                           |
+| POST     | `/api/import`                                     | 將可攜式 JSON 的非衝突資料合併寫入目前資料庫                                           |
 | GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
@@ -84,8 +88,10 @@ API 固定綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 ## 備份與匯出
 
 - REST：GET /api/backups 列出備份（檔名、時間、大小與保留份數）；POST /api/backups（body `{}`）立即備份。
-- REST：POST /api/export（body `{}`）即時產生整份資料的快照並以 `application/vnd.sqlite3` 下載，暫存檔在傳送後刪除。
-- 兩個 POST 都要求 `Content-Type: application/json`，跨站表單無法觸發；回應只含檔名，不會出現檔案系統路徑。
+- REST：POST /api/export（body `{}`）即時產生整份資料的 SQLite 快照，以 `application/vnd.sqlite3` 下載，暫存檔在傳送後刪除。可攜式 JSON 則使用 `{"scope":"all"}`，或 `{"scope":"project","projectId":"<id>"}`；檔案上限為 50 MiB，超過回 413。
+- REST：POST /api/import/preview 與 POST /api/import 都接受 `{ "bundle": <可攜式匯出>, "projectId"?: "<id>", "remap"?: [{"from":"<舊路徑>","to":"<新路徑>"}] }`。`projectId` 可從全專案匯出檔挑選單一專案；`remap` 可重複多筆，以完整路徑片段比對、Windows 路徑不分大小寫，並依新路徑轉換分隔符號。只有匯入兩個端點把 request body 上限提高至 50 MiB；超過回 413，格式錯誤回 400。
+- Preview 只讀取並回傳各資料表新增／略過／衝突筆數及最多 100 筆衝突明細，不回傳專案路徑。正式匯入會在一個 SQLite 交易中重新計算預覽並合併非衝突資料；不覆寫或刪除既有資料，且重複匯入可冪等略過。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
+- 可攜式 JSON 未加密，請妥善保管。整份 SQLite 快照與可攜式匯出都要求 `Content-Type: application/json`，跨站表單無法觸發；下載回應只含檔名，不會出現暫存檔路徑。
 - in-memory 資料庫回傳 409 `backup_unavailable`。
 - 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。
 
