@@ -45,6 +45,10 @@ jobs:
 
       - run: pnpm test:coverage
 
+      - name: Performance regression gates
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm run test:performance
+
   e2e:
     name: E2E (Chromium + Firefox)
     runs-on: ubuntu-latest

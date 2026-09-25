@@ -14,7 +14,13 @@ import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { WorkIntelligenceStore } from "../dist/index.js";
 
-const sessionCount = Number(process.argv[2] ?? 5000);
+const args = process.argv.slice(2);
+const sessionCountArgument = args.find((argument) => !argument.startsWith("--"));
+const sessionCount = Number(sessionCountArgument ?? 5000);
+const checkMode = args.includes("--check");
+if (!Number.isSafeInteger(sessionCount) || sessionCount < 1) {
+  throw new Error("Session count must be a positive safe integer.");
+}
 const runs = 15;
 const root = mkdtempSync(join(tmpdir(), "wi-bench-"));
 const alphaRoot = join(root, "alpha");
@@ -99,8 +105,18 @@ try {
     getGraph: () => benchStore.getGraph({}),
   };
 
+  const limitsMs = {
+    "listSessionsPage (default)": 200,
+    getDashboardSummary: 1000,
+    "getReport week": 750,
+    "getReport year": 1500,
+    getContext: 2500,
+    search: 10000,
+  };
+
   const results = [];
-  for (const [name, run] of Object.entries(cases)) {
+  const selectedCases = Object.entries(cases).filter(([name]) => !checkMode || name in limitsMs);
+  for (const [name, run] of selectedCases) {
     run();
     const samples = [];
     for (let index = 0; index < runs; index += 1) {
@@ -109,13 +125,28 @@ try {
       samples.push(performance.now() - started);
     }
     samples.sort((a, b) => a - b);
+    const p90Ms = Number(samples[Math.ceil(runs * 0.9) - 1].toFixed(2));
     results.push({
       case: name,
       medianMs: Number(samples[Math.floor(runs / 2)].toFixed(2)),
+      p90Ms,
       maxMs: Number(samples[runs - 1].toFixed(2)),
+      limitMs: limitsMs[name] ?? null,
+      passed: checkMode ? p90Ms <= limitsMs[name] : undefined,
     });
   }
   console.table(results);
+  if (checkMode) {
+    const failures = results.filter((result) => !result.passed);
+    if (failures.length > 0) {
+      console.error(
+        `Performance regression gate failed: ${failures.map((result) => `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`).join("; ")}`,
+      );
+      process.exitCode = 1;
+    } else {
+      console.log(`Performance regression gate passed (${sessionCount} synthetic sessions, p90 of ${runs} runs).`);
+    }
+  }
   benchStore.close();
 } finally {
   try {

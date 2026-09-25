@@ -325,7 +325,7 @@ function total(counts: Record<string, number | undefined>): number {
 }
 
 describe("portable project data transfer", () => {
-  it("imports 5,000 sessions and 50,000 events and reports the elapsed time", () => {
+  it("imports 5,000 sessions and 50,000 events within the 20-second performance budget", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
     const baseSession = bundle.tables.sessions[0];
@@ -393,6 +393,7 @@ describe("portable project data transfer", () => {
     expect(result.additions.sessions).toBe(5_000);
     expect(result.additions.work_events).toBe(50_000);
     expect(total(result.conflicts)).toBe(0);
+    expect(elapsedMs).toBeLessThanOrEqual(20_000);
     console.info(
       `Synthetic portable import: 5,000 sessions + 50,000 events in ${elapsedMs.toFixed(1)} ms (Node ${process.version}).`,
     );

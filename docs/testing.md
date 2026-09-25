@@ -12,6 +12,7 @@
 pnpm test         # ESLint、全專案格式檢查，以及 core、政策、schema、storage、server、MCP、Web 測試
 pnpm format       # 格式化全專案（文件與 Agent 技能除外）
 pnpm test:coverage # schema、storage、server、MCP、Web 覆蓋率與最低門檻
+pnpm test:performance # 合成資料的匯入與關鍵讀取路徑效能門檻（需先 build）
 pnpm typecheck    # 套件、Vue 樣板、單元測試與 E2E 設定型別
 pnpm build        # 工作區套件、server／MCP 與 Vite 正式版
 pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
@@ -22,18 +23,36 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 `.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：
 
 - **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。Windows 是主要開發平台；Linux 與 macOS 會守住非 Windows 的路徑處理，macOS 也符合維護者的主要使用平台。
+- **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。
 - **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 與 Firefox 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行帶有 `@cross-browser` 標記的正式模式啟動/API 同源與主要頁面路由流程。兩個瀏覽器分開執行，使用各自的暫存 SQLite；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。
 
 Coverage 門檻維持下方的模組局部門檻；尚未量測其他 workspace 的基線，所以沒有設定全域門檻。
 
-## Storage 讀取效能基準
+## 效能回歸門檻
 
 ```powershell
-pnpm --filter @work-intelligence/storage build
-$env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; node packages/storage/bench/read-paths.bench.mjs 5000
+pnpm build
+pnpm test:performance
 ```
 
-腳本會在暫存目錄建立合成 SQLite（2 個 tracked 專案、橫跨一年的 N 筆 Session），並列出列表、Dashboard、日／週／年報、context、search、metadata 預覽與 Graph 的中位數與最大耗時。建立 5,000 筆資料約需 20–60 秒；設定 `WI_BENCH_CACHE` 會保留建好的資料庫，方便比較修改前後。它不會讀寫 `data/` 下的使用中資料庫。
+Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 筆 events，要求只計時的匯入階段在 20 秒內完成；資料建置時間不計入門檻。讀取基準則在暫存目錄建立 2 個 tracked 專案與 5,000 個 Session，預熱後各執行 15 次，以 p90 和下列寬鬆上限判定，避免單一排程尖峰造成失敗：
+
+| 關鍵路徑 | p90 上限 |
+| --- | ---: |
+| Session 列表（預設第一頁） | 200 ms |
+| Dashboard | 1,000 ms |
+| 週報 | 750 ms |
+| 年報 | 1,500 ms |
+| Agent context | 2,500 ms |
+| recall 搜尋 | 10,000 ms |
+
+效能基準使用合成 SQLite，寫在系統暫存目錄；不讀寫 `data/` 下的使用中資料庫。若要列出所有讀取路徑的 median、p90 與 max（不套用失敗門檻），可執行：
+
+```powershell
+$env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; pnpm exec node packages/storage/bench/read-paths.bench.mjs 5000
+```
+
+設定 `WI_BENCH_CACHE` 會保留合成資料庫供修改前後比較；不設定時資料庫會在執行後移除。
 
 `pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%（新增 schema，包括 MCP 專用的 input schema，都要補測試才會過），storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
 
