@@ -155,7 +155,7 @@ async function confirmDelete(project: ProjectRecord, confirmationName: string): 
           ><UiButton variant="primary" :icon="Plus" @click="addOpen = true">加入專案</UiButton></template
         >
       </UiEmptyState>
-      <VirtualList v-else :items="projects" :enabled="true" :estimate-item-height="128" label="專案清單">
+      <VirtualList v-else :items="projects" :enabled="true" fit-viewport :estimate-item-height="128" label="專案清單">
         <template #default="{ item: project }">
           <UiBoxRow :title="project.name" data-testid="project-row">
             <template #leading
@@ -249,6 +249,7 @@ async function confirmDelete(project: ProjectRecord, confirmationName: string): 
         v-else
         :items="trackedProjects"
         :enabled="true"
+        fit-viewport
         :estimate-item-height="80"
         label="Handoff 匯入專案清單"
       >
