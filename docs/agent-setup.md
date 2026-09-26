@@ -26,7 +26,13 @@ C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite
 
 ## Codex CLI
 
-使用 `codex mcp add` 註冊本機 stdio server：
+使用 `codex mcp add` 註冊本機 stdio server。macOS／Linux：
+
+```bash
+codex mcp add work-intelligence --env "WORK_INTELLIGENCE_DB=/path/to/WorkLog.Ai/data/work-intelligence.sqlite" -- pnpm --dir "/path/to/WorkLog.Ai" start:mcp
+```
+
+Windows（PowerShell）：
 
 ```powershell
 codex mcp add work-intelligence --env "WORK_INTELLIGENCE_DB=C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite" -- pnpm.cmd --dir "C:\path\to\WorkLog.Ai" start:mcp
@@ -47,7 +53,13 @@ codex mcp remove work-intelligence
 
 ## Claude Code
 
-使用 `user` scope，讓 Claude Code 在不同 workspace 都能使用這個工具：
+使用 `user` scope，讓 Claude Code 在不同 workspace 都能使用這個工具。macOS／Linux：
+
+```bash
+claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTELLIGENCE_DB=/path/to/WorkLog.Ai/data/work-intelligence.sqlite" -- pnpm --dir "/path/to/WorkLog.Ai" start:mcp
+```
+
+Windows（PowerShell）：
 
 ```powershell
 claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTELLIGENCE_DB=C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite" -- pnpm.cmd --dir "C:\path\to\WorkLog.Ai" start:mcp

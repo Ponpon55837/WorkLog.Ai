@@ -14,6 +14,8 @@
 
 ## API port 被占用
 
+`pnpm start` 遇到 port 被占用時會顯示「127.0.0.1:<port> 已被占用，Work Intelligence 沒有啟動」並結束。最常見的原因是另一個終端機已經在執行 Work Intelligence：先開啟 <http://127.0.0.1:3210> 確認。
+
 `pnpm run doctor` 會區分可用、Work Intelligence 正常回應、以及被其他程式占用的 port。若不是 Work Intelligence，請停止占用程式，或設定 `WORK_INTELLIGENCE_PORT` 為未使用的連接埠再啟動。正式模式的 Web 與 API 使用同一個設定值。
 
 ## MCP 沒有載入新工具
@@ -46,6 +48,16 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 3. 等待相關 Node 程序完全退出，再重試 `pnpm db:restore <檔案>`。
 
 只有在你已確認沒有程式仍使用資料庫時，才使用 CLI 的 `--force` 略過使用中檢查。不要在 API 或 MCP 仍開啟資料庫時手動覆蓋 SQLite 檔案。
+
+## `pnpm db:maintain` 顯示資料庫使用中
+
+維護會執行 `VACUUM` 並重建搜尋索引，需要獨占資料庫。只要 API server 或 MCP 還開著資料庫（即使閒置），就無法取得獨占鎖，維護會在做任何變更前停止：
+
+1. 停止 `pnpm start` 或 `pnpm dev`。
+2. 關閉會啟動 `work-intelligence` MCP 的 Codex／Claude 對話。
+3. 重新執行 `pnpm db:maintain`，完成後用 `pnpm run doctor` 確認最近一次維護結果。
+
+維護失敗時，維護前備份（`pre-maintenance-…`）會保留在備份目錄，doctor 會顯示失敗代碼。
 
 ## 可攜式 JSON 匯入有衝突
 

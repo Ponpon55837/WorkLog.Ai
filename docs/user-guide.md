@@ -28,7 +28,7 @@ pnpm run doctor
 | --- | --- |
 | `WORK_INTELLIGENCE_DB` | 共用 SQLite 檔案位置，API、MCP 與 CLI 應使用同一個檔案 |
 | `WORK_INTELLIGENCE_PORT` | Web 與 API 共用的本機連接埠，預設 `3210` |
-| `WORK_INTELLIGENCE_BACKUP_DIR` | 備份目錄，預設為資料庫旁的 `backups/` |
+| `WORK_INTELLIGENCE_BACKUP_DIR` | 備份目錄，預設為資料庫旁的 `backups/`；相對路徑以資料庫所在資料夾為基準，API、MCP、CLI 與 doctor 會指向同一個位置 |
 | `WORK_INTELLIGENCE_BACKUP_KEEP` | 手動備份保留份數，預設 14；自動備份另行保留 14 份 |
 | `WORK_INTELLIGENCE_BACKUP=off` | 停用每日自動備份 |
 
@@ -48,6 +48,8 @@ pnpm run doctor
 在「專案 → 專案清單」點選專案旁的垃圾桶按鈕，閱讀刪除範圍並輸入完整專案名稱，才可確認永久刪除。WorkLog 會先建立並驗證一份完整 SQLite 備份；備份失敗時不會刪除。完成後會顯示備份檔名。
 
 刪除會移除中央資料庫中該專案的工作記錄、handoff、Evidence、Knowledge、稽核與搜尋資料，以及引用目標 Session 的共享請求和報告。專案資料夾與檔案不會被刪除。刪除前備份是整份資料庫快照，並依手動備份的保留規則管理；它可透過 `pnpm db:restore <備份檔.sqlite>` 還原，但還原會取代目前整份資料庫。MCP 不提供專案刪除工具。
+
+**刪除後資料仍存在於備份中**：刪除前備份，以及刪除前建立的自動、手動、migration 與維護備份，都仍然包含這個專案的完整內容，直到它們依保留規則被輪替掉為止。若需要讓資料立即無法復原，請在確認不再需要後，自行刪除 `backups/`（或 `WORK_INTELLIGENCE_BACKUP_DIR`）中這些備份檔，以及先前匯出的 `.sqlite`／JSON 檔。
 
 ## 日常流程
 

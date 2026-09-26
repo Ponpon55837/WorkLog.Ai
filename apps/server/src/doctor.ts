@@ -142,6 +142,8 @@ function collectCommands(value: unknown): string[] {
     visited.add(current as object);
     if (typeof currentRecord.command === "string") {
       commands.push(currentRecord.command);
+      // Claude Code also accepts the exec form: `command` is the runtime and the script path sits in `args`.
+      commands.push(...entries(currentRecord.args).filter((arg): arg is string => typeof arg === "string"));
     }
     stack.push(...Object.values(currentRecord));
   }
@@ -488,8 +490,9 @@ export async function collectDoctorFindings(
     ? resolve(process.cwd(), parsedEnvironment.data.WORK_INTELLIGENCE_DB)
     : resolve(repositoryRoot, "data", "work-intelligence.sqlite");
   const database = await inspectDatabaseReadOnly(dbPath);
+  // Mirrors backupOptionsFromEnvironment without importing storage, so doctor still runs on a Node without node:sqlite.
   const backupDirectory = parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR
-    ? resolve(process.cwd(), parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR)
+    ? resolve(dirname(dbPath), parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR)
     : join(dirname(dbPath), "backups");
   const latestBackup = findLatestAutomaticBackup(dbPath, backupDirectory);
   const backupDetail = latestBackup ? latestBackup.toISOString() : "尚無自動備份";

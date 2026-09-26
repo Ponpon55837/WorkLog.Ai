@@ -47,12 +47,15 @@ describe("ApiClient.request", () => {
     expect(onConnectionChange).toHaveBeenCalledWith(false);
   });
 
-  it("marks server errors offline and client errors as reachable", async () => {
+  it("marks only non-API gateway failures offline, not the API's own JSON errors", async () => {
     const onConnectionChange = vi.fn();
-    respond(503, JSON.stringify({ error: "服務暫時無法回應。" }));
-
-    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("服務暫時無法回應。");
+    respond(500, "", "text/plain");
+    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("請確認 API 是否已啟動");
     expect(onConnectionChange).toHaveBeenLastCalledWith(false);
+
+    respond(503, JSON.stringify({ error: "服務暫時無法回應。" }));
+    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("服務暫時無法回應。");
+    expect(onConnectionChange).toHaveBeenLastCalledWith(true);
 
     respond(400, JSON.stringify({ error: "輸入無效。" }));
     await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("輸入無效。");

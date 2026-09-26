@@ -103,4 +103,21 @@ describe("pnpm doctor read-only checks", () => {
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot).codexConfigured).toBe(false);
     expect(readFileSync(claudeSettingsPath, "utf8")).toBe(claudeSettings);
   });
+
+  it("recognizes a Claude Stop hook written in exec form with the script in args", () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository");
+    const claudeHook = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+    mkdirSync(join(homeDirectory, ".claude"), { recursive: true });
+    const claudeSettingsPath = join(homeDirectory, ".claude", "settings.json");
+    const settingsWith = (args: string[]) =>
+      JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "/usr/local/bin/node", args }] }] } });
+
+    writeFileSync(claudeSettingsPath, settingsWith([claudeHook]));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeConfigured).toBe(true);
+
+    writeFileSync(claudeSettingsPath, settingsWith([resolve(directory, "other/finalize-reminder.js")]));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeConfigured).toBe(false);
+  });
 });

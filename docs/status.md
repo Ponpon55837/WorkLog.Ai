@@ -19,6 +19,8 @@
 
 Round 4 結案補充：PR #83 修正報表「不限日期」造成的無效搜尋，固定日期控制項版面，並檢查主要頁面與輔助面板的長清單內部捲動；worklog-ui skill 已補上長清單規範。D4 使用 20 題虛構合成檢索品質評估；私有 36 題真實資料檢索評估仍留在本機，不會放進 repository。
 
+Claude 複檢（2026-09-26）：#69–#85 均以 merge commit 合併，最新 head 的 CI 全綠；main 上 build、test、typecheck、coverage、效能、檢索品質與 E2E（Chromium 32 通過／1 略過、Firefox 2 通過）重新執行皆通過。複檢修正了四項：MCP 未套用備份目錄與保留份數設定、API 自己回的 JSON 5xx 被誤判為離線、doctor 無法辨識 `args` 形式的 Claude hook，以及 CHANGELOG 缺少 #74 之後的內容；另補上 macOS 註冊指令、維護疑難排解，以及「刪除後資料仍存在於備份」的說明。
+
 暫緩項目：A2 開機自動啟動、發行 workflow／tag／release，以及實機平台驗證，依使用者決定留待後續處理。
 
 ## 優先改善：Agent 檢索品質
