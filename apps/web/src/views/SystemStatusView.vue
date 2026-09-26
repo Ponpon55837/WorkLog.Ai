@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { onBeforeUnmount } from "vue";
+import { storeToRefs } from "pinia";
 import { Activity, Archive, Clock3, Database, RefreshCw, Wifi } from "lucide-vue-next";
-import type { SystemStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -11,55 +11,33 @@ import UiButton from "../components/ui/UiButton.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
-import { useActiveViewQuery } from "../composables/useAppRefresh";
-import { useApi } from "../composables/useApi";
-import { formatBytes, formatDate, errorMessage as toErrorMessage } from "../utils/format";
+import { formatBytes, formatDate } from "../utils/format";
 import { databaseInspectionStatus, databaseMaintenanceStatus } from "../utils/status";
-import { queryKeys } from "../stores/query-keys";
+import { useSystemStatusStore } from "../stores/system-status";
 
-const status = ref<SystemStatus | null>(null);
-const loading = ref(true);
-const error = ref("");
-let activeRequest: AbortController | undefined;
+const systemStatusStore = useSystemStatusStore();
+const {
+  systemStatus: status,
+  systemStatusLoading: loading,
+  systemStatusError: error,
+  databaseStatus,
+} = storeToRefs(systemStatusStore);
+const { refreshSystemStatus } = systemStatusStore;
 
-const databaseStatus = computed(() =>
-  status.value ? databaseInspectionStatus[status.value.database.state] : databaseInspectionStatus.unreadable,
-);
-
-async function loadSystemStatus(): Promise<void> {
-  activeRequest?.abort();
-  const controller = new AbortController();
-  activeRequest = controller;
-  loading.value = true;
-  error.value = "";
-  try {
-    status.value = await useApi().client.getSystemStatus(controller.signal);
-  } catch (cause) {
-    if (!controller.signal.aborted) {
-      error.value = toErrorMessage(cause, "無法載入系統狀態，請確認本機 API 是否已啟動。");
-    }
-  } finally {
-    if (!controller.signal.aborted) {
-      loading.value = false;
-    }
-  }
-}
-
-useActiveViewQuery(queryKeys.views.systemStatus, loadSystemStatus);
-
-onBeforeUnmount(() => activeRequest?.abort());
+systemStatusStore.setSystemStatusActive(true);
+onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 </script>
 
 <template>
   <PageHeader description="查看本機資料庫、備份、維護與連線狀態。完整環境診斷請在專案目錄執行 pnpm run doctor。">
     <template #actions>
-      <UiButton :icon="RefreshCw" :disabled="loading" @click="loadSystemStatus">重新整理狀態</UiButton>
+      <UiButton :icon="RefreshCw" :disabled="loading" @click="refreshSystemStatus">重新整理狀態</UiButton>
     </template>
   </PageHeader>
 
   <UiFlash v-if="error" tone="danger" title="無法載入系統狀態">
     {{ error }}
-    <template #actions><UiButton size="sm" @click="loadSystemStatus">重試</UiButton></template>
+    <template #actions><UiButton size="sm" @click="refreshSystemStatus">重試</UiButton></template>
   </UiFlash>
 
   <UiSkeleton v-if="loading && !status" variant="card" :count="4" />
