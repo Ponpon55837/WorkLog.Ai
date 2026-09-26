@@ -9,9 +9,9 @@
 所有單元、整合與端對端測試集中放在根目錄 `tests/`，依工作區套件分資料夾；`apps/` 與 `packages/` 只放產品程式碼、建置與測試設定，不在 `src/` 旁混放測試檔。`tests/e2e/` 專放瀏覽器端對端測試。
 
 ```powershell
-pnpm test         # ESLint、全專案格式檢查，以及 core、政策、schema、storage、server、MCP、Web 測試
+pnpm test         # ESLint、全專案格式檢查，以及 core、政策、shared、schema、storage、server、MCP、Web 測試
 pnpm format       # 格式化全專案（文件與 Agent 技能除外）
-pnpm test:coverage # schema、storage、server、MCP、Web 覆蓋率與最低門檻
+pnpm test:coverage # core、政策、shared、schema、storage、server、MCP、Web 覆蓋率與最低門檻
 pnpm test:performance # 合成資料的匯入與關鍵讀取路徑效能門檻（需先 build）
 pnpm test:retrieval-quality # 只執行合成資料的 work_recall 檢索品質評估
 pnpm typecheck    # 套件、Vue 樣板、單元測試與 E2E 設定型別
@@ -28,7 +28,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 - **檢索品質門檻**：`pnpm test` 在三個 OS 都包含虛構合成資料的 storage 評估；Ubuntu 另以 `pnpm test:retrieval-quality` 明確顯示 hit@5／MRR 門檻結果。
 - **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium 與 Firefox 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行帶有 `@cross-browser` 標記的正式模式啟動/API 同源與主要頁面路由流程。Chromium 會在六個主要頁面執行 axe，critical／serious impact 的違規會使測試失敗。兩個瀏覽器分開執行，使用各自的暫存 SQLite；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。
 
-Coverage 門檻維持下方的模組局部門檻；尚未量測其他 workspace 的基線，所以沒有設定全域門檻。
+Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）。
 
 ## 效能回歸門檻
 
@@ -68,7 +68,7 @@ pnpm test:retrieval-quality
 
 一般 `pnpm test` 已包含此評估；Ubuntu CI 另有獨立步驟，方便直接看到檢索指標回歸。
 
-`pnpm test:coverage` 使用 V8：schema 的 statements／branches／functions／lines 門檻為 90%（新增 schema，包括 MCP 專用的 input schema，都要補測試才會過），storage handoff parser 的門檻為 85%／70%／90%／85%；coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
+`pnpm test:coverage` 使用 V8。core 的四項門檻皆為 100%；project-policy 為 95%／95%／100%／95%，其 branch 基線達 98.55%；shared 為 90%／80%／100%／90%。schema 的四項門檻為 90%（新增 schema，包括 MCP 專用 input schema，都要補測試才會過）；storage handoff parser 為 85%／70%／90%／85%。server、MCP、Web 維持既有門檻。Coverage 輸出只寫入被 `.gitignore` 排除的 `coverage/` 目錄。
 
 `pnpm test:e2e` 會先建置 production packages，再以獨立的暫存 SQLite、單一 port `5967` 啟動正式模式測試服務，不會讀寫目前使用中的 `data/work-intelligence.sqlite` 或 `5966` 開發畫面。若 port 已被占用，可改用其他 port：
 
