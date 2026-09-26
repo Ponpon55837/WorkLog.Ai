@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { RouterLink, useRoute } from "vue-router";
 import { Archive, FileInput, FolderGit2, History, Plus, ScanSearch, Trash2 } from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
@@ -20,9 +21,9 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useHandoffImport } from "../composables/useHandoffImport";
 import { useProjects } from "../composables/useProjects";
 import { router } from "../router";
+import { useHandoffImportStore } from "../stores/handoff-import";
 import { useMetadataBackfillStore } from "../stores/metadata-backfill";
 import { formatDate, formatRelative } from "../utils/format";
 import { statusDescriptions, statusLabels } from "../utils/labels";
@@ -43,7 +44,9 @@ const {
   deleteProject,
 } = useProjects();
 const metadataBackfillStore = useMetadataBackfillStore();
-const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
+const handoffImportStore = useHandoffImportStore();
+const { handoffImportLoading, handoffImportProjectId } = storeToRefs(handoffImportStore);
+const { previewHandoffs } = handoffImportStore;
 
 const addOpen = ref(false);
 const deleteTarget = ref<ProjectRecord | null>(null);
