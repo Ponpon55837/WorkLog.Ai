@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { storeToRefs } from "pinia";
 import { FileText } from "lucide-vue-next";
 import type { HandoffImportPreviewItem } from "@work-intelligence/core";
-import { useHandoffImport } from "../../composables/useHandoffImport";
+import { useHandoffImportStore } from "../../stores/handoff-import";
 import { verificationStatus } from "../../utils/status";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
@@ -14,12 +15,10 @@ import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 
 /** Import confirmation: shows what will be imported and what is excluded, with reasons. */
+const handoffImportStore = useHandoffImportStore();
+const { handoffImportPreview, handoffImportApplying, handoffImportError, importableHandoffs, selectedHandoffCount } =
+  storeToRefs(handoffImportStore);
 const {
-  handoffImportPreview,
-  handoffImportApplying,
-  handoffImportError,
-  importableHandoffs,
-  selectedHandoffCount,
   isHandoffSelected,
   toggleHandoffSelection,
   selectAllHandoffs,
@@ -27,7 +26,7 @@ const {
   handoffDecisionLabel,
   closeHandoffImport,
   applyHandoffImport,
-} = useHandoffImport();
+} = handoffImportStore;
 
 const description = computed(() =>
   handoffImportPreview.value
