@@ -721,6 +721,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :enabled="true"
           fit-viewport
           fit-viewport-to-panel
+          fill-available-space
           label="報告原始工作紀錄清單"
         >
           <template #default="{ item }">
@@ -771,6 +772,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :enabled="true"
           fit-viewport
           fit-viewport-to-panel
+          fill-available-space
           :estimate-item-height="72"
           label="報告來源證據清單"
         >

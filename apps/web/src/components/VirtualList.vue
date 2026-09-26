@@ -20,6 +20,7 @@ const props = withDefaults(
     maxHeight?: string;
     fitViewport?: boolean;
     fitViewportToPanel?: boolean;
+    fillAvailableSpace?: boolean;
   }>(),
   {
     enabled: false,
@@ -29,6 +30,7 @@ const props = withDefaults(
     maxHeight: "min(68vh, 720px)",
     fitViewport: false,
     fitViewportToPanel: false,
+    fillAvailableSpace: false,
   },
 );
 
@@ -197,7 +199,7 @@ function keepFitViewportPanelVisible(): void {
   const footer = panel?.querySelector<HTMLElement>(".ui-box__footer");
   if (
     !props.fitViewport ||
-    (props.fitViewportToPanel && fitViewportPanelHeight.value !== null) ||
+    (props.fitViewportToPanel && fitViewportPanelHeight.value !== null && !fitViewportPanelFillsAvailableSpace.value) ||
     !panel ||
     !footer ||
     !main
@@ -205,7 +207,10 @@ function keepFitViewportPanelVisible(): void {
     return;
   }
 
-  const overflow = footer.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom;
+  const bottomInset = fitViewportPanelFillsAvailableSpace.value
+    ? Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24
+    : 0;
+  const overflow = footer.getBoundingClientRect().bottom - (main.getBoundingClientRect().bottom - bottomInset);
   if (overflow > 1) {
     main.scrollTop = Math.min(main.scrollTop + overflow, main.scrollHeight - main.clientHeight);
   }
@@ -248,6 +253,16 @@ function updateFitViewportPanelHeight(): void {
       const trailingMargin = Number.parseFloat(window.getComputedStyle(lastTrailingSibling).marginBottom) || 0;
       trailingHeight = Math.max(0, trailingRect.bottom + trailingMargin - list.getBoundingClientRect().bottom);
     }
+  }
+
+  const fillsAvailableSpace = props.fillAvailableSpace && !window.matchMedia("(max-width: 639px)").matches;
+
+  if (fillsAvailableSpace) {
+    // Paginated lists share one viewport height so their rows stay aligned across pages.
+    const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    fitViewportPanelHeight.value = Math.max(180, Math.floor(main.clientHeight - 20 * rem));
+    fitViewportPanelFillsAvailableSpace.value = true;
+    return;
   }
 
   // Below the current fold, keep the normal list height so page scrolling can reveal the whole Box.
@@ -385,6 +400,8 @@ onBeforeUnmount(() => {
       'virtual-list-fit-viewport': fitViewport,
       'virtual-list-fit-viewport-to-panel': fitViewport && fitViewportToPanel && fitViewportPanelHeight !== null,
       'virtual-list-fit-viewport-to-panel-fill': fitViewportPanelFillsAvailableSpace && fitViewportPanelHeight !== null,
+      'virtual-list-fit-viewport-to-panel-shared-fill':
+        fillAvailableSpace && fitViewport && fitViewportToPanel && fitViewportPanelFillsAvailableSpace,
     }"
     :style="
       enabled && fitViewport && fitViewportToPanel && fitViewportPanelHeight !== null
@@ -460,6 +477,11 @@ onBeforeUnmount(() => {
     height: min(var(--virtual-list-panel-height, 0px), max(180px, calc(100dvh - 36rem)));
     max-height: min(var(--virtual-list-panel-height, 0px), max(180px, calc(100dvh - 36rem)));
   }
+}
+
+.virtual-list-fit-viewport-to-panel-shared-fill {
+  height: var(--virtual-list-panel-height, 0px);
+  max-height: var(--virtual-list-panel-height, 0px);
 }
 
 .virtual-list-disabled {
