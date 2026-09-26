@@ -1,10 +1,22 @@
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   backupDatabase,
+  backupDatabaseBeforeMaintenance,
+  backupDatabaseBeforeMigration,
+  backupDatabaseBeforeProjectDeletion,
   isBackupDue,
   listDatabaseBackups,
   restoreDatabase,
@@ -153,6 +165,82 @@ describe("database backups", () => {
     expect(listDatabaseBackups(databasePath, directory)).toMatchObject([
       { kind: "manual", fileName: "work-intelligence-20300101T000000Z.sqlite" },
     ]);
+  });
+
+  it("classifies migration, deletion, and maintenance snapshots by purpose", () => {
+    const { databasePath } = setup({ keep: 10 });
+    const db = new DatabaseSync(databasePath);
+    backupDatabaseBeforeMigration(db, databasePath, LATEST_SCHEMA_VERSION, { keep: 10 });
+    backupDatabaseBeforeProjectDeletion(db, databasePath, { keep: 10 });
+    backupDatabaseBeforeMaintenance(db, databasePath, { keep: 10 });
+    db.close();
+
+    expect(
+      listDatabaseBackups(databasePath)
+        .map((backup) => backup.kind)
+        .sort(),
+    ).toEqual(["deletion", "maintenance", "migration"]);
+  });
+
+  it("keeps safety snapshots in the non-automatic retention group", () => {
+    const { databasePath, directory } = setup({ keep: 1 });
+    const db = new DatabaseSync(databasePath);
+    const safety = backupDatabaseBeforeProjectDeletion(db, databasePath, { keep: 1 });
+    const manual = backupDatabase(db, databasePath, {
+      now: new Date(Date.now() + 2_000),
+      kind: "manual",
+      keep: 1,
+    });
+    db.close();
+
+    expect(listDatabaseBackups(databasePath, directory).map((backup) => backup.fileName)).toEqual([
+      manual.created.fileName,
+    ]);
+    expect(existsSync(join(directory, safety.created.fileName))).toBe(false);
+  });
+
+  it("deletes only one recognized backup and rejects traversal names", () => {
+    const { root, directory, store } = setup();
+    const first = store.createBackup();
+    const second = store.createBackup();
+    if (first.outcome !== "database_backups" || second.outcome !== "database_backups") {
+      throw new Error("Expected disk backups");
+    }
+
+    const deleted = store.deleteBackup(first.created.fileName);
+    expect(deleted).toMatchObject({ outcome: "backup_deleted", deleted: first.created });
+    expect(existsSync(join(directory, first.created.fileName))).toBe(false);
+    expect(existsSync(join(directory, second.created.fileName))).toBe(true);
+    expect(store.deleteBackup(first.created.fileName)).toEqual({ outcome: "backup_not_found" });
+
+    for (const fileName of [
+      `../${second.created.fileName}`,
+      `/tmp/${second.created.fileName}`,
+      `%2e%2e%2f${second.created.fileName}`,
+      second.created.fileName.replace(".sqlite", "..sqlite"),
+    ]) {
+      expect(store.deleteBackup(fileName)).toEqual({ outcome: "invalid_backup_file_name" });
+    }
+    expect(existsSync(join(root, "work-intelligence.sqlite"))).toBe(true);
+  });
+
+  it("does not list or delete a symlink that points outside the backup directory", () => {
+    const { root, databasePath, directory, store } = setup();
+    const backup = store.createBackup();
+    if (backup.outcome !== "database_backups") {
+      throw new Error("Expected a disk backup");
+    }
+    const outsidePath = join(root, "outside.sqlite");
+    const symlinkName = "work-intelligence-manual-20300101T000000Z.sqlite";
+    const linkedDirectory = join(root, "linked-backups");
+    writeFileSync(outsidePath, "keep this file");
+    symlinkSync(outsidePath, join(directory, symlinkName));
+    symlinkSync(directory, linkedDirectory, "dir");
+
+    expect(listDatabaseBackups(databasePath, directory).map((entry) => entry.fileName)).not.toContain(symlinkName);
+    expect(listDatabaseBackups(databasePath, linkedDirectory)).toEqual([]);
+    expect(store.deleteBackup(symlinkName)).toEqual({ outcome: "backup_not_found" });
+    expect(readFileSync(outsidePath, "utf8")).toBe("keep this file");
   });
 
   it("reports that an in-memory database cannot be backed up", () => {

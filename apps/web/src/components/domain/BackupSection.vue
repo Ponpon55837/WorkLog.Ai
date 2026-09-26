@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Archive, DatabaseBackup, Download, RefreshCw } from "lucide-vue-next";
+import { Archive, DatabaseBackup, Download, RefreshCw, Trash2 } from "lucide-vue-next";
 import type { ProjectDataImportPreview } from "@work-intelligence/core";
 import { useBackups } from "../../composables/useBackups";
 import { useProjectDataTransfer } from "../../composables/useProjectDataTransfer";
 import { useProjects } from "../../composables/useProjects";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
+import { databaseBackupKindLabels } from "../../utils/labels";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
@@ -30,9 +31,11 @@ const {
   backupsLoading,
   backupsError,
   backupCreating,
+  backupDeleting,
   databaseExporting,
   loadBackups,
   createBackup,
+  deleteBackup,
   exportDatabase,
 } = useBackups();
 const { projects, loadProjects } = useProjects();
@@ -54,6 +57,7 @@ const {
 } = useProjectDataTransfer();
 
 const scrollAfter = 6;
+const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
 const restoreCommand = "pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>";
 const exportScope = ref<"all" | "project">("all");
 const exportProjectId = ref("");
@@ -125,8 +129,9 @@ onMounted(() => {
         </div>
       </template>
       <p class="backup-section__note">
-        API server 每個 UTC 日自動備份一次，存在資料庫旁的 <code>backups/</code> 資料夾；自動與手動分開保留， 分別最多
-        {{ automaticBackupKeep }} 份與 {{ backupKeep }} 份。
+        API server 每個 UTC 日自動備份一次，存在資料庫旁的
+        <code>backups/</code> 資料夾；自動與其他備份分開保留，分別最多 {{ automaticBackupKeep }} 份與
+        {{ backupKeep }} 份。共 {{ backups.length }} 份，總大小 {{ formatBytes(totalBackupBytes) }}。
       </p>
       <UiEmptyState
         v-if="backups.length === 0 && !backupsLoading"
@@ -147,14 +152,23 @@ onMounted(() => {
         <template #default="{ item }">
           <UiBoxRow
             :title="item.fileName"
-            :meta="`${item.kind === 'automatic' ? '每日自動' : '手動'} · ${formatRelative(item.createdAt)} · ${formatBytes(item.bytes)}`"
+            :meta="`${databaseBackupKindLabels[item.kind]} · ${formatRelative(item.createdAt)} · ${formatBytes(item.bytes)}`"
           >
             <template #leading><Archive :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
-            <template #trailing
-              ><time :datetime="item.createdAt" class="backup-section__time">{{
-                formatDate(item.createdAt)
-              }}</time></template
-            >
+            <template #trailing>
+              <div class="backup-section__row-actions">
+                <time :datetime="item.createdAt" class="backup-section__time">{{ formatDate(item.createdAt) }}</time>
+                <UiIconButton
+                  :icon="Trash2"
+                  variant="danger"
+                  size="sm"
+                  :label="`刪除備份 ${item.fileName}`"
+                  :loading="backupDeleting === item.fileName"
+                  :disabled="backupDeleting !== null"
+                  @click="deleteBackup(item)"
+                />
+              </div>
+            </template>
           </UiBoxRow>
         </template>
       </VirtualList>
@@ -322,6 +336,12 @@ onMounted(() => {
 }
 
 .backup-section__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.backup-section__row-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);

@@ -117,6 +117,7 @@ import type {
   WorkEventRecord,
   WorkEventType,
   WorkSessionRecord,
+  DatabaseBackupDeleteResult,
   DatabaseBackupCreated,
   DatabaseBackupList,
   DatabaseBackupUnavailable,
@@ -136,6 +137,7 @@ import {
   backupDatabase,
   DEFAULT_AUTOMATIC_BACKUP_KEEP,
   DEFAULT_BACKUP_KEEP,
+  deleteDatabaseBackup,
   defaultBackupDirectory,
   exportDatabase,
   isBackupDue,
@@ -1058,6 +1060,11 @@ export class WorkIntelligenceStore {
       automaticKeep: this.backupOptions.automaticKeep ?? DEFAULT_AUTOMATIC_BACKUP_KEEP,
       backups: listDatabaseBackups(this.databasePath, directory),
     };
+  }
+
+  /** Removes a single recognized snapshot without accepting arbitrary filesystem paths. */
+  public deleteBackup(fileName: string): DatabaseBackupDeleteResult {
+    return this.backupUnavailable() ?? deleteDatabaseBackup(this.databasePath, fileName, this.backupOptions);
   }
 
   /** Writes the whole database to `target` for moving it to another computer; `target` must not exist yet. */

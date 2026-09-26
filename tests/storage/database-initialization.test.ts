@@ -67,7 +67,7 @@ describe("database initialization", () => {
         throw new Error("Expected the migration backup to be available");
       }
       expect(backups.backups).toHaveLength(1);
-      expect(backups.backups[0]).toMatchObject({ kind: "manual" });
+      expect(backups.backups[0]).toMatchObject({ kind: "migration" });
       expect(backups.backups[0]?.fileName).toContain(`pre-migration-v${CHANGED_FILES_CONFIRMED_MIGRATION_VERSION}-`);
 
       const snapshotPath = join(paths.backupDirectory, backups.backups[0]?.fileName ?? "");

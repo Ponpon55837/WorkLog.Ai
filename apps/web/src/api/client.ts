@@ -1,5 +1,6 @@
 import type {
   DatabaseBackupCreated,
+  DatabaseBackupDeleted,
   DatabaseBackupList,
   DeleteProjectResult,
   FolderPickResult,
@@ -187,6 +188,10 @@ export class ApiClient {
 
   public createBackup(): Promise<DatabaseBackupCreated> {
     return this.write<DatabaseBackupCreated>("/api/backups", "POST", {});
+  }
+
+  public deleteBackup(fileName: string, signal?: AbortSignal): Promise<DatabaseBackupDeleted> {
+    return this.write<DatabaseBackupDeleted>(`/api/backups/${encodeURIComponent(fileName)}`, "DELETE", {}, signal);
   }
 
   /** Downloads a fresh snapshot of the whole database; the JSON body keeps cross-site forms from triggering it. */

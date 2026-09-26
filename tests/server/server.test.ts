@@ -545,6 +545,50 @@ describe("Work Intelligence REST API", () => {
     expect(created.body.created.fileName).toMatch(/^work-intelligence-manual-\d{8}T\d{6}Z\.sqlite$/);
     expect(JSON.stringify(created.body)).not.toContain(root);
 
+    const invalidDeleteBody = await requestJson<{ error: string }>(
+      baseUrl,
+      `/api/backups/${created.body.created.fileName}`,
+      {
+        method: "DELETE",
+        body: { path: "../outside.sqlite" },
+      },
+    );
+    expect(invalidDeleteBody.status).toBe(400);
+    expect(invalidDeleteBody.body.error).toBe("刪除備份請求無效。");
+
+    const traversalDelete = await requestJson<{ error: string }>(baseUrl, "/api/backups/%2E%2E%2Fsecret.sqlite", {
+      method: "DELETE",
+      body: {},
+    });
+    expect(traversalDelete.status).toBe(400);
+    expect(traversalDelete.body.error).toBe("備份檔名無效。");
+
+    const formDelete = await fetch(`${baseUrl}/api/backups/${encodeURIComponent(created.body.created.fileName)}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "confirm=yes",
+    });
+    expect(formDelete.status).toBe(415);
+
+    const deleted = await requestJson<{ outcome: string; deleted: { fileName: string }; backups: unknown[] }>(
+      baseUrl,
+      `/api/backups/${encodeURIComponent(created.body.created.fileName)}`,
+      { method: "DELETE", body: {} },
+    );
+    expect(deleted.status).toBe(200);
+    expect(deleted.body).toMatchObject({ outcome: "backup_deleted", deleted: created.body.created, backups: [] });
+    expect(JSON.stringify(deleted.body)).not.toContain(root);
+    expect(
+      await requestJson<{ error: string }>(
+        baseUrl,
+        `/api/backups/${encodeURIComponent(created.body.created.fileName)}`,
+        {
+          method: "DELETE",
+          body: {},
+        },
+      ),
+    ).toMatchObject({ status: 404, body: { error: "找不到這份備份。" } });
+
     // A cross-site form post cannot send JSON, so it cannot trigger a backup or an export.
     const formPost = await fetch(`${baseUrl}/api/backups`, {
       method: "POST",
