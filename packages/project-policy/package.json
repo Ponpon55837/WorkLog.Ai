@@ -18,6 +18,7 @@
   "scripts": {
     "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",
     "test": "vitest run --root ../.. tests/project-policy",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
+    "test:coverage": "vitest run --root ../.. --config packages/project-policy/vitest.coverage.config.ts"
   }
 }

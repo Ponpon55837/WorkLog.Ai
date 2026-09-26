@@ -75,7 +75,7 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
 | 人工平台驗證 | 暫緩 | 本輪功能項目已完成；依使用者決定，實機驗證仍留待後續處理。資料夾選擇器尚未在 macOS、Windows、Linux 實機驗證；Windows 備份還原尚未手動驗收。 |
-| 工程整理 | 進行中 | 第五輪 D1 已完成：`store.ts` 縮至 1,361 行，Session／Knowledge 業務邏輯已抽為獨立 service，舊欄位相容檢查由 `database-initialization.ts` 管理；D2 覆蓋率設定與基線量測進行中。 |
+| 工程整理 | 進行中 | 第五輪 D1 PR #96 已合併：`store.ts` 縮至 1,361 行，Session／Knowledge 業務邏輯已抽為獨立 service，舊欄位相容檢查由 `database-initialization.ts` 管理；D2 新增 core、project-policy 與 shared 的隔離測試及 coverage 門檻，並更新測試文件。 |
 
 ## 最近完成（2026-09-23～26）
 

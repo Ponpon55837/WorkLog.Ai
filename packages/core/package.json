@@ -15,6 +15,7 @@
   "scripts": {
     "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
-    "test": "vitest run --root ../.. tests/core"
+    "test": "vitest run --root ../.. tests/core",
+    "test:coverage": "vitest run --root ../.. --config packages/core/vitest.coverage.config.ts"
   }
 }

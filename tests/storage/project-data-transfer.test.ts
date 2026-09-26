@@ -325,6 +325,7 @@ function total(counts: Record<string, number | undefined>): number {
 }
 
 describe("portable project data transfer", () => {
+  // V8 coverage instruments fixture setup; the import itself still has a strict 20 s assertion below.
   it("imports 5,000 sessions and 50,000 events within the 20-second performance budget", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
@@ -397,7 +398,7 @@ describe("portable project data transfer", () => {
     console.info(
       `Synthetic portable import: 5,000 sessions + 50,000 events in ${elapsedMs.toFixed(1)} ms (Node ${process.version}).`,
     );
-  }, 30_000);
+  }, 60_000);
 
   it("round-trips project data, pauses new projects, marks search state dirty, and stays idempotent while open", () => {
     const source = createSource();
