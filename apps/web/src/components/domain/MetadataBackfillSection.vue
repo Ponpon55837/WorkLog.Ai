@@ -174,8 +174,8 @@ const requestMessage = computed(() => {
         <VirtualList
           :items="preview.items"
           :enabled="preview.items.length > 5"
+          fit-viewport
           :estimate-item-height="72"
-          max-height="min(56vh, 560px)"
           label="metadata 回補清單"
         >
           <template #default="{ item }">

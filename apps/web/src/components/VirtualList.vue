@@ -190,11 +190,12 @@ function keepFitViewportPanelVisible(): void {
   const list = viewport.value;
   const panel = list?.closest<HTMLElement>(".ui-box");
   const main = fitViewportMain;
-  if (!props.fitViewport || !panel || !main) {
+  const footer = panel?.querySelector<HTMLElement>(".ui-box__footer");
+  if (!props.fitViewport || !panel || !footer || !main) {
     return;
   }
 
-  const overflow = panel.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom;
+  const overflow = footer.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom;
   if (overflow > 1) {
     main.scrollTop = Math.min(main.scrollTop + overflow, main.scrollHeight - main.clientHeight);
   }
@@ -337,8 +338,8 @@ onBeforeUnmount(() => {
 }
 
 .virtual-list-fit-viewport {
-  height: max(180px, calc(100dvh - 30rem));
-  max-height: max(180px, calc(100dvh - 30rem));
+  height: min(360px, max(180px, calc(100dvh - 30rem)));
+  max-height: min(360px, max(180px, calc(100dvh - 30rem)));
 }
 
 @media (max-width: 639px) {

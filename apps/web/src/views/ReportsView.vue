@@ -512,8 +512,8 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           v-else
           :items="report.completedWork"
           :enabled="true"
+          fit-viewport
           :estimate-item-height="112"
-          max-height="min(40vh, 360px)"
           label="報表完成事項清單"
         >
           <template #default="{ item: session }">
@@ -534,8 +534,8 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           <VirtualList
             :items="spanningRows"
             :enabled="true"
+            fit-viewport
             :estimate-item-height="64"
-            max-height="min(56vh, 560px)"
             label="跨期工作清單"
           >
             <template #default="{ item }">
@@ -606,6 +606,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           v-else
           :items="report.projects"
           :enabled="true"
+          fit-viewport
           :estimate-item-height="72"
           label="報表專案分布清單"
         >
@@ -636,7 +637,14 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           ><UiBoxTitle eyebrow="Risks to review" title="資料型風險" :count="report.risks.length"
         /></template>
         <UiEmptyState v-if="report.risks.length === 0" compact :icon="TriangleAlert" title="沒有偵測到資料型風險" />
-        <VirtualList v-else :items="report.risks" :enabled="true" :estimate-item-height="112" label="報表風險清單">
+        <VirtualList
+          v-else
+          :items="report.risks"
+          :enabled="true"
+          fit-viewport
+          :estimate-item-height="112"
+          label="報表風險清單"
+        >
           <template #default="{ item: insight }">
             <UiBoxRow
               clickable
@@ -662,7 +670,14 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           title="這段期間沒有決策事件"
           description="Agent 提交 note 或 closing event 後，會在這裡保留來源。"
         />
-        <VirtualList v-else :items="report.decisions" :enabled="true" :estimate-item-height="88" label="報表決策清單">
+        <VirtualList
+          v-else
+          :items="report.decisions"
+          :enabled="true"
+          fit-viewport
+          :estimate-item-height="88"
+          label="報表決策清單"
+        >
           <template #default="{ item: decision }">
             <UiBoxRow clickable :title="decision.summary" @select="openReportSession(decision.sessionId)">
               <template #meta

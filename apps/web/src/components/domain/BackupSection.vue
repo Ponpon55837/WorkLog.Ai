@@ -145,8 +145,8 @@ onMounted(() => {
         v-else
         :items="backups"
         :enabled="backups.length > scrollAfter"
+        fit-viewport
         :estimate-item-height="60"
-        max-height="min(50vh, 420px)"
         label="備份清單"
       >
         <template #default="{ item }">
