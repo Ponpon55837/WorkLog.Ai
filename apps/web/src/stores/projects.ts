@@ -20,16 +20,6 @@ const emptyDashboard: DashboardSummary = {
   recentSessions: [],
 };
 
-const projectDeletionMessages: Record<string, string> = {
-  "Invalid project deletion confirmation.": "刪除確認資料無效，請重新輸入完整專案名稱。",
-  "Project not found.": "找不到這個專案；請重新整理專案清單。",
-  "The confirmation name does not match the project name.": "輸入的名稱與專案名稱不相符，專案尚未刪除。",
-  "The required pre-deletion backup could not be created; the project was not deleted.":
-    "無法建立並檢查刪除前備份，專案尚未刪除。請確認資料庫可寫入後再試。",
-  "Project deletion failed; the pre-deletion backup is preserved.": "刪除作業未完成，專案資料已保留；刪除前備份仍在。",
-  "Internal server error.": "刪除作業未完成；請確認 API 與資料庫狀態後再試。",
-};
-
 /** Owns project and dashboard server state plus project mutations. */
 export const useProjectsStore = defineStore("projects", () => {
   const queryCache = useQueryCache();
@@ -207,8 +197,7 @@ export const useProjectsStore = defineStore("projects", () => {
       showToast(`專案已永久刪除；刪除前資料庫備份：${result.backupFileName}`, "success");
       return { projectName: project.name, backupFileName: result.backupFileName };
     } catch (error) {
-      const message = errorMessage(error, "");
-      showToast(projectDeletionMessages[message] ?? "刪除專案失敗；請確認 API 與資料庫狀態後再試。", "danger");
+      showToast(errorMessage(error, "刪除作業未完成；請確認 API 與資料庫狀態後再試。"), "danger");
       return null;
     }
   }

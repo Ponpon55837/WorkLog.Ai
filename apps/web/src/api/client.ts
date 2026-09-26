@@ -61,7 +61,60 @@ import type {
   UpdateSessionWorkSummaryResult,
 } from "@work-intelligence/core";
 
-type ApiErrorPayload = { error?: string };
+type ApiErrorPayload = { error?: string; code?: string };
+
+function errorCodeForStatus(status: number): string {
+  switch (status) {
+    case 400:
+      return "invalid_input";
+    case 403:
+      return "origin_not_allowed";
+    case 404:
+      return "not_found";
+    case 409:
+      return "conflict";
+    case 413:
+      return "payload_too_large";
+    case 415:
+      return "unsupported_media_type";
+    case 421:
+      return "host_not_allowed";
+    case 503:
+      return "service_unavailable";
+    default:
+      return status >= 500 ? "internal_error" : "invalid_input";
+  }
+}
+
+function parseApiErrorPayload(text: string): ApiErrorPayload | undefined {
+  try {
+    const payload: unknown = JSON.parse(text);
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+      return undefined;
+    }
+    const record = payload as Record<string, unknown>;
+    if (!("error" in record) && !("code" in record)) {
+      return undefined;
+    }
+    return {
+      ...(typeof record.error === "string" ? { error: record.error } : {}),
+      ...(typeof record.code === "string" ? { code: record.code } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export class ApiError extends Error {
+  public constructor(
+    public readonly code: string,
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 export type ApiHealth = {
   ok: boolean;
@@ -146,11 +199,21 @@ export class ApiClient {
       this.onConnectionChange?.(!isGatewayFailure(response));
       return response;
     } catch (error) {
-      if (!init?.signal?.aborted) {
-        this.onConnectionChange?.(false);
+      if (init?.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        throw error;
       }
-      throw error;
+      this.onConnectionChange?.(false);
+      throw new ApiError("network_error", 0, "無法連線至本機 API，請確認 API 是否已啟動。");
     }
+  }
+
+  private async responseError(response: Response, fallback: string): Promise<ApiError> {
+    const payload = parseApiErrorPayload(await response.text());
+    return new ApiError(
+      payload?.code ?? errorCodeForStatus(response.status),
+      response.status,
+      payload?.error ?? fallback,
+    );
   }
 
   public async request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -164,17 +227,23 @@ export class ApiClient {
     // While the API restarts, the dev proxy answers 500 with an empty text body; read text first so the
     // user sees the intended message instead of a JSON parse error.
     const text = await response.text();
-    let payload: (T & ApiErrorPayload) | undefined;
-    try {
-      payload = text ? ((JSON.parse(text) as T & ApiErrorPayload) ?? undefined) : undefined;
-    } catch {
-      payload = undefined;
+    let payload: (T & ApiErrorPayload) | undefined = parseApiErrorPayload(text) as (T & ApiErrorPayload) | undefined;
+    if (response.ok && payload === undefined) {
+      try {
+        payload = text ? ((JSON.parse(text) as T & ApiErrorPayload) ?? undefined) : undefined;
+      } catch {
+        payload = undefined;
+      }
     }
     if (!response.ok) {
-      throw new Error(payload?.error ?? "請求失敗，請確認 API 是否已啟動。");
+      throw new ApiError(
+        payload?.code ?? errorCodeForStatus(response.status),
+        response.status,
+        payload?.error ?? "請求失敗，請確認 API 是否已啟動。",
+      );
     }
     if (payload === undefined) {
-      throw new Error("API 回應格式不正確，請重新整理後再試。");
+      throw new ApiError("malformed_response", response.status, "API 回應格式不正確，請重新整理後再試。");
     }
     return payload;
   }
@@ -208,7 +277,7 @@ export class ApiClient {
       body: "{}",
     });
     if (!response.ok) {
-      throw new Error("無法匯出資料，請確認 API 是否已啟動。");
+      throw await this.responseError(response, "無法匯出資料，請確認 API 是否已啟動。");
     }
     // Content-Disposition is not exposed cross-origin, so the name is made here from the local date.
     const fileName = `work-intelligence-export-${new Date().toLocaleDateString("sv-SE").replace(/-/g, "")}.sqlite`;
@@ -223,8 +292,7 @@ export class ApiClient {
       body: JSON.stringify(scope.type === "all" ? { scope: "all" } : { scope: "project", projectId: scope.projectId }),
     });
     if (!response.ok) {
-      const payload = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
-      throw new Error(payload?.error ?? "無法匯出專案資料，請確認 API 是否已啟動。");
+      throw await this.responseError(response, "無法匯出專案資料，請確認 API 是否已啟動。");
     }
     const fileName = `work-intelligence-projects-${new Date().toLocaleDateString("sv-SE").replace(/-/g, "")}.json`;
     return { blob: await response.blob(), fileName };

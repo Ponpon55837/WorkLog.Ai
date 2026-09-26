@@ -86,13 +86,16 @@ describe("Work Intelligence REST API", () => {
 
     const rejected = await fetch(`${baseUrl}/api/health`, { headers: { origin: "http://evil.example" } });
     expect(rejected.status).toBe(403);
-    expect(await rejected.json()).toMatchObject({ error: "Origin is not allowed." });
+    expect(await rejected.json()).toMatchObject({ error: "Origin is not allowed.", code: "origin_not_allowed" });
 
     const rejectedEventOrigin = await fetch(`${baseUrl}/api/events`, {
       headers: { origin: "http://evil.example" },
     });
     expect(rejectedEventOrigin.status).toBe(403);
-    expect(await rejectedEventOrigin.json()).toMatchObject({ error: "Origin is not allowed." });
+    expect(await rejectedEventOrigin.json()).toMatchObject({
+      error: "Origin is not allowed.",
+      code: "origin_not_allowed",
+    });
 
     const allowed = await fetch(`${baseUrl}/api/health`, { headers: { origin: "http://127.0.0.1:5966" } });
     expect(allowed.status).toBe(200);
@@ -250,7 +253,7 @@ describe("Work Intelligence REST API", () => {
       const rejected = await fetch(`${baseUrl}/api/events`);
       expect(rejected.status).toBe(503);
       expect(rejected.headers.get("retry-after")).toBe("5");
-      expect(await rejected.json()).toEqual({ error: "SSE connection limit reached." });
+      expect(await rejected.json()).toEqual({ error: "SSE connection limit reached.", code: "service_unavailable" });
     } finally {
       await reader.cancel();
     }
@@ -275,7 +278,7 @@ describe("Work Intelligence REST API", () => {
       });
 
       expect(response.status).toBe(503);
-      expect(response.body).toEqual({ error: "資料庫暫時忙碌，請稍後再試" });
+      expect(response.body).toEqual({ error: "資料庫暫時忙碌，請稍後再試", code: "database_busy" });
     } finally {
       lockConnection.exec("ROLLBACK");
       lockConnection.close();
@@ -302,7 +305,7 @@ describe("Work Intelligence REST API", () => {
       });
 
       expect(response.status).toBe(503);
-      expect(response.body).toEqual({ error: "資料庫暫時忙碌，請稍後再試" });
+      expect(response.body).toEqual({ error: "資料庫暫時忙碌，請稍後再試", code: "database_busy" });
     } finally {
       lockConnection.exec("ROLLBACK");
       lockConnection.close();
@@ -321,7 +324,7 @@ describe("Work Intelligence REST API", () => {
       body: "{not-json",
     });
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: "Invalid JSON request body." });
+    expect(await response.json()).toMatchObject({ error: "Invalid JSON request body.", code: "invalid_input" });
 
     const unsupported = await fetch(`${baseUrl}/api/work/finalize`, {
       method: "POST",
@@ -329,7 +332,10 @@ describe("Work Intelligence REST API", () => {
       body: JSON.stringify({}),
     });
     expect(unsupported.status).toBe(415);
-    expect(await unsupported.json()).toMatchObject({ error: "Content-Type must be application/json." });
+    expect(await unsupported.json()).toMatchObject({
+      error: "Content-Type must be application/json.",
+      code: "unsupported_media_type",
+    });
   });
 
   it("updates a finalized session summary in place and keeps policy gating", async () => {
@@ -577,19 +583,21 @@ describe("Work Intelligence REST API", () => {
     expect(emptyAudits.body).toEqual([]);
     const project = store.addProject("API Delete Fixture", join(root, "workspace"));
 
-    const invalid = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+    const invalid = await requestJson<{ error: string; code: string }>(baseUrl, `/api/projects/${project.id}`, {
       method: "DELETE",
       body: { confirmationName: " " },
     });
     expect(invalid.status).toBe(400);
     expect(invalid.body.error).toBe("Invalid project deletion confirmation.");
+    expect(invalid.body.code).toBe("invalid_project_deletion_confirmation");
 
-    const mismatch = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+    const mismatch = await requestJson<{ error: string; code: string }>(baseUrl, `/api/projects/${project.id}`, {
       method: "DELETE",
       body: { confirmationName: "Wrong name" },
     });
     expect(mismatch.status).toBe(409);
     expect(mismatch.body.error).toBe("The confirmation name does not match the project name.");
+    expect(mismatch.body.code).toBe("PROJECT_NAME_MISMATCH");
     expect(store.getProjectById(project.id)).toBeDefined();
 
     const deleted = await requestJson<{
@@ -638,7 +646,7 @@ describe("Work Intelligence REST API", () => {
     resources.push({ server, store, root });
     const project = store.addProject("Memory Delete Fixture", join(root, "workspace"));
 
-    const result = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+    const result = await requestJson<{ error: string; code: string }>(baseUrl, `/api/projects/${project.id}`, {
       method: "DELETE",
       body: { confirmationName: project.name },
     });
@@ -646,6 +654,7 @@ describe("Work Intelligence REST API", () => {
     expect(result.body.error).toBe(
       "The required pre-deletion backup could not be created; the project was not deleted.",
     );
+    expect(result.body.code).toBe("PROJECT_BACKUP_FAILED");
     expect(store.getProjectById(project.id)).toBeDefined();
   });
 
@@ -667,12 +676,13 @@ describe("Work Intelligence REST API", () => {
       sabotage.close();
     }
 
-    const result = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+    const result = await requestJson<{ error: string; code: string }>(baseUrl, `/api/projects/${project.id}`, {
       method: "DELETE",
       body: { confirmationName: project.name },
     });
     expect(result.status).toBe(500);
     expect(result.body.error).toBe("Project deletion failed; the pre-deletion backup is preserved.");
+    expect(result.body.code).toBe("PROJECT_DELETE_FAILED");
     expect(result.body.error).not.toContain("private SQLite detail");
     expect(store.getProjectById(project.id)).toBeDefined();
   });
@@ -769,12 +779,13 @@ describe("Work Intelligence REST API", () => {
       tables: { projects: [] },
     });
 
-    const missingProject = await requestJson<{ error: string }>(baseUrl, "/api/export", {
+    const missingProject = await requestJson<{ error: string; code: string }>(baseUrl, "/api/export", {
       method: "POST",
       body: { scope: "project", projectId: "missing-project" },
     });
     expect(missingProject.status).toBe(404);
     expect(missingProject.body.error).toContain("找不到要匯出的專案");
+    expect(missingProject.body.code).toBe("project_not_found");
   });
 
   it("previews and merges portable project data while the server is running", async () => {
@@ -816,12 +827,20 @@ describe("Work Intelligence REST API", () => {
       });
       expect(JSON.stringify(preview.body)).not.toContain(`"rootPath":"${projectRoot}"`);
 
-      const unsupportedSchema = await requestJson<{ error: string }>(baseUrl, "/api/import/preview", {
+      const unsupportedSchema = await requestJson<{ error: string; code: string }>(baseUrl, "/api/import/preview", {
         method: "POST",
         body: { bundle: { ...bundle, schemaVersion: bundle.schemaVersion + 1 } },
       });
       expect(unsupportedSchema.status).toBe(400);
       expect(unsupportedSchema.body.error).toContain("schema 版本");
+      expect(unsupportedSchema.body.code).toBe("unsupported_schema");
+
+      const invalidBundle = await requestJson<{ error: string; code: string }>(baseUrl, "/api/import/preview", {
+        method: "POST",
+        body: { bundle, projectId: "missing-project" },
+      });
+      expect(invalidBundle.status).toBe(400);
+      expect(invalidBundle.body.code).toBe("invalid_bundle");
 
       const rejectedOrigin = await fetch(`${baseUrl}/api/import/preview`, {
         method: "POST",
@@ -885,12 +904,13 @@ describe("Work Intelligence REST API", () => {
     resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-transfer-error-")) });
 
     for (const path of ["/api/import/preview", "/api/import"]) {
-      const result = await requestJson<{ error: string }>(baseUrl, path, {
+      const result = await requestJson<{ error: string; code: string }>(baseUrl, path, {
         method: "POST",
         body: { bundle },
       });
       expect(result.status).toBe(500);
       expect(result.body.error).toBe("Internal server error.");
+      expect(result.body.code).toBe("internal_error");
       expect(JSON.stringify(result.body)).not.toContain(internalMessage);
     }
   });
@@ -901,7 +921,11 @@ describe("Work Intelligence REST API", () => {
     resources.push({ server, store, root: mkdtempSync(join(tmpdir(), "work-intelligence-api-backup-memory-")) });
     expect(await requestJson(baseUrl, "/api/backups")).toMatchObject({
       status: 409,
-      body: { outcome: "backup_unavailable" },
+      body: {
+        outcome: "backup_unavailable",
+        code: "backup_unavailable",
+        error: "An in-memory database cannot be backed up.",
+      },
     });
   });
 
