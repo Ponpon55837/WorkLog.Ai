@@ -36,6 +36,11 @@ const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/graph", "工作圖譜"],
   ["/projects", "專案"],
 ];
+const accessibilityRoutes: ReadonlyArray<readonly [string, string]> = [
+  ...pageRoutes,
+  ["/system-status", "系統狀態"],
+  ["/projects/backup", "專案"],
+];
 
 async function postJson<T>(request: APIRequestContext, endpoint: string, body: unknown): Promise<ApiResult<T>> {
   const response = await request.post(endpoint, { data: body });
@@ -661,10 +666,10 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
-  test("has no critical or serious axe violations on the six primary pages", async ({ page }) => {
+  test("has no critical or serious axe violations on primary and management pages @accessibility", async ({ page }) => {
     const failures: string[] = [];
 
-    for (const [path, heading] of pageRoutes) {
+    for (const [path, heading] of accessibilityRoutes) {
       await page.goto(path);
       await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
 
@@ -851,6 +856,38 @@ test.describe("Work Intelligence browser regression", () => {
 
     await search.fill("zz-no-such-graph-node");
     await expect(page.getByText("沒有符合的節點")).toBeVisible();
+  });
+
+  test("confirms backup deletion using only keyboard navigation @keyboard", async ({ page, request }) => {
+    await postJson(request, "/api/backups", {});
+    await page.goto("/projects/backup");
+
+    const backups = page.getByRole("tabpanel", { name: "資料備份" });
+    const deleteTrigger = backups.getByRole("button", { name: /^刪除備份 / }).first();
+    await expect(deleteTrigger).toBeVisible();
+
+    let triggerFocused = false;
+    for (let index = 0; index < 60; index += 1) {
+      if (await deleteTrigger.evaluate((element) => element === document.activeElement)) {
+        triggerFocused = true;
+        break;
+      }
+      await page.keyboard.press("Tab");
+    }
+    expect(triggerFocused).toBe(true);
+    await page.keyboard.press("Enter");
+
+    const confirmation = page.getByRole("dialog", { name: /^刪除備份/ });
+    const cancelButton = confirmation.getByRole("button", { name: "取消" });
+    const deleteButton = confirmation.getByRole("button", { name: "永久刪除備份" });
+    await expect(confirmation).toBeVisible();
+    await expect(cancelButton).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(deleteButton).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText(/已刪除備份：/)).toBeVisible();
+    await expect(backups).toContainText("還沒有備份");
   });
 
   test("manages backups from the projects page and explains how to move the database", async ({ page, request }) => {

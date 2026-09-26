@@ -46,7 +46,7 @@ export default defineConfig({
     },
     {
       name: "firefox",
-      grep: /@cross-browser/,
+      grep: /@cross-browser|@accessibility/,
       use: { browserName: "firefox" },
     },
     {
