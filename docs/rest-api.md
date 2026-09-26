@@ -15,6 +15,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
 | DELETE   | `/api/projects/:id`                              | 先備份，再永久刪除專案與相關 WorkLog 資料；需傳入專案名稱確認                           |
+| GET      | `/api/project-deletion-audits`                   | 列出不含內容的刪除時間、專案 id 與各類刪除筆數                                          |
 | POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |
 | GET/POST | `/api/backups`                                   | 列出資料庫備份／立即建立備份（POST body `{}`）                                         |
 | POST     | `/api/export`                                    | body `{}` 匯出整份 SQLite 快照；指定 `scope` 時匯出可攜式 JSON（見下方）                 |
@@ -105,7 +106,8 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 - 刪除前會建立並檢查整份 SQLite 快照，回應 `backupFileName`；檔案歸類為手動備份，遵循手動備份保留額度。備份失敗回 503 並保留專案；交易失敗回 500 並保留已建立的備份。in-memory database 無法建立必要備份，因此會拒絕刪除。
 - 一個 SQLite transaction 會刪除專案、Sessions、events、handoff、Evidence、Knowledge、候選與請求、稽核記錄、verification／summary 修改紀錄、search index，以及任何一端連到目標 Session 的 Session 關聯。共享報告與回補請求只要引用目標 Sessions，也會整筆移除，避免留下相關內容或 ID；刪除筆數會回傳在 `deletedCounts`。
 - `project_deletion_audit` 只留下時間、被刪除的 project id 與各類筆數，不保存專案名稱、路徑或被刪資料內容。專案 workspace 資料夾及原始檔案不會被 REST 操作觸及。
-- Web UI 在專案清單提供刪除動作，必須輸入完整專案名稱才會啟用確認。MCP 沒有刪除專案的工具。
+- REST：GET `/api/project-deletion-audits` 唯讀回傳依時間排序的紀錄，每筆只有 `deletedAt`、`projectId` 與 `deletedCounts`；不會回傳名稱、路徑或被刪資料內容。
+- Web UI 的「專案 → 刪除紀錄」會列出時間、專案 id 與各類刪除筆數；專案清單的刪除動作仍要求輸入完整專案名稱。MCP 沒有刪除專案的工具。
 
 ## 選擇專案資料夾
 

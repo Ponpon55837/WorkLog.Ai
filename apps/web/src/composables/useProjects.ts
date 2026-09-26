@@ -1,7 +1,12 @@
 import { computed, ref } from "vue";
-import type { DashboardSummary, ProjectRecord, ProjectStatus } from "@work-intelligence/core";
-import { statusLabels } from "../utils/labels";
+import type {
+  DashboardSummary,
+  ProjectDeletionAuditRecord,
+  ProjectRecord,
+  ProjectStatus,
+} from "@work-intelligence/core";
 import { errorMessage } from "../utils/format";
+import { statusLabels } from "../utils/labels";
 import { runKeyed, useApi } from "./useApi";
 import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
@@ -16,6 +21,9 @@ const emptyDashboard: DashboardSummary = {
 
 const dashboard = ref<DashboardSummary>(emptyDashboard);
 const projects = ref<ProjectRecord[]>([]);
+const projectDeletionAudits = ref<ProjectDeletionAuditRecord[]>([]);
+const projectDeletionAuditsLoading = ref(false);
+const projectDeletionAuditsError = ref<string | null>(null);
 const projectName = ref("");
 const projectRoot = ref("");
 const addingProject = ref(false);
@@ -44,6 +52,25 @@ async function loadProjects(): Promise<void> {
   await runKeyed("projects", async (signal) => {
     projects.value = await useApi().client.listProjects(signal);
   });
+}
+
+async function loadProjectDeletionAudits(): Promise<void> {
+  projectDeletionAuditsError.value = null;
+  projectDeletionAuditsLoading.value = true;
+  await runKeyed(
+    "project-deletion-audits",
+    async (signal) => {
+      projectDeletionAudits.value = await useApi().client.listProjectDeletionAudits(signal);
+    },
+    {
+      onError: (error) => {
+        projectDeletionAuditsError.value = errorMessage(error, "無法載入刪除紀錄。");
+      },
+      onSettled: () => {
+        projectDeletionAuditsLoading.value = false;
+      },
+    },
+  );
 }
 
 /** Fills the project root from the native folder dialog, and the name from the folder when it is empty. */
@@ -129,6 +156,15 @@ async function deleteProject(project: ProjectRecord, confirmationName: string): 
   try {
     const result = await useApi().client.deleteProject(project.id, confirmationName);
     projects.value = projects.value.filter((item) => item.id !== project.id);
+    projectDeletionAudits.value = [
+      {
+        deletedAt: result.deletedAt,
+        projectId: result.projectId,
+        deletedCounts: result.deletedCounts,
+      },
+      ...projectDeletionAudits.value,
+    ];
+    void loadProjectDeletionAudits();
     projectDeletionNotice.value = { projectName: project.name, backupFileName: result.backupFileName };
     showToast(`專案已永久刪除；刪除前資料庫備份：${result.backupFileName}`, "success");
     void loadDashboard().catch(() => undefined);
@@ -150,6 +186,9 @@ export function useProjects() {
   return {
     dashboard,
     projects,
+    projectDeletionAudits,
+    projectDeletionAuditsLoading,
+    projectDeletionAuditsError,
     trackedProjects,
     recentSessions,
     projectName,
@@ -157,6 +196,7 @@ export function useProjects() {
     addingProject,
     loadDashboard,
     loadProjects,
+    loadProjectDeletionAudits,
     addProject,
     pickingFolder,
     pickProjectFolder,

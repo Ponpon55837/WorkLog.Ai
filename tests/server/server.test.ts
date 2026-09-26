@@ -446,6 +446,9 @@ describe("Work Intelligence REST API", () => {
     const store = new WorkIntelligenceStore(databasePath);
     const { server, baseUrl } = await startApi(store);
     resources.push({ server, store, root });
+    const emptyAudits = await requestJson<unknown[]>(baseUrl, "/api/project-deletion-audits");
+    expect(emptyAudits.status).toBe(200);
+    expect(emptyAudits.body).toEqual([]);
     const project = store.addProject("API Delete Fixture", join(root, "workspace"));
 
     const invalid = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
@@ -465,6 +468,8 @@ describe("Work Intelligence REST API", () => {
 
     const deleted = await requestJson<{
       outcome: string;
+      projectId: string;
+      deletedAt: string;
       backupFileName: string;
       deletedCounts: { projects: number };
     }>(baseUrl, `/api/projects/${project.id}`, {
@@ -479,6 +484,25 @@ describe("Work Intelligence REST API", () => {
     });
     expect(existsSync(join(root, "backups", deleted.body.backupFileName))).toBe(true);
     expect(store.getProjectById(project.id)).toBeUndefined();
+
+    const audits = await requestJson<
+      Array<{ deletedAt: string; projectId: string; deletedCounts: { projects: number } }>
+    >(baseUrl, "/api/project-deletion-audits");
+    expect(audits.status).toBe(200);
+    expect(audits.body).toHaveLength(1);
+    expect(audits.body[0]).toMatchObject({
+      deletedAt: deleted.body.deletedAt,
+      projectId: project.id,
+      deletedCounts: { projects: 1 },
+    });
+    expect(Object.keys(audits.body[0] ?? {}).sort()).toEqual(["deletedAt", "deletedCounts", "projectId"]);
+    expect(JSON.stringify(audits.body)).not.toContain(project.name);
+    expect(JSON.stringify(audits.body)).not.toContain(project.rootPath);
+    const attemptedWrite = await requestJson<{ error: string }>(baseUrl, "/api/project-deletion-audits", {
+      method: "POST",
+      body: {},
+    });
+    expect(attemptedWrite.status).toBe(404);
   });
 
   it("returns an explicit safe failure when in-memory databases cannot be backed up", async () => {

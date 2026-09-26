@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { Archive, FileInput, FolderGit2, Plus, ScanSearch, Trash2 } from "lucide-vue-next";
+import { Archive, FileInput, FolderGit2, History, Plus, ScanSearch, Trash2 } from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
@@ -9,6 +9,7 @@ import AddProjectDialog from "../components/domain/AddProjectDialog.vue";
 import DeleteProjectDialog from "../components/domain/DeleteProjectDialog.vue";
 import BackupSection from "../components/domain/BackupSection.vue";
 import MetadataBackfillSection from "../components/domain/MetadataBackfillSection.vue";
+import ProjectDeletionAuditSection from "../components/domain/ProjectDeletionAuditSection.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
@@ -28,13 +29,17 @@ import { formatDate, formatRelative } from "../utils/format";
 import { statusDescriptions, statusLabels } from "../utils/labels";
 import { trackingStatus } from "../utils/status";
 
-type ProjectsTab = "registry" | "backfill" | "import" | "backup";
+type ProjectsTab = "registry" | "backfill" | "import" | "backup" | "deletion-audit";
 
 const route = useRoute();
 const {
   projects,
+  projectDeletionAudits,
+  projectDeletionAuditsLoading,
+  projectDeletionAuditsError,
   trackedProjects,
   loadProjects,
+  loadProjectDeletionAudits,
   updateProjectStatus,
   deleteProject,
   deletingProjectId,
@@ -44,7 +49,7 @@ const {
 const { loadMetadataBackfillRequest } = useMetadataBackfill();
 const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
 
-useViewLoader(() => Promise.all([loadProjects(), loadMetadataBackfillRequest()]));
+useViewLoader(() => Promise.all([loadProjects(), loadMetadataBackfillRequest(), loadProjectDeletionAudits()]));
 
 const addOpen = ref(false);
 const deleteTarget = ref<ProjectRecord | null>(null);
@@ -54,7 +59,7 @@ const statusRevision = ref(0);
 
 const tab = computed<ProjectsTab>({
   get: () =>
-    ["registry", "backfill", "import", "backup"].includes(String(route.params.tab))
+    ["registry", "backfill", "import", "backup", "deletion-audit"].includes(String(route.params.tab))
       ? (route.params.tab as ProjectsTab)
       : "registry",
   set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } }),
@@ -64,6 +69,7 @@ const tabs = computed(() => [
   { value: "backfill" as const, label: "Metadata 回補", icon: ScanSearch },
   { value: "import" as const, label: "Handoff 匯入", icon: FileInput, count: trackedProjects.value.length },
   { value: "backup" as const, label: "資料備份", icon: Archive },
+  { value: "deletion-audit" as const, label: "刪除紀錄", icon: History },
 ]);
 const statusOptions = (Object.keys(statusLabels) as ProjectStatus[]).map((status) => ({
   value: status,
@@ -209,6 +215,20 @@ async function confirmDelete(project: ProjectRecord, confirmationName: string): 
     aria-labelledby="projects-tab-backup"
   >
     <BackupSection />
+  </section>
+
+  <section
+    v-else-if="tab === 'deletion-audit'"
+    id="projects-panel-deletion-audit"
+    role="tabpanel"
+    aria-labelledby="projects-tab-deletion-audit"
+  >
+    <ProjectDeletionAuditSection
+      :items="projectDeletionAudits"
+      :loading="projectDeletionAuditsLoading"
+      :error="projectDeletionAuditsError"
+      @retry="loadProjectDeletionAudits"
+    />
   </section>
 
   <section v-else id="projects-panel-import" role="tabpanel" aria-labelledby="projects-tab-import">

@@ -239,6 +239,16 @@ describe("project deletion", () => {
     expect(result.deletedCounts.searchFts).toBeGreaterThan(0);
     expect(result.deletedCounts.searchPaths).toBeGreaterThan(0);
     expect(result.deletedCounts.searchDirty).toBeGreaterThan(0);
+    const deletionAudits = store.listProjectDeletionAudits();
+    expect(deletionAudits).toEqual([
+      {
+        deletedAt: result.deletedAt,
+        projectId: targetProject.id,
+        deletedCounts: result.deletedCounts,
+      },
+    ]);
+    expect(JSON.stringify(deletionAudits)).not.toContain("Deletion Fixture");
+    expect(JSON.stringify(deletionAudits)).not.toContain("Synthetic target summary");
     expect(store.listProjects().map((project) => project.id)).toContain(otherProject.id);
     expect(store.getSessionById(otherSessionId)).toBeDefined();
     expect(store.recall({ q: "deletion search phrase", limit: 10 })).toMatchObject({ hits: [] });

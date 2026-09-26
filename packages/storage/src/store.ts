@@ -95,6 +95,7 @@ import type {
   CreateReportSynthesisRequestInput,
   CreateReportSynthesisRequestResult,
   DeleteProjectResult,
+  ProjectDeletionAuditRecord,
   ReportSynthesisRequestLookupResult,
   RawSnapshotRecord,
   SearchResult,
@@ -1124,6 +1125,10 @@ export class WorkIntelligenceStore {
   /** Deletes a project and its local data after a checked full-database safety snapshot. */
   public deleteProject(projectId: string, confirmationName: string): DeleteProjectResult {
     return this.projectDeletionService.deleteProject(projectId, confirmationName);
+  }
+
+  public listProjectDeletionAudits(): ProjectDeletionAuditRecord[] {
+    return this.projectDeletionService.listProjectDeletionAudits();
   }
 
   public previewMetadataBackfill(

@@ -27,6 +27,7 @@ import type {
   MetadataBackfillPreviewResult,
   MetadataBackfillRequestListQueryResult,
   PageInfo,
+  ProjectDeletionAuditRecord,
   ProjectRecord,
   ProjectDataExportScope,
   ProjectDataImportInput,
@@ -238,6 +239,10 @@ export class ApiClient {
 
   public listProjects(signal?: AbortSignal): Promise<ProjectRecord[]> {
     return this.request<ProjectRecord[]>("/api/projects", { signal });
+  }
+
+  public listProjectDeletionAudits(signal?: AbortSignal): Promise<ProjectDeletionAuditRecord[]> {
+    return this.request<ProjectDeletionAuditRecord[]>("/api/project-deletion-audits", { signal });
   }
 
   public listSessions(options: SessionListRequest = {}, signal?: AbortSignal): Promise<SessionListResult> {

@@ -18,6 +18,7 @@ const props = withDefaults(
     overscan?: number;
     label?: string;
     maxHeight?: string;
+    fitViewport?: boolean;
   }>(),
   {
     enabled: false,
@@ -25,6 +26,7 @@ const props = withDefaults(
     overscan: 4,
     label: "可捲動清單",
     maxHeight: "min(68vh, 720px)",
+    fitViewport: false,
   },
 );
 
@@ -39,6 +41,8 @@ const heights = reactive(new Map<number, number>());
 const itemElements = new Map<number, HTMLElement>();
 let itemResizeObserver: ResizeObserver | undefined;
 let viewportResizeObserver: ResizeObserver | undefined;
+let fitViewportContentObserver: ResizeObserver | undefined;
+let fitViewportMain: HTMLElement | null = null;
 
 const offsets = computed(() => {
   const result = [0];
@@ -182,6 +186,20 @@ function updateViewportHeight(): void {
   viewportHeight.value = viewport.value?.clientHeight || 480;
 }
 
+function keepFitViewportPanelVisible(): void {
+  const list = viewport.value;
+  const panel = list?.closest<HTMLElement>(".ui-box");
+  const main = fitViewportMain;
+  if (!props.fitViewport || !panel || !main) {
+    return;
+  }
+
+  const overflow = panel.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom;
+  if (overflow > 1) {
+    main.scrollTop = Math.min(main.scrollTop + overflow, main.scrollHeight - main.clientHeight);
+  }
+}
+
 function handleScroll(event: Event): void {
   scrollTop.value = (event.currentTarget as HTMLElement).scrollTop;
 }
@@ -238,6 +256,16 @@ watch(
 
 onMounted(() => {
   updateViewportHeight();
+  if (props.fitViewport) {
+    fitViewportMain = viewport.value?.closest<HTMLElement>("#main") ?? null;
+    const content = fitViewportMain?.querySelector<HTMLElement>(".app-shell__content");
+    if (content && typeof ResizeObserver !== "undefined") {
+      fitViewportContentObserver = new ResizeObserver(keepFitViewportPanelVisible);
+      fitViewportContentObserver.observe(content);
+    }
+    window.addEventListener("resize", keepFitViewportPanelVisible);
+    void nextTick(keepFitViewportPanelVisible);
+  }
   if (typeof ResizeObserver === "undefined") {
     return;
   }
@@ -256,6 +284,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   itemResizeObserver?.disconnect();
   viewportResizeObserver?.disconnect();
+  fitViewportContentObserver?.disconnect();
+  window.removeEventListener("resize", keepFitViewportPanelVisible);
+  fitViewportMain = null;
 });
 </script>
 
@@ -263,8 +294,8 @@ onBeforeUnmount(() => {
   <div
     ref="viewport"
     class="virtual-list"
-    :class="{ 'virtual-list-disabled': !enabled }"
-    :style="enabled ? { maxHeight } : undefined"
+    :class="{ 'virtual-list-disabled': !enabled, 'virtual-list-fit-viewport': fitViewport }"
+    :style="enabled && !fitViewport ? { maxHeight } : undefined"
     :role="enabled ? 'list' : undefined"
     :aria-label="enabled ? label : undefined"
     :tabindex="enabled ? 0 : undefined"
@@ -303,6 +334,18 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.virtual-list-fit-viewport {
+  height: max(180px, calc(100dvh - 30rem));
+  max-height: max(180px, calc(100dvh - 30rem));
+}
+
+@media (max-width: 639px) {
+  .virtual-list-fit-viewport {
+    height: max(180px, calc(100dvh - 36rem));
+    max-height: max(180px, calc(100dvh - 36rem));
+  }
 }
 
 .virtual-list-disabled {

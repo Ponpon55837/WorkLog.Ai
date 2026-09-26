@@ -4,6 +4,7 @@ import type {
   DatabaseBackupKind,
   GraphNode,
   KnowledgeAuditAction,
+  ProjectDeletionCounts,
   ProjectStatus,
   ReportEvidence,
   SessionLinkDirection,
@@ -30,6 +31,30 @@ export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = {
   migration: "資料庫遷移前",
   deletion: "專案刪除前",
   maintenance: "資料維護前",
+};
+
+export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, string> = {
+  projects: "專案",
+  sessions: "Sessions",
+  workEvents: "工作事件",
+  rawSnapshots: "原始快照",
+  evidence: "Evidence",
+  knowledge: "Knowledge",
+  knowledgeAudit: "Knowledge 稽核紀錄",
+  voidAudit: "作廢稽核紀錄",
+  sessionVerificationUpdates: "Verification 更新",
+  sessionLinks: "Session 關聯",
+  knowledgeCandidateRequests: "Knowledge 候選請求",
+  knowledgeCandidates: "Knowledge 候選",
+  reportSynthesisRequests: "報告整理請求",
+  reportSummaries: "報告摘要",
+  metadataBackfillRequests: "Metadata 回補請求",
+  sessionSummaryUpdates: "Session 摘要更新",
+  sessionWorkSummaryUpdates: "WorkSummary 更新",
+  searchChunks: "搜尋索引片段",
+  searchFts: "全文搜尋索引",
+  searchPaths: "搜尋路徑",
+  searchDirty: "待更新搜尋索引項目",
 };
 
 export const listPageSizeOptions = [

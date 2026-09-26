@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { DeleteProjectResult, ProjectDeletionCounts } from "@work-intelligence/core";
+import type { DeleteProjectResult, ProjectDeletionAuditRecord, ProjectDeletionCounts } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeProjectDeletion, type BackupRetentionOptions } from "./backup.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -17,6 +17,7 @@ export class ProjectDeletionError extends Error {
 }
 
 type ProjectRow = { id: string; name: string };
+type ProjectDeletionAuditRow = { deleted_at: string; project_id: string; deleted_counts_json: string };
 type CountRow = { count: number };
 type IdRow = { id: string };
 type DeletableTable =
@@ -25,6 +26,48 @@ type DeletableTable =
   | "report_summaries"
   | "report_synthesis_requests"
   | "metadata_backfill_requests";
+
+const projectDeletionCountKeys = [
+  "projects",
+  "sessions",
+  "workEvents",
+  "rawSnapshots",
+  "evidence",
+  "knowledge",
+  "knowledgeAudit",
+  "voidAudit",
+  "sessionVerificationUpdates",
+  "sessionLinks",
+  "knowledgeCandidateRequests",
+  "knowledgeCandidates",
+  "reportSynthesisRequests",
+  "reportSummaries",
+  "metadataBackfillRequests",
+  "sessionSummaryUpdates",
+  "sessionWorkSummaryUpdates",
+  "searchChunks",
+  "searchFts",
+  "searchPaths",
+  "searchDirty",
+] as const satisfies ReadonlyArray<keyof ProjectDeletionCounts>;
+
+function parseProjectDeletionCounts(value: string): ProjectDeletionCounts {
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Invalid project deletion audit counts.");
+  }
+
+  const source = parsed as Record<string, unknown>;
+  const counts = {} as ProjectDeletionCounts;
+  for (const key of projectDeletionCountKeys) {
+    const count = source[key];
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+      throw new Error("Invalid project deletion audit counts.");
+    }
+    counts[key] = count;
+  }
+  return counts;
+}
 
 const sourceSessionMatch = `EXISTS (
   SELECT 1
@@ -209,6 +252,21 @@ export class ProjectDeletionService {
     private readonly backupOptions: BackupRetentionOptions,
     private readonly searchIndex: SearchRepository,
   ) {}
+
+  public listProjectDeletionAudits(): ProjectDeletionAuditRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT deleted_at, project_id, deleted_counts_json
+         FROM project_deletion_audit
+         ORDER BY deleted_at DESC, id DESC`,
+      )
+      .all() as ProjectDeletionAuditRow[];
+    return rows.map((row) => ({
+      deletedAt: row.deleted_at,
+      projectId: row.project_id,
+      deletedCounts: parseProjectDeletionCounts(row.deleted_counts_json),
+    }));
+  }
 
   public deleteProject(projectId: string, confirmationName: string): DeleteProjectResult {
     const project = this.findProject(projectId);

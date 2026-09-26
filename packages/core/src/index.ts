@@ -76,6 +76,12 @@ export interface DeleteProjectResult {
   deletedCounts: ProjectDeletionCounts;
 }
 
+export interface ProjectDeletionAuditRecord {
+  deletedAt: string;
+  projectId: string;
+  deletedCounts: ProjectDeletionCounts;
+}
+
 export interface VerificationSummary {
   status: VerificationStatus;
   summary?: string;

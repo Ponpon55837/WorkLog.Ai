@@ -127,6 +127,38 @@ async function expectUserScrollsListInternally(page: Page, name: string): Promis
   await expect(pageScroller).toHaveJSProperty("scrollTop", pageScrollTop);
 }
 
+async function expectPaginationVisibleWithinViewport(page: Page, sizeLabel: string): Promise<void> {
+  const selector = page.getByLabel(sizeLabel);
+  await expect(selector).toBeVisible();
+  const bounds = await selector.evaluate((element) => {
+    const footer = element.closest<HTMLElement>(".ui-box__footer");
+    const main = element.closest<HTMLElement>("main");
+    const pagination = footer?.querySelector<HTMLElement>(".ui-pagination");
+    if (!footer || !main) {
+      return null;
+    }
+    const controlBottoms = [
+      element.getBoundingClientRect().bottom,
+      pagination?.getBoundingClientRect().bottom ?? 0,
+      pagination?.querySelector<HTMLElement>(".ui-pagination__pages")?.getBoundingClientRect().bottom ?? 0,
+    ];
+    return {
+      footerTop: footer.getBoundingClientRect().top,
+      footerBottom: footer.getBoundingClientRect().bottom,
+      controlsBottom: Math.max(...controlBottoms),
+      mainTop: main.getBoundingClientRect().top,
+      mainBottom: main.getBoundingClientRect().bottom,
+    };
+  });
+  expect(bounds).not.toBeNull();
+  if (!bounds) {
+    throw new Error("Expected the page-size selector to belong to a visible list footer.");
+  }
+  expect(bounds.footerTop, JSON.stringify(bounds)).toBeGreaterThanOrEqual(bounds.mainTop - 1);
+  expect(bounds.footerBottom, JSON.stringify(bounds)).toBeLessThanOrEqual(bounds.mainBottom + 1);
+  expect(bounds.controlsBottom, JSON.stringify(bounds)).toBeLessThanOrEqual(bounds.mainBottom + 1);
+}
+
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
     viewport: window.innerWidth,
@@ -303,6 +335,17 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByTestId("schema-version")).toHaveText(`Schema v${healthBody.schemaVersion}`);
   });
 
+  test("shows an empty state when there are no project deletion audits", async ({ page }) => {
+    await page.goto("/projects/deletion-audit");
+    const deletionAudit = page.getByTestId("project-deletion-audit");
+    await expect(deletionAudit).toContainText("尚無刪除紀錄");
+    await expect(deletionAudit).not.toContainText("無法載入刪除紀錄");
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectNoHorizontalOverflow(page);
+    }
+  });
+
   test("shows the global API offline banner and refreshes after the API reconnects", async ({ page }) => {
     let dashboardRequestCount = 0;
     page.on("request", (request) => {
@@ -412,6 +455,19 @@ test.describe("Work Intelligence browser regression", () => {
           return { x, y, width: controlWidth, height };
         });
       const defaultBounds = await controlBounds();
+
+      if (width === 1440) {
+        const periodSelector = page.getByRole("radiogroup", { name: "選擇報表區間" });
+        for (const period of ["日", "週", "月", "季", "年"]) {
+          await periodSelector.getByRole("radio", { name: period, exact: true }).click();
+          await periodControl.getByRole("button").click();
+          const datePicker = page.getByRole("dialog", { name: "選擇報告日期" });
+          await expect(datePicker.getByRole("button", { name: reportDate })).toBeVisible();
+          await datePicker.getByRole("button", { name: reportDate }).click();
+          await expect(datePicker).toHaveCount(0);
+        }
+        expect(await controlBounds()).toEqual(defaultBounds);
+      }
 
       await page.getByRole("radiogroup", { name: "選擇報表區間" }).getByRole("radio", { name: "自訂" }).click();
       // Switching to a custom range starts from the last 14 days without a transient invalid query.
@@ -894,6 +950,26 @@ test.describe("Work Intelligence browser regression", () => {
       const projectsResponse = await request.get("/api/projects");
       const remainingProjects = (await projectsResponse.json()) as Array<{ id: string }>;
       expect(remainingProjects.some((remaining) => remaining.id === project.id)).toBe(false);
+
+      await page.getByRole("tab", { name: "刪除紀錄" }).click();
+      const deletionAudit = page.getByTestId("project-deletion-audit");
+      await expect(deletionAudit).toContainText(project.id);
+      await expect(deletionAudit).toContainText("專案");
+      const auditResponse = await request.get("/api/project-deletion-audits");
+      expect(auditResponse.ok()).toBeTruthy();
+      const auditRecords = (await auditResponse.json()) as Array<{ deletedAt: string; projectId: string }>;
+      const deletedAudit = auditRecords.find((item) => item.projectId === project.id);
+      if (!deletedAudit) {
+        throw new Error("The project deletion audit was not returned by the API.");
+      }
+      await expect(deletionAudit.locator("time")).toHaveAttribute("datetime", deletedAudit.deletedAt);
+      await expect(deletionAudit.getByText("專案", { exact: true }).locator("..").locator("dd")).toHaveText("1");
+      await expect(deletionAudit).not.toContainText(name);
+      await expect(deletionAudit).not.toContainText(workspace);
+      for (const width of [1440, 960, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expectNoHorizontalOverflow(page);
+      }
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -1465,12 +1541,16 @@ test.describe("Work Intelligence browser regression", () => {
       await page.setViewportSize({ width, height: 900 });
 
       await page.goto("/sessions");
-      await expectBoundedVirtualList(page, "工作歷程清單");
+      const sessionList = await expectBoundedVirtualList(page, "工作歷程清單");
+      await expectPaginationVisibleWithinViewport(page, "工作歷程每頁筆數");
       await expectUserScrollsListInternally(page, "工作歷程清單");
       await expectNoHorizontalOverflow(page);
+      const viewportFitListHeight = await sessionList.evaluate((element) => element.clientHeight);
 
       await page.goto("/knowledge");
-      await expectBoundedVirtualList(page, "工作知識清單");
+      const knowledgeList = await expectBoundedVirtualList(page, "工作知識清單");
+      expect(await knowledgeList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
+      await expectPaginationVisibleWithinViewport(page, "Knowledge 每頁筆數");
       await expectBoundedVirtualList(page, "Knowledge 候選清單");
       await expectNoHorizontalOverflow(page);
 
@@ -1504,11 +1584,15 @@ test.describe("Work Intelligence browser regression", () => {
       await expectNoHorizontalOverflow(page);
 
       await page.getByRole("tab", { name: "原始紀錄" }).click();
-      await expectBoundedVirtualList(page, "報告原始工作紀錄清單");
+      const reportSessionList = await expectBoundedVirtualList(page, "報告原始工作紀錄清單");
+      expect(await reportSessionList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
+      await expectPaginationVisibleWithinViewport(page, "報告原始工作紀錄每頁筆數");
       await expectNoHorizontalOverflow(page);
 
       await page.getByRole("tab", { name: "證據" }).click();
-      await expectBoundedVirtualList(page, "報告來源證據清單");
+      const reportEvidenceList = await expectBoundedVirtualList(page, "報告來源證據清單");
+      expect(await reportEvidenceList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
+      await expectPaginationVisibleWithinViewport(page, "報告來源證據每頁筆數");
       await expectNoHorizontalOverflow(page);
 
       await page.goto(`/sessions?session=${detailSessionId}`);
@@ -1542,6 +1626,12 @@ test.describe("Work Intelligence browser regression", () => {
       await expectBoundedVirtualList(page, "備份清單");
       await expectNoHorizontalOverflow(page);
     }
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto("/sessions");
+    await expectPaginationVisibleWithinViewport(page, "工作歷程每頁筆數");
+    await page.goto("/reports/raw?period=week");
+    await expectPaginationVisibleWithinViewport(page, "報告原始工作紀錄每頁筆數");
 
     expect(browserErrors).toEqual([]);
   });
