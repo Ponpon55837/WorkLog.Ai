@@ -3,7 +3,7 @@ import type { ReportVerificationStatus, WorkSessionRecord, WorkSummarySections }
 import { errorMessage } from "../utils/format";
 import { workSummarySectionLabels } from "../utils/labels";
 import { useApi } from "./useApi";
-import { requestAppRefresh } from "./useAppRefresh";
+import { invalidateActiveQueries } from "./useAppRefresh";
 import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
 
@@ -151,7 +151,7 @@ async function saveSessionEditor(): Promise<void> {
   closeSessionEditor();
   useToast().showToast("Session 已更新。");
   await useSessionDetail().openSessionDetail(session.id);
-  requestAppRefresh();
+  void invalidateActiveQueries().catch(() => undefined);
 }
 
 export function useSessionEditor() {

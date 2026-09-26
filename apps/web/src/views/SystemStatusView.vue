@@ -11,10 +11,11 @@ import UiButton from "../components/ui/UiButton.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
-import { useViewLoader } from "../composables/useAppRefresh";
+import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useApi } from "../composables/useApi";
 import { formatBytes, formatDate, errorMessage as toErrorMessage } from "../utils/format";
 import { databaseInspectionStatus, databaseMaintenanceStatus } from "../utils/status";
+import { queryKeys } from "../stores/query-keys";
 
 const status = ref<SystemStatus | null>(null);
 const loading = ref(true);
@@ -44,7 +45,7 @@ async function loadSystemStatus(): Promise<void> {
   }
 }
 
-useViewLoader(loadSystemStatus);
+useActiveViewQuery(queryKeys.views.systemStatus, loadSystemStatus);
 
 onBeforeUnmount(() => activeRequest?.abort());
 </script>

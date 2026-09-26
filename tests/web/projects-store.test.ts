@@ -140,6 +140,9 @@ describe("projects Pinia store", () => {
     expect(store.projects).toEqual([initialProject]);
     expect(store.dashboard.trackedProjects).toBe(1);
     expect(store.projectDeletionAudits).toEqual([]);
+    expect(requestCount("/api/dashboard")).toBe(1);
+    expect(requestCount("/api/projects", "GET")).toBe(1);
+    expect(requestCount("/api/project-deletion-audits")).toBe(1);
 
     expect(await store.addProject({ name: "Beta", rootPath: "/projects/beta" })).toBe(true);
     expect(store.projects.map((project) => project.name)).toEqual(["Alpha", "Beta"]);
@@ -178,17 +181,23 @@ describe("projects Pinia store", () => {
     expect(requestCount("/api/projects")).toBe(1);
   });
 
-  it("loads a deletion audit after deleting a project before the audit view has been opened", async () => {
+  it("invalidates deletion audits without fetching until the audit view is active", async () => {
     const store = useProjectsStore();
     await store.loadProjects();
+    await store.loadProjectDeletionAudits();
     const project = store.projects[0];
     if (!project) {
       throw new Error("Expected the initial project fixture.");
     }
 
+    expect(requestCount("/api/project-deletion-audits")).toBe(1);
+    store.setProjectDeletionAuditsActive(false);
     await store.deleteProject(project, project.name);
-    await vi.waitFor(() => expect(store.projectDeletionAudits).toHaveLength(1));
 
     expect(requestCount("/api/project-deletion-audits")).toBe(1);
+    store.setProjectDeletionAuditsActive(true);
+    await vi.waitFor(() => expect(store.projectDeletionAudits).toHaveLength(1));
+
+    expect(requestCount("/api/project-deletion-audits")).toBe(2);
   });
 });

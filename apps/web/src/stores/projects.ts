@@ -99,6 +99,7 @@ export const useProjectsStore = defineStore("projects", () => {
   const addingProject = computed(() => addProjectMutation.isLoading.value);
 
   async function loadDashboard(): Promise<void> {
+    dashboardEnabled.value = true;
     try {
       await dashboardQuery.refetch(true);
     } catch (error) {
@@ -106,10 +107,10 @@ export const useProjectsStore = defineStore("projects", () => {
         throw error;
       }
     }
-    dashboardEnabled.value = true;
   }
 
   async function loadProjects(): Promise<void> {
+    projectsEnabled.value = true;
     try {
       await projectsQuery.refetch(true);
     } catch (error) {
@@ -117,14 +118,16 @@ export const useProjectsStore = defineStore("projects", () => {
         throw error;
       }
     }
-    projectsEnabled.value = true;
   }
 
   async function loadProjectDeletionAudits(): Promise<void> {
+    deletionAuditsEnabled.value = true;
     const result = await projectDeletionAuditsQuery.refetch();
-    if (result.status === "success") {
-      deletionAuditsEnabled.value = true;
-    }
+    if (result.status !== "success") deletionAuditsEnabled.value = false;
+  }
+
+  function setProjectDeletionAuditsActive(active: boolean): void {
+    deletionAuditsEnabled.value = active;
   }
 
   /** Opens the native folder picker and returns its selection for the dialog's local form state. */
@@ -195,9 +198,6 @@ export const useProjectsStore = defineStore("projects", () => {
     const { showToast } = useToast();
     try {
       const result = await deleteProjectMutation.mutateAsync({ projectId: project.id, confirmationName });
-      if (!deletionAuditsEnabled.value) {
-        void loadProjectDeletionAudits();
-      }
       showToast(`專案已永久刪除；刪除前資料庫備份：${result.backupFileName}`, "success");
       return { projectName: project.name, backupFileName: result.backupFileName };
     } catch (error) {
@@ -219,6 +219,7 @@ export const useProjectsStore = defineStore("projects", () => {
     loadDashboard,
     loadProjects,
     loadProjectDeletionAudits,
+    setProjectDeletionAuditsActive,
     pickProjectFolder,
     addProject,
     updateProjectStatus,

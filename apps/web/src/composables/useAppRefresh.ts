@@ -1,23 +1,42 @@
-import { onMounted, ref, watch } from "vue";
+import { useQuery, useQueryCache } from "@pinia/colada";
+import type { EntryKey } from "@pinia/colada";
+import { getActivePinia } from "pinia";
+import { watch, type MaybeRefOrGetter } from "vue";
 import { useApi } from "./useApi";
 import { updateApiConnection, useApiConnection } from "./useApiConnection";
 
-const refreshTick = ref(0);
-
-/** Global refresh signal: the header refresh button bumps it; views reload their own data. */
-export function requestAppRefresh(): void {
-  refreshTick.value += 1;
+/** Transitional bridge: legacy domain loaders become active Colada queries until F3 migrates them. */
+export function useActiveViewQuery(key: EntryKey, load: () => unknown, enabled: MaybeRefOrGetter<boolean> = true) {
+  return useQuery({
+    key,
+    enabled,
+    query: async () => {
+      await load();
+      return true;
+    },
+  });
 }
 
-/** Connects the app-wide refresh signal to SQLite changes while this tab is visible. */
+/** Invalidates only enabled queries; Pinia Colada refetches those with active observers. */
+export function invalidateActiveQueries(): Promise<unknown> {
+  const pinia = getActivePinia();
+  return pinia ? useQueryCache(pinia).invalidateQueries() : Promise.resolve();
+}
+
+/** Connects the data-free SQLite change stream and connection recovery to active queries. */
 export function startAppRefreshEvents(): () => void {
   let source: EventSource | undefined;
   let stopped = false;
   const { client } = useApi();
   const { isApiOffline } = useApiConnection();
+
+  function invalidate(): void {
+    void invalidateActiveQueries().catch(() => undefined);
+  }
+
   const stopWatchingConnection = watch(isApiOffline, (isOffline, wasOffline) => {
     if (wasOffline && !isOffline && document.visibilityState === "visible") {
-      requestAppRefresh();
+      invalidate();
     }
   });
 
@@ -28,7 +47,7 @@ export function startAppRefreshEvents(): () => void {
     source = client.openChangeStream(
       () => {
         if (document.visibilityState === "visible") {
-          requestAppRefresh();
+          invalidate();
         }
       },
       () => updateApiConnection(true),
@@ -40,7 +59,7 @@ export function startAppRefreshEvents(): () => void {
     if (document.visibilityState === "visible") {
       connect();
       // The stream is closed while hidden, so catch up immediately when the tab returns.
-      requestAppRefresh();
+      invalidate();
       return;
     }
     source?.close();
@@ -57,14 +76,4 @@ export function startAppRefreshEvents(): () => void {
     source?.close();
     source = undefined;
   };
-}
-
-/** Loads view data on mount and again whenever a global refresh is requested. */
-export function useViewLoader(load: () => unknown): void {
-  onMounted(() => {
-    void load();
-  });
-  watch(refreshTick, () => {
-    void load();
-  });
 }

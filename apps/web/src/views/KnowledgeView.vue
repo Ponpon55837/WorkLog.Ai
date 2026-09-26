@@ -17,12 +17,13 @@ import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useViewLoader } from "../composables/useAppRefresh";
+import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useKnowledge } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
 import { knowledgeKindVisual } from "../utils/status";
+import { queryKeys } from "../stores/query-keys";
 
 const {
   knowledgeItems,
@@ -65,7 +66,7 @@ const { reloadNow } = useListReload({
   filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize],
   search: knowledgeQuery,
 });
-useViewLoader(loadKnowledge);
+useActiveViewQuery(queryKeys.views.knowledge, loadKnowledge);
 
 const hasFilters = computed(() =>
   Boolean(

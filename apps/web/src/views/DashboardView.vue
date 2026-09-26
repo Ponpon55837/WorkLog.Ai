@@ -25,7 +25,6 @@ import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiSparkline from "../components/ui/UiSparkline.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useViewLoader } from "../composables/useAppRefresh";
 import { useDashboard, type InboxItem } from "../composables/useDashboard";
 import { metadataBackfillInstruction } from "../composables/useMetadataBackfill";
 import { useProjects } from "../composables/useProjects";
@@ -36,11 +35,8 @@ import { formatRelative } from "../utils/format";
 import { requestStatus, trackingStatus } from "../utils/status";
 
 const { dashboard, projects, recentSessions } = useProjects();
-const { weekReport, weekVerification, inbox, ensureDashboardData } = useDashboard();
+const { weekReport, weekVerification, inbox } = useDashboard();
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
-
-// App loads dashboard data at startup and on header refresh; only refetch here when it is stale.
-useViewLoader(ensureDashboardData);
 
 const today = new Intl.DateTimeFormat("zh-TW", { dateStyle: "full" }).format(new Date());
 const pausedCount = computed(() => projects.value.filter((project) => project.status === "paused").length);

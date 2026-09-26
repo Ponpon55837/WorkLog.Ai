@@ -12,11 +12,12 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
-import { useViewLoader } from "../composables/useAppRefresh";
+import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { graphLoadPresetOptions, useGraph, type GraphNodeFilter } from "../composables/useGraph";
 import { useProjects } from "../composables/useProjects";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
+import { queryKeys } from "../stores/query-keys";
 
 const { trackedProjects } = useProjects();
 const {
@@ -45,7 +46,7 @@ const {
 const load = (): Promise<void> => loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
-useViewLoader(load);
+useActiveViewQuery(queryKeys.views.graph, load);
 watch([graphProjectId, graphLoadPreset], () => void load());
 onBeforeUnmount(() => selectGraphNode(null));
 

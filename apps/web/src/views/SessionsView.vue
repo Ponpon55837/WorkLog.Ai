@@ -17,7 +17,7 @@ import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useViewLoader } from "../composables/useAppRefresh";
+import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useListReload } from "../composables/useListReload";
 import { useProjects } from "../composables/useProjects";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
@@ -25,6 +25,7 @@ import { useSessionDetail } from "../composables/useSessionDetail";
 import { useSessions } from "../composables/useSessions";
 import { formatDayGroup } from "../utils/format";
 import { listPageSizeOptions, voidedFilterOptions } from "../utils/labels";
+import { queryKeys } from "../stores/query-keys";
 
 const { projects } = useProjects();
 const {
@@ -73,7 +74,7 @@ const { reloadNow } = useListReload({
   filters: [selectedProjectId, dateFrom, dateTo, voidedFilter, sessionPageSize],
   search: searchTerm,
 });
-useViewLoader(loadSessions);
+useActiveViewQuery(queryKeys.views.sessions, loadSessions);
 
 const projectItems = computed(() => [
   { value: "", label: "所有專案" },

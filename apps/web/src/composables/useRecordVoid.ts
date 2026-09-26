@@ -2,9 +2,8 @@ import { ref } from "vue";
 import type { VoidTargetType } from "@work-intelligence/core";
 import { errorMessage } from "../utils/format";
 import { useApi } from "./useApi";
-import { requestAppRefresh } from "./useAppRefresh";
+import { invalidateActiveQueries } from "./useAppRefresh";
 import { confirmAction } from "./useConfirm";
-import { useProjects } from "./useProjects";
 import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
 
@@ -46,9 +45,7 @@ async function applyVoid(target: VoidTarget, voided: boolean, reason?: string): 
 async function afterChange(target: VoidTarget, message: string): Promise<void> {
   useToast().showToast(message);
   await useSessionDetail().openSessionDetail(target.sessionId);
-  // Voiding changes the Session totals shown in the sidebar, which only the shared loader refreshes.
-  void useProjects().loadDashboard();
-  requestAppRefresh();
+  void invalidateActiveQueries().catch(() => undefined);
 }
 
 /** Voids the dialog's target; a reason is required so the audit explains why. */

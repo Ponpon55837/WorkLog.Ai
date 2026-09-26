@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { Archive, FileInput, FolderGit2, History, Plus, ScanSearch, Trash2 } from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
@@ -20,7 +20,7 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useViewLoader } from "../composables/useAppRefresh";
+import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useHandoffImport } from "../composables/useHandoffImport";
 import { useMetadataBackfill } from "../composables/useMetadataBackfill";
 import { useProjects } from "../composables/useProjects";
@@ -28,6 +28,7 @@ import { router } from "../router";
 import { formatDate, formatRelative } from "../utils/format";
 import { statusDescriptions, statusLabels } from "../utils/labels";
 import { trackingStatus } from "../utils/status";
+import { queryKeys } from "../stores/query-keys";
 
 type ProjectsTab = "registry" | "backfill" | "import" | "backup" | "deletion-audit";
 
@@ -38,15 +39,13 @@ const {
   projectDeletionAuditsLoading,
   projectDeletionAuditsError,
   trackedProjects,
-  loadProjects,
   loadProjectDeletionAudits,
+  setProjectDeletionAuditsActive,
   updateProjectStatus,
   deleteProject,
 } = useProjects();
 const { loadMetadataBackfillRequest } = useMetadataBackfill();
 const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
-
-useViewLoader(() => Promise.all([loadProjects(), loadMetadataBackfillRequest(), loadProjectDeletionAudits()]));
 
 const addOpen = ref(false);
 const deleteTarget = ref<ProjectRecord | null>(null);
@@ -63,6 +62,11 @@ const tab = computed<ProjectsTab>({
       : "registry",
   set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } }),
 });
+const metadataBackfillActive = computed(() => tab.value === "backfill");
+useActiveViewQuery(queryKeys.projects.metadataBackfillView, loadMetadataBackfillRequest, metadataBackfillActive);
+watch(() => tab.value === "deletion-audit", setProjectDeletionAuditsActive, { immediate: true });
+onBeforeUnmount(() => setProjectDeletionAuditsActive(false));
+
 const tabs = computed(() => [
   { value: "registry" as const, label: "專案清單", icon: FolderGit2, count: projects.value.length },
   { value: "backfill" as const, label: "Metadata 回補", icon: ScanSearch },
