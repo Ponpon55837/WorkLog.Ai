@@ -3,7 +3,7 @@ import { nowIso } from "@work-intelligence/shared";
 
 /*
  * Versioned migrations. Each runs once, inside the caller's transaction, and is recorded in
- * schema_migrations. Older column additions stay in the idempotent checks in store.ts.
+ * schema_migrations. Older column additions stay in the idempotent checks in database-initialization.ts.
  */
 interface SchemaMigration {
   version: number;

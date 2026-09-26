@@ -2,14 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { CHANGED_FILE_SOURCES, NoopInsightProvider } from "@work-intelligence/core";
+import { NoopInsightProvider } from "@work-intelligence/core";
 import type {
   AttachEvidenceInput,
   AttachEvidenceResult,
-  ChangedFileChange,
-  ChangedFileProvenance,
-  ChangedFilesFollowUp,
-  ChangedFileSource,
   ContextQueryResult,
   DecideKnowledgeCandidateInput,
   DecideKnowledgeCandidateResult,
@@ -19,8 +15,6 @@ import type {
   KnowledgeCandidateStatus,
   RequestKnowledgeCandidatesResult,
   SubmitKnowledgeCandidatesResult,
-  KnowledgeReview,
-  KnowledgeStaleness,
   LinkSessionsInput,
   LinkSessionsResult,
   SessionLinkRecord,
@@ -30,10 +24,7 @@ import type {
   SetSessionVoidInput,
   SetSessionVoidResult,
   SessionVoidedFilter,
-  VoidAuditRecord,
-  VerificationUpdateRecord,
   VerificationUpdateSource,
-  VoidTargetType,
   RecallQueryResult,
   CancelMetadataBackfillRequestResult,
   CancelReportSynthesisRequestResult,
@@ -51,16 +42,12 @@ import type {
   HandoffImportPreviewResult,
   HandoffImportFailure,
   InsightProvider,
-  KnowledgeAuditAction,
-  KnowledgeAuditRecord,
-  KnowledgeKind,
   KnowledgeHistoryQuery,
   KnowledgeHistoryResult,
   KnowledgeQuery,
   KnowledgeQueryResult,
   KnowledgeRecord,
   KnowledgeSkippedResult,
-  KnowledgeStatus,
   MetadataBackfillApplyInput,
   MetadataBackfillBatchResult,
   MetadataBackfillPreviewResult,
@@ -97,7 +84,6 @@ import type {
   DeleteProjectResult,
   ProjectDeletionAuditRecord,
   ReportSynthesisRequestLookupResult,
-  RawSnapshotRecord,
   SearchResult,
   SessionListResult,
   SessionDetail,
@@ -111,12 +97,7 @@ import type {
   UpdateSessionVerificationResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
-  VerificationFollowUp,
   VerificationSummary,
-  WorkSummarySections,
-  WorkSummaryFollowUp,
-  WorkEventRecord,
-  WorkEventType,
   WorkSessionRecord,
   DatabaseBackupDeleteResult,
   DatabaseBackupCreated,
@@ -163,83 +144,37 @@ import { ReportReadService } from "./report-service.js";
 import { ReportSynthesisService } from "./report-synthesis-service.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
-import { isChangedFilesMetadataConfirmed } from "./changed-files-confirmation.js";
 import { initializeWorkIntelligenceDatabase } from "./database-initialization.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
-import { matchesAppliesTo, normalizePath } from "./search-text.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 import { ProjectDataTransferService } from "./project-data-transfer.js";
+import { SessionRecordService } from "./session-record-service.js";
+import { KnowledgeService } from "./knowledge-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
+import type { EvidenceRow, KnowledgeRow } from "./session-record-codecs.js";
+import {
+  normalizeWorkSummarySections,
+  changedFileIdentity,
+  normalizeChangedFileChanges,
+  changedFilePathsFromChanges,
+  normalizeChangedFiles,
+  excludeBaselineChangedFiles,
+  excludeBaselineChangedFileChanges,
+  toSession,
+  toEvidence,
+  resolveStartedAt,
+  toKnowledge,
+  getVerificationFollowUp,
+  getChangedFilesFollowUp,
+  getWorkSummaryFollowUp,
+} from "./session-record-codecs.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
-
-type EventRow = {
-  id: string;
-  session_id: string;
-  type: WorkEventType;
-  summary: string;
-  details_json: string | null;
-  occurred_at: string;
-};
-
-type SnapshotRow = {
-  id: string;
-  session_id: string;
-  project_id: string;
-  kind: "handoff";
-  source_path: string | null;
-  content: string;
-  captured_at: string;
-};
-
-type EvidenceRow = {
-  id: string;
-  session_id: string;
-  project_id: string;
-  kind: string;
-  reference: string;
-  summary: string | null;
-  captured_at: string;
-  voided_at?: string | null;
-  void_reason?: string | null;
-};
-
-type KnowledgeRow = {
-  id: string;
-  project_id: string;
-  project_name: string | null;
-  session_id: string | null;
-  idempotency_key: string;
-  kind: KnowledgeKind;
-  title: string;
-  body: string;
-  tags_json: string;
-  references_json: string;
-  status: KnowledgeStatus;
-  created_at: string;
-  updated_at: string;
-  applies_to_json?: string | null;
-  last_confirmed_at?: string | null;
-  last_confirmed_session_id?: string | null;
-  supersedes_id?: string | null;
-  review_json?: string | null;
-};
-
-type KnowledgeAuditRow = {
-  id: string;
-  knowledge_id: string;
-  project_id: string;
-  action: KnowledgeAuditAction;
-  before_json: string | null;
-  after_json: string;
-  changed_fields_json: string;
-  occurred_at: string;
-};
 
 type HandoffImportPlan = {
   project: ProjectRecord;
@@ -248,601 +183,6 @@ type HandoffImportPlan = {
   items: HandoffImportPreviewItem[];
   preview: HandoffImportPreview;
 };
-
-function parseJson<T>(value: string | null, fallback: T): T {
-  if (!value) {
-    return fallback;
-  }
-
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeWorkSummarySections(value: WorkSummarySections | undefined): WorkSummarySections | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  return {
-    outcomes: value.outcomes.map((item) => item.trim()).filter(Boolean),
-    scope: value.scope.map((item) => item.trim()).filter(Boolean),
-    decisions: value.decisions.map((item) => item.trim()).filter(Boolean),
-    verification: value.verification.map((item) => item.trim()).filter(Boolean),
-    nextSteps: value.nextSteps.map((item) => item.trim()).filter(Boolean),
-  };
-}
-
-function normalizeWorkSummaryPatch(
-  value: WorkSummarySections | Partial<WorkSummarySections>,
-): Partial<WorkSummarySections> {
-  const normalized: Partial<WorkSummarySections> = {};
-  const sectionKeys: Array<keyof WorkSummarySections> = ["outcomes", "scope", "decisions", "verification", "nextSteps"];
-  for (const key of sectionKeys) {
-    const section = value[key];
-    if (Array.isArray(section)) {
-      normalized[key] = section.map((item) => item.trim()).filter(Boolean);
-    }
-  }
-  return normalized;
-}
-
-function completeWorkSummary(value: Partial<WorkSummarySections>): WorkSummarySections | undefined {
-  if (
-    !Array.isArray(value.outcomes) ||
-    !Array.isArray(value.scope) ||
-    !Array.isArray(value.decisions) ||
-    !Array.isArray(value.verification) ||
-    !Array.isArray(value.nextSteps)
-  ) {
-    return undefined;
-  }
-  return {
-    outcomes: value.outcomes,
-    scope: value.scope,
-    decisions: value.decisions,
-    verification: value.verification,
-    nextSteps: value.nextSteps,
-  };
-}
-
-function mergeWorkSummary(
-  current: WorkSummarySections | undefined,
-  patch: Partial<WorkSummarySections>,
-): WorkSummarySections {
-  return {
-    outcomes: patch.outcomes ?? current?.outcomes ?? [],
-    scope: patch.scope ?? current?.scope ?? [],
-    decisions: patch.decisions ?? current?.decisions ?? [],
-    verification: patch.verification ?? current?.verification ?? [],
-    nextSteps: patch.nextSteps ?? current?.nextSteps ?? [],
-  };
-}
-
-function parseWorkSummarySections(value: string | null): WorkSummarySections | undefined {
-  const parsed = parseJson<Partial<WorkSummarySections>>(value, {});
-  if (!parsed || typeof parsed !== "object") {
-    return undefined;
-  }
-
-  const sections: WorkSummarySections = {
-    outcomes: Array.isArray(parsed.outcomes)
-      ? parsed.outcomes.filter((item): item is string => typeof item === "string")
-      : [],
-    scope: Array.isArray(parsed.scope) ? parsed.scope.filter((item): item is string => typeof item === "string") : [],
-    decisions: Array.isArray(parsed.decisions)
-      ? parsed.decisions.filter((item): item is string => typeof item === "string")
-      : [],
-    verification: Array.isArray(parsed.verification)
-      ? parsed.verification.filter((item): item is string => typeof item === "string")
-      : [],
-    nextSteps: Array.isArray(parsed.nextSteps)
-      ? parsed.nextSteps.filter((item): item is string => typeof item === "string")
-      : [],
-  };
-
-  const hasStructuredSections = ["outcomes", "scope", "decisions", "verification", "nextSteps"].some((key) =>
-    Array.isArray(parsed[key as keyof WorkSummarySections]),
-  );
-  return hasStructuredSections ? sections : undefined;
-}
-
-function changedFileIdentity(value: string): string {
-  return process.platform === "win32" ? value.toLowerCase() : value;
-}
-
-function sortChangedFileSources(sources: ChangedFileSource[]): ChangedFileSource[] {
-  const order = new Map<ChangedFileSource, number>(CHANGED_FILE_SOURCES.map((source, index) => [source, index]));
-  return [...new Set(sources)].sort((left, right) => (order.get(left) ?? 0) - (order.get(right) ?? 0));
-}
-
-function normalizeChangedFilePath(
-  projectRoot: string,
-  value: string,
-  pathResolver = createProjectPathResolver(projectRoot),
-): string {
-  const candidate = value.trim();
-  if (!candidate) {
-    throw new Error("Changed file paths must not be empty.");
-  }
-
-  const absolutePath = pathResolver.safePath(candidate);
-  if (!absolutePath) {
-    throw new Error(`Changed file path must remain inside the tracked project root: ${candidate}`);
-  }
-
-  const normalized = relative(projectRoot, absolutePath).replaceAll("\\", "/");
-  if (!normalized || normalized === ".") {
-    throw new Error(`Changed file path must identify a file inside the tracked project root: ${candidate}`);
-  }
-  return normalized;
-}
-
-function normalizeChangedFileChanges(
-  projectRoot: string,
-  changes: ChangedFileChange[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot),
-): ChangedFileChange[] {
-  const normalized: ChangedFileChange[] = [];
-  const identities = new Set<string>();
-
-  for (const change of changes ?? []) {
-    if (change.status === "renamed" && !change.previousPath?.trim()) {
-      throw new Error("A renamed file change must include previousPath.");
-    }
-    const path = normalizeChangedFilePath(projectRoot, change.path, pathResolver);
-    const previousPath = change.previousPath
-      ? normalizeChangedFilePath(projectRoot, change.previousPath, pathResolver)
-      : undefined;
-    const identity = [
-      change.status,
-      changedFileIdentity(path),
-      previousPath ? changedFileIdentity(previousPath) : "",
-    ].join(":");
-    if (identities.has(identity)) {
-      continue;
-    }
-    identities.add(identity);
-    normalized.push({
-      path,
-      status: change.status,
-      ...(previousPath ? { previousPath } : {}),
-    });
-  }
-
-  return normalized;
-}
-
-function changedFilePathsFromChanges(changes: ChangedFileChange[]): string[] {
-  return changes.flatMap((change) => [change.path, ...(change.previousPath ? [change.previousPath] : [])]);
-}
-
-function mergeChangedFileChanges(
-  projectRoot: string,
-  current: WorkSessionRecord,
-  incoming: ChangedFileChange[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot),
-): ChangedFileChange[] {
-  const normalizedIncoming = normalizeChangedFileChanges(projectRoot, incoming, pathResolver);
-  const merged: ChangedFileChange[] = [];
-  const identities = new Set<string>();
-
-  for (const change of [...current.changedFileChanges, ...normalizedIncoming]) {
-    const identity = [
-      change.status,
-      changedFileIdentity(change.path),
-      change.previousPath ? changedFileIdentity(change.previousPath) : "",
-    ].join(":");
-    if (identities.has(identity)) {
-      continue;
-    }
-    identities.add(identity);
-    merged.push(change);
-  }
-
-  return merged;
-}
-
-function normalizeChangedFiles(
-  projectRoot: string,
-  changedFiles: string[] | undefined,
-  provenance: ChangedFileProvenance[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot),
-): { files: string[]; provenance: ChangedFileProvenance[] } {
-  const files: string[] = [];
-  const fileByIdentity = new Map<string, string>();
-  const provenanceByIdentity = new Map<string, { sources: ChangedFileSource[]; references: string[] }>();
-
-  const addFile = (value: string): string => {
-    const path = normalizeChangedFilePath(projectRoot, value, pathResolver);
-    const identity = changedFileIdentity(path);
-    const existing = fileByIdentity.get(identity);
-    if (existing) {
-      return existing;
-    }
-    fileByIdentity.set(identity, path);
-    files.push(path);
-    return path;
-  };
-
-  for (const file of changedFiles ?? []) {
-    addFile(file);
-  }
-
-  for (const item of provenance ?? []) {
-    const path = addFile(item.path);
-    const identity = changedFileIdentity(path);
-    const existing = provenanceByIdentity.get(identity);
-    const sources: ChangedFileSource[] = item.sources.length > 0 ? item.sources : ["agent"];
-    if (existing) {
-      existing.sources = sortChangedFileSources([...existing.sources, ...sources]);
-      existing.references.push(...(item.references ?? []));
-    } else {
-      provenanceByIdentity.set(identity, {
-        sources: sortChangedFileSources(sources),
-        references: [...(item.references ?? [])],
-      });
-    }
-  }
-
-  return {
-    files,
-    provenance: files.map((path) => {
-      const record = provenanceByIdentity.get(changedFileIdentity(path));
-      if (!record) {
-        return { path, sources: ["agent"] };
-      }
-      const references = [...new Set(record.references)];
-      return {
-        path,
-        sources: record.sources,
-        ...(references.length > 0 ? { references } : {}),
-      };
-    }),
-  };
-}
-
-function excludeBaselineChangedFiles(
-  changedFiles: { files: string[]; provenance: ChangedFileProvenance[] },
-  baselineIdentities: Set<string>,
-): { files: string[]; provenance: ChangedFileProvenance[] } {
-  if (baselineIdentities.size === 0) {
-    return changedFiles;
-  }
-
-  return {
-    files: changedFiles.files.filter((file) => !baselineIdentities.has(changedFileIdentity(file))),
-    provenance: changedFiles.provenance.filter((entry) => !baselineIdentities.has(changedFileIdentity(entry.path))),
-  };
-}
-
-function excludeBaselineChangedFileChanges(
-  changes: ChangedFileChange[],
-  baselineIdentities: Set<string>,
-): ChangedFileChange[] {
-  if (baselineIdentities.size === 0) {
-    return changes;
-  }
-
-  return changes.flatMap((change) => {
-    if (baselineIdentities.has(changedFileIdentity(change.path))) {
-      return [];
-    }
-    if (
-      change.status === "renamed" &&
-      change.previousPath &&
-      baselineIdentities.has(changedFileIdentity(change.previousPath))
-    ) {
-      return [{ path: change.path, status: "added" }];
-    }
-    return [change];
-  });
-}
-
-function mergeChangedFiles(
-  projectRoot: string,
-  current: WorkSessionRecord,
-  changedFiles: string[],
-  provenance: ChangedFileProvenance[] | undefined,
-  pathResolver = createProjectPathResolver(projectRoot),
-): { files: string[]; provenance: ChangedFileProvenance[] } {
-  const incoming = normalizeChangedFiles(projectRoot, changedFiles, provenance, pathResolver);
-  const files: string[] = [];
-  const fileByIdentity = new Map<string, string>();
-  const provenanceByIdentity = new Map<string, { sources: ChangedFileSource[]; references: string[] }>();
-
-  const addStoredFile = (value: string): string => {
-    const identity = changedFileIdentity(value);
-    const existing = fileByIdentity.get(identity);
-    if (existing) {
-      return existing;
-    }
-    fileByIdentity.set(identity, value);
-    files.push(value);
-    return value;
-  };
-
-  const addProvenance = (item: ChangedFileProvenance, normalizePath: boolean): void => {
-    const path = normalizePath
-      ? normalizeChangedFilePath(projectRoot, item.path, pathResolver)
-      : addStoredFile(item.path);
-    const identity = changedFileIdentity(path);
-    const existing = provenanceByIdentity.get(identity);
-    if (existing) {
-      existing.sources = sortChangedFileSources([...existing.sources, ...item.sources]);
-      existing.references.push(...(item.references ?? []));
-      return;
-    }
-    provenanceByIdentity.set(identity, {
-      sources: sortChangedFileSources(item.sources),
-      references: [...(item.references ?? [])],
-    });
-  };
-
-  for (const file of current.changedFiles) {
-    addStoredFile(file);
-  }
-  for (const item of current.changedFilesProvenance) {
-    addProvenance(item, false);
-  }
-  for (const file of incoming.files) {
-    addStoredFile(file);
-  }
-  for (const item of incoming.provenance) {
-    addProvenance(item, false);
-  }
-
-  return {
-    files,
-    // Legacy files without provenance intentionally remain without a fabricated source.
-    provenance: files.flatMap((path) => {
-      const record = provenanceByIdentity.get(changedFileIdentity(path));
-      if (!record) {
-        return [];
-      }
-      const references = [...new Set(record.references)];
-      return [
-        {
-          path,
-          sources: record.sources,
-          ...(references.length > 0 ? { references } : {}),
-        },
-      ];
-    }),
-  };
-}
-
-function toSession(row: SessionRow): WorkSessionRecord {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    projectName: row.project_name ?? undefined,
-    externalSessionId: row.external_session_id ?? undefined,
-    idempotencyKey: row.idempotency_key,
-    title: row.title,
-    summary: row.summary,
-    workSummary: parseWorkSummarySections(row.work_summary_json),
-    status: row.status,
-    executionStatus: row.execution_status ?? "completed",
-    ...(row.started_at ? { startedAt: row.started_at } : {}),
-    completedAt: row.completed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at ?? row.created_at,
-    commitSha: row.commit_sha ?? undefined,
-    gitBranch: row.git_branch ?? undefined,
-    changedFiles: parseJson<string[]>(row.changed_files_json, []),
-    changedFilesProvenance: parseJson<ChangedFileProvenance[]>(row.changed_files_provenance_json, []),
-    changedFileChanges: parseJson<ChangedFileChange[]>(row.changed_file_changes_json, []),
-    verification: parseJson<VerificationSummary | undefined>(row.verification_json, undefined),
-    ...(row.voided_at ? { voided: { at: row.voided_at, reason: row.void_reason ?? "" } } : {}),
-  };
-}
-
-function toEvent(row: EventRow): WorkEventRecord {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    type: row.type,
-    summary: row.summary,
-    details: parseJson<Record<string, unknown> | undefined>(row.details_json, undefined),
-    occurredAt: row.occurred_at,
-  };
-}
-
-function toSnapshot(row: SnapshotRow): RawSnapshotRecord {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    projectId: row.project_id,
-    kind: row.kind,
-    sourcePath: row.source_path ?? undefined,
-    content: row.content,
-    capturedAt: row.captured_at,
-  };
-}
-
-function toEvidence(row: EvidenceRow): EvidenceRecord {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    projectId: row.project_id,
-    kind: row.kind,
-    reference: row.reference,
-    summary: row.summary ?? undefined,
-    capturedAt: row.captured_at,
-    ...(row.voided_at ? { voided: { at: row.voided_at, reason: row.void_reason ?? "" } } : {}),
-  };
-}
-
-type VoidAuditRow = {
-  id: string;
-  target_type: VoidTargetType;
-  target_id: string;
-  action: "voided" | "restored";
-  reason: string | null;
-  occurred_at: string;
-};
-
-function toVoidAudit(row: VoidAuditRow): VoidAuditRecord {
-  return {
-    id: row.id,
-    targetType: row.target_type,
-    targetId: row.target_id,
-    action: row.action,
-    ...(row.reason ? { reason: row.reason } : {}),
-    occurredAt: row.occurred_at,
-  };
-}
-
-type VerificationUpdateRow = {
-  id: string;
-  source: VerificationUpdateSource;
-  previous_json: string | null;
-  resulting_json: string;
-  created_at: string;
-};
-
-function toVerificationUpdate(row: VerificationUpdateRow): VerificationUpdateRecord {
-  const previous = parseJson<VerificationSummary | undefined>(row.previous_json, undefined);
-  return {
-    id: row.id,
-    source: row.source,
-    ...(previous ? { previous } : {}),
-    resulting: parseJson<VerificationSummary>(row.resulting_json, { status: "not_run" }),
-    createdAt: row.created_at,
-  };
-}
-
-function normalizeVerification(verification: VerificationSummary): VerificationSummary {
-  const summary = verification.summary?.trim();
-  return { status: verification.status, ...(summary ? { summary } : {}) };
-}
-
-function sameVerification(left: VerificationSummary | undefined, right: VerificationSummary): boolean {
-  return left?.status === right.status && (left.summary?.trim() || undefined) === right.summary;
-}
-
-/**
- * The reported start wins when it is not after completion; otherwise the earliest event recorded
- * before completion. No start is invented when neither exists.
- */
-function resolveStartedAt(
-  reported: string | undefined,
-  events: ReadonlyArray<{ occurredAt?: string }> | undefined,
-  completedAt: string,
-): string | undefined {
-  if (reported && reported <= completedAt) {
-    return reported;
-  }
-  const earliest = (events ?? [])
-    .map((event) => event.occurredAt)
-    .filter((value): value is string => Boolean(value) && value! < completedAt)
-    .sort()[0];
-  return earliest;
-}
-
-/** Voiding needs a reason so the audit explains it; a restore reason is optional. */
-function requireVoidReason(voided: boolean, reason: string | undefined): string | undefined {
-  const trimmed = reason?.trim();
-  if (voided && !trimmed) {
-    throw new Error("A reason is required to void a record.");
-  }
-  return trimmed || undefined;
-}
-
-function toKnowledge(row: KnowledgeRow): KnowledgeRecord {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    projectName: row.project_name ?? undefined,
-    sessionId: row.session_id ?? undefined,
-    idempotencyKey: row.idempotency_key,
-    kind: row.kind,
-    title: row.title,
-    body: row.body,
-    tags: parseJson<string[]>(row.tags_json, []),
-    references: parseJson<string[]>(row.references_json, []),
-    status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    appliesTo: parseJson<string[]>(row.applies_to_json ?? null, []),
-    ...(row.last_confirmed_at ? { lastConfirmedAt: row.last_confirmed_at } : {}),
-    ...(row.last_confirmed_session_id ? { lastConfirmedSessionId: row.last_confirmed_session_id } : {}),
-    ...(row.supersedes_id ? { supersedesId: row.supersedes_id } : {}),
-    ...(row.review_json
-      ? { review: parseJson<KnowledgeReview>(row.review_json, { reason: "contradicted", at: "" }) }
-      : {}),
-  };
-}
-
-/** Audit snapshots written before appliesTo existed lack it; default it so readers can rely on it. */
-function withKnowledgeDefaults(record: KnowledgeRecord): KnowledgeRecord {
-  return { ...record, appliesTo: record.appliesTo ?? [] };
-}
-
-function cleanList(values: readonly string[] | undefined): string[] {
-  return [...new Set((values ?? []).map((value) => value.trim().replace(/\\/g, "/")).filter(Boolean))];
-}
-
-function toKnowledgeAudit(row: KnowledgeAuditRow): KnowledgeAuditRecord {
-  const after = parseJson<KnowledgeRecord | undefined>(row.after_json, undefined);
-  if (!after) {
-    throw new Error(`Knowledge audit record ${row.id} has an invalid after snapshot.`);
-  }
-
-  const before = parseJson<KnowledgeRecord | undefined>(row.before_json, undefined);
-  return {
-    id: row.id,
-    knowledgeId: row.knowledge_id,
-    projectId: row.project_id,
-    action: row.action,
-    ...(before ? { before: withKnowledgeDefaults(before) } : {}),
-    after: withKnowledgeDefaults(after),
-    changedFields: parseJson<string[]>(row.changed_fields_json, []),
-    occurredAt: row.occurred_at,
-  };
-}
-
-function getVerificationFollowUp(session: WorkSessionRecord): VerificationFollowUp | undefined {
-  if (session.verification?.status === "passed" || session.verification?.status === "failed") {
-    return undefined;
-  }
-  const message =
-    session.verification?.status === "not_run"
-      ? "Verification is marked not_run. Re-check the completed work and call work_update_session_metadata with passed or failed when a confirmed result is available; keep not_run only when no verification was actually executed."
-      : "Verification was not supplied. If verification was completed, call work_update_session_metadata with this sessionId and the confirmed result; otherwise explicitly report status not_run.";
-  return {
-    required: true,
-    sessionId: session.id,
-    message,
-  };
-}
-
-function getChangedFilesFollowUp(session: WorkSessionRecord): ChangedFilesFollowUp | undefined {
-  if (session.changedFiles.length > 0) {
-    return undefined;
-  }
-  return {
-    required: true,
-    sessionId: session.id,
-    message:
-      "No changedFiles metadata was supplied. Inspect the working tree and worktree diff before finishing; call work_update_session_metadata with the confirmed file list, using [] only when the work intentionally changed no files.",
-  };
-}
-
-function getWorkSummaryFollowUp(session: WorkSessionRecord): WorkSummaryFollowUp | undefined {
-  if (session.workSummary) {
-    return undefined;
-  }
-  return {
-    required: true,
-    sessionId: session.id,
-    message:
-      "Work summary sections were not supplied. Provide outcomes (confirmed results), scope (important changed areas), decisions (explicit choices only), verification (actual results and unverified coverage), and nextSteps (objective current open state/limitations only; no future recommendations) as concise arrays. Use [] when a section has no supported facts.",
-  };
-}
 
 function handoffImportIdempotencyKey(projectId: string, sourcePath: string): string {
   const digest = createHash("sha256").update(`${projectId}\n${sourcePath}`).digest("hex");
@@ -916,7 +256,9 @@ export class WorkIntelligenceStore {
   private readonly backupOptions: BackupRetentionOptions;
   private readonly projects: ProjectRepository;
   private readonly sessions: SessionRepository;
+  private readonly sessionRecords: SessionRecordService;
   private readonly knowledge: KnowledgeRepository;
+  private readonly knowledgeService: KnowledgeService;
   private readonly graphBuilder: GraphBuilder;
   private readonly handoffImportService = new HandoffImportService();
   private readonly projectDataTransfer: ProjectDataTransferService;
@@ -950,11 +292,22 @@ export class WorkIntelligenceStore {
     this.projectDataTransfer = new ProjectDataTransferService(this.db);
     this.projects = new ProjectRepository(this.db);
     this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
+    this.sessionRecords = new SessionRecordService(this.db, {
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
+      getSessionById: (sessionId) => this.getSessionById(sessionId),
+      getProjectById: (projectId) => this.getProjectById(projectId),
+      withKnowledgeTrust: (knowledge) => this.withKnowledgeTrust(knowledge),
+    });
     this.reportReader = new ReportReadService(this.db, this);
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
       listTrackedProjects: () => this.listProjects().filter((project) => project.status === "tracked"),
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       checkProjectById: (projectId) => this.checkProjectById(projectId),
+    });
+    this.knowledgeService = new KnowledgeService(this.db, {
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      getProjectById: (projectId) => this.getProjectById(projectId),
+      searchKnowledge: (query) => this.knowledge.search(query),
     });
     this.graphBuilder = new GraphBuilder(this.db, {
       listProjects: () => this.listProjects(),
@@ -1432,40 +785,7 @@ export class WorkIntelligenceStore {
     verification: VerificationSummary,
     source: VerificationUpdateSource = "agent",
   ): UpdateSessionVerificationResult {
-    const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as SessionRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", sessionId };
-    }
-
-    const decision = this.checkProjectById(row.project_id);
-    if (!decision?.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        sessionId,
-        projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const project = decision.project;
-    const previous = parseJson<VerificationSummary | undefined>(row.verification_json, undefined);
-    const next = normalizeVerification(verification);
-    const unchanged = sameVerification(previous, next);
-    if (!unchanged) {
-      const updatedAt = nowIso();
-      runImmediateSqlTransaction(this.db, () => {
-        this.db.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run(JSON.stringify(next), sessionId);
-        this.touchSession(sessionId, updatedAt);
-        this.insertVerificationUpdate(sessionId, source, previous, next, updatedAt);
-        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
-      });
-    }
-
-    const session = this.getSessionById(sessionId);
-    if (!session) {
-      throw new Error("Session verification was updated but could not be loaded.");
-    }
-    return { outcome: "updated", session, previous, ...(unchanged ? { unchanged } : {}) };
+    return this.sessionRecords.updateSessionVerification(sessionId, verification, source);
   }
 
   /**
@@ -1478,108 +798,12 @@ export class WorkIntelligenceStore {
     completedAt: string,
     input: Pick<FinalizeSessionInput, "appliedKnowledgeIds" | "contradictedKnowledgeIds">,
   ): string[] {
-    const warnings: string[] = [];
-    const contradicted = new Set(input.contradictedKnowledgeIds ?? []);
-    const feedback = [
-      ...[...new Set(input.appliedKnowledgeIds ?? [])]
-        .filter((id) => {
-          if (contradicted.has(id)) {
-            warnings.push(`${id}: listed as both applied and contradicted; kept as contradicted.`);
-            return false;
-          }
-          return true;
-        })
-        .map((id) => ({ id, applied: true })),
-      ...[...contradicted].map((id) => ({ id, applied: false })),
-    ];
-    for (const { id, applied } of feedback) {
-      const row = this.db
-        .prepare(
-          `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
-           WHERE k.id = ? AND k.project_id = ?`,
-        )
-        .get(id, projectId) as KnowledgeRow | undefined;
-      if (!row) {
-        warnings.push(`${id}: Knowledge was not found in this project.`);
-        continue;
-      }
-      const before = toKnowledge(row);
-      const after: KnowledgeRecord = applied
-        ? { ...before, lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId }
-        : { ...before, review: { reason: "contradicted", sessionId, at: completedAt } };
-      if (applied) {
-        delete after.review;
-      }
-      this.db
-        .prepare(
-          "UPDATE knowledge SET last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ? WHERE id = ?",
-        )
-        .run(
-          after.lastConfirmedAt ?? null,
-          after.lastConfirmedSessionId ?? null,
-          after.review ? JSON.stringify(after.review) : null,
-          id,
-        );
-      this.insertKnowledgeAudit({
-        knowledge: after,
-        before,
-        action: "updated",
-        changedFields: applied ? ["lastConfirmedAt", ...(before.review ? ["review"] : [])] : ["review"],
-        occurredAt: completedAt,
-      });
-    }
-    return warnings;
+    return this.knowledgeService.applyKnowledgeFeedback(projectId, sessionId, completedAt, input);
   }
 
   /** Adds the computed possiblyStale marker (see KnowledgeRecord.possiblyStale). */
   private withKnowledgeTrust(knowledge: KnowledgeRecord): KnowledgeRecord {
-    const staleness = this.knowledgeStaleness(knowledge);
-    return staleness ? { ...knowledge, possiblyStale: staleness } : knowledge;
-  }
-
-  private knowledgeStaleness(knowledge: KnowledgeRecord): KnowledgeStaleness | undefined {
-    if (knowledge.appliesTo.length === 0) {
-      return undefined;
-    }
-    const project = this.getProjectById(knowledge.projectId);
-    const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
-    const patterns = knowledge.appliesTo.map((pattern) => normalizePath(pattern, contexts)).filter(Boolean);
-    const excluded = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
-    const rows = this.db
-      .prepare(
-        `SELECT id, title, completed_at, changed_files_json FROM sessions
-         WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
-         ORDER BY completed_at ASC, id ASC`,
-      )
-      .all(knowledge.projectId, knowledge.lastConfirmedAt ?? knowledge.createdAt) as Array<{
-      id: string;
-      title: string;
-      completed_at: string;
-      changed_files_json: string;
-    }>;
-    let first: KnowledgeStaleness | undefined;
-    let sessionCount = 0;
-    for (const row of rows) {
-      if (excluded.has(row.id)) {
-        continue;
-      }
-      const paths = parseJson<string[]>(row.changed_files_json, []).filter((file) => {
-        const normalized = normalizePath(file, contexts);
-        return patterns.some((pattern) => matchesAppliesTo(normalized, pattern));
-      });
-      if (paths.length === 0) {
-        continue;
-      }
-      sessionCount += 1;
-      first ??= {
-        sessionId: row.id,
-        sessionTitle: row.title,
-        completedAt: row.completed_at,
-        paths: paths.slice(0, 5),
-        sessionCount: 0,
-      };
-    }
-    return first ? { ...first, sessionCount } : undefined;
+    return this.knowledgeService.withKnowledgeTrust(knowledge);
   }
 
   /** Opens a request for an Agent to propose Knowledge from the project's not-yet-reviewed Sessions. */
@@ -1613,74 +837,12 @@ export class WorkIntelligenceStore {
 
   /** Links or unlinks two Sessions; a pair has at most one link, so a new relation replaces the old one. */
   public linkSessions(input: LinkSessionsInput, source: VerificationUpdateSource = "agent"): LinkSessionsResult {
-    const row = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
-      { project_id: string } | undefined;
-    if (!row) {
-      return { outcome: "not_found", sessionId: input.sessionId };
-    }
-    const decision = this.checkProjectById(row.project_id);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        sessionId: input.sessionId,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-    const problem = this.linkProblem(input.sessionId, input.relatedSessionId);
-    if (problem) {
-      return { outcome: "invalid_link", sessionId: input.sessionId, reason: problem };
-    }
-    return runImmediateSqlTransaction(this.db, () => {
-      const existing = this.db
-        .prepare(
-          `SELECT session_id, related_session_id, relation FROM session_links
-           WHERE (session_id = ? AND related_session_id = ?) OR (session_id = ? AND related_session_id = ?)`,
-        )
-        .get(input.sessionId, input.relatedSessionId, input.relatedSessionId, input.sessionId) as
-        { session_id: string; related_session_id: string; relation: SessionLinkRelation } | undefined;
-      const same =
-        existing?.session_id === input.sessionId &&
-        existing.related_session_id === input.relatedSessionId &&
-        existing.relation === input.relation;
-      const duplicate = input.linked ? same : !existing;
-      if (!duplicate) {
-        this.db
-          .prepare(
-            `DELETE FROM session_links
-             WHERE (session_id = ? AND related_session_id = ?) OR (session_id = ? AND related_session_id = ?)`,
-          )
-          .run(input.sessionId, input.relatedSessionId, input.relatedSessionId, input.sessionId);
-        const changedAt = nowIso();
-        if (input.linked) {
-          this.writeSessionLink(input.sessionId, input.relatedSessionId, input.relation, source, changedAt);
-        }
-        this.touchSession(input.sessionId, changedAt);
-        this.touchSession(input.relatedSessionId, changedAt);
-      }
-      return {
-        outcome: "session_link_updated",
-        duplicate,
-        sessionId: input.sessionId,
-        links: this.getSessionLinks(input.sessionId),
-      };
-    });
+    return this.sessionRecords.linkSessions(input, source);
   }
 
   /** Both Sessions must exist in tracked projects and differ; returns why a link is not allowed. */
   private linkProblem(sessionId: string, relatedSessionId: string): string | undefined {
-    if (sessionId === relatedSessionId) {
-      return "A Session cannot be linked to itself.";
-    }
-    const related = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(relatedSessionId) as
-      { project_id: string } | undefined;
-    if (!related) {
-      return "The related Session does not exist.";
-    }
-    if (!this.checkProjectById(related.project_id).allowed) {
-      return "The related Session belongs to a project that is not tracked.";
-    }
-    return undefined;
+    return this.sessionRecords.linkProblem(sessionId, relatedSessionId);
   }
 
   private writeSessionLink(
@@ -1690,860 +852,62 @@ export class WorkIntelligenceStore {
     source: VerificationUpdateSource,
     createdAt: string,
   ): void {
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO session_links (id, session_id, related_session_id, relation, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(randomUUID(), sessionId, relatedSessionId, relation, source, createdAt);
+    this.sessionRecords.writeSessionLink(sessionId, relatedSessionId, relation, source, createdAt);
   }
 
   /** Links of one Session as seen from it, limited to tracked projects, oldest linked Session first. */
   private getSessionLinks(sessionId: string): SessionLinkRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT l.session_id, l.relation, s.id AS other_id, s.title, s.completed_at, s.voided_at, p.name AS project_name
-         FROM session_links l
-         JOIN sessions s ON s.id = CASE WHEN l.session_id = ? THEN l.related_session_id ELSE l.session_id END
-         JOIN projects p ON p.id = s.project_id
-         WHERE (l.session_id = ? OR l.related_session_id = ?) AND p.status = 'tracked'
-         ORDER BY s.completed_at ASC, s.id ASC`,
-      )
-      .all(sessionId, sessionId, sessionId) as Array<{
-      session_id: string;
-      relation: SessionLinkRelation;
-      other_id: string;
-      title: string;
-      completed_at: string;
-      voided_at: string | null;
-      project_name: string | null;
-    }>;
-    return rows.map((row) => ({
-      sessionId: row.other_id,
-      title: row.title,
-      ...(row.project_name ? { projectName: row.project_name } : {}),
-      completedAt: row.completed_at,
-      relation: row.relation === "related" ? "related" : row.session_id === sessionId ? "continues" : "continued_by",
-      ...(row.voided_at ? { voided: true } : {}),
-    }));
+    return this.sessionRecords.getSessionLinks(sessionId);
   }
 
   private touchSession(sessionId: string, at: string): void {
-    this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(at, sessionId);
+    this.sessionRecords.touchSession(sessionId, at);
   }
 
   private hasConfirmedChangedFilesForSession(sessionId: string): boolean {
-    const row = this.db
-      .prepare("SELECT changed_files_json, changed_files_confirmed FROM sessions WHERE id = ?")
-      .get(sessionId) as { changed_files_json: string | null; changed_files_confirmed?: number } | undefined;
-    return row ? isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed) : false;
-  }
-
-  private insertVerificationUpdate(
-    sessionId: string,
-    source: VerificationUpdateSource,
-    previous: VerificationSummary | undefined,
-    resulting: VerificationSummary,
-    createdAt: string,
-  ): void {
-    this.db
-      .prepare(
-        `INSERT INTO session_verification_updates (id, session_id, source, previous_json, resulting_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        randomUUID(),
-        sessionId,
-        source,
-        previous ? JSON.stringify(previous) : null,
-        JSON.stringify(resulting),
-        createdAt,
-      );
+    return this.sessionRecords.hasConfirmedChangedFilesForSession(sessionId);
   }
 
   public updateSessionMetadata(input: UpdateSessionMetadataInput): UpdateSessionMetadataResult {
-    const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(input.sessionId) as SessionRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", sessionId: input.sessionId };
-    }
-
-    const decision = this.checkProjectById(row.project_id);
-    if (!decision?.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        sessionId: input.sessionId,
-        projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const project = decision.project;
-    const current = toSession(row);
-    const pathResolver = createProjectPathResolver(project.rootPath);
-    const incomingChangedFileChanges = normalizeChangedFileChanges(
-      project.rootPath,
-      input.changedFileChanges,
-      pathResolver,
-    );
-    const normalizedChangedFiles =
-      input.changedFilesMode === "merge"
-        ? mergeChangedFiles(
-            project.rootPath,
-            current,
-            [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
-            input.changedFilesProvenance,
-            pathResolver,
-          )
-        : normalizeChangedFiles(
-            project.rootPath,
-            [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
-            input.changedFilesProvenance,
-            pathResolver,
-          );
-    const changedFileChanges =
-      input.changedFilesMode === "merge"
-        ? mergeChangedFileChanges(project.rootPath, current, incomingChangedFileChanges, pathResolver)
-        : input.changedFileChanges === undefined
-          ? current.changedFileChanges
-          : incomingChangedFileChanges;
-    const changedFilesConfirmed =
-      normalizedChangedFiles.files.length > 0 ||
-      input.changedFilesMode !== "merge" ||
-      (input.changedFileChanges?.length ?? 0) > 0 ||
-      isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed);
-    const updatedAt = nowIso();
-    const nextVerification = input.verification ? normalizeVerification(input.verification) : undefined;
-    runImmediateSqlTransaction(this.db, () => {
-      if (nextVerification && !sameVerification(current.verification, nextVerification)) {
-        this.insertVerificationUpdate(input.sessionId, "agent", current.verification, nextVerification, updatedAt);
-      }
-      this.db
-        .prepare(
-          `UPDATE sessions
-           SET changed_files_json = @changedFiles,
-               changed_files_confirmed = @changedFilesConfirmed,
-               changed_files_provenance_json = @changedFilesProvenance,
-               changed_file_changes_json = @changedFileChanges,
-               verification_json = @verification,
-               commit_sha = @commitSha,
-               git_branch = @gitBranch
-           WHERE id = @id`,
-        )
-        .run({
-          id: input.sessionId,
-          changedFiles: JSON.stringify(normalizedChangedFiles.files),
-          changedFilesConfirmed: changedFilesConfirmed ? 1 : 0,
-          changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
-          changedFileChanges: JSON.stringify(changedFileChanges),
-          verification: nextVerification
-            ? JSON.stringify(nextVerification)
-            : current.verification
-              ? JSON.stringify(current.verification)
-              : null,
-          commitSha: input.git?.commitSha ?? current.commitSha ?? null,
-          gitBranch: input.git?.branch ?? current.gitBranch ?? null,
-        });
-      if (input.startedAt && input.startedAt <= current.completedAt) {
-        this.db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?").run(input.startedAt, input.sessionId);
-      }
-      this.touchSession(input.sessionId, updatedAt);
-      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
-    });
-
-    const session = this.getSessionById(input.sessionId);
-    if (!session) {
-      throw new Error("Session metadata was updated but could not be loaded.");
-    }
-    return { outcome: "updated", session };
+    return this.sessionRecords.updateSessionMetadata(input);
   }
 
   public updateSessionSummary(input: UpdateSessionSummaryInput): UpdateSessionSummaryResult {
-    const row = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`,
-      )
-      .get(input.sessionId) as SessionRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", sessionId: input.sessionId };
-    }
-
-    const decision = this.checkProjectById(row.project_id);
-    if (!decision?.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        sessionId: input.sessionId,
-        projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const project = decision.project;
-    const mode = input.mode ?? "replace";
-    const summary = input.summary.trim();
-    if (!summary) {
-      throw new Error("Session summary must not be empty.");
-    }
-
-    return runImmediateSqlTransaction(this.db, () => {
-      const existingUpdate = this.db
-        .prepare(
-          "SELECT session_id, idempotency_key, mode, summary, previous_summary, resulting_summary FROM session_summary_updates WHERE idempotency_key = ?",
-        )
-        .get(input.idempotencyKey) as
-        | {
-            session_id: string;
-            idempotency_key: string;
-            mode: "replace" | "append";
-            summary: string;
-            previous_summary: string;
-            resulting_summary: string;
-          }
-        | undefined;
-      if (existingUpdate) {
-        if (
-          existingUpdate.session_id !== input.sessionId ||
-          existingUpdate.mode !== mode ||
-          existingUpdate.summary !== summary
-        ) {
-          return {
-            outcome: "summary_update_idempotency_conflict",
-            sessionId: input.sessionId,
-            idempotencyKey: input.idempotencyKey,
-            reason: "這個摘要更新 idempotencyKey 已經用於不同的 Session、模式或內容；請使用新的 idempotencyKey。",
-          };
-        }
-
-        const session = this.getSessionById(input.sessionId);
-        if (!session) {
-          return { outcome: "not_found", sessionId: input.sessionId };
-        }
-        return {
-          outcome: "summary_updated",
-          duplicate: true,
-          session,
-          idempotencyKey: input.idempotencyKey,
-          mode,
-          previousSummary: existingUpdate.previous_summary,
-          appliedSummary: existingUpdate.resulting_summary,
-        };
-      }
-
-      const currentRow = this.db.prepare("SELECT summary FROM sessions WHERE id = ?").get(input.sessionId) as
-        { summary?: string } | undefined;
-      if (!currentRow) {
-        return { outcome: "not_found", sessionId: input.sessionId };
-      }
-      const previousSummary = currentRow.summary ?? "";
-      const appliedSummary = mode === "append" ? `${previousSummary.trim()}\n\n${summary}` : summary;
-      const createdAt = nowIso();
-      this.db.prepare("UPDATE sessions SET summary = ? WHERE id = ?").run(appliedSummary, input.sessionId);
-      this.touchSession(input.sessionId, createdAt);
-      this.db
-        .prepare(
-          `INSERT INTO session_summary_updates (
-             id, session_id, idempotency_key, mode, summary, previous_summary, resulting_summary, created_at
-           ) VALUES (@id, @sessionId, @idempotencyKey, @mode, @summary, @previousSummary, @resultingSummary, @createdAt)`,
-        )
-        .run({
-          id: randomUUID(),
-          sessionId: input.sessionId,
-          idempotencyKey: input.idempotencyKey,
-          mode,
-          summary,
-          previousSummary,
-          resultingSummary: appliedSummary,
-          createdAt,
-        });
-      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(createdAt, project.id);
-
-      const session = this.getSessionById(input.sessionId);
-      if (!session) {
-        throw new Error("Session summary was updated but could not be loaded.");
-      }
-      return {
-        outcome: "summary_updated",
-        duplicate: false,
-        session,
-        idempotencyKey: input.idempotencyKey,
-        mode,
-        previousSummary,
-        appliedSummary,
-      };
-    });
+    return this.sessionRecords.updateSessionSummary(input);
   }
 
   public updateSessionWorkSummary(input: UpdateSessionWorkSummaryInput): UpdateSessionWorkSummaryResult {
-    const row = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`,
-      )
-      .get(input.sessionId) as SessionRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", sessionId: input.sessionId };
-    }
-
-    const decision = this.checkProjectById(row.project_id);
-    if (!decision?.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        sessionId: input.sessionId,
-        projectStatus: decision?.projectStatus ?? "unregistered",
-        reason: decision?.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const mode = input.mode ?? "replace";
-    const normalizedPatch = normalizeWorkSummaryPatch(input.workSummary);
-    if (Object.keys(normalizedPatch).length === 0) {
-      throw new Error("At least one workSummary section is required.");
-    }
-    const replacement = mode === "replace" ? completeWorkSummary(normalizedPatch) : undefined;
-    if (mode === "replace" && !replacement) {
-      throw new Error("replace mode requires all five workSummary sections.");
-    }
-    const requestJson = JSON.stringify(normalizedPatch);
-    const project = decision.project;
-
-    return runImmediateSqlTransaction(this.db, () => {
-      const existingUpdate = this.db
-        .prepare(
-          `SELECT session_id, idempotency_key, mode, work_summary_json, previous_work_summary_json, resulting_work_summary_json
-           FROM session_work_summary_updates
-           WHERE idempotency_key = ?`,
-        )
-        .get(input.idempotencyKey) as
-        | {
-            session_id: string;
-            idempotency_key: string;
-            mode: "replace" | "patch";
-            work_summary_json: string;
-            previous_work_summary_json: string;
-            resulting_work_summary_json: string;
-          }
-        | undefined;
-      if (existingUpdate) {
-        if (
-          existingUpdate.session_id !== input.sessionId ||
-          existingUpdate.mode !== mode ||
-          existingUpdate.work_summary_json !== requestJson
-        ) {
-          return {
-            outcome: "work_summary_update_idempotency_conflict",
-            sessionId: input.sessionId,
-            idempotencyKey: input.idempotencyKey,
-            reason:
-              "這個 workSummary 更新 idempotencyKey 已經用於不同的 Session、模式或內容；請使用新的 idempotencyKey。",
-          };
-        }
-
-        const session = this.getSessionById(input.sessionId);
-        const appliedWorkSummary = parseWorkSummarySections(existingUpdate.resulting_work_summary_json);
-        if (!session || !appliedWorkSummary) {
-          return { outcome: "not_found", sessionId: input.sessionId };
-        }
-        const previousWorkSummary = parseWorkSummarySections(existingUpdate.previous_work_summary_json);
-        return {
-          outcome: "work_summary_updated",
-          duplicate: true,
-          session,
-          idempotencyKey: input.idempotencyKey,
-          mode,
-          ...(previousWorkSummary ? { previousWorkSummary } : {}),
-          appliedWorkSummary,
-        };
-      }
-
-      const currentRow = this.db.prepare("SELECT work_summary_json FROM sessions WHERE id = ?").get(input.sessionId) as
-        | {
-            work_summary_json?: string | null;
-          }
-        | undefined;
-      if (!currentRow) {
-        return { outcome: "not_found", sessionId: input.sessionId };
-      }
-      const previousWorkSummary = parseWorkSummarySections(currentRow.work_summary_json ?? null);
-      const appliedWorkSummary = replacement ?? mergeWorkSummary(previousWorkSummary, normalizedPatch);
-      const createdAt = nowIso();
-      this.db
-        .prepare("UPDATE sessions SET work_summary_json = ? WHERE id = ?")
-        .run(JSON.stringify(appliedWorkSummary), input.sessionId);
-      this.touchSession(input.sessionId, createdAt);
-      this.db
-        .prepare(
-          `INSERT INTO session_work_summary_updates (
-             id, session_id, idempotency_key, mode, work_summary_json, previous_work_summary_json, resulting_work_summary_json, created_at
-           ) VALUES (@id, @sessionId, @idempotencyKey, @mode, @workSummary, @previousWorkSummary, @resultingWorkSummary, @createdAt)`,
-        )
-        .run({
-          id: randomUUID(),
-          sessionId: input.sessionId,
-          idempotencyKey: input.idempotencyKey,
-          mode,
-          workSummary: requestJson,
-          previousWorkSummary: JSON.stringify(previousWorkSummary ?? {}),
-          resultingWorkSummary: JSON.stringify(appliedWorkSummary),
-          createdAt,
-        });
-      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(createdAt, project.id);
-
-      const session = this.getSessionById(input.sessionId);
-      if (!session) {
-        throw new Error("Session workSummary was updated but could not be loaded.");
-      }
-      return {
-        outcome: "work_summary_updated",
-        duplicate: false,
-        session,
-        idempotencyKey: input.idempotencyKey,
-        mode,
-        ...(previousWorkSummary ? { previousWorkSummary } : {}),
-        appliedWorkSummary,
-      };
-    });
+    return this.sessionRecords.updateSessionWorkSummary(input);
   }
 
   public getSessionDetail(sessionId: string): SessionDetail | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?`,
-      )
-      .get(sessionId) as SessionRow | undefined;
-    if (!row) {
-      return undefined;
-    }
-
-    const project = this.getProjectById(row.project_id);
-    if (!project || project.status !== "tracked") {
-      return undefined;
-    }
-
-    const events = this.db
-      .prepare("SELECT * FROM work_events WHERE session_id = ? ORDER BY occurred_at ASC")
-      .all(sessionId) as EventRow[];
-    const snapshots = this.db
-      .prepare("SELECT * FROM raw_snapshots WHERE session_id = ? ORDER BY captured_at ASC")
-      .all(sessionId) as SnapshotRow[];
-    const evidence = this.db
-      .prepare("SELECT * FROM evidence WHERE session_id = ? ORDER BY captured_at ASC, rowid ASC")
-      .all(sessionId) as EvidenceRow[];
-    const knowledge = this.db
-      .prepare(
-        `SELECT k.*, p.name AS project_name
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE k.session_id = ?
-         ORDER BY k.updated_at DESC, k.id ASC`,
-      )
-      .all(sessionId) as KnowledgeRow[];
-
-    return {
-      session: toSession(row),
-      project,
-      events: events.map(toEvent),
-      rawSnapshots: snapshots.map(toSnapshot),
-      evidence: evidence.map(toEvidence),
-      knowledge: knowledge.map((row) => this.withKnowledgeTrust(toKnowledge(row))),
-      links: this.getSessionLinks(sessionId),
-      verificationHistory: (
-        this.db
-          .prepare(
-            "SELECT * FROM session_verification_updates WHERE session_id = ? ORDER BY created_at DESC, rowid DESC",
-          )
-          .all(sessionId) as VerificationUpdateRow[]
-      ).map(toVerificationUpdate),
-      voidHistory: (
-        this.db
-          .prepare("SELECT * FROM void_audit WHERE session_id = ? ORDER BY occurred_at DESC, rowid DESC")
-          .all(sessionId) as VoidAuditRow[]
-      ).map(toVoidAudit),
-    };
+    return this.sessionRecords.getSessionDetail(sessionId);
   }
 
   /** Voids or restores a Session. Voided Sessions leave lists, reports, the graph, context, and recall. */
   public setSessionVoid(input: SetSessionVoidInput): SetSessionVoidResult {
-    const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(input.sessionId) as SessionRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", sessionId: input.sessionId };
-    }
-    const decision = this.checkProjectById(row.project_id);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        sessionId: input.sessionId,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-    const projectId = decision.project.id;
-    const reason = requireVoidReason(input.voided, input.reason);
-    return runImmediateSqlTransaction(this.db, () => {
-      const current = this.db.prepare("SELECT voided_at FROM sessions WHERE id = ?").get(input.sessionId) as {
-        voided_at: string | null;
-      };
-      const duplicate = Boolean(current.voided_at) === input.voided;
-      if (!duplicate) {
-        const occurredAt = nowIso();
-        this.db
-          .prepare("UPDATE sessions SET voided_at = ?, void_reason = ? WHERE id = ?")
-          .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.sessionId);
-        this.insertVoidAudit("session", input.sessionId, input.sessionId, projectId, input.voided, reason, occurredAt);
-        this.touchSession(input.sessionId, occurredAt);
-        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
-      }
-      const session = this.getSessionById(input.sessionId);
-      if (!session) {
-        throw new Error("Session void state was updated but the Session could not be loaded.");
-      }
-      return { outcome: "session_void_updated", duplicate, session };
-    });
+    return this.sessionRecords.setSessionVoid(input);
   }
 
   /** Marks evidence as wrong (or restores it); it stays in Session detail but leaves reports and the graph. */
   public setEvidenceVoid(input: SetEvidenceVoidInput): SetEvidenceVoidResult {
-    const row = this.db.prepare("SELECT * FROM evidence WHERE id = ?").get(input.evidenceId) as EvidenceRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", evidenceId: input.evidenceId };
-    }
-    const decision = this.checkProjectById(row.project_id);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        evidenceId: input.evidenceId,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-    const projectId = decision.project.id;
-    const reason = requireVoidReason(input.voided, input.reason);
-    return runImmediateSqlTransaction(this.db, () => {
-      const duplicate = Boolean(row.voided_at) === input.voided;
-      if (!duplicate) {
-        const occurredAt = nowIso();
-        this.db
-          .prepare("UPDATE evidence SET voided_at = ?, void_reason = ? WHERE id = ?")
-          .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.evidenceId);
-        this.insertVoidAudit("evidence", input.evidenceId, row.session_id, projectId, input.voided, reason, occurredAt);
-        this.touchSession(row.session_id, occurredAt);
-        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
-      }
-      const updated = this.db.prepare("SELECT * FROM evidence WHERE id = ?").get(input.evidenceId) as EvidenceRow;
-      return { outcome: "evidence_void_updated", duplicate, evidence: toEvidence(updated) };
-    });
-  }
-
-  private insertVoidAudit(
-    targetType: VoidTargetType,
-    targetId: string,
-    sessionId: string,
-    projectId: string,
-    voided: boolean,
-    reason: string | undefined,
-    occurredAt: string,
-  ): void {
-    this.db
-      .prepare(
-        `INSERT INTO void_audit (id, target_type, target_id, session_id, project_id, action, reason, occurred_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        randomUUID(),
-        targetType,
-        targetId,
-        sessionId,
-        projectId,
-        voided ? "voided" : "restored",
-        reason ?? null,
-        occurredAt,
-      );
+    return this.sessionRecords.setEvidenceVoid(input);
   }
 
   public recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult {
-    const decision = this.checkProjectRoot(input.projectRoot);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        projectRoot: decision.canonicalRoot,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const project = decision.project;
-    return runImmediateSqlTransaction(this.db, () => {
-      if (input.sessionId) {
-        const session = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
-          { project_id?: string } | undefined;
-        if (!session || session.project_id !== project.id) {
-          return { outcome: "not_found", sessionId: input.sessionId };
-        }
-      }
-
-      const existing = this.db
-        .prepare(
-          `SELECT k.*, p.name AS project_name
-           FROM knowledge k
-           JOIN projects p ON p.id = k.project_id
-           WHERE k.project_id = ? AND k.idempotency_key = ?`,
-        )
-        .get(project.id, input.idempotencyKey) as KnowledgeRow | undefined;
-      if (existing) {
-        return {
-          outcome: "knowledge_recorded",
-          duplicate: true,
-          knowledge: this.withKnowledgeTrust(toKnowledge(existing)),
-        };
-      }
-
-      const createdAt = nowIso();
-      const knowledge: KnowledgeRecord = {
-        id: randomUUID(),
-        projectId: project.id,
-        projectName: project.name,
-        sessionId: input.sessionId,
-        idempotencyKey: input.idempotencyKey,
-        kind: input.kind,
-        title: input.title.trim(),
-        body: input.body.trim(),
-        tags: [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))],
-        references: [...new Set((input.references ?? []).map((reference) => reference.trim()).filter(Boolean))],
-        status: "active",
-        createdAt,
-        updatedAt: createdAt,
-        appliesTo: cleanList(input.appliesTo),
-      };
-      const warnings: string[] = [];
-      const superseded = input.supersedesId
-        ? (this.db
-            .prepare(
-              `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
-               WHERE k.id = ? AND k.project_id = ?`,
-            )
-            .get(input.supersedesId, project.id) as KnowledgeRow | undefined)
-        : undefined;
-      if (input.supersedesId && !superseded) {
-        warnings.push(`supersedesId ${input.supersedesId} was not found in this project.`);
-      }
-      if (superseded) {
-        knowledge.supersedesId = superseded.id;
-      }
-
-      this.db
-        .prepare(
-          `INSERT INTO knowledge (
-             id, project_id, session_id, idempotency_key, kind, title, body,
-             tags_json, references_json, status, created_at, updated_at, applies_to_json, supersedes_id
-           ) VALUES (
-             @id, @projectId, @sessionId, @idempotencyKey, @kind, @title, @body,
-             @tags, @references, @status, @createdAt, @updatedAt, @appliesTo, @supersedesId
-           )`,
-        )
-        .run({
-          id: knowledge.id,
-          projectId: knowledge.projectId,
-          sessionId: knowledge.sessionId ?? null,
-          idempotencyKey: knowledge.idempotencyKey,
-          kind: knowledge.kind,
-          title: knowledge.title,
-          body: knowledge.body,
-          tags: JSON.stringify(knowledge.tags),
-          references: JSON.stringify(knowledge.references),
-          status: knowledge.status,
-          createdAt: knowledge.createdAt,
-          updatedAt: knowledge.updatedAt,
-          appliesTo: JSON.stringify(knowledge.appliesTo),
-          supersedesId: knowledge.supersedesId ?? null,
-        });
-      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(createdAt, project.id);
-      this.insertKnowledgeAudit({
-        knowledge,
-        action: "created",
-        changedFields: [
-          "kind",
-          "title",
-          "body",
-          "tags",
-          "references",
-          "status",
-          ...(knowledge.appliesTo.length > 0 ? ["appliesTo"] : []),
-          ...(knowledge.supersedesId ? ["supersedesId"] : []),
-        ],
-        occurredAt: createdAt,
-      });
-      if (superseded && superseded.status === "active") {
-        const before = toKnowledge(superseded);
-        const after: KnowledgeRecord = { ...before, status: "archived", updatedAt: createdAt };
-        this.db
-          .prepare("UPDATE knowledge SET status = 'archived', updated_at = ? WHERE id = ?")
-          .run(createdAt, before.id);
-        this.insertKnowledgeAudit({
-          knowledge: after,
-          before,
-          action: "archived",
-          changedFields: ["status"],
-          occurredAt: createdAt,
-        });
-      }
-
-      return {
-        outcome: "knowledge_recorded",
-        duplicate: false,
-        knowledge: this.withKnowledgeTrust(knowledge),
-        ...(warnings.length > 0 ? { warnings } : {}),
-      };
-    });
+    return this.knowledgeService.recordKnowledge(input);
   }
 
   public updateKnowledge(input: UpdateKnowledgeInput): UpdateKnowledgeResult {
-    const decision = this.checkProjectRoot(input.projectRoot);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        projectRoot: decision.canonicalRoot,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const row = this.db
-      .prepare(
-        `SELECT k.*, p.name AS project_name
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE k.id = ? AND k.project_id = ?`,
-      )
-      .get(input.knowledgeId, decision.project.id) as KnowledgeRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", knowledgeId: input.knowledgeId };
-    }
-
-    const current = toKnowledge(row);
-    const updatedAt = nowIso();
-    const next: KnowledgeRecord = {
-      ...current,
-      kind: input.kind ?? current.kind,
-      title: input.title?.trim() || current.title,
-      body: input.body?.trim() || current.body,
-      tags: input.tags ? [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))] : current.tags,
-      references: input.references
-        ? [...new Set(input.references.map((reference) => reference.trim()).filter(Boolean))]
-        : current.references,
-      status: input.status ?? current.status,
-      updatedAt,
-      appliesTo: input.appliesTo ? cleanList(input.appliesTo) : current.appliesTo,
-      ...(input.confirm ? { lastConfirmedAt: updatedAt } : {}),
-    };
-    if (input.confirm) {
-      delete next.lastConfirmedSessionId;
-      delete next.review;
-    }
-    const changedFields = [
-      ...(current.kind !== next.kind ? ["kind"] : []),
-      ...(current.title !== next.title ? ["title"] : []),
-      ...(current.body !== next.body ? ["body"] : []),
-      ...(JSON.stringify(current.tags) !== JSON.stringify(next.tags) ? ["tags"] : []),
-      ...(JSON.stringify(current.references) !== JSON.stringify(next.references) ? ["references"] : []),
-      ...(current.status !== next.status ? ["status"] : []),
-      ...(JSON.stringify(current.appliesTo) !== JSON.stringify(next.appliesTo) ? ["appliesTo"] : []),
-      ...(input.confirm ? ["lastConfirmedAt"] : []),
-      ...(input.confirm && current.review ? ["review"] : []),
-    ];
-    const action: KnowledgeAuditAction =
-      current.status !== next.status ? (next.status === "archived" ? "archived" : "restored") : "updated";
-
-    this.db
-      .prepare(
-        `UPDATE knowledge
-         SET kind = @kind,
-             title = @title,
-             body = @body,
-             tags_json = @tags,
-             references_json = @references,
-             status = @status,
-             updated_at = @updatedAt,
-             applies_to_json = @appliesTo,
-             last_confirmed_at = @lastConfirmedAt,
-             last_confirmed_session_id = @lastConfirmedSessionId,
-             review_json = @review
-         WHERE id = @id AND project_id = @projectId`,
-      )
-      .run({
-        id: next.id,
-        projectId: next.projectId,
-        kind: next.kind,
-        title: next.title,
-        body: next.body,
-        tags: JSON.stringify(next.tags),
-        references: JSON.stringify(next.references),
-        status: next.status,
-        updatedAt: next.updatedAt,
-        appliesTo: JSON.stringify(next.appliesTo),
-        lastConfirmedAt: next.lastConfirmedAt ?? null,
-        lastConfirmedSessionId: next.lastConfirmedSessionId ?? null,
-        review: next.review ? JSON.stringify(next.review) : null,
-      });
-    this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, decision.project.id);
-    this.insertKnowledgeAudit({ knowledge: next, before: current, action, changedFields, occurredAt: updatedAt });
-
-    return { outcome: "knowledge_updated", knowledge: this.withKnowledgeTrust(next) };
+    return this.knowledgeService.updateKnowledge(input);
   }
 
   public getKnowledgeHistory(input: KnowledgeHistoryQuery): KnowledgeHistoryResult {
-    const decision = this.checkProjectRoot(input.projectRoot);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        knowledgeId: input.knowledgeId,
-        projectRoot: decision.canonicalRoot,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-
-    const row = this.db
-      .prepare(
-        `SELECT k.*, p.name AS project_name
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE k.id = ? AND k.project_id = ?`,
-      )
-      .get(input.knowledgeId, decision.project.id) as KnowledgeRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", knowledgeId: input.knowledgeId };
-    }
-
-    const limit = Math.min(Math.max(input.limit ?? 100, 1), 200);
-    const auditRows = this.db
-      .prepare(
-        `SELECT *
-         FROM knowledge_audit
-         WHERE knowledge_id = ? AND project_id = ?
-         ORDER BY occurred_at DESC, rowid DESC
-         LIMIT ?`,
-      )
-      .all(input.knowledgeId, decision.project.id, limit) as KnowledgeAuditRow[];
-
-    return {
-      outcome: "knowledge_history",
-      project: decision.project,
-      knowledge: toKnowledge(row),
-      history: auditRows.map(toKnowledgeAudit),
-    };
+    return this.knowledgeService.getKnowledgeHistory(input);
   }
 
   public searchKnowledge(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
-    const result = this.knowledge.search(options);
-    return result.outcome === "knowledge"
-      ? { ...result, items: result.items.map((item) => this.withKnowledgeTrust(item)) }
-      : result;
+    return this.knowledgeService.searchKnowledge(options);
   }
 
   public getGraph(options: GraphQuery = {}): GraphQueryResult {
@@ -2993,45 +1357,5 @@ export class WorkIntelligenceStore {
     } catch {
       return undefined;
     }
-  }
-
-  private insertKnowledgeAudit(input: {
-    knowledge: KnowledgeRecord;
-    before?: KnowledgeRecord;
-    action: KnowledgeAuditAction;
-    changedFields: string[];
-    occurredAt: string;
-  }): void {
-    const audit: KnowledgeAuditRecord = {
-      id: randomUUID(),
-      knowledgeId: input.knowledge.id,
-      projectId: input.knowledge.projectId,
-      action: input.action,
-      ...(input.before ? { before: input.before } : {}),
-      after: input.knowledge,
-      changedFields: [...new Set(input.changedFields)],
-      occurredAt: input.occurredAt,
-    };
-
-    this.db
-      .prepare(
-        `INSERT INTO knowledge_audit (
-           id, knowledge_id, project_id, action, before_json, after_json,
-           changed_fields_json, occurred_at
-         ) VALUES (
-           @id, @knowledgeId, @projectId, @action, @before, @after,
-           @changedFields, @occurredAt
-         )`,
-      )
-      .run({
-        id: audit.id,
-        knowledgeId: audit.knowledgeId,
-        projectId: audit.projectId,
-        action: audit.action,
-        before: audit.before ? JSON.stringify(audit.before) : null,
-        after: JSON.stringify(audit.after),
-        changedFields: JSON.stringify(audit.changedFields),
-        occurredAt: audit.occurredAt,
-      });
   }
 }

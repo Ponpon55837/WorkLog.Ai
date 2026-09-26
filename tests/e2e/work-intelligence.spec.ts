@@ -1390,10 +1390,12 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
+  // This fixture creates many records and checks three viewport sizes; allow setup and assertions 60 seconds.
   test("keeps long lists and report/project tables internally scrollable at desktop, tablet, and mobile widths", async ({
     page,
     request,
   }) => {
+    test.setTimeout(60_000);
     const browserErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") {
