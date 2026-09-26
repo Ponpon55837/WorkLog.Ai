@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatDuration } from "../../../apps/web/src/utils/format.js";
+import { ApiError } from "../../../apps/web/src/api/client.js";
+import { errorMessage, formatBytes, formatDuration } from "../../../apps/web/src/utils/format.js";
 
 describe("formatBytes", () => {
   it("keeps small sizes in bytes and scales larger sizes", () => {
@@ -26,5 +27,23 @@ describe("formatDuration", () => {
   it("returns an empty label for invalid or reversed intervals", () => {
     expect(formatDuration("invalid", "2026-01-01T00:00:00.000Z")).toBe("");
     expect(formatDuration("2026-01-02T00:00:00.000Z", "2026-01-01T00:00:00.000Z")).toBe("");
+  });
+});
+
+describe("errorMessage", () => {
+  it("localizes API errors by machine-readable code", () => {
+    expect(errorMessage(new ApiError("PROJECT_NAME_MISMATCH", 409, "English message"), "fallback")).toBe(
+      "輸入的名稱與專案名稱不相符，專案尚未刪除。",
+    );
+    expect(errorMessage(new ApiError("database_busy", 503, "English message"), "fallback")).toBe(
+      "資料庫暫時忙碌，請稍後再試。",
+    );
+  });
+
+  it("uses the caller fallback for unknown API codes instead of exposing server text", () => {
+    expect(errorMessage(new ApiError("new_server_code", 500, "private internal message"), "fallback")).toBe("fallback");
+    expect(errorMessage(new ApiError("internal_error", 500, "Internal server error."), "刪除作業未完成。")).toBe(
+      "刪除作業未完成。",
+    );
   });
 });

@@ -1,4 +1,4 @@
-import type { WorkReport } from "@work-intelligence/core";
+import type { ApiErrorCode, WorkReport } from "@work-intelligence/core";
 
 export function formatDate(value: string): string {
   return new Intl.DateTimeFormat("zh-TW", {
@@ -73,7 +73,36 @@ export function graphNodeLabel(value: string, maxDisplayUnits = 25): string {
   return label;
 }
 
+const apiErrorMessages: Record<string, string> = {
+  invalid_input: "輸入資料有誤，請檢查後再試。",
+  not_found: "找不到請求的資料，請重新整理後再試。",
+  conflict: "資料狀態已變更，請重新整理後再試。",
+  payload_too_large: "資料超過可處理大小。",
+  unsupported_media_type: "請求格式不支援。",
+  host_not_allowed: "請求主機不受允許。",
+  origin_not_allowed: "請求來源不受允許。",
+  service_unavailable: "服務暫時無法使用，請稍後再試。",
+  project_not_found: "找不到指定專案，請重新整理專案清單。",
+  invalid_bundle: "匯入檔格式無效，請確認檔案內容。",
+  unsupported_schema: "匯入檔的資料版本不受支援。",
+  invalid_project_deletion_confirmation: "刪除確認資料無效，請重新輸入完整專案名稱。",
+  backup_unavailable: "目前無法使用備份功能。",
+  database_busy: "資料庫暫時忙碌，請稍後再試。",
+  PROJECT_NOT_FOUND: "找不到這個專案；請重新整理專案清單。",
+  PROJECT_NAME_MISMATCH: "輸入的名稱與專案名稱不相符，專案尚未刪除。",
+  PROJECT_BACKUP_FAILED: "無法建立並檢查刪除前備份，專案尚未刪除。請確認資料庫可寫入後再試。",
+  PROJECT_DELETE_FAILED: "刪除作業未完成，專案資料已保留；刪除前備份仍在。",
+  network_error: "無法連線至本機 API，請確認 API 是否已啟動。",
+  malformed_response: "API 回應格式不正確，請重新整理後再試。",
+} satisfies Partial<Record<ApiErrorCode | "network_error" | "malformed_response", string>>;
+
 export function errorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "object" && error !== null && "code" in error && "status" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string") {
+      return apiErrorMessages[code] ?? fallback;
+    }
+  }
   return error instanceof Error ? error.message : fallback;
 }
 

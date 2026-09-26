@@ -1,5 +1,29 @@
 export const PROJECT_STATUSES = ["unregistered", "tracked", "paused", "ignored"] as const;
 
+export const API_ERROR_CODES = [
+  "invalid_input",
+  "not_found",
+  "conflict",
+  "payload_too_large",
+  "unsupported_media_type",
+  "host_not_allowed",
+  "origin_not_allowed",
+  "service_unavailable",
+  "internal_error",
+  "project_not_found",
+  "invalid_bundle",
+  "unsupported_schema",
+  "invalid_project_deletion_confirmation",
+  "backup_unavailable",
+  "database_busy",
+  "PROJECT_NOT_FOUND",
+  "PROJECT_NAME_MISMATCH",
+  "PROJECT_BACKUP_FAILED",
+  "PROJECT_DELETE_FAILED",
+] as const;
+
+export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
+
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 export type PolicyStatus = ProjectStatus | "unregistered";
 

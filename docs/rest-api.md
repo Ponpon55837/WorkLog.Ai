@@ -6,6 +6,43 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 
 日期參數（`from`、`to`、`date`）是 server 所在系統時區的日曆日期；報告回應的 `timezone` 會標出使用的 IANA 時區。
 
+## 錯誤回應與代碼
+
+由 API 錯誤處理器回覆的錯誤會保留既有 `error` 文字，並新增機器可讀的 `code`；驗證細節有提供時會附在 `details`：
+
+```json
+{ "error": "Invalid JSON request body.", "code": "invalid_input" }
+```
+
+| HTTP 狀態 | `code` | 說明 |
+| --- | --- | --- |
+| 400 | `invalid_input` | JSON、查詢參數或輸入資料驗證失敗。 |
+| 403 | `origin_not_allowed` | 請求來源不在允許清單。 |
+| 404 | `not_found` | 找不到 API 路由或一般資源。 |
+| 409 | `conflict` | 一般資源狀態衝突。 |
+| 413 | `payload_too_large` | 請求或匯出資料超過大小上限。 |
+| 415 | `unsupported_media_type` | 寫入請求未使用 JSON 格式。 |
+| 421 | `host_not_allowed` | `Host` 不在允許清單。 |
+| 503 | `service_unavailable` | 服務暫時無法完成請求。 |
+| 500 | `internal_error` | 未分類的伺服器錯誤；回應不會暴露內部錯誤內容。 |
+
+以下端點使用較具體的代碼；其他欄位與狀態碼維持各端點原有定義：
+
+| `code` | HTTP 狀態 | 說明 |
+| --- | --- | --- |
+| `database_busy` | 503 | SQLite 回報 `SQLITE_BUSY` 或 `SQLITE_LOCKED`；使用安全的資料庫忙碌訊息。 |
+| `backup_unavailable` | 409 | 備份功能或備份檔案目前不可用。備份清單／建立回應仍保留 `outcome` 與 `reason`，並附加 `code` 和相容用的 `error` 欄位。 |
+| `project_not_found` | 404 | 專案資料轉移操作找不到指定專案。 |
+| `invalid_bundle` | 400 | 可攜式匯入檔與所選匯入範圍不相符或無效。 |
+| `unsupported_schema` | 400 | 可攜式匯入檔的 schema 版本不受支援。 |
+| `invalid_project_deletion_confirmation` | 400 | 專案刪除確認內容未通過驗證。 |
+| `PROJECT_NOT_FOUND` | 404 | 專案刪除操作找不到專案。 |
+| `PROJECT_NAME_MISMATCH` | 409 | 專案刪除確認名稱不相符。 |
+| `PROJECT_BACKUP_FAILED` | 503 | 專案刪除前無法建立必要備份。 |
+| `PROJECT_DELETE_FAILED` | 500 | 專案刪除交易失敗，既有備份仍保留。 |
+
+Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code` 顯示繁體中文訊息；`network_error` 與 `malformed_response` 是 client 本地代碼，不會由 REST API 回傳。
+
 > 回到 [README](../README.md)
 
 | Method   | Route                                            | 用途                                                                                   |

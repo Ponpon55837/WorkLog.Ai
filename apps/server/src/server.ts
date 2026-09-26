@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
 import type {
+  ApiErrorCode,
   DatabaseBackup,
   FolderPickResult,
   ProjectDataExportScope,
@@ -182,8 +183,37 @@ function sendJson(response: ServerResponse, statusCode: number, payload: unknown
   response.end(JSON.stringify(payload));
 }
 
-function sendError(response: ServerResponse, statusCode: number, message: string, details?: unknown): void {
-  sendJson(response, statusCode, { error: message, details });
+function defaultApiErrorCode(statusCode: number): ApiErrorCode {
+  switch (statusCode) {
+    case 400:
+      return "invalid_input";
+    case 403:
+      return "origin_not_allowed";
+    case 404:
+      return "not_found";
+    case 409:
+      return "conflict";
+    case 413:
+      return "payload_too_large";
+    case 415:
+      return "unsupported_media_type";
+    case 421:
+      return "host_not_allowed";
+    case 503:
+      return "service_unavailable";
+    default:
+      return "internal_error";
+  }
+}
+
+function sendError(
+  response: ServerResponse,
+  statusCode: number,
+  message: string,
+  details?: unknown,
+  code: ApiErrorCode = defaultApiErrorCode(statusCode),
+): void {
+  sendJson(response, statusCode, { error: message, code, details });
 }
 
 function sendProjectDataTransferError(response: ServerResponse, error: unknown): boolean {
@@ -192,12 +222,12 @@ function sendProjectDataTransferError(response: ServerResponse, error: unknown):
   }
   switch (error.code) {
     case "project_not_found":
-      sendError(response, 404, error.message);
+      sendError(response, 404, error.message, undefined, error.code);
       return true;
     case "invalid_input":
     case "invalid_bundle":
     case "unsupported_schema":
-      sendError(response, 400, error.message);
+      sendError(response, 400, error.message, undefined, error.code);
       return true;
   }
 }
@@ -447,7 +477,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
 
       if (request.method === "GET" && requestUrl.pathname === "/api/backups") {
         const result = store.listBackups();
-        sendJson(response, result.outcome === "database_backups" ? 200 : 409, result);
+        if (result.outcome === "backup_unavailable") {
+          sendJson(response, 409, { ...result, error: result.reason, code: "backup_unavailable" });
+        } else {
+          sendJson(response, 200, result);
+        }
         return;
       }
 
@@ -455,7 +489,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         // Requiring a JSON body keeps cross-site form posts from triggering backups.
         await readJsonBody(request);
         const result = store.createBackup();
-        sendJson(response, result.outcome === "database_backups" ? 201 : 409, result);
+        if (result.outcome === "backup_unavailable") {
+          sendJson(response, 409, { ...result, error: result.reason, code: "backup_unavailable" });
+        } else {
+          sendJson(response, 201, result);
+        }
         return;
       }
 
@@ -488,7 +526,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         } else if (result.outcome === "invalid_backup_file_name") {
           sendError(response, 400, "備份檔名無效。");
         } else {
-          sendError(response, 409, result.reason);
+          sendError(response, 409, result.reason, undefined, "backup_unavailable");
         }
         return;
       }
@@ -926,7 +964,13 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
       ) {
         const parsed = deleteProjectInputSchema.safeParse(await readJsonBody(request));
         if (!parsed.success) {
-          sendError(response, 400, "Invalid project deletion confirmation.", parsed.error.flatten());
+          sendError(
+            response,
+            400,
+            "Invalid project deletion confirmation.",
+            parsed.error.flatten(),
+            "invalid_project_deletion_confirmation",
+          );
           return;
         }
         try {
@@ -937,20 +981,28 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           }
           switch (error.code) {
             case "PROJECT_NOT_FOUND":
-              sendError(response, 404, "Project not found.");
+              sendError(response, 404, "Project not found.", undefined, error.code);
               return;
             case "PROJECT_NAME_MISMATCH":
-              sendError(response, 409, "The confirmation name does not match the project name.");
+              sendError(response, 409, "The confirmation name does not match the project name.", undefined, error.code);
               return;
             case "PROJECT_BACKUP_FAILED":
               sendError(
                 response,
                 503,
                 "The required pre-deletion backup could not be created; the project was not deleted.",
+                undefined,
+                error.code,
               );
               return;
             case "PROJECT_DELETE_FAILED":
-              sendError(response, 500, "Project deletion failed; the pre-deletion backup is preserved.");
+              sendError(
+                response,
+                500,
+                "Project deletion failed; the pre-deletion backup is preserved.",
+                undefined,
+                error.code,
+              );
               return;
           }
         }
@@ -1329,7 +1381,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
       }
 
       if (isDatabaseBusyError(error)) {
-        sendError(response, 503, DATABASE_BUSY_MESSAGE);
+        sendError(response, 503, DATABASE_BUSY_MESSAGE, undefined, "database_busy");
         return;
       }
 
