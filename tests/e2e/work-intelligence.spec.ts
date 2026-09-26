@@ -1575,6 +1575,9 @@ test.describe("Work Intelligence browser regression", () => {
 
       await page.goto("/sessions");
       const sessionList = await expectBoundedVirtualList(page, "工作歷程清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(sessionList);
+      }
       await expectPaginationVisibleWithinViewport(page, "工作歷程每頁筆數");
       await expectUserScrollsListInternally(page, "工作歷程清單");
       await expectNoHorizontalOverflow(page);
@@ -1582,6 +1585,9 @@ test.describe("Work Intelligence browser regression", () => {
 
       await page.goto("/knowledge");
       const knowledgeList = await expectBoundedVirtualList(page, "工作知識清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(knowledgeList);
+      }
       expect(await knowledgeList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
       await expectPaginationVisibleWithinViewport(page, "Knowledge 每頁筆數");
       await expectBoundedVirtualList(page, "Knowledge 候選清單");
@@ -1633,12 +1639,19 @@ test.describe("Work Intelligence browser regression", () => {
 
       await page.getByRole("tab", { name: "原始紀錄" }).click();
       const reportSessionList = await expectBoundedVirtualList(page, "報告原始工作紀錄清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(reportSessionList);
+      }
       expect(await reportSessionList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
       await expectPaginationVisibleWithinViewport(page, "報告原始工作紀錄每頁筆數");
+      await expectUserScrollsListInternally(page, "報告原始工作紀錄清單");
       await expectNoHorizontalOverflow(page);
 
       await page.getByRole("tab", { name: "證據" }).click();
       const reportEvidenceList = await expectBoundedVirtualList(page, "報告來源證據清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(reportEvidenceList);
+      }
       expect(await reportEvidenceList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
       await expectPaginationVisibleWithinViewport(page, "報告來源證據每頁筆數");
       await expectNoHorizontalOverflow(page);

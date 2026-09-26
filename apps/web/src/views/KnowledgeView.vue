@@ -194,6 +194,8 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
       :items="knowledgeItems"
       :enabled="true"
       fit-viewport
+      fit-viewport-to-panel
+      fill-available-space
       :estimate-item-height="140"
       label="工作知識清單"
     >
