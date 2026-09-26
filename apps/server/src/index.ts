@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { DatabaseInitializationError, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { databasePath, storeOptions } from "./config.js";
+import { describeListenError } from "./listen-error.js";
 import { createApiHandler } from "./server.js";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
 
@@ -18,13 +19,9 @@ function startApi(): void {
   const webDirectory = process.env.WORK_INTELLIGENCE_WEB_DIST;
   const server = createServer(createApiHandler(store, webDirectory ? { webDirectory } : {}));
 
-  server.listen(port, "127.0.0.1", () => {
-    console.error(`Work Intelligence API listening on http://127.0.0.1:${port}`);
-    console.error(`SQLite database: ${databasePath}`);
-  });
-
-  // Daily automatic backup: checked at start and hourly; a backup is written once the newest is a day old.
+  // Daily automatic backup: checked once listening and hourly; a backup is written once the newest is a day old.
   const backupCheckMs = 60 * 60 * 1000;
+  let backupTimer: NodeJS.Timeout | undefined;
   function backupIfDue(): void {
     try {
       const created = store.backupIfDue();
@@ -35,12 +32,24 @@ function startApi(): void {
       console.error(`Database backup failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  const backupTimer =
-    process.env.WORK_INTELLIGENCE_BACKUP === "off" ? undefined : setInterval(backupIfDue, backupCheckMs);
-  backupTimer?.unref();
-  if (backupTimer) {
-    backupIfDue();
+
+  function onListenError(error: Error): void {
+    console.error(describeListenError(error, port));
+    store.close();
+    process.exitCode = 1;
   }
+  server.once("error", onListenError);
+
+  server.listen(port, "127.0.0.1", () => {
+    server.off("error", onListenError);
+    console.error(`Work Intelligence API listening on http://127.0.0.1:${port}`);
+    console.error(`SQLite database: ${databasePath}`);
+    if (process.env.WORK_INTELLIGENCE_BACKUP !== "off") {
+      backupTimer = setInterval(backupIfDue, backupCheckMs);
+      backupTimer.unref();
+      backupIfDue();
+    }
+  });
 
   function shutdown(): void {
     clearInterval(backupTimer);

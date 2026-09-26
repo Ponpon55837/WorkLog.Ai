@@ -105,6 +105,14 @@ function appendQuery(path: string, values: Record<string, boolean | string | num
   return encoded ? `${path}?${encoded}` : path;
 }
 
+/**
+ * The API answers every error, including 5xx, with JSON; a 5xx without JSON comes from something in front
+ * of it (for example the dev proxy while the API restarts), so only that counts as the API being unreachable.
+ */
+function isGatewayFailure(response: Response): boolean {
+  return response.status >= 500 && !response.headers.get("content-type")?.toLowerCase().includes("application/json");
+}
+
 export class ApiClient {
   public constructor(
     private readonly baseUrl = "",
@@ -128,7 +136,7 @@ export class ApiClient {
   private async fetchResponse(path: string, init?: RequestInit): Promise<Response> {
     try {
       const response = await fetch(`${this.baseUrl}${path}`, init);
-      this.onConnectionChange?.(response.status < 500);
+      this.onConnectionChange?.(!isGatewayFailure(response));
       return response;
     } catch (error) {
       if (!init?.signal?.aborted) {

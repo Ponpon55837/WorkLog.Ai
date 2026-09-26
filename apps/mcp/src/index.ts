@@ -2,7 +2,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
-import { DatabaseInitializationError, LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "@work-intelligence/storage";
+import {
+  backupOptionsFromEnvironment,
+  DatabaseInitializationError,
+  LATEST_SCHEMA_VERSION,
+  WorkIntelligenceStore,
+} from "@work-intelligence/storage";
 import { createWorkIntelligenceMcpServer } from "./server.js";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,7 +17,7 @@ const databasePath = process.env.WORK_INTELLIGENCE_DB ?? repoDataPath;
 async function startMcpServer(): Promise<void> {
   let store: WorkIntelligenceStore | undefined;
   try {
-    store = new WorkIntelligenceStore(databasePath);
+    store = new WorkIntelligenceStore(databasePath, { backup: backupOptionsFromEnvironment(databasePath) });
     const server = createWorkIntelligenceMcpServer(store, APP_VERSION, LATEST_SCHEMA_VERSION);
     await server.connect(new StdioServerTransport());
     console.error(
