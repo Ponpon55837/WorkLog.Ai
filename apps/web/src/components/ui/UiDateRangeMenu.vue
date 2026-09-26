@@ -12,14 +12,25 @@ const props = withDefaults(
     variant?: "filter" | "button";
     align?: "start" | "end";
     allowAllDates?: boolean;
+    selectionMode?: "range" | "single";
+    dialogLabel?: string;
   }>(),
-  { label: "日期", variant: "filter", align: "end", allowAllDates: true },
+  {
+    label: "日期",
+    variant: "filter",
+    align: "end",
+    allowAllDates: true,
+    selectionMode: "range",
+  },
 );
 const model = defineModel<DateRange>({ required: true });
 
 const { open, trigger, panel, style, toggle, close } = usePopover({ align: computed(() => props.align), width: 296 });
 const month = ref(startOfMonth(new Date()));
 const draftFrom = ref("");
+const dialogLabel = computed(
+  () => props.dialogLabel ?? (props.selectionMode === "single" ? props.label : "選擇日期區間"),
+);
 
 function shift(date: Date, days: number): Date {
   const next = new Date(date);
@@ -28,6 +39,9 @@ function shift(date: Date, days: number): Date {
 }
 
 const presets = computed(() => {
+  if (props.selectionMode === "single") {
+    return [];
+  }
   const today = new Date();
   const todayValue = toDateInputValue(today);
   return [
@@ -89,6 +103,11 @@ function choosePreset(range: DateRange): void {
 }
 
 function pickDay(value: string): void {
+  if (props.selectionMode === "single") {
+    model.value = { from: value, to: value };
+    close();
+    return;
+  }
   if (!draftFrom.value) {
     draftFrom.value = value;
     return;
@@ -125,8 +144,8 @@ watch(open, (value) => {
     <ChevronDown :size="14" :stroke-width="1.75" aria-hidden="true" />
   </button>
   <Teleport to="body">
-    <div v-if="open" ref="panel" class="ui-date-range__panel" :style="style" role="dialog" aria-label="選擇日期區間">
-      <div class="ui-date-range__presets">
+    <div v-if="open" ref="panel" class="ui-date-range__panel" :style="style" role="dialog" :aria-label="dialogLabel">
+      <div v-if="presets.length" class="ui-date-range__presets">
         <button
           v-for="preset in presets"
           :key="preset.key"
@@ -177,7 +196,13 @@ watch(open, (value) => {
           </button>
         </div>
         <p class="ui-date-range__hint">
-          {{ draftFrom ? `起始 ${draftFrom}，請選擇結束日期` : "點選兩個日期作為自訂區間" }}
+          {{
+            selectionMode === "single"
+              ? "點選日期套用報表區間"
+              : draftFrom
+                ? `起始 ${draftFrom}，請選擇結束日期`
+                : "點選兩個日期作為自訂區間"
+          }}
         </p>
       </div>
     </div>

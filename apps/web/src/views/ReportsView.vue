@@ -109,6 +109,10 @@ const reportTo = computed({
   get: () => reportRange.value.to,
   set: (to: string) => (reportRange.value = { ...reportRange.value, to }),
 });
+const reportDatePickerRange = computed({
+  get: () => ({ from: reportDate.value, to: reportDate.value }),
+  set: (range: { from: string; to: string }) => (reportDate.value = range.from || range.to),
+});
 useRouteQuery("period", reportPeriod, enumQuery(periods, "week"));
 useRouteQuery("date", reportDate, stringQuery(toDateInputValue(new Date())));
 useRouteQuery("from", reportFrom, stringQuery());
@@ -232,6 +236,43 @@ const trend = computed(() => {
     ],
   };
 });
+const dailySessionBuckets = computed(() => {
+  const buckets = [
+    { label: "00:00–03:59", count: 0 },
+    { label: "04:00–07:59", count: 0 },
+    { label: "08:00–11:59", count: 0 },
+    { label: "12:00–15:59", count: 0 },
+    { label: "16:00–19:59", count: 0 },
+    { label: "20:00–23:59", count: 0 },
+  ];
+  const current = report.value;
+  if (!current) {
+    return buckets;
+  }
+
+  const hourFormatter = new Intl.DateTimeFormat("en", {
+    timeZone: current.timezone,
+    hour: "2-digit",
+    hourCycle: "h23",
+  });
+  for (const session of current.sessions) {
+    const hour = Number(
+      hourFormatter.formatToParts(new Date(session.completedAt)).find((part) => part.type === "hour")?.value,
+    );
+    if (Number.isFinite(hour) && hour >= 0 && hour < 24) {
+      const bucket = buckets[Math.floor(hour / 4)];
+      if (bucket) {
+        bucket.count += 1;
+      }
+    }
+  }
+  return buckets;
+});
+const dailySessionPeak = computed(() => Math.max(1, ...dailySessionBuckets.value.map((bucket) => bucket.count)));
+
+function dailyBucketWidth(count: number): string {
+  return count === 0 ? "0%" : `${Math.max(5, (count / dailySessionPeak.value) * 100)}%`;
+}
 
 const spanningGroups = computed(() => {
   const spanning = report.value?.spanning;
@@ -342,7 +383,13 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           label="自訂期間"
           :allow-all-dates="false"
         />
-        <UiTextInput v-else v-model="reportDate" type="date" label="選擇報告日期" />
+        <UiDateRangeMenu
+          v-else
+          v-model="reportDatePickerRange"
+          selection-mode="single"
+          variant="button"
+          label="選擇報告日期"
+        />
       </div>
       <UiActionMenu
         v-model="reportProjectId"
@@ -518,7 +565,37 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
     >
       <UiBox>
         <template #header><UiBoxTitle eyebrow="Activity trend" title="工作節奏" /></template>
-        <UiBarChart :labels="trend.labels" :series="trend.series" label="每期完成 Session 與事件數" />
+        <div v-if="report.period === 'day'" class="reports__day-trend">
+          <div class="reports__day-stats">
+            <UiStatCard label="當日完成 Sessions" :value="report.totals.sessions" />
+            <UiStatCard label="當日 Events" :value="report.totals.events" value-tone="success" />
+          </div>
+          <p class="reports__note">依 Session 完成時間分布 · {{ report.timezone }} 時區</p>
+          <ol v-if="report.sessions.length > 0" class="reports__day-buckets">
+            <li v-for="bucket in dailySessionBuckets" :key="bucket.label" class="reports__day-bucket">
+              <div class="reports__day-bucket-label">
+                <span>{{ bucket.label }}</span>
+                <strong>{{ bucket.count }} 筆</strong>
+              </div>
+              <div class="reports__day-bucket-track" aria-hidden="true">
+                <span :style="{ width: dailyBucketWidth(bucket.count) }"></span>
+              </div>
+            </li>
+          </ol>
+          <UiEmptyState
+            v-else
+            compact
+            :icon="ChartColumn"
+            title="當日沒有完成的 Session"
+            description="上方仍會顯示當日 Events 總數。"
+          />
+          <p class="reports__note">
+            Events 目前顯示整日總數，尚未按時段拆分。<template v-if="report.sessionTruncation.currentPeriod">
+              時段分布受報表 200 筆 Session 上限影響。</template
+            >
+          </p>
+        </div>
+        <UiBarChart v-else :labels="trend.labels" :series="trend.series" label="每期完成 Session 與事件數" />
       </UiBox>
       <UiBox>
         <template #header
@@ -618,7 +695,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :icon="FileText"
           title="這段期間沒有原始 Session"
         />
-        <VirtualList v-else :items="reportSessionItems" :enabled="true" label="報告原始工作紀錄清單">
+        <VirtualList v-else :items="reportSessionItems" :enabled="true" fit-viewport label="報告原始工作紀錄清單">
           <template #default="{ item }">
             <SessionRow :session="item" @open="openSession($event, reportSessionItems)" />
           </template>
@@ -665,6 +742,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           v-else
           :items="report.evidence"
           :enabled="true"
+          fit-viewport
           :estimate-item-height="72"
           label="報告來源證據清單"
         >
@@ -753,6 +831,61 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   font-size: var(--text-xs);
 }
 
+.reports__day-trend {
+  padding: var(--space-4);
+}
+
+.reports__day-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.reports__day-buckets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reports__day-bucket {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.reports__day-bucket-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.reports__day-bucket-label strong {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.reports__day-bucket-track {
+  height: 6px;
+  margin-top: var(--space-2);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border-muted);
+}
+
+.reports__day-bucket-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
 .reports__summary {
   line-height: 1.7;
   white-space: pre-line;
@@ -806,6 +939,10 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   .reports__period-control {
     flex: 1 1 100%;
     width: 100%;
+  }
+
+  .reports__day-buckets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

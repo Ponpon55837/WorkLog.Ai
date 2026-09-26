@@ -4,7 +4,8 @@ import type { Tone } from "./types";
 
 /**
  * Grouped vertical bar chart for small deterministic series (≤ ~31 points).
- * Each series is scaled independently so low-volume series stay visible; values are shown in tooltips.
+ * Each series is scaled independently so low-volume series stay visible. The full value table below
+ * the plot keeps exact counts available without relying on hover tooltips.
  */
 const props = defineProps<{
   labels: readonly string[];
@@ -52,6 +53,26 @@ function height(seriesIndex: number, value: number): string {
           ><span v-if="showLabel(index)">{{ point }}</span></span
         >
       </div>
+    </div>
+    <p class="ui-bar-chart__hint">長條高度各自依該指標的最高值縮放；實際數量列在下方。</p>
+    <div class="ui-bar-chart__data" role="region" aria-label="趨勢圖數值表" tabindex="0">
+      <table>
+        <caption>
+          每期實際數量
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">期間</th>
+            <th v-for="item in series" :key="item.name" scope="col">{{ item.name }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(point, index) in labels" :key="point">
+            <th scope="row">{{ point }}</th>
+            <td v-for="item in series" :key="item.name">{{ item.values[index] ?? 0 }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </figure>
 </template>
@@ -122,6 +143,64 @@ function height(seriesIndex: number, value: number): string {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+}
+
+.ui-bar-chart__hint {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.ui-bar-chart__data {
+  max-height: 240px;
+  margin-top: var(--space-4);
+  overflow: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+}
+
+.ui-bar-chart__data:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ui-bar-chart__data table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-xs);
+  text-align: left;
+}
+
+.ui-bar-chart__data caption {
+  padding: var(--space-2) var(--space-3);
+  color: var(--fg-muted);
+  text-align: left;
+}
+
+.ui-bar-chart__data th,
+.ui-bar-chart__data td {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-muted);
+  white-space: nowrap;
+}
+
+.ui-bar-chart__data thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+
+.ui-bar-chart__data tbody th {
+  font-weight: 500;
+}
+
+.ui-bar-chart__data td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .tone-accent {

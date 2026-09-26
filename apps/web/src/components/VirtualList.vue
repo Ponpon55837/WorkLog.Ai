@@ -18,6 +18,7 @@ const props = withDefaults(
     overscan?: number;
     label?: string;
     maxHeight?: string;
+    fitViewport?: boolean;
   }>(),
   {
     enabled: false,
@@ -25,6 +26,7 @@ const props = withDefaults(
     overscan: 4,
     label: "可捲動清單",
     maxHeight: "min(68vh, 720px)",
+    fitViewport: false,
   },
 );
 
@@ -263,8 +265,8 @@ onBeforeUnmount(() => {
   <div
     ref="viewport"
     class="virtual-list"
-    :class="{ 'virtual-list-disabled': !enabled }"
-    :style="enabled ? { maxHeight } : undefined"
+    :class="{ 'virtual-list-disabled': !enabled, 'virtual-list-fit-viewport': fitViewport }"
+    :style="enabled && !fitViewport ? { maxHeight } : undefined"
     :role="enabled ? 'list' : undefined"
     :aria-label="enabled ? label : undefined"
     :tabindex="enabled ? 0 : undefined"
@@ -303,6 +305,18 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.virtual-list-fit-viewport {
+  height: max(180px, calc(100dvh - 30rem));
+  max-height: max(180px, calc(100dvh - 30rem));
+}
+
+@media (max-width: 639px) {
+  .virtual-list-fit-viewport {
+    height: max(180px, calc(100dvh - 36rem));
+    max-height: max(180px, calc(100dvh - 36rem));
+  }
 }
 
 .virtual-list-disabled {

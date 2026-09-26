@@ -721,6 +721,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         return;
       }
 
+      if (request.method === "GET" && requestUrl.pathname === "/api/project-deletion-audits") {
+        sendJson(response, 200, store.listProjectDeletionAudits());
+        return;
+      }
+
       if (request.method === "GET" && requestUrl.pathname === "/api/knowledge/candidates") {
         const parsed = knowledgeCandidateListQuerySchema.safeParse({
           projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
