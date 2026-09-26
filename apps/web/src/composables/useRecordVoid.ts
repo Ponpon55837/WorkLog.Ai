@@ -1,10 +1,8 @@
 import { ref } from "vue";
 import type { VoidTargetType } from "@work-intelligence/core";
 import { errorMessage } from "../utils/format";
-import { useApi } from "./useApi";
-import { invalidateActiveQueries } from "./useAppRefresh";
+import { useSessionsStore } from "../stores/sessions";
 import { confirmAction } from "./useConfirm";
-import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
 
 export type VoidTarget = { type: VoidTargetType; id: string; sessionId: string; title: string };
@@ -29,11 +27,11 @@ function closeVoidDialog(): void {
 }
 
 async function applyVoid(target: VoidTarget, voided: boolean, reason?: string): Promise<void> {
-  const { client } = useApi();
+  const store = useSessionsStore();
   const result =
     target.type === "session"
-      ? await client.setSessionVoid({ sessionId: target.id, voided, reason })
-      : await client.setEvidenceVoid({ evidenceId: target.id, voided, reason });
+      ? await store.setSessionVoid({ sessionId: target.id, voided, reason })
+      : await store.setEvidenceVoid({ evidenceId: target.id, sessionId: target.sessionId, voided, reason });
   if (result.outcome === "not_found") {
     throw new Error("找不到這筆資料，可能已被刪除。");
   }
@@ -42,10 +40,8 @@ async function applyVoid(target: VoidTarget, voided: boolean, reason?: string): 
   }
 }
 
-async function afterChange(target: VoidTarget, message: string): Promise<void> {
+function afterChange(message: string): void {
   useToast().showToast(message);
-  await useSessionDetail().openSessionDetail(target.sessionId);
-  void invalidateActiveQueries().catch(() => undefined);
 }
 
 /** Voids the dialog's target; a reason is required so the audit explains why. */
@@ -70,7 +66,7 @@ async function submitVoid(): Promise<void> {
   }
   voidSaving.value = false;
   voidTarget.value = null;
-  await afterChange(target, target.type === "session" ? "Session 已作廢。" : "Evidence 已標示為錯誤。");
+  afterChange(target.type === "session" ? "Session 已作廢。" : "Evidence 已標示為錯誤。");
 }
 
 /** Restores a voided Session or evidence after confirmation; the audit keeps both changes. */
@@ -92,7 +88,7 @@ async function restoreRecord(target: VoidTarget): Promise<void> {
     useToast().showToast(errorMessage(error, "無法還原。"), "danger");
     return;
   }
-  await afterChange(target, target.type === "session" ? "Session 已還原。" : "Evidence 已還原。");
+  afterChange(target.type === "session" ? "Session 已還原。" : "Evidence 已還原。");
 }
 
 export function useRecordVoid() {

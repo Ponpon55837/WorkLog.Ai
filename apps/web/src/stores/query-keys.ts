@@ -18,6 +18,7 @@ export const queryKeys = {
   sessions: {
     list: ["sessions", "list"] as const,
     detail: ["sessions", "detail"] as const,
+    linkCandidates: ["sessions", "link-candidates"] as const,
   },
   views: {
     graph: ["view", "graph"] as const,
