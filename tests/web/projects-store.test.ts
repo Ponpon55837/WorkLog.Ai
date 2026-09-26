@@ -6,10 +6,12 @@ import type { ProjectDeletionCounts, ProjectRecord } from "@work-intelligence/co
 import { useProjectsStore } from "../../apps/web/src/stores/projects.js";
 
 const toastMocks = vi.hoisted(() => ({ showToast: vi.fn() }));
+const confirmMocks = vi.hoisted(() => ({ confirmAction: vi.fn(async () => true) }));
 
 vi.mock("../../apps/web/src/composables/useToast", () => ({
   useToast: () => ({ showToast: toastMocks.showToast }),
 }));
+vi.mock("../../apps/web/src/composables/useConfirm", () => ({ confirmAction: confirmMocks.confirmAction }));
 
 const deletionCounts: ProjectDeletionCounts = {
   projects: 0,
@@ -46,6 +48,7 @@ const initialProject: ProjectRecord = {
 
 let projects: ProjectRecord[];
 let deletionAudits: Array<{ projectId: string; deletedAt: string; deletedCounts: ProjectDeletionCounts }>;
+let folderPickResult: unknown;
 let requestCount: (path: string, method?: string) => number;
 
 function projectRecord(id: string, name: string, rootPath: string): ProjectRecord {
@@ -67,6 +70,8 @@ beforeEach(() => {
   toastMocks.showToast.mockClear();
   projects = [initialProject];
   deletionAudits = [];
+  folderPickResult = { outcome: "folder_picked", path: "/projects/selected", name: "selected" };
+  confirmMocks.confirmAction.mockReset().mockResolvedValue(true);
   const calls: Array<{ path: string; method: string }> = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
@@ -95,6 +100,7 @@ beforeEach(() => {
     if (url.pathname === "/api/project-deletion-audits") {
       return respond(deletionAudits);
     }
+    if (url.pathname === "/api/system/pick-folder") return respond(folderPickResult);
     if (url.pathname.startsWith("/api/projects/") && method === "PATCH") {
       const projectId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
       const input = JSON.parse(String(init?.body)) as { status?: ProjectRecord["status"] };
@@ -199,5 +205,47 @@ describe("projects Pinia store", () => {
     await vi.waitFor(() => expect(store.projectDeletionAudits).toHaveLength(1));
 
     expect(requestCount("/api/project-deletion-audits")).toBe(2);
+  });
+
+  it("validates project forms and handles folder picker outcomes and transport failures", async () => {
+    const store = useProjectsStore();
+    expect(await store.addProject({ name: "  ", rootPath: "/projects/empty" })).toBe(false);
+    expect(toastMocks.showToast).toHaveBeenCalledWith("請填寫專案名稱與根目錄。", "danger");
+
+    expect(await store.pickProjectFolder()).toEqual({ path: "/projects/selected", name: "selected" });
+    folderPickResult = { outcome: "folder_pick_busy" };
+    expect(await store.pickProjectFolder()).toBeNull();
+    expect(toastMocks.showToast).toHaveBeenCalledWith("已經有一個選擇資料夾視窗開著，請先在那個視窗完成選擇。");
+    folderPickResult = { outcome: "folder_pick_unavailable" };
+    expect(await store.pickProjectFolder()).toBeNull();
+    expect(toastMocks.showToast).toHaveBeenCalledWith("這台電腦無法開啟選擇資料夾視窗，請直接輸入路徑。", "danger");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("offline");
+      }),
+    );
+    expect(await store.pickProjectFolder()).toBeNull();
+    expect(toastMocks.showToast).toHaveBeenLastCalledWith("無法連線至本機 API，請確認 API 是否已啟動。", "danger");
+  });
+
+  it("asks before enabling tracking and skips the update when the user declines", async () => {
+    const store = useProjectsStore();
+    await store.loadProjects();
+    const created = await store.addProject({ name: "Beta", rootPath: "/projects/beta" });
+    expect(created).toBe(true);
+    const beta = store.projects.find((project) => project.name === "Beta");
+    expect(beta).toBeDefined();
+    if (!beta) throw new Error("Expected Beta to be added.");
+
+    confirmMocks.confirmAction.mockResolvedValueOnce(false);
+    await store.updateProjectStatus(beta, "tracked");
+    expect(requestCount("/api/projects/project-2", "PATCH")).toBe(0);
+    confirmMocks.confirmAction.mockResolvedValueOnce(true);
+    await store.updateProjectStatus(beta, "tracked");
+    expect(requestCount("/api/projects/project-2", "PATCH")).toBe(1);
+    await store.updateProjectStatus({ ...beta, status: "tracked" }, "tracked");
+    expect(requestCount("/api/projects/project-2", "PATCH")).toBe(1);
   });
 });
