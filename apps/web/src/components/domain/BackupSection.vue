@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { storeToRefs } from "pinia";
 import { Archive, DatabaseBackup, Download, RefreshCw, Trash2 } from "lucide-vue-next";
 import type { ProjectDataImportPreview } from "@work-intelligence/core";
-import { useBackups } from "../../composables/useBackups";
 import { useProjectDataTransfer } from "../../composables/useProjectDataTransfer";
 import { useProjects } from "../../composables/useProjects";
+import { useBackupsStore } from "../../stores/backups";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
 import { databaseBackupKindLabels } from "../../utils/labels";
 import UiBox from "../ui/UiBox.vue";
@@ -24,6 +25,7 @@ import VirtualList from "../VirtualList.vue";
  * Database backups and the whole-database export for moving to another computer. Restoring replaces
  * the database while nothing may hold it open, so it is a terminal command, not a button here.
  */
+const backupsStore = useBackupsStore();
 const {
   backups,
   backupKeep,
@@ -33,11 +35,8 @@ const {
   backupCreating,
   backupDeleting,
   databaseExporting,
-  loadBackups,
-  createBackup,
-  deleteBackup,
-  exportDatabase,
-} = useBackups();
+} = storeToRefs(backupsStore);
+const { loadBackups, createBackup, deleteBackup, exportDatabase } = backupsStore;
 const { projects, loadProjects } = useProjects();
 const {
   transferError,
@@ -105,9 +104,10 @@ function onImportFileChange(event: Event): Promise<void> {
 }
 
 onMounted(() => {
-  void loadBackups();
+  backupsStore.setBackupsActive(true);
   void loadProjects();
 });
+onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 </script>
 
 <template>
