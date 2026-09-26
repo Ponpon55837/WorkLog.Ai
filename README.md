@@ -268,7 +268,7 @@ pnpm test:e2e                 # build 後以正式模式跑 Playwright（Chromiu
 pnpm format                   # 用 Prettier 格式化整個 repo
 ```
 
-CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubuntu 另外跑效能與檢索品質門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 含六個主要頁面的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
+CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubuntu 另外跑生產依賴安全稽核（high／critical 即失敗）、效能與檢索品質門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 含六個主要頁面的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
 
 其他設定：
 
