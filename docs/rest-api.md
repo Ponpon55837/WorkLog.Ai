@@ -11,6 +11,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | Method   | Route                                            | 用途                                                                                   |
 | -------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | GET      | `/api/health`                                    | API/SQLite health                                                                      |
+| GET      | `/api/system/status`                             | 唯讀系統摘要：程式／schema 版本、資料庫位置與大小、備份、最近維護結果、SSE 連線數      |
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
@@ -99,6 +100,12 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 - 可攜式 JSON 未加密，請妥善保管。整份 SQLite 快照與可攜式匯出都要求 `Content-Type: application/json`，跨站表單無法觸發；下載回應只含檔名，不會出現暫存檔路徑。
 - in-memory 資料庫回傳 409 `backup_unavailable`。
 - 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。
+
+## 系統狀態
+
+- REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`sseConnections` 是目前開啟的即時更新連線數。
+- 此端點只讀取資料庫 metadata 與備份檔案清單，不執行 `integrity_check`，也不讀取使用者 home 目錄下的 Agent 設定。完整環境診斷請在專案目錄執行 `pnpm run doctor`。
+- 端點受到 loopback `Host` 與 `Origin` 檢查保護；只有系統狀態頁需要的 `database.path` 會回傳完整本機路徑，備份資料仍只回傳檔名。
 
 ## 永久刪除專案
 

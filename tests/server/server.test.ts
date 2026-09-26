@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { createServer, request as httpRequest, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -102,6 +103,78 @@ describe("Work Intelligence REST API", () => {
       version: APP_VERSION,
       schemaVersion: LATEST_SCHEMA_VERSION,
     });
+  });
+
+  it("returns read-only system status with database, backup, maintenance, and SSE metrics", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-system-status-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const automatic = store.backupIfDue(new Date("2026-09-25T12:00:00.000Z"));
+    const manual = store.createBackup();
+    if (!automatic || manual.outcome !== "database_backups") {
+      throw new Error("The system status fixture could not create both backup kinds.");
+    }
+
+    const database = new DatabaseSync(databasePath);
+    database
+      .prepare(
+        `INSERT INTO database_maintenance_runs
+          (id, started_at, completed_at, status, backup_file_name, indexed_sessions, indexed_knowledge,
+           indexed_chunks, indexed_paths, failure_code)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "system-status-test",
+        "2026-09-24T09:00:00.000Z",
+        "2026-09-24T09:01:00.000Z",
+        "completed",
+        "maintenance.sqlite",
+        5,
+        2,
+        14,
+        4,
+        null,
+      );
+    database.close();
+
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+    const streamResponse = await fetch(`${baseUrl}/api/events`);
+    const reader = streamResponse.body?.getReader();
+    expect(reader).toBeDefined();
+    await reader?.read();
+
+    const response = await requestJson<{
+      version: string;
+      schemaVersion: number;
+      database: { path: string; bytes: number | null; state: string; schemaVersion: number | null };
+      backups: {
+        available: boolean;
+        latestAutomatic: { kind: string; createdAt: string } | null;
+        count: number;
+        totalBytes: number;
+      };
+      maintenance: { status: string; backupFileName: string; indexedSessions: number } | null;
+      sseConnections: number;
+    }>(baseUrl, "/api/system/status");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      version: APP_VERSION,
+      schemaVersion: LATEST_SCHEMA_VERSION,
+      database: { path: databasePath, state: "ok", schemaVersion: LATEST_SCHEMA_VERSION },
+      backups: { available: true, latestAutomatic: { kind: "automatic", createdAt: "2026-09-25T12:00:00Z" }, count: 2 },
+      maintenance: { status: "completed", backupFileName: "maintenance.sqlite", indexedSessions: 5 },
+      sseConnections: 1,
+    });
+    expect(response.body.database.bytes).toBeGreaterThan(0);
+    expect(response.body.backups.totalBytes).toBe(automatic.created.bytes + manual.created.bytes);
+    expect(response.body.backups.latestAutomatic?.kind).toBe("automatic");
+    const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+    expect(after).toBe(before);
+
+    await reader?.cancel();
   });
 
   it("rejects non-loopback Host headers so DNS-rebound pages cannot read the API", async () => {

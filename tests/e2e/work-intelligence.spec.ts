@@ -628,6 +628,22 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
   });
 
+  test("shows the read-only system status page", async ({ page }) => {
+    await page.goto("/system-status");
+    await expect(page.getByRole("heading", { name: "系統狀態" })).toBeVisible();
+    await expect(page.getByText("程式版本")).toBeVisible();
+    await expect(page.getByText("資料庫大小")).toBeVisible();
+    await expect(page.getByText("SSE 連線")).toBeVisible();
+    await expect(page.getByText("最近自動備份", { exact: true })).toBeVisible();
+    await expect(page.getByText("最近資料維護", { exact: true })).toBeVisible();
+    await expect(page.getByText("pnpm run doctor").first()).toBeVisible();
+
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectNoHorizontalOverflow(page);
+    }
+  });
+
   test("has no critical or serious axe violations on the six primary pages", async ({ page }) => {
     const failures: string[] = [];
 

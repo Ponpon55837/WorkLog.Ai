@@ -1,10 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createServer } from "node:net";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import {
+  findLatestAutomaticBackup,
+  inspectDatabaseReadOnlyMetadata,
+  resolveBackupDirectory,
+  type ReadOnlyDatabaseInspection,
+} from "./database-inspection.js";
 
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PACKAGE_MANAGER_SCHEMA = z.string().regex(/^pnpm@\d+\.\d+\.\d+(?:\+.*)?$/);
@@ -26,18 +32,6 @@ const HEALTH_SCHEMA = z
     database: z.enum(["connected", "unavailable"]).optional(),
   })
   .passthrough();
-const MAINTENANCE_RUN_SCHEMA = z.object({
-  started_at: z.string(),
-  completed_at: z.string().nullable(),
-  status: z.enum(["running", "completed", "failed"]),
-  backup_file_name: z.string(),
-  indexed_sessions: z.number().int().nonnegative(),
-  indexed_knowledge: z.number().int().nonnegative(),
-  indexed_chunks: z.number().int().nonnegative(),
-  indexed_paths: z.number().int().nonnegative(),
-  failure_code: z.enum(["DATABASE_INTEGRITY_FAILED", "DATABASE_MAINTENANCE_FAILED"]).nullable(),
-});
-
 const REQUIRED_DIST_FILES = [
   "apps/server/dist/index.js",
   "apps/server/dist/cli.js",
@@ -70,23 +64,7 @@ export interface DoctorFinding {
   recommendation?: string;
 }
 
-export interface ReadOnlyDatabaseInspection {
-  state: "missing" | "ok" | "unhealthy" | "unreadable";
-  bytes?: number;
-  integrity?: "ok" | "failed";
-  schemaVersion?: number;
-  maintenance?: {
-    startedAt: string;
-    completedAt: string | null;
-    status: "running" | "completed" | "failed";
-    backupFileName: string;
-    indexedSessions: number;
-    indexedKnowledge: number;
-    indexedChunks: number;
-    indexedPaths: number;
-    failureCode: "DATABASE_INTEGRITY_FAILED" | "DATABASE_MAINTENANCE_FAILED" | null;
-  } | null;
-}
+export type { ReadOnlyDatabaseInspection } from "./database-inspection.js";
 
 export interface GlobalHookInspection {
   claudeConfigured: boolean;
@@ -213,90 +191,7 @@ function inspectCodexMcp(homeDirectory: string): boolean {
 
 /** Opens an existing database strictly read-only and queries metadata only. */
 export async function inspectDatabaseReadOnly(databasePath: string): Promise<ReadOnlyDatabaseInspection> {
-  if (!existsSync(databasePath)) {
-    return { state: "missing" };
-  }
-  let database: import("node:sqlite").DatabaseSync | undefined;
-  try {
-    const sqlite = await import("node:sqlite");
-    database = new sqlite.DatabaseSync(databasePath, { readOnly: true });
-    const checks = database.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check?: unknown }>;
-    const integrityOk = checks.length > 0 && checks.every((row) => row.integrity_check === "ok");
-    const migrationTable = database
-      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
-      .get() as { present?: number } | undefined;
-    let schemaVersion = 0;
-    if (migrationTable) {
-      const row = database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as
-        { version?: number | null } | undefined;
-      schemaVersion = Number(row?.version ?? 0);
-      if (!Number.isSafeInteger(schemaVersion) || schemaVersion < 0) {
-        return { state: "unhealthy", bytes: statSync(databasePath).size, integrity: "failed" };
-      }
-    }
-    const maintenanceTable = database
-      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'database_maintenance_runs'")
-      .get();
-    let maintenance: ReadOnlyDatabaseInspection["maintenance"];
-    if (maintenanceTable) {
-      const rawRun = database
-        .prepare(
-          `SELECT started_at, completed_at, status, backup_file_name, indexed_sessions,
-                  indexed_knowledge, indexed_chunks, indexed_paths, failure_code
-           FROM database_maintenance_runs ORDER BY started_at DESC LIMIT 1`,
-        )
-        .get();
-      if (rawRun) {
-        const parsedRun = MAINTENANCE_RUN_SCHEMA.safeParse(rawRun);
-        if (parsedRun.success) {
-          maintenance = {
-            startedAt: parsedRun.data.started_at,
-            completedAt: parsedRun.data.completed_at,
-            status: parsedRun.data.status,
-            backupFileName: parsedRun.data.backup_file_name,
-            indexedSessions: parsedRun.data.indexed_sessions,
-            indexedKnowledge: parsedRun.data.indexed_knowledge,
-            indexedChunks: parsedRun.data.indexed_chunks,
-            indexedPaths: parsedRun.data.indexed_paths,
-            failureCode: parsedRun.data.failure_code,
-          };
-        }
-      } else {
-        maintenance = null;
-      }
-    }
-    return {
-      state: integrityOk ? "ok" : "unhealthy",
-      bytes: statSync(databasePath).size,
-      integrity: integrityOk ? "ok" : "failed",
-      schemaVersion,
-      ...(maintenanceTable ? { maintenance: maintenance ?? null } : {}),
-    };
-  } catch {
-    return { state: "unreadable" };
-  } finally {
-    database?.close();
-  }
-}
-
-function findLatestAutomaticBackup(databasePath: string, backupDirectory: string): Date | undefined {
-  try {
-    const prefix = basename(databasePath, extname(databasePath)) + "-automatic-";
-    const files = readdirSync(backupDirectory);
-    let latest: Date | undefined;
-    for (const fileName of files) {
-      if (!fileName.startsWith(prefix) || !fileName.endsWith(".sqlite")) {
-        continue;
-      }
-      const modifiedAt = statSync(join(backupDirectory, fileName)).mtime;
-      if (!latest || modifiedAt > latest) {
-        latest = modifiedAt;
-      }
-    }
-    return latest;
-  } catch {
-    return undefined;
-  }
+  return inspectDatabaseReadOnlyMetadata(databasePath, { checkIntegrity: true });
 }
 
 function formatBytes(bytes: number): string {
@@ -490,10 +385,8 @@ export async function collectDoctorFindings(
     ? resolve(process.cwd(), parsedEnvironment.data.WORK_INTELLIGENCE_DB)
     : resolve(repositoryRoot, "data", "work-intelligence.sqlite");
   const database = await inspectDatabaseReadOnly(dbPath);
-  // Mirrors backupOptionsFromEnvironment without importing storage, so doctor still runs on a Node without node:sqlite.
-  const backupDirectory = parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR
-    ? resolve(dirname(dbPath), parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR)
-    : join(dirname(dbPath), "backups");
+  // Keep the database, doctor, and server on the same relative backup-directory rule.
+  const backupDirectory = resolveBackupDirectory(dbPath, parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR);
   const latestBackup = findLatestAutomaticBackup(dbPath, backupDirectory);
   const backupDetail = latestBackup ? latestBackup.toISOString() : "尚無自動備份";
 
