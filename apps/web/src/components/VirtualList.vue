@@ -39,6 +39,7 @@ defineSlots<{
 const viewport = ref<HTMLElement | null>(null);
 const viewportHeight = ref(480);
 const fitViewportPanelHeight = ref<number | null>(null);
+const fitViewportPanelFillsAvailableSpace = ref(false);
 const scrollTop = ref(0);
 const heights = reactive(new Map<number, number>());
 const itemElements = new Map<number, HTMLElement>();
@@ -221,6 +222,7 @@ function updateFitViewportPanelHeight(): void {
   const list = viewport.value;
   const main = fitViewportMain;
   if (!props.fitViewport || !props.fitViewportToPanel || !list || !main) {
+    fitViewportPanelFillsAvailableSpace.value = false;
     return;
   }
 
@@ -252,14 +254,17 @@ function updateFitViewportPanelHeight(): void {
   const nextHeight = Math.floor(mainBottom - bottomInset - listTop - trailingHeight - footerHeight - borderBottom);
   if (nextHeight <= 0) {
     fitViewportPanelHeight.value = null;
+    fitViewportPanelFillsAvailableSpace.value = false;
     return;
   }
 
   if (footerHeight > 0 && nextHeight < getDefaultFitViewportHeight()) {
     fitViewportPanelHeight.value = null;
+    fitViewportPanelFillsAvailableSpace.value = false;
     return;
   }
 
+  fitViewportPanelFillsAvailableSpace.value = footerHeight === 0;
   // Reserve room for the footer and any note after the list.
   if (fitViewportPanelHeight.value === null || Math.abs(fitViewportPanelHeight.value - nextHeight) > 1) {
     fitViewportPanelHeight.value = nextHeight;
@@ -379,6 +384,7 @@ onBeforeUnmount(() => {
       'virtual-list-disabled': !enabled,
       'virtual-list-fit-viewport': fitViewport,
       'virtual-list-fit-viewport-to-panel': fitViewport && fitViewportToPanel && fitViewportPanelHeight !== null,
+      'virtual-list-fit-viewport-to-panel-fill': fitViewportPanelFillsAvailableSpace && fitViewportPanelHeight !== null,
     }"
     :style="
       enabled && fitViewport && fitViewportToPanel && fitViewportPanelHeight !== null
@@ -442,6 +448,11 @@ onBeforeUnmount(() => {
 .virtual-list-fit-viewport-to-panel {
   height: min(var(--virtual-list-panel-height, 0px), min(360px, max(180px, calc(100dvh - 30rem))));
   max-height: min(var(--virtual-list-panel-height, 0px), min(360px, max(180px, calc(100dvh - 30rem))));
+}
+
+.virtual-list-fit-viewport-to-panel-fill {
+  height: min(var(--virtual-list-panel-height, 0px), 720px);
+  max-height: min(var(--virtual-list-panel-height, 0px), 720px);
 }
 
 @media (max-width: 639px) {

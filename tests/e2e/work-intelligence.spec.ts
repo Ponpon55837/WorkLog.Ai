@@ -106,6 +106,22 @@ async function expectBoundedVirtualList(page: Page, name: string): Promise<Locat
   return list;
 }
 
+async function expectPanelToFillViewport(list: Locator): Promise<void> {
+  await expect
+    .poll(() =>
+      list.evaluate((element) => {
+        const main = document.querySelector<HTMLElement>("#main");
+        const panel = element.closest<HTMLElement>(".ui-box");
+        const bottomInset =
+          Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24;
+        return main && panel
+          ? Math.abs(main.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom - bottomInset)
+          : NaN;
+      }),
+    )
+    .toBeLessThanOrEqual(2);
+}
+
 async function expectUserScrollsListInternally(page: Page, name: string): Promise<void> {
   const list = page.getByRole("list", { name });
   const pageScroller = page.locator("#main");
@@ -1518,7 +1534,7 @@ test.describe("Work Intelligence browser regression", () => {
       const projectSession = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
         projectRoot: longProjectRoot,
         idempotencyKey: `${fixtureKey}-report-project-session-${index}`,
-        title: `Long list project Session ${index}`,
+        title: `Long list project Session ${index}: ${"Long report row content ".repeat(8)}`,
         summary: "A tracked-project Session for report table scrolling.",
         changedFiles: [`src/report-project-${index}.ts`],
         verification: { status: "passed", summary: "The synthetic report fixture is valid." },
@@ -1539,6 +1555,7 @@ test.describe("Work Intelligence browser regression", () => {
 
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
+      const expectPanelFill = width >= 960;
 
       await page.goto("/sessions");
       const sessionList = await expectBoundedVirtualList(page, "工作歷程清單");
@@ -1569,18 +1586,33 @@ test.describe("Work Intelligence browser regression", () => {
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/reports/work?period=week");
-      await expectBoundedVirtualList(page, "報表完成事項清單");
+      const completedWorkList = await expectBoundedVirtualList(page, "報表完成事項清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(completedWorkList);
+      }
       const spanning = page.getByTestId("report-spanning");
       await expect(spanning).toContainText("Long list spanning work 1");
-      await expectBoundedVirtualList(page, "跨期工作清單");
+      const spanningList = await expectBoundedVirtualList(page, "跨期工作清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(spanningList);
+      }
       await expectNoHorizontalOverflow(page);
 
       await page.getByRole("tab", { name: "趨勢" }).click();
-      await expectBoundedVirtualList(page, "報表專案分布清單");
+      const reportProjectsList = await expectBoundedVirtualList(page, "報表專案分布清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(reportProjectsList);
+      }
       await expectNoHorizontalOverflow(page);
 
       await page.getByRole("tab", { name: "風險" }).click();
-      await expectBoundedVirtualList(page, "報表決策清單");
+      const reportRiskList = page.getByRole("list", { name: "報表風險清單" });
+      await expect(reportRiskList).toBeVisible();
+      const reportDecisionList = await expectBoundedVirtualList(page, "報表決策清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(reportRiskList);
+        await expectPanelToFillViewport(reportDecisionList);
+      }
       await expectNoHorizontalOverflow(page);
 
       await page.getByRole("tab", { name: "原始紀錄" }).click();
