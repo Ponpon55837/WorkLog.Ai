@@ -29,7 +29,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **Gi
 
 ## Non-negotiables
 
-- **State lives in composables, not App.vue.** Views call `useXxx()` directly; no prop-drilling of data, labels or formatter functions. Formatters go in `utils/format.ts`, label maps in `utils/labels.ts`.
+- **Shared domain state lives in Pinia setup stores, not App.vue or module-level composables.** Views call `useXxxStore()` directly and use `storeToRefs()` for reactive state; no prop-drilling of data, labels or formatter functions. Keep form drafts in their owning component. Formatters go in `utils/format.ts`, label maps in `utils/labels.ts`.
 - **URL is the state for filters.** Filters, pagination, report tabs and the open Session (`?session=<id>`) are synced through `useRouteQuery`.
 - **Long data tables own their scrolling.** When rows exceed the available height, put bounded vertical scrolling on the list/table body (reuse `VirtualList` with a finite `maxHeight` where appropriate); keep the box header, filters, and pagination outside that scroller. Do not make the whole page the only scroll surface for long rows. Verify that wheel/keyboard scrolling moves the list while its page remains in place.
 - **Navigation uses `RouterLink`**, page title/eyebrow come from route `meta`.

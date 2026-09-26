@@ -5,6 +5,9 @@
     "rootDir": "../..",
     "baseUrl": ".",
     "paths": {
+      "@pinia/colada": ["node_modules/@pinia/colada"],
+      "@work-intelligence/core": ["../../packages/core/src/index.ts"],
+      "pinia": ["node_modules/pinia"],
       "vue": ["node_modules/vue"],
       "vue/*": ["node_modules/vue/*"]
     }

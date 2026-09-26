@@ -20,7 +20,8 @@ apps/web/src/
 │  ├─ format.ts         dates, relative time, text formatting
 │  ├─ labels.ts         UI label maps and option lists
 │  └─ status.ts         status → { tone, icon, label } (single source of truth)
-├─ composables/         state + side effects (see §4)
+├─ stores/              Pinia setup stores, query keys, and server-state queries
+├─ composables/         view workflows and cross-cutting side effects (see §4)
 ├─ components/
 │  ├─ ui/               generic, domain-agnostic primitives, prefixed `Ui` (UiButton, UiBox…)
 │  ├─ layout/           AppShell, AppHeader, AppSidebar, PageHeader, navigation.ts
@@ -82,14 +83,16 @@ Template rules:
 - No inline object literals longer than one line — move them to a `computed` or constant.
 - No business logic in templates beyond simple ternaries.
 
-## 4. Composables
+## 4. Stores and composables
 
-- Domain state is a **module-level singleton**: refs are declared at module scope, actions are plain module functions, and `useX()` returns them. Multiple components share one store.
-- One composable per domain (`useSessions`, `useReports`, `useKnowledge`, `useGraph`, `useProjects`, `useMetadataBackfill`, `useHandoffImport`, `useSessionDetail`, `useSessionEditor`, `useDashboard`).
-- All API calls go through `useApi().client` and are wrapped with `runKeyed(key, task, { onError, onSettled })` so a newer request aborts the older one. Use a unique, stable key per list.
+- Domain state belongs in a **Pinia setup store** under `stores/`, with one store per domain. Components and views use `useXxxStore()` and `storeToRefs()`; do not add new module-level reactive singletons.
+- Server state uses Pinia Colada `useQuery()` and `useMutation()`. Define stable query keys in `stores/query-keys.ts`; every mutation lists its affected keys and invalidates them after success. Do not build a separate cache or copy query data into another mutable ref.
+- Keep form drafts and temporary view state local to the component that owns the interaction. Use store state only when multiple parts of the app share it.
+- API calls go through `useApi().client` from a store or composable. Legacy composables may continue to use `runKeyed(key, task, { onError, onSettled })` until their domain migrates to Pinia Colada.
+- Transitional `useXxx()` adapters may expose refs and actions from a store while existing consumers migrate; do not add new domain behavior to the adapter.
 - User feedback: `useToast().showToast(message, tone)`; destructive or scope-widening actions: `await confirmAction({...})`. Never `window.confirm`/`alert`.
 - List pages wire three helpers, in this order: `useRouteQuery` (URL ⇄ filter refs) → `useListReload` (filter change → page 1, page change → reload, debounced search) → `useViewLoader` (load on mount and on global refresh).
-- A composable must not import a view or a component (the one exception is `router` for navigation actions).
+- A store or composable must not import a view or a component (the one exception is `router` for navigation actions).
 - Keep API response shapes out of templates when they need interpretation — expose a `computed` instead.
 
 ## 5. Components
