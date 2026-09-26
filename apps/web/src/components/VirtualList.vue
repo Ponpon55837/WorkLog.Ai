@@ -261,7 +261,7 @@ function updateFitViewportPanelHeight(): void {
   if (fillsAvailableSpace) {
     // Keep paginated lists the same height and extend them to the viewport edge.
     const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-    fitViewportPanelHeight.value = Math.max(180, Math.floor(main.clientHeight - 20 * rem + bottomInset - borderBottom));
+    fitViewportPanelHeight.value = Math.max(180, Math.floor(main.clientHeight - 13 * rem + bottomInset - borderBottom));
     fitViewportPanelFillsAvailableSpace.value = true;
     return;
   }
