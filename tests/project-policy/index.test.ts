@@ -60,7 +60,8 @@ describe("ProjectPolicyGate", () => {
     const root = canonicalizeProjectRoot("  ./work/project///  ");
     expect(root.endsWith(`${join("work", "project")}`)).toBe(true);
     expect(projectParentPath(root)).toBe(dirname(root));
-    expect(canonicalizeProjectRoot(resolve("/"))).toBe(resolve("/"));
+    const filesystemRoot = resolve("/");
+    expect(canonicalizeProjectRoot(filesystemRoot)).toBe(filesystemRoot.toLowerCase());
     expect(isPathWithinProject(root, ".")).toBe(true);
     expect(isPathWithinProject(root, "..")).toBe(false);
   });
