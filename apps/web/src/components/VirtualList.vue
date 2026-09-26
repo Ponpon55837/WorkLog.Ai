@@ -207,9 +207,10 @@ function keepFitViewportPanelVisible(): void {
     return;
   }
 
-  const bottomInset = fitViewportPanelFillsAvailableSpace.value
-    ? Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24
-    : 0;
+  const bottomInset =
+    fitViewportPanelFillsAvailableSpace.value && !props.fillAvailableSpace
+      ? Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24
+      : 0;
   const overflow = footer.getBoundingClientRect().bottom - (main.getBoundingClientRect().bottom - bottomInset);
   if (overflow > 1) {
     main.scrollTop = Math.min(main.scrollTop + overflow, main.scrollHeight - main.clientHeight);
@@ -258,9 +259,9 @@ function updateFitViewportPanelHeight(): void {
   const fillsAvailableSpace = props.fillAvailableSpace && !window.matchMedia("(max-width: 639px)").matches;
 
   if (fillsAvailableSpace) {
-    // Paginated lists share one viewport height so their rows stay aligned across pages.
+    // Keep paginated lists the same height and extend them to the viewport edge.
     const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-    fitViewportPanelHeight.value = Math.max(180, Math.floor(main.clientHeight - 20 * rem));
+    fitViewportPanelHeight.value = Math.max(180, Math.floor(main.clientHeight - 20 * rem + bottomInset - borderBottom));
     fitViewportPanelFillsAvailableSpace.value = true;
     return;
   }
