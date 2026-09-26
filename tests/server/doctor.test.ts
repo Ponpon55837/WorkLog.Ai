@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { inspectDatabaseReadOnlyMetadata, resolveBackupDirectory } from "../../apps/server/src/database-inspection.js";
 import { inspectDatabaseReadOnly, inspectGlobalHooks } from "../../apps/server/src/doctor.js";
 
 const temporaryDirectories: string[] = [];
@@ -48,6 +49,31 @@ describe("pnpm doctor read-only checks", () => {
         indexedKnowledge: 1,
       },
     });
+
+    const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+    expect(after).toBe(before);
+  });
+
+  it("shares metadata inspection without running the full integrity check", async () => {
+    const directory = temporaryDirectory();
+    const databasePath = join(directory, "metadata-only.sqlite");
+    const database = new DatabaseSync(databasePath);
+    database.exec(
+      "CREATE TABLE schema_migrations (version INTEGER NOT NULL, name TEXT NOT NULL, applied_at TEXT NOT NULL);" +
+        "INSERT INTO schema_migrations VALUES (12, 'synthetic', '2026-09-25T00:00:00.000Z');" +
+        "CREATE TABLE database_maintenance_runs (id TEXT, started_at TEXT, completed_at TEXT, status TEXT, " +
+        "backup_file_name TEXT, indexed_sessions INTEGER, indexed_knowledge INTEGER, indexed_chunks INTEGER, " +
+        "indexed_paths INTEGER, failure_code TEXT);",
+    );
+    database.close();
+    const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+
+    const inspection = await inspectDatabaseReadOnlyMetadata(databasePath);
+    expect(inspection).toMatchObject({ state: "ok", bytes: expect.any(Number), schemaVersion: 12, maintenance: null });
+    expect(inspection.integrity).toBeUndefined();
+    expect(resolveBackupDirectory(join(directory, "db.sqlite"), "custom/backups")).toBe(
+      join(directory, "custom/backups"),
+    );
 
     const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     expect(after).toBe(before);

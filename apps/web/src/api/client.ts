@@ -50,6 +50,7 @@ import type {
   SetEvidenceVoidResult,
   SetSessionVoidInput,
   SetSessionVoidResult,
+  SystemStatus,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
   UpdateSessionSummaryInput,
@@ -133,6 +134,10 @@ export class ApiClient {
 
   public getHealth(signal?: AbortSignal): Promise<ApiHealth> {
     return this.request<ApiHealth>("/api/health", { signal });
+  }
+
+  public getSystemStatus(signal?: AbortSignal): Promise<SystemStatus> {
+    return this.request<SystemStatus>("/api/system/status", { signal });
   }
 
   private async fetchResponse(path: string, init?: RequestInit): Promise<Response> {

@@ -50,6 +50,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("./views/ProjectsView.vue"),
     meta: { title: "專案", navLabel: "專案", eyebrow: "PROJECT REGISTRY", group: "manage" },
   },
+  {
+    path: "/system-status",
+    name: "system-status",
+    component: () => import("./views/SystemStatusView.vue"),
+    meta: { title: "系統狀態", navLabel: "系統狀態", eyebrow: "SYSTEM STATUS", group: "manage" },
+  },
   { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
 ];
 

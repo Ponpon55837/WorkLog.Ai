@@ -19,6 +19,8 @@ import {
   TriangleAlert,
 } from "lucide-vue-next";
 import type {
+  DatabaseInspectionState,
+  DatabaseMaintenanceStatus,
   KnowledgeKind,
   KnowledgeStatus,
   MetadataBackfillRequest,
@@ -36,6 +38,19 @@ export type StatusVisual = { tone: Tone; icon?: IconComponent; label: string };
 
 export type RequestStatus = ReportSynthesisRequest["status"] | MetadataBackfillRequest["status"];
 export type MetadataGapKind = "changed_files" | "verification_missing" | "verification_not_run";
+
+export const databaseInspectionStatus: Record<DatabaseInspectionState, StatusVisual> = {
+  ok: { tone: "success", icon: CircleCheck, label: "正常" },
+  missing: { tone: "attention", icon: CircleAlert, label: "不存在" },
+  unhealthy: { tone: "danger", icon: CircleX, label: "異常" },
+  unreadable: { tone: "danger", icon: CircleAlert, label: "無法讀取" },
+};
+
+export const databaseMaintenanceStatus: Record<DatabaseMaintenanceStatus, StatusVisual> = {
+  running: { tone: "accent", icon: LoaderCircle, label: "執行中" },
+  completed: { tone: "success", icon: CircleCheck, label: "成功" },
+  failed: { tone: "danger", icon: CircleX, label: "失敗" },
+};
 
 export const verificationStatus: Record<ReportVerificationStatus, StatusVisual> = {
   passed: { tone: "success", icon: CircleCheck, label: "通過" },

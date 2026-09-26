@@ -1779,6 +1779,43 @@ export interface DatabaseBackupUnavailable {
   reason: string;
 }
 
+export type DatabaseInspectionState = "missing" | "ok" | "unhealthy" | "unreadable";
+export type DatabaseMaintenanceStatus = "running" | "completed" | "failed";
+export type DatabaseMaintenanceFailureCode = "DATABASE_INTEGRITY_FAILED" | "DATABASE_MAINTENANCE_FAILED";
+
+export interface DatabaseMaintenanceRecord {
+  startedAt: string;
+  completedAt: string | null;
+  status: DatabaseMaintenanceStatus;
+  backupFileName: string;
+  indexedSessions: number;
+  indexedKnowledge: number;
+  indexedChunks: number;
+  indexedPaths: number;
+  failureCode: DatabaseMaintenanceFailureCode | null;
+}
+
+/** Read-only system diagnostics returned by GET /api/system/status. */
+export interface SystemStatus {
+  version: string;
+  /** The latest schema version supported by this application build. */
+  schemaVersion: number;
+  database: {
+    path: string;
+    bytes: number | null;
+    state: DatabaseInspectionState;
+    schemaVersion: number | null;
+  };
+  backups: {
+    available: boolean;
+    latestAutomatic: DatabaseBackup | null;
+    count: number;
+    totalBytes: number;
+  };
+  maintenance: DatabaseMaintenanceRecord | null;
+  sseConnections: number;
+}
+
 export const PROJECT_DATA_TABLES = [
   "projects",
   "sessions",

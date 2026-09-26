@@ -1,4 +1,4 @@
-import { BookOpen, ChartColumn, FolderGit2, LayoutDashboard, ListChecks, Share2 } from "lucide-vue-next";
+import { Activity, BookOpen, ChartColumn, FolderGit2, LayoutDashboard, ListChecks, Share2 } from "lucide-vue-next";
 import type { NavGroup } from "../../router";
 import type { IconComponent } from "../ui/types";
 
@@ -12,6 +12,7 @@ export const navItems: readonly NavItem[] = [
   { name: "knowledge", label: "工作知識", icon: BookOpen, group: "knowledge", shortcut: "g k" },
   { name: "graph", label: "工作圖譜", icon: Share2, group: "knowledge", shortcut: "g g" },
   { name: "projects", label: "專案", icon: FolderGit2, group: "manage", shortcut: "g p" },
+  { name: "system-status", label: "系統狀態", icon: Activity, group: "manage", shortcut: "g y" },
 ];
 
 export const navGroups: readonly { id: NavGroup; label: string }[] = [

@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
-import type { FolderPickResult, ProjectDataExportScope, ProjectDataImportInput } from "@work-intelligence/core";
+import type {
+  DatabaseBackup,
+  FolderPickResult,
+  ProjectDataExportScope,
+  ProjectDataImportInput,
+  SystemStatus,
+} from "@work-intelligence/core";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import {
   attachEvidenceInputSchema,
@@ -57,6 +63,7 @@ import {
   WorkIntelligenceStore,
 } from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
+import { inspectDatabaseReadOnlyMetadata } from "./database-inspection.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
 const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
@@ -380,6 +387,43 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           policy: "explicit-opt-in/default-deny",
           database: databaseHealthy ? "connected" : "unavailable",
         });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/system/status") {
+        const database =
+          store.databasePath === ":memory:"
+            ? { state: "ok" as const, schemaVersion: LATEST_SCHEMA_VERSION }
+            : await inspectDatabaseReadOnlyMetadata(store.databasePath);
+        let backupSnapshot: { available: boolean; backups: DatabaseBackup[] } = { available: false, backups: [] };
+        try {
+          const result = store.listBackups();
+          if (result.outcome === "database_backups") {
+            backupSnapshot = { available: true, backups: result.backups };
+          }
+        } catch {
+          // Report backup metrics as unavailable without exposing filesystem details.
+        }
+        const automaticBackup = backupSnapshot.backups.find((backup) => backup.kind === "automatic") ?? null;
+        const status: SystemStatus = {
+          version: APP_VERSION,
+          schemaVersion: LATEST_SCHEMA_VERSION,
+          database: {
+            path: store.databasePath,
+            bytes: database.bytes ?? null,
+            state: database.state,
+            schemaVersion: database.schemaVersion ?? null,
+          },
+          backups: {
+            available: backupSnapshot.available,
+            latestAutomatic: automaticBackup,
+            count: backupSnapshot.backups.length,
+            totalBytes: backupSnapshot.backups.reduce((total, backup) => total + backup.bytes, 0),
+          },
+          maintenance: database.maintenance ?? null,
+          sseConnections: eventClients.size,
+        };
+        sendJson(response, 200, status);
         return;
       }
 
