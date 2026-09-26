@@ -7,6 +7,9 @@ export const queryKeys = {
     summary: ["dashboard"] as const,
     overview: ["dashboard", "overview"] as const,
   },
+  commandPalette: {
+    search: ["command-palette", "search"] as const,
+  },
   projects: {
     list: ["projects"] as const,
     deletionAudits: ["project-deletion-audits"] as const,

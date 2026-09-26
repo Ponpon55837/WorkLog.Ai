@@ -34,5 +34,9 @@ export const useAppStore = defineStore("app", () => {
     healthEnabled.value = true;
   }
 
-  return { appHealth, appHealthError, loadHealth };
+  function abortPendingRequests(): void {
+    useApi().abortAll();
+  }
+
+  return { appHealth, appHealthError, loadHealth, abortPendingRequests };
 });
