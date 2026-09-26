@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { Archive, DatabaseBackup, Download, RefreshCw, Trash2 } from "lucide-vue-next";
 import type { ProjectDataImportPreview } from "@work-intelligence/core";
-import { useProjectDataTransfer } from "../../composables/useProjectDataTransfer";
 import { useProjects } from "../../composables/useProjects";
 import { useBackupsStore } from "../../stores/backups";
+import { useProjectDataTransferStore } from "../../stores/project-data-transfer";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
 import { databaseBackupKindLabels } from "../../utils/labels";
 import UiBox from "../ui/UiBox.vue";
@@ -38,6 +38,7 @@ const {
 } = storeToRefs(backupsStore);
 const { loadBackups, createBackup, deleteBackup, exportDatabase } = backupsStore;
 const { projects, loadProjects } = useProjects();
+const projectDataTransferStore = useProjectDataTransferStore();
 const {
   transferError,
   portableExporting,
@@ -49,11 +50,9 @@ const {
   importLoading,
   importPreview,
   importError,
-  loadImportFile,
-  previewProjectDataImport,
-  applyProjectDataImport,
-  exportProjectData,
-} = useProjectDataTransfer();
+} = storeToRefs(projectDataTransferStore);
+const { loadImportFile, previewProjectDataImport, applyProjectDataImport, exportProjectData } =
+  projectDataTransferStore;
 
 const scrollAfter = 6;
 const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
