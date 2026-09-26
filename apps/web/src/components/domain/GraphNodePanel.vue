@@ -1,28 +1,30 @@
 <script setup lang="ts">
 import { ArrowLeft, ArrowRight, BookOpen, FolderGit2, ListChecks, X } from "lucide-vue-next";
+import { storeToRefs } from "pinia";
 import type { GraphEdge, GraphNode } from "@work-intelligence/core";
-import { useGraph } from "../../composables/useGraph";
-import { graphEdgeKindLabels, graphNodeKindLabels } from "../../utils/labels";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
 import VirtualList from "../VirtualList.vue";
+import { useGraph } from "../../composables/useGraph";
+import { useGraphStore } from "../../stores/graph";
+import { graphEdgeKindLabels, graphNodeKindLabels } from "../../utils/labels";
 
 /** Docked, non-modal node detail: the graph stays interactive while the panel is open. */
+const graphStore = useGraphStore();
+const { selectedGraphNode: node, graphPanelWidth } = storeToRefs(graphStore);
 const {
-  selectedGraphNode: node,
   selectedGraphNodeMetadata: metadata,
   selectedGraphNodeRelations: relations,
-  graphPanelWidth,
   graphNodeProjectName,
   graphNodeDisplayLabel,
   graphNodeDescription,
-  selectGraphNode,
   openGraphSession,
   openGraphKnowledge,
   openGraphProject,
 } = useGraph();
+const { selectGraphNode } = graphStore;
 
 /** Relation subtitle; avoids "變更檔案 · 變更檔案" and shows the folder for files. */
 function relationDetail(edge: GraphEdge, related: GraphNode): string {

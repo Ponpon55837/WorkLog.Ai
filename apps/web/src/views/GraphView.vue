@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted } from "vue";
 import { FolderGit2, Search, SearchX, Share2 } from "lucide-vue-next";
+import { storeToRefs } from "pinia";
 import type { GraphNode } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import GraphNodePanel from "../components/domain/GraphNodePanel.vue";
-import GraphCanvas from "../components/GraphCanvas.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiButton from "../components/ui/UiButton.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
@@ -12,14 +12,15 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
-import { useActiveViewQuery } from "../composables/useAppRefresh";
-import { graphLoadPresetOptions, useGraph, type GraphNodeFilter } from "../composables/useGraph";
+import GraphCanvas from "../components/GraphCanvas.vue";
+import { useGraph, type GraphNodeFilter } from "../composables/useGraph";
 import { useProjects } from "../composables/useProjects";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
+import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
-import { queryKeys } from "../stores/query-keys";
 
 const { trackedProjects } = useProjects();
+const graphStore = useGraphStore();
 const {
   graph,
   graphProjectId,
@@ -27,28 +28,29 @@ const {
   graphPreviewLimit,
   graphLoadPreset,
   graphSearch,
-  graphSearchMatchIds,
   graphLoading,
   graphError,
+  graphCanLoadMore,
+  selectedGraphNode,
+  graphPanelWidth,
+} = storeToRefs(graphStore);
+const {
+  graphSearchMatchIds,
   graphVisual,
   graphFilteredTotalNodes,
-  graphCanLoadMore,
   graphNodeCounts,
   graphNodeDescription,
   graphNodeDisplayLabel,
-  loadGraph,
-  loadMoreGraph,
-  selectedGraphNode,
-  graphPanelWidth,
-  selectGraphNode,
 } = useGraph();
 
-const load = (): Promise<void> => loadGraph();
+const load = (): Promise<void> => graphStore.loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
-useActiveViewQuery(queryKeys.views.graph, load);
-watch([graphProjectId, graphLoadPreset], () => void load());
-onBeforeUnmount(() => selectGraphNode(null));
+onMounted(() => graphStore.setGraphActive(true));
+onBeforeUnmount(() => {
+  graphStore.setGraphActive(false);
+  graphStore.selectGraphNode(null);
+});
 
 const projectOptions = computed(() => [
   { value: "", label: "所有記錄中專案" },
@@ -91,14 +93,14 @@ const countLabel = computed(() =>
 );
 
 function onSelect(node: GraphNode): void {
-  selectGraphNode(node);
+  graphStore.selectGraphNode(node);
 }
 
 /** Enter in the search box jumps to the first hit instead of submitting the toolbar form. */
 function selectFirstMatch(): void {
   const first = graphVisual.value.nodes.find((item) => graphSearchMatchIds.value.has(item.node.id));
   if (first) {
-    selectGraphNode(first.node);
+    graphStore.selectGraphNode(first.node);
   }
 }
 </script>
@@ -135,7 +137,12 @@ function selectFirstMatch(): void {
         <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
         <UiSelect v-model="graphLoadPreset" :options="presetOptions" size="sm" label="選擇 Graph 資料載入上限" />
         <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
-        <UiButton v-if="graphCanLoadMore" size="sm" variant="invisible" :disabled="graphLoading" @click="loadMoreGraph"
+        <UiButton
+          v-if="graphCanLoadMore"
+          size="sm"
+          variant="invisible"
+          :disabled="graphLoading"
+          @click="graphStore.loadMoreGraph"
           >載入更多資料</UiButton
         >
       </form>
@@ -186,7 +193,7 @@ function selectFirstMatch(): void {
       :match-ids="graphSearchMatchIds"
       :overlay-width="selectedGraphNode ? graphPanelWidth : 0"
       @select="onSelect"
-      @clear="selectGraphNode(null)"
+      @clear="graphStore.selectGraphNode(null)"
     />
 
     <template v-if="graph" #footer>

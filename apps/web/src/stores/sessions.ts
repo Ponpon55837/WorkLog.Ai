@@ -149,7 +149,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         invalidations.push(
           queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
           queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
-          queryCache.invalidateQueries({ key: queryKeys.views.graph, exact: true }),
+          queryCache.invalidateQueries({ key: queryKeys.views.graph }),
           queryCache.invalidateQueries({ key: queryKeys.views.knowledge, exact: true }),
         );
       }
@@ -167,7 +167,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       await Promise.all([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.relatedSessionId], exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.views.graph, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
       ]);
     },
   });
@@ -179,7 +179,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       await Promise.all([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.relatedSessionId], exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.views.graph, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
       ]);
     },
   });
@@ -195,7 +195,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports, exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.views.graph, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         queryCache.invalidateQueries({ key: queryKeys.views.knowledge, exact: true }),
       ]);
     },
@@ -210,7 +210,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports, exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.views.graph, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
       ]);
     },
   });

@@ -103,7 +103,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list, exact: true }),
         queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
-        queryCache.invalidateQueries({ key: queryKeys.views.graph, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
       ]);
     },
   });
@@ -132,7 +132,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       if (result.outcome === "knowledge_candidate_decided" && result.knowledge) {
         invalidations.push(
           queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
-          queryCache.invalidateQueries({ key: queryKeys.views.graph, exact: true }),
+          queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         );
       }
       await Promise.all(invalidations);
