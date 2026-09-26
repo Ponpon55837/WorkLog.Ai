@@ -1,4 +1,6 @@
 /** Stable query keys shared by Pinia Colada stores and mutation invalidation. */
+const reportsViewKey = ["view", "reports"] as const;
+
 export const queryKeys = {
   app: {
     health: ["app", "health"] as const,
@@ -29,10 +31,16 @@ export const queryKeys = {
     detail: ["sessions", "detail"] as const,
     linkCandidates: ["sessions", "link-candidates"] as const,
   },
+  reports: {
+    report: [...reportsViewKey, "report"] as const,
+    evidence: [...reportsViewKey, "evidence"] as const,
+    sessions: [...reportsViewKey, "sessions"] as const,
+    synthesis: [...reportsViewKey, "synthesis"] as const,
+  },
   views: {
     graph: ["view", "graph"] as const,
     knowledge: ["view", "knowledge"] as const,
-    reports: ["view", "reports"] as const,
+    reports: reportsViewKey,
     sessions: ["view", "sessions"] as const,
     systemStatus: ["view", "system-status"] as const,
   },

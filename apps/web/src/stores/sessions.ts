@@ -154,7 +154,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         );
       }
       if (input.summary || input.workSummary || input.verification) {
-        invalidations.push(queryCache.invalidateQueries({ key: queryKeys.views.reports, exact: true }));
+        invalidations.push(queryCache.invalidateQueries({ key: queryKeys.views.reports }));
       }
       await Promise.all(invalidations);
     },
@@ -194,7 +194,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.views.reports, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.reports }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         queryCache.invalidateQueries({ key: queryKeys.views.knowledge, exact: true }),
       ]);
@@ -209,7 +209,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.views.reports, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.reports }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
       ]);
     },

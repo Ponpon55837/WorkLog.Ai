@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
@@ -44,12 +45,11 @@ import UiStatCard from "../components/ui/UiStatCard.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useProjects } from "../composables/useProjects";
-import { useReports, type ReportViewPeriod } from "../composables/useReports";
 import { enumQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { useSessionDetail } from "../composables/useSessionDetail";
 import { router } from "../router";
+import { useReportsStore, type ReportViewPeriod } from "../stores/reports";
 import {
   formatDate,
   formatReadableSummary,
@@ -64,10 +64,10 @@ import {
   reportTabOptions,
   type ReportTab,
 } from "../utils/labels";
-import { queryKeys } from "../stores/query-keys";
 
 const route = useRoute();
 const { trackedProjects } = useProjects();
+const reportsStore = useReportsStore();
 const {
   report,
   reportPeriod,
@@ -88,13 +88,8 @@ const {
   reportSessionPageInfo,
   reportSessionLoading,
   reportComparisons,
-  loadReport,
-  loadReportSessions,
-  loadReportEvidence,
-  exportReport,
-  openReportSession,
-  openReportEvidence,
-} = useReports();
+} = storeToRefs(reportsStore);
+const { loadReport, loadReportSessions, loadReportEvidence, exportReport } = reportsStore;
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
 type SpanningListRow =
@@ -136,7 +131,6 @@ if (reportPeriod.value === "custom" && hasIncompleteCustomRange()) {
   setDefaultCustomRange();
 }
 
-useActiveViewQuery(queryKeys.views.reports, () => loadReport(true));
 watch([reportPeriod, reportDate, reportRange, reportProjectId], ([period]) => {
   if (period === "custom" && hasIncompleteCustomRange()) {
     setDefaultCustomRange();
@@ -144,6 +138,7 @@ watch([reportPeriod, reportDate, reportRange, reportProjectId], ([period]) => {
   }
   void loadReport(true);
 });
+void loadReport(true);
 
 const tabIds = reportTabOptions.map((option) => option.id);
 const tab = computed<ReportTab>({
@@ -335,6 +330,14 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
   void openSessionDetail(session.id);
 }
 
+function openReportSession(sessionId: string | undefined): Promise<void> {
+  return openSessionDetail(sessionId, "無法載入來源 Session。");
+}
+
+function openReportEvidence(evidence: ReportEvidence): Promise<void> {
+  return openReportSession(evidence.sessionId);
+}
+
 function changeRawPage(page: number): void {
   reportSessionPage.value = page;
   void loadReportSessions();
@@ -360,7 +363,10 @@ watch(reportEvidenceQuery, () => {
   window.clearTimeout(evidenceTimer);
   evidenceTimer = window.setTimeout(reloadEvidenceFromFirstPage, 300);
 });
-onBeforeUnmount(() => window.clearTimeout(evidenceTimer));
+onBeforeUnmount(() => {
+  window.clearTimeout(evidenceTimer);
+  reportsStore.setReportsActive(false);
+});
 
 const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   handoff: "H",
