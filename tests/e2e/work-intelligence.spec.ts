@@ -112,8 +112,9 @@ async function expectPanelToFillViewport(list: Locator): Promise<void> {
       list.evaluate((element) => {
         const main = document.querySelector<HTMLElement>("#main");
         const panel = element.closest<HTMLElement>(".ui-box");
-        const bottomInset =
-          Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24;
+        const bottomInset = element.classList.contains("virtual-list-fit-viewport-to-panel-shared-fill")
+          ? 0
+          : Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24;
         return main && panel
           ? Math.abs(main.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom - bottomInset)
           : NaN;
