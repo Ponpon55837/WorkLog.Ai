@@ -14,19 +14,19 @@ import SessionSummaryEditorDialog from "./components/domain/SessionSummaryEditor
 import UiButton from "./components/ui/UiButton.vue";
 import UiFlash from "./components/ui/UiFlash.vue";
 import UiSkeleton from "./components/ui/UiSkeleton.vue";
-import { useApi } from "./composables/useApi";
 import { useApiConnection } from "./composables/useApiConnection";
-import { invalidateActiveQueries, startAppRefreshEvents, useActiveViewQuery } from "./composables/useAppRefresh";
-import { useDashboard } from "./composables/useDashboard";
+import { invalidateActiveQueries, startAppRefreshEvents } from "./composables/useAppRefresh";
 import { useHotkeys } from "./composables/useHotkeys";
 import { useProjects } from "./composables/useProjects";
 import { useAppStore } from "./stores/app";
-import { queryKeys } from "./stores/query-keys";
+import { useDashboardStore } from "./stores/dashboard";
 import { errorMessage as toErrorMessage } from "./utils/format";
 
 const route = useRoute();
 const { dashboard, trackedProjects, loadDashboard, loadProjects } = useProjects();
-const { inbox, loadDashboardData } = useDashboard();
+const dashboardStore = useDashboardStore();
+const { inbox } = storeToRefs(dashboardStore);
+const { loadDashboardData } = dashboardStore;
 const appStore = useAppStore();
 const { appHealth, appHealthError } = storeToRefs(appStore);
 const { loadHealth } = appStore;
@@ -35,8 +35,6 @@ const loading = ref(true);
 const refreshing = ref(false);
 const errorMessage = ref("");
 const paletteOpen = ref(false);
-const dashboardHomeEnabled = ref(false);
-const dashboardHomeQuery = useActiveViewQuery(queryKeys.dashboard.overview, loadDashboardData, dashboardHomeEnabled);
 
 const counts = computed(() => ({
   dashboard: { value: inbox.value.length, tone: "attention" as const },
@@ -44,18 +42,10 @@ const counts = computed(() => ({
   projects: { value: trackedProjects.value.length },
 }));
 
-async function loadDashboardHome(): Promise<void> {
-  try {
-    await dashboardHomeQuery.refetch(true);
-  } finally {
-    dashboardHomeEnabled.value = true;
-  }
-}
-
 async function loadRootData(): Promise<void> {
   errorMessage.value = "";
   try {
-    await Promise.all([loadDashboard(), loadProjects(), loadHealth(), loadDashboardHome()]);
+    await Promise.all([loadDashboard(), loadProjects(), loadHealth(), loadDashboardData()]);
   } catch (error) {
     errorMessage.value = toErrorMessage(error, "無法載入 Work Intelligence，請確認本機 API 是否已啟動。");
   } finally {
@@ -88,7 +78,7 @@ onMounted(() => void loadRootData());
 
 onBeforeUnmount(() => {
   stopAppRefreshEvents();
-  useApi().abortAll();
+  appStore.abortPendingRequests();
 });
 </script>
 

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { BookOpen, CornerDownLeft, ListChecks, Search } from "lucide-vue-next";
-import type { KnowledgeRecord, WorkSessionRecord } from "@work-intelligence/core";
+import { storeToRefs } from "pinia";
 import { navItems } from "../layout/navigation";
 import type { IconComponent } from "../ui/types";
-import { runKeyed, useApi } from "../../composables/useApi";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { useSessionDetail } from "../../composables/useSessionDetail";
 import { router } from "../../router";
+import { useCommandPaletteStore } from "../../stores/command-palette";
 import { formatRelative } from "../../utils/format";
 
 type PaletteItem = { id: string; group: string; label: string; hint?: string; icon: IconComponent; run: () => void };
@@ -17,8 +17,8 @@ const open = defineModel<boolean>("open", { required: true });
 
 const query = ref("");
 const active = ref(0);
-const sessions = ref<WorkSessionRecord[]>([]);
-const knowledge = ref<KnowledgeRecord[]>([]);
+const paletteStore = useCommandPaletteStore();
+const { sessions, knowledge } = storeToRefs(paletteStore);
 const dialog = ref<HTMLElement | null>(null);
 const input = ref<HTMLInputElement | null>(null);
 let timer: number | undefined;
@@ -85,43 +85,16 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
-async function search(term: string): Promise<void> {
-  if (term.length < 2) {
-    sessions.value = [];
-    knowledge.value = [];
-    return;
-  }
-  const client = useApi().client;
-  await Promise.all([
-    runKeyed(
-      "palette-sessions",
-      async (signal) => {
-        sessions.value = (await client.listSessions({ q: term, pageSize: 5 }, signal)).items;
-      },
-      { onError: () => (sessions.value = []) },
-    ),
-    runKeyed(
-      "palette-knowledge",
-      async (signal) => {
-        const result = await client.searchKnowledge({ q: term, pageSize: 5 }, signal);
-        knowledge.value = result.outcome === "knowledge" ? result.items : [];
-      },
-      { onError: () => (knowledge.value = []) },
-    ),
-  ]);
-}
-
 watch(query, (term) => {
   active.value = 0;
   window.clearTimeout(timer);
-  timer = window.setTimeout(() => void search(term.trim()), 200);
+  timer = window.setTimeout(() => paletteStore.setSearchTerm(term), 200);
 });
 
 watch(open, async (value) => {
+  paletteStore.setOpen(value);
   if (value) {
     query.value = "";
-    sessions.value = [];
-    knowledge.value = [];
     active.value = 0;
     await nextTick();
     input.value?.focus();
