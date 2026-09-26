@@ -128,6 +128,17 @@ async function expectPanelToFillViewport(list: Locator): Promise<void> {
     .toBeLessThanOrEqual(2);
 }
 
+async function expectListToMeetPagination(list: Locator): Promise<void> {
+  await expect
+    .poll(() =>
+      list.evaluate((element) => {
+        const footer = element.closest<HTMLElement>(".ui-box")?.querySelector<HTMLElement>(".ui-box__footer");
+        return footer ? Math.abs(footer.getBoundingClientRect().top - element.getBoundingClientRect().bottom) : NaN;
+      }),
+    )
+    .toBeLessThanOrEqual(1);
+}
+
 async function expectUserScrollsListInternally(page: Page, name: string): Promise<void> {
   const list = page.getByRole("list", { name });
   const pageScroller = page.locator("#main");
@@ -1645,18 +1656,17 @@ test.describe("Work Intelligence browser regression", () => {
       const sessionList = await expectBoundedVirtualList(page, "工作歷程清單");
       if (expectPanelFill) {
         await expectPanelToFillViewport(sessionList);
+        await expectListToMeetPagination(sessionList);
       }
       await expectPaginationVisibleWithinViewport(page, "工作歷程每頁筆數");
       await expectUserScrollsListInternally(page, "工作歷程清單");
       await expectNoHorizontalOverflow(page);
-      const viewportFitListHeight = await sessionList.evaluate((element) => element.clientHeight);
 
       await page.goto("/knowledge");
       const knowledgeList = await expectBoundedVirtualList(page, "工作知識清單");
       if (expectPanelFill) {
         await expectPanelToFillViewport(knowledgeList);
       }
-      expect(await knowledgeList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
       await expectPaginationVisibleWithinViewport(page, "Knowledge 每頁筆數");
       await expectBoundedVirtualList(page, "Knowledge 候選清單");
       await expectNoHorizontalOverflow(page);
@@ -1709,8 +1719,8 @@ test.describe("Work Intelligence browser regression", () => {
       const reportSessionList = await expectBoundedVirtualList(page, "報告原始工作紀錄清單");
       if (expectPanelFill) {
         await expectPanelToFillViewport(reportSessionList);
+        await expectListToMeetPagination(reportSessionList);
       }
-      expect(await reportSessionList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
       await expectPaginationVisibleWithinViewport(page, "報告原始工作紀錄每頁筆數");
       await expectUserScrollsListInternally(page, "報告原始工作紀錄清單");
       await expectNoHorizontalOverflow(page);
@@ -1719,8 +1729,8 @@ test.describe("Work Intelligence browser regression", () => {
       const reportEvidenceList = await expectBoundedVirtualList(page, "報告來源證據清單");
       if (expectPanelFill) {
         await expectPanelToFillViewport(reportEvidenceList);
+        await expectListToMeetPagination(reportEvidenceList);
       }
-      expect(await reportEvidenceList.evaluate((element) => element.clientHeight)).toBe(viewportFitListHeight);
       await expectPaginationVisibleWithinViewport(page, "報告來源證據每頁筆數");
       await expectNoHorizontalOverflow(page);
 
@@ -1754,6 +1764,21 @@ test.describe("Work Intelligence browser regression", () => {
       await page.goto("/projects/backup");
       await expectBoundedVirtualList(page, "備份清單");
       await expectNoHorizontalOverflow(page);
+    }
+
+    await page.setViewportSize({ width: 2048, height: 1015 });
+    for (const [path, heading, listName, paginationLabel] of [
+      ["/sessions", "工作歷程", "工作歷程清單", "工作歷程每頁筆數"],
+      ["/reports/raw?period=week", "工作報告", "報告原始工作紀錄清單", "報告原始工作紀錄每頁筆數"],
+    ] as const) {
+      await page.goto(path);
+      const list = await expectBoundedVirtualList(page, listName);
+      await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+      await expect(page.locator("#main")).toHaveJSProperty("scrollTop", 0);
+      await expectPanelToFillViewport(list);
+      await expectListToMeetPagination(list);
+      await expectPaginationVisibleWithinViewport(page, paginationLabel);
+      await expectUserScrollsListInternally(page, listName);
     }
 
     await page.setViewportSize({ width: 375, height: 667 });

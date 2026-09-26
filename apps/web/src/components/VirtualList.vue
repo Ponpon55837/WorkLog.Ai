@@ -199,6 +199,7 @@ function keepFitViewportPanelVisible(): void {
   const footer = panel?.querySelector<HTMLElement>(".ui-box__footer");
   if (
     !props.fitViewport ||
+    (props.fillAvailableSpace && fitViewportPanelFillsAvailableSpace.value) ||
     (props.fitViewportToPanel && fitViewportPanelHeight.value !== null && !fitViewportPanelFillsAvailableSpace.value) ||
     !panel ||
     !footer ||
@@ -238,8 +239,10 @@ function updateFitViewportPanelHeight(): void {
   const listTop = list.getBoundingClientRect().top;
   const footerHeight = panel?.querySelector<HTMLElement>(".ui-box__footer")?.getBoundingClientRect().height ?? 0;
   const borderBottom = panel ? Number.parseFloat(window.getComputedStyle(panel).borderBottomWidth) || 0 : 0;
-  const bottomInset =
-    Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24;
+  const fillsAvailableSpace = props.fillAvailableSpace && !window.matchMedia("(max-width: 639px)").matches;
+  const bottomInset = fillsAvailableSpace
+    ? 0
+    : Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24;
 
   let trailingHeight = 0;
   if (body) {
@@ -256,12 +259,16 @@ function updateFitViewportPanelHeight(): void {
     }
   }
 
-  const fillsAvailableSpace = props.fillAvailableSpace && !window.matchMedia("(max-width: 639px)").matches;
-
   if (fillsAvailableSpace) {
-    // Keep paginated lists the same height and extend them to the viewport edge.
-    const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-    fitViewportPanelHeight.value = Math.max(180, Math.floor(main.clientHeight - 13 * rem + bottomInset - borderBottom));
+    // Measure from the list's actual position so the page heading stays visible above it.
+    const nextHeight = Math.floor(mainBottom - bottomInset - listTop - trailingHeight - footerHeight - borderBottom);
+    if (nextHeight <= 0) {
+      fitViewportPanelHeight.value = null;
+      fitViewportPanelFillsAvailableSpace.value = false;
+      return;
+    }
+
+    fitViewportPanelHeight.value = Math.max(180, nextHeight);
     fitViewportPanelFillsAvailableSpace.value = true;
     return;
   }
@@ -288,8 +295,8 @@ function updateFitViewportPanelHeight(): void {
 }
 
 function handleFitViewportResize(): void {
-  keepFitViewportPanelVisible();
   updateFitViewportPanelHeight();
+  keepFitViewportPanelVisible();
 }
 
 function handleScroll(event: Event): void {
