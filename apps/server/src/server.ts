@@ -57,10 +57,12 @@ import {
   projectDataImportInputSchema,
 } from "@work-intelligence/schema";
 import {
+  DATABASE_BUSY_MESSAGE,
   LATEST_SCHEMA_VERSION,
   ProjectDataTransferError,
   ProjectDeletionError,
   WorkIntelligenceStore,
+  isDatabaseBusyError,
 } from "@work-intelligence/storage";
 import { createFolderPicker } from "./folder-picker.js";
 import { inspectDatabaseReadOnlyMetadata } from "./database-inspection.js";
@@ -255,7 +257,11 @@ export interface ApiHandlerOptions {
   webDirectory?: string;
 }
 
-export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}) {
+export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
+  closeEventStreams: () => void;
+};
+
+export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}): ApiHandler {
   const pickFolder = options.pickFolder ?? createFolderPicker();
   const serveWebFiles = options.webDirectory ? createStaticFilesHandler(options.webDirectory) : undefined;
   const eventClients = new Set<ServerResponse>();
@@ -345,7 +351,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     }
   }
 
-  return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+  const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (serveWebFiles) {
       applyProductionSecurityHeaders(response);
     }
@@ -1322,6 +1328,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         return;
       }
 
+      if (isDatabaseBusyError(error)) {
+        sendError(response, 503, DATABASE_BUSY_MESSAGE);
+        return;
+      }
+
       console.error("[work-intelligence] API request failed", error);
       if (response.headersSent) {
         // A streamed download failed midway; cut the connection so the client sees an incomplete file.
@@ -1331,4 +1342,21 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
       sendError(response, 500, "Internal server error.");
     }
   };
+
+  return Object.assign(handler, {
+    closeEventStreams(): void {
+      stopEventPolling();
+      for (const client of eventClients) {
+        if (client.destroyed || client.writableEnded) {
+          continue;
+        }
+        try {
+          client.end();
+        } catch {
+          client.destroy();
+        }
+      }
+      eventClients.clear();
+    },
+  });
 }

@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { DeleteProjectResult, ProjectDeletionAuditRecord, ProjectDeletionCounts } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeProjectDeletion, type BackupRetentionOptions } from "./backup.js";
+import { isDatabaseBusyError } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { SearchRepository } from "./search-repository.js";
 
@@ -284,7 +285,10 @@ export class ProjectDeletionService {
     try {
       backupFileName = backupDatabaseBeforeProjectDeletion(this.db, this.databasePath, this.backupOptions).created
         .fileName;
-    } catch {
+    } catch (error) {
+      if (isDatabaseBusyError(error)) {
+        throw error;
+      }
       throw new ProjectDeletionError("PROJECT_BACKUP_FAILED");
     }
 
@@ -392,6 +396,9 @@ export class ProjectDeletionService {
       });
     } catch (error) {
       if (error instanceof ProjectDeletionError) {
+        throw error;
+      }
+      if (isDatabaseBusyError(error)) {
         throw error;
       }
       throw new ProjectDeletionError("PROJECT_DELETE_FAILED");

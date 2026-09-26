@@ -4,6 +4,7 @@ import { databasePath, storeOptions } from "./config.js";
 import { describeListenError } from "./listen-error.js";
 import { createApiHandler } from "./server.js";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import { registerGracefulShutdown } from "./shutdown.js";
 
 function startApi(): void {
   let store: WorkIntelligenceStore;
@@ -17,7 +18,8 @@ function startApi(): void {
 
   const port = Number(process.env.WORK_INTELLIGENCE_PORT ?? DEFAULT_SERVER_PORT);
   const webDirectory = process.env.WORK_INTELLIGENCE_WEB_DIST;
-  const server = createServer(createApiHandler(store, webDirectory ? { webDirectory } : {}));
+  const apiHandler = createApiHandler(store, webDirectory ? { webDirectory } : {});
+  const server = createServer(apiHandler);
 
   // Daily automatic backup: checked once listening and hourly; a backup is written once the newest is a day old.
   const backupCheckMs = 60 * 60 * 1000;
@@ -51,17 +53,19 @@ function startApi(): void {
     }
   });
 
-  function shutdown(): void {
-    clearInterval(backupTimer);
-    server.close(() => {
-      store.close();
-      process.exit(0);
-    });
-    server.closeAllConnections();
-  }
-
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  registerGracefulShutdown(
+    {
+      server,
+      stopBackgroundWork: () => clearInterval(backupTimer),
+      closeEventStreams: () => apiHandler.closeEventStreams(),
+      closeDatabase: () => store.close(),
+      onDatabaseCloseError: () => {
+        console.error("Work Intelligence API could not close the database cleanly.");
+        process.exitCode = 1;
+      },
+    },
+    process,
+  );
 }
 
 startApi();
