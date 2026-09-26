@@ -2,9 +2,7 @@ import { ref } from "vue";
 import type { ReportVerificationStatus, WorkSessionRecord, WorkSummarySections } from "@work-intelligence/core";
 import { errorMessage } from "../utils/format";
 import { workSummarySectionLabels } from "../utils/labels";
-import { useApi } from "./useApi";
-import { invalidateActiveQueries } from "./useAppRefresh";
-import { useSessionDetail } from "./useSessionDetail";
+import { useSessionsStore, type SessionEditorSaveInput } from "../stores/sessions";
 import { useToast } from "./useToast";
 
 type SectionKey = keyof WorkSummarySections;
@@ -60,10 +58,6 @@ function closeSessionEditor(): void {
   sessionEditorError.value = "";
 }
 
-function updateFailureMessage(result: { outcome: string; reason?: string }): string {
-  return result.outcome === "not_found" ? "找不到這筆 Session。" : (result.reason ?? "無法更新 Session 摘要。");
-}
-
 function newIdempotencyKey(kind: string, sessionId: string): string {
   return `web-${kind}-${sessionId}-${crypto.randomUUID()}`;
 }
@@ -104,43 +98,27 @@ async function saveSessionEditor(): Promise<void> {
 
   sessionEditorSaving.value = true;
   sessionEditorError.value = "";
-  const { client } = useApi();
   try {
+    const edits: SessionEditorSaveInput = { sessionId: session.id };
     if (summaryChanged) {
-      const result = await client.updateSessionSummary({
-        sessionId: session.id,
-        idempotencyKey: newIdempotencyKey("summary", session.id),
-        mode: "replace",
-        summary,
-      });
-      if (result.outcome !== "summary_updated") {
-        throw new Error(updateFailureMessage(result));
-      }
+      edits.summary = { idempotencyKey: newIdempotencyKey("summary", session.id), value: summary };
     }
     if (changedSections.length > 0) {
-      const workSummary = Object.fromEntries(
-        changedSections.map((key) => [key, sectionItems(form.sections[key])]),
-      ) as Partial<WorkSummarySections>;
-      const result = await client.updateSessionWorkSummary({
-        sessionId: session.id,
+      edits.workSummary = {
         idempotencyKey: newIdempotencyKey("work-summary", session.id),
-        mode: "patch",
-        workSummary,
-      });
-      if (result.outcome !== "work_summary_updated") {
-        throw new Error(updateFailureMessage(result));
-      }
+        sections: Object.fromEntries(
+          changedSections.map((key) => [key, sectionItems(form.sections[key])]),
+        ) as Partial<WorkSummarySections>,
+      };
     }
     if (verificationChanged && verificationStatus !== "not_supplied") {
       const summaryText = form.verificationSummary.trim();
-      const result = await client.updateSessionVerification(session.id, {
+      edits.verification = {
         status: verificationStatus,
         ...(summaryText ? { summary: summaryText } : {}),
-      });
-      if (result.outcome !== "updated") {
-        throw new Error(updateFailureMessage(result));
-      }
+      };
     }
+    await useSessionsStore().saveSessionEdits(edits);
   } catch (error) {
     sessionEditorError.value = errorMessage(error, "無法更新 Session 摘要。");
     sessionEditorSaving.value = false;
@@ -150,8 +128,6 @@ async function saveSessionEditor(): Promise<void> {
   sessionEditorSaving.value = false;
   closeSessionEditor();
   useToast().showToast("Session 已更新。");
-  await useSessionDetail().openSessionDetail(session.id);
-  void invalidateActiveQueries().catch(() => undefined);
 }
 
 export function useSessionEditor() {

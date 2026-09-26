@@ -1,29 +1,25 @@
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { SessionLinkDirection, WorkSessionRecord } from "@work-intelligence/core";
+import { storeToRefs } from "pinia";
 import { errorMessage } from "../utils/format";
-import { runKeyed, useApi } from "./useApi";
-import { invalidateActiveQueries } from "./useAppRefresh";
+import { useSessionsStore } from "../stores/sessions";
 import { confirmAction } from "./useConfirm";
-import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
 
 const linkSource = ref<WorkSessionRecord | null>(null);
 const linkQuery = ref("");
-const linkCandidates = ref<WorkSessionRecord[]>([]);
-const linkCandidatesLoading = ref(false);
 const linkTargetId = ref("");
 const linkDirection = ref<SessionLinkDirection>("continues");
 const linkSaving = ref(false);
-const linkError = ref("");
+const linkActionError = ref("");
 
 function openLinkDialog(session: WorkSessionRecord): void {
   linkSource.value = session;
   linkQuery.value = "";
-  linkCandidates.value = [];
   linkTargetId.value = "";
   linkDirection.value = "continues";
-  linkError.value = "";
-  void searchLinkCandidates();
+  linkActionError.value = "";
+  useSessionsStore().openLinkCandidates(session.id);
 }
 
 function closeLinkDialog(): void {
@@ -31,39 +27,18 @@ function closeLinkDialog(): void {
     return;
   }
   linkSource.value = null;
+  useSessionsStore().closeLinkCandidates();
 }
 
 /** Candidate Sessions for a new link: same keyword search as the Sessions page, minus the open Session. */
-async function searchLinkCandidates(): Promise<void> {
-  const source = linkSource.value;
-  if (!source) {
-    return;
-  }
-  linkCandidatesLoading.value = true;
-  await runKeyed(
-    "session-link-candidates",
-    async (signal) => {
-      const result = await useApi().client.listSessions(
-        { q: linkQuery.value.trim() || undefined, pageSize: 8 },
-        signal,
-      );
-      linkCandidates.value = result.items.filter((item) => item.id !== source.id);
-    },
-    {
-      onError: (error) => {
-        linkError.value = errorMessage(error, "無法搜尋 Session。");
-      },
-      onSettled: () => {
-        linkCandidatesLoading.value = false;
-      },
-    },
-  );
+function searchLinkCandidates(): void {
+  if (!linkSource.value) return;
+  linkActionError.value = "";
+  useSessionsStore().searchLinkCandidates(linkQuery.value);
 }
 
-async function afterLinkChange(sessionId: string, message: string): Promise<void> {
+function afterLinkChange(message: string): void {
   useToast().showToast(message);
-  await useSessionDetail().openSessionDetail(sessionId);
-  void invalidateActiveQueries().catch(() => undefined);
 }
 
 /**
@@ -77,29 +52,30 @@ async function saveLink(): Promise<void> {
     return;
   }
   if (!targetId) {
-    linkError.value = "請先選擇要關聯的 Session。";
+    linkActionError.value = "請先選擇要關聯的 Session。";
     return;
   }
   const reverse = linkDirection.value === "continued_by";
   linkSaving.value = true;
-  linkError.value = "";
+  linkActionError.value = "";
   try {
-    const result = await useApi().client.linkSession(
-      reverse ? targetId : source.id,
-      reverse ? source.id : targetId,
-      linkDirection.value === "related" ? "related" : "continues",
-    );
+    const result = await useSessionsStore().linkSessions({
+      sessionId: reverse ? targetId : source.id,
+      relatedSessionId: reverse ? source.id : targetId,
+      relation: linkDirection.value === "related" ? "related" : "continues",
+    });
     if (result.outcome !== "session_link_updated") {
       throw new Error(result.outcome === "not_found" ? "找不到這筆 Session。" : result.reason);
     }
   } catch (error) {
-    linkError.value = errorMessage(error, "無法建立關聯。");
+    linkActionError.value = errorMessage(error, "無法建立關聯。");
     linkSaving.value = false;
     return;
   }
   linkSaving.value = false;
   linkSource.value = null;
-  await afterLinkChange(source.id, "已建立 Session 關聯。");
+  useSessionsStore().closeLinkCandidates();
+  afterLinkChange("已建立 Session 關聯。");
 }
 
 async function removeLink(sessionId: string, relatedSessionId: string, relatedTitle: string): Promise<void> {
@@ -113,7 +89,7 @@ async function removeLink(sessionId: string, relatedSessionId: string, relatedTi
     return;
   }
   try {
-    const result = await useApi().client.unlinkSession(sessionId, relatedSessionId);
+    const result = await useSessionsStore().unlinkSessions({ sessionId, relatedSessionId });
     if (result.outcome !== "session_link_updated") {
       throw new Error(result.outcome === "not_found" ? "找不到這筆 Session。" : result.reason);
     }
@@ -121,10 +97,14 @@ async function removeLink(sessionId: string, relatedSessionId: string, relatedTi
     useToast().showToast(errorMessage(error, "無法移除關聯。"), "danger");
     return;
   }
-  await afterLinkChange(sessionId, "已移除 Session 關聯。");
+  afterLinkChange("已移除 Session 關聯。");
 }
 
 export function useSessionLinks() {
+  const sessionsStore = useSessionsStore();
+  const { linkCandidates, linkCandidatesLoading, linkCandidatesError } = storeToRefs(sessionsStore);
+  const linkError = computed(() => linkActionError.value || linkCandidatesError.value);
+
   return {
     linkSource,
     linkQuery,
