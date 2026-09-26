@@ -1,0 +1,67 @@
+<script setup lang="ts">
+import { FileText } from "lucide-vue-next";
+import type { PageInfo, WorkSessionRecord } from "@work-intelligence/core";
+import type { ListPageSize } from "../../utils/labels";
+import SessionRow from "./SessionRow.vue";
+import UiBox from "../ui/UiBox.vue";
+import UiBoxTitle from "../ui/UiBoxTitle.vue";
+import UiEmptyState from "../ui/UiEmptyState.vue";
+import UiPagination from "../ui/UiPagination.vue";
+import UiSkeleton from "../ui/UiSkeleton.vue";
+import VirtualList from "../VirtualList.vue";
+
+const { items, loading, pageInfo } = defineProps<{
+  items: WorkSessionRecord[];
+  loading: boolean;
+  pageInfo: PageInfo;
+}>();
+const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
+const emit = defineEmits<{
+  page: [page: number];
+  open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]];
+}>();
+
+function openSession(session: WorkSessionRecord): void {
+  emit("open", session, items);
+}
+</script>
+
+<template>
+  <section id="report-panel-raw" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-raw">
+    <UiBox sticky-header>
+      <template #header
+        ><UiBoxTitle eyebrow="Raw work records" title="原始工作紀錄" :count="pageInfo.total"
+      /></template>
+      <UiSkeleton v-if="loading && items.length === 0" />
+      <UiEmptyState v-else-if="items.length === 0" compact :icon="FileText" title="這段期間沒有原始 Session" />
+      <VirtualList
+        v-else
+        :items="items"
+        :enabled="true"
+        fit-viewport
+        fit-viewport-to-panel
+        fill-available-space
+        label="報告原始工作紀錄清單"
+      >
+        <template #default="{ item }">
+          <SessionRow :session="item" @open="openSession" />
+        </template>
+      </VirtualList>
+      <template #footer>
+        <UiPagination
+          v-model:page-size="pageSize"
+          :page-info="pageInfo"
+          size-label="報告原始工作紀錄每頁筆數"
+          @page="emit('page', $event)"
+        />
+      </template>
+    </UiBox>
+  </section>
+</template>
+
+<style scoped>
+.reports__panel {
+  display: grid;
+  gap: var(--space-4);
+}
+</style>
