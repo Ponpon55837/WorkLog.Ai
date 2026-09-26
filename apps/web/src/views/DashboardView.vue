@@ -28,9 +28,9 @@ import VirtualList from "../components/VirtualList.vue";
 import { useDashboard, type InboxItem } from "../composables/useDashboard";
 import { metadataBackfillInstruction } from "../stores/metadata-backfill";
 import { useProjects } from "../composables/useProjects";
-import { reportSynthesisInstruction, useReports } from "../composables/useReports";
 import { useSessionDetail } from "../composables/useSessionDetail";
 import { router } from "../router";
+import { reportSynthesisInstruction } from "../stores/reports";
 import { formatRelative } from "../utils/format";
 import { requestStatus, trackingStatus } from "../utils/status";
 
@@ -63,10 +63,6 @@ async function openRequest(item: InboxItem): Promise<void> {
     await router.push({ name: "projects", params: { tab: "backfill" } });
     return;
   }
-  const reports = useReports();
-  reports.reportPeriod.value = item.request.period;
-  reports.reportDate.value = item.request.range.from;
-  reports.reportProjectId.value = item.request.projectId ?? "";
   await router.push({
     name: "reports",
     query: {

@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { History, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-vue-next";
 import type { WorkReportPeriod, ReportSummary } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
-import { reportSynthesisInstruction, useReports } from "../../composables/useReports";
 import { useSessionDetail } from "../../composables/useSessionDetail";
 import { useToast } from "../../composables/useToast";
+import { reportSynthesisInstruction, useReportsStore } from "../../stores/reports";
 import { formatDate, formatRelative } from "../../utils/format";
 import { requestStatus } from "../../utils/status";
 import UiBox from "../ui/UiBox.vue";
@@ -25,6 +26,7 @@ import SynthesisBlock from "./SynthesisBlock.vue";
  * Agent-written report synthesis. Section order and headings follow the ReportSummary contract in
  * docs/work-record-and-report-format.md; numbers shown elsewhere on the page never come from here.
  */
+const reportsStore = useReportsStore();
 const {
   report,
   reportPeriod,
@@ -41,6 +43,8 @@ const {
   reportSynthesisError,
   reportSynthesisIsActive: isActive,
   reportSynthesisCanRetry: canRetry,
+} = storeToRefs(reportsStore);
+const {
   loadReportSynthesis,
   refreshReportSynthesis,
   selectReportSynthesisVersion,
@@ -48,7 +52,7 @@ const {
   retryReportSynthesisRequest,
   cancelReportSynthesisRequest,
   deleteReportSynthesisVersion,
-} = useReports();
+} = reportsStore;
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
 const { showToast } = useToast();
 
