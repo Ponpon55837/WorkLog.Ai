@@ -15,6 +15,7 @@ export const queryKeys = {
     deletionAudits: ["project-deletion-audits"] as const,
     backups: ["projects", "backups"] as const,
     handoffImportPreview: ["projects", "handoff-import-preview"] as const,
+    projectDataImportPreview: ["projects", "data-import-preview"] as const,
     metadataBackfillView: ["projects", "metadata-backfill-view"] as const,
     metadataBackfillPreview: ["projects", "metadata-backfill-preview"] as const,
   },
