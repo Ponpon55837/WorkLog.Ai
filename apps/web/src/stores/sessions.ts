@@ -1,9 +1,11 @@
 import { useQuery } from "@pinia/colada";
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
-import type { PageInfo, SessionVoidedFilter } from "@work-intelligence/core";
+import type { PageInfo, SessionDetail, SessionVoidedFilter } from "@work-intelligence/core";
+import { errorMessage } from "../utils/format";
 import type { ListPageSize } from "../utils/labels";
 import { useApi } from "../composables/useApi";
+import { useToast } from "../composables/useToast";
 import { queryKeys } from "./query-keys";
 
 export const emptyPageInfo: PageInfo = {
@@ -20,6 +22,8 @@ export const emptyPageInfo: PageInfo = {
 
 /** Owns the filtered Session list query and its URL-backed view state. */
 export const useSessionsStore = defineStore("sessions", () => {
+  const selectedSessionId = ref<string | null>(null);
+  const sequence = ref<string[]>([]);
   const listActive = ref(false);
   const searchTerm = ref("");
   const selectedProjectId = ref("");
@@ -53,11 +57,26 @@ export const useSessionsStore = defineStore("sessions", () => {
         signal,
       ),
   });
+  const detailQuery = useQuery({
+    key: () => [...queryKeys.sessions.detail, selectedSessionId.value],
+    enabled: computed(() => selectedSessionId.value !== null),
+    query: ({ signal }): Promise<SessionDetail> => {
+      const sessionId = selectedSessionId.value;
+      if (!sessionId) throw new Error("A Session must be selected before loading its detail.");
+      return useApi().client.getSessionDetail(sessionId, signal);
+    },
+  });
 
   const sessions = computed(() => sessionsQuery.data.value?.items ?? []);
   const sessionsLoading = computed(() => sessionsQuery.isLoading.value);
   const sessionsLoaded = computed(() => sessionsQuery.data.value !== undefined);
   const sessionPageInfo = computed(() => sessionsQuery.data.value?.pageInfo ?? { ...emptyPageInfo, pageSize: 10 });
+  const selectedDetail = computed(() => detailQuery.data.value ?? null);
+  const position = computed(() => {
+    const id = selectedDetail.value?.session.id;
+    const index = id ? sequence.value.indexOf(id) : -1;
+    return { index, total: sequence.value.length };
+  });
 
   watch(
     () => sessionsQuery.data.value?.pageInfo.page,
@@ -98,6 +117,38 @@ export const useSessionsStore = defineStore("sessions", () => {
     voidedFilter.value = "exclude";
   }
 
+  async function openSessionDetail(
+    sessionId: string | undefined,
+    failureMessage = "無法載入 Session detail。",
+  ): Promise<void> {
+    if (!sessionId) return;
+    const previousId = selectedSessionId.value;
+    selectedSessionId.value = sessionId;
+    try {
+      await detailQuery.refetch(true);
+    } catch (error) {
+      if (useApi().isAbortError(error)) return;
+      if (selectedSessionId.value === sessionId) {
+        selectedSessionId.value = previousId;
+        useToast().showToast(errorMessage(error, failureMessage), "danger");
+      }
+    }
+  }
+
+  function closeSessionDetail(): void {
+    selectedSessionId.value = null;
+  }
+
+  function setSessionSequence(ids: readonly string[]): void {
+    sequence.value = [...ids];
+  }
+
+  function openAdjacentSession(step: 1 | -1): void {
+    const { index } = position.value;
+    const nextId = index >= 0 ? sequence.value[index + step] : undefined;
+    void openSessionDetail(nextId);
+  }
+
   return {
     sessions,
     sessionsLoading,
@@ -112,8 +163,14 @@ export const useSessionsStore = defineStore("sessions", () => {
     voidedFilter,
     sessionFilterError,
     hasSessionFilters,
+    selectedDetail,
+    position,
     setSessionsListActive,
     loadSessions,
     clearSessionFilters,
+    openSessionDetail,
+    closeSessionDetail,
+    setSessionSequence,
+    openAdjacentSession,
   };
 });
