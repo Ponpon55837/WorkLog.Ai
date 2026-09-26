@@ -1,6 +1,7 @@
 import type {
   ChangedFileChangeStatus,
   ChangedFileSource,
+  DatabaseBackupKind,
   GraphNode,
   KnowledgeAuditAction,
   ProjectStatus,
@@ -22,6 +23,14 @@ function labelsOf<K extends string>(visuals: Record<K, StatusVisual>): Record<K,
 export const statusLabels = labelsOf(trackingStatus);
 export const knowledgeKindLabels = labelsOf(knowledgeKindVisual);
 export const knowledgeStatusLabels = labelsOf(knowledgeStatusVisual);
+
+export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = {
+  automatic: "每日自動",
+  manual: "手動",
+  migration: "資料庫遷移前",
+  deletion: "專案刪除前",
+  maintenance: "資料維護前",
+};
 
 export const listPageSizeOptions = [
   { value: 10, label: "10" },

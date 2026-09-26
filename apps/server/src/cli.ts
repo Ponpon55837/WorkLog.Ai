@@ -3,6 +3,8 @@ import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
+  DatabaseBackup,
+  DatabaseBackupKind,
   ProjectDataExport,
   ProjectDataImportInput,
   ProjectDataImportPreview,
@@ -25,6 +27,8 @@ const NO_MAINTENANCE_ARGS_SCHEMA = z.array(z.never());
 const usage = `用法：
   pnpm db:maintain                    備份後檢查、整理資料庫並重建搜尋索引
   pnpm db:backup                      立即備份（存到資料庫旁的 backups/）
+  pnpm db:backups                     列出備份與總大小
+  pnpm db:backups --delete <檔名>     確認後刪除一份備份
   pnpm db:export <檔案>               把整份資料匯出成一個 .sqlite 檔，帶到別台電腦
   pnpm db:export --all [選項]         匯出全部專案為可攜式 JSON
   pnpm db:export --project <名稱或 id> [選項]  匯出單一專案為可攜式 JSON
@@ -45,6 +49,44 @@ restore 選項：
 
 還原前請先停止 API server（pnpm dev／pnpm start:server），並關閉會啟動 MCP 的 Codex／Claude 對話。
 還原會先自動備份目前的資料。`;
+
+const backupKindLabels: Record<DatabaseBackupKind, string> = {
+  automatic: "每日自動",
+  manual: "手動",
+  migration: "資料庫遷移前",
+  deletion: "專案刪除前",
+  maintenance: "資料維護前",
+};
+
+function formatBackupSize(bytes: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${unit === 0 ? size : size.toFixed(1)} ${units[unit]}`;
+}
+
+function printBackupList(
+  backups: DatabaseBackup[],
+  keep: number,
+  automaticKeep: number,
+  print: (message: string) => void,
+): void {
+  print(`備份清單（自動保留 ${automaticKeep} 份、其他備份保留 ${keep} 份）：`);
+  if (backups.length === 0) {
+    print("目前沒有備份。");
+  }
+  for (const backup of backups) {
+    print(
+      `${backupKindLabels[backup.kind]} | ${backup.createdAt} | ${formatBackupSize(backup.bytes)} | ${backup.fileName}`,
+    );
+  }
+  const totalBytes = backups.reduce((total, backup) => total + backup.bytes, 0);
+  print(`總計 ${backups.length} 份，${formatBackupSize(totalBytes)}。`);
+}
 
 function fail(message: string): never {
   throw new Error(message);
@@ -129,6 +171,23 @@ async function confirmPortableImport(): Promise<boolean> {
   }
 }
 
+async function confirmBackupDeletion(backup: DatabaseBackup, isLastBackup: boolean): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    fail("刪除備份前必須互動確認；請在互動終端重新執行。");
+  }
+  console.log(`即將刪除備份：${backup.fileName}（${backupKindLabels[backup.kind]}）。`);
+  if (isLastBackup) {
+    console.log("警告：這是目前唯一列出的備份；刪除後將沒有可供還原的備份。");
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question("這會永久刪除備份檔。輸入 yes 確認：");
+    return answer.trim().toLowerCase() === "yes";
+  } finally {
+    prompt.close();
+  }
+}
+
 export interface DatabaseCliDependencies {
   withStore?: <T>(task: (store: WorkIntelligenceStore) => T) => T;
   runMaintenance?: () => DatabaseMaintenanceResult;
@@ -136,6 +195,7 @@ export interface DatabaseCliDependencies {
   log?: (message: string) => void;
   error?: (message: string) => void;
   confirmPortableImport?: () => Promise<boolean>;
+  confirmBackupDeletion?: (backup: DatabaseBackup, isLastBackup: boolean) => Promise<boolean>;
 }
 
 export async function runDatabaseCli(
@@ -151,6 +211,7 @@ export async function runDatabaseCli(
   const print = dependencies.log ?? ((message: string) => console.log(message));
   const printError = dependencies.error ?? ((message: string) => console.error(message));
   const confirmImport = dependencies.confirmPortableImport ?? confirmPortableImport;
+  const confirmDeleteBackup = dependencies.confirmBackupDeletion ?? confirmBackupDeletion;
   const [command, ...args] = argv;
   try {
     if (command === "maintain") {
@@ -168,6 +229,42 @@ export async function runDatabaseCli(
         fail(result.reason);
       }
       print(`已備份：${result.created.fileName}（手動保留 ${result.keep} 份、自動保留 ${result.automaticKeep} 份）`);
+    } else if (command === "backups") {
+      if (args.length === 0) {
+        const result = runWithStore((store) => store.listBackups());
+        if (result.outcome !== "database_backups") {
+          fail(result.reason);
+        }
+        printBackupList(result.backups, result.keep, result.automaticKeep, print);
+      } else if (args[0] === "--delete" && args.length === 2 && args[1]) {
+        const fileName = args[1];
+        const list = runWithStore((store) => store.listBackups());
+        if (list.outcome !== "database_backups") {
+          fail(list.reason);
+        }
+        const backup = list.backups.find((entry) => entry.fileName === fileName);
+        if (!backup) {
+          fail("找不到這份備份。");
+        }
+        const isLastBackup = list.backups.length === 1;
+        if (!(await confirmDeleteBackup(backup, isLastBackup))) {
+          print("已取消刪除，備份仍保留。");
+        } else {
+          const result = runWithStore((store) => store.deleteBackup(fileName));
+          if (result.outcome === "backup_deleted") {
+            print(`已刪除：${result.deleted.fileName}（${backupKindLabels[result.deleted.kind]}）。`);
+            printBackupList(result.backups, result.keep, result.automaticKeep, print);
+          } else if (result.outcome === "backup_not_found") {
+            fail("找不到這份備份。");
+          } else if (result.outcome === "invalid_backup_file_name") {
+            fail("備份檔名無效。");
+          } else {
+            fail(result.reason);
+          }
+        }
+      } else {
+        fail("備份管理只接受 `pnpm db:backups` 或 `pnpm db:backups --delete <檔名>`。");
+      }
     } else if (command === "export") {
       if (args[0] === "--all" || args[0] === "--project") {
         const scopeType = args[0] === "--all" ? "all" : "project";

@@ -13,6 +13,8 @@ import {
   createReportSynthesisRequestInputSchema,
   createProjectInputSchema,
   finalizeSessionInputSchema,
+  databaseBackupFileNameSchema,
+  deleteDatabaseBackupBodySchema,
   graphQuerySchema,
   handoffImportApplyInputSchema,
   handoffImportOptionsSchema,
@@ -404,6 +406,40 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         await readJsonBody(request);
         const result = store.createBackup();
         sendJson(response, result.outcome === "database_backups" ? 201 : 409, result);
+        return;
+      }
+
+      if (request.method === "DELETE" && requestUrl.pathname.startsWith("/api/backups/")) {
+        // JSON-only requests keep cross-site forms from triggering destructive actions.
+        const body = await readJsonBody(request);
+        if (!deleteDatabaseBackupBodySchema.safeParse(body).success) {
+          sendError(response, 400, "刪除備份請求無效。");
+          return;
+        }
+        const encodedFileName = requestUrl.pathname.slice("/api/backups/".length);
+        let fileName: string;
+        try {
+          fileName = decodeURIComponent(encodedFileName);
+        } catch {
+          sendError(response, 400, "備份檔名無效。");
+          return;
+        }
+        const parsedFileName = databaseBackupFileNameSchema.safeParse(fileName);
+        if (!parsedFileName.success) {
+          sendError(response, 400, "備份檔名無效。");
+          return;
+        }
+
+        const result = store.deleteBackup(parsedFileName.data);
+        if (result.outcome === "backup_deleted") {
+          sendJson(response, 200, result);
+        } else if (result.outcome === "backup_not_found") {
+          sendError(response, 404, "找不到這份備份。");
+        } else if (result.outcome === "invalid_backup_file_name") {
+          sendError(response, 400, "備份檔名無效。");
+        } else {
+          sendError(response, 409, result.reason);
+        }
         return;
       }
 

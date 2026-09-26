@@ -86,6 +86,53 @@ describe("database maintenance CLI", () => {
     expect(messages.error.join("\n")).toContain("不接受參數");
   });
 
+  it("lists backup types, timestamps, sizes, and totals, then requires deletion confirmation", async () => {
+    const root = createRoot();
+    const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));
+    stores.push(store);
+    const created = store.createBackup();
+    if (created.outcome !== "database_backups") {
+      throw new Error("Expected a disk backup");
+    }
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps = dependencies(store, root, messages);
+
+    expect(await runDatabaseCli(["backups"], deps)).toBe(0);
+    expect(messages.log.join("\n")).toContain("手動");
+    expect(messages.log.join("\n")).toContain(created.created.createdAt);
+    expect(messages.log.join("\n")).toContain("總計 1 份");
+    expect(messages.log.join("\n")).toContain(created.created.fileName);
+
+    expect(await runDatabaseCli(["backups", "--delete", created.created.fileName], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("刪除備份前必須互動確認");
+    expect(existsSync(join(root, "backups", created.created.fileName))).toBe(true);
+
+    let lastBackupConfirmation = false;
+    expect(
+      await runDatabaseCli(["backups", "--delete", created.created.fileName], {
+        ...deps,
+        confirmBackupDeletion: async (backup, isLastBackup) => {
+          expect(backup.fileName).toBe(created.created.fileName);
+          expect(backup.kind).toBe("manual");
+          lastBackupConfirmation = isLastBackup;
+          return false;
+        },
+      }),
+    ).toBe(0);
+    expect(lastBackupConfirmation).toBe(true);
+    expect(existsSync(join(root, "backups", created.created.fileName))).toBe(true);
+    expect(messages.log.join("\n")).toContain("已取消刪除");
+
+    expect(
+      await runDatabaseCli(["backups", "--delete", created.created.fileName], {
+        ...deps,
+        confirmBackupDeletion: async () => true,
+      }),
+    ).toBe(0);
+    expect(existsSync(join(root, "backups", created.created.fileName))).toBe(false);
+    expect(messages.log.join("\n")).toContain("已刪除");
+  });
+
   it("exports all projects and a selected project to portable JSON", async () => {
     const root = createRoot();
     const store = createStore();

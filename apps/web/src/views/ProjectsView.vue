@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { useRoute } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 import { Archive, FileInput, FolderGit2, Plus, ScanSearch, Trash2 } from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
@@ -31,8 +31,16 @@ import { trackingStatus } from "../utils/status";
 type ProjectsTab = "registry" | "backfill" | "import" | "backup";
 
 const route = useRoute();
-const { projects, trackedProjects, loadProjects, updateProjectStatus, deleteProject, deletingProjectId } =
-  useProjects();
+const {
+  projects,
+  trackedProjects,
+  loadProjects,
+  updateProjectStatus,
+  deleteProject,
+  deletingProjectId,
+  projectDeletionNotice,
+  clearProjectDeletionNotice,
+} = useProjects();
 const { loadMetadataBackfillRequest } = useMetadataBackfill();
 const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
 
@@ -101,6 +109,20 @@ async function confirmDelete(project: ProjectRecord, confirmationName: string): 
   <PageToolbar>
     <UiUnderlineNav v-model="tab" :items="tabs" label="專案管理分頁" id-prefix="projects" />
   </PageToolbar>
+
+  <UiFlash
+    v-if="projectDeletionNotice"
+    tone="attention"
+    title="專案資料已刪除，備份仍保留資料"
+    dismissible
+    @dismiss="clearProjectDeletionNotice"
+  >
+    「{{ projectDeletionNotice.projectName }}」的刪除前備份
+    {{ projectDeletionNotice.backupFileName }} 仍包含專案資料；其他既有備份也可能保留副本。
+    <template #actions>
+      <RouterLink :to="{ name: 'projects', params: { tab: 'backup' } }">前往資料備份管理</RouterLink>
+    </template>
+  </UiFlash>
 
   <section
     v-if="tab === 'registry'"

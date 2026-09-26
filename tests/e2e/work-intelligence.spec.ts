@@ -764,14 +764,33 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("沒有符合的節點")).toBeVisible();
   });
 
-  test("backs up the database from the projects page and explains how to move it", async ({ page }) => {
+  test("manages backups from the projects page and explains how to move the database", async ({ page, request }) => {
     await page.goto("/projects/backup");
     const backups = page.getByRole("tabpanel", { name: "資料備份" });
     await expect(backups).toContainText("匯出整份資料");
     await expect(backups).toContainText("pnpm db:restore");
     await backups.getByRole("button", { name: "立即備份" }).click();
     await expect(page.getByText("已備份目前的資料。")).toBeVisible();
-    await expect(backups.getByText(/^work-intelligence-e2e-\d+-manual-\d{8}T\d{6}Z/).first()).toBeVisible();
+    const listResponse = await request.get("/api/backups");
+    expect(listResponse.ok()).toBeTruthy();
+    const backupList = (await listResponse.json()) as {
+      backups: Array<{ fileName: string; kind: string; bytes: number }>;
+    };
+    expect(backupList.backups).toHaveLength(1);
+    const [backup] = backupList.backups;
+    expect(backup?.kind).toBe("manual");
+    expect(backup?.bytes).toBeGreaterThan(0);
+    const fileName = backup?.fileName ?? "";
+    await expect(backups.getByText(fileName, { exact: true })).toBeVisible();
+    await expect(backups).toContainText("共 1 份，總大小");
+
+    await backups.getByRole("button", { name: `刪除備份 ${fileName}` }).click();
+    const confirmation = page.getByRole("dialog", { name: `刪除備份「${fileName}」？` });
+    await expect(confirmation).toContainText("類型：手動");
+    await expect(confirmation).toContainText("目前唯一列出的備份");
+    await confirmation.getByRole("button", { name: "永久刪除備份" }).click();
+    await expect(page.getByText(`已刪除備份：${fileName}`)).toBeVisible();
+    await expect(backups).toContainText("還沒有備份");
     await expectNoHorizontalOverflow(page);
   });
 
@@ -857,6 +876,9 @@ test.describe("Work Intelligence browser regression", () => {
 
       const success = page.getByText(/專案已永久刪除；刪除前資料庫備份：/);
       await expect(success).toBeVisible();
+      const backupReminder = page.getByRole("status").filter({ hasText: /專案資料已刪除，備份仍保留資料/ });
+      await expect(backupReminder).toContainText("仍包含專案資料");
+      await expect(page.getByRole("link", { name: "前往資料備份管理" })).toHaveAttribute("href", "/projects/backup");
       await expect(dialog).toBeHidden();
       await expect(row).toHaveCount(0);
       expect(existsSync(sentinel)).toBe(true);

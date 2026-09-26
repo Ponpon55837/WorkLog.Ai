@@ -1,7 +1,23 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { DatabaseBackup, DatabaseBackupCreated } from "@work-intelligence/core";
+import type {
+  DatabaseBackup,
+  DatabaseBackupCreated,
+  DatabaseBackupDeleteResult,
+  DatabaseBackupKind,
+} from "@work-intelligence/core";
 import { toLocalCalendarDate } from "@work-intelligence/shared";
 import { remapPathPrefix } from "./project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
@@ -36,21 +52,65 @@ function timestamp(date: Date): string {
     .replace(/\.\d{3}Z$/, "Z");
 }
 
-function parseName(value: string): { kind: "automatic" | "manual"; createdAt: string; sequence: number } | null {
+function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string; sequence: number } | null {
   const standardName = /^(automatic|manual)-(.+)$/.exec(value);
-  const migrationName = /^pre-migration-v\d+-(.+)$/.exec(value);
+  const migrationName = /^pre-migration-v(\d+)-(.+)$/.exec(value);
   const maintenanceName = /^pre-maintenance-(.+)$/.exec(value);
   const deletionName = /^pre-delete-(.+)$/.exec(value);
-  const kind = standardName?.[1] === "automatic" ? "automatic" : "manual";
-  const stamp = standardName?.[2] ?? migrationName?.[1] ?? maintenanceName?.[1] ?? deletionName?.[1] ?? value;
+  const migrationVersion = migrationName?.[1] ? Number(migrationName[1]) : undefined;
+  if (migrationName && (!Number.isSafeInteger(migrationVersion) || (migrationVersion ?? 0) < 1)) {
+    return null;
+  }
+  const kind: DatabaseBackupKind = standardName
+    ? standardName[1] === "automatic"
+      ? "automatic"
+      : "manual"
+    : migrationName
+      ? "migration"
+      : deletionName
+        ? "deletion"
+        : maintenanceName
+          ? "maintenance"
+          : "manual";
+  const stamp = standardName?.[2] ?? migrationName?.[2] ?? maintenanceName?.[1] ?? deletionName?.[1] ?? value;
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
-  return match
-    ? {
-        kind,
-        createdAt: `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`,
-        sequence: Number(match[7] ?? 1),
-      }
-    : null;
+  if (!match) {
+    return null;
+  }
+  const createdAt = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`;
+  const date = new Date(createdAt);
+  const sequence = Number(match[7] ?? 1);
+  if (
+    Number.isNaN(date.valueOf()) ||
+    date.toISOString().replace(/\.000Z$/, "Z") !== createdAt ||
+    !Number.isSafeInteger(sequence) ||
+    (match[7] !== undefined && sequence < 2)
+  ) {
+    return null;
+  }
+  return { kind, createdAt, sequence };
+}
+
+/** Accepts only a single, recognized filename for the current database. */
+export function isSafeDatabaseBackupFileName(databasePath: string, fileName: string): boolean {
+  const containsControlCharacter = Array.from(fileName).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 0x20 || codePoint === 0x7f;
+  });
+  if (
+    fileName.length > 255 ||
+    fileName.includes("..") ||
+    /[\\/%:*?"<>|]/.test(fileName) ||
+    containsControlCharacter ||
+    basename(fileName) !== fileName
+  ) {
+    return false;
+  }
+  const prefix = backupPrefix(databasePath);
+  if (!fileName.startsWith(prefix) || !fileName.endsWith(".sqlite")) {
+    return false;
+  }
+  return parseName(fileName.slice(prefix.length, -".sqlite".length)) !== null;
 }
 
 /** Backups of this database, newest first; files that do not follow the naming scheme are ignored. */
@@ -58,18 +118,36 @@ export function listDatabaseBackups(
   databasePath: string,
   directory = defaultBackupDirectory(databasePath),
 ): DatabaseBackup[] {
-  if (!existsSync(directory)) {
+  let directoryStats;
+  try {
+    directoryStats = lstatSync(directory);
+  } catch {
+    return [];
+  }
+  if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
     return [];
   }
   const prefix = backupPrefix(databasePath);
   return readdirSync(directory)
     .filter((name) => name.startsWith(prefix) && name.endsWith(".sqlite"))
     .flatMap((fileName) => {
+      if (!isSafeDatabaseBackupFileName(databasePath, fileName)) {
+        return [];
+      }
       const parsed = parseName(fileName.slice(prefix.length, -".sqlite".length));
       if (!parsed) {
         return [];
       }
-      const bytes = statSync(join(directory, fileName)).size;
+      let stats;
+      try {
+        stats = lstatSync(join(directory, fileName));
+      } catch {
+        return [];
+      }
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        return [];
+      }
+      const bytes = stats.size;
       return [
         { backup: { kind: parsed.kind, fileName, createdAt: parsed.createdAt, bytes }, sequence: parsed.sequence },
       ];
@@ -146,7 +224,9 @@ function writeDatabaseBackup(
   writeSnapshot(db, target);
 
   const backups = listDatabaseBackups(databasePath, directory);
-  for (const stale of backups.filter((backup) => backup.kind === kind).slice(kindKeep)) {
+  for (const stale of backups
+    .filter((backup) => (backup.kind === "automatic") === (kind === "automatic"))
+    .slice(kindKeep)) {
     rmSync(join(directory, stale.fileName), { force: true });
   }
   const kept = listDatabaseBackups(databasePath, directory);
@@ -157,6 +237,53 @@ function writeDatabaseBackup(
     bytes: statSync(target).size,
   };
   return { outcome: "database_backups", keep, automaticKeep, backups: kept, created };
+}
+
+/** Removes one recognized backup after checking its name, directory, and file type. */
+export function deleteDatabaseBackup(
+  databasePath: string,
+  fileName: string,
+  options: BackupRetentionOptions = {},
+): DatabaseBackupDeleteResult {
+  if (!isSafeDatabaseBackupFileName(databasePath, fileName)) {
+    return { outcome: "invalid_backup_file_name" };
+  }
+
+  const directory = options.directory ?? defaultBackupDirectory(databasePath);
+  const keep = Math.max(1, Math.trunc(options.keep ?? DEFAULT_BACKUP_KEEP));
+  const automaticKeep = Math.max(1, Math.trunc(options.automaticKeep ?? DEFAULT_AUTOMATIC_BACKUP_KEEP));
+  const existing = listDatabaseBackups(databasePath, directory).find((backup) => backup.fileName === fileName);
+  if (!existing) {
+    return { outcome: "backup_not_found" };
+  }
+
+  try {
+    const directoryStats = lstatSync(directory);
+    if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
+      return { outcome: "backup_not_found" };
+    }
+    const realDirectory = realpathSync(directory);
+    const target = join(realDirectory, fileName);
+    const targetStats = lstatSync(target);
+    if (!targetStats.isFile() || targetStats.isSymbolicLink()) {
+      return { outcome: "backup_not_found" };
+    }
+    const realTarget = realpathSync(target);
+    if (dirname(realTarget) !== realDirectory || basename(realTarget) !== fileName) {
+      return { outcome: "backup_not_found" };
+    }
+    unlinkSync(target);
+  } catch {
+    return { outcome: "backup_unavailable", reason: "備份檔案無法刪除。" };
+  }
+
+  return {
+    outcome: "backup_deleted",
+    deleted: existing,
+    keep,
+    automaticKeep,
+    backups: listDatabaseBackups(databasePath, directory),
+  };
 }
 
 /** Writes a manual-retention safety snapshot tagged with the schema version about to be applied. */

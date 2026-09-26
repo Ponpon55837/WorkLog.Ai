@@ -1731,26 +1731,42 @@ export type SessionDetailQueryResult = SessionDetailResult | SessionVerification
 
 export type SessionListQueryResult = SessionListResult | SkippedResult | ProjectIdSkippedResult;
 
+export type DatabaseBackupKind = "automatic" | "manual" | "migration" | "deletion" | "maintenance";
+
 /** One SQLite snapshot written beside the database; `createdAt` comes from its UTC file name. */
 export interface DatabaseBackup {
-  kind: "automatic" | "manual";
+  kind: DatabaseBackupKind;
   fileName: string;
   createdAt: string;
   bytes: number;
 }
 
-/** Backups of the database. File names only: the API never exposes filesystem paths. */
-export interface DatabaseBackupList {
-  outcome: "database_backups";
-  /** Maximum retained manual copies. Automatic retention is independent. */
+export interface DatabaseBackupListData {
+  /** Maximum retained non-automatic copies, including manual and safety snapshots. */
   keep: number;
   automaticKeep: number;
   backups: DatabaseBackup[];
 }
 
+/** Backups of the database. File names only: the API never exposes filesystem paths. */
+export interface DatabaseBackupList extends DatabaseBackupListData {
+  outcome: "database_backups";
+}
+
 export interface DatabaseBackupCreated extends DatabaseBackupList {
   created: DatabaseBackup;
 }
+
+export interface DatabaseBackupDeleted extends DatabaseBackupListData {
+  outcome: "backup_deleted";
+  deleted: DatabaseBackup;
+}
+
+export type DatabaseBackupDeleteResult =
+  | DatabaseBackupDeleted
+  | { outcome: "backup_not_found" }
+  | { outcome: "invalid_backup_file_name" }
+  | { outcome: "backup_unavailable"; reason: string };
 
 export interface DatabaseBackupUnavailable {
   outcome: "backup_unavailable";

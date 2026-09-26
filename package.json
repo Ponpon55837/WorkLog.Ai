@@ -17,6 +17,7 @@
     "start:mcp": "pnpm --filter @work-intelligence/mcp start",
     "doctor": "pnpm --filter @work-intelligence/server exec tsx src/doctor.ts",
     "db:backup": "node apps/server/dist/cli.js backup",
+    "db:backups": "node apps/server/dist/cli.js backups",
     "db:export": "node apps/server/dist/cli.js export",
     "db:import": "node apps/server/dist/cli.js import",
     "db:restore": "node apps/server/dist/cli.js restore",

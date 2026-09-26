@@ -21,6 +21,7 @@ const projectRoot = ref("");
 const addingProject = ref(false);
 const pickingFolder = ref(false);
 const deletingProjectId = ref<string | null>(null);
+const projectDeletionNotice = ref<{ projectName: string; backupFileName: string } | null>(null);
 const projectDeletionMessages: Record<string, string> = {
   "Invalid project deletion confirmation.": "刪除確認資料無效，請重新輸入完整專案名稱。",
   "Project not found.": "找不到這個專案；請重新整理專案清單。",
@@ -123,10 +124,12 @@ async function updateProjectStatus(project: ProjectRecord, status: ProjectStatus
 
 async function deleteProject(project: ProjectRecord, confirmationName: string): Promise<boolean> {
   const { showToast } = useToast();
+  projectDeletionNotice.value = null;
   deletingProjectId.value = project.id;
   try {
     const result = await useApi().client.deleteProject(project.id, confirmationName);
     projects.value = projects.value.filter((item) => item.id !== project.id);
+    projectDeletionNotice.value = { projectName: project.name, backupFileName: result.backupFileName };
     showToast(`專案已永久刪除；刪除前資料庫備份：${result.backupFileName}`, "success");
     void loadDashboard().catch(() => undefined);
     return true;
@@ -137,6 +140,10 @@ async function deleteProject(project: ProjectRecord, confirmationName: string): 
   } finally {
     deletingProjectId.value = null;
   }
+}
+
+function clearProjectDeletionNotice(): void {
+  projectDeletionNotice.value = null;
 }
 
 export function useProjects() {
@@ -156,5 +163,7 @@ export function useProjects() {
     updateProjectStatus,
     deleteProject,
     deletingProjectId,
+    projectDeletionNotice,
+    clearProjectDeletionNotice,
   };
 }

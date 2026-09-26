@@ -41,6 +41,15 @@ export const deleteProjectInputSchema = z.object({
   confirmationName: z.string().trim().min(1).max(120),
 });
 
+export const databaseBackupFileNameSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]*\.sqlite$/)
+  .refine((fileName) => !fileName.includes(".."), "Backup file name is invalid.");
+
+export const deleteDatabaseBackupBodySchema = z.object({}).strict();
+
 export const verificationSchema = z.object({
   status: z.enum(["passed", "failed", "not_run"]),
   summary: z.string().max(2_000).optional(),
