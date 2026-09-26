@@ -15,6 +15,9 @@ export const queryKeys = {
     deletionAudits: ["project-deletion-audits"] as const,
     metadataBackfillView: ["projects", "metadata-backfill-view"] as const,
   },
+  sessions: {
+    list: ["sessions", "list"] as const,
+  },
   views: {
     graph: ["view", "graph"] as const,
     knowledge: ["view", "knowledge"] as const,

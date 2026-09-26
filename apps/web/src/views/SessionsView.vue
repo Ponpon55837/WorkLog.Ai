@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { ListChecks, Search, X } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
@@ -17,17 +18,16 @@ import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useListReload } from "../composables/useListReload";
 import { useProjects } from "../composables/useProjects";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { useSessionDetail } from "../composables/useSessionDetail";
-import { useSessions } from "../composables/useSessions";
+import { useSessionsStore } from "../stores/sessions";
 import { formatDayGroup } from "../utils/format";
 import { listPageSizeOptions, voidedFilterOptions } from "../utils/labels";
-import { queryKeys } from "../stores/query-keys";
 
 const { projects } = useProjects();
+const sessionsStore = useSessionsStore();
 const {
   sessions,
   sessionsLoading,
@@ -42,9 +42,8 @@ const {
   voidedFilter,
   sessionFilterError,
   hasSessionFilters,
-  loadSessions,
-  clearSessionFilters,
-} = useSessions();
+} = storeToRefs(sessionsStore);
+const { loadSessions, clearSessionFilters, setSessionsListActive } = sessionsStore;
 const { openSessionDetail, setSessionSequence } = useSessionDetail();
 
 useRouteQuery("q", searchTerm, stringQuery());
@@ -74,8 +73,6 @@ const { reloadNow } = useListReload({
   filters: [selectedProjectId, dateFrom, dateTo, voidedFilter, sessionPageSize],
   search: searchTerm,
 });
-useActiveViewQuery(queryKeys.views.sessions, loadSessions);
-
 const projectItems = computed(() => [
   { value: "", label: "所有專案" },
   ...projects.value.map((project) => ({ value: project.id, label: project.name })),
@@ -103,6 +100,8 @@ function openSession(session: WorkSessionRecord): void {
 }
 
 watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
+onMounted(() => setSessionsListActive(true));
+onBeforeUnmount(() => setSessionsListActive(false));
 </script>
 
 <template>
