@@ -19,6 +19,7 @@ const props = withDefaults(
     label?: string;
     maxHeight?: string;
     fitViewport?: boolean;
+    fitViewportToPanel?: boolean;
   }>(),
   {
     enabled: false,
@@ -27,6 +28,7 @@ const props = withDefaults(
     label: "可捲動清單",
     maxHeight: "min(68vh, 720px)",
     fitViewport: false,
+    fitViewportToPanel: false,
   },
 );
 
@@ -36,6 +38,7 @@ defineSlots<{
 
 const viewport = ref<HTMLElement | null>(null);
 const viewportHeight = ref(480);
+const fitViewportPanelHeight = ref<number | null>(null);
 const scrollTop = ref(0);
 const heights = reactive(new Map<number, number>());
 const itemElements = new Map<number, HTMLElement>();
@@ -191,7 +194,13 @@ function keepFitViewportPanelVisible(): void {
   const panel = list?.closest<HTMLElement>(".ui-box");
   const main = fitViewportMain;
   const footer = panel?.querySelector<HTMLElement>(".ui-box__footer");
-  if (!props.fitViewport || !panel || !footer || !main) {
+  if (
+    !props.fitViewport ||
+    (props.fitViewportToPanel && fitViewportPanelHeight.value !== null) ||
+    !panel ||
+    !footer ||
+    !main
+  ) {
     return;
   }
 
@@ -199,6 +208,67 @@ function keepFitViewportPanelVisible(): void {
   if (overflow > 1) {
     main.scrollTop = Math.min(main.scrollTop + overflow, main.scrollHeight - main.clientHeight);
   }
+}
+
+function getDefaultFitViewportHeight(): number {
+  const mobile = window.matchMedia("(max-width: 639px)").matches;
+  const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+  const calculated = window.innerHeight - (mobile ? 36 : 30) * rem;
+  return mobile ? Math.max(180, calculated) : Math.min(360, Math.max(180, calculated));
+}
+
+function updateFitViewportPanelHeight(): void {
+  const list = viewport.value;
+  const main = fitViewportMain;
+  if (!props.fitViewport || !props.fitViewportToPanel || !list || !main) {
+    return;
+  }
+
+  const panel = list.closest<HTMLElement>(".ui-box");
+  const body = list.parentElement;
+  const mainBottom = main.getBoundingClientRect().bottom;
+  const listTop = list.getBoundingClientRect().top;
+  const footerHeight = panel?.querySelector<HTMLElement>(".ui-box__footer")?.getBoundingClientRect().height ?? 0;
+  const borderBottom = panel ? Number.parseFloat(window.getComputedStyle(panel).borderBottomWidth) || 0 : 0;
+  const bottomInset =
+    Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24;
+
+  let trailingHeight = 0;
+  if (body) {
+    const siblings = Array.from(body.children);
+    const listIndex = siblings.indexOf(list);
+    const lastTrailingSibling = siblings
+      .slice(listIndex + 1)
+      .reverse()
+      .find((element) => element.getBoundingClientRect().height > 0);
+    if (lastTrailingSibling) {
+      const trailingRect = lastTrailingSibling.getBoundingClientRect();
+      const trailingMargin = Number.parseFloat(window.getComputedStyle(lastTrailingSibling).marginBottom) || 0;
+      trailingHeight = Math.max(0, trailingRect.bottom + trailingMargin - list.getBoundingClientRect().bottom);
+    }
+  }
+
+  // Below the current fold, keep the normal list height so page scrolling can reveal the whole Box.
+  const nextHeight = Math.floor(mainBottom - bottomInset - listTop - trailingHeight - footerHeight - borderBottom);
+  if (nextHeight <= 0) {
+    fitViewportPanelHeight.value = null;
+    return;
+  }
+
+  if (footerHeight > 0 && nextHeight < getDefaultFitViewportHeight()) {
+    fitViewportPanelHeight.value = null;
+    return;
+  }
+
+  // Reserve room for the footer and any note after the list.
+  if (fitViewportPanelHeight.value === null || Math.abs(fitViewportPanelHeight.value - nextHeight) > 1) {
+    fitViewportPanelHeight.value = nextHeight;
+  }
+}
+
+function handleFitViewportResize(): void {
+  keepFitViewportPanelVisible();
+  updateFitViewportPanelHeight();
 }
 
 function handleScroll(event: Event): void {
@@ -243,7 +313,10 @@ function resetLayout(): void {
   if (viewport.value) {
     viewport.value.scrollTop = 0;
   }
-  void nextTick(updateViewportHeight);
+  void nextTick(() => {
+    updateViewportHeight();
+    updateFitViewportPanelHeight();
+  });
 }
 
 watch(() => props.items, resetLayout);
@@ -251,7 +324,10 @@ watch(
   () => props.enabled,
   () => {
     resetLayout();
-    void nextTick(updateViewportHeight);
+    void nextTick(() => {
+      updateViewportHeight();
+      updateFitViewportPanelHeight();
+    });
   },
 );
 
@@ -261,11 +337,15 @@ onMounted(() => {
     fitViewportMain = viewport.value?.closest<HTMLElement>("#main") ?? null;
     const content = fitViewportMain?.querySelector<HTMLElement>(".app-shell__content");
     if (content && typeof ResizeObserver !== "undefined") {
-      fitViewportContentObserver = new ResizeObserver(keepFitViewportPanelVisible);
+      fitViewportContentObserver = new ResizeObserver(handleFitViewportResize);
       fitViewportContentObserver.observe(content);
+      if (fitViewportMain) {
+        fitViewportContentObserver.observe(fitViewportMain);
+      }
     }
-    window.addEventListener("resize", keepFitViewportPanelVisible);
-    void nextTick(keepFitViewportPanelVisible);
+    window.addEventListener("resize", handleFitViewportResize);
+    updateFitViewportPanelHeight();
+    void nextTick(handleFitViewportResize);
   }
   if (typeof ResizeObserver === "undefined") {
     return;
@@ -286,7 +366,7 @@ onBeforeUnmount(() => {
   itemResizeObserver?.disconnect();
   viewportResizeObserver?.disconnect();
   fitViewportContentObserver?.disconnect();
-  window.removeEventListener("resize", keepFitViewportPanelVisible);
+  window.removeEventListener("resize", handleFitViewportResize);
   fitViewportMain = null;
 });
 </script>
@@ -295,8 +375,18 @@ onBeforeUnmount(() => {
   <div
     ref="viewport"
     class="virtual-list"
-    :class="{ 'virtual-list-disabled': !enabled, 'virtual-list-fit-viewport': fitViewport }"
-    :style="enabled && !fitViewport ? { maxHeight } : undefined"
+    :class="{
+      'virtual-list-disabled': !enabled,
+      'virtual-list-fit-viewport': fitViewport,
+      'virtual-list-fit-viewport-to-panel': fitViewport && fitViewportToPanel && fitViewportPanelHeight !== null,
+    }"
+    :style="
+      enabled && fitViewport && fitViewportToPanel && fitViewportPanelHeight !== null
+        ? { '--virtual-list-panel-height': `${fitViewportPanelHeight}px` }
+        : enabled && !fitViewport
+          ? { maxHeight }
+          : undefined
+    "
     :role="enabled ? 'list' : undefined"
     :aria-label="enabled ? label : undefined"
     :tabindex="enabled ? 0 : undefined"
@@ -346,6 +436,18 @@ onBeforeUnmount(() => {
   .virtual-list-fit-viewport {
     height: max(180px, calc(100dvh - 36rem));
     max-height: max(180px, calc(100dvh - 36rem));
+  }
+}
+
+.virtual-list-fit-viewport-to-panel {
+  height: min(var(--virtual-list-panel-height, 0px), min(360px, max(180px, calc(100dvh - 30rem))));
+  max-height: min(var(--virtual-list-panel-height, 0px), min(360px, max(180px, calc(100dvh - 30rem))));
+}
+
+@media (max-width: 639px) {
+  .virtual-list-fit-viewport-to-panel {
+    height: min(var(--virtual-list-panel-height, 0px), max(180px, calc(100dvh - 36rem)));
+    max-height: min(var(--virtual-list-panel-height, 0px), max(180px, calc(100dvh - 36rem)));
   }
 }
 
