@@ -41,6 +41,8 @@ const heights = reactive(new Map<number, number>());
 const itemElements = new Map<number, HTMLElement>();
 let itemResizeObserver: ResizeObserver | undefined;
 let viewportResizeObserver: ResizeObserver | undefined;
+let fitViewportContentObserver: ResizeObserver | undefined;
+let fitViewportMain: HTMLElement | null = null;
 
 const offsets = computed(() => {
   const result = [0];
@@ -184,6 +186,20 @@ function updateViewportHeight(): void {
   viewportHeight.value = viewport.value?.clientHeight || 480;
 }
 
+function keepFitViewportPanelVisible(): void {
+  const list = viewport.value;
+  const panel = list?.closest<HTMLElement>(".ui-box");
+  const main = fitViewportMain;
+  if (!props.fitViewport || !panel || !main) {
+    return;
+  }
+
+  const overflow = panel.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom;
+  if (overflow > 1) {
+    main.scrollTop = Math.min(main.scrollTop + overflow, main.scrollHeight - main.clientHeight);
+  }
+}
+
 function handleScroll(event: Event): void {
   scrollTop.value = (event.currentTarget as HTMLElement).scrollTop;
 }
@@ -240,6 +256,16 @@ watch(
 
 onMounted(() => {
   updateViewportHeight();
+  if (props.fitViewport) {
+    fitViewportMain = viewport.value?.closest<HTMLElement>("#main") ?? null;
+    const content = fitViewportMain?.querySelector<HTMLElement>(".app-shell__content");
+    if (content && typeof ResizeObserver !== "undefined") {
+      fitViewportContentObserver = new ResizeObserver(keepFitViewportPanelVisible);
+      fitViewportContentObserver.observe(content);
+    }
+    window.addEventListener("resize", keepFitViewportPanelVisible);
+    void nextTick(keepFitViewportPanelVisible);
+  }
   if (typeof ResizeObserver === "undefined") {
     return;
   }
@@ -258,6 +284,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   itemResizeObserver?.disconnect();
   viewportResizeObserver?.disconnect();
+  fitViewportContentObserver?.disconnect();
+  window.removeEventListener("resize", keepFitViewportPanelVisible);
+  fitViewportMain = null;
 });
 </script>
 

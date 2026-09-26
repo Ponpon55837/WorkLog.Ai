@@ -130,7 +130,6 @@ async function expectUserScrollsListInternally(page: Page, name: string): Promis
 async function expectPaginationVisibleWithinViewport(page: Page, sizeLabel: string): Promise<void> {
   const selector = page.getByLabel(sizeLabel);
   await expect(selector).toBeVisible();
-  await selector.evaluate((element) => element.closest("footer")?.scrollIntoView({ block: "end" }));
   const bounds = await selector.evaluate((element) => {
     const footer = element.closest<HTMLElement>(".ui-box__footer");
     const main = element.closest<HTMLElement>("main");
