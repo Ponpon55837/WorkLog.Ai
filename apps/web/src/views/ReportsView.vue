@@ -44,7 +44,7 @@ import UiStatCard from "../components/ui/UiStatCard.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useViewLoader } from "../composables/useAppRefresh";
+import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useProjects } from "../composables/useProjects";
 import { useReports, type ReportViewPeriod } from "../composables/useReports";
 import { enumQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
@@ -64,6 +64,7 @@ import {
   reportTabOptions,
   type ReportTab,
 } from "../utils/labels";
+import { queryKeys } from "../stores/query-keys";
 
 const route = useRoute();
 const { trackedProjects } = useProjects();
@@ -135,7 +136,7 @@ if (reportPeriod.value === "custom" && hasIncompleteCustomRange()) {
   setDefaultCustomRange();
 }
 
-useViewLoader(() => loadReport(true));
+useActiveViewQuery(queryKeys.views.reports, () => loadReport(true));
 watch([reportPeriod, reportDate, reportRange, reportProjectId], ([period]) => {
   if (period === "custom" && hasIncompleteCustomRange()) {
     setDefaultCustomRange();

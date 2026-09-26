@@ -2,7 +2,7 @@ import { ref } from "vue";
 import type { SessionLinkDirection, WorkSessionRecord } from "@work-intelligence/core";
 import { errorMessage } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
-import { requestAppRefresh } from "./useAppRefresh";
+import { invalidateActiveQueries } from "./useAppRefresh";
 import { confirmAction } from "./useConfirm";
 import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
@@ -63,7 +63,7 @@ async function searchLinkCandidates(): Promise<void> {
 async function afterLinkChange(sessionId: string, message: string): Promise<void> {
   useToast().showToast(message);
   await useSessionDetail().openSessionDetail(sessionId);
-  requestAppRefresh();
+  void invalidateActiveQueries().catch(() => undefined);
 }
 
 /**

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
-import type { ApiHealth } from "./api/client";
 import AppShell from "./components/layout/AppShell.vue";
 import CommandPalette from "./components/domain/CommandPalette.vue";
 import HandoffImportDialog from "./components/domain/HandoffImportDialog.vue";
@@ -16,21 +16,27 @@ import UiFlash from "./components/ui/UiFlash.vue";
 import UiSkeleton from "./components/ui/UiSkeleton.vue";
 import { useApi } from "./composables/useApi";
 import { useApiConnection } from "./composables/useApiConnection";
-import { requestAppRefresh, useViewLoader } from "./composables/useAppRefresh";
+import { invalidateActiveQueries, startAppRefreshEvents, useActiveViewQuery } from "./composables/useAppRefresh";
 import { useDashboard } from "./composables/useDashboard";
 import { useHotkeys } from "./composables/useHotkeys";
 import { useProjects } from "./composables/useProjects";
+import { useAppStore } from "./stores/app";
+import { queryKeys } from "./stores/query-keys";
 import { errorMessage as toErrorMessage } from "./utils/format";
 
 const route = useRoute();
-const { dashboard, trackedProjects, loadProjects } = useProjects();
+const { dashboard, trackedProjects, loadDashboard, loadProjects } = useProjects();
 const { inbox, loadDashboardData } = useDashboard();
+const appStore = useAppStore();
+const { appHealth, appHealthError } = storeToRefs(appStore);
+const { loadHealth } = appStore;
 const { isApiOffline } = useApiConnection();
-const appHealth = ref<ApiHealth | null>(null);
 const loading = ref(true);
 const refreshing = ref(false);
 const errorMessage = ref("");
 const paletteOpen = ref(false);
+const dashboardHomeEnabled = ref(false);
+const dashboardHomeQuery = useActiveViewQuery(queryKeys.dashboard.overview, loadDashboardData, dashboardHomeEnabled);
 
 const counts = computed(() => ({
   dashboard: { value: inbox.value.length, tone: "attention" as const },
@@ -38,33 +44,52 @@ const counts = computed(() => ({
   projects: { value: trackedProjects.value.length },
 }));
 
-async function loadShared(): Promise<void> {
-  errorMessage.value = "";
+async function loadDashboardHome(): Promise<void> {
   try {
-    const [, , health] = await Promise.all([loadDashboardData(), loadProjects(), useApi().client.getHealth()]);
-    appHealth.value = health;
-  } catch (error) {
-    errorMessage.value = toErrorMessage(error, "無法載入 Work Intelligence，請確認本機 API 是否已啟動。");
+    await dashboardHomeQuery.refetch(true);
+  } finally {
+    dashboardHomeEnabled.value = true;
   }
 }
 
-function loadRootData(): Promise<void> {
-  return loadShared().finally(() => {
+async function loadRootData(): Promise<void> {
+  errorMessage.value = "";
+  try {
+    await Promise.all([loadDashboard(), loadProjects(), loadHealth(), loadDashboardHome()]);
+  } catch (error) {
+    errorMessage.value = toErrorMessage(error, "無法載入 Work Intelligence，請確認本機 API 是否已啟動。");
+  } finally {
     loading.value = false;
-    refreshing.value = false;
-  });
+  }
 }
 
-function refresh(): void {
+async function refresh(): Promise<void> {
   refreshing.value = true;
-  requestAppRefresh();
+  errorMessage.value = "";
+  try {
+    await invalidateActiveQueries();
+  } catch (error) {
+    errorMessage.value = toErrorMessage(error, "重新整理失敗，請稍後再試。");
+  } finally {
+    refreshing.value = false;
+  }
 }
 
 useHotkeys({ openPalette: () => (paletteOpen.value = true) });
+const stopAppRefreshEvents = startAppRefreshEvents();
+watch(appHealthError, (message) => {
+  if (message) {
+    errorMessage.value = message;
+  } else if (appHealth.value) {
+    errorMessage.value = "";
+  }
+});
+onMounted(() => void loadRootData());
 
-useViewLoader(loadRootData);
-
-onBeforeUnmount(() => useApi().abortAll());
+onBeforeUnmount(() => {
+  stopAppRefreshEvents();
+  useApi().abortAll();
+});
 </script>
 
 <template>

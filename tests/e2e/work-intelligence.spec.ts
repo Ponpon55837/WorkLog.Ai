@@ -1163,12 +1163,29 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("refreshes the Session list after a Session is created over REST", async ({ page, request }) => {
+    let sessionListRequestCount = 0;
+    let sessionListResponseCount = 0;
+    page.on("request", (requestEvent) => {
+      const url = new URL(requestEvent.url());
+      if (requestEvent.method() === "GET" && url.pathname === "/api/sessions") {
+        sessionListRequestCount += 1;
+      }
+    });
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      if (response.request().method() === "GET" && url.pathname === "/api/sessions") {
+        sessionListResponseCount += 1;
+      }
+    });
+
     const eventsConnected = page.waitForResponse(
       (response) => response.url().endsWith("/api/events") && response.status() === 200,
     );
     await page.goto("/sessions");
     await eventsConnected;
     await expect(page.getByTestId("session-row").first()).toBeVisible();
+    await expect.poll(() => sessionListRequestCount).toBeGreaterThan(0);
+    await expect.poll(() => sessionListResponseCount).toBe(sessionListRequestCount);
 
     async function createSession(title: string): Promise<void> {
       const finalized = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
@@ -1184,24 +1201,35 @@ test.describe("Work Intelligence browser regression", () => {
     }
 
     const liveTitle = `即時更新前景測試 ${process.pid}`;
+    const initialRequestCount = sessionListRequestCount;
     await createSession(liveTitle);
     await expect(page.getByTestId("session-row").filter({ hasText: liveTitle })).toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => sessionListRequestCount).toBe(initialRequestCount + 1);
+    await expect.poll(() => sessionListResponseCount).toBe(sessionListRequestCount);
+    await page.waitForTimeout(200);
+    expect(sessionListRequestCount).toBe(initialRequestCount + 1);
 
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
       document.dispatchEvent(new Event("visibilitychange"));
     });
+    const hiddenRequestCount = sessionListRequestCount;
     const hiddenTitle = `即時更新背景測試 ${process.pid}`;
     await createSession(hiddenTitle);
     const newRow = page.getByTestId("session-row").filter({ hasText: hiddenTitle });
     await page.waitForTimeout(2_200);
     await expect(newRow).toHaveCount(0);
+    expect(sessionListRequestCount).toBe(hiddenRequestCount);
 
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await expect(newRow).toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => sessionListRequestCount).toBe(hiddenRequestCount + 1);
+    await expect.poll(() => sessionListResponseCount).toBe(sessionListRequestCount);
+    await page.waitForTimeout(200);
+    expect(sessionListRequestCount).toBe(hiddenRequestCount + 1);
   });
 
   test("captures page screenshots for visual comparison", async ({ page }) => {

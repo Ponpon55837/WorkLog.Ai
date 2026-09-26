@@ -10,6 +10,7 @@ export function useProjects() {
     loadDashboard: store.loadDashboard,
     loadProjects: store.loadProjects,
     loadProjectDeletionAudits: store.loadProjectDeletionAudits,
+    setProjectDeletionAuditsActive: store.setProjectDeletionAuditsActive,
     pickProjectFolder: store.pickProjectFolder,
     addProject: store.addProject,
     updateProjectStatus: store.updateProjectStatus,

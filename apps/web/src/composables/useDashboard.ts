@@ -3,7 +3,6 @@ import type { MetadataBackfillRequest, ReportSynthesisRequest, WorkReport } from
 import { reportPeriodLabels } from "../utils/labels";
 import { toDateInputValue } from "../utils/format";
 import { runKeyed, useApi } from "./useApi";
-import { useProjects } from "./useProjects";
 
 export type InboxItem =
   | { kind: "synthesis"; request: ReportSynthesisRequest; title: string; meta: string }
@@ -13,8 +12,6 @@ const weekReport = ref<WorkReport | null>(null);
 const synthesisRequests = ref<ReportSynthesisRequest[]>([]);
 const backfillRequest = ref<MetadataBackfillRequest | null>(null);
 const dashboardLoading = ref(false);
-const freshForMs = 10_000;
-let loadedAt = 0;
 
 /**
  * Only the newest request per report scope matters: an older failed request that was later
@@ -68,7 +65,6 @@ async function loadDashboardData(): Promise<void> {
   dashboardLoading.value = true;
   const client = useApi().client;
   await Promise.all([
-    useProjects().loadDashboard(),
     runKeyed(
       "dashboard-week",
       async (signal) => {
@@ -98,15 +94,9 @@ async function loadDashboardData(): Promise<void> {
     ),
   ]).finally(() => {
     dashboardLoading.value = false;
-    loadedAt = Date.now();
   });
 }
 
-/** Skips the fetch when App (startup or header refresh) loaded the same data moments ago. */
-function ensureDashboardData(): Promise<void> {
-  return Date.now() - loadedAt < freshForMs ? Promise.resolve() : loadDashboardData();
-}
-
 export function useDashboard() {
-  return { weekReport, weekVerification, inbox, dashboardLoading, loadDashboardData, ensureDashboardData };
+  return { weekReport, weekVerification, inbox, dashboardLoading, loadDashboardData };
 }
