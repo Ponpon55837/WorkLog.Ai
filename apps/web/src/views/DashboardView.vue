@@ -26,7 +26,7 @@ import UiSparkline from "../components/ui/UiSparkline.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { useDashboard, type InboxItem } from "../composables/useDashboard";
-import { metadataBackfillInstruction } from "../composables/useMetadataBackfill";
+import { metadataBackfillInstruction } from "../stores/metadata-backfill";
 import { useProjects } from "../composables/useProjects";
 import { reportSynthesisInstruction, useReports } from "../composables/useReports";
 import { useSessionDetail } from "../composables/useSessionDetail";
