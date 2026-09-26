@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { FolderOpen } from "lucide-vue-next";
 import { useProjects } from "../../composables/useProjects";
 import UiButton from "../ui/UiButton.vue";
@@ -7,11 +8,31 @@ import UiField from "../ui/UiField.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 
 const open = defineModel<boolean>("open", { required: true });
-const { projectName, projectRoot, addingProject, addProject, pickingFolder, pickProjectFolder } = useProjects();
+const projectName = ref("");
+const projectRoot = ref("");
+const pickingFolder = ref(false);
+const { addingProject, addProject, pickProjectFolder } = useProjects();
 
 async function submit(): Promise<void> {
-  if (await addProject()) {
+  if (await addProject({ name: projectName.value, rootPath: projectRoot.value })) {
+    projectName.value = "";
+    projectRoot.value = "";
     open.value = false;
+  }
+}
+
+async function pickFolder(): Promise<void> {
+  pickingFolder.value = true;
+  try {
+    const selection = await pickProjectFolder();
+    if (selection) {
+      projectRoot.value = selection.path;
+      if (!projectName.value.trim()) {
+        projectName.value = selection.name;
+      }
+    }
+  } finally {
+    pickingFolder.value = false;
   }
 }
 </script>
@@ -34,7 +55,7 @@ async function submit(): Promise<void> {
       >
         <div class="add-project__root">
           <UiTextInput v-model="projectRoot" placeholder="/Users/you/project" mono required />
-          <UiButton :icon="FolderOpen" :loading="pickingFolder" @click.prevent="pickProjectFolder">選擇資料夾</UiButton>
+          <UiButton :icon="FolderOpen" :loading="pickingFolder" @click.prevent="pickFolder">選擇資料夾</UiButton>
         </div>
       </UiField>
     </form>

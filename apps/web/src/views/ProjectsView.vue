@@ -42,9 +42,6 @@ const {
   loadProjectDeletionAudits,
   updateProjectStatus,
   deleteProject,
-  deletingProjectId,
-  projectDeletionNotice,
-  clearProjectDeletionNotice,
 } = useProjects();
 const { loadMetadataBackfillRequest } = useMetadataBackfill();
 const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
@@ -53,6 +50,8 @@ useViewLoader(() => Promise.all([loadProjects(), loadMetadataBackfillRequest(), 
 
 const addOpen = ref(false);
 const deleteTarget = ref<ProjectRecord | null>(null);
+const deletingProjectId = ref<string | null>(null);
+const projectDeletionNotice = ref<{ projectName: string; backupFileName: string } | null>(null);
 const policyDismissed = ref(readDismissed());
 /** Bumped after every status change so a cancelled confirm re-renders the select to the saved value. */
 const statusRevision = ref(0);
@@ -99,9 +98,21 @@ async function changeStatus(project: ProjectRecord, status: ProjectStatus): Prom
 }
 
 async function confirmDelete(project: ProjectRecord, confirmationName: string): Promise<void> {
-  if (await deleteProject(project, confirmationName)) {
-    deleteTarget.value = null;
+  projectDeletionNotice.value = null;
+  deletingProjectId.value = project.id;
+  try {
+    const notice = await deleteProject(project, confirmationName);
+    if (notice) {
+      projectDeletionNotice.value = notice;
+      deleteTarget.value = null;
+    }
+  } finally {
+    deletingProjectId.value = null;
   }
+}
+
+function clearProjectDeletionNotice(): void {
+  projectDeletionNotice.value = null;
 }
 </script>
 
