@@ -20,15 +20,13 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useActiveViewQuery } from "../composables/useAppRefresh";
 import { useHandoffImport } from "../composables/useHandoffImport";
-import { useMetadataBackfill } from "../composables/useMetadataBackfill";
 import { useProjects } from "../composables/useProjects";
 import { router } from "../router";
+import { useMetadataBackfillStore } from "../stores/metadata-backfill";
 import { formatDate, formatRelative } from "../utils/format";
 import { statusDescriptions, statusLabels } from "../utils/labels";
 import { trackingStatus } from "../utils/status";
-import { queryKeys } from "../stores/query-keys";
 
 type ProjectsTab = "registry" | "backfill" | "import" | "backup" | "deletion-audit";
 
@@ -44,7 +42,7 @@ const {
   updateProjectStatus,
   deleteProject,
 } = useProjects();
-const { loadMetadataBackfillRequest } = useMetadataBackfill();
+const metadataBackfillStore = useMetadataBackfillStore();
 const { handoffImportLoading, handoffImportProjectId, previewHandoffs } = useHandoffImport();
 
 const addOpen = ref(false);
@@ -63,9 +61,12 @@ const tab = computed<ProjectsTab>({
   set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } }),
 });
 const metadataBackfillActive = computed(() => tab.value === "backfill");
-useActiveViewQuery(queryKeys.projects.metadataBackfillView, loadMetadataBackfillRequest, metadataBackfillActive);
+watch(metadataBackfillActive, metadataBackfillStore.setMetadataBackfillActive, { immediate: true });
 watch(() => tab.value === "deletion-audit", setProjectDeletionAuditsActive, { immediate: true });
-onBeforeUnmount(() => setProjectDeletionAuditsActive(false));
+onBeforeUnmount(() => {
+  metadataBackfillStore.setMetadataBackfillActive(false);
+  setProjectDeletionAuditsActive(false);
+});
 
 const tabs = computed(() => [
   { value: "registry" as const, label: "專案清單", icon: FolderGit2, count: projects.value.length },

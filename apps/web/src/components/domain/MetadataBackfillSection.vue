@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { storeToRefs } from "pinia";
 import { CircleCheckBig, RefreshCw, ScanSearch, X } from "lucide-vue-next";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
-import { metadataBackfillInstruction, useMetadataBackfill } from "../../composables/useMetadataBackfill";
 import { useToast } from "../../composables/useToast";
+import { metadataBackfillInstruction, useMetadataBackfillStore } from "../../stores/metadata-backfill";
 import { formatDate, formatRelative } from "../../utils/format";
 import { metadataGapsOf, metadataGapStatus, requestStatus, verificationStatus } from "../../utils/status";
 import UiBox from "../ui/UiBox.vue";
@@ -22,6 +23,7 @@ import StatusLabel from "./StatusLabel.vue";
  * Metadata gap scan and the Agent request. The UI only reads stored metadata and creates
  * requests; it never writes guessed changed files or verification.
  */
+const metadataBackfillStore = useMetadataBackfillStore();
 const {
   metadataBackfillPreview: preview,
   metadataBackfillLoading,
@@ -31,13 +33,15 @@ const {
   metadataBackfillRequestLoading,
   metadataBackfillRequestCreating,
   metadataBackfillRequestError,
+} = storeToRefs(metadataBackfillStore);
+const {
   loadMetadataBackfillRequest,
   refreshMetadataBackfillRequest,
   createMetadataBackfillRequest,
   cancelMetadataBackfillRequest,
   previewMetadataBackfill,
   openMetadataBackfillSession,
-} = useMetadataBackfill();
+} = metadataBackfillStore;
 const { showToast } = useToast();
 
 useActiveRequestWatch({
