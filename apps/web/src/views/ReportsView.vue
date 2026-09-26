@@ -513,6 +513,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :items="report.completedWork"
           :enabled="true"
           fit-viewport
+          fit-viewport-to-panel
           :estimate-item-height="112"
           label="報表完成事項清單"
         >
@@ -535,6 +536,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
             :items="spanningRows"
             :enabled="true"
             fit-viewport
+            fit-viewport-to-panel
             :estimate-item-height="64"
             label="跨期工作清單"
           >
@@ -607,6 +609,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :items="report.projects"
           :enabled="true"
           fit-viewport
+          fit-viewport-to-panel
           :estimate-item-height="72"
           label="報表專案分布清單"
         >
@@ -642,6 +645,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :items="report.risks"
           :enabled="true"
           fit-viewport
+          fit-viewport-to-panel
           :estimate-item-height="112"
           label="報表風險清單"
         >
@@ -675,6 +679,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :items="report.decisions"
           :enabled="true"
           fit-viewport
+          fit-viewport-to-panel
           :estimate-item-height="88"
           label="報表決策清單"
         >
@@ -710,7 +715,14 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :icon="FileText"
           title="這段期間沒有原始 Session"
         />
-        <VirtualList v-else :items="reportSessionItems" :enabled="true" fit-viewport label="報告原始工作紀錄清單">
+        <VirtualList
+          v-else
+          :items="reportSessionItems"
+          :enabled="true"
+          fit-viewport
+          fit-viewport-to-panel
+          label="報告原始工作紀錄清單"
+        >
           <template #default="{ item }">
             <SessionRow :session="item" @open="openSession($event, reportSessionItems)" />
           </template>
@@ -758,6 +770,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
           :items="report.evidence"
           :enabled="true"
           fit-viewport
+          fit-viewport-to-panel
           :estimate-item-height="72"
           label="報告來源證據清單"
         >
