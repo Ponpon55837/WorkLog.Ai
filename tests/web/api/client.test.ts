@@ -53,8 +53,10 @@ describe("ApiClient.request", () => {
     await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("請確認 API 是否已啟動");
     expect(onConnectionChange).toHaveBeenLastCalledWith(false);
 
-    respond(503, JSON.stringify({ error: "服務暫時無法回應。" }));
-    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("服務暫時無法回應。");
+    respond(503, JSON.stringify({ error: "資料庫暫時忙碌，請稍後再試" }));
+    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow(
+      "資料庫暫時忙碌，請稍後再試",
+    );
     expect(onConnectionChange).toHaveBeenLastCalledWith(true);
 
     respond(400, JSON.stringify({ error: "輸入無效。" }));

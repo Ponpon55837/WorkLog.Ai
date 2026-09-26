@@ -256,6 +256,59 @@ describe("Work Intelligence REST API", () => {
     }
   });
 
+  it("returns a safe 503 when another SQLite connection holds the write lock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-busy-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    const apiDatabase = (store as unknown as { db: DatabaseSync }).db;
+    apiDatabase.exec("PRAGMA busy_timeout = 0");
+    const lockConnection = new DatabaseSync(databasePath);
+    lockConnection.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+
+    try {
+      const response = await requestJson<{ error: string }>(baseUrl, "/api/projects", {
+        method: "POST",
+        body: { name: "Locked project", rootPath: join(root, "locked-project") },
+      });
+
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ error: "資料庫暫時忙碌，請稍後再試" });
+    } finally {
+      lockConnection.exec("ROLLBACK");
+      lockConnection.close();
+    }
+  });
+
+  it("returns the shared safe 503 when project deletion hits a SQLite write lock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-delete-busy-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const project = store.addProject("Locked project", join(root, "locked-project"));
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    const apiDatabase = (store as unknown as { db: DatabaseSync }).db;
+    apiDatabase.exec("PRAGMA busy_timeout = 0");
+    const lockConnection = new DatabaseSync(databasePath);
+    lockConnection.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+
+    try {
+      const response = await requestJson<{ error: string }>(baseUrl, `/api/projects/${project.id}`, {
+        method: "DELETE",
+        body: { confirmationName: project.name },
+      });
+
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ error: "資料庫暫時忙碌，請稍後再試" });
+    } finally {
+      lockConnection.exec("ROLLBACK");
+      lockConnection.close();
+    }
+  });
+
   it("returns a safe client error for malformed JSON", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-body-test-"));
     const store = new WorkIntelligenceStore(":memory:");

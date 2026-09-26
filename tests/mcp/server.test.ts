@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
@@ -53,6 +54,80 @@ function finalizePayload(root: string, key: string, title: string) {
 }
 
 describe("Work Intelligence MCP server", () => {
+  it("completes the handshake and exposes classified database startup failures to the Agent", async () => {
+    const startupFailure = {
+      code: "DATABASE_SCHEMA_VERSION_TOO_NEW",
+      message: "資料庫 schema 版本比此程式支援的版本新。請更新 Work Intelligence 後再開啟資料庫。",
+    };
+    const server = createWorkIntelligenceMcpServer(null, "9.9.9", LATEST_SCHEMA_VERSION, startupFailure);
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    expect(client.getInstructions()).toContain(startupFailure.code);
+    expect(client.getInstructions()).toContain(startupFailure.message);
+    const { tools } = await client.listTools();
+    expect(tools.length).toBeGreaterThan(1);
+
+    const statusResult = await client.callTool({ name: "work_get_project_status", arguments: { projectRoot: "/tmp" } });
+    const finalizeResult = await client.callTool({
+      name: "work_finalize_session",
+      arguments: finalizePayload("/tmp/startup-failure", "startup-failure-001", "Startup unavailable"),
+    });
+    const statusContent = statusResult.content as Array<{ type: string; text: string }>;
+    const finalizeContent = finalizeResult.content as Array<{ type: string; text: string }>;
+    expect(statusResult.isError).toBe(true);
+    expect(finalizeResult.isError).toBe(true);
+    expect(statusContent).toEqual(finalizeContent);
+    expect(JSON.parse(statusContent[0]?.text ?? "null")).toEqual({
+      code: startupFailure.code,
+      error: startupFailure.message,
+    });
+  });
+
+  it("returns a safe retryable error when another SQLite connection holds a write lock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-busy-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const project = store.addProject("Busy MCP project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(
+      () => rmSync(root, { recursive: true, force: true }),
+      () => store.close(),
+      () => client.close(),
+    );
+
+    const mcpDatabase = (store as unknown as { db: DatabaseSync }).db;
+    mcpDatabase.exec("PRAGMA busy_timeout = 0");
+    const lockConnection = new DatabaseSync(databasePath);
+    lockConnection.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+
+    try {
+      const result = await client.callTool({
+        name: "work_finalize_session",
+        arguments: finalizePayload(root, "mcp-busy-lock", "Busy lock"),
+      });
+      const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "null";
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(text)).toEqual({ code: "DATABASE_BUSY", error: "資料庫暫時忙碌，請稍後再試" });
+      expect(text).not.toMatch(/sqlite|database is locked/i);
+    } finally {
+      lockConnection.exec("ROLLBACK");
+      lockConnection.close();
+    }
+
+    expect(
+      await callJson(client, "work_finalize_session", finalizePayload(root, "mcp-busy-lock", "Busy lock")),
+    ).toMatchObject({
+      outcome: "finalized",
+    });
+  });
+
   it("advertises version, short instructions, annotations, and prompts", async () => {
     const { client } = await connect();
 

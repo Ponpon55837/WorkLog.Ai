@@ -51,7 +51,12 @@ import {
   updateSessionWorkSummaryInputSchema,
   updateSessionWorkSummaryInputSchemaBase,
 } from "@work-intelligence/schema";
-import { toSessionDigest, type WorkIntelligenceStore } from "@work-intelligence/storage";
+import {
+  DATABASE_BUSY_MESSAGE,
+  isDatabaseBusyError,
+  toSessionDigest,
+  type WorkIntelligenceStore,
+} from "@work-intelligence/storage";
 import { z } from "zod";
 import {
   implementationDetail,
@@ -102,12 +107,26 @@ interface StoreToolDefinition<S extends z.ZodTypeAny> {
   run: (input: z.infer<S>) => unknown;
 }
 
+export interface McpStartupFailure {
+  code: string;
+  message: string;
+}
+
 export function createWorkIntelligenceMcpServer(
-  store: WorkIntelligenceStore,
+  storeOrUnavailable: WorkIntelligenceStore | null,
   version: string,
   schemaVersion: number,
+  startupFailure?: McpStartupFailure,
 ): McpServer {
-  const instructions = `${serverInstructions} Application version: ${version}; schema version: ${schemaVersion}.`;
+  if (!storeOrUnavailable && !startupFailure) {
+    throw new Error("An initialized store or a startup failure is required to create the MCP server.");
+  }
+
+  const store = storeOrUnavailable as WorkIntelligenceStore;
+  const failureInstructions = startupFailure
+    ? ` Database startup failed (${startupFailure.code}): ${startupFailure.message} All tools return this startup error until the MCP process is restarted.`
+    : "";
+  const instructions = `${serverInstructions} Application version: ${version}; schema version: ${schemaVersion}.${failureInstructions}`;
   const server = new McpServer({ name: "work-intelligence", version }, { instructions });
 
   function registerStoreTool<S extends z.ZodTypeAny>(name: string, definition: StoreToolDefinition<S>): void {
@@ -120,6 +139,13 @@ export function createWorkIntelligenceMcpServer(
         annotations: { title: definition.title, ...definition.annotations },
       },
       async (input: unknown) => {
+        if (startupFailure) {
+          return {
+            isError: true,
+            ...textResult({ code: startupFailure.code, error: startupFailure.message }),
+          };
+        }
+
         const parsed = parseMcpInput(definition.schema, input);
         if (!parsed.success) {
           return {
@@ -127,8 +153,18 @@ export function createWorkIntelligenceMcpServer(
             ...textResult({ error: definition.invalidMessage, details: parsed.error.flatten() }),
           };
         }
-        const result = definition.run(parsed.data);
-        return definition.sessionResult ? sessionTextResult(result) : textResult(result);
+        try {
+          const result = await definition.run(parsed.data);
+          return definition.sessionResult ? sessionTextResult(result) : textResult(result);
+        } catch (error) {
+          if (!isDatabaseBusyError(error)) {
+            throw error;
+          }
+          return {
+            isError: true,
+            ...textResult({ code: "DATABASE_BUSY", error: DATABASE_BUSY_MESSAGE }),
+          };
+        }
       },
     );
   }
