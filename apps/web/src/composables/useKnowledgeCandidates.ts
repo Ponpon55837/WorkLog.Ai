@@ -1,23 +1,18 @@
 import { ref } from "vue";
+import { storeToRefs } from "pinia";
 import type {
   DecideKnowledgeCandidateInput,
   KnowledgeCandidate,
-  KnowledgeCandidateRequest,
   KnowledgeKind,
   ProjectRecord,
 } from "@work-intelligence/core";
+import { useKnowledgeStore } from "../stores/knowledge";
 import { errorMessage } from "../utils/format";
-import { runKeyed, useApi } from "./useApi";
 import { confirmAction } from "./useConfirm";
-import { useKnowledge } from "./useKnowledge";
 import { useToast } from "./useToast";
 
 type CandidateForm = { kind: KnowledgeKind; title: string; body: string; tags: string; appliesTo: string };
 
-const candidates = ref<KnowledgeCandidate[]>([]);
-const openCandidateRequests = ref<KnowledgeCandidateRequest[]>([]);
-const candidatesLoading = ref(false);
-const candidatesError = ref("");
 const candidateEditor = ref<KnowledgeCandidate | null>(null);
 const candidateForm = ref<CandidateForm>({ kind: "pattern", title: "", body: "", tags: "", appliesTo: "" });
 const candidateSaving = ref(false);
@@ -34,40 +29,10 @@ function splitValues(value: string): string[] {
   ];
 }
 
-/** Proposed candidates and open requests, optionally limited to one project's root. */
-async function fetchCandidates(projectRoot?: string, quiet = false): Promise<void> {
-  if (!quiet) {
-    candidatesLoading.value = true;
-  }
-  await runKeyed(
-    "knowledge-candidates",
-    async (signal) => {
-      const result = await useApi().client.listKnowledgeCandidates(projectRoot, signal);
-      if (result.outcome === "knowledge_candidates") {
-        candidates.value = result.items;
-        openCandidateRequests.value = result.openRequests;
-        candidatesError.value = "";
-      } else {
-        candidates.value = [];
-        openCandidateRequests.value = [];
-      }
-    },
-    {
-      onError: (error) => {
-        candidatesError.value = errorMessage(error, "無法載入 Knowledge 候選。");
-      },
-      onSettled: () => {
-        candidatesLoading.value = false;
-      },
-    },
-  );
-}
-
-/** Opens a request an Agent will process; the Web UI never proposes candidates itself. */
-async function requestCandidates(project: ProjectRecord, reloadRoot?: string): Promise<void> {
+async function requestCandidates(project: ProjectRecord, refreshProjectRoot?: string): Promise<void> {
   const { showToast } = useToast();
   try {
-    const result = await useApi().client.requestKnowledgeCandidates(project.rootPath);
+    const result = await useKnowledgeStore().requestKnowledgeCandidates(project.rootPath, refreshProjectRoot);
     if (result.outcome === "knowledge_candidates_not_needed") {
       showToast(result.reason);
     } else if (result.outcome === "skipped") {
@@ -81,20 +46,21 @@ async function requestCandidates(project: ProjectRecord, reloadRoot?: string): P
     }
   } catch (error) {
     showToast(errorMessage(error, "無法建立整理請求。"), "danger");
-    return;
   }
-  await loadCandidates(reloadRoot);
 }
 
 async function decide(
   candidate: KnowledgeCandidate,
   decision: "accept" | "reject",
-  reloadRoot?: string,
+  refreshProjectRoot?: string,
   edits?: DecideKnowledgeCandidateInput["edits"],
 ): Promise<boolean> {
   const { showToast } = useToast();
   try {
-    const result = await useApi().client.decideKnowledgeCandidate({ candidateId: candidate.id, decision, edits });
+    const result = await useKnowledgeStore().decideKnowledgeCandidate(
+      { candidateId: candidate.id, decision, edits },
+      refreshProjectRoot,
+    );
     if (result.outcome === "already_decided") {
       showToast("這筆候選已經處理過了。");
     } else if (result.outcome !== "knowledge_candidate_decided") {
@@ -107,24 +73,21 @@ async function decide(
     showToast(errorMessage(error, "無法處理這筆候選。"), "danger");
     return false;
   }
-  await Promise.all([loadCandidates(reloadRoot), decision === "accept" ? useKnowledge().loadKnowledge() : undefined]);
   return true;
 }
 
-function acceptCandidate(candidate: KnowledgeCandidate, reloadRoot?: string): Promise<boolean> {
-  return decide(candidate, "accept", reloadRoot);
+function acceptCandidate(candidate: KnowledgeCandidate, refreshProjectRoot?: string): Promise<boolean> {
+  return decide(candidate, "accept", refreshProjectRoot);
 }
 
-async function rejectCandidate(candidate: KnowledgeCandidate, reloadRoot?: string): Promise<void> {
+async function rejectCandidate(candidate: KnowledgeCandidate, refreshProjectRoot?: string): Promise<void> {
   const confirmed = await confirmAction({
     title: "拒絕這筆候選？",
     message: `「${candidate.title}」不會成為 Knowledge；之後的整理請求也不會再用同一筆 Session 產生候選。`,
     confirmLabel: "拒絕",
     danger: true,
   });
-  if (confirmed) {
-    await decide(candidate, "reject", reloadRoot);
-  }
+  if (confirmed) await decide(candidate, "reject", refreshProjectRoot);
 }
 
 function openCandidateEditor(candidate: KnowledgeCandidate): void {
@@ -140,24 +103,20 @@ function openCandidateEditor(candidate: KnowledgeCandidate): void {
 }
 
 function closeCandidateEditor(): void {
-  if (!candidateSaving.value) {
-    candidateEditor.value = null;
-  }
+  if (!candidateSaving.value) candidateEditor.value = null;
 }
 
 /** Accepts the candidate with the reviewer's edits. */
-async function saveCandidateEditor(reloadRoot?: string): Promise<void> {
+async function saveCandidateEditor(refreshProjectRoot?: string): Promise<void> {
   const candidate = candidateEditor.value;
   const form = candidateForm.value;
-  if (!candidate) {
-    return;
-  }
+  if (!candidate) return;
   if (!form.title.trim() || !form.body.trim()) {
     candidateError.value = "標題與內容不能留白。";
     return;
   }
   candidateSaving.value = true;
-  const accepted = await decide(candidate, "accept", reloadRoot, {
+  const accepted = await decide(candidate, "accept", refreshProjectRoot, {
     kind: form.kind,
     title: form.title.trim(),
     body: form.body.trim(),
@@ -165,21 +124,21 @@ async function saveCandidateEditor(reloadRoot?: string): Promise<void> {
     appliesTo: splitValues(form.appliesTo),
   });
   candidateSaving.value = false;
-  if (accepted) {
-    candidateEditor.value = null;
-  }
+  if (accepted) candidateEditor.value = null;
 }
 
 function loadCandidates(projectRoot?: string): Promise<void> {
-  return fetchCandidates(projectRoot);
+  return useKnowledgeStore().loadCandidates(projectRoot);
 }
 
 /** Re-checks without the loading indicator, while an Agent is working on a request. */
 function refreshCandidates(projectRoot?: string): Promise<void> {
-  return fetchCandidates(projectRoot, true);
+  return useKnowledgeStore().loadCandidates(projectRoot, true);
 }
 
 export function useKnowledgeCandidates() {
+  const { candidates, openCandidateRequests, candidatesLoading, candidatesError } = storeToRefs(useKnowledgeStore());
+
   return {
     candidates,
     openCandidateRequests,
