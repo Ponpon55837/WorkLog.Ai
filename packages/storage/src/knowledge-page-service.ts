@@ -11,6 +11,8 @@ import {
   type KnowledgePageListQuery,
   type KnowledgePageListResult,
   type KnowledgePageRecord,
+  type KnowledgePageReviewReason,
+  type KnowledgePageReviewSection,
   type KnowledgePageSection,
   type KnowledgePageSkippedResult,
   type KnowledgePageVersionRecord,
@@ -59,6 +61,20 @@ type VersionRow = {
   created_at: string;
 };
 
+type CitedSessionRow = {
+  id: string;
+  project_id: string;
+  title: string;
+  updated_at: string;
+  voided_at: string | null;
+};
+
+type CitedSessionVoidEventRow = {
+  target_id: string;
+  action: "voided" | "restored";
+  occurred_at: string;
+};
+
 /** Sessions an Agent gets while writing a page, newest first. */
 const CONTEXT_SESSION_LIMIT = 60;
 /** Character budget for those Sessions, so the context fits in one tool result. */
@@ -66,6 +82,8 @@ const CONTEXT_CHAR_BUDGET = 40_000;
 /** How much of each page work_get_context includes, and of all pages together. */
 const DIGEST_PAGE_CHARS = 1_500;
 const DIGEST_TOTAL_CHARS = 4_500;
+const DIGEST_REVIEW_SOURCE_LIMIT = 8;
+const DIGEST_SOURCE_SESSION_LIMIT = 8;
 /** Versions shown in the Web history; older versions stay in the database and in exports. */
 const VERSION_HISTORY_LIMIT = 50;
 
@@ -101,6 +119,42 @@ function citedSessionIds(sections: readonly KnowledgePageSection[]): string[] {
   return [...new Set(sections.flatMap((section) => section.sourceSessionIds))];
 }
 
+/** Keep review pointers compact in aggregate context; the page-context tool still returns every affected source. */
+export function limitKnowledgePageReviewSections(
+  sections: readonly KnowledgePageReviewSection[],
+  sourceLimit: number,
+): KnowledgePageReviewSection[] {
+  let remaining = Math.max(0, sourceLimit);
+  const keptBySection = sections.map(() => 0);
+  for (let index = 0; index < sections.length && remaining > 0; index += 1) {
+    if (sections[index]!.sources.length > 0) {
+      keptBySection[index] = 1;
+      remaining -= 1;
+    }
+  }
+  while (remaining > 0) {
+    let added = false;
+    for (let index = 0; index < sections.length && remaining > 0; index += 1) {
+      if (keptBySection[index]! < sections[index]!.sources.length) {
+        keptBySection[index] = keptBySection[index]! + 1;
+        remaining -= 1;
+        added = true;
+      }
+    }
+    if (!added) break;
+  }
+  return sections.map((section, index) => {
+    const sources = section.sources.slice(0, keptBySection[index]);
+    const omittedSourceCount = (section.omittedSourceCount ?? 0) + section.sources.length - sources.length;
+    const reasons = [...new Set([...(section.reasons ?? []), ...section.sources.flatMap((source) => source.reasons)])];
+    return {
+      heading: section.heading,
+      sources,
+      ...(omittedSourceCount > 0 ? { omittedSourceCount, reasons } : {}),
+    };
+  });
+}
+
 function truncateAtSentenceBoundary(text: string, limit: number): { text: string; truncated: boolean } {
   if (text.length <= limit) return { text, truncated: false };
   const prefix = text.slice(0, Math.max(0, limit - 1));
@@ -129,10 +183,13 @@ function toVersion(row: VersionRow): KnowledgePageVersionRecord {
 }
 
 /** Renders a page's sections as Markdown with the cited Session ids after each section. */
-export function renderKnowledgePage(sections: readonly KnowledgePageSection[]): string {
+export function renderKnowledgePage(sections: readonly KnowledgePageSection[], includeSourceIds = true): string {
   return sections
     .map((section) => {
-      const sources = section.sourceSessionIds.length > 0 ? `\n\n來源：${section.sourceSessionIds.join("、")}` : "";
+      const sources =
+        includeSourceIds && section.sourceSessionIds.length > 0
+          ? `\n\n來源：${section.sourceSessionIds.join("、")}`
+          : "";
       return `## ${section.heading}\n\n${section.content}${sources}`;
     })
     .join("\n\n");
@@ -317,24 +374,45 @@ export class KnowledgePageService {
   /** Pages for work_get_context: written pages first, each cut to a fixed length within a total budget. */
   public digestsForProject(projectId: string): KnowledgePageDigest[] {
     let remaining = DIGEST_TOTAL_CHARS;
+    let remainingReviewSources = DIGEST_REVIEW_SOURCE_LIMIT;
     const digests: KnowledgePageDigest[] = [];
-    for (const page of this.pagesForProjects([projectId]).filter((item) => item.version > 0)) {
+    const pages = this.pagesForProjects([projectId]).filter((item) => item.version > 0);
+    const sourceIdsByPage = new Map<string, { sourceSessionIds: string[]; omittedCount: number }>();
+    let remainingSourceIds = DIGEST_SOURCE_SESSION_LIMIT;
+    const sourceIdOrder = [...pages.filter((page) => page.needsReview), ...pages.filter((page) => !page.needsReview)];
+    for (const page of sourceIdOrder) {
+      const sourceSessionIds = citedSessionIds(page.sections);
+      const included = sourceSessionIds.slice(0, remainingSourceIds);
+      remainingSourceIds -= included.length;
+      sourceIdsByPage.set(page.id, {
+        sourceSessionIds: included,
+        omittedCount: sourceSessionIds.length - included.length,
+      });
+    }
+    for (const page of pages) {
       if (remaining <= 0) {
         break;
       }
-      const rendered = renderKnowledgePage(page.sections);
+      const rendered = renderKnowledgePage(page.sections, false);
       const limit = Math.min(DIGEST_PAGE_CHARS, remaining);
       const bounded = truncateAtSentenceBoundary(rendered, limit);
       const content = bounded.text;
       remaining -= content.length;
+      const reviewSections = page.needsReview
+        ? limitKnowledgePageReviewSections(page.reviewSections ?? [], remainingReviewSources)
+        : undefined;
+      remainingReviewSources -= reviewSections?.reduce((count, section) => count + section.sources.length, 0) ?? 0;
+      const sourceIds = sourceIdsByPage.get(page.id)!;
       digests.push({
         slug: page.slug,
         title: page.title,
         status: page.status,
         updatedAt: page.updatedAt,
         content,
-        sourceSessionIds: citedSessionIds(page.sections),
+        sourceSessionIds: sourceIds.sourceSessionIds,
+        ...(sourceIds.omittedCount > 0 ? { sourceSessionIdsOmittedCount: sourceIds.omittedCount } : {}),
         truncated: bounded.truncated,
+        ...(page.needsReview ? { needsReview: true, reviewSections } : {}),
       });
     }
     return digests;
@@ -346,14 +424,16 @@ export class KnowledgePageService {
     title: string;
     status: KnowledgePageRecord["status"];
     updateRequested: boolean;
+    needsReview?: boolean;
   }> {
     return this.pagesForProjects(projectId ? [projectId] : this.trackedProjectIds())
-      .filter((page) => page.status === "needs_update" || page.updateRequestedAt)
+      .filter((page) => page.status === "needs_update" || page.updateRequestedAt || page.needsReview)
       .map((page) => ({
         slug: page.slug,
         title: page.title,
         status: page.status,
         updateRequested: Boolean(page.updateRequestedAt),
+        ...(page.needsReview ? { needsReview: true } : {}),
       }));
   }
 
@@ -422,21 +502,85 @@ export class KnowledgePageService {
         (statement.all(projectId, cutoff) as Array<{ completed_at: string }>).map((row) => row.completed_at),
       );
     }
+    const sectionsByPage = new Map(
+      rows.map((row) => [row.id, parseJson<KnowledgePageSection[]>(row.sections_json, [])]),
+    );
+    const citedIds = [...new Set([...sectionsByPage.values()].flatMap(citedSessionIds))];
+    const citedSessions = new Map<string, CitedSessionRow>();
+    const voidEvents = new Map<string, CitedSessionVoidEventRow[]>();
+    if (citedIds.length > 0) {
+      for (const source of this.db
+        .prepare(
+          `SELECT id, project_id, title, updated_at, voided_at FROM sessions
+           WHERE id IN (SELECT value FROM json_each(?))`,
+        )
+        .all(JSON.stringify(citedIds)) as CitedSessionRow[]) {
+        citedSessions.set(source.id, source);
+      }
+      for (const event of this.db
+        .prepare(
+          `SELECT target_id, action, occurred_at FROM void_audit
+           WHERE target_type = 'session' AND target_id IN (SELECT value FROM json_each(?))
+           ORDER BY occurred_at ASC, rowid ASC`,
+        )
+        .all(JSON.stringify(citedIds)) as CitedSessionVoidEventRow[]) {
+        const events = voidEvents.get(event.target_id) ?? [];
+        events.push(event);
+        voidEvents.set(event.target_id, events);
+      }
+    }
     return rows.map((row) => {
       const completions = completionsByProject.get(row.project_id) ?? [];
       const newSessionCount = row.sourced_through
         ? completions.length - upperBound(completions, row.sourced_through)
         : 0;
+      const sections = sectionsByPage.get(row.id) ?? [];
+      const reviewSections: KnowledgePageReviewSection[] = [];
+      for (const section of sections) {
+        const sources = [...new Set(section.sourceSessionIds)].flatMap((sourceSessionId) => {
+          const source = citedSessions.get(sourceSessionId);
+          const reasons = new Set<KnowledgePageReviewReason>();
+          if (!source || source.project_id !== row.project_id) {
+            reasons.add("source_missing");
+          } else {
+            if (!row.sourced_through) {
+              reasons.add("source_state_unknown");
+            } else if (source.updated_at > row.sourced_through) {
+              reasons.add("source_updated_after_save");
+            }
+            for (const event of voidEvents.get(sourceSessionId) ?? []) {
+              if (!row.sourced_through || event.occurred_at > row.sourced_through) {
+                reasons.add(event.action === "voided" ? "source_voided_after_save" : "source_restored_after_save");
+              }
+            }
+            if (source.voided_at && (!row.sourced_through || source.voided_at > row.sourced_through)) {
+              reasons.add("source_voided_after_save");
+            }
+          }
+          return reasons.size > 0
+            ? [
+                {
+                  sourceSessionId,
+                  title: source?.project_id === row.project_id ? source.title : "來源無法存取",
+                  reasons: [...reasons],
+                },
+              ]
+            : [];
+        });
+        if (sources.length > 0) reviewSections.push({ heading: section.heading, sources });
+      }
+      const needsReview = reviewSections.length > 0;
       return {
         id: row.id,
         projectId: row.project_id,
         slug: row.slug,
         title: row.title,
         question: row.question,
-        sections: parseJson<KnowledgePageSection[]>(row.sections_json, []),
+        sections,
         version: row.version,
         status: row.version === 0 ? "empty" : newSessionCount > 0 ? "needs_update" : "fresh",
         newSessionCount,
+        ...(needsReview ? { needsReview: true, reviewSections } : {}),
         ...(row.last_author ? { lastAuthor: row.last_author } : {}),
         ...(row.sourced_through ? { sourcedThrough: row.sourced_through } : {}),
         ...(row.update_requested_at ? { updateRequestedAt: row.update_requested_at } : {}),

@@ -23,6 +23,7 @@ import type {
   DatabaseMaintenanceStatus,
   KnowledgeKind,
   KnowledgePageStatus,
+  KnowledgePageReviewReason,
   KnowledgeStatus,
   MetadataBackfillRequest,
   ProjectStatus,
@@ -100,6 +101,14 @@ export const knowledgePageStatusVisual: Record<KnowledgePageStatus | "missing", 
   empty: { tone: "accent", icon: LoaderCircle, label: "等待 Agent 撰寫" },
   fresh: { tone: "success", icon: CircleCheck, label: "最新" },
   needs_update: { tone: "attention", icon: Clock3, label: "需要更新" },
+};
+
+export const knowledgePageReviewReasonLabels: Record<KnowledgePageReviewReason, string> = {
+  source_updated_after_save: "來源 Session 在儲存後有修改",
+  source_voided_after_save: "來源 Session 在儲存後已作廢",
+  source_restored_after_save: "來源 Session 在儲存後已還原",
+  source_missing: "來源 Session 已不存在或無法存取",
+  source_state_unknown: "無法確認頁面儲存時的來源狀態",
 };
 
 export const HOTSPOT_HIGH_FAILURE_RATE = 0.3;

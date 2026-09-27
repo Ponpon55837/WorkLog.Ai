@@ -1897,6 +1897,28 @@ export interface KnowledgePageSection {
   sourceSessionIds: string[];
 }
 
+export type KnowledgePageReviewReason =
+  | "source_updated_after_save"
+  | "source_voided_after_save"
+  | "source_restored_after_save"
+  | "source_missing"
+  | "source_state_unknown";
+
+export interface KnowledgePageReviewSource {
+  sourceSessionId: string;
+  title: string;
+  reasons: KnowledgePageReviewReason[];
+}
+
+export interface KnowledgePageReviewSection {
+  heading: string;
+  sources: KnowledgePageReviewSource[];
+  /** Counts additional affected sources omitted from a bounded context summary. */
+  omittedSourceCount?: number;
+  /** Reason codes across both shown and omitted sources in a bounded context summary. */
+  reasons?: KnowledgePageReviewReason[];
+}
+
 export interface KnowledgePageRecord {
   id: string;
   projectId: string;
@@ -1909,6 +1931,10 @@ export interface KnowledgePageRecord {
   status: KnowledgePageStatus;
   /** Non-voided Sessions completed after the page was last written. */
   newSessionCount: number;
+  /** Set when at least one cited source changed or its void state changed after the page was written. */
+  needsReview?: boolean;
+  /** Sections and cited source Sessions that triggered needsReview. */
+  reviewSections?: KnowledgePageReviewSection[];
   lastAuthor?: KnowledgePageAuthor;
   /** When the page was last written (its content reflects Sessions up to this time). */
   sourcedThrough?: string;
@@ -2027,7 +2053,11 @@ export interface KnowledgePageDigest {
   content: string;
   /** Session ids cited by the page, kept even when its rendered content is truncated or omitted. */
   sourceSessionIds: string[];
+  /** Number of cited Session ids left to the full page context in a bounded summary. */
+  sourceSessionIdsOmittedCount?: number;
   truncated: boolean;
+  needsReview?: boolean;
+  reviewSections?: KnowledgePageReviewSection[];
 }
 
 export type KnowledgeCandidateListResult =
@@ -2064,8 +2094,14 @@ export interface ContextResult {
     knowledgeCandidates: KnowledgeCandidateRequest[];
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
-    /** Knowledge pages to (re)write: an update was requested or newer Sessions exist. */
-    knowledgePages: Array<{ slug: string; title: string; status: KnowledgePageStatus; updateRequested: boolean }>;
+    /** Knowledge pages to (re)write: an update was requested, newer Sessions exist, or cited sources need review. */
+    knowledgePages: Array<{
+      slug: string;
+      title: string;
+      status: KnowledgePageStatus;
+      updateRequested: boolean;
+      needsReview?: boolean;
+    }>;
   };
   /** Present when the context query named a task or paths: records ranked for that work. */
   relevant?: RelevantContext;
@@ -2082,8 +2118,10 @@ export interface ContextOmission {
     id: string;
     reason: string;
     sourceSessionIds?: string[];
+    sourceSessionIdsOmittedCount?: number;
     possiblyStale?: boolean;
     needsReview?: boolean;
+    reviewSections?: KnowledgePageReviewSection[];
   }>;
   readWith: string;
 }
@@ -2094,11 +2132,17 @@ export interface RelevantKnowledgePageDigest {
   projectName?: string;
   slug: string;
   title: string;
+  needsReview?: boolean;
+  reviewSections?: KnowledgePageReviewSection[];
   sections: Array<{
     heading: string;
     content: string;
     sourceSessionIds: string[];
+    sourceSessionIdsOmittedCount?: number;
     truncated: boolean;
+    reviewSources?: KnowledgePageReviewSource[];
+    reviewOmittedSourceCount?: number;
+    reviewReasons?: KnowledgePageReviewReason[];
   }>;
 }
 

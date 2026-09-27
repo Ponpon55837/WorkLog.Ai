@@ -107,7 +107,7 @@ MCP client 的 stdio 設定可使用：
 
 `pendingRequests.reportSynthesis`／`pendingRequests.metadataBackfill` 列出 pending 或 processing、等待 Agent 處理的請求（新到舊，各最多 5 筆）。指定專案時也包含「所有專案」範圍的請求。
 
-帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作之知識頁段落，並保留 `sourceSessionIds`；原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面。`omitted` 每區帶 `count`、`entries`（`id`、`reason`，必要時包含來源與信任旗標）及 `readWith`。依該工具讀取全文，不要把摘要截斷或省略當成來源內容。
+帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作及需要核對的知識頁段落，並保留 `sourceSessionIds`；知識頁來源 id 在整份 context 最多列 8 筆，超出的數量以 `sourceSessionIdsOmittedCount` 標示。頁面層級的 `needsReview` 會保留，受影響段落列出來源 Session id／標題與原因。單一 context 最多列出 8 筆來源核對明細；受影響段落仍全部列出，超出的來源以 `omittedSourceCount` 與 `reasons` 彙整，完整清單可用 `work_get_knowledge_page_context` 讀取。原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面，省略項目會保留核對旗標與段落指標。`omitted` 每區帶 `count`、`entries`（`id`、`reason`，必要時包含來源與信任旗標）及 `readWith`。依該工具讀取全文，不要把摘要截斷或省略當成來源內容。
 
 開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是：
 
@@ -117,7 +117,7 @@ MCP client 的 stdio 設定可使用：
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
-| `relevant.knowledgePages` | 符合 task／paths 的知識頁段落（最多 5 段），每段附 `sourceSessionIds` 與 `truncated` |
+| `relevant.knowledgePages` | 符合 task／paths 的知識頁段落與需核對段落；每段附 `sourceSessionIds`、`truncated`，來源變動時另附 `reviewSources`（有上限時含 `reviewOmittedSourceCount`／`reviewReasons`），頁面附 `needsReview` |
 | `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
 | `relevant.hotspots` | 指定專案並帶 `paths` 時才出現：過去 30 天被 3 筆以上 Session 修改的路徑，附 Session 數、驗證失敗與未執行數；修改前應特別注意 |
 
@@ -369,7 +369,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 每個 tracked 專案有三個預設知識頁：`architecture`（架構與慣例）、`in-progress`（進行中的工作與未結項）、`pitfalls`（常見陷阱），也可以用自訂 `slug`（2–40 個小寫英數或連字號）加上 `title` 與 `question` 建立其他頁。知識頁是 Agent 依已記錄 Session 改寫的整頁答案，和逐筆明確提交的 Knowledge 分開保存；每次儲存（Agent 或 Web 手動編輯）都是新版本，舊版本保留供工作知識頁檢視。
 
 1. `work_request_knowledge_page_update`（`projectRoot`、`slug`，自訂頁另帶 `title`、`question`）：建立頁面（尚未存在時）並標記「已要求更新」。未知 slug 又沒有 title／question 時回傳 `invalid_page`。
-2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及專案最新的未作廢 Session（摘要與五段 workSummary，最多 60 筆、共 40,000 字內，超過時 `truncated: true`）。頁面還沒被要求過時回傳 `not_found`。
+2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及專案最新的未作廢 Session（摘要與五段 workSummary，最多 60 筆、共 40,000 字內，超過時 `truncated: true`）。若引用 Session 在頁面儲存後被修改、作廢或還原，`page.needsReview` 與 `page.reviewSections` 會列出受影響段落、來源 Session id／標題與原因（`source_updated_after_save`、`source_voided_after_save`、`source_restored_after_save`、`source_missing` 或 `source_state_unknown`）。還原不代表已重新核對；Agent 必須檢查目前來源，儲存新版本後標記才會清除。頁面還沒被要求過時回傳 `not_found`。
 3. `work_save_knowledge_page`（`projectRoot`、`slug`、`idempotencyKey`、`sections`）：1–12 個段落、合計 8,000 字內；每段 `heading`、`content` 與 `sourceSessionIds`（最多 20 個）。沒有來源支持的段落內容必須正好是「資料不足」且不列來源。引用的 Session 不存在、已作廢或屬於其他專案時回傳 `invalid_sources` 與那些 id。同一個 `idempotencyKey` 重試回傳 `duplicate: true`。敏感資料會先遮蔽。
 
 ```json
@@ -384,7 +384,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 }
 ```
 
-儲存後頁面狀態為「最新」；之後每有一筆新的未作廢 Session 完成，頁面就變成 `needs_update` 並累計 `newSessionCount`。`work_get_context` 指定專案時會帶 `knowledgePages`（已撰寫頁面的渲染內容，每頁 1,500 字、合計 4,500 字內，截斷時 `truncated: true`），`pendingRequests.knowledgePages` 則列出需要更新或已要求更新的頁面。MCP 沒有刪除知識頁的工具。
+儲存後頁面狀態為「最新」；之後每有一筆新的未作廢 Session 完成，頁面就變成 `needs_update` 並累計 `newSessionCount`。若已引用的來源 Session 後來被修改、作廢或還原，頁面另帶 `needsReview: true` 與 `reviewSections`；`work_get_context` 的來源 id 與核對明細各最多列 8 筆，額外的來源數量分別以 `sourceSessionIdsOmittedCount`、`omittedSourceCount` 與原因彙整，完整細節由 `work_get_knowledge_page_context` 提供。`work_get_context` 指定專案時會帶 `knowledgePages`（已撰寫頁面的渲染內容，每頁 1,500 字、合計 4,500 字內，截斷時 `truncated: true`），`pendingRequests.knowledgePages` 會列出需要更新、核對或已要求更新的頁面。還原來源不會自動清除核對提示，必須檢查並儲存新頁面版本。MCP 沒有刪除知識頁的工具。
 
 ## `work_update_knowledge`
 

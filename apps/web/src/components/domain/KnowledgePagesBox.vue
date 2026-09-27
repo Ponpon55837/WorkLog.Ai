@@ -142,6 +142,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
           <template #title>{{ row.title }}</template>
           <template #labels>
             <StatusLabel :status="knowledgePageStatusVisual[row.page?.status ?? 'missing']" />
+            <UiLabel v-if="row.page?.needsReview" tone="danger">來源需要核對</UiLabel>
             <UiLabel v-if="row.page && row.page.version > 0">第 {{ row.page.version }} 版</UiLabel>
             <UiLabel v-if="row.page?.updateRequestedAt" tone="accent">已要求更新</UiLabel>
           </template>
@@ -151,6 +152,9 @@ async function requestUpdate(row: PageRow): Promise<void> {
             <span v-if="row.page?.sourcedThrough"> · 更新於 {{ formatRelative(row.page.sourcedThrough) }}</span>
             <span v-if="row.page && row.page.newSessionCount > 0">
               · 之後有 {{ row.page.newSessionCount }} 筆新 Session</span
+            >
+            <span v-if="row.page?.needsReview">
+              · 需核對段落：{{ row.page.reviewSections?.map((section) => section.heading).join("、") }}</span
             >
           </template>
           <template #trailing>

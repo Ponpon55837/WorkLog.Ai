@@ -7,7 +7,7 @@ import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { useSessionsStore } from "../../stores/sessions";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
-import { knowledgePageStatusVisual } from "../../utils/status";
+import { knowledgePageReviewReasonLabels, knowledgePageStatusVisual } from "../../utils/status";
 import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -37,7 +37,18 @@ const shown = computed(() => {
   const version = versions.value.find((item) => item.version === shownVersion.value);
   return version ?? openPage.value;
 });
-const sourceTitles = computed(() => new Map(sources.value.map((source) => [source.id, source.title])));
+const sourceTitles = computed(() => {
+  const titles = new Map(sources.value.map((source) => [source.id, source.title]));
+  for (const section of openPage.value?.reviewSections ?? []) {
+    for (const source of section.sources) titles.set(source.sourceSessionId, source.title);
+  }
+  return titles;
+});
+
+function reviewSourcesForHeading(heading: string) {
+  if (shownVersion.value !== null) return [];
+  return openPage.value?.reviewSections?.find((section) => section.heading === heading)?.sources ?? [];
+}
 
 function close(): void {
   pagesStore.closePage();
@@ -87,6 +98,7 @@ watch(
       <p class="page-panel__question">{{ shown?.question }}</p>
       <div v-if="openPage" class="page-panel__meta">
         <StatusLabel :status="knowledgePageStatusVisual[openPage.status]" />
+        <UiLabel v-if="openPage.needsReview" tone="danger">引用來源需要核對</UiLabel>
         <UiLabel v-if="openPage.newSessionCount > 0" tone="attention"
           >之後有 {{ openPage.newSessionCount }} 筆新 Session</UiLabel
         >
@@ -114,6 +126,20 @@ watch(
       <p :class="{ 'page-panel__insufficient': section.content === KNOWLEDGE_PAGE_INSUFFICIENT }">
         {{ section.content }}
       </p>
+      <UiFlash
+        v-if="reviewSourcesForHeading(section.heading).length > 0"
+        tone="danger"
+        title="這些來源在頁面儲存後有變動"
+      >
+        <div class="page-panel__review-list">
+          <div v-for="source in reviewSourcesForHeading(section.heading)" :key="source.sourceSessionId">
+            <UiButton size="sm" variant="invisible" :icon="ExternalLink" @click="openSource(source.sourceSessionId)">{{
+              source.title
+            }}</UiButton>
+            <span>{{ source.reasons.map((reason) => knowledgePageReviewReasonLabels[reason]).join("；") }}</span>
+          </div>
+        </div>
+      </UiFlash>
       <div v-if="section.sourceSessionIds.length > 0" class="page-panel__sources">
         <span class="page-panel__sources-label">來源</span>
         <UiButton
@@ -210,6 +236,17 @@ watch(
   font-size: var(--text-sm);
   line-height: 1.7;
   white-space: pre-line;
+}
+
+.page-panel__review-list {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.page-panel__review-list > div {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
 }
 
 .page-panel__insufficient {
