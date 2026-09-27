@@ -99,6 +99,33 @@ function seedStaleKnowledge(targetStore, project) {
   }
 }
 
+// Three written pages sourced before every synthetic Session, so the staleness count scans the whole history.
+function seedKnowledgePages(targetStore, project) {
+  const [source] = targetStore.listSessionsPage({ projectId: project.id, page: 1, pageSize: 1 }).items;
+  for (const slug of ["architecture", "in-progress", "pitfalls"]) {
+    targetStore.requestKnowledgePageUpdate({ projectRoot: alphaRoot, slug });
+    const saved = targetStore.saveKnowledgePage({
+      projectRoot: alphaRoot,
+      slug,
+      idempotencyKey: `bench-page-${slug}`,
+      sections: Array.from({ length: 6 }, (_, index) => ({
+        heading: `Synthetic section ${index}`,
+        content: "Synthetic page content used to measure the bounded context digest. ".repeat(8),
+        sourceSessionIds: [source.id],
+      })),
+    });
+    if (saved.outcome !== "knowledge_page_saved") throw new Error(`Could not seed page ${slug}: ${saved.outcome}`);
+  }
+  const database = new DatabaseSync(databasePath);
+  try {
+    database
+      .prepare("UPDATE knowledge_pages SET sourced_through = ? WHERE project_id = ?")
+      .run("2025-09-01T00:00:00.000Z", project.id);
+  } finally {
+    database.close();
+  }
+}
+
 try {
   if (!cached) {
     seed();
@@ -111,6 +138,7 @@ try {
   const alpha = benchStore.listProjects().find((project) => project.name === "alpha");
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
   seedStaleKnowledge(benchStore, alpha);
+  seedKnowledgePages(benchStore, alpha);
 
   const cases = {
     "listSessionsPage (default)": () => benchStore.listSessionsPage({ page: 1, pageSize: 20 }),
@@ -125,6 +153,8 @@ try {
     "getReport month": () => benchStore.getReport({ period: "month", date: "2026-03-11" }),
     "getReport year": () => benchStore.getReport({ period: "year", date: "2026-03-11" }),
     getContext: () => benchStore.getContext(),
+    "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
+    "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
     search: () => benchStore.search("renderer"),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
@@ -138,6 +168,8 @@ try {
     "getReport week": 750,
     "getReport year": 1500,
     getContext: 2500,
+    "getContext (project with pages)": 500,
+    "listKnowledgePages (staleness)": 250,
     "listSessionDecisions (pending)": 250,
     search: 500,
     "searchKnowledge (staleness)": 500,

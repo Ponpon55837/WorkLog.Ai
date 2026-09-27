@@ -110,6 +110,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 | 查過去的工作或錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
 | 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立；自訂期間也可以） | 工作報告 →「請 Agent 整理這份報告」，Agent 完成後頁面會自動更新 |
 | 整理 Knowledge 候選 | 「幫我整理 Work Intelligence 的 Knowledge 候選。」 | 工作知識 →「整理候選」，接受（可先修改）或拒絕後才會成為 Knowledge |
+| 更新常駐知識頁 | 「幫我更新這個專案的知識頁。」 | 工作知識 →「知識頁」：架構與慣例、進行中的工作與未結項、常見陷阱，每段附來源 Session，可手動編輯與查看版本 |
 | 補齊缺漏的 metadata | 「幫我補齊 Work Intelligence 的 metadata 缺口。」（沒有請求時 Agent 會自己建立） | 專案 → Metadata 回補 →「掃描 metadata 缺口」 |
 | 修正已保存的摘要 | 「幫我修正上一筆 Session 的摘要：……」 | Session 面板 →「編輯 Session」 |
 | 連結相關的工作 | 「這次是接續昨天那筆規劃的實作。」 | Session 面板 →「關聯 Session」 |
@@ -129,7 +130,7 @@ GitHub 深色風格的介面，左側選單分三組。長清單都在各自的�
 | **總覽** | 本週 Sessions、驗證分布、待處理事項（等待 Agent 的報告整理或 metadata 回補）、最近工作 |
 | **工作歷程** | 多關鍵字搜尋，並依專案、日期篩選所有 Session。點任一筆會從右側開啟詳情（開始時間、耗時、最後更新），`J`/`K` 切換上下筆。「編輯 Session」可修正主摘要、五段內容與 verification（會留下修改紀錄），也可以建立 Session 關聯、作廢或還原，並逐筆標示錯誤的 Evidence。Agent 新存的 Session 會自動出現 |
 | **工作報告** | 日、週、月、季、年與自訂期間（最長 366 天）的報告，依系統時區切日，頁首會標示時區。總覽依期間分組（當日 Session、每日／每週／每月／每季分布、專案占比）；另有 AI 報告整理（每段附來源 Session）、趨勢、風險、跨期工作（更早開始、之後完成、事後修改）、原始紀錄與來源證據，資料超過上限時會提醒。可匯出 Markdown／JSON |
-| **工作知識** | 分成三個分頁，分頁上顯示各自的數量：**Knowledge**（Agent 明確提交的決策、模式、注意事項、流程與技能；相關檔案被改動時標示「可能過時」，被 Session 推翻時標示「需要檢視」；可以「確認仍有效」、編輯、封存與查看變更紀錄）、**候選**（Agent 提出、等你接受或拒絕的 Knowledge）、**待確認決策**（Agent 自主做的決策，可確認、否決或升級為 Knowledge） |
+| **工作知識** | 分成四個分頁，分頁上顯示各自的數量：**Knowledge**（Agent 明確提交的決策、模式、注意事項、流程與技能；相關檔案被改動時標示「可能過時」，被 Session 推翻時標示「需要檢視」；可以「確認仍有效」、編輯、封存與查看變更紀錄）、**知識頁**（Agent 依已記錄 Session 撰寫的常駐頁面，每段附來源 Session；有新 Session 時標示「需要更新」，可要求 Agent 更新、手動編輯與查看版本）、**候選**（Agent 提出、等你接受或拒絕的 Knowledge）、**待確認決策**（Agent 自主做的決策，可確認、否決或升級為 Knowledge） |
 | **工作圖譜** | Project、Session、Knowledge、Evidence、檔案與 Session 關聯的關係圖 |
 | **專案** | 專案清單與記錄狀態（加入時可用系統視窗選資料夾）、永久刪除專案、Metadata 回補、Handoff 匯入、資料備份（備份、匯出、匯入） |
 | **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果。完整診斷（含 MCP 與 hook 設定）請用 `pnpm run doctor` |

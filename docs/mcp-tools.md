@@ -24,6 +24,7 @@
 | Knowledge | `work_update_knowledge` | 編輯、封存或恢復 Knowledge |
 | Knowledge | `work_request_knowledge_candidates`<br>`work_get_knowledge_candidate_context`<br>`work_submit_knowledge_candidates` | Agent 從已記錄的 Session 提出 Knowledge 候選；使用者在工作知識頁接受後才寫入 |
 | Knowledge | `work_get_knowledge_history` | 查詢 Knowledge 的不可變變更紀錄 |
+| Knowledge | `work_request_knowledge_page_update`<br>`work_get_knowledge_page_context`<br>`work_save_knowledge_page` | 常駐知識頁：Agent 從已記錄的 Session 改寫整頁並標示來源，每次儲存成為新版本 |
 | Graph | `work_get_graph` | 讀取 deterministic 工作圖譜 |
 | Report | `work_get_report`<br>`work_export_report` | deterministic 報告與 Markdown／JSON 匯出 |
 | Report | `work_request_report_synthesis`<br>`work_list_report_synthesis_requests`<br>`work_get_report_context`<br>`work_save_report_summary` | AI 報告整理流程（建立或找請求 → 取 context → 回寫） |
@@ -344,6 +345,28 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 3. `work_submit_knowledge_candidates`（`requestId`、`candidates`）：每筆候選包含 `sourceSessionId`（必須是這個請求的來源）、`kind`、`title`、`body`、`rationale`（引用或指出來源 Session 中支持它的部分），選填 `tags`、`references`、`appliesTo`。沒有值得提出的內容時送空陣列也是正確結果。送出後請求完成，候選出現在工作知識頁等待審核。
 
 `work_get_context` 的 `pendingRequests.knowledgeCandidates` 會列出 pending／processing 的候選請求。
+
+## 常駐知識頁：`work_request_knowledge_page_update` / `work_get_knowledge_page_context` / `work_save_knowledge_page`
+
+每個 tracked 專案有三個預設知識頁：`architecture`（架構與慣例）、`in-progress`（進行中的工作與未結項）、`pitfalls`（常見陷阱），也可以用自訂 `slug`（2–40 個小寫英數或連字號）加上 `title` 與 `question` 建立其他頁。知識頁是 Agent 依已記錄 Session 改寫的整頁答案，和逐筆明確提交的 Knowledge 分開保存；每次儲存（Agent 或 Web 手動編輯）都是新版本，舊版本保留供工作知識頁檢視。
+
+1. `work_request_knowledge_page_update`（`projectRoot`、`slug`，自訂頁另帶 `title`、`question`）：建立頁面（尚未存在時）並標記「已要求更新」。未知 slug 又沒有 title／question 時回傳 `invalid_page`。
+2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及專案最新的未作廢 Session（摘要與五段 workSummary，最多 60 筆、共 40,000 字內，超過時 `truncated: true`）。頁面還沒被要求過時回傳 `not_found`。
+3. `work_save_knowledge_page`（`projectRoot`、`slug`、`idempotencyKey`、`sections`）：1–12 個段落、合計 8,000 字內；每段 `heading`、`content` 與 `sourceSessionIds`（最多 20 個）。沒有來源支持的段落內容必須正好是「資料不足」且不列來源。引用的 Session 不存在、已作廢或屬於其他專案時回傳 `invalid_sources` 與那些 id。同一個 `idempotencyKey` 重試回傳 `duplicate: true`。敏感資料會先遮蔽。
+
+```json
+{
+  "projectRoot": "C:\\work\\assistant",
+  "slug": "pitfalls",
+  "idempotencyKey": "assistant-pitfalls-2026-09-27",
+  "sections": [
+    { "heading": "建置順序", "content": "先建置 shared packages 再跑 apps 的測試。", "sourceSessionIds": ["<session-id>"] },
+    { "heading": "部署", "content": "資料不足", "sourceSessionIds": [] }
+  ]
+}
+```
+
+儲存後頁面狀態為「最新」；之後每有一筆新的未作廢 Session 完成，頁面就變成 `needs_update` 並累計 `newSessionCount`。`work_get_context` 指定專案時會帶 `knowledgePages`（已撰寫頁面的渲染內容，每頁 1,500 字、合計 4,500 字內，截斷時 `truncated: true`），`pendingRequests.knowledgePages` 則列出需要更新或已要求更新的頁面。MCP 沒有刪除知識頁的工具。
 
 ## `work_update_knowledge`
 

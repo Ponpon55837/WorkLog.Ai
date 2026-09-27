@@ -45,6 +45,8 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "metadata_backfill_requests",
   "session_summary_updates",
   "session_work_summary_updates",
+  "knowledge_pages",
+  "knowledge_page_versions",
 ];
 
 const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[])[]>> = {
@@ -57,6 +59,8 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   session_work_summary_updates: [["idempotency_key"]],
   session_links: [["session_id", "related_session_id"]],
   session_decisions: [["session_id", "position"]],
+  knowledge_pages: [["project_id", "slug"]],
+  knowledge_page_versions: [["page_id", "version"]],
 };
 
 const CONFLICT_DETAIL_LIMIT = 100;
@@ -65,6 +69,8 @@ const MAX_CONFLICT_ID_LENGTH = 200;
 const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["title", "summary", "work_summary_json", "verification_json", "void_reason"],
   session_decisions: ["text"],
+  knowledge_pages: ["title", "question", "sections_json"],
+  knowledge_page_versions: ["title", "question", "sections_json"],
   work_events: ["summary", "details_json"],
   raw_snapshots: ["content"],
   evidence: ["kind", "reference", "summary", "void_reason"],
@@ -238,6 +244,8 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
     ),
     knowledge: rowsByIds(db, "knowledge", "project_id", projectIds),
     session_decisions: rowsByIds(db, "session_decisions", "project_id", projectIds),
+    knowledge_pages: rowsByIds(db, "knowledge_pages", "project_id", projectIds),
+    knowledge_page_versions: rowsByIds(db, "knowledge_page_versions", "project_id", projectIds),
     knowledge_audit: rowsByIds(db, "knowledge_audit", "project_id", projectIds),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
@@ -326,6 +334,10 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
         : bundle.tables.session_links.filter((row) => sessionIds.has(String(row.session_id))),
     knowledge,
     session_decisions: bundle.tables.session_decisions.filter((row) => selectedIds.has(String(row.project_id))),
+    knowledge_pages: bundle.tables.knowledge_pages.filter((row) => selectedIds.has(String(row.project_id))),
+    knowledge_page_versions: bundle.tables.knowledge_page_versions.filter((row) =>
+      selectedIds.has(String(row.project_id)),
+    ),
     knowledge_audit: bundle.tables.knowledge_audit.filter((row) => selectedIds.has(String(row.project_id))),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
@@ -533,6 +545,16 @@ function dependencyIssue(
     const knowledgeId = typeof row.knowledge_id === "string" ? row.knowledge_id : undefined;
     if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
       return "決策引用的 Knowledge 發生衝突或不存在。";
+    }
+  }
+
+  if (table === "knowledge_page_versions") {
+    const pageId = String(row.page_id);
+    if (!selectedIds.knowledge_pages.has(pageId)) {
+      return "知識頁版本對應的頁面不在匯入範圍內。";
+    }
+    if (!isAvailable("knowledge_pages", pageId, selectedIds.knowledge_pages, availableIds, conflictIds)) {
+      return "知識頁版本對應的頁面發生衝突或不存在。";
     }
   }
 

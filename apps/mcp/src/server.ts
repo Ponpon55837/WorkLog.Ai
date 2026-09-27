@@ -9,6 +9,7 @@ import {
   handoffImportApplyInputSchema,
   handoffImportOptionsSchema,
   knowledgeHistoryQuerySchema,
+  knowledgePageContextQuerySchema,
   knowledgeQuerySchema,
   mcpCreateMetadataBackfillRequestInputSchema,
   mcpCreateReportSynthesisRequestInputSchema,
@@ -24,6 +25,7 @@ import {
   recallQuerySchema,
   recallQuerySchemaBase,
   recordKnowledgeInputSchema,
+  requestKnowledgePageUpdateInputSchema,
   reportExportQueryObjectSchema,
   reportExportQuerySchema,
   reportQueryObjectSchema,
@@ -32,6 +34,7 @@ import {
   reportSynthesisRequestQuerySchema,
   reportSynthesisRequestQueryObjectSchema,
   retryReportSynthesisRequestInputSchema,
+  saveKnowledgePageInputSchema,
   saveReportSummaryInputSchema,
   searchQuerySchema,
   sessionDetailQuerySchema,
@@ -61,6 +64,7 @@ import { z } from "zod";
 import {
   implementationDetail,
   knowledgeCandidateContract,
+  knowledgePageContract,
   metadataBackfillContract,
   reportSynthesisContract,
   serverInstructions,
@@ -416,6 +420,41 @@ export function createWorkIntelligenceMcpServer(
     annotations: READ_ONLY,
     invalidMessage: "Invalid knowledge history query.",
     run: (input) => store.getKnowledgeHistory(input),
+  });
+
+  registerStoreTool("work_request_knowledge_page_update", {
+    title: "Request a Knowledge page update",
+    description:
+      "Mark a tracked project's standing Knowledge page as needing an update, creating it if needed. Default pages are architecture (架構與慣例), in-progress (進行中的工作與未結項), and pitfalls (常見陷阱); a custom page needs a new slug plus title and question. Returns invalid_page for an unknown slug without a title and question. Then get its context and save it. " +
+      implementationDetail,
+    inputShape: requestKnowledgePageUpdateInputSchema.shape,
+    schema: requestKnowledgePageUpdateInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid knowledge page request.",
+    run: (input) => store.requestKnowledgePageUpdate(input),
+  });
+
+  registerStoreTool("work_get_knowledge_page_context", {
+    title: "Get Knowledge page context",
+    description:
+      "Return one Knowledge page (question, current sections and their sources) plus the project's newest non-voided Sessions — summary and five-section workSummary, up to 60 Sessions within a 40,000-character budget — to rewrite the page from. Read-only; returns not_found for a page that was never requested.",
+    inputShape: knowledgePageContextQuerySchema.shape,
+    schema: knowledgePageContextQuerySchema,
+    annotations: READ_ONLY,
+    invalidMessage: "Invalid knowledge page context query.",
+    run: (input) => store.getKnowledgePageContext(input),
+  });
+
+  registerStoreTool("work_save_knowledge_page", {
+    title: "Save a Knowledge page",
+    description:
+      "Save a new version of a Knowledge page; earlier versions are kept for the Web UI history. Returns invalid_sources when a cited Session is missing, voided, or from another project. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. idempotencyKey retries return the saved version. " +
+      knowledgePageContract,
+    inputShape: saveKnowledgePageInputSchema.shape,
+    schema: saveKnowledgePageInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid knowledge page payload.",
+    run: (input) => store.saveKnowledgePage(input),
   });
 
   // ── Graph and reports ──────────────────────────────────────────────────

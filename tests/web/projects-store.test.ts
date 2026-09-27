@@ -32,6 +32,8 @@ const deletionCounts: ProjectDeletionCounts = {
   sessionSummaryUpdates: 0,
   sessionWorkSummaryUpdates: 0,
   sessionDecisions: 0,
+  knowledgePages: 0,
+  knowledgePageVersions: 0,
   searchChunks: 0,
   searchFts: 0,
   searchPaths: 0,

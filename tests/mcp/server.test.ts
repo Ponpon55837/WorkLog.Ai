@@ -477,4 +477,51 @@ describe("Work Intelligence MCP server", () => {
     const { tools } = await client.listTools();
     expect(tools.some((tool) => /accept|decide/.test(tool.name))).toBe(false);
   });
+
+  it("lets an Agent rewrite a standing Knowledge page with cited Sessions, without a delete tool", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Page project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-page-001", "Source"),
+    );
+
+    expect(
+      await callJson(client, "work_request_knowledge_page_update", { projectRoot: root, slug: "pitfalls" }),
+    ).toMatchObject({
+      outcome: "knowledge_page_update_requested",
+      page: { slug: "pitfalls", status: "empty" },
+    });
+    expect(await callJson(client, "work_get_context", { projectRoot: root })).toMatchObject({
+      pendingRequests: { knowledgePages: [{ slug: "pitfalls", updateRequested: true }] },
+    });
+    expect(
+      await callJson(client, "work_get_knowledge_page_context", { projectRoot: root, slug: "pitfalls" }),
+    ).toMatchObject({
+      outcome: "knowledge_page_context",
+      sessions: [{ id: finalized.session.id }],
+    });
+    const section = { heading: "Build", content: "Run the build first.", sourceSessionIds: [] as string[] };
+    const invalid = await client.callTool({
+      name: "work_save_knowledge_page",
+      arguments: { projectRoot: root, slug: "pitfalls", idempotencyKey: "page-1", sections: [section] },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(
+      await callJson(client, "work_save_knowledge_page", {
+        projectRoot: root,
+        slug: "pitfalls",
+        idempotencyKey: "page-1",
+        sections: [{ ...section, sourceSessionIds: [finalized.session.id] }],
+      }),
+    ).toMatchObject({ outcome: "knowledge_page_saved", page: { version: 1, status: "fresh" } });
+
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    expect(byName.get("work_get_knowledge_page_context")?.annotations).toMatchObject({ readOnlyHint: true });
+    expect(byName.get("work_save_knowledge_page")?.annotations).toMatchObject({ destructiveHint: false });
+    expect(tools.some((tool) => /knowledge_page/.test(tool.name) && /delete|remove/.test(tool.name))).toBe(false);
+  });
 });

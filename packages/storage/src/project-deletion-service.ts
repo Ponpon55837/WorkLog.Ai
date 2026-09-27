@@ -28,6 +28,13 @@ type DeletableTable =
   | "report_synthesis_requests"
   | "metadata_backfill_requests";
 
+/** Counts that did not exist when older deletion audits were written; those audits read them as 0. */
+const COUNTS_ADDED_LATER = new Set<keyof ProjectDeletionCounts>([
+  "sessionDecisions",
+  "knowledgePages",
+  "knowledgePageVersions",
+]);
+
 const projectDeletionCountKeys = [
   "projects",
   "sessions",
@@ -47,6 +54,8 @@ const projectDeletionCountKeys = [
   "sessionSummaryUpdates",
   "sessionWorkSummaryUpdates",
   "sessionDecisions",
+  "knowledgePages",
+  "knowledgePageVersions",
   "searchChunks",
   "searchFts",
   "searchPaths",
@@ -63,7 +72,7 @@ function parseProjectDeletionCounts(value: string): ProjectDeletionCounts {
   const counts = {} as ProjectDeletionCounts;
   for (const key of projectDeletionCountKeys) {
     const count = source[key];
-    if (key === "sessionDecisions" && count === undefined) {
+    if (COUNTS_ADDED_LATER.has(key) && count === undefined) {
       counts[key] = 0;
       continue;
     }
@@ -253,6 +262,12 @@ function makeDeletionCounts(
       sessionIdJson,
       projectId,
     ),
+    knowledgePages: countRows(db, "SELECT COUNT(*) AS count FROM knowledge_pages WHERE project_id = ?", projectId),
+    knowledgePageVersions: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM knowledge_page_versions WHERE project_id = ?",
+      projectId,
+    ),
     searchChunks: 0,
     searchFts: 0,
     searchPaths: 0,
@@ -380,6 +395,8 @@ export class ProjectDeletionService {
                 OR knowledge_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
           )
           .run(projectId, JSON.stringify(sessionIds), projectId);
+        this.db.prepare("DELETE FROM knowledge_page_versions WHERE project_id = ?").run(projectId);
+        this.db.prepare("DELETE FROM knowledge_pages WHERE project_id = ?").run(projectId);
 
         this.db
           .prepare(

@@ -670,6 +670,63 @@ describe("Work Intelligence REST API", () => {
     expect(pending.body).toEqual({ outcome: "session_decisions", items: [], pendingCount: 0 });
   });
 
+  it("lists, requests, edits, and versions standing Knowledge pages through the Web API", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-knowledge-pages-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Knowledge page API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-knowledge-pages",
+      title: "Knowledge page API fixture",
+      summary: "Source for the page.",
+      workSummary: { outcomes: ["Page source."], scope: [], decisions: [], verification: [], nextSteps: [] },
+      completedAt: "2026-09-26T12:00:00.000Z",
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected the API fixture Session to finalize.");
+
+    const requested = await requestJson<{ outcome: string; page: { id: string; status: string } }>(
+      baseUrl,
+      "/api/knowledge-pages/update-requests",
+      { method: "POST", body: { projectRoot: root, slug: "architecture" } },
+    );
+    expect(requested.body).toMatchObject({ outcome: "knowledge_page_update_requested", page: { status: "empty" } });
+    const invalid = await requestJson(baseUrl, "/api/knowledge-pages/update-requests", {
+      method: "POST",
+      body: { projectRoot: root, slug: "Not A Slug" },
+    });
+    expect(invalid.status).toBe(400);
+
+    const pageId = requested.body.page.id;
+    const edited = await requestJson(baseUrl, `/api/knowledge-pages/${pageId}`, {
+      method: "PATCH",
+      body: {
+        sections: [{ heading: "Layout", content: "Hand-written.", sourceSessionIds: [finalized.session.id] }],
+      },
+    });
+    expect(edited.body).toMatchObject({ outcome: "knowledge_page_updated", page: { version: 1, lastAuthor: "web" } });
+    const unsourced = await requestJson(baseUrl, `/api/knowledge-pages/${pageId}`, {
+      method: "PATCH",
+      body: { sections: [{ heading: "Layout", content: "No source.", sourceSessionIds: [] }] },
+    });
+    expect(unsourced.status).toBe(400);
+
+    const listed = await requestJson<{ items: Array<{ slug: string; version: number }> }>(
+      baseUrl,
+      `/api/knowledge-pages?projectRoot=${encodeURIComponent(root)}`,
+    );
+    expect(listed.body.items).toEqual([expect.objectContaining({ slug: "architecture", version: 1 })]);
+    const versions = await requestJson(baseUrl, `/api/knowledge-pages/${pageId}/versions`);
+    expect(versions.body).toMatchObject({
+      outcome: "knowledge_page_versions",
+      versions: [{ version: 1, author: "web" }],
+    });
+    const missing = await requestJson(baseUrl, "/api/knowledge-pages/no-such-page/versions");
+    expect(missing.body).toMatchObject({ outcome: "not_found" });
+  });
+
   it("validates project deletion names, requires a disk backup, and returns a safe backup file name", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");

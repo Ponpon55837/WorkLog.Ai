@@ -28,7 +28,10 @@ import {
   handoffImportApplyInputSchema,
   handoffImportOptionsSchema,
   knowledgeHistoryQuerySchema,
+  knowledgePageListQuerySchema,
   knowledgeQuerySchema,
+  requestKnowledgePageUpdateInputSchema,
+  updateKnowledgePageInputSchema,
   metadataBackfillApplyInputSchema,
   createMetadataBackfillRequestInputSchema,
   metadataBackfillRequestContextQuerySchema,
@@ -888,6 +891,59 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           return;
         }
         sendJson(response, 200, store.reviewSessionDecision(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/knowledge-pages") {
+        const parsed = knowledgePageListQuerySchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge page query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.listKnowledgePages(parsed.data));
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/knowledge-pages/update-requests") {
+        const parsed = requestKnowledgePageUpdateInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge page request.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.requestKnowledgePageUpdate(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "GET" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "knowledge-pages" &&
+        pathParts[2] &&
+        pathParts[3] === "versions" &&
+        pathParts.length === 4
+      ) {
+        sendJson(response, 200, store.listKnowledgePageVersions(pathParts[2]));
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "knowledge-pages" &&
+        pathParts[2] &&
+        pathParts.length === 3
+      ) {
+        const parsed = updateKnowledgePageInputSchema.safeParse({
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          pageId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid knowledge page update.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.updateKnowledgePage(parsed.data));
         return;
       }
 

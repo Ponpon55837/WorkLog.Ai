@@ -91,6 +91,17 @@ import type {
   SessionDecisionListQueryResult,
   ReviewSessionDecisionInput,
   ReviewSessionDecisionResult,
+  KnowledgePageContextQuery,
+  KnowledgePageContextResult,
+  KnowledgePageListQuery,
+  KnowledgePageListResult,
+  KnowledgePageVersionsResult,
+  RequestKnowledgePageUpdateInput,
+  RequestKnowledgePageUpdateResult,
+  SaveKnowledgePageInput,
+  SaveKnowledgePageResult,
+  UpdateKnowledgePageInput,
+  UpdateKnowledgePageResult,
   SkippedResult,
   UpdateSessionMetadataInput,
   UpdateSessionMetadataResult,
@@ -158,6 +169,7 @@ import { ContextRecallService, type ContextFocus } from "./context-recall-servic
 import { ProjectDataTransferService } from "./project-data-transfer.js";
 import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
+import { KnowledgePageService } from "./knowledge-page-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
@@ -268,6 +280,7 @@ export class WorkIntelligenceStore {
   private readonly sessions: SessionRepository;
   private readonly sessionRecords: SessionRecordService;
   private readonly sessionDecisions: SessionDecisionService;
+  private readonly knowledgePages: KnowledgePageService;
   private readonly knowledge: KnowledgeRepository;
   private readonly knowledgeService: KnowledgeService;
   private readonly graphBuilder: GraphBuilder;
@@ -324,6 +337,10 @@ export class WorkIntelligenceStore {
     });
     this.sessionDecisions = new SessionDecisionService(this.db, {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+    });
+    this.knowledgePages = new KnowledgePageService(this.db, {
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
     });
     this.graphBuilder = new GraphBuilder(this.db, {
       listProjects: () => this.listProjects(),
@@ -385,6 +402,8 @@ export class WorkIntelligenceStore {
       previewMetadataBackfill: (previewOptions) => this.previewMetadataBackfill(previewOptions),
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
+      knowledgePageDigests: (projectId) => this.knowledgePages.digestsForProject(projectId),
+      pendingKnowledgePages: (projectId) => this.knowledgePages.pendingForProject(projectId),
     });
   }
 
@@ -911,6 +930,30 @@ export class WorkIntelligenceStore {
 
   public reviewSessionDecision(input: ReviewSessionDecisionInput): ReviewSessionDecisionResult {
     return this.sessionDecisions.review(input);
+  }
+
+  public listKnowledgePages(query: KnowledgePageListQuery = {}): KnowledgePageListResult {
+    return this.knowledgePages.listPages(query);
+  }
+
+  public requestKnowledgePageUpdate(input: RequestKnowledgePageUpdateInput): RequestKnowledgePageUpdateResult {
+    return this.knowledgePages.requestUpdate(input);
+  }
+
+  public getKnowledgePageContext(query: KnowledgePageContextQuery): KnowledgePageContextResult {
+    return this.knowledgePages.getContext(query);
+  }
+
+  public saveKnowledgePage(input: SaveKnowledgePageInput): SaveKnowledgePageResult {
+    return this.knowledgePages.savePage(input);
+  }
+
+  public updateKnowledgePage(input: UpdateKnowledgePageInput): UpdateKnowledgePageResult {
+    return this.knowledgePages.updatePage(input);
+  }
+
+  public listKnowledgePageVersions(pageId: string): KnowledgePageVersionsResult {
+    return this.knowledgePages.listVersions(pageId);
   }
 
   /** Voids or restores a Session. Voided Sessions leave lists, reports, the graph, context, and recall. */

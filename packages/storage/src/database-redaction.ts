@@ -26,7 +26,8 @@ export interface DatabaseRedactionResult {
   redactions: RedactionSummary;
 }
 
-const TEXT_FIELDS = {
+/** Free-text columns db:redact scans in every project data table (checked by project-data-coverage.test.ts). */
+export const REDACTED_TEXT_FIELDS = {
   sessions: ["title", "summary", "work_summary_json", "verification_json", "void_reason"],
   work_events: ["summary", "details_json"],
   raw_snapshots: ["content"],
@@ -54,9 +55,12 @@ const TEXT_FIELDS = {
     "generated_by_model",
   ],
   metadata_backfill_requests: ["failure_reason"],
+  session_decisions: ["text"],
+  knowledge_pages: ["title", "question", "sections_json"],
+  knowledge_page_versions: ["title", "question", "sections_json"],
 } as const;
 
-type DataTable = keyof typeof TEXT_FIELDS;
+type DataTable = keyof typeof REDACTED_TEXT_FIELDS;
 
 function tableExists(database: DatabaseSync, table: string): boolean {
   return Boolean(database.prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
@@ -97,12 +101,12 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
   const dirty = new Set<string>();
   const dirtyKnowledge = new Set<string>();
 
-  for (const table of Object.keys(TEXT_FIELDS) as DataTable[]) {
+  for (const table of Object.keys(REDACTED_TEXT_FIELDS) as DataTable[]) {
     if (!tableExists(database, table)) {
       continue;
     }
     const availableColumns = columnsFor(database, table);
-    const textFields = TEXT_FIELDS[table].filter((field) => availableColumns.has(field));
+    const textFields = REDACTED_TEXT_FIELDS[table].filter((field) => availableColumns.has(field));
     if (textFields.length === 0) {
       continue;
     }

@@ -41,6 +41,7 @@ const accessibilityRoutes: ReadonlyArray<readonly [string, string]> = [
   ...pageRoutes,
   ["/system-status", "系統狀態"],
   ["/projects/backup", "專案"],
+  ["/knowledge/pages", "工作知識"],
   ["/knowledge/candidates", "工作知識"],
   ["/knowledge/decisions", "工作知識"],
 ];
@@ -409,6 +410,43 @@ test.describe("Work Intelligence browser regression", () => {
       store.searchKnowledge({ projectRoot, query: "E2E promoted Agent decision", limit: 10 }),
     );
     expect(promotedKnowledge).toMatchObject({ outcome: "knowledge", items: [{ sessionId }] });
+  });
+
+  test("shows a standing Knowledge page with its sources and keeps a manual edit as a new version", async ({
+    page,
+  }) => {
+    const saved = withAgentStore((store) => {
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+      return store.saveKnowledgePage({
+        projectRoot,
+        slug: "pitfalls",
+        idempotencyKey: `e2e-knowledge-page-${process.pid}`,
+        sections: [
+          { heading: "E2E build order", content: "Build the shared packages first.", sourceSessionIds: [sessionId] },
+          { heading: "E2E unknowns", content: "資料不足", sourceSessionIds: [] },
+        ],
+      });
+    });
+    expect(saved).toMatchObject({ outcome: "knowledge_page_saved", page: { version: 1 } });
+
+    await page.goto("/knowledge/pages");
+    const row = page.getByTestId("knowledge-page-row").filter({ hasText: "常見陷阱" });
+    await expect(row).toContainText("最新");
+    await row.getByRole("button", { name: "查看" }).click();
+    const panel = page.getByRole("dialog", { name: "知識頁" });
+    await expect(panel).toContainText("Build the shared packages first.");
+    await expect(panel.getByRole("button", { name: "Browser regression fixture session" })).toBeVisible();
+
+    await panel.getByRole("button", { name: "手動編輯" }).click();
+    const editor = page.getByRole("dialog", { name: "編輯知識頁" });
+    await editor.getByLabel("內容").first().fill("Build the shared packages first, then the apps.");
+    await editor.getByRole("button", { name: "儲存新版本" }).click();
+    await expect(editor).toBeHidden();
+    await expect(panel).toContainText("Build the shared packages first, then the apps.");
+    await expect(panel.getByRole("button", { name: /第 2 版/ })).toBeVisible();
+    await panel.getByRole("button", { name: /第 1 版/ }).click();
+    await expect(panel).toContainText("正在檢視第 1 版");
+    await expect(panel).toContainText("Build the shared packages first.");
   });
 
   test("serves the production Web UI and API from one origin @cross-browser", async ({ page }) => {
