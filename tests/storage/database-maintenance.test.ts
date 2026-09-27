@@ -118,8 +118,8 @@ describe("database maintenance", () => {
     const { databasePath, store } = setup();
     store.close();
     const legacy = new DatabaseSync(databasePath);
-    legacy.prepare("DELETE FROM schema_migrations WHERE version = ?").run(LATEST_SCHEMA_VERSION);
-    legacy.exec("DROP TABLE database_maintenance_runs;");
+    legacy.prepare("DELETE FROM schema_migrations WHERE version >= ?").run(LATEST_SCHEMA_VERSION - 1);
+    legacy.exec("DROP TABLE database_maintenance_runs; DROP TABLE project_location_audit;");
     legacy.close();
 
     const result = maintainDatabase({ databasePath });

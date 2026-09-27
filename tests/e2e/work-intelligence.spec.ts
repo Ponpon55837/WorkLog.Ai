@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import type { ProjectDataExport } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 
 const projectRoot = process.cwd();
@@ -955,7 +956,6 @@ test.describe("Work Intelligence browser regression", () => {
       mimeType: "application/json",
       buffer: exported,
     });
-    await backups.getByRole("button", { name: "預覽匯入" }).click();
     const preview = backups.getByTestId("project-import-preview");
     await expect(preview).toBeVisible();
     await expect(preview).toContainText("Browser Regression Fixture");
@@ -973,6 +973,97 @@ test.describe("Work Intelligence browser regression", () => {
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);
+    }
+  });
+
+  test("previews missing portable project roots, picks locations, and confirms matching siblings", async ({ page }) => {
+    const databasePath = process.env.WORK_INTELLIGENCE_E2E_DB;
+    if (!databasePath) throw new Error("The E2E database path is not configured.");
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-e2e-portable-locations-"));
+    const targetParent = mkdtempSync(join(tmpdir(), "work-intelligence-e2e-target-projects-"));
+    const alphaTarget = join(targetParent, "round6-alpha");
+    const betaTarget = join(targetParent, "round6-beta");
+    const sourceParent = join(root, "old-computer");
+    const alphaSource = join(sourceParent, "round6-alpha");
+    const betaSource = join(sourceParent, "round6-beta");
+    mkdirSync(alphaTarget);
+    mkdirSync(betaTarget);
+    const secretFileContent = "folder-picker-preview-must-not-read-this-file";
+    writeFileSync(join(alphaTarget, "private.txt"), secretFileContent, "utf8");
+
+    const created = withAgentStore((store) => {
+      const alpha = store.addProject("Round 6 Alpha Fixture", alphaSource);
+      const beta = store.addProject("Round 6 Beta Fixture", betaSource);
+      return { bundle: store.exportProjectData({ type: "all" }), ids: [alpha.id, beta.id] as const };
+    });
+    const exported: ProjectDataExport = structuredClone(created.bundle);
+    const db = new DatabaseSync(databasePath);
+    try {
+      db.prepare("DELETE FROM projects WHERE id = ? OR id = ?").run(...created.ids);
+    } finally {
+      db.close();
+    }
+
+    try {
+      await page.route("**/api/system/pick-folder", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ outcome: "folder_picked", path: alphaTarget, name: "round6-alpha" }),
+        }),
+      );
+      await page.goto("/projects/backup");
+      const backups = page.getByRole("tabpanel", { name: "資料備份" });
+      await backups.getByLabel("匯入檔").setInputFiles({
+        name: "missing-project-roots.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(JSON.stringify(exported)),
+      });
+
+      const preview = backups.getByTestId("project-import-preview");
+      await expect(preview).toBeVisible();
+      const projects = preview.getByTestId("project-import-selected-projects");
+      await expect(projects).toContainText(alphaSource);
+      await expect(projects).toContainText("這台電腦找不到這個資料夾");
+      await expect(projects).not.toContainText(secretFileContent);
+
+      await projects.getByRole("button", { name: "選擇 Round 6 Alpha Fixture 的新位置" }).click();
+      const siblingConfirmation = page.getByRole("dialog", { name: "套用其他專案的位置？" });
+      await expect(siblingConfirmation).toContainText("其他 1 個專案");
+      await siblingConfirmation.getByRole("button", { name: "一起套用" }).click();
+      await expect(projects).toContainText(alphaTarget);
+      await expect(projects).toContainText(betaTarget);
+      await expect(projects).toContainText("找到資料夾");
+
+      await preview.getByRole("button", { name: "確認並匯入" }).click();
+      const confirmation = page.getByRole("dialog", { name: "確認匯入專案資料" });
+      await confirmation.getByRole("button", { name: "匯入", exact: true }).click();
+      await expect(page.getByText(/匯入完成：/)).toBeVisible();
+
+      const verifyDb = new DatabaseSync(databasePath);
+      try {
+        expect(verifyDb.prepare("SELECT root_path, status FROM projects WHERE id = ?").get(created.ids[0])).toEqual({
+          root_path: alphaTarget,
+          status: "paused",
+        });
+        expect(verifyDb.prepare("SELECT root_path, status FROM projects WHERE id = ?").get(created.ids[1])).toEqual({
+          root_path: betaTarget,
+          status: "paused",
+        });
+      } finally {
+        verifyDb.close();
+      }
+      await page.unroute("**/api/system/pick-folder");
+    } finally {
+      const cleanupDb = new DatabaseSync(databasePath);
+      try {
+        cleanupDb.prepare("DELETE FROM projects WHERE id = ? OR id = ?").run(...created.ids);
+      } finally {
+        cleanupDb.close();
+      }
+      rmSync(root, { recursive: true, force: true });
+      rmSync(targetParent, { recursive: true, force: true });
+      await page.unroute("**/api/system/pick-folder");
     }
   });
 

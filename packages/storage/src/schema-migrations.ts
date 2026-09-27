@@ -364,6 +364,20 @@ const MIGRATIONS: SchemaMigration[] = [
         ON database_maintenance_runs(started_at DESC);
     `,
   },
+  {
+    version: 13,
+    name: "project-location-audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_location_audit (
+        id TEXT PRIMARY KEY,
+        changed_at TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        paths_changed INTEGER NOT NULL CHECK (paths_changed IN (0, 1))
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_location_audit_project_changed
+        ON project_location_audit(project_id, changed_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

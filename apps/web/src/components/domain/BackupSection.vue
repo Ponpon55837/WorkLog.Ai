@@ -18,7 +18,6 @@ import UiField from "../ui/UiField.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSelect from "../ui/UiSelect.vue";
-import UiTextInput from "../ui/UiTextInput.vue";
 import VirtualList from "../VirtualList.vue";
 
 /**
@@ -47,14 +46,17 @@ const {
   importProjects,
   importFileName,
   importProjectId,
-  importRemapFrom,
-  importRemapTo,
   importLoading,
   importPreview,
   importError,
 } = storeToRefs(projectDataTransferStore);
-const { loadImportFile, previewProjectDataImport, applyProjectDataImport, exportProjectData } =
-  projectDataTransferStore;
+const {
+  loadImportFile,
+  previewProjectDataImport,
+  chooseImportProjectLocation,
+  applyProjectDataImport,
+  exportProjectData,
+} = projectDataTransferStore;
 
 const scrollAfter = 6;
 const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
@@ -85,10 +87,21 @@ const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
   };
 });
 const importProjectResolutionLabels = {
-  existing: "對應既有專案",
+  existing: "已對應既有專案",
   new: "將新增專案",
   conflict: "專案衝突",
 } as const;
+const importFolderStatusLabels = {
+  found: "找到資料夾",
+  missing: "這台電腦找不到這個資料夾",
+  unavailable: "無法確認資料夾",
+} as const;
+const remappedProjectCount = computed(
+  () => importPreview.value?.remappedPaths.reduce((total, item) => total + item.projects, 0) ?? 0,
+);
+const remappedSnapshotCount = computed(
+  () => importPreview.value?.remappedPaths.reduce((total, item) => total + item.snapshots, 0) ?? 0,
+);
 
 function exportPortableData(): Promise<void> {
   if (exportScope.value === "project") {
@@ -249,14 +262,11 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         <UiField v-if="importProjects.length > 1" label="匯入範圍">
           <UiSelect v-model="importProjectId" :options="importProjectOptions" label="選擇匯入範圍" />
         </UiField>
-        <UiField label="舊電腦路徑前綴" hint="換電腦且專案位置不同時，填寫原始路徑。">
-          <UiTextInput v-model="importRemapFrom" placeholder="例如：/Users/old/projects" />
-        </UiField>
-        <UiField label="新電腦路徑前綴" hint="留空時不變更路徑。">
-          <UiTextInput v-model="importRemapTo" placeholder="例如：/Users/me/projects" />
-        </UiField>
+        <p class="backup-section__hint">
+          選取檔案後會立即預覽。找不到資料夾時，可逐一選擇新位置；也可以保留原始路徑匯入。
+        </p>
         <UiButton size="sm" :loading="importLoading" :disabled="!importFileName" @click="previewProjectDataImport">
-          預覽匯入
+          重新預覽
         </UiButton>
       </div>
 
@@ -275,8 +285,21 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             <UiBoxRow
               class="transfer-preview__project-row"
               :title="item.name"
-              :meta="`${item.rootPath} · ${importProjectResolutionLabels[item.resolution]}`"
-            />
+              :meta="`${item.sourceRootPath}${item.rootPath !== item.sourceRootPath ? ` → ${item.rootPath}` : ''} · ${importProjectResolutionLabels[item.resolution]}`"
+            >
+              <template #trailing>
+                <span class="backup-section__folder-status">
+                  {{ item.folderStatus ? importFolderStatusLabels[item.folderStatus] : "尚未檢查" }}
+                </span>
+                <UiButton
+                  v-if="item.folderStatus !== 'found'"
+                  size="sm"
+                  :disabled="importLoading"
+                  @click="chooseImportProjectLocation(item.id)"
+                  >選擇 {{ item.name }} 的新位置</UiButton
+                >
+              </template>
+            </UiBoxRow>
           </template>
         </VirtualList>
         <div class="transfer-preview__counts">
@@ -297,10 +320,8 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             <strong>{{ importSummary(importPreview).conflicts }}</strong>
           </div>
         </div>
-        <p v-if="importPreview.remappedPaths.length > 0" class="backup-section__hint">
-          路徑轉換：{{ importRemapFrom }} → {{ importRemapTo }}（專案
-          {{ importPreview.remappedPaths[0]?.projects ?? 0 }} 個、handoff
-          {{ importPreview.remappedPaths[0]?.snapshots ?? 0 }} 個）
+        <p v-if="remappedProjectCount > 0 || remappedSnapshotCount > 0" class="backup-section__hint">
+          已套用路徑轉換：專案 {{ remappedProjectCount }} 個、handoff {{ remappedSnapshotCount }} 個。
         </p>
         <VirtualList
           v-if="importPreview.conflictDetails.length > 0"
@@ -317,7 +338,9 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         <p v-if="importPreview.conflictDetailsTruncated" class="backup-section__hint">
           衝突明細超過 100 筆，僅顯示前 100 筆。
         </p>
-        <p class="backup-section__hint">匯入不會覆寫衝突或已存在的資料，也不會改變既有專案的記錄狀態。</p>
+        <p class="backup-section__hint">
+          匯入不會覆寫衝突或已存在的資料，也不會改變既有專案的記錄狀態。新專案若保留原始路徑，會以暫停狀態匯入。
+        </p>
         <UiButton size="sm" variant="primary" :loading="importLoading" @click="applyProjectDataImport"
           >確認並匯入</UiButton
         >
@@ -353,6 +376,13 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 .backup-section__time {
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.backup-section__folder-status {
+  max-width: 14rem;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-align: right;
 }
 
 .backup-section__note {

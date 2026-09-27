@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nextTick } from "vue";
 import { PROJECT_DATA_TABLES } from "../../../packages/core/src/index.js";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
@@ -428,12 +427,6 @@ describe("resource stores", () => {
     };
     await store.loadImportFile({ name: "work.json", size: 500, text: async () => JSON.stringify(bundle) } as File);
     expect(store.importError).toBe("");
-    store.importRemapFrom = "/old-root";
-    await store.previewProjectDataImport();
-    expect(store.importError).toBe("請同時填寫舊路徑前綴與新路徑前綴。");
-    store.importRemapTo = "/new-root";
-    await nextTick();
-    await store.previewProjectDataImport();
     expect(store.importPreview?.outcome).toBe("project_data_import_preview");
     mocks.confirmAction.mockResolvedValueOnce(false);
     await store.applyProjectDataImport();

@@ -104,4 +104,15 @@ export class ProjectRepository {
       .run({ id: projectId, name: next.name, status: next.status, updatedAt: next.updatedAt });
     return next;
   }
+
+  public updateRootPath(projectId: string, rootPath: string, updatedAt: string): ProjectRecord {
+    this.db
+      .prepare("UPDATE projects SET root_path = ?, updated_at = ? WHERE id = ?")
+      .run(canonicalizeProjectRoot(rootPath), updatedAt, projectId);
+    const updated = this.getById(projectId);
+    if (!updated) {
+      throw new Error("Project disappeared during a location update.");
+    }
+    return updated;
+  }
 }

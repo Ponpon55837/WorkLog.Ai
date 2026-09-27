@@ -161,6 +161,13 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 - 指令與參數都是固定字串、不經過 shell，也不帶入任何請求內容；要求 JSON body，跨站表單無法觸發視窗。
 - 視窗 5 分鐘沒有選擇即放棄；同一時間只開一個。
 
+## 匯入位置與重新指定專案位置
+
+- `GET /api/projects` 會附上衍生欄位 `folderStatus`：`found`、`missing` 或 `unavailable`。Server 僅檢查路徑是否為本機絕對路徑及 `stat` 資料夾狀態，不讀取資料夾內容。
+- 可攜式匯入預覽會在每個 `selectedProjects` 項目附上 `sourceRootPath`（匯出時路徑）與 `folderStatus`；`rootPath` 是 remap 後的目標路徑。這些資料僅供本機 UI／CLI 預覽，不會用來開啟或讀取資料夾。
+- `PATCH /api/projects/:id/location` 接受 `{ "rootPath": "<新資料夾>", "confirmedTrackedScope": true }`。新位置須存在且為目錄；tracked 專案需要 `confirmedTrackedScope: true`，並在一個交易內更新 registry 路徑、同專案 raw snapshot 的路徑前綴與不含路徑的稽核資料。與其他專案根目錄重疊時回 409；需要確認、位置無效與專案不存在分別回傳安全錯誤碼。
+- `POST /api/import/preview` 與 `POST /api/import` 的 remap 行為相同；匯入本身仍不會讀取 remap 指向的檔案或資料夾。MCP 沒有重新指定專案位置或刪除工具。
+
 ## 即時更新串流
 
 - REST：GET /api/events 回傳 `text/event-stream`。連線時先送出 `: connected`，之後 server 每 2 秒檢查一次 SQLite 的 `PRAGMA data_version`；包括 Agent 的 MCP 在內，任何連線寫入資料後，都會推送 `event: changed`。每 15 秒送一次 `: keep-alive`。

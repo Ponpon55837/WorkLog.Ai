@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer, request as httpRequest, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -956,5 +956,93 @@ describe("Work Intelligence REST API", () => {
       status: 200,
       body: { outcome: "folder_picked", path: "/Users/me/apiary", name: "apiary" },
     });
+  });
+
+  it("checks import folders with stat only and safely reassigns a tracked project location", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-location-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const oldProjectRoot = join(root, "old-project-location");
+    const newProjectRoot = join(root, "new-project-location");
+    const importTarget = join(root, "portable-project-location");
+    mkdirSync(newProjectRoot);
+    mkdirSync(importTarget);
+    const sentinel = "folder-content-must-not-be-read-or-returned";
+    writeFileSync(join(importTarget, "sentinel.txt"), sentinel, "utf8");
+
+    const store = new WorkIntelligenceStore(databasePath);
+    const project = store.addProject("Location API fixture", oldProjectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: oldProjectRoot,
+      idempotencyKey: "api-location-fixture-session",
+      title: "位置 API 測試記錄",
+      summary: "驗證改位置需要同意並同步移動 handoff 路徑。",
+      handoffPath: join(oldProjectRoot, "handoff.md"),
+      handoffContent: "Synthetic location handoff.",
+      completedAt: "2026-09-27T01:10:00.000Z",
+    });
+    expect(finalized.outcome).toBe("finalized");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    const denied = await requestJson<{ code: string }>(baseUrl, `/api/projects/${project.id}/location`, {
+      method: "PATCH",
+      body: { rootPath: newProjectRoot },
+    });
+    expect(denied.status).toBe(409);
+    expect(denied.body.code).toBe("project_location_confirmation_required");
+    expect(store.getProjectById(project.id)?.rootPath).toBe(oldProjectRoot);
+
+    const invalid = await requestJson<{ code: string }>(baseUrl, `/api/projects/${project.id}/location`, {
+      method: "PATCH",
+      body: { rootPath: join(root, "missing-folder"), confirmedTrackedScope: true },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.code).toBe("project_location_invalid");
+
+    const moved = await requestJson<{ id: string; rootPath: string }>(baseUrl, `/api/projects/${project.id}/location`, {
+      method: "PATCH",
+      body: { rootPath: newProjectRoot, confirmedTrackedScope: true },
+    });
+    expect(moved.status).toBe(200);
+    expect(moved.body).toMatchObject({ id: project.id, rootPath: newProjectRoot });
+    expect(
+      await requestJson<Array<{ id: string; rootPath: string; folderStatus: string }>>(baseUrl, "/api/projects"),
+    ).toMatchObject({
+      status: 200,
+      body: [{ id: project.id, rootPath: newProjectRoot, folderStatus: "found" }],
+    });
+
+    const source = new WorkIntelligenceStore(":memory:");
+    try {
+      const sourceProject = source.addProject("Portable location fixture", join(root, "old-portable-root"));
+      const bundle = source.exportProjectData({ type: "project", projectId: sourceProject.id });
+      const preview = await requestJson<{
+        selectedProjects: Array<{ sourceRootPath: string; rootPath: string; folderStatus: string }>;
+      }>(baseUrl, "/api/import/preview", {
+        method: "POST",
+        body: { bundle, remap: [{ from: join(root, "old-portable-root"), to: importTarget }] },
+      });
+      expect(preview.status).toBe(200);
+      expect(preview.body.selectedProjects).toMatchObject([
+        {
+          sourceRootPath: join(root, "old-portable-root"),
+          rootPath: importTarget,
+          folderStatus: "found",
+        },
+      ]);
+      expect(JSON.stringify(preview.body)).not.toContain(sentinel);
+    } finally {
+      source.close();
+    }
+
+    const db = new DatabaseSync(databasePath);
+    try {
+      expect(db.prepare("SELECT source_path FROM raw_snapshots WHERE project_id = ?").get(project.id)).toEqual({
+        source_path: join(newProjectRoot, "handoff.md"),
+      });
+    } finally {
+      db.close();
+    }
   });
 });

@@ -522,6 +522,9 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
   }
 
   const selectedBundle = bundleForScope(input.bundle, input.projectId);
+  const sourceRootPaths = new Map(
+    selectedBundle.tables.projects.map((project) => [String(project.id), String(project.root_path)]),
+  );
   const remappedPaths = applyPathRemaps(selectedBundle.tables, input.remap ?? []);
   const rows = emptyRows();
   const conflictIds = Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, new Set<string>()])) as Record<
@@ -598,6 +601,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     const row = { ...original };
     const sourceId = String(row.id);
     const rootPath = String(row.root_path);
+    const sourceRootPath = sourceRootPaths.get(sourceId) ?? rootPath;
     const rootKey = projectRootKey(rootPath);
     const byId = existingProjectsById.get(sourceId);
     const byRoot = existingProjectsByRoot.get(rootKey);
@@ -605,12 +609,12 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
 
     if (byId && byRoot && byId.id !== byRoot.id) {
       addPlan("projects", row, "conflict", "專案 ID 與根路徑分別對應到不同的既有專案。");
-      selectedProjects.push({ id: sourceId, name: String(row.name), rootPath, resolution: "conflict" });
+      selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "conflict" });
       continue;
     }
     if (byId && !equalProjectRoot(byId.root_path, rootPath)) {
       addPlan("projects", row, "conflict", "相同專案 ID 已存在，但根路徑不同；請確認路徑前綴轉換。");
-      selectedProjects.push({ id: sourceId, name: String(row.name), rootPath, resolution: "conflict" });
+      selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "conflict" });
       continue;
     }
     const matchedProject = byId ?? byRoot ?? plannedByRoot;
@@ -622,6 +626,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
       selectedProjects.push({
         id: sourceId,
         name: String(row.name),
+        sourceRootPath,
         rootPath,
         resolution: byId || byRoot ? "existing" : "new",
       });
@@ -629,7 +634,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     }
     if (plannedProjectIds.has(sourceId)) {
       addPlan("projects", row, "conflict", "匯入檔中有重複的專案 ID。");
-      selectedProjects.push({ id: sourceId, name: String(row.name), rootPath, resolution: "conflict" });
+      selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "conflict" });
       continue;
     }
     projectIds.set(sourceId, sourceId);
@@ -638,7 +643,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     plannedProjectIds.add(sourceId);
     existingIds.projects.add(sourceId);
     addPlan("projects", row, "add");
-    selectedProjects.push({ id: sourceId, name: String(row.name), rootPath, resolution: "new" });
+    selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "new" });
   }
 
   for (const table of TABLE_ORDER) {
