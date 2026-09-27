@@ -157,6 +157,8 @@ try {
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
     search: () => benchStore.search("renderer"),
+    "recall (month range)": () =>
+      benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
@@ -172,6 +174,7 @@ try {
     "listKnowledgePages (staleness)": 250,
     "listSessionDecisions (pending)": 250,
     search: 500,
+    "recall (month range)": 500,
     "searchKnowledge (staleness)": 500,
   };
 

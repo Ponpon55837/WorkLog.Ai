@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   reportQuerySchema,
+  searchQuerySchema,
   saveKnowledgePageInputSchema,
   staticFileRequestPathSchema,
   reportExportQuerySchema,
@@ -455,5 +456,14 @@ describe("Knowledge page schemas", () => {
         sections: [section("x".repeat(4_000)), section("y".repeat(4_000)), section("z")],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("recall date ranges", () => {
+  it("accepts calendar dates in order and rejects reversed or malformed ranges", () => {
+    expect(recallQuerySchema.safeParse({ q: "valve", from: "2031-06-01", to: "2031-06-30" }).success).toBe(true);
+    expect(recallQuerySchema.safeParse({ q: "valve", from: "2031-07-01", to: "2031-06-30" }).success).toBe(false);
+    expect(searchQuerySchema.safeParse({ q: "valve", from: "June" }).success).toBe(false);
+    expect(searchQuerySchema.safeParse({ q: "valve", to: "2031-06-30" }).success).toBe(true);
   });
 });

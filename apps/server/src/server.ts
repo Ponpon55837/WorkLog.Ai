@@ -1512,12 +1512,18 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         const parsed = searchQuerySchema.safeParse({
           q: requestUrl.searchParams.get("q") ?? "",
           projectRoot: requestUrl.searchParams.get("projectRoot") ?? undefined,
+          from: requestUrl.searchParams.get("from") || undefined,
+          to: requestUrl.searchParams.get("to") || undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "A non-empty search query is required.", parsed.error.flatten());
           return;
         }
-        sendJson(response, 200, store.search(parsed.data.q, parsed.data.projectRoot));
+        sendJson(
+          response,
+          200,
+          store.search(parsed.data.q, parsed.data.projectRoot, { from: parsed.data.from, to: parsed.data.to }),
+        );
         return;
       }
 

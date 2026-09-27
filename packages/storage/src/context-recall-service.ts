@@ -16,6 +16,8 @@ import type {
   PolicyDecision,
   ProjectRecord,
   RecallHit,
+  DateRange,
+  RecallInput,
   RecallQueryResult,
   RelevantContext,
   ReportSynthesisRequestListQueryResult,
@@ -110,7 +112,7 @@ export class ContextRecallService {
    * Ranked retrieval across Sessions (including raw handoff sections) and active Knowledge of tracked
    * projects. Returns compact hits; read full records with getSessionDetailForAgent or searchKnowledge.
    */
-  public recall(input: { q?: string; paths?: string[]; projectRoot?: string; limit?: number }): RecallQueryResult {
+  public recall(input: RecallInput): RecallQueryResult {
     let project: ProjectRecord | undefined;
     if (input.projectRoot) {
       const decision = this.store.checkProjectRoot(input.projectRoot);
@@ -128,6 +130,8 @@ export class ContextRecallService {
       q: input.q,
       paths: input.paths,
       projectId: project?.id,
+      from: input.from,
+      to: input.to,
       limit: Math.min(Math.max(input.limit ?? RECALL_DEFAULT_LIMIT, 1), RECALL_MAX_LIMIT),
     });
     return {
@@ -157,7 +161,7 @@ export class ContextRecallService {
     return related.length > 0 ? { ...hit, related } : hit;
   }
 
-  public search(query: string, projectRoot?: string): SearchResult[] | SkippedResult {
+  public search(query: string, projectRoot?: string, range: DateRange = {}): SearchResult[] | SkippedResult {
     let projectId: string | undefined;
     if (projectRoot) {
       const decision = this.store.checkProjectRoot(projectRoot);
@@ -172,7 +176,14 @@ export class ContextRecallService {
       projectId = decision.project.id;
     }
 
-    const { hits } = this.searchIndex.recall({ q: query, projectId, types: ["session"], limit: SEARCH_LIMIT });
+    const { hits } = this.searchIndex.recall({
+      q: query,
+      projectId,
+      types: ["session"],
+      from: range.from,
+      to: range.to,
+      limit: SEARCH_LIMIT,
+    });
     return hits.flatMap((hit) => {
       const record = this.store.getSessionById(hit.id);
       if (!record) {

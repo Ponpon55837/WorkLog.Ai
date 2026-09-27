@@ -2014,6 +2014,19 @@ export interface RecallResult {
 
 export type RecallQueryResult = RecallResult | SkippedContextResult;
 
+/** Inclusive calendar dates (YYYY-MM-DD) in the server's time zone. */
+export interface DateRange {
+  from?: string;
+  to?: string;
+}
+
+export interface RecallInput extends DateRange {
+  q?: string;
+  paths?: string[];
+  projectRoot?: string;
+  limit?: number;
+}
+
 export interface RelevantContext {
   task?: string;
   paths?: string[];

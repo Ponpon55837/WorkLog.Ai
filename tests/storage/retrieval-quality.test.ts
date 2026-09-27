@@ -463,6 +463,36 @@ describe("synthetic retrieval quality regression", () => {
     expect(order.indexOf(neutral)).toBeLessThan(order.indexOf(disputed));
   });
 
+  it("finds an older answer first when the query names its period (date range)", () => {
+    const dated = (key: string, completedAt: string) => {
+      const result = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: "Greenhouse shade cloth replacement",
+        summary: "Replaced the greenhouse shade cloth on the south wall.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+        completedAt,
+      });
+      if (result.outcome !== "finalized") throw new Error(`Expected synthetic Session ${key}.`);
+      return result.session.id;
+    };
+    const march = dated("d-shade-march", "2024-03-12T09:00:00.000Z");
+    const recent = dated("d-shade-recent", new Date(Date.now() - 86_400_000).toISOString());
+
+    const unranged = store.recall({ q: "greenhouse shade cloth", projectRoot: root, limit: 5 });
+    expect(unranged.outcome === "recall" && unranged.hits[0]?.id).toBe(recent);
+    const ranged = store.recall({
+      q: "greenhouse shade cloth",
+      projectRoot: root,
+      from: "2024-03-01",
+      to: "2024-03-31",
+      limit: 5,
+    });
+    expect(ranged.outcome === "recall" && ranged.hits.map((hit) => hit.id)).toEqual([march]);
+  });
+
   it("keeps the R answers exclusive to the fictional raw handoff snapshots", () => {
     const rawCases = evaluationCases.filter((evaluationCase) => evaluationCase.category === "R");
     expect(rawCases).toHaveLength(4);
