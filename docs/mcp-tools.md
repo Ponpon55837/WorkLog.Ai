@@ -14,6 +14,7 @@
 | Session | `work_update_session_summary` | 以 replace／append 修正主摘要 |
 | Session | `work_update_session_work_summary` | 以 replace／patch 修正五段 workSummary |
 | Session | `work_attach_evidence` | 掛上 Agent 已確認的測試、命令或文件參考 |
+| Session | `work_attach_diagram` | 為 Session 附上說明工作的 Mermaid 圖表（可重試、不可刪除，可在 Web 作廢） |
 | Session | `work_link_sessions` | 連結規劃與實作等相關 Session，檢索找到一筆時帶出另一筆 |
 | Session | `work_void_session`<br>`work_void_evidence` | 作廢誤記錄的 Session、標示錯誤的 Evidence（可還原，保留作廢紀錄） |
 | Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求；帶 `task`／`paths` 時另回傳與這次工作相關的記錄 |
@@ -294,6 +295,12 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 ```json
 { "sessionId": "session-id", "reason": "測試 MCP 設定時誤記錄" }
 ```
+
+## `work_attach_diagram`
+
+為記錄中專案的 Session 附上一張 Mermaid 圖表（`sessionId`、`idempotencyKey`、`title` 最多 200 字、`source` 最多 20,000 字，`kind` 目前只有 `mermaid`），例如這次改動的流程或資料路徑；只畫這次工作實際做了什麼。finalize 也可以帶 `diagrams`（最多 5 張）。標題與原始碼會先遮蔽敏感資料。同一個 `idempotencyKey` 重試回傳 `duplicate: true`；用已用過的 key 送不同內容會回傳 `idempotency_conflict`。圖表沒有刪除工具，只能在 Web 的 Session 面板作廢（需填原因，可還原）。
+
+Web 在 Session 面板渲染圖表：Mermaid 只在圖表捲入畫面時才延遲載入，使用 `securityLevel: "strict"`；SVG 放進 Shadow DOM，Mermaid 的樣式以 Constructable Stylesheet 套用，**主頁 CSP 不需放寬**（`style-src-elem 'self'` 會擋下 Mermaid 暫時插入的 `<style>`，瀏覽器主控台會出現對應訊息，但不影響顯示）。原始碼無法解析時顯示錯誤與原始碼。
 
 ## `work_attach_evidence`
 

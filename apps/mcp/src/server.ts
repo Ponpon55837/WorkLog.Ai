@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import {
+  attachDiagramInputSchema,
   attachEvidenceInputSchema,
   cancelMetadataBackfillRequestInputSchema,
   cancelReportSynthesisRequestInputSchema,
@@ -340,6 +341,17 @@ export function createWorkIntelligenceMcpServer(
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid evidence payload.",
     run: (input) => store.attachEvidence(input),
+  });
+
+  registerStoreTool("work_attach_diagram", {
+    title: "Attach a diagram to a Session",
+    description:
+      "Attach a Mermaid diagram (flowchart, sequenceDiagram, stateDiagram, erDiagram, …) that explains a tracked Session's work, such as the flow or data path it changed; finalize also accepts up to five diagrams. Only attach a diagram of what the recorded work actually did. The Web UI renders it in the Session panel and shows the source if it does not render. Sensitive values are masked; the result reports counts by type only. The same idempotencyKey returns the saved diagram; a different diagram under a used key is refused. Diagrams can be voided in the Web UI, never deleted. Non-tracked projects are skipped quietly.",
+    inputShape: attachDiagramInputSchema.shape,
+    schema: attachDiagramInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid diagram payload.",
+    run: (input) => store.attachDiagram(input),
   });
 
   // ── Knowledge ──────────────────────────────────────────────────────────

@@ -136,6 +136,7 @@ export interface ProjectDeletionCounts {
   knowledgePages: number;
   knowledgePageVersions: number;
   knowledgeFeedback: number;
+  sessionDiagrams: number;
   searchChunks: number;
   searchFts: number;
   searchPaths: number;
@@ -304,7 +305,49 @@ export interface SessionDetail {
   verificationHistory: VerificationUpdateRecord[];
   /** Sessions linked to this one (planning ↔ implementation, follow-ups), oldest first. */
   links: SessionLinkRecord[];
+  /** Diagrams an Agent attached, oldest first; voided ones stay listed with their reason. */
+  diagrams: SessionDiagramRecord[];
 }
+
+export const SESSION_DIAGRAM_KINDS = ["mermaid"] as const;
+export type SessionDiagramKind = (typeof SESSION_DIAGRAM_KINDS)[number];
+
+/** A diagram (Mermaid source) attached to a Session; it can be voided but never deleted. */
+export interface SessionDiagramRecord {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  title: string;
+  kind: SessionDiagramKind;
+  source: string;
+  createdAt: string;
+  voided?: VoidState;
+}
+
+export interface AttachDiagramInput {
+  sessionId: string;
+  idempotencyKey: string;
+  title: string;
+  source: string;
+  kind?: SessionDiagramKind;
+}
+
+export type AttachDiagramResult =
+  | { outcome: "diagram_attached"; duplicate: boolean; diagram: SessionDiagramRecord; redactions?: RedactionSummary }
+  | { outcome: "not_found"; sessionId: string }
+  | { outcome: "idempotency_conflict"; reason: string }
+  | SkippedResult;
+
+export interface SetDiagramVoidInput {
+  diagramId: string;
+  voided: boolean;
+  reason?: string;
+}
+
+export type SetDiagramVoidResult =
+  | { outcome: "diagram_void_updated"; diagram: SessionDiagramRecord }
+  | { outcome: "not_found"; diagramId: string }
+  | SkippedResult;
 
 /** Stored relation: `continues` means the Session continues the other one's work (e.g. implements its plan). */
 export type SessionLinkRelation = "continues" | "related";
@@ -1224,6 +1267,8 @@ export interface FinalizeSessionInput {
   appliedKnowledgeIds?: string[];
   /** Knowledge this work found no longer true; they are flagged for review. */
   contradictedKnowledgeIds?: string[];
+  /** Optional Mermaid diagrams that explain the work, masked and stored with the Session. */
+  diagrams?: Array<{ title: string; source: string }>;
 }
 
 export interface UpdateSessionVerificationInput {
@@ -2351,6 +2396,7 @@ export const PROJECT_DATA_TABLES = [
   "session_decisions",
   "knowledge_pages",
   "knowledge_page_versions",
+  "session_diagrams",
   "knowledge_audit",
   "knowledge_feedback",
   "knowledge_candidate_requests",

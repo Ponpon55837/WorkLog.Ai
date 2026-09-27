@@ -14,8 +14,9 @@ import {
   Plus,
   RotateCcw,
   Unlink,
+  Workflow,
 } from "lucide-vue-next";
-import type { EvidenceRecord, SessionDetail, WorkSessionRecord } from "@work-intelligence/core";
+import type { EvidenceRecord, SessionDetail, SessionDiagramRecord, WorkSessionRecord } from "@work-intelligence/core";
 import type { VoidTarget } from "../../composables/useRecordVoid";
 import { commitUrl } from "../../utils/code-links";
 import { formatDate, formatRelative } from "../../utils/format";
@@ -27,6 +28,7 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import VirtualList from "../VirtualList.vue";
 import ChangedFileList from "./ChangedFileList.vue";
+import MermaidDiagram from "./MermaidDiagram.vue";
 
 const props = defineProps<{ detail: SessionDetail }>();
 const emit = defineEmits<{
@@ -45,6 +47,10 @@ const commitLink = computed(() =>
     : undefined,
 );
 const voidedEvidenceCount = computed(() => props.detail.evidence.filter((item) => item.voided).length);
+
+function diagramTarget(item: SessionDiagramRecord): VoidTarget {
+  return { type: "diagram", id: item.id, sessionId: item.sessionId, title: item.title };
+}
 
 function evidenceTarget(item: EvidenceRecord): VoidTarget {
   return { type: "evidence", id: item.id, sessionId: item.sessionId, title: `${item.kind} · ${item.reference}` };
@@ -113,6 +119,40 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
           </dd></template
         >
       </dl>
+    </UiDisclosure>
+    <UiDisclosure v-if="detail.diagrams.length" title="圖表" :icon="Workflow" :count="detail.diagrams.length" open>
+      <div class="session-panel__diagrams">
+        <div
+          v-for="item in detail.diagrams"
+          :key="item.id"
+          :class="['session-panel__item', { 'is-voided': item.voided }]"
+        >
+          <div class="session-panel__item-head">
+            <UiLabel v-if="item.voided" tone="danger" :icon="Ban">已作廢</UiLabel
+            ><time :title="formatDate(item.createdAt)">{{ formatRelative(item.createdAt) }}</time>
+            <UiIconButton
+              v-if="item.voided"
+              class="session-panel__item-action"
+              :icon="RotateCcw"
+              label="還原圖表"
+              size="sm"
+              @click="emit('restoreRecord', diagramTarget(item))"
+            />
+            <UiIconButton
+              v-else
+              class="session-panel__item-action"
+              :icon="Ban"
+              label="作廢圖表"
+              size="sm"
+              @click="emit('voidRecord', diagramTarget(item))"
+            />
+          </div>
+          <template v-if="item.voided">
+            <p class="session-panel__void-reason">{{ item.title }} · 原因：{{ item.voided.reason }}</p>
+          </template>
+          <MermaidDiagram v-else :title="item.title" :source="item.source" />
+        </div>
+      </div>
     </UiDisclosure>
     <UiDisclosure
       v-if="detail.evidence.length"
@@ -310,6 +350,11 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
 </template>
 
 <style scoped>
+.session-panel__diagrams {
+  display: grid;
+  gap: var(--space-3);
+}
+
 .session-panel__sections {
   display: grid;
   gap: var(--space-2);

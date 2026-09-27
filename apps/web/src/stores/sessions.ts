@@ -8,6 +8,8 @@ import type {
   SessionDetail,
   SessionListResult,
   SessionVoidedFilter,
+  SetDiagramVoidInput,
+  SetDiagramVoidResult,
   SetEvidenceVoidInput,
   SetEvidenceVoidResult,
   SetSessionVoidInput,
@@ -42,6 +44,7 @@ export type SessionEditorSaveInput = {
 
 type SessionLinkInput = { sessionId: string; relatedSessionId: string; relation: SessionLinkRelation };
 type EvidenceVoidMutationInput = SetEvidenceVoidInput & { sessionId: string };
+type DiagramVoidMutationInput = SetDiagramVoidInput & { sessionId: string };
 
 function updateFailureMessage(result: { outcome: string; reason?: string }): string {
   return result.outcome === "not_found" ? "找不到這筆 Session。" : (result.reason ?? "無法更新 Session 摘要。");
@@ -203,6 +206,13 @@ export const useSessionsStore = defineStore("sessions", () => {
       ]);
     },
   });
+  const setDiagramVoidMutation = useMutation({
+    mutation: ({ sessionId: _sessionId, ...input }: DiagramVoidMutationInput) => useApi().client.setDiagramVoid(input),
+    onSuccess: async (result, input) => {
+      if (result.outcome !== "diagram_void_updated") return;
+      await queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true });
+    },
+  });
   const setEvidenceVoidMutation = useMutation({
     mutation: ({ sessionId: _sessionId, ...input }: EvidenceVoidMutationInput) =>
       useApi().client.setEvidenceVoid(input),
@@ -302,6 +312,10 @@ export const useSessionsStore = defineStore("sessions", () => {
     return await setSessionVoidMutation.mutateAsync(input);
   }
 
+  async function setDiagramVoid(input: DiagramVoidMutationInput): Promise<SetDiagramVoidResult> {
+    return await setDiagramVoidMutation.mutateAsync(input);
+  }
+
   async function setEvidenceVoid(input: EvidenceVoidMutationInput): Promise<SetEvidenceVoidResult> {
     return await setEvidenceVoidMutation.mutateAsync(input);
   }
@@ -372,5 +386,6 @@ export const useSessionsStore = defineStore("sessions", () => {
     unlinkSessions,
     setSessionVoid,
     setEvidenceVoid,
+    setDiagramVoid,
   };
 });

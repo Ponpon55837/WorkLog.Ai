@@ -58,6 +58,7 @@ export const REDACTED_TEXT_FIELDS = {
   session_decisions: ["text"],
   knowledge_pages: ["title", "question", "sections_json"],
   knowledge_page_versions: ["title", "question", "sections_json"],
+  session_diagrams: ["title", "source", "void_reason"],
 } as const;
 
 type DataTable = keyof typeof REDACTED_TEXT_FIELDS;

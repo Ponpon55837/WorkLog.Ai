@@ -49,6 +49,7 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "session_work_summary_updates",
   "knowledge_pages",
   "knowledge_page_versions",
+  "session_diagrams",
 ];
 
 const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[])[]>> = {
@@ -63,6 +64,7 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   session_decisions: [["session_id", "position"]],
   knowledge_pages: [["project_id", "slug"]],
   knowledge_page_versions: [["page_id", "version"]],
+  session_diagrams: [["session_id", "idempotency_key"]],
 };
 
 const CONFLICT_DETAIL_LIMIT = 100;
@@ -73,6 +75,7 @@ const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = 
   session_decisions: ["text"],
   knowledge_pages: ["title", "question", "sections_json"],
   knowledge_page_versions: ["title", "question", "sections_json"],
+  session_diagrams: ["title", "source", "void_reason"],
   work_events: ["summary", "details_json"],
   raw_snapshots: ["content"],
   evidence: ["kind", "reference", "summary", "void_reason"],
@@ -250,6 +253,7 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
     knowledge_page_versions: rowsByIds(db, "knowledge_page_versions", "project_id", projectIds),
     knowledge_audit: rowsByIds(db, "knowledge_audit", "project_id", projectIds),
     knowledge_feedback: rowsByIds(db, "knowledge_feedback", "project_id", projectIds),
+    session_diagrams: rowsByIds(db, "session_diagrams", "project_id", projectIds),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
     report_synthesis_requests: reportRequests,
@@ -343,6 +347,7 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     ),
     knowledge_audit: bundle.tables.knowledge_audit.filter((row) => selectedIds.has(String(row.project_id))),
     knowledge_feedback: bundle.tables.knowledge_feedback.filter((row) => selectedIds.has(String(row.project_id))),
+    session_diagrams: bundle.tables.session_diagrams.filter((row) => selectedIds.has(String(row.project_id))),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
     report_synthesis_requests: reportRequests.filter((row) => projectId === undefined || row.scope_type === "project"),

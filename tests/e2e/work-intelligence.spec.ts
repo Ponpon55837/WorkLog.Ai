@@ -1111,6 +1111,47 @@ test.describe("Work Intelligence browser regression", () => {
     await page.getByTestId("preferences").getByLabel("用來開啟檔案的編輯器").selectOption({ label: "不使用" });
   });
 
+  test("renders an attached Mermaid diagram under the strict CSP, falls back to source, and voids it", async ({
+    page,
+  }) => {
+    const diagramSessionId = withAgentStore((store) => {
+      const finalized = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `e2e-diagram-${process.pid}`,
+        title: `E2E diagram Session ${process.pid}`,
+        summary: "Carries one valid and one broken diagram.",
+        changedFiles: [],
+        verification: { status: "passed" },
+        diagrams: [
+          { title: "E2E honey flow", source: "flowchart LR\n  Hive --> Extractor --> Jar" },
+          { title: "E2E broken diagram", source: "flowchart LR\n  A -->" },
+        ],
+      });
+      if (finalized.outcome !== "finalized") throw new Error("Expected the diagram fixture Session.");
+      return finalized.session.id;
+    });
+
+    const response = await page.goto(`/sessions?session=${diagramSessionId}`);
+    expect(response?.headers()["content-security-policy"]).toContain("style-src-elem 'self'");
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    const flow = panel.getByTestId("session-diagram").filter({ hasText: "E2E honey flow" });
+    // Mermaid loads only when a diagram scrolls into view.
+    await flow.scrollIntoViewIfNeeded();
+    await expect(flow.locator("svg").first()).toBeVisible();
+    await expect(flow.locator("svg").first()).toContainText("Extractor");
+    const broken = panel.getByTestId("session-diagram").filter({ hasText: "E2E broken diagram" });
+    await broken.scrollIntoViewIfNeeded();
+    await expect(broken).toContainText("以下是原始碼");
+    await expect(broken.locator("pre")).toContainText("A -->");
+
+    await panel.getByRole("button", { name: "作廢圖表" }).first().click();
+    const dialog = page.getByRole("dialog", { name: "作廢圖表" });
+    await dialog.getByLabel("原因").fill("E2E: wrong flow.");
+    await dialog.getByRole("button", { name: "作廢" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(panel).toContainText("原因：E2E: wrong flow.");
+  });
+
   test("confirms backup deletion using only keyboard navigation @keyboard", async ({ page, request }) => {
     await postJson(request, "/api/backups", {});
     await page.goto("/projects/backup");

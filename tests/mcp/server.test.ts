@@ -568,4 +568,35 @@ describe("Work Intelligence MCP server", () => {
       readOnlyHint: true,
     });
   });
+
+  it("lets an Agent attach a diagram idempotently, without a delete tool", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Diagram project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-diagram-001", "Diagrammed"),
+      diagrams: [{ title: "At finalize", source: "flowchart LR\n  A --> B" }],
+    });
+    const payload = {
+      sessionId: finalized.session.id,
+      idempotencyKey: "diagram-1",
+      title: "Later",
+      source: "sequenceDiagram\n  A->>B: hi",
+    };
+    expect(await callJson(client, "work_attach_diagram", payload)).toMatchObject({
+      outcome: "diagram_attached",
+      duplicate: false,
+    });
+    expect(await callJson(client, "work_attach_diagram", payload)).toMatchObject({ duplicate: true });
+    expect(store.getSessionDetail(finalized.session.id)?.diagrams.map((diagram) => diagram.title)).toEqual([
+      "At finalize",
+      "Later",
+    ]);
+    const { tools } = await client.listTools();
+    expect(tools.find((tool) => tool.name === "work_attach_diagram")?.annotations).toMatchObject({
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(tools.some((tool) => /diagram/.test(tool.name) && /void|delete/.test(tool.name))).toBe(false);
+  });
 });

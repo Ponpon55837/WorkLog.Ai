@@ -8,6 +8,7 @@ import type {
   PolicyDecision,
   ProjectRecord,
   SessionDetail,
+  SessionDiagramRecord,
   SessionDecisionRecord,
   SessionLinkRecord,
   SessionLinkRelation,
@@ -97,6 +98,7 @@ export interface SessionRecordDependencies {
   getSessionById(sessionId: string): WorkSessionRecord | undefined;
   getProjectById(projectId: string): ProjectRecord | undefined;
   withKnowledgeTrustMany(knowledge: KnowledgeRecord[]): KnowledgeRecord[];
+  listDiagrams(sessionId: string): SessionDiagramRecord[];
 }
 
 export class SessionRecordService {
@@ -789,6 +791,7 @@ export class SessionRecordService {
       knowledge: this.dependencies.withKnowledgeTrustMany(knowledge.map(toKnowledge)),
       decisions: decisions.map(toSessionDecision),
       links: this.getSessionLinks(sessionId),
+      diagrams: this.dependencies.listDiagrams(sessionId),
       verificationHistory: (
         this.db
           .prepare(
