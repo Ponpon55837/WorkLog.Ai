@@ -39,7 +39,6 @@ export const queryKeys = {
   },
   views: {
     graph: ["view", "graph"] as const,
-    knowledge: ["view", "knowledge"] as const,
     reports: reportsViewKey,
     sessions: ["view", "sessions"] as const,
     systemStatus: ["view", "system-status"] as const,

@@ -6,6 +6,7 @@ import type {
   PageInfo,
   SessionLinkRelation,
   SessionDetail,
+  SessionListResult,
   SessionVoidedFilter,
   SetEvidenceVoidInput,
   SetEvidenceVoidResult,
@@ -53,6 +54,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   const sequence = ref<string[]>([]);
   const listActive = ref(false);
   const searchTerm = ref("");
+  const appliedSearchTerm = ref("");
   const selectedProjectId = ref("");
   const sessionPage = ref(1);
   const sessionPageSize = ref<ListPageSize>(10);
@@ -70,22 +72,23 @@ export const useSessionsStore = defineStore("sessions", () => {
   );
   const dateRangeIsValid = computed(() => !(dateFrom.value && dateTo.value && dateFrom.value > dateTo.value));
 
-  const sessionsQuery = useQuery({
-    key: queryKeys.sessions.list,
+  function sessionListScope() {
+    return {
+      q: appliedSearchTerm.value.trim() || undefined,
+      projectId: selectedProjectId.value || undefined,
+      voided: voidedFilter.value,
+      from: dateFrom.value || undefined,
+      to: dateTo.value || undefined,
+      page: sessionPage.value,
+      pageSize: sessionPageSize.value,
+    };
+  }
+
+  const sessionsQuery = useQuery<SessionListResult>({
+    key: () => [...queryKeys.sessions.list, sessionListScope()],
     enabled: computed(() => listActive.value && dateRangeIsValid.value),
-    query: ({ signal }) =>
-      useApi().client.listSessions(
-        {
-          q: searchTerm.value.trim() || undefined,
-          projectId: selectedProjectId.value || undefined,
-          voided: voidedFilter.value,
-          from: dateFrom.value || undefined,
-          to: dateTo.value || undefined,
-          page: sessionPage.value,
-          pageSize: sessionPageSize.value,
-        },
-        signal,
-      ),
+    placeholderData: (previousData) => previousData,
+    query: ({ signal }) => useApi().client.listSessions(sessionListScope(), signal),
   });
   const detailQuery = useQuery({
     key: () => [...queryKeys.sessions.detail, selectedSessionId.value],
@@ -143,14 +146,14 @@ export const useSessionsStore = defineStore("sessions", () => {
     onSuccess: async (_sessionId, input) => {
       const invalidations = [
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.sessions.list, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
       ];
       if (input.summary) {
         invalidations.push(
           queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
           queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
           queryCache.invalidateQueries({ key: queryKeys.views.graph }),
-          queryCache.invalidateQueries({ key: queryKeys.views.knowledge, exact: true }),
+          queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         );
       }
       if (input.summary || input.workSummary || input.verification) {
@@ -189,14 +192,14 @@ export const useSessionsStore = defineStore("sessions", () => {
       if (result.outcome !== "session_void_updated") return;
       await Promise.all([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
-        queryCache.invalidateQueries({ key: queryKeys.sessions.list, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
         queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
-        queryCache.invalidateQueries({ key: queryKeys.views.knowledge, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
       ]);
     },
   });
@@ -234,7 +237,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   });
 
   watch(
-    () => sessionsQuery.data.value?.pageInfo.page,
+    () => (sessionsQuery.isPlaceholderData.value ? undefined : sessionsQuery.data.value?.pageInfo.page),
     (loadedPage) => {
       if (loadedPage !== undefined && sessionPage.value !== loadedPage) {
         sessionPage.value = loadedPage;
@@ -245,23 +248,18 @@ export const useSessionsStore = defineStore("sessions", () => {
   function setSessionsListActive(active: boolean): void {
     listActive.value = active;
     if (!active) return;
+    appliedSearchTerm.value = searchTerm.value.trim();
     sessionFilterError.value = dateRangeIsValid.value ? "" : "起始日期必須早於或等於結束日期。";
   }
 
-  async function loadSessions(): Promise<void> {
+  function loadSessions(): void {
     if (!dateRangeIsValid.value) {
       sessionFilterError.value = "起始日期必須早於或等於結束日期。";
       return;
     }
     sessionFilterError.value = "";
-    try {
-      const result = await sessionsQuery.refetch(true);
-      if (result.status === "success" && sessionPage.value !== result.data.pageInfo.page) {
-        sessionPage.value = result.data.pageInfo.page;
-      }
-    } catch (error) {
-      if (!useApi().isAbortError(error)) throw error;
-    }
+    listActive.value = true;
+    appliedSearchTerm.value = searchTerm.value.trim();
   }
 
   function clearSessionFilters(): void {
@@ -316,7 +314,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     const previousId = selectedSessionId.value;
     selectedSessionId.value = sessionId;
     try {
-      await detailQuery.refetch(true);
+      await detailQuery.refresh(true);
     } catch (error) {
       if (useApi().isAbortError(error)) return;
       if (selectedSessionId.value === sessionId) {

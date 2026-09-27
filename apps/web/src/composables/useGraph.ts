@@ -1,10 +1,11 @@
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import type { GraphEdge, GraphNode, ProjectStatus, ReportVerificationStatus } from "@work-intelligence/core";
-import { useKnowledge } from "./useKnowledge";
 import { router } from "../router";
 import { useGraphStore } from "../stores/graph";
+import { useKnowledgeStore } from "../stores/knowledge";
 import { useSessionsStore } from "../stores/sessions";
+import { useKnowledgeActions } from "./useKnowledge";
 import { formatDate, graphNodeLabel, graphNodeLabelTail } from "../utils/format";
 import { graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels } from "../utils/labels";
 import { verificationStatus } from "../utils/status";
@@ -139,6 +140,7 @@ function splitFilePath(path: string): { name: string; folder: string } {
 /** Returns derived Graph presentation data and navigation actions for its views. */
 export function useGraph() {
   const store = useGraphStore();
+  const { openKnowledgeEditor } = useKnowledgeActions();
   const { graph, graphNodeFilter, graphPreviewLimit, graphSearch, selectedGraphNode } = storeToRefs(store);
 
   const graphVisualQuotas = computed<Record<GraphNode["kind"], number>>(() => {
@@ -295,10 +297,9 @@ export function useGraph() {
   function openGraphKnowledge(node: GraphNode): void {
     const knowledgeId = node.id.replace(/^knowledge:/, "");
     store.selectGraphNode(null);
-    const knowledge = useKnowledge();
-    const item = knowledge.knowledgeItems.value.find((candidate) => candidate.id === knowledgeId);
+    const item = useKnowledgeStore().knowledgeItems.find((candidate) => candidate.id === knowledgeId);
     if (item) {
-      knowledge.openKnowledgeEditor(item);
+      openKnowledgeEditor(item);
       return;
     }
     void router.push({ name: "knowledge" });

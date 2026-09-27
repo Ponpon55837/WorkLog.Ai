@@ -1,5 +1,4 @@
 import { ref } from "vue";
-import { storeToRefs } from "pinia";
 import type {
   KnowledgeAuditRecord,
   KnowledgeKind,
@@ -165,38 +164,9 @@ function openKnowledgeStaleSession(item: KnowledgeRecord): Promise<void> {
   return useSessionsStore().openSessionDetail(item.possiblyStale?.sessionId, "無法載入改動檔案的 Session。");
 }
 
-export function useKnowledge() {
-  const store = useKnowledgeStore();
-  const {
-    knowledgeItems,
-    knowledgeProjects,
-    knowledgePage,
-    knowledgePageSize,
-    knowledgePageInfo,
-    knowledgeQuery,
-    knowledgeKind,
-    knowledgeProjectId,
-    knowledgeStatus,
-    knowledgeLoading,
-    knowledgeError,
-    knowledgeHistory,
-    knowledgeHistoryLoading,
-    knowledgeHistoryError,
-  } = storeToRefs(store);
-
+/** Owns Knowledge UI workflows that span stores, dialogs, and Session navigation. */
+export function useKnowledgeActions() {
   return {
-    knowledgeItems,
-    knowledgeProjects,
-    knowledgePage,
-    knowledgePageSize,
-    knowledgePageInfo,
-    knowledgeQuery,
-    knowledgeKind,
-    knowledgeProjectId,
-    knowledgeStatus,
-    knowledgeLoading,
-    knowledgeError,
-    loadKnowledge: store.loadKnowledge,
     setKnowledgeStatus,
     openKnowledgeSession,
     knowledgeEditor,
@@ -207,9 +177,6 @@ export function useKnowledge() {
     closeKnowledgeEditor,
     saveKnowledge,
     knowledgeHistoryItem,
-    knowledgeHistory,
-    knowledgeHistoryLoading,
-    knowledgeHistoryError,
     openKnowledgeHistory,
     confirmKnowledge,
     openKnowledgeStaleSession,

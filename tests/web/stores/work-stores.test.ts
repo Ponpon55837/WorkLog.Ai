@@ -14,9 +14,20 @@ let harness: ReturnType<typeof createStoreHarness>;
 
 function workResponder({ url, method }: StoreRequest): unknown {
   if (url.pathname === "/api/sessions" && method === "GET") {
+    const page = Number(url.searchParams.get("page") ?? 1);
+    const pageSize = Number(url.searchParams.get("pageSize") ?? 10);
     return {
       items: url.searchParams.has("q") ? [{ id: "source" }, { id: "candidate" }] : [],
-      pageInfo: { page: 1, pageSize: 10, total: 0, totalPages: 1, from: 0, to: 0, hasPrevious: false, hasNext: false },
+      pageInfo: {
+        page,
+        pageSize,
+        total: 0,
+        totalPages: 1,
+        from: 0,
+        to: 0,
+        hasPrevious: page > 1,
+        hasNext: false,
+      },
     };
   }
   if (url.pathname === "/api/sessions/bad") return jsonResponse({ code: "not_found", error: "English" }, 404);
@@ -55,6 +66,37 @@ beforeEach(() => {
 afterEach(async () => harness.cleanup());
 
 describe("work data stores", () => {
+  it("keys Session list requests by every active filter and pagination value", async () => {
+    const store = useSessionsStore();
+    store.setSessionsListActive(true);
+    await vi.waitFor(() => expect(harness.count("/api/sessions")).toBe(1));
+
+    store.searchTerm = "  compiler  ";
+    store.selectedProjectId = "project-1";
+    store.dateFrom = "2026-09-01";
+    store.dateTo = "2026-09-27";
+    store.voidedFilter = "include";
+    store.sessionPage = 2;
+    store.sessionPageSize = 20;
+    store.loadSessions();
+
+    await vi.waitFor(() => expect(harness.count("/api/sessions")).toBe(2));
+    const filteredRequest = harness.calls.filter(({ url }) => url.pathname === "/api/sessions")[1];
+    expect(filteredRequest?.url.searchParams.get("q")).toBe("compiler");
+    expect(filteredRequest?.url.searchParams.get("projectId")).toBe("project-1");
+    expect(filteredRequest?.url.searchParams.get("from")).toBe("2026-09-01");
+    expect(filteredRequest?.url.searchParams.get("to")).toBe("2026-09-27");
+    expect(filteredRequest?.url.searchParams.get("voided")).toBe("include");
+    expect(filteredRequest?.url.searchParams.get("page")).toBe("2");
+    expect(filteredRequest?.url.searchParams.get("pageSize")).toBe("20");
+
+    store.sessionPage = 3;
+    await vi.waitFor(() => expect(harness.count("/api/sessions")).toBe(3));
+    expect(harness.calls.filter(({ url }) => url.pathname === "/api/sessions")[2]?.url.searchParams.get("page")).toBe(
+      "3",
+    );
+  });
+
   it("validates Session filters, loads the list, navigates details, and refreshes after a summary edit", async () => {
     const store = useSessionsStore();
     store.setSessionsListActive(true);
@@ -67,6 +109,7 @@ describe("work data stores", () => {
 
     store.clearSessionFilters();
     await store.loadSessions();
+    await vi.waitFor(() => expect(store.sessionsLoaded).toBe(true));
     expect(store.sessionsLoaded).toBe(true);
     expect(harness.count("/api/sessions")).toBe(1);
     store.setSessionSequence(["session-1", "session-2"]);
@@ -101,11 +144,11 @@ describe("work data stores", () => {
         ? jsonResponse({ code: "service_unavailable", error: "English detail" }, 503)
         : workResponder({ url, method: "GET", body: undefined, signal: undefined }),
     );
-    await store.loadReport();
+    store.loadReport();
+    await vi.waitFor(() => expect(store.reportError).toBe("服務暫時無法使用，請稍後再試。"));
     expect(store.reportError).toBe("服務暫時無法使用，請稍後再試。");
     expect(store.report).toBeNull();
     expect(store.reportComparisons).toEqual([]);
-    await store.loadReportSessions();
     await store.loadReportEvidence();
     await store.loadReportSynthesis();
     expect(harness.count("/api/sessions")).toBe(0);

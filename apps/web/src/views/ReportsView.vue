@@ -32,6 +32,7 @@ const {
   reportLoading,
   reportExportLoading,
   loadReport,
+  refreshReport,
   exportReport,
   reportError,
   report,
@@ -98,7 +99,7 @@ const {
         label="重新整理報告"
         variant="default"
         :loading="reportLoading || Boolean(reportExportLoading)"
-        @click="loadReport(true)"
+        @click="refreshReport(true)"
       />
     </template>
   </PageHeader>
