@@ -111,6 +111,8 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
     "resulting_work_summary_json",
     "created_at",
   ],
+  knowledge_pages: ["project_id", "slug", "title", "question", "sections_json", "created_at", "updated_at"],
+  knowledge_page_versions: ["page_id", "project_id", "title", "question", "sections_json", "author", "created_at"],
 };
 
 const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = {
@@ -131,6 +133,7 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   metadata_backfill_requests: { scope_type: "project", status: "completed" },
   session_summary_updates: { mode: "replace" },
   session_work_summary_updates: { mode: "replace" },
+  knowledge_page_versions: { author: "agent" },
 };
 
 const emptyTables = (): ProjectDataTables =>
@@ -159,6 +162,9 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   }
   if (table === "session_decisions") {
     row.position = 0;
+  }
+  if (table === "knowledge_pages" || table === "knowledge_page_versions") {
+    row.version = 1;
   }
   if (table === "report_summaries") {
     row.is_current = 1;

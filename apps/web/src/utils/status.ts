@@ -22,6 +22,7 @@ import type {
   DatabaseInspectionState,
   DatabaseMaintenanceStatus,
   KnowledgeKind,
+  KnowledgePageStatus,
   KnowledgeStatus,
   MetadataBackfillRequest,
   ProjectStatus,
@@ -91,6 +92,14 @@ export const knowledgeKindVisual: Record<KnowledgeKind, StatusVisual> = {
   gotcha: { tone: "attention", icon: TriangleAlert, label: "注意事項" },
   procedure: { tone: "success", icon: ListOrdered, label: "操作流程" },
   skill: { tone: "neutral", icon: GraduationCap, label: "技能" },
+};
+
+/** A standing Knowledge page: "missing" is a default page the project has not requested yet. */
+export const knowledgePageStatusVisual: Record<KnowledgePageStatus | "missing", StatusVisual> = {
+  missing: { tone: "neutral", icon: CircleDashed, label: "尚未建立" },
+  empty: { tone: "accent", icon: LoaderCircle, label: "等待 Agent 撰寫" },
+  fresh: { tone: "success", icon: CircleCheck, label: "最新" },
+  needs_update: { tone: "attention", icon: Clock3, label: "需要更新" },
 };
 
 /** Trust markers: stale is rule-based (later Sessions changed appliesTo paths); review follows a reported contradiction. */

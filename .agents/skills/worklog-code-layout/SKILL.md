@@ -19,8 +19,8 @@ Order of top-level statements:
 | # | Section | What goes here |
 |---|---|---|
 | 1 | imports | Order in `worklog-web-code-style` §3: `vue`/`vue-router` → third party → `@work-intelligence/*` types → components → composables → router → stores → utils |
-| 2 | types and constants | `type` / `interface`, then module constants and option lists that do not depend on props or state (`const tabs = ["list", "candidates"] as const`) |
-| 3 | macros | `defineOptions` → `defineProps`/`withDefaults` → `defineEmits` → `defineModel` → `defineSlots` (ESLint `vue/define-macros-order`) |
+| 2 | types | `type` / `interface` only — ESLint `vue/define-macros-order` allows nothing else above the macros |
+| 3 | macros, then constants | `defineOptions` → `defineProps`/`withDefaults` → `defineEmits` → `defineModel` → `defineSlots`, then module constants and option lists that do not depend on props or state (`const tabs = ["list", "candidates"] as const`) |
 | 4 | stores and composables | `useRoute()`, `useXxxStore()` and its `storeToRefs()` destructuring, then composables that only **return** values (`useToast()`, `useKnowledgeActions()`) |
 | 5 | state | `ref`, `reactive`, template refs; then composables that **take this component's state** as an argument (`useFocusTrap(dialog, open, …)`, `useRouteQuery("q", query, …)`, `useListReload({ … })`), placed right after the state they use |
 | 6 | computed | `computed(…)`, in dependency order (a computed read by another comes first) |
@@ -41,10 +41,10 @@ import { useFocusTrap } from "../composables/useFocusTrap";
 import { useKnowledgeStore } from "../stores/knowledge";
 
 type Tab = "list" | "candidates";
-const tabs: readonly Tab[] = ["list", "candidates"];
 
 const props = defineProps<{ open: boolean; projectRoot?: string }>();
 const emit = defineEmits<{ close: [] }>();
+const tabs: readonly Tab[] = ["list", "candidates"];
 
 const route = useRoute();
 const knowledgeStore = useKnowledgeStore();

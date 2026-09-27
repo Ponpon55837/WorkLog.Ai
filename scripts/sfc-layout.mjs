@@ -1,6 +1,6 @@
 // Checks (and with --fix, applies) the fixed top-level order of `<script setup>` blocks described in the
 // worklog-code-layout skill, so every component reads the same way:
-//   imports → types → constants → macros → stores/composables → state → computed → functions → watchers
+//   imports → types → macros → constants → stores/composables → state → computed → functions → watchers
 //   → lifecycle → defineExpose
 // A composable that takes this component's own state (a template ref, a local ref) as an argument belongs to
 // the state section, after the state it uses. Statements that fit no section (plain constants, one-off calls)

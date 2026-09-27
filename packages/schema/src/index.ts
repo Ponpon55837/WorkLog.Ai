@@ -14,6 +14,9 @@ import {
   REPORT_SYNTHESIS_SCOPE_TYPES,
   REPORT_SYNTHESIS_STATUSES,
   SESSION_SUMMARY_UPDATE_MODES,
+  KNOWLEDGE_PAGE_AUTHORS,
+  KNOWLEDGE_PAGE_DEFAULTS,
+  KNOWLEDGE_PAGE_INSUFFICIENT,
   SESSION_DECISION_ORIGINS,
   SESSION_DECISION_REVIEW_STATUSES,
   WORK_SUMMARY_DECISION_ORIGINS,
@@ -608,6 +611,65 @@ export const recordKnowledgeInputSchema = z.object({
   supersedesId: z.string().trim().min(1).max(200).optional(),
 });
 
+const knowledgePageSlugSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9][a-z0-9-]{1,39}$/, "Use 2–40 lowercase letters, digits, or hyphens.")
+  .describe(
+    `Page id within the project. Defaults: ${KNOWLEDGE_PAGE_DEFAULTS.map((page) => `${page.slug} (${page.title})`).join(", ")}.`,
+  );
+const knowledgePageSectionSchema = z
+  .object({
+    heading: z.string().trim().min(1).max(120),
+    content: z.string().trim().min(1).max(4_000),
+    sourceSessionIds: z.array(z.string().trim().min(1).max(200)).max(20),
+  })
+  .strict()
+  .refine((section) => section.sourceSessionIds.length > 0 || section.content === KNOWLEDGE_PAGE_INSUFFICIENT, {
+    message: `Cite the Sessions this section is based on, or write exactly "${KNOWLEDGE_PAGE_INSUFFICIENT}" when they do not answer it.`,
+    path: ["sourceSessionIds"],
+  });
+const knowledgePageSectionsSchema = z
+  .array(knowledgePageSectionSchema)
+  .min(1)
+  .max(12)
+  .refine((sections) => sections.reduce((total, section) => total + section.content.length, 0) <= 8_000, {
+    message: "A page holds at most 8,000 characters of section content.",
+  });
+
+export const knowledgePageListQuerySchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000).optional(),
+    projectId: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+export const requestKnowledgePageUpdateInputSchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000),
+    slug: knowledgePageSlugSchema,
+    title: z.string().trim().min(1).max(80).optional(),
+    question: z.string().trim().min(1).max(300).optional(),
+  })
+  .strict();
+export const knowledgePageContextQuerySchema = z
+  .object({ projectRoot: z.string().trim().min(1).max(1_000), slug: knowledgePageSlugSchema })
+  .strict();
+export const saveKnowledgePageInputSchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000),
+    slug: knowledgePageSlugSchema,
+    idempotencyKey: z.string().trim().min(1).max(300),
+    sections: knowledgePageSectionsSchema,
+  })
+  .strict();
+export const updateKnowledgePageInputSchema = z
+  .object({
+    pageId: z.string().trim().min(1).max(200),
+    title: z.string().trim().min(1).max(80).optional(),
+    sections: knowledgePageSectionsSchema,
+  })
+  .strict();
+
 export const requestKnowledgeCandidatesInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
 });
@@ -940,6 +1002,32 @@ export const projectDataExportTableColumns = {
     "reviewed_at",
     "knowledge_id",
   ],
+  knowledge_pages: [
+    "id",
+    "project_id",
+    "slug",
+    "title",
+    "question",
+    "sections_json",
+    "version",
+    "sourced_through",
+    "update_requested_at",
+    "last_author",
+    "created_at",
+    "updated_at",
+  ],
+  knowledge_page_versions: [
+    "id",
+    "page_id",
+    "project_id",
+    "version",
+    "title",
+    "question",
+    "sections_json",
+    "author",
+    "idempotency_key",
+    "created_at",
+  ],
   knowledge_audit: [
     "id",
     "knowledge_id",
@@ -1064,6 +1152,8 @@ const projectDataTablesShape = {
   session_links: projectDataRows,
   knowledge: projectDataRows,
   session_decisions: projectDataRows,
+  knowledge_pages: projectDataRows,
+  knowledge_page_versions: projectDataRows,
   knowledge_audit: projectDataRows,
   knowledge_candidate_requests: projectDataRows,
   knowledge_candidates: projectDataRows,
@@ -1094,6 +1184,7 @@ const projectDataImportStatusValues: Partial<
     origin: SESSION_DECISION_ORIGINS,
     review_status: SESSION_DECISION_REVIEW_STATUSES,
   },
+  knowledge_page_versions: { author: KNOWLEDGE_PAGE_AUTHORS },
   knowledge_audit: { action: ["created", "updated", "archived", "restored"] },
   knowledge_candidate_requests: { status: METADATA_BACKFILL_REQUEST_STATUSES },
   knowledge_candidates: { kind: KNOWLEDGE_KINDS, status: ["proposed", "accepted", "rejected"] },
@@ -1146,6 +1237,17 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
     "applies_to_json",
   ],
   session_decisions: ["id", "session_id", "project_id", "position", "text", "origin", "review_status"],
+  knowledge_pages: ["id", "project_id", "slug", "title", "question", "sections_json", "created_at", "updated_at"],
+  knowledge_page_versions: [
+    "id",
+    "page_id",
+    "project_id",
+    "title",
+    "question",
+    "sections_json",
+    "author",
+    "created_at",
+  ],
   knowledge_audit: ["id", "knowledge_id", "project_id", "action", "after_json", "changed_fields_json", "occurred_at"],
   knowledge_candidate_requests: [
     "id",
@@ -1235,6 +1337,8 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
   report_summaries: ["is_current"],
   sessions: ["changed_files_confirmed", "redaction_count"],
   session_decisions: ["position"],
+  knowledge_pages: ["version"],
+  knowledge_page_versions: ["version"],
 };
 
 /**

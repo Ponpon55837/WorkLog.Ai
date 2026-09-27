@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   reportQuerySchema,
+  saveKnowledgePageInputSchema,
   staticFileRequestPathSchema,
   reportExportQuerySchema,
   createReportSynthesisRequestInputSchema,
@@ -418,5 +419,41 @@ describe("custom report ranges", () => {
       reportSynthesisRequestQuerySchema.safeParse({ period: "custom", from: "2030-01-01", to: "2030-01-14" }).success,
     ).toBe(true);
     expect(reportSynthesisRequestQuerySchema.safeParse({ period: "custom", from: "2030-01-01" }).success).toBe(false);
+  });
+});
+
+describe("Knowledge page schemas", () => {
+  const base = { projectRoot: "/tmp/apiary", slug: "pitfalls", idempotencyKey: "page-1" };
+
+  it("requires cited Sessions unless a section says 資料不足", () => {
+    const cited = { heading: "Build", content: "Build shared first.", sourceSessionIds: ["session-1"] };
+    const insufficient = { heading: "Deploy", content: "資料不足", sourceSessionIds: [] };
+    expect(saveKnowledgePageInputSchema.safeParse({ ...base, sections: [cited, insufficient] }).success).toBe(true);
+    expect(
+      saveKnowledgePageInputSchema.safeParse({ ...base, sections: [{ ...cited, sourceSessionIds: [] }] }).success,
+    ).toBe(false);
+    expect(saveKnowledgePageInputSchema.safeParse({ ...base, slug: "Pitfalls!", sections: [cited] }).success).toBe(
+      false,
+    );
+  });
+
+  it("bounds a page to 12 sections and 8,000 characters", () => {
+    const section = (content: string) => ({ heading: "H", content, sourceSessionIds: ["session-1"] });
+    expect(
+      saveKnowledgePageInputSchema.safeParse({ ...base, sections: Array.from({ length: 13 }, () => section("x")) })
+        .success,
+    ).toBe(false);
+    expect(
+      saveKnowledgePageInputSchema.safeParse({
+        ...base,
+        sections: [section("x".repeat(4_000)), section("y".repeat(4_000))],
+      }).success,
+    ).toBe(true);
+    expect(
+      saveKnowledgePageInputSchema.safeParse({
+        ...base,
+        sections: [section("x".repeat(4_000)), section("y".repeat(4_000)), section("z")],
+      }).success,
+    ).toBe(false);
   });
 });

@@ -2,13 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
-import { BookOpen, ListChecks, Search, Sparkles, X } from "lucide-vue-next";
+import { BookMarked, BookOpen, ListChecks, Search, Sparkles, X } from "lucide-vue-next";
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import KnowledgeCandidateEditorDialog from "../components/domain/KnowledgeCandidateEditorDialog.vue";
 import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.vue";
 import AgentDecisionReviewBox from "../components/domain/AgentDecisionReviewBox.vue";
+import KnowledgePagePanel from "../components/domain/KnowledgePagePanel.vue";
+import KnowledgePagesBox from "../components/domain/KnowledgePagesBox.vue";
 import KnowledgeRow, { type KnowledgeAction } from "../components/domain/KnowledgeRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -26,12 +28,13 @@ import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { useKnowledgeStore } from "../stores/knowledge";
+import { useKnowledgePagesStore } from "../stores/knowledge-pages";
 import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
 import { knowledgeKindVisual } from "../utils/status";
 
-type KnowledgeTab = "list" | "candidates" | "decisions";
-const knowledgeTabs: readonly KnowledgeTab[] = ["list", "candidates", "decisions"];
+type KnowledgeTab = "list" | "pages" | "candidates" | "decisions";
+const knowledgeTabs: readonly KnowledgeTab[] = ["list", "pages", "candidates", "decisions"];
 
 const knowledgeStore = useKnowledgeStore();
 const {
@@ -83,6 +86,8 @@ const route = useRoute();
 const decisionStore = useSessionDecisionsStore();
 const { pendingCount } = storeToRefs(decisionStore);
 const { candidates } = storeToRefs(knowledgeStore);
+const pagesStore = useKnowledgePagesStore();
+const { pages } = storeToRefs(pagesStore);
 
 const hasFilters = computed(() =>
   Boolean(
@@ -108,6 +113,7 @@ const tab = computed<KnowledgeTab>({
 
 const tabs = computed(() => [
   { value: "list" as const, label: "Knowledge", icon: BookOpen, count: knowledgePageInfo.value.total },
+  { value: "pages" as const, label: "知識頁", icon: BookMarked, count: pages.value.length },
   { value: "candidates" as const, label: "候選", icon: Sparkles, count: candidates.value.length },
   { value: "decisions" as const, label: "待確認決策", icon: ListChecks, count: pendingCount.value },
 ]);
@@ -156,6 +162,7 @@ watch(
   () => selectedProjectRoot.value,
   (root) => {
     decisionStore.setListActive(true, root);
+    pagesStore.setListActive(true, root);
     void knowledgeStore.loadCandidates(root);
   },
   { immediate: true },
@@ -164,6 +171,10 @@ watch(
 onMounted(() => setKnowledgeListActive(true));
 onBeforeUnmount(() => setKnowledgeListActive(false));
 onBeforeUnmount(() => decisionStore.setListActive(false));
+onBeforeUnmount(() => {
+  pagesStore.setListActive(false);
+  pagesStore.closePage();
+});
 </script>
 
 <template>
@@ -190,6 +201,7 @@ onBeforeUnmount(() => decisionStore.setListActive(false));
   </UiFlash>
 
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
+  <KnowledgePagePanel :projects="knowledgeProjects" />
 
   <section
     v-if="tab === 'decisions'"
@@ -198,6 +210,9 @@ onBeforeUnmount(() => decisionStore.setListActive(false));
     aria-labelledby="knowledge-tab-decisions"
   >
     <AgentDecisionReviewBox :project-root="selectedProjectRoot" />
+  </section>
+  <section v-else-if="tab === 'pages'" id="knowledge-panel-pages" role="tabpanel" aria-labelledby="knowledge-tab-pages">
+    <KnowledgePagesBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
   </section>
   <section
     v-else-if="tab === 'candidates'"

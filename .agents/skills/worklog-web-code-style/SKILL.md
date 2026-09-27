@@ -61,7 +61,7 @@ Decision rule for a new component:
 
 Order: `<script setup lang="ts">` → `<template>` → `<style scoped>`.
 
-Inside `<script setup>`, follow the section order in the [`worklog-code-layout`](../worklog-code-layout/SKILL.md) skill §2 (imports → types and constants → macros → stores/composables → state → computed → functions → watchers → lifecycle → `defineExpose`). `pnpm lint` checks it with `scripts/sfc-layout.mjs`, `vue/define-macros-order`, and `no-use-before-define`. Put one JSDoc sentence describing the component's purpose above `defineProps` when there are props.
+Inside `<script setup>`, follow the section order in the [`worklog-code-layout`](../worklog-code-layout/SKILL.md) skill §2 (imports → types → macros → constants → stores/composables → state → computed → functions → watchers → lifecycle → `defineExpose`). `pnpm lint` checks it with `scripts/sfc-layout.mjs`, `vue/define-macros-order`, and `no-use-before-define`. Put one JSDoc sentence describing the component's purpose above `defineProps` when there are props.
 
 Import order (blank-line-free, one group after another, alphabetical inside a group):
 1. `vue`, `vue-router`

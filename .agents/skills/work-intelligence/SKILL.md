@@ -85,6 +85,10 @@ In a tracked project, check recorded work proactively — not only when the user
 
 When the user asks to organize or extract Knowledge from recorded work (整理 Knowledge 候選), use the project's open candidate request or create one, read its context, and submit only reusable, source-supported candidates, each naming its source Session and the part of the record that supports it. Skip one-off status and anything already in the existing Knowledge list; an empty submission is fine. Candidates are not Knowledge: tell the user how many you proposed and that they accept or reject them on the Knowledge page. Never record candidates as Knowledge yourself.
 
+## Update standing Knowledge pages
+
+When the user asks to update the project's knowledge pages (更新知識頁), or `pendingRequests.knowledgePages` in the project context shows a page that needs an update, request the page update, read its context, and rewrite the whole page from those Sessions and the current page. Every section cites the Sessions that support it; a part the Sessions do not answer is a section whose content is exactly 資料不足 with no sources. Drop facts later Sessions contradict, never invent plans or recommendations, and tell the user which page you updated and that its versions are on the Knowledge page.
+
 ## Context, search, and Knowledge
 
 To find a specific Session (for example before correcting it), recall or list Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.

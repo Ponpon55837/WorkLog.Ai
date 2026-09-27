@@ -85,6 +85,13 @@ describe("domain API factories", () => {
       projectRoot: "/projects/a",
       reviewStatus: "confirmed",
     });
+    await api.listKnowledgePages("/projects/a");
+    await api.requestKnowledgePageUpdate({ projectRoot: "/projects/a", slug: "pitfalls" });
+    await api.updateKnowledgePage({
+      pageId: "page/1",
+      sections: [{ heading: "H", content: "資料不足", sourceSessionIds: [] }],
+    });
+    await api.listKnowledgePageVersions("page/1");
 
     await api.listMetadataBackfillRequests();
     await api.createMetadataBackfillRequest("project/1");
@@ -97,7 +104,7 @@ describe("domain API factories", () => {
     await api.getSystemStatus();
     await api.pickFolder();
 
-    expect(calls).toHaveLength(49);
+    expect(calls).toHaveLength(53);
     expect(calls.find((call) => call.url.pathname === "/api/backups/backup%201.sqlite")).toMatchObject({
       method: "DELETE",
       body: {},
@@ -121,6 +128,18 @@ describe("domain API factories", () => {
       method: "PATCH",
       body: { projectRoot: "/projects/a", reviewStatus: "confirmed" },
     });
+    expect(
+      calls.find((call) => call.url.pathname === "/api/knowledge-pages")?.url.searchParams.get("projectRoot"),
+    ).toBe("/projects/a");
+    expect(calls.find((call) => call.url.pathname === "/api/knowledge-pages/update-requests")).toMatchObject({
+      method: "POST",
+      body: { projectRoot: "/projects/a", slug: "pitfalls" },
+    });
+    expect(calls.find((call) => call.url.pathname === "/api/knowledge-pages/page%2F1")).toMatchObject({
+      method: "PATCH",
+      body: { sections: [{ heading: "H" }] },
+    });
+    expect(calls.find((call) => call.url.pathname === "/api/knowledge-pages/page%2F1/versions")).toBeDefined();
     expect(calls.find((call) => call.url.pathname === "/api/imports/handoffs")).toMatchObject({ method: "POST" });
   });
 });

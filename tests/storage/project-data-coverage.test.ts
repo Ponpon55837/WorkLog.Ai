@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { PROJECT_DATA_TABLES } from "../../packages/core/src/index.js";
 import { projectDataExportTableColumns } from "../../packages/schema/src/index.js";
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
+import { REDACTED_TEXT_FIELDS } from "../../packages/storage/src/database-redaction.js";
 
 /**
  * Tables that deliberately stay out of the portable project export. Everything else holds project data and
@@ -18,6 +19,12 @@ const NOT_PROJECT_DATA: Record<string, string> = {
   project_deletion_audit: "content-free audit that must outlive the deleted project",
   project_location_audit: "content-free location-change audit that must not retain either path",
   database_maintenance_runs: "per-database maintenance history",
+};
+
+/** Project data tables with no free text for db:redact to scan. Adding one here needs a reason. */
+const NO_FREE_TEXT: Record<string, string> = {
+  projects: "name and root path are chosen by the user in the Web UI",
+  session_links: "ids, relation, and source only",
 };
 
 function userTables(db: DatabaseSync): string[] {
@@ -44,6 +51,16 @@ describe("project data coverage", () => {
     // A new table must join PROJECT_DATA_TABLES (plus export, import, and deletion handling) or NOT_PROJECT_DATA.
     expect(unclassified).toEqual([]);
     expect(PROJECT_DATA_TABLES.filter((table) => !userTables(db).includes(table))).toEqual([]);
+  });
+
+  it("lets db:redact scan the free text of every project data table", () => {
+    const scanned = new Set(Object.keys(REDACTED_TEXT_FIELDS));
+    // A new table with text must join REDACTED_TEXT_FIELDS in database-redaction.ts, or NO_FREE_TEXT with a reason.
+    expect(PROJECT_DATA_TABLES.filter((table) => !scanned.has(table) && !(table in NO_FREE_TEXT))).toEqual([]);
+    for (const [table, fields] of Object.entries(REDACTED_TEXT_FIELDS)) {
+      const existing = new Set(columns(db, table));
+      expect({ table, missing: fields.filter((field) => !existing.has(field)) }).toEqual({ table, missing: [] });
+    }
   });
 
   it("exports exactly the columns each project data table has", () => {

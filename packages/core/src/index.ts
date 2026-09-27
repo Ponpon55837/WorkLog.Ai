@@ -118,6 +118,8 @@ export interface ProjectDeletionCounts {
   sessionSummaryUpdates: number;
   sessionWorkSummaryUpdates: number;
   sessionDecisions: number;
+  knowledgePages: number;
+  knowledgePageVersions: number;
   searchChunks: number;
   searchFts: number;
   searchPaths: number;
@@ -1725,6 +1727,168 @@ export type SubmitKnowledgeCandidatesResult =
   | { outcome: "invalid_candidates"; reason: string }
   | KnowledgeCandidateSkippedResult;
 
+/** Standing Knowledge pages: an Agent-maintained answer to a fixed question about a project. */
+export const KNOWLEDGE_PAGE_DEFAULTS = [
+  {
+    slug: "architecture",
+    title: "架構與慣例",
+    question: "這個專案的架構、模組分工與開發慣例是什麼？",
+  },
+  {
+    slug: "in-progress",
+    title: "進行中的工作與未結項",
+    question: "目前進行中的工作、尚未完成的事項與已知限制有哪些？",
+  },
+  {
+    slug: "pitfalls",
+    title: "常見陷阱",
+    question: "在這個專案工作時，最常遇到的陷阱、錯誤與注意事項是什麼？",
+  },
+] as const;
+export const KNOWLEDGE_PAGE_AUTHORS = ["agent", "web"] as const;
+export type KnowledgePageAuthor = (typeof KNOWLEDGE_PAGE_AUTHORS)[number];
+/** `empty` until first written; `needs_update` once newer Sessions exist than the page was written from. */
+export type KnowledgePageStatus = "empty" | "fresh" | "needs_update";
+/** The literal a section uses when its sources do not answer the question; only such a section may cite nothing. */
+export const KNOWLEDGE_PAGE_INSUFFICIENT = "資料不足";
+
+export interface KnowledgePageSection {
+  heading: string;
+  content: string;
+  sourceSessionIds: string[];
+}
+
+export interface KnowledgePageRecord {
+  id: string;
+  projectId: string;
+  slug: string;
+  title: string;
+  question: string;
+  sections: KnowledgePageSection[];
+  /** 0 until the first version is saved. */
+  version: number;
+  status: KnowledgePageStatus;
+  /** Non-voided Sessions completed after the page was last written. */
+  newSessionCount: number;
+  lastAuthor?: KnowledgePageAuthor;
+  /** When the page was last written (its content reflects Sessions up to this time). */
+  sourcedThrough?: string;
+  updateRequestedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgePageVersionRecord {
+  id: string;
+  pageId: string;
+  version: number;
+  title: string;
+  question: string;
+  sections: KnowledgePageSection[];
+  author: KnowledgePageAuthor;
+  createdAt: string;
+}
+
+export interface KnowledgePageListQuery {
+  projectRoot?: string;
+  projectId?: string;
+}
+
+export interface RequestKnowledgePageUpdateInput {
+  projectRoot: string;
+  slug: string;
+  /** Required with question for a page that is not one of the defaults. */
+  title?: string;
+  question?: string;
+}
+
+export interface KnowledgePageContextQuery {
+  projectRoot: string;
+  slug: string;
+}
+
+export interface SaveKnowledgePageInput {
+  projectRoot: string;
+  slug: string;
+  idempotencyKey: string;
+  sections: KnowledgePageSection[];
+}
+
+export interface UpdateKnowledgePageInput {
+  pageId: string;
+  title?: string;
+  sections: KnowledgePageSection[];
+}
+
+/** A Session as an Agent sees it while writing a Knowledge page. */
+export interface KnowledgePageContextSession {
+  id: string;
+  title: string;
+  completedAt: string;
+  summary: string;
+  workSummary: WorkSummarySections;
+}
+
+export interface KnowledgePageContext {
+  outcome: "knowledge_page_context";
+  page: KnowledgePageRecord;
+  instructions: string;
+  sessions: KnowledgePageContextSession[];
+  /** True when older Sessions or long text were left out to stay within the size limit. */
+  truncated: boolean;
+}
+
+export type KnowledgePageSkippedResult = {
+  outcome: "skipped";
+  projectRoot?: string;
+  projectStatus: PolicyStatus;
+  reason: string;
+};
+
+export type KnowledgePageListResult =
+  { outcome: "knowledge_pages"; items: KnowledgePageRecord[] } | KnowledgePageSkippedResult;
+
+export type RequestKnowledgePageUpdateResult =
+  | { outcome: "knowledge_page_update_requested"; page: KnowledgePageRecord }
+  | { outcome: "invalid_page"; reason: string }
+  | KnowledgePageSkippedResult;
+
+export type KnowledgePageContextResult =
+  KnowledgePageContext | { outcome: "not_found"; slug: string; reason: string } | KnowledgePageSkippedResult;
+
+export type SaveKnowledgePageResult =
+  | { outcome: "knowledge_page_saved"; duplicate: boolean; page: KnowledgePageRecord; redactions?: RedactionSummary }
+  | { outcome: "not_found"; slug: string; reason: string }
+  | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
+  | KnowledgePageSkippedResult;
+
+export type UpdateKnowledgePageResult =
+  | { outcome: "knowledge_page_updated"; page: KnowledgePageRecord; redactions?: RedactionSummary }
+  | { outcome: "not_found"; pageId: string; reason: string }
+  | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
+  | KnowledgePageSkippedResult;
+
+export type KnowledgePageVersionsResult =
+  | {
+      outcome: "knowledge_page_versions";
+      page: KnowledgePageRecord;
+      versions: KnowledgePageVersionRecord[];
+      /** Titles of the Sessions cited by the page and the listed versions; a voided or missing Session is absent. */
+      sources: Array<{ id: string; title: string }>;
+    }
+  | { outcome: "not_found"; pageId: string; reason: string }
+  | KnowledgePageSkippedResult;
+
+/** A bounded page for work_get_context: the rendered answer, cut to a fixed length. */
+export interface KnowledgePageDigest {
+  slug: string;
+  title: string;
+  status: KnowledgePageStatus;
+  updatedAt: string;
+  content: string;
+  truncated: boolean;
+}
+
 export type KnowledgeCandidateListResult =
   | { outcome: "knowledge_candidates"; items: KnowledgeCandidate[]; openRequests: KnowledgeCandidateRequest[] }
   | KnowledgeCandidateSkippedResult;
@@ -1759,9 +1923,13 @@ export interface ContextResult {
     knowledgeCandidates: KnowledgeCandidateRequest[];
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
+    /** Knowledge pages to (re)write: an update was requested or newer Sessions exist. */
+    knowledgePages: Array<{ slug: string; title: string; status: KnowledgePageStatus; updateRequested: boolean }>;
   };
   /** Present when the context query named a task or paths: records ranked for that work. */
   relevant?: RelevantContext;
+  /** Standing answers about the project, bounded in size; read these before searching. */
+  knowledgePages: KnowledgePageDigest[];
 }
 
 /** Where a recall hit matched; `raw` is a section of the imported handoff snapshot. */
@@ -1982,6 +2150,8 @@ export const PROJECT_DATA_TABLES = [
   "session_links",
   "knowledge",
   "session_decisions",
+  "knowledge_pages",
+  "knowledge_page_versions",
   "knowledge_audit",
   "knowledge_candidate_requests",
   "knowledge_candidates",

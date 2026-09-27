@@ -4,6 +4,7 @@ import type {
   ContextResult,
   DecisionDigest,
   KnowledgeCandidateRequest,
+  KnowledgePageDigest,
   KnowledgeDigest,
   KnowledgeQuery,
   KnowledgeQueryResult,
@@ -52,6 +53,8 @@ interface ContextRecallStoreReader {
   previewMetadataBackfill(options: { projectRoot?: string; limit?: number }): MetadataBackfillPreviewResult;
   openKnowledgeCandidateRequests(projectId?: string): KnowledgeCandidateRequest[];
   countPendingAgentDecisions(projectId?: string): number;
+  knowledgePageDigests(projectId: string): KnowledgePageDigest[];
+  pendingKnowledgePages(projectId?: string): ContextResult["pendingRequests"]["knowledgePages"];
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -98,6 +101,7 @@ export class ContextRecallService {
       recentKnowledge: this.getRecentKnowledge(),
       metadataFollowUps: this.getMetadataFollowUps(),
       pendingRequests: this.getPendingRequests(),
+      knowledgePages: [],
       ...(relevant ? { relevant } : {}),
     };
   }
@@ -197,6 +201,7 @@ export class ContextRecallService {
       metadataFollowUps: this.getMetadataFollowUps(project.id),
       pendingRequests: this.getPendingRequests(project.id),
       ...(relevant ? { relevant } : {}),
+      knowledgePages: this.store.knowledgePageDigests(project.id),
     };
   }
 
@@ -266,6 +271,7 @@ export class ContextRecallService {
           : [],
       knowledgeCandidates: this.store.openKnowledgeCandidateRequests(projectId),
       agentDecisions: this.store.countPendingAgentDecisions(projectId),
+      knowledgePages: this.store.pendingKnowledgePages(projectId),
     };
   }
 

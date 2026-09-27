@@ -77,6 +77,10 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
 | PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge                                           |
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
+| GET      | `/api/knowledge-pages`                           | 列出 tracked projects 的常駐知識頁（狀態、版本、新 Session 數）；可用 `projectRoot` 篩選 |
+| POST     | `/api/knowledge-pages/update-requests`           | 要求 Agent 更新知識頁（`projectRoot`、`slug`；自訂頁另帶 `title`、`question`），不存在時建立 |
+| PATCH    | `/api/knowledge-pages/:id`                       | Web 手動編輯（`sections`，可帶 `title`）；每段須列來源 Session 或內容為「資料不足」，儲存為新版本 |
+| GET      | `/api/knowledge-pages/:id/versions`              | 最近 50 個版本（新到舊）與引用 Session 的標題                                          |
 | GET      | `/api/graph`                                     | 讀取 tracked-only deterministic work graph                                             |
 | GET      | `/api/context`                                   | Agent context query（含 `pendingRequests`：等待 Agent 的報告整理與 metadata 回補請求）     |
 | GET      | `/api/search?q=...`                              | Work history search（與 MCP `work_recall` 同一個排序引擎，只查 Session，最多 20 筆）   |

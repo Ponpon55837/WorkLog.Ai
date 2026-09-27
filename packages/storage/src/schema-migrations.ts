@@ -408,9 +408,50 @@ const MIGRATIONS: SchemaMigration[] = [
         WHERE origin = 'agent_autonomous';
     `,
   },
+  {
+    version: 16,
+    name: "knowledge-pages",
+    sql: `
+      CREATE TABLE knowledge_pages (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL,
+        title TEXT NOT NULL,
+        question TEXT NOT NULL,
+        sections_json TEXT NOT NULL DEFAULT '[]',
+        version INTEGER NOT NULL DEFAULT 0 CHECK (version >= 0),
+        sourced_through TEXT,
+        update_requested_at TEXT,
+        last_author TEXT CHECK (last_author IS NULL OR last_author IN ('agent', 'web')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_knowledge_pages_project_slug ON knowledge_pages(project_id, slug);
+      CREATE TABLE knowledge_page_versions (
+        id TEXT PRIMARY KEY,
+        page_id TEXT NOT NULL REFERENCES knowledge_pages(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL CHECK (version >= 1),
+        title TEXT NOT NULL,
+        question TEXT NOT NULL,
+        sections_json TEXT NOT NULL,
+        author TEXT NOT NULL CHECK (author IN ('agent', 'web')),
+        idempotency_key TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_knowledge_page_versions_page_version ON knowledge_page_versions(page_id, version);
+      CREATE UNIQUE INDEX idx_knowledge_page_versions_idempotency
+        ON knowledge_page_versions(page_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
+
+/** The SQL of one migration, for tests that rebuild the database as it was before that migration. */
+export function schemaMigrationSql(version: number): string | undefined {
+  return MIGRATIONS.find((migration) => migration.version === version)?.sql;
+}
 
 export function getAppliedSchemaVersions(db: DatabaseSync): number[] {
   const tableExists = db
