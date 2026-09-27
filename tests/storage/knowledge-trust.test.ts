@@ -116,6 +116,27 @@ describe("Knowledge trust", () => {
     expect(confirmed.outcome === "knowledge_updated" && confirmed.knowledge.possiblyStale).toBeUndefined();
   });
 
+  it("computes staleness per Knowledge from its own start time when a whole list is checked at once", () => {
+    const { store, root, finalize, record } = setup();
+    const early = record("early", { appliesTo: ["src/hive/**"] });
+    const firstTouch = finalize("first-touch", { changedFiles: ["src/hive/queen.ts"] });
+    const late = record("late", { appliesTo: ["src/hive/**"] });
+    const glob = record("glob", { appliesTo: ["src/*/drone.ts"] });
+    const plain = record("plain", { appliesTo: ["docs"] });
+    const secondTouch = finalize("second-touch", { changedFiles: ["src/hive/drone.ts"] });
+
+    // One searchKnowledge call batches every record of the project into a single Session scan.
+    const result = store.searchKnowledge({ projectRoot: root, limit: 50 });
+    const byId = new Map(result.outcome === "knowledge" ? result.items.map((item) => [item.id, item]) : []);
+    expect(byId.get(early.id)?.possiblyStale).toMatchObject({ sessionId: firstTouch.session.id, sessionCount: 2 });
+    expect(byId.get(late.id)?.possiblyStale).toMatchObject({ sessionId: secondTouch.session.id, sessionCount: 1 });
+    expect(byId.get(glob.id)?.possiblyStale).toMatchObject({
+      sessionId: secondTouch.session.id,
+      paths: ["src/hive/drone.ts"],
+    });
+    expect(byId.get(plain.id)?.possiblyStale).toBeUndefined();
+  });
+
   it("confirms applied Knowledge and flags contradicted Knowledge from finalize", () => {
     const { store, finalize, record, knowledgeById } = setup();
     const applied = record("applied", { appliesTo: ["src/hive/**"] });

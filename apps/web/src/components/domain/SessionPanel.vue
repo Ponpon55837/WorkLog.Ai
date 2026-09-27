@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
-import { useSessionDetail } from "../../composables/useSessionDetail";
 import { useRecordVoid } from "../../composables/useRecordVoid";
 import { useSessionEditor } from "../../composables/useSessionEditor";
 import { useSessionLinks } from "../../composables/useSessionLinks";
 import { useToast } from "../../composables/useToast";
 import { router } from "../../router";
+import { useSessionsStore } from "../../stores/sessions";
 import UiSidePanel from "../ui/UiSidePanel.vue";
 import SessionPanelActivity from "./SessionPanelActivity.vue";
 import SessionPanelHeader from "./SessionPanelHeader.vue";
@@ -17,7 +18,9 @@ import SessionPanelSummary from "./SessionPanelSummary.vue";
  * through the list it was opened from. The summary texts are edited through a separate Dialog.
  */
 const route = useRoute();
-const { selectedDetail, position, openSessionDetail, closeSessionDetail, openAdjacentSession } = useSessionDetail();
+const sessionsStore = useSessionsStore();
+const { selectedDetail, position } = storeToRefs(sessionsStore);
+const { openSessionDetail, closeSessionDetail, openAdjacentSession } = sessionsStore;
 const { openSessionEditor } = useSessionEditor();
 const { openVoidDialog, restoreRecord } = useRecordVoid();
 const { openLinkDialog, removeLink } = useSessionLinks();

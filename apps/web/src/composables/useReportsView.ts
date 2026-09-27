@@ -3,18 +3,19 @@ import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
 import { CircleCheckBig, Download, FileText, LayoutDashboard, Link, TrendingUp, TriangleAlert } from "lucide-vue-next";
 import type { ReportEvidence, ReportExportFormat, WorkSessionRecord } from "@work-intelligence/core";
-import { useProjects } from "../composables/useProjects";
 import { enumQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
-import { useSessionDetail } from "../composables/useSessionDetail";
 import { router } from "../router";
+import { useProjectsStore } from "../stores/projects";
 import { useReportsStore, type ReportViewPeriod } from "../stores/reports";
+import { useSessionsStore } from "../stores/sessions";
 import { toDateInputValue } from "../utils/format";
 import { reportPeriodLabels, reportTabOptions, type ReportTab } from "../utils/labels";
 
 function createReportsViewModel() {
   const route = useRoute();
 
-  const { trackedProjects } = useProjects();
+  const projectsStore = useProjectsStore();
+  const { trackedProjects } = storeToRefs(projectsStore);
 
   const reportsStore = useReportsStore();
 
@@ -42,7 +43,8 @@ function createReportsViewModel() {
 
   const { loadReport, loadReportSessions, loadReportEvidence, exportReport } = reportsStore;
 
-  const { openSessionDetail, setSessionSequence } = useSessionDetail();
+  const sessionsStore = useSessionsStore();
+  const { openSessionDetail, setSessionSequence } = sessionsStore;
 
   const periods: ReportViewPeriod[] = ["day", "week", "month", "quarter", "year", "custom"];
 

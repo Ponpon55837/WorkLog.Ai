@@ -4,8 +4,8 @@ import { Check, ExternalLink, Pencil, Sparkles, X } from "lucide-vue-next";
 import type { ProjectRecord } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useKnowledgeCandidates } from "../../composables/useKnowledgeCandidates";
-import { useSessionDetail } from "../../composables/useSessionDetail";
 import { useToast } from "../../composables/useToast";
+import { useSessionsStore } from "../../stores/sessions";
 import { formatRelative } from "../../utils/format";
 import { knowledgeKindVisual } from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
@@ -35,7 +35,8 @@ const {
   rejectCandidate,
   openCandidateEditor,
 } = useKnowledgeCandidates();
-const { openSessionDetail } = useSessionDetail();
+const sessionsStore = useSessionsStore();
+const { openSessionDetail } = sessionsStore;
 const { showToast } = useToast();
 
 // A finished request leaves the open list, so a missing request means the Agent submitted its candidates.

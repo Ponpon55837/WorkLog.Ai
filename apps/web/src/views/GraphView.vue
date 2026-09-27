@@ -14,12 +14,13 @@ import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import GraphCanvas from "../components/GraphCanvas.vue";
 import { useGraph, type GraphNodeFilter } from "../composables/useGraph";
-import { useProjects } from "../composables/useProjects";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
+import { useProjectsStore } from "../stores/projects";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 
-const { trackedProjects } = useProjects();
+const projectsStore = useProjectsStore();
+const { trackedProjects } = storeToRefs(projectsStore);
 const graphStore = useGraphStore();
 const {
   graph,

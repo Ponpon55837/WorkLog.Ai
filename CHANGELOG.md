@@ -28,6 +28,9 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Work history search (`work_search` and the web search box) no longer takes seconds on large databases: the full-text match now drives the join (about 150× faster at 5,000 Sessions).
+- Listing Knowledge computes "possibly stale" markers in one pass per project instead of one query per item (about 15× faster).
+- Portable JSON exports now include whether a Session's empty changed-file list was confirmed, so the confirmation survives moving to another computer; older export files still import.
 - The MCP server now honors `WORK_INTELLIGENCE_BACKUP_DIR` and `WORK_INTELLIGENCE_BACKUP_KEEP` like the API server and CLI, so pre-migration backups land in the same place whichever process opens the database first. A relative backup directory resolves beside the database.
 - The web UI no longer reports the API as unreachable when the API itself answers with a JSON 5xx error; only transport failures and non-API gateway errors show the offline notice.
 - `pnpm run doctor` recognizes a Claude Code Stop hook written in exec form, with the script path in `args`.

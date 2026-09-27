@@ -364,12 +364,14 @@ export class SearchRepository {
     }
 
     const { clause, parameters } = this.scopeClause("c", options);
+    // CROSS JOIN pins the FTS match as the outer loop. With a plain JOIN and a doc_type filter, SQLite drives
+    // from idx_search_chunks_doc and re-runs the full-text scan once per chunk (about 300x slower at 5,000 Sessions).
     const rows = this.db
       .prepare(
         `SELECT c.id, c.doc_type, c.doc_id, c.project_id, c.field, c.heading, c.weight, c.doc_date,
                 -bm25(search_fts) AS score
          FROM search_fts
-         JOIN search_chunks c ON c.id = search_fts.rowid
+         CROSS JOIN search_chunks c ON c.id = search_fts.rowid
          JOIN projects p ON p.id = c.project_id
          LEFT JOIN knowledge k ON c.doc_type = 'knowledge' AND k.id = c.doc_id
          WHERE search_fts MATCH ? AND ${clause}`,

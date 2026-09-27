@@ -65,7 +65,7 @@ export interface SessionRecordDependencies {
   checkProjectById(projectId: string): PolicyDecision;
   getSessionById(sessionId: string): WorkSessionRecord | undefined;
   getProjectById(projectId: string): ProjectRecord | undefined;
-  withKnowledgeTrust(knowledge: KnowledgeRecord): KnowledgeRecord;
+  withKnowledgeTrustMany(knowledge: KnowledgeRecord[]): KnowledgeRecord[];
 }
 
 export class SessionRecordService {
@@ -652,7 +652,7 @@ export class SessionRecordService {
       events: events.map(toEvent),
       rawSnapshots: snapshots.map(toSnapshot),
       evidence: evidence.map(toEvidence),
-      knowledge: knowledge.map((row) => this.dependencies.withKnowledgeTrust(toKnowledge(row))),
+      knowledge: this.dependencies.withKnowledgeTrustMany(knowledge.map(toKnowledge)),
       links: this.getSessionLinks(sessionId),
       verificationHistory: (
         this.db

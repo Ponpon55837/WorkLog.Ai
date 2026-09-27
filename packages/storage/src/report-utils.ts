@@ -156,17 +156,19 @@ export function buildReportTrends(
   eventsBySession: Map<string, ReportEventRow[]>,
 ): ReportTrendPoint[] {
   const dates = granularity === "month" ? listCalendarMonths(range) : listCalendarDates(range);
+  const keyLength = granularity === "month" ? 7 : 10;
+  // One pass over the Sessions into date buckets, instead of re-scanning (and re-formatting) every Session per date.
+  const buckets = new Map<string, { sessions: number; events: number }>();
+  for (const session of sessions) {
+    const bucketKey = toLocalCalendarDate(session.completedAt).slice(0, keyLength);
+    const bucket = buckets.get(bucketKey) ?? { sessions: 0, events: 0 };
+    bucket.sessions += 1;
+    bucket.events += eventsBySession.get(session.id)?.length ?? 0;
+    buckets.set(bucketKey, bucket);
+  }
   return dates.map((date) => {
-    const keyLength = granularity === "month" ? 7 : 10;
-    const bucketKey = date.slice(0, keyLength);
-    const bucketSessions = sessions.filter(
-      (session) => toLocalCalendarDate(session.completedAt).slice(0, keyLength) === bucketKey,
-    );
-    return {
-      date,
-      sessions: bucketSessions.length,
-      events: bucketSessions.reduce((total, session) => total + (eventsBySession.get(session.id)?.length ?? 0), 0),
-    };
+    const bucket = buckets.get(date.slice(0, keyLength));
+    return { date, sessions: bucket?.sessions ?? 0, events: bucket?.events ?? 0 };
   });
 }
 

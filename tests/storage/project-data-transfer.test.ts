@@ -467,6 +467,45 @@ describe("portable project data transfer", () => {
     expect(destination.listProjects()).toHaveLength(1);
   });
 
+  it("carries the confirmed-empty changed files flag and still imports exports made before it existed", () => {
+    const source = createSource();
+    const sourceDb = new DatabaseSync(source.store.databasePath);
+    try {
+      sourceDb.prepare("UPDATE sessions SET changed_files_confirmed = 1 WHERE id = ?").run(source.sessionIds[0]);
+    } finally {
+      sourceDb.close();
+    }
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const confirmedRow = bundle.tables.sessions.find((session) => session.id === source.sessionIds[0]);
+    expect(confirmedRow?.changed_files_confirmed).toBe(1);
+
+    const confirmedFlag = (store: WorkIntelligenceStore): unknown => {
+      const db = new DatabaseSync(store.databasePath);
+      try {
+        return db.prepare("SELECT changed_files_confirmed FROM sessions WHERE id = ?").get(source.sessionIds[0]);
+      } finally {
+        db.close();
+      }
+    };
+
+    const current = new WorkIntelligenceStore(join(source.root, "current-format.sqlite"));
+    stores.push(current);
+    current.importProjectData({ bundle, remap: [] });
+    expect(confirmedFlag(current)).toEqual({ changed_files_confirmed: 1 });
+
+    // An export written before the column existed has no such key; it must import with the default.
+    const legacy = structuredClone(bundle);
+    for (const session of legacy.tables.sessions) {
+      delete session.changed_files_confirmed;
+    }
+    expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
+    const older = new WorkIntelligenceStore(join(source.root, "legacy-format.sqlite"));
+    stores.push(older);
+    const result = older.importProjectData({ bundle: legacy, remap: [] });
+    expect(result.additions.sessions).toBe(2);
+    expect(confirmedFlag(older)).toEqual({ changed_files_confirmed: 0 });
+  });
+
   it("imports one selected project from an all-project file", () => {
     const source = createSource();
     const secondRoot = join(source.root, "second-project");

@@ -296,7 +296,7 @@ export class WorkIntelligenceStore {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
       getSessionById: (sessionId) => this.getSessionById(sessionId),
       getProjectById: (projectId) => this.getProjectById(projectId),
-      withKnowledgeTrust: (knowledge) => this.withKnowledgeTrust(knowledge),
+      withKnowledgeTrustMany: (knowledge) => this.knowledgeService.withKnowledgeTrustMany(knowledge),
     });
     this.reportReader = new ReportReadService(this.db, this);
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {

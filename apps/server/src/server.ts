@@ -1380,17 +1380,20 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         return;
       }
 
+      if (response.headersSent) {
+        // A streamed download failed midway (busy or otherwise); headers are gone, so cut the connection
+        // and let the client see an incomplete file instead of throwing while writing a second response.
+        console.error("[work-intelligence] API request failed after the response started", error);
+        response.destroy();
+        return;
+      }
+
       if (isDatabaseBusyError(error)) {
         sendError(response, 503, DATABASE_BUSY_MESSAGE, undefined, "database_busy");
         return;
       }
 
       console.error("[work-intelligence] API request failed", error);
-      if (response.headersSent) {
-        // A streamed download failed midway; cut the connection so the client sees an incomplete file.
-        response.destroy();
-        return;
-      }
       sendError(response, 500, "Internal server error.");
     }
   };

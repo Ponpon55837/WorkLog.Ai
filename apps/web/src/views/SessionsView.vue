@@ -19,14 +19,14 @@ import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { useListReload } from "../composables/useListReload";
-import { useProjects } from "../composables/useProjects";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
-import { useSessionDetail } from "../composables/useSessionDetail";
+import { useProjectsStore } from "../stores/projects";
 import { useSessionsStore } from "../stores/sessions";
 import { formatDayGroup } from "../utils/format";
 import { listPageSizeOptions, voidedFilterOptions } from "../utils/labels";
 
-const { projects } = useProjects();
+const projectsStore = useProjectsStore();
+const { projects } = storeToRefs(projectsStore);
 const sessionsStore = useSessionsStore();
 const {
   sessions,
@@ -44,7 +44,7 @@ const {
   hasSessionFilters,
 } = storeToRefs(sessionsStore);
 const { loadSessions, clearSessionFilters, setSessionsListActive } = sessionsStore;
-const { openSessionDetail, setSessionSequence } = useSessionDetail();
+const { openSessionDetail, setSessionSequence } = sessionsStore;
 
 useRouteQuery("q", searchTerm, stringQuery());
 useRouteQuery("project", selectedProjectId, stringQuery());
