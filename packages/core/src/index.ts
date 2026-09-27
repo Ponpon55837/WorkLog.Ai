@@ -117,6 +117,7 @@ export interface ProjectDeletionCounts {
   metadataBackfillRequests: number;
   sessionSummaryUpdates: number;
   sessionWorkSummaryUpdates: number;
+  sessionDecisions: number;
   searchChunks: number;
   searchFts: number;
   searchPaths: number;
@@ -159,6 +160,63 @@ export interface WorkSummarySections {
   verification: string[];
   nextSteps: string[];
 }
+
+export type WorkSummaryDecisionOrigin = "user_requested" | "agent_autonomous";
+export const WORK_SUMMARY_DECISION_ORIGINS = ["user_requested", "agent_autonomous"] as const;
+export const SESSION_DECISION_ORIGINS = [...WORK_SUMMARY_DECISION_ORIGINS, "unspecified"] as const;
+export const SESSION_DECISION_REVIEW_STATUSES = ["pending", "confirmed", "rejected", "promoted"] as const;
+export type SessionDecisionOrigin = WorkSummaryDecisionOrigin | "unspecified";
+export type SessionDecisionReviewStatus = "pending" | "confirmed" | "rejected" | "promoted";
+
+export interface WorkSummaryDecisionInput {
+  text: string;
+  origin: WorkSummaryDecisionOrigin;
+}
+
+export type WorkSummaryDecisionEntry = string | WorkSummaryDecisionInput;
+
+export interface WorkSummaryInputSections extends Omit<WorkSummarySections, "decisions"> {
+  decisions: WorkSummaryDecisionEntry[];
+}
+
+export interface SessionDecisionRecord {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  position: number;
+  text: string;
+  origin: SessionDecisionOrigin;
+  reviewStatus: SessionDecisionReviewStatus;
+  reviewedAt?: string;
+  knowledgeId?: string;
+  sessionTitle?: string;
+  sessionCompletedAt?: string;
+}
+
+export interface ListSessionDecisionsInput {
+  projectRoot?: string;
+  status?: "pending" | "all";
+  limit?: number;
+}
+
+export interface SessionDecisionListResult {
+  outcome: "session_decisions";
+  items: SessionDecisionRecord[];
+  pendingCount: number;
+}
+
+export type SessionDecisionListQueryResult =
+  | SessionDecisionListResult
+  | { outcome: "skipped"; projectRoot?: string; projectStatus: PolicyStatus; reason?: string };
+
+export type ReviewSessionDecisionInput =
+  | { decisionId: string; projectRoot: string; reviewStatus: "confirmed" | "rejected" }
+  | { decisionId: string; projectRoot: string; reviewStatus: "promoted"; knowledgeId: string };
+
+export type ReviewSessionDecisionResult =
+  | { outcome: "session_decision_reviewed"; decision: SessionDecisionRecord; duplicate: boolean }
+  | { outcome: "not_found"; decisionId: string }
+  | { outcome: "skipped"; decisionId?: string; projectStatus: PolicyStatus; reason?: string };
 
 export interface WorkSessionRecord {
   id: string;
@@ -221,6 +279,7 @@ export interface SessionDetail {
   rawSnapshots: RawSnapshotRecord[];
   evidence: EvidenceRecord[];
   knowledge: KnowledgeRecord[];
+  decisions: SessionDecisionRecord[];
   /** Void and restore history of this Session and its evidence, newest first. */
   voidHistory: VoidAuditRecord[];
   /** Verification corrections after finalize, newest first. */
@@ -756,6 +815,11 @@ export interface WorkReport {
   comparison: ReportComparison;
   risks: ReportInsight[];
   decisions: ReportDecision[];
+  agentAutonomousDecisions: {
+    total: number;
+    pending: number;
+    pendingItems: SessionDecisionRecord[];
+  };
   trendGranularity: ReportTrendGranularity;
   trends: ReportTrendPoint[];
   /**
@@ -1048,7 +1112,7 @@ export interface FinalizeSessionInput {
   idempotencyKey: string;
   title: string;
   summary: string;
-  workSummary?: WorkSummarySections;
+  workSummary?: WorkSummaryInputSections;
   externalSessionId?: string;
   handoffPath?: string;
   handoffContent?: string;
@@ -1475,7 +1539,7 @@ export interface UpdateSessionWorkSummaryInput {
   sessionId: string;
   idempotencyKey: string;
   mode?: WorkSummaryUpdateMode;
-  workSummary: WorkSummarySections | Partial<WorkSummarySections>;
+  workSummary: WorkSummaryInputSections | Partial<WorkSummaryInputSections>;
 }
 
 export interface UpdatedSessionWorkSummaryResult {
@@ -1686,6 +1750,8 @@ export interface ContextResult {
     reportSynthesis: ReportSynthesisRequest[];
     metadataBackfill: MetadataBackfillRequest[];
     knowledgeCandidates: KnowledgeCandidateRequest[];
+    /** Number only; decision content is reviewed in the Web UI. */
+    agentDecisions: number;
   };
   /** Present when the context query named a task or paths: records ranked for that work. */
   relevant?: RelevantContext;
@@ -1897,6 +1963,7 @@ export const PROJECT_DATA_TABLES = [
   "session_verification_updates",
   "session_links",
   "knowledge",
+  "session_decisions",
   "knowledge_audit",
   "knowledge_candidate_requests",
   "knowledge_candidates",

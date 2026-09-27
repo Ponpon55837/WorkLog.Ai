@@ -51,6 +51,7 @@ export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, str
   metadataBackfillRequests: "Metadata 回補請求",
   sessionSummaryUpdates: "Session 摘要更新",
   sessionWorkSummaryUpdates: "WorkSummary 更新",
+  sessionDecisions: "Session 決策",
   searchChunks: "搜尋索引片段",
   searchFts: "全文搜尋索引",
   searchPaths: "搜尋路徑",

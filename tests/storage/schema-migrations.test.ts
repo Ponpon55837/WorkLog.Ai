@@ -111,6 +111,25 @@ describe("custom report synthesis migration", () => {
         version: 14,
         name: "session-redaction-count",
       });
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 15").get()).toEqual({
+        version: 15,
+        name: "session-decisions",
+      });
+      expect(
+        (db.prepare("PRAGMA table_info(session_decisions)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      ).toEqual([
+        "id",
+        "session_id",
+        "project_id",
+        "position",
+        "text",
+        "origin",
+        "review_status",
+        "reviewed_at",
+        "knowledge_id",
+      ]);
       expect(
         db
           .prepare("SELECT id, period, range_from, range_to, source_session_ids_json FROM report_synthesis_requests")
@@ -193,6 +212,10 @@ describe("custom report synthesis migration", () => {
       expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 14").get()).toEqual({
         version: 14,
         name: "session-redaction-count",
+      });
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 15").get()).toEqual({
+        version: 15,
+        name: "session-decisions",
       });
       expect(
         (db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map((column) => column.name),

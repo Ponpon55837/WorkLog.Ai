@@ -6,6 +6,7 @@ import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import UiFlash from "../ui/UiFlash.vue";
 import VirtualList from "../VirtualList.vue";
 import { formatDate, formatRelative } from "../../utils/format";
 import { insightKindLabels } from "../../utils/labels";
@@ -77,6 +78,50 @@ const emit = defineEmits<{
               >{{ decision.sessionTitle }} ·
               <time :title="formatDate(decision.occurredAt)">{{ formatRelative(decision.occurredAt) }}</time></template
             >
+          </UiBoxRow>
+        </template>
+      </VirtualList>
+    </UiBox>
+    <UiBox sticky-header data-testid="report-agent-autonomous-decisions">
+      <template #header>
+        <UiBoxTitle
+          eyebrow="Agent-autonomous decisions"
+          title="本期 Agent 自主決策"
+          :count="report.agentAutonomousDecisions.total"
+        />
+      </template>
+      <UiFlash
+        v-if="report.agentAutonomousDecisions.pending > report.agentAutonomousDecisions.pendingItems.length"
+        tone="attention"
+      >
+        顯示最新 {{ report.agentAutonomousDecisions.pendingItems.length }} 筆，共
+        {{ report.agentAutonomousDecisions.pending }} 筆待確認。
+      </UiFlash>
+      <UiEmptyState
+        v-if="report.agentAutonomousDecisions.total === 0"
+        compact
+        title="這段期間沒有 Agent 自主決策"
+        description="只有明確標記來源為 Agent 自主選擇的決策會列在這裡。"
+      />
+      <UiEmptyState
+        v-else-if="report.agentAutonomousDecisions.pendingItems.length === 0"
+        compact
+        title="本期自主決策都已處理"
+        :description="`${report.agentAutonomousDecisions.total} 筆決策，待確認 0 筆。`"
+      />
+      <VirtualList
+        v-else
+        :items="report.agentAutonomousDecisions.pendingItems"
+        :enabled="true"
+        fit-viewport
+        fit-viewport-to-panel
+        :estimate-item-height="104"
+        label="本期待確認 Agent 自主決策清單"
+      >
+        <template #default="{ item: decision }">
+          <UiBoxRow clickable :title="decision.text" @select="emit('open-report-session', decision.sessionId)">
+            <template #labels><UiLabel tone="attention">待確認</UiLabel></template>
+            <template #meta>{{ decision.sessionTitle }} · 開啟來源 Session</template>
           </UiBoxRow>
         </template>
       </VirtualList>

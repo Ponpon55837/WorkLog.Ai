@@ -7,6 +7,7 @@ import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import KnowledgeCandidateEditorDialog from "../components/domain/KnowledgeCandidateEditorDialog.vue";
 import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.vue";
+import AgentDecisionReviewBox from "../components/domain/AgentDecisionReviewBox.vue";
 import KnowledgeRow, { type KnowledgeAction } from "../components/domain/KnowledgeRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -144,6 +145,7 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
     <template #actions><UiButton size="sm" @click="retryKnowledge">重試</UiButton></template>
   </UiFlash>
 
+  <AgentDecisionReviewBox :project-root="selectedProjectRoot" />
   <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
 

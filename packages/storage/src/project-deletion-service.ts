@@ -46,6 +46,7 @@ const projectDeletionCountKeys = [
   "metadataBackfillRequests",
   "sessionSummaryUpdates",
   "sessionWorkSummaryUpdates",
+  "sessionDecisions",
   "searchChunks",
   "searchFts",
   "searchPaths",
@@ -62,6 +63,10 @@ function parseProjectDeletionCounts(value: string): ProjectDeletionCounts {
   const counts = {} as ProjectDeletionCounts;
   for (const key of projectDeletionCountKeys) {
     const count = source[key];
+    if (key === "sessionDecisions" && count === undefined) {
+      counts[key] = 0;
+      continue;
+    }
     if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
       throw new Error("Invalid project deletion audit counts.");
     }
@@ -238,6 +243,16 @@ function makeDeletionCounts(
       "SELECT COUNT(*) AS count FROM session_work_summary_updates WHERE session_id IN (SELECT value FROM json_each(?))",
       sessionIdJson,
     ),
+    sessionDecisions: countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM session_decisions
+       WHERE project_id = ?
+          OR session_id IN (SELECT value FROM json_each(?))
+          OR knowledge_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
+      projectId,
+      sessionIdJson,
+      projectId,
+    ),
     searchChunks: 0,
     searchFts: 0,
     searchPaths: 0,
@@ -356,6 +371,15 @@ export class ProjectDeletionService {
         );
         deleteByIds(this.db, "report_synthesis_requests", reportRequestIds);
         deleteByIds(this.db, "metadata_backfill_requests", metadataRequestIds);
+
+        this.db
+          .prepare(
+            `DELETE FROM session_decisions
+             WHERE project_id = ?
+                OR session_id IN (SELECT value FROM json_each(?))
+                OR knowledge_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
+          )
+          .run(projectId, JSON.stringify(sessionIds), projectId);
 
         this.db
           .prepare(

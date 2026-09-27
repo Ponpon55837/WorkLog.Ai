@@ -26,6 +26,9 @@ export const queryKeys = {
     history: ["knowledge", "history"] as const,
     candidates: ["knowledge", "candidates"] as const,
   },
+  sessionDecisions: {
+    list: ["session-decisions", "list"] as const,
+  },
   sessions: {
     list: ["sessions", "list"] as const,
     detail: ["sessions", "detail"] as const,

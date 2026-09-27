@@ -8,6 +8,7 @@ import type {
   PolicyDecision,
   ProjectRecord,
   SessionDetail,
+  SessionDecisionRecord,
   SessionLinkRecord,
   SessionLinkRelation,
   SetEvidenceVoidInput,
@@ -37,6 +38,7 @@ import {
   parseJson,
   parseWorkSummarySections,
   normalizeWorkSummaryPatch,
+  normalizeWorkSummaryDecisions,
   completeWorkSummary,
   mergeWorkSummary,
   sameVerification,
@@ -61,6 +63,33 @@ import { createProjectPathResolver } from "@work-intelligence/project-policy";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import type { SessionRow } from "./session-repository.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
+import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
+
+type SessionDecisionDbRow = {
+  id: string;
+  session_id: string;
+  project_id: string;
+  position: number;
+  text: string;
+  origin: SessionDecisionRecord["origin"];
+  review_status: SessionDecisionRecord["reviewStatus"];
+  reviewed_at: string | null;
+  knowledge_id: string | null;
+};
+
+function toSessionDecision(row: SessionDecisionDbRow): SessionDecisionRecord {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    projectId: row.project_id,
+    position: row.position,
+    text: row.text,
+    origin: row.origin,
+    reviewStatus: row.review_status,
+    ...(row.reviewed_at ? { reviewedAt: row.reviewed_at } : {}),
+    ...(row.knowledge_id ? { knowledgeId: row.knowledge_id } : {}),
+  };
+}
 
 export interface SessionRecordDependencies {
   checkProjectById(projectId: string): PolicyDecision;
@@ -529,6 +558,9 @@ export class SessionRecordService {
     }
 
     const mode = input.mode ?? "replace";
+    const decisionInputs = Array.isArray(input.workSummary.decisions)
+      ? normalizeWorkSummaryDecisions(input.workSummary.decisions)
+      : undefined;
     const normalizedPatchResult = redactValue(normalizeWorkSummaryPatch(input.workSummary));
     const normalizedPatch = normalizedPatchResult.value;
     if (Object.keys(normalizedPatch).length === 0) {
@@ -538,7 +570,18 @@ export class SessionRecordService {
     if (mode === "replace" && !replacement) {
       throw new Error("replace mode requires all five workSummary sections.");
     }
-    const requestJson = JSON.stringify(normalizedPatch);
+    const normalizedRequest = {
+      ...normalizedPatch,
+      ...(decisionInputs
+        ? {
+            decisions: decisionInputs.map((decision, position) => ({
+              text: normalizedPatch.decisions?.[position] ?? decision.text,
+              origin: decision.origin,
+            })),
+          }
+        : {}),
+    };
+    const requestJson = JSON.stringify(normalizedRequest);
     const project = decision.project;
 
     return runImmediateSqlTransaction(this.db, () => {
@@ -611,6 +654,13 @@ export class SessionRecordService {
       this.db
         .prepare("UPDATE sessions SET work_summary_json = ?, redaction_count = redaction_count + ? WHERE id = ?")
         .run(JSON.stringify(appliedWorkSummary), redactions.total, input.sessionId);
+      if (decisionInputs) {
+        const persistedDecisions: SessionDecisionDraft[] = decisionInputs.map((decision, position) => ({
+          ...decision,
+          text: normalizedPatch.decisions?.[position] ?? decision.text,
+        }));
+        replaceSessionDecisions(this.db, input.sessionId, project.id, persistedDecisions);
+      }
       this.touchSession(input.sessionId, createdAt);
       this.db
         .prepare(
@@ -623,7 +673,7 @@ export class SessionRecordService {
           sessionId: input.sessionId,
           idempotencyKey: input.idempotencyKey,
           mode,
-          workSummary: JSON.stringify(normalizedPatch),
+          workSummary: requestJson,
           previousWorkSummary: JSON.stringify(previousWorkSummary ?? {}),
           resultingWorkSummary: JSON.stringify(appliedWorkSummary),
           createdAt,
@@ -683,6 +733,9 @@ export class SessionRecordService {
          ORDER BY k.updated_at DESC, k.id ASC`,
       )
       .all(sessionId) as KnowledgeRow[];
+    const decisions = this.db
+      .prepare("SELECT * FROM session_decisions WHERE session_id = ? ORDER BY position ASC, id ASC")
+      .all(sessionId) as SessionDecisionDbRow[];
 
     return {
       session: toSession(row),
@@ -691,6 +744,7 @@ export class SessionRecordService {
       rawSnapshots: snapshots.map(toSnapshot),
       evidence: evidence.map(toEvidence),
       knowledge: this.dependencies.withKnowledgeTrustMany(knowledge.map(toKnowledge)),
+      decisions: decisions.map(toSessionDecision),
       links: this.getSessionLinks(sessionId),
       verificationHistory: (
         this.db

@@ -79,6 +79,12 @@ describe("domain API factories", () => {
     await api.searchKnowledge({ query: "search", pageSize: "all" });
     await api.getKnowledgeHistory("knowledge/1", { projectRoot: "/projects/a" });
     await api.updateKnowledge("knowledge/1", { title: "Updated" } as never);
+    await api.listSessionDecisions({ projectRoot: "/projects/a", status: "all", limit: 17 });
+    await api.reviewSessionDecision({
+      decisionId: "decision/1",
+      projectRoot: "/projects/a",
+      reviewStatus: "confirmed",
+    });
 
     await api.listMetadataBackfillRequests();
     await api.createMetadataBackfillRequest("project/1");
@@ -91,7 +97,7 @@ describe("domain API factories", () => {
     await api.getSystemStatus();
     await api.pickFolder();
 
-    expect(calls).toHaveLength(47);
+    expect(calls).toHaveLength(49);
     expect(calls.find((call) => call.url.pathname === "/api/backups/backup%201.sqlite")).toMatchObject({
       method: "DELETE",
       body: {},
@@ -106,6 +112,14 @@ describe("domain API factories", () => {
     expect(calls.find((call) => call.url.pathname === "/api/knowledge/knowledge%2F1")).toMatchObject({
       method: "PATCH",
       body: { knowledgeId: "knowledge/1", title: "Updated" },
+    });
+    const decisionList = calls.find((call) => call.url.pathname === "/api/session-decisions");
+    expect(decisionList?.url.searchParams.get("projectRoot")).toBe("/projects/a");
+    expect(decisionList?.url.searchParams.get("status")).toBe("all");
+    expect(decisionList?.url.searchParams.get("limit")).toBe("17");
+    expect(calls.find((call) => call.url.pathname === "/api/session-decisions/decision%2F1/review")).toMatchObject({
+      method: "PATCH",
+      body: { projectRoot: "/projects/a", reviewStatus: "confirmed" },
     });
     expect(calls.find((call) => call.url.pathname === "/api/imports/handoffs")).toMatchObject({ method: "POST" });
   });

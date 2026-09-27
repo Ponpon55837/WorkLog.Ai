@@ -573,6 +573,103 @@ describe("Work Intelligence REST API", () => {
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });
 
+  it("lists, confirms, and promotes Agent decisions through the Web review API", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-session-decisions-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Decision API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-session-decisions",
+      title: "Agent decision API fixture",
+      summary: "Exercises the Web-only decision review routes.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [
+          { text: "Confirm the first autonomous choice.", origin: "agent_autonomous" },
+          { text: "Promote the second autonomous choice.", origin: "agent_autonomous" },
+        ],
+        verification: [],
+        nextSteps: [],
+      },
+      completedAt: "2026-09-26T12:00:00.000Z",
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected the API fixture Session to finalize.");
+
+    const listed = await requestJson<{
+      outcome: string;
+      pendingCount: number;
+      items: Array<{ id: string; text: string; sessionId: string; sessionTitle: string; origin: string }>;
+    }>(baseUrl, `/api/session-decisions?projectRoot=${encodeURIComponent(root)}&status=pending`);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toMatchObject({
+      outcome: "session_decisions",
+      pendingCount: 2,
+      items: [
+        {
+          text: "Confirm the first autonomous choice.",
+          sessionId: finalized.session.id,
+          sessionTitle: finalized.session.title,
+          origin: "agent_autonomous",
+        },
+        {
+          text: "Promote the second autonomous choice.",
+          sessionId: finalized.session.id,
+          sessionTitle: finalized.session.title,
+          origin: "agent_autonomous",
+        },
+      ],
+    });
+
+    const confirmTarget = listed.body.items.find((item) => item.text.startsWith("Confirm"));
+    const promoteTarget = listed.body.items.find((item) => item.text.startsWith("Promote"));
+    if (!confirmTarget || !promoteTarget) throw new Error("Expected both autonomous decisions in the inbox.");
+    const confirmed = await requestJson<{ outcome: string; decision: { reviewStatus: string } }>(
+      baseUrl,
+      `/api/session-decisions/${confirmTarget.id}/review`,
+      { method: "PATCH", body: { projectRoot: root, reviewStatus: "confirmed" } },
+    );
+    expect(confirmed).toMatchObject({
+      status: 200,
+      body: { outcome: "session_decision_reviewed", decision: { reviewStatus: "confirmed" } },
+    });
+
+    const knowledge = await requestJson<{ outcome: string; knowledge: { id: string } }>(baseUrl, "/api/knowledge", {
+      method: "POST",
+      body: {
+        projectRoot: root,
+        idempotencyKey: "api-session-decision-knowledge",
+        kind: "decision",
+        title: "Promoted API decision",
+        body: "The Agent choice is preserved as reusable project Knowledge.",
+        sessionId: finalized.session.id,
+      },
+    });
+    expect(knowledge.body.outcome).toBe("knowledge_recorded");
+    const promoted = await requestJson<{
+      outcome: string;
+      decision: { reviewStatus: string; knowledgeId: string };
+    }>(baseUrl, `/api/session-decisions/${promoteTarget.id}/review`, {
+      method: "PATCH",
+      body: { projectRoot: root, reviewStatus: "promoted", knowledgeId: knowledge.body.knowledge.id },
+    });
+    expect(promoted).toMatchObject({
+      status: 200,
+      body: {
+        outcome: "session_decision_reviewed",
+        decision: { reviewStatus: "promoted", knowledgeId: knowledge.body.knowledge.id },
+      },
+    });
+    const pending = await requestJson<{ pendingCount: number; items: unknown[] }>(
+      baseUrl,
+      `/api/session-decisions?projectRoot=${encodeURIComponent(root)}`,
+    );
+    expect(pending.body).toEqual({ outcome: "session_decisions", items: [], pendingCount: 0 });
+  });
+
   it("validates project deletion names, requires a disk backup, and returns a safe backup file name", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");

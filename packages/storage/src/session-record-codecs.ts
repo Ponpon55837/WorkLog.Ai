@@ -23,6 +23,9 @@ import type {
   WorkEventType,
   WorkSessionRecord,
   WorkSummaryFollowUp,
+  WorkSummaryDecisionEntry,
+  WorkSummaryDecisionOrigin,
+  WorkSummaryInputSections,
   WorkSummarySections,
 } from "@work-intelligence/core";
 import { createProjectPathResolver } from "@work-intelligence/project-policy";
@@ -103,7 +106,19 @@ export function parseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
-export function normalizeWorkSummarySections(value: WorkSummarySections | undefined): WorkSummarySections | undefined {
+export function normalizeWorkSummaryDecisions(
+  value: WorkSummaryDecisionEntry[] | undefined,
+): Array<{ text: string; origin: WorkSummaryDecisionOrigin | "unspecified" }> {
+  return (value ?? []).flatMap((item) => {
+    const text = typeof item === "string" ? item.trim() : item.text.trim();
+    if (!text) return [];
+    return [{ text, origin: typeof item === "string" ? "unspecified" : item.origin }];
+  });
+}
+
+export function normalizeWorkSummarySections(
+  value: WorkSummaryInputSections | undefined,
+): WorkSummarySections | undefined {
   if (!value) {
     return undefined;
   }
@@ -111,21 +126,24 @@ export function normalizeWorkSummarySections(value: WorkSummarySections | undefi
   return {
     outcomes: value.outcomes.map((item) => item.trim()).filter(Boolean),
     scope: value.scope.map((item) => item.trim()).filter(Boolean),
-    decisions: value.decisions.map((item) => item.trim()).filter(Boolean),
+    decisions: normalizeWorkSummaryDecisions(value.decisions).map((item) => item.text),
     verification: value.verification.map((item) => item.trim()).filter(Boolean),
     nextSteps: value.nextSteps.map((item) => item.trim()).filter(Boolean),
   };
 }
 
 export function normalizeWorkSummaryPatch(
-  value: WorkSummarySections | Partial<WorkSummarySections>,
+  value: WorkSummaryInputSections | Partial<WorkSummaryInputSections>,
 ): Partial<WorkSummarySections> {
   const normalized: Partial<WorkSummarySections> = {};
   const sectionKeys: Array<keyof WorkSummarySections> = ["outcomes", "scope", "decisions", "verification", "nextSteps"];
   for (const key of sectionKeys) {
     const section = value[key];
     if (Array.isArray(section)) {
-      normalized[key] = section.map((item) => item.trim()).filter(Boolean);
+      normalized[key] =
+        key === "decisions"
+          ? normalizeWorkSummaryDecisions(section as WorkSummaryDecisionEntry[]).map((item) => item.text)
+          : (section as string[]).map((item) => item.trim()).filter(Boolean);
     }
   }
   return normalized;

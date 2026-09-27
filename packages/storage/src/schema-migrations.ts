@@ -386,6 +386,28 @@ const MIGRATIONS: SchemaMigration[] = [
         CHECK (redaction_count >= 0);
     `,
   },
+  {
+    version: 15,
+    name: "session-decisions",
+    sql: `
+      CREATE TABLE session_decisions (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        text TEXT NOT NULL,
+        origin TEXT NOT NULL CHECK (origin IN ('user_requested', 'agent_autonomous', 'unspecified')),
+        review_status TEXT NOT NULL CHECK (review_status IN ('pending', 'confirmed', 'rejected', 'promoted')),
+        reviewed_at TEXT,
+        knowledge_id TEXT REFERENCES knowledge(id) ON DELETE SET NULL
+      );
+      CREATE UNIQUE INDEX idx_session_decisions_session_position
+        ON session_decisions(session_id, position);
+      CREATE INDEX idx_session_decisions_pending_project
+        ON session_decisions(project_id, review_status, session_id)
+        WHERE origin = 'agent_autonomous';
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

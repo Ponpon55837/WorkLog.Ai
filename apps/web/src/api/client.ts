@@ -9,6 +9,7 @@ import { createGraphApi, type GraphApi } from "./graph";
 import { createReportsApi, type ReportsApi } from "./reports";
 import { createMetadataBackfillApi, type MetadataBackfillApi } from "./metadata-backfill";
 import { createHandoffImportApi, type HandoffImportApi } from "./handoff-import";
+import { createSessionDecisionsApi, type SessionDecisionsApi } from "./session-decisions";
 
 export { ApiError } from "./transport";
 export type { ApiHealth, ReportRequest, SessionListRequest } from "./types";
@@ -23,7 +24,8 @@ export interface ApiClient
     GraphApi,
     ReportsApi,
     MetadataBackfillApi,
-    HandoffImportApi {}
+    HandoffImportApi,
+    SessionDecisionsApi {}
 
 // TypeScript declaration merging exposes the domain methods assigned in the constructor.
 // eslint-disable-next-line no-redeclare -- the interface describes this class's dynamic API surface.
@@ -41,6 +43,7 @@ export class ApiClient extends ApiTransport {
       createReportsApi(this),
       createMetadataBackfillApi(this),
       createHandoffImportApi(this),
+      createSessionDecisionsApi(this),
     );
   }
 

@@ -13,6 +13,7 @@ import type {
   ReportProjectSummary,
   ReportSpanningSession,
   ReportSpanningSessions,
+  SessionDecisionRecord,
   SessionListResult,
   WorkReportPeriod,
   WorkSessionRecord,
@@ -52,7 +53,14 @@ type ReportSnapshotSummaryRow = {
   source_path: string | null;
 };
 
+interface WorkReportAgentDecisions {
+  total: number;
+  pending: number;
+  pendingItems: SessionDecisionRecord[];
+}
+
 const REPORT_SESSION_LIMIT = 200;
+const REPORT_PENDING_DECISION_LIMIT = 20;
 
 export class ReportReadService {
   private readonly reportBuilder = new ReportBuilder();
@@ -144,6 +152,7 @@ export class ReportReadService {
     const customRange = options.from && options.to ? { from: options.from, to: options.to } : undefined;
     const period: WorkReportPeriod = customRange ? "custom" : options.period;
     const range = customRange ?? getReportRange(options.period, options.date ?? toLocalCalendarDate());
+    const agentAutonomousDecisions = this.getAgentAutonomousDecisions(range, project?.id);
     const previousRange = customRange ? getPreviousCustomRange(range) : getPreviousReportRange(options.period, range);
     const currentSessionScope: SessionListOptions = {
       from: range.from,
@@ -452,11 +461,77 @@ export class ReportReadService {
       comparison,
       risks,
       decisions,
+      agentAutonomousDecisions,
       trendGranularity,
       trends,
       spanning,
       evidence: pageEvidence,
       evidencePageInfo,
+    };
+  }
+
+  private getAgentAutonomousDecisions(range: ReportRange, projectId?: string): WorkReportAgentDecisions {
+    const from = localDayStartIso(range.from) ?? range.from;
+    const exclusiveEndDate = new Date(`${range.to}T00:00:00.000Z`);
+    exclusiveEndDate.setUTCDate(exclusiveEndDate.getUTCDate() + 1);
+    const to = localDayStartIso(exclusiveEndDate.toISOString().slice(0, 10)) ?? range.to;
+    const scopeClause = projectId ? "AND d.project_id = ?" : "";
+    const scopeParams = projectId ? [projectId] : [];
+    const totals = this.db
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN d.review_status = 'pending' THEN 1 ELSE 0 END) AS pending
+         FROM session_decisions d
+         JOIN sessions s ON s.id = d.session_id
+         JOIN projects p ON p.id = d.project_id
+         WHERE p.status = 'tracked' AND s.voided_at IS NULL
+           AND d.origin = 'agent_autonomous'
+           AND s.completed_at >= ? AND s.completed_at < ? ${scopeClause}`,
+      )
+      .get(from, to, ...scopeParams) as { total: number; pending: number | null };
+    const rows = this.db
+      .prepare(
+        `SELECT d.id, d.session_id, d.project_id, d.position, d.text, d.origin, d.review_status,
+                d.reviewed_at, d.knowledge_id, s.title AS session_title,
+                s.completed_at AS session_completed_at
+         FROM session_decisions d
+         JOIN sessions s ON s.id = d.session_id
+         JOIN projects p ON p.id = d.project_id
+         WHERE p.status = 'tracked' AND s.voided_at IS NULL
+           AND d.origin = 'agent_autonomous' AND d.review_status = 'pending'
+           AND s.completed_at >= ? AND s.completed_at < ? ${scopeClause}
+         ORDER BY s.completed_at DESC, d.session_id DESC, d.position ASC
+         LIMIT ${REPORT_PENDING_DECISION_LIMIT}`,
+      )
+      .all(from, to, ...scopeParams) as Array<{
+      id: string;
+      session_id: string;
+      project_id: string;
+      position: number;
+      text: string;
+      origin: SessionDecisionRecord["origin"];
+      review_status: SessionDecisionRecord["reviewStatus"];
+      reviewed_at: string | null;
+      knowledge_id: string | null;
+      session_title: string;
+      session_completed_at: string;
+    }>;
+    return {
+      total: totals.total,
+      pending: totals.pending ?? 0,
+      pendingItems: rows.map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        projectId: row.project_id,
+        position: row.position,
+        text: row.text,
+        origin: row.origin,
+        reviewStatus: row.review_status,
+        ...(row.reviewed_at ? { reviewedAt: row.reviewed_at } : {}),
+        ...(row.knowledge_id ? { knowledgeId: row.knowledge_id } : {}),
+        sessionTitle: row.session_title,
+        sessionCompletedAt: row.session_completed_at,
+      })),
     };
   }
 
