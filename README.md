@@ -107,7 +107,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 | 確認有沒有在記錄 | 「這個專案有在 Work Intelligence 記錄嗎？」 | 專案 |
 | 保存這次工作 | 「完成了，請把這次工作記錄到 Work Intelligence。」（非記錄中的專案會直接略過） | — |
 | 取回專案脈絡 | 「先看一下 Work Intelligence 裡這個專案最近做了什麼。」 | 工作歷程、工作知識 |
-| 查過去的工作或錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
+| 查過去的工作或錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge；`work_search` 回傳精簡 Session 命中，完整記錄可再讀取） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
 | 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立；自訂期間也可以） | 工作報告 →「請 Agent 整理這份報告」，Agent 完成後頁面會自動更新 |
 | 整理 Knowledge 候選 | 「幫我整理 Work Intelligence 的 Knowledge 候選。」 | 工作知識 →「整理候選」，接受（可先修改）或拒絕後才會成為 Knowledge |
 | 更新常駐知識頁 | 「幫我更新這個專案的知識頁。」 | 工作知識 →「知識頁」：架構與慣例、進行中的工作與未結項、常見陷阱，每段附來源 Session，可手動編輯與查看版本 |

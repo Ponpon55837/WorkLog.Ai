@@ -61,6 +61,16 @@ A2 完成後的合成量測與 A1 初始基線比較如下。任務 context 由 
 | `work_recall`，預設 8 筆 | 6,807 | 6,807 | 7,000 |
 | `work_search`，預設 20 筆 | 15,896 | 15,896 | 17,000 |
 
+A3 把 `work_recall` excerpt 限為 110 字元；只回最強的 `matchedIn` 欄位，縮短 raw section heading，關聯 Session 保留 id／關係。提供 `projectRoot` 時省略重複的頂層專案物件。`work_search` 改回傳精簡 hit，不重複整份 Session digest，並保留 id、標題、日期、命中欄位、答案片段及驗證狀態；標題命中時若摘要也含查詢詞，片段改取摘要以保留答案脈絡。完整內容仍可依 id 使用 `work_get_session` 或 `work_search_knowledge` 讀取。檢索品質測試新增一個答案只在長摘要中的案例，確認來源排名不變且縮短後的 excerpt 仍含有正確操作步驟。
+
+| MCP 工具與情境 | A1 基線（字元） | A3 實測（字元） | CI 上限（字元） |
+| --- | ---: | ---: | ---: |
+| `work_get_context`，無 task | 16,175 | 16,463 | 19,000 |
+| `work_get_context`，有 task | 26,247 | 11,587 | 12,000 |
+| `work_recall`，預設 8 筆 | 6,807 | 5,203 | 7,000 |
+| `work_recall`，5 筆 | 4,741 | 3,477 | 3,500 |
+| `work_search`，預設 20 筆 | 15,896 | 7,942 | 8,000 |
+
 ## 效能回歸門檻
 
 ```powershell

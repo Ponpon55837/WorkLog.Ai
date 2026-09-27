@@ -2130,7 +2130,7 @@ export interface RecallHit {
   /** Heading of the matched raw handoff section. */
   section?: string;
   excerpt: string;
-  /** Set when a context response shortened this excerpt at a sentence boundary. */
+  /** Set when a context or recall response shortened this excerpt at a sentence boundary. */
   truncated?: boolean;
   /** Stored paths that matched the queried paths. */
   matchedPaths?: string[];

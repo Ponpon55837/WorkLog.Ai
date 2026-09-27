@@ -23,6 +23,12 @@ For the canonical field definitions, reporting granularity, and examples, read [
 - Read `omitted` before proceeding. It gives omitted counts, ids, reasons, and the full-read tool for each section. Preserve `possiblyStale` and `needsReview` as review signals, and do not treat truncated excerpts as full source text. Pending requests remain available in the context.
 - Read full source records with the tool named by `omitted` (`work_get_session`, `work_search_knowledge`, or `work_get_knowledge_page_context`). Use `work_preview_metadata_backfill` for metadata follow-up counts.
 
+## Recall past work
+
+- Use `work_recall` for ranked Session and Knowledge results; use `work_search` when the user specifically wants Session-only history. Both return compact hits rather than complete records. Excerpts are limited to 110 characters; `truncated: true` means the excerpt is partial. For `work_search`, a title-only strongest match may use the Session summary as the excerpt when that summary also matches the query.
+- `work_recall` keeps only the strongest `matchedIn` field and linked Session ids/relations, without repeating linked titles; raw section headings are shortened. When `projectRoot` is supplied, it also omits the top-level project object. Scoped `work_search` omits repeated project identifiers.
+- Treat compact hits as pointers and evidence for ranking. Read the source before relying on details that are absent from the excerpt: use `work_get_session` for Session hits and `work_search_knowledge` for Knowledge hits. Cite the returned Session or Knowledge id in the answer.
+
 ## Finalize a completed work session
 
 Keep the existing planning → execution → verification → closing-handoff workflow unchanged. Confirm the workspace is tracked before preparing anything; if it is not, tell the user in one sentence that no record was made. After closing is complete, finalize the Session; finalization is a work-lifecycle event, not a Git commit. A commit is optional and must never be required or inferred.
