@@ -327,6 +327,26 @@ export const searchQuerySchemaBase = z.object({
 
 export const searchQuerySchema = searchQuerySchemaBase.refine(dateRangeInOrder, dateRangeOrderIssue);
 
+/** A timeline covers at most one year so a single response stays drawable. */
+const TIMELINE_MAX_DAYS = 366;
+
+export const timelineQuerySchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000).optional(),
+    projectId: z.string().trim().min(1).max(200).optional(),
+    ...recallDateRangeFields,
+  })
+  .strict()
+  .refine(dateRangeInOrder, dateRangeOrderIssue)
+  .refine(
+    (value) =>
+      !value.from ||
+      !value.to ||
+      (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 + 1 <=
+        TIMELINE_MAX_DAYS,
+    { message: `A timeline covers at most ${TIMELINE_MAX_DAYS} days.`, path: ["from"] },
+  );
+
 export const hotspotQuerySchema = z
   .object({
     projectRoot: z.string().trim().min(1).max(1_000).optional(),

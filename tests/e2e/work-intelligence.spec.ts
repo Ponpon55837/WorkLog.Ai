@@ -43,6 +43,7 @@ const accessibilityRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/projects/backup", "專案"],
   ["/knowledge/pages", "工作知識"],
   ["/graph/hotspots", "工作圖譜"],
+  ["/graph/timeline", "工作圖譜"],
   ["/knowledge/candidates", "工作知識"],
   ["/knowledge/decisions", "工作知識"],
 ];
@@ -1063,6 +1064,22 @@ test.describe("Work Intelligence browser regression", () => {
 
     await page.getByTestId("graph-show-derived").check();
     await expect(page).toHaveURL(/\/graph/);
+  });
+
+  test("shows Sessions on the timeline, opens one, and offers the same data as a list", async ({ page }) => {
+    await page.goto("/graph/timeline");
+    const timeline = page.getByTestId("graph-timeline");
+    const bar = timeline.getByRole("button", { name: /Browser regression fixture session/ }).first();
+    await expect(bar).toBeVisible();
+    await bar.click();
+    const detail = page.getByRole("dialog", { name: "Session 詳情" });
+    await expect(detail).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(detail).toBeHidden();
+
+    await timeline.getByRole("radio", { name: "清單" }).click();
+    const list = timeline.getByTestId("timeline-list");
+    await expect(list.getByRole("button", { name: "Browser regression fixture session" }).first()).toBeVisible();
   });
 
   test("confirms backup deletion using only keyboard navigation @keyboard", async ({ page, request }) => {

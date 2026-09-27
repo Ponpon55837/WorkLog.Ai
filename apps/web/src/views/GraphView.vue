@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
-import { Flame, FolderGit2, Search, SearchX, Share2 } from "lucide-vue-next";
+import { CalendarRange, Flame, FolderGit2, Search, SearchX, Share2 } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { GraphNode } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import GraphHotspotsBox from "../components/domain/GraphHotspotsBox.vue";
+import GraphTimelineBox from "../components/domain/GraphTimelineBox.vue";
 import GraphNodePanel from "../components/domain/GraphNodePanel.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiButton from "../components/ui/UiButton.vue";
@@ -24,8 +25,8 @@ import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
 import { useProjectsStore } from "../stores/projects";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 
-type GraphTab = "graph" | "hotspots";
-const graphTabs: readonly GraphTab[] = ["graph", "hotspots"];
+type GraphTab = "graph" | "timeline" | "hotspots";
+const graphTabs: readonly GraphTab[] = ["graph", "timeline", "hotspots"];
 
 const route = useRoute();
 const projectsStore = useProjectsStore();
@@ -69,6 +70,7 @@ const tab = computed<GraphTab>({
 });
 const tabItems = [
   { value: "graph" as const, label: "關係圖", icon: Share2 },
+  { value: "timeline" as const, label: "時間軸", icon: CalendarRange },
   { value: "hotspots" as const, label: "熱點", icon: Flame },
 ];
 const projectOptions = computed(() => [
@@ -139,7 +141,15 @@ onBeforeUnmount(() => {
     <UiUnderlineNav v-model="tab" :items="tabItems" label="工作圖譜分頁" id-prefix="graph" />
   </PageToolbar>
 
-  <section v-if="tab === 'hotspots'" id="graph-panel-hotspots" role="tabpanel" aria-labelledby="graph-tab-hotspots">
+  <section v-if="tab === 'timeline'" id="graph-panel-timeline" role="tabpanel" aria-labelledby="graph-tab-timeline">
+    <GraphTimelineBox v-model:project-id="graphProjectId" :projects="trackedProjects" />
+  </section>
+  <section
+    v-else-if="tab === 'hotspots'"
+    id="graph-panel-hotspots"
+    role="tabpanel"
+    aria-labelledby="graph-tab-hotspots"
+  >
     <GraphHotspotsBox v-model:project-id="graphProjectId" :projects="trackedProjects" />
   </section>
 

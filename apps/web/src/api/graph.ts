@@ -5,6 +5,8 @@ import type {
   GraphQueryResult,
   HotspotQuery,
   HotspotResult,
+  TimelineQuery,
+  TimelineResult,
 } from "@work-intelligence/core";
 import { appendQuery, type ApiTransport } from "./transport";
 
@@ -12,6 +14,7 @@ export interface GraphApi {
   getGraph(options?: GraphQuery, signal?: AbortSignal): Promise<GraphQueryResult>;
   getHotspots(options?: HotspotQuery, signal?: AbortSignal): Promise<HotspotResult>;
   getGraphPath(query: GraphPathQuery, signal?: AbortSignal): Promise<GraphPathResult>;
+  getTimeline(query?: TimelineQuery, signal?: AbortSignal): Promise<TimelineResult>;
 }
 
 export function createGraphApi(client: ApiTransport): GraphApi {
@@ -41,6 +44,13 @@ export function createGraphApi(client: ApiTransport): GraphApi {
           to: query.to,
           includeDerived: query.includeDerived ? "true" : undefined,
         }),
+        { signal },
+      );
+    },
+
+    getTimeline(query: TimelineQuery = {}, signal?: AbortSignal): Promise<TimelineResult> {
+      return client.request<TimelineResult>(
+        appendQuery("/api/insights/timeline", { projectId: query.projectId, from: query.from, to: query.to }),
         { signal },
       );
     },

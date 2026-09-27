@@ -27,6 +27,7 @@ import {
   graphPathQuerySchema,
   graphQuerySchema,
   hotspotQuerySchema,
+  timelineQuerySchema,
   handoffImportApplyInputSchema,
   handoffImportOptionsSchema,
   knowledgeHistoryQuerySchema,
@@ -1019,6 +1020,20 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           return;
         }
         sendJson(response, 200, store.getKnowledgeHistory(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/insights/timeline") {
+        const parsed = timelineQuerySchema.safeParse({
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          from: requestUrl.searchParams.get("from") || undefined,
+          to: requestUrl.searchParams.get("to") || undefined,
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid timeline query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getTimeline(parsed.data));
         return;
       }
 

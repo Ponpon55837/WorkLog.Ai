@@ -172,6 +172,8 @@ try {
     "getGraph (with derived)": () => benchStore.getGraph({ includeDerived: true }),
     "getGraphPath (500 nodes)": () =>
       benchStore.getGraphPath({ projectId: alpha.id, from: `project:${alpha.id}`, to: pathTarget }),
+    "getTimeline (month)": () => benchStore.getTimeline({ from: "2026-03-01", to: "2026-03-31" }),
+    "getTimeline (year)": () => benchStore.getTimeline({ from: "2025-10-01", to: "2026-09-30" }),
     "getHotspots (files)": () => benchStore.getHotspots({ limit: 20 }),
     "getHotspots (directories, month)": () =>
       benchStore.getHotspots({ groupBy: "directory", from: "2026-03-01", to: "2026-03-31", limit: 20 }),
@@ -190,6 +192,8 @@ try {
     "recall (month range)": 500,
     "getGraph (with derived)": 750,
     "getGraphPath (500 nodes)": 750,
+    "getTimeline (month)": 250,
+    "getTimeline (year)": 750,
     "getHotspots (files)": 500,
     "getHotspots (directories, month)": 500,
     "searchKnowledge (staleness)": 500,
