@@ -1066,9 +1066,18 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page).toHaveURL(/\/graph/);
   });
 
-  test("shows Sessions on the timeline, opens one, and offers the same data as a list", async ({ page }) => {
+  test("shows days on the timeline, zooms into one, opens a Session, and offers the same data as a list", async ({
+    page,
+  }) => {
     await page.goto("/graph/timeline");
     const timeline = page.getByTestId("graph-timeline");
+    // The 30-day range opens as one column per day; clicking a day zooms in to single Sessions.
+    await timeline
+      .getByTestId("timeline-day")
+      .filter({ hasText: /^Browser Regression Fixture，/ })
+      .last()
+      .click();
+    await expect(timeline.getByTestId("timeline-day")).toHaveCount(0);
     const bar = timeline.getByRole("button", { name: /Browser regression fixture session/ }).first();
     await expect(bar).toBeVisible();
     await bar.click();

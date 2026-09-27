@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { packRows, visibleSpans } from "../../../apps/web/src/utils/timeline-layout.js";
+import {
+  DAY_MS,
+  DETAIL_MIN_DAY_WIDTH,
+  axisTicks,
+  dayBuckets,
+  packRows,
+  smallestFitting,
+  startOfLocalDay,
+  visibleSpans,
+} from "../../../apps/web/src/utils/timeline-layout.js";
 
 describe("timeline layout", () => {
   it("stacks overlapping bars into the fewest rows and reuses a row once it frees up", () => {
@@ -55,5 +64,61 @@ describe("timeline layout", () => {
       }
     }
     expect(rows).toBeLessThanOrEqual(7);
+  });
+});
+
+describe("timeline overview helpers", () => {
+  const day = (month: number, date: number, hour = 12) => new Date(2031, month - 1, date, hour).getTime();
+
+  it("counts Sessions per local day and verification result", () => {
+    const at = (month: number, date: number, hour: number) => new Date(2031, month - 1, date, hour).toISOString();
+    const buckets = dayBuckets([
+      { completedAt: at(3, 2, 9), verificationStatus: "passed" },
+      { completedAt: at(3, 2, 23), verificationStatus: "failed" },
+      { completedAt: at(3, 1, 8), verificationStatus: "not_run" },
+      { completedAt: at(3, 2, 10), verificationStatus: "not_supplied" },
+    ]);
+    expect(buckets).toEqual([
+      { day: startOfLocalDay(day(3, 1)), passed: 0, failed: 0, other: 1, total: 1 },
+      { day: startOfLocalDay(day(3, 2)), passed: 1, failed: 1, other: 1, total: 3 },
+    ]);
+    expect(dayBuckets([])).toEqual([]);
+  });
+
+  it("labels months when zoomed far out, Mondays at week level, and days and hours when zoomed in", () => {
+    const start = startOfLocalDay(day(1, 15));
+    const yearEnd = startOfLocalDay(day(12, 31)) + DAY_MS;
+    const months = axisTicks(start, yearEnd, 3);
+    expect(months[0]!.label).toBe("2月");
+    expect(months).toHaveLength(11);
+
+    const march = startOfLocalDay(day(3, 1));
+    const weeks = axisTicks(march, march + 31 * DAY_MS, 10);
+    expect(weeks.every((tick) => new Date(tick.time).getDay() === 1)).toBe(true);
+    expect(weeks[0]!.label).toBe("3/3");
+
+    expect(axisTicks(march, march + 4 * DAY_MS, 20).map((tick) => tick.label)).toEqual(["3/1", "3/3"]);
+    expect(axisTicks(march, march + 2 * DAY_MS, 80).map((tick) => tick.label)).toEqual(["3/1（六）", "3/2（日）"]);
+    const hours = axisTicks(march, march + DAY_MS, 300);
+    expect(hours.map((tick) => [tick.label, tick.major])).toEqual([
+      ["3/1（六）", true],
+      ["06:00", false],
+      ["12:00", false],
+      ["18:00", false],
+    ]);
+    expect(DETAIL_MIN_DAY_WIDTH).toBeGreaterThan(30);
+  });
+
+  it("finds the first candidate that fits by binary search", () => {
+    const candidates = [48, 96, 192, 384, 768, 960];
+    const probes: number[] = [];
+    const fits = (width: number) => {
+      probes.push(width);
+      return width >= 300;
+    };
+    expect(smallestFitting(candidates, fits)).toBe(384);
+    expect(probes.length).toBeLessThanOrEqual(3);
+    expect(smallestFitting(candidates, () => true)).toBe(48);
+    expect(smallestFitting(candidates, () => false)).toBe(960);
   });
 });
