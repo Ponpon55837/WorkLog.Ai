@@ -598,5 +598,9 @@ describe("Work Intelligence MCP server", () => {
       idempotentHint: true,
     });
     expect(tools.some((tool) => /diagram/.test(tool.name) && /void|delete/.test(tool.name))).toBe(false);
+    // Agents attach diagrams on their own only for flow, architecture, or multi-step changes.
+    const finalizeTool = tools.find((tool) => tool.name === "work_finalize_session");
+    expect(finalizeTool?.description).toContain("without being asked");
+    expect(finalizeTool?.description).toContain("skip single-file fixes");
   });
 });
