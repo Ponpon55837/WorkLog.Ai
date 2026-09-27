@@ -1719,6 +1719,8 @@ export interface SessionDigest {
   title: string;
   /** Truncated with a trailing "…" when longer than the digest limit. */
   summary: string;
+  /** Context-only marker for sentence-boundary truncation. */
+  summaryTruncated?: boolean;
   startedAt?: string;
   completedAt: string;
   updatedAt: string;
@@ -1739,6 +1741,8 @@ export interface KnowledgeDigest {
   title: string;
   /** Body truncated with a trailing "…" when longer than the digest limit. */
   excerpt: string;
+  /** Context-only marker for sentence-boundary truncation. */
+  excerptTruncated?: boolean;
   tags: string[];
   updatedAt: string;
   possiblyStale?: boolean;
@@ -1751,6 +1755,8 @@ export interface DecisionDigest {
   sessionTitle: string;
   completedAt: string;
   text: string;
+  /** Set when context shortened this decision at a sentence boundary. */
+  truncated?: boolean;
 }
 
 export const KNOWLEDGE_CANDIDATE_REQUEST_STATUSES = [
@@ -2019,6 +2025,8 @@ export interface KnowledgePageDigest {
   status: KnowledgePageStatus;
   updatedAt: string;
   content: string;
+  /** Session ids cited by the page, kept even when its rendered content is truncated or omitted. */
+  sourceSessionIds: string[];
   truncated: boolean;
 }
 
@@ -2063,6 +2071,35 @@ export interface ContextResult {
   relevant?: RelevantContext;
   /** Standing answers about the project, bounded in size; read these before searching. */
   knowledgePages: KnowledgePageDigest[];
+  /** Per-section pointers for content left out or de-duplicated to fit this response. */
+  omitted?: ContextOmission[];
+}
+
+export interface ContextOmission {
+  section: string;
+  count: number;
+  entries: Array<{
+    id: string;
+    reason: string;
+    sourceSessionIds?: string[];
+    possiblyStale?: boolean;
+    needsReview?: boolean;
+  }>;
+  readWith: string;
+}
+
+export interface RelevantKnowledgePageDigest {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  slug: string;
+  title: string;
+  sections: Array<{
+    heading: string;
+    content: string;
+    sourceSessionIds: string[];
+    truncated: boolean;
+  }>;
 }
 
 /** Where a recall hit matched; `raw` is a section of the imported handoff snapshot. */
@@ -2093,6 +2130,8 @@ export interface RecallHit {
   /** Heading of the matched raw handoff section. */
   section?: string;
   excerpt: string;
+  /** Set when a context response shortened this excerpt at a sentence boundary. */
+  truncated?: boolean;
   /** Stored paths that matched the queried paths. */
   matchedPaths?: string[];
   score: number;
@@ -2143,6 +2182,8 @@ export interface RelevantContext {
   decisions: DecisionDigest[];
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<RecallHit & { openItems: string[] }>;
+  /** Sections of standing Knowledge pages whose headings or content match this task. */
+  knowledgePages?: RelevantKnowledgePageDigest[];
   termHits?: RecallTermHits[];
   /** Paths from the request that recent Sessions changed often (only with paths). */
   hotspots?: HotspotHint[];

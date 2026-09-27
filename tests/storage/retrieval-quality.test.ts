@@ -506,4 +506,103 @@ describe("synthetic retrieval quality regression", () => {
       expect(evaluationCase.target.handoffContent).toBeTruthy();
     }
   });
+
+  it("puts task-matched sources and cited page sections first without repeating their primary content", () => {
+    const session = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "context-sapphire-retry",
+      title: "Verified sapphire retrieval capsule fix",
+      summary:
+        "The verified sapphire retrieval capsule fix keeps the retry window stable. It preserves the source decision.",
+      workSummary: {
+        outcomes: ["The sapphire retrieval capsule retry now stays stable."],
+        scope: [],
+        decisions: ["Keep the verified sapphire retrieval capsule retry window stable."],
+        verification: [],
+        nextSteps: ["Confirm the sapphire retry window against one production trace."],
+      },
+      changedFiles: ["packages/storage/src/sapphire-retrieval.ts"],
+      verification: { status: "passed" },
+    });
+    if (session.outcome !== "finalized") throw new Error("Expected the synthetic task Session to finalize.");
+
+    const knowledge = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "context-sapphire-knowledge",
+      kind: "gotcha",
+      title: "Sapphire retrieval capsule retry gotcha",
+      body: "Keep the retry window stable after a sapphire retrieval capsule timeout.",
+      tags: ["sapphire", "retrieval", "capsule"],
+    });
+    if (knowledge.outcome !== "knowledge_recorded") throw new Error("Expected synthetic task Knowledge to record.");
+
+    store.requestKnowledgePageUpdate({ projectRoot: root, slug: "architecture" });
+    const page = store.saveKnowledgePage({
+      projectRoot: root,
+      slug: "architecture",
+      idempotencyKey: "context-sapphire-page",
+      sections: [
+        {
+          heading: "Sapphire retrieval capsule",
+          content: "Keep the verified retry window stable. Preserve the source decision.",
+          sourceSessionIds: [session.session.id],
+        },
+        {
+          heading: "Rainwater storage",
+          content: "Keep the orchard cistern covered through winter.",
+          sourceSessionIds: [session.session.id],
+        },
+      ],
+    });
+    if (page.outcome !== "knowledge_page_saved") throw new Error("Expected the synthetic cited page to save.");
+
+    const context = store.getContext(root, { task: "sapphire retrieval capsule" });
+    if (context.outcome !== "context") throw new Error("Expected task context.");
+
+    expect(context.relevant?.sessions[0]?.id).toBe(session.session.id);
+    expect(context.relevant?.knowledge[0]?.id).toBe(knowledge.knowledge.id);
+    expect(context.relevant?.decisions).toContainEqual(
+      expect.objectContaining({
+        sessionId: session.session.id,
+        text: expect.stringContaining("sapphire retrieval capsule"),
+      }),
+    );
+    expect(context.relevant?.knowledgePages).toEqual([
+      expect.objectContaining({
+        slug: "architecture",
+        sections: [
+          expect.objectContaining({
+            heading: "Sapphire retrieval capsule",
+            sourceSessionIds: [session.session.id],
+          }),
+        ],
+      }),
+    ]);
+    expect(context.recentSessions.some((item) => item.id === session.session.id)).toBe(false);
+    expect(context.recentKnowledge.some((item) => item.id === knowledge.knowledge.id)).toBe(false);
+    expect(context.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          section: "recentSessions",
+          readWith: "work_get_session",
+          entries: expect.arrayContaining([{ id: session.session.id, reason: expect.any(String) }]),
+        }),
+        expect.objectContaining({
+          section: "recentKnowledge",
+          readWith: "work_search_knowledge",
+          entries: expect.arrayContaining([{ id: knowledge.knowledge.id, reason: expect.any(String) }]),
+        }),
+        expect.objectContaining({
+          section: "knowledgePages",
+          readWith: "work_get_knowledge_page_context",
+          entries: expect.arrayContaining([
+            expect.objectContaining({
+              id: expect.any(String),
+              sourceSessionIds: [session.session.id],
+            }),
+          ]),
+        }),
+      ]),
+    );
+  });
 });

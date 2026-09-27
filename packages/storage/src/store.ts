@@ -432,6 +432,10 @@ export class WorkIntelligenceStore {
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
       knowledgePageDigests: (projectId) => this.knowledgePages.digestsForProject(projectId),
+      knowledgePagesForContext: (projectId) => {
+        const result = this.knowledgePages.listPages(projectId ? { projectId } : {});
+        return result.outcome === "knowledge_pages" ? result.items.filter((page) => page.version > 0) : [];
+      },
       pendingKnowledgePages: (projectId) => this.knowledgePages.pendingForProject(projectId),
       hotspotHints: (projectId, paths) => {
         this.searchIndex.syncIndex();

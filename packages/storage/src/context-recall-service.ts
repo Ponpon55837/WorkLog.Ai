@@ -1,11 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  ContextOmission,
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
   HotspotHint,
   KnowledgeCandidateRequest,
   KnowledgePageDigest,
+  KnowledgePageRecord,
   KnowledgeDigest,
   KnowledgeQuery,
   KnowledgeQueryResult,
@@ -21,6 +23,7 @@ import type {
   RecallInput,
   RecallQueryResult,
   RelevantContext,
+  RelevantKnowledgePageDigest,
   ReportSynthesisRequestListQueryResult,
   ReportSynthesisRequestQuery,
   SearchResult,
@@ -28,8 +31,14 @@ import type {
   SkippedResult,
   WorkSessionRecord,
 } from "@work-intelligence/core";
-import { serverClock, truncateText } from "@work-intelligence/shared";
-import { DIGEST_ITEM_LENGTH, toKnowledgeDigest, toSessionDigest } from "./digest.js";
+import { serverClock } from "@work-intelligence/shared";
+import {
+  DIGEST_ITEM_LENGTH,
+  DIGEST_KNOWLEDGE_LENGTH,
+  DIGEST_SUMMARY_LENGTH,
+  toKnowledgeDigest,
+  toSessionDigest,
+} from "./digest.js";
 import type { SessionListOptions } from "./session-repository.js";
 import type { SearchRepository } from "./search-repository.js";
 
@@ -38,6 +47,11 @@ const RELEVANT_LIMIT = 5;
 const RECALL_DEFAULT_LIMIT = 8;
 const RECALL_MAX_LIMIT = 30;
 const SEARCH_LIMIT = 20;
+const CONTEXT_DEFAULT_BUDGET_CHARS = 19_000;
+const CONTEXT_TASK_BUDGET_CHARS = 12_000;
+const CONTEXT_PAGE_SECTION_LIMIT = 5;
+const CONTEXT_PAGE_SECTION_CHARS = 500;
+const CONTEXT_EXCERPT_CHARS = 240;
 
 /** What an Agent is about to work on; ranks relevant records into the context result. */
 export type ContextFocus = { task?: string; paths?: string[] };
@@ -57,6 +71,7 @@ interface ContextRecallStoreReader {
   openKnowledgeCandidateRequests(projectId?: string): KnowledgeCandidateRequest[];
   countPendingAgentDecisions(projectId?: string): number;
   knowledgePageDigests(projectId: string): KnowledgePageDigest[];
+  knowledgePagesForContext(projectId?: string): KnowledgePageRecord[];
   pendingKnowledgePages(projectId?: string): ContextResult["pendingRequests"]["knowledgePages"];
   hotspotHints(projectId: string, paths: readonly string[]): HotspotHint[];
 }
@@ -70,6 +85,51 @@ function parseJson<T>(value: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function truncateAtSentenceBoundary(text: string, limit: number): { text: string; truncated: boolean } {
+  if (text.length <= limit) return { text, truncated: false };
+  const prefix = text.slice(0, Math.max(0, limit - 1));
+  const sentenceEnds = /(?:[。！？!?]+|\.(?=\s|$)|\n{2,})/gu;
+  let boundary = 0;
+  for (const match of prefix.matchAll(sentenceEnds)) {
+    boundary = (match.index ?? 0) + match[0].length;
+  }
+  if (boundary > 0) return { text: `${prefix.slice(0, boundary).trimEnd()}…`, truncated: true };
+  const wordBoundary = prefix.search(/\s+[^\s]*$/u);
+  const safeEnd = wordBoundary > 0 ? wordBoundary : prefix.length;
+  return { text: `${prefix.slice(0, safeEnd).trimEnd()}…`, truncated: true };
+}
+
+function contextTerms(focus: ContextFocus): string[] {
+  const text = [focus.task, ...(focus.paths ?? [])].filter(Boolean).join(" ").toLocaleLowerCase();
+  const ignored = new Set(["apps", "packages", "tests", "src", "dist", "test", "spec", "the", "and", "for"]);
+  return [...new Set(text.match(/[\p{L}\p{N}_-]+/gu) ?? [])].filter((term) => term.length > 1 && !ignored.has(term));
+}
+
+function matchCount(text: string, terms: readonly string[]): number {
+  const normalized = text.toLocaleLowerCase();
+  return terms.reduce((count, term) => count + (normalized.includes(term) ? 1 : 0), 0);
+}
+
+function hasFocus(focus: ContextFocus): boolean {
+  return Boolean(focus.task?.trim() || (focus.paths ?? []).some((path) => path.trim()));
+}
+
+function addOmission(
+  context: ContextResult,
+  section: string,
+  entry: ContextOmission["entries"][number],
+  readWith: string,
+): void {
+  context.omitted ??= [];
+  let omission = context.omitted.find((item) => item.section === section);
+  if (!omission) {
+    omission = { section, count: 0, entries: [], readWith };
+    context.omitted.push(omission);
+  }
+  omission.count += 1;
+  omission.entries.push(entry);
 }
 
 export class ContextRecallService {
@@ -96,18 +156,21 @@ export class ContextRecallService {
 
     const projects = this.store.listProjects().filter((project) => project.status === "tracked");
     const relevant = this.getRelevantContext(focus);
-    return {
+    const context: ContextResult = {
       outcome: "context",
       clock: serverClock(),
       projects,
-      recentSessions: this.store.listSessions({ limit: 12, trackedOnly: true }).map(toSessionDigest),
+      ...(relevant ? { relevant } : {}),
+      pendingRequests: this.getPendingRequests(),
+      metadataFollowUps: this.getMetadataFollowUps(),
+      recentSessions: this.store
+        .listSessions({ limit: 12, trackedOnly: true })
+        .map((session) => this.contextSessionDigest(session)),
       recentDecisions: this.getRecentDecisions(),
       recentKnowledge: this.getRecentKnowledge(),
-      metadataFollowUps: this.getMetadataFollowUps(),
-      pendingRequests: this.getPendingRequests(),
       knowledgePages: [],
-      ...(relevant ? { relevant } : {}),
     };
+    return this.fitContextBudget(this.deduplicateContext(context, focus), focus);
   }
 
   /**
@@ -204,21 +267,268 @@ export class ContextRecallService {
 
   private buildContext(project: ProjectRecord, focus: ContextFocus): ContextResult {
     const relevant = this.getRelevantContext(focus, project.id);
-    return {
+    const context: ContextResult = {
       outcome: "context",
       clock: serverClock(),
       project,
-      projects: [project],
+      projects: hasFocus(focus) ? [] : [project],
+      ...(relevant ? { relevant } : {}),
+      pendingRequests: this.getPendingRequests(project.id),
+      metadataFollowUps: this.getMetadataFollowUps(project.id),
       recentSessions: this.store
         .listSessions({ projectId: project.id, limit: 12, trackedOnly: true })
-        .map(toSessionDigest),
+        .map((session) => this.contextSessionDigest(session)),
       recentDecisions: this.getRecentDecisions(project.id),
       recentKnowledge: this.getRecentKnowledge(project.id),
-      metadataFollowUps: this.getMetadataFollowUps(project.id),
-      pendingRequests: this.getPendingRequests(project.id),
-      ...(relevant ? { relevant } : {}),
-      knowledgePages: this.store.knowledgePageDigests(project.id),
+      knowledgePages:
+        focus.task?.trim() || (focus.paths ?? []).some((path) => path.trim())
+          ? []
+          : this.store.knowledgePageDigests(project.id),
     };
+    return this.fitContextBudget(this.deduplicateContext(context, focus), focus);
+  }
+
+  private deduplicateContext(context: ContextResult, focus: ContextFocus): ContextResult {
+    if (!hasFocus(focus) || !context.relevant) return context;
+    const relevantSessionIds = new Set(context.relevant.sessions.map((session) => session.id));
+    const relevantKnowledgeIds = new Set(context.relevant.knowledge.map((knowledge) => knowledge.id));
+    const relevantDecisionKeys = new Set(
+      context.relevant.decisions.map((decision) => `${decision.sessionId}\u0000${decision.text}`),
+    );
+
+    context.recentSessions = context.recentSessions.filter((session) => {
+      if (!relevantSessionIds.has(session.id)) return true;
+      addOmission(
+        context,
+        "recentSessions",
+        { id: session.id, reason: "已列於 relevant.sessions" },
+        "work_get_session",
+      );
+      return false;
+    });
+    context.recentKnowledge = context.recentKnowledge.filter((knowledge) => {
+      if (!relevantKnowledgeIds.has(knowledge.id)) return true;
+      addOmission(
+        context,
+        "recentKnowledge",
+        {
+          id: knowledge.id,
+          reason: "已列於 relevant.knowledge",
+          ...(knowledge.possiblyStale ? { possiblyStale: true } : {}),
+          ...(knowledge.needsReview ? { needsReview: true } : {}),
+        },
+        "work_search_knowledge",
+      );
+      return false;
+    });
+    context.recentDecisions = context.recentDecisions.filter((decision) => {
+      if (!relevantDecisionKeys.has(`${decision.sessionId}\u0000${decision.text}`)) return true;
+      addOmission(
+        context,
+        "recentDecisions",
+        { id: decision.sessionId, reason: "已列於 relevant.decisions" },
+        "work_get_session",
+      );
+      return false;
+    });
+
+    const selectedPageIds = new Set((context.relevant.knowledgePages ?? []).map((page) => page.id));
+    for (const page of this.store.knowledgePagesForContext(context.project?.id)) {
+      addOmission(
+        context,
+        "knowledgePages",
+        {
+          id: page.id,
+          reason: selectedPageIds.has(page.id) ? "已列於 relevant.knowledgePages" : "本次不相關",
+          sourceSessionIds: [...new Set(page.sections.flatMap((section) => section.sourceSessionIds))],
+        },
+        "work_get_knowledge_page_context",
+      );
+    }
+    context.knowledgePages = [];
+    return context;
+  }
+
+  private fitContextBudget(context: ContextResult, focus: ContextFocus): ContextResult {
+    const limit = hasFocus(focus) ? CONTEXT_TASK_BUDGET_CHARS : CONTEXT_DEFAULT_BUDGET_CHARS;
+    const responseLength = () => JSON.stringify(context, null, 2).length;
+
+    const trimNext = (): boolean => {
+      const recentSession = context.recentSessions.pop();
+      if (recentSession) {
+        addOmission(
+          context,
+          "recentSessions",
+          { id: recentSession.id, reason: "預算限制：較低優先近況" },
+          "work_get_session",
+        );
+        return true;
+      }
+      const recentKnowledge = context.recentKnowledge.pop();
+      if (recentKnowledge) {
+        addOmission(
+          context,
+          "recentKnowledge",
+          {
+            id: recentKnowledge.id,
+            reason: "預算限制：較低優先 Knowledge",
+            ...(recentKnowledge.possiblyStale ? { possiblyStale: true } : {}),
+            ...(recentKnowledge.needsReview ? { needsReview: true } : {}),
+          },
+          "work_search_knowledge",
+        );
+        return true;
+      }
+      const recentDecision = context.recentDecisions.pop();
+      if (recentDecision) {
+        addOmission(
+          context,
+          "recentDecisions",
+          { id: recentDecision.sessionId, reason: "預算限制：較低優先決策" },
+          "work_get_session",
+        );
+        return true;
+      }
+      const page = context.knowledgePages.pop();
+      if (page) {
+        addOmission(
+          context,
+          "knowledgePages",
+          { id: page.slug, reason: "預算限制：較低優先頁面", sourceSessionIds: page.sourceSessionIds },
+          "work_get_knowledge_page_context",
+        );
+        return true;
+      }
+      const project = context.projects.length > 1 ? context.projects.pop() : undefined;
+      if (project) {
+        addOmission(
+          context,
+          "projects",
+          { id: project.id, reason: "預算限制：較低優先專案摘要" },
+          "work_get_project_status",
+        );
+        return true;
+      }
+      const relevant = context.relevant;
+      const pageWithSections = relevant?.knowledgePages?.at(-1);
+      const pageSectionCount = relevant?.knowledgePages?.reduce((count, page) => count + page.sections.length, 0) ?? 0;
+      const section = pageSectionCount > 1 ? pageWithSections?.sections.pop() : undefined;
+      if (pageWithSections && section) {
+        addOmission(
+          context,
+          "relevant.knowledgePages",
+          {
+            id: `${pageWithSections.id}#${section.heading}`,
+            reason: "預算限制：較低相關段落",
+            sourceSessionIds: section.sourceSessionIds,
+          },
+          "work_get_knowledge_page_context",
+        );
+        if (pageWithSections.sections.length === 0) relevant!.knowledgePages!.pop();
+        return true;
+      }
+      const relevantSession = relevant && relevant.sessions.length > 1 ? relevant.sessions.pop() : undefined;
+      if (relevantSession) {
+        addOmission(
+          context,
+          "relevant.sessions",
+          { id: relevantSession.id, reason: "預算限制：較低排名 Session" },
+          "work_get_session",
+        );
+        return true;
+      }
+      const relevantKnowledge = relevant && relevant.knowledge.length > 1 ? relevant.knowledge.pop() : undefined;
+      if (relevantKnowledge) {
+        addOmission(
+          context,
+          "relevant.knowledge",
+          {
+            id: relevantKnowledge.id,
+            reason: "預算限制：較低排名 Knowledge",
+            ...(relevantKnowledge.possiblyStale ? { possiblyStale: true } : {}),
+            ...(relevantKnowledge.needsReview ? { needsReview: true } : {}),
+          },
+          "work_search_knowledge",
+        );
+        return true;
+      }
+      const relevantDecision = relevant && relevant.decisions.length > 1 ? relevant.decisions.pop() : undefined;
+      if (relevantDecision) {
+        addOmission(
+          context,
+          "relevant.decisions",
+          { id: relevantDecision.sessionId, reason: "預算限制：較低優先決策" },
+          "work_get_session",
+        );
+        return true;
+      }
+      return false;
+    };
+
+    const shortenNext = (): boolean => {
+      for (const session of context.recentSessions) {
+        if (session.summary.length > CONTEXT_EXCERPT_CHARS) {
+          session.summary = truncateAtSentenceBoundary(session.summary, CONTEXT_EXCERPT_CHARS).text;
+          session.summaryTruncated = true;
+          return true;
+        }
+      }
+      for (const knowledge of context.recentKnowledge) {
+        if (knowledge.excerpt.length > CONTEXT_EXCERPT_CHARS) {
+          knowledge.excerpt = truncateAtSentenceBoundary(knowledge.excerpt, CONTEXT_EXCERPT_CHARS).text;
+          knowledge.excerptTruncated = true;
+          return true;
+        }
+      }
+      for (const decision of context.relevant?.decisions ?? []) {
+        if (decision.text.length > CONTEXT_EXCERPT_CHARS) {
+          decision.text = truncateAtSentenceBoundary(decision.text, CONTEXT_EXCERPT_CHARS).text;
+          decision.truncated = true;
+          return true;
+        }
+      }
+      for (const hit of [...(context.relevant?.sessions ?? []), ...(context.relevant?.knowledge ?? [])]) {
+        if (hit.excerpt.length > CONTEXT_EXCERPT_CHARS) {
+          hit.excerpt = truncateAtSentenceBoundary(hit.excerpt, CONTEXT_EXCERPT_CHARS).text;
+          hit.truncated = true;
+          return true;
+        }
+      }
+      for (const page of context.relevant?.knowledgePages ?? []) {
+        for (const pageSection of page.sections) {
+          if (pageSection.content.length > CONTEXT_EXCERPT_CHARS) {
+            pageSection.content = truncateAtSentenceBoundary(pageSection.content, CONTEXT_EXCERPT_CHARS).text;
+            pageSection.truncated = true;
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    let trimmed = false;
+    while (responseLength() > limit) {
+      if (trimNext()) {
+        trimmed = true;
+        continue;
+      }
+      if (shortenNext()) {
+        trimmed = true;
+        continue;
+      }
+      break;
+    }
+    if (responseLength() > limit) {
+      addOmission(
+        context,
+        "budget",
+        { id: "critical-metadata", reason: "必要的來源、可信度標記或待處理請求本身超出整份回應預算，因此完整保留" },
+        "work_get_context",
+      );
+    } else if (!trimmed && !context.omitted?.length) {
+      delete context.omitted;
+    }
+    return context;
   }
 
   /** Records ranked for the task and paths an Agent is about to work on; undefined without a focus. */
@@ -230,7 +540,7 @@ export class ContextRecallService {
     }
     const recalled = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
     const termHits = recalled.termHits;
-    const hits = recalled.hits.map((hit) => this.withRelatedSessions(hit));
+    const hits = recalled.hits.map((hit) => this.contextHit(this.withRelatedSessions(hit)));
     const knowledge = hits.filter((hit) => hit.type === "knowledge").slice(0, RELEVANT_LIMIT);
     const sessions = hits
       .filter((hit) => hit.type === "session")
@@ -244,12 +554,16 @@ export class ContextRecallService {
       .flatMap(({ record }) =>
         (record.workSummary?.decisions ?? [])
           .filter((text) => text.trim().length > 0)
-          .map((text) => ({
-            sessionId: record.id,
-            sessionTitle: record.title,
-            completedAt: record.completedAt,
-            text: truncateText(text, DIGEST_ITEM_LENGTH),
-          })),
+          .map((text) => {
+            const bounded = truncateAtSentenceBoundary(text, DIGEST_ITEM_LENGTH);
+            return {
+              sessionId: record.id,
+              sessionTitle: record.title,
+              completedAt: record.completedAt,
+              text: bounded.text,
+              ...(bounded.truncated ? { truncated: true } : {}),
+            };
+          }),
       )
       .slice(0, RECENT_DECISION_LIMIT);
     return {
@@ -258,9 +572,66 @@ export class ContextRecallService {
       knowledge,
       decisions,
       sessions: sessions.map(({ hit, record }) => ({ ...hit, openItems: toSessionDigest(record).openItems })),
+      knowledgePages: this.getRelevantKnowledgePages(focus, projectId),
       ...(termHits ? { termHits } : {}),
       ...(hotspots.length > 0 ? { hotspots } : {}),
     };
+  }
+
+  private contextHit(hit: RecallHit): RecallHit {
+    const bounded = truncateAtSentenceBoundary(hit.excerpt, CONTEXT_EXCERPT_CHARS);
+    return bounded.truncated ? { ...hit, excerpt: bounded.text, truncated: true } : hit;
+  }
+
+  private getRelevantKnowledgePages(focus: ContextFocus, projectId?: string): RelevantKnowledgePageDigest[] {
+    const terms = contextTerms(focus);
+    if (terms.length === 0) return [];
+    const matches = this.store
+      .knowledgePagesForContext(projectId)
+      .flatMap((page) =>
+        page.sections.flatMap((section) => {
+          const score = matchCount(`${page.title} ${page.question} ${section.heading} ${section.content}`, terms);
+          return score > 0 ? [{ page, section, score }] : [];
+        }),
+      )
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          right.page.updatedAt.localeCompare(left.page.updatedAt) ||
+          left.page.slug.localeCompare(right.page.slug) ||
+          left.section.heading.localeCompare(right.section.heading),
+      );
+    const uniqueMatches: typeof matches = [];
+    const sectionKeys = new Set<string>();
+    for (const match of matches) {
+      const key = `${match.section.heading}\u0000${match.section.content}\u0000${[...match.section.sourceSessionIds].sort().join("\u0000")}`;
+      if (sectionKeys.has(key)) continue;
+      sectionKeys.add(key);
+      uniqueMatches.push(match);
+      if (uniqueMatches.length >= CONTEXT_PAGE_SECTION_LIMIT) break;
+    }
+    const pageDigests = new Map<string, RelevantKnowledgePageDigest>();
+    for (const match of uniqueMatches) {
+      let digest = pageDigests.get(match.page.id);
+      if (!digest) {
+        digest = {
+          id: match.page.id,
+          projectId: match.page.projectId,
+          slug: match.page.slug,
+          title: match.page.title,
+          sections: [],
+        };
+        pageDigests.set(match.page.id, digest);
+      }
+      const bounded = truncateAtSentenceBoundary(match.section.content, CONTEXT_PAGE_SECTION_CHARS);
+      digest.sections.push({
+        heading: match.section.heading,
+        content: bounded.text,
+        sourceSessionIds: match.section.sourceSessionIds,
+        truncated: bounded.truncated,
+      });
+    }
+    return [...pageDigests.values()];
   }
 
   /** Pending/processing requests an Agent could pick up; a project scope also includes its "all projects" requests. */
@@ -303,7 +674,29 @@ export class ContextRecallService {
 
   private getRecentKnowledge(projectId?: string): KnowledgeDigest[] {
     const result = this.store.searchKnowledge({ projectId, status: "active", limit: 12 });
-    return result.outcome === "knowledge" ? result.items.map(toKnowledgeDigest) : [];
+    return result.outcome === "knowledge"
+      ? result.items.map((knowledge) => this.contextKnowledgeDigest(knowledge))
+      : [];
+  }
+
+  private contextSessionDigest(session: WorkSessionRecord): ReturnType<typeof toSessionDigest> {
+    const digest = toSessionDigest(session);
+    const bounded = truncateAtSentenceBoundary(session.summary, DIGEST_SUMMARY_LENGTH);
+    return {
+      ...digest,
+      summary: bounded.text,
+      ...(bounded.truncated ? { summaryTruncated: true } : {}),
+    };
+  }
+
+  private contextKnowledgeDigest(knowledge: KnowledgeRecord): KnowledgeDigest {
+    const digest = toKnowledgeDigest(knowledge);
+    const bounded = truncateAtSentenceBoundary(knowledge.body, DIGEST_KNOWLEDGE_LENGTH);
+    return {
+      ...digest,
+      excerpt: bounded.text,
+      ...(bounded.truncated ? { excerptTruncated: true } : {}),
+    };
   }
 
   /*
@@ -336,12 +729,16 @@ export class ContextRecallService {
       .flatMap((row) =>
         parseJson<unknown[]>(row.decisions_json, [])
           .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-          .map((text) => ({
-            sessionId: row.id,
-            sessionTitle: row.title,
-            completedAt: row.completed_at,
-            text: truncateText(text, DIGEST_ITEM_LENGTH),
-          })),
+          .map((text) => {
+            const bounded = truncateAtSentenceBoundary(text, DIGEST_ITEM_LENGTH);
+            return {
+              sessionId: row.id,
+              sessionTitle: row.title,
+              completedAt: row.completed_at,
+              text: bounded.text,
+              ...(bounded.truncated ? { truncated: true } : {}),
+            };
+          }),
       )
       .slice(0, RECENT_DECISION_LIMIT);
   }

@@ -2746,7 +2746,7 @@ Result: PASSED
     const { store, root } = createStore();
     const project = store.addProject("Digest project", root);
     store.updateProject(project.id, { status: "tracked" });
-    const longSummary = `Search digest ${"x".repeat(600)}`;
+    const longSummary = "Search digest keeps the useful opening summary at a sentence boundary. ".repeat(30);
     const finalized = store.finalizeSession({
       projectRoot: root,
       idempotencyKey: "digest-001",
@@ -2787,8 +2787,10 @@ Result: PASSED
       changedFilesCount: 40,
       openItems: ["One", "Two", "Three"],
     });
-    expect(session?.summary).toHaveLength(400);
+    expect(session?.summary.length).toBeLessThanOrEqual(400);
+    expect(session?.summary.length).toBeGreaterThan(0);
     expect(session?.summary.endsWith("…")).toBe(true);
+    expect(session?.summary).toMatch(/[.!?。！？]…$/u);
     expect(session).not.toHaveProperty("changedFiles");
     expect(session).not.toHaveProperty("changedFilesProvenance");
     expect(context.recentDecisions).toEqual([

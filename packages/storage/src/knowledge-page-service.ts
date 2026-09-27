@@ -23,7 +23,7 @@ import {
   type UpdateKnowledgePageInput,
   type UpdateKnowledgePageResult,
 } from "@work-intelligence/core";
-import { nowIso, truncateText } from "@work-intelligence/shared";
+import { nowIso } from "@work-intelligence/shared";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import { parseJson, parseWorkSummarySections } from "./session-record-codecs.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -99,6 +99,20 @@ function upperBound(sorted: readonly string[], value: string): number {
 
 function citedSessionIds(sections: readonly KnowledgePageSection[]): string[] {
   return [...new Set(sections.flatMap((section) => section.sourceSessionIds))];
+}
+
+function truncateAtSentenceBoundary(text: string, limit: number): { text: string; truncated: boolean } {
+  if (text.length <= limit) return { text, truncated: false };
+  const prefix = text.slice(0, Math.max(0, limit - 1));
+  const sentenceEnds = /(?:[。！？!?]+|\.(?=\s|$)|\n{2,})/gu;
+  let boundary = 0;
+  for (const match of prefix.matchAll(sentenceEnds)) {
+    boundary = (match.index ?? 0) + match[0].length;
+  }
+  if (boundary > 0) return { text: `${prefix.slice(0, boundary).trimEnd()}…`, truncated: true };
+  const wordBoundary = prefix.search(/\s+[^\s]*$/u);
+  const safeEnd = wordBoundary > 0 ? wordBoundary : prefix.length;
+  return { text: `${prefix.slice(0, safeEnd).trimEnd()}…`, truncated: true };
 }
 
 function toVersion(row: VersionRow): KnowledgePageVersionRecord {
@@ -310,7 +324,8 @@ export class KnowledgePageService {
       }
       const rendered = renderKnowledgePage(page.sections);
       const limit = Math.min(DIGEST_PAGE_CHARS, remaining);
-      const content = truncateText(rendered, limit);
+      const bounded = truncateAtSentenceBoundary(rendered, limit);
+      const content = bounded.text;
       remaining -= content.length;
       digests.push({
         slug: page.slug,
@@ -318,7 +333,8 @@ export class KnowledgePageService {
         status: page.status,
         updatedAt: page.updatedAt,
         content,
-        truncated: content.length < rendered.length,
+        sourceSessionIds: citedSessionIds(page.sections),
+        truncated: bounded.truncated,
       });
     }
     return digests;
