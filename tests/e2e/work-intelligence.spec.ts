@@ -708,6 +708,29 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page).not.toHaveURL(/session=/);
   });
 
+  test("shows the count of masked sensitive values in Session details", async ({ page, request }) => {
+    const token = `ghp_${"X".repeat(36)}`;
+    const result = await postJson<{ session: SessionRecord; redactions: { total: number } }>(
+      request,
+      "/api/work/finalize",
+      {
+        projectRoot,
+        idempotencyKey: `browser-regression-redaction-${process.pid}`,
+        title: `Redaction fixture ${token}`,
+        summary: `Sensitive summary ${token}`,
+        changedFiles: [],
+        verification: { status: "passed" },
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      },
+    );
+    expect(result.redactions.total).toBe(2);
+
+    await page.goto(`/sessions?session=${result.session.id}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    await expect(panel.getByRole("status")).toHaveText("已遮蔽 2 處敏感資訊");
+    await expect(panel).not.toContainText(token);
+  });
+
   test("edits a Session summary and workSummary in place from the panel", async ({ page, request }) => {
     const editable = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
       projectRoot,

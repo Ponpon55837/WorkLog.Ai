@@ -497,6 +497,7 @@ describe("portable project data transfer", () => {
     const legacy = structuredClone(bundle);
     for (const session of legacy.tables.sessions) {
       delete session.changed_files_confirmed;
+      delete session.redaction_count;
     }
     expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
     const older = new WorkIntelligenceStore(join(source.root, "legacy-format.sqlite"));
@@ -504,6 +505,44 @@ describe("portable project data transfer", () => {
     const result = older.importProjectData({ bundle: legacy, remap: [] });
     expect(result.additions.sessions).toBe(2);
     expect(confirmedFlag(older)).toEqual({ changed_files_confirmed: 0 });
+    const olderSession = older.getSessionById(source.sessionIds[0]);
+    expect(olderSession?.redactionCount).toBe(0);
+  });
+
+  it("masks legacy secrets in portable exports and sanitizes secrets before import", () => {
+    const source = createSource();
+    const exportToken = `gho_${"A".repeat(36)}`;
+    const sourceDb = new DatabaseSync(source.store.databasePath);
+    try {
+      sourceDb.prepare("UPDATE sessions SET summary = ? WHERE id = ?").run(exportToken, source.sessionIds[0]);
+      sourceDb
+        .prepare("UPDATE work_events SET summary = ? WHERE session_id = ?")
+        .run(exportToken, source.sessionIds[0]);
+    } finally {
+      sourceDb.close();
+    }
+
+    const exported = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    expect(JSON.stringify(exported)).not.toContain(exportToken);
+    expect(exported.tables.sessions.find((session) => session.id === source.sessionIds[0])?.redaction_count).toBe(3);
+
+    const importToken = `sk-${"B".repeat(24)}`;
+    const contaminated = structuredClone(exported);
+    const session = contaminated.tables.sessions.find((item) => item.id === source.sessionIds[0]);
+    const snapshot = contaminated.tables.raw_snapshots.find((item) => item.session_id === source.sessionIds[0]);
+    if (!session || !snapshot) {
+      throw new Error("The fixture should include a Session and handoff snapshot.");
+    }
+    session.summary = importToken;
+    snapshot.content = `handoff ${importToken}`;
+
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const imported = destination.importProjectData({ bundle: contaminated, remap: [] });
+    expect(imported.redactions).toMatchObject({ total: 2, byKind: { openai_token: 2 } });
+    const importedBundle = destination.exportProjectData({ type: "all" });
+    expect(JSON.stringify(importedBundle)).not.toContain(importToken);
+    expect(importedBundle.tables.sessions.find((item) => item.id === source.sessionIds[0])?.redaction_count).toBe(5);
   });
 
   it("imports one selected project from an all-project file", () => {

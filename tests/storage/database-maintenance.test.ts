@@ -118,13 +118,15 @@ describe("database maintenance", () => {
     const { databasePath, store } = setup();
     store.close();
     const legacy = new DatabaseSync(databasePath);
-    legacy.prepare("DELETE FROM schema_migrations WHERE version >= ?").run(LATEST_SCHEMA_VERSION - 1);
-    legacy.exec("DROP TABLE database_maintenance_runs; DROP TABLE project_location_audit;");
+    legacy.prepare("DELETE FROM schema_migrations WHERE version >= ?").run(LATEST_SCHEMA_VERSION);
+    legacy.exec("ALTER TABLE sessions DROP COLUMN redaction_count;");
     legacy.close();
 
     const result = maintainDatabase({ databasePath });
     const backupFileNames = listDatabaseBackups(databasePath).map((backup) => backup.fileName);
-    expect(backupFileNames).toContainEqual(expect.stringMatching(/^work-intelligence-pre-migration-v12-/));
+    expect(backupFileNames).toContainEqual(
+      expect.stringMatching(new RegExp(`^work-intelligence-pre-migration-v${LATEST_SCHEMA_VERSION}-`)),
+    );
     expect(backupFileNames).toContain(result.backupFileName);
 
     const current = new DatabaseSync(databasePath, { readOnly: true });

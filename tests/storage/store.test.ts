@@ -113,6 +113,79 @@ describe("WorkIntelligenceStore", () => {
     expect(detail?.events.map((event) => event.type)).toEqual(["planning", "verification", "finalized"]);
   });
 
+  it("redacts finalize and evidence text before persistence and returns counts only", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Secret redaction project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const token = `ghp_${"Z".repeat(36)}`;
+    const result = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "redaction-finalize-001",
+      title: `標題 ${token}`,
+      summary: `摘要 ${token}`,
+      workSummary: { outcomes: [token], scope: [], decisions: [], verification: [], nextSteps: [] },
+      verification: { status: "passed", summary: token },
+      events: [{ type: "execution", summary: token, details: { output: token } }],
+      handoffContent: token,
+    });
+
+    expect(result).toMatchObject({ outcome: "finalized", redactions: { total: 7, byKind: { github_token: 7 } } });
+    if (result.outcome !== "finalized") {
+      throw new Error("Expected a finalized Session.");
+    }
+    expect(result.session.redactionCount).toBe(7);
+    expect(JSON.stringify(store.getSessionDetail(result.session.id))).not.toContain(token);
+    expect(JSON.stringify(result.redactions)).not.toContain(token);
+
+    const evidence = store.attachEvidence({
+      sessionId: result.session.id,
+      kind: "test",
+      reference: token,
+      summary: token,
+    });
+    expect(evidence).toMatchObject({ outcome: "evidence_attached", redactions: { total: 2 } });
+    expect(JSON.stringify(evidence)).not.toContain(token);
+    expect(store.getSessionById(result.session.id)?.redactionCount).toBe(9);
+  });
+
+  it("redacts later Session summary, workSummary, and verification updates", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Session update redaction", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const created = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "redaction-update-base",
+      title: "Safe title",
+      summary: "Safe summary",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      verification: { status: "passed" },
+    });
+    if (created.outcome !== "finalized") {
+      throw new Error("Expected a finalized Session.");
+    }
+    const token = `ghr_${"W".repeat(36)}`;
+
+    const summary = store.updateSessionSummary({
+      sessionId: created.session.id,
+      idempotencyKey: "redaction-update-summary",
+      summary: `Summary ${token}`,
+    });
+    expect(summary).toMatchObject({ outcome: "summary_updated", redactions: { total: 1 } });
+
+    const workSummary = store.updateSessionWorkSummary({
+      sessionId: created.session.id,
+      idempotencyKey: "redaction-update-work-summary",
+      mode: "patch",
+      workSummary: { outcomes: [token] },
+    });
+    expect(workSummary).toMatchObject({ outcome: "work_summary_updated", redactions: { total: 1 } });
+
+    const verification = store.updateSessionVerification(created.session.id, { status: "passed", summary: token });
+    expect(verification).toMatchObject({ outcome: "updated", redactions: { total: 1 } });
+    expect(store.getSessionById(created.session.id)?.redactionCount).toBe(3);
+    expect(JSON.stringify(store.getSessionDetail(created.session.id))).not.toContain(token);
+  });
+
   it("persists compact structured work summary sections with the same Session", () => {
     const { store, root } = createStore();
     const project = store.addProject("Structured work project", root);
@@ -2209,7 +2282,7 @@ Result: PASSED
 
     const saved = store.saveReportSummary({
       requestId: created.request.id,
-      title: "本週工作報告",
+      title: `本週工作報告 sk-${"V".repeat(24)}`,
       executiveSummary: "完成報告提煉契約，資料不足部分已明確保留。",
       themes: [
         { title: "報告治理", detail: "建立可重跑且可追溯的提煉流程。", sourceSessionIds: [finalized.session.id] },
@@ -2239,12 +2312,14 @@ Result: PASSED
       generatedByModel: "test-model",
       promptVersion: "report-synthesis-v1",
     });
+    expect(saved).toMatchObject({ redactions: { total: 1 } });
     expect(saved).toMatchObject({
       outcome: "report_summary_saved",
       duplicate: false,
       summary: {
         isCurrent: true,
         requestId: created.request.id,
+        title: "本週工作報告 [REDACTED:openai_token]",
         themes: [{ title: "報告治理" }],
         verification: [{ title: "測試通過" }],
         comparison: [{ title: "相較上一期" }],
@@ -2266,11 +2341,15 @@ Result: PASSED
         generatedByAgent: "claude",
         promptVersion: "report-synthesis-v2",
       }),
-    ).toMatchObject({ outcome: "report_summary_saved", duplicate: true, summary: { title: "本週工作報告" } });
+    ).toMatchObject({
+      outcome: "report_summary_saved",
+      duplicate: true,
+      summary: { title: "本週工作報告 [REDACTED:openai_token]" },
+    });
     expect(store.getReportSynthesisRequest(created.request.id)).toMatchObject({
       outcome: "report_synthesis_request_detail",
       request: { status: "completed" },
-      summary: { title: "本週工作報告", sourceSessionIds: [finalized.session.id] },
+      summary: { title: "本週工作報告 [REDACTED:openai_token]", sourceSessionIds: [finalized.session.id] },
     });
     const secondRequest = store.createReportSynthesisRequest({
       period: "week",

@@ -19,6 +19,8 @@ pnpm build        # 工作區套件、server／MCP 與 Vite 正式版
 pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 ```
 
+`pnpm db:redact` 的 dry-run 與 `--apply` 測試只使用暫存目錄內的合成 SQLite 資料庫；不會讀寫使用者的實際資料庫。測試中的憑證字串由執行期片段組合，不在原始碼保存完整假 token。
+
 ## CI
 
 `.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：

@@ -89,6 +89,35 @@ describe("appliesTo matching", () => {
 });
 
 describe("Knowledge trust", () => {
+  it("redacts Knowledge writes and returns counts without storing token text", () => {
+    const { store, root } = setup();
+    const token = `gho_${"T".repeat(36)}`;
+    const recorded = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "redacted-knowledge-create",
+      kind: "gotcha",
+      title: `Credential ${token}`,
+      body: `Never store ${token}.`,
+      references: [token],
+    });
+    expect(recorded).toMatchObject({ outcome: "knowledge_recorded", redactions: { total: 3 } });
+    expect(JSON.stringify(recorded)).not.toContain(token);
+    if (recorded.outcome !== "knowledge_recorded") {
+      throw new Error("Expected Knowledge to be recorded.");
+    }
+
+    const updated = store.updateKnowledge({
+      projectRoot: root,
+      knowledgeId: recorded.knowledge.id,
+      body: `Rotated credential ${token}.`,
+    });
+    expect(updated).toMatchObject({ outcome: "knowledge_updated", redactions: { total: 1 } });
+    expect(JSON.stringify(updated)).not.toContain(token);
+    expect(
+      JSON.stringify(store.getKnowledgeHistory({ projectRoot: root, knowledgeId: recorded.knowledge.id })),
+    ).not.toContain(token);
+  });
+
   it("flags Knowledge as possibly stale when a later Session changes its paths, until it is confirmed", () => {
     const { store, root, finalize, record, knowledgeById, tick } = setup();
     const knowledge = record("stale", { appliesTo: ["src/hive/**"] });

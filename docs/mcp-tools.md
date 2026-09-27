@@ -31,6 +31,10 @@
 | Backfill | `work_preview_metadata_backfill`<br>`work_request_metadata_backfill`<br>`work_list_metadata_backfill_requests`<br>`work_get_metadata_backfill_context`<br>`work_apply_metadata_backfill`<br>`work_cancel_metadata_backfill` | metadata 缺口掃描與 Agent 回補流程（見 REST API 文件的 Metadata backfill） |
 | Import | `work_preview_handoff_import`<br>`work_import_handoffs` | 歷史 handoff 預覽與匯入 |
 
+## 敏感資料遮蔽
+
+會保存文字的寫入工具會先依固定規則遮蔽已知格式的憑證；成功回應可帶 `redactions: { total, byKind }`，其中只有各類型數量，不含原文或憑證片段。這涵蓋 finalize、摘要／workSummary／verification 修正、Evidence、Knowledge、候選、報告整理與 handoff 匯入。Session 回應另帶 `redactionCount`，Session 面板顯示已遮蔽數量。匯入／匯出與既有資料整理請使用 CLI `pnpm db:redact`；MCP 沒有資料庫整理、刪除備份或改路徑能力。
+
 ## `work_finalize_session`
 
 在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須在工作開始時（確認專案正在記錄後）擷取並保留當時已變更的路徑，finalize 時以 `baselineChangedFiles` 傳入；系統會從本次 Session 排除這些路徑、來源與變更事件。若從基準路徑改名，會將新路徑記為新增檔案。基準檔案在工作期間又被修改時仍整筆排除，因為單靠路徑無法判斷新增差異。若無法在開始時擷取基準，應省略欄位，不要事後推測。完成時再檢查工作樹／diff，沒有本次檔案變更時傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（API 相容欄位，畫面標示「狀態／未結項」）五個陣列；每個元素是一件已確認的短句，沒有證據時傳空陣列，不使用 `##` Markdown 標題。`nextSteps` 只能記錄已知限制、未完成項目、證據缺口或未驗證情境，不可寫建議或未來計畫。Git 狀態另由可選 metadata 記錄。這讓 工作歷程、Session 面板 與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata；工作完成不要求 Git commit。

@@ -160,6 +160,7 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   }
   if (table === "sessions") {
     row.changed_files_confirmed = 0;
+    row.redaction_count = 0;
   }
   return row;
 }
@@ -188,14 +189,19 @@ function rowAt(bundle: ReturnType<typeof validBundle>, table: ProjectDataTable) 
 }
 
 describe("project data transfer schemas", () => {
-  it("accepts exports that predate changed_files_confirmed and keeps the flag to 0 or 1", () => {
+  it("accepts exports that predate optional session counters and validates their values", () => {
     const legacy = validBundle();
     delete rowAt(legacy, "sessions").changed_files_confirmed;
+    delete rowAt(legacy, "sessions").redaction_count;
     expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
 
     const invalid = validBundle();
     rowAt(invalid, "sessions").changed_files_confirmed = 2;
     expect(projectDataExportSchema.safeParse(invalid).success).toBe(false);
+
+    const invalidRedactionCount = validBundle();
+    rowAt(invalidRedactionCount, "sessions").redaction_count = -1;
+    expect(projectDataExportSchema.safeParse(invalidRedactionCount).success).toBe(false);
 
     const missingRequired = validBundle();
     delete rowAt(missingRequired, "sessions").title;

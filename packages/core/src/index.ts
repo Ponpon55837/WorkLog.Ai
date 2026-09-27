@@ -47,6 +47,27 @@ export type KnowledgeKind = (typeof KNOWLEDGE_KINDS)[number];
 export const KNOWLEDGE_STATUSES = ["active", "archived"] as const;
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 
+export const SENSITIVE_DATA_KINDS = [
+  "github_token",
+  "openai_token",
+  "anthropic_token",
+  "slack_token",
+  "google_api_key",
+  "aws_access_key",
+  "aws_secret_key",
+  "private_key",
+  "jwt",
+  "connection_string_password",
+  "environment_secret",
+] as const;
+export type SensitiveDataKind = (typeof SENSITIVE_DATA_KINDS)[number];
+
+/** Counts only: never contains the matched value or any token fragment. */
+export interface RedactionSummary {
+  total: number;
+  byKind: Partial<Record<SensitiveDataKind, number>>;
+}
+
 export interface ChangedFileProvenance {
   path: string;
   sources: ChangedFileSource[];
@@ -148,6 +169,8 @@ export interface WorkSessionRecord {
   title: string;
   summary: string;
   workSummary?: WorkSummarySections;
+  /** Number of sensitive values removed from this Session's persisted text. */
+  redactionCount?: number;
   status: "finalized";
   executionStatus: ExecutionStatus;
   /** When the work began, if the Agent reported it or an event predates completion; never guessed. */
@@ -288,12 +311,12 @@ export interface SetEvidenceVoidInput {
 }
 
 export type SetSessionVoidResult =
-  | { outcome: "session_void_updated"; duplicate: boolean; session: WorkSessionRecord }
+  | { outcome: "session_void_updated"; duplicate: boolean; session: WorkSessionRecord; redactions?: RedactionSummary }
   | { outcome: "not_found"; sessionId: string }
   | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
 
 export type SetEvidenceVoidResult =
-  | { outcome: "evidence_void_updated"; duplicate: boolean; evidence: EvidenceRecord }
+  | { outcome: "evidence_void_updated"; duplicate: boolean; evidence: EvidenceRecord; redactions?: RedactionSummary }
   | { outcome: "not_found"; evidenceId: string }
   | { outcome: "skipped"; evidenceId: string; projectStatus: PolicyStatus; reason: string };
 
@@ -308,6 +331,7 @@ export interface AttachedEvidenceResult {
   outcome: "evidence_attached";
   duplicate: boolean;
   evidence: EvidenceRecord;
+  redactions?: RedactionSummary;
 }
 
 export interface EvidenceNotFoundResult {
@@ -404,6 +428,7 @@ export interface RecordedKnowledgeResult {
   knowledge: KnowledgeRecord;
   /** Problems that did not block recording, e.g. an unknown supersedesId. */
   warnings?: string[];
+  redactions?: RedactionSummary;
 }
 
 export interface UpdateKnowledgeInput {
@@ -423,6 +448,7 @@ export interface UpdateKnowledgeInput {
 export interface UpdatedKnowledgeResult {
   outcome: "knowledge_updated";
   knowledge: KnowledgeRecord;
+  redactions?: RedactionSummary;
 }
 
 export interface KnowledgeUpdateNotFoundResult {
@@ -958,6 +984,7 @@ export interface ReportSummarySavedResult {
   outcome: "report_summary_saved";
   duplicate: boolean;
   summary: ReportSummary;
+  redactions?: RedactionSummary;
 }
 
 export interface ReportSummarySaveNotFoundResult {
@@ -1062,6 +1089,7 @@ export interface FinalizedSessionResult {
   outcome: "finalized";
   duplicate: boolean;
   session: WorkSessionRecord;
+  redactions?: RedactionSummary;
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
   workSummaryFollowUp?: WorkSummaryFollowUp;
@@ -1125,6 +1153,7 @@ export interface UpdatedSessionVerificationResult {
   previous?: VerificationSummary;
   /** true when the submitted verification equals the stored one; nothing was written. */
   unchanged?: boolean;
+  redactions?: RedactionSummary;
 }
 
 export interface UpdateSessionMetadataInput {
@@ -1384,6 +1413,7 @@ export type HandoffImportBatchResult = HandoffImportResult | SkippedResult;
 export interface UpdatedSessionMetadataResult {
   outcome: "updated";
   session: WorkSessionRecord;
+  redactions?: RedactionSummary;
 }
 
 export const SESSION_SUMMARY_UPDATE_MODES = ["replace", "append"] as const;
@@ -1404,6 +1434,7 @@ export interface UpdatedSessionSummaryResult {
   mode: SessionSummaryUpdateMode;
   previousSummary: string;
   appliedSummary: string;
+  redactions?: RedactionSummary;
 }
 
 export interface SessionSummaryUpdateIdempotencyConflictResult {
@@ -1455,6 +1486,7 @@ export interface UpdatedSessionWorkSummaryResult {
   mode: WorkSummaryUpdateMode;
   previousWorkSummary?: WorkSummarySections;
   appliedWorkSummary: WorkSummarySections;
+  redactions?: RedactionSummary;
 }
 
 export interface SessionWorkSummaryUpdateIdempotencyConflictResult {
@@ -1612,7 +1644,12 @@ export type KnowledgeCandidateContextResult =
   | KnowledgeCandidateSkippedResult;
 
 export type SubmitKnowledgeCandidatesResult =
-  | { outcome: "knowledge_candidates_submitted"; request: KnowledgeCandidateRequest; candidates: KnowledgeCandidate[] }
+  | {
+      outcome: "knowledge_candidates_submitted";
+      request: KnowledgeCandidateRequest;
+      candidates: KnowledgeCandidate[];
+      redactions?: RedactionSummary;
+    }
   | { outcome: "not_found"; requestId: string; reason: string }
   | { outcome: "request_not_open"; request: KnowledgeCandidateRequest; reason: string }
   | { outcome: "invalid_candidates"; reason: string }
@@ -1935,6 +1972,7 @@ export interface ProjectDataImportPreview {
 export interface ProjectDataImportResult extends Omit<ProjectDataImportPreview, "outcome"> {
   outcome: "project_data_imported";
   importedAt: string;
+  redactions?: RedactionSummary;
 }
 
 /** The folder chosen in the native dialog the API server shows when adding a project. */

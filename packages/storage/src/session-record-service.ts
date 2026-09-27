@@ -60,6 +60,7 @@ import type {
 import { createProjectPathResolver } from "@work-intelligence/project-policy";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import type { SessionRow } from "./session-repository.js";
+import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 
 export interface SessionRecordDependencies {
   checkProjectById(projectId: string): PolicyDecision;
@@ -95,13 +96,22 @@ export class SessionRecordService {
     }
 
     const project = decision.project;
-    const previous = parseJson<VerificationSummary | undefined>(row.verification_json, undefined);
-    const next = normalizeVerification(verification);
-    const unchanged = sameVerification(previous, next);
+    const previousInput = parseJson<VerificationSummary | undefined>(row.verification_json, undefined);
+    const previousResult = previousInput ? redactValue(previousInput) : undefined;
+    const nextResult = redactValue(normalizeVerification(verification));
+    const previous = previousResult?.value;
+    const next = nextResult.value;
+    const redactions = combineRedactionSummaries(
+      previousResult?.redactions ?? { total: 0, byKind: {} },
+      nextResult.redactions,
+    );
+    const unchanged = sameVerification(previousInput, next);
     if (!unchanged) {
       const updatedAt = nowIso();
       runImmediateSqlTransaction(this.db, () => {
-        this.db.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run(JSON.stringify(next), sessionId);
+        this.db
+          .prepare("UPDATE sessions SET verification_json = ?, redaction_count = redaction_count + ? WHERE id = ?")
+          .run(JSON.stringify(next), redactions.total, sessionId);
         this.touchSession(sessionId, updatedAt);
         this.insertVerificationUpdate(sessionId, source, previous, next, updatedAt);
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
@@ -112,7 +122,7 @@ export class SessionRecordService {
     if (!session) {
       throw new Error("Session verification was updated but could not be loaded.");
     }
-    return { outcome: "updated", session, previous, ...(unchanged ? { unchanged } : {}) };
+    return { outcome: "updated", session, previous, ...(unchanged ? { unchanged } : {}), redactions };
   }
 
   public linkSessions(input: LinkSessionsInput, source: VerificationUpdateSource = "agent"): LinkSessionsResult {
@@ -313,10 +323,24 @@ export class SessionRecordService {
       (input.changedFileChanges?.length ?? 0) > 0 ||
       isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed);
     const updatedAt = nowIso();
-    const nextVerification = input.verification ? normalizeVerification(input.verification) : undefined;
+    const previousVerificationResult = current.verification ? redactValue(current.verification) : undefined;
+    const nextVerificationResult = input.verification
+      ? redactValue(normalizeVerification(input.verification))
+      : undefined;
+    const nextVerification = nextVerificationResult?.value ?? previousVerificationResult?.value;
+    const redactions = combineRedactionSummaries(
+      previousVerificationResult?.redactions ?? { total: 0, byKind: {} },
+      nextVerificationResult?.redactions ?? { total: 0, byKind: {} },
+    );
     runImmediateSqlTransaction(this.db, () => {
       if (nextVerification && !sameVerification(current.verification, nextVerification)) {
-        this.insertVerificationUpdate(input.sessionId, "agent", current.verification, nextVerification, updatedAt);
+        this.insertVerificationUpdate(
+          input.sessionId,
+          "agent",
+          previousVerificationResult?.value,
+          nextVerification,
+          updatedAt,
+        );
       }
       this.db
         .prepare(
@@ -327,7 +351,8 @@ export class SessionRecordService {
                changed_file_changes_json = @changedFileChanges,
                verification_json = @verification,
                commit_sha = @commitSha,
-               git_branch = @gitBranch
+               git_branch = @gitBranch,
+               redaction_count = redaction_count + @redactionCount
            WHERE id = @id`,
         )
         .run({
@@ -336,13 +361,10 @@ export class SessionRecordService {
           changedFilesConfirmed: changedFilesConfirmed ? 1 : 0,
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(changedFileChanges),
-          verification: nextVerification
-            ? JSON.stringify(nextVerification)
-            : current.verification
-              ? JSON.stringify(current.verification)
-              : null,
+          verification: nextVerification ? JSON.stringify(nextVerification) : null,
           commitSha: input.git?.commitSha ?? current.commitSha ?? null,
           gitBranch: input.git?.branch ?? current.gitBranch ?? null,
+          redactionCount: redactions.total,
         });
       if (input.startedAt && input.startedAt <= current.completedAt) {
         this.db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?").run(input.startedAt, input.sessionId);
@@ -355,7 +377,7 @@ export class SessionRecordService {
     if (!session) {
       throw new Error("Session metadata was updated but could not be loaded.");
     }
-    return { outcome: "updated", session };
+    return { outcome: "updated", session, redactions };
   }
 
   public updateSessionSummary(input: UpdateSessionSummaryInput): UpdateSessionSummaryResult {
@@ -383,7 +405,8 @@ export class SessionRecordService {
 
     const project = decision.project;
     const mode = input.mode ?? "replace";
-    const summary = input.summary.trim();
+    const sanitizedInput = redactText(input.summary.trim());
+    const summary = sanitizedInput.value;
     if (!summary) {
       throw new Error("Session summary must not be empty.");
     }
@@ -429,6 +452,7 @@ export class SessionRecordService {
           mode,
           previousSummary: existingUpdate.previous_summary,
           appliedSummary: existingUpdate.resulting_summary,
+          redactions: sanitizedInput.redactions,
         };
       }
 
@@ -437,10 +461,14 @@ export class SessionRecordService {
       if (!currentRow) {
         return { outcome: "not_found", sessionId: input.sessionId };
       }
-      const previousSummary = currentRow.summary ?? "";
+      const previousInput = redactText(currentRow.summary ?? "");
+      const previousSummary = previousInput.value;
       const appliedSummary = mode === "append" ? `${previousSummary.trim()}\n\n${summary}` : summary;
+      const redactions = combineRedactionSummaries(sanitizedInput.redactions, previousInput.redactions);
       const createdAt = nowIso();
-      this.db.prepare("UPDATE sessions SET summary = ? WHERE id = ?").run(appliedSummary, input.sessionId);
+      this.db
+        .prepare("UPDATE sessions SET summary = ?, redaction_count = redaction_count + ? WHERE id = ?")
+        .run(appliedSummary, redactions.total, input.sessionId);
       this.touchSession(input.sessionId, createdAt);
       this.db
         .prepare(
@@ -472,6 +500,7 @@ export class SessionRecordService {
         mode,
         previousSummary,
         appliedSummary,
+        redactions,
       };
     });
   }
@@ -500,7 +529,8 @@ export class SessionRecordService {
     }
 
     const mode = input.mode ?? "replace";
-    const normalizedPatch = normalizeWorkSummaryPatch(input.workSummary);
+    const normalizedPatchResult = redactValue(normalizeWorkSummaryPatch(input.workSummary));
+    const normalizedPatch = normalizedPatchResult.value;
     if (Object.keys(normalizedPatch).length === 0) {
       throw new Error("At least one workSummary section is required.");
     }
@@ -557,6 +587,7 @@ export class SessionRecordService {
           mode,
           ...(previousWorkSummary ? { previousWorkSummary } : {}),
           appliedWorkSummary,
+          redactions: normalizedPatchResult.redactions,
         };
       }
 
@@ -568,12 +599,18 @@ export class SessionRecordService {
       if (!currentRow) {
         return { outcome: "not_found", sessionId: input.sessionId };
       }
-      const previousWorkSummary = parseWorkSummarySections(currentRow.work_summary_json ?? null);
+      const previousWorkSummaryResult = parseWorkSummarySections(currentRow.work_summary_json ?? null);
+      const sanitizedPrevious = previousWorkSummaryResult ? redactValue(previousWorkSummaryResult) : undefined;
+      const previousWorkSummary = sanitizedPrevious?.value;
       const appliedWorkSummary = replacement ?? mergeWorkSummary(previousWorkSummary, normalizedPatch);
+      const redactions = combineRedactionSummaries(
+        normalizedPatchResult.redactions,
+        sanitizedPrevious?.redactions ?? { total: 0, byKind: {} },
+      );
       const createdAt = nowIso();
       this.db
-        .prepare("UPDATE sessions SET work_summary_json = ? WHERE id = ?")
-        .run(JSON.stringify(appliedWorkSummary), input.sessionId);
+        .prepare("UPDATE sessions SET work_summary_json = ?, redaction_count = redaction_count + ? WHERE id = ?")
+        .run(JSON.stringify(appliedWorkSummary), redactions.total, input.sessionId);
       this.touchSession(input.sessionId, createdAt);
       this.db
         .prepare(
@@ -586,7 +623,7 @@ export class SessionRecordService {
           sessionId: input.sessionId,
           idempotencyKey: input.idempotencyKey,
           mode,
-          workSummary: requestJson,
+          workSummary: JSON.stringify(normalizedPatch),
           previousWorkSummary: JSON.stringify(previousWorkSummary ?? {}),
           resultingWorkSummary: JSON.stringify(appliedWorkSummary),
           createdAt,
@@ -605,6 +642,7 @@ export class SessionRecordService {
         mode,
         ...(previousWorkSummary ? { previousWorkSummary } : {}),
         appliedWorkSummary,
+        redactions,
       };
     });
   }
@@ -684,7 +722,8 @@ export class SessionRecordService {
       };
     }
     const projectId = decision.project.id;
-    const reason = requireVoidReason(input.voided, input.reason);
+    const reasonResult = redactText(requireVoidReason(input.voided, input.reason) ?? "");
+    const reason = reasonResult.value || undefined;
     return runImmediateSqlTransaction(this.db, () => {
       const current = this.db.prepare("SELECT voided_at FROM sessions WHERE id = ?").get(input.sessionId) as {
         voided_at: string | null;
@@ -693,8 +732,15 @@ export class SessionRecordService {
       if (!duplicate) {
         const occurredAt = nowIso();
         this.db
-          .prepare("UPDATE sessions SET voided_at = ?, void_reason = ? WHERE id = ?")
-          .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.sessionId);
+          .prepare(
+            "UPDATE sessions SET voided_at = ?, void_reason = ?, redaction_count = redaction_count + ? WHERE id = ?",
+          )
+          .run(
+            input.voided ? occurredAt : null,
+            input.voided ? (reason ?? null) : null,
+            reasonResult.redactions.total,
+            input.sessionId,
+          );
         this.insertVoidAudit("session", input.sessionId, input.sessionId, projectId, input.voided, reason, occurredAt);
         this.touchSession(input.sessionId, occurredAt);
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
@@ -703,7 +749,7 @@ export class SessionRecordService {
       if (!session) {
         throw new Error("Session void state was updated but the Session could not be loaded.");
       }
-      return { outcome: "session_void_updated", duplicate, session };
+      return { outcome: "session_void_updated", duplicate, session, redactions: reasonResult.redactions };
     });
   }
 
@@ -722,7 +768,8 @@ export class SessionRecordService {
       };
     }
     const projectId = decision.project.id;
-    const reason = requireVoidReason(input.voided, input.reason);
+    const reasonResult = redactText(requireVoidReason(input.voided, input.reason) ?? "");
+    const reason = reasonResult.value || undefined;
     return runImmediateSqlTransaction(this.db, () => {
       const duplicate = Boolean(row.voided_at) === input.voided;
       if (!duplicate) {
@@ -730,12 +777,20 @@ export class SessionRecordService {
         this.db
           .prepare("UPDATE evidence SET voided_at = ?, void_reason = ? WHERE id = ?")
           .run(input.voided ? occurredAt : null, input.voided ? (reason ?? null) : null, input.evidenceId);
+        this.db
+          .prepare("UPDATE sessions SET redaction_count = redaction_count + ? WHERE id = ?")
+          .run(reasonResult.redactions.total, row.session_id);
         this.insertVoidAudit("evidence", input.evidenceId, row.session_id, projectId, input.voided, reason, occurredAt);
         this.touchSession(row.session_id, occurredAt);
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
       }
       const updated = this.db.prepare("SELECT * FROM evidence WHERE id = ?").get(input.evidenceId) as EvidenceRow;
-      return { outcome: "evidence_void_updated", duplicate, evidence: toEvidence(updated) };
+      return {
+        outcome: "evidence_void_updated",
+        duplicate,
+        evidence: toEvidence(updated),
+        redactions: reasonResult.redactions,
+      };
     });
   }
 

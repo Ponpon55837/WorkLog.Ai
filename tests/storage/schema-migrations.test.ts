@@ -103,6 +103,14 @@ describe("custom report synthesis migration", () => {
         { id: "legacy-empty", changed_files_confirmed: 0 },
         { id: "legacy-files", changed_files_confirmed: 1 },
       ]);
+      expect(db.prepare("SELECT id, redaction_count FROM sessions ORDER BY id").all()).toEqual([
+        { id: "legacy-empty", redaction_count: 0 },
+        { id: "legacy-files", redaction_count: 0 },
+      ]);
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 14").get()).toEqual({
+        version: 14,
+        name: "session-redaction-count",
+      });
       expect(
         db
           .prepare("SELECT id, period, range_from, range_to, source_session_ids_json FROM report_synthesis_requests")
@@ -164,6 +172,7 @@ describe("custom report synthesis migration", () => {
           name TEXT NOT NULL,
           applied_at TEXT NOT NULL
         );
+        CREATE TABLE sessions (id TEXT PRIMARY KEY);
       `);
       const markApplied = db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)");
       for (let version = 1; version <= 12; version += 1) {
@@ -181,6 +190,13 @@ describe("custom report synthesis migration", () => {
         version: 13,
         name: "project-location-audit",
       });
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 14").get()).toEqual({
+        version: 14,
+        name: "session-redaction-count",
+      });
+      expect(
+        (db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map((column) => column.name),
+      ).toContain("redaction_count");
     } finally {
       db.close();
     }

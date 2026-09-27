@@ -23,6 +23,7 @@ import { compileAppliesTo, normalizePath, type PathContext } from "./search-text
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { cleanList, parseJson, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
 import type { KnowledgeAuditRow, KnowledgeRow } from "./session-record-codecs.js";
+import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 export interface KnowledgeServiceDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
@@ -230,6 +231,13 @@ export class KnowledgeService {
     }
 
     const project = decision.project;
+    const sanitizedContent = redactValue({
+      title: input.title.trim(),
+      body: input.body.trim(),
+      tags: [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))],
+      references: [...new Set((input.references ?? []).map((reference) => reference.trim()).filter(Boolean))],
+      appliesTo: cleanList(input.appliesTo),
+    });
     return runImmediateSqlTransaction(this.db, () => {
       if (input.sessionId) {
         const session = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
@@ -252,6 +260,7 @@ export class KnowledgeService {
           outcome: "knowledge_recorded",
           duplicate: true,
           knowledge: this.withKnowledgeTrust(toKnowledge(existing)),
+          redactions: sanitizedContent.redactions,
         };
       }
 
@@ -263,14 +272,14 @@ export class KnowledgeService {
         sessionId: input.sessionId,
         idempotencyKey: input.idempotencyKey,
         kind: input.kind,
-        title: input.title.trim(),
-        body: input.body.trim(),
-        tags: [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))],
-        references: [...new Set((input.references ?? []).map((reference) => reference.trim()).filter(Boolean))],
+        title: sanitizedContent.value.title,
+        body: sanitizedContent.value.body,
+        tags: sanitizedContent.value.tags,
+        references: sanitizedContent.value.references,
         status: "active",
         createdAt,
         updatedAt: createdAt,
-        appliesTo: cleanList(input.appliesTo),
+        appliesTo: sanitizedContent.value.appliesTo,
       };
       const warnings: string[] = [];
       const superseded = input.supersedesId
@@ -350,6 +359,7 @@ export class KnowledgeService {
         duplicate: false,
         knowledge: this.withKnowledgeTrust(knowledge),
         ...(warnings.length > 0 ? { warnings } : {}),
+        redactions: sanitizedContent.redactions,
       };
     });
   }
@@ -378,19 +388,33 @@ export class KnowledgeService {
     }
 
     const current = toKnowledge(row);
+    const currentSanitized = redactValue({
+      title: current.title,
+      body: current.body,
+      tags: current.tags,
+      references: current.references,
+      appliesTo: current.appliesTo,
+    });
+    const inputSanitized = redactValue({
+      title: input.title?.trim(),
+      body: input.body?.trim(),
+      tags: input.tags?.map((tag) => tag.trim()).filter(Boolean),
+      references: input.references?.map((reference) => reference.trim()).filter(Boolean),
+      appliesTo: input.appliesTo ? cleanList(input.appliesTo) : undefined,
+    });
+    const redactions = combineRedactionSummaries(currentSanitized.redactions, inputSanitized.redactions);
+    const cleanCurrent = { ...current, ...currentSanitized.value };
     const updatedAt = nowIso();
     const next: KnowledgeRecord = {
-      ...current,
+      ...cleanCurrent,
       kind: input.kind ?? current.kind,
-      title: input.title?.trim() || current.title,
-      body: input.body?.trim() || current.body,
-      tags: input.tags ? [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))] : current.tags,
-      references: input.references
-        ? [...new Set(input.references.map((reference) => reference.trim()).filter(Boolean))]
-        : current.references,
+      title: inputSanitized.value.title || cleanCurrent.title,
+      body: inputSanitized.value.body || cleanCurrent.body,
+      tags: input.tags ? [...new Set(inputSanitized.value.tags ?? [])] : cleanCurrent.tags,
+      references: input.references ? [...new Set(inputSanitized.value.references ?? [])] : cleanCurrent.references,
       status: input.status ?? current.status,
       updatedAt,
-      appliesTo: input.appliesTo ? cleanList(input.appliesTo) : current.appliesTo,
+      appliesTo: input.appliesTo ? (inputSanitized.value.appliesTo ?? []) : cleanCurrent.appliesTo,
       ...(input.confirm ? { lastConfirmedAt: updatedAt } : {}),
     };
     if (input.confirm) {
@@ -443,9 +467,9 @@ export class KnowledgeService {
         review: next.review ? JSON.stringify(next.review) : null,
       });
     this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, decision.project.id);
-    this.insertKnowledgeAudit({ knowledge: next, before: current, action, changedFields, occurredAt: updatedAt });
+    this.insertKnowledgeAudit({ knowledge: next, before: cleanCurrent, action, changedFields, occurredAt: updatedAt });
 
-    return { outcome: "knowledge_updated", knowledge: this.withKnowledgeTrust(next) };
+    return { outcome: "knowledge_updated", knowledge: this.withKnowledgeTrust(next), redactions };
   }
 
   public getKnowledgeHistory(input: KnowledgeHistoryQuery): KnowledgeHistoryResult {

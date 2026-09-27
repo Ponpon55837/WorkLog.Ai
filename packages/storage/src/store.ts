@@ -154,6 +154,7 @@ import { ProjectDataTransferService } from "./project-data-transfer.js";
 import { SessionRecordService } from "./session-record-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
+import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import type { EvidenceRow, KnowledgeRow } from "./session-record-codecs.js";
 import {
   normalizeWorkSummarySections,
@@ -945,14 +946,22 @@ export class WorkIntelligenceStore {
     }
 
     const project = decision.project;
-    const kind = input.kind.trim();
-    const reference = input.reference.trim();
+    const kindResult = redactText(input.kind.trim());
+    const referenceResult = redactText(input.reference.trim());
+    const summaryResult = input.summary?.trim() ? redactText(input.summary.trim()) : undefined;
+    const redactions = combineRedactionSummaries(
+      kindResult.redactions,
+      referenceResult.redactions,
+      summaryResult?.redactions ?? { total: 0, byKind: {} },
+    );
+    const kind = kindResult.value;
+    const reference = referenceResult.value;
     return runImmediateSqlTransaction(this.db, () => {
       const existing = this.db
         .prepare("SELECT * FROM evidence WHERE session_id = ? AND kind = ? AND reference = ?")
         .get(input.sessionId, kind, reference) as EvidenceRow | undefined;
       if (existing) {
-        return { outcome: "evidence_attached", duplicate: true, evidence: toEvidence(existing) };
+        return { outcome: "evidence_attached", duplicate: true, evidence: toEvidence(existing), redactions };
       }
 
       const evidence: EvidenceRecord = {
@@ -961,7 +970,7 @@ export class WorkIntelligenceStore {
         projectId: project.id,
         kind,
         reference,
-        summary: input.summary?.trim() || undefined,
+        summary: summaryResult?.value || undefined,
         capturedAt: nowIso(),
       };
       this.db
@@ -979,9 +988,12 @@ export class WorkIntelligenceStore {
           capturedAt: evidence.capturedAt,
         });
       this.touchSession(evidence.sessionId, evidence.capturedAt);
+      this.db
+        .prepare("UPDATE sessions SET redaction_count = redaction_count + ? WHERE id = ?")
+        .run(redactions.total, evidence.sessionId);
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(evidence.capturedAt, project.id);
 
-      return { outcome: "evidence_attached", duplicate: false, evidence };
+      return { outcome: "evidence_attached", duplicate: false, evidence, redactions };
     });
   }
 
@@ -1019,14 +1031,28 @@ export class WorkIntelligenceStore {
       baselineChangedFileIdentities,
     );
     const normalizedWorkSummary = normalizeWorkSummarySections(input.workSummary);
+    const sanitizedTitle = redactText(input.title);
+    const sanitizedSummary = redactText(input.summary);
+    const sanitizedWorkSummary = redactValue(normalizedWorkSummary ?? {});
+    const sanitizedVerification = input.verification ? redactValue(input.verification) : undefined;
+    const sanitizedEvents = redactValue(input.events ?? []);
     const capturedHandoff = this.captureHandoff(project.rootPath, input);
+    const sanitizedHandoff = capturedHandoff ? redactText(capturedHandoff.content) : undefined;
+    const redactions = combineRedactionSummaries(
+      sanitizedTitle.redactions,
+      sanitizedSummary.redactions,
+      sanitizedWorkSummary.redactions,
+      sanitizedVerification?.redactions ?? { total: 0, byKind: {} },
+      sanitizedEvents.redactions,
+      sanitizedHandoff?.redactions ?? { total: 0, byKind: {} },
+    );
     const git = input.git ?? this.readGitMetadata(project.rootPath);
     const sessionId = randomUUID();
     const createdAt = nowIso();
     const completedAt = input.completedAt ?? createdAt;
     const startedAt = resolveStartedAt(input.startedAt, input.events, completedAt);
     const events = [
-      ...(input.events ?? []),
+      ...sanitizedEvents.value,
       {
         type: "finalized" as const,
         summary: "Session finalized after closing handoff.",
@@ -1036,7 +1062,7 @@ export class WorkIntelligenceStore {
     return runImmediateSqlTransaction(this.db, () => {
       const existing = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (existing) {
-        const incomingSummary = input.summary.trim();
+        const incomingSummary = sanitizedSummary.value.trim();
         if (existing.summary !== incomingSummary) {
           return {
             outcome: "idempotency_conflict",
@@ -1052,6 +1078,7 @@ export class WorkIntelligenceStore {
           outcome: "finalized",
           duplicate: true,
           session: existing,
+          redactions,
           verificationFollowUp: getVerificationFollowUp(existing),
           ...(this.hasConfirmedChangedFilesForSession(existing.id)
             ? {}
@@ -1066,12 +1093,12 @@ export class WorkIntelligenceStore {
              id, project_id, external_session_id, idempotency_key, title, summary,
              work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
              changed_files_json, changed_files_confirmed, changed_files_provenance_json, changed_file_changes_json, verification_json,
-             started_at, updated_at
+             started_at, updated_at, redaction_count
            ) VALUES (
              @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
              @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
              @changedFiles, @changedFilesConfirmed, @changedFilesProvenance, @changedFileChanges, @verification,
-             @startedAt, @createdAt
+             @startedAt, @createdAt, @redactionCount
            )`,
         )
         .run({
@@ -1079,9 +1106,9 @@ export class WorkIntelligenceStore {
           projectId: project.id,
           externalSessionId: input.externalSessionId ?? null,
           idempotencyKey: input.idempotencyKey,
-          title: input.title,
-          summary: input.summary,
-          workSummary: JSON.stringify(normalizedWorkSummary ?? {}),
+          title: sanitizedTitle.value,
+          summary: sanitizedSummary.value,
+          workSummary: JSON.stringify(sanitizedWorkSummary.value),
           completedAt,
           createdAt,
           commitSha: git?.commitSha ?? null,
@@ -1090,8 +1117,9 @@ export class WorkIntelligenceStore {
           changedFilesConfirmed: input.changedFiles !== undefined || normalizedChangedFiles.files.length > 0 ? 1 : 0,
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(normalizedChangedFileChanges),
-          verification: input.verification ? JSON.stringify(input.verification) : null,
+          verification: sanitizedVerification ? JSON.stringify(sanitizedVerification.value) : null,
           startedAt: startedAt ?? null,
+          redactionCount: redactions.total,
         });
 
       for (const event of events) {
@@ -1110,7 +1138,7 @@ export class WorkIntelligenceStore {
           });
       }
 
-      if (capturedHandoff) {
+      if (capturedHandoff && sanitizedHandoff) {
         this.db
           .prepare(
             `INSERT INTO raw_snapshots (id, session_id, project_id, kind, source_path, content, captured_at)
@@ -1121,7 +1149,7 @@ export class WorkIntelligenceStore {
             sessionId,
             projectId: project.id,
             sourcePath: capturedHandoff.sourcePath ?? null,
-            content: capturedHandoff.content,
+            content: sanitizedHandoff.value,
             capturedAt: createdAt,
           });
       }
@@ -1153,6 +1181,7 @@ export class WorkIntelligenceStore {
         outcome: "finalized",
         duplicate: false,
         session,
+        redactions,
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
         workSummaryFollowUp: getWorkSummaryFollowUp(session),

@@ -466,6 +466,7 @@ export function toSession(row: SessionRow): WorkSessionRecord {
     title: row.title,
     summary: row.summary,
     workSummary: parseWorkSummarySections(row.work_summary_json),
+    redactionCount: row.redaction_count ?? 0,
     status: row.status,
     executionStatus: row.execution_status ?? "completed",
     ...(row.started_at ? { startedAt: row.started_at } : {}),

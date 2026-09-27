@@ -22,6 +22,7 @@ import type {
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
+import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 const MAX_SOURCE_SESSIONS = 10;
 const HANDOFF_BUDGET = 40_000;
@@ -274,6 +275,18 @@ export class KnowledgeCandidateService {
         reason: `sourceSessionId ${outside.sourceSessionId} is not one of this request's source Sessions.`,
       };
     }
+    const sanitizedCandidates = input.candidates.map((candidate) =>
+      redactValue({
+        ...candidate,
+        title: candidate.title.trim(),
+        body: candidate.body.trim(),
+        tags: cleanList(candidate.tags),
+        references: cleanList(candidate.references),
+        appliesTo: cleanList(candidate.appliesTo),
+        rationale: candidate.rationale.trim(),
+      }),
+    );
+    const redactions = combineRedactionSummaries(...sanitizedCandidates.map((candidate) => candidate.redactions));
     return runImmediateTransaction(this.db, () => {
       const createdAt = nowIso();
       const insert = this.db.prepare(
@@ -282,7 +295,7 @@ export class KnowledgeCandidateService {
            applies_to_json, rationale, status, created_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`,
       );
-      const ids = input.candidates.map((candidate) => {
+      const ids = sanitizedCandidates.map(({ value: candidate }) => {
         const id = randomUUID();
         insert.run(
           id,
@@ -290,12 +303,12 @@ export class KnowledgeCandidateService {
           request.projectId,
           candidate.sourceSessionId,
           candidate.kind,
-          candidate.title.trim(),
-          candidate.body.trim(),
-          JSON.stringify(cleanList(candidate.tags)),
-          JSON.stringify(cleanList(candidate.references)),
-          JSON.stringify(cleanList(candidate.appliesTo)),
-          candidate.rationale.trim(),
+          candidate.title,
+          candidate.body,
+          JSON.stringify(candidate.tags),
+          JSON.stringify(candidate.references),
+          JSON.stringify(candidate.appliesTo),
+          candidate.rationale,
           createdAt,
         );
         return id;
@@ -310,6 +323,7 @@ export class KnowledgeCandidateService {
         outcome: "knowledge_candidates_submitted",
         request: this.getRequest(request.id)!,
         candidates: ids.map((id) => this.getCandidate(id)!),
+        redactions,
       };
     });
   }

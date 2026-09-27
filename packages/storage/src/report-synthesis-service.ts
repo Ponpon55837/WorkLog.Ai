@@ -36,6 +36,7 @@ import { createPageInfo } from "./pagination.js";
 import { getReportRange } from "./report-utils.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
+import { redactValue } from "./secret-redaction.js";
 
 type ReportReaderOptions = {
   period: ReportPeriod;
@@ -747,6 +748,21 @@ export class ReportSynthesisService {
       }
     }
 
+    const sanitizedInput = redactValue({
+      title: input.title.trim(),
+      executiveSummary: input.executiveSummary.trim(),
+      themes: input.themes ?? [],
+      highlights: input.highlights,
+      verification: input.verification ?? [],
+      comparison: input.comparison ?? [],
+      risks: input.risks,
+      decisions: input.decisions,
+      nextSteps: input.nextSteps,
+      generatedByAgent: input.generatedByAgent.trim(),
+      generatedByModel: input.generatedByModel?.trim(),
+      promptVersion: input.promptVersion.trim(),
+    });
+
     const existingRow = this.db
       .prepare(
         `SELECT s.*, p.name AS project_name
@@ -758,7 +774,12 @@ export class ReportSynthesisService {
       )
       .get(input.requestId) as ReportSummaryRow | undefined;
     if (existingRow && row.status === "completed") {
-      return { outcome: "report_summary_saved", duplicate: true, summary: toReportSummary(existingRow) };
+      return {
+        outcome: "report_summary_saved",
+        duplicate: true,
+        summary: toReportSummary(existingRow),
+        redactions: sanitizedInput.redactions,
+      };
     }
 
     if (row.status === "failed" || row.status === "cancelled") {
@@ -803,19 +824,19 @@ export class ReportSynthesisService {
       range: request.range,
       ...(request.projectId ? { projectId: request.projectId } : {}),
       ...(request.projectName ? { projectName: request.projectName } : {}),
-      title: input.title.trim(),
-      executiveSummary: input.executiveSummary.trim(),
-      themes: input.themes ?? [],
-      highlights: input.highlights,
-      verification: input.verification ?? [],
-      comparison: input.comparison ?? [],
-      risks: input.risks,
-      decisions: input.decisions,
-      nextSteps: input.nextSteps,
+      title: sanitizedInput.value.title,
+      executiveSummary: sanitizedInput.value.executiveSummary,
+      themes: sanitizedInput.value.themes,
+      highlights: sanitizedInput.value.highlights,
+      verification: sanitizedInput.value.verification,
+      comparison: sanitizedInput.value.comparison,
+      risks: sanitizedInput.value.risks,
+      decisions: sanitizedInput.value.decisions,
+      nextSteps: sanitizedInput.value.nextSteps,
       sourceSessionIds,
-      generatedByAgent: input.generatedByAgent.trim(),
-      ...(input.generatedByModel?.trim() ? { generatedByModel: input.generatedByModel.trim() } : {}),
-      promptVersion: input.promptVersion.trim(),
+      generatedByAgent: sanitizedInput.value.generatedByAgent,
+      ...(sanitizedInput.value.generatedByModel ? { generatedByModel: sanitizedInput.value.generatedByModel } : {}),
+      promptVersion: sanitizedInput.value.promptVersion,
       createdAt: nowIso(),
       isCurrent: true,
     };
@@ -882,7 +903,7 @@ export class ReportSynthesisService {
       throw error;
     }
 
-    return { outcome: "report_summary_saved", duplicate: false, summary };
+    return { outcome: "report_summary_saved", duplicate: false, summary, redactions: sanitizedInput.redactions };
   }
 
   public listReportSummaries(options: ReportSummaryQuery = {}): ReportSummaryQueryResult {
