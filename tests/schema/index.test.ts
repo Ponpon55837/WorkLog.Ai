@@ -136,6 +136,39 @@ describe("schema input boundaries", () => {
     expect(finalizeSessionInputSchema.safeParse(validFinalizeInput).success).toBe(true);
   });
 
+  it("stores work timestamps as UTC, accepts offsets, and rejects times after the server clock", () => {
+    const withOffset = finalizeSessionInputSchema.safeParse({
+      ...validFinalizeInput,
+      startedAt: "2026-09-27T09:10:00+08:00",
+      completedAt: "2026-09-27T09:52:48+08:00",
+    });
+    expect(withOffset.success && withOffset.data).toMatchObject({
+      startedAt: "2026-09-27T01:10:00.000Z",
+      completedAt: "2026-09-27T01:52:48.000Z",
+    });
+
+    // A local time written with Z is the common mistake: it lands hours in the future.
+    const future = new Date(Date.now() + 8 * 3_600_000).toISOString();
+    const rejected = finalizeSessionInputSchema.safeParse({ ...validFinalizeInput, completedAt: future });
+    expect(rejected.success).toBe(false);
+    const message = rejected.success ? "" : (rejected.error.issues[0]?.message ?? "");
+    expect(message).toContain("after the server time");
+    expect(message).toContain("Omit completedAt");
+
+    const withinSkew = new Date(Date.now() + 60_000).toISOString();
+    expect(finalizeSessionInputSchema.safeParse({ ...validFinalizeInput, completedAt: withinSkew }).success).toBe(true);
+    expect(
+      finalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        events: [{ type: "execution", summary: "Future event.", occurredAt: future }],
+      }).success,
+    ).toBe(false);
+    expect(
+      updateSessionMetadataInputSchema.safeParse({ sessionId: "session-1", changedFiles: [], completedAt: future })
+        .success,
+    ).toBe(false);
+  });
+
   it("accepts an optional changed-file baseline when finalizing", () => {
     expect(
       finalizeSessionInputSchema.safeParse({

@@ -22,6 +22,29 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 export const REMINDER =
   "這個專案有在 Work Intelligence 記錄，上次保存之後又改了檔案，還沒有保存工作記錄。如果這段工作已經完成，請依 work-intelligence skill 保存；如果還在進行或不需要記錄，直接結束這一輪即可。同一段工作只會提醒一次。";
 
+/** Adds the segment's start time read from the transcript, so the Agent never has to estimate startedAt. */
+export function reminderWithStart(segmentStartedAt: string | undefined): string {
+  return segmentStartedAt
+    ? `${REMINDER}這段工作的開始時間取自對話紀錄：${segmentStartedAt}。保存時請把它填入 startedAt；completedAt 請省略，由伺服器記錄。`
+    : REMINDER;
+}
+
+/** A message the user typed (a string or text blocks), as opposed to tool results, which are also `user` entries. */
+function isHumanMessage(entry: { type?: string; isMeta?: boolean; message?: { content?: unknown } }): boolean {
+  if (entry.type !== "user" || entry.isMeta) {
+    return false;
+  }
+  const content = entry.message?.content;
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+  return (
+    Array.isArray(content) &&
+    content.some((item) => (item as { type?: string }).type === "text") &&
+    !content.some((item) => (item as { type?: string }).type === "tool_result")
+  );
+}
+
 interface TranscriptPathScope {
   cwd: string;
   roots: readonly string[];
@@ -70,23 +93,35 @@ export function isFileInTrackedRoots(
   return Boolean(findTrackedRoot(target, roots, platform));
 }
 
-/** Where in the transcript files were last edited and the record was last saved (-1 when never). */
+/**
+ * Where in the transcript files were last edited and the record was last saved (-1 when never), and when the
+ * current segment began: the first message the user typed after the last save.
+ */
 export function summarizeTranscript(
   text: string,
   scope?: TranscriptPathScope,
-): { lastEdit: number; lastFinalize: number } {
+): { lastEdit: number; lastFinalize: number; segmentStartedAt?: string } {
   let lastEdit = -1;
   let lastFinalize = -1;
+  let segmentStartedAt: string | undefined;
   let index = 0;
   for (const line of text.split("\n")) {
     if (!line.trim()) {
       continue;
     }
-    let entry: { type?: string; message?: { content?: unknown } };
+    let entry: { type?: string; isMeta?: boolean; timestamp?: unknown; message?: { content?: unknown } };
     try {
       entry = JSON.parse(line) as typeof entry;
     } catch {
       continue;
+    }
+    if (
+      segmentStartedAt === undefined &&
+      isHumanMessage(entry) &&
+      typeof entry.timestamp === "string" &&
+      !Number.isNaN(Date.parse(entry.timestamp))
+    ) {
+      segmentStartedAt = new Date(entry.timestamp).toISOString();
     }
     const content = entry.type === "assistant" ? entry.message?.content : undefined;
     for (const item of Array.isArray(content) ? content : []) {
@@ -103,10 +138,12 @@ export function summarizeTranscript(
         lastEdit = index;
       } else if (name?.endsWith("work_finalize_session")) {
         lastFinalize = index;
+        // The next typed message starts a new segment.
+        segmentStartedAt = undefined;
       }
     }
   }
-  return { lastEdit, lastFinalize };
+  return { lastEdit, lastFinalize, ...(segmentStartedAt ? { segmentStartedAt } : {}) };
 }
 
 /** The tracked project root containing `cwd`, comparing whole path segments (case-insensitive on Windows). */
@@ -151,11 +188,15 @@ export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | 
   } catch {
     return null;
   }
-  const { lastEdit, lastFinalize } = summarizeTranscript(transcript, { cwd, roots, realpath: deps.realpath });
+  const { lastEdit, lastFinalize, segmentStartedAt } = summarizeTranscript(transcript, {
+    cwd,
+    roots,
+    realpath: deps.realpath,
+  });
   if (lastEdit < 0 || lastEdit < lastFinalize) {
     return null;
   }
-  return deps.markOnce(`${input.session_id}:${lastFinalize}`) ? REMINDER : null;
+  return deps.markOnce(`${input.session_id}:${lastFinalize}`) ? reminderWithStart(segmentStartedAt) : null;
 }
 
 export function databasePath(): string {

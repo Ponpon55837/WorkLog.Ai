@@ -1097,6 +1097,8 @@ export interface FinalizedSessionResult {
   linkWarnings?: string[];
   /** applied/contradicted Knowledge ids that were not found in this project. */
   knowledgeWarnings?: string[];
+  /** Supplied timestamps that were stored but look estimated, or that could not apply. */
+  timestampWarnings?: string[];
 }
 
 export interface FinalizeIdempotencyConflictResult {
@@ -1164,8 +1166,10 @@ export interface UpdateSessionMetadataInput {
   changedFileChanges?: ChangedFileChange[];
   verification?: VerificationSummary;
   git?: GitSummary;
-  /** Confirmed start of the work; ignored when after completedAt. */
+  /** Confirmed start of the work; not applied (and reported in timestampWarnings) when after completedAt. */
   startedAt?: string;
+  /** Corrected completion time from evidence; not applied when before startedAt. Kept as a note event. */
+  completedAt?: string;
 }
 
 export type MetadataBackfillGap = "changed_files" | "verification";
@@ -1414,6 +1418,8 @@ export interface UpdatedSessionMetadataResult {
   outcome: "updated";
   session: WorkSessionRecord;
   redactions?: RedactionSummary;
+  /** Timestamp corrections that were not applied, or that look estimated. */
+  timestampWarnings?: string[];
 }
 
 export const SESSION_SUMMARY_UPDATE_MODES = ["replace", "append"] as const;
@@ -1674,6 +1680,7 @@ export type DecideKnowledgeCandidateResult =
 
 export interface ContextResult {
   outcome: "context";
+  clock: ServerClock;
   project?: ProjectRecord;
   projects: ProjectRecord[];
   recentSessions: SessionDigest[];
@@ -1781,8 +1788,19 @@ export interface ProjectReader {
 export * from "./insights.js";
 
 /** Read-only recording state for one workspace root; never grants or changes tracking. */
+/** The server's clock, so an Agent can take the current time from it instead of estimating. */
+export interface ServerClock {
+  /** Current time, UTC ISO. */
+  serverTime: string;
+  /** IANA time zone of the machine running Work Intelligence, e.g. `Asia/Taipei`. */
+  timeZone: string;
+  /** Its current UTC offset, e.g. `+08:00`. */
+  utcOffset: string;
+}
+
 export interface ProjectStatusResult {
   outcome: "project_status";
+  clock: ServerClock;
   projectRoot: string;
   projectStatus: PolicyStatus;
   tracked: boolean;
