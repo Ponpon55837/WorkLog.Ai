@@ -14,10 +14,12 @@ import { projectDataExportSchema, projectDataImportInputSchema } from "@work-int
 import { z } from "zod";
 import {
   maintainDatabase,
+  redactDatabase,
   canonicalizeProjectRoot,
   restoreDatabase,
   WorkIntelligenceStore,
   type DatabaseMaintenanceResult,
+  type DatabaseRedactionResult,
   type RestorePathRemap,
 } from "@work-intelligence/storage";
 import { databasePath, storeOptions } from "./config.js";
@@ -27,6 +29,8 @@ const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 const NO_MAINTENANCE_ARGS_SCHEMA = z.array(z.never());
 const usage = `用法：
   pnpm db:maintain                    備份後檢查、整理資料庫並重建搜尋索引
+  pnpm db:redact [--dry-run]           唯讀預覽既有資料的敏感資訊遮蔽數量
+  pnpm db:redact --apply              先備份，再遮蔽資料並標記搜尋索引待更新
   pnpm db:backup                      立即備份（存到資料庫旁的 backups/）
   pnpm db:backups                     列出備份與總大小
   pnpm db:backups --delete <檔名>     確認後刪除一份備份
@@ -221,6 +225,7 @@ async function confirmBackupDeletion(backup: DatabaseBackup, isLastBackup: boole
 export interface DatabaseCliDependencies {
   withStore?: <T>(task: (store: WorkIntelligenceStore) => T) => T;
   runMaintenance?: () => DatabaseMaintenanceResult;
+  runRedaction?: (apply: boolean) => DatabaseRedactionResult;
   invocationDirectory?: string;
   log?: (message: string) => void;
   error?: (message: string) => void;
@@ -239,6 +244,9 @@ export async function runDatabaseCli(
   const runWithStore = dependencies.withStore ?? withStore;
   const runMaintenance =
     dependencies.runMaintenance ?? (() => maintainDatabase({ databasePath, backup: storeOptions.backup }));
+  const runRedaction =
+    dependencies.runRedaction ??
+    ((apply: boolean) => redactDatabase({ databasePath, apply, backup: storeOptions.backup }));
   const print = dependencies.log ?? ((message: string) => console.log(message));
   const printError = dependencies.error ?? ((message: string) => console.error(message));
   const confirmImport = dependencies.confirmPortableImport ?? confirmPortableImport;
@@ -255,6 +263,22 @@ export async function runDatabaseCli(
         `維護完成：備份 ${result.backupFileName}；重新索引 ${result.indexedSessions} 筆 Session、${result.indexedKnowledge} 筆 Knowledge，共 ${result.indexedChunks} 個搜尋段落與 ${result.indexedPaths} 個路徑。`,
       );
       print("doctor 已記錄最近一次維護結果。");
+    } else if (command === "redact") {
+      if (args.length > 1 || (args.length === 1 && args[0] !== "--apply" && args[0] !== "--dry-run")) {
+        fail("敏感資料整理只接受 `pnpm db:redact [--dry-run]` 或 `pnpm db:redact --apply`。");
+      }
+      const apply = args[0] === "--apply";
+      const result = runRedaction(apply);
+      const counts = Object.entries(result.redactions.byKind)
+        .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+        .map(([kind, count]) => `${kind} ${count}`)
+        .join("、");
+      print(
+        `${apply ? "整理完成" : "唯讀預覽"}：涉及 ${result.affectedSessions} 筆 Session；各類型遮蔽數量：${counts || "0"}。`,
+      );
+      if (apply && result.backupFileName) {
+        print(`整理前備份：${result.backupFileName}。舊備份與舊匯出仍可能保留原始文字，請在備份管理中檢視。`);
+      }
     } else if (command === "backup") {
       const result = runWithStore((store) => store.createBackup());
       if (result.outcome !== "database_backups") {

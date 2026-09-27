@@ -78,16 +78,19 @@ describe("Knowledge candidates", () => {
     expect(candidateContext.request.status).toBe("processing");
     expect(candidateContext.sessions.find((session) => session.id === first)?.handoff).toContain("sprinkler lease");
 
+    const token = `ghs_${"U".repeat(36)}`;
     expect(
       store.submitKnowledgeCandidates({ requestId: request.request.id, candidates: [candidate("elsewhere", "Bad")] }),
     ).toMatchObject({ outcome: "invalid_candidates" });
     const submitted = store.submitKnowledgeCandidates({
       requestId: request.request.id,
-      candidates: [candidate(first, "Sprinkler lease expires silently"), candidate(second, "Not reusable")],
+      candidates: [candidate(first, `Sprinkler lease ${token}`), candidate(second, "Not reusable")],
     });
     if (submitted.outcome !== "knowledge_candidates_submitted") {
       throw new Error("Expected submission");
     }
+    expect(submitted.redactions).toMatchObject({ total: 2 });
+    expect(JSON.stringify(submitted.candidates)).not.toContain(token);
     expect(submitted.request).toMatchObject({ status: "completed", candidateCount: 2 });
     expect(store.searchKnowledge({ projectRoot: root })).toMatchObject({ items: [] });
 

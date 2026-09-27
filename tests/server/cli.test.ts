@@ -86,6 +86,37 @@ describe("database maintenance CLI", () => {
     expect(messages.error.join("\n")).toContain("不接受參數");
   });
 
+  it("runs db:redact as a count-only dry-run unless --apply is explicit", async () => {
+    const modes: boolean[] = [];
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps: DatabaseCliDependencies = {
+      runRedaction: (apply) => {
+        modes.push(apply);
+        return {
+          mode: apply ? "applied" : "dry_run",
+          ...(apply ? { backupFileName: "redaction-backup.sqlite" } : {}),
+          affectedSessions: 2,
+          redactions: { total: 3, byKind: { github_token: 3 } },
+        };
+      },
+      log: (message) => messages.log.push(message),
+      error: (message) => messages.error.push(message),
+    };
+
+    expect(await runDatabaseCli(["redact"], deps)).toBe(0);
+    expect(modes).toEqual([false]);
+    expect(messages.log.join("\n")).toContain("唯讀預覽：涉及 2 筆 Session");
+
+    expect(await runDatabaseCli(["redact", "--dry-run"], deps)).toBe(0);
+    expect(modes).toEqual([false, false]);
+
+    expect(await runDatabaseCli(["redact", "--apply"], deps)).toBe(0);
+    expect(modes).toEqual([false, false, true]);
+    expect(messages.log.join("\n")).toContain("redaction-backup.sqlite");
+    expect(await runDatabaseCli(["redact", "--force"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("敏感資料整理只接受");
+  });
+
   it("lists backup types, timestamps, sizes, and totals, then requires deletion confirmation", async () => {
     const root = createRoot();
     const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));

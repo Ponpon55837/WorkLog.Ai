@@ -378,6 +378,14 @@ const MIGRATIONS: SchemaMigration[] = [
         ON project_location_audit(project_id, changed_at DESC);
     `,
   },
+  {
+    version: 14,
+    name: "session-redaction-count",
+    sql: `
+      ALTER TABLE sessions ADD COLUMN redaction_count INTEGER NOT NULL DEFAULT 0
+        CHECK (redaction_count >= 0);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

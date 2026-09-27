@@ -20,6 +20,7 @@ const props = defineProps<{ detail: SessionDetail }>();
 const emit = defineEmits<{ restoreRecord: [target: VoidTarget] }>();
 
 const session = computed(() => props.detail.session);
+const redactionCount = computed(() => session.value.redactionCount ?? 0);
 const verification = computed(() => verificationStatus[verificationOf(session.value)]);
 const sessionTarget = computed<VoidTarget>(() => ({
   type: "session",
@@ -37,6 +38,7 @@ const sessionTarget = computed<VoidTarget>(() => ({
     >
   </UiFlash>
   <p class="session-panel__summary">{{ formatReadableSummary(session.summary) }}</p>
+  <p v-if="redactionCount > 0" class="session-panel__redaction" role="status">已遮蔽 {{ redactionCount }} 處敏感資訊</p>
 
   <dl class="session-panel__meta">
     <dt>專案</dt>
@@ -83,6 +85,12 @@ const sessionTarget = computed<VoidTarget>(() => ({
   font-size: var(--text-lg);
   line-height: 1.6;
   white-space: pre-line;
+}
+
+.session-panel__redaction {
+  margin: calc(var(--space-2) * -1) 0 var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
 }
 
 .session-panel__meta {

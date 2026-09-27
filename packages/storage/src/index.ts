@@ -1,6 +1,13 @@
 export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";
 export type { TrackedScopeInput } from "./store.js";
 export { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
+export {
+  DatabaseRedactionError,
+  redactDatabase,
+  type DatabaseRedactionErrorCode,
+  type DatabaseRedactionResult,
+} from "./database-redaction.js";
+export { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 export { toSessionDigest } from "./digest.js";
 export type { SessionDigest } from "@work-intelligence/core";
 export { backupOptionsFromEnvironment } from "./backup-environment.js";

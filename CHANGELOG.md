@@ -6,6 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Fixed-rule secret masking on Session, Evidence, Knowledge, candidate, report, handoff import, and portable JSON write paths; Session records expose a redaction count, and `pnpm db:redact` provides read-only counts plus backed-up transactional cleanup for existing database content.
 - Portable project imports show source and local folder status, can remap projects one at a time without typing the old path, and allow a project root to be reassigned from the project list with a content-free audit record.
 - Local-first SQLite work tracking with explicit project opt-in, structured Sessions, handoffs, events, evidence, and Knowledge.
 - REST API, stdio MCP server, and Vue web interface for reviewing and managing tracked work.

@@ -10,6 +10,14 @@ Web UI 與本機 API 會使用你明確註冊的專案根目錄，以便顯示�
 
 本機同一個作業系統帳號及可連到 loopback 的本機程式屬於信任邊界。若電腦或帳號已遭入侵，Work Intelligence 無法保護本機資料免受該帳號權限所及的存取。請使用可信任的裝置與磁碟備份，並為系統帳號設定適當權限。
 
+## 敏感資料遮蔽
+
+寫入 Session、Evidence、Knowledge 候選／Knowledge、Agent 報告摘要及可攜式 JSON 匯入時，Work Intelligence 會用固定規則遮蔽 GitHub、OpenAI、Anthropic、Slack、Google、AWS 憑證、PEM 私鑰、JWT、連線字串密碼，以及 `API_KEY`／`SECRET`／`TOKEN`／`PASSWORD` 等常見指定值。遮蔽不呼叫 LLM；寫入工具回應只會列出各類型的數量，不會回傳憑證片段。Session 面板會顯示該筆記錄累積的遮蔽數量。
+
+規則依格式、邊界與長度篩選，避免把常見 UUID、commit SHA 與明確佔位字串當成憑證；但規則不是完整的秘密掃描器，未知格式、二進位資料或沒有被列出的憑證可能不會被發現。若需要其他格式，請先在本機確認，不要把真實憑證放進 issue 或測試原始碼；測試假憑證必須在執行期組合。
+
+`pnpm db:redact` 以唯讀模式掃描既有資料，只輸出各類型數量與受影響 Session 數，不輸出文字。先停止 Work Intelligence server 並關閉會啟動 MCP 的 Agent 對話，再執行 `pnpm db:redact --apply`；命令會取得獨佔鎖、先建立人工保留備份，再以單一交易改寫資料並清除舊搜尋片段、標記索引重建。資料庫以外的既有備份、先前匯出的 SQLite／JSON，以及這次遮蔽前建立的安全備份仍含原始文字；請到「專案 → 資料備份」檢視並自行處理不再需要的備份，也重新匯出需要分享的可攜式 JSON。請參閱[使用者指南的備份、匯出與匯入說明](docs/user-guide.md#備份匯出與匯入)。
+
 ## 回報安全問題
 
 請勿在公開 issue、討論區或 pull request 張貼可利用細節、資料庫、真實 Session、專案路徑、憑證或完整 transcript。

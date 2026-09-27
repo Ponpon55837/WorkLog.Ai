@@ -96,6 +96,10 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | DELETE   | `/api/reports/summaries/:id`                     | 移除非目前使用中的歷史報告版本                                                         |
 | POST     | `/api/work/finalize`                             | REST 形式的 finalize                                                                   |
 
+## 敏感資料遮蔽
+
+文字寫入路徑會依固定規則遮蔽常見 API token、私鑰、JWT、連線字串密碼及指定變數值。支援的成功寫入回應可能包含 `redactions: { total, byKind }`；欄位只回報數量，不含原始文字或 token 片段。Session detail/list 則會包含 `redactionCount`。可攜式 JSON 匯出會遮蔽既有內容，匯入時也會再次遮蔽；要整理目前資料庫內的歷史內容，請依[安全政策](../SECURITY.md#敏感資料遮蔽)使用 `pnpm db:redact`。
+
 報告提煉請求與摘要查詢可使用 `period`、`date`、`projectId`／`scopeType`；指定自訂區間時傳入 `period=custom&from=YYYY-MM-DD&to=YYYY-MM-DD`，`from` 與 `to` 必須同時提供且最多 366 天。自訂區間以起訖日期共同識別，Agent 摘要的歷史版本也只會取代相同專案範圍、相同起訖日的目前版本。建立請求的 JSON 格式例如 `{ "period": "custom", "from": "2026-09-01", "to": "2026-09-14" }`。
 
 ## Metadata backfill

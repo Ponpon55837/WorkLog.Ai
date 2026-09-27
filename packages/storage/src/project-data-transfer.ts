@@ -24,6 +24,7 @@ import { nowIso } from "@work-intelligence/shared";
 import { remapPathPrefix } from "./project-path-remap.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
+import { combineRedactionSummaries, redactText } from "./secret-redaction.js";
 
 const TABLE_ORDER: readonly ProjectDataTable[] = [
   "projects",
@@ -58,6 +59,79 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
 
 const CONFLICT_DETAIL_LIMIT = 100;
 const MAX_CONFLICT_ID_LENGTH = 200;
+
+const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
+  sessions: ["title", "summary", "work_summary_json", "verification_json", "void_reason"],
+  work_events: ["summary", "details_json"],
+  raw_snapshots: ["content"],
+  evidence: ["kind", "reference", "summary", "void_reason"],
+  void_audit: ["reason"],
+  session_verification_updates: ["previous_json", "resulting_json"],
+  session_summary_updates: ["summary", "previous_summary", "resulting_summary"],
+  session_work_summary_updates: ["work_summary_json", "previous_work_summary_json", "resulting_work_summary_json"],
+  knowledge: ["title", "body", "tags_json", "references_json", "applies_to_json", "review_json"],
+  knowledge_audit: ["before_json", "after_json", "changed_fields_json"],
+  knowledge_candidate_requests: ["failure_reason"],
+  knowledge_candidates: ["title", "body", "tags_json", "references_json", "applies_to_json", "rationale"],
+  report_synthesis_requests: ["failure_reason"],
+  report_summaries: [
+    "title",
+    "executive_summary",
+    "themes_json",
+    "highlights_json",
+    "verification_json",
+    "comparison_json",
+    "risks_json",
+    "decisions_json",
+    "next_steps_json",
+    "generated_by_agent",
+    "generated_by_model",
+  ],
+  metadata_backfill_requests: ["failure_reason"],
+};
+
+function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>): {
+  rows: Record<ProjectDataTable, ProjectDataRow[]>;
+  redactions: ReturnType<typeof combineRedactionSummaries>;
+} {
+  const allRedactions = combineRedactionSummaries();
+  const sessionCounts = new Map<string, number>();
+  const sanitized = Object.fromEntries(
+    PROJECT_DATA_TABLES.map((table) => {
+      const result = rows[table].map((row) => {
+        const output = { ...row } as Record<string, ProjectDataValue>;
+        let rowCount = 0;
+        for (const field of REDACTABLE_FIELDS[table] ?? []) {
+          const value = output[field];
+          if (typeof value !== "string") {
+            continue;
+          }
+          const result = redactText(value);
+          output[field] = result.value;
+          rowCount += result.redactions.total;
+          allRedactions.total += result.redactions.total;
+          for (const [kind, count] of Object.entries(result.redactions.byKind)) {
+            const key = kind as keyof typeof allRedactions.byKind;
+            allRedactions.byKind[key] = (allRedactions.byKind[key] ?? 0) + (count ?? 0);
+          }
+        }
+        if (rowCount > 0) {
+          const sessionId = table === "sessions" ? String(output.id) : String(output.session_id ?? "");
+          if (sessionId) {
+            sessionCounts.set(sessionId, (sessionCounts.get(sessionId) ?? 0) + rowCount);
+          }
+        }
+        return output as unknown as ProjectDataRow;
+      });
+      return [table, result];
+    }),
+  ) as unknown as Record<ProjectDataTable, ProjectDataRow[]>;
+
+  for (const session of sanitized.sessions as Array<ProjectDataRow & { id: string; redaction_count: number }>) {
+    session.redaction_count = Number(session.redaction_count ?? 0) + (sessionCounts.get(session.id) ?? 0);
+  }
+  return { rows: sanitized, redactions: allRedactions };
+}
 
 export type ProjectDataTransferErrorCode =
   "invalid_input" | "invalid_bundle" | "unsupported_schema" | "project_not_found";
@@ -732,24 +806,29 @@ export class ProjectDataTransferService {
       if (scope.type === "project" && !existingRow(this.db, "projects", scope.projectId)) {
         throw new ProjectDataTransferError("project_not_found", "找不到要匯出的專案。");
       }
+      const sanitized = redactProjectDataRows(selectExportRows(this.db, scope));
       return {
         format: "work-intelligence-export",
         formatVersion: 1,
         schemaVersion: LATEST_SCHEMA_VERSION,
         exportedAt: nowIso(),
         scope,
-        tables: selectExportRows(this.db, scope),
+        tables: sanitized.rows,
       };
     });
   }
 
   public preview(input: ProjectDataImportInput): ProjectDataImportPreview {
-    return runReadTransaction(this.db, () => previewFromPlan(makePlan(this.db, input)));
+    const sanitized = redactProjectDataRows(input.bundle.tables);
+    const sanitizedInput = { ...input, bundle: { ...input.bundle, tables: sanitized.rows } };
+    return runReadTransaction(this.db, () => previewFromPlan(makePlan(this.db, sanitizedInput)));
   }
 
   public import(input: ProjectDataImportInput): ProjectDataImportResult {
+    const sanitized = redactProjectDataRows(input.bundle.tables);
+    const sanitizedInput = { ...input, bundle: { ...input.bundle, tables: sanitized.rows } };
     return runImmediateTransaction(this.db, () => {
-      const plan = makePlan(this.db, input);
+      const plan = makePlan(this.db, sanitizedInput);
       const insertStatements = new Map<ProjectDataTable, InsertStatement>();
       for (const table of TABLE_ORDER) {
         for (const entry of plan.rows[table]) {
@@ -767,7 +846,7 @@ export class ProjectDataTransferService {
       }
       const preview = previewFromPlan(plan);
       const importedAt = nowIso();
-      const sourceDigest = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+      const sourceDigest = createHash("sha256").update(JSON.stringify(sanitizedInput)).digest("hex");
       const remapCounts = JSON.stringify(plan.remappedPaths);
       this.db
         .prepare(
@@ -784,7 +863,7 @@ export class ProjectDataTransferService {
           JSON.stringify(preview.conflicts),
           remapCounts,
         );
-      return { ...preview, outcome: "project_data_imported", importedAt };
+      return { ...preview, outcome: "project_data_imported", importedAt, redactions: sanitized.redactions };
     });
   }
 }

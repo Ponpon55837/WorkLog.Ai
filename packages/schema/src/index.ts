@@ -804,6 +804,7 @@ export const projectDataExportTableColumns = {
     "changed_files_provenance_json",
     "changed_file_changes_json",
     "changed_files_confirmed",
+    "redaction_count",
     "verification_json",
     "voided_at",
     "void_reason",
@@ -1132,7 +1133,7 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
 const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>> = {
   knowledge_candidate_requests: ["candidate_count"],
   report_summaries: ["is_current"],
-  sessions: ["changed_files_confirmed"],
+  sessions: ["changed_files_confirmed", "redaction_count"],
 };
 
 /**
@@ -1142,7 +1143,7 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
 export const projectDataColumnDefaults: Partial<
   Record<(typeof PROJECT_DATA_TABLES)[number], Readonly<Record<string, string | number | null>>>
 > = {
-  sessions: { changed_files_confirmed: 0 },
+  sessions: { changed_files_confirmed: 0, redaction_count: 0 },
 };
 
 /** A row's value for a column, falling back to the column default for bundles that predate it. */

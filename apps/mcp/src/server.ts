@@ -186,6 +186,7 @@ export function createWorkIntelligenceMcpServer(
     title: "Finalize a work session",
     description:
       "Finalize a completed planning/execution/verification/closing session. Provide summary plus the required five-section workSummary; inspect the worktree and provide changedFiles (use [] only when no files were intentionally changed) plus an explicit verification status: passed, failed, or not_run. When known, provide baselineChangedFiles captured at the start of this work; those paths are excluded from the Session's changed files. A file already changed at the baseline is excluded even if edited again during this work; a rename from a baseline path is recorded as an added file. Optionally provide changedFilesProvenance with Agent, handoff, Git, or worktree evidence references and changedFileChanges with added, modified, deleted, or renamed semantics (renamed requires previousPath). If this work relied on recalled Knowledge, report appliedKnowledgeIds (still valid; confirms them) and contradictedKnowledgeIds (no longer true; flags them for review); link an earlier Session this one continues with parentSessionId. Report startedAt when you know when the work began (e.g. the first message of this conversation), so work spanning days shows its real start; never guess it. Sessions also carry updatedAt, the last change after finalize. This is independent from Git commit. The project must be explicitly tracked; unregistered, paused, and ignored projects are skipped without reading handoff, Git, or source files. The idempotencyKey makes retries safe. If legacy data is missing verification, changedFiles, or workSummary, the response includes a follow-up instruction. " +
+      "Sensitive values in Session text are masked before storage; the result reports redaction counts by type only and never returns a token fragment. " +
       workRecordContract,
     inputShape: mcpFinalizeSessionInputSchema.shape,
     schema: mcpFinalizeSessionInputSchema,
@@ -268,7 +269,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_update_session_summary", {
     title: "Update a finalized session summary",
     description:
-      "Update the primary summary text of an existing finalized Session without creating a new Session. mode=replace replaces the complete summary; mode=append adds a clearly separated follow-up paragraph. changedFiles, verification, events, evidence, handoff snapshots, and the Session id are preserved. It has its own idempotencyKey; retrying the same payload never appends twice. Non-tracked projects are skipped quietly.",
+      "Update the primary summary text of an existing finalized Session without creating a new Session. mode=replace replaces the complete summary; mode=append adds a clearly separated follow-up paragraph. changedFiles, verification, events, evidence, handoff snapshots, and the Session id are preserved. It has its own idempotencyKey; retrying the same payload never appends twice. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. Non-tracked projects are skipped quietly.",
     inputShape: updateSessionSummaryInputSchema.shape,
     schema: updateSessionSummaryInputSchema,
     annotations: OVERWRITE_IDEMPOTENT,
@@ -281,6 +282,7 @@ export function createWorkIntelligenceMcpServer(
     title: "Update a finalized session work summary",
     description:
       "Update the structured five-section workSummary of an existing finalized Session. mode=replace needs all five sections; mode=patch merges one or more confirmed sections (a legacy missing workSummary starts from empty arrays). The Session id, idempotencyKey, changedFiles, verification, events, evidence, handoff snapshots, and Git metadata are preserved. It has its own idempotencyKey; retries never repeat a change. Non-tracked projects are skipped quietly. " +
+      "Sensitive values are masked before storage; the result reports redaction counts by type only and never returns a token fragment. " +
       workRecordContract,
     inputShape: updateSessionWorkSummaryInputSchemaBase.shape,
     schema: updateSessionWorkSummaryInputSchema,
@@ -293,7 +295,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_void_session", {
     title: "Void or restore a work session",
     description:
-      "Void a Session that was recorded by mistake or as a test (voided: true, with a reason), or restore it (voided: false). This is a reversible soft-delete: the Session stays readable with work_get_session and every change is audited, but a voided Session leaves Session lists, reports, the graph, context, and recall. Only void when the user asks or confirms; never void to hide real but unwanted work. Non-tracked projects are skipped quietly.",
+      "Void a Session that was recorded by mistake or as a test (voided: true, with a reason), or restore it (voided: false). This is a reversible soft-delete: the Session stays readable with work_get_session and every change is audited, but a voided Session leaves Session lists, reports, the graph, context, and recall. Sensitive values in reasons are masked; results report counts by type only. Only void when the user asks or confirms; never void to hide real but unwanted work. Non-tracked projects are skipped quietly.",
     inputShape: setSessionVoidInputSchemaBase.shape,
     schema: setSessionVoidInputSchema,
     annotations: OVERWRITE_IDEMPOTENT,
@@ -326,7 +328,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_attach_evidence", {
     title: "Attach session evidence",
     description:
-      "Attach an explicit evidence reference to an existing tracked Session, such as a test result, command output, source document, or review link. Only the supplied reference and summary are stored; the referenced source is never read. Duplicate session/kind/reference submissions are idempotent, and non-tracked projects are skipped quietly.",
+      "Attach an explicit evidence reference to an existing tracked Session, such as a test result, command output, source document, or review link. Only the supplied reference and summary are stored; the referenced source is never read. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. Duplicate session/kind/reference submissions are idempotent, and non-tracked projects are skipped quietly.",
     inputShape: attachEvidenceInputSchema.shape,
     schema: attachEvidenceInputSchema,
     annotations: ADDITIVE_IDEMPOTENT,
@@ -339,7 +341,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_record_knowledge", {
     title: "Record explicit work knowledge",
     description:
-      "Store an explicitly confirmed decision, pattern, gotcha, procedure, or skill for a tracked project, optionally linked to a finalized Session. Set appliesTo to the project-relative paths or globs it is about, so it is flagged possiblyStale when a later Session changes them; set supersedesId to archive the older Knowledge it replaces. Knowledge is never extracted from source files or handoffs automatically. idempotencyKey retries return the original record, and non-tracked projects are skipped quietly.",
+      "Store an explicitly confirmed decision, pattern, gotcha, procedure, or skill for a tracked project, optionally linked to a finalized Session. Set appliesTo to the project-relative paths or globs it is about, so it is flagged possiblyStale when a later Session changes them; set supersedesId to archive the older Knowledge it replaces. Knowledge is never extracted from source files or handoffs automatically. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. idempotencyKey retries return the original record, and non-tracked projects are skipped quietly.",
     inputShape: recordKnowledgeInputSchema.shape,
     schema: recordKnowledgeInputSchema,
     annotations: ADDITIVE_IDEMPOTENT,
@@ -385,7 +387,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_submit_knowledge_candidates", {
     title: "Submit Knowledge candidates",
     description:
-      "Submit proposed Knowledge for a request and complete it. Candidates are stored for the user to accept or reject on the Knowledge page; they are not Knowledge yet. " +
+      "Submit proposed Knowledge for a request and complete it. Candidates are stored for the user to accept or reject on the Knowledge page; they are not Knowledge yet. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. " +
       knowledgeCandidateContract,
     inputShape: submitKnowledgeCandidatesInputSchema.shape,
     schema: submitKnowledgeCandidatesInputSchema,
@@ -397,7 +399,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_update_knowledge", {
     title: "Update recorded work knowledge",
     description:
-      "Update or archive explicitly recorded Knowledge for a tracked project; projectRoot is required so the policy gate runs first. Set status to archived to hide an item from active searches, or active to restore it. Set appliesTo to change the paths it covers, or confirm: true after checking that it still holds (clears possiblyStale and needsReview until files change again). Every change keeps an immutable before/after snapshot. Non-tracked projects are skipped quietly.",
+      "Update or archive explicitly recorded Knowledge for a tracked project; projectRoot is required so the policy gate runs first. Set status to archived to hide an item from active searches, or active to restore it. Set appliesTo to change the paths it covers, or confirm: true after checking that it still holds (clears possiblyStale and needsReview until files change again). Every change keeps an immutable before/after snapshot. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. Non-tracked projects are skipped quietly.",
     inputShape: updateKnowledgeInputSchemaBase.shape,
     schema: updateKnowledgeInputSchema,
     annotations: OVERWRITE_IDEMPOTENT,
@@ -497,6 +499,7 @@ export function createWorkIntelligenceMcpServer(
       "Save a grounded report summary with themes, highlights, verification, supported comparison, risks, decisions, current-state/open-item blocks (legacy nextSteps field), agent/model metadata, prompt version, and sourceSessionIds. Original Sessions, Events, Evidence, Knowledge, and handoff snapshots are never modified; previous summaries stay in history. Retries for the same completed request are idempotent. " +
       implementationDetail +
       " " +
+      "Sensitive values in report text are masked; the result reports counts by type only and never returns a token fragment. " +
       reportSynthesisContract,
     inputShape: saveReportSummaryInputSchema.shape,
     schema: saveReportSummaryInputSchema,
