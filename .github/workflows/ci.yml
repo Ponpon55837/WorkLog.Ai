@@ -57,6 +57,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: pnpm run test:retrieval-quality
 
+      - name: MCP response-size budgets
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm run test:response-size
+
   e2e:
     name: E2E (Chromium + Firefox + WebKit)
     runs-on: ubuntu-latest
