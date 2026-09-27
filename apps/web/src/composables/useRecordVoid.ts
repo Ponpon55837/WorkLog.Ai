@@ -1,12 +1,11 @@
-import { ref } from "vue";
-import type { VoidTargetType } from "@work-intelligence/core";
+import { storeToRefs } from "pinia";
+import { useRecordVoidStore, type VoidTarget } from "../stores/record-void";
 import { errorMessage } from "../utils/format";
 import { useSessionsStore } from "../stores/sessions";
 import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
 
-/** Sessions and Evidence keep a void audit; a diagram keeps its void time and reason on the row. */
-export type VoidTarget = { type: VoidTargetType | "diagram"; id: string; sessionId: string; title: string };
+export type { VoidTarget } from "../stores/record-void";
 
 const voidedMessages = { session: "Session 已作廢。", evidence: "Evidence 已標示為錯誤。", diagram: "圖表已作廢。" };
 const restoreCopy = {
@@ -16,23 +15,18 @@ const restoreCopy = {
 };
 const restoredMessages = { session: "Session 已還原。", evidence: "Evidence 已還原。", diagram: "圖表已還原。" };
 
-const voidTarget = ref<VoidTarget | null>(null);
-const voidReason = ref("");
-const voidSaving = ref(false);
-const voidError = ref("");
-
 function openVoidDialog(target: VoidTarget): void {
-  voidTarget.value = target;
-  voidReason.value = "";
-  voidError.value = "";
+  useRecordVoidStore().voidTarget = target;
+  useRecordVoidStore().voidReason = "";
+  useRecordVoidStore().voidError = "";
 }
 
 function closeVoidDialog(): void {
-  if (voidSaving.value) {
+  if (useRecordVoidStore().voidSaving) {
     return;
   }
-  voidTarget.value = null;
-  voidError.value = "";
+  useRecordVoidStore().voidTarget = null;
+  useRecordVoidStore().voidError = "";
 }
 
 async function applyVoid(target: VoidTarget, voided: boolean, reason?: string): Promise<void> {
@@ -57,26 +51,26 @@ function afterChange(message: string): void {
 
 /** Voids the dialog's target; a reason is required so the audit explains why. */
 async function submitVoid(): Promise<void> {
-  const target = voidTarget.value;
-  const reason = voidReason.value.trim();
+  const target = useRecordVoidStore().voidTarget;
+  const reason = useRecordVoidStore().voidReason.trim();
   if (!target) {
     return;
   }
   if (!reason) {
-    voidError.value = "請填寫作廢原因。";
+    useRecordVoidStore().voidError = "請填寫作廢原因。";
     return;
   }
-  voidSaving.value = true;
-  voidError.value = "";
+  useRecordVoidStore().voidSaving = true;
+  useRecordVoidStore().voidError = "";
   try {
     await applyVoid(target, true, reason);
   } catch (error) {
-    voidError.value = errorMessage(error, "無法作廢。");
-    voidSaving.value = false;
+    useRecordVoidStore().voidError = errorMessage(error, "無法作廢。");
+    useRecordVoidStore().voidSaving = false;
     return;
   }
-  voidSaving.value = false;
-  voidTarget.value = null;
+  useRecordVoidStore().voidSaving = false;
+  useRecordVoidStore().voidTarget = null;
   afterChange(voidedMessages[target.type]);
 }
 
@@ -100,6 +94,7 @@ async function restoreRecord(target: VoidTarget): Promise<void> {
 }
 
 export function useRecordVoid() {
+  const { voidTarget, voidReason, voidSaving, voidError } = storeToRefs(useRecordVoidStore());
   return {
     voidTarget,
     voidReason,

@@ -1,22 +1,10 @@
-import { ref } from "vue";
 import { storeToRefs } from "pinia";
-import type {
-  DecideKnowledgeCandidateInput,
-  KnowledgeCandidate,
-  KnowledgeKind,
-  ProjectRecord,
-} from "@work-intelligence/core";
+import type { DecideKnowledgeCandidateInput, KnowledgeCandidate, ProjectRecord } from "@work-intelligence/core";
 import { useKnowledgeStore } from "../stores/knowledge";
+import { useKnowledgeCandidateEditorStore } from "../stores/knowledge-candidate-editor";
 import { errorMessage } from "../utils/format";
 import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
-
-type CandidateForm = { kind: KnowledgeKind; title: string; body: string; tags: string; appliesTo: string };
-
-const candidateEditor = ref<KnowledgeCandidate | null>(null);
-const candidateForm = ref<CandidateForm>({ kind: "pattern", title: "", body: "", tags: "", appliesTo: "" });
-const candidateSaving = ref(false);
-const candidateError = ref("");
 
 function splitValues(value: string): string[] {
   return [
@@ -91,31 +79,31 @@ async function rejectCandidate(candidate: KnowledgeCandidate, refreshProjectRoot
 }
 
 function openCandidateEditor(candidate: KnowledgeCandidate): void {
-  candidateEditor.value = candidate;
-  candidateForm.value = {
+  useKnowledgeCandidateEditorStore().candidateEditor = candidate;
+  useKnowledgeCandidateEditorStore().candidateForm = {
     kind: candidate.kind,
     title: candidate.title,
     body: candidate.body,
     tags: candidate.tags.join(", "),
     appliesTo: candidate.appliesTo.join("\n"),
   };
-  candidateError.value = "";
+  useKnowledgeCandidateEditorStore().candidateError = "";
 }
 
 function closeCandidateEditor(): void {
-  if (!candidateSaving.value) candidateEditor.value = null;
+  if (!useKnowledgeCandidateEditorStore().candidateSaving) useKnowledgeCandidateEditorStore().candidateEditor = null;
 }
 
 /** Accepts the candidate with the reviewer's edits. */
 async function saveCandidateEditor(refreshProjectRoot?: string): Promise<void> {
-  const candidate = candidateEditor.value;
-  const form = candidateForm.value;
+  const candidate = useKnowledgeCandidateEditorStore().candidateEditor;
+  const form = useKnowledgeCandidateEditorStore().candidateForm;
   if (!candidate) return;
   if (!form.title.trim() || !form.body.trim()) {
-    candidateError.value = "標題與內容不能留白。";
+    useKnowledgeCandidateEditorStore().candidateError = "標題與內容不能留白。";
     return;
   }
-  candidateSaving.value = true;
+  useKnowledgeCandidateEditorStore().candidateSaving = true;
   const accepted = await decide(candidate, "accept", refreshProjectRoot, {
     kind: form.kind,
     title: form.title.trim(),
@@ -123,8 +111,8 @@ async function saveCandidateEditor(refreshProjectRoot?: string): Promise<void> {
     tags: splitValues(form.tags),
     appliesTo: splitValues(form.appliesTo),
   });
-  candidateSaving.value = false;
-  if (accepted) candidateEditor.value = null;
+  useKnowledgeCandidateEditorStore().candidateSaving = false;
+  if (accepted) useKnowledgeCandidateEditorStore().candidateEditor = null;
 }
 
 function loadCandidates(projectRoot?: string): Promise<void> {
@@ -137,6 +125,9 @@ function refreshCandidates(projectRoot?: string): Promise<void> {
 }
 
 export function useKnowledgeCandidates() {
+  const { candidateEditor, candidateForm, candidateSaving, candidateError } = storeToRefs(
+    useKnowledgeCandidateEditorStore(),
+  );
   const { candidates, openCandidateRequests, candidatesLoading, candidatesError } = storeToRefs(useKnowledgeStore());
 
   return {

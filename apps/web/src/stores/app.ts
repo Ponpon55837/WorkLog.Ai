@@ -1,4 +1,4 @@
-import { useQuery } from "@pinia/colada";
+import { useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { ApiHealth } from "../api/client";
@@ -8,6 +8,7 @@ import { queryKeys } from "./query-keys";
 
 /** Owns app-wide health data that is shown in the shell on every route. */
 export const useAppStore = defineStore("app", () => {
+  const queryCache = useQueryCache();
   const healthEnabled = ref(false);
   const healthQuery = useQuery({
     key: queryKeys.app.health,
@@ -34,8 +35,9 @@ export const useAppStore = defineStore("app", () => {
     healthEnabled.value = true;
   }
 
+  /** Cancels every in-flight query when the app shell unmounts; each query's fetch sees its signal abort. */
   function abortPendingRequests(): void {
-    useApi().abortAll();
+    queryCache.cancelQueries();
   }
 
   return { appHealth, appHealthError, loadHealth, abortPendingRequests };

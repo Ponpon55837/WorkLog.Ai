@@ -1,13 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
-import { useApi } from "../../../apps/web/src/composables/useApi.js";
-import { useQueryCache } from "@pinia/colada";
 import { useAppStore } from "../../../apps/web/src/stores/app.js";
 import { useCommandPaletteStore } from "../../../apps/web/src/stores/command-palette.js";
 import { useDashboardStore } from "../../../apps/web/src/stores/dashboard.js";
 import { useSystemStatusStore } from "../../../apps/web/src/stores/system-status.js";
-import { queryKeys } from "../../../apps/web/src/stores/query-keys.js";
 
 let harness: ReturnType<typeof createStoreHarness>;
 let systemStatusError: boolean;
@@ -77,9 +74,6 @@ describe("shell stores", () => {
     await store.loadHealth();
     expect(store.appHealth?.app).toBe("Work Intelligence");
     expect(harness.count("/api/health")).toBe(1);
-    const pendingRequest = useApi().beginRequest("abort-pending-from-shell");
-    store.abortPendingRequests();
-    expect(pendingRequest.signal.aborted).toBe(true);
 
     harness.setResponder(({ url }) =>
       url.pathname === "/api/health"
@@ -105,7 +99,7 @@ describe("shell stores", () => {
     );
     const loading = store.loadHealth();
     await vi.waitFor(() => expect(harness.count("/api/health")).toBe(3));
-    await useQueryCache().cancelQueries({ key: queryKeys.app.health, exact: true });
+    store.abortPendingRequests();
     await loading;
     expect(aborted).toBe(true);
   });

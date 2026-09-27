@@ -1,25 +1,11 @@
-import { ref } from "vue";
+import { storeToRefs } from "pinia";
+import { useToastsStore, type ToastTone } from "../stores/toasts";
 import { useClipboard } from "./useClipboard";
 
-export type ToastTone = "default" | "success" | "danger";
-export type Toast = { id: number; message: string; tone: ToastTone };
-
-const toasts = ref<Toast[]>([]);
-const timeoutMs = 4_000;
-const maxToasts = 4;
-let nextId = 1;
-
-function dismissToast(id: number): void {
-  toasts.value = toasts.value.filter((toast) => toast.id !== id);
-}
-
-function showToast(message: string, tone: ToastTone = "default"): void {
-  const id = nextId++;
-  toasts.value = [...toasts.value, { id, message, tone }].slice(-maxToasts);
-  window.setTimeout(() => dismissToast(id), timeoutMs);
-}
+export type { Toast, ToastTone } from "../stores/toasts";
 
 async function copyWithToast(text: string, successMessage: string): Promise<void> {
+  const { showToast } = useToastsStore();
   try {
     await useClipboard().copyText(text);
     showToast(successMessage, "success");
@@ -29,5 +15,12 @@ async function copyWithToast(text: string, successMessage: string): Promise<void
 }
 
 export function useToast() {
-  return { toasts, showToast, dismissToast, copyWithToast };
+  const store = useToastsStore();
+  const { toasts } = storeToRefs(store);
+  return {
+    toasts,
+    showToast: (message: string, tone: ToastTone = "default") => store.showToast(message, tone),
+    dismissToast: store.dismissToast,
+    copyWithToast,
+  };
 }

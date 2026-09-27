@@ -4,11 +4,11 @@
 
 > 回到 [README](../README.md)
 
-- 最後更新：2026-09-27
+- 最後更新：2026-09-28
 
-## 第六輪：可信度、洞察與好用度（進行中）
+## 第六輪：可信度、洞察與好用度（已完成）
 
-交接文件：[`.openspec/handoffs/2026-09-27-claude-to-codex-round6.md`](../.openspec/handoffs/2026-09-27-claude-to-codex-round6.md)。依序進行：
+交接文件：[`.openspec/handoffs/2026-09-27-claude-to-codex-round6.md`](../.openspec/handoffs/2026-09-27-claude-to-codex-round6.md)。全部項目已合併：A1–B1、E1、C1 由 Codex 完成；C2–C4、D1–D5、E2、E3 由 Claude 接手完成（PR #133–#142），每項各自一個 PR，CI 全綠後以 merge commit 合併。開機自動啟動、發行、版本升到 1.0.0 與實機驗證仍維持暫緩。
 
 | 階段 | 項目 |
 | --- | --- |
@@ -78,6 +78,12 @@
 - `server.ts` 從約 1,650 行降到約 270 行，只留下 Host／Origin 檢查、CORS、SSE、路由分派與錯誤處理；70 條路由分成 7 個路由檔（皆在 300 行內），`http.ts` 放共用的 body 解析與回應工具。
 - 路由比對：字面路徑以雜湊表 O(1) 查找，含參數的路徑依方法與段數分組；建表時拒絕重複路由。
 - 行為不變：既有 server 測試原樣通過；新增路由表測試，確認每條路由的方法與路徑都有註冊且沒有重複。
+
+### E3 清除模組層級狀態
+
+- `useKnowledge`、`useKnowledgeCandidates`、`useRecordVoid`、`useSessionEditor`、`useSessionLinks`、`useConfirm`、`useToast` 的模組層級狀態移進 7 個附 `$reset` 的 Pinia store；composable 對外介面不變。
+- 移除 `useApiRequest` 未使用的 `beginRequest`／`isCurrentRequest`／`finishRequest`。原本 `abortAll` 只中止由 `beginRequest` 註冊的控制器，正式程式碼從未註冊，因此改為以 Pinia Colada `cancelQueries()` 真正取消進行中的查詢；測試輔助同步調整。
+- 保留的例外（寫在 worklog-code-layout skill）：無反應性的 `useApi` 單例、`useRouteQuery` 的批次緩衝，以及由 fetch callback 更新的連線狀態 `useApiConnection`。
 
 ### 額外調整：報告主要完成事項增加至 10 筆
 
