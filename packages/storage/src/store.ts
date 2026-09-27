@@ -113,7 +113,7 @@ import type {
   SessionListQueryResult,
   SessionNotFoundResult,
 } from "@work-intelligence/core";
-import { nowIso, truncateText } from "@work-intelligence/shared";
+import { nowIso, serverClock, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
 import {
   backupDatabase,
@@ -126,6 +126,7 @@ import {
   listDatabaseBackups,
   type BackupRetentionOptions,
 } from "./backup.js";
+import { segmentLengthWarnings, startedAfterCompletedWarning, suppliedCompletedAtWarnings } from "./work-timestamps.js";
 import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
 import {
@@ -1051,6 +1052,13 @@ export class WorkIntelligenceStore {
     const createdAt = nowIso();
     const completedAt = input.completedAt ?? createdAt;
     const startedAt = resolveStartedAt(input.startedAt, input.events, completedAt);
+    const timestampWarnings = [
+      ...suppliedCompletedAtWarnings(input.completedAt),
+      ...(input.startedAt && input.startedAt > completedAt
+        ? [startedAfterCompletedWarning(input.startedAt, completedAt)]
+        : []),
+      ...segmentLengthWarnings(startedAt, completedAt),
+    ];
     const events = [
       ...sanitizedEvents.value,
       {
@@ -1187,6 +1195,7 @@ export class WorkIntelligenceStore {
         workSummaryFollowUp: getWorkSummaryFollowUp(session),
         ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
         ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
+        ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
       };
     });
   }
@@ -1213,6 +1222,7 @@ export class WorkIntelligenceStore {
     const project = decision.project ?? this.getProjectByRootPath(decision.canonicalRoot);
     return {
       outcome: "project_status",
+      clock: serverClock(),
       projectRoot: decision.canonicalRoot,
       projectStatus: decision.projectStatus,
       tracked: decision.allowed && decision.project !== undefined,

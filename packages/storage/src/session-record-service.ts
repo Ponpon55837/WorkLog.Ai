@@ -58,6 +58,7 @@ import type {
   VoidAuditRow,
 } from "./session-record-codecs.js";
 import { createProjectPathResolver } from "@work-intelligence/project-policy";
+import { segmentLengthWarnings, startedAfterCompletedWarning } from "./work-timestamps.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import type { SessionRow } from "./session-repository.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
@@ -328,6 +329,27 @@ export class SessionRecordService {
       ? redactValue(normalizeVerification(input.verification))
       : undefined;
     const nextVerification = nextVerificationResult?.value ?? previousVerificationResult?.value;
+    const timestampWarnings: string[] = [];
+    let nextCompletedAt = current.completedAt;
+    if (input.completedAt && input.completedAt !== current.completedAt) {
+      const effectiveStartedAt = input.startedAt ?? current.startedAt;
+      if (effectiveStartedAt && effectiveStartedAt > input.completedAt) {
+        timestampWarnings.push(
+          `completedAt ${input.completedAt} is before startedAt ${effectiveStartedAt} and was not applied.`,
+        );
+      } else {
+        nextCompletedAt = input.completedAt;
+      }
+    }
+    let nextStartedAt: string | undefined;
+    if (input.startedAt !== undefined) {
+      if (input.startedAt <= nextCompletedAt) {
+        nextStartedAt = input.startedAt;
+      } else {
+        timestampWarnings.push(startedAfterCompletedWarning(input.startedAt, nextCompletedAt));
+      }
+    }
+    timestampWarnings.push(...segmentLengthWarnings(nextStartedAt ?? current.startedAt, nextCompletedAt));
     const redactions = combineRedactionSummaries(
       previousVerificationResult?.redactions ?? { total: 0, byKind: {} },
       nextVerificationResult?.redactions ?? { total: 0, byKind: {} },
@@ -366,8 +388,24 @@ export class SessionRecordService {
           gitBranch: input.git?.branch ?? current.gitBranch ?? null,
           redactionCount: redactions.total,
         });
-      if (input.startedAt && input.startedAt <= current.completedAt) {
-        this.db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?").run(input.startedAt, input.sessionId);
+      if (nextCompletedAt !== current.completedAt) {
+        this.db.prepare("UPDATE sessions SET completed_at = ? WHERE id = ?").run(nextCompletedAt, input.sessionId);
+        // A visible note on the Session keeps the correction auditable without a separate history table.
+        this.db
+          .prepare(
+            `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
+             VALUES (?, ?, 'note', ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            input.sessionId,
+            `完成時間由 ${current.completedAt} 更正為 ${nextCompletedAt}。`,
+            JSON.stringify({ field: "completedAt", previous: current.completedAt, next: nextCompletedAt }),
+            updatedAt,
+          );
+      }
+      if (nextStartedAt !== undefined) {
+        this.db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?").run(nextStartedAt, input.sessionId);
       }
       this.touchSession(input.sessionId, updatedAt);
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
@@ -377,7 +415,12 @@ export class SessionRecordService {
     if (!session) {
       throw new Error("Session metadata was updated but could not be loaded.");
     }
-    return { outcome: "updated", session, redactions };
+    return {
+      outcome: "updated",
+      session,
+      redactions,
+      ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
+    };
   }
 
   public updateSessionSummary(input: UpdateSessionSummaryInput): UpdateSessionSummaryResult {

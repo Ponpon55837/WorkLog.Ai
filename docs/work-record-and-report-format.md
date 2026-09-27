@@ -25,6 +25,7 @@ Additional rules:
 - Git remains optional structured metadata (`branch`, `commitSha`, `dirty`) outside `workSummary`. Include only observed values. `changedFiles` describes file-change evidence, not a commit.
 - Events, raw handoff snapshots, evidence, changed-file provenance, and Git metadata remain separate source records. Do not copy them wholesale into `workSummary`.
 - Every statement must be supported by the current Session's available handoff, event, evidence, metadata, or verified worktree information. If unavailable, omit it or state the known gap; never guess.
+- Times are never estimated. Omit `completedAt` for work that just finished; the server records it. `startedAt` is the first user message of this segment (the Claude Code save reminder states it), taken from evidence with its UTC offset, or omitted. Future times are rejected; implausible ones return `timestampWarnings` and are corrected with `work_update_session_metadata`. Details: [mcp-tools.md](mcp-tools.md#session-時間startedatcompletedatupdatedat).
 
 ## Report synthesis by period
 

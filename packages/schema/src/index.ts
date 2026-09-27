@@ -92,11 +92,41 @@ const gitSchema = z.object({
   dirty: z.boolean().optional(),
 });
 
+/** How far ahead of the server clock a timestamp may be before it counts as "in the future". */
+export const WORK_TIMESTAMP_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * A past or present instant for work records. A UTC offset such as `+08:00` is accepted and the value is stored
+ * as UTC ISO, so timestamps stay comparable as strings. Future values are rejected with the server time in the
+ * message, because an Agent does not know the current time and tends to estimate it.
+ */
+export function workTimestampSchema(field: string) {
+  return z
+    .string()
+    .datetime({ offset: true })
+    .transform((value, context) => {
+      const time = Date.parse(value);
+      const now = Date.now();
+      if (time > now + WORK_TIMESTAMP_FUTURE_TOLERANCE_MS) {
+        const hoursAhead = ((time - now) / 3_600_000).toFixed(1);
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            `${field} ${new Date(time).toISOString()} is ${hoursAhead} h after the server time ` +
+            `${new Date(now).toISOString()}. Omit ${field} for work that just finished; otherwise use a time ` +
+            "taken from evidence (a transcript or Git timestamp) with its UTC offset. Never estimate it.",
+        });
+        return z.NEVER;
+      }
+      return new Date(time).toISOString();
+    });
+}
+
 const eventSchema = z.object({
   type: workEventTypeSchema,
   summary: z.string().trim().min(1).max(4_000),
   details: z.record(z.unknown()).optional(),
-  occurredAt: z.string().datetime().optional(),
+  occurredAt: workTimestampSchema("occurredAt").optional(),
 });
 
 const workSummarySectionSchema = z.array(z.string().trim().min(1).max(4_000)).max(20);
@@ -139,12 +169,16 @@ export const finalizeSessionInputSchema = z.object({
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
   verification: verificationSchema,
   git: gitSchema.optional(),
-  startedAt: z
-    .string()
-    .datetime()
+  startedAt: workTimestampSchema("startedAt")
     .optional()
-    .describe("When the work began, e.g. the first message of the conversation; must not be after completedAt."),
-  completedAt: z.string().datetime().optional(),
+    .describe(
+      "When the work began: the first message of this segment in the conversation (the save reminder hook reports it). Take it from evidence, include the UTC offset, and never estimate it; omit it when unknown.",
+    ),
+  completedAt: workTimestampSchema("completedAt")
+    .optional()
+    .describe(
+      "Omit for work that just finished; the server records the current time. Only for backfilling earlier work, use a timestamp from evidence (for example the commit time) with its UTC offset. Future times are rejected.",
+    ),
   parentSessionId: z
     .string()
     .trim()
@@ -465,7 +499,14 @@ export const updateSessionMetadataInputSchema = z.object({
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
   verification: verificationSchema.optional(),
   git: gitSchema.optional(),
-  startedAt: z.string().datetime().optional(),
+  startedAt: workTimestampSchema("startedAt")
+    .optional()
+    .describe("Corrects when the work began; must not be after completedAt. Take it from evidence, never estimate."),
+  completedAt: workTimestampSchema("completedAt")
+    .optional()
+    .describe(
+      "Corrects a wrong completion time from evidence; must not be in the future or before startedAt. The change is kept as a note event on the Session.",
+    ),
 });
 
 const voidReasonSchema = z.string().trim().min(1).max(1_000);

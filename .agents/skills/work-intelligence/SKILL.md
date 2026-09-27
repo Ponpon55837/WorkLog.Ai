@@ -31,7 +31,10 @@ Write:
   - `decisions` / 決策 — explicit technical/product decisions; include rationale only when the source states it.
   - `verification` / 驗證 — commands and actual results, coverage, manual confirmation, failures, and unverified areas.
   - `nextSteps` / 狀態／未結項 — only current known limitations, unresolved items, evidence gaps, or unverified scenarios. Never invent a recommendation, roadmap, or future plan. Use `[]` when none are known.
-- `startedAt`: when this work actually began (for example the first user message of this conversation or the handoff's start), so work that spans days shows both days. Omit it when you do not know; never estimate it. `completedAt` defaults to the finalize time.
+- **Times — never estimate them.** You do not know the current time; `work_get_project_status` and `work_get_context` return `clock` (`serverTime`, `timeZone`, `utcOffset`) when you need it.
+  - `completedAt`: **omit it** for work that just finished; the server records the finalize time. Set it only to backfill earlier work, from evidence such as a commit time, and include the UTC offset (for example `2026-09-27T09:52:48+08:00`). Writing a local time with `Z` shifts it by the offset; future times are rejected.
+  - `startedAt`: when this segment began — the first user message since the last save. The save reminder hook states it when it fires ("這段工作的開始時間取自對話紀錄"); otherwise read it from the conversation transcript or the handoff. Omit it when you have no evidence.
+  - If the result has `timestampWarnings`, check the value against evidence and correct it with `work_update_session_metadata` (`startedAt` / `completedAt`), instead of voiding and recreating the Session.
 - `verification.status`: the machine-readable result (`passed`, `failed`, or `not_run`). Historical `not_supplied` means the original record omitted the status; do not rewrite it as `not_run` or assume success.
 - Git fields: optional separate metadata containing only observed values. Changed files do not prove a commit.
 - Events and evidence: record only supported facts and keep them separate from the five-section summary.

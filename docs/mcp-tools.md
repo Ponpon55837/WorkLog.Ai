@@ -91,7 +91,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_context`
 
-傳入 `projectRoot` 時只回傳該 tracked project 的內容；不傳則涵蓋所有 tracked projects。回傳的是精簡摘要（digest），讓一次呼叫能放進 Agent 的 tool-result 上限，完整內容再用對應工具讀取：
+傳入 `projectRoot` 時只回傳該 tracked project 的內容；不傳則涵蓋所有 tracked projects。回傳也包含伺服器時鐘 `clock`（同 `work_get_project_status`）。回傳的是精簡摘要（digest），讓一次呼叫能放進 Agent 的 tool-result 上限，完整內容再用對應工具讀取：
 
 | 欄位 | 內容 | 讀取完整內容 |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_project_status`
 
-唯讀查詢一個 workspace root 的記錄狀態：`tracked`、`paused`、`ignored` 或 `unregistered`，以及 `tracked: boolean` 與已註冊時的專案資料。Agent 在準備 finalize payload 前先呼叫，非「記錄中」就不要整理或保存工作。這個工具**不能**變更記錄狀態；授權只能由使用者在 Web UI 操作。
+唯讀查詢一個 workspace root 的記錄狀態：`tracked`、`paused`、`ignored` 或 `unregistered`，以及 `tracked: boolean` 與已註冊時的專案資料。回傳也包含伺服器時鐘 `clock`（`serverTime` 為 UTC、`timeZone` 為 IANA 時區、`utcOffset` 例如 `+08:00`）；Agent 不知道現在幾點，需要時間時從這裡取得，不要自行估計。Agent 在準備 finalize payload 前先呼叫，非「記錄中」就不要整理或保存工作。這個工具**不能**變更記錄狀態；授權只能由使用者在 Web UI 操作。
 
 ```json
 { "projectRoot": "C:\\work\\assistant" }
@@ -200,6 +200,8 @@ Server instructions 只放路由規則；Work record、Report synthesis、Metada
 
 用於既有 Session 的資料回填，不會建立新的 Session，也不會改變 `idempotencyKey`。Agent 應在完成工作後檢查實際 worktree/diff，再傳入確認過的 `changedFiles`；`verification` 可同時補回。沒有檔案變更時必須明確傳 `[]`，不能省略來讓系統猜測。`changedFilesMode` 預設為 `"replace"`；若是同一 Session 的另一個已獨立驗證 stage／commit，使用 `"merge"` 將新路徑與 provenance 與既有資料 union、dedupe。merge 只合併 Agent 明確提供的本次清單，不會讀取 Git 或自動吸收其他工作。
 
+也可以用 `startedAt`、`completedAt` 修正時間（必須有依據，不可估計）：修正 `completedAt` 時，Session 會新增一筆 `note` 事件，記錄原值與新值；會讓開始時間晚於完成時間的值不會套用，並在回傳的 `timestampWarnings` 中說明，而不是默默忽略。時間規則見[Session 時間](#session-時間startedatcompletedatupdatedat)。
+
 ```json
 {
   "sessionId": "session-id-from-work_finalize_session",
@@ -258,8 +260,15 @@ Server instructions 只放路由規則；Work record、Report synthesis、Metada
 
 ## Session 時間：`startedAt`、`completedAt`、`updatedAt`
 
-- `startedAt`：工作實際開始的時間。finalize 時由 Agent 回報（例如這段對話的第一則訊息）；沒回報時，若 `events` 有早於完成時間的 `occurredAt`，取最早的一筆；兩者都沒有就留空，UI 顯示「未回報」，不會推測。晚於 `completedAt` 的值會被忽略。舊 Session 可用 `work_update_session_metadata` 的 `startedAt` 補上已確認的值。
-- `completedAt`：完成時間，預設為 finalize 的時間；報告與日期篩選仍以它為準。
+Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統也會主動檢查：
+
+- **格式**：接受含時區的 ISO 時間（例如 `2026-09-27T09:52:48+08:00`），存入時統一轉成 UTC。把台北時間直接加上 `Z` 會差 8 小時，請一律帶上時區。
+- **拒絕未來時間**：`startedAt`、`completedAt` 與 `events[].occurredAt` 晚於伺服器時間超過 5 分鐘時，finalize 會失敗，錯誤訊息寫出差了多少小時與伺服器時間。
+- **伺服器時鐘**：`work_get_project_status` 與 `work_get_context` 回傳 `clock`（`serverTime`、`timeZone`、`utcOffset`），Agent 需要現在時間時從這裡取得。
+- `startedAt`：這一段工作實際開始的時間，也就是上一次保存之後的第一則使用者訊息。Claude Code 的保存提醒 hook 觸發時，會從對話紀錄讀出這個時間並寫在提醒裡。沒有回報時，若 `events` 有早於完成時間的 `occurredAt`，取最早的一筆；兩者都沒有就留空，UI 顯示「未回報」，不會推測。晚於 `completedAt` 的值不會套用，並在 `timestampWarnings` 中說明。
+- `completedAt`：完成時間。**剛完成的工作請省略**，伺服器會記錄 finalize 的時間；只有補登較早的工作、而且有依據（例如 commit 時間）時才填。報告與日期篩選以它為準。
+- **警告**（`timestampWarnings`，值仍會存入）：手填的 `completedAt` 比伺服器時間早超過 24 小時；`startedAt` 晚於 `completedAt`；開始到完成超過 7 天（通常是誤用了整段對話的開頭）。
+- **修正**：用 `work_update_session_metadata` 的 `startedAt`、`completedAt` 修正，不必作廢再重建。修正 `completedAt` 時，Session 會新增一筆 `note` 事件記錄原值與新值；會讓開始時間晚於完成時間的修正不會套用，並在 `timestampWarnings` 中說明。
 - `updatedAt`：完成後最後一次修改的時間。摘要、workSummary、verification、metadata、作廢／還原、附加或標示 Evidence、建立或移除關聯都會更新它；finalize 當下等於 `createdAt`。既有資料在 migration 6 以修改紀錄回填。
 
 ## `work_link_sessions`
