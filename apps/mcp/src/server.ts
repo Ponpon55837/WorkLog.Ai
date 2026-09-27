@@ -112,6 +112,8 @@ interface StoreToolDefinition<S extends z.ZodTypeAny> {
   invalidMessage: string;
   /** Session-shaped results also expose sessionId/verification as structuredContent. */
   sessionResult?: boolean;
+  /** Large hit lists may use compact JSON text to stay within the response-size budget without dropping fields. */
+  compactResult?: boolean;
   run: (input: z.infer<S>) => unknown;
 }
 
@@ -186,7 +188,9 @@ export function createWorkIntelligenceMcpServer(
         }
         try {
           const result = await definition.run(parsed.data);
-          return definition.sessionResult ? sessionTextResult(result) : textResult(result);
+          return definition.sessionResult
+            ? sessionTextResult(result)
+            : textResult(result, { compact: definition.compactResult });
         } catch (error) {
           if (!isDatabaseBusyError(error)) {
             throw error;
@@ -255,11 +259,12 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_recall", {
     title: "Recall related work",
     description:
-      'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns ranked hits with id, type, title, the strongest matchedIn field, raw section heading, an excerpt capped at 110 characters, and score; truncated excerpts are marked. Hits keep only their strongest matchedIn field, raw section headings are capped at 24 characters, and related Session links keep their ids and relations without repeating titles. With projectRoot, the repeated top-level project object is omitted. Read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
+      'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns confidence plus ranked hits with id, type, title, the strongest matchedIn field, raw section heading, an excerpt capped at 110 characters, and score as compact JSON text; truncated excerpts are marked. confidence is "none" when no hit has meaningful query coverage or a path match, "low" for weak partial matches, and "high" for strong query coverage or a path match. When confidence is "none", hits is empty and you must not use the result as evidence; rephrase the query or try a path. Hits keep only their strongest matchedIn field, raw section headings are capped at 24 characters, and related Session links keep their ids and relations without repeating titles. With projectRoot, the repeated top-level project object is omitted. Read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
     inputShape: recallQuerySchemaBase.shape,
     schema: recallQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid recall query.",
+    compactResult: true,
     run: (input) => {
       const result = store.recall(input);
       if (result.outcome !== "recall") return result;
@@ -272,6 +277,7 @@ export function createWorkIntelligenceMcpServer(
       if (!input.projectRoot) return { ...result, hits };
       return {
         outcome: result.outcome,
+        confidence: result.confidence,
         hits,
         ...(result.termHits ? { termHits: result.termHits } : {}),
       };
@@ -281,16 +287,17 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_search", {
     title: "Search work history",
     description:
-      "Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 compact hits with id, title, date, matchedIn, optional raw section heading, excerpt capped at 110 characters, and verificationStatus; truncated excerpts are marked). When title is the strongest match and the Session summary also matches a query term, the excerpt uses the summary to keep answer context. A project-scoped result omits repeated project identifiers. Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Pass from and/or to (YYYY-MM-DD, server time zone) when the user names a time such as last week or June. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
+      'Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 compact hits with id, title, date, matchedIn, optional raw section heading, excerpt capped at 110 characters, and verificationStatus; truncated excerpts are marked). Returns { outcome: "search", confidence, hits, termHits? } as compact JSON text. confidence is "none" when no hit has meaningful query coverage, "low" for weak partial matches, and "high" for strong query coverage. When confidence is "none", hits is empty and you must not use the result as evidence; rephrase the query. When title is the strongest match and the Session summary also matches a query term, the excerpt uses the summary to keep answer context. A project-scoped result omits repeated project identifiers. Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Pass from and/or to (YYYY-MM-DD, server time zone) when the user names a time such as last week or June. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.',
     inputShape: searchQuerySchemaBase.shape,
     schema: searchQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid search query.",
+    compactResult: true,
     run: (input) => {
-      const result = store.search(input.q, input.projectRoot, { from: input.from, to: input.to });
-      if (!Array.isArray(result)) return result;
+      const result = store.searchForAgent(input.q, input.projectRoot, { from: input.from, to: input.to });
+      if (result.outcome !== "search") return result;
       const queryTerms = input.q.toLocaleLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
-      return result.map(({ session, matchedIn, section, excerpt }) => {
+      const hits = result.hits.map(({ session, matchedIn, section, excerpt }) => {
         const summary = session.summary.toLocaleLowerCase();
         const excerptSource =
           matchedIn === "title" && queryTerms.some((term) => summary.includes(term)) ? session.summary : excerpt;
@@ -309,13 +316,19 @@ export function createWorkIntelligenceMcpServer(
           verificationStatus: session.verificationStatus,
         };
       });
+      return {
+        outcome: result.outcome,
+        confidence: result.confidence,
+        hits,
+        ...(result.termHits ? { termHits: result.termHits } : {}),
+      };
     },
   });
 
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      "Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, and the server clock. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. With a focus, the complete pretty-printed JSON response is capped at 12,000 characters; without a focus it is capped at 19,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted for ids, reasons, counts, and the tool to read each full item; truncated excerpts are marked. Pending requests and possiblyStale/needsReview flags are retained. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.",
+      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, and the server clock. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches, and "high" for strong matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. With a focus, the complete pretty-printed JSON response is capped at 12,000 characters; without a focus it is capped at 19,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted for ids, reasons, counts, and the tool to read each full item; truncated excerpts are marked. Pending requests and possiblyStale/needsReview flags are retained. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.',
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,

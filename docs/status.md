@@ -12,8 +12,8 @@
 
 | 階段 | 項目 |
 | --- | --- |
-| A. 回應用量 | A1 合成資料基線與暫行 CI 上限（PR #147 已合併）；A2 `work_get_context` 跨區去重、整份預算、任務優先（PR #148 已合併）；A3 `work_recall`／`work_search` 精簡結果（PR #149） |
-| B. 檢索準確度 | B1 查不到時回傳 `confidence: "none"`；B2 重複的規劃片段只算一次、已完成的工作優先 |
+| A. 回應用量 | A1 合成資料基線與暫行 CI 上限（PR #147 已合併）；A2 `work_get_context` 跨區去重、整份預算、任務優先（PR #148 已合併）；A3 `work_recall`／`work_search` 精簡結果（PR #149 已合併） |
+| B. 檢索準確度 | B1 查不到時回傳 `confidence: "none"`（本階段）；B2 重複的規劃片段只算一次、已完成的工作優先 |
 | C. 知識頁更新判斷 | C1 已引用來源被更正、作廢或還原時標示需要核對；C2 新 Session 只提示「有新資料」，可回報已檢查 |
 | D. 其他 | D1 跨專案情境的測試；D2 Mermaid 在嚴格 CSP 下的 console 警告 |
 

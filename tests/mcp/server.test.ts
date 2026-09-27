@@ -344,42 +344,77 @@ describe("Work Intelligence MCP server", () => {
       body: "Recalibrate before reading.",
     });
 
-    const recall = await callJson<{ outcome: string; hits: Array<{ type: string; id: string }> }>(
-      client,
-      "work_recall",
-      { q: "humidity sensor", projectRoot: root },
-    );
+    const recall = await callJson<{
+      outcome: string;
+      confidence: string;
+      hits: Array<{ type: string; id: string }>;
+    }>(client, "work_recall", { q: "humidity sensor", projectRoot: root });
     expect(recall.outcome).toBe("recall");
+    expect(recall.confidence).toBe("high");
     expect(recall.hits.map((hit) => hit.type).sort()).toEqual(["knowledge", "session"]);
 
-    const byPath = await callJson<{ hits: Array<{ id: string; matchedPaths?: string[] }> }>(client, "work_recall", {
-      paths: [join(root, "src/sensors/humidity.ts")],
-    });
+    const byPath = await callJson<{
+      confidence: string;
+      hits: Array<{ id: string; matchedPaths?: string[] }>;
+    }>(client, "work_recall", { paths: [join(root, "src/sensors/humidity.ts")] });
+    expect(byPath.confidence).toBe("high");
     expect(byPath.hits[0]).toMatchObject({ id: finalized.session.id, matchedPaths: ["src/sensors/humidity.ts"] });
+
+    const weak = await callJson<{ confidence: string; hits: unknown[] }>(client, "work_recall", {
+      q: "interstellar humidity",
+      projectRoot: root,
+    });
+    expect(weak.confidence).toBe("low");
+    expect(weak.hits.length).toBeGreaterThan(0);
+
+    const noRecallHits = await callJson<{ confidence: string; hits: unknown[] }>(client, "work_recall", {
+      q: "interstellar quantum memory accelerator",
+      projectRoot: root,
+    });
+    expect(noRecallHits).toMatchObject({ confidence: "none", hits: [] });
 
     const invalid = await client.callTool({ name: "work_recall", arguments: { projectRoot: root } });
     expect(invalid.isError).toBe(true);
 
-    const pastRange = await callJson<{ hits: unknown[] }>(client, "work_recall", {
+    const pastRange = await callJson<{ confidence: string; hits: unknown[] }>(client, "work_recall", {
       q: "humidity sensor",
       projectRoot: root,
       from: "2000-01-01",
       to: "2000-01-31",
     });
     expect(pastRange.hits).toEqual([]);
+    expect(pastRange.confidence).toBe("none");
+
+    const search = await callJson<{
+      outcome: string;
+      confidence: string;
+      hits: Array<{ id: string }>;
+    }>(client, "work_search", { q: "humidity sensor", projectRoot: root });
+    expect(search).toMatchObject({ outcome: "search", confidence: "high" });
+    expect(search.hits[0]?.id).toBe(finalized.session.id);
+    const noSearchHits = await callJson<{ confidence: string; hits: unknown[] }>(client, "work_search", {
+      q: "interstellar quantum memory accelerator",
+      projectRoot: root,
+    });
+    expect(noSearchHits).toMatchObject({ confidence: "none", hits: [] });
+
     const reversed = await client.callTool({
       name: "work_search",
       arguments: { q: "humidity", from: "2000-02-01", to: "2000-01-01" },
     });
     expect(reversed.isError).toBe(true);
 
-    const context = await callJson<{ relevant?: { knowledge: unknown[]; sessions: Array<{ id: string }> } }>(
-      client,
-      "work_get_context",
-      { projectRoot: root, task: "humidity drift", paths: ["src/sensors/humidity.ts"] },
-    );
+    const context = await callJson<{
+      relevant?: { confidence: string; knowledge: unknown[]; sessions: Array<{ id: string }> };
+    }>(client, "work_get_context", { projectRoot: root, task: "humidity drift", paths: ["src/sensors/humidity.ts"] });
+    expect(context.relevant?.confidence).toBe("high");
     expect(context.relevant?.knowledge).toHaveLength(1);
     expect(context.relevant?.sessions.map((session) => session.id)).toEqual([finalized.session.id]);
+
+    const contextMiss = await callJson<{
+      relevant?: { confidence: string; knowledge: unknown[]; sessions: unknown[] };
+    }>(client, "work_get_context", { projectRoot: root, task: "interstellar quantum memory accelerator" });
+    expect(contextMiss.relevant).toMatchObject({ confidence: "none", knowledge: [], sessions: [] });
   });
 
   it("voids and restores a Session and evidence through MCP", async () => {

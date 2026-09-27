@@ -422,6 +422,37 @@ describe("synthetic retrieval quality regression", () => {
     expect(metric.mrr).toBeGreaterThanOrEqual(category === "R" ? 0.5 : 0.7);
   });
 
+  it("signals no evidence or only one common-word match as low evidence", () => {
+    const missing = store.recall({ q: "interstellar quantum memory accelerator", projectRoot: root, limit: 5 });
+    expect(missing).toMatchObject({ outcome: "recall", confidence: "none", hits: [] });
+
+    for (let index = 0; index < 6; index += 1) {
+      createSession(`quality-weak-saffron-${index}`, root, {
+        title: `Saffron harvest note ${index}`,
+        summary: `The saffron beds were checked during routine harvest note ${index}.`,
+      });
+    }
+    const weak = store.recall({ q: "interstellar saffron", projectRoot: root, limit: 5 });
+    expect(weak.outcome).toBe("recall");
+    if (weak.outcome !== "recall") throw new Error("Expected synthetic recall for weak evidence.");
+    expect(weak.confidence).toBe("low");
+    expect(weak.hits.length).toBeGreaterThan(0);
+    expect(weak.termHits?.find((entry) => entry.term === "saffron")?.count).toBe(6);
+
+    const strong = store.recall({ q: "release candidate migration backup", projectRoot: root, limit: 5 });
+    expect(strong.outcome).toBe("recall");
+    if (strong.outcome !== "recall") throw new Error("Expected synthetic recall for strong evidence.");
+    expect(strong.confidence).toBe("high");
+    expect(strong.hits[0]?.id).toBe(expectedIds.get("s-migration-backup"));
+  });
+
+  it("makes a task miss explicit in relevant context", () => {
+    const context = store.getContext(root, { task: "interstellar quantum memory accelerator" });
+    expect(context.outcome).toBe("context");
+    if (context.outcome !== "context") throw new Error("Expected synthetic task context.");
+    expect(context.relevant).toMatchObject({ confidence: "none", knowledge: [], sessions: [] });
+  });
+
   it("keeps the answer-bearing recall excerpt concise and preserves its source hit", () => {
     const targetId = createSession("quality-cobalt-pump-answer", root, {
       title: "Cobalt pump transfer repair record",

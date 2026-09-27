@@ -2150,10 +2150,14 @@ export interface RecallTermHits {
   count: number;
 }
 
+export type RecallConfidence = "none" | "low" | "high";
+
 export interface RecallResult {
   outcome: "recall";
   project?: ProjectRecord;
   hits: RecallHit[];
+  /** Whether the returned records provide enough evidence for the query; none means do not rely on the hits. */
+  confidence: RecallConfidence;
   /** Present when some query word matched nothing, so the Agent can reshape the query. */
   termHits?: RecallTermHits[];
 }
@@ -2176,6 +2180,8 @@ export interface RecallInput extends DateRange {
 export interface RelevantContext {
   task?: string;
   paths?: string[];
+  /** Confidence in the task-related retrieval; none means no result should be used as evidence. */
+  confidence: RecallConfidence;
   /** Knowledge (gotchas, patterns, decisions, …) ranked for the task and paths. */
   knowledge: RecallHit[];
   /** workSummary.decisions of the relevant Sessions, each citing its Session. */
@@ -2289,6 +2295,14 @@ export interface SearchResult {
   /** Heading of the matched raw handoff section. */
   section?: string;
   excerpt: string;
+}
+
+export interface SearchQueryResult {
+  outcome: "search";
+  hits: SearchResult[];
+  confidence: RecallConfidence;
+  /** Present when some query word matched nothing, so the Agent can reshape the query. */
+  termHits?: RecallTermHits[];
 }
 
 export interface SkippedContextResult {

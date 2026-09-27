@@ -96,6 +96,7 @@ import type {
   DeleteProjectResult,
   ProjectDeletionAuditRecord,
   ReportSynthesisRequestLookupResult,
+  SearchQueryResult,
   SearchResult,
   SessionListResult,
   SessionDetail,
@@ -1426,6 +1427,11 @@ export class WorkIntelligenceStore {
   /** `range` limits results to Sessions completed within inclusive calendar dates (server time zone). */
   public search(query: string, projectRoot?: string, range: DateRange = {}): SearchResult[] | SkippedResult {
     return this.contextRecallService.search(query, projectRoot, range);
+  }
+
+  /** Ranked, confidence-bearing Session search for Agent tools; REST search retains its current array result. */
+  public searchForAgent(query: string, projectRoot?: string, range: DateRange = {}): SearchQueryResult | SkippedResult {
+    return this.contextRecallService.searchForAgent(query, projectRoot, range);
   }
 
   /** Read-only recording state of a workspace root, so an Agent can skip preparing an untracked finalize. */
