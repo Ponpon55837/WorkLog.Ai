@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed } from "vue";
 import { Check, ExternalLink, Pencil, Sparkles, X } from "lucide-vue-next";
 import type { ProjectRecord } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
@@ -28,7 +28,6 @@ const {
   candidates,
   openCandidateRequests,
   candidatesError,
-  loadCandidates,
   refreshCandidates,
   requestCandidates,
   acceptCandidate,
@@ -62,12 +61,6 @@ function onRequest(projectId: string): void {
     void requestCandidates(project, props.projectRoot);
   }
 }
-
-watch(
-  () => props.projectRoot,
-  (root) => void loadCandidates(root),
-  { immediate: true },
-);
 </script>
 
 <template>

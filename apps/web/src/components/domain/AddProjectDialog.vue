@@ -9,12 +9,14 @@ import UiField from "../ui/UiField.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 
 const open = defineModel<boolean>("open", { required: true });
-const projectName = ref("");
-const projectRoot = ref("");
-const pickingFolder = ref(false);
+
 const projectsStore = useProjectsStore();
 const { addingProject } = storeToRefs(projectsStore);
 const { addProject, pickProjectFolder } = projectsStore;
+
+const projectName = ref("");
+const projectRoot = ref("");
+const pickingFolder = ref(false);
 
 async function submit(): Promise<void> {
   if (await addProject({ name: projectName.value, rootPath: projectRoot.value })) {

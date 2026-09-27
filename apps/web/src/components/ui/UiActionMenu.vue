@@ -24,9 +24,8 @@ const props = withDefaults(
   { align: "start", variant: "filter", size: "md" },
 );
 
-const model = defineModel<T>();
 const emit = defineEmits<{ select: [value: T] }>();
-
+const model = defineModel<T>();
 const { open, trigger, panel, style, toggle, close } = usePopover({ align: computed(() => props.align), width: 260 });
 const applied = computed(
   () => model.value !== undefined && props.defaultValue !== undefined && model.value !== props.defaultValue,

@@ -9,7 +9,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --parallel --filter @work-intelligence/server --filter @work-intelligence/web dev",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint . --max-warnings 0 && node scripts/sfc-layout.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "start:server": "pnpm --filter @work-intelligence/server start",

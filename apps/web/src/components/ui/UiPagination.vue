@@ -8,9 +8,8 @@ import UiSelect from "./UiSelect.vue";
 
 /** The single pagination control: summary, page-size select (10/20/50/100/All) and prev/next. */
 defineProps<{ pageInfo: PageInfo; sizeLabel: string }>();
-const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const emit = defineEmits<{ page: [page: number] }>();
-
+const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const root = ref<HTMLElement | null>(null);
 
 /** Changing page from the footer brings the top of the list back into view instead of leaving the user at the bottom. */

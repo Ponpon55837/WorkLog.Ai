@@ -59,14 +59,16 @@ const {
 } = projectDataTransferStore;
 
 const scrollAfter = 6;
-const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
-const restoreCommand = "pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>";
+
 const exportScope = ref<"all" | "project">("all");
 const exportProjectId = ref("");
 const exportScopeOptions = [
   { value: "all", label: "全部專案" },
   { value: "project", label: "單一專案" },
 ];
+
+const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
+const restoreCommand = "pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>";
 const exportProjectOptions = computed(() =>
   projects.value.map((project) => ({ value: project.id, label: project.name })),
 );

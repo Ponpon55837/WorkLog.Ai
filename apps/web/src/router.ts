@@ -33,7 +33,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: "工作報告", navLabel: "工作報告", eyebrow: "WORK REPORTS", group: "work" },
   },
   {
-    path: "/knowledge",
+    path: "/knowledge/:tab?",
     name: "knowledge",
     component: () => import("./views/KnowledgeView.vue"),
     meta: { title: "工作知識", navLabel: "工作知識", eyebrow: "EXPLICIT KNOWLEDGE", group: "knowledge" },

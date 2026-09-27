@@ -32,6 +32,7 @@ tests/<package>/   all tests live here, never beside src
 ```
 
 - New domain logic goes in a service; `store.ts` only constructs services and forwards calls. Do not let `store.ts` grow again.
+- Order inside every module and class follows the [`worklog-code-layout`](../worklog-code-layout/SKILL.md) skill §5 (imports → types → constants → private helpers → exported functions → classes → entry point; fields → constructor → public → private methods). Declare `const`/`let` before use; `pnpm lint` enforces it.
 - Every external input is parsed with a schema from `packages/schema` before it reaches storage. Types come from the schema or core, not `as` casts.
 
 ## 2. Policy and privacy (non-negotiable)

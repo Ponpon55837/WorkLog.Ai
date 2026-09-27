@@ -17,6 +17,12 @@ const { report, loading } = defineProps<{
   report: WorkReport;
   loading: boolean;
 }>();
+const emit = defineEmits<{
+  page: [page: number];
+  open: [evidence: ReportEvidence];
+}>();
+const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
+const kind = defineModel<ReportEvidence["kind"] | "">("kind", { required: true });
 const evidenceKindItems = [
   { value: "" as const, label: "所有類型" },
   ...(Object.keys(evidenceKindLabels) as ReportEvidence["kind"][]).map((evidenceKind) => ({
@@ -31,12 +37,6 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   event: "E",
   attached: "A",
 };
-const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
-const kind = defineModel<ReportEvidence["kind"] | "">("kind", { required: true });
-const emit = defineEmits<{
-  page: [page: number];
-  open: [evidence: ReportEvidence];
-}>();
 </script>
 
 <template>

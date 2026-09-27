@@ -17,6 +17,11 @@ type SpanningListRow =
   | { kind: "session"; key: string; sessionId: string; title: string; meta: string };
 
 const { report } = defineProps<{ report: WorkReport }>();
+const emit = defineEmits<{
+  open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]];
+  "open-report-session": [sessionId: string | undefined];
+}>();
+
 const verificationCounts = computed(() => ({
   passed: report.totals.verification.passed,
   failed: report.totals.verification.failed,
@@ -67,10 +72,6 @@ const spanningRows = computed<SpanningListRow[]>(() => {
   }
   return rows;
 });
-const emit = defineEmits<{
-  open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]];
-  "open-report-session": [sessionId: string | undefined];
-}>();
 
 function openCompletedSession(session: WorkSessionRecord): void {
   emit("open", session, report.completedWork);

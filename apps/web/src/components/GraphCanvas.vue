@@ -52,6 +52,36 @@ const laneHeaderStyle = computed(() => ({
 // ~6.4px per display unit at 12px (CJK counts as 2 units), minus the 12px text inset on each side.
 const labelUnits = computed(() => Math.max(12, Math.floor((nodeWidth.value - 24) / 6.4)));
 
+const focusNeighbourIds = computed(() => {
+  const focus = props.selectedId;
+  if (!focus) {
+    return null;
+  }
+  const ids = new Set<string>([focus]);
+  for (const item of props.edges) {
+    if (item.from.node.id === focus) {
+      ids.add(item.to.node.id);
+    } else if (item.to.node.id === focus) {
+      ids.add(item.from.node.id);
+    }
+  }
+  return ids;
+});
+
+const renderedNodes = computed(() => {
+  const top = scrollTop.value - laneHeaderHeight - overscan;
+  const bottom = scrollTop.value + viewportHeight.value - laneHeaderHeight + overscan;
+  return props.nodes.filter((item) => item.y >= top && item.y <= bottom);
+});
+
+const renderedNodeIds = computed(() => new Set(renderedNodes.value.map((item) => item.node.id)));
+// An edge is drawn when either end is on screen, so a link to a far-away node is not cut off.
+const renderedEdges = computed(() =>
+  props.edges.filter(
+    (item) => renderedNodeIds.value.has(item.from.node.id) || renderedNodeIds.value.has(item.to.node.id),
+  ),
+);
+
 function laneCentre(lane: number): number {
   return lane * laneWidth.value + laneWidth.value / 2;
 }
@@ -90,22 +120,6 @@ function edgePath(item: GraphVisualEdge): string {
   return `M${x1},${item.from.y} C${x1 + bend},${item.from.y} ${x2 - bend},${item.to.y} ${x2},${item.to.y}`;
 }
 
-const focusNeighbourIds = computed(() => {
-  const focus = props.selectedId;
-  if (!focus) {
-    return null;
-  }
-  const ids = new Set<string>([focus]);
-  for (const item of props.edges) {
-    if (item.from.node.id === focus) {
-      ids.add(item.to.node.id);
-    } else if (item.to.node.id === focus) {
-      ids.add(item.from.node.id);
-    }
-  }
-  return ids;
-});
-
 function touches(item: GraphVisualEdge, id: string | null | undefined): boolean {
   return Boolean(id) && (item.from.node.id === id || item.to.node.id === id);
 }
@@ -133,20 +147,6 @@ function edgeClasses(item: GraphVisualEdge): Record<string, boolean> {
     "is-dimmed": Boolean(focus) && !touches(item, focus),
   };
 }
-
-const renderedNodes = computed(() => {
-  const top = scrollTop.value - laneHeaderHeight - overscan;
-  const bottom = scrollTop.value + viewportHeight.value - laneHeaderHeight + overscan;
-  return props.nodes.filter((item) => item.y >= top && item.y <= bottom);
-});
-
-const renderedNodeIds = computed(() => new Set(renderedNodes.value.map((item) => item.node.id)));
-// An edge is drawn when either end is on screen, so a link to a far-away node is not cut off.
-const renderedEdges = computed(() =>
-  props.edges.filter(
-    (item) => renderedNodeIds.value.has(item.from.node.id) || renderedNodeIds.value.has(item.to.node.id),
-  ),
-);
 
 /** Brings the selected node into view (e.g. when it was picked from the panel's relation list). */
 async function revealSelected(): Promise<void> {

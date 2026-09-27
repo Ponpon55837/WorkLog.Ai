@@ -17,15 +17,16 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{ close: [] }>();
+
 const dialog = ref<HTMLElement | null>(null);
+
+useFocusTrap(dialog, toRef(props, "open"), { onEscape: requestClose });
 
 function requestClose(): void {
   if (!props.busy) {
     emit("close");
   }
 }
-
-useFocusTrap(dialog, toRef(props, "open"), { onEscape: requestClose });
 </script>
 
 <template>

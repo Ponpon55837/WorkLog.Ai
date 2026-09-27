@@ -62,25 +62,6 @@ const offsets = computed(() => {
 
 const totalHeight = computed(() => offsets.value.at(-1) ?? 0);
 
-function findIndexAtOffset(offset: number): number {
-  if (props.items.length === 0) {
-    return 0;
-  }
-
-  const values = offsets.value;
-  let low = 0;
-  let high = values.length - 1;
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if ((values[middle + 1] ?? Number.POSITIVE_INFINITY) <= offset) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-  return Math.min(low, props.items.length - 1);
-}
-
 const startIndex = computed(() => {
   if (!props.enabled || props.items.length === 0) {
     return 0;
@@ -114,6 +95,25 @@ const focusableSelector = [
   "textarea:not(:disabled)",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
+
+function findIndexAtOffset(offset: number): number {
+  if (props.items.length === 0) {
+    return 0;
+  }
+
+  const values = offsets.value;
+  let low = 0;
+  let high = values.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((values[middle + 1] ?? Number.POSITIVE_INFINITY) <= offset) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return Math.min(low, props.items.length - 1);
+}
 
 function getFocusableElements(index: number): HTMLElement[] {
   const item = itemElements.get(index);

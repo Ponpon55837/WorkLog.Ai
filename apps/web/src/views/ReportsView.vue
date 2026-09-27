@@ -31,7 +31,6 @@ const {
   exportItems,
   reportLoading,
   reportExportLoading,
-  loadReport,
   refreshReport,
   exportReport,
   reportError,
