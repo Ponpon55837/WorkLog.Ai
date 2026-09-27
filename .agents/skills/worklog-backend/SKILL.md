@@ -23,7 +23,9 @@ packages/
     schema-migrations.ts append-only MIGRATIONS list; LATEST_SCHEMA_VERSION is derived from it
     search-repository.ts FTS5 index + ranking (work_recall / work_search)
 apps/server/src/
-  server.ts        REST routing, request parsing, error → status/code mapping
+  server.ts        shared request flow only: Host/Origin checks, CORS, SSE, route dispatch, error → status/code
+  http.ts          readJsonBody, sendJson/sendError, query-param helpers
+  routes/*.ts      one route table per domain ({ method, pattern, handler }); routes/index.ts lists them
   cli.ts           pnpm db:* commands; doctor.ts is read-only diagnostics
 apps/mcp/src/
   server.ts        tool definitions (StoreToolDefinition) and annotations
@@ -77,6 +79,8 @@ tests/<package>/   all tests live here, never beside src
 
 - JSON bodies only for writes (`readJsonBody` requires `application/json`, which keeps cross-site forms out); destructive requests also require a JSON confirmation body.
 - Host allowlist and Origin checks apply to every request; do not add routes that bypass `createApiHandler`.
+- Add a route to the table of its domain in `apps/server/src/routes/` (`pattern` segments: literal, `:name`, or a final `:name*`), not to `server.ts`. Use `validatedRoute(schema, message, input, run)` for the usual "validate → 400 or call the store" shape. Keep each route file under 300 lines and `server.ts` under 400; split a domain when it grows.
+- Add the new `METHOD /path` to `EXPECTED_ROUTES` in `tests/server/routes.test.ts`; it fails on missing, extra, or duplicate routes. Path parameters arrive un-decoded, as they always have.
 - Document every route, body, and error code in `docs/rest-api.md`, and add server tests for success, validation failure, policy skip, and internal-error masking.
 
 ## 7. MCP tools

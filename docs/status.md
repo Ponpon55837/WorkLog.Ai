@@ -73,6 +73,12 @@
 - 主頁 CSP 不放寬：`srcdoc` iframe 會繼承主頁 CSP，所以改為在 Shadow DOM 顯示 SVG、樣式以 Constructable Stylesheet（CSSOM，不受 `style-src` 限制）套用；Mermaid 以 `securityLevel: "strict"` 延遲載入。
 - 打包：主程式 chunk 不含 Mermaid；Mermaid 與各圖表類型是獨立的延遲 chunk（dist 由約 0.8 MB 增至約 4.2 MB，只有開啟含圖表的 Session 時才下載需要的部分）。
 
+### E2 拆分 server 路由
+
+- `server.ts` 從約 1,650 行降到約 270 行，只留下 Host／Origin 檢查、CORS、SSE、路由分派與錯誤處理；70 條路由分成 7 個路由檔（皆在 300 行內），`http.ts` 放共用的 body 解析與回應工具。
+- 路由比對：字面路徑以雜湊表 O(1) 查找，含參數的路徑依方法與段數分組；建表時拒絕重複路由。
+- 行為不變：既有 server 測試原樣通過；新增路由表測試，確認每條路由的方法與路徑都有註冊且沒有重複。
+
 ### 額外調整：報告主要完成事項增加至 10 筆
 
 - 報告頁與 Agent 報告摘要脈絡都保留最新 10 筆主要完成事項，期間工作總數仍按完整資料計算。
