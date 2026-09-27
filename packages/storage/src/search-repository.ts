@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { KnowledgeKind, RecallField, RecallHit, RecallTermHits } from "@work-intelligence/core";
-import { truncateText } from "@work-intelligence/shared";
+import { localDayStartIso, truncateText } from "@work-intelligence/shared";
 import {
   excerptAround,
   ftsTermExpression,
@@ -13,6 +13,7 @@ import {
   tokenize,
   type PathContext,
 } from "./search-text.js";
+import { nextCalendarDate } from "./session-repository.js";
 import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
@@ -102,6 +103,9 @@ export interface RecallOptions {
   paths?: string[];
   projectId?: string;
   types?: DocType[];
+  /** Inclusive calendar dates in the server's time zone, compared against each document's date. */
+  from?: string;
+  to?: string;
   limit: number;
 }
 
@@ -487,6 +491,16 @@ export class SearchRepository {
     if (options.types && options.types.length > 0) {
       clauses.push(`${alias}.doc_type IN (${options.types.map(() => "?").join(", ")})`);
       parameters.push(...options.types);
+    }
+    // doc_date is the Session's completedAt or the Knowledge's updatedAt (UTC ISO); calendar dates become the UTC
+    // instants of local midnight, like the Session list.
+    if (options.from) {
+      clauses.push(`${alias}.doc_date >= ?`);
+      parameters.push(localDayStartIso(options.from) ?? options.from);
+    }
+    if (options.to) {
+      clauses.push(`${alias}.doc_date < ?`);
+      parameters.push(nextCalendarDate(options.to));
     }
     return { clause: clauses.join(" AND "), parameters };
   }

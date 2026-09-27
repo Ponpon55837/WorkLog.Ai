@@ -25,6 +25,8 @@ import type {
   SetSessionVoidResult,
   SessionVoidedFilter,
   VerificationUpdateSource,
+  DateRange,
+  RecallInput,
   RecallQueryResult,
   CancelMetadataBackfillRequestResult,
   CancelReportSynthesisRequestResult,
@@ -1281,12 +1283,13 @@ export class WorkIntelligenceStore {
    * Ranked retrieval across Sessions (including raw handoff sections) and active Knowledge of tracked
    * projects. Returns compact hits; read full records with getSessionDetailForAgent or searchKnowledge.
    */
-  public recall(input: { q?: string; paths?: string[]; projectRoot?: string; limit?: number }): RecallQueryResult {
+  public recall(input: RecallInput): RecallQueryResult {
     return this.contextRecallService.recall(input);
   }
 
-  public search(query: string, projectRoot?: string): SearchResult[] | SkippedResult {
-    return this.contextRecallService.search(query, projectRoot);
+  /** `range` limits results to Sessions completed within inclusive calendar dates (server time zone). */
+  public search(query: string, projectRoot?: string, range: DateRange = {}): SearchResult[] | SkippedResult {
+    return this.contextRecallService.search(query, projectRoot, range);
   }
 
   /** Read-only recording state of a workspace root, so an Agent can skip preparing an untracked finalize. */

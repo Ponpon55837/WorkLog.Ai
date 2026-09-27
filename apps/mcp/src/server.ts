@@ -37,6 +37,7 @@ import {
   saveKnowledgePageInputSchema,
   saveReportSummaryInputSchema,
   searchQuerySchema,
+  searchQuerySchemaBase,
   sessionDetailQuerySchema,
   setEvidenceVoidInputSchema,
   setEvidenceVoidInputSchemaBase,
@@ -228,7 +229,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_recall", {
     title: "Recall related work",
     description:
-      "Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns compact hits with id, type, title, matchedIn, raw section heading, excerpt, and score; read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. A projectRoot scope is policy-gated first.",
+      'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns compact hits with id, type, title, matchedIn, raw section heading, excerpt, and score; read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
     inputShape: recallQuerySchemaBase.shape,
     schema: recallQuerySchema,
     annotations: READ_ONLY,
@@ -239,12 +240,12 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_search", {
     title: "Search work history",
     description:
-      "Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 matches, each with a compact Session digest, the field it matched in, and an excerpt). Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
-    inputShape: searchQuerySchema.shape,
+      "Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 matches, each with a compact Session digest, the field it matched in, and an excerpt). Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Pass from and/or to (YYYY-MM-DD, server time zone) when the user names a time such as last week or June. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
+    inputShape: searchQuerySchemaBase.shape,
     schema: searchQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid search query.",
-    run: (input) => store.search(input.q, input.projectRoot),
+    run: (input) => store.search(input.q, input.projectRoot, { from: input.from, to: input.to }),
   });
 
   registerStoreTool("work_get_context", {

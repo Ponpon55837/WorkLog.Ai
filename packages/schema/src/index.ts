@@ -288,24 +288,43 @@ export const reviewSessionDecisionInputSchema = z.discriminatedUnion("reviewStat
     .strict(),
 ]);
 
+const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
+
+/** Optional inclusive calendar-date range in the server's time zone, e.g. for "last week" or "in June". */
+const recallDateRangeFields = {
+  from: calendarDateSchema
+    .optional()
+    .describe("Only records dated on or after this calendar day (YYYY-MM-DD, server time zone)."),
+  to: calendarDateSchema
+    .optional()
+    .describe("Only records dated on or before this calendar day (YYYY-MM-DD, server time zone)."),
+};
+
+function dateRangeInOrder(value: { from?: string; to?: string }): boolean {
+  return !value.from || !value.to || value.from <= value.to;
+}
+
+const dateRangeOrderIssue = { message: "The end date must be on or after the start date.", path: ["to"] };
+
 export const recallQuerySchemaBase = z.object({
   q: z.string().trim().min(1).max(500).optional(),
   paths: recallPathsSchema.optional(),
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
   limit: z.number().int().min(1).max(30).optional(),
+  ...recallDateRangeFields,
 });
 
-export const recallQuerySchema = recallQuerySchemaBase.refine(
-  (value) => Boolean(value.q) || (value.paths?.length ?? 0) > 0,
-  { message: "Provide q, paths, or both." },
-);
+export const recallQuerySchema = recallQuerySchemaBase
+  .refine((value) => Boolean(value.q) || (value.paths?.length ?? 0) > 0, { message: "Provide q, paths, or both." })
+  .refine(dateRangeInOrder, dateRangeOrderIssue);
 
-export const searchQuerySchema = z.object({
+export const searchQuerySchemaBase = z.object({
   q: z.string().trim().min(1).max(500),
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
+  ...recallDateRangeFields,
 });
 
-const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
+export const searchQuerySchema = searchQuerySchemaBase.refine(dateRangeInOrder, dateRangeOrderIssue);
 const listPageSizeSchema = z.union([z.literal(0), z.number().int().min(1).max(100)]);
 
 const voidedFilterSchema = z.enum(["exclude", "include", "only"]);

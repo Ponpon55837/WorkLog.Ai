@@ -360,6 +360,19 @@ describe("Work Intelligence MCP server", () => {
     const invalid = await client.callTool({ name: "work_recall", arguments: { projectRoot: root } });
     expect(invalid.isError).toBe(true);
 
+    const pastRange = await callJson<{ hits: unknown[] }>(client, "work_recall", {
+      q: "humidity sensor",
+      projectRoot: root,
+      from: "2000-01-01",
+      to: "2000-01-31",
+    });
+    expect(pastRange.hits).toEqual([]);
+    const reversed = await client.callTool({
+      name: "work_search",
+      arguments: { q: "humidity", from: "2000-02-01", to: "2000-01-01" },
+    });
+    expect(reversed.isError).toBe(true);
+
     const context = await callJson<{ relevant?: { knowledge: unknown[]; sessions: Array<{ id: string }> } }>(
       client,
       "work_get_context",

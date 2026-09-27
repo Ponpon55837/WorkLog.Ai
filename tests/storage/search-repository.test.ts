@@ -273,6 +273,41 @@ describe("recall", () => {
   });
 });
 
+describe("recall by date range", () => {
+  it("filters Sessions by completion and Knowledge by last update in SQL, for recall and search", () => {
+    const { store, root } = trackedStore();
+    const june = finalize(store, root, "june", {
+      title: "Irrigation valve repair",
+      completedAt: "2031-06-15T10:00:00.000Z",
+    });
+    const july = finalize(store, root, "july", {
+      title: "Irrigation valve repair follow-up",
+      completedAt: "2031-07-02T10:00:00.000Z",
+    });
+    const knowledge = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "valve-knowledge",
+      kind: "gotcha",
+      title: "Irrigation valve washers",
+      body: "Replace the washer before tightening the valve.",
+    });
+    if (knowledge.outcome !== "knowledge_recorded") throw new Error("Expected knowledge");
+
+    const ids = (range: { from?: string; to?: string }) => {
+      const result = store.recall({ q: "irrigation valve", projectRoot: root, ...range }) as RecallResult;
+      return result.hits.map((hit) => hit.id).sort();
+    };
+    expect(ids({ from: "2031-06-01", to: "2031-06-30" })).toEqual([june]);
+    expect(ids({ from: "2031-07-01" })).toEqual([july]);
+    // Knowledge is dated by its last update (today), so it falls inside a range that ends in 2031.
+    expect(ids({ to: "2031-06-15" })).toEqual([june, knowledge.knowledge.id].sort());
+    expect(ids({})).toEqual([june, july, knowledge.knowledge.id].sort());
+
+    const searched = store.search("irrigation valve", root, { from: "2031-07-01", to: "2031-07-31" });
+    expect(Array.isArray(searched) && searched.map((item) => item.session.id)).toEqual([july]);
+  });
+});
+
 describe("context focus and search", () => {
   it("returns relevant Knowledge, decisions, and Sessions for a task and paths", () => {
     const { store, root } = trackedStore();
