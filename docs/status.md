@@ -6,6 +6,17 @@
 
 - 最後更新：2026-09-28
 
+## 第七輪：Agent 脈絡的用量與準確度（交給 Codex）
+
+交接文件：[`.openspec/handoffs/2026-09-28-claude-to-codex-round7.md`](../.openspec/handoffs/2026-09-28-claude-to-codex-round7.md)。依據是使用者請 Codex 以實際資料做的兩次使用測試。
+
+| 階段 | 項目 |
+| --- | --- |
+| A. 回應用量 | A1 量測並在 CI 限制回應大小；A2 `work_get_context` 跨區去重、整份預算、任務優先；A3 `work_recall`／`work_search` 精簡結果 |
+| B. 檢索準確度 | B1 查不到時回傳 `confidence: "none"`；B2 重複的規劃片段只算一次、已完成的工作優先 |
+| C. 知識頁更新判斷 | C1 已引用來源被更正、作廢或還原時標示需要核對；C2 新 Session 只提示「有新資料」，可回報已檢查 |
+| D. 其他 | D1 跨專案情境的測試；D2 Mermaid 在嚴格 CSP 下的 console 警告 |
+
 ## 第六輪：可信度、洞察與好用度（已完成）
 
 交接文件：[`.openspec/handoffs/2026-09-27-claude-to-codex-round6.md`](../.openspec/handoffs/2026-09-27-claude-to-codex-round6.md)。全部項目已合併：A1–B1、E1、C1 由 Codex 完成；C2–C4、D1–D5、E2、E3 由 Claude 接手完成（PR #133–#142），每項各自一個 PR，CI 全綠後以 merge commit 合併。開機自動啟動、發行、版本升到 1.0.0 與實機驗證仍維持暫緩。
