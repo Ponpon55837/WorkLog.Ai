@@ -3,6 +3,7 @@ import type {
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
+  HotspotHint,
   KnowledgeCandidateRequest,
   KnowledgePageDigest,
   KnowledgeDigest,
@@ -57,6 +58,7 @@ interface ContextRecallStoreReader {
   countPendingAgentDecisions(projectId?: string): number;
   knowledgePageDigests(projectId: string): KnowledgePageDigest[];
   pendingKnowledgePages(projectId?: string): ContextResult["pendingRequests"]["knowledgePages"];
+  hotspotHints(projectId: string, paths: readonly string[]): HotspotHint[];
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -237,6 +239,7 @@ export class ContextRecallService {
         const record = this.store.getSessionById(hit.id);
         return record ? [{ hit, record }] : [];
       });
+    const hotspots = projectId && paths.length > 0 ? this.store.hotspotHints(projectId, paths) : [];
     const decisions = sessions
       .flatMap(({ record }) =>
         (record.workSummary?.decisions ?? [])
@@ -256,6 +259,7 @@ export class ContextRecallService {
       decisions,
       sessions: sessions.map(({ hit, record }) => ({ ...hit, openItems: toSessionDigest(record).openItems })),
       ...(termHits ? { termHits } : {}),
+      ...(hotspots.length > 0 ? { hotspots } : {}),
     };
   }
 

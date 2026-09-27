@@ -39,7 +39,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: "工作知識", navLabel: "工作知識", eyebrow: "EXPLICIT KNOWLEDGE", group: "knowledge" },
   },
   {
-    path: "/graph",
+    path: "/graph/:tab?",
     name: "graph",
     component: () => import("./views/GraphView.vue"),
     meta: { title: "工作圖譜", navLabel: "工作圖譜", eyebrow: "DETERMINISTIC WORK GRAPH", group: "knowledge" },

@@ -102,6 +102,16 @@ export const knowledgePageStatusVisual: Record<KnowledgePageStatus | "missing", 
   needs_update: { tone: "attention", icon: Clock3, label: "需要更新" },
 };
 
+export const HOTSPOT_HIGH_FAILURE_RATE = 0.3;
+
+/** Hotspot risk from the share of Sessions whose verification failed; the label carries the meaning, not the color. */
+export function hotspotRiskVisual(hotspot: { sessionCount: number; failedCount: number }): StatusVisual {
+  const rate = hotspot.sessionCount > 0 ? hotspot.failedCount / hotspot.sessionCount : 0;
+  if (rate >= HOTSPOT_HIGH_FAILURE_RATE) return { tone: "danger", icon: CircleX, label: "失敗比例高" };
+  if (rate > 0) return { tone: "attention", icon: TriangleAlert, label: "曾驗證失敗" };
+  return { tone: "success", icon: CircleCheck, label: "未曾失敗" };
+}
+
 /** Trust markers: stale is rule-based (later Sessions changed appliesTo paths); review follows a reported contradiction. */
 export const knowledgeTrustVisual = {
   possiblyStale: { tone: "attention", icon: Clock3, label: "可能過時" },

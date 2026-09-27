@@ -162,6 +162,9 @@ try {
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
+    "getHotspots (files)": () => benchStore.getHotspots({ limit: 20 }),
+    "getHotspots (directories, month)": () =>
+      benchStore.getHotspots({ groupBy: "directory", from: "2026-03-01", to: "2026-03-31", limit: 20 }),
   };
 
   const limitsMs = {
@@ -175,6 +178,8 @@ try {
     "listSessionDecisions (pending)": 250,
     search: 500,
     "recall (month range)": 500,
+    "getHotspots (files)": 500,
+    "getHotspots (directories, month)": 500,
     "searchKnowledge (staleness)": 500,
   };
 

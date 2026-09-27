@@ -36,6 +36,8 @@ import type {
   EvidenceRecord,
   GraphQuery,
   GraphQueryResult,
+  HotspotQuery,
+  HotspotResult,
   HandoffImportApplyInput,
   HandoffImportBatchResult,
   HandoffImportOptions,
@@ -70,6 +72,7 @@ import type {
   ReportExportResult,
   ReportPeriod,
   ReportEvidenceKind,
+  ReportInsight,
   ReportQueryResult,
   ReportSynthesisContextQuery,
   ReportSynthesisContextQueryResult,
@@ -166,6 +169,7 @@ import { SessionRepository, type SessionListOptions, type SessionRow } from "./s
 import { initializeWorkIntelligenceDatabase } from "./database-initialization.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
+import { HotspotRepository } from "./hotspot-repository.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 import { ProjectDataTransferService } from "./project-data-transfer.js";
@@ -275,6 +279,10 @@ export interface WorkIntelligenceStoreOptions {
   backup?: BackupRetentionOptions;
 }
 
+/** A report lists at most five changed-often files with its risks, each changed by at least two Sessions. */
+const REPORT_HOTSPOT_LIMIT = 5;
+const REPORT_HOTSPOT_MIN_SESSIONS = 2;
+
 export class WorkIntelligenceStore {
   private readonly db: DatabaseSync;
   private readonly backupOptions: BackupRetentionOptions;
@@ -293,6 +301,7 @@ export class WorkIntelligenceStore {
   private readonly metadataBackfillService: MetadataBackfillService;
   private readonly contextRecallService: ContextRecallService;
   private readonly searchIndex: SearchRepository;
+  private readonly hotspots: HotspotRepository;
   private readonly projectDeletionService: ProjectDeletionService;
   private readonly projectLocationService: ProjectLocationService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
@@ -373,6 +382,7 @@ export class WorkIntelligenceStore {
       new MetadataBackfillRepository(this.db),
     );
     this.searchIndex = new SearchRepository(this.db);
+    this.hotspots = new HotspotRepository(this.db);
     this.projectDeletionService = new ProjectDeletionService(
       this.db,
       this.databasePath,
@@ -406,6 +416,10 @@ export class WorkIntelligenceStore {
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
       knowledgePageDigests: (projectId) => this.knowledgePages.digestsForProject(projectId),
       pendingKnowledgePages: (projectId) => this.knowledgePages.pendingForProject(projectId),
+      hotspotHints: (projectId, paths) => {
+        this.searchIndex.syncIndex();
+        return this.hotspots.hints(projectId, paths);
+      },
     });
   }
 
@@ -751,7 +765,31 @@ export class WorkIntelligenceStore {
     evidenceQuery?: string;
     includeAllEvidence?: boolean;
   }): ReportQueryResult {
-    return this.reportReader.getReport(options);
+    const report = this.reportReader.getReport(options);
+    if (report.outcome !== "report") {
+      return report;
+    }
+    this.searchIndex.syncIndex();
+    const hotspotRisks = this.hotspots
+      .hotspots({
+        projectId: report.project?.id,
+        from: report.range.from,
+        to: report.range.to,
+        limit: REPORT_HOTSPOT_LIMIT,
+        groupBy: "file",
+      })
+      .filter((hotspot) => hotspot.sessionCount >= REPORT_HOTSPOT_MIN_SESSIONS)
+      .map((hotspot): ReportInsight => ({
+        kind: "hotspot",
+        label: `熱點：${hotspot.path}`,
+        detail:
+          `本期 ${hotspot.sessionCount} 筆 Session 修改` +
+          (hotspot.failedCount > 0 ? `，其中 ${hotspot.failedCount} 筆驗證失敗` : "") +
+          (hotspot.notRunCount > 0 ? `，${hotspot.notRunCount} 筆未執行驗證` : "") +
+          "。",
+        sourceSessionIds: hotspot.recentSessions.map((session) => session.id),
+      }));
+    return hotspotRisks.length > 0 ? { ...report, risks: [...report.risks, ...hotspotRisks] } : report;
   }
 
   public exportReport(options: {
@@ -986,6 +1024,40 @@ export class WorkIntelligenceStore {
 
   public getGraph(options: GraphQuery = {}): GraphQueryResult {
     return this.graphBuilder.build(options);
+  }
+
+  /** Most changed files or directories of tracked projects, from the search path index (kept in sync first). */
+  public getHotspots(query: HotspotQuery = {}): HotspotResult {
+    let projectId: string | undefined;
+    if (query.projectRoot || query.projectId) {
+      const decision = query.projectRoot
+        ? this.checkProjectRoot(query.projectRoot)
+        : this.checkProjectById(query.projectId!);
+      if (!decision.allowed || !decision.project) {
+        return {
+          outcome: "skipped",
+          projectRoot: decision.canonicalRoot,
+          projectStatus: decision.projectStatus,
+          reason: decision.reason ?? "Project recording is not enabled.",
+        };
+      }
+      projectId = decision.project.id;
+    }
+    this.searchIndex.syncIndex();
+    const groupBy = query.groupBy ?? "file";
+    return {
+      outcome: "hotspots",
+      groupBy,
+      ...(query.from ? { from: query.from } : {}),
+      ...(query.to ? { to: query.to } : {}),
+      items: this.hotspots.hotspots({
+        projectId,
+        from: query.from,
+        to: query.to,
+        limit: Math.min(Math.max(query.limit ?? 20, 1), 100),
+        groupBy,
+      }),
+    };
   }
 
   public attachEvidence(input: AttachEvidenceInput): AttachEvidenceResult {

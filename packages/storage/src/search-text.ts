@@ -210,6 +210,35 @@ export function normalizePath(raw: string, projects: PathContext[] = []): string
   return lower.replace(/\/+$/, "");
 }
 
+/**
+ * The same project-relative path as normalizePath, keeping the original letter case, for display. Returns
+ * undefined when lower-casing changes the length, so callers fall back to the normalized path.
+ */
+export function projectRelativePath(raw: string, projects: PathContext[] = []): string | undefined {
+  let value = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  value = value
+    .replace(/#L\d+.*$/i, "")
+    .replace(/:\d+(?::\d+)?$/, "")
+    .replace(/\/+$/, "");
+  const lower = value.toLowerCase();
+  if (lower.length !== value.length) {
+    return undefined;
+  }
+  for (const project of projects) {
+    const root = project.rootPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    if (root && lower.startsWith(`${root}/`)) {
+      return value.slice(root.length + 1);
+    }
+  }
+  for (const project of projects) {
+    const name = project.name.toLowerCase();
+    if (name && lower.startsWith(`${name}/`)) {
+      return value.slice(name.length + 1);
+    }
+  }
+  return value;
+}
+
 /** Splits a Knowledge reference into its commit SHAs, URLs, and normalized paths. */
 export function normalizeReference(reference: string, projects: PathContext[] = []): NormalizedReference[] {
   const results: NormalizedReference[] = [];

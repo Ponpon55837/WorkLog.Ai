@@ -98,13 +98,14 @@ describe("domain API factories", () => {
     await api.cancelMetadataBackfillRequest("request/1");
     await api.previewMetadataBackfill(12);
     await api.getGraph({ projectId: "project/1", maxNodes: 180, cursor: "next" });
+    await api.getHotspots({ projectId: "project/1", groupBy: "directory", from: "2026-01-01", limit: 5 });
     await api.previewHandoffs("/projects/a", ".handoffs");
     await api.importHandoffs({ projectRoot: "/projects/a", handoffDirectory: ".handoffs", sourcePaths: ["one.md"] });
     await api.getHealth();
     await api.getSystemStatus();
     await api.pickFolder();
 
-    expect(calls).toHaveLength(53);
+    expect(calls).toHaveLength(54);
     expect(calls.find((call) => call.url.pathname === "/api/backups/backup%201.sqlite")).toMatchObject({
       method: "DELETE",
       body: {},
@@ -140,6 +141,13 @@ describe("domain API factories", () => {
       body: { sections: [{ heading: "H" }] },
     });
     expect(calls.find((call) => call.url.pathname === "/api/knowledge-pages/page%2F1/versions")).toBeDefined();
+    const hotspots = calls.find((call) => call.url.pathname === "/api/insights/hotspots");
+    expect(Object.fromEntries(hotspots?.url.searchParams ?? [])).toEqual({
+      projectId: "project/1",
+      groupBy: "directory",
+      from: "2026-01-01",
+      limit: "5",
+    });
     expect(calls.find((call) => call.url.pathname === "/api/imports/handoffs")).toMatchObject({ method: "POST" });
   });
 });
