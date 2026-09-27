@@ -94,18 +94,20 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_context`
 
-傳入 `projectRoot` 時只回傳該 tracked project 的內容；不傳則涵蓋所有 tracked projects。回傳也包含伺服器時鐘 `clock`（同 `work_get_project_status`）。回傳的是精簡摘要（digest），讓一次呼叫能放進 Agent 的 tool-result 上限，完整內容再用對應工具讀取：
+傳入 `projectRoot` 時只回傳該 tracked project 的內容；不傳則涵蓋所有 tracked projects。回傳也包含伺服器時鐘 `clock`（同 `work_get_project_status`）。整份 pretty-printed JSON 字元目標：帶 `task`／`paths` 時不超過 12,000，沒有焦點時不超過 19,000。帶焦點時優先保留相關決策、陷阱、未結項與命中的知識頁段落，再放近期活動；Session／Knowledge 在多區命中時只留一份主要內容。摘要優先在句子邊界截斷並標記 `truncated`；沒有可用句界時會在安全的字元邊界截斷並標記。超過預算的項目列在 `omitted`，包含各區筆數、來源 id、原因與完整讀取工具；`possiblyStale`、`needsReview` 與待處理請求會保留。完整內容再用對應工具讀取：
 
 | 欄位 | 內容 | 讀取完整內容 |
 | --- | --- | --- |
-| `recentSessions` | 最近 12 筆 Session 的 id、標題、摘要（超過 400 字截斷）、完成時間、branch、verification 狀態、changed files 數量，以及前 3 項 `openItems`（`workSummary.nextSteps`） | `work_get_session` |
+| `recentSessions` | 最近 12 筆 Session 的 id、標題、摘要（最多 400 字，句界優先截斷並標示 `summaryTruncated`）、完成時間、branch、verification 狀態、changed files 數量，以及前 3 項 `openItems`（`workSummary.nextSteps`） | `work_get_session` |
 | `recentDecisions` | 最近 Session 的 `workSummary.decisions`（最多 12 條），每條附 `sessionId`、Session 標題與完成時間，方便引用來源 | `work_get_session` |
-| `recentKnowledge` | 最近 12 筆 active Knowledge 的 id、kind、標題、tags 與 `excerpt`（本文超過 400 字截斷） | `work_search_knowledge` |
+| `recentKnowledge` | 最近 12 筆 active Knowledge 的 id、kind、標題、tags 與 `excerpt`（最多 400 字，截斷時標示 `excerptTruncated`；附 `possiblyStale`／`needsReview` 時要先核對） | `work_search_knowledge` |
 | `metadataFollowUps` | 只有筆數：`needsBackfill`、`changedFilesMissing`、`verificationMissing`、`verificationNotRun` | `work_preview_metadata_backfill` |
 
 `recentDecisions` 不取 note／closing 事件，因為那些多半是 commit、工作區狀態等流程記錄。metadata 缺口指 verification 尚未回報／明確 `not_run`，或 changed-files metadata 缺漏的已完成 Session；Agent 應以 preview 取得明細、檢查對應 worktree、diff 或 handoff，再用 metadata tool 回填已確認的內容，系統不會自行猜測檔案變更。
 
 `pendingRequests.reportSynthesis`／`pendingRequests.metadataBackfill` 列出 pending 或 processing、等待 Agent 處理的請求（新到舊，各最多 5 筆）。指定專案時也包含「所有專案」範圍的請求。
+
+帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作之知識頁段落，並保留 `sourceSessionIds`；原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面。`omitted` 每區帶 `count`、`entries`（`id`、`reason`，必要時包含來源與信任旗標）及 `readWith`。依該工具讀取全文，不要把摘要截斷或省略當成來源內容。
 
 開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是：
 
@@ -114,8 +116,11 @@ MCP client 的 stdio 設定可使用：
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
+| `relevant.knowledgePages` | 符合 task／paths 的知識頁段落（最多 5 段），每段附 `sourceSessionIds` 與 `truncated` |
 | `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
 | `relevant.hotspots` | 指定專案並帶 `paths` 時才出現：過去 30 天被 3 筆以上 Session 修改的路徑，附 Session 數、驗證失敗與未執行數；修改前應特別注意 |
+
+`omitted` 列出為符合預算而省略或跨區去重的內容，`count` 是該區項目數，`entries` 保留 id、原因與需要的來源／信任旗標；`readWith` 指出取得全文的工具。依照指標讀取原文後再使用，不要把 omitted 摘要或截斷片段當作證據。
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "task": "修正報表時區", "paths": ["src/report/range.ts"] }

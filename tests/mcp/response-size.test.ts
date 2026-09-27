@@ -23,7 +23,7 @@ const query = "agent context retrieval budget";
 const retrievalQuery = "agent context retrieval budget gotcha";
 const RESPONSE_BUDGETS = {
   contextWithoutTask: 19_000,
-  contextWithTask: 28_000,
+  contextWithTask: 12_000,
   recallDefault: 7_000,
   recallFive: 6_500,
   searchDefault: 17_000,
@@ -173,11 +173,19 @@ describe("synthetic MCP response-size baseline", () => {
     const taskContext = store.getContext(projectRoot, { task: query });
     expect(taskContext.outcome).toBe("context");
     if (taskContext.outcome !== "context") throw new Error("Expected scoped task context.");
-    expect(taskContext.knowledgePages.length).toBe(3);
-    expect(taskContext.recentSessions).toHaveLength(12);
-    expect(taskContext.recentDecisions.length).toBeGreaterThan(0);
+    expect(taskContext.knowledgePages).toHaveLength(0);
+    expect(taskContext.relevant?.knowledgePages).toHaveLength(1);
+    expect(taskContext.recentDecisions).toHaveLength(0);
+    expect(taskContext.relevant?.decisions.length).toBeGreaterThan(0);
     expect(taskContext.relevant?.sessions.some((hit) => hit.title.includes("03"))).toBe(true);
     expect(taskContext.relevant?.knowledge.some((hit) => hit.title.includes("gotcha"))).toBe(true);
+    expect(
+      taskContext.relevant?.knowledgePages?.every((page) =>
+        page.sections.every((section) => section.sourceSessionIds.length > 0),
+      ),
+    ).toBe(true);
+    expect(taskContext.omitted?.some((section) => section.section === "recentSessions")).toBe(true);
+    expect(taskContext.omitted?.some((section) => section.section === "knowledgePages")).toBe(true);
 
     console.info(
       `Synthetic MCP response sizes (characters): ${JSON.stringify({
@@ -189,7 +197,7 @@ describe("synthetic MCP response-size baseline", () => {
       })}`,
     );
     expect(contextWithoutTask.length).toBeGreaterThan(0);
-    expect(contextWithTask.length).toBeGreaterThan(contextWithoutTask.length);
+    expect(contextWithTask.length).toBeLessThan(contextWithoutTask.length);
     expect(recallDefault.length).toBeGreaterThan(0);
     expect(searchDefault.length).toBeGreaterThan(recallDefault.length);
     expect(recallFivePayload.hits).toHaveLength(5);
@@ -201,5 +209,92 @@ describe("synthetic MCP response-size baseline", () => {
     expect(recallDefault.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallDefault);
     expect(recallFive.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallFive);
     expect(searchDefault.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.searchDefault);
+  });
+
+  it("keeps pending requests and Knowledge review flags within the focused context budget", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const knowledgeResult = store.searchKnowledge({ projectRoot, status: "active", limit: 20 });
+    if (knowledgeResult.outcome !== "knowledge") throw new Error("Expected active synthetic Knowledge.");
+    const contradictedKnowledge = knowledgeResult.items[0];
+    if (!contradictedKnowledge) throw new Error("Expected a synthetic Knowledge to contradict.");
+
+    const contradiction = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "response-size-contradiction",
+      title: "Agent context retrieval budget contradiction review",
+      summary: "The prior retrieval-budget Knowledge needs review after a confirmed contradiction.",
+      workSummary: {
+        outcomes: ["Flagged contradicted Knowledge for review."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [],
+      },
+      contradictedKnowledgeIds: [contradictedKnowledge.id],
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    if (contradiction.outcome !== "finalized") throw new Error("Expected the contradiction Session to finalize.");
+
+    const staleKnowledge = store.recordKnowledge({
+      projectRoot,
+      idempotencyKey: "response-size-stale-knowledge",
+      kind: "gotcha",
+      title: "Agent context retrieval budget stale path",
+      body: "Review this retrieval budget rule after the source file changes.",
+      tags: ["agent", "context", "retrieval", "budget"],
+      appliesTo: ["packages/context-budget-fixture.ts"],
+    });
+    if (staleKnowledge.outcome !== "knowledge_recorded") throw new Error("Expected stale-marker Knowledge to record.");
+
+    vi.setSystemTime(Date.now() + 60_000);
+    const pathChange = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "response-size-stale-path-change",
+      title: "Agent context retrieval budget path change",
+      summary: "Changed the synthetic path covered by the retrieval-budget Knowledge.",
+      workSummary: {
+        outcomes: ["Changed the synthetic path covered by the Knowledge rule."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [],
+      },
+      changedFiles: ["packages/context-budget-fixture.ts"],
+      verification: { status: "passed" },
+    });
+    if (pathChange.outcome !== "finalized") throw new Error("Expected the path-change Session to finalize.");
+
+    const candidateRequest = store.requestKnowledgeCandidates(projectRoot);
+    if (candidateRequest.outcome !== "knowledge_candidate_request") {
+      throw new Error("Expected a pending Knowledge-candidate request.");
+    }
+
+    const payload = await serializedMcpPayload(client, "work_get_context", {
+      projectRoot,
+      task: query,
+      paths: ["packages/context-budget-fixture.ts"],
+    });
+    const context = payload.value as {
+      pendingRequests: { knowledgeCandidates: unknown[] };
+      relevant?: { knowledge?: Array<{ id: string; needsReview?: boolean; possiblyStale?: unknown }> };
+      omitted?: Array<{
+        readWith: string;
+        entries: Array<{ id: string; needsReview?: boolean; possiblyStale?: unknown }>;
+      }>;
+    };
+    expect(payload.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    expect(context.pendingRequests.knowledgeCandidates).toHaveLength(1);
+    const knowledgeEntries = [
+      ...(context.relevant?.knowledge ?? []),
+      ...(context.omitted ?? []).flatMap((section) => section.entries),
+    ];
+    expect(knowledgeEntries).toContainEqual(
+      expect.objectContaining({ id: contradictedKnowledge.id, needsReview: true }),
+    );
+    expect(knowledgeEntries).toContainEqual(
+      expect.objectContaining({ id: staleKnowledge.knowledge.id, possiblyStale: true }),
+    );
+    expect(context.omitted?.some((section) => section.readWith === "work_search_knowledge")).toBe(true);
   });
 });

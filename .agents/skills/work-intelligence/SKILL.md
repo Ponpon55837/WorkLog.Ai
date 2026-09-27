@@ -16,6 +16,13 @@ For the canonical field definitions, reporting granularity, and examples, read [
 - `unregistered`, `paused`, and `ignored` are quiet skips. Do not create a Session, event, snapshot, metadata, evidence, Knowledge, or report source from them. Ask the user to enable tracking only when needed to explain why no record was made.
 - Prefer MCP operations that enforce the policy gate. Honor every skipped result; never retry through direct filesystem access.
 
+## Retrieve task context
+
+- Call `work_get_context` before beginning tracked-project work, and pass the task and known paths when available. Focused context puts relevant decisions, gotchas, open items, and matching Knowledge-page sections before recent activity. Without a focus, it provides bounded project updates.
+- The complete pretty-printed response is capped at 12,000 characters with a task or paths, and 19,000 without. Session and Knowledge records that also match another section appear once as full content; other sections retain an id and reason.
+- Read `omitted` before proceeding. It gives omitted counts, ids, reasons, and the full-read tool for each section. Preserve `possiblyStale` and `needsReview` as review signals, and do not treat truncated excerpts as full source text. Pending requests remain available in the context.
+- Read full source records with the tool named by `omitted` (`work_get_session`, `work_search_knowledge`, or `work_get_knowledge_page_context`). Use `work_preview_metadata_backfill` for metadata follow-up counts.
+
 ## Finalize a completed work session
 
 Keep the existing planning → execution → verification → closing-handoff workflow unchanged. Confirm the workspace is tracked before preparing anything; if it is not, tell the user in one sentence that no record was made. After closing is complete, finalize the Session; finalization is a work-lifecycle event, not a Git commit. A commit is optional and must never be required or inferred.
