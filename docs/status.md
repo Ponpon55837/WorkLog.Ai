@@ -79,6 +79,12 @@
 - 路由比對：字面路徑以雜湊表 O(1) 查找，含參數的路徑依方法與段數分組；建表時拒絕重複路由。
 - 行為不變：既有 server 測試原樣通過；新增路由表測試，確認每條路由的方法與路徑都有註冊且沒有重複。
 
+### E3 清除模組層級狀態
+
+- `useKnowledge`、`useKnowledgeCandidates`、`useRecordVoid`、`useSessionEditor`、`useSessionLinks`、`useConfirm`、`useToast` 的模組層級狀態移進 7 個附 `$reset` 的 Pinia store；composable 對外介面不變。
+- 移除 `useApiRequest` 未使用的 `beginRequest`／`isCurrentRequest`／`finishRequest`。原本 `abortAll` 只中止由 `beginRequest` 註冊的控制器，正式程式碼從未註冊，因此改為以 Pinia Colada `cancelQueries()` 真正取消進行中的查詢；測試輔助同步調整。
+- 保留的例外（寫在 worklog-code-layout skill）：無反應性的 `useApi` 單例、`useRouteQuery` 的批次緩衝，以及由 fetch callback 更新的連線狀態 `useApiConnection`。
+
 ### 額外調整：報告主要完成事項增加至 10 筆
 
 - 報告頁與 Agent 報告摘要脈絡都保留最新 10 筆主要完成事項，期間工作總數仍按完整資料計算。

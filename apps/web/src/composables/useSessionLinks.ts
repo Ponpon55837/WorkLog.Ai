@@ -1,40 +1,34 @@
-import { computed, ref } from "vue";
-import type { SessionLinkDirection, WorkSessionRecord } from "@work-intelligence/core";
+import { computed } from "vue";
+import type { WorkSessionRecord } from "@work-intelligence/core";
 import { storeToRefs } from "pinia";
+import { useSessionLinkDialogStore } from "../stores/session-link-dialog";
 import { errorMessage } from "../utils/format";
 import { useSessionsStore } from "../stores/sessions";
 import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
 
-const linkSource = ref<WorkSessionRecord | null>(null);
-const linkQuery = ref("");
-const linkTargetId = ref("");
-const linkDirection = ref<SessionLinkDirection>("continues");
-const linkSaving = ref(false);
-const linkActionError = ref("");
-
 function openLinkDialog(session: WorkSessionRecord): void {
-  linkSource.value = session;
-  linkQuery.value = "";
-  linkTargetId.value = "";
-  linkDirection.value = "continues";
-  linkActionError.value = "";
+  useSessionLinkDialogStore().linkSource = session;
+  useSessionLinkDialogStore().linkQuery = "";
+  useSessionLinkDialogStore().linkTargetId = "";
+  useSessionLinkDialogStore().linkDirection = "continues";
+  useSessionLinkDialogStore().linkActionError = "";
   useSessionsStore().openLinkCandidates(session.id);
 }
 
 function closeLinkDialog(): void {
-  if (linkSaving.value) {
+  if (useSessionLinkDialogStore().linkSaving) {
     return;
   }
-  linkSource.value = null;
+  useSessionLinkDialogStore().linkSource = null;
   useSessionsStore().closeLinkCandidates();
 }
 
 /** Candidate Sessions for a new link: same keyword search as the Sessions page, minus the open Session. */
 function searchLinkCandidates(): void {
-  if (!linkSource.value) return;
-  linkActionError.value = "";
-  useSessionsStore().searchLinkCandidates(linkQuery.value);
+  if (!useSessionLinkDialogStore().linkSource) return;
+  useSessionLinkDialogStore().linkActionError = "";
+  useSessionsStore().searchLinkCandidates(useSessionLinkDialogStore().linkQuery);
 }
 
 function afterLinkChange(message: string): void {
@@ -46,34 +40,34 @@ function afterLinkChange(message: string): void {
  * "the selected Session continues this one" is written from the selected Session's side.
  */
 async function saveLink(): Promise<void> {
-  const source = linkSource.value;
-  const targetId = linkTargetId.value;
+  const source = useSessionLinkDialogStore().linkSource;
+  const targetId = useSessionLinkDialogStore().linkTargetId;
   if (!source) {
     return;
   }
   if (!targetId) {
-    linkActionError.value = "請先選擇要關聯的 Session。";
+    useSessionLinkDialogStore().linkActionError = "請先選擇要關聯的 Session。";
     return;
   }
-  const reverse = linkDirection.value === "continued_by";
-  linkSaving.value = true;
-  linkActionError.value = "";
+  const reverse = useSessionLinkDialogStore().linkDirection === "continued_by";
+  useSessionLinkDialogStore().linkSaving = true;
+  useSessionLinkDialogStore().linkActionError = "";
   try {
     const result = await useSessionsStore().linkSessions({
       sessionId: reverse ? targetId : source.id,
       relatedSessionId: reverse ? source.id : targetId,
-      relation: linkDirection.value === "related" ? "related" : "continues",
+      relation: useSessionLinkDialogStore().linkDirection === "related" ? "related" : "continues",
     });
     if (result.outcome !== "session_link_updated") {
       throw new Error(result.outcome === "not_found" ? "找不到這筆 Session。" : result.reason);
     }
   } catch (error) {
-    linkActionError.value = errorMessage(error, "無法建立關聯。");
-    linkSaving.value = false;
+    useSessionLinkDialogStore().linkActionError = errorMessage(error, "無法建立關聯。");
+    useSessionLinkDialogStore().linkSaving = false;
     return;
   }
-  linkSaving.value = false;
-  linkSource.value = null;
+  useSessionLinkDialogStore().linkSaving = false;
+  useSessionLinkDialogStore().linkSource = null;
   useSessionsStore().closeLinkCandidates();
   afterLinkChange("已建立 Session 關聯。");
 }
@@ -101,6 +95,8 @@ async function removeLink(sessionId: string, relatedSessionId: string, relatedTi
 }
 
 export function useSessionLinks() {
+  const { linkSource, linkQuery, linkTargetId, linkDirection, linkSaving, linkActionError } =
+    storeToRefs(useSessionLinkDialogStore());
   const sessionsStore = useSessionsStore();
   const { linkCandidates, linkCandidatesLoading, linkCandidatesError } = storeToRefs(sessionsStore);
   const linkError = computed(() => linkActionError.value || linkCandidatesError.value);

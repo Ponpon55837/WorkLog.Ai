@@ -1,8 +1,7 @@
-import { PiniaColada } from "@pinia/colada";
+import { PiniaColada, useQueryCache } from "@pinia/colada";
 import { createPinia, setActivePinia } from "pinia";
 import { createApp } from "vue";
 import { vi } from "vitest";
-import { useApi } from "../../../apps/web/src/composables/useApi.js";
 
 export type StoreRequest = {
   url: URL;
@@ -35,7 +34,7 @@ export function createStoreHarness(responder: StoreResponder = () => ({})) {
 
   vi.stubGlobal("fetch", fetchMock);
   const pinia = createPinia();
-  createApp({}).use(pinia).use(PiniaColada);
+  const app = createApp({}).use(pinia).use(PiniaColada);
   setActivePinia(pinia);
 
   return {
@@ -48,7 +47,8 @@ export function createStoreHarness(responder: StoreResponder = () => ({})) {
       return calls.filter((call) => call.url.pathname === path && call.method === method).length;
     },
     async cleanup() {
-      useApi().abortAll();
+      // Stop queries still in flight so they cannot resolve into the next test's cache.
+      app.runWithContext(() => useQueryCache().cancelQueries());
       setActivePinia(undefined);
       vi.unstubAllGlobals();
     },
