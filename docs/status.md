@@ -25,6 +25,10 @@
 - 重新指定位置會要求 tracked 範圍確認、拒絕專案根目錄重疊，並以交易更新專案路徑與 raw snapshot 路徑前綴；migration 13 的稽核資料不保存路徑。
 - PR #124 以 merge commit 合併；head `ba5a24a7dfe2596730c8cd175a64475e5ee88d9b`、merge `987ea9e28ab6671862d9de9f58a880c4ba8e9bc5`，CI run #263 全綠。
 
+### 額外調整：報告主要完成事項增加至 10 筆
+
+- 報告頁與 Agent 報告摘要脈絡都保留最新 10 筆主要完成事項，期間工作總數仍按完整資料計算。
+
 ## 第五輪結案（2026-09-27）
 
 - Codex 完成階段 A～E 與附加的 Web 架構階段 F（#87～#121）：備份管理、刪除稽核、系統狀態頁、`SQLITE_BUSY` 分類與優雅關閉、storage service 拆分、Pinia＋Pinia Colada、API 錯誤代碼、WebKit 核心流程、生產依賴稽核、Firefox axe 與鍵盤操作 E2E。

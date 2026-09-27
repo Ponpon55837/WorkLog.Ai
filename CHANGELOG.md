@@ -24,6 +24,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- 報告「主要完成事項」與 Agent 報告摘要脈絡的顯示上限由 6 筆增加為最新 10 筆；期間工作總數維持完整統計。
+
 - Save-reminder hooks now count only edit paths within tracked projects: Claude reads `file_path` or `notebook_path` from transcript tool input, and Codex parses `apply_patch` file headers relative to the hook working directory.
 - File-backed databases are backed up before schema migrations; databases with a newer schema are refused with a clear update message.
 - The Codex save-reminder hook is installed globally in `~/.codex/hooks.json`, like MCP; the repository no longer ships a project-level `.codex/hooks.json`.
