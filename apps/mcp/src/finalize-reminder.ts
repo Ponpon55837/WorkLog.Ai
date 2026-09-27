@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
-import { dirname, resolve, sep } from "node:path";
+import { basename, dirname, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -22,8 +22,59 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 export const REMINDER =
   "這個專案有在 Work Intelligence 記錄，上次保存之後又改了檔案，還沒有保存工作記錄。如果這段工作已經完成，請依 work-intelligence skill 保存；如果還在進行或不需要記錄，直接結束這一輪即可。同一段工作只會提醒一次。";
 
+interface TranscriptPathScope {
+  cwd: string;
+  roots: readonly string[];
+  realpath: (path: string) => string;
+  platform?: NodeJS.Platform;
+}
+
+function editedPath(name: string, input: unknown): string | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return null;
+  }
+  const key = name === "NotebookEdit" ? "notebook_path" : "file_path";
+  const path = (input as Record<string, unknown>)[key];
+  return typeof path === "string" && path.trim() ? path : null;
+}
+
+/** Resolve a tool path without reading file contents; new files use their deepest existing parent. */
+export function isFileInTrackedRoots(
+  filePath: string,
+  cwd: string,
+  roots: readonly string[],
+  realpath: (path: string) => string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (!filePath.trim()) {
+    return false;
+  }
+
+  let target = resolve(cwd, filePath);
+  let current = target;
+  const missingParts: string[] = [];
+  while (true) {
+    try {
+      target = resolve(realpath(current), ...missingParts);
+      break;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) {
+        target = resolve(cwd, filePath);
+        break;
+      }
+      missingParts.unshift(basename(current));
+      current = parent;
+    }
+  }
+  return Boolean(findTrackedRoot(target, roots, platform));
+}
+
 /** Where in the transcript files were last edited and the record was last saved (-1 when never). */
-export function summarizeTranscript(text: string): { lastEdit: number; lastFinalize: number } {
+export function summarizeTranscript(
+  text: string,
+  scope?: TranscriptPathScope,
+): { lastEdit: number; lastFinalize: number } {
   let lastEdit = -1;
   let lastFinalize = -1;
   let index = 0;
@@ -39,10 +90,16 @@ export function summarizeTranscript(text: string): { lastEdit: number; lastFinal
     }
     const content = entry.type === "assistant" ? entry.message?.content : undefined;
     for (const item of Array.isArray(content) ? content : []) {
-      const name =
-        (item as { type?: string; name?: string }).type === "tool_use" ? (item as { name?: string }).name : "";
+      const tool = item as { type?: string; name?: string; input?: unknown };
+      const name = tool.type === "tool_use" ? tool.name : "";
       index += 1;
       if (name && EDIT_TOOLS.has(name)) {
+        if (scope) {
+          const path = editedPath(name, tool.input);
+          if (!path || !isFileInTrackedRoots(path, scope.cwd, scope.roots, scope.realpath, scope.platform)) {
+            continue;
+          }
+        }
         lastEdit = index;
       } else if (name?.endsWith("work_finalize_session")) {
         lastFinalize = index;
@@ -81,11 +138,21 @@ export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | 
   if (input.stop_hook_active || !input.cwd || !input.transcript_path || !input.session_id) {
     return null;
   }
-  const { lastEdit, lastFinalize } = summarizeTranscript(deps.readTranscript(input.transcript_path));
-  if (lastEdit < 0 || lastEdit < lastFinalize) {
+  let cwd: string;
+  let roots: string[];
+  let transcript: string;
+  try {
+    cwd = deps.realpath(input.cwd);
+    roots = deps.trackedRoots();
+    if (!findTrackedRoot(cwd, roots)) {
+      return null;
+    }
+    transcript = deps.readTranscript(input.transcript_path);
+  } catch {
     return null;
   }
-  if (!findTrackedRoot(deps.realpath(input.cwd), deps.trackedRoots())) {
+  const { lastEdit, lastFinalize } = summarizeTranscript(transcript, { cwd, roots, realpath: deps.realpath });
+  if (lastEdit < 0 || lastEdit < lastFinalize) {
     return null;
   }
   return deps.markOnce(`${input.session_id}:${lastFinalize}`) ? REMINDER : null;

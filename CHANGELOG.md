@@ -23,6 +23,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- Save-reminder hooks now count only edit paths within tracked projects: Claude reads `file_path` or `notebook_path` from transcript tool input, and Codex parses `apply_patch` file headers relative to the hook working directory.
 - File-backed databases are backed up before schema migrations; databases with a newer schema are refused with a clear update message.
 - The Codex save-reminder hook is installed globally in `~/.codex/hooks.json`, like MCP; the repository no longer ships a project-level `.codex/hooks.json`.
 - Long lists scroll inside their own panel across the web UI, and the date-range controls keep a stable layout.

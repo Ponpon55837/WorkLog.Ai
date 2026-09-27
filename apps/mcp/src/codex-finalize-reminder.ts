@@ -3,13 +3,14 @@ import { closeSync, existsSync, lstatSync, mkdirSync, openSync, realpathSync, un
 import { tmpdir, userInfo } from "node:os";
 import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findTrackedRoot, readTrackedRoots, REMINDER } from "./finalize-reminder.js";
+import { findTrackedRoot, isFileInTrackedRoots, readTrackedRoots, REMINDER } from "./finalize-reminder.js";
 
 export interface CodexHookInput {
   session_id?: string;
   cwd?: string;
   hook_event_name?: string;
   tool_name?: string;
+  tool_input?: unknown;
   tool_response?: unknown;
   stop_hook_active?: boolean;
 }
@@ -21,6 +22,7 @@ export interface ReminderMarkers {
 
 export interface CodexReminderDeps {
   isTrackedWorkspace: (cwd: string) => boolean;
+  hasTrackedFiles: (cwd: string, filePaths: readonly string[]) => boolean;
   markerPaths: (sessionId: string) => ReminderMarkers;
   markerExists: (path: string) => boolean;
   createMarker: (path: string) => boolean;
@@ -79,6 +81,50 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Return every affected path in Codex's structured apply_patch input, or null when it is unreadable. */
+export function parseApplyPatchFilePaths(toolInput: unknown): string[] | null {
+  if (!isRecord(toolInput) || typeof toolInput.command !== "string") {
+    return null;
+  }
+  const lines = toolInput.command.split(/\r?\n/);
+  const start = lines.indexOf("*** Begin Patch");
+  const end = lines.lastIndexOf("*** End Patch");
+  if (start < 0 || end <= start) {
+    return null;
+  }
+
+  const paths: string[] = [];
+  let activeOperation: "add" | "update" | "delete" | null = null;
+  for (const line of lines.slice(start + 1, end)) {
+    const fileHeader = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(line);
+    if (fileHeader) {
+      const operation = fileHeader[1];
+      const path = fileHeader[2]?.trim();
+      if (!operation || !path) {
+        return null;
+      }
+      activeOperation = operation.toLowerCase() as "add" | "update" | "delete";
+      paths.push(path);
+      continue;
+    }
+    if (
+      line.startsWith("*** Add File:") ||
+      line.startsWith("*** Update File:") ||
+      line.startsWith("*** Delete File:")
+    ) {
+      return null;
+    }
+    if (line.startsWith("*** Move to:")) {
+      const path = line.slice("*** Move to:".length).trim();
+      if (activeOperation !== "update" || !path) {
+        return null;
+      }
+      paths.push(path);
+    }
+  }
+  return paths.length ? paths : null;
+}
+
 function parseJson(value: unknown): unknown {
   if (typeof value !== "string") {
     return value;
@@ -121,6 +167,10 @@ export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps)
 
   const markers = deps.markerPaths(input.session_id);
   if (input.tool_name === "apply_patch") {
+    const paths = parseApplyPatchFilePaths(input.tool_input);
+    if (!paths || !deps.hasTrackedFiles(input.cwd, paths)) {
+      return;
+    }
     if (!deps.markerExists(markers.dirty) && deps.createMarker(markers.dirty)) {
       deps.removeMarker(markers.reminded);
     }
@@ -147,6 +197,14 @@ export function reminderForStop(input: CodexHookInput, deps: CodexReminderDeps):
 
 const defaultDeps: CodexReminderDeps = {
   isTrackedWorkspace,
+  hasTrackedFiles: (cwd, filePaths) => {
+    try {
+      const roots = readTrackedRoots();
+      return filePaths.some((filePath) => isFileInTrackedRoots(filePath, cwd, roots, realpathSync));
+    } catch {
+      return false;
+    }
+  },
   markerPaths,
   markerExists: existsSync,
   createMarker,
