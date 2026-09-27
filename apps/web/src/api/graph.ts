@@ -1,9 +1,17 @@
-import type { GraphQuery, GraphQueryResult, HotspotQuery, HotspotResult } from "@work-intelligence/core";
+import type {
+  GraphPathQuery,
+  GraphPathResult,
+  GraphQuery,
+  GraphQueryResult,
+  HotspotQuery,
+  HotspotResult,
+} from "@work-intelligence/core";
 import { appendQuery, type ApiTransport } from "./transport";
 
 export interface GraphApi {
   getGraph(options?: GraphQuery, signal?: AbortSignal): Promise<GraphQueryResult>;
   getHotspots(options?: HotspotQuery, signal?: AbortSignal): Promise<HotspotResult>;
+  getGraphPath(query: GraphPathQuery, signal?: AbortSignal): Promise<GraphPathResult>;
 }
 
 export function createGraphApi(client: ApiTransport): GraphApi {
@@ -18,6 +26,20 @@ export function createGraphApi(client: ApiTransport): GraphApi {
           maxEdges: options.maxEdges,
           pageSize: options.pageSize,
           cursor: options.cursor,
+          includeDerived: options.includeDerived ? "true" : undefined,
+          coChangeMinSessions: options.coChangeMinSessions,
+        }),
+        { signal },
+      );
+    },
+
+    getGraphPath(query: GraphPathQuery, signal?: AbortSignal): Promise<GraphPathResult> {
+      return client.request<GraphPathResult>(
+        appendQuery("/api/graph/path", {
+          projectId: query.projectId,
+          from: query.from,
+          to: query.to,
+          includeDerived: query.includeDerived ? "true" : undefined,
         }),
         { signal },
       );

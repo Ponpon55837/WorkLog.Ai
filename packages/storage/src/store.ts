@@ -35,6 +35,8 @@ import type {
   DashboardSummary,
   EvidenceRecord,
   GraphQuery,
+  GraphPathQuery,
+  GraphPathResult,
   GraphQueryResult,
   HotspotQuery,
   HotspotResult,
@@ -1024,6 +1026,10 @@ export class WorkIntelligenceStore {
 
   public getGraph(options: GraphQuery = {}): GraphQueryResult {
     return this.graphBuilder.build(options);
+  }
+
+  public getGraphPath(query: GraphPathQuery): GraphPathResult {
+    return this.graphBuilder.findPath(query);
   }
 
   /** Most changed files or directories of tracked projects, from the search path index (kept in sync first). */

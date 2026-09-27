@@ -23,6 +23,8 @@ const props = defineProps<{
   matchIds?: ReadonlySet<string>;
   /** Width of a fixed panel covering the right side of the window (0 when none). */
   overlayWidth?: number;
+  /** Edges of an explained path; they stay highlighted while the path is shown. */
+  pathEdgeIds?: ReadonlySet<string>;
 }>();
 
 const emit = defineEmits<{ select: [node: GraphNode]; clear: [] }>();
@@ -141,10 +143,13 @@ function nodeClasses(item: GraphVisualNode): (string | Record<string, boolean>)[
 
 function edgeClasses(item: GraphVisualEdge): Record<string, boolean> {
   const focus = props.selectedId;
+  const onPath = props.pathEdgeIds?.has(item.edge.id) ?? false;
   return {
     "graph-canvas__edge": true,
+    "is-derived": item.edge.provenance === "derived",
+    "is-on-path": onPath,
     "is-highlighted": touches(item, focus) || touches(item, hoveredId.value),
-    "is-dimmed": Boolean(focus) && !touches(item, focus),
+    "is-dimmed": Boolean(focus) && !touches(item, focus) && !onPath,
   };
 }
 
@@ -255,7 +260,11 @@ onBeforeUnmount(() => {
         :d="edgePath(item)"
         marker-end="url(#graph-arrow)"
       >
-        <title>{{ edgeKindLabels[item.edge.kind] }}</title>
+        <title>
+          {{
+            item.edge.reason ? `${edgeKindLabels[item.edge.kind]}：${item.edge.reason}` : edgeKindLabels[item.edge.kind]
+          }}
+        </title>
       </path>
       <g
         v-for="item in renderedNodes"
@@ -351,6 +360,17 @@ onBeforeUnmount(() => {
 
 .graph-canvas__edge.is-dimmed {
   opacity: 0.12;
+}
+
+/* Derived relations are dashed; recorded ones are solid (see the legend on the graph page). */
+.graph-canvas__edge.is-derived {
+  stroke-dasharray: 5 4;
+}
+
+.graph-canvas__edge.is-on-path {
+  opacity: 1;
+  stroke: var(--attention);
+  stroke-width: 2.6;
 }
 
 .graph-canvas__node {

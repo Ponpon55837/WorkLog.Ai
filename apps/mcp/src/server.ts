@@ -5,6 +5,7 @@ import {
   cancelMetadataBackfillRequestInputSchema,
   cancelReportSynthesisRequestInputSchema,
   contextQuerySchema,
+  graphPathQuerySchema,
   graphQuerySchema,
   handoffImportApplyInputSchema,
   handoffImportOptionsSchema,
@@ -463,12 +464,23 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_graph", {
     title: "Get deterministic work graph",
     description:
-      "Build a read-only graph from tracked project metadata: Projects, finalized Sessions, explicit Knowledge, attached Evidence, and changed-file paths. No semantic relationships are inferred. For large graphs, set pageSize (maximum 500) and pass the returned nextCursor back as cursor.",
+      "Build a read-only graph from tracked project metadata: Projects, finalized Sessions, explicit Knowledge, attached Evidence, and changed-file paths. Every edge carries provenance: recorded (stored in a record); set includeDerived to add derived co_changed edges between loaded files that at least coChangeMinSessions (default 3) Sessions changed together, each with a reason. For large graphs, set pageSize (maximum 500) and pass the returned nextCursor back as cursor.",
     inputShape: graphQuerySchema.shape,
     schema: graphQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid graph query.",
     run: (input) => store.getGraph(input),
+  });
+
+  registerStoreTool("work_get_graph_path", {
+    title: "Explain how two graph nodes are related",
+    description:
+      "Find the shortest chain of relations between two nodes of the tracked-project graph (node ids from work_get_graph, such as a Session and a file) and explain each step in plain language. Only recorded relations are walked unless includeDerived is set, which also allows co_changed steps (files several Sessions changed together). The search covers the first 500 nodes of the scoped graph; found: false comes with a reason. Read-only.",
+    inputShape: graphPathQuerySchema.shape,
+    schema: graphPathQuerySchema,
+    annotations: READ_ONLY,
+    invalidMessage: "Invalid graph path query.",
+    run: (input) => store.getGraphPath(input),
   });
 
   registerStoreTool("work_get_report", {

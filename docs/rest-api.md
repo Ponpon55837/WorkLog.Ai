@@ -82,6 +82,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | PATCH    | `/api/knowledge-pages/:id`                       | Web 手動編輯（`sections`，可帶 `title`）；每段須列來源 Session 或內容為「資料不足」，儲存為新版本 |
 | GET      | `/api/knowledge-pages/:id/versions`              | 最近 50 個版本（新到舊）與引用 Session 的標題                                          |
 | GET      | `/api/graph`                                     | 讀取 tracked-only deterministic work graph                                             |
+| GET      | `/api/graph/path?from=&to=`                      | 兩個節點間的最短關聯（500 節點內 BFS），逐段附理由；可帶 `projectId`、`includeDerived=true` |
 | GET      | `/api/insights/hotspots`                         | 熱點檔案：被最多 Session 修改的檔案（`groupBy=directory` 依目錄），附失敗／未執行次數與最近 5 筆 Session；可帶 `projectId`、`from`、`to`、`limit`（1–100，預設 20）。排除作廢與改動超過 20 個檔案的 Session |
 | GET      | `/api/context`                                   | Agent context query（含 `pendingRequests`：等待 Agent 的報告整理與 metadata 回補請求）     |
 | GET      | `/api/search?q=...`                              | Work history search（與 MCP `work_recall` 同一個排序引擎，只查 Session，最多 20 筆；可帶 `from`／`to`）   |

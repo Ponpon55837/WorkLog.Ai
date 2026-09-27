@@ -180,6 +180,7 @@ export const graphEdgeKindLabels = {
   has_knowledge: "關聯知識",
   has_evidence: "附加證據",
   session_link: "Session 關聯",
+  co_changed: "一起修改（推導）",
 } as const;
 
 export const graphMetadataLabels: Record<string, string> = {
