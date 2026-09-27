@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { History, X } from "lucide-vue-next";
-import { useKnowledge } from "../../composables/useKnowledge";
+import { storeToRefs } from "pinia";
+import { useKnowledgeActions } from "../../composables/useKnowledge";
+import { useKnowledgeStore } from "../../stores/knowledge";
 import { formatDate, formatRelative } from "../../utils/format";
 import { knowledgeAuditActionLabels } from "../../utils/labels";
 import UiEmptyState from "../ui/UiEmptyState.vue";
@@ -11,14 +13,8 @@ import UiSidePanel from "../ui/UiSidePanel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 
-const {
-  knowledgeHistoryItem,
-  knowledgeHistory,
-  knowledgeHistoryLoading,
-  knowledgeHistoryError,
-  closeKnowledgeHistory,
-  knowledgeAuditFields,
-} = useKnowledge();
+const { knowledgeHistoryItem, closeKnowledgeHistory, knowledgeAuditFields } = useKnowledgeActions();
+const { knowledgeHistory, knowledgeHistoryLoading, knowledgeHistoryError } = storeToRefs(useKnowledgeStore());
 const actionTone = { created: "success", updated: "accent", archived: "neutral", restored: "done" } as const;
 </script>
 

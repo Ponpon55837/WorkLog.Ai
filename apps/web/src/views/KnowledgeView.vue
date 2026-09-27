@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted } from "vue";
+import { storeToRefs } from "pinia";
 import { BookOpen, Search, X } from "lucide-vue-next";
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
@@ -17,14 +18,14 @@ import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useActiveViewQuery } from "../composables/useAppRefresh";
-import { useKnowledge } from "../composables/useKnowledge";
+import { useKnowledgeActions } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
+import { useKnowledgeStore } from "../stores/knowledge";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
 import { knowledgeKindVisual } from "../utils/status";
-import { queryKeys } from "../stores/query-keys";
 
+const knowledgeStore = useKnowledgeStore();
 const {
   knowledgeItems,
   knowledgeProjects,
@@ -37,14 +38,16 @@ const {
   knowledgeStatus,
   knowledgeLoading,
   knowledgeError,
-  loadKnowledge,
+} = storeToRefs(knowledgeStore);
+const { loadKnowledge, retryKnowledge, setKnowledgeListActive } = knowledgeStore;
+const {
   setKnowledgeStatus,
   openKnowledgeSession,
   openKnowledgeStaleSession,
   confirmKnowledge,
   openKnowledgeEditor,
   openKnowledgeHistory,
-} = useKnowledge();
+} = useKnowledgeActions();
 
 const kinds = Object.keys(knowledgeKindLabels) as KnowledgeKind[];
 useRouteQuery("q", knowledgeQuery, stringQuery());
@@ -66,7 +69,8 @@ const { reloadNow } = useListReload({
   filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize],
   search: knowledgeQuery,
 });
-useActiveViewQuery(queryKeys.views.knowledge, loadKnowledge);
+onMounted(() => setKnowledgeListActive(true));
+onBeforeUnmount(() => setKnowledgeListActive(false));
 
 const hasFilters = computed(() =>
   Boolean(
@@ -137,7 +141,7 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
 
   <UiFlash v-if="knowledgeError" tone="danger">
     {{ knowledgeError }}
-    <template #actions><UiButton size="sm" @click="loadKnowledge">重試</UiButton></template>
+    <template #actions><UiButton size="sm" @click="retryKnowledge">重試</UiButton></template>
   </UiFlash>
 
   <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />

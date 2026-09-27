@@ -120,11 +120,13 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
   if (url.pathname === "/api/knowledge") {
     if (knowledgeListMode === "skipped") return { outcome: "skipped", reason: "Knowledge 已暫停。" };
     if (knowledgeListMode === "error") return jsonResponse({ code: "service_unavailable", error: "unavailable" }, 503);
+    const page = Number(url.searchParams.get("page") ?? 1);
+    const pageSize = Number(url.searchParams.get("pageSize") ?? 10);
     return {
       outcome: "knowledge",
       items: [{ id: "knowledge-1", title: "Pattern" }],
       projects: [],
-      pageInfo: { page: 1, pageSize: 10, total: 1, totalPages: 1 },
+      pageInfo: { page, pageSize, total: 1, totalPages: 1 },
     };
   }
   if (url.pathname === "/api/knowledge/knowledge-1/history") {
@@ -219,6 +221,35 @@ afterEach(async () => {
 });
 
 describe("resource stores", () => {
+  it("keys Knowledge list requests by every search, filter, and pagination value", async () => {
+    const store = useKnowledgeStore();
+    store.setKnowledgeListActive(true);
+    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBe(1));
+
+    store.knowledgeQuery = "  retry policy  ";
+    store.knowledgeKind = "gotcha";
+    store.knowledgeProjectId = "project-1";
+    store.knowledgeStatus = "archived";
+    store.knowledgePage = 2;
+    store.knowledgePageSize = 20;
+    store.loadKnowledge();
+
+    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBe(2));
+    const filteredRequest = harness.calls.filter(({ url }) => url.pathname === "/api/knowledge")[1];
+    expect(filteredRequest?.url.searchParams.get("q")).toBe("retry policy");
+    expect(filteredRequest?.url.searchParams.get("kind")).toBe("gotcha");
+    expect(filteredRequest?.url.searchParams.get("projectId")).toBe("project-1");
+    expect(filteredRequest?.url.searchParams.get("status")).toBe("archived");
+    expect(filteredRequest?.url.searchParams.get("page")).toBe("2");
+    expect(filteredRequest?.url.searchParams.get("pageSize")).toBe("20");
+
+    store.knowledgePage = 3;
+    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBe(3));
+    expect(harness.calls.filter(({ url }) => url.pathname === "/api/knowledge")[2]?.url.searchParams.get("page")).toBe(
+      "3",
+    );
+  });
+
   it("loads backup records, creates a snapshot, and reports a localized load error", async () => {
     const store = useBackupsStore();
     store.setBackupsActive(true);
@@ -320,11 +351,11 @@ describe("resource stores", () => {
   it("loads Knowledge, history, and candidates, then refreshes the active list after an edit", async () => {
     const store = useKnowledgeStore();
     await store.loadKnowledge();
-    expect(store.knowledgeItems[0]?.title).toBe("Pattern");
+    await vi.waitFor(() => expect(store.knowledgeItems[0]?.title).toBe("Pattern"));
     await store.loadKnowledgeHistory("knowledge-1", "/projects/alpha");
     expect(store.knowledgeHistory).toHaveLength(1);
     await store.loadCandidates("/projects/alpha");
-    expect(store.candidates).toHaveLength(1);
+    await vi.waitFor(() => expect(store.candidates).toHaveLength(1));
     expect(store.candidatesLoading).toBe(false);
 
     await store.updateKnowledge({ knowledgeId: "knowledge-1", title: "Updated" } as never);
@@ -336,9 +367,9 @@ describe("resource stores", () => {
     const store = useKnowledgeStore();
     knowledgeListMode = "skipped";
     await store.loadKnowledge();
-    expect(store.knowledgeError).toBe("Knowledge 已暫停。");
+    await vi.waitFor(() => expect(store.knowledgeError).toBe("Knowledge 已暫停。"));
     knowledgeListMode = "error";
-    await store.loadKnowledge();
+    await store.retryKnowledge();
     expect(store.knowledgeError).toBe("服務暫時無法使用，請稍後再試。");
 
     knowledgeHistoryMode = "missing";

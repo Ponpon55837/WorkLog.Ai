@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useKnowledge } from "../../composables/useKnowledge";
+import { useKnowledgeActions } from "../../composables/useKnowledge";
 import { knowledgeKindLabels, knowledgeStatusLabels } from "../../utils/labels";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
@@ -17,7 +17,7 @@ const {
   knowledgeEditorError,
   closeKnowledgeEditor,
   saveKnowledge,
-} = useKnowledge();
+} = useKnowledgeActions();
 
 const kindOptions = Object.entries(knowledgeKindLabels).map(([value, label]) => ({
   value: value as keyof typeof knowledgeKindLabels,

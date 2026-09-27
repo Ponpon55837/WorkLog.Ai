@@ -48,11 +48,26 @@ const synthesisRequest = () => ({
 });
 
 function reportResponder({ url, method }: StoreRequest): unknown {
-  if (url.pathname === "/api/reports" && method === "GET") return report;
+  if (url.pathname === "/api/reports" && method === "GET") {
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    return { ...report, range: from && to ? { from, to } : report.range };
+  }
   if (url.pathname === "/api/sessions") {
+    const page = Number(url.searchParams.get("page") ?? 1);
+    const pageSize = Number(url.searchParams.get("pageSize") ?? 10);
     return {
       items: [{ id: "session-1", title: "Session" }],
-      pageInfo: { page: 1, pageSize: 10, total: 1, totalPages: 1, from: 1, to: 1, hasPrevious: false, hasNext: false },
+      pageInfo: {
+        page,
+        pageSize,
+        total: 1,
+        totalPages: 1,
+        from: 1,
+        to: 1,
+        hasPrevious: page > 1,
+        hasNext: false,
+      },
     };
   }
   if (url.pathname === "/api/reports/synthesis-requests" && method === "GET") {
@@ -103,9 +118,70 @@ afterEach(async () => {
 });
 
 describe("reports store", () => {
+  it("keys report, evidence, and source Session queries by their complete scopes", async () => {
+    const store = useReportsStore();
+    store.reportDate = "2026-09-24";
+    store.loadReport();
+    await vi.waitFor(() => expect(harness.count("/api/reports")).toBe(1));
+    await vi.waitFor(() => expect(harness.count("/api/sessions")).toBe(1));
+
+    store.reportProjectId = "project-1";
+    store.loadReport();
+    await vi.waitFor(() => expect(harness.count("/api/reports")).toBe(2));
+    const projectReport = harness.calls.filter(({ url }) => url.pathname === "/api/reports")[1];
+    expect(projectReport?.url.searchParams.get("period")).toBe("week");
+    expect(projectReport?.url.searchParams.get("date")).toBe("2026-09-24");
+    expect(projectReport?.url.searchParams.get("projectId")).toBe("project-1");
+
+    store.reportPeriod = "custom";
+    store.reportRange = { from: "2026-09-01", to: "2026-09-07" };
+    store.loadReport();
+    await vi.waitFor(() => expect(harness.count("/api/reports")).toBe(3));
+    const customReport = harness.calls.filter(({ url }) => url.pathname === "/api/reports")[2];
+    expect(customReport?.url.searchParams.get("from")).toBe("2026-09-01");
+    expect(customReport?.url.searchParams.get("to")).toBe("2026-09-07");
+    expect(customReport?.url.searchParams.get("projectId")).toBe("project-1");
+    await vi.waitFor(() => expect(harness.count("/api/reports/synthesis-requests")).toBe(3));
+    const synthesisRequest = harness.calls
+      .filter(({ url, method }) => url.pathname === "/api/reports/synthesis-requests" && method === "GET")
+      .at(-1);
+    expect(synthesisRequest?.url.searchParams.get("period")).toBe("custom");
+    expect(synthesisRequest?.url.searchParams.get("from")).toBe("2026-09-01");
+    expect(synthesisRequest?.url.searchParams.get("to")).toBe("2026-09-07");
+    expect(synthesisRequest?.url.searchParams.get("projectId")).toBe("project-1");
+
+    store.reportEvidencePage = 2;
+    store.reportEvidencePageSize = 20;
+    store.reportEvidenceKind = "event";
+    store.reportEvidenceQuery = " build ";
+    store.loadReportEvidence();
+    await vi.waitFor(() => expect(harness.count("/api/reports")).toBe(4));
+    const evidenceRequest = harness.calls.filter(({ url }) => url.pathname === "/api/reports")[3];
+    expect(evidenceRequest?.url.searchParams.get("from")).toBe("2026-09-01");
+    expect(evidenceRequest?.url.searchParams.get("to")).toBe("2026-09-07");
+    expect(evidenceRequest?.url.searchParams.get("projectId")).toBe("project-1");
+    expect(evidenceRequest?.url.searchParams.get("evidencePage")).toBe("2");
+    expect(evidenceRequest?.url.searchParams.get("evidencePageSize")).toBe("20");
+    expect(evidenceRequest?.url.searchParams.get("evidenceKind")).toBe("event");
+    expect(evidenceRequest?.url.searchParams.get("evidenceQuery")).toBe("build");
+
+    store.reportSessionPage = 2;
+    store.reportSessionPageSize = 20;
+    await vi.waitFor(() => expect(harness.count("/api/sessions")).toBeGreaterThan(2));
+    const sourceSessions = harness.calls.filter(({ url }) => url.pathname === "/api/sessions").at(-1);
+    expect(sourceSessions?.url.searchParams.get("from")).toBe("2026-09-01");
+    expect(sourceSessions?.url.searchParams.get("to")).toBe("2026-09-07");
+    expect(sourceSessions?.url.searchParams.get("projectId")).toBe("project-1");
+    expect(sourceSessions?.url.searchParams.get("page")).toBe("2");
+    expect(sourceSessions?.url.searchParams.get("pageSize")).toBe("20");
+  });
+
   it("loads report, source sessions, evidence, and synthesis history and invalidates after mutations", async () => {
     const store = useReportsStore();
-    await store.loadReport();
+    store.loadReport();
+    await vi.waitFor(() => expect(store.report?.range).toEqual(report.range));
+    await vi.waitFor(() => expect(store.reportSessionItems).toHaveLength(1));
+    await vi.waitFor(() => expect(store.reportSynthesisRequest?.id).toBe("request-1"));
     expect(store.report?.range).toEqual(report.range);
     expect(store.reportComparisons).toHaveLength(3);
     expect(store.reportSessionItems).toHaveLength(1);
@@ -114,9 +190,8 @@ describe("reports store", () => {
     expect(store.reportSynthesisSummary?.id).toBe("current");
 
     await store.loadReportEvidence();
-    expect(store.report?.evidence).toEqual(report.evidence);
-    expect(harness.count("/api/reports")).toBe(2);
-    await store.loadReportSessions();
+    await vi.waitFor(() => expect(store.report?.evidence).toEqual(report.evidence));
+    await vi.waitFor(() => expect(harness.count("/api/reports")).toBe(2));
     await store.loadReportSynthesis();
     await store.refreshReportSynthesis();
     store.selectReportSynthesisVersion({ id: "old", title: "Older", isCurrent: false } as never);
@@ -144,7 +219,8 @@ describe("reports store", () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:report");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     const store = useReportsStore();
-    await store.loadReport();
+    store.loadReport();
+    await vi.waitFor(() => expect(store.report).not.toBeNull());
     await store.exportReport("markdown");
     expect(anchor.download).toBe("report.md");
     expect(anchor.click).toHaveBeenCalledOnce();
@@ -160,7 +236,8 @@ describe("reports store", () => {
     const empty = useReportsStore();
     await empty.exportReport("json");
     expect(mocks.showToast).toHaveBeenCalledWith("請先載入一份報告，再進行匯出。");
-    await empty.loadReport();
+    empty.loadReport();
+    await vi.waitFor(() => expect(empty.report).not.toBeNull());
 
     requestStatus = "pending";
     await empty.loadReportSynthesis();

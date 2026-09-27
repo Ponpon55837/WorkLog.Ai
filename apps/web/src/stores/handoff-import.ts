@@ -56,7 +56,7 @@ export const useHandoffImportStore = defineStore("handoff-import", () => {
       queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
       queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
       queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
-      queryCache.invalidateQueries({ key: queryKeys.sessions.list, exact: true }),
+      queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
       queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
       queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
       queryCache.invalidateQueries({ key: queryKeys.views.reports }),

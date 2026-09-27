@@ -41,7 +41,7 @@ function createReportsViewModel() {
     reportComparisons,
   } = storeToRefs(reportsStore);
 
-  const { loadReport, loadReportSessions, loadReportEvidence, exportReport } = reportsStore;
+  const { loadReport, refreshReport, loadReportEvidence, exportReport } = reportsStore;
 
   const sessionsStore = useSessionsStore();
   const { openSessionDetail, setSessionSequence } = sessionsStore;
@@ -191,7 +191,6 @@ function createReportsViewModel() {
 
   function changeRawPage(page: number): void {
     reportSessionPage.value = page;
-    void loadReportSessions();
   }
 
   function changeEvidencePage(page: number): void {
@@ -206,7 +205,6 @@ function createReportsViewModel() {
 
   watch(reportSessionPageSize, () => {
     reportSessionPage.value = 1;
-    void loadReportSessions();
   });
 
   watch([reportEvidencePageSize, reportEvidenceKind], reloadEvidenceFromFirstPage);
@@ -237,6 +235,7 @@ function createReportsViewModel() {
     reportLoading,
     reportExportLoading,
     loadReport,
+    refreshReport,
     exportReport,
     reportError,
     tab,

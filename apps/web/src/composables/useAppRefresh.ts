@@ -1,21 +1,8 @@
-import { useQuery, useQueryCache } from "@pinia/colada";
-import type { EntryKey } from "@pinia/colada";
+import { useQueryCache } from "@pinia/colada";
 import { getActivePinia } from "pinia";
-import { watch, type MaybeRefOrGetter } from "vue";
+import { watch } from "vue";
 import { useApi } from "./useApi";
 import { updateApiConnection, useApiConnection } from "./useApiConnection";
-
-/** Transitional bridge: legacy domain loaders become active Colada queries until F3 migrates them. */
-export function useActiveViewQuery(key: EntryKey, load: () => unknown, enabled: MaybeRefOrGetter<boolean> = true) {
-  return useQuery({
-    key,
-    enabled,
-    query: async () => {
-      await load();
-      return true;
-    },
-  });
-}
 
 /** Invalidates only enabled queries; Pinia Colada refetches those with active observers. */
 export function invalidateActiveQueries(): Promise<unknown> {

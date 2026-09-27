@@ -6,8 +6,10 @@ import type {
   ReportEvidence,
   ReportExportFormat,
   ReportPeriod,
+  ReportQueryResult,
   ReportSummary,
   ReportSynthesisRequest,
+  SessionListResult,
   WorkReport,
   WorkReportPeriod,
   WorkSessionRecord,
@@ -46,18 +48,15 @@ export const useReportsStore = defineStore("reports", () => {
   const reportProjectId = ref("");
   const reportBlocked = ref(false);
   const reportActionError = ref("");
-  const reportLoadingState = ref(false);
   const reportExportLoading = ref<ReportExportFormat | null>(null);
-  const reportEvidenceLoadingState = ref(false);
   const reportEvidencePage = ref(1);
   const reportEvidencePageSize = ref<ListPageSize>(10);
   const reportEvidenceKind = ref<ReportEvidence["kind"] | "">("");
   const reportEvidenceQuery = ref("");
+  const appliedReportEvidenceQuery = ref("");
   const reportEvidenceActive = ref(false);
   const reportSessionPage = ref(1);
   const reportSessionPageSize = ref<ListPageSize>(10);
-  const reportSessionLoadingState = ref(false);
-  const reportSessionError = ref("");
   const reportSynthesisLoadingState = ref(false);
   const reportSynthesisActionError = ref("");
   const selectedSummaryId = ref("");
@@ -89,52 +88,70 @@ export const useReportsStore = defineStore("reports", () => {
       evidencePage: reportEvidencePage.value,
       evidencePageSize: reportEvidencePageSize.value,
       evidenceKind: reportEvidenceKind.value || undefined,
-      evidenceQuery: reportEvidenceQuery.value.trim() || undefined,
+      evidenceQuery: appliedReportEvidenceQuery.value.trim() || undefined,
     };
   }
 
-  function evidenceScopeKey(): string {
-    return JSON.stringify(evidenceScope());
+  function reportSessionScope(current: WorkReport | null) {
+    return {
+      from: current?.range.from,
+      to: current?.range.to,
+      projectId: reportProjectId.value || undefined,
+      page: reportSessionPage.value,
+      pageSize: reportSessionPageSize.value,
+    };
   }
 
-  const reportQuery = useQuery({
-    key: queryKeys.reports.report,
+  function sameReportScope(left: Record<string, unknown>, right: ReturnType<typeof reportScope>): boolean {
+    return (
+      left.period === right.period &&
+      left.date === right.date &&
+      left.from === right.from &&
+      left.to === right.to &&
+      left.projectId === right.projectId
+    );
+  }
+
+  const reportQuery = useQuery<ReportQueryResult>({
+    key: () => [...queryKeys.reports.report, reportScope()],
     enabled: reportsActive,
-    query: ({ signal }) => useApi().client.getReport(evidenceScope(), signal),
+    query: ({ signal }) => useApi().client.getReport(reportScope(), signal),
   });
   const baseReport = computed<WorkReport | null>(() => {
     if (reportBlocked.value) return null;
     const result = reportQuery.data.value;
     return result?.outcome === "report" ? result : null;
   });
-  const evidenceQuery = useQuery({
-    key: queryKeys.reports.evidence,
+  const evidenceQuery = useQuery<ReportQueryResult>({
+    key: () => [...queryKeys.reports.evidence, evidenceScope()],
     enabled: computed(() => reportsActive.value && reportEvidenceActive.value && Boolean(baseReport.value)),
-    query: async ({ signal }) => ({
-      scopeKey: evidenceScopeKey(),
-      result: await useApi().client.getReport(evidenceScope(), signal),
-    }),
+    placeholderData: (previousData, previousEntry) => {
+      const previousScope = previousEntry?.key.at(-1);
+      if (!previousScope || typeof previousScope !== "object") return undefined;
+      return sameReportScope(previousScope as Record<string, unknown>, reportScope()) ? previousData : undefined;
+    },
+    query: ({ signal }) => useApi().client.getReport(evidenceScope(), signal),
   });
-  const reportSessionsQuery = useQuery({
-    key: queryKeys.reports.sessions,
+  const reportSessionsQuery = useQuery<SessionListResult>({
+    key: () => [...queryKeys.reports.sessions, reportSessionScope(baseReport.value)],
     enabled: computed(() => reportsActive.value && Boolean(baseReport.value)),
     query: ({ signal }) => {
       const current = baseReport.value;
       if (!current) throw new Error("A report must be loaded before its source Sessions.");
-      return useApi().client.listSessions(
-        {
-          from: current.range.from,
-          to: current.range.to,
-          projectId: reportProjectId.value || undefined,
-          page: reportSessionPage.value,
-          pageSize: reportSessionPageSize.value,
-        },
-        signal,
-      );
+      return useApi().client.listSessions(reportSessionScope(current), signal);
+    },
+    placeholderData: (previousData, previousEntry) => {
+      const previousScope = previousEntry?.key.at(-1);
+      if (!previousScope || typeof previousScope !== "object") return undefined;
+      const previous = previousScope as Record<string, unknown>;
+      const current = reportSessionScope(baseReport.value);
+      return previous.from === current.from && previous.to === current.to && previous.projectId === current.projectId
+        ? previousData
+        : undefined;
     },
   });
   const synthesisQuery = useQuery({
-    key: queryKeys.reports.synthesis,
+    key: () => [...queryKeys.reports.synthesis, synthesisScope()],
     enabled: computed(() => reportsActive.value && Boolean(baseReport.value)),
     query: async ({ signal }) => {
       const scope = synthesisScope();
@@ -188,23 +205,30 @@ export const useReportsStore = defineStore("reports", () => {
     const result = baseReport.value;
     if (!result) return null;
     const evidenceResult = evidenceQuery.data.value;
-    if (evidenceResult?.scopeKey === evidenceScopeKey() && evidenceResult.result.outcome === "report") {
+    if (evidenceResult?.outcome === "report") {
       return {
         ...result,
-        evidence: evidenceResult.result.evidence,
-        evidencePageInfo: evidenceResult.result.evidencePageInfo,
+        evidence: evidenceResult.evidence,
+        evidencePageInfo: evidenceResult.evidencePageInfo,
       };
     }
     return result;
   });
-  const reportLoading = computed(() => reportLoadingState.value || reportQuery.isLoading.value);
+  const reportLoading = computed(() => reportQuery.isLoading.value);
   const reportError = computed(() => {
     if (reportActionError.value) return reportActionError.value;
     if (reportQuery.error.value) return errorMessage(reportQuery.error.value, "無法載入工作報告。");
     const result = reportQuery.data.value;
-    return result?.outcome === "skipped" ? result.reason : "";
+    if (result?.outcome === "skipped") return result.reason;
+    if (reportEvidenceActive.value && evidenceQuery.error.value) {
+      return errorMessage(evidenceQuery.error.value, "無法更新來源證據。");
+    }
+    const evidenceResult = evidenceQuery.data.value;
+    return reportEvidenceActive.value && evidenceResult?.outcome === "skipped" ? evidenceResult.reason : "";
   });
-  const reportEvidenceLoading = computed(() => reportEvidenceLoadingState.value || evidenceQuery.isLoading.value);
+  const reportEvidenceLoading = computed(
+    () => reportEvidenceActive.value && (evidenceQuery.isLoading.value || evidenceQuery.isPlaceholderData.value),
+  );
   const reportSessionItems = computed<WorkSessionRecord[]>(() => reportSessionsQuery.data.value?.items ?? []);
   const reportSessionPageInfo = computed<PageInfo>(
     () =>
@@ -213,7 +237,9 @@ export const useReportsStore = defineStore("reports", () => {
         pageSize: pageSizeToQuery(reportSessionPageSize.value),
       },
   );
-  const reportSessionLoading = computed(() => reportSessionLoadingState.value || reportSessionsQuery.isLoading.value);
+  const reportSessionLoading = computed(
+    () => reportSessionsQuery.isLoading.value || reportSessionsQuery.isPlaceholderData.value,
+  );
   const reportSynthesisRequest = computed<ReportSynthesisRequest | null>(() => {
     if (!report.value) return null;
     const result = synthesisQuery.data.value?.requests;
@@ -236,7 +262,9 @@ export const useReportsStore = defineStore("reports", () => {
   const reportSynthesisLoading = computed(() => reportSynthesisLoadingState.value || synthesisQuery.isLoading.value);
   const reportSynthesisError = computed(() => {
     if (reportSynthesisActionError.value) return reportSynthesisActionError.value;
-    if (reportSessionError.value) return reportSessionError.value;
+    if (reportSessionsQuery.error.value) {
+      return errorMessage(reportSessionsQuery.error.value, "無法載入報告原始 Session。");
+    }
     if (synthesisQuery.error.value) return errorMessage(synthesisQuery.error.value, "無法載入報告提煉狀態。");
     const requests = synthesisQuery.data.value?.requests;
     if (requests?.outcome === "skipped") return requests.reason;
@@ -269,7 +297,7 @@ export const useReportsStore = defineStore("reports", () => {
     selectedSummaryId.value = "";
   });
   watch(
-    () => reportSessionsQuery.data.value?.pageInfo.page,
+    () => (reportSessionsQuery.isPlaceholderData.value ? undefined : reportSessionsQuery.data.value?.pageInfo.page),
     (loadedPage) => {
       if (loadedPage !== undefined && reportSessionPage.value !== loadedPage) {
         reportSessionPage.value = loadedPage;
@@ -288,8 +316,11 @@ export const useReportsStore = defineStore("reports", () => {
     return days > MAX_CUSTOM_DAYS ? "自訂期間最長 " + MAX_CUSTOM_DAYS + " 天。" : "";
   }
 
-  async function loadReport(resetEvidencePage = false): Promise<void> {
-    if (resetEvidencePage) reportEvidencePage.value = 1;
+  function loadReport(resetPages = false): void {
+    if (resetPages) {
+      reportEvidencePage.value = 1;
+      reportSessionPage.value = 1;
+    }
     if (reportPeriod.value === "custom" && customRangeProblem()) {
       reportBlocked.value = true;
       reportActionError.value = customRangeProblem();
@@ -297,59 +328,20 @@ export const useReportsStore = defineStore("reports", () => {
     }
     reportBlocked.value = false;
     reportActionError.value = "";
-    reportLoadingState.value = true;
     reportsActive.value = true;
-    try {
-      await reportQuery.refetch(true);
-      if (reportQuery.data.value?.outcome === "report") {
-        await Promise.all([loadReportSynthesis(), loadReportSessions(resetEvidencePage)]);
-      }
-    } catch (error) {
-      if (!useApi().isAbortError(error)) {
-        reportBlocked.value = true;
-        reportActionError.value = errorMessage(error, "無法載入工作報告。");
-      }
-    } finally {
-      reportLoadingState.value = false;
-    }
   }
 
-  async function loadReportSessions(resetPage = false): Promise<void> {
-    if (resetPage) reportSessionPage.value = 1;
-    if (!report.value) {
-      reportSessionError.value = "";
-      return;
-    }
-    reportSessionLoadingState.value = true;
-    reportSessionError.value = "";
-    try {
-      await reportSessionsQuery.refetch(true);
-      if (reportSessionsQuery.error.value) {
-        reportSessionError.value = errorMessage(reportSessionsQuery.error.value, "無法載入報告原始 Session。");
-      }
-    } catch (error) {
-      if (!useApi().isAbortError(error)) reportSessionError.value = errorMessage(error, "無法載入報告原始 Session。");
-    } finally {
-      reportSessionLoadingState.value = false;
-    }
+  async function refreshReport(resetPages = false): Promise<void> {
+    loadReport(resetPages);
+    if (reportBlocked.value) return;
+    await queryCache.invalidateQueries({ key: queryKeys.views.reports });
   }
 
-  async function loadReportEvidence(): Promise<void> {
+  function loadReportEvidence(): void {
     if (!report.value) return;
     reportEvidenceActive.value = true;
-    reportEvidenceLoadingState.value = true;
+    appliedReportEvidenceQuery.value = reportEvidenceQuery.value.trim();
     reportActionError.value = "";
-    try {
-      await evidenceQuery.refetch(true);
-      const result = evidenceQuery.data.value?.result;
-      if (result?.outcome === "skipped") reportActionError.value = result.reason;
-      if (evidenceQuery.error.value)
-        reportActionError.value = errorMessage(evidenceQuery.error.value, "無法更新來源證據。");
-    } catch (error) {
-      if (!useApi().isAbortError(error)) reportActionError.value = errorMessage(error, "無法更新來源證據。");
-    } finally {
-      reportEvidenceLoadingState.value = false;
-    }
   }
 
   async function loadReportSynthesis(): Promise<void> {
@@ -544,7 +536,7 @@ export const useReportsStore = defineStore("reports", () => {
     reportComparisons,
     setReportsActive,
     loadReport,
-    loadReportSessions,
+    refreshReport,
     loadReportEvidence,
     loadReportSynthesis,
     refreshReportSynthesis,

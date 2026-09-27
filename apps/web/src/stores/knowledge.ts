@@ -48,6 +48,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const knowledgePage = ref(1);
   const knowledgePageSize = ref<ListPageSize>(10);
   const knowledgeQuery = ref("");
+  const appliedKnowledgeQuery = ref("");
   const knowledgeKind = ref<KnowledgeKind | "">("");
   const knowledgeProjectId = ref("");
   const knowledgeStatus = ref<KnowledgeStatus>("active");
@@ -56,23 +57,25 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const historyEnabled = ref(false);
   const candidateProjectRoot = ref<string | undefined>();
   const candidatesEnabled = ref(false);
-  const candidatesLoadingState = ref(false);
+  const candidatesQuietRefresh = ref(false);
 
-  const listQuery = useQuery({
-    key: queryKeys.knowledge.list,
+  function knowledgeListScope() {
+    return {
+      q: appliedKnowledgeQuery.value.trim() || undefined,
+      kind: knowledgeKind.value || undefined,
+      projectId: knowledgeProjectId.value || undefined,
+      status: knowledgeStatus.value,
+      page: knowledgePage.value,
+      pageSize: knowledgePageSize.value,
+    };
+  }
+
+  const listQuery = useQuery<KnowledgeSearchResult>({
+    key: () => [...queryKeys.knowledge.list, knowledgeListScope()],
     enabled: listEnabled,
+    placeholderData: (previousData) => previousData,
     query: ({ signal }): Promise<KnowledgeSearchResult> =>
-      useApi().client.searchKnowledge(
-        {
-          q: knowledgeQuery.value.trim() || undefined,
-          kind: knowledgeKind.value || undefined,
-          projectId: knowledgeProjectId.value || undefined,
-          status: knowledgeStatus.value,
-          page: knowledgePage.value,
-          pageSize: knowledgePageSize.value,
-        },
-        signal,
-      ),
+      useApi().client.searchKnowledge(knowledgeListScope(), signal),
   });
   const historyQuery = useQuery({
     key: () => [...queryKeys.knowledge.history, historyKnowledgeId.value, historyProjectRoot.value],
@@ -100,7 +103,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     onSuccess: async (result, input) => {
       if (result.outcome !== "knowledge_updated") return;
       await Promise.all([
-        queryCache.invalidateQueries({ key: queryKeys.knowledge.list, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
@@ -109,25 +112,17 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   });
   const requestKnowledgeCandidatesMutation = useMutation({
     mutation: (input: KnowledgeCandidateRequestInput) => useApi().client.requestKnowledgeCandidates(input.projectRoot),
-    onSuccess: async (_result, input) => {
-      await queryCache.invalidateQueries({
-        key: [...queryKeys.knowledge.candidates, input.refreshProjectRoot ?? "all"],
-        exact: true,
-      });
+    onSuccess: async (_result, _input) => {
+      await queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates });
     },
   });
   const decideKnowledgeCandidateMutation = useMutation({
     mutation: ({ input }: KnowledgeCandidateDecision) => useApi().client.decideKnowledgeCandidate(input),
     onSuccess: async (result, variables) => {
       if (result.outcome !== "knowledge_candidate_decided" && result.outcome !== "already_decided") return;
-      const invalidations = [
-        queryCache.invalidateQueries({
-          key: [...queryKeys.knowledge.candidates, variables.projectRoot ?? "all"],
-          exact: true,
-        }),
-      ];
+      const invalidations = [queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates })];
       if (variables.input.decision === "accept") {
-        invalidations.push(queryCache.invalidateQueries({ key: queryKeys.knowledge.list, exact: true }));
+        invalidations.push(queryCache.invalidateQueries({ key: queryKeys.knowledge.list }));
       }
       if (result.outcome === "knowledge_candidate_decided" && result.knowledge) {
         invalidations.push(
@@ -175,17 +170,29 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const candidatesError = computed(() =>
     candidatesQuery.error.value ? errorMessage(candidatesQuery.error.value, "無法載入 Knowledge 候選。") : "",
   );
-  const candidatesLoading = computed(() => candidatesLoadingState.value);
+  const candidatesLoading = computed(() => candidatesQuery.isLoading.value && !candidatesQuietRefresh.value);
 
   watch(
-    () => (listQuery.data.value?.outcome === "knowledge" ? listQuery.data.value.pageInfo.page : undefined),
+    () =>
+      !listQuery.isPlaceholderData.value && listQuery.data.value?.outcome === "knowledge"
+        ? listQuery.data.value.pageInfo.page
+        : undefined,
     (loadedPage) => {
       if (loadedPage !== undefined && knowledgePage.value !== loadedPage) knowledgePage.value = loadedPage;
     },
   );
 
-  async function loadKnowledge(): Promise<void> {
+  function setKnowledgeListActive(active: boolean): void {
+    listEnabled.value = active;
+    if (active) appliedKnowledgeQuery.value = knowledgeQuery.value.trim();
+  }
+
+  function loadKnowledge(): void {
     listEnabled.value = true;
+    appliedKnowledgeQuery.value = knowledgeQuery.value.trim();
+  }
+
+  async function retryKnowledge(): Promise<void> {
     try {
       await listQuery.refetch(true);
     } catch (error) {
@@ -217,13 +224,14 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   async function loadCandidates(projectRoot?: string, quiet = false): Promise<void> {
     candidateProjectRoot.value = projectRoot;
     candidatesEnabled.value = true;
-    if (!quiet) candidatesLoadingState.value = true;
+    candidatesQuietRefresh.value = quiet;
+    if (!quiet) return;
     try {
       await candidatesQuery.refetch(true);
     } catch (error) {
       if (!useApi().isAbortError(error)) return;
     } finally {
-      if (!quiet) candidatesLoadingState.value = false;
+      candidatesQuietRefresh.value = false;
     }
   }
 
@@ -253,7 +261,9 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     knowledgeStatus,
     knowledgeLoading,
     knowledgeError,
+    setKnowledgeListActive,
     loadKnowledge,
+    retryKnowledge,
     updateKnowledge,
     knowledgeHistory,
     knowledgeHistoryLoading,
