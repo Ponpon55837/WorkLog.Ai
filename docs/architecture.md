@@ -52,7 +52,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 ## 效能設計
 
 - **門檻**：`pnpm test:performance` 在 5,000 筆合成 Session 上量測關鍵讀取路徑的 p90，並在 CI 執行；上限見 [testing.md](testing.md)。新增讀取路徑時要同時加上情境與上限。
-- **全文搜尋**：`search_fts` 與 `search_chunks` 用 `CROSS JOIN`，固定由 FTS 當外層迴圈。若用一般 `JOIN` 並加上可走索引的條件（例如 `doc_type IN (…)`），SQLite 會改以 `search_chunks` 為外層、對每一筆 chunk 重跑全文搜尋，在 5,000 筆 Session 時從約 5 ms 變成約 2 秒。
+- **全文搜尋**：`search_fts` 與 `search_chunks` 用 `CROSS JOIN`，固定由 FTS 當外層迴圈。Raw handoff chunk 在 `search_chunks.content_hash` 保存正規化內容的 SHA-256，同一專案內重複片段只讓最早引用保留完整分數，其他引用降權。若用一般 `JOIN` 並加上可走索引的條件（例如 `doc_type IN (…)`），SQLite 會改以 `search_chunks` 為外層、對每一筆 chunk 重跑全文搜尋，在 5,000 筆 Session 時從約 5 ms 變成約 2 秒。
 - **批次計算**：清單需要衍生資料時，依專案分組、一個群組查詢一次，再在記憶體中計算，不可以逐筆查詢（例如 Knowledge 的「可能過時」）。
 - **一次分組**：報告趨勢等分桶計算用 `Map` 一次完成，不對每個時間桶重新掃描全部 Session。
 - 更多規則見 [`worklog-backend` skill](../.agents/skills/worklog-backend/SKILL.md) §5。
@@ -93,7 +93,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 
 REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Evidence、Report synthesis、Metadata backfill 與 Session summary update 的查重及寫入會在 `BEGIN IMMEDIATE` transaction 內完成；跨程序同時重試時會等待既有寫入，再回傳 `duplicate: true`，不會把 SQLite UNIQUE constraint 例外當成一般 500 錯誤。Metadata backfill 的 schema rebuild migration 也在 transaction 內執行。
 
-新的 schema 變更改用版本化 migration（`packages/storage/src/schema-migrations.ts`）：套用過的版本記在 `schema_migrations`，每個 migration 只在啟動時的 transaction 內執行一次。若既有檔案資料庫有待套用的 migration，初始化程序會先寫一份帶目標版本標記的 `pre-migration-vN-...` 快照，然後才在 transaction 內升級；新資料庫與記憶體資料庫不需要這份升級前快照。若資料庫 schema 版本比目前程式支援的新，初始化會拒絕開啟並要求更新 Work Intelligence，不會嘗試降級或部分啟動。若 migration 前備份失敗，初始化也會停止，以免沒有安全備份仍繼續升級。檢索索引由 `search_chunks`、FTS5 `search_fts`、`search_paths`、`search_dirty` 與 trigger 維護，檢索邏輯在 `search-repository.ts`，tokenizer 與路徑正規化在 `search-text.ts`，詳見 [MCP tools 的 `work_recall`](mcp-tools.md#work_recall)。
+新的 schema 變更改用版本化 migration（`packages/storage/src/schema-migrations.ts`）：套用過的版本記在 `schema_migrations`，每個 migration 只在啟動時的 transaction 內執行一次。若既有檔案資料庫有待套用的 migration，初始化程序會先寫一份帶目標版本標記的 `pre-migration-vN-...` 快照，然後才在 transaction 內升級；新資料庫與記憶體資料庫不需要這份升級前快照。若資料庫 schema 版本比目前程式支援的新，初始化會拒絕開啟並要求更新 Work Intelligence，不會嘗試降級或部分啟動。若 migration 前備份失敗，初始化也會停止，以免沒有安全備份仍繼續升級。檢索索引由 `search_chunks`、FTS5 `search_fts`、`search_paths`、`search_dirty` 與 trigger 維護；schema 20 新增的 `content_hash` 是衍生索引資料，既有 Session 會惰性重建。檢索邏輯在 `search-repository.ts`，tokenizer 與路徑正規化在 `search-text.ts`，詳見 [MCP tools 的 `work_recall`](mcp-tools.md#work_recall)。
 
 永久刪除會先用 `VACUUM INTO` 建立並驗證整份資料庫快照，備份建立失敗時拒絕操作；備份列為手動備份，依相同保留額度管理。之後在一個 `BEGIN IMMEDIATE` transaction 中清理 project、Session、衍生資料、跨專案 Session 關聯、引用目標 Session 的全域請求／報告與搜尋索引。刪除失敗會 rollback 並保留備份。migration v11 的 `project_deletion_audit` 僅保存刪除時間、project id 與刪除筆數，不保存名稱、路徑或內容。API 允許使用者在 Web UI 或 REST 以名稱確認，MCP 刻意不提供此破壞性操作；workspace 原始檔案不會被刪除。
 

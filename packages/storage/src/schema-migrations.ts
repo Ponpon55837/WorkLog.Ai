@@ -515,6 +515,19 @@ const MIGRATIONS: SchemaMigration[] = [
       CREATE INDEX idx_session_diagrams_session ON session_diagrams(session_id, created_at);
     `,
   },
+  {
+    version: 20,
+    name: "raw-handoff-content-hashes",
+    // search_chunks is a derived index, so legacy Sessions are lazily rebuilt before their next search.
+    sql: `
+      ALTER TABLE search_chunks ADD COLUMN content_hash TEXT;
+      CREATE INDEX idx_search_chunks_raw_content_hash
+        ON search_chunks(project_id, content_hash, doc_date, doc_id)
+        WHERE field = 'raw' AND content_hash IS NOT NULL;
+      INSERT OR IGNORE INTO search_dirty (doc_type, doc_id)
+      SELECT 'session', id FROM sessions;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

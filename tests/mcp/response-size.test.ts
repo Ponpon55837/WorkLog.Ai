@@ -198,7 +198,8 @@ describe("synthetic MCP response-size baseline", () => {
     expect(taskContext.relevant?.knowledgePages).toHaveLength(1);
     expect(taskContext.recentDecisions).toHaveLength(0);
     expect(taskContext.relevant?.decisions.length).toBeGreaterThan(0);
-    expect(taskContext.relevant?.sessions.some((hit) => hit.title.includes("03"))).toBe(true);
+    expect(taskContext.relevant?.sessions.some((hit) => hit.title.endsWith("00"))).toBe(true);
+    expect(taskContext.relevant?.sessions[0]?.excerpt).toContain("Check one more verified example");
     expect(taskContext.relevant?.knowledge.some((hit) => hit.title.includes("gotcha"))).toBe(true);
     expect(
       taskContext.relevant?.knowledgePages?.every((page) =>

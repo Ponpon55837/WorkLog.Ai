@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { KnowledgeKind, RecallConfidence, RecallField, RecallHit, RecallTermHits } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
@@ -20,10 +21,10 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 type DocType = "session" | "knowledge";
 
 /*
- * Ranking: FTS5 BM25 per chunk × field weight, summed per document, with only the best raw handoff
- * section counted (long snapshots would otherwise match everything). The sum is multiplied by the
- * squared IDF-weighted share of query terms the document contains, so records matching most words
- * outrank those matching one common word. Path matches add a fixed score; recency is a mild factor.
+ * Ranking: FTS5 BM25 per chunk × field weight, summed for structured fields, with only the best raw handoff
+ * section counted. Structured fields outweigh raw planning text, and identical raw sections are hashed so only
+ * the earliest reference gets full raw weight. The sum is multiplied by squared IDF-weighted query coverage;
+ * path matches add a fixed score, recency is mild, and Knowledge evidence adjusts its score.
  */
 const FIELD_WEIGHTS: Record<Exclude<RecallField, "path">, number> = {
   title: 3,
@@ -35,8 +36,9 @@ const FIELD_WEIGHTS: Record<Exclude<RecallField, "path">, number> = {
   branch: 1,
   event: 1,
   references: 1,
-  raw: 0.5,
+  raw: 0.3,
 };
+const DUPLICATE_RAW_WEIGHT_FACTOR = 0.1;
 // Sessions listing more changed files than this are likely polluted by unrelated dirty worktrees.
 const CHANGED_FILES_NORMAL = 20;
 const PATH_WEIGHT = 4;
@@ -75,6 +77,8 @@ interface ScoredChunkRow {
   heading: string | null;
   weight: number;
   doc_date: string;
+  content_hash: string | null;
+  is_primary_raw: number;
   score: number;
 }
 
@@ -157,6 +161,11 @@ function parseSections(value: string | null): Array<[string, string[]]> {
 
 function docKey(type: DocType, id: string): string {
   return `${type}:${id}`;
+}
+
+function hashRawContent(content: string): string {
+  const normalized = content.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+  return createHash("sha256").update(normalized).digest("hex");
 }
 
 /** Retrieval index over Sessions (with raw handoff sections) and Knowledge, kept in sync lazily. */
@@ -423,6 +432,13 @@ export class SearchRepository {
     const rows = this.db
       .prepare(
         `SELECT c.id, c.doc_type, c.doc_id, c.project_id, c.field, c.heading, c.weight, c.doc_date,
+                c.content_hash,
+                CASE WHEN c.content_hash IS NULL THEN 1 WHEN c.id = (
+                  SELECT primary_chunk.id FROM search_chunks primary_chunk
+                  WHERE primary_chunk.project_id = c.project_id AND primary_chunk.content_hash = c.content_hash
+                    AND primary_chunk.field = 'raw'
+                  ORDER BY primary_chunk.doc_date ASC, primary_chunk.doc_id ASC, primary_chunk.id ASC LIMIT 1
+                ) THEN 1 ELSE 0 END AS is_primary_raw,
                 -bm25(search_fts) AS score
          FROM search_fts
          CROSS JOIN search_chunks c ON c.id = search_fts.rowid
@@ -439,7 +455,8 @@ export class SearchRepository {
           doc.terms.add(index);
         }
       });
-      const score = Math.max(0, row.score) * row.weight;
+      const rawWeight = row.field === "raw" && !row.is_primary_raw ? DUPLICATE_RAW_WEIGHT_FACTOR : 1;
+      const score = Math.max(0, row.score) * row.weight * rawWeight;
       if (row.field === "raw") {
         if (!doc.bestRaw || score > doc.bestRaw.score) {
           doc.bestRaw = { id: row.id, score, heading: row.heading ?? "" };
@@ -705,8 +722,8 @@ export class SearchRepository {
 
   private insertDocument(type: DocType, id: string, document: IndexedDocument): void {
     const insertChunk = this.db.prepare(
-      `INSERT INTO search_chunks (doc_type, doc_id, project_id, field, heading, content, weight, doc_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO search_chunks (doc_type, doc_id, project_id, field, heading, content, weight, doc_date, content_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertFts = this.db.prepare("INSERT INTO search_fts (rowid, tokens) VALUES (?, ?)");
     for (const chunk of document.chunks) {
@@ -723,6 +740,7 @@ export class SearchRepository {
         chunk.content,
         chunk.weight,
         document.date,
+        chunk.field === "raw" ? hashRawContent(chunk.content) : null,
       );
       insertFts.run(result.lastInsertRowid, tokens.join(" "));
     }
