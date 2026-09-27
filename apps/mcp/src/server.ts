@@ -199,7 +199,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_session", {
     title: "Get one work session",
     description:
-      "Return one tracked Session with its five-section workSummary, changed files, verification, events, evidence, and linked Knowledge. Raw handoff snapshot content is omitted (only its length is returned) unless includeRawSnapshots is true. Sessions of non-tracked projects are skipped quietly.",
+      "Return one tracked Session with its five-section workSummary, decision provenance and review state, changed files, verification, events, evidence, and linked Knowledge. Raw handoff snapshot content is omitted (only its length is returned) unless includeRawSnapshots is true. Sessions of non-tracked projects are skipped quietly.",
     inputShape: sessionDetailQuerySchema.shape,
     schema: sessionDetailQuerySchema,
     annotations: READ_ONLY,
@@ -246,7 +246,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      "Return compact digests of recent tracked-project sessions (with open items), recent decisions from workSummary.decisions (each citing its sessionId), recentKnowledge excerpts, metadataFollowUps counts, and pendingRequests (pending or processing report synthesis and metadata backfill requests waiting for an Agent). Pass task (what you are about to do) and/or paths (files you will change) to also get relevant: ranked Knowledge, decisions from related Sessions, and related Sessions (including ones that changed the same files) with their open items. Read a full Session with work_get_session, full Knowledge with work_search_knowledge, and the Sessions behind metadataFollowUps (missing or not_run verification, empty changed files) with work_preview_metadata_backfill. It also returns clock (serverTime, timeZone, utcOffset) so you can take the current time from the server. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.",
+      "Return compact digests of recent tracked-project sessions (with open items), recent decisions from workSummary.decisions (each citing its sessionId), recentKnowledge excerpts, metadataFollowUps counts, and pendingRequests (pending or processing report synthesis and metadata backfill requests waiting for an Agent); it also includes only the count of pending Agent-autonomous decisions, whose contents and confirm/reject/promote actions remain in the Web UI. Pass task (what you are about to do) and/or paths (files you will change) to also get relevant: ranked Knowledge, decisions from related Sessions, and related Sessions (including ones that changed the same files) with their open items. Read a full Session with work_get_session, full Knowledge with work_search_knowledge, and the Sessions behind metadataFollowUps (missing or not_run verification, empty changed files) with work_preview_metadata_backfill. It also returns clock (serverTime, timeZone, utcOffset) so you can take the current time from the server. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.",
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,

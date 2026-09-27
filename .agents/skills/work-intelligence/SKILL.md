@@ -28,7 +28,7 @@ Write:
 - `workSummary`: exactly five arrays, with short confirmed facts and no Markdown section headings:
   - `outcomes` / 成果 — confirmed deliveries or resolved problems; distinguish completed from merely implemented or investigated.
   - `scope` / 範圍 — important modules, APIs, UI, locales, tests, and verified change counts where useful; avoid a raw file dump.
-  - `decisions` / 決策 — explicit technical/product decisions; include rationale only when the source states it.
+  - `decisions` / 決策 — explicit technical/product decisions; include rationale only when the source states it. Keep a legacy string when origin is unclear. Use `{text, origin: "user_requested"}` only for a decision directly requested by the user, and `{text, origin: "agent_autonomous"}` only for a decision or trade-off selected by the Agent. Never guess origin. Agent-autonomous decisions enter the Web review queue; confirmation, rejection, and promotion to Knowledge are Web-only.
   - `verification` / 驗證 — commands and actual results, coverage, manual confirmation, failures, and unverified areas.
   - `nextSteps` / 狀態／未結項 — only current known limitations, unresolved items, evidence gaps, or unverified scenarios. Never invent a recommendation, roadmap, or future plan. Use `[]` when none are known.
 - **Times — never estimate them.** You do not know the current time; `work_get_project_status` and `work_get_context` return `clock` (`serverTime`, `timeZone`, `utcOffset`) when you need it.

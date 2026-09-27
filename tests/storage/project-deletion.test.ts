@@ -43,6 +43,13 @@ describe("project deletion", () => {
       idempotencyKey: "project-delete-target-session",
       title: "Synthetic deletion source",
       summary: "Synthetic target summary for project deletion coverage.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [{ text: "Synthetic autonomous decision for deletion coverage.", origin: "agent_autonomous" }],
+        verification: [],
+        nextSteps: [],
+      },
       handoffContent: "Synthetic target handoff contains deletion search phrase.",
       changedFiles: ["src/target.ts"],
       verification: { status: "passed" },
@@ -233,6 +240,7 @@ describe("project deletion", () => {
         metadataBackfillRequests: 1,
         sessionSummaryUpdates: 1,
         sessionWorkSummaryUpdates: 1,
+        sessionDecisions: 1,
       },
     });
     expect(result.deletedCounts.searchChunks).toBeGreaterThan(0);

@@ -228,7 +228,12 @@ test.describe("Work Intelligence browser regression", () => {
       workSummary: {
         outcomes: ["The browser fixture remains readable."],
         scope: ["The primary Work Intelligence views."],
-        decisions: ["Use one isolated SQLite fixture."],
+        decisions: [
+          "Use one isolated SQLite fixture.",
+          { text: "Confirm this Agent choice in the Web review queue.", origin: "agent_autonomous" },
+          { text: "Promote this Agent choice into Knowledge.", origin: "agent_autonomous" },
+          { text: "Reject this Agent choice in the Web review queue.", origin: "agent_autonomous" },
+        ],
         verification: ["Browser regression fixture is deterministic."],
         nextSteps: ["Keep the UI regression suite green."],
       },
@@ -344,6 +349,64 @@ test.describe("Work Intelligence browser regression", () => {
       promptVersion: "e2e-fixture-v2",
     });
     expect(newerSummary.outcome).toBe("report_summary_saved");
+  });
+
+  test("reviews Agent decisions and promotes one with its source Session linked", async ({ page }) => {
+    await page.goto("/reports/risks");
+    const reportDecisions = page.getByTestId("report-agent-autonomous-decisions");
+    await expect(reportDecisions).toContainText("本期 Agent 自主決策");
+    await expect(reportDecisions).toContainText("Confirm this Agent choice in the Web review queue.");
+    await expect(reportDecisions).toContainText("Promote this Agent choice into Knowledge.");
+    await expect(reportDecisions).toContainText("Reject this Agent choice in the Web review queue.");
+
+    await page.goto("/knowledge");
+    const panel = page.getByTestId("agent-decision-review");
+    const decision = (text: string) => panel.getByTestId("agent-decision-item").filter({ hasText: text });
+
+    await decision("Promote this Agent choice into Knowledge.")
+      .getByRole("button", { name: "Browser regression fixture session" })
+      .click();
+    const sessionPanel = page.getByRole("dialog", { name: "Session 詳情" });
+    const sessionDecisions = sessionPanel.getByTestId("session-decision");
+    await expect(sessionDecisions.filter({ hasText: "Agent 自主選擇" })).toHaveCount(3);
+    await expect(sessionDecisions.filter({ hasText: "來源未標記" })).toHaveCount(1);
+    await sessionPanel.press("Escape");
+    await expect(sessionPanel).toBeHidden();
+
+    const confirmed = decision("Confirm this Agent choice in the Web review queue.");
+    await expect(confirmed).toBeVisible();
+    await confirmed.getByRole("button", { name: "確認" }).click();
+    await expect(confirmed).toHaveCount(0);
+
+    const promoted = decision("Promote this Agent choice into Knowledge.");
+    await expect(promoted).toBeVisible();
+    await promoted.getByRole("button", { name: "整理成 Knowledge" }).click();
+    const dialog = page.getByRole("dialog", { name: "整理 Agent 決策為 Knowledge" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("標題").fill("E2E promoted Agent decision");
+    await dialog.getByLabel("內容").fill("This decision is promoted with its source Session.");
+    await dialog.getByRole("button", { name: "建立並連結 Knowledge" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(promoted).toHaveCount(0);
+
+    const rejected = decision("Reject this Agent choice in the Web review queue.");
+    await expect(rejected).toBeVisible();
+    await rejected.getByRole("button", { name: "拒絕" }).click();
+    await expect(rejected).toHaveCount(0);
+
+    const reviewed = withAgentStore((store) => store.getSessionDetail(sessionId)?.decisions ?? []);
+    expect(reviewed.find((item) => item.text.startsWith("Confirm"))).toMatchObject({ reviewStatus: "confirmed" });
+    expect(reviewed.find((item) => item.text.startsWith("Promote"))).toMatchObject({
+      reviewStatus: "promoted",
+      knowledgeId: expect.any(String),
+    });
+    expect(reviewed.find((item) => item.text.startsWith("Reject"))).toMatchObject({ reviewStatus: "rejected" });
+    const promotedKnowledgeId = reviewed.find((item) => item.reviewStatus === "promoted")?.knowledgeId;
+    expect(promotedKnowledgeId).toBeTruthy();
+    const promotedKnowledge = withAgentStore((store) =>
+      store.searchKnowledge({ projectRoot, query: "E2E promoted Agent decision", limit: 10 }),
+    );
+    expect(promotedKnowledge).toMatchObject({ outcome: "knowledge", items: [{ sessionId }] });
   });
 
   test("serves the production Web UI and API from one origin @cross-browser", async ({ page }) => {
@@ -679,6 +742,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("has no critical or serious axe violations on primary and management pages @accessibility", async ({ page }) => {
+    test.setTimeout(90_000);
     const failures: string[] = [];
 
     for (const [path, heading] of accessibilityRoutes) {

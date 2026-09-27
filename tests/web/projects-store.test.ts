@@ -31,6 +31,7 @@ const deletionCounts: ProjectDeletionCounts = {
   metadataBackfillRequests: 0,
   sessionSummaryUpdates: 0,
   sessionWorkSummaryUpdates: 0,
+  sessionDecisions: 0,
   searchChunks: 0,
   searchFts: 0,
   searchPaths: 0,

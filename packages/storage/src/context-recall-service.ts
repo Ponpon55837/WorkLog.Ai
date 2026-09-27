@@ -51,6 +51,7 @@ interface ContextRecallStoreReader {
   listMetadataBackfillRequests(options: MetadataBackfillRequestQuery): MetadataBackfillRequestListQueryResult;
   previewMetadataBackfill(options: { projectRoot?: string; limit?: number }): MetadataBackfillPreviewResult;
   openKnowledgeCandidateRequests(projectId?: string): KnowledgeCandidateRequest[];
+  countPendingAgentDecisions(projectId?: string): number;
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -264,6 +265,7 @@ export class ContextRecallService {
               .slice(0, 5)
           : [],
       knowledgeCandidates: this.store.openKnowledgeCandidateRequests(projectId),
+      agentDecisions: this.store.countPendingAgentDecisions(projectId),
     };
   }
 

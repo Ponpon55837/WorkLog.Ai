@@ -7,11 +7,14 @@ import type {
   RequestKnowledgeCandidatesResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
+  RecordKnowledgeInput,
+  RecordKnowledgeResult,
 } from "@work-intelligence/core";
 import type { KnowledgeRequest } from "./types";
 import { appendQuery, type ApiTransport } from "./transport";
 
 export interface KnowledgeApi {
+  recordKnowledge(input: RecordKnowledgeInput, signal?: AbortSignal): Promise<RecordKnowledgeResult>;
   listKnowledgeCandidates(projectRoot?: string, signal?: AbortSignal): Promise<KnowledgeCandidateListResult>;
   requestKnowledgeCandidates(projectRoot: string, signal?: AbortSignal): Promise<RequestKnowledgeCandidatesResult>;
   decideKnowledgeCandidate(
@@ -33,6 +36,10 @@ export interface KnowledgeApi {
 
 export function createKnowledgeApi(client: ApiTransport): KnowledgeApi {
   return {
+    recordKnowledge(input: RecordKnowledgeInput, signal?: AbortSignal): Promise<RecordKnowledgeResult> {
+      return client.write<RecordKnowledgeResult>("/api/knowledge", "POST", input, signal);
+    },
+
     listKnowledgeCandidates(projectRoot?: string, signal?: AbortSignal): Promise<KnowledgeCandidateListResult> {
       return client.request<KnowledgeCandidateListResult>(appendQuery("/api/knowledge/candidates", { projectRoot }), {
         signal,

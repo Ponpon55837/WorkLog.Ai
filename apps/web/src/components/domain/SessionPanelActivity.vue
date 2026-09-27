@@ -52,6 +52,34 @@ function voidHistoryLabel(entry: { targetType: string; action: string }): string
   const target = entry.targetType === "session" ? "Session" : "Evidence";
   return entry.action === "voided" ? `${target} 作廢` : `${target} 還原`;
 }
+
+function decisionOriginLabel(origin: string): string {
+  if (origin === "user_requested") return "使用者要求";
+  if (origin === "agent_autonomous") return "Agent 自主選擇";
+  return "來源未標記";
+}
+
+function decisionStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    pending: "待確認",
+    confirmed: "已確認",
+    rejected: "已拒絕",
+    promoted: "已整理為 Knowledge",
+  };
+  return labels[status] ?? status;
+}
+
+function decisionOriginTone(origin: string): "accent" | "attention" | "neutral" {
+  if (origin === "user_requested") return "accent";
+  return origin === "agent_autonomous" ? "attention" : "neutral";
+}
+
+function decisionStatusTone(status: string): "success" | "attention" | "danger" | "done" {
+  if (status === "confirmed") return "success";
+  if (status === "rejected") return "danger";
+  if (status === "promoted") return "done";
+  return "attention";
+}
 </script>
 
 <template>
@@ -111,6 +139,27 @@ function voidHistoryLabel(entry: { targetType: string; action: string }): string
             <p v-if="item.voided" class="session-panel__void-reason">原因：{{ item.voided.reason }}</p>
             <p v-if="item.summary">{{ item.summary }}</p>
             <code>{{ item.reference }}</code>
+          </div>
+        </template>
+      </VirtualList>
+    </UiDisclosure>
+    <UiDisclosure v-if="detail.decisions.length" title="決策與來源" :count="detail.decisions.length">
+      <VirtualList
+        :items="detail.decisions"
+        :enabled="detail.decisions.length > 4"
+        :estimate-item-height="96"
+        max-height="min(38vh, 360px)"
+        label="Session 決策與來源清單"
+      >
+        <template #default="{ item }">
+          <div class="session-panel__item" data-testid="session-decision">
+            <div class="session-panel__item-head">
+              <UiLabel :tone="decisionOriginTone(item.origin)">{{ decisionOriginLabel(item.origin) }}</UiLabel>
+              <UiLabel :tone="decisionStatusTone(item.reviewStatus)">{{
+                decisionStatusLabel(item.reviewStatus)
+              }}</UiLabel>
+            </div>
+            <p>{{ item.text }}</p>
           </div>
         </template>
       </VirtualList>

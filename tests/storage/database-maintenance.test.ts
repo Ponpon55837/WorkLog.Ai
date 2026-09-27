@@ -118,6 +118,9 @@ describe("database maintenance", () => {
     const { databasePath, store } = setup();
     store.close();
     const legacy = new DatabaseSync(databasePath);
+    legacy.exec(
+      "DROP INDEX IF EXISTS idx_session_decisions_pending_project; DROP INDEX IF EXISTS idx_session_decisions_session_position; DROP TABLE session_decisions;",
+    );
     legacy.prepare("DELETE FROM schema_migrations WHERE version >= ?").run(LATEST_SCHEMA_VERSION);
     legacy.exec("ALTER TABLE sessions DROP COLUMN redaction_count;");
     legacy.close();

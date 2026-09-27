@@ -58,7 +58,7 @@ function seed() {
       workSummary: {
         outcomes: [`Outcome ${index}`],
         scope: [`src/module-${index % 40}.ts`],
-        decisions: [],
+        decisions: index % 10 === 0 ? [{ text: `Synthetic Agent decision ${index}`, origin: "agent_autonomous" }] : [],
         verification: ["pnpm test passed"],
         nextSteps: [],
       },
@@ -125,6 +125,7 @@ try {
     "getReport month": () => benchStore.getReport({ period: "month", date: "2026-03-11" }),
     "getReport year": () => benchStore.getReport({ period: "year", date: "2026-03-11" }),
     getContext: () => benchStore.getContext(),
+    "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
     search: () => benchStore.search("renderer"),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
@@ -137,6 +138,7 @@ try {
     "getReport week": 750,
     "getReport year": 1500,
     getContext: 2500,
+    "listSessionDecisions (pending)": 250,
     search: 500,
     "searchKnowledge (staleness)": 500,
   };

@@ -14,6 +14,8 @@ import type {
   KnowledgeStatus,
   PageInfo,
   RequestKnowledgeCandidatesResult,
+  RecordKnowledgeInput,
+  RecordKnowledgeResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
@@ -105,6 +107,17 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       await Promise.all([
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
+        queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+      ]);
+    },
+  });
+  const recordKnowledgeMutation = useMutation({
+    mutation: (input: RecordKnowledgeInput) => useApi().client.recordKnowledge(input),
+    onSuccess: async (result) => {
+      if (result.outcome !== "knowledge_recorded") return;
+      await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
       ]);
@@ -204,6 +217,10 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     return await updateKnowledgeMutation.mutateAsync(input);
   }
 
+  async function recordKnowledge(input: RecordKnowledgeInput): Promise<RecordKnowledgeResult> {
+    return await recordKnowledgeMutation.mutateAsync(input);
+  }
+
   async function loadKnowledgeHistory(knowledgeId: string, projectRoot: string): Promise<void> {
     historyKnowledgeId.value = knowledgeId;
     historyProjectRoot.value = projectRoot;
@@ -265,6 +282,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     loadKnowledge,
     retryKnowledge,
     updateKnowledge,
+    recordKnowledge,
     knowledgeHistory,
     knowledgeHistoryLoading,
     knowledgeHistoryError,

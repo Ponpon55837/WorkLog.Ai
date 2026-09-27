@@ -1,14 +1,16 @@
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type {
   KnowledgeAuditRecord,
   KnowledgeKind,
   KnowledgeRecord,
   KnowledgeStatus,
   ProjectRecord,
+  SessionDecisionRecord,
 } from "@work-intelligence/core";
 import { useKnowledgeStore, type KnowledgeChanges } from "../stores/knowledge";
 import { useProjectsStore } from "../stores/projects";
 import { useSessionsStore } from "../stores/sessions";
+import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { errorMessage } from "../utils/format";
 import { useToast } from "./useToast";
 
@@ -24,6 +26,15 @@ const knowledgeEditorForm = ref({
 });
 const knowledgeEditorSaving = ref(false);
 const knowledgeEditorError = ref("");
+const knowledgeEditorProject = ref<ProjectRecord | null>(null);
+const knowledgeEditorCreating = ref(false);
+const agentDecisionDraft = ref<{
+  decision: SessionDecisionRecord;
+  project: ProjectRecord;
+  idempotencyKey: string;
+  knowledgeId?: string;
+} | null>(null);
+const knowledgeEditorOpen = computed(() => Boolean(knowledgeEditor.value || knowledgeEditorCreating.value));
 const knowledgeHistoryItem = ref<KnowledgeRecord | null>(null);
 
 function knowledgeProject(item: KnowledgeRecord): ProjectRecord | undefined {
@@ -70,6 +81,9 @@ function splitKnowledgeValues(value: string): string[] {
 
 function openKnowledgeEditor(item: KnowledgeRecord): void {
   knowledgeEditor.value = item;
+  knowledgeEditorProject.value = knowledgeProject(item) ?? null;
+  knowledgeEditorCreating.value = false;
+  agentDecisionDraft.value = null;
   knowledgeEditorForm.value = {
     kind: item.kind,
     title: item.title,
@@ -82,15 +96,37 @@ function openKnowledgeEditor(item: KnowledgeRecord): void {
   knowledgeEditorError.value = "";
 }
 
+function openAgentDecisionEditor(item: SessionDecisionRecord, project: ProjectRecord): void {
+  knowledgeEditor.value = null;
+  knowledgeEditorProject.value = project;
+  knowledgeEditorCreating.value = true;
+  agentDecisionDraft.value = { decision: item, project, idempotencyKey: crypto.randomUUID() };
+  knowledgeEditorForm.value = {
+    kind: "decision",
+    title: `決策：${item.text.slice(0, 72)}`,
+    body: item.text,
+    tags: "agent-decision",
+    references: "",
+    appliesTo: "",
+    status: "active",
+  };
+  knowledgeEditorError.value = "";
+}
+
 function closeKnowledgeEditor(): void {
   if (knowledgeEditorSaving.value) return;
   knowledgeEditor.value = null;
+  knowledgeEditorProject.value = null;
+  knowledgeEditorCreating.value = false;
+  agentDecisionDraft.value = null;
   knowledgeEditorError.value = "";
 }
 
 async function saveKnowledge(): Promise<void> {
   const item = knowledgeEditor.value;
-  if (!item) return;
+  const creating = knowledgeEditorCreating.value;
+  const draft = agentDecisionDraft.value;
+  if (!item && !creating) return;
   const form = knowledgeEditorForm.value;
   if (!form.title.trim() || !form.body.trim()) {
     knowledgeEditorError.value = "標題與內容不能留白。";
@@ -98,19 +134,63 @@ async function saveKnowledge(): Promise<void> {
   }
   knowledgeEditorSaving.value = true;
   knowledgeEditorError.value = "";
-  const saved = await patchKnowledge(item, {
-    kind: form.kind,
-    title: form.title.trim(),
-    body: form.body.trim(),
-    tags: splitKnowledgeValues(form.tags),
-    references: splitKnowledgeValues(form.references),
-    appliesTo: splitKnowledgeValues(form.appliesTo),
-    status: form.status,
-  });
-  knowledgeEditorSaving.value = false;
-  if (saved) {
-    useToast().showToast(form.status === "archived" ? "Knowledge 已更新並封存。" : "Knowledge 已更新。");
-    closeKnowledgeEditor();
+  try {
+    if (creating && draft) {
+      let knowledgeId = draft.knowledgeId;
+      if (!knowledgeId) {
+        const recorded = await useKnowledgeStore().recordKnowledge({
+          projectRoot: draft.project.rootPath,
+          idempotencyKey: draft.idempotencyKey,
+          sessionId: draft.decision.sessionId,
+          kind: form.kind,
+          title: form.title.trim(),
+          body: form.body.trim(),
+          tags: splitKnowledgeValues(form.tags),
+          references: splitKnowledgeValues(form.references),
+          appliesTo: splitKnowledgeValues(form.appliesTo),
+        });
+        if (recorded.outcome !== "knowledge_recorded") {
+          knowledgeEditorError.value = recorded.outcome === "skipped" ? recorded.reason : "來源 Session 已不存在。";
+          return;
+        }
+        knowledgeId = recorded.knowledge.id;
+        agentDecisionDraft.value = { ...draft, knowledgeId };
+      }
+      const reviewed = await useSessionDecisionsStore().reviewDecision({
+        decisionId: draft.decision.id,
+        projectRoot: draft.project.rootPath,
+        reviewStatus: "promoted",
+        knowledgeId,
+      });
+      if (reviewed.outcome !== "session_decision_reviewed") {
+        knowledgeEditorError.value = "Knowledge 已建立，但決策連結未完成；請重試以完成連結。";
+        return;
+      }
+      useToast().showToast("已建立 Knowledge 並連結來源 Session。");
+      knowledgeEditorSaving.value = false;
+      closeKnowledgeEditor();
+      return;
+    }
+
+    if (!item) return;
+    const saved = await patchKnowledge(item, {
+      kind: form.kind,
+      title: form.title.trim(),
+      body: form.body.trim(),
+      tags: splitKnowledgeValues(form.tags),
+      references: splitKnowledgeValues(form.references),
+      appliesTo: splitKnowledgeValues(form.appliesTo),
+      status: form.status,
+    });
+    if (saved) {
+      useToast().showToast(form.status === "archived" ? "Knowledge 已更新並封存。" : "Knowledge 已更新。");
+      knowledgeEditorSaving.value = false;
+      closeKnowledgeEditor();
+    }
+  } catch (error) {
+    knowledgeEditorError.value = errorMessage(error, creating ? "建立 Knowledge 失敗。" : "更新 Knowledge 失敗。");
+  } finally {
+    knowledgeEditorSaving.value = false;
   }
 }
 
@@ -170,10 +250,15 @@ export function useKnowledgeActions() {
     setKnowledgeStatus,
     openKnowledgeSession,
     knowledgeEditor,
+    knowledgeEditorOpen,
+    knowledgeEditorCreating,
+    knowledgeEditorProject,
+    agentDecisionDraft,
     knowledgeEditorForm,
     knowledgeEditorSaving,
     knowledgeEditorError,
     openKnowledgeEditor,
+    openAgentDecisionEditor,
     closeKnowledgeEditor,
     saveKnowledge,
     knowledgeHistoryItem,

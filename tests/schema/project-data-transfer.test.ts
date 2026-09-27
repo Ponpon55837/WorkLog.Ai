@@ -46,6 +46,7 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
     "updated_at",
     "applies_to_json",
   ],
+  session_decisions: ["session_id", "project_id", "position", "text", "origin", "review_status"],
   knowledge_audit: ["knowledge_id", "project_id", "action", "after_json", "changed_fields_json", "occurred_at"],
   knowledge_candidate_requests: ["project_id", "status", "requested_at", "source_session_ids_json", "candidate_count"],
   knowledge_candidates: [
@@ -121,6 +122,7 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   session_verification_updates: { source: "web" },
   session_links: { relation: "continues", source: "agent" },
   knowledge: { kind: "pattern", status: "active" },
+  session_decisions: { origin: "agent_autonomous", review_status: "pending" },
   knowledge_audit: { action: "updated" },
   knowledge_candidate_requests: { status: "completed" },
   knowledge_candidates: { kind: "gotcha", status: "proposed" },
@@ -154,6 +156,9 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   }
   if (table === "knowledge_candidate_requests") {
     row.candidate_count = 1;
+  }
+  if (table === "session_decisions") {
+    row.position = 0;
   }
   if (table === "report_summaries") {
     row.is_current = 1;

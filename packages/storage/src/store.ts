@@ -87,6 +87,10 @@ import type {
   SearchResult,
   SessionListResult,
   SessionDetail,
+  ListSessionDecisionsInput,
+  SessionDecisionListQueryResult,
+  ReviewSessionDecisionInput,
+  ReviewSessionDecisionResult,
   SkippedResult,
   UpdateSessionMetadataInput,
   UpdateSessionMetadataResult,
@@ -153,12 +157,14 @@ import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 import { ProjectDataTransferService } from "./project-data-transfer.js";
 import { SessionRecordService } from "./session-record-service.js";
+import { SessionDecisionService } from "./session-decision-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import type { EvidenceRow, KnowledgeRow } from "./session-record-codecs.js";
 import {
   normalizeWorkSummarySections,
+  normalizeWorkSummaryDecisions,
   changedFileIdentity,
   normalizeChangedFileChanges,
   changedFilePathsFromChanges,
@@ -173,6 +179,7 @@ import {
   getChangedFilesFollowUp,
   getWorkSummaryFollowUp,
 } from "./session-record-codecs.js";
+import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
@@ -260,6 +267,7 @@ export class WorkIntelligenceStore {
   private readonly projects: ProjectRepository;
   private readonly sessions: SessionRepository;
   private readonly sessionRecords: SessionRecordService;
+  private readonly sessionDecisions: SessionDecisionService;
   private readonly knowledge: KnowledgeRepository;
   private readonly knowledgeService: KnowledgeService;
   private readonly graphBuilder: GraphBuilder;
@@ -313,6 +321,9 @@ export class WorkIntelligenceStore {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       getProjectById: (projectId) => this.getProjectById(projectId),
       searchKnowledge: (query) => this.knowledge.search(query),
+    });
+    this.sessionDecisions = new SessionDecisionService(this.db, {
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
     });
     this.graphBuilder = new GraphBuilder(this.db, {
       listProjects: () => this.listProjects(),
@@ -373,6 +384,7 @@ export class WorkIntelligenceStore {
       listMetadataBackfillRequests: (query) => this.listMetadataBackfillRequests(query),
       previewMetadataBackfill: (previewOptions) => this.previewMetadataBackfill(previewOptions),
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
+      countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
     });
   }
 
@@ -893,6 +905,14 @@ export class WorkIntelligenceStore {
     return this.sessionRecords.getSessionDetail(sessionId);
   }
 
+  public listSessionDecisions(input: ListSessionDecisionsInput = {}): SessionDecisionListQueryResult {
+    return this.sessionDecisions.list(input);
+  }
+
+  public reviewSessionDecision(input: ReviewSessionDecisionInput): ReviewSessionDecisionResult {
+    return this.sessionDecisions.review(input);
+  }
+
   /** Voids or restores a Session. Voided Sessions leave lists, reports, the graph, context, and recall. */
   public setSessionVoid(input: SetSessionVoidInput): SetSessionVoidResult {
     return this.sessionRecords.setSessionVoid(input);
@@ -1031,6 +1051,7 @@ export class WorkIntelligenceStore {
       ),
       baselineChangedFileIdentities,
     );
+    const normalizedDecisionInputs = normalizeWorkSummaryDecisions(input.workSummary?.decisions);
     const normalizedWorkSummary = normalizeWorkSummarySections(input.workSummary);
     const sanitizedTitle = redactText(input.title);
     const sanitizedSummary = redactText(input.summary);
@@ -1129,6 +1150,15 @@ export class WorkIntelligenceStore {
           startedAt: startedAt ?? null,
           redactionCount: redactions.total,
         });
+
+      const sanitizedDecisionTexts = normalizedWorkSummary
+        ? (sanitizedWorkSummary.value as typeof normalizedWorkSummary).decisions
+        : [];
+      const persistedDecisions: SessionDecisionDraft[] = sanitizedDecisionTexts.map((text, position) => ({
+        text,
+        origin: normalizedDecisionInputs[position]?.origin ?? "unspecified",
+      }));
+      replaceSessionDecisions(this.db, sessionId, project.id, persistedDecisions);
 
       for (const event of events) {
         this.db

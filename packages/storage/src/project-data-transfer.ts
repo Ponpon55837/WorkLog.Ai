@@ -36,6 +36,7 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "session_verification_updates",
   "session_links",
   "knowledge",
+  "session_decisions",
   "knowledge_audit",
   "knowledge_candidate_requests",
   "knowledge_candidates",
@@ -55,6 +56,7 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   session_summary_updates: [["idempotency_key"]],
   session_work_summary_updates: [["idempotency_key"]],
   session_links: [["session_id", "related_session_id"]],
+  session_decisions: [["session_id", "position"]],
 };
 
 const CONFLICT_DETAIL_LIMIT = 100;
@@ -62,6 +64,7 @@ const MAX_CONFLICT_ID_LENGTH = 200;
 
 const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["title", "summary", "work_summary_json", "verification_json", "void_reason"],
+  session_decisions: ["text"],
   work_events: ["summary", "details_json"],
   raw_snapshots: ["content"],
   evidence: ["kind", "reference", "summary", "void_reason"],
@@ -234,6 +237,7 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
       (link) => sessionIdSet.has(String(link.session_id)) && sessionIdSet.has(String(link.related_session_id)),
     ),
     knowledge: rowsByIds(db, "knowledge", "project_id", projectIds),
+    session_decisions: rowsByIds(db, "session_decisions", "project_id", projectIds),
     knowledge_audit: rowsByIds(db, "knowledge_audit", "project_id", projectIds),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
@@ -321,6 +325,7 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
           )
         : bundle.tables.session_links.filter((row) => sessionIds.has(String(row.session_id))),
     knowledge,
+    session_decisions: bundle.tables.session_decisions.filter((row) => selectedIds.has(String(row.project_id))),
     knowledge_audit: bundle.tables.knowledge_audit.filter((row) => selectedIds.has(String(row.project_id))),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
@@ -521,6 +526,13 @@ function dependencyIssue(
     }
     if (supersedesId && !isAvailable("knowledge", supersedesId, selectedIds.knowledge, availableIds, conflictIds)) {
       return "Knowledge 的 supersedes 目標發生衝突或不存在。";
+    }
+  }
+
+  if (table === "session_decisions") {
+    const knowledgeId = typeof row.knowledge_id === "string" ? row.knowledge_id : undefined;
+    if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
+      return "決策引用的 Knowledge 發生衝突或不存在。";
     }
   }
 

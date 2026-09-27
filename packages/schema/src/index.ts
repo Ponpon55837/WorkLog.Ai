@@ -14,6 +14,9 @@ import {
   REPORT_SYNTHESIS_SCOPE_TYPES,
   REPORT_SYNTHESIS_STATUSES,
   SESSION_SUMMARY_UPDATE_MODES,
+  SESSION_DECISION_ORIGINS,
+  SESSION_DECISION_REVIEW_STATUSES,
+  WORK_SUMMARY_DECISION_ORIGINS,
   WORK_REPORT_PERIODS,
   WORK_SUMMARY_UPDATE_MODES,
   WORK_EVENT_TYPES,
@@ -144,6 +147,20 @@ export const workSummarySectionsSchema = z.object({
   ),
 });
 
+const workSummaryDecisionInputSchema = z.union([
+  z.string().trim().min(1).max(4_000),
+  z
+    .object({
+      text: z.string().trim().min(1).max(4_000),
+      origin: z.enum(WORK_SUMMARY_DECISION_ORIGINS),
+    })
+    .strict(),
+]);
+
+export const workSummaryInputSectionsSchema = workSummarySectionsSchema.extend({
+  decisions: z.array(workSummaryDecisionInputSchema).max(20),
+});
+
 export const finalizeSessionInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: z.string().trim().min(1).max(300),
@@ -154,7 +171,7 @@ export const finalizeSessionInputSchema = z.object({
     .min(1)
     .max(20_000)
     .describe("One concise, outcome-first executive sentence; detailed facts belong in workSummary."),
-  workSummary: workSummarySectionsSchema.optional(),
+  workSummary: workSummaryInputSectionsSchema.optional(),
   externalSessionId: z.string().trim().max(300).optional(),
   handoffPath: z.string().max(1_000).optional(),
   handoffContent: z.string().max(200_000).optional(),
@@ -203,7 +220,7 @@ export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODE
 export const workSummaryUpdateModeSchema = z.enum(WORK_SUMMARY_UPDATE_MODES);
 
 export const mcpFinalizeSessionInputSchema = finalizeSessionInputSchema.extend({
-  workSummary: workSummarySectionsSchema,
+  workSummary: workSummaryInputSectionsSchema,
 });
 
 export const updateSessionSummaryInputSchema = z.object({
@@ -213,7 +230,7 @@ export const updateSessionSummaryInputSchema = z.object({
   summary: z.string().trim().min(1).max(20_000),
 });
 
-const workSummaryPatchSchema = workSummarySectionsSchema
+const workSummaryPatchSchema = workSummaryInputSectionsSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, "At least one workSummary section is required.");
 
@@ -221,12 +238,12 @@ export const updateSessionWorkSummaryInputSchemaBase = z.object({
   sessionId: z.string().trim().min(1).max(200),
   idempotencyKey: z.string().trim().min(1).max(300),
   mode: workSummaryUpdateModeSchema.default("replace"),
-  workSummary: z.union([workSummarySectionsSchema, workSummaryPatchSchema]),
+  workSummary: z.union([workSummaryInputSectionsSchema, workSummaryPatchSchema]),
 });
 
 export const updateSessionWorkSummaryInputSchema = updateSessionWorkSummaryInputSchemaBase.superRefine(
   (value, context) => {
-    if (value.mode === "replace" && !workSummarySectionsSchema.safeParse(value.workSummary).success) {
+    if (value.mode === "replace" && !workSummaryInputSectionsSchema.safeParse(value.workSummary).success) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["workSummary"],
@@ -243,6 +260,29 @@ export const contextQuerySchema = z.object({
   task: z.string().trim().min(1).max(500).optional(),
   paths: recallPathsSchema.optional(),
 });
+
+export const sessionDecisionListQuerySchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000).optional(),
+  status: z.enum(["pending", "all"]).default("pending"),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+const sessionDecisionReviewFields = {
+  decisionId: z.string().trim().min(1).max(200),
+  projectRoot: z.string().trim().min(1).max(1_000),
+};
+
+export const reviewSessionDecisionInputSchema = z.discriminatedUnion("reviewStatus", [
+  z.object({ ...sessionDecisionReviewFields, reviewStatus: z.literal("confirmed") }).strict(),
+  z.object({ ...sessionDecisionReviewFields, reviewStatus: z.literal("rejected") }).strict(),
+  z
+    .object({
+      ...sessionDecisionReviewFields,
+      reviewStatus: z.literal("promoted"),
+      knowledgeId: z.string().trim().min(1).max(200),
+    })
+    .strict(),
+]);
 
 export const recallQuerySchemaBase = z.object({
   q: z.string().trim().min(1).max(500).optional(),
@@ -794,6 +834,8 @@ export type FinalizeSessionInput = z.infer<typeof finalizeSessionInputSchema>;
 export type McpFinalizeSessionInput = z.infer<typeof mcpFinalizeSessionInputSchema>;
 export type UpdateSessionSummaryInput = z.infer<typeof updateSessionSummaryInputSchema>;
 export type UpdateSessionWorkSummaryInput = z.infer<typeof updateSessionWorkSummaryInputSchema>;
+export type SessionDecisionListQuery = z.infer<typeof sessionDecisionListQuerySchema>;
+export type ReviewSessionDecisionInput = z.infer<typeof reviewSessionDecisionInputSchema>;
 export type SessionsQuery = z.infer<typeof sessionsQuerySchema>;
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
 export type ReportExportQuery = z.infer<typeof reportExportQuerySchema>;
@@ -886,6 +928,17 @@ export const projectDataExportTableColumns = {
     "last_confirmed_session_id",
     "supersedes_id",
     "review_json",
+  ],
+  session_decisions: [
+    "id",
+    "session_id",
+    "project_id",
+    "position",
+    "text",
+    "origin",
+    "review_status",
+    "reviewed_at",
+    "knowledge_id",
   ],
   knowledge_audit: [
     "id",
@@ -1010,6 +1063,7 @@ const projectDataTablesShape = {
   session_verification_updates: projectDataRows,
   session_links: projectDataRows,
   knowledge: projectDataRows,
+  session_decisions: projectDataRows,
   knowledge_audit: projectDataRows,
   knowledge_candidate_requests: projectDataRows,
   knowledge_candidates: projectDataRows,
@@ -1036,6 +1090,10 @@ const projectDataImportStatusValues: Partial<
   session_verification_updates: { source: ["web", "agent"] },
   session_links: { relation: ["continues", "related"], source: ["web", "agent"] },
   knowledge: { kind: KNOWLEDGE_KINDS, status: KNOWLEDGE_STATUSES },
+  session_decisions: {
+    origin: SESSION_DECISION_ORIGINS,
+    review_status: SESSION_DECISION_REVIEW_STATUSES,
+  },
   knowledge_audit: { action: ["created", "updated", "archived", "restored"] },
   knowledge_candidate_requests: { status: METADATA_BACKFILL_REQUEST_STATUSES },
   knowledge_candidates: { kind: KNOWLEDGE_KINDS, status: ["proposed", "accepted", "rejected"] },
@@ -1087,6 +1145,7 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
     "updated_at",
     "applies_to_json",
   ],
+  session_decisions: ["id", "session_id", "project_id", "position", "text", "origin", "review_status"],
   knowledge_audit: ["id", "knowledge_id", "project_id", "action", "after_json", "changed_fields_json", "occurred_at"],
   knowledge_candidate_requests: [
     "id",
@@ -1175,6 +1234,7 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
   knowledge_candidate_requests: ["candidate_count"],
   report_summaries: ["is_current"],
   sessions: ["changed_files_confirmed", "redaction_count"],
+  session_decisions: ["position"],
 };
 
 /**

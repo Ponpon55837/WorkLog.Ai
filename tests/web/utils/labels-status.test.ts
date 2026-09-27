@@ -56,6 +56,7 @@ describe("status and label maps", () => {
     expect(knowledgeStatusLabels).toEqual({ active: "使用中", archived: "已封存" });
     expect(databaseBackupKindLabels.maintenance).toBe("資料維護前");
     expect(Object.keys(projectDeletionCountLabels)).toContain("sessionWorkSummaryUpdates");
+    expect(projectDeletionCountLabels.sessionDecisions).toBe("Session 決策");
     expect(sessionLinkDirectionLabels).toMatchObject({ continues: "接續自", continued_by: "後續", related: "相關" });
     expect(sessionLinkOptions).toHaveLength(3);
     expect(voidedFilterOptions.map(({ value }) => value)).toEqual(["exclude", "include", "only"]);

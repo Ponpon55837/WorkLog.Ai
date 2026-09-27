@@ -43,6 +43,8 @@ import {
   saveReportSummaryInputSchema,
   searchQuerySchema,
   sessionsQuerySchema,
+  sessionDecisionListQuerySchema,
+  reviewSessionDecisionInputSchema,
   setEvidenceVoidInputSchema,
   setSessionVoidInputSchema,
   linkSessionsInputSchema,
@@ -853,6 +855,39 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           return;
         }
         sendJson(response, 200, store.listKnowledgeCandidates(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/session-decisions") {
+        const parsed = sessionDecisionListQuerySchema.safeParse({
+          projectRoot: requestUrl.searchParams.get("projectRoot")?.trim() || undefined,
+          status: requestUrl.searchParams.get("status") || undefined,
+          limit: requestUrl.searchParams.get("limit") || undefined,
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid Session decision query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.listSessionDecisions(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "session-decisions" &&
+        pathParts[2] &&
+        pathParts[3] === "review"
+      ) {
+        const parsed = reviewSessionDecisionInputSchema.safeParse({
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          decisionId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid Session decision review.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.reviewSessionDecision(parsed.data));
         return;
       }
 

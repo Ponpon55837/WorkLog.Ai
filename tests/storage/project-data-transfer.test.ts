@@ -73,7 +73,13 @@ function createSource(): {
     idempotencyKey: "portable-session-one",
     title: "第一筆工作",
     summary: "保存第一筆可攜式工作記錄。",
-    workSummary: { outcomes: ["保留成果"], scope: [], decisions: [], verification: [], nextSteps: [] },
+    workSummary: {
+      outcomes: ["保留成果"],
+      scope: [],
+      decisions: [{ text: "匯出保留 Agent 自主決策來源。", origin: "agent_autonomous" }],
+      verification: [],
+      nextSteps: [],
+    },
     changedFiles: ["README.md"],
     verification: { status: "passed", summary: "單元檢查完成。" },
     events: [{ type: "execution", summary: "完成第一筆工作。" }],
@@ -91,6 +97,12 @@ function createSource(): {
     throw new Error("Test projects must accept Sessions.");
   }
   const sessionIds: [string, string] = [first.session.id, second.session.id];
+  store.updateSessionWorkSummary({
+    sessionId: sessionIds[1],
+    idempotencyKey: "portable-legacy-decision",
+    mode: "patch",
+    workSummary: { decisions: ["舊格式決策相容。"] },
+  });
   const db = new DatabaseSync(store.databasePath);
   try {
     db.exec("PRAGMA foreign_keys = ON");
@@ -405,6 +417,23 @@ describe("portable project data transfer", () => {
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
     expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
     expect(bundle.tables.session_links).toHaveLength(1);
+    expect(bundle.tables.session_decisions).toHaveLength(2);
+    expect(bundle.tables.session_decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          session_id: source.sessionIds[0],
+          text: "匯出保留 Agent 自主決策來源。",
+          origin: "agent_autonomous",
+          review_status: "pending",
+        }),
+        expect.objectContaining({
+          session_id: source.sessionIds[1],
+          text: "舊格式決策相容。",
+          origin: "unspecified",
+          review_status: "confirmed",
+        }),
+      ]),
+    );
     expect(bundle.tables.knowledge).toHaveLength(2);
     expect(bundle.tables.report_summaries).toHaveLength(1);
     expect(bundle.tables.raw_snapshots[0]?.source_path).toBe(join(source.projectRoot, "handoff.md"));

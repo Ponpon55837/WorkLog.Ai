@@ -276,10 +276,17 @@ describe("Work Intelligence MCP server", () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Request project", root);
     store.updateProject(project.id, { status: "tracked" });
-    await callJson(client, "work_finalize_session", {
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
       ...finalizePayload(root, "mcp-request-001", "Needs metadata"),
       changedFiles: [],
       verification: { status: "not_run" },
+      workSummary: {
+        outcomes: ["Needs metadata done."],
+        scope: [],
+        decisions: [{ text: "MCP exposes only the pending count.", origin: "agent_autonomous" }],
+        verification: [],
+        nextSteps: [],
+      },
     });
 
     const report = await callJson<{ outcome: string; request: { id: string; projectId?: string } }>(
@@ -295,10 +302,25 @@ describe("Work Intelligence MCP server", () => {
     expect(backfill.outcome).toBe("metadata_backfill_request");
 
     const context = await callJson<{
-      pendingRequests: { reportSynthesis: Array<{ id: string }>; metadataBackfill: unknown[] };
+      pendingRequests: {
+        reportSynthesis: Array<{ id: string }>;
+        metadataBackfill: unknown[];
+        agentDecisions: number;
+      };
     }>(client, "work_get_context", { projectRoot: root });
     expect(context.pendingRequests.reportSynthesis.map((request) => request.id)).toEqual([report.request.id]);
     expect(context.pendingRequests.metadataBackfill).toHaveLength(1);
+    expect(context.pendingRequests.agentDecisions).toBe(1);
+    expect(JSON.stringify(context.pendingRequests)).not.toContain("MCP exposes only the pending count.");
+    expect(await callJson(client, "work_get_session", { sessionId: finalized.session.id })).toMatchObject({
+      decisions: [
+        {
+          text: "MCP exposes only the pending count.",
+          origin: "agent_autonomous",
+          reviewStatus: "pending",
+        },
+      ],
+    });
 
     const otherRoot = join(root, "other");
     expect(

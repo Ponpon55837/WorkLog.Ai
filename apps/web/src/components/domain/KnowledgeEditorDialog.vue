@@ -12,6 +12,10 @@ import UiTextarea from "../ui/UiTextarea.vue";
 
 const {
   knowledgeEditor,
+  knowledgeEditorOpen,
+  knowledgeEditorCreating,
+  knowledgeEditorProject,
+  agentDecisionDraft,
   knowledgeEditorForm,
   knowledgeEditorSaving,
   knowledgeEditorError,
@@ -27,15 +31,19 @@ const statusOptions = Object.entries(knowledgeStatusLabels).map(([value, label])
   value: value as keyof typeof knowledgeStatusLabels,
   label,
 }));
-const description = computed(
-  () => `${knowledgeEditor.value?.projectName ?? "Tracked project"} · 只修改中央 registry，不會讀取或修改來源 repo。`,
-);
+const description = computed(() => {
+  if (knowledgeEditorCreating.value) {
+    const sourceTitle = agentDecisionDraft.value?.decision.sessionTitle ?? "來源 Session";
+    return `${knowledgeEditorProject.value?.name ?? "Tracked project"} · ${sourceTitle} 儲存後會自動連結為 Knowledge。`;
+  }
+  return `${knowledgeEditor.value?.projectName ?? "Tracked project"} · 只修改中央 registry，不會讀取或修改來源 repo。`;
+});
 </script>
 
 <template>
   <UiDialog
-    :open="Boolean(knowledgeEditor)"
-    title="編輯 Knowledge"
+    :open="knowledgeEditorOpen"
+    :title="knowledgeEditorCreating ? '整理 Agent 決策為 Knowledge' : '編輯 Knowledge'"
     :description="description"
     size="lg"
     :busy="knowledgeEditorSaving"
@@ -73,9 +81,15 @@ const description = computed(
     </form>
     <template #footer>
       <UiButton :disabled="knowledgeEditorSaving" @click="closeKnowledgeEditor">取消</UiButton>
-      <UiButton variant="primary" type="submit" form="knowledge-editor-form" :loading="knowledgeEditorSaving"
-        >儲存變更</UiButton
-      >
+      <UiButton variant="primary" type="submit" form="knowledge-editor-form" :loading="knowledgeEditorSaving">
+        {{
+          knowledgeEditorCreating
+            ? agentDecisionDraft?.knowledgeId
+              ? "完成來源連結"
+              : "建立並連結 Knowledge"
+            : "儲存變更"
+        }}
+      </UiButton>
     </template>
   </UiDialog>
 </template>
