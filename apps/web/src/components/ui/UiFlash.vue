@@ -33,6 +33,7 @@ const icon = computed(
 
 <style scoped>
 .ui-flash {
+  animation: wi-fade-up var(--duration-base) var(--ease-out);
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);

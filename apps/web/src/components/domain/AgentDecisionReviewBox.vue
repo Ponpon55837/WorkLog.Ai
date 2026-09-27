@@ -86,23 +86,30 @@ function openSource(item: SessionDecisionRecord): void {
         <article class="agent-decisions__item" data-testid="agent-decision-item">
           <div class="agent-decisions__meta">
             <UiLabel tone="attention">Agent 自主決策</UiLabel>
-            <time v-if="item.sessionCompletedAt" :title="formatDate(item.sessionCompletedAt)">
-              {{ formatRelative(item.sessionCompletedAt) }}
-            </time>
-          </div>
-          <p class="agent-decisions__text">{{ item.text }}</p>
-          <div class="agent-decisions__source">
             <span>{{
               projectsStore.projects.find((project) => project.id === item.projectId)?.name ?? "Tracked project"
             }}</span>
-            <UiButton size="sm" :icon="ExternalLink" @click="openSource(item)">
+            <template v-if="item.sessionCompletedAt">
+              <span aria-hidden="true">·</span>
+              <time :title="formatDate(item.sessionCompletedAt)">{{ formatRelative(item.sessionCompletedAt) }}</time>
+            </template>
+          </div>
+          <p class="agent-decisions__text">{{ item.text }}</p>
+          <div class="agent-decisions__footer">
+            <UiButton
+              class="agent-decisions__source"
+              size="sm"
+              variant="invisible"
+              :icon="ExternalLink"
+              @click="openSource(item)"
+            >
               {{ item.sessionTitle ?? "開啟來源 Session" }}
             </UiButton>
-          </div>
-          <div class="agent-decisions__actions">
-            <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed')">確認</UiButton>
-            <UiButton size="sm" :icon="X" @click="review(item, 'rejected')">拒絕</UiButton>
-            <UiButton size="sm" variant="primary" :icon="BookOpen" @click="promote(item)">整理成 Knowledge</UiButton>
+            <div class="agent-decisions__actions">
+              <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed')">確認</UiButton>
+              <UiButton size="sm" :icon="X" @click="review(item, 'rejected')">拒絕</UiButton>
+              <UiButton size="sm" variant="primary" :icon="BookOpen" @click="promote(item)">整理成 Knowledge</UiButton>
+            </div>
           </div>
         </article>
       </template>
@@ -117,35 +124,51 @@ function openSource(item: SessionDecisionRecord): void {
 
 .agent-decisions__item {
   display: grid;
-  gap: var(--space-3);
-  border-bottom: 1px solid var(--border-subtle);
-  padding: var(--space-4) 0;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-muted);
+}
+
+/* The virtual list wraps each row, so the first row is found through its wrapper. */
+:deep(.virtual-list-item:first-child) .agent-decisions__item,
+.agent-decisions__item:first-child {
+  border-top: 0;
 }
 
 .agent-decisions__meta,
-.agent-decisions__source,
+.agent-decisions__footer,
 .agent-decisions__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
 }
 
 .agent-decisions__meta {
-  justify-content: space-between;
-  color: var(--text-muted);
+  color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 
 .agent-decisions__text {
   margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.agent-decisions__source {
+.agent-decisions__footer {
   justify-content: space-between;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
+}
+
+/* A long Session title wraps inside the button instead of pushing the actions away. */
+.agent-decisions__source {
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+}
+
+.agent-decisions__actions {
+  margin-inline-start: auto;
 }
 </style>

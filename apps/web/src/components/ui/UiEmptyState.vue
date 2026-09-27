@@ -19,6 +19,7 @@ withDefaults(defineProps<{ icon?: IconComponent; title: string; description?: st
 
 <style scoped>
 .ui-empty {
+  animation: wi-fade-in var(--duration-base) var(--ease-out);
   display: grid;
   justify-items: center;
   gap: var(--space-1);

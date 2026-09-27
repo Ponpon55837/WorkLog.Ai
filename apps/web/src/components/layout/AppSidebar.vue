@@ -101,6 +101,12 @@ const emit = defineEmits<{ close: [] }>();
   color: var(--fg-muted);
 }
 
+.app-sidebar__item {
+  transition:
+    background-color var(--duration-instant) ease-out,
+    color var(--duration-instant) ease-out;
+}
+
 .app-sidebar__item:hover {
   background: var(--bg-hover);
   text-decoration: none;
@@ -205,7 +211,7 @@ const emit = defineEmits<{ close: [] }>();
     z-index: 35;
     width: min(280px, 85vw);
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
+    transition: transform var(--duration-base) var(--ease-out);
   }
 
   .app-sidebar.is-open {

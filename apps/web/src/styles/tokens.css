@@ -83,4 +83,12 @@
   --sidebar-width: 240px;
   --sidebar-rail-width: 56px;
   --content-max-width: 1280px;
+
+  /* Motion: quick feedback, gentle entrances (ease-out quint), never longer than ~400ms */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-instant: 120ms;
+  --duration-fast: 180ms;
+  --duration-base: 240ms;
+  --duration-slow: 360ms;
 }

@@ -36,6 +36,11 @@ withDefaults(defineProps<{ title: string; icon?: IconComponent; count?: number; 
   overflow: hidden;
 }
 
+/* Opening a section fades its content in. */
+.ui-disclosure[open] > .ui-disclosure__body {
+  animation: wi-fade-in var(--duration-base) var(--ease-out);
+}
+
 .ui-disclosure + .ui-disclosure {
   margin-top: var(--space-3);
 }
@@ -60,7 +65,7 @@ summary::-webkit-details-marker {
 
 .ui-disclosure__chevron {
   color: var(--fg-muted);
-  transition: transform 0.15s;
+  transition: transform var(--duration-fast) var(--ease-out);
 }
 
 .ui-disclosure[open] .ui-disclosure__chevron {

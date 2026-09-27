@@ -244,9 +244,12 @@ onBeforeUnmount(stopResize);
   background: var(--accent);
 }
 
-.ui-side-panel-fade-enter-active,
+.ui-side-panel-fade-enter-active {
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+
 .ui-side-panel-fade-leave-active {
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .ui-side-panel-fade-enter-from,
@@ -254,9 +257,12 @@ onBeforeUnmount(stopResize);
   opacity: 0;
 }
 
-.ui-side-panel-slide-enter-active,
+.ui-side-panel-slide-enter-active {
+  transition: transform var(--duration-slow) var(--ease-out);
+}
+
 .ui-side-panel-slide-leave-active {
-  transition: transform 0.2s ease;
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .ui-side-panel-slide-enter-from,

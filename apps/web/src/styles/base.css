@@ -110,3 +110,66 @@ pre,
 *::-webkit-scrollbar-thumb:hover {
   background-color: var(--border-strong);
 }
+
+/* ── Motion ─────────────────────────────────────────────────────────────
+ * Shared keyframes (see the worklog-ui skill, motion). Entrances only fade and move a few pixels, so layout
+ * measurements taken while they run stay correct; tab panels fade without moving for the same reason.
+ */
+@keyframes wi-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes wi-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes wi-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes wi-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+/* Switching tabs remounts the panel; fade it in. */
+[role="tabpanel"] {
+  animation: wi-fade-in var(--duration-base) var(--ease-out);
+}
+
+/* Page transitions between routes (App.vue). The old page leaves quickly so the new one is not delayed. */
+.page-enter-active {
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+
+.page-leave-active {
+  transition: opacity 80ms var(--ease-standard);
+}
+
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
+
+/* Everyone who asks the OS for less motion gets none: animations and transitions finish immediately. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

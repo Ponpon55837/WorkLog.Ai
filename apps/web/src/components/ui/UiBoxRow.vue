@@ -47,6 +47,10 @@ const emit = defineEmits<{ select: [] }>();
   border-top: 0;
 }
 
+.ui-box-row--clickable {
+  transition: background-color var(--duration-instant) ease-out;
+}
+
 .ui-box-row--clickable:hover {
   background: var(--bg-subtle);
 }

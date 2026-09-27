@@ -31,6 +31,8 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
   use: {
+    // Motion is decoration; tests (and axe contrast checks) should not race fade-ins.
+    reducedMotion: "reduce",
     baseURL: `http://127.0.0.1:${webPort}`,
     headless: true,
     screenshot: "only-on-failure",

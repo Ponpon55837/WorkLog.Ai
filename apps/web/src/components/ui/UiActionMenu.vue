@@ -180,6 +180,8 @@ watch(open, async (value) => {
 }
 
 .ui-action-menu__panel {
+  animation: wi-drop-in var(--duration-fast) var(--ease-out);
+  transform-origin: top;
   position: fixed;
   z-index: 60;
   max-height: min(420px, 70vh);
@@ -215,6 +217,10 @@ watch(open, async (value) => {
 .ui-action-menu__header + .ui-action-menu__item,
 .ui-action-menu__item:first-child {
   border-top: 0;
+}
+
+.ui-action-menu__item {
+  transition: background-color var(--duration-instant) ease-out;
 }
 
 .ui-action-menu__item:hover,
