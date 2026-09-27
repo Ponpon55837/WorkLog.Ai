@@ -4,11 +4,11 @@
 
 > 回到 [README](../README.md)
 
-- 最後更新：2026-09-27
+- 最後更新：2026-09-28
 
-## 第六輪：可信度、洞察與好用度（進行中）
+## 第六輪：可信度、洞察與好用度（已完成）
 
-交接文件：[`.openspec/handoffs/2026-09-27-claude-to-codex-round6.md`](../.openspec/handoffs/2026-09-27-claude-to-codex-round6.md)。依序進行：
+交接文件：[`.openspec/handoffs/2026-09-27-claude-to-codex-round6.md`](../.openspec/handoffs/2026-09-27-claude-to-codex-round6.md)。全部項目已合併：A1–B1、E1、C1 由 Codex 完成；C2–C4、D1–D5、E2、E3 由 Claude 接手完成（PR #133–#142），每項各自一個 PR，CI 全綠後以 merge commit 合併。開機自動啟動、發行、版本升到 1.0.0 與實機驗證仍維持暫緩。
 
 | 階段 | 項目 |
 | --- | --- |
