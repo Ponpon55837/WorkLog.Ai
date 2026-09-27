@@ -12,6 +12,7 @@ export type ProjectRow = {
   created_at: string;
   updated_at: string;
   last_ingested_at: string | null;
+  repository_url?: string | null;
 };
 
 export function toProject(row: ProjectRow): ProjectRecord {
@@ -23,7 +24,14 @@ export function toProject(row: ProjectRow): ProjectRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastIngestedAt: row.last_ingested_at ?? undefined,
+    ...(row.repository_url ? { repositoryUrl: row.repository_url } : {}),
   };
+}
+
+export interface ProjectUpdate {
+  name?: string;
+  status?: ProjectStatus;
+  repositoryUrl?: string | null;
 }
 
 /**
@@ -82,26 +90,39 @@ export class ProjectRepository {
     return project;
   }
 
-  public update(projectId: string, update: { name?: string; status?: ProjectStatus }): ProjectRecord | undefined {
+  /** `repositoryUrl: null` (or an empty string) removes the repository link. */
+  public update(projectId: string, update: ProjectUpdate): ProjectRecord | undefined {
     const existing = this.getById(projectId);
     if (!existing) {
       return undefined;
     }
 
+    const repositoryUrl =
+      update.repositoryUrl === undefined ? existing.repositoryUrl : update.repositoryUrl?.trim() || undefined;
     const next: ProjectRecord = {
       ...existing,
       name: update.name?.trim() || existing.name,
       status: update.status ?? existing.status,
       updatedAt: nowIso(),
     };
+    delete next.repositoryUrl;
+    if (repositoryUrl) {
+      next.repositoryUrl = repositoryUrl;
+    }
 
     this.db
       .prepare(
         `UPDATE projects
-         SET name = @name, status = @status, updated_at = @updatedAt
+         SET name = @name, status = @status, repository_url = @repositoryUrl, updated_at = @updatedAt
          WHERE id = @id`,
       )
-      .run({ id: projectId, name: next.name, status: next.status, updatedAt: next.updatedAt });
+      .run({
+        id: projectId,
+        name: next.name,
+        status: next.status,
+        repositoryUrl: repositoryUrl ?? null,
+        updatedAt: next.updatedAt,
+      });
     return next;
   }
 

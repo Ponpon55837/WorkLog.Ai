@@ -69,7 +69,6 @@ import type {
   FinalizeSessionResult,
   GitSummary,
   ProjectRecord,
-  ProjectStatus,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
   ReportExportFormat,
@@ -162,7 +161,7 @@ import {
 import { createPageInfo } from "./pagination.js";
 import { GraphBuilder } from "./graph-builder.js";
 import { KnowledgeRepository } from "./knowledge-repository.js";
-import { ProjectRepository } from "./project-repository.js";
+import { ProjectRepository, type ProjectUpdate } from "./project-repository.js";
 import { ProjectLocationService } from "./project-location-service.js";
 import { MetadataBackfillService } from "./metadata-backfill-service.js";
 import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
@@ -528,10 +527,7 @@ export class WorkIntelligenceStore {
     return this.projects.add(name, rootPath);
   }
 
-  public updateProject(
-    projectId: string,
-    update: { name?: string; status?: ProjectStatus },
-  ): ProjectRecord | undefined {
+  public updateProject(projectId: string, update: ProjectUpdate): ProjectRecord | undefined {
     return this.projects.update(projectId, update);
   }
 

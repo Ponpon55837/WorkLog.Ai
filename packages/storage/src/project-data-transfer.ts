@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import {
+  isSafeRepositoryUrl,
   PROJECT_DATA_TABLES,
   type ProjectDataCounts,
   type ProjectDataExport,
@@ -647,6 +648,12 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     selectedBundle.tables.projects.map((project) => [String(project.id), String(project.root_path)]),
   );
   const remappedPaths = applyPathRemaps(selectedBundle.tables, input.remap ?? []);
+  // A repository link from another machine is kept only if it is still a safe https URL.
+  for (const row of selectedBundle.tables.projects) {
+    if (typeof row.repository_url === "string" && !isSafeRepositoryUrl(row.repository_url)) {
+      row.repository_url = null;
+    }
+  }
   const rows = emptyRows();
   const conflictIds = Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, new Set<string>()])) as Record<
     ProjectDataTable,

@@ -90,6 +90,21 @@ export interface ProjectRecord {
   createdAt: string;
   updatedAt: string;
   lastIngestedAt?: string;
+  /** https URL of the project's repository, set by the user; used for commit links. */
+  repositoryUrl?: string;
+}
+
+/**
+ * A repository link the Web UI may open: an https URL with a host and no embedded credentials (a token in
+ * `https://token@host/...` would be stored and shown in plain text).
+ */
+export function isSafeRepositoryUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 export type ProjectFolderStatus = "found" | "missing" | "unavailable";

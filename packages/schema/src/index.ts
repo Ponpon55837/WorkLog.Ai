@@ -1,4 +1,5 @@
 import {
+  isSafeRepositoryUrl,
   CHANGED_FILE_SOURCES,
   CHANGED_FILE_CHANGE_STATUSES,
   CHANGED_FILES_MODES,
@@ -40,9 +41,19 @@ export const createProjectInputSchema = z.object({
   rootPath: z.string().trim().min(1).max(1_000),
 });
 
+const repositoryUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((value) => value === "" || isSafeRepositoryUrl(value), {
+    message: "Use an https:// URL without a user name or token.",
+  });
+
 export const updateProjectInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   status: projectStatusSchema.optional(),
+  /** An https repository URL for commit links; null or "" removes it. */
+  repositoryUrl: repositoryUrlSchema.nullable().optional(),
 });
 
 export const updateProjectLocationInputSchema = z.object({
@@ -1001,7 +1012,7 @@ export type McpCreateReportSynthesisRequestInput = z.infer<typeof mcpCreateRepor
 export type McpCreateMetadataBackfillRequestInput = z.infer<typeof mcpCreateMetadataBackfillRequestInputSchema>;
 
 export const projectDataExportTableColumns = {
-  projects: ["id", "name", "root_path", "status", "created_at", "updated_at", "last_ingested_at"],
+  projects: ["id", "name", "root_path", "status", "created_at", "updated_at", "last_ingested_at", "repository_url"],
   sessions: [
     "id",
     "project_id",
@@ -1424,6 +1435,7 @@ export const projectDataColumnDefaults: Partial<
   Record<(typeof PROJECT_DATA_TABLES)[number], Readonly<Record<string, string | number | null>>>
 > = {
   sessions: { changed_files_confirmed: 0, redaction_count: 0 },
+  projects: { repository_url: null },
 };
 
 /** A row's value for a column, falling back to the column default for bundles that predate it. */

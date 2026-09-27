@@ -1,19 +1,23 @@
 <script setup lang="ts">
 import { onBeforeUnmount } from "vue";
 import { storeToRefs } from "pinia";
-import { Activity, Archive, Clock3, Database, RefreshCw, Wifi } from "lucide-vue-next";
+import { Activity, Archive, Clock3, Code2, Database, RefreshCw, Wifi } from "lucide-vue-next";
 import PageHeader from "../components/layout/PageHeader.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
 import UiButton from "../components/ui/UiButton.vue";
+import UiField from "../components/ui/UiField.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
+import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import { formatBytes, formatDate } from "../utils/format";
 import { databaseInspectionStatus, databaseMaintenanceStatus } from "../utils/status";
+import { usePreferencesStore } from "../stores/preferences";
 import { useSystemStatusStore } from "../stores/system-status";
+import { EDITOR_PROTOCOLS, editorProtocolLabels } from "../utils/code-links";
 
 const systemStatusStore = useSystemStatusStore();
 const {
@@ -23,6 +27,8 @@ const {
   databaseStatus,
 } = storeToRefs(systemStatusStore);
 const { refreshSystemStatus } = systemStatusStore;
+const { editor } = storeToRefs(usePreferencesStore());
+const editorOptions = EDITOR_PROTOCOLS.map((value) => ({ value, label: editorProtocolLabels[value] }));
 
 systemStatusStore.setSystemStatusActive(true);
 onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
@@ -130,9 +136,30 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
       </UiBox>
     </div>
   </template>
+
+  <UiBox class="system-status__preferences" data-testid="preferences">
+    <template #header><UiBoxTitle :icon="Code2" title="個人偏好" /></template>
+    <div class="system-status__preference">
+      <UiField
+        label="用編輯器開啟檔案"
+        hint="選擇後，Session 的 changed files 旁會出現「在編輯器開啟」。只存在這個瀏覽器，只為記錄中的專案、且不會超出專案資料夾的路徑產生連結。"
+      >
+        <UiSelect v-model="editor" :options="editorOptions" label="用來開啟檔案的編輯器" />
+      </UiField>
+    </div>
+  </UiBox>
 </template>
 
 <style scoped>
+.system-status__preferences {
+  margin-top: var(--space-4);
+}
+
+.system-status__preference {
+  max-width: 480px;
+  padding: var(--space-3) var(--space-4);
+}
+
 .system-status__stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

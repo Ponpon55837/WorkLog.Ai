@@ -488,6 +488,13 @@ const MIGRATIONS: SchemaMigration[] = [
         AND json_extract(a.after_json, '$.review.at') = a.occurred_at;
     `,
   },
+  {
+    version: 18,
+    name: "project-repository-url",
+    sql: `
+      ALTER TABLE projects ADD COLUMN repository_url TEXT;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

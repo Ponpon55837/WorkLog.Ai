@@ -51,7 +51,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/system/status`                             | 唯讀系統摘要：程式／schema 版本、資料庫位置與大小、備份、最近維護結果、SSE 連線數      |
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
-| PATCH    | `/api/projects/:id`                              | 更新名稱或 tracking status                                                             |
+| PATCH    | `/api/projects/:id`                              | 更新名稱、tracking status 或 `repositoryUrl`（只接受不含帳號／token 的 https 網址；`null` 或空字串移除） |
 | DELETE   | `/api/projects/:id`                              | 先備份，再永久刪除專案與相關 WorkLog 資料；需傳入專案名稱確認                           |
 | GET      | `/api/project-deletion-audits`                   | 列出不含內容的刪除時間、專案 id 與各類刪除筆數                                          |
 | POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |

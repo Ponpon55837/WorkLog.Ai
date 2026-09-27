@@ -1082,6 +1082,35 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(list.getByRole("button", { name: "Browser regression fixture session" }).first()).toBeVisible();
   });
 
+  test("opens changed files in the chosen editor and links a repository safely", async ({ page }) => {
+    await page.goto("/system-status");
+    await page.getByTestId("preferences").getByLabel("用來開啟檔案的編輯器").selectOption({ label: "VS Code" });
+
+    await page.goto(`/sessions?session=${sessionId}`);
+    const panel = page.getByRole("dialog", { name: "Session 詳情" });
+    const open = panel.getByTestId("open-in-editor").first();
+    await expect(open).toHaveAttribute("href", /^vscode:\/\/file\/.+README\.md$/);
+    await expect(open).toHaveAttribute("rel", "noopener noreferrer");
+    await page.keyboard.press("Escape");
+
+    await page.goto("/projects");
+    const row = page.getByTestId("project-row").filter({ hasText: "Browser Regression Fixture" });
+    await row.getByRole("button", { name: "設定 Browser Regression Fixture 的儲存庫網址" }).click();
+    const dialog = page.getByRole("dialog", { name: "儲存庫網址" });
+    await dialog.getByLabel("網址").fill("http://example.test/repo");
+    await dialog.getByRole("button", { name: "儲存" }).click();
+    await expect(dialog).toContainText("https://");
+    await dialog.getByLabel("網址").fill("https://example.test/fixture/repo");
+    await dialog.getByRole("button", { name: "儲存" }).click();
+    await expect(dialog).toBeHidden();
+    const link = row.getByRole("link", { name: "https://example.test/fixture/repo" });
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+    // Leave the shared fixture as it was for later tests.
+    await page.goto("/system-status");
+    await page.getByTestId("preferences").getByLabel("用來開啟檔案的編輯器").selectOption({ label: "不使用" });
+  });
+
   test("confirms backup deletion using only keyboard navigation @keyboard", async ({ page, request }) => {
     await postJson(request, "/api/backups", {});
     await page.goto("/projects/backup");
