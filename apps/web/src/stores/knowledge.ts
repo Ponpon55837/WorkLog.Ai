@@ -5,6 +5,7 @@ import type {
   DecideKnowledgeCandidateInput,
   DecideKnowledgeCandidateResult,
   KnowledgeAuditRecord,
+  KnowledgeFeedbackRecord,
   KnowledgeCandidate,
   KnowledgeCandidateListResult,
   KnowledgeHistoryResult,
@@ -167,6 +168,9 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const knowledgeHistory = computed<KnowledgeAuditRecord[]>(() =>
     historyQuery.data.value?.outcome === "knowledge_history" ? historyQuery.data.value.history : [],
   );
+  const knowledgeFeedback = computed<KnowledgeFeedbackRecord[]>(() =>
+    historyQuery.data.value?.outcome === "knowledge_history" ? historyQuery.data.value.feedback : [],
+  );
   const knowledgeHistoryLoading = computed(() => historyQuery.isLoading.value);
   const knowledgeHistoryError = computed(() => {
     if (historyQuery.error.value) return errorMessage(historyQuery.error.value, "無法載入 Knowledge 變更紀錄。");
@@ -284,6 +288,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     updateKnowledge,
     recordKnowledge,
     knowledgeHistory,
+    knowledgeFeedback,
     knowledgeHistoryLoading,
     knowledgeHistoryError,
     loadKnowledgeHistory,

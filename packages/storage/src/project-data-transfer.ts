@@ -38,6 +38,7 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "knowledge",
   "session_decisions",
   "knowledge_audit",
+  "knowledge_feedback",
   "knowledge_candidate_requests",
   "knowledge_candidates",
   "report_synthesis_requests",
@@ -247,6 +248,7 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
     knowledge_pages: rowsByIds(db, "knowledge_pages", "project_id", projectIds),
     knowledge_page_versions: rowsByIds(db, "knowledge_page_versions", "project_id", projectIds),
     knowledge_audit: rowsByIds(db, "knowledge_audit", "project_id", projectIds),
+    knowledge_feedback: rowsByIds(db, "knowledge_feedback", "project_id", projectIds),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
     report_synthesis_requests: reportRequests,
@@ -339,6 +341,7 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
       selectedIds.has(String(row.project_id)),
     ),
     knowledge_audit: bundle.tables.knowledge_audit.filter((row) => selectedIds.has(String(row.project_id))),
+    knowledge_feedback: bundle.tables.knowledge_feedback.filter((row) => selectedIds.has(String(row.project_id))),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
     report_synthesis_requests: reportRequests.filter((row) => projectId === undefined || row.scope_type === "project"),
@@ -555,6 +558,16 @@ function dependencyIssue(
     }
     if (!isAvailable("knowledge_pages", pageId, selectedIds.knowledge_pages, availableIds, conflictIds)) {
       return "知識頁版本對應的頁面發生衝突或不存在。";
+    }
+  }
+
+  if (table === "knowledge_feedback") {
+    const knowledgeId = String(row.knowledge_id);
+    if (!selectedIds.knowledge.has(knowledgeId)) {
+      return "Knowledge 回饋對應的 Knowledge 不在匯入範圍內。";
+    }
+    if (!isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
+      return "Knowledge 回饋對應的 Knowledge 發生衝突或不存在。";
     }
   }
 

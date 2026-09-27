@@ -422,6 +422,47 @@ describe("synthetic retrieval quality regression", () => {
     expect(metric.mrr).toBeGreaterThanOrEqual(category === "R" ? 0.5 : 0.7);
   });
 
+  it("ranks confirmed Knowledge above an equal match and a contradicted one below it (evidence strength)", () => {
+    const recordTwin = (key: string) => {
+      const result = store.recordKnowledge({
+        projectRoot: root,
+        idempotencyKey: key,
+        kind: "gotcha",
+        title: "Gotcha: kiln glaze crawling",
+        body: "Wipe dust off bisque ware before glazing so the kiln glaze does not crawl.",
+        tags: ["kiln", "glaze"],
+      });
+      if (result.outcome !== "knowledge_recorded") throw new Error(`Expected synthetic Knowledge ${key}.`);
+      return result.knowledge.id;
+    };
+    const disputed = recordTwin("e-kiln-disputed");
+    const neutral = recordTwin("e-kiln-neutral");
+    const confirmed = recordTwin("e-kiln-confirmed");
+    const feedbackSessions: Array<[string, { appliedKnowledgeIds?: string[]; contradictedKnowledgeIds?: string[] }]> = [
+      ["e-kiln-applied-1", { appliedKnowledgeIds: [confirmed] }],
+      ["e-kiln-applied-2", { appliedKnowledgeIds: [confirmed] }],
+      ["e-kiln-contradicted", { contradictedKnowledgeIds: [disputed] }],
+    ];
+    for (const [key, feedback] of feedbackSessions) {
+      const result = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: "Studio maintenance",
+        summary: "Routine studio upkeep.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+        ...feedback,
+      });
+      if (result.outcome !== "finalized") throw new Error(`Expected synthetic feedback ${key}.`);
+    }
+
+    const result = store.recall({ q: "kiln glaze crawling", projectRoot: root, limit: 5 });
+    const order = result.outcome === "recall" ? result.hits.map((hit) => hit.id) : [];
+    expect(order.indexOf(confirmed)).toBe(0);
+    expect(order.indexOf(neutral)).toBeLessThan(order.indexOf(disputed));
+  });
+
   it("keeps the R answers exclusive to the fictional raw handoff snapshots", () => {
     const rawCases = evaluationCases.filter((evaluationCase) => evaluationCase.category === "R");
     expect(rawCases).toHaveLength(4);

@@ -335,6 +335,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 - `supersedesId`：記錄新 Knowledge 時指定它取代的舊 Knowledge（同專案），舊的會自動封存並留下 audit；找不到時只在 `warnings` 提示，不影響保存。
 - finalize 的 `appliedKnowledgeIds`：這次工作用到且仍然有效的 Knowledge，最後確認時間移到這筆 Session，並清除「需要檢視」。`contradictedKnowledgeIds`：這次工作發現已不成立的 Knowledge，會帶 `review`（`contradicted`、Session、時間）。找不到的 id 列在 `knowledgeWarnings`。所有變更都寫入 Knowledge audit。
 - `work_get_context` 的 `recentKnowledge` 與 `work_recall` 的 Knowledge hit 會帶 `possiblyStale`／`needsReview` 旗標；使用前應先打開原文確認。
+- **證據強度**：每次 `appliedKnowledgeIds`、`contradictedKnowledgeIds` 與手動確認（`work_update_knowledge` 的 `confirm: true`）都另存一筆回饋。Knowledge 讀取結果帶 `evidence`（`confirmed`、`contradicted` 與各自最近的時間），`work_recall` 的 Knowledge hit 帶 `evidence: { confirmed, contradicted }`。排序時每次確認加 4%（最多 5 次），最近一次推翻比最近一次確認還新時分數乘 0.7。升級到 schema 17 時，只從 Knowledge audit 回填能確定的紀錄（Session 確認、Session 推翻與手動確認），其他變更不回填。
 
 ## Knowledge 候選：`work_request_knowledge_candidates` / `work_get_knowledge_candidate_context` / `work_submit_knowledge_candidates`
 
@@ -388,7 +389,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 
 ## `work_get_knowledge_history`
 
-查詢單筆 Knowledge 的不可變 audit history。必須提供同一個 tracked project 的 `projectRoot` 與 `knowledgeId`；結果會依最新到最舊回傳建立、更新、封存或恢復事件，包含 `before`、`after` 與 `changedFields`。既有 audit 功能加入前建立的 Knowledge 不會被猜測補造歷史，會從下一次變更開始留下快照；unregistered、paused、ignored 專案會安靜回傳 `outcome: "skipped"`。
+查詢單筆 Knowledge 的不可變 audit history。必須提供同一個 tracked project 的 `projectRoot` 與 `knowledgeId`；結果會依最新到最舊回傳建立、更新、封存或恢復事件，包含 `before`、`after` 與 `changedFields`，另有 `feedback`（最新到最舊最多 100 筆確認與推翻，附 Session id 與標題）。既有 audit 功能加入前建立的 Knowledge 不會被猜測補造歷史，會從下一次變更開始留下快照；unregistered、paused、ignored 專案會安靜回傳 `outcome: "skipped"`。
 
 「工作知識」頁每筆記錄的「更多」選單都有「變更紀錄」，顯示同一套前後快照。
 

@@ -131,7 +131,11 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
   }
   if (url.pathname === "/api/knowledge/knowledge-1/history") {
     if (knowledgeHistoryMode === "missing") return { outcome: "not_found" };
-    return { outcome: "knowledge_history", history: [{ id: "history-1" }] };
+    return {
+      outcome: "knowledge_history",
+      history: [{ id: "history-1" }],
+      feedback: [{ id: "feedback-1", kind: "applied" }],
+    };
   }
   if (url.pathname === "/api/knowledge/candidates") {
     return { outcome: "knowledge_candidates", items: [{ id: "candidate-1" }], openRequests: [] };
@@ -354,6 +358,7 @@ describe("resource stores", () => {
     await vi.waitFor(() => expect(store.knowledgeItems[0]?.title).toBe("Pattern"));
     await store.loadKnowledgeHistory("knowledge-1", "/projects/alpha");
     expect(store.knowledgeHistory).toHaveLength(1);
+    expect(store.knowledgeFeedback).toEqual([{ id: "feedback-1", kind: "applied" }]);
     await store.loadCandidates("/projects/alpha");
     await vi.waitFor(() => expect(store.candidates).toHaveLength(1));
     expect(store.candidatesLoading).toBe(false);

@@ -25,7 +25,17 @@ describe("custom report synthesis migration", () => {
         CREATE TABLE projects (id TEXT PRIMARY KEY);
         CREATE TABLE sessions (
           id TEXT PRIMARY KEY,
+          project_id TEXT,
           changed_files_json TEXT NOT NULL DEFAULT '[]'
+        );
+        CREATE TABLE knowledge (id TEXT PRIMARY KEY);
+        CREATE TABLE knowledge_audit (
+          id TEXT PRIMARY KEY,
+          knowledge_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          after_json TEXT NOT NULL,
+          changed_fields_json TEXT NOT NULL DEFAULT '[]',
+          occurred_at TEXT NOT NULL
         );
         INSERT INTO sessions (id, changed_files_json)
         VALUES
@@ -191,7 +201,17 @@ describe("custom report synthesis migration", () => {
           name TEXT NOT NULL,
           applied_at TEXT NOT NULL
         );
-        CREATE TABLE sessions (id TEXT PRIMARY KEY);
+        CREATE TABLE projects (id TEXT PRIMARY KEY);
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT);
+        CREATE TABLE knowledge (id TEXT PRIMARY KEY);
+        CREATE TABLE knowledge_audit (
+          id TEXT PRIMARY KEY,
+          knowledge_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          after_json TEXT NOT NULL,
+          changed_fields_json TEXT NOT NULL DEFAULT '[]',
+          occurred_at TEXT NOT NULL
+        );
       `);
       const markApplied = db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)");
       for (let version = 1; version <= 12; version += 1) {

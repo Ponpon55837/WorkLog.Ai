@@ -449,6 +449,41 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(panel).toContainText("Build the shared packages first.");
   });
 
+  test("shows how often Sessions confirmed or contradicted Knowledge and links to them", async ({ page }) => {
+    const title = `E2E evidence Knowledge ${process.pid}`;
+    const confirmingTitle = `E2E confirming Session ${process.pid}`;
+    withAgentStore((store) => {
+      const recorded = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `e2e-evidence-knowledge-${process.pid}`,
+        kind: "pattern",
+        title,
+        body: "Evidence counts come from Sessions that applied or contradicted this item.",
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected the evidence fixture Knowledge.");
+      const finalized = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `e2e-evidence-session-${process.pid}`,
+        title: confirmingTitle,
+        summary: "Applied the evidence fixture Knowledge.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+        appliedKnowledgeIds: [recorded.knowledge.id],
+      });
+      if (finalized.outcome !== "finalized") throw new Error("Expected the evidence fixture Session.");
+    });
+
+    await page.goto(`/knowledge?q=${encodeURIComponent(title)}`);
+    const row = page.getByTestId("knowledge-row").filter({ hasText: title });
+    await row.getByRole("button", { name: /被 1 次確認、0 次推翻/ }).click();
+    const panel = page.getByRole("dialog", { name: "Knowledge 變更紀錄" });
+    const feedback = panel.getByTestId("knowledge-feedback");
+    await expect(feedback).toContainText("Session 確認");
+    await feedback.getByRole("button", { name: confirmingTitle }).click();
+    await expect(page.getByRole("dialog", { name: "Session 詳情" })).toContainText(confirmingTitle);
+  });
+
   test("serves the production Web UI and API from one origin @cross-browser", async ({ page }) => {
     const response = await page.goto("/dashboard");
     expect(response?.status()).toBe(200);
@@ -726,7 +761,7 @@ test.describe("Work Intelligence browser regression", () => {
     await page.getByRole("button", { name: "開啟主選單" }).click();
     await page.getByTestId("nav-sessions").click();
     await expect(page.getByTestId("nav-sessions")).not.toBeInViewport();
-    const firstRow = page.getByTestId("session-row").first();
+    const firstRow = page.getByTestId("session-row").filter({ hasText: "Browser regression fixture session" }).first();
     await expect(firstRow).toBeVisible();
     await firstRow.click();
     const detail = page.getByRole("dialog");

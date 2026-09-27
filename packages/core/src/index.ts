@@ -120,6 +120,7 @@ export interface ProjectDeletionCounts {
   sessionDecisions: number;
   knowledgePages: number;
   knowledgePageVersions: number;
+  knowledgeFeedback: number;
   searchChunks: number;
   searchFts: number;
   searchPaths: number;
@@ -437,6 +438,29 @@ export interface KnowledgeRecord {
    * confirmation (or creation), so the Knowledge may no longer hold.
    */
   possiblyStale?: KnowledgeStaleness;
+  /** Computed on read from knowledge_feedback; absent when no Session or person has confirmed or contradicted it. */
+  evidence?: KnowledgeEvidence;
+}
+
+export const KNOWLEDGE_FEEDBACK_KINDS = ["applied", "contradicted", "manual_confirm"] as const;
+export type KnowledgeFeedbackKind = (typeof KNOWLEDGE_FEEDBACK_KINDS)[number];
+
+/** How often recorded work backed or contradicted a Knowledge item. */
+export interface KnowledgeEvidence {
+  /** Sessions that applied it successfully plus manual confirmations. */
+  confirmed: number;
+  contradicted: number;
+  lastConfirmedAt?: string;
+  lastContradictedAt?: string;
+}
+
+export interface KnowledgeFeedbackRecord {
+  id: string;
+  kind: KnowledgeFeedbackKind;
+  /** Absent for a manual confirmation in the Web UI. */
+  sessionId?: string;
+  sessionTitle?: string;
+  occurredAt: string;
 }
 
 export interface KnowledgeReview {
@@ -584,6 +608,8 @@ export interface KnowledgeHistoryQueryResult {
   project: ProjectRecord;
   knowledge: KnowledgeRecord;
   history: KnowledgeAuditRecord[];
+  /** Confirmations and contradictions, newest first (at most 100). */
+  feedback: KnowledgeFeedbackRecord[];
 }
 
 export interface KnowledgeHistoryNotFoundResult {
@@ -1966,6 +1992,8 @@ export interface RecallHit {
   /** Knowledge only: a later Session changed its appliesTo paths, or a Session contradicted it. */
   possiblyStale?: boolean;
   needsReview?: boolean;
+  /** Knowledge only: how many Sessions or people confirmed and contradicted it (ranking uses this). */
+  evidence?: { confirmed: number; contradicted: number };
   /** Linked, non-voided Sessions (planning ↔ implementation), so one hit leads to the other. */
   related?: Array<{ id: string; title: string; relation: SessionLinkDirection }>;
 }
@@ -2153,6 +2181,7 @@ export const PROJECT_DATA_TABLES = [
   "knowledge_pages",
   "knowledge_page_versions",
   "knowledge_audit",
+  "knowledge_feedback",
   "knowledge_candidate_requests",
   "knowledge_candidates",
   "report_synthesis_requests",
