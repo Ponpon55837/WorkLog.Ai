@@ -69,6 +69,8 @@ export type { ReadOnlyDatabaseInspection } from "./database-inspection.js";
 export interface GlobalHookInspection {
   claudeConfigured: boolean;
   codexConfigured: boolean;
+  /** Optional UserPromptSubmit hook that lets the Codex reminder state when the segment began. */
+  codexSegmentStartConfigured: boolean;
 }
 
 function addFinding(
@@ -172,6 +174,9 @@ export function inspectGlobalHooks(homeDirectory: string, repositoryRoot: string
   return {
     claudeConfigured: hasClaudeStopHook(claudeSettings, claudeScript),
     codexConfigured: hasCodexGlobalHooks(codexSettings, codexScript),
+    codexSegmentStartConfigured: collectCommands(entries(record(codexSettings?.hooks)?.UserPromptSubmit)).some(
+      (command) => commandPointsTo(command, codexScript),
+    ),
   };
 }
 
@@ -528,7 +533,9 @@ export async function collectDoctorFindings(
     "Codex 全域 hook",
     codexHookExists
       ? globalHooks.codexConfigured
-        ? "全域 PostToolUse 與 Stop hook 指向目前專案的 dist 腳本。"
+        ? globalHooks.codexSegmentStartConfigured
+          ? "全域 PostToolUse、Stop 與 UserPromptSubmit hook 指向目前專案的 dist 腳本。"
+          : "全域 PostToolUse 與 Stop hook 指向目前專案的 dist 腳本；未設定 UserPromptSubmit，提醒不會附上這段工作的開始時間。"
         : "dist 腳本存在，但全域 ~/.codex/hooks.json 未同時設定指定的 PostToolUse 與 Stop hook。"
       : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
     codexHookExists && globalHooks.codexConfigured

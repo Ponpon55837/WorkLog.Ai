@@ -45,7 +45,7 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 
 - 新的記錄：`completedAt` 晚於伺服器時間超過 5 分鐘會被拒絕；看起來像估計的值（比伺服器時間早超過 24 小時、開始晚於完成、開始到完成超過 7 天）會在結果中附上 `timestampWarnings`。
 - 修正既有記錄：請 Agent 用 `work_update_session_metadata` 的 `startedAt`、`completedAt`，填入有依據的時間（對話紀錄或 commit 時間，並帶時區，例如 `+08:00`）。不需要作廢再重建。修正完成時間時，Session 會多一筆「完成時間由…更正為…」的事件，保留原值。
-- Claude Code 的保存提醒 hook 會在提醒中附上這段工作的開始時間；Agent 需要現在時間時，可以從 `work_get_project_status` 或 `work_get_context` 回傳的 `clock` 取得。
+- 保存提醒 hook 會在提醒中附上這段工作的開始時間（Codex 需要另外設定 `UserPromptSubmit` hook，見[連接 Agent](agent-setup.md)）；Agent 需要現在時間時，可以從 `work_get_project_status` 或 `work_get_context` 回傳的 `clock` 取得。
 
 ## 還原時資料庫仍被開著
 

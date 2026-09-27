@@ -22,10 +22,10 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 export const REMINDER =
   "這個專案有在 Work Intelligence 記錄，上次保存之後又改了檔案，還沒有保存工作記錄。如果這段工作已經完成，請依 work-intelligence skill 保存；如果還在進行或不需要記錄，直接結束這一輪即可。同一段工作只會提醒一次。";
 
-/** Adds the segment's start time read from the transcript, so the Agent never has to estimate startedAt. */
+/** Adds when the current segment began (the first message after the last successful save), so the Agent never estimates startedAt. */
 export function reminderWithStart(segmentStartedAt: string | undefined): string {
   return segmentStartedAt
-    ? `${REMINDER}這段工作的開始時間取自對話紀錄：${segmentStartedAt}。保存時請把它填入 startedAt；completedAt 請省略，由伺服器記錄。`
+    ? `${REMINDER}這段工作的開始時間（上一次成功保存後的第一則訊息）：${segmentStartedAt}。保存時請把它填入 startedAt；completedAt 請省略，由伺服器記錄。`
     : REMINDER;
 }
 
@@ -93,9 +93,46 @@ export function isFileInTrackedRoots(
   return Boolean(findTrackedRoot(target, roots, platform));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJson(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether a work_finalize_session result payload means the record was actually saved (a duplicate counts). */
+export function isFinalizedPayload(payload: unknown): boolean {
+  const value = parseJson(payload);
+  if (!isRecord(value) || value.outcome !== "finalized") {
+    return false;
+  }
+  return (isRecord(value.session) && typeof value.session.id === "string") || typeof value.sessionId === "string";
+}
+
+/** A Claude Code tool_result for work_finalize_session: rejected, skipped, or conflicting saves do not count. */
+function finalizeResultSucceeded(result: { content?: unknown; is_error?: unknown }): boolean {
+  if (result.is_error === true) {
+    return false;
+  }
+  if (typeof result.content === "string") {
+    return isFinalizedPayload(result.content);
+  }
+  return (Array.isArray(result.content) ? result.content : []).some(
+    (item) => isRecord(item) && item.type === "text" && isFinalizedPayload(item.text),
+  );
+}
+
 /**
  * Where in the transcript files were last edited and the record was last saved (-1 when never), and when the
- * current segment began: the first message the user typed after the last save.
+ * current segment began: the first message the user typed after the last successful save.
  */
 export function summarizeTranscript(
   text: string,
@@ -105,6 +142,8 @@ export function summarizeTranscript(
   let lastFinalize = -1;
   let segmentStartedAt: string | undefined;
   let index = 0;
+  // Finalize calls wait for their result: only a successful save ends the segment.
+  const pendingFinalize = new Map<string, number>();
   for (const line of text.split("\n")) {
     if (!line.trim()) {
       continue;
@@ -123,9 +162,27 @@ export function summarizeTranscript(
     ) {
       segmentStartedAt = new Date(entry.timestamp).toISOString();
     }
+    if (entry.type === "user" && Array.isArray(entry.message?.content)) {
+      for (const item of entry.message.content as unknown[]) {
+        const result = item as { type?: string; tool_use_id?: unknown; content?: unknown; is_error?: unknown };
+        if (result.type !== "tool_result" || typeof result.tool_use_id !== "string") {
+          continue;
+        }
+        const finalizeIndex = pendingFinalize.get(result.tool_use_id);
+        if (finalizeIndex === undefined) {
+          continue;
+        }
+        pendingFinalize.delete(result.tool_use_id);
+        if (finalizeResultSucceeded(result)) {
+          lastFinalize = finalizeIndex;
+          // The next typed message starts a new segment.
+          segmentStartedAt = undefined;
+        }
+      }
+    }
     const content = entry.type === "assistant" ? entry.message?.content : undefined;
     for (const item of Array.isArray(content) ? content : []) {
-      const tool = item as { type?: string; name?: string; input?: unknown };
+      const tool = item as { type?: string; id?: unknown; name?: string; input?: unknown };
       const name = tool.type === "tool_use" ? tool.name : "";
       index += 1;
       if (name && EDIT_TOOLS.has(name)) {
@@ -137,9 +194,13 @@ export function summarizeTranscript(
         }
         lastEdit = index;
       } else if (name?.endsWith("work_finalize_session")) {
-        lastFinalize = index;
-        // The next typed message starts a new segment.
-        segmentStartedAt = undefined;
+        if (typeof tool.id === "string") {
+          pendingFinalize.set(tool.id, index);
+        } else {
+          // Without an id the result cannot be matched; keep the older behavior of trusting the call.
+          lastFinalize = index;
+          segmentStartedAt = undefined;
+        }
       }
     }
   }

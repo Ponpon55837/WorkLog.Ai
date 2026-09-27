@@ -1,9 +1,25 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, realpathSync, unlinkSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findTrackedRoot, isFileInTrackedRoots, readTrackedRoots, REMINDER } from "./finalize-reminder.js";
+import {
+  findTrackedRoot,
+  isFileInTrackedRoots,
+  isFinalizedPayload,
+  readTrackedRoots,
+  reminderWithStart,
+} from "./finalize-reminder.js";
 
 export interface CodexHookInput {
   session_id?: string;
@@ -18,6 +34,8 @@ export interface CodexHookInput {
 export interface ReminderMarkers {
   dirty: string;
   reminded: string;
+  /** Holds the time the user sent the first prompt since the last successful save. */
+  segment: string;
 }
 
 export interface CodexReminderDeps {
@@ -26,7 +44,11 @@ export interface CodexReminderDeps {
   markerPaths: (sessionId: string) => ReminderMarkers;
   markerExists: (path: string) => boolean;
   createMarker: (path: string) => boolean;
+  /** Creates a private marker holding `content`; false when it already exists. */
+  writeMarker: (path: string, content: string) => boolean;
+  readMarker: (path: string) => string | undefined;
   removeMarker: (path: string) => void;
+  now: () => Date;
 }
 
 function markerDirectory(): string {
@@ -46,6 +68,7 @@ function markerPaths(sessionId: string): ReminderMarkers {
   return {
     dirty: `${directory}${sep}${key}.dirty`,
     reminded: `${directory}${sep}${key}.reminded`,
+    segment: `${directory}${sep}${key}.segment`,
   };
 }
 
@@ -59,6 +82,29 @@ function createMarker(path: string): boolean {
   }
   closeSync(descriptor);
   return true;
+}
+
+function writeMarker(path: string, content: string): boolean {
+  let descriptor: number;
+  try {
+    descriptor = openSync(path, "wx", 0o600);
+  } catch {
+    return false;
+  }
+  try {
+    writeSync(descriptor, content);
+  } finally {
+    closeSync(descriptor);
+  }
+  return true;
+}
+
+function readMarker(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function removeMarker(path: string): void {
@@ -141,23 +187,12 @@ function finalizedSuccessfully(response: unknown): boolean {
   if (!isRecord(root) || root.isError === true) {
     return false;
   }
-
   const structured = parseJson(root.structuredContent);
   if (isRecord(structured) && structured.outcome === "finalized" && typeof structured.sessionId === "string") {
     return true;
   }
-
   const content = Array.isArray(root.content) ? root.content : [];
-  for (const item of content) {
-    if (!isRecord(item) || item.type !== "text") {
-      continue;
-    }
-    const payload = parseJson(item.text);
-    if (isRecord(payload) && payload.outcome === "finalized" && isRecord(payload.session)) {
-      return typeof payload.session.id === "string";
-    }
-  }
-  return false;
+  return content.some((item) => isRecord(item) && item.type === "text" && isFinalizedPayload(item.text));
 }
 
 export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps): void {
@@ -180,7 +215,27 @@ export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps)
   if (input.tool_name.endsWith("work_finalize_session") && finalizedSuccessfully(input.tool_response)) {
     deps.removeMarker(markers.dirty);
     deps.removeMarker(markers.reminded);
+    // The next prompt starts a new segment.
+    deps.removeMarker(markers.segment);
   }
+}
+
+/**
+ * Records when the current segment began: the first prompt after the last successful save. Codex's transcript
+ * format is not a stable hook interface, so the time is taken when UserPromptSubmit fires instead.
+ */
+export function trackUserPrompt(input: CodexHookInput, deps: CodexReminderDeps): void {
+  if (!input.session_id || !input.cwd || !deps.isTrackedWorkspace(input.cwd)) {
+    return;
+  }
+  const markers = deps.markerPaths(input.session_id);
+  if (!deps.markerExists(markers.segment)) {
+    deps.writeMarker(markers.segment, deps.now().toISOString());
+  }
+}
+
+function segmentStart(value: string | undefined): string | undefined {
+  return value && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : undefined;
 }
 
 export function reminderForStop(input: CodexHookInput, deps: CodexReminderDeps): string | null {
@@ -192,7 +247,7 @@ export function reminderForStop(input: CodexHookInput, deps: CodexReminderDeps):
   if (!deps.markerExists(markers.dirty) || deps.markerExists(markers.reminded)) {
     return null;
   }
-  return deps.createMarker(markers.reminded) ? REMINDER : null;
+  return deps.createMarker(markers.reminded) ? reminderWithStart(segmentStart(deps.readMarker(markers.segment))) : null;
 }
 
 const defaultDeps: CodexReminderDeps = {
@@ -208,7 +263,10 @@ const defaultDeps: CodexReminderDeps = {
   markerPaths,
   markerExists: existsSync,
   createMarker,
+  writeMarker,
+  readMarker,
   removeMarker,
+  now: () => new Date(),
 };
 
 /** Convert one hook event into the optional block response; malformed input always passes through. */
@@ -226,6 +284,10 @@ export function responseForCodexHook(raw: string, deps: CodexReminderDeps = defa
   const input = value as CodexHookInput;
   if (input.hook_event_name === "PostToolUse") {
     trackPostToolUse(input, deps);
+    return null;
+  }
+  if (input.hook_event_name === "UserPromptSubmit") {
+    trackUserPrompt(input, deps);
     return null;
   }
   if (input.hook_event_name === "Stop") {

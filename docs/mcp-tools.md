@@ -265,7 +265,7 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 - **格式**：接受含時區的 ISO 時間（例如 `2026-09-27T09:52:48+08:00`），存入時統一轉成 UTC。把台北時間直接加上 `Z` 會差 8 小時，請一律帶上時區。
 - **拒絕未來時間**：`startedAt`、`completedAt` 與 `events[].occurredAt` 晚於伺服器時間超過 5 分鐘時，finalize 會失敗，錯誤訊息寫出差了多少小時與伺服器時間。
 - **伺服器時鐘**：`work_get_project_status` 與 `work_get_context` 回傳 `clock`（`serverTime`、`timeZone`、`utcOffset`），Agent 需要現在時間時從這裡取得。
-- `startedAt`：這一段工作實際開始的時間，也就是上一次保存之後的第一則使用者訊息。Claude Code 的保存提醒 hook 觸發時，會從對話紀錄讀出這個時間並寫在提醒裡。沒有回報時，若 `events` 有早於完成時間的 `occurredAt`，取最早的一筆；兩者都沒有就留空，UI 顯示「未回報」，不會推測。晚於 `completedAt` 的值不會套用，並在 `timestampWarnings` 中說明。
+- `startedAt`：這一段工作實際開始的時間，也就是上一次保存之後的第一則使用者訊息。保存提醒 hook 觸發時會把這個時間寫在提醒裡：Claude Code 版從對話紀錄讀出，Codex 版在 `UserPromptSubmit` 時記錄（需要設定該 hook）。只有成功的保存才會開始新的一段。沒有回報時，若 `events` 有早於完成時間的 `occurredAt`，取最早的一筆；兩者都沒有就留空，UI 顯示「未回報」，不會推測。晚於 `completedAt` 的值不會套用，並在 `timestampWarnings` 中說明。
 - `completedAt`：完成時間。**剛完成的工作請省略**，伺服器會記錄 finalize 的時間；只有補登較早的工作、而且有依據（例如 commit 時間）時才填。報告與日期篩選以它為準。
 - **警告**（`timestampWarnings`，值仍會存入）：手填的 `completedAt` 比伺服器時間早超過 24 小時；`startedAt` 晚於 `completedAt`；開始到完成超過 7 天（通常是誤用了整段對話的開頭）。
 - **修正**：用 `work_update_session_metadata` 的 `startedAt`、`completedAt` 修正，不必作廢再重建。修正 `completedAt` 時，Session 會新增一筆 `note` 事件記錄原值與新值；會讓開始時間晚於完成時間的修正不會套用，並在 `timestampWarnings` 中說明。
