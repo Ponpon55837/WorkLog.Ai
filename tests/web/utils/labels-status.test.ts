@@ -28,6 +28,7 @@ import {
   databaseInspectionStatus,
   databaseMaintenanceStatus,
   executionStatusVisual,
+  hotspotRiskVisual,
   knowledgeKindVisual,
   knowledgeStatusVisual,
   metadataGapStatus,
@@ -100,5 +101,23 @@ describe("status and label maps", () => {
     expect(metadataGapsOf({ gaps: ["verification"], verificationStatus: "not_supplied" })).toEqual([
       "verification_missing",
     ]);
+  });
+});
+
+describe("hotspotRiskVisual", () => {
+  it("labels the failure share so the meaning never depends on color alone", () => {
+    expect(hotspotRiskVisual({ sessionCount: 10, failedCount: 3 })).toMatchObject({
+      tone: "danger",
+      label: "失敗比例高",
+    });
+    expect(hotspotRiskVisual({ sessionCount: 10, failedCount: 1 })).toMatchObject({
+      tone: "attention",
+      label: "曾驗證失敗",
+    });
+    expect(hotspotRiskVisual({ sessionCount: 10, failedCount: 0 })).toMatchObject({
+      tone: "success",
+      label: "未曾失敗",
+    });
+    expect(hotspotRiskVisual({ sessionCount: 0, failedCount: 0 })).toMatchObject({ tone: "success" });
   });
 });

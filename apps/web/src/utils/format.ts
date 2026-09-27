@@ -7,6 +7,11 @@ export function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
+/** Local time of day (e.g. 下午6:32), for lists already grouped by date. */
+export function formatTimeOfDay(value: string): string {
+  return new Intl.DateTimeFormat("zh-TW", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+
 export function formatReadableSummary(value: string): string {
   const normalized = value.replace(/\r\n?/g, "\n").trim();
   if (!normalized) {

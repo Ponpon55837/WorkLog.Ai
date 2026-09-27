@@ -45,6 +45,7 @@ export const queryKeys = {
   views: {
     graph: ["view", "graph"] as const,
     hotspots: ["view", "graph", "hotspots"] as const,
+    timeline: ["view", "graph", "timeline"] as const,
     reports: reportsViewKey,
     sessions: ["view", "sessions"] as const,
     systemStatus: ["view", "system-status"] as const,

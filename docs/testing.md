@@ -55,6 +55,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 依月份範圍的排序檢索（`recall` 帶 `from`／`to`） | 500 ms |
 | 熱點檔案（全部期間前 20 名；依目錄、單月） | 各 500 ms |
 | 圖譜含推導關係、兩節點路徑（500 節點內 BFS） | 各 750 ms |
+| 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |
 | Knowledge 列表含過時判斷（20 筆 Knowledge × 一年的 Session） | 500 ms |
 
 搜尋的上限原本是 10,000 ms。修正全文搜尋的 join 順序後（見 `search-repository.ts` 的 `CROSS JOIN` 註解），中位數從約 2,000 ms 降到約 13 ms，因此收緊到 500 ms，讓同樣數量級的退化會直接失敗。新增讀取路徑時，請在 `read-paths.bench.mjs` 加上對應情境與上限。

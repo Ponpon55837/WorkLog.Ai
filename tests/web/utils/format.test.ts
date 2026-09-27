@@ -9,6 +9,7 @@ import {
   formatReadableSummary,
   formatRelative,
   formatReportTrendLabel,
+  formatTimeOfDay,
   graphNodeLabel,
   graphNodeLabelTail,
   startOfMonth,
@@ -105,5 +106,13 @@ describe("date and summary formatting", () => {
     const createdAt = "2026-09-27T00:00:00.000Z";
     expect(wasUpdatedAfterFinalize({ createdAt, updatedAt: "2026-09-27T00:01:00.000Z" })).toBe(false);
     expect(wasUpdatedAfterFinalize({ createdAt, updatedAt: "2026-09-27T00:01:01.000Z" })).toBe(true);
+  });
+});
+
+describe("formatTimeOfDay", () => {
+  it("shows only the local time of day", () => {
+    const value = new Date(2031, 2, 5, 18, 7).toISOString();
+    expect(formatTimeOfDay(value)).toMatch(/6:07/);
+    expect(formatTimeOfDay(value)).not.toMatch(/2031/);
   });
 });

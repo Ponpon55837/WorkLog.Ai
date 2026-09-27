@@ -39,6 +39,8 @@ import type {
   GraphPathResult,
   GraphQueryResult,
   HotspotQuery,
+  TimelineQuery,
+  TimelineResult,
   HotspotResult,
   HandoffImportApplyInput,
   HandoffImportBatchResult,
@@ -135,7 +137,7 @@ import type {
   SessionListQueryResult,
   SessionNotFoundResult,
 } from "@work-intelligence/core";
-import { nowIso, serverClock, truncateText } from "@work-intelligence/shared";
+import { nowIso, serverClock, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
 import {
   backupDatabase,
@@ -172,6 +174,7 @@ import { initializeWorkIntelligenceDatabase } from "./database-initialization.js
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { HotspotRepository } from "./hotspot-repository.js";
+import { TimelineRepository } from "./timeline-repository.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 import { ProjectDataTransferService } from "./project-data-transfer.js";
@@ -284,6 +287,7 @@ export interface WorkIntelligenceStoreOptions {
 /** A report lists at most five changed-often files with its risks, each changed by at least two Sessions. */
 const REPORT_HOTSPOT_LIMIT = 5;
 const REPORT_HOTSPOT_MIN_SESSIONS = 2;
+const TIMELINE_DEFAULT_DAYS = 30;
 
 export class WorkIntelligenceStore {
   private readonly db: DatabaseSync;
@@ -304,6 +308,7 @@ export class WorkIntelligenceStore {
   private readonly contextRecallService: ContextRecallService;
   private readonly searchIndex: SearchRepository;
   private readonly hotspots: HotspotRepository;
+  private readonly timelines: TimelineRepository;
   private readonly projectDeletionService: ProjectDeletionService;
   private readonly projectLocationService: ProjectLocationService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
@@ -385,6 +390,7 @@ export class WorkIntelligenceStore {
     );
     this.searchIndex = new SearchRepository(this.db);
     this.hotspots = new HotspotRepository(this.db);
+    this.timelines = new TimelineRepository(this.db);
     this.projectDeletionService = new ProjectDeletionService(
       this.db,
       this.databasePath,
@@ -1030,6 +1036,37 @@ export class WorkIntelligenceStore {
 
   public getGraphPath(query: GraphPathQuery): GraphPathResult {
     return this.graphBuilder.findPath(query);
+  }
+
+  /** Sessions, Knowledge events, and Session links of tracked projects over a date range (default: 30 days). */
+  public getTimeline(query: TimelineQuery = {}): TimelineResult {
+    let projects = this.listProjects().filter((project) => project.status === "tracked");
+    if (query.projectRoot || query.projectId) {
+      const decision = query.projectRoot
+        ? this.checkProjectRoot(query.projectRoot)
+        : this.checkProjectById(query.projectId!);
+      if (!decision.allowed || !decision.project) {
+        return {
+          outcome: "skipped",
+          projectRoot: decision.canonicalRoot,
+          projectStatus: decision.projectStatus,
+          reason: decision.reason ?? "Project recording is not enabled.",
+        };
+      }
+      projects = [decision.project];
+    }
+    const to = query.to ?? toLocalCalendarDate();
+    const from =
+      query.from ??
+      toLocalCalendarDate(new Date(Date.parse(`${to}T12:00:00`) - (TIMELINE_DEFAULT_DAYS - 1) * 86_400_000));
+    const rows = this.timelines.timeline({ projectIds: projects.map((project) => project.id), from, to });
+    return {
+      outcome: "timeline",
+      from,
+      to,
+      projects: projects.map((project) => ({ id: project.id, name: project.name })),
+      ...rows,
+    };
   }
 
   /** Most changed files or directories of tracked projects, from the search path index (kept in sync first). */

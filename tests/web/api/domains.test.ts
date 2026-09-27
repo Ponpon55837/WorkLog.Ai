@@ -99,6 +99,7 @@ describe("domain API factories", () => {
     await api.previewMetadataBackfill(12);
     await api.getGraph({ projectId: "project/1", maxNodes: 180, cursor: "next" });
     await api.getHotspots({ projectId: "project/1", groupBy: "directory", from: "2026-01-01", limit: 5 });
+    await api.getTimeline({ projectId: "project/1", from: "2026-01-01", to: "2026-01-31" });
     await api.getGraphPath({ projectId: "project/1", from: "session:a", to: "file:p:b", includeDerived: true });
     await api.previewHandoffs("/projects/a", ".handoffs");
     await api.importHandoffs({ projectRoot: "/projects/a", handoffDirectory: ".handoffs", sourcePaths: ["one.md"] });
@@ -106,7 +107,7 @@ describe("domain API factories", () => {
     await api.getSystemStatus();
     await api.pickFolder();
 
-    expect(calls).toHaveLength(55);
+    expect(calls).toHaveLength(56);
     expect(calls.find((call) => call.url.pathname === "/api/backups/backup%201.sqlite")).toMatchObject({
       method: "DELETE",
       body: {},
@@ -145,6 +146,9 @@ describe("domain API factories", () => {
     expect(
       Object.fromEntries(calls.find((call) => call.url.pathname === "/api/graph/path")?.url.searchParams ?? []),
     ).toEqual({ projectId: "project/1", from: "session:a", to: "file:p:b", includeDerived: "true" });
+    expect(
+      Object.fromEntries(calls.find((call) => call.url.pathname === "/api/insights/timeline")?.url.searchParams ?? []),
+    ).toEqual({ projectId: "project/1", from: "2026-01-01", to: "2026-01-31" });
     const hotspots = calls.find((call) => call.url.pathname === "/api/insights/hotspots");
     expect(Object.fromEntries(hotspots?.url.searchParams ?? [])).toEqual({
       projectId: "project/1",

@@ -2088,6 +2088,55 @@ export interface RelevantContext {
   hotspots?: HotspotHint[];
 }
 
+export interface TimelineQuery extends DateRange {
+  projectRoot?: string;
+  projectId?: string;
+}
+
+export interface TimelineSession {
+  id: string;
+  projectId: string;
+  title: string;
+  /** Absent when the start is unknown; the Session is then drawn as a point at completedAt. */
+  startedAt?: string;
+  completedAt: string;
+  verificationStatus: ReportVerificationStatus;
+}
+
+export const TIMELINE_KNOWLEDGE_EVENTS = ["created", "confirmed", "contradicted", "superseded"] as const;
+export type TimelineKnowledgeEventKind = (typeof TIMELINE_KNOWLEDGE_EVENTS)[number];
+
+export interface TimelineKnowledgeEvent {
+  knowledgeId: string;
+  projectId: string;
+  title: string;
+  kind: TimelineKnowledgeEventKind;
+  at: string;
+  /** The Session behind a confirmation or contradiction, or the Knowledge that replaced this one. */
+  sessionId?: string;
+  supersededById?: string;
+}
+
+export interface TimelineLink {
+  sessionId: string;
+  relatedSessionId: string;
+  relation: "continues" | "related";
+}
+
+export type TimelineResult =
+  | {
+      outcome: "timeline";
+      from: string;
+      to: string;
+      projects: Array<{ id: string; name: string }>;
+      sessions: TimelineSession[];
+      knowledgeEvents: TimelineKnowledgeEvent[];
+      links: TimelineLink[];
+      /** True when the range held more Sessions than one response carries (newest are kept). */
+      truncated: boolean;
+    }
+  | SkippedContextResult;
+
 export const HOTSPOT_GROUPS = ["file", "directory"] as const;
 export type HotspotGroup = (typeof HOTSPOT_GROUPS)[number];
 

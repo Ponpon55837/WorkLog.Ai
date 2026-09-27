@@ -799,6 +799,31 @@ describe("Work Intelligence REST API", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("serves the timeline and rejects ranges over a year", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-timeline-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Timeline API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-timeline",
+      title: "Timeline fixture",
+      summary: "One Session on the timeline.",
+      verification: { status: "passed" },
+      completedAt: "2026-09-10T12:00:00.000Z",
+    });
+
+    const timeline = await requestJson<{ outcome: string; sessions: Array<{ title: string }> }>(
+      baseUrl,
+      `/api/insights/timeline?projectId=${project.id}&from=2026-09-01&to=2026-09-30`,
+    );
+    expect(timeline.body).toMatchObject({ outcome: "timeline", sessions: [{ title: "Timeline fixture" }] });
+    const tooLong = await requestJson(baseUrl, "/api/insights/timeline?from=2025-01-01&to=2026-09-30");
+    expect(tooLong.status).toBe(400);
+  });
+
   it("validates project deletion names, requires a disk backup, and returns a safe backup file name", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");
