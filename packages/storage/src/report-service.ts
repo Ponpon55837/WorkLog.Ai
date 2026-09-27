@@ -436,7 +436,7 @@ export class ReportReadService {
       sourceSessionIds: sessionIds,
       sessions,
       sessionTruncation,
-      completedWork: sessions.slice(0, 6),
+      completedWork: sessions.slice(0, 10),
       projects: [...projectSummaries.values()].sort((left, right) => {
         if (right.sessionCount !== left.sessionCount) {
           return right.sessionCount - left.sessionCount;

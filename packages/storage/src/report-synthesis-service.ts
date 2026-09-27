@@ -702,7 +702,7 @@ export class ReportSynthesisService {
       ...reportResult,
       sourceSessionIds: contextSourceSessionIds,
       sessions,
-      completedWork: sessions.slice(0, 6),
+      completedWork: sessions.slice(0, 10),
       evidence: contextEvidence,
       evidencePageInfo: createPageInfo(1, Math.max(contextEvidence.length, 1), contextEvidence.length, 100),
     };

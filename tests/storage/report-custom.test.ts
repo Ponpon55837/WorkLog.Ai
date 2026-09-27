@@ -39,6 +39,35 @@ function setup() {
 }
 
 describe("custom-range reports", () => {
+  it("shows the ten most recent completed items in reports and synthesis context", () => {
+    const { store, finalize } = setup();
+    const titles = Array.from({ length: 12 }, (_, index) => `completed-${index}`);
+    for (const [index, title] of titles.entries()) {
+      finalize(title, `2030-01-10T00:${String(index).padStart(2, "0")}:00.000Z`);
+    }
+
+    const report = store.getReport({ period: "week", date: "2030-01-10" });
+    if (report.outcome !== "report") {
+      throw new Error("Expected a report");
+    }
+    expect(report.completedWork.map((session) => session.title)).toEqual(titles.slice(-10).reverse());
+    expect(report.totals.sessions).toBe(12);
+
+    const request = store.createReportSynthesisRequest({
+      period: "week",
+      date: "2030-01-10",
+      idempotencyKey: "report-completed-work-ten",
+    });
+    if (request.outcome !== "report_synthesis_request") {
+      throw new Error("Expected a report synthesis request");
+    }
+    const context = store.getReportSynthesisContext({ requestId: request.request.id, maxSessions: 20 });
+    if (context.outcome !== "report_context") {
+      throw new Error("Expected report synthesis context");
+    }
+    expect(context.report.completedWork.map((session) => session.title)).toEqual(titles.slice(-10).reverse());
+  });
+
   it("covers exactly the given days and compares with the same number of days before", () => {
     const { store, finalize } = setup();
     finalize("before", "2030-01-04T12:00:00.000Z");
