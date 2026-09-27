@@ -109,12 +109,12 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 ```
 
 - 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
-- 「改了檔案」以 Edit／Write／MultiEdit／NotebookEdit 判斷；只用 Bash 改檔不會觸發。
+- 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
 
 #### Codex
 
-hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它在 Codex 使用 `apply_patch` 改檔後標記未保存工作；成功呼叫 `work_finalize_session` 會清除標記；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。
+hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功呼叫 `work_finalize_session` 會清除標記；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。
 
 和 MCP 一樣，這個 hook 要裝在**全域**，任何專案都能用；它會自己判斷目前的工作目錄是否屬於「記錄中」的專案，其他專案一律放行。repo 不附專案層級的 `.codex/hooks.json`。
 
@@ -154,7 +154,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它在 Codex 使用 `
 
 - 只讀取專案清單（SQLite 唯讀開啟），不寫入資料庫。資料庫預設位置依 hook 腳本所在的 repo 推算，和目前開啟的專案無關；也可用 `WORK_INTELLIGENCE_DB` 指定。
 - hook marker 只存放在目前使用者的暫存目錄：資料夾權限 `0700`，標記檔權限 `0600`。不儲存 Session 內容。
-- 只要讀不到資料或判斷失敗，就放行 Codex。
+- 只要讀不到 hook 輸入、patch 標頭或專案清單，或路徑無法判定，就放行 Codex。
 - 使用絕對路徑，因此不需要 `git rev-parse`，也不需要 `commandWindows`。Windows 上 Codex 會用 `cmd.exe /C` 執行 hook，`node "C:\path with space\...\codex-finalize-reminder.js"` 可以直接執行。若 `node` 不在 Codex 的 `PATH` 中，請改用 node 的絕對路徑。
 - Windows CI 會在 repo 以外的目錄，用 `cmd.exe /d /s /c` 執行同樣形式的指令，並傳入格式錯誤的輸入，確認 hook 可以啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認是否載入。官方說明見 [Codex hooks](https://developers.openai.com/docs/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
 

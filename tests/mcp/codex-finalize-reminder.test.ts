@@ -3,8 +3,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { responseForCodexHook, type CodexReminderDeps } from "../../apps/mcp/src/codex-finalize-reminder.js";
-import { REMINDER } from "../../apps/mcp/src/finalize-reminder.js";
+import {
+  parseApplyPatchFilePaths,
+  responseForCodexHook,
+  type CodexReminderDeps,
+} from "../../apps/mcp/src/codex-finalize-reminder.js";
+import { isFileInTrackedRoots, REMINDER } from "../../apps/mcp/src/finalize-reminder.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const trackedCwd = join(repoRoot, "apps/mcp");
@@ -12,8 +16,11 @@ const finalizeTool = "mcp__work-intelligence__work_finalize_session";
 
 function createDeps(tracked = true) {
   const markers = new Set<string>();
+  const roots = tracked ? [repoRoot] : [];
   const deps: CodexReminderDeps = {
     isTrackedWorkspace: () => tracked,
+    hasTrackedFiles: (cwd, filePaths) =>
+      filePaths.some((filePath) => isFileInTrackedRoots(filePath, cwd, roots, (path) => path)),
     markerPaths: (sessionId) => ({
       dirty: `${sessionId}.dirty`,
       reminded: `${sessionId}.reminded`,
@@ -31,12 +38,21 @@ function createDeps(tracked = true) {
   return { deps, markers };
 }
 
-function postToolEvent(toolName: string, toolResponse?: unknown) {
+function patch(...headers: string[]) {
+  return { command: `*** Begin Patch\n${headers.join("\n")}\n*** End Patch` };
+}
+
+function postToolEvent(toolName: string, toolResponse?: unknown, toolInput?: unknown) {
   return JSON.stringify({
     session_id: "session-1",
     cwd: trackedCwd,
     hook_event_name: "PostToolUse",
     tool_name: toolName,
+    ...(toolInput === undefined && toolName === "apply_patch"
+      ? { tool_input: patch("*** Update File: ../../README.md") }
+      : toolInput === undefined
+        ? {}
+        : { tool_input: toolInput }),
     tool_response: toolResponse,
   });
 }
@@ -82,6 +98,50 @@ describe("Codex finalize reminder hook", () => {
     expect(responseForCodexHook(postToolEvent("apply_patch"), deps)).toBeNull();
     expect(responseForCodexHook(stopEvent(), deps)).toBeNull();
     expect(markers.size).toBe(0);
+  });
+
+  it("tracks only apply_patch paths inside a tracked root, including mixed patches", () => {
+    const outside = createDeps();
+    expect(
+      responseForCodexHook(
+        postToolEvent("apply_patch", undefined, patch("*** Update File: /tmp/agent-notes.md")),
+        outside.deps,
+      ),
+    ).toBe(null);
+    expect(outside.markers.size).toBe(0);
+    expect(responseForCodexHook(stopEvent(), outside.deps)).toBeNull();
+
+    const mixed = createDeps();
+    expect(
+      responseForCodexHook(
+        postToolEvent(
+          "apply_patch",
+          undefined,
+          patch("*** Update File: /tmp/agent-notes.md", "*** Add File: ../../README.md"),
+        ),
+        mixed.deps,
+      ),
+    ).toBeNull();
+    expect(mixed.markers.has("session-1.dirty")).toBe(true);
+    expect(JSON.parse(responseForCodexHook(stopEvent(), mixed.deps) ?? "{}")).toEqual({
+      decision: "block",
+      reason: REMINDER,
+    });
+  });
+
+  it("parses add, update, delete, and move headers and fails open for incomplete patches", () => {
+    expect(
+      parseApplyPatchFilePaths(
+        patch(
+          "*** Add File: src/new.ts",
+          "*** Update File: src/old.ts",
+          "*** Move to: src/renamed.ts",
+          "*** Delete File: src/remove.ts",
+        ),
+      ),
+    ).toEqual(["src/new.ts", "src/old.ts", "src/renamed.ts", "src/remove.ts"]);
+    expect(parseApplyPatchFilePaths({ command: "*** Begin Patch\n*** Update File: src/a.ts" })).toBeNull();
+    expect(parseApplyPatchFilePaths({ command: "not a patch" })).toBeNull();
   });
 
   it("passes malformed and unrelated hook input without blocking", () => {

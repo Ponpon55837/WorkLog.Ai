@@ -19,11 +19,11 @@
 | D. 洞察與圖像 | D1 熱點檔案；D2 圖譜邊的來源標示與路徑說明；D3 時間軸；D4 從記錄跳到程式碼；D5 Agent 附上的 Mermaid 圖表 |
 | E. 工程整理 | E2 拆分 `server.ts` 路由；E3 清掉剩下的模組層級狀態 |
 
-### A1 完成（PR 待建立）
+### A1 完成（PR #124）
 
 - 可攜式匯入預覽提供來源路徑與資料夾狀態，Web／互動 CLI 可逐一指定新位置或略過；專案頁可重新指定遺失的位置。
 - 重新指定位置會要求 tracked 範圍確認、拒絕專案根目錄重疊，並以交易更新專案路徑與 raw snapshot 路徑前綴；migration 13 的稽核資料不保存路徑。
-- 交付目前在 `codex/round6-a1-import-location`，PR、CI 與合併 SHA 待建立。
+- PR #124 以 merge commit 合併；head `ba5a24a7dfe2596730c8cd175a64475e5ee88d9b`、merge `987ea9e28ab6671862d9de9f58a880c4ba8e9bc5`，CI run #263 全綠。
 
 ## 第五輪結案（2026-09-27）
 
@@ -101,7 +101,7 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 - **列表搜尋改為多關鍵字**：Web 的 Session 列表、Knowledge 搜尋與 `work_search_knowledge` 原本把整句當成一個 LIKE。現在依空白拆詞（雙引號可保留片語），每個詞都要出現在某個欄位；Session 另外比對五段 workSummary 與 changed files（以 `json_each` 只比對內容，不會因欄位名稱如 decisions 命中每一筆）。列表維持時間排序與分頁，排序檢索仍由 Agent 的 `work_recall` 負責（評估的 S1 策略：0 筆題數 31→16）。
 - **圖譜跨頁的 Session 關聯**：分頁取回圖譜時，只要關聯的一端在該頁就送出 `session_link`（另一端必須是範圍內的有效 Session），Web 合併各頁後即可畫出兩端落在不同頁的關聯。
 - **測試檔集中分類（PR #45）**：單元測試與端對端測試統一放在根目錄 `tests/`，依套件與測試類型分類；不再混放於 `apps/` 或 `packages/` 的程式碼目錄。
-- **保存提醒 hook**：Claude Code 使用 `apps/mcp/dist/finalize-reminder.js`；Codex 使用 `apps/mcp/dist/codex-finalize-reminder.js`，兩者都裝在使用者的全域設定（`~/.claude/settings.json`、`~/.codex/hooks.json`），任何專案都能用，repo 不附專案層級的 `.codex/hooks.json`。在記錄中的專案裡，Codex 的 `apply_patch` 改檔後若未成功呼叫 `work_finalize_session`，Stop 時提醒一次（同一段未保存工作只提醒一次，`stop_hook_active` 時放行）。兩者都唯讀查專案清單、判斷失敗時放行；Codex hook 需在 `/hooks` 檢查並信任，Bash 改檔不會觸發。設定方式見 agent-setup。
+- **保存提醒 hook**：Claude Code 使用 `apps/mcp/dist/finalize-reminder.js`；Codex 使用 `apps/mcp/dist/codex-finalize-reminder.js`，兩者仍由使用者全域設定載入，repo 不附專案層級的 `.codex/hooks.json`。Claude 只把 transcript 中落在記錄中專案根目錄內的 Edit／Write／MultiEdit／NotebookEdit 路徑算為改動；Codex 解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，依 hook `cwd` 篩選專案內路徑。讀取或解析失敗時放行；兩者唯讀查專案清單，Codex hook 需在 `/hooks` 檢查並信任，Bash 改檔不會觸發。設定方式見 agent-setup。
 - **changedFiles 開工基準排除**：`work_finalize_session` 可傳入工作開始時擷取的 `baselineChangedFiles`，系統會從該 Session 的 changed files、來源與變更事件排除開工前已變更的路徑；從基準路徑改名時只記新路徑為新增檔案。相同基準檔案後續又修改也會保守排除，避免把先前工作錯算成本次成果。
 - **Storage 報告讀取服務拆分**：將報告產生、跨期 Session、證據整理與 Markdown／JSON 匯出搬至 `report-service.ts`，期間計算與趨勢函式移至 `report-utils.ts`；`WorkIntelligenceStore` 對外方法維持原樣並轉呼叫新服務，未改變報告行為。
 - **加入專案改為選擇資料夾**（使用者提出）：「加入專案」對話框新增「選擇資料夾」，由本機 API server 叫出作業系統的選擇資料夾視窗（macOS `osascript`、Windows PowerShell、Linux `zenity`／`kdialog`），選完自動填入路徑，名稱空白時以資料夾名稱帶入；仍可手動輸入。新增 `POST /api/system/pick-folder`，指令固定、不經過 shell，區分「取消」與「無法開啟」，同時只開一個視窗。
