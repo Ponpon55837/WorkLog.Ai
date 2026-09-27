@@ -35,6 +35,10 @@ import type {
   DashboardSummary,
   EvidenceRecord,
   GraphQuery,
+  AttachDiagramInput,
+  AttachDiagramResult,
+  SetDiagramVoidInput,
+  SetDiagramVoidResult,
   GraphPathQuery,
   GraphPathResult,
   GraphQueryResult,
@@ -172,6 +176,7 @@ import { SessionRepository, type SessionListOptions, type SessionRow } from "./s
 import { initializeWorkIntelligenceDatabase } from "./database-initialization.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
+import { DiagramService } from "./diagram-service.js";
 import { HotspotRepository } from "./hotspot-repository.js";
 import { TimelineRepository } from "./timeline-repository.js";
 import { SearchRepository } from "./search-repository.js";
@@ -294,6 +299,7 @@ export class WorkIntelligenceStore {
   private readonly projects: ProjectRepository;
   private readonly sessions: SessionRepository;
   private readonly sessionRecords: SessionRecordService;
+  private readonly diagrams: DiagramService;
   private readonly sessionDecisions: SessionDecisionService;
   private readonly knowledgePages: KnowledgePageService;
   private readonly knowledge: KnowledgeRepository;
@@ -335,11 +341,15 @@ export class WorkIntelligenceStore {
     this.projects = new ProjectRepository(this.db);
     this.projectLocationService = new ProjectLocationService(this.db, this.projects);
     this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
+    this.diagrams = new DiagramService(this.db, {
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
+    });
     this.sessionRecords = new SessionRecordService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
       getSessionById: (sessionId) => this.getSessionById(sessionId),
       getProjectById: (projectId) => this.getProjectById(projectId),
       withKnowledgeTrustMany: (knowledge) => this.knowledgeService.withKnowledgeTrustMany(knowledge),
+      listDiagrams: (sessionId) => this.diagrams.listForSession(sessionId),
     });
     this.reportReader = new ReportReadService(this.db, this);
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
@@ -1030,6 +1040,14 @@ export class WorkIntelligenceStore {
     return this.graphBuilder.build(options);
   }
 
+  public attachDiagram(input: AttachDiagramInput): AttachDiagramResult {
+    return this.diagrams.attach(input);
+  }
+
+  public setDiagramVoid(input: SetDiagramVoidInput): SetDiagramVoidResult {
+    return this.diagrams.setVoid(input);
+  }
+
   public getGraphPath(query: GraphPathQuery): GraphPathResult {
     return this.graphBuilder.findPath(query);
   }
@@ -1365,6 +1383,9 @@ export class WorkIntelligenceStore {
       });
 
       const knowledgeWarnings = this.applyKnowledgeFeedback(project.id, sessionId, completedAt, input);
+      const diagramRedactions = input.diagrams?.length
+        ? this.diagrams.attachWithFinalize(sessionId, project.id, input.idempotencyKey, input.diagrams, createdAt)
+        : undefined;
 
       const session = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (!session) {
@@ -1375,7 +1396,7 @@ export class WorkIntelligenceStore {
         outcome: "finalized",
         duplicate: false,
         session,
-        redactions,
+        redactions: diagramRedactions ? combineRedactionSummaries(redactions, diagramRedactions) : redactions,
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
         workSummaryFollowUp: getWorkSummaryFollowUp(session),

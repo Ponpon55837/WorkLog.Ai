@@ -824,6 +824,44 @@ describe("Work Intelligence REST API", () => {
     expect(tooLong.status).toBe(400);
   });
 
+  it("voids and restores a diagram through the Web API and requires a reason to void", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-diagram-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Diagram API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-diagram",
+      title: "Diagram fixture",
+      summary: "Has a diagram.",
+      verification: { status: "passed" },
+      diagrams: [{ title: "Flow", source: "flowchart LR\n  A --> B" }],
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected finalize");
+    const [diagram] = store.getSessionDetail(finalized.session.id)!.diagrams;
+
+    const missingReason = await requestJson(baseUrl, `/api/diagrams/${diagram!.id}/void`, {
+      method: "PATCH",
+      body: { voided: true },
+    });
+    expect(missingReason.status).toBe(400);
+    const voided = await requestJson(baseUrl, `/api/diagrams/${diagram!.id}/void`, {
+      method: "PATCH",
+      body: { voided: true, reason: "Wrong diagram." },
+    });
+    expect(voided.body).toMatchObject({
+      outcome: "diagram_void_updated",
+      diagram: { voided: { reason: "Wrong diagram." } },
+    });
+    const detail = await requestJson<{ diagrams: Array<{ voided?: unknown }> }>(
+      baseUrl,
+      `/api/sessions/${finalized.session.id}`,
+    );
+    expect(detail.body.diagrams[0]?.voided).toBeDefined();
+  });
+
   it("validates project deletion names, requires a disk backup, and returns a safe backup file name", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");

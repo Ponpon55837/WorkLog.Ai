@@ -5,7 +5,16 @@ import { useSessionsStore } from "../stores/sessions";
 import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
 
-export type VoidTarget = { type: VoidTargetType; id: string; sessionId: string; title: string };
+/** Sessions and Evidence keep a void audit; a diagram keeps its void time and reason on the row. */
+export type VoidTarget = { type: VoidTargetType | "diagram"; id: string; sessionId: string; title: string };
+
+const voidedMessages = { session: "Session 已作廢。", evidence: "Evidence 已標示為錯誤。", diagram: "圖表已作廢。" };
+const restoreCopy = {
+  session: { title: "還原這筆 Session？", message: "還原後會重新出現在工作歷程、報告、圖譜與 Agent 檢索。" },
+  evidence: { title: "還原這筆 Evidence？", message: "還原後會重新出現在報告與圖譜。" },
+  diagram: { title: "還原這張圖表？", message: "還原後會重新顯示圖形。" },
+};
+const restoredMessages = { session: "Session 已還原。", evidence: "Evidence 已還原。", diagram: "圖表已還原。" };
 
 const voidTarget = ref<VoidTarget | null>(null);
 const voidReason = ref("");
@@ -31,7 +40,9 @@ async function applyVoid(target: VoidTarget, voided: boolean, reason?: string): 
   const result =
     target.type === "session"
       ? await store.setSessionVoid({ sessionId: target.id, voided, reason })
-      : await store.setEvidenceVoid({ evidenceId: target.id, sessionId: target.sessionId, voided, reason });
+      : target.type === "diagram"
+        ? await store.setDiagramVoid({ diagramId: target.id, sessionId: target.sessionId, voided, reason })
+        : await store.setEvidenceVoid({ evidenceId: target.id, sessionId: target.sessionId, voided, reason });
   if (result.outcome === "not_found") {
     throw new Error("找不到這筆資料，可能已被刪除。");
   }
@@ -66,17 +77,14 @@ async function submitVoid(): Promise<void> {
   }
   voidSaving.value = false;
   voidTarget.value = null;
-  afterChange(target.type === "session" ? "Session 已作廢。" : "Evidence 已標示為錯誤。");
+  afterChange(voidedMessages[target.type]);
 }
 
 /** Restores a voided Session or evidence after confirmation; the audit keeps both changes. */
 async function restoreRecord(target: VoidTarget): Promise<void> {
   const confirmed = await confirmAction({
-    title: target.type === "session" ? "還原這筆 Session？" : "還原這筆 Evidence？",
-    message:
-      target.type === "session"
-        ? "還原後會重新出現在工作歷程、報告、圖譜與 Agent 檢索。"
-        : "還原後會重新出現在報告與圖譜。",
+    title: restoreCopy[target.type].title,
+    message: restoreCopy[target.type].message,
     confirmLabel: "還原",
   });
   if (!confirmed) {
@@ -88,7 +96,7 @@ async function restoreRecord(target: VoidTarget): Promise<void> {
     useToast().showToast(errorMessage(error, "無法還原。"), "danger");
     return;
   }
-  afterChange(target.type === "session" ? "Session 已還原。" : "Evidence 已還原。");
+  afterChange(restoredMessages[target.type]);
 }
 
 export function useRecordVoid() {

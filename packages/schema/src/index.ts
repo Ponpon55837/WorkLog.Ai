@@ -1,5 +1,6 @@
 import {
   isSafeRepositoryUrl,
+  SESSION_DIAGRAM_KINDS,
   CHANGED_FILE_SOURCES,
   CHANGED_FILE_CHANGE_STATUSES,
   CHANGED_FILES_MODES,
@@ -177,6 +178,14 @@ export const workSummaryInputSectionsSchema = workSummarySectionsSchema.extend({
   decisions: z.array(workSummaryDecisionInputSchema).max(20),
 });
 
+const diagramTitleSchema = z.string().trim().min(1).max(200);
+const diagramSourceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(20_000)
+  .describe("Mermaid source (flowchart, sequenceDiagram, …) that explains the work; secrets are masked.");
+
 export const finalizeSessionInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: z.string().trim().min(1).max(300),
@@ -230,6 +239,11 @@ export const finalizeSessionInputSchema = z.object({
     .max(30)
     .optional()
     .describe("Knowledge this work found no longer true; it is flagged for review."),
+  diagrams: z
+    .array(z.object({ title: diagramTitleSchema, source: diagramSourceSchema }))
+    .max(5)
+    .optional()
+    .describe("Optional Mermaid diagrams that explain the work (e.g. the flow you changed)."),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);
@@ -638,6 +652,22 @@ export const setEvidenceVoidInputSchemaBase = z.object({
 });
 
 export const setEvidenceVoidInputSchema = setEvidenceVoidInputSchemaBase.superRefine(requireReasonWhenVoiding);
+
+export const attachDiagramInputSchema = z.object({
+  sessionId: z.string().trim().min(1).max(200),
+  idempotencyKey: z.string().trim().min(1).max(300),
+  title: diagramTitleSchema,
+  source: diagramSourceSchema,
+  kind: z.enum(SESSION_DIAGRAM_KINDS).optional(),
+});
+
+export const setDiagramVoidInputSchemaBase = z.object({
+  diagramId: z.string().trim().min(1).max(200),
+  voided: z.boolean().default(true),
+  reason: voidReasonSchema.optional(),
+});
+
+export const setDiagramVoidInputSchema = setDiagramVoidInputSchemaBase.superRefine(requireReasonWhenVoiding);
 
 export const linkSessionsInputSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),
@@ -1110,6 +1140,18 @@ export const projectDataExportTableColumns = {
     "idempotency_key",
     "created_at",
   ],
+  session_diagrams: [
+    "id",
+    "session_id",
+    "project_id",
+    "idempotency_key",
+    "title",
+    "kind",
+    "source",
+    "created_at",
+    "voided_at",
+    "void_reason",
+  ],
   knowledge_audit: [
     "id",
     "knowledge_id",
@@ -1238,6 +1280,7 @@ const projectDataTablesShape = {
   knowledge_pages: projectDataRows,
   knowledge_page_versions: projectDataRows,
   knowledge_audit: projectDataRows,
+  session_diagrams: projectDataRows,
   knowledge_feedback: projectDataRows,
   knowledge_candidate_requests: projectDataRows,
   knowledge_candidates: projectDataRows,
@@ -1271,6 +1314,7 @@ const projectDataImportStatusValues: Partial<
   knowledge_page_versions: { author: KNOWLEDGE_PAGE_AUTHORS },
   knowledge_audit: { action: ["created", "updated", "archived", "restored"] },
   knowledge_feedback: { kind: KNOWLEDGE_FEEDBACK_KINDS },
+  session_diagrams: { kind: SESSION_DIAGRAM_KINDS },
   knowledge_candidate_requests: { status: METADATA_BACKFILL_REQUEST_STATUSES },
   knowledge_candidates: { kind: KNOWLEDGE_KINDS, status: ["proposed", "accepted", "rejected"] },
   report_synthesis_requests: {
@@ -1335,6 +1379,7 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
   ],
   knowledge_audit: ["id", "knowledge_id", "project_id", "action", "after_json", "changed_fields_json", "occurred_at"],
   knowledge_feedback: ["id", "knowledge_id", "project_id", "kind", "occurred_at"],
+  session_diagrams: ["id", "session_id", "project_id", "idempotency_key", "title", "kind", "source", "created_at"],
   knowledge_candidate_requests: [
     "id",
     "project_id",

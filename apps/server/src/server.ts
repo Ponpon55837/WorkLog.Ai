@@ -51,6 +51,7 @@ import {
   sessionsQuerySchema,
   sessionDecisionListQuerySchema,
   reviewSessionDecisionInputSchema,
+  setDiagramVoidInputSchema,
   setEvidenceVoidInputSchema,
   setSessionVoidInputSchema,
   linkSessionsInputSchema,
@@ -1543,6 +1544,25 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           return;
         }
         sendJson(response, 200, store.setEvidenceVoid(parsed.data));
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "diagrams" &&
+        pathParts[2] &&
+        pathParts[3] === "void"
+      ) {
+        const parsed = setDiagramVoidInputSchema.safeParse({
+          ...((await readJsonBody(request)) as Record<string, unknown>),
+          diagramId: pathParts[2],
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid diagram void payload.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.setDiagramVoid(parsed.data));
         return;
       }
 

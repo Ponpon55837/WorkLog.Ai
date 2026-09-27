@@ -34,6 +34,7 @@ const COUNTS_ADDED_LATER = new Set<keyof ProjectDeletionCounts>([
   "knowledgePages",
   "knowledgePageVersions",
   "knowledgeFeedback",
+  "sessionDiagrams",
 ]);
 
 const projectDeletionCountKeys = [
@@ -58,6 +59,7 @@ const projectDeletionCountKeys = [
   "knowledgePages",
   "knowledgePageVersions",
   "knowledgeFeedback",
+  "sessionDiagrams",
   "searchChunks",
   "searchFts",
   "searchPaths",
@@ -280,6 +282,13 @@ function makeDeletionCounts(
       sessionIdJson,
       projectId,
     ),
+    sessionDiagrams: countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM session_diagrams
+       WHERE project_id = ? OR session_id IN (SELECT value FROM json_each(?))`,
+      projectId,
+      sessionIdJson,
+    ),
     searchChunks: 0,
     searchFts: 0,
     searchPaths: 0,
@@ -415,6 +424,12 @@ export class ProjectDeletionService {
                 OR knowledge_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
           )
           .run(projectId, JSON.stringify(sessionIds), projectId);
+        this.db
+          .prepare(
+            `DELETE FROM session_diagrams
+             WHERE project_id = ? OR session_id IN (SELECT value FROM json_each(?))`,
+          )
+          .run(projectId, JSON.stringify(sessionIds));
         this.db.prepare("DELETE FROM knowledge_page_versions WHERE project_id = ?").run(projectId);
         this.db.prepare("DELETE FROM knowledge_pages WHERE project_id = ?").run(projectId);
 

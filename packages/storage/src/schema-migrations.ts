@@ -495,6 +495,26 @@ const MIGRATIONS: SchemaMigration[] = [
       ALTER TABLE projects ADD COLUMN repository_url TEXT;
     `,
   },
+  {
+    version: 19,
+    name: "session-diagrams",
+    sql: `
+      CREATE TABLE session_diagrams (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('mermaid')),
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        voided_at TEXT,
+        void_reason TEXT,
+        UNIQUE (session_id, idempotency_key)
+      );
+      CREATE INDEX idx_session_diagrams_session ON session_diagrams(session_id, created_at);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

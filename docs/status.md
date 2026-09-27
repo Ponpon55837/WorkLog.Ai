@@ -67,6 +67,12 @@
 - 系統狀態頁「個人偏好」可選 VS Code／Cursor／不使用，存在瀏覽器本機；changed files 旁的「在編輯器開啟」只為記錄中的專案產生，路徑正規化且不能跳出專案根目錄（拒絕 `..` 與其他根目錄的絕對路徑）。
 - 所有外部連結使用 `rel="noopener noreferrer"`，並有單元測試與 E2E。
 
+### D5 Agent 附上的 Mermaid 圖表
+
+- 新表 `session_diagrams`（migration 19）與 MCP `work_attach_diagram`（`ADDITIVE_IDEMPOTENT`）；finalize 可帶最多 5 張；標題與原始碼經過遮蔽；可作廢與還原、不能刪除；納入匯出、匯入、專案刪除與 `db:redact`。
+- 主頁 CSP 不放寬：`srcdoc` iframe 會繼承主頁 CSP，所以改為在 Shadow DOM 顯示 SVG、樣式以 Constructable Stylesheet（CSSOM，不受 `style-src` 限制）套用；Mermaid 以 `securityLevel: "strict"` 延遲載入。
+- 打包：主程式 chunk 不含 Mermaid；Mermaid 與各圖表類型是獨立的延遲 chunk（dist 由約 0.8 MB 增至約 4.2 MB，只有開啟含圖表的 Session 時才下載需要的部分）。
+
 ### 額外調整：報告主要完成事項增加至 10 筆
 
 - 報告頁與 Agent 報告摘要脈絡都保留最新 10 筆主要完成事項，期間工作總數仍按完整資料計算。

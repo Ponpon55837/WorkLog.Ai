@@ -3,6 +3,8 @@ import type {
   SessionLinkRelation,
   SessionDetail,
   SessionListResult,
+  SetDiagramVoidInput,
+  SetDiagramVoidResult,
   SetEvidenceVoidInput,
   SetEvidenceVoidResult,
   SetSessionVoidInput,
@@ -34,6 +36,7 @@ export interface SessionsApi {
   unlinkSession(sessionId: string, relatedSessionId: string, signal?: AbortSignal): Promise<LinkSessionsResult>;
   setSessionVoid(input: SetSessionVoidInput, signal?: AbortSignal): Promise<SetSessionVoidResult>;
   setEvidenceVoid(input: SetEvidenceVoidInput, signal?: AbortSignal): Promise<SetEvidenceVoidResult>;
+  setDiagramVoid(input: SetDiagramVoidInput, signal?: AbortSignal): Promise<SetDiagramVoidResult>;
   updateSessionSummary(input: UpdateSessionSummaryInput, signal?: AbortSignal): Promise<UpdateSessionSummaryResult>;
   updateSessionWorkSummary(
     input: UpdateSessionWorkSummaryInput,
@@ -102,6 +105,16 @@ export function createSessionsApi(client: ApiTransport): SessionsApi {
       const { sessionId, ...body } = input;
       return client.write<SetSessionVoidResult>(
         `/api/sessions/${encodeURIComponent(sessionId)}/void`,
+        "PATCH",
+        body,
+        signal,
+      );
+    },
+
+    setDiagramVoid(input: SetDiagramVoidInput, signal?: AbortSignal): Promise<SetDiagramVoidResult> {
+      const { diagramId, ...body } = input;
+      return client.write<SetDiagramVoidResult>(
+        `/api/diagrams/${encodeURIComponent(diagramId)}/void`,
         "PATCH",
         body,
         signal,
