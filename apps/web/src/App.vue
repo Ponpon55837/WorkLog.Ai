@@ -104,7 +104,12 @@ onBeforeUnmount(() => {
       <template #actions><UiButton size="sm" @click="refresh">重試</UiButton></template>
     </UiFlash>
     <UiSkeleton v-if="loading" variant="card" :count="4" />
-    <RouterView v-else />
+    <RouterView v-else v-slot="{ Component, route: current }">
+      <!-- Keyed by route name: switching tabs inside a page keeps the page and only fades its panel. -->
+      <Transition name="page" mode="out-in">
+        <div :key="String(current.name)" class="page-view"><component :is="Component" /></div>
+      </Transition>
+    </RouterView>
 
     <template #overlays>
       <SessionPanel />

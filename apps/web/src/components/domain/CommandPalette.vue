@@ -154,6 +154,7 @@ watch(open, async (value) => {
 
 <style scoped>
 .palette__backdrop {
+  animation: wi-fade-in var(--duration-fast) var(--ease-out);
   position: fixed;
   inset: 0;
   z-index: 70;
@@ -164,6 +165,8 @@ watch(open, async (value) => {
 }
 
 .palette {
+  animation: wi-pop-in var(--duration-base) var(--ease-out);
+  transform-origin: top center;
   display: flex;
   flex-direction: column;
   width: min(640px, 100%);

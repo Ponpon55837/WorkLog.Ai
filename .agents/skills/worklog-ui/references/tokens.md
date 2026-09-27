@@ -73,6 +73,26 @@ Keep "metadata 缺漏", "verification 尚未回報" and "verification 明確 not
 - Shadow only on floating layers: popover `0 8px 24px rgba(1,4,9,.75)`, SidePanel `-16px 0 48px rgba(1,4,9,.6)`. Cards and Boxes are flat (border, no shadow).
 - Control heights: 32px default, 28px small. Nav items 32px.
 
+## Motion
+
+Motion is short and purposeful (the reference is beautifului.dev): quick feedback on hover and press, gentle entrances, fast exits. Tokens in `tokens.css`, keyframes in `base.css`:
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--ease-out` | `cubic-bezier(0.23, 1, 0.32, 1)` | Entrances and anything that settles (ease-out quint) |
+| `--ease-standard` | `cubic-bezier(0.4, 0, 0.2, 1)` | Exits |
+| `--duration-instant` | 120ms | Hover and press color changes |
+| `--duration-fast` | 180ms | Menus, exits, chevrons |
+| `--duration-base` | 240ms | Dialogs, tab panels, page fade, toasts, tab indicator |
+| `--duration-slow` | 360ms | Side panel slide, card entrance |
+
+Keyframes: `wi-fade-in`, `wi-fade-up` (6px), `wi-pop-in` (scale 0.96), `wi-drop-in` (menus). Rules:
+
+- Entrances animate opacity and at most a few pixels of transform; never animate width, height, top, or left of layout boxes. Anything inside a panel that measures its size on mount (`VirtualList` fit-viewport, tab panels) only fades, so its measurements stay right.
+- Exits are faster than entrances; the page transition leaves in 80ms so navigation never feels delayed.
+- `prefers-reduced-motion: reduce` turns every animation and transition off globally (`base.css`); do not add motion that bypasses it. Playwright runs with `reducedMotion: "reduce"`.
+- Stagger only small, fixed sets (dashboard stat cards, at most 5 steps of 40ms). Do not animate rows of virtualized lists: they remount while scrolling.
+
 ## Breakpoints
 
 `sm 640` · `md 960` · `lg 1280`. Do not introduce others. Content max width 1280px (Graph page is full width).

@@ -74,11 +74,21 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
   color: var(--fg-muted);
 }
 
-.ui-toast-enter-active,
+.ui-toast-enter-active {
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out);
+}
+
 .ui-toast-leave-active {
   transition:
-    opacity 0.15s,
-    transform 0.15s;
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+/* Remaining toasts slide into the freed space. */
+.ui-toast-move {
+  transition: transform var(--duration-base) var(--ease-out);
 }
 
 .ui-toast-enter-from,

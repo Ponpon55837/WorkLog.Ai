@@ -38,6 +38,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **Gi
 - **One component per concept**: one date-range picker, one filter pattern, one pagination, one status Label mapping.
 - **Accessibility**: every icon-only button has `aria-label`; focus is always visible (`:focus-visible` accent outline); Dialog/SidePanel trap focus, close on Esc, restore focus to the trigger, lock background scroll.
 - **Data semantics are not styling choices**: `nextSteps` is labeled 狀態／未結項 (never 後續); `executionStatus` is neutral, not success; missing verification (未回報) ≠ `not_run` (未執行) ≠ passed; changed files ≠ Git commit; deterministic report numbers ≠ Agent synthesis text; summary, workSummary, and verification are edited only in place through the Session editor Dialog, and voiding a Session or evidence always asks for a reason (changed files, events, and evidence content stay read-only).
+- **Motion** uses the tokens and keyframes in tokens.md → Motion: entrances fade (and move a few pixels at most), exits are faster, and reduced motion turns it all off.
 - **Test hooks**: e2e selects by role, label or `data-testid` — never by styling class. When you rename or remove a class, check `e2e/` first.
 
 ## Verification checklist

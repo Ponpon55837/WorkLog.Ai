@@ -34,6 +34,27 @@ defineProps<{
 </template>
 
 <style scoped>
+/* Cards rise in one after another (at most 5 steps of delay). */
+.ui-stat {
+  animation: wi-fade-up var(--duration-slow) var(--ease-out) both;
+}
+
+.ui-stat:nth-child(2) {
+  animation-delay: 40ms;
+}
+
+.ui-stat:nth-child(3) {
+  animation-delay: 80ms;
+}
+
+.ui-stat:nth-child(4) {
+  animation-delay: 120ms;
+}
+
+.ui-stat:nth-child(n + 5) {
+  animation-delay: 160ms;
+}
+
 .ui-stat {
   min-width: 0;
   padding: var(--space-4);

@@ -149,9 +149,17 @@ function requestClose(): void {
   border-top: 1px solid var(--border-muted);
 }
 
-.ui-dialog-enter-active,
+.ui-dialog-enter-active {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
 .ui-dialog-leave-active {
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-instant) var(--ease-standard);
+}
+
+/* The dialog itself pops in slightly as the backdrop fades. */
+.ui-dialog-enter-active .ui-dialog {
+  animation: wi-pop-in var(--duration-base) var(--ease-out);
 }
 
 .ui-dialog-enter-from,

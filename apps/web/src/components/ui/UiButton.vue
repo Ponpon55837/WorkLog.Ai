@@ -77,8 +77,15 @@ const classes = computed(() => [
   white-space: nowrap;
   text-decoration: none;
   transition:
-    background-color 0.12s,
-    border-color 0.12s;
+    background-color var(--duration-instant) ease-out,
+    border-color var(--duration-instant) ease-out,
+    color var(--duration-instant) ease-out,
+    transform var(--duration-instant) var(--ease-out);
+}
+
+/* A short press feedback; hover only changes color. */
+.ui-button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .ui-button:hover:not(:disabled) {
