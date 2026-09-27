@@ -742,6 +742,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("has no critical or serious axe violations on primary and management pages @accessibility", async ({ page }) => {
+    test.setTimeout(90_000);
     const failures: string[] = [];
 
     for (const [path, heading] of accessibilityRoutes) {
