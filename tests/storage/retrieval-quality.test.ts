@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 type Category = "K" | "S" | "R" | "N" | "P";
@@ -711,12 +711,178 @@ describe("synthetic retrieval quality regression", () => {
           readWith: "work_get_knowledge_page_context",
           entries: expect.arrayContaining([
             expect.objectContaining({
-              id: expect.any(String),
-              sourceSessionIds: [session.session.id],
+              id: "architecture",
             }),
           ]),
         }),
       ]),
     );
+  });
+
+  it("surfaces cited Knowledge page sections when a source Session changes after the page was saved", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.UTC(2030, 0, 1));
+      const sourceSessionId = createSession("c1-source-corrected", root, {
+        title: "Verified lantern relay correction",
+        summary: "The verified lantern relay uses the confirmed calibration window.",
+      });
+      store.requestKnowledgePageUpdate({
+        projectRoot: root,
+        slug: "source-review",
+        title: "來源核對",
+        question: "這些來源仍然可靠嗎？",
+      });
+      vi.setSystemTime(Date.now() + 60_000);
+      const saved = store.saveKnowledgePage({
+        projectRoot: root,
+        slug: "source-review",
+        idempotencyKey: "c1-source-review-save",
+        sections: [
+          {
+            heading: "Lantern relay calibration",
+            content: "Use the verified lantern relay calibration window.",
+            sourceSessionIds: [sourceSessionId],
+          },
+          { heading: "Unrelated note", content: "資料不足", sourceSessionIds: [] },
+        ],
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the cited Knowledge page to save.");
+
+      vi.setSystemTime(Date.now() + 60_000);
+      store.updateSessionSummary({
+        sessionId: sourceSessionId,
+        idempotencyKey: "c1-source-review-corrected-summary",
+        summary: "Corrected: the verified lantern relay uses a new calibration window.",
+      });
+
+      const context = store.getContext(root);
+      if (context.outcome !== "context") throw new Error("Expected project context.");
+      expect(context.knowledgePages).toContainEqual(
+        expect.objectContaining({
+          slug: "source-review",
+          needsReview: true,
+          reviewSections: [
+            {
+              heading: "Lantern relay calibration",
+              sources: [
+                {
+                  sourceSessionId,
+                  title: "Verified lantern relay correction",
+                  reasons: ["source_updated_after_save"],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(context.pendingRequests.knowledgePages).toContainEqual(
+        expect.objectContaining({ slug: "source-review", needsReview: true }),
+      );
+
+      const pageContext = store.getKnowledgePageContext({ projectRoot: root, slug: "source-review" });
+      expect(pageContext).toMatchObject({
+        outcome: "knowledge_page_context",
+        page: {
+          needsReview: true,
+          reviewSections: [
+            expect.objectContaining({
+              heading: "Lantern relay calibration",
+              sources: [expect.objectContaining({ sourceSessionId, reasons: ["source_updated_after_save"] })],
+            }),
+          ],
+        },
+      });
+
+      const taskContext = store.getContext(root, { task: "lantern relay calibration" });
+      expect(taskContext).toMatchObject({
+        outcome: "context",
+        relevant: {
+          knowledgePages: [
+            expect.objectContaining({
+              slug: "source-review",
+              needsReview: true,
+              sections: [
+                expect.objectContaining({
+                  heading: "Lantern relay calibration",
+                  reviewSources: [expect.objectContaining({ sourceSessionId, reasons: ["source_updated_after_save"] })],
+                }),
+              ],
+            }),
+          ],
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds cited-source IDs in context summaries while retaining omitted counts for full-page lookup", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2031, 0, 1));
+    try {
+      const sourceSessionIds = Array.from({ length: 20 }, (_, index) =>
+        createSession(`c1-source-list-${index}`, root, {
+          title: `C1 synthetic cited source ${index}`,
+          summary: `C1 source list audit supports the verified rule ${index}.`,
+        }),
+      );
+      store.requestKnowledgePageUpdate({
+        projectRoot: root,
+        slug: "source-list-audit",
+        title: "Source list audit",
+        question: "Which Kestrel citations changed?",
+      });
+      const saved = store.saveKnowledgePage({
+        projectRoot: root,
+        slug: "source-list-audit",
+        idempotencyKey: "c1-source-list-save",
+        sections: [
+          {
+            heading: "Kestrel source list audit",
+            content: "Keep the Kestrel source list available.",
+            sourceSessionIds,
+          },
+        ],
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the source-list page to save.");
+
+      for (const [index, sessionId] of sourceSessionIds.entries()) {
+        vi.setSystemTime(Date.now() + 60_000);
+        store.updateSessionSummary({
+          sessionId,
+          idempotencyKey: `c1-source-list-correction-${index}`,
+          summary: `Corrected C1 source list audit detail ${index}.`,
+        });
+      }
+
+      const context = store.getContext(root);
+      if (context.outcome !== "context") throw new Error("Expected project context.");
+      expect(context.knowledgePages).toContainEqual(
+        expect.objectContaining({
+          slug: "source-list-audit",
+          needsReview: true,
+          sourceSessionIds: expect.arrayContaining(sourceSessionIds.slice(0, 7)),
+          sourceSessionIdsOmittedCount: 13,
+          reviewSections: [expect.objectContaining({ omittedSourceCount: 13, reasons: ["source_updated_after_save"] })],
+        }),
+      );
+
+      const taskContext = store.getContext(root, { task: "Kestrel" });
+      expect(taskContext).toMatchObject({
+        outcome: "context",
+        relevant: {
+          knowledgePages: [
+            expect.objectContaining({
+              slug: "source-list-audit",
+              needsReview: true,
+              sections: [expect.objectContaining({ sourceSessionIdsOmittedCount: 12, reviewOmittedSourceCount: 12 })],
+            }),
+          ],
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

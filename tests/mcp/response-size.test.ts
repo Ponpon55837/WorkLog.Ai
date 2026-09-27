@@ -253,6 +253,79 @@ describe("synthetic MCP response-size baseline", () => {
     expect(searchDefault.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.searchDefault);
   });
 
+  it("keeps cited-source review pointers bounded while preserving omitted counts and reasons", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const listed = store.listKnowledgePages({ projectRoot });
+    if (listed.outcome !== "knowledge_pages") throw new Error("Expected synthetic Knowledge pages.");
+    const page = listed.items.find((item) => item.slug === "architecture");
+    if (!page) throw new Error("Expected the synthetic architecture page.");
+    const sourceSessionIds = store.listSessions().map((session) => session.id);
+    expect(sourceSessionIds).toHaveLength(20);
+
+    const rewritten = store.updateKnowledgePage({
+      pageId: page.id,
+      sections: [
+        { heading: "Kestrel source audit", content: "Kestrel source audit: " + pageContent, sourceSessionIds },
+      ],
+    });
+    expect(rewritten.outcome).toBe("knowledge_page_updated");
+    for (const [index, sessionId] of sourceSessionIds.entries()) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const updated = store.updateSessionSummary({
+        sessionId,
+        idempotencyKey: `response-size-cited-source-correction-${index}`,
+        summary: `${longSummary} Source correction ${index} needs a Knowledge page review.`,
+      });
+      expect(updated.outcome).toBe("summary_updated");
+    }
+
+    const defaultContext = await serializedMcpPayload(client, "work_get_context", { projectRoot });
+    const taskContext = await serializedMcpPayload(client, "work_get_context", {
+      projectRoot,
+      task: "Kestrel",
+    });
+    console.info(
+      `Cited-source review response sizes (characters): ${JSON.stringify({
+        contextWithoutTask: defaultContext.length,
+        contextWithTask: taskContext.length,
+      })}`,
+    );
+    expect(defaultContext.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithoutTask);
+    expect(taskContext.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    const defaultPages = (defaultContext.value as { knowledgePages: Array<Record<string, unknown>> }).knowledgePages;
+    expect(defaultPages).toContainEqual(
+      expect.objectContaining({
+        slug: "architecture",
+        needsReview: true,
+        reviewSections: [
+          expect.objectContaining({
+            heading: "Kestrel source audit",
+            sources: expect.arrayContaining([
+              expect.objectContaining({
+                sourceSessionId: sourceSessionIds[0],
+                reasons: ["source_updated_after_save"],
+              }),
+            ]),
+            omittedSourceCount: 12,
+          }),
+        ],
+      }),
+    );
+    const relevantPages = (
+      taskContext.value as {
+        relevant?: { knowledgePages?: Array<{ needsReview?: boolean; sections: Array<Record<string, unknown>> }> };
+      }
+    ).relevant?.knowledgePages;
+    expect(relevantPages?.some((item) => item.needsReview)).toBe(true);
+    expect(relevantPages?.flatMap((item) => item.sections)).toContainEqual(
+      expect.objectContaining({
+        heading: "Kestrel source audit",
+        reviewOmittedSourceCount: 12,
+        reviewReasons: ["source_updated_after_save"],
+      }),
+    );
+  });
+
   it("keeps pending requests and Knowledge review flags within the focused context budget", async () => {
     const { client, projectRoot, store } = await connectWithSyntheticHistory();
     const knowledgeResult = store.searchKnowledge({ projectRoot, status: "active", limit: 20 });

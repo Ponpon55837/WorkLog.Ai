@@ -8,6 +8,7 @@ import type {
   KnowledgeCandidateRequest,
   KnowledgePageDigest,
   KnowledgePageRecord,
+  KnowledgePageReviewSection,
   KnowledgeDigest,
   KnowledgeQuery,
   KnowledgeQueryResult,
@@ -42,6 +43,7 @@ import {
 } from "./digest.js";
 import type { SessionListOptions } from "./session-repository.js";
 import type { SearchRepository } from "./search-repository.js";
+import { limitKnowledgePageReviewSections } from "./knowledge-page-service.js";
 
 const RECENT_DECISION_LIMIT = 12;
 const RELEVANT_LIMIT = 5;
@@ -51,6 +53,8 @@ const SEARCH_LIMIT = 20;
 const CONTEXT_DEFAULT_BUDGET_CHARS = 19_000;
 const CONTEXT_TASK_BUDGET_CHARS = 12_000;
 const CONTEXT_PAGE_SECTION_LIMIT = 5;
+const CONTEXT_REVIEW_SOURCE_LIMIT = 8;
+const CONTEXT_SOURCE_SESSION_LIMIT = 8;
 const CONTEXT_PAGE_SECTION_CHARS = 500;
 const CONTEXT_EXCERPT_CHARS = 240;
 const RECALL_EXCERPT_CHARS = 110;
@@ -352,14 +356,26 @@ export class ContextRecallService {
     });
 
     const selectedPageIds = new Set((context.relevant.knowledgePages ?? []).map((page) => page.id));
+    let remainingReviewSources = CONTEXT_REVIEW_SOURCE_LIMIT;
     for (const page of this.store.knowledgePagesForContext(context.project?.id)) {
+      const selected = selectedPageIds.has(page.id);
+      const reviewSections =
+        page.needsReview && !selected
+          ? limitKnowledgePageReviewSections(page.reviewSections ?? [], remainingReviewSources)
+          : undefined;
+      remainingReviewSources -= reviewSections?.reduce((count, section) => count + section.sources.length, 0) ?? 0;
       addOmission(
         context,
         "knowledgePages",
         {
-          id: page.id,
-          reason: selectedPageIds.has(page.id) ? "已列於 relevant.knowledgePages" : "本次不相關",
-          sourceSessionIds: [...new Set(page.sections.flatMap((section) => section.sourceSessionIds))],
+          id: page.slug,
+          reason: selected ? "已列於 relevant.knowledgePages" : "本次不相關",
+          ...(page.needsReview
+            ? {
+                needsReview: true,
+                ...(reviewSections ? { reviewSections } : {}),
+              }
+            : {}),
         },
         "work_get_knowledge_page_context",
       );
@@ -371,6 +387,41 @@ export class ContextRecallService {
   private fitContextBudget(context: ContextResult, focus: ContextFocus): ContextResult {
     const limit = hasFocus(focus) ? CONTEXT_TASK_BUDGET_CHARS : CONTEXT_DEFAULT_BUDGET_CHARS;
     const responseLength = () => JSON.stringify(context, null, 2).length;
+    let remainingReviewSources = CONTEXT_REVIEW_SOURCE_LIMIT;
+    let remainingSourceIds = CONTEXT_SOURCE_SESSION_LIMIT;
+    const sourceIdOrder = [
+      ...context.knowledgePages.filter((page) => page.needsReview),
+      ...context.knowledgePages.filter((page) => !page.needsReview),
+    ];
+    const sourceIdsByPage = new Map<KnowledgePageDigest, { ids: string[]; omittedCount: number }>();
+    for (const page of sourceIdOrder) {
+      const ids = page.sourceSessionIds.slice(0, remainingSourceIds);
+      remainingSourceIds -= ids.length;
+      sourceIdsByPage.set(page, {
+        ids,
+        omittedCount: (page.sourceSessionIdsOmittedCount ?? 0) + page.sourceSessionIds.length - ids.length,
+      });
+    }
+    context.knowledgePages = context.knowledgePages.map((page) => {
+      const sourceIds = sourceIdsByPage.get(page)!;
+      const sourceSessionIds = sourceIds.ids;
+      const sourceSessionIdsOmittedCount = sourceIds.omittedCount;
+      if (!page.needsReview) {
+        return {
+          ...page,
+          sourceSessionIds,
+          ...(sourceSessionIdsOmittedCount > 0 ? { sourceSessionIdsOmittedCount } : {}),
+        };
+      }
+      const reviewSections = limitKnowledgePageReviewSections(page.reviewSections ?? [], remainingReviewSources);
+      remainingReviewSources -= reviewSections.reduce((count, section) => count + section.sources.length, 0);
+      return {
+        ...page,
+        sourceSessionIds,
+        ...(sourceSessionIdsOmittedCount > 0 ? { sourceSessionIdsOmittedCount } : {}),
+        reviewSections,
+      };
+    });
 
     const trimNext = (): boolean => {
       const recentSession = context.recentSessions.pop();
@@ -413,7 +464,15 @@ export class ContextRecallService {
         addOmission(
           context,
           "knowledgePages",
-          { id: page.slug, reason: "預算限制：較低優先頁面", sourceSessionIds: page.sourceSessionIds },
+          {
+            id: page.slug,
+            reason: "預算限制：較低優先頁面",
+            sourceSessionIds: page.sourceSessionIds,
+            ...(page.sourceSessionIdsOmittedCount
+              ? { sourceSessionIdsOmittedCount: page.sourceSessionIdsOmittedCount }
+              : {}),
+            ...(page.needsReview ? { needsReview: true, reviewSections: page.reviewSections } : {}),
+          },
           "work_get_knowledge_page_context",
         );
         return true;
@@ -437,9 +496,29 @@ export class ContextRecallService {
           context,
           "relevant.knowledgePages",
           {
-            id: `${pageWithSections.id}#${section.heading}`,
-            reason: "預算限制：較低相關段落",
+            id: pageWithSections.slug,
+            reason: `預算限制：較低相關段落（${section.heading}）`,
             sourceSessionIds: section.sourceSessionIds,
+            ...(section.sourceSessionIdsOmittedCount
+              ? { sourceSessionIdsOmittedCount: section.sourceSessionIdsOmittedCount }
+              : {}),
+            ...(section.reviewSources || section.reviewOmittedSourceCount
+              ? {
+                  needsReview: true,
+                  reviewSections: [
+                    {
+                      heading: section.heading,
+                      sources: section.reviewSources ?? [],
+                      ...(section.reviewOmittedSourceCount
+                        ? {
+                            omittedSourceCount: section.reviewOmittedSourceCount,
+                            reasons: section.reviewReasons,
+                          }
+                        : {}),
+                    },
+                  ],
+                }
+              : {}),
           },
           "work_get_knowledge_page_context",
         );
@@ -606,8 +685,8 @@ export class ContextRecallService {
   private getRelevantKnowledgePages(focus: ContextFocus, projectId?: string): RelevantKnowledgePageDigest[] {
     const terms = contextTerms(focus);
     if (terms.length === 0) return [];
-    const matches = this.store
-      .knowledgePagesForContext(projectId)
+    const pages = this.store.knowledgePagesForContext(projectId);
+    const matches = pages
       .flatMap((page) =>
         page.sections.flatMap((section) => {
           const score = matchCount(`${page.title} ${page.question} ${section.heading} ${section.content}`, terms);
@@ -630,7 +709,28 @@ export class ContextRecallService {
       uniqueMatches.push(match);
       if (uniqueMatches.length >= CONTEXT_PAGE_SECTION_LIMIT) break;
     }
+    const matchedPageIds = new Set(uniqueMatches.map((match) => match.page.id));
+    for (const page of pages) {
+      if (!matchedPageIds.has(page.id) || !page.needsReview) continue;
+      for (const reviewSection of page.reviewSections ?? []) {
+        const section = page.sections.find((item) => item.heading === reviewSection.heading);
+        if (!section) continue;
+        const key = `${section.heading}\u0000${section.content}\u0000${[...section.sourceSessionIds].sort().join("\u0000")}`;
+        if (sectionKeys.has(key)) continue;
+        sectionKeys.add(key);
+        uniqueMatches.push({ page, section, score: 0 });
+      }
+    }
+    const reviewSectionsByPage = new Map<string, KnowledgePageReviewSection[]>();
+    let remainingReviewSources = CONTEXT_REVIEW_SOURCE_LIMIT;
+    for (const page of pages) {
+      if (!matchedPageIds.has(page.id) || !page.needsReview) continue;
+      const reviewSections = limitKnowledgePageReviewSections(page.reviewSections ?? [], remainingReviewSources);
+      remainingReviewSources -= reviewSections.reduce((count, section) => count + section.sources.length, 0);
+      reviewSectionsByPage.set(page.id, reviewSections);
+    }
     const pageDigests = new Map<string, RelevantKnowledgePageDigest>();
+    let remainingSourceIds = CONTEXT_SOURCE_SESSION_LIMIT;
     for (const match of uniqueMatches) {
       let digest = pageDigests.get(match.page.id);
       if (!digest) {
@@ -639,16 +739,34 @@ export class ContextRecallService {
           projectId: match.page.projectId,
           slug: match.page.slug,
           title: match.page.title,
+          ...(match.page.needsReview ? { needsReview: true } : {}),
           sections: [],
         };
         pageDigests.set(match.page.id, digest);
       }
       const bounded = truncateAtSentenceBoundary(match.section.content, CONTEXT_PAGE_SECTION_CHARS);
+      const reviewSection = reviewSectionsByPage
+        .get(match.page.id)
+        ?.find((item) => item.heading === match.section.heading);
+      const sourceSessionIds = match.section.sourceSessionIds.slice(0, remainingSourceIds);
+      remainingSourceIds -= sourceSessionIds.length;
       digest.sections.push({
         heading: match.section.heading,
         content: bounded.text,
-        sourceSessionIds: match.section.sourceSessionIds,
+        sourceSessionIds,
+        ...(match.section.sourceSessionIds.length > sourceSessionIds.length
+          ? { sourceSessionIdsOmittedCount: match.section.sourceSessionIds.length - sourceSessionIds.length }
+          : {}),
         truncated: bounded.truncated,
+        ...(reviewSection
+          ? {
+              reviewSources: reviewSection.sources,
+              ...(reviewSection.omittedSourceCount
+                ? { reviewOmittedSourceCount: reviewSection.omittedSourceCount }
+                : {}),
+              ...(reviewSection.reasons ? { reviewReasons: reviewSection.reasons } : {}),
+            }
+          : {}),
       });
     }
     return [...pageDigests.values()];

@@ -185,6 +185,98 @@ describe("Knowledge pages", () => {
     expect(digest?.content).toContain("Edited by hand.");
   });
 
+  it("keeps cited-source review warnings through void and restore until a new page version is saved", () => {
+    const { store, projectRoot, finalize, tick } = setup();
+    const cited = finalize("cited-source");
+    const uncited = finalize("uncited-source");
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    const saved = store.saveKnowledgePage({
+      projectRoot,
+      slug: "pitfalls",
+      idempotencyKey: "source-lifecycle-save",
+      sections: [
+        { heading: "Cited rule", content: "Keep the cited rule current.", sourceSessionIds: [cited] },
+        { heading: "Unrelated", content: "資料不足", sourceSessionIds: [] },
+      ],
+    });
+    if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the page to save.");
+
+    tick();
+    store.updateSessionSummary({
+      sessionId: uncited,
+      idempotencyKey: "uncited-session-correction",
+      summary: "An unrelated Session changed after the page was saved.",
+    });
+    expect(store.listKnowledgePages({ projectRoot })).toMatchObject({
+      outcome: "knowledge_pages",
+      items: [expect.objectContaining({ slug: "pitfalls", status: "fresh" })],
+    });
+    const unchanged = store.listKnowledgePages({ projectRoot });
+    expect(unchanged.outcome === "knowledge_pages" && unchanged.items[0]).not.toHaveProperty("needsReview");
+
+    tick();
+    store.setSessionVoid({ sessionId: cited, voided: true, reason: "Fixture source review." });
+    let page = store.listKnowledgePages({ projectRoot });
+    expect(page).toMatchObject({
+      outcome: "knowledge_pages",
+      items: [
+        expect.objectContaining({
+          slug: "pitfalls",
+          needsReview: true,
+          reviewSections: [
+            {
+              heading: "Cited rule",
+              sources: [
+                expect.objectContaining({
+                  sourceSessionId: cited,
+                  reasons: ["source_updated_after_save", "source_voided_after_save"],
+                }),
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+
+    tick();
+    store.setSessionVoid({ sessionId: cited, voided: false });
+    page = store.listKnowledgePages({ projectRoot });
+    expect(page).toMatchObject({
+      outcome: "knowledge_pages",
+      items: [
+        expect.objectContaining({
+          needsReview: true,
+          reviewSections: [
+            {
+              heading: "Cited rule",
+              sources: [
+                expect.objectContaining({
+                  sourceSessionId: cited,
+                  reasons: ["source_updated_after_save", "source_voided_after_save", "source_restored_after_save"],
+                }),
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+    const context = store.getContext(projectRoot);
+    expect(context.outcome === "context" && context.pendingRequests.knowledgePages).toContainEqual(
+      expect.objectContaining({ slug: "pitfalls", needsReview: true }),
+    );
+
+    tick();
+    const updated = store.updateKnowledgePage({
+      pageId: saved.page.id,
+      sections: [
+        { heading: "Cited rule", content: "Rechecked and retained the cited rule.", sourceSessionIds: [cited] },
+        { heading: "Unrelated", content: "資料不足", sourceSessionIds: [] },
+      ],
+    });
+    expect(updated).toMatchObject({ outcome: "knowledge_page_updated", page: { version: 2 } });
+    expect(updated.outcome === "knowledge_page_updated" && updated.page).not.toHaveProperty("needsReview");
+  });
+
   it("skips projects that are not tracked", () => {
     const { store, projectRoot, project } = setup();
     store.updateProject(project.id, { status: "paused" });

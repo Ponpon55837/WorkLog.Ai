@@ -20,7 +20,7 @@ For the canonical field definitions, reporting granularity, and examples, read [
 
 - Call `work_get_context` before beginning tracked-project work, and pass the task and known paths when available. Focused context puts relevant decisions, gotchas, open items, and matching Knowledge-page sections before recent activity. Without a focus, it provides bounded project updates.
 - The complete pretty-printed response is capped at 12,000 characters with a task or paths, and 19,000 without. Session and Knowledge records that also match another section appear once as full content; other sections retain an id and reason.
-- Read `omitted` before proceeding. It gives omitted counts, ids, reasons, and the full-read tool for each section. Preserve `possiblyStale` and `needsReview` as review signals, and do not treat truncated excerpts as full source text. Pending requests remain available in the context.
+- Read `omitted` before proceeding. It gives omitted counts, ids, reasons, and the full-read tool for each section. Knowledge-page citation ids are capped at 8 per context; `sourceSessionIdsOmittedCount` gives the omitted count. Preserve `possiblyStale` and `needsReview` as review signals, and do not treat truncated excerpts as full source text. Pending requests remain available in the context.
 - Read full source records with the tool named by `omitted` (`work_get_session`, `work_search_knowledge`, or `work_get_knowledge_page_context`). Use `work_preview_metadata_backfill` for metadata follow-up counts.
 
 ## Recall past work
@@ -107,7 +107,7 @@ When the user asks to organize or extract Knowledge from recorded work (整理 K
 
 ## Update standing Knowledge pages
 
-When the user asks to update the project's knowledge pages (更新知識頁), or `pendingRequests.knowledgePages` in the project context shows a page that needs an update, request the page update, read its context, and rewrite the whole page from those Sessions and the current page. Every section cites the Sessions that support it; a part the Sessions do not answer is a section whose content is exactly 資料不足 with no sources. Drop facts later Sessions contradict, never invent plans or recommendations, and tell the user which page you updated and that its versions are on the Knowledge page.
+When the user asks to update the project's knowledge pages (更新知識頁), or `pendingRequests.knowledgePages` in the project context shows a page that needs an update or review, request the page update, read its context, and rewrite the whole page from those Sessions and the current page. Treat `page.needsReview` and `page.reviewSections` as a required source check: reread each named Session and check the listed reason codes. If context summaries omit citation ids or review details, use `work_get_knowledge_page_context` for the full list. A restored Session is not automatically verified; compare its current summary, workSummary, verification, and void state with the page before saving. Every section cites the Sessions that support it; a part the Sessions do not answer is a section whose content is exactly 資料不足 with no sources. Drop facts later Sessions contradict, never invent plans or recommendations, and tell the user which page you updated and that its versions are on the Knowledge page.
 
 ## Context, search, and Knowledge
 

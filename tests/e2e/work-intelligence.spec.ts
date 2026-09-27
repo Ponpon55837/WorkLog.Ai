@@ -417,6 +417,19 @@ test.describe("Work Intelligence browser regression", () => {
   test("shows a standing Knowledge page with its sources and keeps a manual edit as a new version", async ({
     page,
   }) => {
+    const reviewSourceId = withAgentStore((store) => {
+      const finalized = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `e2e-knowledge-review-source-${process.pid}`,
+        title: "E2E cited source that changes",
+        summary: "The page cites this source before it is voided and restored.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (finalized.outcome !== "finalized") throw new Error("Expected the cited fixture Session to finalize.");
+      return finalized.session.id;
+    });
     const saved = withAgentStore((store) => {
       store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
       return store.saveKnowledgePage({
@@ -424,31 +437,56 @@ test.describe("Work Intelligence browser regression", () => {
         slug: "pitfalls",
         idempotencyKey: `e2e-knowledge-page-${process.pid}`,
         sections: [
-          { heading: "E2E build order", content: "Build the shared packages first.", sourceSessionIds: [sessionId] },
+          {
+            heading: "E2E build order",
+            content: "Build the shared packages first.",
+            sourceSessionIds: [reviewSourceId],
+          },
           { heading: "E2E unknowns", content: "資料不足", sourceSessionIds: [] },
         ],
       });
     });
     expect(saved).toMatchObject({ outcome: "knowledge_page_saved", page: { version: 1 } });
 
+    await page.waitForTimeout(5);
+    withAgentStore((store) =>
+      store.setSessionVoid({
+        sessionId: reviewSourceId,
+        voided: true,
+        reason: "E2E source review fixture.",
+      }),
+    );
+
     await page.goto("/knowledge/pages");
     const row = page.getByTestId("knowledge-page-row").filter({ hasText: "常見陷阱" });
     await expect(row).toContainText("最新");
+    await expect(row).toContainText("來源需要核對");
+    await expect(row).toContainText("E2E build order");
     await row.getByRole("button", { name: "查看" }).click();
     const panel = page.getByRole("dialog", { name: "知識頁" });
     await expect(panel).toContainText("Build the shared packages first.");
-    await expect(panel.getByRole("button", { name: "Browser regression fixture session" })).toBeVisible();
+    await expect(panel).toContainText("來源 Session 在儲存後已作廢");
+    await expect(panel.getByRole("button", { name: "E2E cited source that changes" }).first()).toBeVisible();
 
-    await panel.getByRole("button", { name: "手動編輯" }).click();
+    withAgentStore((store) => store.setSessionVoid({ sessionId: reviewSourceId, voided: false }));
+    await page.reload();
+    const restoredRow = page.getByTestId("knowledge-page-row").filter({ hasText: "常見陷阱" });
+    await expect(restoredRow).toContainText("來源需要核對");
+    await restoredRow.getByRole("button", { name: "查看" }).click();
+    const restoredPanel = page.getByRole("dialog", { name: "知識頁" });
+    await expect(restoredPanel).toContainText("來源 Session 在儲存後已還原");
+
+    await restoredPanel.getByRole("button", { name: "手動編輯" }).click();
     const editor = page.getByRole("dialog", { name: "編輯知識頁" });
     await editor.getByLabel("內容").first().fill("Build the shared packages first, then the apps.");
     await editor.getByRole("button", { name: "儲存新版本" }).click();
     await expect(editor).toBeHidden();
-    await expect(panel).toContainText("Build the shared packages first, then the apps.");
-    await expect(panel.getByRole("button", { name: /第 2 版/ })).toBeVisible();
-    await panel.getByRole("button", { name: /第 1 版/ }).click();
-    await expect(panel).toContainText("正在檢視第 1 版");
-    await expect(panel).toContainText("Build the shared packages first.");
+    await expect(restoredPanel).toContainText("Build the shared packages first, then the apps.");
+    await expect(restoredPanel.getByRole("button", { name: /第 2 版/ })).toBeVisible();
+    await expect(restoredPanel.getByText("引用來源需要核對")).toHaveCount(0);
+    await restoredPanel.getByRole("button", { name: /第 1 版/ }).click();
+    await expect(restoredPanel).toContainText("正在檢視第 1 版");
+    await expect(restoredPanel).toContainText("Build the shared packages first.");
   });
 
   test("shows how often Sessions confirmed or contradicted Knowledge and links to them", async ({ page }) => {

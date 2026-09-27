@@ -28,7 +28,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Knowledge 維護：可編輯內容、標籤、references、類型，並可封存／恢復；封存不刪除資料，只從預設搜尋與 Graph 隱藏
 - Graph UI：以關係圖、節點分布與關係類型呈現 tracked-only graph，並可從 Session／Knowledge 節點回到來源
 - `idempotencyKey` 保證 finalize retry 不會重複建立 session
-- 常駐知識頁（`knowledge-page-service.ts`）：每頁的每段引用來源 Session，保存為版本；新 Session 讓頁面標示需要更新
+- 常駐知識頁（`knowledge-page-service.ts`）：每頁的每段引用來源 Session，保存為版本；新 Session 讓頁面標示有新資料，引用來源在儲存後修改、作廢或還原時以批次查詢標示需要核對
 - Knowledge 證據強度：`knowledge_feedback` 保存 Session 確認、推翻與手動確認，檢索排序會納入
 - 洞察讀取路徑：熱點（`hotspot-repository.ts`）、時間軸（`timeline-repository.ts`），以及推導的「一起修改」邊與最短關聯路徑（`graph-derivation.ts`，BFS）；推導結果只在讀取時計算，不寫回資料庫
 - Session 圖表（`diagram-service.ts`）：Mermaid 原始碼寫入前遮蔽敏感資料，可作廢、不可刪除。Web 以 strict 模式延遲載入 Mermaid，渲染到 Shadow DOM 並套用 constructable stylesheet，所以不必放寬 CSP
