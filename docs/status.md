@@ -42,6 +42,12 @@
 - `work_recall`、`work_search` 與 `GET /api/search` 新增 `from`／`to`（server 時區日曆日期），在 SQL 層依 `doc_date` 篩選；工具說明提示 Agent 把「上週」「六月」換算成日期。
 - 新增合成檢索案例與「依月份範圍檢索」效能門檻（p90 約 15 ms，上限 500 ms）。
 
+### D1 熱點檔案
+
+- `getHotspots` 以 SQL 彙總 search path 索引（排除作廢與改動超過 20 檔的 Session），一次查詢取前 N 名與各自最近 5 筆 Session；可依目錄彙總、依專案與期間篩選，並還原原始大小寫顯示。
+- `GET /api/insights/hotspots`；工作圖譜新增「熱點」分頁（文字標示與圖例，不只靠顏色）；報告風險加入本期熱點；`work_get_context` 帶 paths 時提示近 30 天常被修改的檔案。
+- 效能：5,000 筆 Session 全期間前 20 名 p90 約 74 ms、依目錄單月約 23 ms（門檻各 500 ms）。
+
 ### 額外調整：報告主要完成事項增加至 10 筆
 
 - 報告頁與 Agent 報告摘要脈絡都保留最新 10 筆主要完成事項，期間工作總數仍按完整資料計算。

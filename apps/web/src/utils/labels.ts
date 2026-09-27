@@ -7,6 +7,7 @@ import type {
   ProjectDeletionCounts,
   ProjectStatus,
   ReportEvidence,
+  ReportInsightKind,
   SessionLinkDirection,
   SessionVoidedFilter,
   WorkReportPeriod,
@@ -141,10 +142,11 @@ export const reportPeriodLabels: Record<WorkReportPeriod, string> = {
   custom: "自訂期間",
 };
 
-export const insightKindLabels: Record<"verification" | "metadata" | "event", string> = {
+export const insightKindLabels: Record<ReportInsightKind, string> = {
   verification: "Verification",
   metadata: "Metadata",
   event: "Event",
+  hotspot: "熱點",
 };
 
 export const evidenceKindLabels: Record<ReportEvidence["kind"], string> = {

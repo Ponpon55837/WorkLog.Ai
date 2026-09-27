@@ -2,6 +2,7 @@ import {
   CHANGED_FILE_SOURCES,
   CHANGED_FILE_CHANGE_STATUSES,
   CHANGED_FILES_MODES,
+  HOTSPOT_GROUPS,
   KNOWLEDGE_FEEDBACK_KINDS,
   KNOWLEDGE_KINDS,
   KNOWLEDGE_STATUSES,
@@ -325,6 +326,17 @@ export const searchQuerySchemaBase = z.object({
 });
 
 export const searchQuerySchema = searchQuerySchemaBase.refine(dateRangeInOrder, dateRangeOrderIssue);
+
+export const hotspotQuerySchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000).optional(),
+    projectId: z.string().trim().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    groupBy: z.enum(HOTSPOT_GROUPS).optional(),
+    ...recallDateRangeFields,
+  })
+  .strict()
+  .refine(dateRangeInOrder, dateRangeOrderIssue);
 const listPageSizeSchema = z.union([z.literal(0), z.number().int().min(1).max(100)]);
 
 const voidedFilterSchema = z.enum(["exclude", "include", "only"]);

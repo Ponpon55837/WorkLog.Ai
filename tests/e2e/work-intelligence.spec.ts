@@ -42,6 +42,7 @@ const accessibilityRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/system-status", "系統狀態"],
   ["/projects/backup", "專案"],
   ["/knowledge/pages", "工作知識"],
+  ["/graph/hotspots", "工作圖譜"],
   ["/knowledge/candidates", "工作知識"],
   ["/knowledge/decisions", "工作知識"],
 ];
@@ -482,6 +483,21 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(feedback).toContainText("Session 確認");
     await feedback.getByRole("button", { name: confirmingTitle }).click();
     await expect(page.getByRole("dialog", { name: "Session 詳情" })).toContainText(confirmingTitle);
+  });
+
+  test("lists hotspot files on the graph page and opens their Sessions", async ({ page }) => {
+    await page.goto("/graph/hotspots");
+    const hotspots = page.getByTestId("graph-hotspots");
+    const readme = hotspots.getByTestId("hotspot").filter({ hasText: "README.md" });
+    await expect(readme).toContainText("筆 Session");
+    await expect(hotspots).toContainText("長條＝修改它的 Session 數");
+    await readme.getByText(/最近 \d+ 筆 Session/).click();
+    await readme.getByRole("button", { name: "Browser regression fixture session" }).click();
+    await expect(page.getByRole("dialog", { name: "Session 詳情" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("tab", { name: /關係圖/ }).click();
+    await expect(page).toHaveURL(/\/graph(\?|$)/);
   });
 
   test("serves the production Web UI and API from one origin @cross-browser", async ({ page }) => {
@@ -1632,7 +1648,12 @@ test.describe("Work Intelligence browser regression", () => {
     const synthesis = page.getByTestId("report-synthesis");
     const createButton = synthesis.getByRole("button", { name: "請 Agent 整理這份報告" });
     await expect(createButton).toBeEnabled();
+    const created = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/reports/synthesis-requests") && response.request().method() === "POST",
+    );
     await createButton.click();
+    await created;
 
     const customRequest = withAgentStore((store) => {
       const requests = store.listReportSynthesisRequests({

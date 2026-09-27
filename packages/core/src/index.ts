@@ -767,7 +767,7 @@ export interface ReportTrendPoint {
   events: number;
 }
 
-export type ReportInsightKind = "verification" | "metadata" | "event";
+export type ReportInsightKind = "verification" | "metadata" | "event" | "hotspot";
 
 export interface ReportInsight {
   kind: ReportInsightKind;
@@ -841,6 +841,7 @@ export interface WorkReport {
     verification: Record<ReportVerificationStatus, number>;
   };
   comparison: ReportComparison;
+  /** Includes up to five "hotspot" risks: files that at least two of the period's Sessions changed. */
   risks: ReportInsight[];
   decisions: ReportDecision[];
   agentAutonomousDecisions: {
@@ -2037,6 +2038,53 @@ export interface RelevantContext {
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<RecallHit & { openItems: string[] }>;
   termHits?: RecallTermHits[];
+  /** Paths from the request that recent Sessions changed often (only with paths). */
+  hotspots?: HotspotHint[];
+}
+
+export const HOTSPOT_GROUPS = ["file", "directory"] as const;
+export type HotspotGroup = (typeof HOTSPOT_GROUPS)[number];
+
+export interface HotspotQuery extends DateRange {
+  projectRoot?: string;
+  projectId?: string;
+  /** Default 20, at most 100. */
+  limit?: number;
+  /** Aggregate by file (default) or by the directory that contains it. */
+  groupBy?: HotspotGroup;
+}
+
+export interface HotspotSession {
+  id: string;
+  title: string;
+  completedAt: string;
+  verificationStatus: ReportVerificationStatus;
+}
+
+/** A file or directory that many Sessions changed, with how often their verification failed or was not run. */
+export interface Hotspot {
+  projectId: string;
+  projectName: string;
+  /** Project-relative path of the file or directory ("." for files at the project root). */
+  path: string;
+  sessionCount: number;
+  failedCount: number;
+  notRunCount: number;
+  lastChangedAt: string;
+  /** The newest five Sessions, newest first. */
+  recentSessions: HotspotSession[];
+}
+
+export type HotspotResult =
+  { outcome: "hotspots"; groupBy: HotspotGroup; from?: string; to?: string; items: Hotspot[] } | SkippedContextResult;
+
+/** A path an Agent is about to change that recent Sessions changed often. */
+export interface HotspotHint {
+  path: string;
+  days: number;
+  sessionCount: number;
+  failedCount: number;
+  notRunCount: number;
 }
 
 export interface SearchResult {

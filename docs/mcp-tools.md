@@ -113,6 +113,7 @@ MCP client 的 stdio 設定可使用：
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
 | `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
+| `relevant.hotspots` | 指定專案並帶 `paths` 時才出現：過去 30 天被 3 筆以上 Session 修改的路徑，附 Session 數、驗證失敗與未執行數；修改前應特別注意 |
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "task": "修正報表時區", "paths": ["src/report/range.ts"] }

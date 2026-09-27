@@ -25,6 +25,7 @@ import {
   databaseBackupFileNameSchema,
   deleteDatabaseBackupBodySchema,
   graphQuerySchema,
+  hotspotQuerySchema,
   handoffImportApplyInputSchema,
   handoffImportOptionsSchema,
   knowledgeHistoryQuerySchema,
@@ -1017,6 +1018,23 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           return;
         }
         sendJson(response, 200, store.getKnowledgeHistory(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/insights/hotspots") {
+        const rawLimit = requestUrl.searchParams.get("limit");
+        const parsed = hotspotQuerySchema.safeParse({
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          from: requestUrl.searchParams.get("from") || undefined,
+          to: requestUrl.searchParams.get("to") || undefined,
+          groupBy: requestUrl.searchParams.get("groupBy") || undefined,
+          limit: rawLimit ? Number(rawLimit) : undefined,
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid hotspot query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getHotspots(parsed.data));
         return;
       }
 

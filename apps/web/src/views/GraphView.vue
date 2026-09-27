@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from "vue";
-import { FolderGit2, Search, SearchX, Share2 } from "lucide-vue-next";
+import { computed, onBeforeUnmount, watch } from "vue";
+import { useRoute } from "vue-router";
+import { Flame, FolderGit2, Search, SearchX, Share2 } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { GraphNode } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import PageToolbar from "../components/layout/PageToolbar.vue";
+import GraphHotspotsBox from "../components/domain/GraphHotspotsBox.vue";
 import GraphNodePanel from "../components/domain/GraphNodePanel.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiButton from "../components/ui/UiButton.vue";
@@ -12,13 +15,19 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
+import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import GraphCanvas from "../components/GraphCanvas.vue";
 import { useGraph, type GraphNodeFilter } from "../composables/useGraph";
 import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
+import { router } from "../router";
 import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
 import { useProjectsStore } from "../stores/projects";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
 
+type GraphTab = "graph" | "hotspots";
+const graphTabs: readonly GraphTab[] = ["graph", "hotspots"];
+
+const route = useRoute();
 const projectsStore = useProjectsStore();
 const { trackedProjects } = storeToRefs(projectsStore);
 const graphStore = useGraphStore();
@@ -48,6 +57,18 @@ const load = (): Promise<void> => graphStore.loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
 
+const tab = computed<GraphTab>({
+  get: () => {
+    const value = String(route.params.tab ?? "");
+    return (graphTabs as readonly string[]).includes(value) ? (value as GraphTab) : "graph";
+  },
+  set: (value) =>
+    void router.replace({ name: "graph", params: { tab: value === "graph" ? undefined : value }, query: route.query }),
+});
+const tabItems = [
+  { value: "graph" as const, label: "關係圖", icon: Share2 },
+  { value: "hotspots" as const, label: "熱點", icon: Flame },
+];
 const projectOptions = computed(() => [
   { value: "", label: "所有記錄中專案" },
   ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
@@ -100,7 +121,9 @@ function selectFirstMatch(): void {
   }
 }
 
-onMounted(() => graphStore.setGraphActive(true));
+// Only the open tab loads its data.
+watch(tab, (value) => graphStore.setGraphActive(value === "graph"), { immediate: true });
+
 onBeforeUnmount(() => {
   graphStore.setGraphActive(false);
   graphStore.selectGraphNode(null);
@@ -110,100 +133,109 @@ onBeforeUnmount(() => {
 <template>
   <PageHeader description="只使用已保存的結構化資料；不讀取 source、handoff 或 Git，也不替資料推測語意關係。" />
 
-  <UiFlash v-if="graphError" tone="danger">
-    {{ graphError }}
-    <template #actions><UiButton size="sm" @click="load">重試</UiButton></template>
-  </UiFlash>
+  <PageToolbar>
+    <UiUnderlineNav v-model="tab" :items="tabItems" label="工作圖譜分頁" id-prefix="graph" />
+  </PageToolbar>
 
-  <UiBox class="graph">
-    <template #header>
-      <form class="graph__toolbar" @submit.prevent="load">
-        <UiTextInput
-          v-model="graphSearch"
-          type="search"
-          :icon="Search"
-          size="sm"
-          placeholder="搜尋節點名稱…"
-          label="搜尋 Graph 節點"
-          class="graph__search"
-          @keydown.enter.prevent="selectFirstMatch"
-        />
-        <UiSelect
-          v-model="graphProjectId"
-          :options="projectOptions"
-          :icon="FolderGit2"
-          size="sm"
-          label="選擇 Graph 專案範圍"
-        />
-        <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" label="選擇 Graph 節點類型" />
-        <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
-        <UiSelect v-model="graphLoadPreset" :options="presetOptions" size="sm" label="選擇 Graph 資料載入上限" />
-        <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
-        <UiButton
-          v-if="graphCanLoadMore"
-          size="sm"
-          variant="invisible"
-          :disabled="graphLoading"
-          @click="graphStore.loadMoreGraph"
-          >載入更多資料</UiButton
+  <section v-if="tab === 'hotspots'" id="graph-panel-hotspots" role="tabpanel" aria-labelledby="graph-tab-hotspots">
+    <GraphHotspotsBox v-model:project-id="graphProjectId" :projects="trackedProjects" />
+  </section>
+
+  <section v-else id="graph-panel-graph" role="tabpanel" aria-labelledby="graph-tab-graph">
+    <UiFlash v-if="graphError" tone="danger">
+      {{ graphError }}
+      <template #actions><UiButton size="sm" @click="load">重試</UiButton></template>
+    </UiFlash>
+
+    <UiBox class="graph">
+      <template #header>
+        <form class="graph__toolbar" @submit.prevent="load">
+          <UiTextInput
+            v-model="graphSearch"
+            type="search"
+            :icon="Search"
+            size="sm"
+            placeholder="搜尋節點名稱…"
+            label="搜尋 Graph 節點"
+            class="graph__search"
+            @keydown.enter.prevent="selectFirstMatch"
+          />
+          <UiSelect
+            v-model="graphProjectId"
+            :options="projectOptions"
+            :icon="FolderGit2"
+            size="sm"
+            label="選擇 Graph 專案範圍"
+          />
+          <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" label="選擇 Graph 節點類型" />
+          <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
+          <UiSelect v-model="graphLoadPreset" :options="presetOptions" size="sm" label="選擇 Graph 資料載入上限" />
+          <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
+          <UiButton
+            v-if="graphCanLoadMore"
+            size="sm"
+            variant="invisible"
+            :disabled="graphLoading"
+            @click="graphStore.loadMoreGraph"
+            >載入更多資料</UiButton
+          >
+        </form>
+        <span v-if="graph" class="graph__count" data-testid="graph-visible-count">{{ countLabel }}</span>
+      </template>
+
+      <div v-if="graph" class="graph__legend" aria-label="節點分布">
+        <span
+          ><strong>{{ graph.totalNodes }}</strong> 節點</span
         >
-      </form>
-      <span v-if="graph" class="graph__count" data-testid="graph-visible-count">{{ countLabel }}</span>
-    </template>
+        <span
+          ><strong>{{ graph.totalEdges }}</strong> 關係</span
+        >
+        <span
+          v-for="item in graphNodeCounts"
+          :key="item.kind"
+          :class="`graph__legend-item graph__legend-item--${item.kind}`"
+          ><i aria-hidden="true"></i>{{ item.label }} {{ item.count }}</span
+        >
+      </div>
 
-    <div v-if="graph" class="graph__legend" aria-label="節點分布">
-      <span
-        ><strong>{{ graph.totalNodes }}</strong> 節點</span
+      <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" />
+      <UiEmptyState
+        v-else-if="!graph || graph.nodes.length === 0"
+        :icon="Share2"
+        title="目前沒有可視化資料"
+        description="記錄中的專案完成 Session 後，這裡會出現工作關係。"
+      />
+      <UiEmptyState
+        v-else-if="graphSearch.trim() && graphVisual.nodes.length === 0"
+        :icon="SearchX"
+        title="沒有符合的節點"
+        description="搜尋只比對目前已載入的節點；可以換個關鍵字，或提高資料載入上限。"
       >
-      <span
-        ><strong>{{ graph.totalEdges }}</strong> 關係</span
-      >
-      <span
-        v-for="item in graphNodeCounts"
-        :key="item.kind"
-        :class="`graph__legend-item graph__legend-item--${item.kind}`"
-        ><i aria-hidden="true"></i>{{ item.label }} {{ item.count }}</span
-      >
-    </div>
+        <template #action><UiButton size="sm" @click="graphSearch = ''">清除搜尋</UiButton></template>
+      </UiEmptyState>
+      <GraphCanvas
+        v-else
+        :nodes="graphVisual.nodes"
+        :edges="graphVisual.edges"
+        :height="graphVisual.height"
+        :node-kind-order="graphNodeKindOrder"
+        :node-kind-labels="graphNodeKindLabels"
+        :edge-kind-labels="graphEdgeKindLabels"
+        :node-label="graphNodeDisplayLabel"
+        :node-description="graphNodeDescription"
+        :selected-id="selectedGraphNode?.id"
+        :match-ids="graphSearchMatchIds"
+        :overlay-width="selectedGraphNode ? graphPanelWidth : 0"
+        @select="onSelect"
+        @clear="graphStore.selectGraphNode(null)"
+      />
 
-    <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" />
-    <UiEmptyState
-      v-else-if="!graph || graph.nodes.length === 0"
-      :icon="Share2"
-      title="目前沒有可視化資料"
-      description="記錄中的專案完成 Session 後，這裡會出現工作關係。"
-    />
-    <UiEmptyState
-      v-else-if="graphSearch.trim() && graphVisual.nodes.length === 0"
-      :icon="SearchX"
-      title="沒有符合的節點"
-      description="搜尋只比對目前已載入的節點；可以換個關鍵字，或提高資料載入上限。"
-    >
-      <template #action><UiButton size="sm" @click="graphSearch = ''">清除搜尋</UiButton></template>
-    </UiEmptyState>
-    <GraphCanvas
-      v-else
-      :nodes="graphVisual.nodes"
-      :edges="graphVisual.edges"
-      :height="graphVisual.height"
-      :node-kind-order="graphNodeKindOrder"
-      :node-kind-labels="graphNodeKindLabels"
-      :edge-kind-labels="graphEdgeKindLabels"
-      :node-label="graphNodeDisplayLabel"
-      :node-description="graphNodeDescription"
-      :selected-id="selectedGraphNode?.id"
-      :match-ids="graphSearchMatchIds"
-      :overlay-width="selectedGraphNode ? graphPanelWidth : 0"
-      @select="onSelect"
-      @clear="graphStore.selectGraphNode(null)"
-    />
-
-    <template v-if="graph" #footer>
-      <span>{{ truncationNote }}</span>
-      <span>來源 Projects {{ graph.sourceProjectIds.length }} · Sessions {{ graph.sourceSessionIds.length }}</span>
-    </template>
-  </UiBox>
-
+      <template v-if="graph" #footer>
+        <span>{{ truncationNote }}</span>
+        <span>來源 Projects {{ graph.sourceProjectIds.length }} · Sessions {{ graph.sourceSessionIds.length }}</span>
+      </template>
+    </UiBox>
+  </section>
   <GraphNodePanel />
 </template>
 

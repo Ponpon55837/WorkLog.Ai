@@ -727,6 +727,39 @@ describe("Work Intelligence REST API", () => {
     expect(missing.body).toMatchObject({ outcome: "not_found" });
   });
 
+  it("serves hotspots with validated filters", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-hotspots-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Hotspot API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    for (const key of ["one", "two"]) {
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `api-hotspot-${key}`,
+        title: `Hotspot ${key}`,
+        summary: "Changed the same file.",
+        changedFiles: ["src/Hive.ts"],
+        verification: { status: key === "one" ? "failed" : "passed" },
+        completedAt: "2026-09-26T12:00:00.000Z",
+      });
+    }
+
+    const listed = await requestJson<{ outcome: string; items: Array<{ path: string; sessionCount: number }> }>(
+      baseUrl,
+      `/api/insights/hotspots?projectId=${project.id}&groupBy=file&from=2026-09-01&limit=5`,
+    );
+    expect(listed.body).toMatchObject({
+      outcome: "hotspots",
+      items: [{ path: "src/Hive.ts", sessionCount: 2, failedCount: 1 }],
+    });
+    const invalid = await requestJson(baseUrl, "/api/insights/hotspots?groupBy=folder");
+    expect(invalid.status).toBe(400);
+    const reversed = await requestJson(baseUrl, "/api/insights/hotspots?from=2026-09-30&to=2026-09-01");
+    expect(reversed.status).toBe(400);
+  });
+
   it("validates project deletion names, requires a disk backup, and returns a safe backup file name", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");
