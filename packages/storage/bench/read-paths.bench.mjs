@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
+import { DatabaseSync } from "node:sqlite";
 import { WorkIntelligenceStore } from "../dist/index.js";
 
 const args = process.argv.slice(2);
@@ -76,6 +77,28 @@ function seed() {
   console.log(`seeded ${sessionCount} sessions in ${(performance.now() - started).toFixed(0)} ms`);
 }
 
+// Knowledge older than every synthetic Session, so the staleness check scans the whole project history.
+function seedStaleKnowledge(targetStore, project) {
+  for (let index = 0; index < 20; index += 1) {
+    targetStore.recordKnowledge({
+      projectRoot: alphaRoot,
+      idempotencyKey: `bench-knowledge-${index}`,
+      kind: "gotcha",
+      title: `Synthetic knowledge ${index}`,
+      body: "Synthetic knowledge body used to measure the staleness check.",
+      appliesTo: [`src/module-${index}.ts`, "src/feature-*/index.ts"],
+    });
+  }
+  const database = new DatabaseSync(databasePath);
+  try {
+    database
+      .prepare("UPDATE knowledge SET created_at = ?, last_confirmed_at = NULL WHERE project_id = ?")
+      .run("2025-09-01T00:00:00.000Z", project.id);
+  } finally {
+    database.close();
+  }
+}
+
 try {
   if (!cached) {
     seed();
@@ -85,7 +108,9 @@ try {
     }
   }
   const benchStore = cachePath && !cached ? new WorkIntelligenceStore(databasePath) : store;
+  const alpha = benchStore.listProjects().find((project) => project.name === "alpha");
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
+  seedStaleKnowledge(benchStore, alpha);
 
   const cases = {
     "listSessionsPage (default)": () => benchStore.listSessionsPage({ page: 1, pageSize: 20 }),
@@ -101,6 +126,7 @@ try {
     "getReport year": () => benchStore.getReport({ period: "year", date: "2026-03-11" }),
     getContext: () => benchStore.getContext(),
     search: () => benchStore.search("renderer"),
+    "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
   };
@@ -111,7 +137,8 @@ try {
     "getReport week": 750,
     "getReport year": 1500,
     getContext: 2500,
-    search: 10000,
+    search: 500,
+    "searchKnowledge (staleness)": 500,
   };
 
   const results = [];

@@ -252,7 +252,16 @@ export function pathMatchStrength(stored: string, queried: string): number {
   return 0;
 }
 
+// Staleness checks test the same few appliesTo globs against every changed file of every later Session,
+// so compile each glob once. The bound only guards against unbounded growth; real projects use a handful.
+const GLOB_CACHE_LIMIT = 512;
+const globCache = new Map<string, RegExp>();
+
 function globToRegExp(pattern: string): RegExp {
+  const cached = globCache.get(pattern);
+  if (cached) {
+    return cached;
+  }
   let source = "";
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index]!;
@@ -267,7 +276,13 @@ function globToRegExp(pattern: string): RegExp {
       source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
     }
   }
-  return new RegExp(`^${source}$`);
+  // No `g` flag, so the shared RegExp keeps no lastIndex state between test() calls.
+  const compiled = new RegExp(`^${source}$`);
+  if (globCache.size >= GLOB_CACHE_LIMIT) {
+    globCache.clear();
+  }
+  globCache.set(pattern, compiled);
+  return compiled;
 }
 
 /**
@@ -276,13 +291,19 @@ function globToRegExp(pattern: string): RegExp {
  * directory, or a path-segment suffix.
  */
 export function matchesAppliesTo(path: string, pattern: string): boolean {
-  if (!path || !pattern) {
-    return false;
+  return compileAppliesTo(pattern)(path);
+}
+
+/** Precompiles a normalized appliesTo entry into a matcher, for checking one pattern against many paths. */
+export function compileAppliesTo(pattern: string): (path: string) => boolean {
+  if (!pattern) {
+    return () => false;
   }
   if (/[*?]/.test(pattern)) {
-    return globToRegExp(pattern).test(path);
+    const glob = globToRegExp(pattern);
+    return (path) => Boolean(path) && glob.test(path);
   }
-  return pathMatchStrength(path, pattern) > 0;
+  return (path) => Boolean(path) && pathMatchStrength(path, pattern) > 0;
 }
 
 export function pathBasename(path: string): string {

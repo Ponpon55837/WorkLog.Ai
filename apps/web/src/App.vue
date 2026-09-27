@@ -17,13 +17,15 @@ import UiSkeleton from "./components/ui/UiSkeleton.vue";
 import { useApiConnection } from "./composables/useApiConnection";
 import { invalidateActiveQueries, startAppRefreshEvents } from "./composables/useAppRefresh";
 import { useHotkeys } from "./composables/useHotkeys";
-import { useProjects } from "./composables/useProjects";
 import { useAppStore } from "./stores/app";
 import { useDashboardStore } from "./stores/dashboard";
+import { useProjectsStore } from "./stores/projects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 
 const route = useRoute();
-const { dashboard, trackedProjects, loadDashboard, loadProjects } = useProjects();
+const projectsStore = useProjectsStore();
+const { dashboard, trackedProjects } = storeToRefs(projectsStore);
+const { loadDashboard, loadProjects } = projectsStore;
 const dashboardStore = useDashboardStore();
 const { inbox } = storeToRefs(dashboardStore);
 const { loadDashboardData } = dashboardStore;

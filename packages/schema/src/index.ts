@@ -797,6 +797,7 @@ export const projectDataExportTableColumns = {
     "changed_files_json",
     "changed_files_provenance_json",
     "changed_file_changes_json",
+    "changed_files_confirmed",
     "verification_json",
     "voided_at",
     "void_reason",
@@ -1125,7 +1126,27 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
 const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>> = {
   knowledge_candidate_requests: ["candidate_count"],
   report_summaries: ["is_current"],
+  sessions: ["changed_files_confirmed"],
 };
+
+/**
+ * Columns added after the portable format shipped, with the value to assume when an older export omits them.
+ * Import fills these in, so bundles written before the column existed stay importable.
+ */
+export const projectDataColumnDefaults: Partial<
+  Record<(typeof PROJECT_DATA_TABLES)[number], Readonly<Record<string, string | number | null>>>
+> = {
+  sessions: { changed_files_confirmed: 0 },
+};
+
+/** A row's value for a column, falling back to the column default for bundles that predate it. */
+export function projectDataColumnValue(
+  table: (typeof PROJECT_DATA_TABLES)[number],
+  row: Readonly<Record<string, string | number | null>>,
+  column: string,
+): string | number | null | undefined {
+  return Object.hasOwn(row, column) ? row[column] : projectDataColumnDefaults[table]?.[column];
+}
 
 export const projectDataExportSchema = z
   .object({
@@ -1143,10 +1164,12 @@ export const projectDataExportSchema = z
       const rows = bundle.tables[table];
       totalRows += rows.length;
       const expected = new Set<string>(projectDataExportTableColumns[table]);
+      const defaults = projectDataColumnDefaults[table] ?? {};
       const ids = new Set<string>();
       rows.forEach((row, index) => {
         const keys = Object.keys(row);
-        if (keys.length !== expected.size || keys.some((key) => !expected.has(key))) {
+        const missingRequired = [...expected].some((column) => !Object.hasOwn(row, column) && !(column in defaults));
+        if (missingRequired || keys.some((key) => !expected.has(key))) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["tables", table, index],
@@ -1165,13 +1188,13 @@ export const projectDataExportSchema = z
         const required = new Set(projectDataRequiredColumns[table]);
         const numeric = new Set(projectDataNumericColumns[table] ?? []);
         for (const column of projectDataExportTableColumns[table]) {
-          const value = row[column];
+          const value = projectDataColumnValue(table, row, column);
           if (numeric.has(column)) {
             if (
               typeof value !== "number" ||
               !Number.isInteger(value) ||
               value < 0 ||
-              (column === "is_current" && value > 1)
+              ((column === "is_current" || column === "changed_files_confirmed") && value > 1)
             ) {
               context.addIssue({
                 code: z.ZodIssueCode.custom,

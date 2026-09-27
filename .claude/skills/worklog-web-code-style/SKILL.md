@@ -1,6 +1,6 @@
 ---
 name: worklog-web-code-style
-description: Code conventions for the Work Intelligence web app (apps/web) — where files go, file/identifier naming, SFC and import order, comment style, composable and component usage rules, TypeScript and CSS rules. Use together with worklog-ui whenever writing or reviewing .vue/.ts/.css under apps/web.
+description: Code conventions for the Work Intelligence web app (apps/web) — where files go, file/identifier naming, SFC and import order, comment style, Pinia store and Pinia Colada query/mutation rules (query keys, invalidation), composable and component usage rules, TypeScript and CSS rules. Use together with worklog-ui whenever writing or reviewing .vue/.ts/.css under apps/web.
 ---
 
 # Work Intelligence web code style (pointer)

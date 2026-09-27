@@ -158,6 +158,9 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   if (table === "report_summaries") {
     row.is_current = 1;
   }
+  if (table === "sessions") {
+    row.changed_files_confirmed = 0;
+  }
   return row;
 }
 
@@ -185,6 +188,20 @@ function rowAt(bundle: ReturnType<typeof validBundle>, table: ProjectDataTable) 
 }
 
 describe("project data transfer schemas", () => {
+  it("accepts exports that predate changed_files_confirmed and keeps the flag to 0 or 1", () => {
+    const legacy = validBundle();
+    delete rowAt(legacy, "sessions").changed_files_confirmed;
+    expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
+
+    const invalid = validBundle();
+    rowAt(invalid, "sessions").changed_files_confirmed = 2;
+    expect(projectDataExportSchema.safeParse(invalid).success).toBe(false);
+
+    const missingRequired = validBundle();
+    delete rowAt(missingRequired, "sessions").title;
+    expect(projectDataExportSchema.safeParse(missingRequired).success).toBe(false);
+  });
+
   it("validates the all-project and single-project scopes and requests", () => {
     expect(projectDataExportScopeSchema.safeParse({ type: "all" }).success).toBe(true);
     expect(projectDataExportScopeSchema.safeParse({ type: "project", projectId: " project-1 " }).success).toBe(true);

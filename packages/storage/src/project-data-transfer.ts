@@ -17,6 +17,7 @@ import {
 import {
   projectDataExportSchema,
   projectDataImportInputSchema,
+  projectDataColumnValue,
   projectDataExportTableColumns,
 } from "@work-intelligence/schema";
 import { nowIso } from "@work-intelligence/shared";
@@ -338,7 +339,9 @@ function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
 }
 
 function equalRows(table: ProjectDataTable, left: ProjectDataRow, right: ProjectDataRow): boolean {
-  return projectDataExportTableColumns[table].every((column) => left[column] === right[column]);
+  return projectDataExportTableColumns[table].every(
+    (column) => projectDataColumnValue(table, left, column) === projectDataColumnValue(table, right, column),
+  );
 }
 
 function existingRow(db: DatabaseSync, table: ProjectDataTable, id: string): ProjectDataRow | undefined {
@@ -706,7 +709,7 @@ function previewFromPlan(plan: TransferPlan): ProjectDataImportPreview {
 function insertRow(db: DatabaseSync, table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {
   const columns = projectDataExportTableColumns[table];
   const values = columns.map((column) => {
-    const value = row[column];
+    const value = projectDataColumnValue(table, row, column);
     if (value === undefined) {
       throw new ProjectDataTransferError("invalid_bundle", `匯入的 ${table} 資料缺少 ${column} 欄位。`);
     }

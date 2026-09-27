@@ -2,9 +2,9 @@ import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import type { GraphEdge, GraphNode, ProjectStatus, ReportVerificationStatus } from "@work-intelligence/core";
 import { useKnowledge } from "./useKnowledge";
-import { useSessionDetail } from "./useSessionDetail";
-import { useGraphStore } from "../stores/graph";
 import { router } from "../router";
+import { useGraphStore } from "../stores/graph";
+import { useSessionsStore } from "../stores/sessions";
 import { formatDate, graphNodeLabel, graphNodeLabelTail } from "../utils/format";
 import { graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels } from "../utils/labels";
 import { verificationStatus } from "../utils/status";
@@ -289,7 +289,7 @@ export function useGraph() {
 
   function openGraphSession(node: GraphNode): void {
     store.selectGraphNode(null);
-    void useSessionDetail().openSessionDetail(node.sessionId, "無法載入 Graph 對應的 Session。");
+    void useSessionsStore().openSessionDetail(node.sessionId, "無法載入 Graph 對應的 Session。");
   }
 
   function openGraphKnowledge(node: GraphNode): void {

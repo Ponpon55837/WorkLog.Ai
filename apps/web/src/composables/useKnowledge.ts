@@ -1,10 +1,16 @@
 import { ref } from "vue";
 import { storeToRefs } from "pinia";
-import type { KnowledgeAuditRecord, KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
+import type {
+  KnowledgeAuditRecord,
+  KnowledgeKind,
+  KnowledgeRecord,
+  KnowledgeStatus,
+  ProjectRecord,
+} from "@work-intelligence/core";
 import { useKnowledgeStore, type KnowledgeChanges } from "../stores/knowledge";
+import { useProjectsStore } from "../stores/projects";
+import { useSessionsStore } from "../stores/sessions";
 import { errorMessage } from "../utils/format";
-import { useProjects } from "./useProjects";
-import { useSessionDetail } from "./useSessionDetail";
 import { useToast } from "./useToast";
 
 const knowledgeEditor = ref<KnowledgeRecord | null>(null);
@@ -21,11 +27,9 @@ const knowledgeEditorSaving = ref(false);
 const knowledgeEditorError = ref("");
 const knowledgeHistoryItem = ref<KnowledgeRecord | null>(null);
 
-function knowledgeProject(
-  item: KnowledgeRecord,
-): ReturnType<typeof useProjects>["projects"]["value"][number] | undefined {
+function knowledgeProject(item: KnowledgeRecord): ProjectRecord | undefined {
   return (
-    useProjects().projects.value.find((project) => project.id === item.projectId) ??
+    useProjectsStore().projects.find((project) => project.id === item.projectId) ??
     useKnowledgeStore().knowledgeProjects.find((project) => project.id === item.projectId)
   );
 }
@@ -154,11 +158,11 @@ function knowledgeAuditFields(entry: KnowledgeAuditRecord): string {
 }
 
 function openKnowledgeSession(item: KnowledgeRecord): Promise<void> {
-  return useSessionDetail().openSessionDetail(item.sessionId, "無法載入 Knowledge 的來源 Session。");
+  return useSessionsStore().openSessionDetail(item.sessionId, "無法載入 Knowledge 的來源 Session。");
 }
 
 function openKnowledgeStaleSession(item: KnowledgeRecord): Promise<void> {
-  return useSessionDetail().openSessionDetail(item.possiblyStale?.sessionId, "無法載入改動檔案的 Session。");
+  return useSessionsStore().openSessionDetail(item.possiblyStale?.sessionId, "無法載入改動檔案的 Session。");
 }
 
 export function useKnowledge() {

@@ -19,7 +19,7 @@ import type {
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
-import { matchesAppliesTo, normalizePath } from "./search-text.js";
+import { compileAppliesTo, normalizePath, type PathContext } from "./search-text.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { cleanList, parseJson, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
 import type { KnowledgeAuditRow, KnowledgeRow } from "./session-record-codecs.js";
@@ -28,6 +28,68 @@ export interface KnowledgeServiceDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
   getProjectById(projectId: string): ProjectRecord | undefined;
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
+}
+
+interface LaterSession {
+  id: string;
+  title: string;
+  completedAt: string;
+  files: Array<{ raw: string; normalized: string }>;
+}
+
+/** Knowledge goes possibly stale when a Session after its last confirmation (or creation) touches appliesTo. */
+function stalenessSince(knowledge: KnowledgeRecord): string {
+  return knowledge.lastConfirmedAt ?? knowledge.createdAt;
+}
+
+/** Index of the first Session completed strictly after `since` (upper bound; `sessions` is sorted ascending). */
+function firstSessionAfter(sessions: LaterSession[], since: string): number {
+  let low = 0;
+  let high = sessions.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (sessions[middle]!.completedAt > since) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+  return low;
+}
+
+function knowledgeStaleness(
+  knowledge: KnowledgeRecord,
+  sessions: LaterSession[],
+  contexts: PathContext[],
+): KnowledgeStaleness | undefined {
+  const matchers = knowledge.appliesTo
+    .map((pattern) => normalizePath(pattern, contexts))
+    .filter(Boolean)
+    .map(compileAppliesTo);
+  const excluded = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
+  let first: KnowledgeStaleness | undefined;
+  let sessionCount = 0;
+  for (let index = firstSessionAfter(sessions, stalenessSince(knowledge)); index < sessions.length; index += 1) {
+    const session = sessions[index]!;
+    if (excluded.has(session.id)) {
+      continue;
+    }
+    const paths = session.files
+      .filter((file) => matchers.some((matches) => matches(file.normalized)))
+      .map((file) => file.raw);
+    if (paths.length === 0) {
+      continue;
+    }
+    sessionCount += 1;
+    first ??= {
+      sessionId: session.id,
+      sessionTitle: session.title,
+      completedAt: session.completedAt,
+      paths: paths.slice(0, 5),
+      sessionCount: 0,
+    };
+  }
+  return first ? { ...first, sessionCount } : undefined;
 }
 
 export class KnowledgeService {
@@ -96,53 +158,64 @@ export class KnowledgeService {
   }
 
   public withKnowledgeTrust(knowledge: KnowledgeRecord): KnowledgeRecord {
-    const staleness = this.knowledgeStaleness(knowledge);
-    return staleness ? { ...knowledge, possiblyStale: staleness } : knowledge;
+    return this.withKnowledgeTrustMany([knowledge])[0] ?? knowledge;
   }
 
-  private knowledgeStaleness(knowledge: KnowledgeRecord): KnowledgeStaleness | undefined {
-    if (knowledge.appliesTo.length === 0) {
-      return undefined;
+  /**
+   * Adds the possiblyStale marker to many Knowledge records at once. Each project's later Sessions are
+   * read and their changed files normalized once, instead of once per Knowledge record.
+   */
+  public withKnowledgeTrustMany(items: KnowledgeRecord[]): KnowledgeRecord[] {
+    const byProject = new Map<string, KnowledgeRecord[]>();
+    for (const item of items) {
+      if (item.appliesTo.length === 0) {
+        continue;
+      }
+      const group = byProject.get(item.projectId);
+      if (group) {
+        group.push(item);
+      } else {
+        byProject.set(item.projectId, [item]);
+      }
     }
-    const project = this.dependencies.getProjectById(knowledge.projectId);
-    const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
-    const patterns = knowledge.appliesTo.map((pattern) => normalizePath(pattern, contexts)).filter(Boolean);
-    const excluded = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
+
+    const staleness = new Map<string, KnowledgeStaleness>();
+    for (const [projectId, group] of byProject) {
+      const project = this.dependencies.getProjectById(projectId);
+      const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
+      const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
+      const sessions = this.loadLaterSessions(projectId, earliest, contexts);
+      for (const item of group) {
+        const result = knowledgeStaleness(item, sessions, contexts);
+        if (result) {
+          staleness.set(item.id, result);
+        }
+      }
+    }
+    return items.map((item) => {
+      const result = staleness.get(item.id);
+      return result ? { ...item, possiblyStale: result } : item;
+    });
+  }
+
+  /** A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. */
+  private loadLaterSessions(projectId: string, since: string, contexts: PathContext[]): LaterSession[] {
     const rows = this.db
       .prepare(
         `SELECT id, title, completed_at, changed_files_json FROM sessions
          WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
          ORDER BY completed_at ASC, id ASC`,
       )
-      .all(knowledge.projectId, knowledge.lastConfirmedAt ?? knowledge.createdAt) as Array<{
-      id: string;
-      title: string;
-      completed_at: string;
-      changed_files_json: string;
-    }>;
-    let first: KnowledgeStaleness | undefined;
-    let sessionCount = 0;
-    for (const row of rows) {
-      if (excluded.has(row.id)) {
-        continue;
-      }
-      const paths = parseJson<string[]>(row.changed_files_json, []).filter((file) => {
-        const normalized = normalizePath(file, contexts);
-        return patterns.some((pattern) => matchesAppliesTo(normalized, pattern));
-      });
-      if (paths.length === 0) {
-        continue;
-      }
-      sessionCount += 1;
-      first ??= {
-        sessionId: row.id,
-        sessionTitle: row.title,
-        completedAt: row.completed_at,
-        paths: paths.slice(0, 5),
-        sessionCount: 0,
-      };
-    }
-    return first ? { ...first, sessionCount } : undefined;
+      .all(projectId, since) as Array<{ id: string; title: string; completed_at: string; changed_files_json: string }>;
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      completedAt: row.completed_at,
+      files: parseJson<string[]>(row.changed_files_json, []).map((file) => ({
+        raw: file,
+        normalized: normalizePath(file, contexts),
+      })),
+    }));
   }
 
   public recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult {
@@ -420,9 +493,7 @@ export class KnowledgeService {
 
   public searchKnowledge(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
     const result = this.dependencies.searchKnowledge(options);
-    return result.outcome === "knowledge"
-      ? { ...result, items: result.items.map((item) => this.withKnowledgeTrust(item)) }
-      : result;
+    return result.outcome === "knowledge" ? { ...result, items: this.withKnowledgeTrustMany(result.items) } : result;
   }
 
   private insertKnowledgeAudit(input: {

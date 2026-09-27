@@ -21,10 +21,10 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { useProjects } from "../composables/useProjects";
 import { router } from "../router";
 import { useHandoffImportStore } from "../stores/handoff-import";
 import { useMetadataBackfillStore } from "../stores/metadata-backfill";
+import { useProjectsStore } from "../stores/projects";
 import { formatDate, formatRelative } from "../utils/format";
 import { statusDescriptions, statusLabels } from "../utils/labels";
 import { trackingStatus } from "../utils/status";
@@ -32,17 +32,10 @@ import { trackingStatus } from "../utils/status";
 type ProjectsTab = "registry" | "backfill" | "import" | "backup" | "deletion-audit";
 
 const route = useRoute();
-const {
-  projects,
-  projectDeletionAudits,
-  projectDeletionAuditsLoading,
-  projectDeletionAuditsError,
-  trackedProjects,
-  loadProjectDeletionAudits,
-  setProjectDeletionAuditsActive,
-  updateProjectStatus,
-  deleteProject,
-} = useProjects();
+const projectsStore = useProjectsStore();
+const { projects, projectDeletionAudits, projectDeletionAuditsLoading, projectDeletionAuditsError, trackedProjects } =
+  storeToRefs(projectsStore);
+const { loadProjectDeletionAudits, setProjectDeletionAuditsActive, updateProjectStatus, deleteProject } = projectsStore;
 const metadataBackfillStore = useMetadataBackfillStore();
 const handoffImportStore = useHandoffImportStore();
 const { handoffImportLoading, handoffImportProjectId } = storeToRefs(handoffImportStore);

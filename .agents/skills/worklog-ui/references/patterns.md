@@ -30,7 +30,7 @@ Do not add hero banners, decorative illustrations or slogan-sized headings.
 - Wrap every list in `UiBox`.
 - Box header: left = count + optional context ("128 Sessions · 顯示 1–20"); right = `UiActionMenu` / `UiDateRangeMenu` filters. Free-text search sits above the Box as `UiTextInput type="search"` + a "清除篩選" button when filters are applied.
 - Only offer filters the API supports. Sessions: search, project, date range (no verification or sort filter). Knowledge: search, project, kind, status. Evidence: search, kind.
-- Wire list pages with `useRouteQuery` → `useListReload` → `useViewLoader` (see the code-style skill §4).
+- Wire list pages with `useRouteQuery` → `useListReload`; the list itself is a Pinia Colada query keyed by its filters (see the code-style skill §4).
 - Rows: leading status icon, title (600), one meta line. Trailing Labels ≤ 2 (hide the less important one below 640px).
 - Group by date with `UiGroupLabel` where time ordering matters (Sessions).
 - Footer: `UiPagination`. Use `VirtualList` only when page size is "all".

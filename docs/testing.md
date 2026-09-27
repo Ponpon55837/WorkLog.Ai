@@ -47,7 +47,10 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 週報 | 750 ms |
 | 年報 | 1,500 ms |
 | Agent context | 2,500 ms |
-| recall 搜尋 | 10,000 ms |
+| 工作歷程搜尋（`search`） | 500 ms |
+| Knowledge 列表含過時判斷（20 筆 Knowledge × 一年的 Session） | 500 ms |
+
+搜尋的上限原本是 10,000 ms。修正全文搜尋的 join 順序後（見 `search-repository.ts` 的 `CROSS JOIN` 註解），中位數從約 2,000 ms 降到約 13 ms，因此收緊到 500 ms，讓同樣數量級的退化會直接失敗。新增讀取路徑時，請在 `read-paths.bench.mjs` 加上對應情境與上限。
 
 效能基準使用合成 SQLite，寫在系統暫存目錄；不讀寫 `data/` 下的使用中資料庫。若要列出所有讀取路徑的 median、p90 與 max（不套用失敗門檻），可執行：
 

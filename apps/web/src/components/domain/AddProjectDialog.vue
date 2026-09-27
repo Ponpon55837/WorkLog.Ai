@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { storeToRefs } from "pinia";
 import { FolderOpen } from "lucide-vue-next";
-import { useProjects } from "../../composables/useProjects";
+import { useProjectsStore } from "../../stores/projects";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import UiField from "../ui/UiField.vue";
@@ -11,7 +12,9 @@ const open = defineModel<boolean>("open", { required: true });
 const projectName = ref("");
 const projectRoot = ref("");
 const pickingFolder = ref(false);
-const { addingProject, addProject, pickProjectFolder } = useProjects();
+const projectsStore = useProjectsStore();
+const { addingProject } = storeToRefs(projectsStore);
+const { addProject, pickProjectFolder } = projectsStore;
 
 async function submit(): Promise<void> {
   if (await addProject({ name: projectName.value, rootPath: projectRoot.value })) {

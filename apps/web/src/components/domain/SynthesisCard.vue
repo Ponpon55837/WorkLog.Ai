@@ -4,9 +4,9 @@ import { computed } from "vue";
 import { History, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-vue-next";
 import type { WorkReportPeriod, ReportSummary } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
-import { useSessionDetail } from "../../composables/useSessionDetail";
 import { useToast } from "../../composables/useToast";
 import { reportSynthesisInstruction, useReportsStore } from "../../stores/reports";
+import { useSessionsStore } from "../../stores/sessions";
 import { formatDate, formatRelative } from "../../utils/format";
 import { requestStatus } from "../../utils/status";
 import UiBox from "../ui/UiBox.vue";
@@ -53,7 +53,8 @@ const {
   cancelReportSynthesisRequest,
   deleteReportSynthesisVersion,
 } = reportsStore;
-const { openSessionDetail, setSessionSequence } = useSessionDetail();
+const sessionsStore = useSessionsStore();
+const { openSessionDetail, setSessionSequence } = sessionsStore;
 const { showToast } = useToast();
 
 useActiveRequestWatch({

@@ -1,6 +1,6 @@
 ---
 name: worklog-web-code-style
-description: Code conventions for the Work Intelligence web app (apps/web) — where files go, file/identifier naming, SFC and import order, comment style, composable and component usage rules, TypeScript and CSS rules. Use together with worklog-ui whenever writing or reviewing .vue/.ts/.css under apps/web.
+description: Code conventions for the Work Intelligence web app (apps/web) — where files go, file/identifier naming, SFC and import order, comment style, Pinia store and Pinia Colada query/mutation rules (query keys, invalidation), composable and component usage rules, TypeScript and CSS rules. Use together with worklog-ui whenever writing or reviewing .vue/.ts/.css under apps/web.
 ---
 
 # Work Intelligence web — code style
@@ -14,7 +14,8 @@ apps/web/src/
 ├─ App.vue              AppShell + <RouterView> + global overlays only (no page logic)
 ├─ main.ts              app bootstrap; imports styles/tokens.css and styles/base.css
 ├─ router.ts            routes, lazy views, route meta (title/eyebrow/group)
-├─ api/client.ts        the only place that calls fetch()
+├─ api/                 transport.ts is the only place that calls fetch(); one module per domain
+│                       (projects.ts, sessions.ts…), composed by client.ts
 ├─ styles/              tokens.css (all raw colours) and base.css (reset/typography/focus)
 ├─ utils/               pure functions and constant maps, no Vue reactivity
 │  ├─ format.ts         dates, relative time, text formatting
@@ -34,7 +35,7 @@ Decision rule for a new component:
 - Knows nothing about Sessions/Reports/Projects → `components/ui/`.
 - Renders or mutates domain data → `components/domain/`.
 - Only used by one view and < ~40 template lines → keep it inline in the view.
-- Anything that talks to the API → a composable, never a component.
+- Anything that talks to the API → a store (server state) or a composable workflow, never a component.
 
 ## 2. Naming
 
@@ -65,8 +66,8 @@ Inside `<script setup>`:
 2. Local `type` aliases.
 3. One JSDoc sentence describing the component's purpose (above `defineProps` when there are props).
 4. `defineProps` / `defineModel` / `defineEmits`.
-5. Composable destructuring.
-6. `useRouteQuery` / `useListReload` / `useViewLoader` wiring.
+5. Store and composable destructuring (`storeToRefs` for state, actions straight from the store).
+6. `useRouteQuery` / `useListReload` wiring.
 7. `computed`, then functions, then `watch`, then lifecycle hooks.
 
 Import order (blank-line-free, one group after another, alphabetical inside a group):
@@ -76,7 +77,8 @@ Import order (blank-line-free, one group after another, alphabetical inside a gr
 4. components: `layout/` → `domain/` → `ui/` → other components
 5. composables
 6. `../router`
-7. `../utils/*`
+7. `../stores/*`
+8. `../utils/*`
 
 Template rules:
 - Use `v-if`/`v-else-if` chains for loading → empty → content; never render an empty list without `UiEmptyState`.
@@ -86,12 +88,14 @@ Template rules:
 ## 4. Stores and composables
 
 - Domain state belongs in a **Pinia setup store** under `stores/`, with one store per domain. Components and views use `useXxxStore()` and `storeToRefs()`; do not add new module-level reactive singletons.
-- Server state uses Pinia Colada `useQuery()` and `useMutation()`. Define stable query keys in `stores/query-keys.ts`; every mutation lists its affected keys and invalidates them after success. Do not build a separate cache or copy query data into another mutable ref.
+- Server state uses Pinia Colada `useQuery()` and `useMutation()`. Key prefixes live in `stores/query-keys.ts`; never write key strings inline.
+- **Every value a query reads belongs in its key.** Write the key as a function that appends the parameters to the prefix, e.g. `key: () => [...queryKeys.sessions.list, { q, projectId, page, pageSize }]`, so a parameter change refetches by itself and each parameter set gets its own cache entry. Do not read filter refs inside `query` behind a static key and then call `refetch()` by hand. (Some round-5 queries still do this; round 6 migrates them. Do not add new ones.)
+- Every mutation lists the key prefixes it affects and invalidates them after success (`invalidateQueries({ key: prefix })` matches all parameter sets under the prefix). Do not build a separate cache or copy query data into another mutable ref.
 - Keep form drafts and temporary view state local to the component that owns the interaction. Use store state only when multiple parts of the app share it.
-- API calls go through `useApi().client` from a store or composable. Legacy composables may continue to use `runKeyed(key, task, { onError, onSettled })` until their domain migrates to Pinia Colada.
-- Transitional `useXxx()` adapters may expose refs and actions from a store while existing consumers migrate; do not add new domain behavior to the adapter.
+- API calls go through `useApi().client` from a store or composable.
+- Components use stores directly (`useXxxStore()` + `storeToRefs`). Do not add `useXxx()` adapters that re-export a store; the round-5 adapters were removed.
 - User feedback: `useToast().showToast(message, tone)`; destructive or scope-widening actions: `await confirmAction({...})`. Never `window.confirm`/`alert`.
-- List pages wire three helpers, in this order: `useRouteQuery` (URL ⇄ filter refs) → `useListReload` (filter change → page 1, page change → reload, debounced search) → `useViewLoader` (load on mount and on global refresh).
+- List pages wire `useRouteQuery` (URL ⇄ filter refs, the single source of filter state) → `useListReload` (filter change → page 1, page change → reload, debounced search). Loading on mount comes from the query being enabled; a global refresh or an SSE `changed` event calls `invalidateActiveQueries()` from `useAppRefresh`.
 - A store or composable must not import a view or a component (the one exception is `router` for navigation actions).
 - Keep API response shapes out of templates when they need interpretation — expose a `computed` instead.
 
@@ -138,12 +142,12 @@ pnpm --filter @work-intelligence/web build
 pnpm test:e2e
 ```
 
-If ports 5967/3211 are busy, run e2e on others: `WORK_INTELLIGENCE_E2E_WEB_PORT=5987 WORK_INTELLIGENCE_E2E_API_PORT=3231 npx playwright test`.
+E2E runs the production build on one port. If the default port is busy: `WORK_INTELLIGENCE_E2E_WEB_PORT=5987 pnpm test:e2e`. Use pnpm, never npm/npx.
 
 Review checklist:
 - [ ] File in the right folder with the right name (§1–2).
 - [ ] Import order and SFC order (§3).
-- [ ] No fetch/API call outside composables; `runKeyed` used (§4).
+- [ ] No API call outside stores/composables; queries keyed by every parameter they read; mutations invalidate affected prefixes (§4).
 - [ ] `ui/` primitives and `utils/status.ts` used; no inline status colours (§5).
 - [ ] Comments explain why, in English (§6).
 - [ ] No `any`, no stray `!`, explicit return types on exports (§7).

@@ -5,9 +5,9 @@ import { storeToRefs } from "pinia";
 import { navItems } from "../layout/navigation";
 import type { IconComponent } from "../ui/types";
 import { useFocusTrap } from "../../composables/useFocusTrap";
-import { useSessionDetail } from "../../composables/useSessionDetail";
 import { router } from "../../router";
 import { useCommandPaletteStore } from "../../stores/command-palette";
+import { useSessionsStore } from "../../stores/sessions";
 import { formatRelative } from "../../utils/format";
 
 type PaletteItem = { id: string; group: string; label: string; hint?: string; icon: IconComponent; run: () => void };
@@ -47,7 +47,7 @@ const items = computed<PaletteItem[]>(() => {
     label: session.title,
     hint: `${session.projectName ?? ""} · ${formatRelative(session.completedAt)}`,
     icon: ListChecks,
-    run: () => void useSessionDetail().openSessionDetail(session.id),
+    run: () => void useSessionsStore().openSessionDetail(session.id),
   }));
   const knowledgeItems = knowledge.value.map((item) => ({
     id: `knowledge-${item.id}`,

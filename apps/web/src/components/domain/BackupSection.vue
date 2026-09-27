@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { Archive, DatabaseBackup, Download, RefreshCw, Trash2 } from "lucide-vue-next";
 import type { ProjectDataImportPreview } from "@work-intelligence/core";
-import { useProjects } from "../../composables/useProjects";
 import { useBackupsStore } from "../../stores/backups";
 import { useProjectDataTransferStore } from "../../stores/project-data-transfer";
+import { useProjectsStore } from "../../stores/projects";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
 import { databaseBackupKindLabels } from "../../utils/labels";
 import UiBox from "../ui/UiBox.vue";
@@ -37,7 +37,9 @@ const {
   databaseExporting,
 } = storeToRefs(backupsStore);
 const { loadBackups, createBackup, deleteBackup, exportDatabase } = backupsStore;
-const { projects, loadProjects } = useProjects();
+const projectsStore = useProjectsStore();
+const { projects } = storeToRefs(projectsStore);
+const { loadProjects } = projectsStore;
 const projectDataTransferStore = useProjectDataTransferStore();
 const {
   transferError,
