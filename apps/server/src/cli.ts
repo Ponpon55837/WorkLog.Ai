@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   DatabaseBackup,
@@ -14,6 +14,7 @@ import { projectDataExportSchema, projectDataImportInputSchema } from "@work-int
 import { z } from "zod";
 import {
   maintainDatabase,
+  canonicalizeProjectRoot,
   restoreDatabase,
   WorkIntelligenceStore,
   type DatabaseMaintenanceResult,
@@ -142,19 +143,48 @@ function writePortableExport(target: string, bundle: ProjectDataExport): number 
   return bytes;
 }
 
-function printImportPreview(preview: ProjectDataImportPreview): void {
-  console.log(`匯入專案：${preview.selectedProjects.map((project) => project.name).join("、")}`);
-  console.log(
+function printImportPreview(
+  preview: ProjectDataImportPreview,
+  log: (message: string) => void = (message) => console.log(message),
+): void {
+  log(`匯入專案：${preview.selectedProjects.map((project) => project.name).join("、")}`);
+  for (const project of preview.selectedProjects) {
+    const status = isLocalProjectFolder(project.rootPath) ? "找到資料夾" : "這台電腦找不到資料夾";
+    log(`位置：${project.name} | 匯出路徑 ${project.sourceRootPath} | 套用路徑 ${project.rootPath} | ${status}`);
+  }
+  log(
     `新增 ${totalCounts(preview.additions)} 筆、略過 ${totalCounts(preview.skipped)} 筆、衝突 ${totalCounts(preview.conflicts)} 筆。`,
   );
-  console.log(
+  log(
     `明細：專案新增 ${preview.additions.projects ?? 0}、Session 新增 ${preview.additions.sessions ?? 0}、Knowledge 新增 ${preview.additions.knowledge ?? 0}。`,
   );
   for (const conflict of preview.conflictDetails) {
-    console.log(`衝突：${conflict.table} ${conflict.id}：${conflict.reason}`);
+    log(`衝突：${conflict.table} ${conflict.id}：${conflict.reason}`);
   }
   if (preview.conflictDetailsTruncated) {
-    console.log("衝突明細超過 100 筆，僅顯示前 100 筆。");
+    log("衝突明細超過 100 筆，僅顯示前 100 筆。");
+  }
+}
+
+function isLocalProjectFolder(path: string): boolean {
+  if (!isAbsolute(path) || path.includes("\0")) return false;
+  try {
+    return statSync(canonicalizeProjectRoot(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function promptImportProjectLocation(
+  project: ProjectDataImportPreview["selectedProjects"][number],
+): Promise<string> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await prompt.question(
+      `找不到「${project.name}」的資料夾（${project.sourceRootPath}）。輸入新位置，直接按 Enter 略過：`,
+    );
+  } finally {
+    prompt.close();
   }
 }
 
@@ -195,6 +225,7 @@ export interface DatabaseCliDependencies {
   log?: (message: string) => void;
   error?: (message: string) => void;
   confirmPortableImport?: () => Promise<boolean>;
+  chooseImportProjectLocation?: (project: ProjectDataImportPreview["selectedProjects"][number]) => Promise<string>;
   confirmBackupDeletion?: (backup: DatabaseBackup, isLastBackup: boolean) => Promise<boolean>;
 }
 
@@ -211,6 +242,7 @@ export async function runDatabaseCli(
   const print = dependencies.log ?? ((message: string) => console.log(message));
   const printError = dependencies.error ?? ((message: string) => console.error(message));
   const confirmImport = dependencies.confirmPortableImport ?? confirmPortableImport;
+  const chooseImportProjectLocation = dependencies.chooseImportProjectLocation ?? promptImportProjectLocation;
   const confirmDeleteBackup = dependencies.confirmBackupDeletion ?? confirmBackupDeletion;
   const [command, ...args] = argv;
   try {
@@ -372,9 +404,34 @@ export async function runDatabaseCli(
       if (!parsedInput.success) {
         fail(`匯入選項格式錯誤：${parsedInput.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
       }
-      const validatedInput = parsedInput.data satisfies ProjectDataImportInput;
-      const preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
-      printImportPreview(preview);
+      let validatedInput = parsedInput.data satisfies ProjectDataImportInput;
+      let preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
+      const canAskForLocations =
+        Boolean(dependencies.chooseImportProjectLocation) || (process.stdin.isTTY && process.stdout.isTTY);
+      if (!dryRun && canAskForLocations) {
+        for (const project of preview.selectedProjects) {
+          if (isLocalProjectFolder(project.rootPath)) continue;
+          const selectedRoot = (await chooseImportProjectLocation(project)).trim();
+          if (!selectedRoot) continue;
+          if (!isLocalProjectFolder(selectedRoot)) {
+            print(`略過「${project.name}」：選擇的位置不是可用資料夾。`);
+            continue;
+          }
+          const remapsBySource = new Map((validatedInput.remap ?? []).map((mapping) => [mapping.from, mapping]));
+          remapsBySource.set(project.rootPath, { from: project.rootPath, to: selectedRoot });
+          const withLocation: ProjectDataImportInput = {
+            ...validatedInput,
+            remap: [...remapsBySource.values()],
+          };
+          const validatedLocation = projectDataImportInputSchema.safeParse(withLocation);
+          if (!validatedLocation.success) {
+            fail(`匯入選項格式錯誤：${validatedLocation.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+          }
+          validatedInput = validatedLocation.data satisfies ProjectDataImportInput;
+          preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
+        }
+      }
+      printImportPreview(preview, print);
       if (dryRun) {
         print("僅預覽，資料沒有變更。");
       } else if (await confirmImport()) {

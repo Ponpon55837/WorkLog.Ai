@@ -76,6 +76,26 @@ export const useProjectsStore = defineStore("projects", () => {
       ]);
     },
   });
+  const updateProjectLocationMutation = useMutation({
+    mutation: ({
+      projectId,
+      rootPath,
+      confirmedTrackedScope,
+    }: {
+      projectId: string;
+      rootPath: string;
+      confirmedTrackedScope: boolean;
+    }) => useApi().client.updateProjectLocation(projectId, { rootPath, confirmedTrackedScope }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.projects.handoffImportPreview }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+      ]);
+    },
+  });
   const deleteProjectMutation = useMutation({
     mutation: ({ projectId, confirmationName }: { projectId: string; confirmationName: string }) =>
       useApi().client.deleteProject(projectId, confirmationName),
@@ -187,6 +207,32 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
+  async function updateProjectLocation(project: ProjectRecord): Promise<void> {
+    const { showToast } = useToast();
+    const selected = await pickProjectFolder();
+    if (!selected) return;
+
+    const confirmedTrackedScope =
+      project.status === "tracked" &&
+      (await confirmAction({
+        title: `重新指定「${project.name}」的位置？`,
+        message: "這個專案目前正在記錄。更改位置會改變 Agent 可讀取的資料夾範圍，並同步更新已保存 handoff 的來源路徑。",
+        confirmLabel: "確認重新指定",
+      }));
+    if (project.status === "tracked" && !confirmedTrackedScope) return;
+
+    try {
+      const updated = await updateProjectLocationMutation.mutateAsync({
+        projectId: project.id,
+        rootPath: selected.path,
+        confirmedTrackedScope,
+      });
+      showToast(`${updated.name} 的位置已更新。`, "success");
+    } catch (error) {
+      showToast(errorMessage(error, "重新指定專案位置失敗。"), "danger");
+    }
+  }
+
   async function deleteProject(
     project: ProjectRecord,
     confirmationName: string,
@@ -218,6 +264,7 @@ export const useProjectsStore = defineStore("projects", () => {
     pickProjectFolder,
     addProject,
     updateProjectStatus,
+    updateProjectLocation,
     deleteProject,
   };
 });

@@ -37,6 +37,11 @@ export const updateProjectInputSchema = z.object({
   status: projectStatusSchema.optional(),
 });
 
+export const updateProjectLocationInputSchema = z.object({
+  rootPath: z.string().trim().min(1).max(1_000),
+  confirmedTrackedScope: z.boolean().optional().default(false),
+});
+
 export const deleteProjectInputSchema = z.object({
   confirmationName: z.string().trim().min(1).max(120),
 });
@@ -742,6 +747,7 @@ export const insightEvaluationSchema = z.object({
 
 export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
+export type UpdateProjectLocationInput = z.infer<typeof updateProjectLocationInputSchema>;
 export type DeleteProjectInput = z.infer<typeof deleteProjectInputSchema>;
 export type FinalizeSessionInput = z.infer<typeof finalizeSessionInputSchema>;
 export type McpFinalizeSessionInput = z.infer<typeof mcpFinalizeSessionInputSchema>;

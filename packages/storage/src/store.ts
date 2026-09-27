@@ -138,6 +138,7 @@ import { createPageInfo } from "./pagination.js";
 import { GraphBuilder } from "./graph-builder.js";
 import { KnowledgeRepository } from "./knowledge-repository.js";
 import { ProjectRepository } from "./project-repository.js";
+import { ProjectLocationService } from "./project-location-service.js";
 import { MetadataBackfillService } from "./metadata-backfill-service.js";
 import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
 import { ReportReadService } from "./report-service.js";
@@ -268,6 +269,7 @@ export class WorkIntelligenceStore {
   private readonly contextRecallService: ContextRecallService;
   private readonly searchIndex: SearchRepository;
   private readonly projectDeletionService: ProjectDeletionService;
+  private readonly projectLocationService: ProjectLocationService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
   private readonly policyGate: ProjectPolicyGate;
   public readonly insightProvider: InsightProvider;
@@ -291,6 +293,7 @@ export class WorkIntelligenceStore {
     }
     this.projectDataTransfer = new ProjectDataTransferService(this.db);
     this.projects = new ProjectRepository(this.db);
+    this.projectLocationService = new ProjectLocationService(this.db, this.projects);
     this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
     this.sessionRecords = new SessionRecordService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
@@ -473,6 +476,10 @@ export class WorkIntelligenceStore {
     update: { name?: string; status?: ProjectStatus },
   ): ProjectRecord | undefined {
     return this.projects.update(projectId, update);
+  }
+
+  public updateProjectLocation(projectId: string, rootPath: string, confirmedTrackedScope = false): ProjectRecord {
+    return this.projectLocationService.updateLocation(projectId, rootPath, confirmedTrackedScope);
   }
 
   /** Deletes a project and its local data after a checked full-database safety snapshot. */

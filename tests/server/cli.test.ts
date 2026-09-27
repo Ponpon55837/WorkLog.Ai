@@ -185,6 +185,32 @@ describe("database maintenance CLI", () => {
     expect(existsSync(newRoot)).toBe(false);
   });
 
+  it("asks for a missing project folder during an interactive portable import", async () => {
+    const root = createRoot();
+    const source = createStore();
+    const { project } = createPortableProject(source, root);
+    const bundleFile = join(root, "portable.json");
+    writeFileSync(bundleFile, JSON.stringify(source.exportProjectData({ type: "project", projectId: project.id })));
+
+    const destination = createStore();
+    const messages = { log: [] as string[], error: [] as string[] };
+    const selectedRoot = createRoot();
+    let promptedFor = "";
+    const deps: DatabaseCliDependencies = {
+      ...dependencies(destination, root, messages, async () => true),
+      chooseImportProjectLocation: async (selectedProject) => {
+        promptedFor = selectedProject.sourceRootPath;
+        return selectedRoot;
+      },
+    };
+
+    expect(await runDatabaseCli(["import", "portable.json"], deps)).toBe(0);
+    expect(promptedFor).toBe(project.rootPath);
+    expect(destination.listProjects()).toMatchObject([{ id: project.id, status: "paused", rootPath: selectedRoot }]);
+    expect(messages.log.join("\n")).toContain(`匯出路徑 ${project.rootPath}`);
+    expect(messages.log.join("\n")).toContain("找到資料夾");
+  });
+
   it("reports malformed commands and requires an interactive confirmation for real imports", async () => {
     const root = createRoot();
     const store = createStore();

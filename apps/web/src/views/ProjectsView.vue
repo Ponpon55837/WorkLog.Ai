@@ -35,7 +35,13 @@ const route = useRoute();
 const projectsStore = useProjectsStore();
 const { projects, projectDeletionAudits, projectDeletionAuditsLoading, projectDeletionAuditsError, trackedProjects } =
   storeToRefs(projectsStore);
-const { loadProjectDeletionAudits, setProjectDeletionAuditsActive, updateProjectStatus, deleteProject } = projectsStore;
+const {
+  loadProjectDeletionAudits,
+  setProjectDeletionAuditsActive,
+  updateProjectStatus,
+  updateProjectLocation,
+  deleteProject,
+} = projectsStore;
 const metadataBackfillStore = useMetadataBackfillStore();
 const handoffImportStore = useHandoffImportStore();
 const { handoffImportLoading, handoffImportProjectId } = storeToRefs(handoffImportStore);
@@ -185,6 +191,10 @@ function clearProjectDeletionNotice(): void {
                   formatRelative(project.lastIngestedAt)
                 }}</time></span
               >
+              <span v-if="project.folderStatus === 'missing'" class="projects__location-status">找不到資料夾</span>
+              <span v-else-if="project.folderStatus === 'unavailable'" class="projects__location-status"
+                >無法確認資料夾</span
+              >
             </p>
             <template #trailing>
               <UiSelect
@@ -195,6 +205,14 @@ function clearProjectDeletionNotice(): void {
                 :label="`更新 ${project.name} 的專案記錄狀態`"
                 @update:model-value="changeStatus(project, $event)"
               />
+              <UiButton
+                v-if="project.folderStatus === 'missing'"
+                size="sm"
+                :icon="FolderGit2"
+                :label="`重新指定 ${project.name} 的位置`"
+                @click="updateProjectLocation(project)"
+                >重新指定位置</UiButton
+              >
               <UiButton
                 variant="danger"
                 size="sm"
@@ -310,5 +328,11 @@ function clearProjectDeletionNotice(): void {
 
 .projects__ingest {
   display: block;
+}
+
+.projects__location-status {
+  display: block;
+  color: var(--danger);
+  font-size: var(--text-xs);
 }
 </style>

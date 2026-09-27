@@ -14,6 +14,9 @@ export const API_ERROR_CODES = [
   "invalid_bundle",
   "unsupported_schema",
   "invalid_project_deletion_confirmation",
+  "project_location_confirmation_required",
+  "project_location_conflict",
+  "project_location_invalid",
   "backup_unavailable",
   "database_busy",
   "PROJECT_NOT_FOUND",
@@ -66,6 +69,13 @@ export interface ProjectRecord {
   createdAt: string;
   updatedAt: string;
   lastIngestedAt?: string;
+}
+
+export type ProjectFolderStatus = "found" | "missing" | "unavailable";
+
+/** Derived by the local API with stat-only checks; this value is never persisted or exported. */
+export interface ProjectListRecord extends ProjectRecord {
+  folderStatus: ProjectFolderStatus;
 }
 
 export interface ProjectDeletionCounts {
@@ -1910,8 +1920,12 @@ export interface ProjectDataImportPreview {
   selectedProjects: Array<{
     id: string;
     name: string;
+    /** Root path from the source export before any remap is applied. */
+    sourceRootPath: string;
     rootPath: string;
     resolution: "existing" | "new" | "conflict";
+    /** Added by the local API after checking only the effective root path with stat. */
+    folderStatus?: ProjectFolderStatus;
   }>;
   remappedPaths: ProjectDataPathRemapCount[];
   conflictDetails: ProjectDataImportConflict[];

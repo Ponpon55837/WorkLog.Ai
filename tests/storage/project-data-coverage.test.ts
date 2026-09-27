@@ -16,6 +16,7 @@ const NOT_PROJECT_DATA: Record<string, string> = {
   search_fts: "full-text index, rebuilt from the source rows",
   project_data_import_audits: "content-free audit of imports on this machine",
   project_deletion_audit: "content-free audit that must outlive the deleted project",
+  project_location_audit: "content-free location-change audit that must not retain either path",
   database_maintenance_runs: "per-database maintenance history",
 };
 

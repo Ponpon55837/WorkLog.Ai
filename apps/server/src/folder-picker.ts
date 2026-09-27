@@ -7,7 +7,7 @@ export type CommandRunner = (file: string, args: readonly string[], timeoutMs: n
 export type CommandResult = { code: number; stdout: string; stderr: string };
 
 const PICK_TIMEOUT_MS = 5 * 60 * 1000;
-const PROMPT = "選擇要加入 Work Intelligence 的專案資料夾";
+const PROMPT = "選擇 Work Intelligence 專案資料夾";
 
 /** execFile without a shell: the dialog commands are fixed strings and never include request input. */
 export const runCommand: CommandRunner = (file, args, timeoutMs) =>

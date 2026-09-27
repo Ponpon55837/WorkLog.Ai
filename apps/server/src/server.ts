@@ -1,13 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createReadStream, mkdtempSync, rmSync } from "node:fs";
+import { createReadStream, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { URL } from "node:url";
 import type {
   ApiErrorCode,
   DatabaseBackup,
   FolderPickResult,
+  ProjectFolderStatus,
+  ProjectListRecord,
   ProjectDataExportScope,
   ProjectDataImportInput,
   SystemStatus,
@@ -50,6 +52,7 @@ import {
   requestKnowledgeCandidatesInputSchema,
   updateSessionVerificationInputSchema,
   updateProjectInputSchema,
+  updateProjectLocationInputSchema,
   updateKnowledgeInputSchema,
   updateSessionMetadataInputSchema,
   updateSessionSummaryInputSchema,
@@ -62,6 +65,8 @@ import {
   LATEST_SCHEMA_VERSION,
   ProjectDataTransferError,
   ProjectDeletionError,
+  ProjectLocationError,
+  canonicalizeProjectRoot,
   WorkIntelligenceStore,
   isDatabaseBusyError,
 } from "@work-intelligence/storage";
@@ -74,6 +79,24 @@ const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
+
+function inspectProjectFolder(rootPath: string): ProjectFolderStatus {
+  if (!isAbsolute(rootPath) || rootPath.includes("\0")) {
+    return "missing";
+  }
+  try {
+    return statSync(canonicalizeProjectRoot(rootPath)).isDirectory() ? "found" : "missing";
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unavailable";
+  }
+}
+
+function withProjectFolderStatus(
+  project: ProjectListRecord | Omit<ProjectListRecord, "folderStatus">,
+): ProjectListRecord {
+  return { ...project, folderStatus: inspectProjectFolder(project.rootPath) };
+}
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -565,7 +588,13 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         const input = parsed.data satisfies ProjectDataImportInput;
         try {
           const preview = store.previewProjectDataImport(input);
-          sendJson(response, 200, preview);
+          sendJson(response, 200, {
+            ...preview,
+            selectedProjects: preview.selectedProjects.map((project) => ({
+              ...project,
+              folderStatus: inspectProjectFolder(project.rootPath),
+            })),
+          });
         } catch (error) {
           if (sendProjectDataTransferError(response, error)) {
             return;
@@ -805,7 +834,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
       }
 
       if (request.method === "GET" && requestUrl.pathname === "/api/projects") {
-        sendJson(response, 200, store.listProjects());
+        sendJson(response, 200, store.listProjects().map(withProjectFolderStatus));
         return;
       }
 
@@ -1009,7 +1038,49 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         return;
       }
 
-      if (request.method === "PATCH" && pathParts[0] === "api" && pathParts[1] === "projects" && pathParts[2]) {
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "projects" &&
+        pathParts[2] &&
+        pathParts[3] === "location" &&
+        pathParts.length === 4
+      ) {
+        const parsed = updateProjectLocationInputSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) {
+          sendError(response, 400, "重新指定專案位置的資料無效。", parsed.error.flatten(), "project_location_invalid");
+          return;
+        }
+        if (inspectProjectFolder(parsed.data.rootPath) !== "found") {
+          sendError(response, 400, "選擇的位置不是可用的資料夾。", undefined, "project_location_invalid");
+          return;
+        }
+        try {
+          sendJson(
+            response,
+            200,
+            store.updateProjectLocation(pathParts[2], parsed.data.rootPath, parsed.data.confirmedTrackedScope),
+          );
+        } catch (error) {
+          if (!(error instanceof ProjectLocationError)) throw error;
+          if (error.code === "project_not_found") {
+            sendError(response, 404, "找不到指定專案。", undefined, error.code);
+          } else if (error.code === "project_location_confirmation_required") {
+            sendError(response, 409, "記錄中的專案需要先確認擴大 Agent 可讀取的範圍。", undefined, error.code);
+          } else {
+            sendError(response, 409, "新資料夾與其他專案的根目錄重疊。", undefined, error.code);
+          }
+        }
+        return;
+      }
+
+      if (
+        request.method === "PATCH" &&
+        pathParts[0] === "api" &&
+        pathParts[1] === "projects" &&
+        pathParts[2] &&
+        pathParts.length === 3
+      ) {
         const parsed = updateProjectInputSchema.safeParse(await readJsonBody(request));
         if (!parsed.success) {
           sendError(response, 400, "Invalid project update payload.", parsed.error.flatten());

@@ -14,6 +14,7 @@ import { confirmAction } from "../composables/useConfirm";
 import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { useProjectsStore } from "./projects";
 
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 
@@ -27,8 +28,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   const importBundle = ref<ProjectDataExport | null>(null);
   const importFileName = ref("");
   const importProjectId = ref("");
-  const importRemapFrom = ref("");
-  const importRemapTo = ref("");
+  const importRemaps = ref<ProjectPathRemap[]>([]);
   const importPreviewInput = ref<ProjectDataImportInput | null>(null);
   const importPreviewVisible = ref(false);
   const importPreviewRequestId = ref(0);
@@ -64,14 +64,13 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     void queryCache.cancelQueries({ key: queryKeys.projects.projectDataImportPreview, exact: true });
   }
 
-  watch([importProjectId, importRemapFrom, importRemapTo], cancelImportPreview);
+  watch(importProjectId, () => {
+    cancelImportPreview();
+    if (importBundle.value) void previewProjectDataImport();
+  });
 
   function currentRemaps(): ProjectPathRemap[] {
-    if (!importRemapFrom.value && !importRemapTo.value) return [];
-    if (!importRemapFrom.value || !importRemapTo.value) {
-      throw new Error("請同時填寫舊路徑前綴與新路徑前綴。");
-    }
-    return [{ from: importRemapFrom.value.trim(), to: importRemapTo.value.trim() }];
+    return importRemaps.value.map((mapping) => ({ ...mapping }));
   }
 
   function currentInput(): ProjectDataImportInput {
@@ -91,6 +90,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importBundle.value = null;
     importFileName.value = "";
     importProjectId.value = "";
+    importRemaps.value = [];
     if (!file) return;
     if (file.size > MAX_PROJECT_IMPORT_BYTES) {
       importError.value = "匯入檔不可超過 50 MiB。";
@@ -103,9 +103,10 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
         importError.value = `匯出檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`;
         return;
       }
+      if (parsed.data.scope.type === "project") importProjectId.value = parsed.data.scope.projectId;
       importBundle.value = parsed.data satisfies ProjectDataExport;
       importFileName.value = file.name;
-      if (parsed.data.scope.type === "project") importProjectId.value = parsed.data.scope.projectId;
+      await previewProjectDataImport();
     } catch (error) {
       importError.value = errorMessage(error, "無法讀取匯入檔。");
     }
@@ -193,13 +194,88 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       importBundle.value = null;
       importFileName.value = "";
       importProjectId.value = "";
-      importRemapFrom.value = "";
-      importRemapTo.value = "";
+      importRemaps.value = [];
     } catch (error) {
       importError.value = errorMessage(error, "匯入專案資料失敗。");
     } finally {
       importApplying.value = false;
     }
+  }
+
+  function replaceImportRemaps(mappings: readonly ProjectPathRemap[]): void {
+    const bySource = new Map(importRemaps.value.map((mapping) => [mapping.from, mapping]));
+    for (const mapping of mappings) bySource.set(mapping.from, { ...mapping });
+    importRemaps.value = [...bySource.values()];
+  }
+
+  function pathBasename(value: string): string {
+    const normalized = value.replace(/[\\/]+$/, "");
+    const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+    return normalized.slice(separator + 1);
+  }
+
+  function siblingPath(parent: string, name: string): string {
+    const separator = parent.includes("\\") && !parent.includes("/") ? "\\" : "/";
+    const trimmedParent = parent.replace(/[\\/]+$/, "");
+    return `${trimmedParent || separator}${trimmedParent ? separator : ""}${name}`;
+  }
+
+  /** Picks a replacement folder, then offers matching sibling folders without applying them automatically. */
+  async function chooseImportProjectLocation(projectId: string): Promise<void> {
+    const project = importPreview.value?.selectedProjects.find((item) => item.id === projectId);
+    if (!project) return;
+    const selected = await useProjectsStore().pickProjectFolder();
+    if (!selected) return;
+
+    const mapping = { from: project.sourceRootPath, to: selected.path };
+    replaceImportRemaps([mapping]);
+    await previewProjectDataImport();
+
+    const updatedPreview = importPreview.value;
+    if (!updatedPreview) return;
+    const separator = Math.max(selected.path.lastIndexOf("/"), selected.path.lastIndexOf("\\"));
+    const parent = separator > 0 ? selected.path.slice(0, separator) : selected.path.slice(0, separator + 1);
+    const candidateLimit = Math.max(0, 20 - currentRemaps().length);
+    const candidates = updatedPreview.selectedProjects
+      .filter((item) => item.id !== projectId && item.folderStatus !== "found" && item.resolution === "new")
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        mapping: { from: item.sourceRootPath, to: siblingPath(parent, pathBasename(item.sourceRootPath)) },
+      }))
+      .filter((item) => pathBasename(item.mapping.to).length > 0)
+      .slice(0, candidateLimit);
+    if (candidates.length === 0) return;
+
+    const suggestedRemaps = new Map(currentRemaps().map((item) => [item.from, item]));
+    for (const candidate of candidates) suggestedRemaps.set(candidate.mapping.from, candidate.mapping);
+    const suggestedInput: ProjectDataImportInput = {
+      ...currentInput(),
+      remap: [...suggestedRemaps.values()],
+    };
+    let suggestedPreview: ProjectDataImportPreview;
+    try {
+      suggestedPreview = await useApi().client.previewProjectDataImport(suggestedInput);
+    } catch {
+      return;
+    }
+    const foundIds = new Set(
+      suggestedPreview.selectedProjects
+        .filter((item) => item.folderStatus === "found" && item.resolution !== "conflict")
+        .map((item) => item.id),
+    );
+    const foundCandidates = candidates.filter((item) => foundIds.has(item.id));
+    if (foundCandidates.length === 0) return;
+
+    const confirmed = await confirmAction({
+      title: "套用其他專案的位置？",
+      message: `其他 ${foundCandidates.length} 個專案也在新資料夾旁找到同名資料夾，要一起套用嗎？`,
+      confirmLabel: "一起套用",
+    });
+    if (!confirmed) return;
+
+    replaceImportRemaps(foundCandidates.map((item) => item.mapping));
+    await previewProjectDataImport();
   }
 
   async function exportProjectData(scope: ProjectDataExportScope): Promise<void> {
@@ -227,13 +303,13 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importProjects,
     importFileName,
     importProjectId,
-    importRemapFrom,
-    importRemapTo,
+    importRemaps,
     importLoading,
     importPreview,
     importError,
     loadImportFile,
     previewProjectDataImport,
+    chooseImportProjectLocation,
     applyProjectDataImport,
     exportProjectData,
   };

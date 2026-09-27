@@ -154,4 +154,35 @@ describe("custom report synthesis migration", () => {
       db.close();
     }
   });
+
+  it("adds the content-free project location audit when upgrading from schema 12", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+      `);
+      const markApplied = db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)");
+      for (let version = 1; version <= 12; version += 1) {
+        markApplied.run(version, `legacy-${version}`, "2026-09-27T00:00:00.000Z");
+      }
+
+      applySchemaMigrations(db);
+
+      expect(
+        (db.prepare("PRAGMA table_info(project_location_audit)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      ).toEqual(["id", "changed_at", "project_id", "paths_changed"]);
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 13").get()).toEqual({
+        version: 13,
+        name: "project-location-audit",
+      });
+    } finally {
+      db.close();
+    }
+  });
 });
