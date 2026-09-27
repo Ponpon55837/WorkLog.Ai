@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { ProjectLocationError } from "../../packages/storage/src/project-location-service.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -25,8 +26,8 @@ function setupProject(): {
 } {
   const directory = mkdtempSync(join(tmpdir(), "work-intelligence-project-location-"));
   directories.push(directory);
-  const oldRoot = join(directory, "old-project");
-  const newRoot = join(directory, "new-project");
+  const oldRoot = canonicalizeProjectRoot(join(directory, "old-project"));
+  const newRoot = canonicalizeProjectRoot(join(directory, "new-project"));
   mkdirSync(oldRoot);
   mkdirSync(newRoot);
   const databasePath = join(directory, "work-intelligence.sqlite");

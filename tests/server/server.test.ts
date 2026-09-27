@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { APP_VERSION } from "../../packages/shared/src/app-version.js";
+import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
@@ -961,9 +962,9 @@ describe("Work Intelligence REST API", () => {
   it("checks import folders with stat only and safely reassigns a tracked project location", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-location-"));
     const databasePath = join(root, "work-intelligence.sqlite");
-    const oldProjectRoot = join(root, "old-project-location");
-    const newProjectRoot = join(root, "new-project-location");
-    const importTarget = join(root, "portable-project-location");
+    const oldProjectRoot = canonicalizeProjectRoot(join(root, "old-project-location"));
+    const newProjectRoot = canonicalizeProjectRoot(join(root, "new-project-location"));
+    const importTarget = canonicalizeProjectRoot(join(root, "portable-project-location"));
     mkdirSync(newProjectRoot);
     mkdirSync(importTarget);
     const sentinel = "folder-content-must-not-be-read-or-returned";
@@ -1015,18 +1016,21 @@ describe("Work Intelligence REST API", () => {
 
     const source = new WorkIntelligenceStore(":memory:");
     try {
-      const sourceProject = source.addProject("Portable location fixture", join(root, "old-portable-root"));
+      const sourceProject = source.addProject(
+        "Portable location fixture",
+        canonicalizeProjectRoot(join(root, "old-portable-root")),
+      );
       const bundle = source.exportProjectData({ type: "project", projectId: sourceProject.id });
       const preview = await requestJson<{
         selectedProjects: Array<{ sourceRootPath: string; rootPath: string; folderStatus: string }>;
       }>(baseUrl, "/api/import/preview", {
         method: "POST",
-        body: { bundle, remap: [{ from: join(root, "old-portable-root"), to: importTarget }] },
+        body: { bundle, remap: [{ from: sourceProject.rootPath, to: importTarget }] },
       });
       expect(preview.status).toBe(200);
       expect(preview.body.selectedProjects).toMatchObject([
         {
-          sourceRootPath: join(root, "old-portable-root"),
+          sourceRootPath: sourceProject.rootPath,
           rootPath: importTarget,
           folderStatus: "found",
         },
