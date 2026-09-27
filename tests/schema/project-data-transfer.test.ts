@@ -111,6 +111,7 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
     "resulting_work_summary_json",
     "created_at",
   ],
+  knowledge_feedback: ["knowledge_id", "project_id", "kind", "occurred_at"],
   knowledge_pages: ["project_id", "slug", "title", "question", "sections_json", "created_at", "updated_at"],
   knowledge_page_versions: ["page_id", "project_id", "title", "question", "sections_json", "author", "created_at"],
 };
@@ -134,6 +135,7 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   session_summary_updates: { mode: "replace" },
   session_work_summary_updates: { mode: "replace" },
   knowledge_page_versions: { author: "agent" },
+  knowledge_feedback: { kind: "manual_confirm" },
 };
 
 const emptyTables = (): ProjectDataTables =>

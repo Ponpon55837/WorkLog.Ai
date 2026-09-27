@@ -2,6 +2,7 @@ import {
   CHANGED_FILE_SOURCES,
   CHANGED_FILE_CHANGE_STATUSES,
   CHANGED_FILES_MODES,
+  KNOWLEDGE_FEEDBACK_KINDS,
   KNOWLEDGE_KINDS,
   KNOWLEDGE_STATUSES,
   METADATA_BACKFILL_REQUEST_STATUSES,
@@ -1038,6 +1039,7 @@ export const projectDataExportTableColumns = {
     "changed_fields_json",
     "occurred_at",
   ],
+  knowledge_feedback: ["id", "knowledge_id", "project_id", "session_id", "kind", "occurred_at"],
   knowledge_candidate_requests: [
     "id",
     "project_id",
@@ -1155,6 +1157,7 @@ const projectDataTablesShape = {
   knowledge_pages: projectDataRows,
   knowledge_page_versions: projectDataRows,
   knowledge_audit: projectDataRows,
+  knowledge_feedback: projectDataRows,
   knowledge_candidate_requests: projectDataRows,
   knowledge_candidates: projectDataRows,
   report_synthesis_requests: projectDataRows,
@@ -1186,6 +1189,7 @@ const projectDataImportStatusValues: Partial<
   },
   knowledge_page_versions: { author: KNOWLEDGE_PAGE_AUTHORS },
   knowledge_audit: { action: ["created", "updated", "archived", "restored"] },
+  knowledge_feedback: { kind: KNOWLEDGE_FEEDBACK_KINDS },
   knowledge_candidate_requests: { status: METADATA_BACKFILL_REQUEST_STATUSES },
   knowledge_candidates: { kind: KNOWLEDGE_KINDS, status: ["proposed", "accepted", "rejected"] },
   report_synthesis_requests: {
@@ -1249,6 +1253,7 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
     "created_at",
   ],
   knowledge_audit: ["id", "knowledge_id", "project_id", "action", "after_json", "changed_fields_json", "occurred_at"],
+  knowledge_feedback: ["id", "knowledge_id", "project_id", "kind", "occurred_at"],
   knowledge_candidate_requests: [
     "id",
     "project_id",

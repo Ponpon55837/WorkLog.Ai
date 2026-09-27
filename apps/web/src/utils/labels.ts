@@ -54,6 +54,7 @@ export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, str
   sessionDecisions: "Session 決策",
   knowledgePages: "知識頁",
   knowledgePageVersions: "知識頁版本",
+  knowledgeFeedback: "Knowledge 確認與推翻紀錄",
   searchChunks: "搜尋索引片段",
   searchFts: "全文搜尋索引",
   searchPaths: "搜尋路徑",

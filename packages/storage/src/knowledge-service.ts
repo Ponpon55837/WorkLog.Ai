@@ -5,6 +5,9 @@ import type {
   FinalizeSessionInput,
   KnowledgeAuditAction,
   KnowledgeAuditRecord,
+  KnowledgeEvidence,
+  KnowledgeFeedbackKind,
+  KnowledgeFeedbackRecord,
   KnowledgeHistoryQuery,
   KnowledgeHistoryResult,
   KnowledgeQuery,
@@ -37,6 +40,16 @@ interface LaterSession {
   completedAt: string;
   files: Array<{ raw: string; normalized: string }>;
 }
+
+interface EvidenceRow {
+  knowledge_id: string;
+  confirmed: number;
+  contradicted: number;
+  last_confirmed_at: string | null;
+  last_contradicted_at: string | null;
+}
+
+const FEEDBACK_HISTORY_LIMIT = 100;
 
 /** Knowledge goes possibly stale when a Session after its last confirmation (or creation) touches appliesTo. */
 function stalenessSince(knowledge: KnowledgeRecord): string {
@@ -147,13 +160,14 @@ export class KnowledgeService {
           after.review ? JSON.stringify(after.review) : null,
           id,
         );
-      this.insertKnowledgeAudit({
+      const auditId = this.insertKnowledgeAudit({
         knowledge: after,
         before,
         action: "updated",
         changedFields: applied ? ["lastConfirmedAt", ...(before.review ? ["review"] : [])] : ["review"],
         occurredAt: completedAt,
       });
+      this.insertFeedback(auditId, after, applied ? "applied" : "contradicted", completedAt, sessionId);
     }
     return warnings;
   }
@@ -163,10 +177,12 @@ export class KnowledgeService {
   }
 
   /**
-   * Adds the possiblyStale marker to many Knowledge records at once. Each project's later Sessions are
-   * read and their changed files normalized once, instead of once per Knowledge record.
+   * Adds the possiblyStale marker and evidence counts to many Knowledge records at once. Each project's later
+   * Sessions are read and their changed files normalized once, and evidence is one grouped query, instead of
+   * once per Knowledge record.
    */
   public withKnowledgeTrustMany(items: KnowledgeRecord[]): KnowledgeRecord[] {
+    const evidence = this.evidenceFor(items.map((item) => item.id));
     const byProject = new Map<string, KnowledgeRecord[]>();
     for (const item of items) {
       if (item.appliesTo.length === 0) {
@@ -195,8 +211,42 @@ export class KnowledgeService {
     }
     return items.map((item) => {
       const result = staleness.get(item.id);
-      return result ? { ...item, possiblyStale: result } : item;
+      const counts = evidence.get(item.id);
+      return {
+        ...item,
+        ...(result ? { possiblyStale: result } : {}),
+        ...(counts ? { evidence: counts } : {}),
+      };
     });
+  }
+
+  /** Confirmation and contradiction counts per Knowledge id, from one grouped query. */
+  public evidenceFor(knowledgeIds: readonly string[]): Map<string, KnowledgeEvidence> {
+    const evidence = new Map<string, KnowledgeEvidence>();
+    if (knowledgeIds.length === 0) {
+      return evidence;
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT knowledge_id,
+                SUM(kind <> 'contradicted') AS confirmed,
+                SUM(kind = 'contradicted') AS contradicted,
+                MAX(CASE WHEN kind <> 'contradicted' THEN occurred_at END) AS last_confirmed_at,
+                MAX(CASE WHEN kind = 'contradicted' THEN occurred_at END) AS last_contradicted_at
+         FROM knowledge_feedback
+         WHERE knowledge_id IN (SELECT value FROM json_each(?))
+         GROUP BY knowledge_id`,
+      )
+      .all(JSON.stringify([...new Set(knowledgeIds)])) as unknown as EvidenceRow[];
+    for (const row of rows) {
+      evidence.set(row.knowledge_id, {
+        confirmed: row.confirmed,
+        contradicted: row.contradicted,
+        ...(row.last_confirmed_at ? { lastConfirmedAt: row.last_confirmed_at } : {}),
+        ...(row.last_contradicted_at ? { lastContradictedAt: row.last_contradicted_at } : {}),
+      });
+    }
+    return evidence;
   }
 
   /** A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. */
@@ -467,7 +517,16 @@ export class KnowledgeService {
         review: next.review ? JSON.stringify(next.review) : null,
       });
     this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, decision.project.id);
-    this.insertKnowledgeAudit({ knowledge: next, before: cleanCurrent, action, changedFields, occurredAt: updatedAt });
+    const auditId = this.insertKnowledgeAudit({
+      knowledge: next,
+      before: cleanCurrent,
+      action,
+      changedFields,
+      occurredAt: updatedAt,
+    });
+    if (input.confirm) {
+      this.insertFeedback(auditId, next, "manual_confirm", updatedAt);
+    }
 
     return { outcome: "knowledge_updated", knowledge: this.withKnowledgeTrust(next), redactions };
   }
@@ -507,11 +566,37 @@ export class KnowledgeService {
       )
       .all(input.knowledgeId, decision.project.id, limit) as KnowledgeAuditRow[];
 
+    const feedback = (
+      this.db
+        .prepare(
+          `SELECT f.id, f.kind, f.session_id, s.title AS session_title, f.occurred_at
+           FROM knowledge_feedback f
+           LEFT JOIN sessions s ON s.id = f.session_id
+           WHERE f.knowledge_id = ?
+           ORDER BY f.occurred_at DESC, f.rowid DESC
+           LIMIT ?`,
+        )
+        .all(input.knowledgeId, FEEDBACK_HISTORY_LIMIT) as Array<{
+        id: string;
+        kind: KnowledgeFeedbackKind;
+        session_id: string | null;
+        session_title: string | null;
+        occurred_at: string;
+      }>
+    ).map((item): KnowledgeFeedbackRecord => ({
+      id: item.id,
+      kind: item.kind,
+      ...(item.session_id ? { sessionId: item.session_id } : {}),
+      ...(item.session_title ? { sessionTitle: item.session_title } : {}),
+      occurredAt: item.occurred_at,
+    }));
+
     return {
       outcome: "knowledge_history",
       project: decision.project,
-      knowledge: toKnowledge(row),
+      knowledge: this.withKnowledgeTrust(toKnowledge(row)),
       history: auditRows.map(toKnowledgeAudit),
+      feedback,
     };
   }
 
@@ -526,7 +611,7 @@ export class KnowledgeService {
     action: KnowledgeAuditAction;
     changedFields: string[];
     occurredAt: string;
-  }): void {
+  }): string {
     const audit: KnowledgeAuditRecord = {
       id: randomUUID(),
       knowledgeId: input.knowledge.id,
@@ -558,5 +643,22 @@ export class KnowledgeService {
         changedFields: JSON.stringify(audit.changedFields),
         occurredAt: audit.occurredAt,
       });
+    return audit.id;
+  }
+
+  /** One confirmation or contradiction; it shares the id of the audit row written with it. */
+  private insertFeedback(
+    auditId: string,
+    knowledge: KnowledgeRecord,
+    kind: KnowledgeFeedbackKind,
+    occurredAt: string,
+    sessionId?: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO knowledge_feedback (id, knowledge_id, project_id, session_id, kind, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(auditId, knowledge.id, knowledge.projectId, sessionId ?? null, kind, occurredAt);
   }
 }

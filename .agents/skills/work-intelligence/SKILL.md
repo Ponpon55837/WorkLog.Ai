@@ -39,7 +39,7 @@ Write:
 - Git fields: optional separate metadata containing only observed values. Changed files do not prove a commit.
 - Events and evidence: record only supported facts and keep them separate from the five-section summary.
 
-If this work relied on recalled Knowledge, report it when finalizing: Knowledge that proved still valid as applied, and Knowledge that turned out to be wrong as contradicted (then tell the user which one and why, so it can be updated or archived). Do not report Knowledge you did not actually use.
+If this work relied on recalled Knowledge, report it when finalizing: Knowledge that proved still valid as applied, and Knowledge that turned out to be wrong as contradicted (then tell the user which one and why, so it can be updated or archived). Do not report Knowledge you did not actually use. These reports are counted as the Knowledge's evidence (shown to the user and used in ranking), so report them only when the work really relied on the item.
 
 When this Session continues an earlier recorded one (for example it implements a planning Session, or finishes a follow-up), pass that Session as the parent link when finalizing so recall can lead from one to the other; use related links for other confirmed associations. Only link Sessions whose relationship is clear from the user or the records.
 

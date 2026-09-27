@@ -42,6 +42,11 @@ const PATH_WEIGHT = 4;
 const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
 const EXCERPT_LENGTH = 220;
+// Evidence strength for Knowledge: each confirmation (up to 5) adds 4%, and a contradiction newer than the
+// latest confirmation lowers the score, so a disputed item ranks below an equally matching trusted one.
+const CONFIRMATION_BONUS = 0.04;
+const CONFIRMATION_CAP = 5;
+const CONTRADICTED_FACTOR = 0.7;
 
 interface ChunkInput {
   field: Exclude<RecallField, "path">;
@@ -233,6 +238,9 @@ export class SearchRepository {
     }
 
     const now = Date.now();
+    const evidence = this.evidenceFactors(
+      [...docs.values()].filter((doc) => doc.type === "knowledge").map((doc) => doc.id),
+    );
     const ranked = [...docs.values()]
       .map((doc) => {
         let matchedIdf = 0;
@@ -243,7 +251,8 @@ export class SearchRepository {
         const textScore = (doc.fieldScore + (doc.bestRaw?.score ?? 0)) * coverage * coverage;
         const ageDays = Math.max(0, (now - Date.parse(doc.date)) / 86_400_000) || 0;
         const recency = 0.75 + 0.25 * Math.exp(-ageDays / RECENCY_DAYS);
-        return { doc, score: (textScore + doc.pathScore) * recency };
+        const strength = doc.type === "knowledge" ? (evidence.get(doc.id) ?? 1) : 1;
+        return { doc, score: (textScore + doc.pathScore) * recency * strength };
       })
       .filter((entry) => entry.score > 0)
       .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date))
@@ -342,6 +351,38 @@ export class SearchRepository {
     }
     this.db.prepare(`DELETE FROM search_dirty WHERE ${dirtyPredicate}`).run(sessionIdJson, knowledgeIdJson);
     return { chunks, fts, paths, dirty };
+  }
+
+  /** Ranking multipliers for Knowledge with recorded feedback (one grouped query); others keep 1. */
+  private evidenceFactors(knowledgeIds: string[]): Map<string, number> {
+    const factors = new Map<string, number>();
+    if (knowledgeIds.length === 0) {
+      return factors;
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT knowledge_id,
+                SUM(kind <> 'contradicted') AS confirmed,
+                MAX(CASE WHEN kind <> 'contradicted' THEN occurred_at END) AS last_confirmed_at,
+                MAX(CASE WHEN kind = 'contradicted' THEN occurred_at END) AS last_contradicted_at
+         FROM knowledge_feedback
+         WHERE knowledge_id IN (SELECT value FROM json_each(?))
+         GROUP BY knowledge_id`,
+      )
+      .all(JSON.stringify(knowledgeIds)) as Array<{
+      knowledge_id: string;
+      confirmed: number;
+      last_confirmed_at: string | null;
+      last_contradicted_at: string | null;
+    }>;
+    for (const row of rows) {
+      const disputed =
+        row.last_contradicted_at !== null &&
+        (row.last_confirmed_at === null || row.last_contradicted_at > row.last_confirmed_at);
+      const bonus = 1 + CONFIRMATION_BONUS * Math.min(row.confirmed, CONFIRMATION_CAP);
+      factors.set(row.knowledge_id, disputed ? CONTRADICTED_FACTOR : bonus);
+    }
+    return factors;
   }
 
   private scoreTerms(

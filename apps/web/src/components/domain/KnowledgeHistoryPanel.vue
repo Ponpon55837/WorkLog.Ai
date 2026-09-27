@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { History, X } from "lucide-vue-next";
+import { ExternalLink, History, X } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import { useKnowledgeActions } from "../../composables/useKnowledge";
 import { useKnowledgeStore } from "../../stores/knowledge";
+import { useSessionsStore } from "../../stores/sessions";
 import { formatDate, formatRelative } from "../../utils/format";
 import { knowledgeAuditActionLabels } from "../../utils/labels";
+import UiButton from "../ui/UiButton.vue";
+import UiDisclosure from "../ui/UiDisclosure.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -14,8 +17,21 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 
 const { knowledgeHistoryItem, closeKnowledgeHistory, knowledgeAuditFields } = useKnowledgeActions();
-const { knowledgeHistory, knowledgeHistoryLoading, knowledgeHistoryError } = storeToRefs(useKnowledgeStore());
+const { knowledgeHistory, knowledgeFeedback, knowledgeHistoryLoading, knowledgeHistoryError } =
+  storeToRefs(useKnowledgeStore());
+const sessionsStore = useSessionsStore();
 const actionTone = { created: "success", updated: "accent", archived: "neutral", restored: "done" } as const;
+const feedbackVisual = {
+  applied: { tone: "success", label: "Session 確認" },
+  manual_confirm: { tone: "done", label: "手動確認" },
+  contradicted: { tone: "danger", label: "Session 推翻" },
+} as const;
+
+function openFeedbackSession(sessionId: string): void {
+  // The Session panel is also a modal side panel; close this one so focus moves cleanly.
+  closeKnowledgeHistory();
+  void sessionsStore.openSessionDetail(sessionId, "無法載入確認或推翻這筆 Knowledge 的 Session。");
+}
 </script>
 
 <template>
@@ -35,6 +51,31 @@ const actionTone = { created: "success", updated: "accent", archived: "neutral",
       <p class="history__note">顯示中央 registry 保存的前後快照；不會讀取來源 repo，也不會重新推論內容。</p>
     </template>
 
+    <UiDisclosure
+      v-if="!knowledgeHistoryLoading && knowledgeFeedback.length > 0"
+      class="history__feedback"
+      title="確認與推翻"
+      :count="knowledgeFeedback.length"
+      hint="Session 套用後回報仍有效、回報已不成立，或在這裡手動確認的紀錄"
+      open
+    >
+      <ul class="history__feedback-list" data-testid="knowledge-feedback">
+        <li v-for="entry in knowledgeFeedback" :key="entry.id">
+          <UiLabel :tone="feedbackVisual[entry.kind].tone">{{ feedbackVisual[entry.kind].label }}</UiLabel>
+          <UiButton
+            v-if="entry.sessionId"
+            size="sm"
+            variant="invisible"
+            :icon="ExternalLink"
+            @click="openFeedbackSession(entry.sessionId)"
+            >{{ entry.sessionTitle ?? `Session ${entry.sessionId.slice(0, 8)}` }}</UiButton
+          >
+          <time :datetime="entry.occurredAt" :title="formatDate(entry.occurredAt)">{{
+            formatRelative(entry.occurredAt)
+          }}</time>
+        </li>
+      </ul>
+    </UiDisclosure>
     <UiSkeleton v-if="knowledgeHistoryLoading" variant="text" :count="4" />
     <UiFlash v-else-if="knowledgeHistoryError" tone="danger">{{ knowledgeHistoryError }}</UiFlash>
     <UiEmptyState
@@ -105,6 +146,32 @@ const actionTone = { created: "success", updated: "accent", archived: "neutral",
   margin-top: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.history__feedback {
+  margin-bottom: var(--space-3);
+}
+
+.history__feedback-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history__feedback-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.history__feedback-list time {
+  margin-inline-start: auto;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
 .history__list {

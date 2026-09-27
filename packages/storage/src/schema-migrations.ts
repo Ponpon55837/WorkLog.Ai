@@ -444,6 +444,50 @@ const MIGRATIONS: SchemaMigration[] = [
         ON knowledge_page_versions(page_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
     `,
   },
+  {
+    version: 17,
+    name: "knowledge-feedback",
+    // Backfills only audit rows whose meaning is certain: a Session confirmation records that Session in
+    // lastConfirmedSessionId at the audit time, a contradiction records review.sessionId at the audit time, and
+    // a manual confirmation sets lastConfirmedAt to the audit time with no Session. The audit id is reused,
+    // so a feedback row points back to the change that created it.
+    sql: `
+      CREATE TABLE knowledge_feedback (
+        id TEXT PRIMARY KEY,
+        knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('applied', 'contradicted', 'manual_confirm')),
+        occurred_at TEXT NOT NULL,
+        CHECK ((kind = 'manual_confirm') = (session_id IS NULL))
+      );
+      CREATE INDEX idx_knowledge_feedback_knowledge ON knowledge_feedback(knowledge_id, occurred_at DESC);
+      CREATE UNIQUE INDEX idx_knowledge_feedback_session
+        ON knowledge_feedback(knowledge_id, session_id, kind) WHERE session_id IS NOT NULL;
+      INSERT OR IGNORE INTO knowledge_feedback (id, knowledge_id, project_id, session_id, kind, occurred_at)
+      SELECT a.id, a.knowledge_id, a.project_id, s.id, 'applied', a.occurred_at
+      FROM knowledge_audit a
+      JOIN sessions s
+        ON s.id = json_extract(a.after_json, '$.lastConfirmedSessionId') AND s.project_id = a.project_id
+      WHERE EXISTS (SELECT 1 FROM json_each(a.changed_fields_json) WHERE value = 'lastConfirmedAt')
+        AND json_extract(a.after_json, '$.lastConfirmedAt') = a.occurred_at;
+      INSERT OR IGNORE INTO knowledge_feedback (id, knowledge_id, project_id, session_id, kind, occurred_at)
+      SELECT a.id, a.knowledge_id, a.project_id, NULL, 'manual_confirm', a.occurred_at
+      FROM knowledge_audit a
+      WHERE EXISTS (SELECT 1 FROM json_each(a.changed_fields_json) WHERE value = 'lastConfirmedAt')
+        AND json_extract(a.after_json, '$.lastConfirmedAt') = a.occurred_at
+        AND json_extract(a.after_json, '$.lastConfirmedSessionId') IS NULL;
+      INSERT OR IGNORE INTO knowledge_feedback (id, knowledge_id, project_id, session_id, kind, occurred_at)
+      SELECT a.id, a.knowledge_id, a.project_id, s.id, 'contradicted', a.occurred_at
+      FROM knowledge_audit a
+      JOIN sessions s
+        ON s.id = json_extract(a.after_json, '$.review.sessionId') AND s.project_id = a.project_id
+      WHERE EXISTS (SELECT 1 FROM json_each(a.changed_fields_json) WHERE value = 'review')
+        AND NOT EXISTS (SELECT 1 FROM json_each(a.changed_fields_json) WHERE value = 'lastConfirmedAt')
+        AND json_extract(a.after_json, '$.review.reason') = 'contradicted'
+        AND json_extract(a.after_json, '$.review.at') = a.occurred_at;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

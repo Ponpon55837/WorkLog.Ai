@@ -145,6 +145,9 @@ export class ContextRecallService {
         ...hit,
         ...(knowledge?.possiblyStale ? { possiblyStale: true } : {}),
         ...(knowledge?.review ? { needsReview: true } : {}),
+        ...(knowledge?.evidence
+          ? { evidence: { confirmed: knowledge.evidence.confirmed, contradicted: knowledge.evidence.contradicted } }
+          : {}),
       };
     }
     const related = this.store

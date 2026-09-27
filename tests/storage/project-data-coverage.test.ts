@@ -25,6 +25,7 @@ const NOT_PROJECT_DATA: Record<string, string> = {
 const NO_FREE_TEXT: Record<string, string> = {
   projects: "name and root path are chosen by the user in the Web UI",
   session_links: "ids, relation, and source only",
+  knowledge_feedback: "ids, kind, and time only",
 };
 
 function userTables(db: DatabaseSync): string[] {

@@ -47,6 +47,17 @@ const actions = computed(() => [
       <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)"
         >更新於 {{ formatRelative(item.updatedAt) }}</time
       >
+      <template v-if="item.evidence">
+        ·
+        <button
+          type="button"
+          class="knowledge-row__evidence"
+          :aria-label="`被 ${item.evidence.confirmed} 次確認、${item.evidence.contradicted} 次推翻，查看來源 Session`"
+          @click="emit('action', 'history', item)"
+        >
+          確認 {{ item.evidence.confirmed }}・推翻 {{ item.evidence.contradicted }}
+        </button>
+      </template>
       <template v-if="item.lastConfirmedAt">
         ·
         <time :datetime="item.lastConfirmedAt" :title="formatDate(item.lastConfirmedAt)"
@@ -96,6 +107,19 @@ const actions = computed(() => [
 </template>
 
 <style scoped>
+.knowledge-row__evidence {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.knowledge-row__evidence:hover {
+  text-decoration: underline;
+}
+
 .knowledge-row__trust {
   margin-top: var(--space-2);
   color: var(--attention);
