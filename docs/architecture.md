@@ -9,7 +9,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node.js 22.5 以上的內建 `node:sqlite` SQLite 儲存（建議 Node.js 24），避免額外 native binding
-- MCP stdio server：38 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
+- MCP stdio server：43 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
 - Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
 - 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization
@@ -28,6 +28,10 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Knowledge 維護：可編輯內容、標籤、references、類型，並可封存／恢復；封存不刪除資料，只從預設搜尋與 Graph 隱藏
 - Graph UI：以關係圖、節點分布與關係類型呈現 tracked-only graph，並可從 Session／Knowledge 節點回到來源
 - `idempotencyKey` 保證 finalize retry 不會重複建立 session
+- 常駐知識頁（`knowledge-page-service.ts`）：每頁的每段引用來源 Session，保存為版本；新 Session 讓頁面標示需要更新
+- Knowledge 證據強度：`knowledge_feedback` 保存 Session 確認、推翻與手動確認，檢索排序會納入
+- 洞察讀取路徑：熱點（`hotspot-repository.ts`）、時間軸（`timeline-repository.ts`），以及推導的「一起修改」邊與最短關聯路徑（`graph-derivation.ts`，BFS）；推導結果只在讀取時計算，不寫回資料庫
+- Session 圖表（`diagram-service.ts`）：Mermaid 原始碼寫入前遮蔽敏感資料，可作廢、不可刪除。Web 以 strict 模式延遲載入 Mermaid，渲染到 Shadow DOM 並套用 constructable stylesheet，所以不必放寬 CSP
 - 預留 reports、evidence、knowledge、graph extension interfaces
 - Production 模式由單一本機 HTTP server 在同一個 port 提供 REST API 與 build 後的 Web UI；開發模式仍分開使用 Vite 與 API。
 - 根目錄 `package.json` 是唯一應用程式版本來源；REST health、MCP metadata 與 Web UI 共用該版本，並另回報資料庫 schema 版本。
@@ -37,7 +41,8 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - **狀態分兩種**：
   - 前端自己的狀態（篩選條件、選取中的 Session、對話框）放在 `apps/web/src/stores/` 的 Pinia setup store，一個領域一個 store。
   - 從 API 取得的資料由 Pinia Colada 的 query 管理：快取、同一個 key 的請求去重、`AbortSignal` 取消。
-- **query key**：前綴集中在 `stores/query-keys.ts`。規範要求 key 包含查詢讀取的所有參數（見 `worklog-web-code-style` skill §4）；第五輪有部分 query 仍使用固定 key 並手動 `refetch`，第六輪 E1 會遷移。
+- **query key**：前綴集中在 `stores/query-keys.ts`。key 包含查詢讀取的所有參數（見 `worklog-web-code-style` skill §4），參數改變就是新的查詢，不手動 `refetch`。
+- **對話框與表單狀態**：編輯器、作廢、確認框與 Toast 等狀態也放在 Pinia store，並提供 `$reset`；模組層級的 ref 只保留 `worklog-code-layout` skill 列出的例外。離開頁面時以 Pinia Colada 的 `cancelQueries()` 取消進行中的查詢。
 - **寫入後的失效**：每個 mutation 宣告會影響哪些 key 前綴，成功後讓它們失效。Pinia Colada 只會重新載入目前有畫面在使用的 query。
 - **即時更新**：server 的 `/api/events`（SSE）只送不帶資料的 `changed` 事件。Web 收到後呼叫 `invalidateActiveQueries()`；分頁回到前景、或 API 恢復連線時也會做同樣的事。不會讓所有畫面重新載入全部資料。
 - **網址是篩選條件的唯一來源**：`useRouteQuery` 讓網址與篩選 ref 雙向同步；`useListReload` 處理「篩選改變回到第 1 頁、搜尋 debounce」。
@@ -99,6 +104,8 @@ REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Eviden
 Processing 中的 report synthesis 與 metadata backfill 請求超過 30 分鐘會標記為 `failed`，保留原始資料並允許後續 Agent／UI 重新處理。更新 Session metadata、verification 與 summary 時，Session 與 Project timestamp 會一起原子更新。
 
 REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`，以及 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），其他一律回 421，避免 DNS rebinding 的網頁在同源情況下讀取資料；帶 `Origin` 的請求還必須在 origin 白名單內。
+
+REST 路由依領域分成 `apps/server/src/routes/` 下的路由表（system、reports、projects、knowledge、insights、sessions、backfill）。固定路徑以雜湊表比對，帶參數的路徑依序比對；`validatedRoute` 統一處理 Zod 驗證與錯誤回應。
 
 正式模式由 `pnpm start` 啟動單一 API server，預設綁定 `127.0.0.1:3210`，同時提供 `apps/web/dist` 與 `/api/*`。SPA 路由 fallback 回 `index.html`；HTML 不快取、Vite 雜湊 assets 長期快取。靜態請求先用 Zod 驗證路徑，再拒絕 dot-segment、百分比解碼後 traversal、反斜線與控制字元；解析 symlink 後還會再次確認真實路徑仍位於 Web 根目錄內。正式 Web 回應附 CSP（script 只允許同源，style attribute 依 Vue 版面需求允許 inline）、`X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。開發模式 `pnpm dev` 維持 Vite 與 API 分開。
 
