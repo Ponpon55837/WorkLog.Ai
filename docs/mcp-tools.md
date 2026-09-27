@@ -298,7 +298,9 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 
 ## `work_attach_diagram`
 
-為記錄中專案的 Session 附上一張 Mermaid 圖表（`sessionId`、`idempotencyKey`、`title` 最多 200 字、`source` 最多 20,000 字，`kind` 目前只有 `mermaid`），例如這次改動的流程或資料路徑；只畫這次工作實際做了什麼。finalize 也可以帶 `diagrams`（最多 5 張）。標題與原始碼會先遮蔽敏感資料。同一個 `idempotencyKey` 重試回傳 `duplicate: true`；用已用過的 key 送不同內容會回傳 `idempotency_conflict`。圖表沒有刪除工具，只能在 Web 的 Session 面板作廢（需填原因，可還原）。
+為記錄中專案的 Session 附上一張 Mermaid 圖表（`sessionId`、`idempotencyKey`、`title` 最多 200 字、`source` 最多 20,000 字，`kind` 目前只有 `mermaid`），例如這次改動的流程或資料路徑；只畫這次工作實際做了什麼。finalize 也可以帶 `diagrams`（最多 5 張）。
+
+**Agent 何時主動附圖**（不需使用者要求，寫在 finalize 的記錄規則與 work-intelligence skill）：這次工作改了跨模組的流程或資料流（例如 API → store → 資料庫）、狀態機、架構或元件關係、多步驟的處理流程時，附一到兩張；單檔修正、文案、樣式、設定調整、依賴升級與純測試不附。只畫這次實際做的內容（約 3–12 個節點，偏好 `flowchart LR` 或 `sequenceDiagram`），不放敏感資料。標題與原始碼會先遮蔽敏感資料。同一個 `idempotencyKey` 重試回傳 `duplicate: true`；用已用過的 key 送不同內容會回傳 `idempotency_conflict`。圖表沒有刪除工具，只能在 Web 的 Session 面板作廢（需填原因，可還原）。
 
 Web 在 Session 面板渲染圖表：Mermaid 只在圖表捲入畫面時才延遲載入，使用 `securityLevel: "strict"`；SVG 放進 Shadow DOM，Mermaid 的樣式以 Constructable Stylesheet 套用，**主頁 CSP 不需放寬**（`style-src-elem 'self'` 會擋下 Mermaid 暫時插入的 `<style>`，瀏覽器主控台會出現對應訊息，但不影響顯示）。原始碼無法解析時顯示錯誤與原始碼。
 

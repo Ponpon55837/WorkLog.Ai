@@ -243,7 +243,9 @@ export const finalizeSessionInputSchema = z.object({
     .array(z.object({ title: diagramTitleSchema, source: diagramSourceSchema }))
     .max(5)
     .optional()
-    .describe("Optional Mermaid diagrams that explain the work (e.g. the flow you changed)."),
+    .describe(
+      "Up to five Mermaid diagrams; add one or two on your own when the work changed a cross-module flow, data path, state machine, architecture, or multi-step process. Skip small fixes, styling, config, and test-only work.",
+    ),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);
