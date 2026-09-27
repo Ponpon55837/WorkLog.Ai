@@ -15,12 +15,11 @@ const { items, loading, pageInfo } = defineProps<{
   loading: boolean;
   pageInfo: PageInfo;
 }>();
-const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const emit = defineEmits<{
   page: [page: number];
   open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]];
 }>();
-
+const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 function openSession(session: WorkSessionRecord): void {
   emit("open", session, items);
 }

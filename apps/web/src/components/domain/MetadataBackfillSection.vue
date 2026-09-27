@@ -177,8 +177,10 @@ const requestMessage = computed(() => {
         />
         <VirtualList
           :items="preview.items"
-          :enabled="preview.items.length > 5"
+          :enabled="true"
           fit-viewport
+          fit-viewport-to-panel
+          fill-available-space
           :estimate-item-height="72"
           label="metadata 回補清單"
         >

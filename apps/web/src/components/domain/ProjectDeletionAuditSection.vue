@@ -8,6 +8,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import VirtualList from "../VirtualList.vue";
 import { formatDate, formatRelative } from "../../utils/format";
 import { projectDeletionCountLabels } from "../../utils/labels";
 
@@ -51,22 +52,39 @@ function countEntries(
       title="尚無刪除紀錄"
       description="永久刪除專案後，時間、專案 id 與刪除筆數會顯示在這裡。"
     />
-    <UiBoxRow v-for="item in items" :key="`${item.projectId}-${item.deletedAt}`">
-      <template #title
-        ><code>{{ item.projectId }}</code></template
-      >
-      <template #meta>
-        <time :datetime="item.deletedAt" :title="item.deletedAt">
-          {{ formatDate(item.deletedAt) }} · {{ formatRelative(item.deletedAt) }}
-        </time>
+    <VirtualList
+      v-else-if="items.length > 0"
+      :items="items"
+      :enabled="true"
+      fit-viewport
+      fit-viewport-to-panel
+      fill-available-space
+      :estimate-item-height="96"
+      label="已刪除專案紀錄清單"
+    >
+      <template #default="{ item }">
+        <UiBoxRow>
+          <template #title
+            ><code>{{ item.projectId }}</code></template
+          >
+          <template #meta>
+            <time :datetime="item.deletedAt" :title="item.deletedAt">
+              {{ formatDate(item.deletedAt) }} · {{ formatRelative(item.deletedAt) }}
+            </time>
+          </template>
+          <dl class="project-deletion-audit__counts">
+            <div
+              v-for="entry in countEntries(item.deletedCounts)"
+              :key="entry.key"
+              class="project-deletion-audit__count"
+            >
+              <dt>{{ entry.label }}</dt>
+              <dd>{{ entry.count }}</dd>
+            </div>
+          </dl>
+        </UiBoxRow>
       </template>
-      <dl class="project-deletion-audit__counts">
-        <div v-for="entry in countEntries(item.deletedCounts)" :key="entry.key" class="project-deletion-audit__count">
-          <dt>{{ entry.label }}</dt>
-          <dd>{{ entry.count }}</dd>
-        </div>
-      </dl>
-    </UiBoxRow>
+    </VirtualList>
   </UiBox>
 </template>
 

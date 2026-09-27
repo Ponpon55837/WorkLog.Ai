@@ -61,14 +61,7 @@ Decision rule for a new component:
 
 Order: `<script setup lang="ts">` → `<template>` → `<style scoped>`.
 
-Inside `<script setup>`:
-1. Imports (order below).
-2. Local `type` aliases.
-3. One JSDoc sentence describing the component's purpose (above `defineProps` when there are props).
-4. `defineProps` / `defineModel` / `defineEmits`.
-5. Store and composable destructuring (`storeToRefs` for state, actions straight from the store).
-6. `useRouteQuery` / `useListReload` wiring.
-7. `computed`, then functions, then `watch`, then lifecycle hooks.
+Inside `<script setup>`, follow the section order in the [`worklog-code-layout`](../worklog-code-layout/SKILL.md) skill §2 (imports → types and constants → macros → stores/composables → state → computed → functions → watchers → lifecycle → `defineExpose`). `pnpm lint` checks it with `scripts/sfc-layout.mjs`, `vue/define-macros-order`, and `no-use-before-define`. Put one JSDoc sentence describing the component's purpose above `defineProps` when there are props.
 
 Import order (blank-line-free, one group after another, alphabetical inside a group):
 1. `vue`, `vue-router`

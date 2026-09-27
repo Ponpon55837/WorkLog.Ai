@@ -14,16 +14,17 @@ const { report, reportComparisons } = defineProps<{
   report: WorkReport;
   reportComparisons: Array<{ key: string; label: string; comparison: ReportMetricComparison; foot: string }>;
 }>();
+const emit = defineEmits<{
+  open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]];
+  "show-all": [];
+}>();
+
 const verificationCounts = computed(() => ({
   passed: report.totals.verification.passed,
   failed: report.totals.verification.failed,
   notRun: report.totals.verification.not_run,
   notSupplied: report.totals.verification.not_supplied,
 }));
-const emit = defineEmits<{
-  open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]];
-  "show-all": [];
-}>();
 
 function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecord[]): void {
   emit("open", session, list);

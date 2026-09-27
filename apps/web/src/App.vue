@@ -33,10 +33,14 @@ const appStore = useAppStore();
 const { appHealth, appHealthError } = storeToRefs(appStore);
 const { loadHealth } = appStore;
 const { isApiOffline } = useApiConnection();
+
 const loading = ref(true);
 const refreshing = ref(false);
 const errorMessage = ref("");
 const paletteOpen = ref(false);
+
+useHotkeys({ openPalette: () => (paletteOpen.value = true) });
+const stopAppRefreshEvents = startAppRefreshEvents();
 
 const counts = computed(() => ({
   dashboard: { value: inbox.value.length, tone: "attention" as const },
@@ -67,8 +71,6 @@ async function refresh(): Promise<void> {
   }
 }
 
-useHotkeys({ openPalette: () => (paletteOpen.value = true) });
-const stopAppRefreshEvents = startAppRefreshEvents();
 watch(appHealthError, (message) => {
   if (message) {
     errorMessage.value = message;
@@ -76,6 +78,7 @@ watch(appHealthError, (message) => {
     errorMessage.value = "";
   }
 });
+
 onMounted(() => void loadRootData());
 
 onBeforeUnmount(() => {

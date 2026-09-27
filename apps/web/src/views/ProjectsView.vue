@@ -63,12 +63,6 @@ const tab = computed<ProjectsTab>({
   set: (value) => void router.replace({ name: "projects", params: { tab: value === "registry" ? undefined : value } }),
 });
 const metadataBackfillActive = computed(() => tab.value === "backfill");
-watch(metadataBackfillActive, metadataBackfillStore.setMetadataBackfillActive, { immediate: true });
-watch(() => tab.value === "deletion-audit", setProjectDeletionAuditsActive, { immediate: true });
-onBeforeUnmount(() => {
-  metadataBackfillStore.setMetadataBackfillActive(false);
-  setProjectDeletionAuditsActive(false);
-});
 
 const tabs = computed(() => [
   { value: "registry" as const, label: "專案清單", icon: FolderGit2, count: projects.value.length },
@@ -121,6 +115,14 @@ async function confirmDelete(project: ProjectRecord, confirmationName: string): 
 function clearProjectDeletionNotice(): void {
   projectDeletionNotice.value = null;
 }
+
+watch(metadataBackfillActive, metadataBackfillStore.setMetadataBackfillActive, { immediate: true });
+watch(() => tab.value === "deletion-audit", setProjectDeletionAuditsActive, { immediate: true });
+
+onBeforeUnmount(() => {
+  metadataBackfillStore.setMetadataBackfillActive(false);
+  setProjectDeletionAuditsActive(false);
+});
 </script>
 
 <template>
@@ -173,7 +175,16 @@ function clearProjectDeletionNotice(): void {
           ><UiButton variant="primary" :icon="Plus" @click="addOpen = true">加入專案</UiButton></template
         >
       </UiEmptyState>
-      <VirtualList v-else :items="projects" :enabled="true" fit-viewport :estimate-item-height="128" label="專案清單">
+      <VirtualList
+        v-else
+        :items="projects"
+        :enabled="true"
+        fit-viewport
+        fit-viewport-to-panel
+        fill-available-space
+        :estimate-item-height="128"
+        label="專案清單"
+      >
         <template #default="{ item: project }">
           <UiBoxRow :title="project.name" data-testid="project-row">
             <template #leading
@@ -280,6 +291,8 @@ function clearProjectDeletionNotice(): void {
         :items="trackedProjects"
         :enabled="true"
         fit-viewport
+        fit-viewport-to-panel
+        fill-available-space
         :estimate-item-height="80"
         label="Handoff 匯入專案清單"
       >

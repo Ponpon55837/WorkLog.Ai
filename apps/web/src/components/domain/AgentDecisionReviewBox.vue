@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { onBeforeUnmount, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { BookOpen, Check, ExternalLink, X } from "lucide-vue-next";
 import type { SessionDecisionRecord } from "@work-intelligence/core";
@@ -24,13 +23,6 @@ const projectsStore = useProjectsStore();
 const { showToast } = useToast();
 const { openAgentDecisionEditor } = useKnowledgeActions();
 const { openSessionDetail } = useSessionsStore();
-
-watch(
-  () => props.projectRoot,
-  (root) => decisionStore.setListActive(true, root),
-  { immediate: true },
-);
-onBeforeUnmount(() => decisionStore.setListActive(false, props.projectRoot));
 
 function projectRootFor(item: SessionDecisionRecord): string | undefined {
   return props.projectRoot ?? projectsStore.projects.find((project) => project.id === item.projectId)?.rootPath;

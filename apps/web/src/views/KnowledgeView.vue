@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { BookOpen, Search, X } from "lucide-vue-next";
+import { useRoute } from "vue-router";
+import { BookOpen, ListChecks, Search, Sparkles, X } from "lucide-vue-next";
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
@@ -18,13 +19,19 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
+import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { useKnowledgeActions } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
+import { router } from "../router";
 import { useKnowledgeStore } from "../stores/knowledge";
+import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
 import { knowledgeKindVisual } from "../utils/status";
+
+type KnowledgeTab = "list" | "candidates" | "decisions";
+const knowledgeTabs: readonly KnowledgeTab[] = ["list", "candidates", "decisions"];
 
 const knowledgeStore = useKnowledgeStore();
 const {
@@ -70,8 +77,12 @@ const { reloadNow } = useListReload({
   filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize],
   search: knowledgeQuery,
 });
-onMounted(() => setKnowledgeListActive(true));
-onBeforeUnmount(() => setKnowledgeListActive(false));
+const route = useRoute();
+
+// The page owns the candidate and decision queries so every tab can show its count, not only the open one.
+const decisionStore = useSessionDecisionsStore();
+const { pendingCount } = storeToRefs(decisionStore);
+const { candidates } = storeToRefs(knowledgeStore);
 
 const hasFilters = computed(() =>
   Boolean(
@@ -81,6 +92,25 @@ const hasFilters = computed(() =>
 const selectedProjectRoot = computed(
   () => knowledgeProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
 );
+const tab = computed<KnowledgeTab>({
+  get: () => {
+    const value = String(route.params.tab ?? "");
+    return (knowledgeTabs as readonly string[]).includes(value) ? (value as KnowledgeTab) : "list";
+  },
+  // List filters live in the query string; keep them when switching tabs.
+  set: (value) =>
+    void router.replace({
+      name: "knowledge",
+      params: { tab: value === "list" ? undefined : value },
+      query: route.query,
+    }),
+});
+
+const tabs = computed(() => [
+  { value: "list" as const, label: "Knowledge", icon: BookOpen, count: knowledgePageInfo.value.total },
+  { value: "candidates" as const, label: "候選", icon: Sparkles, count: candidates.value.length },
+  { value: "decisions" as const, label: "待確認決策", icon: ListChecks, count: pendingCount.value },
+]);
 const projectItems = computed(() => [
   { value: "", label: "所有記錄中專案" },
   ...knowledgeProjects.value.map((project) => ({ value: project.id, label: project.name })),
@@ -121,13 +151,27 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
     void setKnowledgeStatus(item, item.status === "active" ? "archived" : "active");
   }
 }
+
+watch(
+  () => selectedProjectRoot.value,
+  (root) => {
+    decisionStore.setListActive(true, root);
+    void knowledgeStore.loadCandidates(root);
+  },
+  { immediate: true },
+);
+
+onMounted(() => setKnowledgeListActive(true));
+onBeforeUnmount(() => setKnowledgeListActive(false));
+onBeforeUnmount(() => decisionStore.setListActive(false));
 </script>
 
 <template>
   <PageHeader description="Knowledge 只接受 Agent 明確提交、已確認的內容，不會自行讀取 source 或用猜測取代證據。" />
 
   <PageToolbar>
-    <form class="knowledge-search" role="search" @submit.prevent="reloadNow">
+    <UiUnderlineNav v-model="tab" :items="tabs" label="工作知識分頁" id-prefix="knowledge" />
+    <form v-if="tab === 'list'" class="knowledge-search" role="search" @submit.prevent="reloadNow">
       <UiTextInput
         v-model="knowledgeQuery"
         class="knowledge-search__input"
@@ -140,16 +184,30 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
     </form>
   </PageToolbar>
 
-  <UiFlash v-if="knowledgeError" tone="danger">
+  <UiFlash v-if="knowledgeError && tab === 'list'" tone="danger">
     {{ knowledgeError }}
     <template #actions><UiButton size="sm" @click="retryKnowledge">重試</UiButton></template>
   </UiFlash>
 
-  <AgentDecisionReviewBox :project-root="selectedProjectRoot" />
-  <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
 
-  <UiBox sticky-header>
+  <section
+    v-if="tab === 'decisions'"
+    id="knowledge-panel-decisions"
+    role="tabpanel"
+    aria-labelledby="knowledge-tab-decisions"
+  >
+    <AgentDecisionReviewBox :project-root="selectedProjectRoot" />
+  </section>
+  <section
+    v-else-if="tab === 'candidates'"
+    id="knowledge-panel-candidates"
+    role="tabpanel"
+    aria-labelledby="knowledge-tab-candidates"
+  >
+    <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
+  </section>
+  <UiBox v-else id="knowledge-panel-list" role="tabpanel" aria-labelledby="knowledge-tab-list" sticky-header>
     <template #header>
       <UiBoxTitle
         :icon="BookOpen"
@@ -225,8 +283,9 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
 <style scoped>
 .knowledge-search {
   display: flex;
-  flex: 1;
+  flex: 1 1 100%;
   gap: var(--space-2);
+  padding: var(--space-2) 0;
 }
 
 .knowledge-search__input {

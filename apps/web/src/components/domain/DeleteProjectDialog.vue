@@ -19,7 +19,14 @@ const emit = defineEmits<{
 }>();
 
 const typedName = ref("");
+
 const canDelete = computed(() => !!props.project && typedName.value === props.project.name && !props.busy);
+
+function confirmDeletion(): void {
+  if (canDelete.value && props.project) {
+    emit("confirm", props.project, typedName.value);
+  }
+}
 
 watch(
   () => [props.open, props.project?.id] as const,
@@ -29,12 +36,6 @@ watch(
     }
   },
 );
-
-function confirmDeletion(): void {
-  if (canDelete.value && props.project) {
-    emit("confirm", props.project, typedName.value);
-  }
-}
 </script>
 
 <template>

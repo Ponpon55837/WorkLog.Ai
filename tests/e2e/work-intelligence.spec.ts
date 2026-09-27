@@ -41,6 +41,8 @@ const accessibilityRoutes: ReadonlyArray<readonly [string, string]> = [
   ...pageRoutes,
   ["/system-status", "系統狀態"],
   ["/projects/backup", "專案"],
+  ["/knowledge/candidates", "工作知識"],
+  ["/knowledge/decisions", "工作知識"],
 ];
 
 async function postJson<T>(request: APIRequestContext, endpoint: string, body: unknown): Promise<ApiResult<T>> {
@@ -53,7 +55,7 @@ async function submitKnowledgeCandidateForReview(
   page: Page,
   input: { title: string; body: string; rationale: string },
 ): Promise<string> {
-  await page.goto("/knowledge");
+  await page.goto("/knowledge/candidates");
   const candidates = page.getByTestId("knowledge-candidates");
   await candidates.getByRole("button", { name: "整理候選" }).click();
   await page.getByRole("menuitem", { name: "Browser Regression Fixture" }).click();
@@ -359,7 +361,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(reportDecisions).toContainText("Promote this Agent choice into Knowledge.");
     await expect(reportDecisions).toContainText("Reject this Agent choice in the Web review queue.");
 
-    await page.goto("/knowledge");
+    await page.goto("/knowledge/decisions");
     const panel = page.getByTestId("agent-decision-review");
     const decision = (text: string) => panel.getByTestId("agent-decision-item").filter({ hasText: text });
 
@@ -1285,7 +1287,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("shows Agent-proposed Knowledge as soon as the Agent submits it, and accepts it", async ({ page }) => {
-    await page.goto("/knowledge");
+    await page.goto("/knowledge/candidates");
     const candidates = page.getByTestId("knowledge-candidates");
     await candidates.getByRole("button", { name: "整理候選" }).click();
     await page.getByRole("menuitem", { name: "Browser Regression Fixture" }).click();
@@ -1316,6 +1318,8 @@ test.describe("Work Intelligence browser regression", () => {
     const candidate = candidates.getByTestId("knowledge-candidate").filter({ hasText: "E2E candidate" });
     await candidate.getByRole("button", { name: "接受", exact: true }).click();
     await expect(page.getByText("已加入 Knowledge。")).toBeVisible();
+    // Accepted Knowledge lives on the Knowledge tab.
+    await page.getByRole("tab", { name: /^Knowledge/ }).click();
     await expect(
       page.getByTestId("knowledge-row").filter({ hasText: "E2E candidate: the browser suite needs its own database" }),
     ).toBeVisible();
@@ -1499,6 +1503,8 @@ test.describe("Work Intelligence browser regression", () => {
     await editor.getByRole("button", { name: "接受並加入 Knowledge" }).click();
 
     await expect(page.getByText("已加入 Knowledge。")).toBeVisible();
+    await expect(candidates.getByTestId("knowledge-candidate").filter({ hasText: originalTitle })).toHaveCount(0);
+    await page.getByRole("tab", { name: /^Knowledge/ }).click();
     const knowledge = page.getByTestId("knowledge-row").filter({ hasText: editedTitle });
     await expect(knowledge).toBeVisible();
     await expect(knowledge).toContainText("技術決策");
@@ -1506,7 +1512,6 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(knowledge).toContainText("#E2E");
     await expect(knowledge).toContainText("#reviewer-edited");
     await expect(knowledge).toContainText("適用 e2e/work-intelligence.spec.ts");
-    await expect(candidates.getByTestId("knowledge-candidate").filter({ hasText: originalTitle })).toHaveCount(0);
 
     const accepted = withAgentStore((store) => store.listKnowledgeCandidates({ projectRoot, status: "accepted" }));
     expect(accepted.outcome).toBe("knowledge_candidates");
@@ -1536,6 +1541,8 @@ test.describe("Work Intelligence browser regression", () => {
 
     await expect(page.getByText("已拒絕這筆候選。")).toBeVisible();
     await expect(candidates.getByTestId("knowledge-candidate").filter({ hasText: title })).toHaveCount(0);
+    await page.getByRole("tab", { name: /^Knowledge/ }).click();
+    await expect(page.locator("#knowledge-panel-list")).toBeVisible();
     await expect(page.getByTestId("knowledge-row").filter({ hasText: title })).toHaveCount(0);
 
     const rejected = withAgentStore((store) => store.listKnowledgeCandidates({ projectRoot, status: "rejected" }));
@@ -1846,15 +1853,24 @@ test.describe("Work Intelligence browser regression", () => {
         await expectPanelToFillViewport(knowledgeList);
       }
       await expectPaginationVisibleWithinViewport(page, "Knowledge 每頁筆數");
+      await expectNoHorizontalOverflow(page);
+
+      await page.goto("/knowledge/candidates");
       await expectBoundedVirtualList(page, "Knowledge 候選清單");
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/projects");
-      await expectBoundedVirtualList(page, "專案清單");
+      const projectList = await expectBoundedVirtualList(page, "專案清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(projectList);
+      }
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/projects/import");
-      await expectBoundedVirtualList(page, "Handoff 匯入專案清單");
+      const handoffImportList = await expectBoundedVirtualList(page, "Handoff 匯入專案清單");
+      if (expectPanelFill) {
+        await expectPanelToFillViewport(handoffImportList);
+      }
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/projects/backfill");

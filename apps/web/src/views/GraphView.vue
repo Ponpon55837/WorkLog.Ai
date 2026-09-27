@@ -47,11 +47,6 @@ const {
 const load = (): Promise<void> => graphStore.loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
-onMounted(() => graphStore.setGraphActive(true));
-onBeforeUnmount(() => {
-  graphStore.setGraphActive(false);
-  graphStore.selectGraphNode(null);
-});
 
 const projectOptions = computed(() => [
   { value: "", label: "所有記錄中專案" },
@@ -104,6 +99,12 @@ function selectFirstMatch(): void {
     graphStore.selectGraphNode(first.node);
   }
 }
+
+onMounted(() => graphStore.setGraphActive(true));
+onBeforeUnmount(() => {
+  graphStore.setGraphActive(false);
+  graphStore.selectGraphNode(null);
+});
 </script>
 
 <template>

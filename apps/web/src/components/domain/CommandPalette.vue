@@ -15,19 +15,16 @@ type PaletteItem = { id: string; group: string; label: string; hint?: string; ic
 /** Ctrl/⌘ K palette: jump to pages and search Sessions and Knowledge through existing APIs. */
 const open = defineModel<boolean>("open", { required: true });
 
-const query = ref("");
-const active = ref(0);
 const paletteStore = useCommandPaletteStore();
 const { sessions, knowledge } = storeToRefs(paletteStore);
+
+const query = ref("");
+const active = ref(0);
 const dialog = ref<HTMLElement | null>(null);
 const input = ref<HTMLInputElement | null>(null);
 let timer: number | undefined;
 
 useFocusTrap(dialog, open, { onEscape: () => (open.value = false) });
-
-function close(): void {
-  open.value = false;
-}
 
 const items = computed<PaletteItem[]>(() => {
   const term = query.value.trim().toLowerCase();
@@ -59,6 +56,10 @@ const items = computed<PaletteItem[]>(() => {
   }));
   return [...pages, ...sessionItems, ...knowledgeItems];
 });
+
+function close(): void {
+  open.value = false;
+}
 
 function isGroupStart(index: number): boolean {
   return index === 0 || items.value[index - 1]?.group !== items.value[index]?.group;

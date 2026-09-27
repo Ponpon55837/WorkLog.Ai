@@ -21,10 +21,23 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{ close: []; resize: [width: number] }>();
+
 const panel = ref<HTMLElement | null>(null);
 const resizeStep = 32;
 // Keep part of the page visible behind the panel even at the widest setting.
 const viewportMargin = 160;
+
+const currentWidth = ref(clampWidth(readStoredWidth() ?? props.width));
+const resizing = ref(false);
+
+useFocusTrap(panel, toRef(props, "open"), {
+  onEscape: () => emit("close"),
+  lockScroll: props.modal,
+  trapTab: props.modal,
+});
+
+const panelStyle = computed(() => ({ "--panel-width": `${currentWidth.value}px` }));
+const maxWidth = computed(() => clampWidth(Number.POSITIVE_INFINITY));
 
 function storageId(): string | undefined {
   return props.storageKey ? `wi.side-panel-width.${props.storageKey}` : undefined;
@@ -60,9 +73,6 @@ function clampWidth(value: number): number {
   const maxWidth = Math.max(props.minWidth, window.innerWidth - viewportMargin);
   return Math.round(Math.min(Math.max(value, props.minWidth), maxWidth));
 }
-
-const currentWidth = ref(clampWidth(readStoredWidth() ?? props.width));
-const resizing = ref(false);
 
 function setWidth(value: number, persist: boolean): void {
   currentWidth.value = clampWidth(value);
@@ -106,12 +116,6 @@ function onResizeKey(event: KeyboardEvent): void {
   }
 }
 
-useFocusTrap(panel, toRef(props, "open"), {
-  onEscape: () => emit("close"),
-  lockScroll: props.modal,
-  trapTab: props.modal,
-});
-
 // Report the (possibly remembered) width whenever the panel opens so a docked layout can make room.
 watch(
   () => props.open,
@@ -124,9 +128,6 @@ watch(
 );
 
 onBeforeUnmount(stopResize);
-
-const panelStyle = computed(() => ({ "--panel-width": `${currentWidth.value}px` }));
-const maxWidth = computed(() => clampWidth(Number.POSITIVE_INFINITY));
 </script>
 
 <template>

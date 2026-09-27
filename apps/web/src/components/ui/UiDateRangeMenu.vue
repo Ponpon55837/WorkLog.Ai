@@ -26,17 +26,13 @@ const props = withDefaults(
 const model = defineModel<DateRange>({ required: true });
 
 const { open, trigger, panel, style, toggle, close } = usePopover({ align: computed(() => props.align), width: 296 });
+
 const month = ref(startOfMonth(new Date()));
 const draftFrom = ref("");
+
 const dialogLabel = computed(
   () => props.dialogLabel ?? (props.selectionMode === "single" ? props.label : "選擇日期區間"),
 );
-
-function shift(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
 
 const presets = computed(() => {
   if (props.selectionMode === "single") {
@@ -95,6 +91,12 @@ const days = computed(() => {
     };
   });
 });
+
+function shift(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
 
 function choosePreset(range: DateRange): void {
   model.value = { ...range };

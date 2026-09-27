@@ -24,9 +24,29 @@ const { openSessionDetail, closeSessionDetail, openAdjacentSession } = sessionsS
 const { openSessionEditor } = useSessionEditor();
 const { openVoidDialog, restoreRecord } = useRecordVoid();
 const { openLinkDialog, removeLink } = useSessionLinks();
+
 const body = ref<HTMLElement | null>(null);
 
 const session = computed(() => selectedDetail.value?.session);
+
+function copyLink(): void {
+  void useToast().copyWithToast(window.location.href, "已複製 Session 連結。");
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (!session.value || event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("input, textarea, select, [contenteditable='true']")) {
+    return;
+  }
+  if (event.key === "j") {
+    openAdjacentSession(1);
+  } else if (event.key === "k") {
+    openAdjacentSession(-1);
+  }
+}
 
 watch(
   () => route.query.session,
@@ -56,25 +76,6 @@ watch(
     body.value?.closest(".ui-side-panel__body")?.scrollTo({ top: 0 });
   },
 );
-
-function copyLink(): void {
-  void useToast().copyWithToast(window.location.href, "已複製 Session 連結。");
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (!session.value || event.metaKey || event.ctrlKey || event.altKey) {
-    return;
-  }
-  const target = event.target as HTMLElement | null;
-  if (target?.closest("input, textarea, select, [contenteditable='true']")) {
-    return;
-  }
-  if (event.key === "j") {
-    openAdjacentSession(1);
-  } else if (event.key === "k") {
-    openAdjacentSession(-1);
-  }
-}
 
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
