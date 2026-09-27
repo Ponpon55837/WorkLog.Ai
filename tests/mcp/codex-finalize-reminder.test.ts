@@ -8,14 +8,15 @@ import {
   responseForCodexHook,
   type CodexReminderDeps,
 } from "../../apps/mcp/src/codex-finalize-reminder.js";
-import { isFileInTrackedRoots, REMINDER } from "../../apps/mcp/src/finalize-reminder.js";
+import { isFileInTrackedRoots, REMINDER, reminderWithStart } from "../../apps/mcp/src/finalize-reminder.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const trackedCwd = join(repoRoot, "apps/mcp");
 const finalizeTool = "mcp__work-intelligence__work_finalize_session";
 
-function createDeps(tracked = true) {
+function createDeps(tracked = true, now = () => new Date("2026-09-27T01:00:00.000Z")) {
   const markers = new Set<string>();
+  const contents = new Map<string, string>();
   const roots = tracked ? [repoRoot] : [];
   const deps: CodexReminderDeps = {
     isTrackedWorkspace: () => tracked,
@@ -24,6 +25,7 @@ function createDeps(tracked = true) {
     markerPaths: (sessionId) => ({
       dirty: `${sessionId}.dirty`,
       reminded: `${sessionId}.reminded`,
+      segment: `${sessionId}.segment`,
     }),
     markerExists: (path) => markers.has(path),
     createMarker: (path) => {
@@ -33,7 +35,20 @@ function createDeps(tracked = true) {
       markers.add(path);
       return true;
     },
-    removeMarker: (path) => markers.delete(path),
+    writeMarker: (path, content) => {
+      if (markers.has(path)) {
+        return false;
+      }
+      markers.add(path);
+      contents.set(path, content);
+      return true;
+    },
+    readMarker: (path) => contents.get(path),
+    removeMarker: (path) => {
+      contents.delete(path);
+      return markers.delete(path);
+    },
+    now,
   };
   return { deps, markers };
 }
@@ -62,6 +77,50 @@ function stopEvent() {
 }
 
 describe("Codex finalize reminder hook", () => {
+  it("records when the segment began from the first prompt after a save and adds it to the reminder", () => {
+    let clock = new Date("2026-09-27T01:00:00.000Z");
+    const { deps } = createDeps(true, () => clock);
+    const prompt = () =>
+      responseForCodexHook(
+        JSON.stringify({ session_id: "session-1", cwd: trackedCwd, hook_event_name: "UserPromptSubmit" }),
+        deps,
+      );
+
+    expect(prompt()).toBeNull();
+    clock = new Date("2026-09-27T01:20:00.000Z");
+    prompt(); // A follow-up in the same segment keeps the first time.
+    responseForCodexHook(postToolEvent("apply_patch"), deps);
+    expect(responseForCodexHook(stopEvent(), deps)).toBe(
+      JSON.stringify({ decision: "block", reason: reminderWithStart("2026-09-27T01:00:00.000Z") }),
+    );
+
+    const saved = { content: [{ type: "text", text: JSON.stringify({ outcome: "finalized", session: { id: "s" } }) }] };
+    responseForCodexHook(postToolEvent(finalizeTool, saved), deps);
+    clock = new Date("2026-09-27T02:00:00.000Z");
+    prompt();
+    responseForCodexHook(postToolEvent("apply_patch"), deps);
+    expect(responseForCodexHook(stopEvent(), deps)).toBe(
+      JSON.stringify({ decision: "block", reason: reminderWithStart("2026-09-27T02:00:00.000Z") }),
+    );
+  });
+
+  it("keeps the segment open when a save fails, and ignores prompts outside tracked projects", () => {
+    const { deps, markers } = createDeps(true);
+    responseForCodexHook(
+      JSON.stringify({ session_id: "session-1", cwd: trackedCwd, hook_event_name: "UserPromptSubmit" }),
+      deps,
+    );
+    responseForCodexHook(postToolEvent(finalizeTool, { isError: true, content: [] }), deps);
+    expect(markers.has("session-1.segment")).toBe(true);
+
+    const untracked = createDeps(false);
+    responseForCodexHook(
+      JSON.stringify({ session_id: "session-1", cwd: trackedCwd, hook_event_name: "UserPromptSubmit" }),
+      untracked.deps,
+    );
+    expect(untracked.markers.size).toBe(0);
+  });
+
   it("marks apply_patch edits and reminds only once until a successful finalize", () => {
     const { deps, markers } = createDeps();
     expect(responseForCodexHook(postToolEvent("apply_patch"), deps)).toBeNull();

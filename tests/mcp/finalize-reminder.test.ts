@@ -21,6 +21,14 @@ const typed = (value: string, timestamp: string) =>
 const toolResult = (timestamp: string) =>
   JSON.stringify({ type: "user", timestamp, message: { content: [{ type: "tool_result", content: "ok" }] } });
 const FINALIZE = "mcp__work-intelligence__work_finalize_session";
+const finalizeCall = (id: string) =>
+  JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name: FINALIZE }] } });
+const finalizeResult = (id: string, content: unknown, isError = false) =>
+  JSON.stringify({
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: id, content, ...(isError ? { is_error: true } : {}) }] },
+  });
+const saved = JSON.stringify({ outcome: "finalized", duplicate: false, session: { id: "session-1" } });
 const PROJECT_ROOT = resolve("Users", "me", "apiary");
 const PROJECT_SRC = join(PROJECT_ROOT, "src");
 const EXTERNAL_MEMORY = resolve("Users", "me", ".claude", "memory.md");
@@ -60,6 +68,37 @@ describe("finalize reminder hook", () => {
     expect(reminder).toBe(reminderWithStart("2026-09-27T00:33:14.278Z"));
     expect(reminder).toContain("2026-09-27T00:33:14.278Z");
     expect(reminder).toContain("startedAt");
+  });
+
+  it("counts a save only when its result succeeded, so a rejected save keeps the segment open", () => {
+    const d = deps([
+      typed("task", "2026-09-27T01:00:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      finalizeCall("rejected"),
+      finalizeResult("rejected", JSON.stringify({ error: "Invalid finalize payload." }), true),
+      finalizeCall("conflict"),
+      finalizeResult("conflict", JSON.stringify({ outcome: "idempotency_conflict" })),
+      typed("while retrying", "2026-09-27T01:30:00.000Z"),
+    ]);
+    const summary = summarizeTranscript(d.readTranscript(""));
+    expect(summary.lastFinalize).toBe(-1);
+    expect(summary.segmentStartedAt).toBe("2026-09-27T01:00:00.000Z");
+    expect(reminderFor(input, d)).toBe(reminderWithStart("2026-09-27T01:00:00.000Z"));
+  });
+
+  it("starts a new segment after a successful save, with text-block results too", () => {
+    const d = deps([
+      typed("first", "2026-09-27T01:00:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      finalizeCall("ok"),
+      finalizeResult("ok", [{ type: "text", text: saved }]),
+      typed("second", "2026-09-27T02:00:00.000Z"),
+    ]);
+    const summary = summarizeTranscript(d.readTranscript(""));
+    expect(summary.lastFinalize).toBeGreaterThan(-1);
+    expect(summary.segmentStartedAt).toBe("2026-09-27T02:00:00.000Z");
+    // Nothing edited since the save: no reminder.
+    expect(reminderFor(input, d)).toBeNull();
   });
 
   it("falls back to the plain reminder when no typed message has a usable timestamp", () => {

@@ -111,6 +111,17 @@ describe("pnpm doctor read-only checks", () => {
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot)).toEqual({
       claudeConfigured: true,
       codexConfigured: true,
+      codexSegmentStartConfigured: false,
+    });
+
+    const withPromptHook = JSON.parse(codexHooks) as { hooks: Record<string, unknown> };
+    withPromptHook.hooks.UserPromptSubmit = [
+      { hooks: [{ type: "command", command: "node " + JSON.stringify(codexHook) }] },
+    ];
+    writeFileSync(codexHooksPath, JSON.stringify(withPromptHook));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot)).toMatchObject({
+      codexConfigured: true,
+      codexSegmentStartConfigured: true,
     });
 
     writeFileSync(

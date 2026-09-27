@@ -111,15 +111,15 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 - 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
 - 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
-- 提醒時會附上這段工作的**開始時間**：上一次保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果）。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
+- 提醒時會附上這段工作的**開始時間**：上一次**成功**保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果）。被拒絕、衝突或略過的保存不算數，所以不會把下一段的開始時間算錯。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
 
 #### Codex
 
-hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功呼叫 `work_finalize_session` 會清除標記；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。
+hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功呼叫 `work_finalize_session` 會清除標記；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。另外設定 `UserPromptSubmit` 時，它會記下「上一次成功保存之後，第一則訊息送出的時間」，提醒時附上這段工作的開始時間。Codex 的對話紀錄格式不是穩定的 hook 介面，所以這裡不解析對話紀錄，而是在訊息送出當下記錄時間。
 
 和 MCP 一樣，這個 hook 要裝在**全域**，任何專案都能用；它會自己判斷目前的工作目錄是否屬於「記錄中」的專案，其他專案一律放行。repo 不附專案層級的 `.codex/hooks.json`。
 
-先執行 `pnpm build`，再把下面兩段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
+先執行 `pnpm build`，再把下面三段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
 
 ```json
 {
@@ -146,15 +146,28 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }
 ```
 
+`UserPromptSubmit` 是選用的：沒有設定時提醒照常運作，只是不會附上開始時間；`pnpm run doctor` 會指出這件事。
+
 確認 `~/.codex/config.toml` 已啟用 hooks，然後在 Codex 輸入 `/hooks`，檢查並信任 Work Intelligence 保存提醒 hook。Codex 會略過尚未信任的 hook。
 
 - 只讀取專案清單（SQLite 唯讀開啟），不寫入資料庫。資料庫預設位置依 hook 腳本所在的 repo 推算，和目前開啟的專案無關；也可用 `WORK_INTELLIGENCE_DB` 指定。
-- hook marker 只存放在目前使用者的暫存目錄：資料夾權限 `0700`，標記檔權限 `0600`。不儲存 Session 內容。
+- hook marker 只存放在目前使用者的暫存目錄：資料夾權限 `0700`，標記檔權限 `0600`。不儲存 Session 或對話內容；開始時間的標記只含一個時間值。
 - 只要讀不到 hook 輸入、patch 標頭或專案清單，或路徑無法判定，就放行 Codex。
 - 使用絕對路徑，因此不需要 `git rev-parse`，也不需要 `commandWindows`。Windows 上 Codex 會用 `cmd.exe /C` 執行 hook，`node "C:\path with space\...\codex-finalize-reminder.js"` 可以直接執行。若 `node` 不在 Codex 的 `PATH` 中，請改用 node 的絕對路徑。
 - Windows CI 會在 repo 以外的目錄，用 `cmd.exe /d /s /c` 執行同樣形式的指令，並傳入格式錯誤的輸入，確認 hook 可以啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認是否載入。官方說明見 [Codex hooks](https://developers.openai.com/docs/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
