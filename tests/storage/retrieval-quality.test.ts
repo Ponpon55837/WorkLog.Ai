@@ -547,6 +547,66 @@ describe("synthetic retrieval quality regression", () => {
     expect(ranged.outcome === "recall" && ranged.hits.map((hit) => hit.id)).toEqual([march]);
   });
 
+  it("ranks completed REST and FTS fixes above duplicated old planning snippets", () => {
+    const plan = [
+      "# Round handoff",
+      "## Deferred implementation plan",
+      "新增 REST endpoint 的慣例：每次新增 REST endpoint，都先確認 REST endpoint 路由慣例，再更新 domain route table。",
+      "FTS 效能問題：FTS 效能問題來自重複掃描，記錄 FTS 效能問題並規劃 CROSS JOIN 修正。",
+    ].join("\n");
+    for (let index = 0; index < 8; index += 1) {
+      createSession(`b2-old-plan-${index}`, root, {
+        title: `Imported planning handoff ${index}`,
+        summary: "Carried forward an earlier project plan.",
+        handoffContent: plan,
+      });
+    }
+
+    const routes = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "b2-completed-rest-route-split",
+      title: "Split REST endpoint dispatch into domain route tables",
+      summary: "Added table-driven registration for new endpoint handlers and a centralized route manifest.",
+      workSummary: {
+        outcomes: ["新增 REST endpoint 的慣例已落實：domain route table 只需新增一個 typed entry."],
+        scope: ["Moved route dispatch from server.ts into domain route modules."],
+        decisions: [],
+        verification: ["Route manifest and server route tests passed."],
+        nextSteps: [],
+      },
+      changedFiles: ["apps/server/src/routes/index.ts"],
+      verification: { status: "passed" },
+    });
+    if (routes.outcome !== "finalized") throw new Error("Expected the completed REST route Session.");
+
+    const fts = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "b2-completed-fts-fix",
+      title: "Fix FTS query plan repeated scans",
+      summary: "Pinned the full-text scan as the outer loop with CROSS JOIN to resolve repeated query work.",
+      workSummary: {
+        outcomes: ["FTS 效能問題已修正：固定全文索引作為外層查詢，避免重複掃描."],
+        scope: ["Changed the search query join order."],
+        decisions: [],
+        verification: ["The 5,000-Session search performance gate passed."],
+        nextSteps: [],
+      },
+      changedFiles: ["packages/storage/src/search-repository.ts"],
+      verification: { status: "passed" },
+    });
+    if (fts.outcome !== "finalized") throw new Error("Expected the completed FTS fix Session.");
+
+    const routeRecall = store.recall({ q: "新增 REST endpoint 的慣例", projectRoot: root, limit: 20 });
+    const ftsRecall = store.recall({ q: "FTS 效能問題", projectRoot: root, limit: 20 });
+    expect(routeRecall.outcome).toBe("recall");
+    expect(ftsRecall.outcome).toBe("recall");
+    if (routeRecall.outcome !== "recall" || ftsRecall.outcome !== "recall") {
+      throw new Error("Expected the B2 synthetic recall queries to complete.");
+    }
+    expect(routeRecall.hits[0]?.id).toBe(routes.session.id);
+    expect(ftsRecall.hits[0]?.id).toBe(fts.session.id);
+  });
+
   it("keeps the R answers exclusive to the fictional raw handoff snapshots", () => {
     const rawCases = evaluationCases.filter((evaluationCase) => evaluationCase.category === "R");
     expect(rawCases).toHaveLength(4);

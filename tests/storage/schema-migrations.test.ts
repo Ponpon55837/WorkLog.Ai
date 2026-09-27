@@ -29,6 +29,19 @@ describe("custom report synthesis migration", () => {
           changed_files_json TEXT NOT NULL DEFAULT '[]'
         );
         CREATE TABLE knowledge (id TEXT PRIMARY KEY);
+        CREATE TABLE search_chunks (
+          id INTEGER PRIMARY KEY,
+          doc_type TEXT NOT NULL,
+          doc_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          field TEXT NOT NULL,
+          heading TEXT,
+          content TEXT NOT NULL,
+          weight REAL NOT NULL,
+          doc_date TEXT NOT NULL
+        );
+        CREATE TABLE search_dirty (doc_type TEXT NOT NULL, doc_id TEXT NOT NULL, PRIMARY KEY (doc_type, doc_id))
+          WITHOUT ROWID;
         CREATE TABLE knowledge_audit (
           id TEXT PRIMARY KEY,
           knowledge_id TEXT NOT NULL,
@@ -204,6 +217,19 @@ describe("custom report synthesis migration", () => {
         CREATE TABLE projects (id TEXT PRIMARY KEY);
         CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT);
         CREATE TABLE knowledge (id TEXT PRIMARY KEY);
+        CREATE TABLE search_chunks (
+          id INTEGER PRIMARY KEY,
+          doc_type TEXT NOT NULL,
+          doc_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          field TEXT NOT NULL,
+          heading TEXT,
+          content TEXT NOT NULL,
+          weight REAL NOT NULL,
+          doc_date TEXT NOT NULL
+        );
+        CREATE TABLE search_dirty (doc_type TEXT NOT NULL, doc_id TEXT NOT NULL, PRIMARY KEY (doc_type, doc_id))
+          WITHOUT ROWID;
         CREATE TABLE knowledge_audit (
           id TEXT PRIMARY KEY,
           knowledge_id TEXT NOT NULL,
@@ -240,6 +266,69 @@ describe("custom report synthesis migration", () => {
       expect(
         (db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map((column) => column.name),
       ).toContain("redaction_count");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("adds raw content hashes and schedules existing Sessions for index rebuild", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE sessions (id TEXT PRIMARY KEY);
+        CREATE TABLE search_chunks (
+          id INTEGER PRIMARY KEY,
+          doc_type TEXT NOT NULL,
+          doc_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          field TEXT NOT NULL,
+          heading TEXT,
+          content TEXT NOT NULL,
+          weight REAL NOT NULL,
+          doc_date TEXT NOT NULL
+        );
+        CREATE TABLE search_dirty (
+          doc_type TEXT NOT NULL,
+          doc_id TEXT NOT NULL,
+          PRIMARY KEY (doc_type, doc_id)
+        ) WITHOUT ROWID;
+        INSERT INTO sessions (id) VALUES ('legacy-plan'), ('legacy-clean');
+        INSERT INTO search_chunks (doc_type, doc_id, project_id, field, content, weight, doc_date)
+        VALUES ('session', 'legacy-plan', 'project', 'raw', 'old planning section', 0.2, '2026-09-01T00:00:00.000Z');
+      `);
+      const markApplied = db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)");
+      for (let version = 1; version <= 19; version += 1) {
+        markApplied.run(version, `legacy-${version}`, "2026-09-27T00:00:00.000Z");
+      }
+
+      db.exec("BEGIN IMMEDIATE");
+      applySchemaMigrations(db);
+      db.exec("COMMIT");
+
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 20").get()).toEqual({
+        version: 20,
+        name: "raw-handoff-content-hashes",
+      });
+      expect(
+        (db.prepare("PRAGMA table_info(search_chunks)").all() as Array<{ name: string }>).map((column) => column.name),
+      ).toContain("content_hash");
+      expect(db.prepare("SELECT content_hash FROM search_chunks WHERE id = 1").get()).toEqual({ content_hash: null });
+      expect(db.prepare("SELECT doc_type, doc_id FROM search_dirty ORDER BY doc_id").all()).toEqual([
+        { doc_type: "session", doc_id: "legacy-clean" },
+        { doc_type: "session", doc_id: "legacy-plan" },
+      ]);
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_search_chunks_raw_content_hash'",
+          )
+          .get(),
+      ).toEqual({ name: "idx_search_chunks_raw_content_hash" });
     } finally {
       db.close();
     }

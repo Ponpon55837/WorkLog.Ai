@@ -11,7 +11,7 @@ import { REDACTED_TEXT_FIELDS } from "../../packages/storage/src/database-redact
  */
 const NOT_PROJECT_DATA: Record<string, string> = {
   schema_migrations: "schema version bookkeeping",
-  search_chunks: "search index, rebuilt from the source rows",
+  search_chunks: "search index and derived raw-content hashes, rebuilt from the source rows",
   search_paths: "search index, rebuilt from the source rows",
   search_dirty: "search index queue",
   search_fts: "full-text index, rebuilt from the source rows",
@@ -72,5 +72,10 @@ describe("project data coverage", () => {
         columns: columns(db, table),
       });
     }
+  });
+
+  it("keeps raw handoff hashes on the rebuildable search index", () => {
+    expect(columns(db, "search_chunks")).toContain("content_hash");
+    expect(NOT_PROJECT_DATA.search_chunks).toContain("derived raw-content hashes");
   });
 });

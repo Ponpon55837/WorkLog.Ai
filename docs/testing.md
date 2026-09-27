@@ -124,6 +124,8 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; pnpm exec node packages/storage/benc
 
 B1 另以合成查詢檢查 `confidence`：未命中的詞仍依文件頻率估算 IDF，因此只命中少數常見詞不會被誤判成完整命中；命中覆蓋低於 10% 且沒有路徑命中時回傳空 hits 與 `none`，只有弱部分命中時回傳 `low`，至少一筆達 50% 覆蓋或命中路徑時回傳 `high`。精確查詢的排序仍受上述 hit@5／MRR 門檻保護，`work_get_context`、`work_recall` 與 `work_search` 都檢查無命中訊號。
 
+B2 加入重複規劃片段的反例：八筆合成 Session 共用舊 handoff 片段，分別以「新增 REST endpoint 的慣例」與「FTS 效能問題」查詢時，已完成的路由拆分與 FTS 修正 Session 必須排第一。Raw section 先做 NFKC、空白與大小寫正規化並存 SHA-256；同一專案最早的 Session 保留完整 raw 欄位權重，重複引用只計 10%，結構化 Session 欄位的權重高於 raw handoff。Schema 20 對既有索引加上衍生 `content_hash` 欄位並把舊 Session 標為待重建；`project-data-coverage` 確認此欄位留在可重建搜尋索引，不當作可匯出的專案資料。檢索品質案例另確認正確命中仍保留在結果內。
+
 ```powershell
 pnpm test:retrieval-quality
 ```

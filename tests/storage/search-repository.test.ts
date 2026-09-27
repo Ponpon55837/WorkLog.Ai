@@ -168,6 +168,45 @@ describe("recall", () => {
     expect(hit?.excerpt.length).toBeLessThanOrEqual(222);
   });
 
+  it("hashes normalized raw sections and gives only their earliest Session full weight", () => {
+    const databasePath = join(tempDir(), "raw-content-hash.sqlite");
+    const { store, root } = trackedStore(databasePath);
+    const first = finalize(store, root, "raw-plan-first", {
+      title: "Imported handoff archive A",
+      summary: "Imported planning notes.",
+      handoffContent: "# Handoff\n## Archive\nThe fictional heliotrope siphon calibration remains on the future plan.",
+      completedAt: "2026-09-01T00:00:00.000Z",
+    });
+    const second = finalize(store, root, "raw-plan-second", {
+      title: "Imported handoff archive B",
+      summary: "Imported planning notes.",
+      handoffContent:
+        "# Handoff\n## Archive\nThe fictional heliotrope   siphon calibration remains on the future plan.",
+      completedAt: "2026-09-02T00:00:00.000Z",
+    });
+
+    const result = recall(store, { q: "heliotrope siphon calibration", projectRoot: root });
+    const firstHit = result.hits.find((hit) => hit.id === first);
+    const secondHit = result.hits.find((hit) => hit.id === second);
+    expect(firstHit).toBeDefined();
+    expect(secondHit).toBeDefined();
+    expect(firstHit?.score).toBeGreaterThan((secondHit?.score ?? 0) * 5);
+
+    const database = new DatabaseSync(databasePath);
+    try {
+      const hashes = database
+        .prepare(
+          "SELECT doc_id, content_hash FROM search_chunks WHERE field = 'raw' AND heading = 'Archive' AND doc_id IN (?, ?)",
+        )
+        .all(first, second) as Array<{ doc_id: string; content_hash: string | null }>;
+      expect(hashes).toHaveLength(2);
+      expect(hashes[0]?.content_hash).toBeTruthy();
+      expect(hashes[0]?.content_hash).toBe(hashes[1]?.content_hash);
+    } finally {
+      database.close();
+    }
+  });
+
   it("ranks Sessions and Knowledge by normalized path and damps Sessions with polluted changed files", () => {
     const { store, root } = trackedStore();
     const focused = finalize(store, root, "focused", {
@@ -258,7 +297,7 @@ describe("recall", () => {
     const database = new DatabaseSync(databasePath);
     database.exec(`
       DROP TABLE search_chunks; DROP TABLE search_fts; DROP TABLE search_paths; DROP TABLE search_dirty;
-      DELETE FROM schema_migrations WHERE version = 1;
+      DELETE FROM schema_migrations WHERE version IN (1, 20);
     `);
     for (const { name } of database
       .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_search_%'")
