@@ -37,7 +37,14 @@ describe("core runtime contracts", () => {
     expect(KNOWLEDGE_STATUSES).toEqual(["active", "archived"]);
     expect(KNOWLEDGE_AUDIT_ACTIONS).toEqual(["created", "updated", "archived", "restored"]);
     expect(GRAPH_NODE_KINDS).toEqual(["project", "session", "knowledge", "evidence", "file"]);
-    expect(GRAPH_EDGE_KINDS).toEqual(["contains", "changed_file", "has_knowledge", "has_evidence", "session_link"]);
+    expect(GRAPH_EDGE_KINDS).toEqual([
+      "contains",
+      "changed_file",
+      "has_knowledge",
+      "has_evidence",
+      "session_link",
+      "co_changed",
+    ]);
     expect(REPORT_PERIODS).toEqual(["day", "week", "month", "quarter", "year"]);
     expect(WORK_REPORT_PERIODS).toEqual([...REPORT_PERIODS, "custom"]);
     expect(MAX_CUSTOM_REPORT_DAYS).toBe(366);

@@ -626,7 +626,14 @@ export type KnowledgeHistoryResult =
 
 export const GRAPH_NODE_KINDS = ["project", "session", "knowledge", "evidence", "file"] as const;
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
-export const GRAPH_EDGE_KINDS = ["contains", "changed_file", "has_knowledge", "has_evidence", "session_link"] as const;
+export const GRAPH_EDGE_KINDS = [
+  "contains",
+  "changed_file",
+  "has_knowledge",
+  "has_evidence",
+  "session_link",
+  "co_changed",
+] as const;
 export type GraphEdgeKind = (typeof GRAPH_EDGE_KINDS)[number];
 
 export interface GraphNode {
@@ -638,11 +645,17 @@ export interface GraphNode {
   metadata: Record<string, string | number | boolean>;
 }
 
+/** recorded: stored in a record (a Session changed a file, a link someone made); derived: computed from records. */
+export type GraphEdgeProvenance = "recorded" | "derived";
+
 export interface GraphEdge {
   id: string;
   from: string;
   to: string;
   kind: GraphEdgeKind;
+  provenance: GraphEdgeProvenance;
+  /** Why a derived edge exists, e.g. how many Sessions changed both files. */
+  reason?: string;
 }
 
 export type GraphNodeTotals = Record<GraphNodeKind, number>;
@@ -657,7 +670,40 @@ export interface GraphQuery {
   pageSize?: number;
   /** Opaque cursor returned by a previous graph page. */
   cursor?: string;
+  /** Adds derived co_changed edges between loaded files (hidden by default). */
+  includeDerived?: boolean;
+  /** Sessions two files must share to get a co_changed edge (default 3). */
+  coChangeMinSessions?: number;
 }
+
+export interface GraphPathQuery {
+  projectRoot?: string;
+  projectId?: string;
+  /** Graph node ids, e.g. "session:<id>" or "file:<projectId>:<path>". */
+  from: string;
+  to: string;
+  includeDerived?: boolean;
+}
+
+export interface GraphPathStep {
+  from: GraphNode;
+  to: GraphNode;
+  edge: GraphEdge;
+  /** Plain-language reason for this step. */
+  reason: string;
+}
+
+export type GraphPathResult =
+  | {
+      outcome: "graph_path";
+      found: boolean;
+      /** Shortest path in steps (breadth-first over the bounded graph); empty when not found. */
+      steps: GraphPathStep[];
+      /** Nodes the bounded graph held; a path through records beyond it is not searched. */
+      searchedNodes: number;
+      reason?: string;
+    }
+  | GraphSkippedResult;
 
 export interface GraphPageInfo {
   unit: "sessions";

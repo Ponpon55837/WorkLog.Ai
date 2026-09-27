@@ -3,8 +3,12 @@ import type {
   GraphEdge,
   GraphNode,
   GraphNodeTotals,
+  GraphPathQuery,
+  GraphPathResult,
   GraphQuery,
   GraphQueryResult,
+  GraphResult,
+  GraphSkippedResult,
   KnowledgeKind,
   KnowledgeRecord,
   KnowledgeStatus,
@@ -13,6 +17,7 @@ import type {
   WorkSessionRecord,
 } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
+import { coChangedEdges, shortestPath } from "./graph-derivation.js";
 import type { SessionRow } from "./session-repository.js";
 
 type GraphKnowledgeRow = {
@@ -52,7 +57,14 @@ interface GraphBuilderDependencies {
   toKnowledge(row: GraphKnowledgeRow): KnowledgeRecord;
 }
 
+/** Edges as the builder collects them; every one of them comes from a record. */
+type RecordedEdge = Omit<GraphEdge, "provenance" | "reason">;
+type RecordedGraphResult = (Omit<GraphResult, "edges"> & { edges: RecordedEdge[] }) | GraphSkippedResult;
+
 const GRAPH_CURSOR_VERSION = 2;
+const DEFAULT_CO_CHANGE_SESSIONS = 3;
+/** The graph a path search walks: the largest bounded graph a single request can build. */
+const PATH_SEARCH_LIMITS = { maxNodes: 500, maxEdges: 1_000 };
 
 type GraphCursorPhase = "projects" | "sessions" | "project_knowledge";
 
@@ -105,7 +117,7 @@ function decodeGraphCursor(value: string | undefined, scope: string): DecodedGra
 /** Turns Session links (already limited to Sessions in scope) into `session_link` edges. */
 function addSessionLinkEdges(
   links: ReadonlyArray<{ session_id: string; related_session_id: string }>,
-  addEdge: (edge: GraphEdge) => void,
+  addEdge: (edge: RecordedEdge) => void,
 ): void {
   for (const link of links) {
     addEdge({
@@ -124,7 +136,55 @@ export class GraphBuilder {
     private readonly dependencies: GraphBuilderDependencies,
   ) {}
 
+  /**
+   * The bounded graph. Every edge is marked recorded; with includeDerived, co_changed edges are added between
+   * the loaded files (they do not count toward the edge limit).
+   */
   public build(options: GraphQuery = {}): GraphQueryResult {
+    const result = this.buildRecorded(options);
+    if (result.outcome !== "graph") {
+      return result;
+    }
+    const edges: GraphEdge[] = result.edges.map((edge) => ({ ...edge, provenance: "recorded" }));
+    if (options.includeDerived) {
+      edges.push(...this.derivedEdges(result.nodes, options.coChangeMinSessions ?? DEFAULT_CO_CHANGE_SESSIONS));
+    }
+    return { ...result, edges };
+  }
+
+  /** The shortest path between two nodes of the bounded graph, each step with a plain-language reason. */
+  public findPath(query: GraphPathQuery): GraphPathResult {
+    const graph = this.build({
+      projectRoot: query.projectRoot,
+      projectId: query.projectId,
+      includeDerived: query.includeDerived,
+      ...PATH_SEARCH_LIMITS,
+    });
+    if (graph.outcome !== "graph") {
+      return graph;
+    }
+    const nodeIds = new Set(graph.nodes.map((node) => node.id));
+    const missing = [query.from, query.to].filter((id) => !nodeIds.has(id));
+    if (missing.length > 0) {
+      return {
+        outcome: "graph_path",
+        found: false,
+        steps: [],
+        searchedNodes: graph.nodes.length,
+        reason: `節點不在搜尋範圍（最多 ${PATH_SEARCH_LIMITS.maxNodes} 個節點）內：${missing.join("、")}`,
+      };
+    }
+    const steps = shortestPath(graph.nodes, graph.edges, query.from, query.to);
+    return {
+      outcome: "graph_path",
+      found: steps !== undefined,
+      steps: steps ?? [],
+      searchedNodes: graph.nodes.length,
+      ...(steps ? {} : { reason: "在已記錄的關係中找不到連結這兩個節點的路徑。" }),
+    };
+  }
+
+  private buildRecorded(options: GraphQuery): RecordedGraphResult {
     let scopedProject: ProjectRecord | undefined;
     let projectId = options.projectId;
     const cursorRequested = options.cursor !== undefined || options.pageSize !== undefined;
@@ -318,7 +378,7 @@ export class GraphBuilder {
       let sessionOffset = pageStartSessionOffset;
       let relationOffset = Math.max(decodedCursor?.relationOffset ?? 0, 0);
       const nodes: GraphNode[] = [];
-      const edges: GraphEdge[] = [];
+      const edges: RecordedEdge[] = [];
       const nodeIds = new Set<string>();
       const edgeIds = new Set<string>();
       const sourceSessionIds: string[] = [];
@@ -337,7 +397,7 @@ export class GraphBuilder {
         nodes.push(node);
         return true;
       };
-      const addEdge = (edge: GraphEdge): void => {
+      const addEdge = (edge: RecordedEdge): void => {
         if (edgeIds.has(edge.id) || !nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
           return;
         }
@@ -600,7 +660,7 @@ export class GraphBuilder {
     }
 
     const nodes: GraphNode[] = [];
-    const edges: GraphEdge[] = [];
+    const edges: RecordedEdge[] = [];
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     const sourceSessionIds: string[] = [];
@@ -617,7 +677,7 @@ export class GraphBuilder {
         nodes.push(node);
       }
     };
-    const addEdge = (edge: GraphEdge): void => {
+    const addEdge = (edge: RecordedEdge): void => {
       if (edgeIds.has(edge.id) || !nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
         return;
       }
@@ -787,5 +847,25 @@ export class GraphBuilder {
         edgesTruncated,
       },
     };
+  }
+
+  /** co_changed edges among the loaded file nodes, from every non-voided Session of their projects. */
+  private derivedEdges(nodes: readonly GraphNode[], minSessions: number): GraphEdge[] {
+    const fileNodeIds = new Set(nodes.filter((node) => node.kind === "file").map((node) => node.id));
+    const projectIds = [
+      ...new Set(nodes.filter((node) => node.kind === "file" && node.projectId).map((node) => node.projectId!)),
+    ];
+    if (fileNodeIds.size < 2 || projectIds.length === 0) {
+      return [];
+    }
+    const sessions = (
+      this.db
+        .prepare(
+          `SELECT project_id, changed_files_json FROM sessions
+           WHERE voided_at IS NULL AND project_id IN (SELECT value FROM json_each(?))`,
+        )
+        .all(JSON.stringify(projectIds)) as Array<{ project_id: string; changed_files_json: string }>
+    ).map((row) => ({ projectId: row.project_id, changedFiles: JSON.parse(row.changed_files_json) as string[] }));
+    return coChangedEdges(sessions, fileNodeIds, Math.max(2, minSessions));
   }
 }

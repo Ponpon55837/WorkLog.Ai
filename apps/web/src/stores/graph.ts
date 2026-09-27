@@ -1,7 +1,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useQuery } from "@pinia/colada";
 import { defineStore } from "pinia";
-import type { GraphNode, GraphQuery, GraphQueryResult, GraphResult } from "@work-intelligence/core";
+import type { GraphNode, GraphPathResult, GraphQuery, GraphQueryResult, GraphResult } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
@@ -19,7 +19,12 @@ function graphPreset(value: string) {
   return graphLoadPresetOptions.find((preset) => preset.value === value) ?? graphLoadPresetOptions[0];
 }
 
-function graphRequestOptions(projectId: string, presetValue: string, cursor?: string): GraphQuery {
+function graphRequestOptions(
+  projectId: string,
+  presetValue: string,
+  includeDerived: boolean,
+  cursor?: string,
+): GraphQuery {
   const preset = graphPreset(presetValue);
   return {
     projectId: projectId || undefined,
@@ -28,6 +33,7 @@ function graphRequestOptions(projectId: string, presetValue: string, cursor?: st
     maxEdges: preset.maxEdges,
     pageSize: preset.maxNodes,
     cursor,
+    ...(includeDerived ? { includeDerived } : {}),
   };
 }
 
@@ -53,19 +59,32 @@ export const useGraphStore = defineStore("graph", () => {
   const graphExtraPages = ref<GraphResult[]>([]);
   const graphRequestError = ref("");
   const graphGeneration = ref(0);
+  /** Derived co_changed edges are hidden until the viewer turns them on. */
+  const graphShowDerived = ref(false);
+  const graphPathEnds = ref<{ from: string; to: string } | null>(null);
 
   const graphQuery = useQuery({
-    key: () => [...queryKeys.views.graph, graphProjectId.value || "all", graphLoadPreset.value, "first"],
+    key: () => [
+      ...queryKeys.views.graph,
+      graphProjectId.value || "all",
+      graphLoadPreset.value,
+      graphShowDerived.value,
+      "first",
+    ],
     enabled: graphActive,
     refetchOnMount: "always",
     query: ({ signal }): Promise<GraphQueryResult> =>
-      useApi().client.getGraph(graphRequestOptions(graphProjectId.value, graphLoadPreset.value), signal),
+      useApi().client.getGraph(
+        graphRequestOptions(graphProjectId.value, graphLoadPreset.value, graphShowDerived.value),
+        signal,
+      ),
   });
   const graphPageQuery = useQuery({
     key: () => [
       ...queryKeys.views.graph,
       graphProjectId.value || "all",
       graphLoadPreset.value,
+      graphShowDerived.value,
       "cursor",
       graphPageCursor.value ?? "none",
     ],
@@ -73,8 +92,32 @@ export const useGraphStore = defineStore("graph", () => {
     query: ({ signal }): Promise<GraphQueryResult> => {
       const cursor = graphPageCursor.value;
       if (!cursor) throw new Error("A Graph cursor is required before loading another page.");
-      return useApi().client.getGraph(graphRequestOptions(graphProjectId.value, graphLoadPreset.value, cursor), signal);
+      return useApi().client.getGraph(
+        graphRequestOptions(graphProjectId.value, graphLoadPreset.value, graphShowDerived.value, cursor),
+        signal,
+      );
     },
+  });
+  const graphPathQuery = useQuery({
+    key: () => [
+      ...queryKeys.views.graph,
+      "path",
+      graphProjectId.value || "all",
+      graphShowDerived.value,
+      graphPathEnds.value?.from ?? "",
+      graphPathEnds.value?.to ?? "",
+    ],
+    enabled: () => Boolean(graphPathEnds.value),
+    query: ({ signal }): Promise<GraphPathResult> =>
+      useApi().client.getGraphPath(
+        {
+          projectId: graphProjectId.value || undefined,
+          from: graphPathEnds.value!.from,
+          to: graphPathEnds.value!.to,
+          includeDerived: graphShowDerived.value || undefined,
+        },
+        signal,
+      ),
   });
 
   const graphError = computed(() => {
@@ -102,6 +145,17 @@ export const useGraphStore = defineStore("graph", () => {
     };
   });
   const graphLoading = computed(() => graphQuery.isLoading.value || graphPageQuery.isLoading.value);
+  const graphPath = computed(() =>
+    graphPathEnds.value && graphPathQuery.data.value?.outcome === "graph_path" ? graphPathQuery.data.value : null,
+  );
+  const graphPathLoading = computed(() => graphPathQuery.isLoading.value);
+  const graphPathError = computed(() => {
+    if (graphPathQuery.error.value) return errorMessage(graphPathQuery.error.value, "無法找出兩個節點的關聯。");
+    const result = graphPathQuery.data.value;
+    return result?.outcome === "skipped" ? result.reason : "";
+  });
+  /** Edge ids on the current path, for highlighting. */
+  const graphPathEdgeIds = computed(() => new Set(graphPath.value?.steps.map((step) => step.edge.id) ?? []));
   const graphCanLoadMore = computed(() => Boolean(graph.value?.nextCursor));
 
   function resetGraphPages(): void {
@@ -111,7 +165,7 @@ export const useGraphStore = defineStore("graph", () => {
     graphRequestError.value = "";
   }
 
-  watch([graphProjectId, graphLoadPreset], resetGraphPages);
+  watch([graphProjectId, graphLoadPreset, graphShowDerived], resetGraphPages);
   watch(
     () => graphQuery.data.value,
     (page, previousPage) => {
@@ -165,6 +219,14 @@ export const useGraphStore = defineStore("graph", () => {
     selectedGraphNode.value = node;
   }
 
+  function findGraphPath(from: string, to: string): void {
+    graphPathEnds.value = { from, to };
+  }
+
+  function clearGraphPath(): void {
+    graphPathEnds.value = null;
+  }
+
   return {
     graph,
     graphProjectId,
@@ -177,9 +239,16 @@ export const useGraphStore = defineStore("graph", () => {
     graphCanLoadMore,
     selectedGraphNode,
     graphPanelWidth,
+    graphShowDerived,
+    graphPath,
+    graphPathLoading,
+    graphPathError,
+    graphPathEdgeIds,
     loadGraph,
     loadMoreGraph,
     setGraphActive,
     selectGraphNode,
+    findGraphPath,
+    clearGraphPath,
   };
 });

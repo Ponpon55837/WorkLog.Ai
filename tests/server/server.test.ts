@@ -760,6 +760,45 @@ describe("Work Intelligence REST API", () => {
     expect(reversed.status).toBe(400);
   });
 
+  it("serves derived graph edges on request and explains graph paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-graph-path-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Graph path API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const sessionIds: string[] = [];
+    for (const key of ["one", "two", "three"]) {
+      const result = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `api-graph-path-${key}`,
+        title: `Graph ${key}`,
+        summary: "Changed two files together.",
+        changedFiles: ["src/a.ts", "src/b.ts"],
+        verification: { status: "passed" },
+      });
+      if (result.outcome === "finalized") sessionIds.push(result.session.id);
+    }
+
+    const plain = await requestJson<{ edges: Array<{ kind: string }> }>(baseUrl, `/api/graph?projectId=${project.id}`);
+    expect(plain.body.edges.some((edge) => edge.kind === "co_changed")).toBe(false);
+    const derived = await requestJson<{ edges: Array<{ kind: string; provenance: string }> }>(
+      baseUrl,
+      `/api/graph?projectId=${project.id}&includeDerived=true`,
+    );
+    expect(derived.body.edges.filter((edge) => edge.kind === "co_changed")).toEqual([
+      expect.objectContaining({ provenance: "derived" }),
+    ]);
+
+    const path = await requestJson<{ outcome: string; found: boolean; steps: unknown[] }>(
+      baseUrl,
+      `/api/graph/path?projectId=${project.id}&from=${encodeURIComponent(`file:${project.id}:src/a.ts`)}&to=${encodeURIComponent(`file:${project.id}:src/b.ts`)}&includeDerived=true`,
+    );
+    expect(path.body).toMatchObject({ outcome: "graph_path", found: true, steps: [expect.anything()] });
+    const invalid = await requestJson(baseUrl, "/api/graph/path?from=&to=x");
+    expect(invalid.status).toBe(400);
+  });
+
   it("validates project deletion names, requires a disk backup, and returns a safe backup file name", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-delete-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");

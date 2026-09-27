@@ -48,6 +48,12 @@
 - `GET /api/insights/hotspots`；工作圖譜新增「熱點」分頁（文字標示與圖例，不只靠顏色）；報告風險加入本期熱點；`work_get_context` 帶 paths 時提示近 30 天常被修改的檔案。
 - 效能：5,000 筆 Session 全期間前 20 名 p90 約 74 ms、依目錄單月約 23 ms（門檻各 500 ms）。
 
+### D2 圖譜邊來源與路徑
+
+- `GraphEdge` 加上 `provenance`（recorded／derived）與 `reason`；推導的 `co_changed` 邊以雜湊表一次計數檔案配對（預設至少 3 筆 Session），預設隱藏，UI 以虛線與圖例區分。
+- `GET /api/graph/path` 與唯讀 MCP `work_get_graph_path`：500 節點內 BFS 最短路徑，同長度時優先具體關係，逐段說明；節點面板可選另一節點並高亮路徑。
+- 選擇新增唯讀工具而非擴充 `work_get_graph`，避免把一次性的小查詢混進可分頁的大量輸出。
+
 ### 額外調整：報告主要完成事項增加至 10 筆
 
 - 報告頁與 Agent 報告摘要脈絡都保留最新 10 筆主要完成事項，期間工作總數仍按完整資料計算。

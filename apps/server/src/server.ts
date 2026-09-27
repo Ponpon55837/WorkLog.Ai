@@ -24,6 +24,7 @@ import {
   finalizeSessionInputSchema,
   databaseBackupFileNameSchema,
   deleteDatabaseBackupBodySchema,
+  graphPathQuerySchema,
   graphQuerySchema,
   hotspotQuerySchema,
   handoffImportApplyInputSchema,
@@ -1051,12 +1052,31 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
           maxEdges: rawMaxEdges ? Number(rawMaxEdges) : undefined,
           pageSize: rawPageSize ? Number(rawPageSize) : undefined,
           cursor: requestUrl.searchParams.get("cursor")?.trim() || undefined,
+          includeDerived: requestUrl.searchParams.get("includeDerived") === "true" || undefined,
+          coChangeMinSessions: requestUrl.searchParams.get("coChangeMinSessions")
+            ? Number(requestUrl.searchParams.get("coChangeMinSessions"))
+            : undefined,
         });
         if (!parsed.success) {
           sendError(response, 400, "Invalid graph query.", parsed.error.flatten());
           return;
         }
         sendJson(response, 200, store.getGraph(parsed.data));
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/graph/path") {
+        const parsed = graphPathQuerySchema.safeParse({
+          projectId: requestUrl.searchParams.get("projectId")?.trim() || undefined,
+          from: requestUrl.searchParams.get("from") ?? "",
+          to: requestUrl.searchParams.get("to") ?? "",
+          includeDerived: requestUrl.searchParams.get("includeDerived") === "true" || undefined,
+        });
+        if (!parsed.success) {
+          sendError(response, 400, "Invalid graph path query.", parsed.error.flatten());
+          return;
+        }
+        sendJson(response, 200, store.getGraphPath(parsed.data));
         return;
       }
 

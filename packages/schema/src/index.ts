@@ -814,7 +814,26 @@ export const graphQuerySchema = z.object({
   maxEdges: z.number().int().min(1).max(1_000).default(360),
   pageSize: z.number().int().min(1).max(500).optional(),
   cursor: z.string().trim().min(1).max(500).optional(),
+  includeDerived: z
+    .boolean()
+    .optional()
+    .describe("Add derived co_changed edges between loaded files that several Sessions changed together."),
+  coChangeMinSessions: z.number().int().min(2).max(20).optional(),
 });
+
+const graphNodeIdSchema = z.string().trim().min(3).max(1_500);
+
+export const graphPathQuerySchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000).optional(),
+    projectId: z.string().trim().min(1).max(200).optional(),
+    from: graphNodeIdSchema.describe(
+      'Start node id from work_get_graph, e.g. "session:<id>" or "file:<projectId>:<path>".',
+    ),
+    to: graphNodeIdSchema.describe("End node id from work_get_graph."),
+    includeDerived: z.boolean().optional().describe("Also walk derived co_changed edges."),
+  })
+  .strict();
 
 export const metadataBackfillPreviewQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),

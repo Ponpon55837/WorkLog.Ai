@@ -139,6 +139,13 @@ try {
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
   seedStaleKnowledge(benchStore, alpha);
   seedKnowledgePages(benchStore, alpha);
+  // A file of the newest alpha Session, so the path search walks project → Session → file inside the graph.
+  const [newestAlpha] = benchStore.listSessionsPage({ projectId: alpha.id, page: 1, pageSize: 1 }).items;
+  const pathTarget = `file:${alpha.id}:${newestAlpha.changedFiles.at(-1)}`;
+  const benchPath = benchStore.getGraphPath({ projectId: alpha.id, from: `project:${alpha.id}`, to: pathTarget });
+  if (benchPath.outcome !== "graph_path" || !benchPath.found) {
+    throw new Error("The graph path benchmark must measure a path that exists.");
+  }
 
   const cases = {
     "listSessionsPage (default)": () => benchStore.listSessionsPage({ page: 1, pageSize: 20 }),
@@ -162,6 +169,9 @@ try {
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
+    "getGraph (with derived)": () => benchStore.getGraph({ includeDerived: true }),
+    "getGraphPath (500 nodes)": () =>
+      benchStore.getGraphPath({ projectId: alpha.id, from: `project:${alpha.id}`, to: pathTarget }),
     "getHotspots (files)": () => benchStore.getHotspots({ limit: 20 }),
     "getHotspots (directories, month)": () =>
       benchStore.getHotspots({ groupBy: "directory", from: "2026-03-01", to: "2026-03-31", limit: 20 }),
@@ -178,6 +188,8 @@ try {
     "listSessionDecisions (pending)": 250,
     search: 500,
     "recall (month range)": 500,
+    "getGraph (with derived)": 750,
+    "getGraphPath (500 nodes)": 750,
     "getHotspots (files)": 500,
     "getHotspots (directories, month)": 500,
     "searchKnowledge (staleness)": 500,

@@ -25,7 +25,8 @@
 | Knowledge | `work_request_knowledge_candidates`<br>`work_get_knowledge_candidate_context`<br>`work_submit_knowledge_candidates` | Agent 從已記錄的 Session 提出 Knowledge 候選；使用者在工作知識頁接受後才寫入 |
 | Knowledge | `work_get_knowledge_history` | 查詢 Knowledge 的不可變變更紀錄 |
 | Knowledge | `work_request_knowledge_page_update`<br>`work_get_knowledge_page_context`<br>`work_save_knowledge_page` | 常駐知識頁：Agent 從已記錄的 Session 改寫整頁並標示來源，每次儲存成為新版本 |
-| Graph | `work_get_graph` | 讀取 deterministic 工作圖譜 |
+| Graph | `work_get_graph` | 讀取 deterministic 工作圖譜（可加上推導的「一起修改」邊） |
+| Graph | `work_get_graph_path` | 唯讀：找出兩個節點間的最短關聯並逐段說明 |
 | Report | `work_get_report`<br>`work_export_report` | deterministic 報告與 Markdown／JSON 匯出 |
 | Report | `work_request_report_synthesis`<br>`work_list_report_synthesis_requests`<br>`work_get_report_context`<br>`work_save_report_summary` | AI 報告整理流程（建立或找請求 → 取 context → 回寫） |
 | Report | `work_retry_report_synthesis`<br>`work_cancel_report_synthesis` | 重試逾時請求或取消整理 |
@@ -396,7 +397,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 
 ## `work_get_graph`
 
-以 read-only 方式建立 deterministic graph。節點來自 tracked project 的 Project、finalized Session、explicit Knowledge、attached Evidence 與 changed-file metadata；關聯只包含資料中已存在的 `contains`、`changed_file`、`has_knowledge` 與 `has_evidence`，不會讀取 source／handoff／Git，也不會自行推測相似度或因果關係。可用 `projectRoot`、`projectId` 與 `limit` 限定範圍；未授權專案會安靜略過。
+以 read-only 方式建立 deterministic graph。節點來自 tracked project 的 Project、finalized Session、explicit Knowledge、attached Evidence 與 changed-file metadata；每條邊都帶 `provenance`：資料中已存在的 `contains`、`changed_file`、`has_knowledge`、`has_evidence` 與 `session_link` 是 `recorded`。傳 `includeDerived: true` 時，另加 `derived` 的 `co_changed` 邊：已載入的兩個檔案被至少 `coChangeMinSessions`（預設 3，範圍 2–20）筆未作廢 Session 一起修改（改動超過 20 個檔案的 Session 不計），`reason` 寫出次數；每次最多 300 條，不計入 `maxEdges`。不會讀取 source／handoff／Git，也不會推測語意相似度或因果關係。可用 `projectRoot`、`projectId` 與 `limit` 限定範圍；未授權專案會安靜略過。
 
 ```json
 {
@@ -410,6 +411,12 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 Graph 也回傳 `totalNodes`、`totalEdges`、`totalNodesByKind` 與 `truncation`。`maxNodes` 預設 180、上限 500；`maxEdges` 預設 360、上限 1,000。這些是 API 載入上限，前端另有畫面預覽配額；當 `nodesTruncated` 或 `edgesTruncated` 為 `true` 時，UI 可以提高載入上限或繼續載入，不會把完整資料誤當成已全部渲染。
 
 大型 Graph 可額外傳 `pageSize`（1–500）啟用 server-side incremental page，並把 response 的 `nextCursor` 原樣傳回下一次 `cursor`。cursor 是 scope-bound opaque token；服務會依序處理 Project、Session 及其 changed files／Knowledge／Evidence 關聯，單一 Session 的關聯資料填滿節點上限時也會以同一個 Session 的 relation offset 續載，不會因為沒有下一個 Session 就誤判完成。`pageInfo.unit` 維持 `sessions` 相容欄位，另以 `pageInfo.phase` 反映目前 traversal phase；response 的節點數仍受 `pageSize`／`maxNodes` 限制。Web UI 會合併已載入頁面並透過 Graph viewport virtualization 控制 DOM 數量，因此資料量超過 500 時不需要一次渲染完整 Graph。
+
+## `work_get_graph_path`
+
+唯讀。傳入兩個節點 id（來自 `work_get_graph`，例如 `session:<id>`、`file:<projectId>:<path>`），在同範圍最多 500 個節點的圖譜內以 BFS 找最短路徑，回傳每一段的邊與白話理由（例如「Session「A」修改了 src/x.ts」）。長度相同時優先經過具體關係，最後才經過「專案包含」。`includeDerived: true` 時也可以經過推導的「一起修改」邊。節點不在範圍內或找不到路徑時回傳 `found: false` 與原因。
+
+選擇新增唯讀工具，而不是在 `work_get_graph` 加上 `pathFrom`／`pathTo`：`work_get_graph` 是可分頁的大量輸出，路徑查詢則是一次性的小結果；分開讓兩者的參數與回傳形狀都保持單純。
 
 ## 報告提煉：使用者只需要自然語言
 

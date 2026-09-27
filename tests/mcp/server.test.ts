@@ -537,4 +537,35 @@ describe("Work Intelligence MCP server", () => {
     expect(byName.get("work_save_knowledge_page")?.annotations).toMatchObject({ destructiveHint: false });
     expect(tools.some((tool) => /knowledge_page/.test(tool.name) && /delete|remove/.test(tool.name))).toBe(false);
   });
+
+  it("explains how two graph nodes are related with a read-only path tool", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Path project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const first = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-path-001", "Plan"),
+      changedFiles: ["docs/plan.md"],
+    });
+    await callJson(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-path-002", "Build"),
+      changedFiles: ["docs/plan.md", "src/build.ts"],
+    });
+
+    const path = await callJson<{ found: boolean; steps: Array<{ reason: string }> }>(client, "work_get_graph_path", {
+      projectRoot: root,
+      from: `session:${first.session.id}`,
+      to: `file:${project.id}:src/build.ts`,
+    });
+    expect(path.found).toBe(true);
+    expect(path.steps.at(-1)?.reason).toBe("Session「Build」修改了 src/build.ts");
+
+    const graph = await callJson<{ edges: Array<{ provenance: string }> }>(client, "work_get_graph", {
+      projectRoot: root,
+    });
+    expect(new Set(graph.edges.map((edge) => edge.provenance))).toEqual(new Set(["recorded"]));
+    const { tools } = await client.listTools();
+    expect(tools.find((tool) => tool.name === "work_get_graph_path")?.annotations).toMatchObject({
+      readOnlyHint: true,
+    });
+  });
 });

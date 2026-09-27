@@ -1048,6 +1048,23 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("沒有符合的節點")).toBeVisible();
   });
 
+  test("explains the relation between two graph nodes and shows the edge legend", async ({ page }) => {
+    await page.goto("/graph?q=Browser%20regression%20fixture%20session");
+    await expect(page.getByText("記錄的關係")).toBeVisible();
+    await expect(page.getByText(/推導的關係/)).toBeVisible();
+    await page.getByLabel("搜尋 Graph 節點").press("Enter");
+    const pathSection = page.getByTestId("graph-path");
+    const target = pathSection.getByLabel("選擇要找出關聯的節點");
+    await target.selectOption({ label: "變更檔案：README.md" });
+    await pathSection.getByRole("button", { name: "找出關聯" }).click();
+    const steps = pathSection.getByRole("list", { name: "關聯路徑" });
+    await expect(steps.getByRole("listitem")).toHaveCount(1);
+    await expect(steps).toContainText("修改了 README.md");
+
+    await page.getByTestId("graph-show-derived").check();
+    await expect(page).toHaveURL(/\/graph/);
+  });
+
   test("confirms backup deletion using only keyboard navigation @keyboard", async ({ page, request }) => {
     await postJson(request, "/api/backups", {});
     await page.goto("/projects/backup");

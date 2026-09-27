@@ -43,6 +43,8 @@ const {
   graphCanLoadMore,
   selectedGraphNode,
   graphPanelWidth,
+  graphShowDerived,
+  graphPathEdgeIds,
 } = storeToRefs(graphStore);
 const {
   graphSearchMatchIds,
@@ -170,6 +172,10 @@ onBeforeUnmount(() => {
           <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" label="選擇 Graph 節點類型" />
           <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
           <UiSelect v-model="graphLoadPreset" :options="presetOptions" size="sm" label="選擇 Graph 資料載入上限" />
+          <label class="graph__derived">
+            <input v-model="graphShowDerived" type="checkbox" data-testid="graph-show-derived" />
+            顯示推導關係
+          </label>
           <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
           <UiButton
             v-if="graphCanLoadMore"
@@ -195,6 +201,13 @@ onBeforeUnmount(() => {
           :key="item.kind"
           :class="`graph__legend-item graph__legend-item--${item.kind}`"
           ><i aria-hidden="true"></i>{{ item.label }} {{ item.count }}</span
+        >
+        <span class="graph__legend-line"
+          ><svg aria-hidden="true" width="24" height="6"><line x1="0" y1="3" x2="24" y2="3" /></svg>記錄的關係</span
+        >
+        <span class="graph__legend-line graph__legend-line--derived"
+          ><svg aria-hidden="true" width="24" height="6"><line x1="0" y1="3" x2="24" y2="3" /></svg
+          >推導的關係（一起修改，預設隱藏）</span
         >
       </div>
 
@@ -226,6 +239,7 @@ onBeforeUnmount(() => {
         :selected-id="selectedGraphNode?.id"
         :match-ids="graphSearchMatchIds"
         :overlay-width="selectedGraphNode ? graphPanelWidth : 0"
+        :path-edge-ids="graphPathEdgeIds"
         @select="onSelect"
         @clear="graphStore.selectGraphNode(null)"
       />
@@ -264,6 +278,29 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border-muted);
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.graph__derived {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.graph__legend-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph__legend-line line {
+  stroke: var(--fg-muted);
+  stroke-width: 1.6;
+}
+
+.graph__legend-line--derived line {
+  stroke-dasharray: 5 4;
 }
 
 .graph__legend strong {
