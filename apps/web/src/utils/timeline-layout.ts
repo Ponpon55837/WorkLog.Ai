@@ -82,3 +82,108 @@ export function visibleSpans<T extends TimelineSpan>(
   }
   return visible;
 }
+
+export const DAY_MS = 86_400_000;
+/** Below this many pixels per day the timeline always draws one column per day instead of single Sessions. */
+export const DETAIL_MIN_DAY_WIDTH = 48;
+
+/**
+ * The first candidate `fits` accepts, found by binary search; `fits` must be monotone over the ascending
+ * candidates (once true, true for every larger one). Returns the last candidate when none fits.
+ */
+export function smallestFitting(candidates: readonly number[], fits: (candidate: number) => boolean): number {
+  let low = 0;
+  let high = candidates.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (fits(candidates[middle]!)) high = middle;
+    else low = middle + 1;
+  }
+  return candidates[low]!;
+}
+
+export interface DayBucket {
+  /** Local midnight of the day. */
+  day: number;
+  passed: number;
+  failed: number;
+  other: number;
+  total: number;
+}
+
+/** Local midnight of the day a timestamp falls on. */
+export function startOfLocalDay(time: number): number {
+  const date = new Date(time);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+/**
+ * Counts Sessions per local day and verification result in one pass (hash map by day), for the zoomed-out
+ * timeline. Returns only days with Sessions, oldest first.
+ */
+export function dayBuckets(sessions: ReadonlyArray<{ completedAt: string; verificationStatus: string }>): DayBucket[] {
+  const byDay = new Map<number, DayBucket>();
+  for (const session of sessions) {
+    const day = startOfLocalDay(Date.parse(session.completedAt));
+    let bucket = byDay.get(day);
+    if (!bucket) {
+      bucket = { day, passed: 0, failed: 0, other: 0, total: 0 };
+      byDay.set(day, bucket);
+    }
+    if (session.verificationStatus === "passed") bucket.passed += 1;
+    else if (session.verificationStatus === "failed") bucket.failed += 1;
+    else bucket.other += 1;
+    bucket.total += 1;
+  }
+  return [...byDay.values()].sort((left, right) => left.day - right.day);
+}
+
+export interface AxisTick {
+  time: number;
+  label: string;
+  /** Month or day boundaries; minor ticks (weeks, hours) are drawn lighter. */
+  major: boolean;
+}
+
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+/**
+ * Axis ticks that stay readable at any zoom: months when a day is only a few pixels wide, Mondays for a
+ * week-level view, every day (or every other day) when days are wider, and six-hour marks when very wide.
+ * Uses calendar arithmetic, so days stay aligned across daylight-saving changes.
+ */
+export function axisTicks(rangeStart: number, rangeEnd: number, dayWidth: number): AxisTick[] {
+  const ticks: AxisTick[] = [];
+  const cursor = new Date(startOfLocalDay(rangeStart));
+  if (dayWidth < 5) {
+    cursor.setDate(1);
+    if (cursor.getTime() < rangeStart) cursor.setMonth(cursor.getMonth() + 1);
+    for (; cursor.getTime() < rangeEnd; cursor.setMonth(cursor.getMonth() + 1)) {
+      const month = cursor.getMonth() + 1;
+      const label = month === 1 ? `${cursor.getFullYear()}年1月` : `${month}月`;
+      ticks.push({ time: cursor.getTime(), label, major: true });
+    }
+    return ticks;
+  }
+  const dayStep = dayWidth < 18 ? 0 : dayWidth < 30 ? 2 : 1;
+  for (let index = 0; cursor.getTime() < rangeEnd; cursor.setDate(cursor.getDate() + 1), index += 1) {
+    const time = cursor.getTime();
+    const monthDay = `${cursor.getMonth() + 1}/${cursor.getDate()}`;
+    if (dayStep === 0) {
+      if (cursor.getDay() === 1) ticks.push({ time, label: monthDay, major: cursor.getDate() <= 7 });
+      continue;
+    }
+    if (index % dayStep !== 0) continue;
+    const label = dayWidth >= 60 ? `${monthDay}（${WEEKDAYS[cursor.getDay()]}）` : monthDay;
+    ticks.push({ time, label, major: true });
+    if (dayWidth >= 240) {
+      for (const hour of [6, 12, 18]) {
+        const mark = new Date(cursor);
+        mark.setHours(hour);
+        ticks.push({ time: mark.getTime(), label: `${String(hour).padStart(2, "0")}:00`, major: false });
+      }
+    }
+  }
+  return ticks;
+}

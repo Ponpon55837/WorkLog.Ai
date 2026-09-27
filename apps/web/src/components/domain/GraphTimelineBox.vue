@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { CalendarRange, FolderGit2, ZoomIn, ZoomOut } from "lucide-vue-next";
+import { CalendarRange, FolderGit2, Maximize2, ZoomIn, ZoomOut } from "lucide-vue-next";
 import type {
   ProjectRecord,
   TimelineKnowledgeEvent,
@@ -13,7 +13,17 @@ import { useSessionsStore } from "../../stores/sessions";
 import { useTimelineStore, type TimelineRange } from "../../stores/timeline";
 import { formatDate, formatDayGroup, formatTimeOfDay } from "../../utils/format";
 import { verificationStatus } from "../../utils/status";
-import { packRows, visibleSpans, type PackedSpan } from "../../utils/timeline-layout";
+import {
+  DAY_MS,
+  DETAIL_MIN_DAY_WIDTH,
+  axisTicks,
+  dayBuckets,
+  packRows,
+  smallestFitting,
+  visibleSpans,
+  type DayBucket,
+  type PackedSpan,
+} from "../../utils/timeline-layout";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
@@ -30,12 +40,17 @@ type TimelineView = "chart" | "list";
  * and very short Sessions never overlap. `startTime`/`completedTime` are the recorded times.
  */
 type SessionBar = TimelineSession & { start: number; end: number; startTime: number; completedTime: number };
+/**
+ * A project lane. Zoomed in it holds single Sessions packed into rows; zoomed out it holds one column per day
+ * (`buckets`), so a busy project never turns into dozens of rows.
+ */
 interface Lane {
   id: string;
   name: string;
   top: number;
   height: number;
   bars: PackedSpan<SessionBar>[];
+  buckets: DayBucket[];
   events: TimelineKnowledgeEvent[];
   longest: number;
 }
@@ -51,15 +66,25 @@ interface ListEntry {
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 
-const DAY = 86_400_000;
-const zoomLevels = [6, 12, 24, 48, 96, 192] as const;
+const DAY = DAY_MS;
+/** Pixels per day: from a whole year on screen to a few hours. */
+const MIN_DAY_WIDTH = 2;
+const MAX_DAY_WIDTH = 960;
 const laneHeader = 26;
+/** Height of the day columns in the zoomed-out view. */
+const columnHeight = 64;
 const markerRow = 18;
 const rowHeight = 22;
 const barHeight = 14;
 const axisHeight = 28;
 const overscanPx = 200;
 const MIN_MARK_PX = 14;
+/** Day columns stop growing past this width so a wide zoom still reads as a bar chart. */
+const MAX_COLUMN_PX = 28;
+/** Single Sessions are drawn only while every lane fits in this many rows; denser zooms stay as day columns. */
+const MAX_DETAIL_ROWS = 10;
+/** Zoom levels tried when looking for the first one where single Sessions fit. */
+const DETAIL_WIDTHS = [DETAIL_MIN_DAY_WIDTH, 96, 192, 384, 768, MAX_DAY_WIDTH];
 const rangeOptions: { value: TimelineRange; label: string }[] = [
   { value: "7", label: "最近 7 天" },
   { value: "30", label: "最近 30 天" },
@@ -84,10 +109,13 @@ const narrow = useMediaQuery("(max-width: 639px)");
 
 const viewport = ref<HTMLElement | null>(null);
 const chosenView = ref<TimelineView>("chart");
-const zoom = ref(2);
+const dayWidth = ref(24);
 const scrollLeft = ref(0);
 const viewportWidth = ref(900);
+const chart = ref<SVGSVGElement | null>(null);
 let resizeObserver: ResizeObserver | undefined;
+/** A time to center once the chart has been laid out at a new zoom. */
+let pendingAnchor: number | undefined;
 
 const view = computed<TimelineView>(() => (narrow.value ? "list" : chosenView.value));
 const projectOptions = computed(() => [
@@ -96,9 +124,35 @@ const projectOptions = computed(() => [
 ]);
 const rangeStart = computed(() => (timeline.value ? Date.parse(`${timeline.value.from}T00:00:00`) : 0));
 const rangeEnd = computed(() => (timeline.value ? Date.parse(`${timeline.value.to}T00:00:00`) + DAY : 0));
-const dayWidth = computed(() => zoomLevels[zoom.value]!);
+const rangeDays = computed(() => Math.max(1, Math.round((rangeEnd.value - rangeStart.value) / DAY)));
+/** The zoom that shows the whole range at once. */
+const fitDayWidth = computed(() => clampDayWidth(viewportWidth.value / rangeDays.value));
+/** Sessions grouped by project lane, built once per timeline response. */
+const sessionsByProject = computed(() => {
+  const groups = new Map<string, TimelineSession[]>();
+  for (const session of timeline.value?.sessions ?? []) {
+    const group = groups.get(session.projectId);
+    if (group) group.push(session);
+    else groups.set(session.projectId, [session]);
+  }
+  return groups;
+});
+/**
+ * The smallest zoom where every lane's Sessions fit in MAX_DETAIL_ROWS rows. Marks narrow as the zoom grows, so
+ * row counts only fall and a binary search over DETAIL_WIDTHS finds it with a few packings per response.
+ */
+const detailMinWidth = computed(() => {
+  const groups = [...sessionsByProject.value.values()];
+  return smallestFitting(DETAIL_WIDTHS, (width) =>
+    groups.every((sessions) => packRows(sessionBars(sessions, width), gapAt(width)).rows <= MAX_DETAIL_ROWS),
+  );
+});
+const detailed = computed(() => dayWidth.value >= detailMinWidth.value);
+const columnWidth = computed(() => Math.min(Math.max(dayWidth.value - 2, 1.5), MAX_COLUMN_PX));
+/** Centers a column in its day. */
+const columnInset = computed(() => (dayWidth.value - columnWidth.value) / 2);
 /** MIN_MARK_PX expressed as time at the current zoom. */
-const minMarkSpan = computed(() => (MIN_MARK_PX / dayWidth.value) * DAY);
+const minMarkSpan = computed(() => markSpanAt(dayWidth.value));
 const chartWidth = computed(() =>
   Math.max(viewportWidth.value, ((rangeEnd.value - rangeStart.value) / DAY) * dayWidth.value),
 );
@@ -108,39 +162,36 @@ const lanes = computed<Lane[]>(() => {
   let top = axisHeight;
   return current.projects
     .map((project) => {
-      const sessions = current.sessions
-        .filter((session) => session.projectId === project.id)
-        .map((session): SessionBar => {
-          const completedTime = Date.parse(session.completedAt);
-          const startTime = Math.max(
-            rangeStart.value,
-            session.startedAt ? Date.parse(session.startedAt) : completedTime,
-          );
-          // A point is centered on its completion time; a bar starts at its start time.
-          const start = session.startedAt ? startTime : completedTime - minMarkSpan.value / 2;
-          const end = Math.max(completedTime, start + minMarkSpan.value);
-          return { ...session, start, end, startTime, completedTime };
-        });
-      const packed = packRows(sessions, minMarkSpan.value / 4);
+      const projectSessions = sessionsByProject.value.get(project.id) ?? [];
       const events = current.knowledgeEvents.filter((event) => event.projectId === project.id);
-      return { project, packed, events };
+      if (!detailed.value) {
+        return { project, bars: [], rows: 0, buckets: dayBuckets(projectSessions), events };
+      }
+      const packed = packRows(sessionBars(projectSessions, dayWidth.value), gapAt(dayWidth.value));
+      return { project, bars: packed.items, rows: packed.rows, buckets: [], events };
     })
-    .filter(({ packed, events }) => packed.items.length > 0 || events.length > 0)
-    .map(({ project, packed, events }) => {
-      const height = laneHeader + markerRow + Math.max(packed.rows, 1) * rowHeight + 8;
+    .filter(({ bars, buckets, events }) => bars.length > 0 || buckets.length > 0 || events.length > 0)
+    .map(({ project, bars, rows, buckets, events }) => {
+      const body = detailed.value ? Math.max(rows, 1) * rowHeight : columnHeight;
+      const height = laneHeader + markerRow + body + 8;
       const lane: Lane = {
         id: project.id,
         name: project.name,
         top,
         height,
-        bars: packed.items,
+        bars,
+        buckets,
         events,
-        longest: packed.items.reduce((max, bar) => Math.max(max, bar.end - bar.start), 0),
+        longest: bars.reduce((max, bar) => Math.max(max, bar.end - bar.start), 0),
       };
       top += height;
       return lane;
     });
 });
+/** The busiest day across lanes sets the column scale, so lanes compare at a glance. */
+const busiestDay = computed(() =>
+  Math.max(1, ...lanes.value.flatMap((lane) => lane.buckets.map((bucket) => bucket.total))),
+);
 const chartHeight = computed(() => {
   const last = lanes.value.at(-1);
   return last ? last.top + last.height : axisHeight;
@@ -154,6 +205,9 @@ const renderedLanes = computed(() =>
   lanes.value.map((lane) => ({
     ...lane,
     bars: visibleSpans(lane.bars, visibleWindow.value.from, visibleWindow.value.to, lane.longest),
+    buckets: lane.buckets.filter(
+      (bucket) => bucket.day + DAY >= visibleWindow.value.from && bucket.day <= visibleWindow.value.to,
+    ),
     events: lane.events.filter((event) => {
       const at = Date.parse(event.at);
       return at >= visibleWindow.value.from && at <= visibleWindow.value.to;
@@ -174,7 +228,7 @@ const barPositions = computed(() => {
   return positions;
 });
 const arcs = computed(() =>
-  (timeline.value?.links ?? []).flatMap((link) => {
+  (detailed.value ? (timeline.value?.links ?? []) : []).flatMap((link) => {
     const from = barPositions.value.get(link.relatedSessionId);
     const to = barPositions.value.get(link.sessionId);
     if (!from || !to) return [];
@@ -191,15 +245,9 @@ const arcs = computed(() =>
     ];
   }),
 );
-const ticks = computed(() => {
-  const step = dayWidth.value >= 48 ? 1 : dayWidth.value >= 24 ? 2 : dayWidth.value >= 12 ? 7 : 14;
-  const items: Array<{ x: number; label: string }> = [];
-  for (let at = rangeStart.value; at < rangeEnd.value; at += step * DAY) {
-    const date = new Date(at);
-    items.push({ x: xAt(at), label: `${date.getMonth() + 1}/${date.getDate()}` });
-  }
-  return items;
-});
+const ticks = computed(() =>
+  axisTicks(rangeStart.value, rangeEnd.value, dayWidth.value).map((tick) => ({ ...tick, x: xAt(tick.time) })),
+);
 const listGroups = computed(() => {
   const current = timeline.value;
   if (!current) return [];
@@ -231,6 +279,56 @@ const isEmpty = computed(
     Boolean(timeline.value) && timeline.value!.sessions.length === 0 && timeline.value!.knowledgeEvents.length === 0,
 );
 
+/** MIN_MARK_PX expressed as time at a zoom. */
+function markSpanAt(width: number): number {
+  return (MIN_MARK_PX / width) * DAY;
+}
+
+function gapAt(width: number): number {
+  return markSpanAt(width) / 4;
+}
+
+/** Drawn extents for row packing: a point is centered on its completion time; a bar starts at its start time. */
+function sessionBars(sessions: readonly TimelineSession[], width: number): SessionBar[] {
+  const markSpan = markSpanAt(width);
+  return sessions.map((session) => {
+    const completedTime = Date.parse(session.completedAt);
+    const startTime = Math.max(rangeStart.value, session.startedAt ? Date.parse(session.startedAt) : completedTime);
+    const start = session.startedAt ? startTime : completedTime - markSpan / 2;
+    const end = Math.max(completedTime, start + markSpan);
+    return { ...session, start, end, startTime, completedTime };
+  });
+}
+
+function clampDayWidth(width: number): number {
+  return Math.min(Math.max(width, MIN_DAY_WIDTH), MAX_DAY_WIDTH);
+}
+
+/** Stacked segments of a day column, bottom to top: passed, other, failed. */
+function columnSegments(lane: Lane, bucket: DayBucket): Array<{ key: string; y: number; height: number }> {
+  const bottom = lane.top + laneHeader + markerRow + columnHeight;
+  const scale = columnHeight / busiestDay.value;
+  let y = bottom;
+  return (
+    [
+      ["passed", bucket.passed],
+      ["other", bucket.other],
+      ["failed", bucket.failed],
+    ] as const
+  ).flatMap(([key, count]) => {
+    if (count === 0) return [];
+    const height = Math.max(2, count * scale);
+    y -= height;
+    return [{ key, y, height }];
+  });
+}
+
+function bucketLabel(lane: Lane, bucket: DayBucket): string {
+  const date = new Date(bucket.day);
+  const parts = [`通過 ${bucket.passed}`, `失敗 ${bucket.failed}`, `其他 ${bucket.other}`];
+  return `${lane.name}，${date.getMonth() + 1}/${date.getDate()}：${bucket.total} 筆 Session（${parts.join("、")}），放大這一天`;
+}
+
 function timeAt(x: number): number {
   return rangeStart.value + (x / dayWidth.value) * DAY;
 }
@@ -257,35 +355,47 @@ function onScroll(): void {
   scrollLeft.value = viewport.value?.scrollLeft ?? 0;
 }
 
-/** Zoom keeps the time at the center of the viewport in place. */
-function setZoom(next: number): void {
-  const element = viewport.value;
-  const centerTime = timeAt(scrollLeft.value + viewportWidth.value / 2);
-  zoom.value = Math.min(Math.max(next, 0), zoomLevels.length - 1);
-  if (element) {
-    requestAnimationFrame(() => {
-      element.scrollLeft = Math.max(0, xAt(centerTime) - viewportWidth.value / 2);
-      onScroll();
-    });
-  }
+/** Sets the zoom and keeps `anchorTime` (default: the center of the viewport) at the same place on screen. */
+function zoomTo(width: number, anchorTime?: number): void {
+  pendingAnchor = anchorTime ?? timeAt(scrollLeft.value + viewportWidth.value / 2);
+  dayWidth.value = clampDayWidth(width);
+  void nextTick(applyPendingScroll);
 }
 
-/** Starts zoomed so the whole range fits, scrolled to the newest day. */
+/**
+ * Centers `pendingAnchor` once the chart has its new width. Layout can lag the re-render by a frame or more, and a
+ * scroll set before then is clamped to the old width, so the chart's ResizeObserver retries until it fits.
+ */
+function applyPendingScroll(): void {
+  const element = viewport.value;
+  if (!element || pendingAnchor === undefined) return;
+  if (element.scrollWidth < Math.floor(chartWidth.value)) return;
+  const maxScroll = element.scrollWidth - element.clientWidth;
+  element.scrollLeft = Math.min(maxScroll, Math.max(0, xAt(pendingAnchor) - viewportWidth.value / 2));
+  pendingAnchor = undefined;
+  onScroll();
+}
+
+/**
+ * Clicking a day column opens that day at a zoom where single Sessions are drawn, centered on the middle of that
+ * lane's Sessions for the day so they are on screen even when they cluster late or early.
+ */
+function zoomToDay(lane: Lane, day: number): void {
+  let first = Infinity;
+  let last = -Infinity;
+  for (const session of sessionsByProject.value.get(lane.id) ?? []) {
+    const completed = Date.parse(session.completedAt);
+    if (completed < day || completed >= day + DAY) continue;
+    first = Math.min(first, completed);
+    last = Math.max(last, completed);
+  }
+  const anchor = Number.isFinite(first) ? (first + last) / 2 : day + DAY / 2;
+  zoomTo(Math.max(viewportWidth.value / 2, detailMinWidth.value), anchor);
+}
+
+/** Shows the whole range, scrolled to the newest day. */
 function fitRange(): void {
-  const days = (rangeEnd.value - rangeStart.value) / DAY;
-  if (!days) return;
-  // The largest zoom level that still fits the whole range.
-  let fitting = 0;
-  zoomLevels.forEach((width, index) => {
-    if (width * days <= viewportWidth.value) fitting = index;
-  });
-  zoom.value = fitting;
-  requestAnimationFrame(() => {
-    if (viewport.value) {
-      viewport.value.scrollLeft = viewport.value.scrollWidth;
-      onScroll();
-    }
-  });
+  zoomTo(fitDayWidth.value, rangeEnd.value);
 }
 
 // The graph page keeps the project filter in the URL; the store follows it.
@@ -297,13 +407,20 @@ watch(
   { immediate: true },
 );
 watch(() => timeline.value?.from, fitRange);
+// The chart mounts once the first response arrives, after the observer exists.
+watch(chart, (element, previous) => {
+  if (previous) resizeObserver?.unobserve(previous);
+  if (element) resizeObserver?.observe(element);
+});
 
 onMounted(() => {
   timelineStore.setActive(true);
   resizeObserver = new ResizeObserver(() => {
     viewportWidth.value = viewport.value?.clientWidth ?? viewportWidth.value;
+    applyPendingScroll();
   });
   if (viewport.value) resizeObserver.observe(viewport.value);
+  if (chart.value) resizeObserver.observe(chart.value);
 });
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
@@ -326,13 +443,19 @@ onBeforeUnmount(() => {
         <UiSelect v-model="range" :options="rangeOptions" size="sm" label="選擇時間軸期間" />
         <UiSegmentedControl v-if="!narrow" v-model="chosenView" :options="viewOptions" label="時間軸檢視方式" />
         <template v-if="view === 'chart'">
-          <UiIconButton :icon="ZoomOut" label="縮小時間軸" :disabled="zoom === 0" @click="setZoom(zoom - 1)" />
+          <UiIconButton
+            :icon="ZoomOut"
+            label="縮小時間軸"
+            :disabled="dayWidth <= MIN_DAY_WIDTH"
+            @click="zoomTo(dayWidth / 2)"
+          />
           <UiIconButton
             :icon="ZoomIn"
             label="放大時間軸"
-            :disabled="zoom === zoomLevels.length - 1"
-            @click="setZoom(zoom + 1)"
+            :disabled="dayWidth >= MAX_DAY_WIDTH"
+            @click="zoomTo(dayWidth * 2)"
           />
+          <UiIconButton :icon="Maximize2" label="顯示整個期間" @click="fitRange" />
         </template>
       </div>
     </template>
@@ -355,7 +478,8 @@ onBeforeUnmount(() => {
         <span><i class="timeline__swatch timeline__swatch--failed" />驗證失敗</span>
         <span><i class="timeline__swatch timeline__swatch--other" />未執行或未提供</span>
         <span>◆ Knowledge 事件</span>
-        <span>弧線＝Session 關聯（虛線為一般相關）</span>
+        <span v-if="detailed">弧線＝Session 關聯（虛線為一般相關）</span>
+        <span v-else>每根長條是一天的 Session 數，點一下放大那一天</span>
       </p>
       <div
         v-show="view === 'chart'"
@@ -366,9 +490,9 @@ onBeforeUnmount(() => {
         aria-label="時間軸圖表，可左右捲動；同樣的內容可切換成清單檢視"
         @scroll.passive="onScroll"
       >
-        <svg :width="chartWidth" :height="chartHeight" class="timeline__chart">
+        <svg ref="chart" :width="chartWidth" :height="chartHeight" class="timeline__chart">
           <g class="timeline__axis">
-            <g v-for="tick in ticks" :key="tick.x">
+            <g v-for="tick in ticks" :key="tick.time" :class="{ 'is-minor': !tick.major }">
               <line :x1="tick.x" :x2="tick.x" :y1="axisHeight - 6" :y2="chartHeight" />
               <text :x="tick.x + 4" :y="axisHeight - 10">{{ tick.label }}</text>
             </g>
@@ -384,6 +508,36 @@ onBeforeUnmount(() => {
             >
               <title>{{ eventLabels[event.kind] }}：{{ event.title }}（{{ formatDate(event.at) }}）</title>
               <path d="M 0 -5 L 5 0 L 0 5 L -5 0 Z" />
+            </g>
+            <g
+              v-for="bucket in lane.buckets"
+              :key="bucket.day"
+              class="timeline__column"
+              role="button"
+              tabindex="0"
+              :aria-label="bucketLabel(lane, bucket)"
+              data-testid="timeline-day"
+              @click="zoomToDay(lane, bucket.day)"
+              @keydown.enter.prevent="zoomToDay(lane, bucket.day)"
+              @keydown.space.prevent="zoomToDay(lane, bucket.day)"
+            >
+              <title>{{ bucketLabel(lane, bucket) }}</title>
+              <rect
+                class="timeline__column-hit"
+                :x="xAt(bucket.day)"
+                :y="lane.top + laneHeader + markerRow"
+                :width="Math.max(dayWidth - 1, 2)"
+                :height="columnHeight"
+              />
+              <rect
+                v-for="segment in columnSegments(lane, bucket)"
+                :key="segment.key"
+                :class="`timeline__segment timeline__segment--${segment.key}`"
+                :x="xAt(bucket.day) + columnInset"
+                :y="segment.y"
+                :width="columnWidth"
+                :height="segment.height"
+              />
             </g>
             <g
               v-for="bar in lane.bars"
@@ -543,6 +697,47 @@ onBeforeUnmount(() => {
 
 .timeline__axis line {
   stroke: var(--border-muted);
+}
+
+.timeline__axis .is-minor line {
+  stroke-dasharray: 2 4;
+}
+
+.timeline__axis .is-minor text {
+  font-size: 10px;
+}
+
+.timeline__column {
+  cursor: zoom-in;
+}
+
+.timeline__column-hit {
+  fill: transparent;
+}
+
+.timeline__column:hover .timeline__column-hit,
+.timeline__column:focus-visible .timeline__column-hit {
+  fill: var(--bg-hover);
+}
+
+.timeline__column:focus-visible {
+  outline: none;
+}
+
+.timeline__segment {
+  transition: opacity var(--duration-instant) ease-out;
+}
+
+.timeline__segment--passed {
+  fill: var(--success);
+}
+
+.timeline__segment--failed {
+  fill: var(--danger);
+}
+
+.timeline__segment--other {
+  fill: var(--fg-muted);
 }
 
 .timeline__axis text,
