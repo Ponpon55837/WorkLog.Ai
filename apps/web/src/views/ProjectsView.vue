@@ -2,12 +2,22 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { RouterLink, useRoute } from "vue-router";
-import { Archive, FileInput, FolderGit2, History, Plus, ScanSearch, Trash2 } from "lucide-vue-next";
+import {
+  Archive,
+  FileInput,
+  FolderGit2,
+  GitCommitHorizontal,
+  History,
+  Plus,
+  ScanSearch,
+  Trash2,
+} from "lucide-vue-next";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import AddProjectDialog from "../components/domain/AddProjectDialog.vue";
 import DeleteProjectDialog from "../components/domain/DeleteProjectDialog.vue";
+import ProjectRepositoryDialog from "../components/domain/ProjectRepositoryDialog.vue";
 import BackupSection from "../components/domain/BackupSection.vue";
 import MetadataBackfillSection from "../components/domain/MetadataBackfillSection.vue";
 import ProjectDeletionAuditSection from "../components/domain/ProjectDeletionAuditSection.vue";
@@ -49,6 +59,7 @@ const { previewHandoffs } = handoffImportStore;
 
 const addOpen = ref(false);
 const deleteTarget = ref<ProjectRecord | null>(null);
+const repositoryTarget = ref<ProjectRecord | null>(null);
 const deletingProjectId = ref<string | null>(null);
 const projectDeletionNotice = ref<{ projectName: string; backupFileName: string } | null>(null);
 const policyDismissed = ref(readDismissed());
@@ -192,7 +203,13 @@ onBeforeUnmount(() => {
             /></template>
             <template #labels><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
             <template #meta
-              ><code>{{ project.rootPath }}</code></template
+              ><code>{{ project.rootPath }}</code
+              ><template v-if="project.repositoryUrl">
+                ·
+                <a :href="project.repositoryUrl" target="_blank" rel="noopener noreferrer">{{
+                  project.repositoryUrl
+                }}</a></template
+              ></template
             >
             <p class="projects__description">
               {{ statusDescriptions[project.status] }}
@@ -224,6 +241,13 @@ onBeforeUnmount(() => {
                 @click="updateProjectLocation(project)"
                 >重新指定位置</UiButton
               >
+              <UiButton
+                size="sm"
+                :icon="GitCommitHorizontal"
+                icon-only
+                :label="`設定 ${project.name} 的儲存庫網址`"
+                @click="repositoryTarget = project"
+              />
               <UiButton
                 variant="danger"
                 size="sm"
@@ -318,6 +342,7 @@ onBeforeUnmount(() => {
   </section>
 
   <AddProjectDialog v-model:open="addOpen" />
+  <ProjectRepositoryDialog :project="repositoryTarget" @close="repositoryTarget = null" />
   <DeleteProjectDialog
     :open="!!deleteTarget"
     :project="deleteTarget"

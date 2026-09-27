@@ -23,7 +23,7 @@ const NOT_PROJECT_DATA: Record<string, string> = {
 
 /** Project data tables with no free text for db:redact to scan. Adding one here needs a reason. */
 const NO_FREE_TEXT: Record<string, string> = {
-  projects: "name and root path are chosen by the user in the Web UI",
+  projects: "name, root path, and https repository URL (credentials rejected) are chosen by the user in the Web UI",
   session_links: "ids, relation, and source only",
   knowledge_feedback: "ids, kind, and time only",
 };

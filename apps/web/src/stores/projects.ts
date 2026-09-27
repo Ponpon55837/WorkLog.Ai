@@ -76,6 +76,16 @@ export const useProjectsStore = defineStore("projects", () => {
       ]);
     },
   });
+  const updateProjectRepositoryMutation = useMutation({
+    mutation: ({ projectId, repositoryUrl }: { projectId: string; repositoryUrl: string | null }) =>
+      useApi().client.updateProject(projectId, { repositoryUrl }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
+      ]);
+    },
+  });
   const updateProjectLocationMutation = useMutation({
     mutation: ({
       projectId,
@@ -207,6 +217,25 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
+  /** Saves or clears (empty string) the https repository URL used for commit links; the API validates it. */
+  async function updateProjectRepository(project: ProjectRecord, repositoryUrl: string): Promise<boolean> {
+    const { showToast } = useToast();
+    try {
+      await updateProjectRepositoryMutation.mutateAsync({
+        projectId: project.id,
+        repositoryUrl: repositoryUrl.trim() || null,
+      });
+      showToast(
+        repositoryUrl.trim() ? `已設定 ${project.name} 的儲存庫網址。` : `已移除 ${project.name} 的儲存庫網址。`,
+        "success",
+      );
+      return true;
+    } catch (error) {
+      showToast(errorMessage(error, "更新儲存庫網址失敗。"), "danger");
+      return false;
+    }
+  }
+
   async function updateProjectLocation(project: ProjectRecord): Promise<void> {
     const { showToast } = useToast();
     const selected = await pickProjectFolder();
@@ -264,6 +293,7 @@ export const useProjectsStore = defineStore("projects", () => {
     pickProjectFolder,
     addProject,
     updateProjectStatus,
+    updateProjectRepository,
     updateProjectLocation,
     deleteProject,
   };

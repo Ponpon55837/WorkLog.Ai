@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { ChangedFileChangeStatus, WorkSessionRecord } from "@work-intelligence/core";
+import { storeToRefs } from "pinia";
+import { SquareArrowOutUpRight } from "lucide-vue-next";
+import type { ChangedFileChangeStatus, ProjectRecord, WorkSessionRecord } from "@work-intelligence/core";
+import { usePreferencesStore } from "../../stores/preferences";
+import { editorFileUrl, editorProtocolLabels } from "../../utils/code-links";
 import { changedFileChangeStatusLabels, changedFileSourceLabels } from "../../utils/labels";
 import VirtualList from "../VirtualList.vue";
 
 /** Changed files with lifecycle badge and provenance. Changed files never imply a Git commit. */
-const props = defineProps<{ session: WorkSessionRecord }>();
+const props = defineProps<{ session: WorkSessionRecord; project?: ProjectRecord }>();
 
 const statusLetter: Record<ChangedFileChangeStatus, string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
+
+const { editor } = storeToRefs(usePreferencesStore());
 
 const rows = computed(() => {
   const changes = new Map(props.session.changedFileChanges.map((change) => [change.path, change]));
@@ -24,6 +30,11 @@ const rows = computed(() => {
         status: change?.status,
         previousPath: change?.previousPath,
         sources: provenance?.sources.map((source) => changedFileSourceLabels[source]).join(" · ") || "未提供來源",
+        // Only files of a tracked project, inside its folder, and not deleted get an editor link.
+        editorUrl:
+          props.project?.status === "tracked" && change?.status !== "deleted"
+            ? editorFileUrl(editor.value, props.project.rootPath, path)
+            : undefined,
       };
     });
 });
@@ -50,6 +61,15 @@ const rows = computed(() => {
             }}<span v-if="row.previousPath" class="changed-files__prev"> ← {{ row.previousPath }}</span></code
           >
           <span class="changed-files__source">{{ row.sources }}</span>
+          <a
+            v-if="row.editorUrl"
+            class="changed-files__open"
+            :href="row.editorUrl"
+            rel="noopener noreferrer"
+            :aria-label="`在 ${editorProtocolLabels[editor]} 開啟 ${row.path}`"
+            data-testid="open-in-editor"
+            ><SquareArrowOutUpRight :size="14" aria-hidden="true" />在編輯器開啟</a
+          >
         </div>
       </template>
     </VirtualList>
@@ -59,6 +79,15 @@ const rows = computed(() => {
 </template>
 
 <style scoped>
+.changed-files__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
 .changed-files__row {
   display: flex;
   align-items: center;

@@ -22,7 +22,7 @@ export interface ProjectsApi {
   createProject(input: { name: string; rootPath: string }, signal?: AbortSignal): Promise<ProjectRecord>;
   updateProject(
     projectId: string,
-    input: { name?: string; status?: ProjectStatus },
+    input: { name?: string; status?: ProjectStatus; repositoryUrl?: string | null },
     signal?: AbortSignal,
   ): Promise<ProjectRecord>;
   updateProjectLocation(
@@ -61,7 +61,7 @@ export function createProjectsApi(client: ApiTransport): ProjectsApi {
 
     updateProject(
       projectId: string,
-      input: { name?: string; status?: ProjectStatus },
+      input: { name?: string; status?: ProjectStatus; repositoryUrl?: string | null },
       signal?: AbortSignal,
     ): Promise<ProjectRecord> {
       return client.write<ProjectRecord>(`/api/projects/${encodeURIComponent(projectId)}`, "PATCH", input, signal);

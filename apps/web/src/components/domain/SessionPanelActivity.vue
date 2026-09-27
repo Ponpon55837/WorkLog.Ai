@@ -17,6 +17,7 @@ import {
 } from "lucide-vue-next";
 import type { EvidenceRecord, SessionDetail, WorkSessionRecord } from "@work-intelligence/core";
 import type { VoidTarget } from "../../composables/useRecordVoid";
+import { commitUrl } from "../../utils/code-links";
 import { formatDate, formatRelative } from "../../utils/format";
 import { knowledgeKindLabels, sessionLinkDirectionLabels } from "../../utils/labels";
 import { verificationStatus } from "../../utils/status";
@@ -38,6 +39,11 @@ const emit = defineEmits<{
 const route = useRoute();
 const session = computed(() => props.detail.session);
 const hasGit = computed(() => Boolean(session.value.commitSha || session.value.gitBranch));
+const commitLink = computed(() =>
+  props.detail.project.status === "tracked"
+    ? commitUrl(props.detail.project.repositoryUrl, session.value.commitSha)
+    : undefined,
+);
 const voidedEvidenceCount = computed(() => props.detail.evidence.filter((item) => item.voided).length);
 
 function evidenceTarget(item: EvidenceRecord): VoidTarget {
@@ -85,7 +91,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
 <template>
   <div class="session-panel__sections">
     <UiDisclosure title="Changed files" :icon="FileDiff" :count="session.changedFiles.length" open>
-      <ChangedFileList :session="session" />
+      <ChangedFileList :session="session" :project="detail.project" />
     </UiDisclosure>
     <UiDisclosure v-if="hasGit" title="Git" :icon="GitBranch" hint="observed metadata">
       <dl class="session-panel__meta session-panel__meta--inset">
@@ -95,7 +101,16 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         >
         <template v-if="session.commitSha"
           ><dt>Commit</dt>
-          <dd class="mono">{{ session.commitSha.slice(0, 12) }}</dd></template
+          <dd class="mono">
+            <a
+              v-if="commitLink"
+              :href="commitLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="commit-link"
+              >{{ session.commitSha.slice(0, 12) }}</a
+            ><template v-else>{{ session.commitSha.slice(0, 12) }}</template>
+          </dd></template
         >
       </dl>
     </UiDisclosure>

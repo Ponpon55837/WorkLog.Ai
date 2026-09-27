@@ -24,6 +24,7 @@ import {
   WORK_EVENT_TYPES,
   WORK_REPORT_PERIODS,
   WORK_SUMMARY_UPDATE_MODES,
+  isSafeRepositoryUrl,
 } from "../../packages/core/src/index.js";
 
 describe("core runtime contracts", () => {
@@ -59,5 +60,16 @@ describe("core runtime contracts", () => {
     expect(WORK_SUMMARY_UPDATE_MODES).toEqual(["replace", "patch"]);
     expect(KNOWLEDGE_CANDIDATE_REQUEST_STATUSES).toEqual(["pending", "processing", "completed", "failed", "cancelled"]);
     expect(PROJECT_DATA_TABLES).toContain("sessions");
+  });
+});
+
+describe("isSafeRepositoryUrl", () => {
+  it("accepts https URLs with a host and no credentials", () => {
+    expect(isSafeRepositoryUrl("https://github.com/owner/repo")).toBe(true);
+    expect(isSafeRepositoryUrl("http://github.com/owner/repo")).toBe(false);
+    expect(isSafeRepositoryUrl("https://user@github.com/owner/repo")).toBe(false);
+    expect(isSafeRepositoryUrl("https://user:token@github.com/owner/repo")).toBe(false);
+    expect(isSafeRepositoryUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeRepositoryUrl("")).toBe(false);
   });
 });
