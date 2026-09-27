@@ -25,8 +25,8 @@ const RESPONSE_BUDGETS = {
   contextWithoutTask: 19_000,
   contextWithTask: 12_000,
   recallDefault: 7_000,
-  recallFive: 6_500,
-  searchDefault: 17_000,
+  recallFive: 3_500,
+  searchDefault: 8_000,
 } as const;
 const sharedPlan = [
   "## Historical proposal: Agent context retrieval budget",
@@ -167,8 +167,24 @@ describe("synthetic MCP response-size baseline", () => {
       limit: 5,
     });
     const searchDefault = await serializedMcpPayload(client, "work_search", { projectRoot, q: retrievalQuery });
-    const recallFivePayload = recallFive.value as { hits: Array<{ title: string }> };
-    const searchPayload = searchDefault.value as unknown[];
+    const recallFivePayload = recallFive.value as {
+      hits: Array<{
+        title: string;
+        excerpt: string;
+        truncated?: boolean;
+        related?: Array<{ id: string; relation: string; title?: string }>;
+      }>;
+    };
+    const searchPayload = searchDefault.value as Array<{
+      id?: string;
+      title?: string;
+      date?: string;
+      matchedIn?: string;
+      excerpt?: string;
+      verificationStatus?: string;
+      session?: unknown;
+    }>;
+    const relatedLinks = recallFivePayload.hits.flatMap((hit) => hit.related ?? []);
 
     const taskContext = store.getContext(projectRoot, { task: query });
     expect(taskContext.outcome).toBe("context");
@@ -203,7 +219,26 @@ describe("synthetic MCP response-size baseline", () => {
     expect(recallFivePayload.hits).toHaveLength(5);
     expect(recallFivePayload.hits.some((hit) => hit.title.includes("03"))).toBe(true);
     expect(recallFivePayload.hits.some((hit) => hit.title.includes("gotcha"))).toBe(true);
+    expect(recallFivePayload.hits.some((hit) => hit.related?.length === 3)).toBe(true);
+    expect(relatedLinks.every((link) => link.id && link.relation && !link.title)).toBe(true);
+    expect(recallFive.value).not.toHaveProperty("project");
     expect(searchPayload).toHaveLength(20);
+    expect(
+      searchPayload.every((hit) => !hit.session && typeof hit.id === "string" && typeof hit.title === "string"),
+    ).toBe(true);
+    expect(
+      searchPayload.every(
+        (hit) =>
+          typeof hit.date === "string" &&
+          typeof hit.matchedIn === "string" &&
+          typeof hit.excerpt === "string" &&
+          typeof hit.verificationStatus === "string",
+      ),
+    ).toBe(true);
+    expect(searchPayload.every((hit) => hit.excerpt!.length <= 110)).toBe(true);
+    expect(searchPayload.some((hit) => hit.title?.includes("03"))).toBe(true);
+    expect(searchPayload.some((hit) => hit.excerpt?.includes("preserve the confirmed implementation"))).toBe(true);
+    expect(recallFivePayload.hits.every((hit) => hit.excerpt.length <= 112)).toBe(true);
     expect(contextWithoutTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithoutTask);
     expect(contextWithTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
     expect(recallDefault.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallDefault);

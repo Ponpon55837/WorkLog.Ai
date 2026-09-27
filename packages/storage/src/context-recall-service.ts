@@ -52,6 +52,7 @@ const CONTEXT_TASK_BUDGET_CHARS = 12_000;
 const CONTEXT_PAGE_SECTION_LIMIT = 5;
 const CONTEXT_PAGE_SECTION_CHARS = 500;
 const CONTEXT_EXCERPT_CHARS = 240;
+const RECALL_EXCERPT_CHARS = 110;
 
 /** What an Agent is about to work on; ranks relevant records into the context result. */
 export type ContextFocus = { task?: string; paths?: string[] };
@@ -203,8 +204,13 @@ export class ContextRecallService {
       outcome: "recall",
       ...(project ? { project } : {}),
       ...result,
-      hits: result.hits.map((hit) => this.withRelatedSessions(hit)),
+      hits: result.hits.map((hit) => this.compactRecallHit(this.withRelatedSessions(hit))),
     };
+  }
+
+  private compactRecallHit(hit: RecallHit): RecallHit {
+    const bounded = truncateAtSentenceBoundary(hit.excerpt, RECALL_EXCERPT_CHARS);
+    return bounded.truncated ? { ...hit, excerpt: bounded.text, truncated: true } : hit;
   }
 
   private withRelatedSessions(hit: RecallHit): RecallHit {

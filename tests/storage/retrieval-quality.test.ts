@@ -422,6 +422,29 @@ describe("synthetic retrieval quality regression", () => {
     expect(metric.mrr).toBeGreaterThanOrEqual(category === "R" ? 0.5 : 0.7);
   });
 
+  it("keeps the answer-bearing recall excerpt concise and preserves its source hit", () => {
+    const targetId = createSession("quality-cobalt-pump-answer", root, {
+      title: "Cobalt pump transfer repair record",
+      summary:
+        "Cobalt pump transfer repair: close the upstream valve, replace the blue gasket, and reopen at 40 kPa. " +
+        "Unrelated field log details. ".repeat(24),
+    });
+
+    const recalled = store.recall({ q: "cobalt pump transfer", projectRoot: root, limit: 5 });
+    if (recalled.outcome !== "recall") throw new Error("Expected synthetic recall for the cobalt pump answer.");
+    const hit = recalled.hits[0];
+
+    expect(hit?.id).toBe(targetId);
+    expect(hit?.excerpt).toContain("replace the blue gasket");
+    expect(hit?.excerpt.length).toBeLessThanOrEqual(112);
+    expect(hit?.truncated).toBe(true);
+
+    const searched = store.search("cobalt pump transfer", root);
+    if (!Array.isArray(searched)) throw new Error("Expected synthetic Session search for the cobalt pump answer.");
+    expect(searched[0]?.session.id).toBe(targetId);
+    expect(searched[0]?.excerpt).toContain("replace the blue gasket");
+  });
+
   it("ranks confirmed Knowledge above an equal match and a contradicted one below it (evidence strength)", () => {
     const recordTwin = (key: string) => {
       const result = store.recordKnowledge({

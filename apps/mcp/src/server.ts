@@ -63,6 +63,7 @@ import {
   toSessionDigest,
   type WorkIntelligenceStore,
 } from "@work-intelligence/storage";
+import { truncateText } from "@work-intelligence/shared";
 import { z } from "zod";
 import {
   implementationDetail,
@@ -117,6 +118,29 @@ interface StoreToolDefinition<S extends z.ZodTypeAny> {
 export interface McpStartupFailure {
   code: string;
   message: string;
+}
+
+function compactSearchExcerpt(
+  value: string,
+  terms: readonly string[],
+  maxLength: number,
+): { text: string; truncated: boolean } {
+  if (value.length <= maxLength) return { text: value, truncated: false };
+  const lower = value.toLocaleLowerCase();
+  const position = terms.reduce((best, term) => {
+    const found = lower.indexOf(term);
+    return found >= 0 && (best < 0 || found < best) ? found : best;
+  }, -1);
+  const leadingMarker = position > Math.floor(maxLength / 3);
+  const contentLength = maxLength - (leadingMarker ? 2 : 1);
+  const start = Math.max(
+    0,
+    Math.min(position < 0 ? 0 : position - Math.floor(contentLength / 3), value.length - contentLength),
+  );
+  return {
+    text: `${start > 0 ? "…" : ""}${value.slice(start, start + contentLength).trimEnd()}…`,
+    truncated: true,
+  };
 }
 
 export function createWorkIntelligenceMcpServer(
@@ -231,23 +255,61 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_recall", {
     title: "Recall related work",
     description:
-      'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns compact hits with id, type, title, matchedIn, raw section heading, excerpt, and score; read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
+      'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns ranked hits with id, type, title, the strongest matchedIn field, raw section heading, an excerpt capped at 110 characters, and score; truncated excerpts are marked. Hits keep only their strongest matchedIn field, raw section headings are capped at 24 characters, and related Session links keep their ids and relations without repeating titles. With projectRoot, the repeated top-level project object is omitted. Read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
     inputShape: recallQuerySchemaBase.shape,
     schema: recallQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid recall query.",
-    run: (input) => store.recall(input),
+    run: (input) => {
+      const result = store.recall(input);
+      if (result.outcome !== "recall") return result;
+      const hits = result.hits.map((hit) => ({
+        ...hit,
+        matchedIn: hit.matchedIn.slice(0, 1),
+        ...(hit.section ? { section: truncateText(hit.section, 24) } : {}),
+        ...(hit.related ? { related: hit.related.map(({ id, relation }) => ({ id, relation })) } : {}),
+      }));
+      if (!input.projectRoot) return { ...result, hits };
+      return {
+        outcome: result.outcome,
+        hits,
+        ...(result.termHits ? { termHits: result.termHits } : {}),
+      };
+    },
   });
 
   registerStoreTool("work_search", {
     title: "Search work history",
     description:
-      "Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 matches, each with a compact Session digest, the field it matched in, and an excerpt). Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Pass from and/or to (YYYY-MM-DD, server time zone) when the user names a time such as last week or June. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
+      "Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 compact hits with id, title, date, matchedIn, optional raw section heading, excerpt capped at 110 characters, and verificationStatus; truncated excerpts are marked). When title is the strongest match and the Session summary also matches a query term, the excerpt uses the summary to keep answer context. A project-scoped result omits repeated project identifiers. Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Pass from and/or to (YYYY-MM-DD, server time zone) when the user names a time such as last week or June. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.",
     inputShape: searchQuerySchemaBase.shape,
     schema: searchQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid search query.",
-    run: (input) => store.search(input.q, input.projectRoot, { from: input.from, to: input.to }),
+    run: (input) => {
+      const result = store.search(input.q, input.projectRoot, { from: input.from, to: input.to });
+      if (!Array.isArray(result)) return result;
+      const queryTerms = input.q.toLocaleLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
+      return result.map(({ session, matchedIn, section, excerpt }) => {
+        const summary = session.summary.toLocaleLowerCase();
+        const excerptSource =
+          matchedIn === "title" && queryTerms.some((term) => summary.includes(term)) ? session.summary : excerpt;
+        const compactExcerpt = compactSearchExcerpt(excerptSource, queryTerms, 110);
+        return {
+          id: session.id,
+          ...(!input.projectRoot
+            ? { projectId: session.projectId, ...(session.projectName ? { projectName: session.projectName } : {}) }
+            : {}),
+          title: session.title,
+          date: session.completedAt,
+          matchedIn,
+          ...(section ? { section: truncateText(section, 80) } : {}),
+          excerpt: compactExcerpt.text,
+          ...(compactExcerpt.truncated ? { truncated: true } : {}),
+          verificationStatus: session.verificationStatus,
+        };
+      });
+    },
   });
 
   registerStoreTool("work_get_context", {
