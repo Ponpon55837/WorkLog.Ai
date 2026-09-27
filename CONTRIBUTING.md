@@ -19,7 +19,11 @@ pnpm dev
 任何修改 `apps/web` 內 Vue、TypeScript 或 CSS 前，先讀：
 
 - [worklog-ui skill](.agents/skills/worklog-ui/SKILL.md)：設計 token、元件目錄、頁面與無障礙規則。
-- [worklog-web-code-style skill](.agents/skills/worklog-web-code-style/SKILL.md)：Vue、TypeScript、CSS 與檔案規範。
+- [worklog-web-code-style skill](.agents/skills/worklog-web-code-style/SKILL.md)：Vue、TypeScript、CSS、Pinia store 與 query key 規範。
+
+### Storage、server 與 MCP 變更
+
+任何修改 `packages/`、`apps/server`、`apps/mcp` 前，先讀 [worklog-backend skill](.agents/skills/worklog-backend/SKILL.md)：service 分工、migration 與交易、錯誤代碼、MCP 工具定義、效能規則（先量測再優化、每個讀取路徑都要有效能門檻），以及新資料表或欄位必須納入匯出、匯入與專案刪除的規則。
 
 ## 實作規則
 

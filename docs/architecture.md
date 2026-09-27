@@ -9,7 +9,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node.js 22.5 以上的內建 `node:sqlite` SQLite 儲存（建議 Node.js 24），避免額外 native binding
-- MCP stdio server：31 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
+- MCP stdio server：38 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
 - Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
 - 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization
@@ -31,6 +31,26 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - 預留 reports、evidence、knowledge、graph extension interfaces
 - Production 模式由單一本機 HTTP server 在同一個 port 提供 REST API 與 build 後的 Web UI；開發模式仍分開使用 Vite 與 API。
 - 根目錄 `package.json` 是唯一應用程式版本來源；REST health、MCP metadata 與 Web UI 共用該版本，並另回報資料庫 schema 版本。
+
+## Web 資料流
+
+- **狀態分兩種**：
+  - 前端自己的狀態（篩選條件、選取中的 Session、對話框）放在 `apps/web/src/stores/` 的 Pinia setup store，一個領域一個 store。
+  - 從 API 取得的資料由 Pinia Colada 的 query 管理：快取、同一個 key 的請求去重、`AbortSignal` 取消。
+- **query key**：前綴集中在 `stores/query-keys.ts`。規範要求 key 包含查詢讀取的所有參數（見 `worklog-web-code-style` skill §4）；第五輪有部分 query 仍使用固定 key 並手動 `refetch`，第六輪 E1 會遷移。
+- **寫入後的失效**：每個 mutation 宣告會影響哪些 key 前綴，成功後讓它們失效。Pinia Colada 只會重新載入目前有畫面在使用的 query。
+- **即時更新**：server 的 `/api/events`（SSE）只送不帶資料的 `changed` 事件。Web 收到後呼叫 `invalidateActiveQueries()`；分頁回到前景、或 API 恢復連線時也會做同樣的事。不會讓所有畫面重新載入全部資料。
+- **網址是篩選條件的唯一來源**：`useRouteQuery` 讓網址與篩選 ref 雙向同步；`useListReload` 處理「篩選改變回到第 1 頁、搜尋 debounce」。
+- **API 呼叫**：只有 `api/transport.ts` 會呼叫 `fetch()`；各領域的 API 模組（`api/projects.ts`、`api/sessions.ts`…）由 `api/client.ts` 組合。錯誤帶有機器可讀的 `code`，前端依 `code` 顯示繁體中文訊息。
+- **離線判斷**：只有網路錯誤或不是 API 自己回的 5xx（例如開發模式的 proxy）才顯示「無法連線」；API 回傳的 JSON 5xx（包含 `database_busy`）不算離線。
+
+## 效能設計
+
+- **門檻**：`pnpm test:performance` 在 5,000 筆合成 Session 上量測關鍵讀取路徑的 p90，並在 CI 執行；上限見 [testing.md](testing.md)。新增讀取路徑時要同時加上情境與上限。
+- **全文搜尋**：`search_fts` 與 `search_chunks` 用 `CROSS JOIN`，固定由 FTS 當外層迴圈。若用一般 `JOIN` 並加上可走索引的條件（例如 `doc_type IN (…)`），SQLite 會改以 `search_chunks` 為外層、對每一筆 chunk 重跑全文搜尋，在 5,000 筆 Session 時從約 5 ms 變成約 2 秒。
+- **批次計算**：清單需要衍生資料時，依專案分組、一個群組查詢一次，再在記憶體中計算，不可以逐筆查詢（例如 Knowledge 的「可能過時」）。
+- **一次分組**：報告趨勢等分桶計算用 `Map` 一次完成，不對每個時間桶重新掃描全部 Session。
+- 更多規則見 [`worklog-backend` skill](../.agents/skills/worklog-backend/SKILL.md) §5。
 
 ## 設計原則與驗收基準
 

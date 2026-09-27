@@ -132,6 +132,7 @@ GitHub 深色風格的介面，左側選單分三組。長清單都在各自的�
 | **工作知識** | Agent 明確提交的決策、模式、注意事項、流程與技能，以及待審核的 Knowledge 候選。相關檔案被改動時標示「可能過時」，被 Session 推翻時標示「需要檢視」；可以「確認仍有效」、編輯、封存與查看變更紀錄 |
 | **工作圖譜** | Project、Session、Knowledge、Evidence、檔案與 Session 關聯的關係圖 |
 | **專案** | 專案清單與記錄狀態（加入時可用系統視窗選資料夾）、永久刪除專案、Metadata 回補、Handoff 匯入、資料備份（備份、匯出、匯入） |
+| **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果。完整診斷（含 MCP 與 hook 設定）請用 `pnpm run doctor` |
 
 快捷鍵：`Ctrl`/`⌘` + `K` 搜尋或跳頁，`/` 聚焦頁面搜尋，`g` + `d`／`s`／`r`／`k`／`g`／`p` 切換頁面。篩選條件與開啟中的 Session 都會寫進網址，可以直接分享或重新整理。
 
@@ -236,7 +237,7 @@ pnpm db:maintain
 
 ```text
 apps/
-  web/       Vue 3 + Vite Web UI（GitHub-dark design system）
+  web/       Vue 3 + Vite Web UI（GitHub-dark design system）；Pinia store 管理狀態，Pinia Colada 管理 API 資料的快取與失效
   server/    REST API、正式模式靜態檔、CLI（db:*）與 doctor
   mcp/       MCP stdio server 與保存提醒 hook
 packages/
@@ -277,7 +278,16 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 - `WORK_INTELLIGENCE_ALLOWED_ORIGINS`：正式模式同源，不需要額外設定。開發模式或自訂來源使用非預設的 Web origin 時，在 `.env` 設定這個變數（逗號分隔，不能用 `*`），其中的主機也會加入 API 的 `Host` 白名單。
 - 報告與日期篩選依 server 所在的系統時區切日（Node 會遵守 `TZ` 環境變數）。
 
-改 Web UI 前請先看共用 skill：[`worklog-ui`](.agents/skills/worklog-ui/SKILL.md)（設計與資料語意）與 [`worklog-web-code-style`](.agents/skills/worklog-web-code-style/SKILL.md)（程式碼規範）。開發流程、健康檢查與 PR 規則見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+開工前請先讀對應的共用 skill（Codex 與 Claude 共用，放在 `.agents/skills/`）：
+
+| 範圍 | skill |
+|---|---|
+| Web UI 的設計與資料語意 | [`worklog-ui`](.agents/skills/worklog-ui/SKILL.md) |
+| Web 程式碼規範（Vue、TypeScript、Pinia store、query key） | [`worklog-web-code-style`](.agents/skills/worklog-web-code-style/SKILL.md) |
+| storage、server、MCP（migration、錯誤代碼、效能規則、新資料表的匯出與刪除） | [`worklog-backend`](.agents/skills/worklog-backend/SKILL.md) |
+| Agent 如何使用 Work Intelligence 的 MCP 工具 | [`work-intelligence`](.agents/skills/work-intelligence/SKILL.md) |
+
+開發流程、健康檢查與 PR 規則見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 文件索引
 

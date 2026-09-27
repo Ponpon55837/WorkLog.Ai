@@ -4,24 +4,32 @@
 
 > 回到 [README](../README.md)
 
-- 最後更新：2026-09-26
+- 最後更新：2026-09-27
 
-## 第四輪：1.0 完整專案工作
+## 第六輪：可信度、洞察與好用度（規劃完成，待執行）
 
-| 階段 | 狀態 | 已完成／待處理 |
-| --- | --- | --- |
-| A. 正式執行模式 | 已完成 | PR #69：`pnpm start` 同一個本機 port 提供 Web 與 API，包含安全標頭、SPA fallback 與 traversal 防護；PR #71：API 離線時顯示全域提示並在恢復後更新資料。全域 Codex hook 設定見 PR #70。 |
-| B. 升級安全與版本 | 已完成 | PR #72：檔案資料庫套用 migration 前自動備份，較新 schema 會被拒絕；PR #73：單一 semver 來源、CHANGELOG、health／MCP／UI 版本資訊。 |
-| C1. 診斷 | 已完成 | PR #74：新增唯讀 `pnpm run doctor`，檢查環境、build、資料庫、API、MCP 與 hook；hook 只查使用者全域設定，不查 repo 內設定。 |
-| C2. 文件 | 已完成 | PR #75：新增使用手冊、疑難排解、CONTRIBUTING、SECURITY，並更新架構與狀態文件。 |
-| D. 品質門檻 | 已完成 | D1 PR #76 macOS CI、D2 PR #77 Firefox E2E、D3 PR #78 效能回歸門檻、D4 合成檢索品質評估均已完成；D5 在六個主要頁面加入 axe 掃描，CI 阻擋 critical／serious 問題。 |
-| E. 資料生命週期 | 已完成 | E1 永久刪除專案與資料（先備份、輸入名稱確認、MCP 無刪除工具）由 PR #81 合併；E2 `pnpm db:maintain` 由 PR #82 合併。 |
+交接文件：[`.openspec/handoffs/2026-09-27-claude-to-codex-round6.md`](../.openspec/handoffs/2026-09-27-claude-to-codex-round6.md)。依序進行：
 
-Round 4 結案補充：PR #83 修正報表「不限日期」造成的無效搜尋，固定日期控制項版面，並檢查主要頁面與輔助面板的長清單內部捲動；worklog-ui skill 已補上長清單規範。D4 使用 20 題虛構合成檢索品質評估；私有 36 題真實資料檢索評估仍留在本機，不會放進 repository。
+| 階段 | 項目 |
+| --- | --- |
+| A. 使用者回報 | A1 換電腦匯入時不再要求輸入路徑（預覽顯示原始路徑、逐一選擇新位置、專案「重新指定位置」）；A2 保存提醒 hook 只計算專案內的改動 |
+| B. 敏感資料 | B1 保存前自動遮蔽密鑰，並提供 `pnpm db:redact` 處理既有資料 |
+| E1. 先行整理 | query key 包含所有參數，移除手動 refetch 與過渡橋接 |
+| C. 可信度與知識 | C1 決策來源與待確認的自主決策；C2 常駐知識頁；C3 知識的證據強度；C4 依時間範圍檢索 |
+| D. 洞察與圖像 | D1 熱點檔案；D2 圖譜邊的來源標示與路徑說明；D3 時間軸；D4 從記錄跳到程式碼；D5 Agent 附上的 Mermaid 圖表 |
+| E. 工程整理 | E2 拆分 `server.ts` 路由；E3 清掉剩下的模組層級狀態 |
 
-Claude 複檢（2026-09-26）：#69–#85 均以 merge commit 合併，最新 head 的 CI 全綠；main 上 build、test、typecheck、coverage、效能、檢索品質與 E2E（Chromium 32 通過／1 略過、Firefox 2 通過）重新執行皆通過。複檢修正了四項：MCP 未套用備份目錄與保留份數設定、API 自己回的 JSON 5xx 被誤判為離線、doctor 無法辨識 `args` 形式的 Claude hook，以及 CHANGELOG 缺少 #74 之後的內容；另補上 macOS 註冊指令、維護疑難排解，以及「刪除後資料仍存在於備份」的說明。
+## 第五輪結案（2026-09-27）
 
-暫緩項目：A2 開機自動啟動、發行 workflow／tag／release，以及實機平台驗證，依使用者決定留待後續處理。
+- Codex 完成階段 A～E 與附加的 Web 架構階段 F（#87～#121）：備份管理、刪除稽核、系統狀態頁、`SQLITE_BUSY` 分類與優雅關閉、storage service 拆分、Pinia＋Pinia Colada、API 錯誤代碼、WebKit 核心流程、生產依賴稽核、Firefox axe 與鍵盤操作 E2E。
+- Claude 複檢（PR #122）：
+  - 工作歷程搜尋在 5,000 筆 Session 時約 2 秒，原因是全文搜尋的 join 順序；修正後約 13 ms。
+  - 列出 Knowledge 的過時判斷約 790 ms，改為批次計算後約 50 ms。
+  - 可攜式匯出漏了 `sessions.changed_files_confirmed`，已修正；舊的匯出檔仍可匯入。
+  - 新增資料表與欄位的匯出覆蓋測試、收緊效能門檻、移除過渡轉接層。
+- 新增 `worklog-backend` skill，並更新 `worklog-web-code-style` 與 `worklog-ui` skill。
+
+暫緩項目：開機自動啟動、發行 workflow／tag／release、版本升到 1.0.0，以及實機平台驗證，依使用者決定留待所有功能完成後處理。
 
 ## 優先改善：Agent 檢索品質
 
@@ -75,7 +83,7 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 | Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
 | Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
 | 人工平台驗證 | 暫緩 | 本輪功能項目已完成；依使用者決定，實機驗證仍留待後續處理。資料夾選擇器尚未在 macOS、Windows、Linux 實機驗證；Windows 備份還原尚未手動驗收。 |
-| 工程整理 | 進行中 | 第五輪 D1 PR #96 已合併：`store.ts` 縮至 1,361 行，Session／Knowledge 業務邏輯已抽為獨立 service，舊欄位相容檢查由 `database-initialization.ts` 管理；D2 新增 core、project-policy 與 shared 的隔離測試及 coverage 門檻，並更新測試文件。 |
+| 工程整理 | 進行中 | `store.ts` 已縮至約 1,360 行；Web 已改用 Pinia＋Pinia Colada，過渡轉接層已移除。尚待第六輪：query key 參數化（E1）、`server.ts` 路由拆分（E2）、composable 中剩下的模組層級狀態（E3）。 |
 
 ## 最近完成（2026-09-23～26）
 
