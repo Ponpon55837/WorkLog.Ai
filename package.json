@@ -28,6 +28,7 @@
     "test:e2e": "pnpm build && pnpm exec playwright test --project=chromium && pnpm exec playwright test --project=firefox && pnpm exec playwright test --project=webkit",
     "test:performance": "pnpm exec node packages/storage/bench/read-paths.bench.mjs 5000 --check",
     "test:retrieval-quality": "pnpm exec vitest run --root . --config packages/storage/vitest.config.ts tests/storage/retrieval-quality.test.ts --disableConsoleIntercept",
+    "test:response-size": "pnpm --filter @work-intelligence/mcp exec vitest run --root ../.. --config apps/mcp/vitest.config.ts tests/mcp/response-size.test.ts --disableConsoleIntercept",
     "typecheck": "pnpm -r typecheck && pnpm run typecheck:e2e",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"
   },

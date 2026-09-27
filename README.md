@@ -268,12 +268,13 @@ pnpm test                     # ESLint、程式碼擺放順序、Prettier 檢查
 pnpm test:coverage            # 覆蓋率（schema、storage、server、mcp、web 各有門檻）
 pnpm test:performance         # 合成資料的讀取路徑效能門檻（需先 build）
 pnpm test:retrieval-quality   # 合成資料的 work_recall 檢索品質門檻（hit@5、MRR）
+pnpm test:response-size       # 合成 MCP 輸出大小基線與 CI 上限
 pnpm typecheck                # packages、Vue 與 E2E 型別
 pnpm test:e2e                 # build 後以正式模式跑 Playwright（Chromium 全套、Firefox／WebKit 核心流程），使用獨立的暫存 SQLite
 pnpm format                   # 用 Prettier 格式化整個 repo
 ```
 
-CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubuntu 另外跑生產依賴安全稽核（high／critical 即失敗）、效能與檢索品質門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 與 Firefox 掃描六個主要頁面、系統狀態與備份管理的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
+CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubuntu 另外跑生產依賴安全稽核（high／critical 即失敗）、效能、檢索品質與 MCP 回應大小門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 與 Firefox 掃描六個主要頁面、系統狀態與備份管理的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
 
 其他設定：
 

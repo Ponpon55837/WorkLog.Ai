@@ -29,9 +29,28 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 - **生產依賴安全稽核**：Ubuntu Quality job 執行 `pnpm audit --prod --audit-level high`；生產依賴出現 high 或 critical 級別漏洞時，檢查會失敗。
 - **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。
 - **檢索品質門檻**：`pnpm test` 在三個 OS 都包含虛構合成資料的 storage 評估；Ubuntu 另以 `pnpm test:retrieval-quality` 明確顯示 hit@5／MRR 門檻結果。
+- **MCP 回應大小門檻**：`pnpm test` 在三個 OS 都執行合成資料的回應大小測試；Ubuntu 另以 `pnpm test:response-size` 顯示各工具序列化字元數並檢查上限。
 - **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium、Firefox 與 WebKit 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行 `@cross-browser` 與 `@accessibility` 流程，WebKit 執行 `@cross-browser` 核心流程。Chromium 與 Firefox 會在六個主要頁面、系統狀態與備份管理頁執行 axe，critical／serious impact 的違規會使測試失敗；備份刪除確認也有鍵盤操作 E2E。三個瀏覽器分開執行，使用各自的暫存 SQLite；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。CI 上的 WebKit 是 Ubuntu Playwright 執行環境，不等於 macOS Safari 實機驗證。
 
 Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的 macOS 基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）；project-policy 的 Windows branches 為 92.75%，因平台路徑分隔符走不同條件。
+
+## Agent MCP 回應大小基線
+
+`pnpm test:response-size` 以虛構合成資料透過 in-memory MCP transport 呼叫四種工具，計算 Agent 實際收到的 pretty-printed JSON 文字長度（JavaScript 字元數，不是 UTF-8 位元組或 token）。資料包含 20 筆 Session、10 筆共用同一段舊規劃的 handoff、完成工作的決策與陷阱、4 筆 Knowledge，以及 3 頁 Knowledge page；資料庫只在記憶體中建立，不讀取 `data/` 或使用者資料。
+
+A1 在尚未精簡輸出前量得以下合成基線。右欄是先守住現況、避免後續階段回歸的暫行 CI 上限；A2／A3 會在各自降低輸出後收緊門檻。
+
+| MCP 工具與情境 | A1 基線（字元） | A1 CI 上限（字元） | 本輪目標（字元） |
+| --- | ---: | ---: | ---: |
+| `work_get_context`，無 task | 16,175 | 19,000 | — |
+| `work_get_context`，有 task | 26,247 | 28,000 | 12,000 |
+| `work_recall`，預設 8 筆 | 6,807 | 7,000 | — |
+| `work_recall`，5 筆 | 4,741 | 6,500 | 3,500 |
+| `work_search`，預設 20 筆 | 15,896 | 17,000 | 8,000 |
+
+原先以實際資料做的使用測試另量得：有 task 的 `work_get_context` 約 26,400–27,000 字元、`work_recall`（5 筆）約 4,700–6,300 字元、`work_search`（20 筆）平均約 17,000 字元。A1 合成基線用來在 CI 重現大致相同的輸出負載；它不包含實際資料，也不把字元數解讀為 token 數。
+
+暫行上限高於 A2／A3 目標，因為目前的完整輸出尚未經過跨區去重或精簡。每完成對應階段就會降低 CI 上限；檢索品質門檻維持獨立執行，避免靠移除正確結果縮小回應。
 
 ## 效能回歸門檻
 
