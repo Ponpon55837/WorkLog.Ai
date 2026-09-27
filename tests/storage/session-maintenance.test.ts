@@ -368,6 +368,79 @@ describe("Session start and update times", () => {
     expect(store.getSessionById(unknown.id)?.startedAt).toBe("2030-01-02T07:30:00.000Z");
   });
 
+  it("warns about supplied times that look estimated and still stores them", () => {
+    const { store, root } = setup();
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+    const finalizeWith = (key: string, extra: Partial<FinalizeSessionInput>) =>
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: key,
+        summary: "Times.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+        ...extra,
+      });
+
+    const justFinished = finalizeWith("just-finished", { startedAt: hoursAgo(1) });
+    expect(justFinished.outcome === "finalized" && justFinished.timestampWarnings).toBeFalsy();
+
+    const backfill = hoursAgo(48);
+    const backfilled = finalizeWith("backfilled", { completedAt: backfill });
+    expect(backfilled.outcome === "finalized" && backfilled.timestampWarnings?.[0]).toContain("before the server time");
+    expect(backfilled.outcome === "finalized" && backfilled.session.completedAt).toBe(backfill);
+
+    const inverted = finalizeWith("inverted", { startedAt: hoursAgo(1), completedAt: hoursAgo(2) });
+    expect(inverted.outcome === "finalized" && inverted.timestampWarnings?.join(" ")).toContain("was not applied");
+
+    const longSpan = finalizeWith("long-span", { startedAt: hoursAgo(24 * 10) });
+    expect(longSpan.outcome === "finalized" && longSpan.timestampWarnings?.join(" ")).toContain("days before");
+  });
+
+  it("corrects completedAt with a note event instead of voiding and recreating the Session", () => {
+    const { store, finalize } = setup();
+    const sessionId = finalize("wrong-completion");
+    const original = store.getSessionById(sessionId)!;
+    const corrected = new Date(Date.parse(original.completedAt) - 2 * 3_600_000).toISOString();
+
+    const result = store.updateSessionMetadata({
+      sessionId,
+      changedFiles: [],
+      changedFilesMode: "merge",
+      completedAt: corrected,
+    });
+    expect(result).toMatchObject({ outcome: "updated", session: { id: sessionId, completedAt: corrected } });
+    expect(result.outcome === "updated" && result.timestampWarnings).toBeFalsy();
+    const detail = store.getSessionDetailForAgent({ sessionId });
+    const note = detail.outcome === "session_detail" ? detail.events.find((event) => event.type === "note") : undefined;
+    expect(note?.summary).toContain(`完成時間由 ${original.completedAt} 更正為 ${corrected}`);
+    expect(note?.details).toMatchObject({ field: "completedAt", previous: original.completedAt, next: corrected });
+
+    const started = new Date(Date.parse(corrected) - 3_600_000).toISOString();
+    store.updateSessionMetadata({ sessionId, changedFiles: [], changedFilesMode: "merge", startedAt: started });
+    const beforeStart = new Date(Date.parse(started) - 60_000).toISOString();
+    const rejected = store.updateSessionMetadata({
+      sessionId,
+      changedFiles: [],
+      changedFilesMode: "merge",
+      completedAt: beforeStart,
+    });
+    expect(rejected.outcome === "updated" && rejected.timestampWarnings?.[0]).toContain("was not applied");
+    expect(store.getSessionById(sessionId)?.completedAt).toBe(corrected);
+
+    const afterCompletion = new Date(Date.parse(corrected) + 60_000).toISOString();
+    const ignored = store.updateSessionMetadata({
+      sessionId,
+      changedFiles: [],
+      changedFilesMode: "merge",
+      startedAt: afterCompletion,
+    });
+    // Previously this was dropped silently; now the Agent is told.
+    expect(ignored.outcome === "updated" && ignored.timestampWarnings?.[0]).toContain("was not applied");
+    expect(store.getSessionById(sessionId)?.startedAt).toBe(started);
+  });
+
   it("moves updatedAt forward on every later change but not on finalize", () => {
     const { store, finalize } = setup();
     const sessionId = finalize("updates");

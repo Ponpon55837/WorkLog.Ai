@@ -20,6 +20,15 @@ export function localTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
+/** The host clock for Agents, which do not know the current time: UTC now, the IANA zone, and its UTC offset. */
+export function serverClock(now: Date = new Date()): { serverTime: string; timeZone: string; utcOffset: string } {
+  const offsetMinutes = -now.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absolute = Math.abs(offsetMinutes);
+  const utcOffset = `${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
+  return { serverTime: now.toISOString(), timeZone: localTimeZone(), utcOffset };
+}
+
 /** Local calendar date (YYYY-MM-DD) of a timestamp. */
 export function toLocalCalendarDate(value: string | Date = new Date()): string {
   const date = typeof value === "string" ? new Date(value) : value;

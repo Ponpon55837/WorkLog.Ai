@@ -111,6 +111,7 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 - 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
 - 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
+- 提醒時會附上這段工作的**開始時間**：上一次保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果）。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
 
 #### Codex
 

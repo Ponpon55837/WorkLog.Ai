@@ -24,7 +24,7 @@ import type {
   SkippedResult,
   WorkSessionRecord,
 } from "@work-intelligence/core";
-import { truncateText } from "@work-intelligence/shared";
+import { serverClock, truncateText } from "@work-intelligence/shared";
 import { DIGEST_ITEM_LENGTH, toKnowledgeDigest, toSessionDigest } from "./digest.js";
 import type { SessionListOptions } from "./session-repository.js";
 import type { SearchRepository } from "./search-repository.js";
@@ -91,6 +91,7 @@ export class ContextRecallService {
     const relevant = this.getRelevantContext(focus);
     return {
       outcome: "context",
+      clock: serverClock(),
       projects,
       recentSessions: this.store.listSessions({ limit: 12, trackedOnly: true }).map(toSessionDigest),
       recentDecisions: this.getRecentDecisions(),
@@ -185,6 +186,7 @@ export class ContextRecallService {
     const relevant = this.getRelevantContext(focus, project.id);
     return {
       outcome: "context",
+      clock: serverClock(),
       project,
       projects: [project],
       recentSessions: this.store

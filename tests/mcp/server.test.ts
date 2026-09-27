@@ -182,7 +182,22 @@ describe("Work Intelligence MCP server", () => {
       tracked: true,
       projectStatus: "tracked",
       project: { id: project.id },
+      clock: {
+        serverTime: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+        timeZone: expect.any(String),
+        utcOffset: expect.stringMatching(/^[+-]\d{2}:\d{2}$/),
+      },
     });
+
+    // An estimated local time written with Z lands in the future: the Agent gets the server time and what to do.
+    const future = new Date(Date.now() + 8 * 3_600_000).toISOString();
+    const rejected = await client.callTool({
+      name: "work_finalize_session",
+      arguments: { ...finalizePayload(root, "mcp-future-001", "Future"), completedAt: future },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain("after the server time");
+    expect(store.listSessions({ voided: "include" }).some((session) => session.title === "Future")).toBe(false);
 
     const firstPayload = {
       ...finalizePayload(root, "mcp-list-001", "First"),

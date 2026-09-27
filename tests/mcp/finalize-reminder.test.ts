@@ -4,6 +4,7 @@ import {
   findTrackedRoot,
   REMINDER,
   reminderFor,
+  reminderWithStart,
   summarizeTranscript,
   type ReminderDeps,
 } from "../../apps/mcp/src/finalize-reminder.js";
@@ -15,6 +16,10 @@ const toolWithInput = (name: string, input: Record<string, unknown>) =>
   JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name, input }] } });
 const text = (value: string) =>
   JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: value }] } });
+const typed = (value: string, timestamp: string) =>
+  JSON.stringify({ type: "user", timestamp, message: { content: value } });
+const toolResult = (timestamp: string) =>
+  JSON.stringify({ type: "user", timestamp, message: { content: [{ type: "tool_result", content: "ok" }] } });
 const FINALIZE = "mcp__work-intelligence__work_finalize_session";
 const PROJECT_ROOT = resolve("Users", "me", "apiary");
 const PROJECT_SRC = join(PROJECT_ROOT, "src");
@@ -40,6 +45,39 @@ function deps(transcript: string[], roots = [PROJECT_ROOT]): ReminderDeps & { ma
 const input = { session_id: "s1", transcript_path: "/t.jsonl", cwd: PROJECT_SRC };
 
 describe("finalize reminder hook", () => {
+  it("reports when the current segment began: the first typed message after the last save", () => {
+    const d = deps([
+      typed("first task", "2026-09-27T00:10:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      tool(FINALIZE),
+      toolResult("2026-09-27T00:20:00.000Z"),
+      typed("second task", "2026-09-27T00:33:14.278Z"),
+      typed("a follow-up in the same segment", "2026-09-27T00:40:00.000Z"),
+      toolWithInput("Write", { file_path: join(PROJECT_SRC, "queen.ts") }),
+    ]);
+    expect(summarizeTranscript(d.readTranscript("")).segmentStartedAt).toBe("2026-09-27T00:33:14.278Z");
+    const reminder = reminderFor(input, d);
+    expect(reminder).toBe(reminderWithStart("2026-09-27T00:33:14.278Z"));
+    expect(reminder).toContain("2026-09-27T00:33:14.278Z");
+    expect(reminder).toContain("startedAt");
+  });
+
+  it("falls back to the plain reminder when no typed message has a usable timestamp", () => {
+    const d = deps([
+      toolResult("2026-09-27T00:20:00.000Z"),
+      JSON.stringify({
+        type: "user",
+        isMeta: true,
+        timestamp: "2026-09-27T00:21:00.000Z",
+        message: { content: "meta" },
+      }),
+      typed("no timestamp", "not a date"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+    ]);
+    expect(summarizeTranscript(d.readTranscript("")).segmentStartedAt).toBeUndefined();
+    expect(reminderFor(input, d)).toBe(REMINDER);
+  });
+
   it("reminds once when files changed after the last save in a tracked project", () => {
     const d = deps([
       tool("Read"),
