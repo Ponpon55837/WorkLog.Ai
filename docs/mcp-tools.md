@@ -18,9 +18,9 @@
 | Session | `work_link_sessions` | 連結規劃與實作等相關 Session，檢索找到一筆時帶出另一筆 |
 | Session | `work_void_session`<br>`work_void_evidence` | 作廢誤記錄的 Session、標示錯誤的 Evidence（可還原，保留作廢紀錄） |
 | Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求；帶 `task`／`paths` 時另回傳與這次工作相關的記錄 |
-| Context | `work_recall` | 以關鍵字與檔案路徑排序查詢 Session（含 raw handoff 段落）與 Knowledge，開工前、遇到錯誤時使用 |
+| Context | `work_recall` | 以關鍵字與檔案路徑排序查詢 Session（含 raw handoff 段落）與 Knowledge；回報命中 confidence，無依據時回傳空 hits |
 | Context | `work_list_sessions`<br>`work_get_session` | 依關鍵字、日期、專案分頁列出精簡 Session 摘要；需要細節時讀取單筆完整內容 |
-| Context | `work_search` | 與 `work_recall` 同一個引擎，只查 Session |
+| Context | `work_search` | 與 `work_recall` 同一個引擎，只查 Session；以 `{ confidence, hits }` 回報檢索可信度 |
 | Knowledge | `work_record_knowledge`<br>`work_search_knowledge` | 明確提交與搜尋 Knowledge |
 | Knowledge | `work_update_knowledge` | 編輯、封存或恢復 Knowledge |
 | Knowledge | `work_request_knowledge_candidates`<br>`work_get_knowledge_candidate_context`<br>`work_submit_knowledge_candidates` | Agent 從已記錄的 Session 提出 Knowledge 候選；使用者在工作知識頁接受後才寫入 |
@@ -113,6 +113,7 @@ MCP client 的 stdio 設定可使用：
 
 | 欄位 | 內容 |
 | --- | --- |
+| `relevant.confidence` | `none` 表示沒有達到最低 IDF 加權命中比例且沒有路徑命中，`low` 表示只有弱的部分命中，`high` 表示至少一筆達到 50% 命中比例或命中路徑；為 `none` 時不能把相關命中當依據 |
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
@@ -148,7 +149,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_recall`
 
-排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。
+排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。回應附 `confidence`：`none` 表示沒有達到最低 10% IDF 加權命中比例且沒有路徑命中，此時 `hits` 必為空且不能把結果當依據；`low` 表示只有弱的部分命中；`high` 表示至少一筆命中達到 50% 加權比例或命中路徑。MCP text block 使用緊湊 JSON，保留完整 hit 欄位並符合回應大小上限。
 
 - **索引範圍**：Session 的 title、summary、五段 workSummary、changed files、branch、events，以及 raw handoff snapshot 依 `#`～`###` 標題切成的段落；Knowledge 的 title、body、tags、references。
 - **查詢**：以空白分隔的每個詞獨立比對，不需要整句完全相符；英文識別字會拆成 camelCase／snake_case 各段，中文以雙字切詞（兩字中文詞可直接查），常見虛詞（the、what、為什麼、如何…）會略過。
@@ -165,7 +166,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_search`
 
-與 `work_recall` 使用同一個排序引擎，但只查 Session，最多 20 筆，同樣可帶 `from`／`to`。每筆是精簡 hit：`id`、標題、完成日期、最強的 `matchedIn` 欄位、選用的 raw 段落標題、最多 110 字元的 `excerpt`、選用的 `truncated` 與 `verificationStatus`。當標題是最強命中且摘要也包含查詢詞時，`excerpt` 改取摘要片段，以保留回答脈絡。project-scoped 結果省略重複的專案識別欄位。它不再重複回傳整份 Session digest；以 `work_get_session` 讀取完整摘要、未結項及其他欄位。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
+與 `work_recall` 使用同一個排序引擎，但只查 Session，最多 20 筆，同樣可帶 `from`／`to`。回傳 `{ outcome: "search", confidence, hits, termHits? }`；confidence 規則與 `work_recall` 相同，為 `none` 時 `hits` 為空，不能用作依據。每筆是精簡 hit：`id`、標題、完成日期、最強的 `matchedIn` 欄位、選用的 raw 段落標題、最多 110 字元的 `excerpt`、選用的 `truncated` 與 `verificationStatus`。當標題是最強命中且摘要也包含查詢詞時，`excerpt` 改取摘要片段，以保留回答脈絡。project-scoped 結果省略重複的專案識別欄位。MCP text block 使用緊湊 JSON，保留 20 筆完整欄位並符合回應大小上限。它不再重複回傳整份 Session digest；以 `work_get_session` 讀取完整摘要、未結項及其他欄位。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
 
 ## Tool annotations 與 prompts
 

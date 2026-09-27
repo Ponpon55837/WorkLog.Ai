@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { KnowledgeKind, RecallField, RecallHit, RecallTermHits } from "@work-intelligence/core";
+import type { KnowledgeKind, RecallConfidence, RecallField, RecallHit, RecallTermHits } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
 import {
   excerptAround,
@@ -43,6 +43,9 @@ const PATH_WEIGHT = 4;
 const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
 const EXCERPT_LENGTH = 220;
+// Keep weak matches as low-confidence leads, but suppress records with under 10% of the query's IDF weight.
+const MIN_QUERY_COVERAGE = 0.1;
+const HIGH_CONFIDENCE_QUERY_COVERAGE = 0.5;
 // Evidence strength for Knowledge: each confirmation (up to 5) adds 4%, and a contradiction newer than the
 // latest confirmation lowers the score, so a disputed item ranks below an equally matching trusted one.
 const CONFIRMATION_BONUS = 0.04;
@@ -111,6 +114,7 @@ export interface RecallOptions {
 
 export interface RecallComputation {
   hits: RecallHit[];
+  confidence: RecallConfidence;
   termHits?: RecallTermHits[];
 }
 
@@ -256,20 +260,26 @@ export class SearchRepository {
         const ageDays = Math.max(0, (now - Date.parse(doc.date)) / 86_400_000) || 0;
         const recency = 0.75 + 0.25 * Math.exp(-ageDays / RECENCY_DAYS);
         const strength = doc.type === "knowledge" ? (evidence.get(doc.id) ?? 1) : 1;
-        return { doc, score: (textScore + doc.pathScore) * recency * strength };
+        return { doc, coverage, score: (textScore + doc.pathScore) * recency * strength };
       })
-      .filter((entry) => entry.score > 0)
-      .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date))
-      .slice(0, options.limit);
+      .filter((entry) => entry.score > 0 && (entry.doc.matchedPaths.size > 0 || entry.coverage >= MIN_QUERY_COVERAGE))
+      .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
 
     const excerptTerms = terms
       .map((term, index) => ({ term, idf: idf[index] ?? 0 }))
       .sort((left, right) => right.idf - left.idf)
       .map((entry) => entry.term);
-    const hits = ranked.flatMap(({ doc, score }) => {
+    const selected = ranked.slice(0, options.limit);
+    const hits = selected.flatMap(({ doc, score }) => {
       const hit = this.toHit(doc, score, excerptTerms);
       return hit ? [hit] : [];
     });
+    const confidence =
+      hits.length === 0
+        ? "none"
+        : selected.some((entry) => entry.doc.matchedPaths.size > 0 || entry.coverage >= HIGH_CONFIDENCE_QUERY_COVERAGE)
+          ? "high"
+          : "low";
 
     const termHits = words.map((word) => {
       const indexes = word.terms.map((term) => terms.indexOf(term)).filter((index) => index >= 0);
@@ -283,6 +293,7 @@ export class SearchRepository {
     });
     return {
       hits,
+      confidence,
       ...(termHits.some((entry) => entry.count === 0) ? { termHits } : {}),
     };
   }
@@ -400,9 +411,7 @@ export class SearchRepository {
     const termSets = terms.map(
       (term) => new Set((matchStatement.all(ftsTermExpression(term)) as Array<{ id: number }>).map((row) => row.id)),
     );
-    const idf = termSets.map((set) =>
-      set.size === 0 ? 0 : Math.log(1 + (totalChunks - set.size + 0.5) / (set.size + 0.5)),
-    );
+    const idf = termSets.map((set) => Math.log(1 + (totalChunks - set.size + 0.5) / (set.size + 0.5)));
     const totalIdf = idf.reduce((sum, value) => sum + value, 0);
     if (totalIdf === 0) {
       return { idf, totalIdf };

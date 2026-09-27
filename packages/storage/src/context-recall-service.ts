@@ -26,6 +26,7 @@ import type {
   RelevantKnowledgePageDigest,
   ReportSynthesisRequestListQueryResult,
   ReportSynthesisRequestQuery,
+  SearchQueryResult,
   SearchResult,
   SessionLinkRecord,
   SkippedResult,
@@ -233,6 +234,12 @@ export class ContextRecallService {
   }
 
   public search(query: string, projectRoot?: string, range: DateRange = {}): SearchResult[] | SkippedResult {
+    const result = this.searchForAgent(query, projectRoot, range);
+    return result.outcome === "skipped" ? result : result.hits;
+  }
+
+  /** Ranked, confidence-bearing search result for Agent tools; REST keeps the existing hit-array shape. */
+  public searchForAgent(query: string, projectRoot?: string, range: DateRange = {}): SearchQueryResult | SkippedResult {
     let projectId: string | undefined;
     if (projectRoot) {
       const decision = this.store.checkProjectRoot(projectRoot);
@@ -247,7 +254,7 @@ export class ContextRecallService {
       projectId = decision.project.id;
     }
 
-    const { hits } = this.searchIndex.recall({
+    const result = this.searchIndex.recall({
       q: query,
       projectId,
       types: ["session"],
@@ -255,7 +262,7 @@ export class ContextRecallService {
       to: range.to,
       limit: SEARCH_LIMIT,
     });
-    return hits.flatMap((hit) => {
+    const hits = result.hits.flatMap((hit) => {
       const record = this.store.getSessionById(hit.id);
       if (!record) {
         return [];
@@ -269,6 +276,12 @@ export class ContextRecallService {
         },
       ];
     });
+    return {
+      outcome: "search",
+      confidence: result.confidence,
+      hits,
+      ...(result.termHits ? { termHits: result.termHits } : {}),
+    };
   }
 
   private buildContext(project: ProjectRecord, focus: ContextFocus): ContextResult {
@@ -575,6 +588,7 @@ export class ContextRecallService {
     return {
       ...(task ? { task } : {}),
       ...(paths.length > 0 ? { paths } : {}),
+      confidence: recalled.confidence,
       knowledge,
       decisions,
       sessions: sessions.map(({ hit, record }) => ({ ...hit, openItems: toSessionDigest(record).openItems })),

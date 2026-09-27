@@ -41,11 +41,11 @@ export function toStructuredContent(value: unknown): StructuredContent | undefin
   return buildSessionStructuredContent(value);
 }
 
-export function textResult(value: unknown) {
+export function textResult(value: unknown, options: { compact?: boolean } = {}) {
   const structuredContent = toStructuredContent(value);
 
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(value, null, options.compact ? undefined : 2) }],
     ...(structuredContent ? { structuredContent } : {}),
   };
 }

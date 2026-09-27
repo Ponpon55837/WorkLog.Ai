@@ -71,6 +71,16 @@ A3 把 `work_recall` excerpt 限為 110 字元；只回最強的 `matchedIn` 欄
 | `work_recall`，5 筆 | 4,741 | 3,477 | 3,500 |
 | `work_search`，預設 20 筆 | 15,896 | 7,942 | 8,000 |
 
+B1 加入 confidence 後，`work_recall`／`work_search` 改以緊湊 JSON text block 輸出，保留每筆 hit 的完整欄位且維持預設上限（8／20 筆）；只有低於 10% IDF 覆蓋且無路徑命中的候選會被排除。以下量測使用 MCP text block 的實際字元數；與 A1／A3 比較時，recall／search 的差額也包含移除 JSON 縮排空白的影響，並不代表 token 數。
+
+| MCP 工具與情境 | A1 基線（字元） | B1 實測（字元） | CI 上限（字元） |
+| --- | ---: | ---: | ---: |
+| `work_get_context`，無 task | 16,175 | 16,463 | 19,000 |
+| `work_get_context`，有 task | 26,247 | 11,613 | 12,000 |
+| `work_recall`，預設 8 筆 | 6,807 | 3,799 | 7,000 |
+| `work_recall`，5 筆 | 4,741 | 2,532 | 3,500 |
+| `work_search`，預設 20 筆 | 15,896 | 7,128 | 8,000 |
+
 ## 效能回歸門檻
 
 ```powershell
@@ -111,6 +121,8 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; pnpm exec node packages/storage/benc
 `tests/storage/retrieval-quality.test.ts` 以 20 題虛構查詢和暫存目錄的合成專案資料，透過 `WorkIntelligenceStore.recall` 評估 `work_recall` 使用的排序路徑。評估包含 K（gotcha／pattern）、S（Session 主題）、R（答案只在 raw handoff）、N（自然語句）與 P（路徑查詢）五類，各 4 題；題目涵蓋中文雙字詞、原始交接文件與絕對／相對／Windows 形式路徑。每題都放入合成近似干擾紀錄，以檢查正確答案排名。
 
 另有一個證據強度案例：三筆內容相同的 Knowledge 中，被 Session 確認兩次的排第一，被推翻的排在未回饋的之後。目前合成基線為整體 hit@5 1.00、MRR 0.90。門檻設定為整體 hit@5 ≥ 0.95、MRR ≥ 0.90；每一類 hit@5 ≥ 0.75，K／S／N／P 的 MRR ≥ 0.70，R 類 MRR ≥ 0.50。R 類答案只在 raw handoff，並刻意搭配共享部分查詢詞的標題干擾項；目前四題都排第 2，反映 raw 欄位較低的權重，因此以 0.50 作為該類不退化的基線。hit@5 表示正確 Session／Knowledge 是否進入前 5 筆，MRR 以正確項目的排名倒數取平均；沒有命中時計 0。測試不開啟 `data/work-intelligence.sqlite`，不使用私有的 36 題評估資料，也不將真實工作記錄寫入 repository。
+
+B1 另以合成查詢檢查 `confidence`：未命中的詞仍依文件頻率估算 IDF，因此只命中少數常見詞不會被誤判成完整命中；命中覆蓋低於 10% 且沒有路徑命中時回傳空 hits 與 `none`，只有弱部分命中時回傳 `low`，至少一筆達 50% 覆蓋或命中路徑時回傳 `high`。精確查詢的排序仍受上述 hit@5／MRR 門檻保護，`work_get_context`、`work_recall` 與 `work_search` 都檢查無命中訊號。
 
 ```powershell
 pnpm test:retrieval-quality

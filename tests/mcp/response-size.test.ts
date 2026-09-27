@@ -175,15 +175,20 @@ describe("synthetic MCP response-size baseline", () => {
         related?: Array<{ id: string; relation: string; title?: string }>;
       }>;
     };
-    const searchPayload = searchDefault.value as Array<{
-      id?: string;
-      title?: string;
-      date?: string;
-      matchedIn?: string;
-      excerpt?: string;
-      verificationStatus?: string;
-      session?: unknown;
-    }>;
+    const searchResponse = searchDefault.value as {
+      outcome: string;
+      confidence: string;
+      hits: Array<{
+        id?: string;
+        title?: string;
+        date?: string;
+        matchedIn?: string;
+        excerpt?: string;
+        verificationStatus?: string;
+        session?: unknown;
+      }>;
+    };
+    const searchPayload = searchResponse.hits;
     const relatedLinks = recallFivePayload.hits.flatMap((hit) => hit.related ?? []);
 
     const taskContext = store.getContext(projectRoot, { task: query });
@@ -222,6 +227,7 @@ describe("synthetic MCP response-size baseline", () => {
     expect(recallFivePayload.hits.some((hit) => hit.related?.length === 3)).toBe(true);
     expect(relatedLinks.every((link) => link.id && link.relation && !link.title)).toBe(true);
     expect(recallFive.value).not.toHaveProperty("project");
+    expect(searchResponse).toMatchObject({ outcome: "search", confidence: "low" });
     expect(searchPayload).toHaveLength(20);
     expect(
       searchPayload.every((hit) => !hit.session && typeof hit.id === "string" && typeof hit.title === "string"),
