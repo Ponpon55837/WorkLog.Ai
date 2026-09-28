@@ -50,8 +50,12 @@ const RELEVANT_LIMIT = 5;
 const RECALL_DEFAULT_LIMIT = 8;
 const RECALL_MAX_LIMIT = 30;
 const SEARCH_LIMIT = 20;
-const CONTEXT_DEFAULT_BUDGET_CHARS = 19_000;
-const CONTEXT_TASK_BUDGET_CHARS = 12_000;
+const CONTEXT_DEFAULT_BUDGET_CHARS = 16_000;
+const CONTEXT_TASK_BUDGET_CHARS = 10_000;
+/** Budget-omitted ids listed per context section; the rest are counted in `moreIds`. */
+const CONTEXT_OMITTED_ID_LIMIT = 5;
+/** Reason prefix for an item left out because the same record is already shown in another section. */
+const DUPLICATE_REASON_PREFIX = "已列於";
 const CONTEXT_PAGE_SECTION_LIMIT = 5;
 const CONTEXT_REVIEW_SOURCE_LIMIT = 8;
 const CONTEXT_SOURCE_SESSION_LIMIT = 8;
@@ -122,20 +126,37 @@ function hasFocus(focus: ContextFocus): boolean {
   return Boolean(focus.task?.trim() || (focus.paths ?? []).some((path) => path.trim()));
 }
 
+/**
+ * Records one left-out item compactly: duplicates are counted only, budget omissions keep a few ids, and items
+ * with trust or review signals keep their full entry. Omission bookkeeping must not crowd out content.
+ */
 function addOmission(
   context: ContextResult,
   section: string,
-  entry: ContextOmission["entries"][number],
+  entry: NonNullable<ContextOmission["entries"]>[number],
   readWith: string,
 ): void {
   context.omitted ??= [];
   let omission = context.omitted.find((item) => item.section === section);
   if (!omission) {
-    omission = { section, count: 0, entries: [], readWith };
+    omission = { section, count: 0, readWith };
     context.omitted.push(omission);
   }
   omission.count += 1;
-  omission.entries.push(entry);
+  if (entry.possiblyStale || entry.needsReview || entry.reviewSections) {
+    (omission.entries ??= []).push(entry);
+    return;
+  }
+  if (entry.reason.startsWith(DUPLICATE_REASON_PREFIX)) {
+    omission.duplicates = (omission.duplicates ?? 0) + 1;
+    return;
+  }
+  const reasons = (omission.reasons ??= []);
+  if (!reasons.includes(entry.reason)) reasons.push(entry.reason);
+  const ids = (omission.ids ??= []);
+  if (ids.includes(entry.id)) return;
+  if (ids.length < CONTEXT_OMITTED_ID_LIMIT) ids.push(entry.id);
+  else omission.moreIds = (omission.moreIds ?? 0) + 1;
 }
 
 export class ContextRecallService {
@@ -386,7 +407,8 @@ export class ContextRecallService {
 
   private fitContextBudget(context: ContextResult, focus: ContextFocus): ContextResult {
     const limit = hasFocus(focus) ? CONTEXT_TASK_BUDGET_CHARS : CONTEXT_DEFAULT_BUDGET_CHARS;
-    const responseLength = () => JSON.stringify(context, null, 2).length;
+    // Measured as the MCP text block the Agent receives (compact JSON).
+    const responseLength = () => JSON.stringify(context).length;
     let remainingReviewSources = CONTEXT_REVIEW_SOURCE_LIMIT;
     let remainingSourceIds = CONTEXT_SOURCE_SESSION_LIMIT;
     const sourceIdOrder = [
@@ -487,6 +509,11 @@ export class ContextRecallService {
         );
         return true;
       }
+      return false;
+    };
+
+    // Relevant items are dropped only after recent activity is gone and long excerpts are shortened.
+    const trimRelevant = (): boolean => {
       const relevant = context.relevant;
       const pageWithSections = relevant?.knowledgePages?.at(-1);
       const pageSectionCount = relevant?.knowledgePages?.reduce((count, page) => count + page.sections.length, 0) ?? 0;
@@ -605,16 +632,8 @@ export class ContextRecallService {
     };
 
     let trimmed = false;
-    while (responseLength() > limit) {
-      if (trimNext()) {
-        trimmed = true;
-        continue;
-      }
-      if (shortenNext()) {
-        trimmed = true;
-        continue;
-      }
-      break;
+    while (responseLength() > limit && (trimNext() || shortenNext() || trimRelevant())) {
+      trimmed = true;
     }
     if (responseLength() > limit) {
       addOmission(

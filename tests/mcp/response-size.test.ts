@@ -22,8 +22,8 @@ const cleanups: Array<() => Promise<void> | void> = [];
 const query = "agent context retrieval budget";
 const retrievalQuery = "agent context retrieval budget gotcha";
 const RESPONSE_BUDGETS = {
-  contextWithoutTask: 19_000,
-  contextWithTask: 12_000,
+  contextWithoutTask: 16_000,
+  contextWithTask: 10_000,
   recallDefault: 7_000,
   recallFive: 3_500,
   searchDefault: 8_000,
@@ -196,7 +196,15 @@ describe("synthetic MCP response-size baseline", () => {
     if (taskContext.outcome !== "context") throw new Error("Expected scoped task context.");
     expect(taskContext.knowledgePages).toHaveLength(0);
     expect(taskContext.relevant?.knowledgePages).toHaveLength(1);
-    expect(taskContext.recentDecisions).toHaveLength(0);
+    // A decision shown in relevant.decisions is never repeated in recentDecisions.
+    const relevantDecisionKeys = new Set(
+      taskContext.relevant?.decisions.map((decision) => `${decision.sessionId}\u0000${decision.text}`),
+    );
+    expect(
+      taskContext.recentDecisions.some((decision) =>
+        relevantDecisionKeys.has(`${decision.sessionId}\u0000${decision.text}`),
+      ),
+    ).toBe(false);
     expect(taskContext.relevant?.decisions.length).toBeGreaterThan(0);
     expect(taskContext.relevant?.sessions.some((hit) => hit.title.endsWith("00"))).toBe(true);
     expect(taskContext.relevant?.sessions[0]?.excerpt).toContain("Check one more verified example");
@@ -395,14 +403,14 @@ describe("synthetic MCP response-size baseline", () => {
       relevant?: { knowledge?: Array<{ id: string; needsReview?: boolean; possiblyStale?: unknown }> };
       omitted?: Array<{
         readWith: string;
-        entries: Array<{ id: string; needsReview?: boolean; possiblyStale?: unknown }>;
+        entries?: Array<{ id: string; needsReview?: boolean; possiblyStale?: unknown }>;
       }>;
     };
     expect(payload.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
     expect(context.pendingRequests.knowledgeCandidates).toHaveLength(1);
     const knowledgeEntries = [
       ...(context.relevant?.knowledge ?? []),
-      ...(context.omitted ?? []).flatMap((section) => section.entries),
+      ...(context.omitted ?? []).flatMap((section) => section.entries ?? []),
     ];
     expect(knowledgeEntries).toContainEqual(
       expect.objectContaining({ id: contradictedKnowledge.id, needsReview: true }),

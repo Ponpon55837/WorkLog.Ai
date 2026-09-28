@@ -34,54 +34,22 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的 macOS 基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）；project-policy 的 Windows branches 為 92.75%，因平台路徑分隔符走不同條件。
 
-## Agent MCP 回應大小基線
+## Agent MCP 回應大小
 
-`pnpm test:response-size` 以虛構合成資料透過 in-memory MCP transport 呼叫四種工具，計算 Agent 實際收到的 pretty-printed JSON 文字長度（JavaScript 字元數，不是 UTF-8 位元組或 token）。資料包含 20 筆 Session、10 筆共用同一段舊規劃的 handoff、完成工作的決策與陷阱、4 筆 Knowledge，以及 3 頁 Knowledge page；資料庫只在記憶體中建立，不讀取 `data/` 或使用者資料。
+`pnpm test:response-size` 以虛構合成資料透過 in-memory MCP transport 呼叫工具，計算 Agent 實際收到的文字長度（JavaScript 字元數，不是 UTF-8 位元組或 token）。所有工具的文字結果都是緊湊 JSON。資料包含 20 筆 Session、10 筆共用同一段舊規劃的 handoff、完成工作的決策與陷阱、4 筆 Knowledge，以及 3 頁 Knowledge page；資料庫只在記憶體中建立，不讀取 `data/` 或使用者資料。
 
-A1 在尚未精簡輸出前量得以下合成基線。右欄是先守住現況、避免後續階段回歸的暫行 CI 上限；A2／A3 會在各自降低輸出後收緊門檻。
-
-| MCP 工具與情境 | A1 基線（字元） | A1 CI 上限（字元） | 本輪目標（字元） |
+| MCP 工具與情境 | 第七輪開始前（字元） | 目前（字元） | CI 上限（字元） |
 | --- | ---: | ---: | ---: |
-| `work_get_context`，無 task | 16,175 | 19,000 | — |
-| `work_get_context`，有 task | 26,247 | 28,000 | 12,000 |
-| `work_recall`，預設 8 筆 | 6,807 | 7,000 | — |
-| `work_recall`，5 筆 | 4,741 | 6,500 | 3,500 |
-| `work_search`，預設 20 筆 | 15,896 | 17,000 | 8,000 |
-
-原先以實際資料做的使用測試另量得：有 task 的 `work_get_context` 約 26,400–27,000 字元、`work_recall`（5 筆）約 4,700–6,300 字元、`work_search`（20 筆）平均約 17,000 字元。A1 合成基線用來在 CI 重現大致相同的輸出負載；它不包含實際資料，也不把字元數解讀為 token 數。
-
-暫行上限高於 A2／A3 目標，因為目前的完整輸出尚未經過跨區去重或精簡。每完成對應階段就會降低 CI 上限；檢索品質門檻維持獨立執行，避免靠移除正確結果縮小回應。
-
-A2 完成後的合成量測與 A1 初始基線比較如下。任務 context 由 26,247 降到 11,587 字元（少 14,660，約 55.9%），保留最高相關 Session、Knowledge、決策與有來源的知識頁段落；無 task 的 context 為 16,463 字元，比 A1 多 288 字元，差異來自新增保留的知識頁來源 Session ids。recall/search 尚未進入 A3，輸出大小維持 A1 數值。
-
-| MCP 工具與情境 | A1 基線（字元） | A2 實測（字元） | A2 CI 上限（字元） |
-| --- | ---: | ---: | ---: |
-| `work_get_context`，無 task | 16,175 | 16,463 | 19,000 |
-| `work_get_context`，有 task | 26,247 | 11,587 | 12,000 |
-| `work_recall`，預設 8 筆 | 6,807 | 6,807 | 7,000 |
-| `work_search`，預設 20 筆 | 15,896 | 15,896 | 17,000 |
-
-A3 把 `work_recall` excerpt 限為 110 字元；只回最強的 `matchedIn` 欄位，縮短 raw section heading，關聯 Session 保留 id／關係。提供 `projectRoot` 時省略重複的頂層專案物件。`work_search` 改回傳精簡 hit，不重複整份 Session digest，並保留 id、標題、日期、命中欄位、答案片段及驗證狀態；標題命中時若摘要也含查詢詞，片段改取摘要以保留答案脈絡。完整內容仍可依 id 使用 `work_get_session` 或 `work_search_knowledge` 讀取。檢索品質測試新增一個答案只在長摘要中的案例，確認來源排名不變且縮短後的 excerpt 仍含有正確操作步驟。
-
-| MCP 工具與情境 | A1 基線（字元） | A3 實測（字元） | CI 上限（字元） |
-| --- | ---: | ---: | ---: |
-| `work_get_context`，無 task | 16,175 | 16,463 | 19,000 |
-| `work_get_context`，有 task | 26,247 | 11,587 | 12,000 |
-| `work_recall`，預設 8 筆 | 6,807 | 5,203 | 7,000 |
-| `work_recall`，5 筆 | 4,741 | 3,477 | 3,500 |
-| `work_search`，預設 20 筆 | 15,896 | 7,942 | 8,000 |
-
-B1 加入 confidence 後，`work_recall`／`work_search` 改以緊湊 JSON text block 輸出，保留每筆 hit 的完整欄位且維持預設上限（8／20 筆）；只有低於 10% IDF 覆蓋且無路徑命中的候選會被排除。以下量測使用 MCP text block 的實際字元數；與 A1／A3 比較時，recall／search 的差額也包含移除 JSON 縮排空白的影響，並不代表 token 數。
-
-| MCP 工具與情境 | A1 基線（字元） | B1 實測（字元） | CI 上限（字元） |
-| --- | ---: | ---: | ---: |
-| `work_get_context`，無 task | 16,175 | 16,463 | 19,000 |
-| `work_get_context`，有 task | 26,247 | 11,613 | 12,000 |
+| `work_get_context`，無 task | 16,175 | 13,984 | 16,000 |
+| `work_get_context`，有 task | 26,247 | 9,767 | 10,000 |
 | `work_recall`，預設 8 筆 | 6,807 | 3,799 | 7,000 |
 | `work_recall`，5 筆 | 4,741 | 2,532 | 3,500 |
 | `work_search`，預設 20 筆 | 15,896 | 7,128 | 8,000 |
 
-C1 的來源核對壓力案例把 20 個已引用 Session 全部更正，確認 context 保留核對旗標、原因摘要與完整頁面查詢指標，同時守住整份預算。第七輪最終量測中，此情境的無 task context 為 18,836 字元（19,000 上限），聚焦 context 為 11,701 字元（12,000 上限）；來源細節不足時可用 `work_get_knowledge_page_context` 取得完整內容。
+- 第七輪開始前的數字是縮排 JSON；目前的差距同時來自內容精簡與移除縮排。
+- context 的上限以緊湊 JSON 計算；省略清單只計數已在其他區出現的項目，預算省略每區最多列 5 個 id，所以省略資訊不會擠掉相關內容。
+- 來源核對壓力情境（20 個已引用 Session 全部更正）另有測試：無 task 15,982、有 task 9,849 字元，同樣守住上限並保留核對旗標。
+- 檢索品質門檻獨立執行，避免靠移除正確結果縮小回應。
 
 ## 效能回歸門檻
 
