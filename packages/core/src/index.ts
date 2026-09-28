@@ -2518,6 +2518,14 @@ export interface SystemStatus {
     totalBytes: number;
   };
   maintenance: DatabaseMaintenanceRecord | null;
+  /** Shared MCP heartbeat status for this installation root. */
+  mcp: {
+    restartRequired: boolean;
+    monitoringAvailable: boolean;
+    activeProcesses: number;
+    outdatedProcesses: number;
+    message?: string;
+  };
   sseConnections: number;
 }
 

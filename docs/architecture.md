@@ -9,7 +9,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node.js 22.5 以上的內建 `node:sqlite` SQLite 儲存（建議 Node.js 24），避免額外 native binding
-- MCP stdio server：4 個依安全語義分類的 dispatcher 對應 44 個 operation，並提供 2 個 prompts（`finalize-work`、`synthesize-report`）；固定 MCP resource 提供完整 operation schema、行為與原始 annotations，詳見 [mcp-tools.md](mcp-tools.md)
+- MCP stdio server：4 個依安全語義分類的 dispatcher 對應 44 個 operation，並提供 2 個 prompts（`finalize-work`、`synthesize-report`）；精簡 MCP resource 提供 operation index，每個 operation 的完整 schema、行為與原始 annotations 由對應 resource template 提供，詳見 [mcp-tools.md](mcp-tools.md)
 - Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：唯讀 dispatcher `work_read` 的 operation `work_export_report` 與 REST `/api/reports/export`，可輸出 Markdown 或 JSON
 - 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization
@@ -110,6 +110,10 @@ REST 路由依領域分成 `apps/server/src/routes/` 下的路由表（system、
 正式模式由 `pnpm start` 啟動單一 API server，預設綁定 `127.0.0.1:3210`，同時提供 `apps/web/dist` 與 `/api/*`。SPA 路由 fallback 回 `index.html`；HTML 不快取、Vite 雜湊 assets 長期快取。靜態請求先用 Zod 驗證路徑，再拒絕 dot-segment、百分比解碼後 traversal、反斜線與控制字元；解析 symlink 後還會再次確認真實路徑仍位於 Web 根目錄內。正式 Web 回應附 CSP（script 只允許同源，style attribute 依 Vue 版面需求允許 inline）、`X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。開發模式 `pnpm dev` 維持 Vite 與 API 分開。
 
 應用程式 semver 取自根目錄 `package.json`；`/api/health` 回傳 `version` 與 `schemaVersion`，MCP server metadata/instructions 與 UI 側欄使用相同版本來源。`pnpm run doctor` 以只讀方式檢查環境與資料庫 metadata，並顯示最近一次維護結果；hook 診斷只檢查全域 `~/.claude/settings.json` 與 `~/.codex/hooks.json`、以及目前 repo 的 hook dist 檔，不讀取或修改 repo 內的 Agent 設定。診斷命令刻意以 `pnpm run doctor` 執行，因為 pnpm 11 的 `pnpm doctor` 是套件管理器自身命令。
+
+MCP runtime identity 以根目錄版本與 MCP、core、project-policy、schema、shared、storage 的 JavaScript dist 雜湊組成；MCP entry 在載入時已帶有 build finalizer 注入的 fingerprint，不會在 static imports 載入後才推測啟動版本。根目錄 `.work-intelligence-build-in-progress` 在整個 workspace build 期間存在；缺檔、更新標記或讀取不穩定時，MCP、doctor 與 API 都回報未知。直接重建 runtime package 也會在清理 dist 前建立同一標記，完成 fingerprint 注入才移除。若 build 中斷，確認標記所記 PID 已退出後，只移除 `.work-intelligence-build-in-progress` 再重跑完整 `pnpm build`。
+
+每個 MCP process 在 OS 暫存目錄以安裝根目錄雜湊作 scope，原子更新一份獨立 heartbeat lease；正常退出刪除自己的 lease，崩潰或強制終止的 lease 由 TTL 忽略。MCP read operations 直接比較該程序的 startup fingerprint 與磁碟建置；`pnpm run doctor` 與 `/api/system/status` 則掃描並彙總同一組 leases，再與磁碟建置比對。registry 不可讀寫或建置身份未知時都回報未知；任一活躍舊 lease 都要求重新連線。projectRoot 只用於查詢專案 policy，不用來定位 MCP 安裝。
 
 日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 

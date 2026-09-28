@@ -14,10 +14,14 @@
     "./app-version": {
       "types": "./dist/app-version.d.ts",
       "import": "./dist/app-version.js"
+    },
+    "./mcp-runtime": {
+      "types": "./dist/mcp-runtime.d.ts",
+      "import": "./dist/mcp-runtime.js"
     }
   },
   "scripts": {
-    "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "build": "node ../../scripts/runtime-package-build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
     "test": "vitest run --root ../.. tests/shared",
     "test:coverage": "vitest run --root ../.. --config packages/shared/vitest.coverage.config.ts"

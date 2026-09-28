@@ -5,6 +5,7 @@ export const storageAliases = {
   "@work-intelligence/core": fileURLToPath(new URL("../core/src/index.ts", import.meta.url)),
   "@work-intelligence/project-policy": fileURLToPath(new URL("../project-policy/src/index.ts", import.meta.url)),
   "@work-intelligence/schema": fileURLToPath(new URL("../schema/src/index.ts", import.meta.url)),
+  "@work-intelligence/shared/mcp-runtime": fileURLToPath(new URL("../shared/src/mcp-runtime.ts", import.meta.url)),
   "@work-intelligence/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)),
 };
 

@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
 import {
   findLatestAutomaticBackup,
@@ -434,6 +435,26 @@ export async function collectDoctorFindings(
       ? "server、MCP、Web 與 workspace 的必要 dist 檔案都完整。"
       : "缺少必要 dist 檔案：" + missingDistSummary + "。",
     missingDist.length === 0 ? undefined : "在專案根目錄執行 pnpm build。",
+  );
+
+  const mcpRuntime = getMcpRuntimeStatus(repositoryRoot);
+  const mcpRuntimeHealthy =
+    mcpRuntime.monitoringAvailable && mcpRuntime.activeProcesses > 0 && !mcpRuntime.restartRequired;
+  const mcpRuntimeDetail = mcpRuntime.restartRequired
+    ? `${mcpRuntime.activeProcesses} 個可監測 MCP 連線中，${mcpRuntime.outdatedProcesses} 個需要重新連線。 ${mcpRuntime.message ?? ""}`.trim()
+    : mcpRuntime.activeProcesses > 0 && mcpRuntime.monitoringAvailable
+      ? `${mcpRuntime.activeProcesses} 個可監測 MCP 連線均使用目前建置。`
+      : (mcpRuntime.message ?? "無法確認 MCP runtime 狀態。");
+  addFinding(
+    findings,
+    mcpRuntimeHealthy ? "ok" : "warning",
+    "MCP runtime",
+    mcpRuntimeDetail,
+    mcpRuntime.restartRequired
+      ? "請在 Agent 用戶端重新連線 Work Intelligence MCP。"
+      : mcpRuntime.monitoringAvailable
+        ? "尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置。"
+        : "請確認建置完成後重新執行 doctor。",
   );
 
   if (!parsedEnvironment.success) {

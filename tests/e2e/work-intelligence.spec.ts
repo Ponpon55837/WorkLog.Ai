@@ -953,6 +953,48 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
+  test("shows stale MCP connections and refreshes them from the system status API", async ({ page }) => {
+    let statusRequests = 0;
+    await page.route("**/api/system/status", async (route) => {
+      const response = await route.fetch();
+      const status = (await response.json()) as { mcp: Record<string, unknown> };
+      statusRequests += 1;
+      await route.fulfill({
+        response,
+        json: {
+          ...status,
+          mcp:
+            statusRequests === 1
+              ? {
+                  restartRequired: true,
+                  monitoringAvailable: true,
+                  activeProcesses: 2,
+                  outdatedProcesses: 1,
+                  message: "磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。",
+                }
+              : {
+                  restartRequired: false,
+                  monitoringAvailable: true,
+                  activeProcesses: 1,
+                  outdatedProcesses: 0,
+                  message: "所有可監測的 MCP 連線都是目前建置。",
+                },
+        },
+      });
+    });
+
+    await page.goto("/system-status");
+    await expect(page.getByText("MCP 需要重新連線")).toBeVisible();
+    await expect(
+      page.getByText("磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。", { exact: true }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "重新整理狀態" }).click();
+    await expect(page.getByText("MCP 需要重新連線")).toHaveCount(0);
+    await expect(page.getByText("目前版本")).toBeVisible();
+    expect(statusRequests).toBeGreaterThanOrEqual(2);
+  });
+
   test("has no critical or serious axe violations on primary and management pages @accessibility", async ({ page }) => {
     test.setTimeout(90_000);
     const failures: string[] = [];

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,12 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
+import {
+  getMcpRestartStatus,
+  getMcpRuntimeDirectory,
+  readMcpBuildIdentity,
+} from "../../packages/shared/src/mcp-runtime.js";
+import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 const TOOL_CONTRACT_RESOURCE_URI = "work-intelligence://agent/tool-contracts";
@@ -62,10 +68,12 @@ interface ToolContractCatalog {
 
 const toolContractCatalogs = new WeakMap<Client, Promise<ToolContractCatalog>>();
 
-async function connect() {
+async function connect(
+  getRestartStatus?: () => { restartRequired: boolean; monitoringAvailable: boolean; message?: string },
+) {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-test-"));
   const store = new WorkIntelligenceStore(":memory:");
-  const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION);
+  const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION, undefined, getRestartStatus);
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -120,6 +128,16 @@ async function callJson<T = Record<string, unknown>>(
   args: Record<string, unknown>,
 ): Promise<T> {
   const result = await callMcpOperation(client, name, args);
+  const [content] = result.content as Array<{ type: string; text: string }>;
+  return JSON.parse(content?.text ?? "null") as T;
+}
+
+async function callReadOperation<T = Record<string, unknown>>(
+  client: Client,
+  operation: "work_get_project_status" | "work_get_context",
+  args: Record<string, unknown>,
+): Promise<T> {
+  const result = await client.callTool({ name: "work_read", arguments: { operation, arguments: args } });
   const [content] = result.content as Array<{ type: string; text: string }>;
   return JSON.parse(content?.text ?? "null") as T;
 }
@@ -183,6 +201,45 @@ describe("Work Intelligence MCP server", () => {
     });
     const skill = await client.readResource({ uri: "work-intelligence://agent/work-intelligence/SKILL.md" });
     expect(skill.contents[0]).toMatchObject({ mimeType: "text/markdown" });
+  });
+
+  it("reports a changed runtime dist from both status and context operations after startup", async () => {
+    const runtimeRoot = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-runtime-install-"));
+    createMcpRuntimeFixture(runtimeRoot);
+    const startupBuild = readMcpBuildIdentity(runtimeRoot);
+    if (!startupBuild) throw new Error("The synthetic MCP runtime has no build identity.");
+    const { client, root } = await connect(() => getMcpRestartStatus(runtimeRoot, startupBuild));
+    cleanups.push(() => rmSync(getMcpRuntimeDirectory(runtimeRoot), { recursive: true, force: true }));
+    cleanups.push(() => rmSync(runtimeRoot, { recursive: true, force: true }));
+
+    const currentStatus = await callReadOperation<{ server: { restartRequired: boolean } }>(
+      client,
+      "work_get_project_status",
+      { projectRoot: root },
+    );
+    expect(currentStatus.server.restartRequired).toBe(false);
+
+    writeFileSync(
+      join(runtimeRoot, "packages/storage/dist/index.js"),
+      'export const runtime = "storage-after-start";\n',
+    );
+    finalizeMcpRuntimeFixture(runtimeRoot);
+    const projectStatus = await callReadOperation<{ server: { restartRequired: boolean; message: string } }>(
+      client,
+      "work_get_project_status",
+      { projectRoot: root },
+    );
+    const context = await callReadOperation<{ server: { restartRequired: boolean; message: string } }>(
+      client,
+      "work_get_context",
+      { projectRoot: root },
+    );
+
+    expect(projectStatus.server).toMatchObject({
+      restartRequired: true,
+      message: expect.stringContaining("請重新連線 MCP"),
+    });
+    expect(context.server).toEqual(projectStatus.server);
   });
 
   it("returns a safe retryable error when another SQLite connection holds a write lock", async () => {

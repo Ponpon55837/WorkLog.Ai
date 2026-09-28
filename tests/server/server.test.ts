@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { createServer, request as httpRequest, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { APP_VERSION } from "../../packages/shared/src/app-version.js";
@@ -10,12 +11,29 @@ import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
+import {
+  getMcpRuntimeDirectory,
+  getMcpRuntimeStatus,
+  readMcpBuildIdentity,
+  registerMcpProcess,
+} from "../../packages/shared/src/mcp-runtime.js";
+import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
 
-const resources: Array<{ server: Server; store: WorkIntelligenceStore; root: string }> = [];
+const resources: Array<{
+  server: Server;
+  store: WorkIntelligenceStore;
+  root: string;
+  mcpRuntimeRoot?: string;
+  mcpCleanup?: () => void;
+}> = [];
 
 afterEach(async () => {
   for (const resource of resources.splice(0)) {
     await new Promise<void>((resolve) => resource.server.close(() => resolve()));
+    resource.mcpCleanup?.();
+    if (resource.mcpRuntimeRoot) {
+      rmSync(getMcpRuntimeDirectory(resource.mcpRuntimeRoot), { recursive: true, force: true });
+    }
     resource.store.close();
     rmSync(resource.root, { recursive: true, force: true });
   }
@@ -141,8 +159,18 @@ describe("Work Intelligence REST API", () => {
       );
     database.close();
 
-    const { server, baseUrl } = await startApi(store);
-    resources.push({ server, store, root });
+    const repositoryRoot = createMcpRuntimeFixture(join(root, "runtime-install"));
+    const runningBuild = readMcpBuildIdentity(repositoryRoot);
+    if (!runningBuild) throw new Error("The synthetic API runtime has no build identity.");
+    const stopMcpProcess = registerMcpProcess(repositoryRoot, runningBuild);
+    writeFileSync(
+      join(repositoryRoot, "packages/storage/dist/index.js"),
+      'export const runtime = "storage-after-start";\n',
+    );
+    finalizeMcpRuntimeFixture(repositoryRoot);
+    const expectedMcpStatus = getMcpRuntimeStatus(repositoryRoot);
+    const { server, baseUrl } = await startApi(store, { repositoryRoot });
+    resources.push({ server, store, root, mcpRuntimeRoot: repositoryRoot, mcpCleanup: stopMcpProcess });
     const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     const streamResponse = await fetch(`${baseUrl}/api/events`);
     const reader = streamResponse.body?.getReader();
@@ -160,6 +188,13 @@ describe("Work Intelligence REST API", () => {
         totalBytes: number;
       };
       maintenance: { status: string; backupFileName: string; indexedSessions: number } | null;
+      mcp: {
+        restartRequired: boolean;
+        monitoringAvailable: boolean;
+        activeProcesses: number;
+        outdatedProcesses: number;
+        message?: string;
+      };
       sseConnections: number;
     }>(baseUrl, "/api/system/status");
 
@@ -170,6 +205,7 @@ describe("Work Intelligence REST API", () => {
       database: { path: databasePath, state: "ok", schemaVersion: LATEST_SCHEMA_VERSION },
       backups: { available: true, latestAutomatic: { kind: "automatic", createdAt: "2026-09-25T12:00:00Z" }, count: 2 },
       maintenance: { status: "completed", backupFileName: "maintenance.sqlite", indexedSessions: 5 },
+      mcp: expectedMcpStatus,
       sseConnections: 1,
     });
     expect(response.body.database.bytes).toBeGreaterThan(0);
@@ -177,6 +213,24 @@ describe("Work Intelligence REST API", () => {
     expect(response.body.backups.latestAutomatic?.kind).toBe("automatic");
     const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     expect(after).toBe(before);
+
+    // Windows does not enforce POSIX directory write bits; the shared status test uses a portable probe seam.
+    if (process.platform !== "win32") {
+      const registryDirectory = getMcpRuntimeDirectory(repositoryRoot);
+      chmodSync(registryDirectory, 0o500);
+      try {
+        const unavailable = await requestJson<{ mcp: Record<string, unknown> }>(baseUrl, "/api/system/status");
+        expect(unavailable.body.mcp).toMatchObject({
+          restartRequired: false,
+          monitoringAvailable: false,
+          activeProcesses: 0,
+          outdatedProcesses: 0,
+          message: expect.stringContaining("無法確認"),
+        });
+      } finally {
+        chmodSync(registryDirectory, 0o700);
+      }
+    }
 
     await reader?.cancel();
   });

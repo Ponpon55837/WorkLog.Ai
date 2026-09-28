@@ -29,6 +29,7 @@ import type {
   ProjectStatus,
   ReportSynthesisRequest,
   ReportVerificationStatus,
+  SystemStatus,
 } from "@work-intelligence/core";
 import type { IconComponent, Tone } from "../components/ui/types";
 
@@ -47,6 +48,13 @@ export const databaseInspectionStatus: Record<DatabaseInspectionState, StatusVis
   unhealthy: { tone: "danger", icon: CircleX, label: "異常" },
   unreadable: { tone: "danger", icon: CircleAlert, label: "無法讀取" },
 };
+
+export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisual {
+  if (status.restartRequired) return { tone: "attention", icon: TriangleAlert, label: "需要重新連線" };
+  if (!status.monitoringAvailable) return { tone: "attention", icon: CircleAlert, label: "無法確認" };
+  if (status.activeProcesses === 0) return { tone: "neutral", icon: CircleDashed, label: "尚無可監測連線" };
+  return { tone: "success", icon: CircleCheck, label: "目前版本" };
+}
 
 export const databaseMaintenanceStatus: Record<DatabaseMaintenanceStatus, StatusVisual> = {
   running: { tone: "accent", icon: LoaderCircle, label: "執行中" },
