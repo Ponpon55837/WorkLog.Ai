@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 
 const TOOLS_LIST_CHARACTER_BUDGET = 30_000;
+const CONTRACT_INDEX_CHARACTER_BUDGET = 6_000;
+const LARGEST_OPERATION_CONTRACT_CHARACTER_BUDGET = 12_000;
+const CONTRACT_INDEX_URI = "work-intelligence://agent/tool-contracts";
 const PROJECT_ROOT = "/fictional/work-intelligence-mcp-tools-budget";
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -167,6 +170,20 @@ function resourceOperationSections(document: string): Map<string, string> {
   );
 }
 
+async function readText(client: Client, uri: string): Promise<string> {
+  return ((await client.readResource({ uri })).contents as Array<{ text?: string }>)[0]?.text ?? "";
+}
+
+/** Reads the operation index, then each operation's own contract, and joins them in index order. */
+async function readAllOperationContracts(client: Client): Promise<string> {
+  const index = await readText(client, CONTRACT_INDEX_URI);
+  const operations = [...index.matchAll(/^- (work_\w+) → work_\w+: /gm)].map((match) => match[1] ?? "");
+  const contracts = await Promise.all(
+    operations.map((operation) => readText(client, `${CONTRACT_INDEX_URI}/${operation}`)),
+  );
+  return contracts.join("\n\n");
+}
+
 function contractSchema(section: string): Record<string, unknown> {
   const match = section.match(/Input schema[^\n]*\n```json\n([\s\S]*?)\n```/);
   const schemaJson = match?.[1];
@@ -198,6 +215,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
 
     for (const tool of listing.tools) {
       const expected = EXPECTED_DISPATCHER_ANNOTATIONS[tool.name as keyof typeof EXPECTED_DISPATCHER_ANNOTATIONS];
+      expect(tool.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
       expect(tool.annotations).toEqual(expected);
       expect(tool.annotations?.readOnlyHint).toBe(expected.readOnlyHint);
       expect(tool.annotations?.openWorldHint).toBe(false);
@@ -212,8 +230,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
 
   it("publishes each of the 44 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
     const { client } = await connect();
-    const resource = await client.readResource({ uri: "work-intelligence://agent/tool-contracts" });
-    const document = (resource.contents as Array<{ text?: string }>)[0]?.text ?? "";
+    const document = await readAllOperationContracts(client);
     const sections = resourceOperationSections(document);
     const expectedOperationIds = Object.values(EXPECTED_OPERATIONS).flat();
     const operationHeadingCount = [...document.matchAll(/^## work_/gm)].length;
@@ -283,10 +300,100 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     );
   });
 
+  it("serves a compact operation index and bounded per-operation contracts instead of one full catalog", async () => {
+    const { client } = await connect();
+    const index = await readText(client, CONTRACT_INDEX_URI);
+    const { resourceTemplates } = await client.listResourceTemplates();
+    const expectedOperationIds = Object.values(EXPECTED_OPERATIONS).flat();
+    const contracts = await Promise.all(
+      expectedOperationIds.map(async (operation) => ({
+        operation,
+        length: (await readText(client, `${CONTRACT_INDEX_URI}/${operation}`)).length,
+      })),
+    );
+    const largest = contracts.reduce((max, entry) => (entry.length > max.length ? entry : max));
+    const finalizeLength = contracts.find((entry) => entry.operation === "work_finalize_session")?.length ?? 0;
+
+    console.info(
+      `MCP contract sizes (UTF-16 code units): ${JSON.stringify({
+        index: index.length,
+        finalize: finalizeLength,
+        largest,
+        all: contracts.reduce((sum, entry) => sum + entry.length, 0),
+      })}`,
+    );
+    expect(resourceTemplates.map((template) => template.uriTemplate)).toContain(`${CONTRACT_INDEX_URI}/{operation}`);
+    expect(index.length).toBeLessThanOrEqual(CONTRACT_INDEX_CHARACTER_BUDGET);
+    expect(largest.length).toBeLessThanOrEqual(LARGEST_OPERATION_CONTRACT_CHARACTER_BUDGET);
+    for (const [dispatcher, operationIds] of Object.entries(EXPECTED_OPERATIONS)) {
+      for (const operationId of operationIds) expect(index).toContain(`- ${operationId} → ${dispatcher}: `);
+    }
+    await expect(readText(client, `${CONTRACT_INDEX_URI}/work_unknown_operation`)).rejects.toThrow();
+  });
+
+  it("rejects unknown argument keys at every level instead of silently dropping them", async () => {
+    const { client } = await connect();
+
+    const invalidEnvelope = await client.callTool({
+      name: "work_read",
+      arguments: {
+        operation: "work_get_project_status",
+        arguments: { projectRoot: PROJECT_ROOT },
+        typo: true,
+      },
+    });
+    expect(invalidEnvelope.isError).toBe(true);
+    expect(resultText(invalidEnvelope)).toContain("typo");
+
+    const topLevel = await callOperation(client, "work_read", "work_list_sessions", {
+      projectRoot: PROJECT_ROOT,
+      limit: 5,
+    });
+    expect(topLevel.isError).toBe(true);
+    expect(resultText(topLevel)).toContain("Unknown argument(s): limit");
+
+    const nested = await callOperation(client, "work_write_idempotent", "work_finalize_session", {
+      projectRoot: PROJECT_ROOT,
+      idempotencyKey: "fictional-unknown-nested-key",
+      title: "Fictional",
+      summary: "Fictional summary.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [], nextstep: [] },
+      changedFiles: [],
+      verification: { status: "not_run", note: "typo" },
+    });
+    expect(nested.isError).toBe(true);
+    const nestedText = resultText(nested);
+    expect(nestedText).toContain("Unknown argument(s) in workSummary: nextstep");
+    expect(nestedText).toContain("Unknown argument(s) in verification: note");
+
+    const unionMember = await callOperation(client, "work_write_idempotent", "work_finalize_session", {
+      projectRoot: PROJECT_ROOT,
+      idempotencyKey: "fictional-unknown-union-key",
+      title: "Fictional",
+      summary: "Fictional summary.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: ["legacy string", { text: "Agent choice", origin: "agent_autonomous", why: "extra" }],
+        verification: [],
+        nextSteps: [],
+      },
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+    expect(unionMember.isError).toBe(true);
+    expect(resultText(unionMember)).toContain("Unknown argument(s) in workSummary.decisions.1: why");
+
+    const valid = await callOperation(client, "work_read", "work_list_sessions", {
+      projectRoot: PROJECT_ROOT,
+      pageSize: 5,
+    });
+    expect(valid.isError).toBeFalsy();
+  });
+
   it("routes every advertised operation through its assigned dispatcher", async () => {
     const { client } = await connect();
-    const resource = await client.readResource({ uri: "work-intelligence://agent/tool-contracts" });
-    const document = (resource.contents as Array<{ text?: string }>)[0]?.text ?? "";
+    const document = await readAllOperationContracts(client);
     const sections = resourceOperationSections(document);
     let callCount = 0;
 

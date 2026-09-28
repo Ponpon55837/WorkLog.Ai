@@ -187,7 +187,7 @@ describe("Agent setup", () => {
     const projectInstruction = printed.find((message) => message.includes("## Work Intelligence")) ?? "";
     expect(projectInstruction).toContain("透過 `work_read` 執行 `work_get_project_status`");
     expect(projectInstruction).toContain("透過 `work_write_idempotent` 執行 operation `work_finalize_session`");
-    expect(projectInstruction).toContain("work-intelligence://agent/tool-contracts");
+    expect(projectInstruction).toContain("work-intelligence://agent/tool-contracts/<operation>");
     expect(readdirSync(homeDirectory)).toEqual([]);
     expect(existsSync(fixture.paths.codexHome)).toBe(false);
     expect(existsSync(fixture.paths.claudeConfig)).toBe(false);

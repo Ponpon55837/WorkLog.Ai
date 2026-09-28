@@ -40,6 +40,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- The MCP contract resource `work-intelligence://agent/tool-contracts` is now a short operation index (3,954 UTF-16 code units); each operation's complete contract is served by the `work-intelligence://agent/tool-contracts/{operation}` resource template with compact JSON Schema. An Agent that saves a record reads about 18,300 code units (tools/list, index, and the finalize contract) instead of the 109,755-unit full catalog.
 - `work_get_knowledge_page_context` has two modes. `full` (an empty page or an explicit update request) gives recent Sessions for a complete rewrite; `review` (a written page) gives only Sessions finished after the page's coverage and cited sources that changed, oldest first. The Session budget dropped from 40,000 to 24,000 characters; on a real project a page review went from about 60,000 to 24,000 characters.
 - Finalize accepts `maintainedKnowledgePages`: the Session that saved or checked those pages no longer counts as their new data (`knowledgePagesAcknowledged` in the result). The cursor moves only when no other unreviewed Session came before it.
 - All MCP tool results are compact JSON (no indentation). `work_get_context` is capped at 10,000 characters with a task or paths and 16,000 without, measured the same way. Its `omitted` list only counts records already shown in another section (`duplicates`), lists at most 5 budget-omitted ids per section (`ids`, `reasons`, `moreIds`), and keeps full `entries` only for items flagged `possiblyStale` or `needsReview`; relevant items are now dropped only after long excerpts are shortened. On a real project, a task context went from 11,902 to 9,932 characters while its relevant content grew from 3,587 to 7,790 characters.
@@ -62,6 +63,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- MCP operation calls reject unknown or misspelled argument keys at any nesting level with an `unrecognized_keys` error naming them, instead of silently dropping them (for example `limit` on `work_list_sessions`), matching the advertised `additionalProperties: false`.
 - The Claude Code save reminder counts a save only when `work_finalize_session` succeeded, so a rejected, conflicting, or skipped save no longer shifts the next segment's start time. The Codex reminder also states when the segment began, using an optional `UserPromptSubmit` hook; `pnpm run doctor` reports whether it is set up.
 - Work record times can no longer be silently wrong: `startedAt`, `completedAt`, and event times later than the server clock are rejected with the server time in the message; times with a UTC offset (for example `+08:00`) are accepted and stored as UTC; `work_update_session_metadata` can correct `completedAt` (recorded as a note event) instead of voiding and recreating the Session, and reports a `startedAt` it cannot apply instead of dropping it silently.
 - Work history search (`work_search` and the web search box) no longer takes seconds on large databases: the full-text match now drives the join (about 150× faster at 5,000 Sessions).

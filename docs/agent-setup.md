@@ -208,7 +208,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 
 ## 在其他專案貼上使用說明
 
-任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是工作流程與隱私規則，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位與報告粒度，`work-intelligence://agent/tool-contracts` 是 44 項操作的完整 schema、說明與安全標註。第一次寫入前必須讀取 tool-contracts resource。Skill 複本供 host 自動判斷何時使用；resources 是完整內容的跨 client 來源。
+任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是工作流程與隱私規則，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位與報告粒度，`work-intelligence://agent/tool-contracts` 是 44 項操作的精簡索引，`work-intelligence://agent/tool-contracts/<operation>` 是單一操作的完整 schema、說明與安全標註。第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。Skill 複本供 host 自動判斷何時使用；resources 是完整內容的跨 client 來源。
 
 如果 Agent 不會主動選用 user-level skill，可將下列簡短規則貼到其他專案的 `AGENTS.md` 或 `CLAUDE.md`。它不需要引用 Work Intelligence repo 的檔案：
 
@@ -217,7 +217,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 
 - 在已由使用者明確設為「記錄中」的專案，開始工作前透過 `work_read` 執行 `work_get_project_status`，再以 `work_read` 執行 `work_get_context`，並提供任務與已知路徑。
 - 工作完成後，在完成驗證與交接後透過 `work_write_idempotent` 執行 `work_finalize_session`；只回報實際確認的成果、變更檔案與驗證結果。若專案不是 tracked，或無法確認狀態，不要建立 Work Intelligence 記錄。
-- 第一次寫入前讀取 `work-intelligence://agent/tool-contracts`；需要完整隱私規則與操作流程時，讀取 `work-intelligence://agent/work-intelligence/SKILL.md`；準備或修正記錄與報告時，再讀 `work-intelligence://agent/work-record-and-report-format.md`。
+- 第一次呼叫某個 operation 前，讀取 `work-intelligence://agent/tool-contracts/<operation>` 取得該操作的完整契約（索引在 `work-intelligence://agent/tool-contracts`）；需要完整隱私規則與操作流程時，讀取 `work-intelligence://agent/work-intelligence/SKILL.md`；準備或修正記錄與報告時，再讀 `work-intelligence://agent/work-record-and-report-format.md`。
 ```
 
 ## 第一次使用
@@ -253,6 +253,6 @@ Agent 會透過 `work_read` 執行 operation `work_get_project_status`，再執�
 
 Claude Code 也可以直接使用 MCP prompts：`/mcp__work-intelligence__finalize-work`（保存這次工作）與 `/mcp__work-intelligence__synthesize-report`（整理報告，可帶 `period`）。
 
-連線正確時，`/mcp` 會列出 4 個 MCP dispatcher、2 個 prompts 與 3 個 resources。`work_read` 帶有 `readOnlyHint`，可以在用戶端的權限設定中放行；寫入 dispatchers 分別標示冪等新增、新增處理和可能覆寫的操作。完整 operation 對照見 [mcp-tools.md](mcp-tools.md)，完整契約由 `work-intelligence://agent/tool-contracts` resource 提供。
+連線正確時，`/mcp` 會列出 4 個 MCP dispatcher、2 個 prompts 與 3 個 resources。`work_read` 帶有 `readOnlyHint`，可以在用戶端的權限設定中放行；寫入 dispatchers 分別標示冪等新增、新增處理和可能覆寫的操作。完整 operation 對照見 [mcp-tools.md](mcp-tools.md)，操作索引由 `work-intelligence://agent/tool-contracts` 提供，單一操作的完整契約在 `work-intelligence://agent/tool-contracts/<operation>`。
 
 如果專案還是 `unregistered`、`paused` 或 `ignored`，Agent 會在記錄狀態查詢時就停下來，MCP 也會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git、source 資料；這是 default-deny 的預期行為。Agent 無法替你切換成「記錄中」，這一步只能在 Web UI 完成。
