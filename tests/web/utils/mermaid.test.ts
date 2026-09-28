@@ -6,15 +6,65 @@ const mermaidMock = vi.hoisted(() => ({
     if (source.includes("-->\n") || source.endsWith("-->")) throw new Error("Parse error on line 2:\n...");
     return true;
   }),
-  render: vi.fn(async (id: string) => ({ svg: `<svg id="${id}"><style>#${id} .node{fill:red}</style><g/></svg>` })),
+  render: vi.fn(async (id: string, _source: string, target: Element) => {
+    const wrapper = document.createElement("div");
+    target.appendChild(wrapper);
+    const svg = document.createElement("svg");
+    wrapper.appendChild(svg);
+    const style = document.createElement("style");
+    style.textContent = `#${id} .node{fill:red}`;
+    svg.insertBefore(style, null);
+    return { svg: `<svg id="${id}"><g/></svg>` };
+  }),
 }));
+
+class FakeElement {
+  readonly children: FakeElement[] = [];
+  readonly style: Record<string, string> = {};
+  textContent = "";
+
+  constructor(readonly localName: string) {}
+
+  setAttribute(): void {}
+
+  appendChild<T extends FakeElement>(node: T): T {
+    this.children.push(node);
+    return node;
+  }
+
+  insertBefore<T extends FakeElement>(node: T): T {
+    this.children.unshift(node);
+    return node;
+  }
+
+  remove(): void {}
+}
+
+class FakeDivElement extends FakeElement {
+  constructor() {
+    super("div");
+  }
+}
+
+class FakeSvgElement extends FakeElement {
+  constructor() {
+    super("svg");
+  }
+}
 
 vi.mock("../../../apps/web/src/utils/mermaid-loader", () => ({
   importMermaid: async () => ({ default: mermaidMock }),
 }));
 
 beforeEach(() => {
-  vi.stubGlobal("document", { body: {} });
+  vi.stubGlobal("Element", FakeElement);
+  vi.stubGlobal("HTMLDivElement", FakeDivElement);
+  vi.stubGlobal("SVGSVGElement", FakeSvgElement);
+  vi.stubGlobal("document", {
+    body: { append: vi.fn() },
+    createElement: (name: string) =>
+      name === "svg" ? new FakeSvgElement() : name === "div" ? new FakeDivElement() : new FakeElement(name),
+  });
   vi.stubGlobal("window", { getComputedStyle: () => ({ fontFamily: "Noto Sans TC", fontSize: "14px" }) });
 });
 
@@ -50,6 +100,7 @@ describe("renderMermaid", () => {
     );
     expect(first.svg).not.toContain("<style");
     expect(first.css).toContain(".node{fill:red}");
+    expect(mermaidMock.render.mock.calls[0]?.[2]).toBeDefined();
     expect(second.svg).not.toEqual(first.svg);
   });
 

@@ -15,11 +15,17 @@
 | A. 回應用量 | A1 合成資料基線與暫行 CI 上限（PR #147 已合併）；A2 `work_get_context` 跨區去重、整份預算、任務優先（PR #148 已合併）；A3 `work_recall`／`work_search` 精簡結果（PR #149 已合併） |
 | B. 檢索準確度 | B1 查不到時回傳 `confidence: "none"`（PR #150）；B2 重複的規劃片段只算一次、已完成的工作優先（PR #151） |
 | C. 知識頁更新判斷 | C1 已引用來源被更正、作廢或還原時標示需要核對（PR #152 已合併）；C2 新 Session 只提示「有新資料」，可回報已檢查（PR #153 已合併） |
-| D. 其他 | D1 跨專案情境的測試；D2 Mermaid 在嚴格 CSP 下的 console 警告 |
+| D. 其他 | D1 跨專案情境的測試（PR #154 已合併）；D2 Mermaid 在嚴格 CSP 下不再產生 console 警告（PR 待建立） |
 
 ### D1 跨專案檢索隔離
 
-- Storage regression test 使用兩個 tracked 專案與一個先寫入 Session、再暫停的專案；確認 scoped `work_get_context`／`work_recall` 只回傳指定專案、unscoped 結果標示專案名稱與 id，paused 專案內容完全不出現在回應。
+- PR #154 加入 storage regression test，使用兩個 tracked 專案與一個先寫入 Session、再暫停的專案；確認 scoped `work_get_context`／`work_recall` 只回傳指定專案、unscoped 結果標示專案名稱與 id，paused 專案內容完全不出現在回應。
+
+### D2 Mermaid 嚴格 CSP console 警告
+
+- 根因是 Mermaid 11 的 `render()` 將動態 `<style>` 插入 SVG；主頁的 `style-src-elem 'self'` 拒絕 inline style，雖然之後已抽出 CSS，瀏覽器仍會記錄 CSP 錯誤。
+- 每次繪圖使用獨立且連接至文件的暫存 render surface，在 Mermaid 將 `<style>` 插入 SVG 前收集 CSS 並略過該節點；樣式仍由圖表 Shadow DOM 的 Constructable Stylesheet 套用。主頁 CSP 不變。
+- Mermaid E2E 保留 `style-src-elem 'self'` 檢查，並斷言整個繪圖、原始碼 fallback 與作廢流程沒有 CSP console 錯誤。
 
 ## 第六輪：可信度、洞察與好用度（已完成）
 

@@ -1231,6 +1231,13 @@ test.describe("Work Intelligence browser regression", () => {
   test("renders an attached Mermaid diagram under the strict CSP, falls back to source, and voids it", async ({
     page,
   }) => {
+    const cspConsoleMessages: string[] = [];
+    page.on("console", (message) => {
+      if (/content security policy|refused to apply inline style/i.test(message.text())) {
+        cspConsoleMessages.push(message.text());
+      }
+    });
+
     const diagramSessionId = withAgentStore((store) => {
       const finalized = store.finalizeSession({
         projectRoot,
@@ -1267,6 +1274,7 @@ test.describe("Work Intelligence browser regression", () => {
     await dialog.getByRole("button", { name: "作廢" }).click();
     await expect(dialog).toBeHidden();
     await expect(panel).toContainText("原因：E2E: wrong flow.");
+    expect(cspConsoleMessages).toEqual([]);
   });
 
   test("confirms backup deletion using only keyboard navigation @keyboard", async ({ page, request }) => {

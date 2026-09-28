@@ -16,6 +16,47 @@ export function splitSvgStyles(svg: string): { svg: string; css: string } {
   return { svg: markup, css: rules.join("\n") };
 }
 
+/** Provides Mermaid an attached measurement surface while keeping its SVG <style> node out of the document. */
+function createCspSafeRenderTarget(): { element: HTMLDivElement; cssRules: string[] } {
+  const element = document.createElement("div");
+  const cssRules: string[] = [];
+  element.setAttribute("aria-hidden", "true");
+  Object.assign(element.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    width: "100vw",
+    visibility: "hidden",
+  });
+
+  // Mermaid inserts its generated SVG <style> synchronously through these elements. Intercept that one node on
+  // the temporary render tree so the browser never reports a blocked inline style; the captured rules are applied
+  // to the final SVG through the component's Constructable Stylesheet.
+  const appendToTarget = element.appendChild.bind(element);
+  element.appendChild = (node) => {
+    if (node instanceof HTMLDivElement) {
+      const appendToWrapper = node.appendChild.bind(node);
+      node.appendChild = (child) => {
+        if (child instanceof SVGSVGElement) {
+          const insertBeforeSvg = child.insertBefore.bind(child);
+          child.insertBefore = (newNode, referenceNode) => {
+            if (newNode instanceof Element && newNode.localName === "style") {
+              cssRules.push(newNode.textContent ?? "");
+              return newNode;
+            }
+            return insertBeforeSvg(newNode, referenceNode);
+          };
+        }
+        return appendToWrapper(child);
+      };
+    }
+    return appendToTarget(node);
+  };
+
+  document.body.append(element);
+  return { element, cssRules };
+}
+
 /** Loads Mermaid once, on first use, with labels sanitized and interaction disabled. */
 function loadMermaid(): Promise<typeof import("mermaid").default> {
   loaded ??= importMermaid().then(({ default: mermaid }) => {
@@ -40,6 +81,12 @@ export async function renderMermaid(source: string): Promise<{ svg: string; css:
   const mermaid = await loadMermaid();
   await mermaid.parse(source);
   renderCount += 1;
-  const { svg } = await mermaid.render(`work-diagram-${renderCount}`, source);
-  return splitSvgStyles(svg);
+  const target = createCspSafeRenderTarget();
+  try {
+    const { svg } = await mermaid.render(`work-diagram-${renderCount}`, source, target.element);
+    const result = splitSvgStyles(svg);
+    return { svg: result.svg, css: [...target.cssRules, result.css].filter(Boolean).join("\n") };
+  } finally {
+    target.element.remove();
+  }
 }
