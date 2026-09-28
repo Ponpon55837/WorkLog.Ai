@@ -2128,10 +2128,19 @@ export interface ContextResult {
   omitted?: ContextOmission[];
 }
 
+/**
+ * What one context section left out. Items already shown elsewhere in the response are only counted
+ * (`duplicates`); budget omissions list up to a few `ids` plus `moreIds`; entries that carry trust or review
+ * signals are always kept in full under `entries`, so budget never hides them.
+ */
 export interface ContextOmission {
   section: string;
   count: number;
-  entries: Array<{
+  duplicates?: number;
+  ids?: string[];
+  moreIds?: number;
+  reasons?: string[];
+  entries?: Array<{
     id: string;
     reason: string;
     sourceSessionIds?: string[];

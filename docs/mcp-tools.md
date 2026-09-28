@@ -94,7 +94,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_context`
 
-傳入 `projectRoot` 時只回傳該 tracked project 的內容；不傳則涵蓋所有 tracked projects。回傳也包含伺服器時鐘 `clock`（同 `work_get_project_status`）。整份 pretty-printed JSON 字元目標：帶 `task`／`paths` 時不超過 12,000，沒有焦點時不超過 19,000。帶焦點時優先保留相關決策、陷阱、未結項與命中的知識頁段落，再放近期活動；Session／Knowledge 在多區命中時只留一份主要內容。摘要優先在句子邊界截斷並標記 `truncated`；沒有可用句界時會在安全的字元邊界截斷並標記。超過預算的項目列在 `omitted`，包含各區筆數、來源 id、原因與完整讀取工具；`possiblyStale`、`needsReview` 與待處理請求會保留。完整內容再用對應工具讀取：
+傳入 `projectRoot` 時只回傳該 tracked project 的內容；不傳則涵蓋所有 tracked projects。回傳也包含伺服器時鐘 `clock`（同 `work_get_project_status`）。所有工具的文字結果都是緊湊 JSON（不縮排）。整份 context 的字元上限：帶 `task`／`paths` 時 10,000，沒有焦點時 16,000。帶焦點時優先保留相關決策、陷阱、未結項與命中的知識頁段落，再放近期活動；Session／Knowledge 在多區命中時只留一份主要內容。摘要優先在句子邊界截斷並標記 `truncated`；沒有可用句界時會在安全的字元邊界截斷並標記。超過預算或已在其他區出現的項目列在 `omitted`；`possiblyStale`、`needsReview` 與待處理請求會保留。完整內容再用對應工具讀取：
 
 | 欄位 | 內容 | 讀取完整內容 |
 | --- | --- | --- |
@@ -107,13 +107,13 @@ MCP client 的 stdio 設定可使用：
 
 `pendingRequests.reportSynthesis`／`pendingRequests.metadataBackfill` 列出 pending 或 processing、等待 Agent 處理的請求（新到舊，各最多 5 筆）。指定專案時也包含「所有專案」範圍的請求。
 
-帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作及需要核對的知識頁段落，並保留 `sourceSessionIds`；知識頁來源 id 在整份 context 最多列 8 筆，超出的數量以 `sourceSessionIdsOmittedCount` 標示。頁面層級的 `needsReview` 會保留，受影響段落列出來源 Session id／標題與原因。單一 context 最多列出 8 筆來源核對明細；受影響段落仍全部列出，超出的來源以 `omittedSourceCount` 與 `reasons` 彙整，完整清單可用 `work_get_knowledge_page_context` 讀取。原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面，省略項目會保留核對旗標與段落指標。`omitted` 每區帶 `count`、`entries`（`id`、`reason`，必要時包含來源與信任旗標）及 `readWith`。依該工具讀取全文，不要把摘要截斷或省略當成來源內容。
+帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作及需要核對的知識頁段落，並保留 `sourceSessionIds`；知識頁來源 id 在整份 context 最多列 8 筆，超出的數量以 `sourceSessionIdsOmittedCount` 標示。頁面層級的 `needsReview` 會保留，受影響段落列出來源 Session id／標題與原因。單一 context 最多列出 8 筆來源核對明細；受影響段落仍全部列出，超出的來源以 `omittedSourceCount` 與 `reasons` 彙整，完整清單可用 `work_get_knowledge_page_context` 讀取。原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面，省略項目會保留核對旗標與段落指標。依 `readWith` 讀取全文，不要把摘要截斷或省略當成來源內容。
 
 開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是：
 
 | 欄位 | 內容 |
 | --- | --- |
-| `relevant.confidence` | `none` 表示沒有達到最低 IDF 加權命中比例且沒有路徑命中，`low` 表示只有弱的部分命中，`high` 表示至少一筆達到 50% 命中比例或命中路徑；為 `none` 時不能把相關命中當依據 |
+| `relevant.confidence` | 規則同 `work_recall`：`none` 時不能把相關命中當依據 |
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
@@ -121,7 +121,17 @@ MCP client 的 stdio 設定可使用：
 | `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
 | `relevant.hotspots` | 指定專案並帶 `paths` 時才出現：過去 30 天被 3 筆以上 Session 修改的路徑，附 Session 數、驗證失敗與未執行數；修改前應特別注意 |
 
-`omitted` 列出為符合預算而省略或跨區去重的內容，`count` 是該區項目數，`entries` 保留 id、原因與需要的來源／信任旗標；`readWith` 指出取得全文的工具。依照指標讀取原文後再使用，不要把 omitted 摘要或截斷片段當作證據。
+`omitted` 每區一筆，欄位如下；省略清單本身保持精簡，不會擠掉內容：
+
+| 欄位 | 內容 |
+| --- | --- |
+| `count` | 該區省略的項目總數 |
+| `duplicates` | 其中已在這份回應其他區出現的數量（只計數，不列 id） |
+| `ids`／`reasons`／`moreIds` | 因預算省略的項目：最多列 5 個 id 與原因，其餘以 `moreIds` 計數 |
+| `entries` | 帶 `possiblyStale`、`needsReview` 或來源核對明細的項目，一律完整保留 |
+| `readWith` | 讀取完整內容的工具 |
+
+依照指標讀取原文後再使用，不要把 omitted 或截斷片段當作證據。
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "task": "修正報表時區", "paths": ["src/report/range.ts"] }
@@ -149,7 +159,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_recall`
 
-排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。回應附 `confidence`：`none` 表示沒有達到最低 10% IDF 加權命中比例且沒有路徑命中，此時 `hits` 必為空且不能把結果當依據；`low` 表示只有弱的部分命中；`high` 表示至少一筆命中達到 50% 加權比例或命中路徑。MCP text block 使用緊湊 JSON，保留完整 hit 欄位並符合回應大小上限。
+排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。回應附 `confidence`：`none` 表示沒有達到最低 10% IDF 加權命中比例且沒有路徑命中，此時 `hits` 必為空且不能把結果當依據；`low` 表示只有弱的部分命中，或查詢詞只出現在 raw handoff（例如舊規劃文件引用了這個詞）；`high` 表示至少一筆在標題、摘要、workSummary 或 Knowledge 命中一半以上的加權比例，或命中路徑。
 
 - **索引範圍**：Session 的 title、summary、五段 workSummary、changed files、branch、events，以及 raw handoff snapshot 依 `#`～`###` 標題切成的段落；Knowledge 的 title、body、tags、references。
 - **查詢**：以空白分隔的每個詞獨立比對，不需要整句完全相符；英文識別字會拆成 camelCase／snake_case 各段，中文以雙字切詞（兩字中文詞可直接查），常見虛詞（the、what、為什麼、如何…）會略過。
@@ -166,7 +176,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_search`
 
-與 `work_recall` 使用同一個排序引擎，但只查 Session，最多 20 筆，同樣可帶 `from`／`to`。排序優先採用 title、summary、workSummary 等結構化 Session 欄位；同一專案重複引用的 raw handoff 片段依正規化 hash 去重，最早來源保留完整權重，後續引用降為 10%。回傳 `{ outcome: "search", confidence, hits, termHits? }`；confidence 規則與 `work_recall` 相同，為 `none` 時 `hits` 為空，不能用作依據。每筆是精簡 hit：`id`、標題、完成日期、最強的 `matchedIn` 欄位、選用的 raw 段落標題、最多 110 字元的 `excerpt`、選用的 `truncated` 與 `verificationStatus`。當標題是最強命中且摘要也包含查詢詞時，`excerpt` 改取摘要片段，以保留回答脈絡。project-scoped 結果省略重複的專案識別欄位。MCP text block 使用緊湊 JSON，保留 20 筆完整欄位並符合回應大小上限。它不再重複回傳整份 Session digest；以 `work_get_session` 讀取完整摘要、未結項及其他欄位。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
+與 `work_recall` 使用同一個排序引擎，但只查 Session，最多 20 筆，同樣可帶 `from`／`to`。排序優先採用 title、summary、workSummary 等結構化 Session 欄位；同一專案重複引用的 raw handoff 片段依正規化 hash 去重，最早來源保留完整權重，後續引用降為 10%。回傳 `{ outcome: "search", confidence, hits, termHits? }`；confidence 規則與 `work_recall` 相同，為 `none` 時 `hits` 為空，不能用作依據。每筆是精簡 hit：`id`、標題、完成日期、最強的 `matchedIn` 欄位、選用的 raw 段落標題、最多 110 字元的 `excerpt`、選用的 `truncated` 與 `verificationStatus`。當標題是最強命中且摘要也包含查詢詞時，`excerpt` 改取摘要片段，以保留回答脈絡。project-scoped 結果省略重複的專案識別欄位。它不再重複回傳整份 Session digest；以 `work_get_session` 讀取完整摘要、未結項及其他欄位。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
 
 ## Tool annotations 與 prompts
 

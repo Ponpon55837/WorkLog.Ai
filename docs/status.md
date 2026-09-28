@@ -6,6 +6,15 @@
 
 - 最後更新：2026-09-28
 
+## 第七輪複檢（Claude，2026-09-28）
+
+PR #147–#156 的 head、merge SHA、CI run（四項皆 success）與 Work Intelligence Session 對照都與複檢交接一致。以實際資料的唯讀備份重跑使用測試後，修正下列問題：
+
+- `work_get_context` 的省略清單佔掉約三分之一預算（實際資料 3,978／11,902 字元），還逐筆列出已在其他區出現的 id，使相關 Session 被預算擠掉。改為只計數重複、每區最多列 5 個預算省略 id；關鍵旗標仍完整保留，並改為先縮短摘要再丟相關項目。
+- 所有 MCP 工具結果改為緊湊 JSON；context 上限改以緊湊 JSON 計算（有焦點 10,000、無焦點 16,000）。
+- 查詢詞只出現在 raw handoff（例如交接文件引用了測試用的虛構詞）時，`confidence` 由 `high` 改為 `low`。實測中的「星際量子記憶加速器」確實出現在第七輪交接文件中，並非 B1 失效。
+- `docs/testing.md` 的回應大小改為一張「第七輪開始前／目前／上限」對照表。
+
 ## 第七輪：Agent 脈絡的用量與準確度（已完成）
 
 原始交接文件：[`.openspec/handoffs/2026-09-28-claude-to-codex-round7.md`](../.openspec/handoffs/2026-09-28-claude-to-codex-round7.md)；複檢交接文件：[`.openspec/handoffs/2026-09-28-codex-round7-review.md`](../.openspec/handoffs/2026-09-28-codex-round7-review.md)。依據是使用者請 Codex 以實際資料做的兩次使用測試。A1–D2 各階段均各自開 PR，四項 CI 成功後以 merge commit 合併；詳見複檢交接文件的 SHA／CI／工作記錄對照表。

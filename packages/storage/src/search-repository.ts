@@ -47,6 +47,8 @@ const MAX_QUERY_TERMS = 32;
 const EXCERPT_LENGTH = 220;
 // Keep weak matches as low-confidence leads, but suppress records with under 10% of the query's IDF weight.
 const MIN_QUERY_COVERAGE = 0.1;
+// "high" needs half the query's IDF weight in structured fields (title, summary, workSummary, Knowledge) or a
+// path match; matches only inside raw handoff text, such as a quoted query in old planning notes, stay "low".
 const HIGH_CONFIDENCE_QUERY_COVERAGE = 0.5;
 // Evidence strength for Knowledge: each confirmation (up to 5) adds 4%, and a contradiction newer than the
 // latest confirmation lowers the score, so a disputed item ranks below an equally matching trusted one.
@@ -101,6 +103,8 @@ interface DocAccumulator {
   bestChunk?: { id: number; score: number; field: RecallField };
   bestRaw?: { id: number; score: number; heading: string };
   terms: Set<number>;
+  /** Query terms matched outside raw handoff text; a quote in old planning notes alone is not a confident answer. */
+  structuredTerms: Set<number>;
   pathScore: number;
   matchedPaths: Set<string>;
 }
@@ -240,6 +244,7 @@ export class SearchRepository {
           fieldScore: 0,
           fields: new Map(),
           terms: new Set(),
+          structuredTerms: new Set(),
           pathScore: 0,
           matchedPaths: new Set(),
         };
@@ -264,12 +269,17 @@ export class SearchRepository {
         for (const index of doc.terms) {
           matchedIdf += idf[index] ?? 0;
         }
+        let structuredIdf = 0;
+        for (const index of doc.structuredTerms) {
+          structuredIdf += idf[index] ?? 0;
+        }
         const coverage = totalIdf > 0 ? matchedIdf / totalIdf : 0;
+        const structuredCoverage = totalIdf > 0 ? structuredIdf / totalIdf : 0;
         const textScore = (doc.fieldScore + (doc.bestRaw?.score ?? 0)) * coverage * coverage;
         const ageDays = Math.max(0, (now - Date.parse(doc.date)) / 86_400_000) || 0;
         const recency = 0.75 + 0.25 * Math.exp(-ageDays / RECENCY_DAYS);
         const strength = doc.type === "knowledge" ? (evidence.get(doc.id) ?? 1) : 1;
-        return { doc, coverage, score: (textScore + doc.pathScore) * recency * strength };
+        return { doc, coverage, structuredCoverage, score: (textScore + doc.pathScore) * recency * strength };
       })
       .filter((entry) => entry.score > 0 && (entry.doc.matchedPaths.size > 0 || entry.coverage >= MIN_QUERY_COVERAGE))
       .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
@@ -286,7 +296,9 @@ export class SearchRepository {
     const confidence =
       hits.length === 0
         ? "none"
-        : selected.some((entry) => entry.doc.matchedPaths.size > 0 || entry.coverage >= HIGH_CONFIDENCE_QUERY_COVERAGE)
+        : selected.some(
+              (entry) => entry.doc.matchedPaths.size > 0 || entry.structuredCoverage >= HIGH_CONFIDENCE_QUERY_COVERAGE,
+            )
           ? "high"
           : "low";
 
@@ -453,6 +465,7 @@ export class SearchRepository {
       termSets.forEach((set, index) => {
         if (set.has(row.id)) {
           doc.terms.add(index);
+          if (row.field !== "raw") doc.structuredTerms.add(index);
         }
       });
       const rawWeight = row.field === "raw" && !row.is_primary_raw ? DUPLICATE_RAW_WEIGHT_FACTOR : 1;

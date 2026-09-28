@@ -41,18 +41,19 @@ export function toStructuredContent(value: unknown): StructuredContent | undefin
   return buildSessionStructuredContent(value);
 }
 
-export function textResult(value: unknown, options: { compact?: boolean } = {}) {
+/** Tool results are compact JSON: indentation only costs the Agent tokens. */
+export function textResult(value: unknown) {
   const structuredContent = toStructuredContent(value);
 
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(value, null, options.compact ? undefined : 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(value) }],
     ...(structuredContent ? { structuredContent } : {}),
   };
 }
 
 export function sessionTextResult(value: unknown) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(value) }],
     structuredContent: toSessionStructuredContent(value) ?? {},
   };
 }

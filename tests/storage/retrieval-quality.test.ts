@@ -446,6 +446,26 @@ describe("synthetic retrieval quality regression", () => {
     expect(strong.hits[0]?.id).toBe(expectedIds.get("s-migration-backup"));
   });
 
+  it("keeps a query that is only quoted in raw planning notes at low confidence", () => {
+    const quotedId = createSession("quality-quoted-query-plan", root, {
+      title: "Retrieval test plan for the next round",
+      summary: "The next round checks how recall behaves for queries with no recorded answer.",
+      handoffContent: [
+        "# Plan",
+        "",
+        "## Missing answers",
+        "",
+        "A made-up query such as heliotrope lattice defragmenter must not look like a confident answer.",
+      ].join("\n"),
+    });
+    const quoted = store.recall({ q: "heliotrope lattice defragmenter", projectRoot: root, limit: 5 });
+    expect(quoted.outcome).toBe("recall");
+    if (quoted.outcome !== "recall") throw new Error("Expected synthetic recall for a quoted query.");
+    expect(quoted.hits[0]?.id).toBe(quotedId);
+    expect(quoted.hits[0]?.matchedIn).toEqual(["raw"]);
+    expect(quoted.confidence).toBe("low");
+  });
+
   it("makes a task miss explicit in relevant context", () => {
     const context = store.getContext(root, { task: "interstellar quantum memory accelerator" });
     expect(context.outcome).toBe("context");
@@ -696,24 +716,12 @@ describe("synthetic retrieval quality regression", () => {
     expect(context.recentKnowledge.some((item) => item.id === knowledge.knowledge.id)).toBe(false);
     expect(context.omitted).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          section: "recentSessions",
-          readWith: "work_get_session",
-          entries: expect.arrayContaining([{ id: session.session.id, reason: expect.any(String) }]),
-        }),
-        expect.objectContaining({
-          section: "recentKnowledge",
-          readWith: "work_search_knowledge",
-          entries: expect.arrayContaining([{ id: knowledge.knowledge.id, reason: expect.any(String) }]),
-        }),
+        expect.objectContaining({ section: "recentSessions", readWith: "work_get_session", duplicates: 1 }),
+        expect.objectContaining({ section: "recentKnowledge", readWith: "work_search_knowledge", duplicates: 1 }),
         expect.objectContaining({
           section: "knowledgePages",
           readWith: "work_get_knowledge_page_context",
-          entries: expect.arrayContaining([
-            expect.objectContaining({
-              id: "architecture",
-            }),
-          ]),
+          duplicates: 1,
         }),
       ]),
     );
