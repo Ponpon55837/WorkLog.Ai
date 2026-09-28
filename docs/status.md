@@ -6,6 +6,18 @@
 
 - 最後更新：2026-09-28
 
+## 第八輪：收尾——可用、好用、能幫到其他專案，並發行 1.0.0（交給 Codex）
+
+交接文件：[`.openspec/handoffs/2026-09-28-claude-to-codex-round8.md`](../.openspec/handoffs/2026-09-28-claude-to-codex-round8.md)。依據是第七輪複檢，以及使用者請 Codex 做的兩次實測。開機自動啟動、發行 workflow 與 1.0.0 依使用者決定排在最後階段；需要實體環境的驗證寫成使用者驗收清單。
+
+| 階段 | 項目 |
+| --- | --- |
+| A. 讓其他專案的 Agent 真的會用 | A1 使用說明隨 MCP 交付與 `pnpm setup:agents`；A2 工具清單瘦身（約 68,000 → 30,000 字元以內）；A3 偵測過期的 MCP 程序；A4 第一次使用的引導與 Agent 連線狀態 |
+| B. 找得到答案 | B1 中英與同義詞查詢擴展；B2 `pnpm eval:recall` 讓使用者在自己的資料上量測檢索品質 |
+| C. 實際幫助 | C1 未結項追蹤；C2 知識頁的維護提示 |
+| D. 工程收尾 | D1 安全與相依性；D2 文件總整理 |
+| E. 發行 1.0.0 | E1 開機自動啟動；E2 發行 workflow 與 1.0.0；E3 使用者實機驗收清單 |
+
 ## 第七輪複檢（Claude，2026-09-28）
 
 PR #147–#156 的 head、merge SHA、CI run（四項皆 success）與 Work Intelligence Session 對照都與複檢交接一致。以實際資料的唯讀備份重跑使用測試後，修正下列問題：
