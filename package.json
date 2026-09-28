@@ -16,6 +16,7 @@
     "start": "node scripts/start.mjs",
     "start:mcp": "pnpm --filter @work-intelligence/mcp start",
     "doctor": "pnpm --filter @work-intelligence/server exec tsx src/doctor.ts",
+    "setup:agents": "pnpm --filter @work-intelligence/server exec tsx src/setup-agents.ts",
     "db:backup": "node apps/server/dist/cli.js backup",
     "db:backups": "node apps/server/dist/cli.js backups",
     "db:export": "node apps/server/dist/cli.js export",

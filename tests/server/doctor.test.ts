@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspectDatabaseReadOnlyMetadata, resolveBackupDirectory } from "../../apps/server/src/database-inspection.js";
 import { inspectDatabaseReadOnly, inspectGlobalHooks } from "../../apps/server/src/doctor.js";
+import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -112,6 +113,7 @@ describe("pnpm doctor read-only checks", () => {
       claudeConfigured: true,
       codexConfigured: true,
       codexSegmentStartConfigured: false,
+      codexHooksFeature: "enabled",
     });
 
     const withPromptHook = JSON.parse(codexHooks) as { hooks: Record<string, unknown> };
@@ -156,5 +158,84 @@ describe("pnpm doctor read-only checks", () => {
 
     writeFileSync(claudeSettingsPath, settingsWith([resolve(directory, "other/finalize-reminder.js")]));
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeConfigured).toBe(false);
+  });
+
+  it("recognizes platform-quoted hook commands under apostrophe paths and respects Codex config roots", () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository O'Brien");
+    const codexHomeDirectory = join(directory, "codex-home");
+    const claudeConfigDirectory = join(directory, "claude-config");
+    const claudeHook = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+    const codexHook = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+    mkdirSync(join(claudeConfigDirectory), { recursive: true });
+    mkdirSync(codexHomeDirectory, { recursive: true });
+    writeFileSync(
+      join(claudeConfigDirectory, "settings.json"),
+      JSON.stringify({
+        hooks: {
+          Stop: [{ hooks: [{ type: "command", command: commandForAgentHook(claudeHook, process.platform) }] }],
+        },
+      }),
+    );
+    writeFileSync(
+      join(codexHomeDirectory, "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: "^(apply_patch|.*work_finalize_session)$",
+              hooks: [{ type: "command", command: commandForAgentHook(codexHook, process.platform) }],
+            },
+          ],
+          Stop: [{ hooks: [{ type: "command", command: commandForAgentHook(codexHook, process.platform) }] }],
+        },
+      }),
+    );
+    writeFileSync(join(codexHomeDirectory, "config.toml"), "[features]\ncodex_hooks = false\n");
+
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot, codexHomeDirectory, claudeConfigDirectory)).toEqual({
+      claudeConfigured: true,
+      codexConfigured: true,
+      codexSegmentStartConfigured: false,
+      codexHooksFeature: "disabled",
+    });
+  });
+
+  it("detects missing, current, and stale user-scope skill copies by raw content hash", () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository");
+    const codexHomeDirectory = join(directory, "custom-codex");
+    const claudeConfigDirectory = join(directory, "custom-claude");
+    const sourcePath = join(repositoryRoot, ".agents", "skills", "work-intelligence", "SKILL.md");
+    const source = Buffer.from("<!-- Work Intelligence skill version: 0.1.0 -->\nCanonical bytes\n", "utf8");
+    mkdirSync(join(repositoryRoot, ".agents", "skills", "work-intelligence"), { recursive: true });
+    writeFileSync(sourcePath, source);
+
+    expect(
+      inspectAgentSkillCopies(homeDirectory, repositoryRoot, codexHomeDirectory, claudeConfigDirectory),
+    ).toMatchObject([
+      { componentId: "codexSkill", state: "missing" },
+      { componentId: "codexLegacySkill", state: "missing" },
+      { componentId: "claudeSkill", state: "missing" },
+    ]);
+    const codexSkill = join(homeDirectory, ".agents", "skills", "work-intelligence", "SKILL.md");
+    const codexLegacySkill = join(codexHomeDirectory, "skills", "work-intelligence", "SKILL.md");
+    const claudeSkill = join(claudeConfigDirectory, "skills", "work-intelligence", "SKILL.md");
+    mkdirSync(join(homeDirectory, ".agents", "skills", "work-intelligence"), { recursive: true });
+    mkdirSync(join(codexHomeDirectory, "skills", "work-intelligence"), { recursive: true });
+    mkdirSync(join(claudeConfigDirectory, "skills", "work-intelligence"), { recursive: true });
+    writeFileSync(codexSkill, source);
+    writeFileSync(codexLegacySkill, source);
+    writeFileSync(claudeSkill, Buffer.from(source.toString("utf8").replace("Canonical", "Modified"), "utf8"));
+
+    expect(
+      inspectAgentSkillCopies(homeDirectory, repositoryRoot, codexHomeDirectory, claudeConfigDirectory),
+    ).toMatchObject([
+      { componentId: "codexSkill", state: "current" },
+      { componentId: "codexLegacySkill", state: "current" },
+      { componentId: "claudeSkill", state: "stale" },
+    ]);
   });
 });
