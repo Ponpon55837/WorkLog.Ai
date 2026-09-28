@@ -3,11 +3,13 @@ name: work-intelligence
 description: Use the Work Intelligence MCP to finalize or repair tracked-project work sessions, recall related past work before starting a task or when an error appears, retrieve saved context, backfill verified metadata, and synthesize requested reports. Do not use it to record untracked project work.
 ---
 
+<!-- Work Intelligence skill version: 0.1.0 -->
+
 # Work Intelligence MCP
 
 Use this skill whenever a user asks to save or correct a Work Intelligence work record, retrieve its context, repair metadata, or prepare a Work Intelligence report. The user-facing interaction stays natural-language only: do not ask the user to name MCP tools, provide request IDs or JSON, or direct the user through an internal tool sequence.
 
-For the canonical field definitions, reporting granularity, and examples, read [the work record and report format](../../../docs/work-record-and-report-format.md). This skill describes how to apply that format through MCP.
+For the canonical field definitions, reporting granularity, and examples, read the `work-intelligence://agent/work-record-and-report-format.md` MCP resource with standard `resources/read`. This skill describes how to apply that format through MCP and does not depend on a link into the Work Intelligence repository.
 
 ## Privacy and project policy
 

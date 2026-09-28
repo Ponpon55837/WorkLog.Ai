@@ -6,6 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- `pnpm setup:agents` previews a user-level Codex and Claude Code setup before confirmation, backs up managed settings before installation, and supports safe uninstall; `doctor` detects missing or stale skill copies by content hash, and the MCP serves its complete agent skill and record-format contract through standard resources.
 - A synthetic MCP response-size baseline that exercises `work_get_context`, `work_recall`, and `work_search` through the in-memory transport; CI reports and gates serialized character counts without using the user database.
 - Task-aware `work_get_context` deduplicates recent and relevant Session/Knowledge content, selects matching Knowledge-page sections, and applies a whole-response character budget with explicit omission pointers and truncation markers.
 - Compact `work_recall` and `work_search` results keep ranked source ids and answer-bearing excerpts while avoiding repeated project and Session digest data; full source records remain readable by id.

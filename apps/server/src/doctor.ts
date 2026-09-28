@@ -11,6 +11,7 @@ import {
   resolveBackupDirectory,
   type ReadOnlyDatabaseInspection,
 } from "./database-inspection.js";
+import { inspectAgentSkillCopies, inspectCodexHooksFeature, type CodexHooksFeature } from "./agent-setup.js";
 
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PACKAGE_MANAGER_SCHEMA = z.string().regex(/^pnpm@\d+\.\d+\.\d+(?:\+.*)?$/);
@@ -71,6 +72,7 @@ export interface GlobalHookInspection {
   codexConfigured: boolean;
   /** Optional UserPromptSubmit hook that lets the Codex reminder state when the segment began. */
   codexSegmentStartConfigured: boolean;
+  codexHooksFeature: CodexHooksFeature;
 }
 
 function addFinding(
@@ -139,10 +141,55 @@ function commandPointsTo(command: string, scriptPath: string): boolean {
   const normalizedCommand = normalizeConfigPath(command.trim()).replace(/["']+$/g, "");
   const normalizedPath = normalizeConfigPath(scriptPath);
   if (!normalizedCommand.endsWith(normalizedPath)) {
-    return false;
+    if (process.platform === "win32") return false;
+    return parsePosixShellWords(command).some((part) => normalizeConfigPath(part) === normalizedPath);
   }
   const prefix = normalizedCommand.slice(0, -normalizedPath.length);
-  return prefix.length === 0 || /\s$/.test(prefix) || /["']$/.test(prefix);
+  if (prefix.length === 0 || /\s$/.test(prefix) || /["']$/.test(prefix)) return true;
+  if (process.platform === "win32") return false;
+  return parsePosixShellWords(command).some((part) => normalizeConfigPath(part) === normalizedPath);
+}
+
+function parsePosixShellWords(command: string): string[] {
+  const words: string[] = [];
+  let word = "";
+  let quote: "'" | '"' | undefined;
+  let escaping = false;
+  let hasWord = false;
+  for (const char of command) {
+    if (escaping) {
+      word += char;
+      hasWord = true;
+      escaping = false;
+    } else if (quote === "'") {
+      if (char === "'") quote = undefined;
+      else word += char;
+      hasWord = true;
+    } else if (quote === '"') {
+      if (char === '"') quote = undefined;
+      else if (char === "\\") escaping = true;
+      else word += char;
+      hasWord = true;
+    } else if (char === "'") {
+      quote = "'";
+      hasWord = true;
+    } else if (char === '"') {
+      quote = '"';
+      hasWord = true;
+    } else if (char === "\\") {
+      escaping = true;
+    } else if (/\s/.test(char)) {
+      if (hasWord) words.push(word);
+      word = "";
+      hasWord = false;
+    } else {
+      word += char;
+      hasWord = true;
+    }
+  }
+  if (escaping) word += "\\";
+  if (hasWord) words.push(word);
+  return words;
 }
 
 function hasClaudeStopHook(config: Record<string, unknown> | undefined, scriptPath: string): boolean {
@@ -166,17 +213,23 @@ function hasCodexGlobalHooks(config: Record<string, unknown> | undefined, script
 }
 
 /** Inspects only the global Claude and Codex hook configuration files. */
-export function inspectGlobalHooks(homeDirectory: string, repositoryRoot: string): GlobalHookInspection {
+export function inspectGlobalHooks(
+  homeDirectory: string,
+  repositoryRoot: string,
+  codexHomeDirectory = join(homeDirectory, ".codex"),
+  claudeConfigDirectory = join(homeDirectory, ".claude"),
+): GlobalHookInspection {
   const claudeScript = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
   const codexScript = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
-  const claudeSettings = readJsonObject(join(homeDirectory, ".claude", "settings.json"));
-  const codexSettings = readJsonObject(join(homeDirectory, ".codex", "hooks.json"));
+  const claudeSettings = readJsonObject(join(claudeConfigDirectory, "settings.json"));
+  const codexSettings = readJsonObject(join(codexHomeDirectory, "hooks.json"));
   return {
     claudeConfigured: hasClaudeStopHook(claudeSettings, claudeScript),
     codexConfigured: hasCodexGlobalHooks(codexSettings, codexScript),
     codexSegmentStartConfigured: collectCommands(entries(record(codexSettings?.hooks)?.UserPromptSubmit)).some(
       (command) => commandPointsTo(command, codexScript),
     ),
+    codexHooksFeature: inspectCodexHooksFeature(homeDirectory, codexHomeDirectory),
   };
 }
 
@@ -185,9 +238,9 @@ function inspectClaudeMcp(homeDirectory: string): boolean {
   return record(record(config?.mcpServers)?.["work-intelligence"]) !== undefined;
 }
 
-function inspectCodexMcp(homeDirectory: string): boolean {
+function inspectCodexMcp(homeDirectory: string, codexHomeDirectory = join(homeDirectory, ".codex")): boolean {
   try {
-    const config = readFileSync(join(homeDirectory, ".codex", "config.toml"), "utf8");
+    const config = readFileSync(join(codexHomeDirectory, "config.toml"), "utf8");
     return /^\s*\[mcp_servers\.work-intelligence\]\s*$/m.test(config);
   } catch {
     return false;
@@ -333,9 +386,11 @@ export async function collectDoctorFindings(
     environment?: NodeJS.ProcessEnv;
   } = {},
 ): Promise<DoctorFinding[]> {
-  const homeDirectory = options.homeDirectory ?? process.env.HOME ?? process.env.USERPROFILE ?? "";
-  const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
   const environment = options.environment ?? process.env;
+  const homeDirectory = options.homeDirectory ?? environment.HOME ?? environment.USERPROFILE ?? "";
+  const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
+  const codexHomeDirectory = resolve(environment.CODEX_HOME?.trim() || join(homeDirectory, ".codex"));
+  const claudeConfigDirectory = resolve(environment.CLAUDE_CONFIG_DIR?.trim() || join(homeDirectory, ".claude"));
   const parsedEnvironment = ENVIRONMENT_SCHEMA.safeParse(environment);
   const findings: DoctorFinding[] = [];
 
@@ -495,7 +550,7 @@ export async function collectDoctorFindings(
   }
 
   const claudeMcp = inspectClaudeMcp(homeDirectory);
-  const codexMcp = inspectCodexMcp(homeDirectory);
+  const codexMcp = inspectCodexMcp(homeDirectory, codexHomeDirectory);
   addFinding(
     findings,
     claudeMcp ? "ok" : "warning",
@@ -511,7 +566,29 @@ export async function collectDoctorFindings(
     codexMcp ? undefined : "依 docs/agent-setup.md 註冊 work-intelligence MCP。",
   );
 
-  const globalHooks = inspectGlobalHooks(homeDirectory, repositoryRoot);
+  const skillFindings = inspectAgentSkillCopies(
+    homeDirectory,
+    repositoryRoot,
+    codexHomeDirectory,
+    claudeConfigDirectory,
+  );
+  for (const finding of skillFindings) {
+    const title =
+      finding.componentId === "codexSkill"
+        ? "Codex canonical work-intelligence skill"
+        : finding.componentId === "codexLegacySkill"
+          ? "Codex legacy compatibility skill"
+          : "Claude Code work-intelligence skill";
+    addFinding(
+      findings,
+      finding.state === "current" ? "ok" : "warning",
+      title,
+      finding.detail,
+      finding.state === "current" ? undefined : "執行 pnpm setup:agents 預覽並依提示安裝或更新 skill。",
+    );
+  }
+
+  const globalHooks = inspectGlobalHooks(homeDirectory, repositoryRoot, codexHomeDirectory, claudeConfigDirectory);
   const claudeHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js"));
   const codexHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js"));
   addFinding(
@@ -520,27 +597,35 @@ export async function collectDoctorFindings(
     "Claude 全域 hook",
     claudeHookExists
       ? globalHooks.claudeConfigured
-        ? "全域 Stop hook 指向目前專案的 dist 腳本。"
-        : "dist 腳本存在，但全域 ~/.claude/settings.json 沒有指向它的 Stop hook。"
+        ? "全域 Stop hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
+        : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
       : "apps/mcp/dist/finalize-reminder.js 不存在。",
     claudeHookExists && globalHooks.claudeConfigured
-      ? undefined
+      ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
       : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
   );
+  const codexHooksDisabled = globalHooks.codexHooksFeature === "disabled";
+  const codexHooksEnabled = globalHooks.codexHooksFeature === "enabled";
   addFinding(
     findings,
-    codexHookExists && globalHooks.codexConfigured ? "ok" : "warning",
+    codexHookExists && globalHooks.codexConfigured && codexHooksEnabled ? "ok" : "warning",
     "Codex 全域 hook",
-    codexHookExists
-      ? globalHooks.codexConfigured
-        ? globalHooks.codexSegmentStartConfigured
-          ? "全域 PostToolUse、Stop 與 UserPromptSubmit hook 指向目前專案的 dist 腳本。"
-          : "全域 PostToolUse 與 Stop hook 指向目前專案的 dist 腳本；未設定 UserPromptSubmit，提醒不會附上這段工作的開始時間。"
-        : "dist 腳本存在，但全域 ~/.codex/hooks.json 未同時設定指定的 PostToolUse 與 Stop hook。"
-      : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
-    codexHookExists && globalHooks.codexConfigured
-      ? undefined
-      : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook，並在 /hooks 信任它。",
+    codexHooksDisabled
+      ? "config.toml 明確停用了 Codex hooks；hooks.json 即使有設定也不代表會執行。"
+      : codexHookExists
+        ? globalHooks.codexConfigured
+          ? globalHooks.codexSegmentStartConfigured
+            ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
+            : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
+          : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
+        : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
+    codexHooksDisabled
+      ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm doctor。"
+      : codexHookExists && globalHooks.codexConfigured
+        ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
+        : globalHooks.codexHooksFeature === "unknown"
+          ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm doctor。"
+          : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
   );
   return findings;
 }

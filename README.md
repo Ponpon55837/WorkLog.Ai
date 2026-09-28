@@ -62,6 +62,8 @@ pnpm run doctor
 
 Work Intelligence 的 MCP 是**本機 stdio server**，由 Agent 自己啟動，不使用 Web 的 HTTP port。先執行一次 `pnpm build`，再依你的 Agent 註冊。請用絕對路徑，讓 API、MCP 與 CLI 使用同一個資料庫。
 
+想讓 Work Intelligence MCP 與 user-level skill 一次完成設定，可執行 `pnpm setup:agents` 預覽安裝計畫；預設不會寫入。操作方式、備份與解除安裝見 [Agent 設定指南](docs/agent-setup.md)。MCP 也會用標準 `resources/list`／`resources/read` 提供完整 skill 與記錄格式，任何支援 MCP resources 的 client 都能讀取：`work-intelligence://agent/work-intelligence/SKILL.md`、`work-intelligence://agent/work-record-and-report-format.md`。
+
 macOS／Linux：
 
 ```bash

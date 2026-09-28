@@ -4,7 +4,15 @@
 
 > 回到 [README](../README.md)
 
-這個 MCP 是本機 stdio server。正式模式 Dashboard 預設是 `http://127.0.0.1:3210`，開發模式 Web 是 `http://127.0.0.1:5966`；兩者都不是 MCP endpoint。Codex 與 Claude 會各自啟動 `pnpm.cmd`，並共用同一個中央 SQLite。
+這個 MCP 是本機 stdio server。正式模式 Dashboard 預設是 `http://127.0.0.1:3210`，開發模式 Web 是 `http://127.0.0.1:5966`；兩者都不是 MCP endpoint。Codex 與 Claude Code 會各自啟動本機 MCP process，並共用同一個中央 SQLite。
+
+## 以 setup 命令安裝
+
+在 Work Intelligence repo 根目錄先執行 `pnpm install`、`pnpm build`，再執行 `pnpm setup:agents`。缺少 dist 時設定命令會停止，不會自動 build。預設只預覽將要註冊的 MCP、安裝的 user-level skill 與保存提醒 hook，不建立目錄、不備份也不修改設定；互動終端輸入 `yes` 確認後，工具才會先備份再寫入。非互動終端一律只預覽。可以重複執行；遇到與支援格式不符的設定衝突時，整批安裝會停止，不會部分寫入或覆蓋。解除安裝使用 `pnpm setup:agents --uninstall`，同樣先預覽並確認；若 managed skill 或設定片段已被修改，解除安裝會保留並回報，讓你自行處理。Installer 會記錄安裝時使用的 `CODEX_HOME` 與 `CLAUDE_CONFIG_DIR`。已有安裝紀錄時，若目前 root 與紀錄不同，重新安裝會拒絕寫入；解除安裝則使用紀錄中的原 root 操作，即使目前環境變數已改變也不會指向別的目錄。
+
+Codex 官方文件指定的 user skill 位置是 `$HOME/.agents/skills/`，不受 `CODEX_HOME` 影響。為相容本機既有 runtime，setup 也會在 `${CODEX_HOME:-~/.codex}/skills/` 安裝一份 legacy compatibility skill；這是相容複本，不是官方 canonical 路徑，兩份都以內容 hash 檢查並由 installer 管理。Codex 全域 MCP 設定位於 `${CODEX_HOME:-~/.codex}/config.toml`；hook handlers 位於 `${CODEX_HOME:-~/.codex}/hooks.json`，而 `features.hooks` 開關仍由 `config.toml` 控制。Claude Code 的 user skills 位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/`，user MCP 設定由 `claude mcp add --scope user` 管理並存於 `~/.claude.json`，hook 設定位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`。`CODEX_HOME` 會移動 Codex 的設定根目錄（MCP、hooks 與 legacy skill 複本）；`CLAUDE_CONFIG_DIR` 會移動 Claude 的 `.claude` 目錄設定（skills/hooks），而 user MCP 設定仍在 home 下的 `.claude.json`。`pnpm setup:agents` 會遵循這些環境變數。官方說明：[Codex MCP](https://developers.openai.com/learn/docs-mcp)、[Codex skills](https://developers.openai.com/codex/skills)、[Codex hooks](https://developers.openai.com/codex/hooks)、[Codex configuration reference](https://developers.openai.com/codex/config-reference)、[Claude Code MCP](https://code.claude.com/docs/en/mcp)、[Claude Code skills](https://code.claude.com/docs/en/skills)、[Claude Code hooks](https://code.claude.com/docs/en/hooks)、[Claude Code directory and configuration overrides](https://code.claude.com/docs/en/claude-directory)。
+
+安裝後若更新 Work Intelligence，請重新執行設定命令同步 skill；`pnpm run doctor` 會以內容 hash 分別檢查 Codex canonical skill、Codex legacy compatibility 複本與 Claude Code user skill 是否缺少或過期。若 Codex hooks 明確停用或無法判定，設定命令會略過 Codex hook、不會自行啟用 hooks。Codex 會略過尚未信任的 hook；連線與信任提醒見下方 Codex hook 說明。
 
 ## 共用準備
 
@@ -170,7 +178,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 - hook marker 只存放在目前使用者的暫存目錄：資料夾權限 `0700`，標記檔權限 `0600`。不儲存 Session 或對話內容；開始時間的標記只含一個時間值。
 - 只要讀不到 hook 輸入、patch 標頭或專案清單，或路徑無法判定，就放行 Codex。
 - 使用絕對路徑，因此不需要 `git rev-parse`，也不需要 `commandWindows`。Windows 上 Codex 會用 `cmd.exe /C` 執行 hook，`node "C:\path with space\...\codex-finalize-reminder.js"` 可以直接執行。若 `node` 不在 Codex 的 `PATH` 中，請改用 node 的絕對路徑。
-- Windows CI 會在 repo 以外的目錄，用 `cmd.exe /d /s /c` 執行同樣形式的指令，並傳入格式錯誤的輸入，確認 hook 可以啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認是否載入。官方說明見 [Codex hooks](https://developers.openai.com/docs/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
+- Windows CI 會在 repo 以外的目錄，用 `cmd.exe /d /s /c` 執行同樣形式的指令，並傳入格式錯誤的輸入，確認 hook 可以啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認是否載入。官方說明見 [Codex hooks](https://developers.openai.com/codex/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
 
 ## Claude Desktop
 
@@ -195,6 +203,20 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 ```
 
 如果檔案原本已有其他 `mcpServers`，只加入 `work-intelligence`，不要整份覆蓋。儲存後重新啟動 Claude Desktop，再從聊天框的 `+` → `Connectors` 確認 tools。Claude Desktop 的 local MCP 與 Claude.ai/Cowork 的 remote connector 是不同機制；目前這個 MVP 適用於 Claude Desktop 與 Claude Code，不能直接從 Claude.ai 使用本機 stdio server。詳見 [Claude Desktop local MCP guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop) 與 [Claude custom connector notes](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)。
+
+## 在其他專案貼上使用說明
+
+任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是工作流程與隱私規則，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位與報告粒度。Skill 複本供 host 自動判斷何時使用；resource 是完整內容的跨 client 來源。
+
+如果 Agent 不會主動選用 user-level skill，可將下列簡短規則貼到其他專案的 `AGENTS.md` 或 `CLAUDE.md`。它不需要引用 Work Intelligence repo 的檔案：
+
+```markdown
+## Work Intelligence
+
+- 在已由使用者明確設為「記錄中」的專案，開始工作前先透過 MCP 確認 `work_get_project_status`，再呼叫 `work_get_context`，並提供任務與已知路徑。
+- 工作完成後，在完成驗證與交接後呼叫 `work_finalize_session`；只回報實際確認的成果、變更檔案與驗證結果。若專案不是 tracked，或無法確認狀態，不要建立 Work Intelligence 記錄。
+- 需要完整隱私規則與操作流程時，讀取 `work-intelligence://agent/work-intelligence/SKILL.md`；準備或修正記錄與報告時，再讀 `work-intelligence://agent/work-record-and-report-format.md`。
+```
 
 ## 第一次使用
 
@@ -229,6 +251,6 @@ Agent 會先查詢記錄狀態（`work_get_project_status`），再取回 contex
 
 Claude Code 也可以直接使用 MCP prompts：`/mcp__work-intelligence__finalize-work`（保存這次工作）與 `/mcp__work-intelligence__synthesize-report`（整理報告，可帶 `period`）。
 
-連線正確時，`/mcp` 會列出 44 個工具與 2 個 prompts；查詢類工具帶有 `readOnlyHint`，可以在用戶端的權限設定中放行。完整清單見 [mcp-tools.md](mcp-tools.md)。
+連線正確時，`/mcp` 會列出 MCP 工具、2 個 prompts 與 2 個 instruction resources；查詢類工具帶有 `readOnlyHint`，可以在用戶端的權限設定中放行。完整工具清單見 [mcp-tools.md](mcp-tools.md)。
 
 如果專案還是 `unregistered`、`paused` 或 `ignored`，Agent 會在記錄狀態查詢時就停下來，MCP 也會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git、source 資料；這是 default-deny 的預期行為。Agent 無法替你切換成「記錄中」，這一步只能在 Web UI 完成。

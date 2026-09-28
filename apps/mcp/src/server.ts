@@ -75,6 +75,7 @@ import {
   serverInstructions,
   workRecordContract,
 } from "./contracts.js";
+import { registerAgentResources } from "./agent-resources.js";
 import { parseMcpInput } from "./input.js";
 import { sessionTextResult, textResult } from "./result.js";
 
@@ -160,6 +161,7 @@ export function createWorkIntelligenceMcpServer(
     : "";
   const instructions = `${serverInstructions} Application version: ${version}; schema version: ${schemaVersion}.${failureInstructions}`;
   const server = new McpServer({ name: "work-intelligence", version }, { instructions });
+  registerAgentResources(server);
 
   function registerStoreTool<S extends z.ZodTypeAny>(name: string, definition: StoreToolDefinition<S>): void {
     server.registerTool(

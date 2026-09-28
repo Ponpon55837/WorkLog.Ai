@@ -128,6 +128,7 @@ Unit／integration 測試涵蓋：
 - schema 的 changed-files／metadata backfill 陣列上限
 - 專案永久刪除的精確名稱確認、in-memory 備份拒絕、備份快照、跨專案 Session 關聯與共享請求清理、搜尋索引清理及不含內容的 audit row
 - REST 不接受非 JSON Content-Type，malformed JSON 會回傳安全的 4xx 錯誤
+- Agent setup／doctor（`agent-setup.test.ts`、`doctor.test.ts`）只使用暫存 home、Codex／Claude config roots 與測試 repo；涵蓋預覽不寫入、精確備份、重複安裝、skill hash drift、Codex canonical／legacy path、v1 ownership migration、自訂 root 的解除安裝、missing dist、衝突拒寫、失敗 rollback、保留後加設定，以及含 Unicode、空白、引號與反斜線的路徑。
 - project-scoped `work_get_context`／`work_recall` 只回傳指定 tracked 專案；未指定範圍時，以 project name／id 標示跨專案結果，paused 專案完全排除（`cross-project-context.test.ts`）
 - tracked-only day/week/month/quarter/year 完整報告、上一期比較、趨勢、風險與 source evidence provenance
 - changed-file lifecycle history 的新增／修改／刪除／重新命名、路徑正規化、merge dedupe 與 metadata follow-up

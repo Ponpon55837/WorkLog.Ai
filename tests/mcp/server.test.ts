@@ -1,6 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -84,6 +87,8 @@ describe("Work Intelligence MCP server", () => {
       code: startupFailure.code,
       error: startupFailure.message,
     });
+    const skill = await client.readResource({ uri: "work-intelligence://agent/work-intelligence/SKILL.md" });
+    expect(skill.contents[0]).toMatchObject({ mimeType: "text/markdown" });
   });
 
   it("returns a safe retryable error when another SQLite connection holds a write lock", async () => {
@@ -166,6 +171,88 @@ describe("Work Intelligence MCP server", () => {
 
     const { prompts } = await client.listPrompts();
     expect(prompts.map((prompt) => prompt.name).sort()).toEqual(["finalize-work", "synthesize-report"]);
+
+    const { resources } = await client.listResources();
+    expect(resources.map((resource) => resource.uri).sort()).toEqual([
+      "work-intelligence://agent/work-intelligence/SKILL.md",
+      "work-intelligence://agent/work-record-and-report-format.md",
+    ]);
+    expect(client.getInstructions()).toContain("work-intelligence://agent/work-intelligence/SKILL.md");
+  });
+
+  it("serves the complete skill and supporting format contract as standard MCP resources", async () => {
+    const { client } = await connect();
+
+    const skill = await client.readResource({ uri: "work-intelligence://agent/work-intelligence/SKILL.md" });
+    const format = await client.readResource({ uri: "work-intelligence://agent/work-record-and-report-format.md" });
+    const skillContent = skill.contents[0];
+    const formatContent = format.contents[0];
+    if (!skillContent || !("text" in skillContent) || !formatContent || !("text" in formatContent)) {
+      throw new Error("Agent resources must use text content.");
+    }
+    const skillText = skillContent.text;
+    const formatText = formatContent.text;
+
+    expect(skillText).toContain("## Privacy and project policy");
+    expect(skillText).toContain("work-intelligence://agent/work-record-and-report-format.md");
+    expect(skillText).not.toContain("../../../docs/work-record-and-report-format.md");
+    expect(skillText).toBe(
+      readFileSync(new URL("../../.agents/skills/work-intelligence/SKILL.md", import.meta.url), "utf8"),
+    );
+    expect(formatText).toContain("# Work record and report format");
+    expect(formatText).toContain("nextSteps");
+    expect(formatText).toBe(
+      readFileSync(new URL("../../docs/work-record-and-report-format.md", import.meta.url), "utf8"),
+    );
+    await expect(client.readResource({ uri: "work-intelligence://agent/missing.md" })).rejects.toThrow();
+  });
+
+  it("reads compiled agent resources when launched from an unrelated project directory", () => {
+    const compiledServer = new URL("../../apps/mcp/dist/server.js", import.meta.url);
+    if (!existsSync(fileURLToPath(compiledServer))) {
+      throw new Error("Build the MCP server before running the compiled resource path test.");
+    }
+    const externalProject = mkdtempSync(join(tmpdir(), "unrelated-workspace-"));
+    const requireFromMcp = createRequire(new URL("../../apps/mcp/package.json", import.meta.url));
+    const clientModule = pathToFileURL(requireFromMcp.resolve("@modelcontextprotocol/sdk/client/index.js")).href;
+    const transportModule = pathToFileURL(requireFromMcp.resolve("@modelcontextprotocol/sdk/inMemory.js")).href;
+    const script = [
+      `import { createWorkIntelligenceMcpServer } from ${JSON.stringify(compiledServer.href)};`,
+      `import { Client } from ${JSON.stringify(clientModule)};`,
+      `import { InMemoryTransport } from ${JSON.stringify(transportModule)};`,
+      "const server = createWorkIntelligenceMcpServer(null, 'test', 1, { code: 'TEST_UNAVAILABLE', message: 'test' });",
+      "const client = new Client({ name: 'external-cwd-test', version: '1.0.0' });",
+      "const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();",
+      "await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);",
+      "const { resources } = await client.listResources();",
+      "const skill = await client.readResource({ uri: 'work-intelligence://agent/work-intelligence/SKILL.md' });",
+      "const format = await client.readResource({ uri: 'work-intelligence://agent/work-record-and-report-format.md' });",
+      "console.log(JSON.stringify({ resources: resources.map(({ uri }) => uri), skill: skill.contents[0], format: format.contents[0] }));",
+      "await client.close();",
+      "await server.close();",
+    ].join("\n");
+
+    try {
+      const output = execFileSync(process.execPath, ["--input-type=module", "--eval", script], {
+        cwd: externalProject,
+        encoding: "utf8",
+        timeout: 15_000,
+      });
+      const result = JSON.parse(output) as {
+        resources: string[];
+        skill: { text?: string };
+        format: { text?: string };
+      };
+      expect(result.resources).toContain("work-intelligence://agent/work-intelligence/SKILL.md");
+      expect(result.skill.text).toBe(
+        readFileSync(new URL("../../.agents/skills/work-intelligence/SKILL.md", import.meta.url), "utf8"),
+      );
+      expect(result.format.text).toBe(
+        readFileSync(new URL("../../docs/work-record-and-report-format.md", import.meta.url), "utf8"),
+      );
+    } finally {
+      rmSync(externalProject, { recursive: true, force: true });
+    }
   });
 
   it("reports project status and lists, reads, and scopes Sessions", async () => {

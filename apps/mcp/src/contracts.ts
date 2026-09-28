@@ -4,14 +4,10 @@
  */
 
 export const serverInstructions = [
-  "Work Intelligence is a local-first, explicit-opt-in work record system. Only projects the user marked as tracked are read or written; unregistered, paused, and ignored projects are quietly skipped, and you must never read their source, handoff, Git, or evidence.",
-  "Before preparing a finalize payload for a workspace, call work_get_project_status; if it is not tracked, do not record the work.",
-  "Routing: save finished work → work_finalize_session. Recover context → work_get_context (pass task/paths before starting work; also lists pending Agent requests). Past work, gotchas, or an error seen before → work_recall, then work_get_session. List Sessions by date → work_list_sessions (compact digests; use work_get_session for full records). Fix a saved summary → work_update_session_summary (replace/append); fix the five-section workSummary → work_update_session_work_summary (replace needs all five sections, patch accepts some). A Session recorded by mistake → work_void_session (reversible; only when the user asks); wrong evidence → work_void_evidence. Never use evidence as a substitute for a summary update. A finalize idempotency conflict means the summary changed: use work_update_session_summary.",
-  "Report synthesis (整理、提煉、產生或完成工作報告): use the newest pending request; if none exists, create one with work_request_report_synthesis; if the newest one failed or was interrupted, retry it; then get its context and save the summary under the work_save_report_summary contract.",
-  "Knowledge candidates (整理、提煉 Knowledge 候選): use the open request or create one with work_request_knowledge_candidates, get its context, then submit under the work_submit_knowledge_candidates contract; the user accepts candidates in the Web UI.",
-  "Knowledge pages: read pending pages with work_get_knowledge_page_context. Save changed answers only; otherwise use work_mark_knowledge_page_checked through the last Session reviewed.",
-  "Metadata gaps (補齊、更新、檢查或處理 metadata 缺口): use the newest pending or processing request; if none exists, create one with work_request_metadata_backfill; then get its context, inspect the real worktree/diff or handoff, and apply only confirmed values under the work_apply_metadata_backfill contract.",
-  "The user should only need natural language: never ask them for tool names, request IDs, JSON, or call order. Keep deterministic reports separate from Agent-derived summaries. If context is insufficient, say 資料不足 instead of guessing.",
+  "Work Intelligence is a local-first, explicit-opt-in work record system. Only inspect or write project data when the project is tracked; unregistered, paused, and ignored projects are quiet skips. Read work-intelligence://agent/work-intelligence/SKILL.md with standard MCP resources/read for the complete privacy, workflow, and tool-use contract; read work-intelligence://agent/work-record-and-report-format.md when preparing or repairing records or reports.",
+  "Before any project-scoped inspection or finalization, confirm tracking with work_get_project_status or work_get_context. Never inspect source, handoff, Git, or evidence for a project that is not confirmed tracked.",
+  "Use work_get_context before starting tracked work and work_recall for prior work, Knowledge, gotchas, or recurring errors. Use work_finalize_session only after the work is complete; use the matching update, report, metadata, or Knowledge workflow when requested.",
+  "Use natural language with the user; do not ask for tool names, request IDs, JSON, or call order. Keep deterministic report data separate from Agent-derived summaries. If context is insufficient, say 資料不足 rather than guessing.",
 ].join(" ");
 
 export const workRecordContract =
