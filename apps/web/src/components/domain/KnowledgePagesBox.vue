@@ -31,8 +31,8 @@ interface PageRow {
 }
 
 /**
- * Standing Knowledge pages: an Agent rewrites each page from the project's Sessions and cites them; a new
- * Session marks the page as needing an update. The Web UI views, edits, and requests updates.
+ * Standing Knowledge pages: new Sessions need assessment, cited-source changes need review, and only changed
+ * answers need a rewrite. The Web UI views, edits, filters, and requests updates.
  */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
@@ -43,6 +43,7 @@ const { showToast } = useToast();
 
 const requestDialogOpen = ref(false);
 const requesting = ref("");
+const statusFilter = ref("all");
 
 const projectsById = computed(() => new Map(props.projects.map((project) => [project.id, project])));
 const selectedProject = computed(() => projectsById.value.get(projectId.value));
@@ -50,6 +51,15 @@ const projectItems = computed(() => [
   { value: "", label: "所有記錄中專案" },
   ...props.projects.map((project) => ({ value: project.id, label: project.name })),
 ]);
+const statusItems = [
+  { value: "all", label: "所有狀態" },
+  { value: "has_new_data", label: "有新資料" },
+  { value: "needs_review", label: "來源需要核對" },
+  { value: "fresh", label: "最新" },
+  { value: "empty", label: "等待 Agent 撰寫" },
+  { value: "missing", label: "尚未建立" },
+  { value: "update_requested", label: "已要求更新" },
+];
 const rows = computed<PageRow[]>(() => {
   const saved: PageRow[] = pages.value.map((page) => ({
     key: page.id,
@@ -72,6 +82,14 @@ const rows = computed<PageRow[]>(() => {
   return [...missing, ...saved];
 });
 const waitingCount = computed(() => pages.value.filter((page) => page.updateRequestedAt).length);
+const filteredRows = computed(() =>
+  rows.value.filter((row) => {
+    if (statusFilter.value === "all") return true;
+    if (statusFilter.value === "needs_review") return Boolean(row.page?.needsReview);
+    if (statusFilter.value === "update_requested") return Boolean(row.page?.updateRequestedAt);
+    return (row.page?.status ?? "missing") === statusFilter.value;
+  }),
+);
 
 async function requestUpdate(row: PageRow): Promise<void> {
   const project = projectsById.value.get(row.projectId);
@@ -108,6 +126,14 @@ async function requestUpdate(row: PageRow): Promise<void> {
           align="end"
           :items="projectItems"
         />
+        <UiActionMenu
+          v-model="statusFilter"
+          label="狀態"
+          header="篩選狀態"
+          default-value="all"
+          align="end"
+          :items="statusItems"
+        />
         <UiButton size="sm" :icon="FilePlus2" :disabled="!selectedProject" @click="requestDialogOpen = true"
           >自訂知識頁</UiButton
         >
@@ -126,9 +152,15 @@ async function requestUpdate(row: PageRow): Promise<void> {
       title="還沒有知識頁"
       description="選擇一個專案，就能要求 Agent 從已記錄的 Session 撰寫架構與慣例、進行中的工作與常見陷阱。"
     />
+    <UiEmptyState
+      v-else-if="filteredRows.length === 0"
+      :icon="BookMarked"
+      title="沒有符合狀態的知識頁"
+      description="調整狀態篩選，即可查看其他知識頁。"
+    />
     <VirtualList
       v-else
-      :items="rows"
+      :items="filteredRows"
       :enabled="true"
       fit-viewport
       fit-viewport-to-panel
@@ -151,7 +183,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
             <span>{{ row.question }}</span>
             <span v-if="row.page?.sourcedThrough"> · 更新於 {{ formatRelative(row.page.sourcedThrough) }}</span>
             <span v-if="row.page && row.page.newSessionCount > 0">
-              · 之後有 {{ row.page.newSessionCount }} 筆新 Session</span
+              · 有 {{ row.page.newSessionCount }} 筆新 Session 待評估</span
             >
             <span v-if="row.page?.needsReview">
               · 需核對段落：{{ row.page.reviewSections?.map((section) => section.heading).join("、") }}</span
@@ -168,7 +200,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
               >
               <UiButton
                 size="sm"
-                :variant="row.page?.status === 'needs_update' || !row.page ? 'primary' : 'default'"
+                :variant="!row.page ? 'primary' : 'default'"
                 :icon="RefreshCw"
                 :loading="requesting === row.key"
                 @click="requestUpdate(row)"

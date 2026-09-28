@@ -100,7 +100,7 @@ export const knowledgePageStatusVisual: Record<KnowledgePageStatus | "missing", 
   missing: { tone: "neutral", icon: CircleDashed, label: "尚未建立" },
   empty: { tone: "accent", icon: LoaderCircle, label: "等待 Agent 撰寫" },
   fresh: { tone: "success", icon: CircleCheck, label: "最新" },
-  needs_update: { tone: "attention", icon: Clock3, label: "需要更新" },
+  has_new_data: { tone: "accent", icon: Clock3, label: "有新資料" },
 };
 
 export const knowledgePageReviewReasonLabels: Record<KnowledgePageReviewReason, string> = {

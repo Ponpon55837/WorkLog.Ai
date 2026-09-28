@@ -122,7 +122,7 @@ describe("Knowledge pages", () => {
     expect(retried).toMatchObject({ outcome: "knowledge_page_saved", duplicate: true, page: { version: 1 } });
   });
 
-  it("marks each page stale from its own write time and counts only later non-voided Sessions", () => {
+  it("marks later non-voided Sessions as new data from each page's own write time", () => {
     const { store, projectRoot, finalize, sections } = setup();
     const source = finalize("source");
     for (const slug of ["architecture", "pitfalls"]) store.requestKnowledgePageUpdate({ projectRoot, slug });
@@ -135,13 +135,25 @@ describe("Knowledge pages", () => {
 
     const list = store.listKnowledgePages({ projectRoot });
     const bySlug = new Map(list.outcome === "knowledge_pages" ? list.items.map((page) => [page.slug, page]) : []);
-    expect(bySlug.get("architecture")).toMatchObject({ status: "needs_update", newSessionCount: 2 });
-    expect(bySlug.get("pitfalls")).toMatchObject({ status: "needs_update", newSessionCount: 1 });
+    expect(bySlug.get("architecture")).toMatchObject({ status: "has_new_data", newSessionCount: 2 });
+    expect(bySlug.get("pitfalls")).toMatchObject({ status: "has_new_data", newSessionCount: 1 });
 
     const context = store.getContext(projectRoot);
     expect(context.outcome === "context" && context.pendingRequests.knowledgePages).toEqual([
-      { slug: "architecture", title: "架構與慣例", status: "needs_update", updateRequested: false },
-      { slug: "pitfalls", title: "常見陷阱", status: "needs_update", updateRequested: false },
+      {
+        slug: "architecture",
+        title: "架構與慣例",
+        status: "has_new_data",
+        newSessionCount: 2,
+        updateRequested: false,
+      },
+      {
+        slug: "pitfalls",
+        title: "常見陷阱",
+        status: "has_new_data",
+        newSessionCount: 1,
+        updateRequested: false,
+      },
     ]);
     expect(context.outcome === "context" && context.knowledgePages.map((page) => page.slug)).toEqual([
       "architecture",
@@ -277,6 +289,77 @@ describe("Knowledge pages", () => {
     expect(updated.outcome === "knowledge_page_updated" && updated.page).not.toHaveProperty("needsReview");
   });
 
+  it("checks irrelevant Sessions without changing page versions or clearing a C1 source warning", () => {
+    const { store, projectRoot, otherRoot, finalize, sections, tick } = setup();
+    const cited = finalize("checked-cited-source");
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    const saved = store.saveKnowledgePage({
+      projectRoot,
+      slug: "pitfalls",
+      idempotencyKey: "checked-page-save",
+      sections: sections(cited),
+    });
+    if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the page to save.");
+
+    const afterSave = finalize("unrelated-after-save");
+    expect(store.listKnowledgePages({ projectRoot })).toMatchObject({
+      outcome: "knowledge_pages",
+      items: [expect.objectContaining({ slug: "pitfalls", status: "has_new_data", newSessionCount: 1 })],
+    });
+
+    tick();
+    store.updateSessionSummary({
+      sessionId: cited,
+      idempotencyKey: "checked-source-correction",
+      summary: "The cited source has changed and requires a page check.",
+    });
+    const beforeCheck = store.listKnowledgePages({ projectRoot });
+    if (beforeCheck.outcome !== "knowledge_pages") throw new Error("Expected the page list.");
+    const original = beforeCheck.items.find((page) => page.slug === "pitfalls");
+    if (!original) throw new Error("Expected the saved page.");
+    expect(original.needsReview).toBe(true);
+
+    const checked = store.markKnowledgePageChecked({
+      projectRoot,
+      slug: "pitfalls",
+      throughSessionId: afterSave,
+    });
+    expect(checked).toMatchObject({
+      outcome: "knowledge_page_checked",
+      page: {
+        version: 1,
+        status: "fresh",
+        newSessionCount: 0,
+        checkedThrough: { sessionId: afterSave },
+        needsReview: true,
+      },
+    });
+    if (checked.outcome !== "knowledge_page_checked") throw new Error("Expected the page check to be saved.");
+    expect(checked.page.updatedAt).toBe(original.updatedAt);
+    expect(store.listKnowledgePageVersions(checked.page.id)).toMatchObject({
+      outcome: "knowledge_page_versions",
+      versions: [{ version: 1 }],
+    });
+    expect(store.markKnowledgePageChecked({ projectRoot, slug: "pitfalls", throughSessionId: cited })).toMatchObject({
+      outcome: "invalid_cursor",
+    });
+    expect(
+      store.markKnowledgePageChecked({
+        projectRoot,
+        slug: "pitfalls",
+        throughSessionId: finalize("foreign-cursor", otherRoot),
+      }),
+    ).toMatchObject({ outcome: "invalid_cursor" });
+
+    const later = finalize("later-after-check");
+    expect(store.markKnowledgePageChecked({ projectRoot, slug: "pitfalls", throughSessionId: later })).toMatchObject({
+      outcome: "knowledge_page_checked",
+      page: { version: 1, status: "fresh", newSessionCount: 0, needsReview: true },
+    });
+    const finalVersions = store.listKnowledgePageVersions(checked.page.id);
+    expect(finalVersions.outcome === "knowledge_page_versions" && finalVersions.versions).toHaveLength(1);
+  });
+
   it("skips projects that are not tracked", () => {
     const { store, projectRoot, project } = setup();
     store.updateProject(project.id, { status: "paused" });
@@ -291,6 +374,9 @@ describe("Knowledge pages", () => {
     const source = finalize("source");
     store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
     store.saveKnowledgePage({ projectRoot, slug: "architecture", idempotencyKey: "a-1", sections: sections(source) });
+    expect(
+      store.markKnowledgePageChecked({ projectRoot, slug: "architecture", throughSessionId: source }),
+    ).toMatchObject({ outcome: "knowledge_page_checked" });
 
     const bundle = store.exportProjectData({ type: "project", projectId: project.id });
     expect(bundle.tables.knowledge_pages).toHaveLength(1);
@@ -300,6 +386,10 @@ describe("Knowledge pages", () => {
     const imported = destination.importProjectData({ bundle, remap: [] });
     expect(imported.additions.knowledge_pages).toBe(1);
     expect(imported.additions.knowledge_page_versions).toBe(1);
+    const importedBundle = destination.exportProjectData({ type: "project", projectId: project.id });
+    expect(importedBundle.tables.knowledge_pages).toContainEqual(
+      expect.objectContaining({ checked_through_session_id: source }),
+    );
 
     const deleted = store.deleteProject(project.id, "Apiary");
     expect(deleted.deletedCounts).toMatchObject({ knowledgePages: 1, knowledgePageVersions: 1 });

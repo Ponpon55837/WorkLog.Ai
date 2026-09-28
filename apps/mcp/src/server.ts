@@ -12,6 +12,7 @@ import {
   handoffImportOptionsSchema,
   knowledgeHistoryQuerySchema,
   knowledgePageContextQuerySchema,
+  markKnowledgePageCheckedInputSchema,
   knowledgeQuerySchema,
   mcpCreateMetadataBackfillRequestInputSchema,
   mcpCreateReportSynthesisRequestInputSchema,
@@ -544,6 +545,17 @@ export function createWorkIntelligenceMcpServer(
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid knowledge page payload.",
     run: (input) => store.saveKnowledgePage(input),
+  });
+
+  registerStoreTool("work_mark_knowledge_page_checked", {
+    title: "Mark a Knowledge page checked",
+    description:
+      "Record that the Agent assessed Sessions through throughSessionId and found no page rewrite necessary. Use a non-voided Session from this project's work_get_knowledge_page_context; the cursor only moves forward. This does not create a page version, change page content, clear an explicit update request, or clear needsReview. The page's 有新資料 count then includes only Sessions after both its saved-through time and this review cursor.",
+    inputShape: markKnowledgePageCheckedInputSchema.shape,
+    schema: markKnowledgePageCheckedInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid Knowledge page review cursor.",
+    run: (input) => store.markKnowledgePageChecked(input),
   });
 
   // ── Graph and reports ──────────────────────────────────────────────────

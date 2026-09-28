@@ -297,6 +297,20 @@ describe("custom report synthesis migration", () => {
           doc_id TEXT NOT NULL,
           PRIMARY KEY (doc_type, doc_id)
         ) WITHOUT ROWID;
+        CREATE TABLE knowledge_pages (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          title TEXT NOT NULL,
+          question TEXT NOT NULL,
+          sections_json TEXT NOT NULL DEFAULT '[]',
+          version INTEGER NOT NULL DEFAULT 0,
+          sourced_through TEXT,
+          update_requested_at TEXT,
+          last_author TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
         INSERT INTO sessions (id) VALUES ('legacy-plan'), ('legacy-clean');
         INSERT INTO search_chunks (doc_type, doc_id, project_id, field, content, weight, doc_date)
         VALUES ('session', 'legacy-plan', 'project', 'raw', 'old planning section', 0.2, '2026-09-01T00:00:00.000Z');
@@ -314,6 +328,15 @@ describe("custom report synthesis migration", () => {
         version: 20,
         name: "raw-handoff-content-hashes",
       });
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 21").get()).toEqual({
+        version: 21,
+        name: "knowledge-page-review-checkpoint",
+      });
+      expect(
+        (db.prepare("PRAGMA table_info(knowledge_pages)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      ).toContain("checked_through_session_id");
       expect(
         (db.prepare("PRAGMA table_info(search_chunks)").all() as Array<{ name: string }>).map((column) => column.name),
       ).toContain("content_hash");

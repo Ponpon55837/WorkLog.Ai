@@ -50,7 +50,7 @@ function undoLatestMigration(db: DatabaseSync): void {
   for (const [, name] of [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/g)].reverse()) {
     db.exec(`DROP TABLE IF EXISTS ${name}`);
   }
-  for (const [, table, column] of sql.matchAll(/ALTER TABLE (\w+) ADD COLUMN (\w+)/g)) {
+  for (const [, table, column] of sql.matchAll(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)/g)) {
     db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   }
   db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(LATEST_SCHEMA_VERSION);

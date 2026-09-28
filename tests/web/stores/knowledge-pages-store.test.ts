@@ -11,7 +11,7 @@ const page = {
   question: "What went wrong?",
   sections: [{ heading: "Build", content: "Build first.", sourceSessionIds: ["session-1"] }],
   version: 2,
-  status: "needs_update",
+  status: "has_new_data",
   newSessionCount: 3,
   createdAt: "2030-01-01T00:00:00.000Z",
   updatedAt: "2030-01-02T00:00:00.000Z",
@@ -53,7 +53,7 @@ describe("Knowledge pages store", () => {
     const store = useKnowledgePagesStore();
     store.setListActive(true, "/projects/a");
     await vi.waitFor(() => expect(store.pages).toHaveLength(1));
-    expect(store.staleCount).toBe(1);
+    expect(store.newDataCount).toBe(1);
     expect(harness.calls.at(-1)?.url.searchParams.get("projectRoot")).toBe("/projects/a");
 
     store.setListActive(true, "/paused");

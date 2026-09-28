@@ -739,6 +739,8 @@ export class ContextRecallService {
           projectId: match.page.projectId,
           slug: match.page.slug,
           title: match.page.title,
+          status: match.page.status,
+          newSessionCount: match.page.newSessionCount,
           ...(match.page.needsReview ? { needsReview: true } : {}),
           sections: [],
         };

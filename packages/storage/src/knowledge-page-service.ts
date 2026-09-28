@@ -10,6 +10,8 @@ import {
   type KnowledgePageDigest,
   type KnowledgePageListQuery,
   type KnowledgePageListResult,
+  type MarkKnowledgePageCheckedInput,
+  type MarkKnowledgePageCheckedResult,
   type KnowledgePageRecord,
   type KnowledgePageReviewReason,
   type KnowledgePageReviewSection,
@@ -48,6 +50,7 @@ type PageRow = {
   last_author: KnowledgePageAuthor | null;
   created_at: string;
   updated_at: string;
+  checked_through_session_id: string | null;
 };
 
 type VersionRow = {
@@ -100,17 +103,34 @@ function skipped(decision: PolicyDecision): KnowledgePageSkippedResult {
   };
 }
 
-/** Index of the first element strictly greater than `value` in an ascending list (upper bound). */
-function upperBound(sorted: readonly string[], value: string): number {
+interface CompletedSessionCursor {
+  id: string;
+  completedAt: string;
+}
+
+function compareCursor(left: CompletedSessionCursor, right: CompletedSessionCursor): number {
+  return left.completedAt.localeCompare(right.completedAt) || left.id.localeCompare(right.id);
+}
+
+/** First completion tuple strictly after the supplied cursor. */
+function upperBoundCursor(sorted: readonly CompletedSessionCursor[], cursor: CompletedSessionCursor): number {
   let low = 0;
   let high = sorted.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if (sorted[middle]! > value) {
-      high = middle;
-    } else {
-      low = middle + 1;
-    }
+    if (compareCursor(sorted[middle]!, cursor) > 0) high = middle;
+    else low = middle + 1;
+  }
+  return low;
+}
+
+function firstCompletedAfter(sorted: readonly CompletedSessionCursor[], completedAt: string): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (sorted[middle]!.completedAt > completedAt) high = middle;
+    else low = middle + 1;
   }
   return low;
 }
@@ -272,7 +292,10 @@ export class KnowledgePageService {
         `Answer the page question for this project from these Sessions only. Rewrite the whole page as sections; ` +
         `every section cites the Session ids it is based on in sourceSessionIds. When the Sessions do not answer ` +
         `part of the question, write a section whose content is exactly "${KNOWLEDGE_PAGE_INSUFFICIENT}" instead of ` +
-        `guessing. Keep facts current: drop what later Sessions contradict. Save with work_save_knowledge_page.`,
+        `guessing. Keep facts current: drop what later Sessions contradict. A has_new_data status means assess newer ` +
+        `Sessions; rewrite only if they change the answer. Otherwise call work_mark_knowledge_page_checked with the ` +
+        `last Session you actually reviewed. Do not use that cursor to clear needsReview; cited-source changes still ` +
+        `require checking the named sources and saving a new page version.`,
       sessions,
       truncated,
     };
@@ -312,6 +335,54 @@ export class KnowledgePageService {
       page: this.recordFor(this.findPageById(row.id)!),
       ...(redactions.total > 0 ? { redactions } : {}),
     };
+  }
+
+  /** Record an Agent's review cursor without changing page content, version, or C1 source-review state. */
+  public markChecked(input: MarkKnowledgePageCheckedInput): MarkKnowledgePageCheckedResult {
+    const decision = this.dependencies.checkProjectRoot(input.projectRoot);
+    if (!decision.allowed || !decision.project) return skipped(decision);
+    const initial = this.findPage(decision.project.id, input.slug);
+    if (!initial) {
+      return {
+        outcome: "not_found",
+        slug: input.slug,
+        reason: "Request the page with work_request_knowledge_page_update first.",
+      };
+    }
+
+    const result = runImmediateTransaction(this.db, () => {
+      const row = this.findPageById(initial.id)!;
+      const cursor = this.db
+        .prepare("SELECT id, project_id, completed_at, voided_at FROM sessions WHERE id = ?")
+        .get(input.throughSessionId) as
+        { id: string; project_id: string; completed_at: string; voided_at: string | null } | undefined;
+      if (!cursor || cursor.project_id !== decision.project!.id || cursor.voided_at) {
+        return {
+          outcome: "invalid_cursor" as const,
+          reason: "throughSessionId must identify a non-voided Session in this project.",
+        };
+      }
+
+      if (row.checked_through_session_id && row.checked_through_session_id !== cursor.id) {
+        const previous = this.db
+          .prepare("SELECT id, completed_at FROM sessions WHERE id = ?")
+          .get(row.checked_through_session_id) as { id: string; completed_at: string } | undefined;
+        if (
+          previous &&
+          compareCursor(
+            { id: cursor.id, completedAt: cursor.completed_at },
+            { id: previous.id, completedAt: previous.completed_at },
+          ) < 0
+        ) {
+          return { outcome: "invalid_cursor" as const, reason: "The review cursor cannot move backwards." };
+        }
+      }
+
+      this.db.prepare("UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?").run(cursor.id, row.id);
+      return { outcome: "knowledge_page_checked" as const, pageId: row.id };
+    });
+    if (result.outcome === "invalid_cursor") return result;
+    return { outcome: "knowledge_page_checked", page: this.recordFor(this.findPageById(result.pageId)!) };
   }
 
   /** A manual edit from the Web UI; it is kept as a version like an Agent update. */
@@ -407,6 +478,7 @@ export class KnowledgePageService {
         slug: page.slug,
         title: page.title,
         status: page.status,
+        newSessionCount: page.newSessionCount,
         updatedAt: page.updatedAt,
         content,
         sourceSessionIds: sourceIds.sourceSessionIds,
@@ -418,20 +490,22 @@ export class KnowledgePageService {
     return digests;
   }
 
-  /** Pages an Agent should (re)write: an update was requested, or newer Sessions exist (all tracked projects without an id). */
+  /** Pages an Agent should inspect: requested updates, unassessed Sessions, or cited sources needing review. */
   public pendingForProject(projectId?: string): Array<{
     slug: string;
     title: string;
     status: KnowledgePageRecord["status"];
+    newSessionCount: number;
     updateRequested: boolean;
     needsReview?: boolean;
   }> {
     return this.pagesForProjects(projectId ? [projectId] : this.trackedProjectIds())
-      .filter((page) => page.status === "needs_update" || page.updateRequestedAt || page.needsReview)
+      .filter((page) => page.status === "has_new_data" || page.updateRequestedAt || page.needsReview)
       .map((page) => ({
         slug: page.slug,
         title: page.title,
         status: page.status,
+        newSessionCount: page.newSessionCount,
         updateRequested: Boolean(page.updateRequestedAt),
         ...(page.needsReview ? { needsReview: true } : {}),
       }));
@@ -490,17 +564,35 @@ export class KnowledgePageService {
         cutoffsByProject.set(row.project_id, row.sourced_through);
       }
     }
-    const completionsByProject = new Map<string, string[]>();
+    const completionsByProject = new Map<string, CompletedSessionCursor[]>();
     const statement = this.db.prepare(
-      `SELECT completed_at FROM sessions
+      `SELECT id, completed_at FROM sessions
        WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
-       ORDER BY completed_at ASC`,
+       ORDER BY completed_at ASC, id ASC`,
     );
     for (const [projectId, cutoff] of cutoffsByProject) {
       completionsByProject.set(
         projectId,
-        (statement.all(projectId, cutoff) as Array<{ completed_at: string }>).map((row) => row.completed_at),
+        (statement.all(projectId, cutoff) as Array<{ id: string; completed_at: string }>).map((row) => ({
+          id: row.id,
+          completedAt: row.completed_at,
+        })),
       );
+    }
+    const checkedIds = [
+      ...new Set(rows.flatMap((row) => (row.checked_through_session_id ? [row.checked_through_session_id] : []))),
+    ];
+    const checkedSessions = new Map<string, CompletedSessionCursor & { projectId: string }>();
+    if (checkedIds.length > 0) {
+      for (const session of this.db
+        .prepare("SELECT id, project_id, completed_at FROM sessions WHERE id IN (SELECT value FROM json_each(?))")
+        .all(JSON.stringify(checkedIds)) as Array<{ id: string; project_id: string; completed_at: string }>) {
+        checkedSessions.set(session.id, {
+          id: session.id,
+          projectId: session.project_id,
+          completedAt: session.completed_at,
+        });
+      }
     }
     const sectionsByPage = new Map(
       rows.map((row) => [row.id, parseJson<KnowledgePageSection[]>(row.sections_json, [])]),
@@ -531,8 +623,14 @@ export class KnowledgePageService {
     }
     return rows.map((row) => {
       const completions = completionsByProject.get(row.project_id) ?? [];
+      const sourceStart = row.sourced_through
+        ? firstCompletedAfter(completions, row.sourced_through)
+        : completions.length;
+      const checked = row.checked_through_session_id ? checkedSessions.get(row.checked_through_session_id) : undefined;
+      const checkedThrough = checked?.projectId === row.project_id ? checked : undefined;
+      const checkedStart = checkedThrough ? upperBoundCursor(completions, checkedThrough) : 0;
       const newSessionCount = row.sourced_through
-        ? completions.length - upperBound(completions, row.sourced_through)
+        ? Math.max(0, completions.length - Math.max(sourceStart, checkedStart))
         : 0;
       const sections = sectionsByPage.get(row.id) ?? [];
       const reviewSections: KnowledgePageReviewSection[] = [];
@@ -578,8 +676,11 @@ export class KnowledgePageService {
         question: row.question,
         sections,
         version: row.version,
-        status: row.version === 0 ? "empty" : newSessionCount > 0 ? "needs_update" : "fresh",
+        status: row.version === 0 ? "empty" : newSessionCount > 0 ? "has_new_data" : "fresh",
         newSessionCount,
+        ...(checkedThrough
+          ? { checkedThrough: { sessionId: checkedThrough.id, completedAt: checkedThrough.completedAt } }
+          : {}),
         ...(needsReview ? { needsReview: true, reviewSections } : {}),
         ...(row.last_author ? { lastAuthor: row.last_author } : {}),
         ...(row.sourced_through ? { sourcedThrough: row.sourced_through } : {}),
@@ -651,7 +752,7 @@ export class KnowledgePageService {
         .prepare(
           `UPDATE knowledge_pages
            SET title = ?, sections_json = ?, version = ?, sourced_through = ?, update_requested_at = NULL,
-               last_author = ?, updated_at = ?
+               last_author = ?, updated_at = ?, checked_through_session_id = NULL
            WHERE id = ?`,
         )
         .run(redactedTitle.value, sectionsJson, version, now, author, now, row.id);

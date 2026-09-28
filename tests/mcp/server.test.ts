@@ -565,11 +565,22 @@ describe("Work Intelligence MCP server", () => {
         sections: [{ ...section, sourceSessionIds: [finalized.session.id] }],
       }),
     ).toMatchObject({ outcome: "knowledge_page_saved", page: { version: 1, status: "fresh" } });
+    expect(
+      await callJson(client, "work_mark_knowledge_page_checked", {
+        projectRoot: root,
+        slug: "pitfalls",
+        throughSessionId: finalized.session.id,
+      }),
+    ).toMatchObject({
+      outcome: "knowledge_page_checked",
+      page: { version: 1, status: "fresh", checkedThrough: { sessionId: finalized.session.id } },
+    });
 
     const { tools } = await client.listTools();
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     expect(byName.get("work_get_knowledge_page_context")?.annotations).toMatchObject({ readOnlyHint: true });
     expect(byName.get("work_save_knowledge_page")?.annotations).toMatchObject({ destructiveHint: false });
+    expect(byName.get("work_mark_knowledge_page_checked")?.annotations).toMatchObject({ destructiveHint: false });
     expect(tools.some((tool) => /knowledge_page/.test(tool.name) && /delete|remove/.test(tool.name))).toBe(false);
   });
 

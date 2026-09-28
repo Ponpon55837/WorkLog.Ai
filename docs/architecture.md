@@ -9,7 +9,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node.js 22.5 以上的內建 `node:sqlite` SQLite 儲存（建議 Node.js 24），避免額外 native binding
-- MCP stdio server：43 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
+- MCP stdio server：44 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
 - Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
 - 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization
@@ -28,7 +28,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Knowledge 維護：可編輯內容、標籤、references、類型，並可封存／恢復；封存不刪除資料，只從預設搜尋與 Graph 隱藏
 - Graph UI：以關係圖、節點分布與關係類型呈現 tracked-only graph，並可從 Session／Knowledge 節點回到來源
 - `idempotencyKey` 保證 finalize retry 不會重複建立 session
-- 常駐知識頁（`knowledge-page-service.ts`）：每頁的每段引用來源 Session，保存為版本；新 Session 讓頁面標示有新資料，引用來源在儲存後修改、作廢或還原時以批次查詢標示需要核對
+- 常駐知識頁（`knowledge-page-service.ts`）：每頁的每段引用來源 Session，保存為版本；新 Session 顯示為有新資料，可用不建立新版本的已檢查游標標記已評估內容；引用來源在儲存後修改、作廢或還原時以批次查詢獨立標示需要核對。檢查游標只保存同專案 Session id，隨知識頁匯出／匯入並在來源 Session 刪除時設為空；它不是可搜尋文字，不納入 FTS 索引
 - Knowledge 證據強度：`knowledge_feedback` 保存 Session 確認、推翻與手動確認，檢索排序會納入
 - 洞察讀取路徑：熱點（`hotspot-repository.ts`）、時間軸（`timeline-repository.ts`），以及推導的「一起修改」邊與最短關聯路徑（`graph-derivation.ts`，BFS）；推導結果只在讀取時計算，不寫回資料庫
 - Session 圖表（`diagram-service.ts`）：Mermaid 原始碼寫入前遮蔽敏感資料，可作廢、不可刪除。Web 以 strict 模式延遲載入 Mermaid，渲染到 Shadow DOM 並套用 constructable stylesheet，所以不必放寬 CSP
