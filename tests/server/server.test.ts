@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import type { SystemAgentConnections } from "../../packages/core/src/index.js";
 import { APP_VERSION } from "../../packages/shared/src/app-version.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
@@ -169,7 +170,11 @@ describe("Work Intelligence REST API", () => {
     );
     finalizeMcpRuntimeFixture(repositoryRoot);
     const expectedMcpStatus = getMcpRuntimeStatus(repositoryRoot);
-    const { server, baseUrl } = await startApi(store, { repositoryRoot });
+    const expectedAgents: SystemAgentConnections = {
+      codex: { mcpRegistered: "registered", canonicalSkill: "current", legacySkill: "missing", hook: "installed" },
+      claudeCode: { mcpRegistered: "missing", skill: "stale", hook: "missing" },
+    };
+    const { server, baseUrl } = await startApi(store, { repositoryRoot, agentConnections: () => expectedAgents });
     resources.push({ server, store, root, mcpRuntimeRoot: repositoryRoot, mcpCleanup: stopMcpProcess });
     const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     const streamResponse = await fetch(`${baseUrl}/api/events`);
@@ -195,6 +200,7 @@ describe("Work Intelligence REST API", () => {
         outdatedProcesses: number;
         message?: string;
       };
+      agents: SystemAgentConnections;
       sseConnections: number;
     }>(baseUrl, "/api/system/status");
 
@@ -206,6 +212,7 @@ describe("Work Intelligence REST API", () => {
       backups: { available: true, latestAutomatic: { kind: "automatic", createdAt: "2026-09-25T12:00:00Z" }, count: 2 },
       maintenance: { status: "completed", backupFileName: "maintenance.sqlite", indexedSessions: 5 },
       mcp: expectedMcpStatus,
+      agents: expectedAgents,
       sseConnections: 1,
     });
     expect(response.body.database.bytes).toBeGreaterThan(0);

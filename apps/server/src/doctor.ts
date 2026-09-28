@@ -3,8 +3,10 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
+import type { AgentMcpRegistrationState, SystemAgentConnections } from "@work-intelligence/core";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
 import {
   findLatestAutomaticBackup,
@@ -12,7 +14,7 @@ import {
   resolveBackupDirectory,
   type ReadOnlyDatabaseInspection,
 } from "./database-inspection.js";
-import { inspectAgentSkillCopies, inspectCodexHooksFeature, type CodexHooksFeature } from "./agent-setup.js";
+import { inspectAgentSkillCopies, type AgentSetupFinding, type CodexHooksFeature } from "./agent-setup.js";
 
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PACKAGE_MANAGER_SCHEMA = z.string().regex(/^pnpm@\d+\.\d+\.\d+(?:\+.*)?$/);
@@ -76,6 +78,34 @@ export interface GlobalHookInspection {
   codexHooksFeature: CodexHooksFeature;
 }
 
+type AgentConfigReadState = "readable" | "missing" | "unreadable";
+
+interface AgentJsonConfigInspection {
+  state: AgentConfigReadState;
+  config?: Record<string, unknown>;
+}
+
+interface CodexTomlConfigInspection {
+  state: AgentConfigReadState;
+  config?: ReturnType<typeof parseToml>;
+}
+
+interface AgentConnectionInspection {
+  connections: SystemAgentConnections;
+  claudeMcp: AgentMcpRegistrationState;
+  codexMcp: AgentMcpRegistrationState;
+  skillFindings: AgentSetupFinding[];
+  globalHooks: GlobalHookInspection;
+  claudeHookExists: boolean;
+  codexHookExists: boolean;
+}
+
+interface AgentConnectionInspectionOptions {
+  homeDirectory?: string;
+  repositoryRoot?: string;
+  environment?: NodeJS.ProcessEnv;
+}
+
 function addFinding(
   findings: DoctorFinding[],
   severity: DoctorFinding["severity"],
@@ -86,19 +116,59 @@ function addFinding(
   findings.push({ severity, title, detail, recommendation });
 }
 
-function readJsonObject(path: string): Record<string, unknown> | undefined {
+function errorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+}
+
+function inspectJsonConfigFile(path: string): AgentJsonConfigInspection {
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     const result = JSON_OBJECT_SCHEMA.safeParse(parsed);
-    return result.success ? result.data : undefined;
-  } catch {
-    return undefined;
+    return result.success ? { state: "readable", config: result.data } : { state: "unreadable" };
+  } catch (error) {
+    return errorCode(error) === "ENOENT" ? { state: "missing" } : { state: "unreadable" };
   }
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
   const result = JSON_OBJECT_SCHEMA.safeParse(value);
   return result.success ? result.data : undefined;
+}
+
+function inspectCodexTomlConfig(codexHomeDirectory: string): CodexTomlConfigInspection {
+  try {
+    const configText = readFileSync(join(codexHomeDirectory, "config.toml"), "utf8");
+    const config = parseToml(configText, { maxDepth: 128, unsafeKeyBehaviour: "throw" });
+    return { state: "readable", config };
+  } catch (error) {
+    return errorCode(error) === "ENOENT" ? { state: "missing" } : { state: "unreadable" };
+  }
+}
+
+function codexHooksFeatureFromConfig(inspection: CodexTomlConfigInspection): CodexHooksFeature {
+  if (inspection.state === "unreadable") return "unknown";
+  if (inspection.state === "missing") return "enabled";
+  const featuresValue = inspection.config?.features;
+  if (featuresValue === undefined) return "enabled";
+  const features = record(featuresValue);
+  if (!features) return "unknown";
+  const configuredValues = [features.hooks, features.codex_hooks].filter((value) => value !== undefined);
+  if (configuredValues.some((value) => typeof value !== "boolean")) return "unknown";
+  return configuredValues.includes(false) ? "disabled" : "enabled";
+}
+
+function inspectCodexMcpState(inspection: CodexTomlConfigInspection): AgentMcpRegistrationState {
+  if (inspection.state === "unreadable") return "unknown";
+  if (inspection.state === "missing") return "missing";
+  const mcpServersValue = inspection.config?.mcp_servers;
+  if (mcpServersValue === undefined) return "missing";
+  const mcpServers = record(mcpServersValue);
+  if (!mcpServers) return "unknown";
+  const workIntelligenceServer = mcpServers["work-intelligence"];
+  if (workIntelligenceServer === undefined) return "missing";
+  return record(workIntelligenceServer) ? "registered" : "unknown";
 }
 
 function entries(value: unknown): unknown[] {
@@ -214,38 +284,138 @@ function hasCodexGlobalHooks(config: Record<string, unknown> | undefined, script
 }
 
 /** Inspects only the global Claude and Codex hook configuration files. */
+function inspectGlobalHookConfigs(
+  homeDirectory: string,
+  repositoryRoot: string,
+  codexHomeDirectory: string,
+  claudeConfigDirectory: string,
+  codexHooksFeature: CodexHooksFeature,
+): {
+  inspection: GlobalHookInspection;
+  claudeSettingsState: AgentConfigReadState;
+  codexHooksState: AgentConfigReadState;
+} {
+  const claudeScript = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+  const codexScript = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+  const claudeSettingsFile = inspectJsonConfigFile(join(claudeConfigDirectory, "settings.json"));
+  const codexSettingsFile = inspectJsonConfigFile(join(codexHomeDirectory, "hooks.json"));
+  const claudeSettings = claudeSettingsFile.config;
+  const codexSettings = codexSettingsFile.config;
+  return {
+    inspection: {
+      claudeConfigured: hasClaudeStopHook(claudeSettings, claudeScript),
+      codexConfigured: hasCodexGlobalHooks(codexSettings, codexScript),
+      codexSegmentStartConfigured: collectCommands(entries(record(codexSettings?.hooks)?.UserPromptSubmit)).some(
+        (command) => commandPointsTo(command, codexScript),
+      ),
+      codexHooksFeature,
+    },
+    claudeSettingsState: claudeSettingsFile.state,
+    codexHooksState: codexSettingsFile.state,
+  };
+}
+
+/** Inspects only the global Claude and Codex hook configuration files. */
 export function inspectGlobalHooks(
   homeDirectory: string,
   repositoryRoot: string,
   codexHomeDirectory = join(homeDirectory, ".codex"),
   claudeConfigDirectory = join(homeDirectory, ".claude"),
 ): GlobalHookInspection {
-  const claudeScript = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
-  const codexScript = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
-  const claudeSettings = readJsonObject(join(claudeConfigDirectory, "settings.json"));
-  const codexSettings = readJsonObject(join(codexHomeDirectory, "hooks.json"));
+  const codexConfig = inspectCodexTomlConfig(codexHomeDirectory);
+  const codexHooksFeature = codexHooksFeatureFromConfig(codexConfig);
+  return inspectGlobalHookConfigs(
+    homeDirectory,
+    repositoryRoot,
+    codexHomeDirectory,
+    claudeConfigDirectory,
+    codexHooksFeature,
+  ).inspection;
+}
+
+function inspectClaudeMcpState(homeDirectory: string): AgentMcpRegistrationState {
+  const file = inspectJsonConfigFile(join(homeDirectory, ".claude.json"));
+  if (file.state === "unreadable") return "unknown";
+  if (file.state === "missing") return "missing";
+  return record(record(file.config?.mcpServers)?.["work-intelligence"]) ? "registered" : "missing";
+}
+
+/** Reuses Doctor's read-only checks for the System Status API and onboarding checklist. */
+function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions = {}): AgentConnectionInspection {
+  const environment = options.environment ?? process.env;
+  const homeDirectory = options.homeDirectory ?? environment.HOME ?? environment.USERPROFILE ?? "";
+  const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
+  const codexHomeDirectory = resolve(environment.CODEX_HOME?.trim() || join(homeDirectory, ".codex"));
+  const claudeConfigDirectory = resolve(environment.CLAUDE_CONFIG_DIR?.trim() || join(homeDirectory, ".claude"));
+  const claudeMcp = inspectClaudeMcpState(homeDirectory);
+  const codexConfig = inspectCodexTomlConfig(codexHomeDirectory);
+  const codexHooksFeature = codexHooksFeatureFromConfig(codexConfig);
+  const globalHookConfigs = inspectGlobalHookConfigs(
+    homeDirectory,
+    repositoryRoot,
+    codexHomeDirectory,
+    claudeConfigDirectory,
+    codexHooksFeature,
+  );
+  const globalHooks = globalHookConfigs.inspection;
+  const codexMcp = inspectCodexMcpState(codexConfig);
+  const skillFindings = inspectAgentSkillCopies(
+    homeDirectory,
+    repositoryRoot,
+    codexHomeDirectory,
+    claudeConfigDirectory,
+  );
+  const claudeHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js"));
+  const codexHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js"));
+  const skillState = (
+    componentId: AgentSetupFinding["componentId"],
+  ): SystemAgentConnections["codex"]["canonicalSkill"] =>
+    skillFindings.find((finding) => finding.componentId === componentId)?.state ?? "unreadable";
+  const claudeHook = !claudeHookExists
+    ? "missing"
+    : globalHookConfigs.claudeSettingsState === "unreadable"
+      ? "unknown"
+      : globalHooks.claudeConfigured
+        ? "installed"
+        : "missing";
+  const codexHook = !codexHookExists
+    ? "missing"
+    : globalHooks.codexHooksFeature === "disabled"
+      ? "disabled"
+      : globalHooks.codexHooksFeature === "unknown"
+        ? "unknown"
+        : globalHookConfigs.codexHooksState === "unreadable"
+          ? "unknown"
+          : globalHooks.codexConfigured
+            ? "installed"
+            : "missing";
+
   return {
-    claudeConfigured: hasClaudeStopHook(claudeSettings, claudeScript),
-    codexConfigured: hasCodexGlobalHooks(codexSettings, codexScript),
-    codexSegmentStartConfigured: collectCommands(entries(record(codexSettings?.hooks)?.UserPromptSubmit)).some(
-      (command) => commandPointsTo(command, codexScript),
-    ),
-    codexHooksFeature: inspectCodexHooksFeature(homeDirectory, codexHomeDirectory),
+    connections: {
+      codex: {
+        mcpRegistered: codexMcp,
+        canonicalSkill: skillState("codexSkill"),
+        legacySkill: skillState("codexLegacySkill"),
+        hook: codexHook,
+      },
+      claudeCode: {
+        mcpRegistered: claudeMcp,
+        skill: skillState("claudeSkill"),
+        hook: claudeHook,
+      },
+    },
+    claudeMcp,
+    codexMcp,
+    skillFindings,
+    globalHooks,
+    claudeHookExists,
+    codexHookExists,
   };
 }
 
-function inspectClaudeMcp(homeDirectory: string): boolean {
-  const config = readJsonObject(join(homeDirectory, ".claude.json"));
-  return record(record(config?.mcpServers)?.["work-intelligence"]) !== undefined;
-}
-
-function inspectCodexMcp(homeDirectory: string, codexHomeDirectory = join(homeDirectory, ".codex")): boolean {
-  try {
-    const config = readFileSync(join(codexHomeDirectory, "config.toml"), "utf8");
-    return /^\s*\[mcp_servers\.work-intelligence\]\s*$/m.test(config);
-  } catch {
-    return false;
-  }
+/** Read-only snapshot of Agent MCP registration, skill copies, and configured hooks. */
+export function inspectAgentConnections(options: AgentConnectionInspectionOptions = {}): SystemAgentConnections {
+  return inspectAgentConnectionDetails(options).connections;
 }
 
 /** Opens an existing database strictly read-only and queries metadata only. */
@@ -390,8 +560,6 @@ export async function collectDoctorFindings(
   const environment = options.environment ?? process.env;
   const homeDirectory = options.homeDirectory ?? environment.HOME ?? environment.USERPROFILE ?? "";
   const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
-  const codexHomeDirectory = resolve(environment.CODEX_HOME?.trim() || join(homeDirectory, ".codex"));
-  const claudeConfigDirectory = resolve(environment.CLAUDE_CONFIG_DIR?.trim() || join(homeDirectory, ".claude"));
   const parsedEnvironment = ENVIRONMENT_SCHEMA.safeParse(environment);
   const findings: DoctorFinding[] = [];
 
@@ -570,29 +738,41 @@ export async function collectDoctorFindings(
     );
   }
 
-  const claudeMcp = inspectClaudeMcp(homeDirectory);
-  const codexMcp = inspectCodexMcp(homeDirectory, codexHomeDirectory);
+  const agentInspection = inspectAgentConnectionDetails({ homeDirectory, repositoryRoot, environment });
+  const { skillFindings, globalHooks, claudeHookExists, codexHookExists } = agentInspection;
+  const claudeMcp = agentInspection.claudeMcp;
+  const codexMcp = agentInspection.codexMcp;
   addFinding(
     findings,
-    claudeMcp ? "ok" : "warning",
+    claudeMcp === "registered" ? "ok" : "warning",
     "Claude MCP",
-    claudeMcp ? "全域設定已註冊 work-intelligence。" : "未找到全域 work-intelligence MCP 註冊。",
-    claudeMcp ? undefined : "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。",
+    claudeMcp === "registered"
+      ? "全域設定已註冊 work-intelligence。"
+      : claudeMcp === "missing"
+        ? "未找到全域 work-intelligence MCP 註冊。"
+        : "無法判定 Claude MCP 註冊狀態；.claude.json 無法讀取或不是有效 JSON。",
+    claudeMcp === "registered"
+      ? undefined
+      : claudeMcp === "missing"
+        ? "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。"
+        : "確認 .claude.json 存在且可讀、格式有效後重新執行 pnpm doctor。",
   );
   addFinding(
     findings,
-    codexMcp ? "ok" : "warning",
+    codexMcp === "registered" ? "ok" : "warning",
     "Codex MCP",
-    codexMcp ? "全域設定已註冊 work-intelligence。" : "未找到全域 work-intelligence MCP 註冊。",
-    codexMcp ? undefined : "依 docs/agent-setup.md 註冊 work-intelligence MCP。",
+    codexMcp === "registered"
+      ? "全域設定已註冊 work-intelligence。"
+      : codexMcp === "missing"
+        ? "未找到全域 work-intelligence MCP 註冊。"
+        : "無法判定 Codex MCP 註冊狀態；config.toml 無法讀取或格式無法判定。",
+    codexMcp === "registered"
+      ? undefined
+      : codexMcp === "missing"
+        ? "依 docs/agent-setup.md 註冊 work-intelligence MCP。"
+        : "確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 pnpm doctor。",
   );
 
-  const skillFindings = inspectAgentSkillCopies(
-    homeDirectory,
-    repositoryRoot,
-    codexHomeDirectory,
-    claudeConfigDirectory,
-  );
   for (const finding of skillFindings) {
     const title =
       finding.componentId === "codexSkill"
@@ -609,44 +789,50 @@ export async function collectDoctorFindings(
     );
   }
 
-  const globalHooks = inspectGlobalHooks(homeDirectory, repositoryRoot, codexHomeDirectory, claudeConfigDirectory);
-  const claudeHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js"));
-  const codexHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js"));
+  const claudeHookState = agentInspection.connections.claudeCode.hook;
   addFinding(
     findings,
-    claudeHookExists && globalHooks.claudeConfigured ? "ok" : "warning",
+    claudeHookState === "installed" ? "ok" : "warning",
     "Claude 全域 hook",
-    claudeHookExists
-      ? globalHooks.claudeConfigured
-        ? "全域 Stop hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
-        : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
-      : "apps/mcp/dist/finalize-reminder.js 不存在。",
-    claudeHookExists && globalHooks.claudeConfigured
+    claudeHookState === "unknown"
+      ? "無法判定 Claude Stop hook 狀態；settings.json 無法讀取或不是有效 JSON。"
+      : claudeHookExists
+        ? globalHooks.claudeConfigured
+          ? "全域 Stop hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
+          : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
+        : "apps/mcp/dist/finalize-reminder.js 不存在。",
+    claudeHookState === "installed"
       ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
-      : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
+      : claudeHookState === "unknown"
+        ? "確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 pnpm doctor。"
+        : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
   );
+  const codexHookState = agentInspection.connections.codex.hook;
   const codexHooksDisabled = globalHooks.codexHooksFeature === "disabled";
-  const codexHooksEnabled = globalHooks.codexHooksFeature === "enabled";
   addFinding(
     findings,
-    codexHookExists && globalHooks.codexConfigured && codexHooksEnabled ? "ok" : "warning",
+    codexHookState === "installed" ? "ok" : "warning",
     "Codex 全域 hook",
-    codexHooksDisabled
-      ? "config.toml 明確停用了 Codex hooks；hooks.json 即使有設定也不代表會執行。"
-      : codexHookExists
-        ? globalHooks.codexConfigured
-          ? globalHooks.codexSegmentStartConfigured
-            ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
-            : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
-          : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
-        : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
-    codexHooksDisabled
-      ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm doctor。"
-      : codexHookExists && globalHooks.codexConfigured
-        ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
-        : globalHooks.codexHooksFeature === "unknown"
-          ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm doctor。"
-          : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
+    codexHookState === "unknown"
+      ? "無法判定 Codex hook 狀態；config.toml 或 hooks.json 無法讀取或格式無法判定。"
+      : codexHooksDisabled
+        ? "config.toml 明確停用了 Codex hooks；hooks.json 即使有設定也不代表會執行。"
+        : codexHookExists
+          ? globalHooks.codexConfigured
+            ? globalHooks.codexSegmentStartConfigured
+              ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
+              : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
+            : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
+          : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
+    codexHookState === "unknown"
+      ? "確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 pnpm doctor。"
+      : codexHooksDisabled
+        ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm doctor。"
+        : codexHookExists && globalHooks.codexConfigured
+          ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
+          : globalHooks.codexHooksFeature === "unknown"
+            ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm doctor。"
+            : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
   );
   return findings;
 }

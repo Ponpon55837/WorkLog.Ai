@@ -2501,6 +2501,26 @@ export interface DatabaseMaintenanceRecord {
 }
 
 /** Read-only system diagnostics returned by GET /api/system/status. */
+export type AgentSkillCopyState = "current" | "missing" | "stale" | "unreadable";
+
+export type AgentHookInstallState = "installed" | "missing" | "disabled" | "unknown";
+
+export type AgentMcpRegistrationState = "registered" | "missing" | "unknown";
+
+export interface SystemAgentConnections {
+  codex: {
+    mcpRegistered: AgentMcpRegistrationState;
+    canonicalSkill: AgentSkillCopyState;
+    legacySkill: AgentSkillCopyState;
+    hook: AgentHookInstallState;
+  };
+  claudeCode: {
+    mcpRegistered: AgentMcpRegistrationState;
+    skill: AgentSkillCopyState;
+    hook: AgentHookInstallState;
+  };
+}
+
 export interface SystemStatus {
   version: string;
   /** The latest schema version supported by this application build. */
@@ -2526,6 +2546,8 @@ export interface SystemStatus {
     outdatedProcesses: number;
     message?: string;
   };
+  /** Read-only snapshots of registered Agent clients, skill copies, and reminder hooks. */
+  agents: SystemAgentConnections;
   sseConnections: number;
 }
 

@@ -14,7 +14,15 @@ import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import { formatBytes, formatDate } from "../utils/format";
-import { databaseInspectionStatus, databaseMaintenanceStatus, mcpRuntimeStatusVisual } from "../utils/status";
+import {
+  agentHookInstallStatus,
+  agentMcpRegistrationVisual,
+  agentSkillCopyStatus,
+  databaseInspectionStatus,
+  databaseMaintenanceStatus,
+  mcpReconnectStatusVisual,
+  mcpRuntimeStatusVisual,
+} from "../utils/status";
 import { usePreferencesStore } from "../stores/preferences";
 import { useSystemStatusStore } from "../stores/system-status";
 import { EDITOR_PROTOCOLS, editorProtocolLabels } from "../utils/code-links";
@@ -137,6 +145,41 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
           meta="尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置"
         />
         <UiBoxRow v-else title="目前狀態" :meta="status.mcp.message ?? 'MCP heartbeat 正常'" />
+      </UiBox>
+
+      <UiBox data-testid="agent-connections">
+        <template #header><UiBoxTitle :icon="Code2" title="Agent 連線" /></template>
+        <UiBoxRow title="Codex MCP 註冊">
+          <template #labels
+            ><StatusLabel :status="agentMcpRegistrationVisual(status.agents.codex.mcpRegistered)"
+          /></template>
+        </UiBoxRow>
+        <UiBoxRow title="Codex canonical skill">
+          <template #labels
+            ><StatusLabel :status="agentSkillCopyStatus[status.agents.codex.canonicalSkill]"
+          /></template>
+        </UiBoxRow>
+        <UiBoxRow title="Codex legacy compatibility skill">
+          <template #labels><StatusLabel :status="agentSkillCopyStatus[status.agents.codex.legacySkill]" /></template>
+        </UiBoxRow>
+        <UiBoxRow title="Codex 全域 hook">
+          <template #labels><StatusLabel :status="agentHookInstallStatus[status.agents.codex.hook]" /></template>
+        </UiBoxRow>
+        <UiBoxRow title="Claude Code MCP 註冊">
+          <template #labels>
+            <StatusLabel :status="agentMcpRegistrationVisual(status.agents.claudeCode.mcpRegistered)" />
+          </template>
+        </UiBoxRow>
+        <UiBoxRow title="Claude Code skill">
+          <template #labels><StatusLabel :status="agentSkillCopyStatus[status.agents.claudeCode.skill]" /></template>
+        </UiBoxRow>
+        <UiBoxRow title="Claude Code 全域 hook">
+          <template #labels><StatusLabel :status="agentHookInstallStatus[status.agents.claudeCode.hook]" /></template>
+        </UiBoxRow>
+        <UiBoxRow title="A3 MCP 重新連線" data-testid="agent-mcp-reconnect">
+          <template #labels><StatusLabel :status="mcpReconnectStatusVisual(status.mcp)" /></template>
+          <template #meta>{{ status.mcp.message ?? "以 MCP heartbeat 判斷目前是否需要重新連線。" }}</template>
+        </UiBoxRow>
       </UiBox>
 
       <UiBox>

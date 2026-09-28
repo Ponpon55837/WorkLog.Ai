@@ -48,13 +48,15 @@ pnpm start
 pnpm run doctor
 ```
 
-請用 `pnpm run doctor`，不要用 `pnpm doctor`：pnpm 11 把 `doctor` 保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 是否已註冊，以及全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
+請用 `pnpm run doctor`，不要用 `pnpm doctor`：pnpm 11 把 `doctor` 保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 註冊、skill 複本與全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
 
 開啟 Web UI 之後：
 
 1. 左側選單 →「專案」→「加入專案」，按「選擇資料夾」挑選要記錄的專案資料夾，也可以直接輸入路徑。
 2. 把狀態切換成「記錄中」。確認對話框會說明允許讀取的範圍。
 3. [連接 Agent](#連接-codexclaude)。之後完成的工作就會出現在「工作歷程」。
+
+如果還沒有記錄中專案或尚無 Session，總覽會顯示「加入專案 → 設為記錄中 → 連接 Agent → 第一筆工作記錄」四步清單，並連到相關頁面或提供安裝命令。
 
 側欄底部會顯示目前的程式版本與 schema 版本。
 
@@ -129,14 +131,14 @@ GitHub 深色風格的介面，左側選單分三組。長清單都在各自的�
 
 | 頁面 | 用途 |
 |---|---|
-| **總覽** | 本週 Sessions、驗證分布、待處理事項（等待 Agent 的報告整理或 metadata 回補）、最近工作 |
+| **總覽** | 本週 Sessions、驗證分布、待處理事項（等待 Agent 的報告整理或 metadata 回補）、最近工作；尚未有記錄中專案或 Session 時顯示第一次使用四步清單 |
 | **工作歷程** | 多關鍵字搜尋，並依專案、日期篩選所有 Session。點任一筆會從右側開啟詳情（開始時間、耗時、最後更新），`J`/`K` 切換上下筆。「編輯 Session」可修正主摘要、五段內容與 verification（會留下修改紀錄），也可以建立 Session 關聯、作廢或還原，並逐筆標示錯誤的 Evidence。Agent 新存的 Session 會自動出現 |
 | **工作報告** | 日、週、月、季、年與自訂期間（最長 366 天）的報告，依系統時區切日，頁首會標示時區。總覽依期間分組（當日 Session、每日／每週／每月／每季分布、專案占比）；另有 AI 報告整理（每段附來源 Session）、趨勢、風險、跨期工作（更早開始、之後完成、事後修改）、原始紀錄與來源證據，資料超過上限時會提醒。可匯出 Markdown／JSON |
 | **工作知識** | 分成四個分頁，分頁上顯示各自的數量：**Knowledge**（Agent 明確提交的決策、模式、注意事項、流程與技能；相關檔案被改動時標示「可能過時」，被 Session 推翻時標示「需要檢視」；顯示被幾次 Session 確認、幾次推翻，點開可看到是哪些 Session；可以「確認仍有效」、編輯、封存與查看變更紀錄）、**知識頁**（Agent 依已記錄 Session 撰寫的常駐頁面，每段附來源 Session；新 Session 先標示「有新資料」，Agent 評估後可標記已檢查，只有答案需要改變時才重寫；引用來源在儲存後被修改、作廢或還原時獨立標示「來源需要核對」，並顯示受影響段落、來源與原因；可要求 Agent 更新、手動編輯與查看版本）、**候選**（Agent 提出、等你接受或拒絕的 Knowledge）、**待確認決策**（Agent 自主做的決策，可確認、否決或升級為 Knowledge） |
 | **工作圖譜** | 分成三個分頁：**時間軸**（依專案分泳道；拉遠時每天一根依驗證結果分色的長條，點一下放大到那天，拉近後 Session 畫成長條或點、關聯畫成弧線；Knowledge 的建立／確認／推翻／取代畫成標記；可縮放、顯示整個期間與選擇期間，點選開啟 Session；也能切換成依日期分組的清單，手機寬度自動使用清單）、**關係圖**（Project、Session、Knowledge、Evidence、檔案與 Session 關聯；實線是記錄的關係，可開啟以虛線顯示的「一起修改」推導關係；在節點面板可選另一個節點，逐段說明兩者如何關聯）、**熱點**（被最多 Session 修改的檔案或目錄，附驗證失敗與未執行的比例、最近 5 筆 Session；可依專案、期間篩選）。工作報告的「風險」也會列出本期被 2 筆以上 Session 修改的檔案 |
 | **專案** | 專案清單與記錄狀態（加入時可用系統視窗選資料夾；可設定 https 儲存庫網址，Session 的 commit 會連到該儲存庫）、永久刪除專案、Metadata 回補、Handoff 匯入、資料備份（備份、匯出、匯入） |
 | **Session 圖表** | Agent 在工作改到跨模組流程、資料流、狀態機或架構時，會主動為 Session 附上一到兩張 Mermaid 圖表（`work_attach_diagram` 或 finalize 的 `diagrams`；單檔修正、樣式、設定與純測試不附），在 Session 面板延遲載入並渲染；無法解析時顯示原始碼。圖表可作廢、不能刪除，也會隨專案匯出與匯入 |
-| **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果；「個人偏好」可選擇用 VS Code 或 Cursor 開啟 Session 的 changed files（只存在這個瀏覽器）。完整診斷（含 MCP 與 hook 設定）請用 `pnpm run doctor` |
+| **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改 Agent 設定。「個人偏好」可選擇用 VS Code 或 Cursor 開啟 Session 的 changed files（只存在這個瀏覽器）。完整環境診斷請用 `pnpm run doctor` |
 
 快捷鍵：`Ctrl`/`⌘` + `K` 搜尋或跳頁，`/` 聚焦頁面搜尋，`g` + `d`／`s`／`r`／`k`／`g`／`p` 切換頁面。篩選條件與開啟中的 Session 都會寫進網址，可以直接分享或重新整理。
 
@@ -276,7 +278,7 @@ pnpm test:e2e                 # build 後以正式模式跑 Playwright（Chromiu
 pnpm format                   # 用 Prettier 格式化整個 repo
 ```
 
-CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubuntu 另外跑生產依賴安全稽核（high／critical 即失敗）、效能、檢索品質與 MCP 回應大小門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 與 Firefox 掃描六個主要頁面、系統狀態與備份管理的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
+CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubuntu 另外跑生產依賴安全稽核（high／critical 即失敗）、效能、檢索品質與 MCP 回應大小門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 與 Firefox 掃描六個主要頁面、系統狀態、備份管理與第一次使用清單的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
 
 其他設定：
 

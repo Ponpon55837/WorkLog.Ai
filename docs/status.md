@@ -4,7 +4,7 @@
 
 > 回到 [README](../README.md)
 
-- 最後更新：2026-09-28
+- 最後更新：2026-09-29
 
 ## 第八輪：收尾——可用、好用、能幫到其他專案，並發行 1.0.0（交給 Codex）
 
@@ -12,7 +12,7 @@
 
 | 階段 | 項目 |
 | --- | --- |
-| A. 讓其他專案的 Agent 真的會用 | A2 工具清單瘦身（4 dispatcher 對應 44 operations，tools/list 由 81,487 降至 3,769 UTF-16 code units，低於 30,000；本機八項檢查通過，PR #161 四項 CI 通過並合併；PR #162 A2 follow-up 也已合併（merge `4a99fd4`，CI run `36433218104` 四項成功），保留索引加單一操作 resource、strict dispatcher envelope／argument unknown-key 錯誤；寫入對話讀取量約 18,300）；A3 偵測過期的 MCP 程序（本分支已實作，待 review／merge）；A4 第一次使用的引導與 Agent 連線狀態 |
+| A. 讓其他專案的 Agent 真的會用 | A2 工具清單瘦身（4 dispatcher 對應 44 operations，tools/list 由 81,487 降至 3,769 UTF-16 code units，低於 30,000；本機八項檢查通過，PR #161 四項 CI 通過並合併；PR #162 A2 follow-up 也已合併（merge `4a99fd4`，CI run `36433218104` 四項成功），保留索引加單一操作 resource、strict dispatcher envelope／argument unknown-key 錯誤；寫入對話讀取量約 18,300）；A3 偵測過期的 MCP 程序（runtime、doctor 與 System Status 已納入目前版本）；A4 第一次使用的引導與 Agent 連線狀態（實作與獨立複檢完成，本機八項檢查通過，待 PR CI） |
 | B. 找得到答案 | B1 中英與同義詞查詢擴展；B2 `pnpm eval:recall` 讓使用者在自己的資料上量測檢索品質 |
 | C. 實際幫助 | C1 未結項追蹤；C2 知識頁的維護提示 |
 | D. 工程收尾 | D1 安全與相依性；D2 文件總整理 |

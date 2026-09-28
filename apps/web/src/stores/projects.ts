@@ -45,6 +45,9 @@ export const useProjectsStore = defineStore("projects", () => {
 
   const dashboard = computed(() => dashboardQuery.data.value ?? emptyDashboard);
   const projects = computed(() => projectsQuery.data.value ?? []);
+  const initialDataReady = computed(
+    () => dashboardQuery.data.value !== undefined && projectsQuery.data.value !== undefined,
+  );
   const trackedProjects = computed(() => projects.value.filter((project) => project.status === "tracked"));
   const recentSessions = computed(() => dashboard.value.recentSessions);
   const projectDeletionAudits = computed(() => projectDeletionAuditsQuery.data.value ?? []);
@@ -280,6 +283,7 @@ export const useProjectsStore = defineStore("projects", () => {
   return {
     dashboard,
     projects,
+    initialDataReady,
     trackedProjects,
     recentSessions,
     projectDeletionAudits,

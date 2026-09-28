@@ -21,6 +21,9 @@ import {
 import type {
   DatabaseInspectionState,
   DatabaseMaintenanceStatus,
+  AgentHookInstallState,
+  AgentMcpRegistrationState,
+  AgentSkillCopyState,
   KnowledgeKind,
   KnowledgePageStatus,
   KnowledgePageReviewReason,
@@ -54,6 +57,40 @@ export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisua
   if (!status.monitoringAvailable) return { tone: "attention", icon: CircleAlert, label: "無法確認" };
   if (status.activeProcesses === 0) return { tone: "neutral", icon: CircleDashed, label: "尚無可監測連線" };
   return { tone: "success", icon: CircleCheck, label: "目前版本" };
+}
+
+export function agentMcpRegistrationVisual(state: AgentMcpRegistrationState): StatusVisual {
+  if (state === "registered") return { tone: "success", icon: CircleCheck, label: "已註冊" };
+  if (state === "unknown") return { tone: "attention", icon: CircleAlert, label: "無法確認" };
+  return { tone: "attention", icon: CircleDashed, label: "未註冊" };
+}
+
+export const agentSkillCopyStatus: Record<AgentSkillCopyState, StatusVisual> = {
+  current: { tone: "success", icon: CircleCheck, label: "最新" },
+  missing: { tone: "attention", icon: CircleDashed, label: "未安裝" },
+  stale: { tone: "attention", icon: Clock3, label: "需要更新" },
+  unreadable: { tone: "attention", icon: CircleAlert, label: "無法確認" },
+};
+
+export const agentHookInstallStatus: Record<AgentHookInstallState, StatusVisual> = {
+  installed: { tone: "success", icon: CircleCheck, label: "已安裝" },
+  missing: { tone: "attention", icon: CircleDashed, label: "未安裝" },
+  disabled: { tone: "neutral", icon: CircleMinus, label: "已停用" },
+  unknown: { tone: "attention", icon: CircleAlert, label: "無法確認" },
+};
+
+export function onboardingStepStatusVisual(state: "complete" | "pending" | "checking" | "unknown"): StatusVisual {
+  if (state === "complete") return { tone: "success", icon: CircleCheck, label: "已完成" };
+  if (state === "checking") return { tone: "accent", icon: LoaderCircle, label: "檢查中" };
+  if (state === "unknown") return { tone: "attention", icon: CircleAlert, label: "無法確認" };
+  return { tone: "attention", icon: CircleDashed, label: "待完成" };
+}
+
+export function mcpReconnectStatusVisual(status: SystemStatus["mcp"]): StatusVisual {
+  if (status.restartRequired) return { tone: "attention", icon: TriangleAlert, label: "需要重新連線" };
+  if (!status.monitoringAvailable) return { tone: "attention", icon: CircleAlert, label: "無法確認" };
+  if (status.activeProcesses === 0) return { tone: "attention", icon: CircleAlert, label: "尚無可確認連線" };
+  return { tone: "success", icon: CircleCheck, label: "不需要重新連線" };
 }
 
 export const databaseMaintenanceStatus: Record<DatabaseMaintenanceStatus, StatusVisual> = {

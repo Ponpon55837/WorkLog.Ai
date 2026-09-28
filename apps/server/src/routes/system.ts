@@ -114,6 +114,7 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
     },
     maintenance: database.maintenance ?? null,
     mcp: services.mcpRuntimeStatus(),
+    agents: services.agentConnections(),
     sseConnections: services.eventClientCount(),
   };
   sendJson(response, 200, status);
