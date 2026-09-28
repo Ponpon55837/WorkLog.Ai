@@ -490,7 +490,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("shows and filters new Knowledge page data separately from a required rewrite", async ({ page }) => {
-    const [sourceSessionId, newSessionId] = withAgentStore((store) => {
+    const { sourceSessionId, sourcedThrough } = withAgentStore((store) => {
       const finalize = (idempotencyKey: string, title: string, summary: string) => {
         const result = store.finalizeSession({
           projectRoot,
@@ -522,14 +522,26 @@ test.describe("Work Intelligence browser regression", () => {
         sections: [{ heading: "Existing answer", content: "The page's existing answer.", sourceSessionIds: [source] }],
       });
       if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the C2 page to save.");
-      const later = finalize(
-        `e2e-c2-new-data-${process.pid}`,
-        "E2E unrelated new data",
-        "An unrelated Session to assess.",
-      );
-      return [source, later] as const;
+      if (!saved.page.sourcedThrough) throw new Error("Expected the saved page to record its source cutoff.");
+      return { sourceSessionId: source, sourcedThrough: saved.page.sourcedThrough };
     });
     expect(sourceSessionId).toBeTruthy();
+
+    // Keep the later Session strictly beyond the page's millisecond-precision source cutoff in fast CI runs.
+    await expect.poll(() => Date.now()).toBeGreaterThan(Date.parse(sourcedThrough));
+    const newSessionId = withAgentStore((store) => {
+      const later = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `e2e-c2-new-data-${process.pid}`,
+        title: "E2E unrelated new data",
+        summary: "An unrelated Session to assess.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (later.outcome !== "finalized") throw new Error("Expected the new-data fixture Session to finalize.");
+      return later.session.id;
+    });
 
     await page.goto("/knowledge/pages");
     const row = page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" });
