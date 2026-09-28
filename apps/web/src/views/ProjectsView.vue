@@ -206,9 +206,13 @@ onBeforeUnmount(() => {
               ><code>{{ project.rootPath }}</code
               ><template v-if="project.repositoryUrl">
                 ·
-                <a :href="project.repositoryUrl" target="_blank" rel="noopener noreferrer">{{
-                  project.repositoryUrl
-                }}</a></template
+                <a
+                  class="projects__repository-link"
+                  :href="project.repositoryUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >{{ project.repositoryUrl }}</a
+                ></template
               ></template
             >
             <p class="projects__description">
@@ -356,6 +360,10 @@ onBeforeUnmount(() => {
 .projects__tracked {
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.projects__repository-link {
+  text-decoration: underline;
 }
 
 .projects__description {
