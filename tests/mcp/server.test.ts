@@ -80,11 +80,17 @@ async function connect() {
 async function getToolContractCatalog(client: Client): Promise<ToolContractCatalog> {
   let pendingCatalog = toolContractCatalogs.get(client);
   if (!pendingCatalog) {
-    pendingCatalog = client.readResource({ uri: TOOL_CONTRACT_RESOURCE_URI }).then((resource) => {
-      const content = resource.contents[0];
-      if (!content || !("text" in content)) throw new Error("The tool-contract resource must use text content.");
-      const document = content.text;
-      const sections = document.split(/(?=^## work_)/m).filter((section) => section.startsWith("## work_"));
+    pendingCatalog = (async () => {
+      const readText = async (uri: string) => {
+        const content = (await client.readResource({ uri })).contents[0];
+        if (!content || !("text" in content)) throw new Error("The tool-contract resource must use text content.");
+        return content.text;
+      };
+      const index = await readText(TOOL_CONTRACT_RESOURCE_URI);
+      const operations = [...index.matchAll(/^- (work_\w+) → (work_\w+): /gm)].map((match) => match[1] ?? "");
+      const sections = await Promise.all(
+        operations.map((operation) => readText(`${TOOL_CONTRACT_RESOURCE_URI}/${operation}`)),
+      );
       const dispatchers = new Map<string, string>();
       const operationSections = new Map<string, string>();
 
@@ -95,8 +101,8 @@ async function getToolContractCatalog(client: Client): Promise<ToolContractCatal
         dispatchers.set(operation, dispatcher);
         operationSections.set(operation, section);
       }
-      return { document, dispatchers, sections: operationSections };
-    });
+      return { document: sections.join("\n\n"), dispatchers, sections: operationSections };
+    })();
     toolContractCatalogs.set(client, pendingCatalog);
   }
   return pendingCatalog;
@@ -302,10 +308,15 @@ describe("Work Intelligence MCP server", () => {
     expect(formatText).toBe(
       readFileSync(new URL("../../docs/work-record-and-report-format.md", import.meta.url), "utf8"),
     );
-    expect(catalogText).toContain("# Work Intelligence MCP tool contracts");
-    expect(catalogText).toContain("## work_recall");
-    expect(catalogText).toContain("Dispatcher: work_read");
-    expect(catalogText).toContain("At least one of q or a non-empty paths array is required");
+    expect(catalogText).toContain("# Work Intelligence MCP operation index");
+    expect(catalogText).toContain("- work_recall → work_read: Recall related work");
+    expect(catalogText).not.toContain("Input schema");
+    const recall = await client.readResource({ uri: `${TOOL_CONTRACT_RESOURCE_URI}/work_recall` });
+    const recallText = (recall.contents[0] as { text?: string }).text ?? "";
+    expect(recallText).toContain("## work_recall");
+    expect(recallText).toContain("Dispatcher: work_read");
+    expect(recallText).toContain("At least one of q or a non-empty paths array is required");
+    await expect(client.readResource({ uri: `${TOOL_CONTRACT_RESOURCE_URI}/work_missing` })).rejects.toThrow();
     await expect(client.readResource({ uri: "work-intelligence://agent/missing.md" })).rejects.toThrow();
   });
 

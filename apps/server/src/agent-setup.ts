@@ -1137,7 +1137,7 @@ function printProjectInstructionSnippet(options: AgentSetupCliDependencies): voi
     "## Work Intelligence",
     "",
     "- 在已由使用者明確設為「記錄中」的專案，開始工作前透過 `work_read` 執行 `work_get_project_status`，再以 `work_read` 執行 `work_get_context`，並提供任務與已知路徑。",
-    "- 第一次寫入前讀取 `work-intelligence://agent/tool-contracts`；需要完整隱私規則與操作流程時，讀取 `work-intelligence://agent/work-intelligence/SKILL.md`；準備或修正記錄與報告時，再讀 `work-intelligence://agent/work-record-and-report-format.md`。",
+    "- 第一次呼叫某個 operation 前，讀取 `work-intelligence://agent/tool-contracts/<operation>` 取得該操作的完整契約（索引在 `work-intelligence://agent/tool-contracts`）；需要完整隱私規則與操作流程時，讀取 `work-intelligence://agent/work-intelligence/SKILL.md`；準備或修正記錄與報告時，再讀 `work-intelligence://agent/work-record-and-report-format.md`。",
     "- 工作完成後，在完成驗證與交接後透過 `work_write_idempotent` 執行 operation `work_finalize_session`；只回報實際確認的成果、變更檔案與驗證結果。若專案不是 tracked，或無法確認狀態，不要建立 Work Intelligence 記錄。",
   ].join("\n");
   options.print(`\n可貼入其他專案的 AGENTS.md 或 CLAUDE.md：\n\`\`\`markdown\n${snippet}\n\`\`\``);

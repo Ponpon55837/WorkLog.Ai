@@ -6,7 +6,7 @@
 
 ## tools/list 與 dispatcher
 
-`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；原本 44 個 operation id 仍可呼叫，完整操作對照、由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations 由固定 MCP resource `work-intelligence://agent/tool-contracts` 提供。Agent 第一次寫入前必須讀取該 resource；dispatcher 會再以原 Zod full schema 驗證參數。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；原本 44 個 operation id 仍可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
 
 | MCP tool | Annotation | 用途 |
 |---|---|---|
@@ -27,7 +27,7 @@
 }
 ```
 
-下方各節以原 operation id 作標題，方便查找欄位語義；這些名稱不是 `tools/list` 的工具名稱。確切路由與完整輸入 schema 以 `work-intelligence://agent/tool-contracts` 為準。
+下方各節以原 operation id 作標題，方便查找欄位語義；這些名稱不是 `tools/list` 的工具名稱。確切路由以 `work-intelligence://agent/tool-contracts` 索引為準，完整輸入 schema 以 `work-intelligence://agent/tool-contracts/<operation>` 為準。
 
 ## 敏感資料遮蔽
 
