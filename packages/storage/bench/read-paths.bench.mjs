@@ -53,7 +53,10 @@ function seed() {
       projectRoot: roots[index % 2],
       idempotencyKey: `bench-${index}`,
       title: `Session ${index} ${index % 7 === 0 ? "graph renderer" : "report pipeline"}`,
-      summary: `Completed synthetic task ${index} for benchmark coverage.`,
+      summary:
+        index === 0
+          ? `Completed synthetic task ${index} for benchmark coverage. 路由效能詞彙供 recall 基準使用。`
+          : `Completed synthetic task ${index} for benchmark coverage.`,
       completedAt,
       workSummary: {
         outcomes: [`Outcome ${index}`],
@@ -168,6 +171,7 @@ try {
     search: () => benchStore.search("renderer"),
     "recall (month range)": () =>
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
+    "recall (synonym expansion)": () => benchStore.recall({ q: "endpoint performance", limit: 8 }),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
@@ -193,6 +197,7 @@ try {
     "listSessionDecisions (pending)": 250,
     search: 500,
     "recall (month range)": 500,
+    "recall (synonym expansion)": 500,
     "getGraph (with derived)": 750,
     "getGraphPath (500 nodes)": 750,
     "getTimeline (month)": 250,

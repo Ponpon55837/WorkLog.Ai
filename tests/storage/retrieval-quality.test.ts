@@ -297,8 +297,13 @@ let store: WorkIntelligenceStore;
 let root: string;
 let measured: Array<{ category: Category; rank: number }> = [];
 
-function createSession(key: string, rootPath: string, fixture: Omit<SessionFixture, "type">): string {
-  const result = store.finalizeSession({
+function createSession(
+  key: string,
+  rootPath: string,
+  fixture: Omit<SessionFixture, "type">,
+  targetStore = store,
+): string {
+  const result = targetStore.finalizeSession({
     projectRoot: rootPath,
     idempotencyKey: key,
     title: fixture.title,
@@ -412,6 +417,21 @@ describe("synthetic retrieval quality regression", () => {
     expect(overallHitAt5).toBeGreaterThanOrEqual(0.95);
     expect(overallMrr).toBeGreaterThanOrEqual(0.9);
     expect(Object.keys(metrics)).toEqual(categories);
+  });
+
+  it("preserves the exact pre-B1 category hit@5 and MRR baseline", () => {
+    const metrics = summarize(measured);
+    expect(
+      Object.fromEntries(
+        categories.map((category) => [category, { hitAt5: metrics[category].hitAt5, mrr: metrics[category].mrr }]),
+      ),
+    ).toEqual({
+      K: { hitAt5: 1, mrr: 1 },
+      S: { hitAt5: 1, mrr: 1 },
+      R: { hitAt5: 1, mrr: 0.5 },
+      N: { hitAt5: 1, mrr: 1 },
+      P: { hitAt5: 1, mrr: 1 },
+    });
   });
 
   it.each(categories)("category %s meets its retrieval floor", (category) => {
@@ -625,6 +645,193 @@ describe("synthetic retrieval quality regression", () => {
     }
     expect(routeRecall.hits[0]?.id).toBe(routes.session.id);
     expect(ftsRecall.hits[0]?.id).toBe(fts.session.id);
+  });
+
+  it("expands each fixed software-term group without counting its alias as an original term", () => {
+    const synonymRoot = mkdtempSync(join(tmpdir(), "work-intelligence-fixed-synonyms-"));
+    tempDirs.push(synonymRoot);
+    const synonymStore = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = synonymStore.addProject("Fictional Lexicon Grove", synonymRoot);
+      synonymStore.updateProject(project.id, { status: "tracked" });
+      const cases = [
+        { query: "endpoint", title: "路由表" },
+        { query: "convention", title: "慣例筆記" },
+        { query: "performance", title: "效能紀錄" },
+        { query: "test", title: "測試摘要" },
+        { query: "config", title: "設定說明" },
+        { query: "migration", title: "遷移紀錄" },
+      ];
+      const expectedIds = cases.map((example, index) =>
+        createSession(
+          `b1-fixed-synonym-${index}`,
+          synonymRoot,
+          { title: example.title, summary: `Fictional note ${index}.` },
+          synonymStore,
+        ),
+      );
+
+      cases.forEach((example, index) => {
+        const result = synonymStore.recall({ q: example.query, projectRoot: synonymRoot, limit: 5 });
+        expect(result.outcome).toBe("recall");
+        if (result.outcome !== "recall") throw new Error(`Expected recall for ${example.query}.`);
+        expect(result.hits[0]?.id).toBe(expectedIds[index]);
+        expect(result.confidence).toBe("low");
+        expect(result.termHits).toEqual([{ term: example.query, count: 0 }]);
+      });
+    } finally {
+      synonymStore.close();
+    }
+  });
+
+  it("finds a Chinese route record for an English endpoint query in the top three", () => {
+    const routeRoot = mkdtempSync(join(tmpdir(), "work-intelligence-route-synonym-"));
+    tempDirs.push(routeRoot);
+    const routeStore = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = routeStore.addProject("Fictional Route Grove", routeRoot);
+      routeStore.updateProject(project.id, { status: "tracked" });
+      const route = createSession(
+        "b1-route-only-wording",
+        routeRoot,
+        { title: "HTTP 請求路由表", summary: "路由規則連結 handler 與 URL。" },
+        routeStore,
+      );
+      for (let index = 0; index < 5; index += 1) {
+        createSession(
+          `b1-endpoint-plan-${index}`,
+          routeRoot,
+          {
+            title: `Imported plan ${index}`,
+            summary: "An earlier note about unrelated maintenance work.",
+            handoffContent: "新增 REST endpoint 的慣例：先整理所有 REST endpoint，再決定如何改動。",
+          },
+          routeStore,
+        );
+      }
+
+      const result = routeStore.recall({ q: "新增 REST endpoint 的慣例", projectRoot: routeRoot, limit: 5 });
+      expect(result.outcome).toBe("recall");
+      if (result.outcome !== "recall") throw new Error("Expected the bilingual route recall to complete.");
+      expect(result.hits.slice(0, 3).map((hit) => hit.id)).toContain(route);
+      expect(result.confidence).toBe("low");
+      expect(result.hits.find((hit) => hit.id === route)?.matchedIn).toContain("title");
+    } finally {
+      routeStore.close();
+    }
+  });
+
+  it("keeps original-term confidence and term hits unchanged by synonym-only matches", () => {
+    const synonymRoot = mkdtempSync(join(tmpdir(), "work-intelligence-synonym-confidence-"));
+    tempDirs.push(synonymRoot);
+    const synonymStore = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = synonymStore.addProject("Fictional Synonym Grove", synonymRoot);
+      synonymStore.updateProject(project.id, { status: "tracked" });
+      const endpoint = createSession(
+        "b1-endpoint-partial-evidence",
+        synonymRoot,
+        { title: "Endpoint handler notes", summary: "The endpoint registration stays in its domain module." },
+        synonymStore,
+      );
+      const query = "endpoint performance";
+      const before = synonymStore.recall({ q: query, projectRoot: synonymRoot, limit: 5 });
+      if (before.outcome !== "recall") throw new Error("Expected the baseline synonym recall to complete.");
+
+      const translated = createSession(
+        "b1-translated-term-evidence",
+        synonymRoot,
+        { title: "路由摘要", summary: "效能資料保留在模組中。" },
+        synonymStore,
+      );
+      const after = synonymStore.recall({ q: query, projectRoot: synonymRoot, limit: 5 });
+      expect(after.outcome).toBe("recall");
+      if (after.outcome !== "recall") throw new Error("Expected the synonym confidence recall to complete.");
+
+      expect(before.hits.map((hit) => hit.id)).toContain(endpoint);
+      expect(before.confidence).toBe("low");
+      expect(after.hits.map((hit) => hit.id)).toContain(translated);
+      expect(after.confidence).toBe(before.confidence);
+      expect(after.termHits).toEqual(before.termHits);
+    } finally {
+      synonymStore.close();
+    }
+  });
+
+  it("does not add synonym-only scores across multiple chunks", () => {
+    const synonymRoot = mkdtempSync(join(tmpdir(), "work-intelligence-synonym-score-cap-"));
+    tempDirs.push(synonymRoot);
+    const synonymStore = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = synonymStore.addProject("Fictional Score Grove", synonymRoot);
+      synonymStore.updateProject(project.id, { status: "tracked" });
+      const completedAt = new Date().toISOString();
+      const finalize = (idempotencyKey: string, summary: string, outcomes: string[]) => {
+        const result = synonymStore.finalizeSession({
+          projectRoot: synonymRoot,
+          idempotencyKey,
+          title: "慣例",
+          summary,
+          completedAt,
+          workSummary: { outcomes, scope: [], decisions: [], verification: [], nextSteps: [] },
+          changedFiles: [],
+          verification: { status: "passed" },
+        });
+        if (result.outcome !== "finalized")
+          throw new Error(`Expected synthetic Session ${idempotencyKey} to finalize.`);
+        return result.session.id;
+      };
+      const singleChunk = finalize("b1-synonym-single-chunk", "A fictional record.", []);
+      const multipleChunks = finalize("b1-synonym-multiple-chunks", "慣例", ["慣例"]);
+
+      const result = synonymStore.recall({ q: "convention", projectRoot: synonymRoot, limit: 5 });
+      expect(result.outcome).toBe("recall");
+      if (result.outcome !== "recall") throw new Error("Expected the synonym score-cap recall to complete.");
+      const singleHit = result.hits.find((hit) => hit.id === singleChunk);
+      const multipleHit = result.hits.find((hit) => hit.id === multipleChunks);
+      expect(singleHit).toBeDefined();
+      expect(multipleHit).toBeDefined();
+      expect(multipleHit?.score).toBeLessThanOrEqual((singleHit?.score ?? 0) + 0.001);
+    } finally {
+      synonymStore.close();
+    }
+  });
+
+  it("ranks a completed repository URL, commit, and editor record above old planning snippets", () => {
+    const oldPlan = [
+      "# Imported project plan",
+      "## Deferred code links",
+      "repositoryUrl, commit links, and editor shortcuts will be added later.",
+    ].join("\n");
+    for (let index = 0; index < 8; index += 1) {
+      createSession(`b1-code-links-plan-${index}`, root, {
+        title: `Imported code links planning ${index}`,
+        summary: "Carried forward an earlier implementation plan.",
+        handoffContent: oldPlan,
+      });
+    }
+
+    const completed = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "b1-completed-code-links",
+      title: "Link commits and changed files to the repository editor",
+      summary: "Saved repositoryUrl on the project so commit links and editor shortcuts open the right source.",
+      workSummary: {
+        outcomes: ["Repository URL, commit links, and editor shortcuts are available for changed files."],
+        scope: ["Added repositoryUrl support and configured editor links."],
+        decisions: [],
+        verification: ["Commit and editor links were checked with fictional repository data."],
+        nextSteps: [],
+      },
+      changedFiles: ["apps/web/src/components/CodeLink.vue"],
+      verification: { status: "passed" },
+    });
+    if (completed.outcome !== "finalized") throw new Error("Expected the code links Session to finalize.");
+
+    const result = store.recall({ q: "repositoryUrl commit editor", projectRoot: root, limit: 20 });
+    expect(result.outcome).toBe("recall");
+    if (result.outcome !== "recall") throw new Error("Expected the code links recall to complete.");
+    expect(result.hits[0]?.id).toBe(completed.session.id);
   });
 
   it("keeps the R answers exclusive to the fictional raw handoff snapshots", () => {

@@ -21,9 +21,11 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 type DocType = "session" | "knowledge";
 
 /*
- * Ranking: FTS5 BM25 per chunk × field weight, summed for structured fields, with only the best raw handoff
- * section counted. Structured fields outweigh raw planning text, and identical raw sections are hashed so only
- * the earliest reference gets full raw weight. The sum is multiplied by squared IDF-weighted query coverage;
+ * Ranking: original-term FTS5 BM25 per chunk × field weight, summed for structured fields, with only the best raw
+ * handoff section counted. Fixed synonym expansions use a separate 0.2-weight score; only the best synonym chunk
+ * or raw section counts, and its contribution is capped at 25% of an existing original-term score. Synonym-only
+ * candidates use that single best piece as a low-confidence lead. Original-term IDF coverage controls ranking
+ * coverage and confidence. Structured fields outweigh raw planning text, duplicate raw sections are downweighted,
  * path matches add a fixed score, recency is mild, and Knowledge evidence adjusts its score.
  */
 const FIELD_WEIGHTS: Record<Exclude<RecallField, "path">, number> = {
@@ -45,6 +47,9 @@ const PATH_WEIGHT = 4;
 const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
 const EXCERPT_LENGTH = 220;
+const MAX_SYNONYM_TERMS = 32;
+const SYNONYM_SCORE_WEIGHT = 0.2;
+const MAX_SYNONYM_SCORE_SHARE = 0.25;
 // Keep weak matches as low-confidence leads, but suppress records with under 10% of the query's IDF weight.
 const MIN_QUERY_COVERAGE = 0.1;
 // "high" needs half the query's IDF weight in structured fields (title, summary, workSummary, Knowledge) or a
@@ -55,6 +60,20 @@ const HIGH_CONFIDENCE_QUERY_COVERAGE = 0.5;
 const CONFIRMATION_BONUS = 0.04;
 const CONFIRMATION_CAP = 5;
 const CONTRADICTED_FACTOR = 0.7;
+const SOFTWARE_TERM_GROUPS = [
+  ["endpoint", "API", "路由", "route"],
+  ["慣例", "convention"],
+  ["效能", "performance"],
+  ["測試", "test"],
+  ["設定", "config"],
+  ["遷移", "migration"],
+] as const;
+const SOFTWARE_TERM_SYNONYMS = new Map<string, string[]>(
+  SOFTWARE_TERM_GROUPS.flatMap((group) => {
+    const terms = [...new Set(group.flatMap((term) => tokenize(term)))];
+    return terms.map((term) => [term, terms.filter((synonym) => synonym !== term)] as const);
+  }),
+);
 
 interface ChunkInput {
   field: Exclude<RecallField, "path">;
@@ -99,6 +118,8 @@ interface DocAccumulator {
   projectId: string;
   date: string;
   fieldScore: number;
+  bestSynonymChunk?: { id: number; score: number; field: RecallField };
+  bestSynonymRaw?: { id: number; score: number; heading: string };
   fields: Map<RecallField, number>;
   bestChunk?: { id: number; score: number; field: RecallField };
   bestRaw?: { id: number; score: number; heading: string };
@@ -172,6 +193,13 @@ function hashRawContent(content: string): string {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
+function expandSoftwareTermSynonyms(terms: string[]): string[] {
+  const originalTerms = new Set(terms);
+  return [...new Set(terms.flatMap((term) => SOFTWARE_TERM_SYNONYMS.get(term) ?? []))]
+    .filter((term) => !originalTerms.has(term))
+    .slice(0, MAX_SYNONYM_TERMS);
+}
+
 /** Retrieval index over Sessions (with raw handoff sections) and Knowledge, kept in sync lazily. */
 export class SearchRepository {
   public constructor(private readonly db: DatabaseSync) {}
@@ -227,6 +255,7 @@ export class SearchRepository {
     this.syncIndex();
     const words = options.q ? parseQueryWords(options.q) : [];
     const terms = [...new Set(words.flatMap((word) => word.terms))].slice(0, MAX_QUERY_TERMS);
+    const synonyms = expandSoftwareTermSynonyms(terms);
     const contexts = this.pathContexts(options.projectId);
     const queriedPaths = [
       ...new Set((options.paths ?? []).map((path) => normalizePath(path, contexts)).filter(Boolean)),
@@ -255,6 +284,9 @@ export class SearchRepository {
 
     const { idf, totalIdf } =
       terms.length > 0 ? this.scoreTerms(terms, accumulator, options) : { idf: [], totalIdf: 0 };
+    if (synonyms.length > 0) {
+      this.scoreSynonyms(synonyms, accumulator, options);
+    }
     if (queriedPaths.length > 0) {
       this.scorePaths(queriedPaths, accumulator, options);
     }
@@ -275,13 +307,25 @@ export class SearchRepository {
         }
         const coverage = totalIdf > 0 ? matchedIdf / totalIdf : 0;
         const structuredCoverage = totalIdf > 0 ? structuredIdf / totalIdf : 0;
-        const textScore = (doc.fieldScore + (doc.bestRaw?.score ?? 0)) * coverage * coverage;
+        const originalScore = doc.fieldScore + (doc.bestRaw?.score ?? 0);
+        const synonymScore = Math.max(doc.bestSynonymChunk?.score ?? 0, doc.bestSynonymRaw?.score ?? 0);
+        const textScore =
+          originalScore > 0
+            ? (originalScore + Math.min(synonymScore, originalScore * MAX_SYNONYM_SCORE_SHARE)) * coverage * coverage
+            : synonymScore;
         const ageDays = Math.max(0, (now - Date.parse(doc.date)) / 86_400_000) || 0;
         const recency = 0.75 + 0.25 * Math.exp(-ageDays / RECENCY_DAYS);
         const strength = doc.type === "knowledge" ? (evidence.get(doc.id) ?? 1) : 1;
         return { doc, coverage, structuredCoverage, score: (textScore + doc.pathScore) * recency * strength };
       })
-      .filter((entry) => entry.score > 0 && (entry.doc.matchedPaths.size > 0 || entry.coverage >= MIN_QUERY_COVERAGE))
+      .filter(
+        (entry) =>
+          entry.score > 0 &&
+          (entry.doc.matchedPaths.size > 0 ||
+            entry.coverage >= MIN_QUERY_COVERAGE ||
+            (entry.doc.bestSynonymChunk?.score ?? 0) > 0 ||
+            (entry.doc.bestSynonymRaw?.score ?? 0) > 0),
+      )
       .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
 
     const excerptTerms = terms
@@ -485,6 +529,49 @@ export class SearchRepository {
     return { idf, totalIdf };
   }
 
+  private scoreSynonyms(
+    terms: string[],
+    accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
+    options: RecallOptions,
+  ): void {
+    const { clause, parameters } = this.scopeClause("c", options);
+    // Keep expansion evidence separate so it can surface a weak lead without changing original-term coverage.
+    const rows = this.db
+      .prepare(
+        `SELECT c.id, c.doc_type, c.doc_id, c.project_id, c.field, c.heading, c.weight, c.doc_date,
+                c.content_hash,
+                CASE WHEN c.content_hash IS NULL THEN 1 WHEN c.id = (
+                  SELECT primary_chunk.id FROM search_chunks primary_chunk
+                  WHERE primary_chunk.project_id = c.project_id AND primary_chunk.content_hash = c.content_hash
+                    AND primary_chunk.field = 'raw'
+                  ORDER BY primary_chunk.doc_date ASC, primary_chunk.doc_id ASC, primary_chunk.id ASC LIMIT 1
+                ) THEN 1 ELSE 0 END AS is_primary_raw,
+                -bm25(search_fts) AS score
+         FROM search_fts
+         CROSS JOIN search_chunks c ON c.id = search_fts.rowid
+         JOIN projects p ON p.id = c.project_id
+         LEFT JOIN knowledge k ON c.doc_type = 'knowledge' AND k.id = c.doc_id
+         WHERE search_fts MATCH ? AND ${clause}`,
+      )
+      .all(terms.map(ftsTermExpression).join(" OR "), ...parameters) as unknown as ScoredChunkRow[];
+
+    for (const row of rows) {
+      const doc = accumulator(row.doc_type, row.doc_id, row.project_id, row.doc_date);
+      const rawWeight = row.field === "raw" && !row.is_primary_raw ? DUPLICATE_RAW_WEIGHT_FACTOR : 1;
+      const score = Math.max(0, row.score) * row.weight * rawWeight * SYNONYM_SCORE_WEIGHT;
+      if (row.field === "raw") {
+        if (!doc.bestSynonymRaw || score > doc.bestSynonymRaw.score) {
+          doc.bestSynonymRaw = { id: row.id, score, heading: row.heading ?? "" };
+        }
+      } else {
+        if (!doc.bestSynonymChunk || score > doc.bestSynonymChunk.score) {
+          doc.bestSynonymChunk = { id: row.id, score, field: row.field };
+        }
+      }
+      doc.fields.set(row.field, (doc.fields.get(row.field) ?? 0) + score);
+    }
+  }
+
   private scorePaths(
     queriedPaths: string[],
     accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
@@ -563,8 +650,17 @@ export class SearchRepository {
       return undefined;
     }
 
-    const excerptChunkId =
-      doc.bestRaw && (!doc.bestChunk || doc.bestRaw.score > doc.bestChunk.score) ? doc.bestRaw.id : doc.bestChunk?.id;
+    const excerptChunkId = [
+      doc.bestChunk,
+      doc.bestRaw && { ...doc.bestRaw, field: "raw" as const },
+      doc.bestSynonymChunk,
+      doc.bestSynonymRaw && { ...doc.bestSynonymRaw, field: "raw" as const },
+    ]
+      .filter((chunk): chunk is NonNullable<typeof chunk> => chunk !== undefined)
+      .sort((left, right) => right.score - left.score)[0]?.id;
+    const rawMatch = [doc.bestRaw, doc.bestSynonymRaw]
+      .filter((chunk): chunk is NonNullable<typeof chunk> => chunk !== undefined)
+      .sort((left, right) => right.score - left.score)[0];
     const excerptRow = excerptChunkId
       ? (this.db.prepare("SELECT content FROM search_chunks WHERE id = ?").get(excerptChunkId) as
           { content: string } | undefined)
@@ -589,7 +685,7 @@ export class SearchRepository {
       ...(header.kind ? { kind: header.kind } : {}),
       date: doc.date,
       matchedIn,
-      ...(doc.bestRaw?.heading ? { section: truncateText(doc.bestRaw.heading, 120) } : {}),
+      ...(rawMatch?.heading ? { section: truncateText(rawMatch.heading, 120) } : {}),
       excerpt: excerptRow ? excerptAround(excerptRow.content, terms, EXCERPT_LENGTH) : "",
       ...(doc.matchedPaths.size > 0 ? { matchedPaths: [...doc.matchedPaths].slice(0, 5) } : {}),
       score: Math.round(score * 1000) / 1000,
