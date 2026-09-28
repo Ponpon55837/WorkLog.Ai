@@ -379,7 +379,10 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 每個 tracked 專案有三個預設知識頁：`architecture`（架構與慣例）、`in-progress`（進行中的工作與未結項）、`pitfalls`（常見陷阱），也可以用自訂 `slug`（2–40 個小寫英數或連字號）加上 `title` 與 `question` 建立其他頁。知識頁是 Agent 依已記錄 Session 改寫的整頁答案，和逐筆明確提交的 Knowledge 分開保存；每次儲存（Agent 或 Web 手動編輯）都是新版本，舊版本保留供工作知識頁檢視。
 
 1. `work_request_knowledge_page_update`（`projectRoot`、`slug`，自訂頁另帶 `title`、`question`）：建立頁面（尚未存在時）並標記「已要求更新」。未知 slug 又沒有 title／question 時回傳 `invalid_page`。
-2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及專案最新的未作廢 Session（摘要與五段 workSummary，最多 60 筆、共 40,000 字內，超過時 `truncated: true`）。若引用 Session 在頁面儲存後被修改、作廢或還原，`page.needsReview` 與 `page.reviewSections` 會列出受影響段落、來源 Session id／標題與原因（`source_updated_after_save`、`source_voided_after_save`、`source_restored_after_save`、`source_missing` 或 `source_state_unknown`）。還原不代表已重新核對；Agent 必須檢查目前來源，儲存新版本後標記才會清除。頁面還沒被要求過時回傳 `not_found`。
+2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及要讀的 Session（摘要與五段 workSummary，共 24,000 字內，超過時 `truncated: true`）。依頁面狀態分兩種 `mode`：
+   - `full`：頁面還沒寫過或使用者要求更新，給最新的未作廢 Session（最多 60 筆），用來整頁改寫。
+   - `review`：已寫過的頁面，只給頁面涵蓋範圍之後完成的 Session（`reason: "new"`，由舊到新），以及儲存後有變動的引用來源（`reason: "source_changed"`）。沒有影響就用 `work_mark_knowledge_page_checked` 回報檢查到的最後一筆。
+   - 若引用 Session 在頁面儲存後被修改、作廢或還原，`page.needsReview` 與 `page.reviewSections` 會列出受影響段落、來源 Session id／標題與原因（`source_updated_after_save`、`source_voided_after_save`、`source_restored_after_save`、`source_missing` 或 `source_state_unknown`）。還原不代表已重新核對；Agent 必須檢查目前來源，儲存新版本後標記才會清除。頁面還沒被要求過時回傳 `not_found`。
 3. `work_save_knowledge_page`（`projectRoot`、`slug`、`idempotencyKey`、`sections`）：1–12 個段落、合計 8,000 字內；每段 `heading`、`content` 與 `sourceSessionIds`（最多 20 個）。沒有來源支持的段落內容必須正好是「資料不足」且不列來源。引用的 Session 不存在、已作廢或屬於其他專案時回傳 `invalid_sources` 與那些 id。同一個 `idempotencyKey` 重試回傳 `duplicate: true`。敏感資料會先遮蔽。
 
 ```json
@@ -396,7 +399,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 
 4. `work_mark_knowledge_page_checked`（`projectRoot`、`slug`、`throughSessionId`）：Agent 評估新資料後確認頁面答案不必改變時，傳入最後一筆實際檢查的非作廢 Session id。游標只會向前移動；此操作不建立版本、不改內容、不清除明確更新請求或 `needsReview`。有新資料數量會從頁面儲存時間與檢查游標兩者較新的位置之後計算。若頁面需要來源核對，仍須處理 `needsReview` 並儲存新版本。
 
-儲存後頁面狀態為「最新」。之後完成的未作廢 Session 會標示 `has_new_data`（「有新資料」）並累計 `newSessionCount`；這是待評估提示，不會自動要求重寫。`work_get_context` 的 `pendingRequests.knowledgePages` 與頁面摘要會帶狀態及新資料數量。Agent 讀取 `work_get_knowledge_page_context` 的 Session 後，若答案不變，使用 `work_mark_knowledge_page_checked` 回報已檢查到哪筆 Session；游標只向前移動，不建立版本、不改內容、不清除明確更新請求或來源核對提示。若已引用的來源 Session 後來被修改、作廢或還原，頁面另帶 `needsReview: true` 與 `reviewSections`；`work_get_context` 的來源 id 與核對明細各最多列 8 筆，額外的來源數量分別以 `sourceSessionIdsOmittedCount`、`omittedSourceCount` 與原因彙整，完整細節由 `work_get_knowledge_page_context` 提供。`work_get_context` 指定專案時會帶 `knowledgePages`（已撰寫頁面的渲染內容，每頁 1,500 字、合計 4,500 字內，截斷時 `truncated: true`），`pendingRequests.knowledgePages` 會列出有新資料、需要核對或已要求更新的頁面。還原來源不會自動清除核對提示，必須檢查並儲存新頁面版本。MCP 沒有刪除知識頁的工具。
+儲存後頁面狀態為「最新」。完成這次更新或檢查的工作時，finalize 帶 `maintainedKnowledgePages`（頁面 slug），這筆 Session 就不算那幾頁的新資料（回應的 `knowledgePagesAcknowledged` 列出生效的頁面）；如果它之前還有其他尚未檢查的 Session，游標不會移動，避免把那些 Session 蓋掉。之後完成的未作廢 Session 會標示 `has_new_data`（「有新資料」）並累計 `newSessionCount`；這是待評估提示，不會自動要求重寫。`work_get_context` 的 `pendingRequests.knowledgePages` 與頁面摘要會帶狀態及新資料數量。Agent 讀取 `work_get_knowledge_page_context` 的 Session 後，若答案不變，使用 `work_mark_knowledge_page_checked` 回報已檢查到哪筆 Session；游標只向前移動，不建立版本、不改內容、不清除明確更新請求或來源核對提示。若已引用的來源 Session 後來被修改、作廢或還原，頁面另帶 `needsReview: true` 與 `reviewSections`；`work_get_context` 的來源 id 與核對明細各最多列 8 筆，額外的來源數量分別以 `sourceSessionIdsOmittedCount`、`omittedSourceCount` 與原因彙整，完整細節由 `work_get_knowledge_page_context` 提供。`work_get_context` 指定專案時會帶 `knowledgePages`（已撰寫頁面的渲染內容，每頁 1,500 字、合計 4,500 字內，截斷時 `truncated: true`），`pendingRequests.knowledgePages` 會列出有新資料、需要核對或已要求更新的頁面。還原來源不會自動清除核對提示，必須檢查並儲存新頁面版本。MCP 沒有刪除知識頁的工具。
 
 ## `work_update_knowledge`
 

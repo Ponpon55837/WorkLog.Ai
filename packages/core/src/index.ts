@@ -1269,6 +1269,8 @@ export interface FinalizeSessionInput {
   contradictedKnowledgeIds?: string[];
   /** Optional Mermaid diagrams that explain the work, masked and stored with the Session. */
   diagrams?: Array<{ title: string; source: string }>;
+  /** Knowledge pages this work saved or checked; this Session does not count as their new data. */
+  maintainedKnowledgePages?: string[];
 }
 
 export interface UpdateSessionVerificationInput {
@@ -1298,6 +1300,8 @@ export interface FinalizedSessionResult {
   knowledgeWarnings?: string[];
   /** Supplied timestamps that were stored but look estimated, or that could not apply. */
   timestampWarnings?: string[];
+  /** maintainedKnowledgePages whose review cursor moved to this Session (it no longer counts as their new data). */
+  knowledgePagesAcknowledged?: string[];
 }
 
 export interface FinalizeIdempotencyConflictResult {
@@ -2007,11 +2011,18 @@ export interface KnowledgePageContextSession {
   completedAt: string;
   summary: string;
   workSummary: WorkSummarySections;
+  /** In review mode: why this Session is included (finished after the page's coverage, or a changed cited source). */
+  reason?: "new" | "source_changed";
 }
 
 export interface KnowledgePageContext {
   outcome: "knowledge_page_context";
   page: KnowledgePageRecord;
+  /**
+   * full: the page is empty or an update was requested, so recent Sessions are given for a complete rewrite.
+   * review: only Sessions finished after the page's coverage and changed cited sources, oldest first.
+   */
+  mode: "full" | "review";
   instructions: string;
   sessions: KnowledgePageContextSession[];
   /** True when older Sessions or long text were left out to stay within the size limit. */

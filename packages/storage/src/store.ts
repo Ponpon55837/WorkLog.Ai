@@ -1398,6 +1398,10 @@ export class WorkIntelligenceStore {
         ? this.diagrams.attachWithFinalize(sessionId, project.id, input.idempotencyKey, input.diagrams, createdAt)
         : undefined;
 
+      const knowledgePagesAcknowledged = input.maintainedKnowledgePages?.length
+        ? this.knowledgePages.acknowledgeMaintenance(project.id, sessionId, input.maintainedKnowledgePages)
+        : [];
+
       const session = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (!session) {
         throw new Error("Session was inserted but could not be loaded.");
@@ -1414,6 +1418,7 @@ export class WorkIntelligenceStore {
         ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
         ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
         ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
+        ...(knowledgePagesAcknowledged.length > 0 ? { knowledgePagesAcknowledged } : {}),
       };
     });
   }

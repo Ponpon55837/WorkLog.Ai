@@ -360,6 +360,97 @@ describe("Knowledge pages", () => {
     expect(finalVersions.outcome === "knowledge_page_versions" && finalVersions.versions).toHaveLength(1);
   });
 
+  it("reviews a written page with only its new Sessions and changed sources, oldest first", () => {
+    const { store, projectRoot, finalize, sections, tick } = setup();
+    const cited = finalize("review-cited");
+    const older = finalize("review-older-than-page");
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    const full = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
+    expect(full).toMatchObject({ outcome: "knowledge_page_context", mode: "full" });
+    tick();
+    store.saveKnowledgePage({
+      projectRoot,
+      slug: "pitfalls",
+      idempotencyKey: "review-save",
+      sections: sections(cited),
+    });
+
+    const firstNew = finalize("review-first-new");
+    const secondNew = finalize("review-second-new");
+    tick();
+    store.updateSessionSummary({
+      sessionId: cited,
+      idempotencyKey: "review-source-correction",
+      summary: "The cited source was corrected after the page was saved.",
+    });
+
+    const review = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
+    expect(review.outcome).toBe("knowledge_page_context");
+    if (review.outcome !== "knowledge_page_context") throw new Error("Expected review context");
+    expect(review.mode).toBe("review");
+    expect(review.sessions.map((session) => [session.id, session.reason])).toEqual([
+      [cited, "source_changed"],
+      [firstNew, "new"],
+      [secondNew, "new"],
+    ]);
+    expect(review.sessions.some((session) => session.id === older)).toBe(false);
+    expect(review.instructions).toContain("work_mark_knowledge_page_checked");
+
+    store.markKnowledgePageChecked({ projectRoot, slug: "pitfalls", throughSessionId: firstNew });
+    const afterCheck = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
+    if (afterCheck.outcome !== "knowledge_page_context") throw new Error("Expected review context");
+    expect(afterCheck.sessions.map((session) => session.id)).toEqual([cited, secondNew]);
+  });
+
+  it("does not count the Session that maintained a page as that page's new data", () => {
+    const { store, projectRoot, finalize, sections, tick } = setup();
+    const cited = finalize("maintained-cited");
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    tick();
+    for (const slug of ["architecture", "pitfalls"]) {
+      store.saveKnowledgePage({
+        projectRoot,
+        slug,
+        idempotencyKey: `maintained-save-${slug}`,
+        sections: sections(cited),
+      });
+    }
+    const finalizeMaintaining = (key: string, maintainedKnowledgePages: string[]) => {
+      tick();
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: key,
+        title: `Session ${key}`,
+        summary: `${key} summary.`,
+        workSummary: { outcomes: [`${key} outcome`], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+        maintainedKnowledgePages,
+      });
+      if (result.outcome !== "finalized") throw new Error("Expected finalize");
+      return result;
+    };
+
+    // The work that saved both pages is recorded right after the saves.
+    const maintaining = finalizeMaintaining("maintained-update-pages", ["architecture", "pitfalls", "missing"]);
+    expect(maintaining.knowledgePagesAcknowledged).toEqual(["architecture", "pitfalls"]);
+    const unrelated = finalize("maintained-unrelated-pr");
+    const listed = store.listKnowledgePages({ projectRoot });
+    if (listed.outcome !== "knowledge_pages") throw new Error("Expected pages");
+    for (const page of listed.items) {
+      expect(page).toMatchObject({ status: "has_new_data", newSessionCount: 1 });
+      expect(page.needsReview).toBeFalsy();
+    }
+
+    // A later maintaining Session does not hide the unrelated one before it.
+    const late = finalizeMaintaining("maintained-late", ["architecture"]);
+    expect(late.knowledgePagesAcknowledged).toBeUndefined();
+    const context = store.getKnowledgePageContext({ projectRoot, slug: "architecture" });
+    if (context.outcome !== "knowledge_page_context") throw new Error("Expected review context");
+    expect(context.sessions.map((session) => session.id)).toEqual([unrelated, late.session.id]);
+  });
+
   it("skips projects that are not tracked", () => {
     const { store, projectRoot, project } = setup();
     store.updateProject(project.id, { status: "paused" });
