@@ -1,10 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
-import type { FolderPickResult } from "@work-intelligence/core";
+import type { FolderPickResult, SystemAgentConnections } from "@work-intelligence/core";
 import { DATABASE_BUSY_MESSAGE, WorkIntelligenceStore, isDatabaseBusyError } from "@work-intelligence/storage";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
+import { inspectAgentConnections } from "./doctor.js";
 import { JSON_HEADERS, RequestBodyError, sendError } from "./http.js";
 import { Router, apiRoutes, type RouteServices } from "./routes/index.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
@@ -89,6 +90,8 @@ export interface ApiHandlerOptions {
   webDirectory?: string;
   /** Install root used for the shared MCP runtime registry; injectable for isolated tests. */
   repositoryRoot?: string;
+  /** Read-only Agent diagnostics; injectable so API tests never inspect real user settings. */
+  agentConnections?: () => SystemAgentConnections;
 }
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
@@ -99,6 +102,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const pickFolder = options.pickFolder ?? createFolderPicker();
   const serveWebFiles = options.webDirectory ? createStaticFilesHandler(options.webDirectory) : undefined;
   const repositoryRoot = options.repositoryRoot ?? DEFAULT_REPOSITORY_ROOT;
+  const inspectConnections = options.agentConnections ?? (() => inspectAgentConnections({ repositoryRoot }));
   const eventClients = new Set<ServerResponse>();
   const eventPollIntervalMs = Math.max(1, options.eventPollIntervalMs ?? DEFAULT_EVENT_POLL_INTERVAL_MS);
   const requestedMaxEventClients = options.maxEventClients ?? DEFAULT_MAX_EVENT_CLIENTS;
@@ -191,6 +195,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     startEventStream,
     eventClientCount: () => eventClients.size,
     mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
+    agentConnections: inspectConnections,
   };
 
   const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

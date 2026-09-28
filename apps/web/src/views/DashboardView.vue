@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, onBeforeUnmount, watch } from "vue";
 import { storeToRefs } from "pinia";
 import {
   ArrowRight,
@@ -13,6 +13,7 @@ import {
 } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import FirstRunChecklist from "../components/domain/FirstRunChecklist.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
 import VerificationBreakdown from "../components/domain/VerificationBreakdown.vue";
@@ -32,15 +33,18 @@ import { metadataBackfillInstruction } from "../stores/metadata-backfill";
 import { useProjectsStore } from "../stores/projects";
 import { reportSynthesisInstruction } from "../stores/reports";
 import { useSessionsStore } from "../stores/sessions";
+import { useSystemStatusStore } from "../stores/system-status";
 import { formatRelative } from "../utils/format";
 import { requestStatus, trackingStatus } from "../utils/status";
 
 const projectsStore = useProjectsStore();
-const { dashboard, projects, recentSessions } = storeToRefs(projectsStore);
+const { dashboard, projects, recentSessions, initialDataReady } = storeToRefs(projectsStore);
 const dashboardStore = useDashboardStore();
 const { weekReport, weekVerification, inbox } = storeToRefs(dashboardStore);
 const sessionsStore = useSessionsStore();
 const { openSessionDetail, setSessionSequence } = sessionsStore;
+const systemStatusStore = useSystemStatusStore();
+const { systemStatus, systemStatusLoading, systemStatusError } = storeToRefs(systemStatusStore);
 
 const today = new Intl.DateTimeFormat("zh-TW", { dateStyle: "full" }).format(new Date());
 const pausedCount = computed(() => projects.value.filter((project) => project.status === "paused").length);
@@ -56,6 +60,9 @@ const weekDelta = computed(() => {
   const text = comparison.direction === "flat" ? "與上週相同" : `${Math.abs(comparison.delta)} vs 上週`;
   return { direction: comparison.direction, text };
 });
+const showFirstRunChecklist = computed(
+  () => initialDataReady.value && (dashboard.value.trackedProjects === 0 || dashboard.value.finalizedSessions === 0),
+);
 
 function openSession(session: WorkSessionRecord): void {
   void openSessionDetail(session.id);
@@ -78,6 +85,8 @@ async function openRequest(item: InboxItem): Promise<void> {
 }
 
 watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
+watch(showFirstRunChecklist, (visible) => systemStatusStore.setSystemStatusActive(visible), { immediate: true });
+onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 </script>
 
 <template>
@@ -87,6 +96,17 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
       <UiButton :icon="ListChecks" :to="{ name: 'sessions' }">全部 Sessions</UiButton>
     </template>
   </PageHeader>
+
+  <FirstRunChecklist
+    v-if="showFirstRunChecklist"
+    class="dashboard__first-run"
+    :has-project="projects.length > 0"
+    :has-tracked-project="dashboard.trackedProjects > 0"
+    :has-session="dashboard.finalizedSessions > 0"
+    :agent-connections="systemStatus?.agents ?? null"
+    :agent-status-loading="systemStatusLoading"
+    :agent-status-error="systemStatusError"
+  />
 
   <div class="dashboard__stats">
     <UiStatCard
@@ -242,6 +262,10 @@ watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-4);
   margin-bottom: var(--space-6);
+}
+
+.dashboard__first-run {
+  margin-bottom: var(--space-4);
 }
 
 .dashboard__grid {

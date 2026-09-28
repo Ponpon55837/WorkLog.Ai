@@ -30,7 +30,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 - **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。
 - **檢索品質門檻**：`pnpm test` 在三個 OS 都包含虛構合成資料的 storage 評估；Ubuntu 另以 `pnpm test:retrieval-quality` 明確顯示 hit@5／MRR 門檻結果。
 - **MCP 回應大小門檻**：`pnpm test` 在三個 OS 都執行合成資料的回應大小測試；Ubuntu 另以 `pnpm test:response-size` 顯示各工具序列化字元數並檢查上限。
-- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium、Firefox 與 WebKit 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行 `@cross-browser` 與 `@accessibility` 流程，WebKit 執行 `@cross-browser` 核心流程。Chromium 與 Firefox 會在六個主要頁面、系統狀態與備份管理頁執行 axe，critical／serious impact 的違規會使測試失敗；備份刪除確認也有鍵盤操作 E2E。三個瀏覽器分開執行，使用各自的暫存 SQLite；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。CI 上的 WebKit 是 Ubuntu Playwright 執行環境，不等於 macOS Safari 實機驗證。
+- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium、Firefox 與 WebKit 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行 `@cross-browser` 與 `@accessibility` 流程，WebKit 執行 `@cross-browser` 核心流程。Chromium 與 Firefox 會在六個主要頁面、系統狀態與備份管理頁執行 axe，critical／serious impact 的違規會使測試失敗；第一次使用清單另在無專案狀態執行 axe，並在 1440／960／375px 檢查水平溢位。備份刪除確認也有鍵盤操作 E2E。三個瀏覽器分開執行，使用各自的暫存 SQLite 與隔離的 Agent home/config 路徑；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。CI 上的 WebKit 是 Ubuntu Playwright 執行環境，不等於 macOS Safari 實機驗證。
 
 Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的 macOS 基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）；project-policy 的 Windows branches 為 92.75%，因平台路徑分隔符走不同條件。
 
@@ -55,7 +55,7 @@ MCP 清單 regression test（`tests/mcp/tools-list-budget.test.ts`）以 MCP SDK
 
 ## MCP runtime 更新偵測
 
-`tests/shared/mcp-runtime.test.ts` 與 `tests/mcp/server.test.ts` 以暫存 runtime installation 模擬 MCP dist、workspace dependency dist 在連線啟動後更新，並檢查 incomplete build、缺少 dist、多個 heartbeat、過期／損毀 lease、正常退出只清自己的 lease，以及 build finalizer 注入 fingerprint 後再讀取 identity 一致。`tests/server/doctor.test.ts` 與 `tests/server/server.test.ts` 以暫存 repository、HOME 和 lease 驗證 doctor/API 同讀共享狀態，並確認 doctor 仍指出過期的 skill 複本；E2E 驗證系統狀態頁重新整理後取得新的 MCP 狀態。這些測試不讀寫實際資料庫或 Agent 設定。
+`tests/shared/mcp-runtime.test.ts` 與 `tests/mcp/server.test.ts` 以暫存 runtime installation 模擬 MCP dist、workspace dependency dist 在連線啟動後更新，並檢查 incomplete build、缺少 dist、多個 heartbeat、過期／損毀 lease、正常退出只清自己的 lease，以及 build finalizer 注入 fingerprint 後再讀取 identity 一致。`tests/server/doctor.test.ts` 與 `tests/server/server.test.ts` 以暫存 repository、HOME、Codex／Claude config roots 和 lease 驗證 Doctor/API 共用唯讀 Agent 診斷；涵蓋 registered／missing／unknown、skill hash drift、malformed JSON、malformed Codex TOML（MCP 表內外與 EOF comment）及不可讀 hook 設定，並比對設定檔檢查前後位元組相同。E2E 以隔離 Agent home 驗證系統狀態頁重新整理、首次使用四步與零 API 寫入。這些測試不讀寫實際資料庫或 Agent 設定。
 
 Root `pnpm build` 在任何 runtime dist 清理前建立排他的進行標記，完成所有 workspace builds 與 MCP entry fingerprint 注入後才移除；直接 runtime package build 使用相同標記。失敗時標記保留，狀態以 unknown 呈現。
 

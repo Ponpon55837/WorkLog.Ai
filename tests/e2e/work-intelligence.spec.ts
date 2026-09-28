@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
-import type { ProjectDataExport } from "../../packages/core/src/index.js";
+import type { ProjectDataExport, SystemAgentConnections } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 
 const projectRoot = process.cwd();
@@ -946,6 +946,9 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("最近自動備份", { exact: true })).toBeVisible();
     await expect(page.getByText("最近資料維護", { exact: true })).toBeVisible();
     await expect(page.getByText("pnpm run doctor").first()).toBeVisible();
+    await expect(page.getByTestId("agent-connections")).toContainText("Codex MCP 註冊");
+    await expect(page.getByTestId("agent-connections")).toContainText("Claude Code 全域 hook");
+    await expect(page.getByTestId("agent-connections")).toContainText("A3 MCP 重新連線");
 
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
@@ -953,8 +956,109 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
+  test("guides first-run setup only while a project or Session is missing and passes axe @accessibility", async ({
+    page,
+  }) => {
+    let mode: "no-project" | "no-session" | "complete" = "no-project";
+    const mutatingRequests: string[] = [];
+    const disconnectedAgents: SystemAgentConnections = {
+      codex: { mcpRegistered: "missing", canonicalSkill: "missing", legacySkill: "missing", hook: "missing" },
+      claudeCode: { mcpRegistered: "missing", skill: "missing", hook: "missing" },
+    };
+    page.on("request", (request) => {
+      if (request.url().includes("/api/") && request.method() !== "GET") {
+        mutatingRequests.push(`${request.method()} ${request.url()}`);
+      }
+    });
+    await page.route("**/api/dashboard", async (route) => {
+      const response = await route.fetch();
+      const summary = (await response.json()) as {
+        trackedProjects: number;
+        finalizedSessions: number;
+        recentSessions: unknown[];
+      };
+      if (mode !== "complete") {
+        summary.trackedProjects = mode === "no-session" ? 1 : 0;
+        summary.finalizedSessions = 0;
+        summary.recentSessions = [];
+      }
+      await route.fulfill({ response, json: summary });
+    });
+    await page.route("**/api/projects", async (route) => {
+      if (mode === "no-project") {
+        await route.fulfill({ json: [] });
+        return;
+      }
+      await route.continue();
+    });
+    await page.route("**/api/system/status", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          mcp: { restartRequired: false, monitoringAvailable: false, activeProcesses: 0, outdatedProcesses: 0 },
+          agents: disconnectedAgents,
+        }),
+      });
+    });
+
+    await page.goto("/dashboard");
+    const checklist = page.getByTestId("first-run-checklist");
+    await expect(checklist).toBeVisible();
+    await expect(checklist.getByTestId("first-run-step-project")).toContainText("待完成");
+    await expect(checklist.getByTestId("first-run-step-tracking")).toContainText("待完成");
+    await expect(checklist.getByTestId("first-run-step-agent")).toContainText("待完成");
+    await expect(checklist.getByRole("link", { name: "加入專案" })).toHaveAttribute("href", "/projects");
+    await expect(checklist.getByRole("button", { name: "複製安裝命令" })).toBeVisible();
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    expect(violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious")).toEqual(
+      [],
+    );
+
+    mode = "no-session";
+    await page.reload();
+    await expect(page.getByTestId("first-run-step-project")).toContainText("已完成");
+    await expect(page.getByTestId("first-run-step-tracking")).toContainText("已完成");
+    await expect(page.getByTestId("first-run-step-session")).toContainText("待完成");
+    await expect(page.getByText("請整理這次完成的工作、變更檔案與驗證結果，並保存第一筆工作記錄。")).toBeVisible();
+
+    mode = "complete";
+    await page.reload();
+    await expect(page.getByTestId("first-run-checklist")).toHaveCount(0);
+    expect(mutatingRequests).toEqual([]);
+  });
+
   test("shows stale MCP connections and refreshes them from the system status API", async ({ page }) => {
     let statusRequests = 0;
+    const mcpStatuses = [
+      {
+        restartRequired: true,
+        monitoringAvailable: true,
+        activeProcesses: 2,
+        outdatedProcesses: 1,
+        message: "磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。",
+      },
+      {
+        restartRequired: false,
+        monitoringAvailable: true,
+        activeProcesses: 1,
+        outdatedProcesses: 0,
+        message: "所有可監測的 MCP 連線都是目前建置。",
+      },
+      {
+        restartRequired: false,
+        monitoringAvailable: false,
+        activeProcesses: 0,
+        outdatedProcesses: 0,
+        message: "無法確認 MCP heartbeat 狀態。",
+      },
+      {
+        restartRequired: false,
+        monitoringAvailable: true,
+        activeProcesses: 0,
+        outdatedProcesses: 0,
+        message: "尚無可監測的 MCP 連線。",
+      },
+    ];
     await page.route("**/api/system/status", async (route) => {
       const response = await route.fetch();
       const status = (await response.json()) as { mcp: Record<string, unknown> };
@@ -963,22 +1067,7 @@ test.describe("Work Intelligence browser regression", () => {
         response,
         json: {
           ...status,
-          mcp:
-            statusRequests === 1
-              ? {
-                  restartRequired: true,
-                  monitoringAvailable: true,
-                  activeProcesses: 2,
-                  outdatedProcesses: 1,
-                  message: "磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。",
-                }
-              : {
-                  restartRequired: false,
-                  monitoringAvailable: true,
-                  activeProcesses: 1,
-                  outdatedProcesses: 0,
-                  message: "所有可監測的 MCP 連線都是目前建置。",
-                },
+          mcp: mcpStatuses[Math.min(statusRequests - 1, mcpStatuses.length - 1)],
         },
       });
     });
@@ -986,13 +1075,22 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/system-status");
     await expect(page.getByText("MCP 需要重新連線")).toBeVisible();
     await expect(
-      page.getByText("磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。", { exact: true }),
+      page
+        .getByTestId("agent-connections")
+        .getByText("磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。", { exact: true }),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "重新整理狀態" }).click();
     await expect(page.getByText("MCP 需要重新連線")).toHaveCount(0);
     await expect(page.getByText("目前版本")).toBeVisible();
-    expect(statusRequests).toBeGreaterThanOrEqual(2);
+    await expect(page.getByTestId("agent-mcp-reconnect")).toContainText("不需要重新連線");
+
+    await page.getByRole("button", { name: "重新整理狀態" }).click();
+    await expect(page.getByTestId("agent-mcp-reconnect")).toContainText("無法確認");
+
+    await page.getByRole("button", { name: "重新整理狀態" }).click();
+    await expect(page.getByTestId("agent-mcp-reconnect")).toContainText("尚無可確認連線");
+    expect(statusRequests).toBeGreaterThanOrEqual(4);
   });
 
   test("has no critical or serious axe violations on primary and management pages @accessibility", async ({ page }) => {

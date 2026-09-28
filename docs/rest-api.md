@@ -50,7 +50,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | Method   | Route                                            | 用途                                                                                   |
 | -------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | GET      | `/api/health`                                    | API/SQLite health                                                                      |
-| GET      | `/api/system/status`                             | 唯讀系統摘要：程式／schema 版本、資料庫位置與大小、備份、最近維護結果、SSE 連線數      |
+| GET      | `/api/system/status`                             | 唯讀系統摘要：資料庫與備份資訊、SSE 連線數、Codex／Claude Code Agent 註冊及 skill／hook 狀態 |
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱、tracking status 或 `repositoryUrl`（只接受不含帳號／token 的 https 網址；`null` 或空字串移除） |
@@ -154,8 +154,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 ## 系統狀態
 
-- REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`sseConnections` 是目前開啟的即時更新連線數。
-- 此端點只讀取資料庫 metadata 與備份檔案清單，不執行 `integrity_check`，也不讀取使用者 home 目錄下的 Agent 設定。完整環境診斷請在專案目錄執行 `pnpm run doctor`。
+- REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`sseConnections` 是目前開啟的即時更新連線數。 `agents.codex` 與 `agents.claudeCode` 顯示 MCP 註冊狀態（`registered`／`missing`／`unknown`）、skill 複本狀態及 hook 狀態；Codex TOML 無法解析時回報 `unknown`，不會修改設定檔；`mcp.restartRequired` 保留 A3 的重新連線判斷。
+- Agent 診斷只讀取 Agent 設定檔、hook 設定與 canonical／user-scope skill 內容，回傳狀態而不回傳設定值、檔案路徑或 skill 內容；端點不寫入設定、不執行 setup 或 hook，也不執行資料庫 `integrity_check`。完整環境診斷請在專案目錄執行 `pnpm run doctor`。
 - 端點受到 loopback `Host` 與 `Origin` 檢查保護；只有系統狀態頁需要的 `database.path` 會回傳完整本機路徑，備份資料仍只回傳檔名。
 
 ## 永久刪除專案

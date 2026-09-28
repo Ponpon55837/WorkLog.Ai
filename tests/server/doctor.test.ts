@@ -6,7 +6,12 @@ import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspectDatabaseReadOnlyMetadata, resolveBackupDirectory } from "../../apps/server/src/database-inspection.js";
-import { collectDoctorFindings, inspectDatabaseReadOnly, inspectGlobalHooks } from "../../apps/server/src/doctor.js";
+import {
+  collectDoctorFindings,
+  inspectAgentConnections,
+  inspectDatabaseReadOnly,
+  inspectGlobalHooks,
+} from "../../apps/server/src/doctor.js";
 import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
 import {
   getMcpRuntimeDirectory,
@@ -333,5 +338,234 @@ describe("pnpm doctor read-only checks", () => {
       { componentId: "codexLegacySkill", state: "current" },
       { componentId: "claudeSkill", state: "stale" },
     ]);
+  });
+
+  it("shares read-only Agent diagnostics without changing isolated settings", () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository");
+    const codexHomeDirectory = join(homeDirectory, ".codex");
+    const claudeConfigDirectory = join(homeDirectory, ".claude");
+    const skill = Buffer.from("<!-- Work Intelligence skill version: 0.1.0 -->\nCanonical skill\n", "utf8");
+    const skillPaths = [
+      join(homeDirectory, ".agents", "skills", "work-intelligence", "SKILL.md"),
+      join(codexHomeDirectory, "skills", "work-intelligence", "SKILL.md"),
+      join(claudeConfigDirectory, "skills", "work-intelligence", "SKILL.md"),
+    ];
+    const claudeHook = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+    const codexHook = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+    const configPaths = [
+      join(homeDirectory, ".claude.json"),
+      join(codexHomeDirectory, "config.toml"),
+      join(codexHomeDirectory, "hooks.json"),
+      join(claudeConfigDirectory, "settings.json"),
+    ];
+    mkdirSync(join(repositoryRoot, ".agents", "skills", "work-intelligence"), { recursive: true });
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    mkdirSync(join(homeDirectory, ".agents", "skills", "work-intelligence"), { recursive: true });
+    mkdirSync(join(codexHomeDirectory, "skills", "work-intelligence"), { recursive: true });
+    mkdirSync(join(claudeConfigDirectory, "skills", "work-intelligence"), { recursive: true });
+    writeFileSync(join(repositoryRoot, ".agents", "skills", "work-intelligence", "SKILL.md"), skill);
+    for (const path of skillPaths) writeFileSync(path, skill);
+    writeFileSync(claudeHook, "// fixture\n");
+    writeFileSync(codexHook, "// fixture\n");
+    mkdirSync(codexHomeDirectory, { recursive: true });
+    mkdirSync(claudeConfigDirectory, { recursive: true });
+    writeFileSync(join(homeDirectory, ".claude.json"), JSON.stringify({ mcpServers: { "work-intelligence": {} } }));
+    writeFileSync(join(codexHomeDirectory, "config.toml"), "[mcp_servers.work-intelligence]\ncommand = 'node'\n");
+    writeFileSync(
+      join(codexHomeDirectory, "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: CODEX_POST_TOOL_USE_MATCHER,
+              hooks: [{ type: "command", command: commandForAgentHook(codexHook, process.platform) }],
+            },
+          ],
+          Stop: [{ hooks: [{ type: "command", command: commandForAgentHook(codexHook, process.platform) }] }],
+        },
+      }),
+    );
+    writeFileSync(
+      join(claudeConfigDirectory, "settings.json"),
+      JSON.stringify({
+        hooks: {
+          Stop: [{ hooks: [{ type: "command", command: commandForAgentHook(claudeHook, process.platform) }] }],
+        },
+      }),
+    );
+    const before = [...configPaths, ...skillPaths].map((path) => readFileSync(path));
+
+    expect(
+      inspectAgentConnections({
+        homeDirectory,
+        repositoryRoot,
+        environment: { HOME: homeDirectory, CODEX_HOME: codexHomeDirectory, CLAUDE_CONFIG_DIR: claudeConfigDirectory },
+      }),
+    ).toEqual({
+      codex: {
+        mcpRegistered: "registered",
+        canonicalSkill: "current",
+        legacySkill: "current",
+        hook: "installed",
+      },
+      claudeCode: { mcpRegistered: "registered", skill: "current", hook: "installed" },
+    });
+    expect([...configPaths, ...skillPaths].map((path) => readFileSync(path))).toEqual(before);
+  });
+
+  it("distinguishes absent and unreadable Agent configs in Doctor findings without rewriting them", async () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository");
+    const codexHomeDirectory = join(homeDirectory, ".codex");
+    const claudeConfigDirectory = join(homeDirectory, ".claude");
+    const codexConfigPath = join(codexHomeDirectory, "config.toml");
+    const claudeMcpPath = join(homeDirectory, ".claude.json");
+    const codexHooksPath = join(codexHomeDirectory, "hooks.json");
+    const claudeSettingsPath = join(claudeConfigDirectory, "settings.json");
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    mkdirSync(codexHomeDirectory, { recursive: true });
+    mkdirSync(claudeConfigDirectory, { recursive: true });
+    writeFileSync(join(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js"), "// fixture\n");
+    writeFileSync(join(repositoryRoot, "apps/mcp/dist/finalize-reminder.js"), "// fixture\n");
+    const options = {
+      homeDirectory,
+      repositoryRoot,
+      environment: { HOME: homeDirectory, CODEX_HOME: codexHomeDirectory, CLAUDE_CONFIG_DIR: claudeConfigDirectory },
+    };
+    const doctorOptions = {
+      ...options,
+      environment: {
+        ...options.environment,
+        WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite"),
+        WORK_INTELLIGENCE_PORT: "65533",
+      },
+    };
+
+    expect(inspectAgentConnections(options)).toMatchObject({
+      codex: { mcpRegistered: "missing", hook: "missing" },
+      claudeCode: { mcpRegistered: "missing", hook: "missing" },
+    });
+    const missingFindings = await collectDoctorFindings(doctorOptions);
+    expect(missingFindings.find((finding) => finding.title === "Claude MCP")?.detail).toContain("未找到");
+    expect(missingFindings.find((finding) => finding.title === "Codex MCP")?.detail).toContain("未找到");
+    expect(missingFindings.find((finding) => finding.title === "Claude 全域 hook")?.detail).toContain("沒有指向");
+    expect(missingFindings.find((finding) => finding.title === "Codex 全域 hook")?.detail).toContain("未同時設定");
+
+    writeFileSync(claudeMcpPath, "{ malformed json");
+    mkdirSync(codexConfigPath);
+    mkdirSync(codexHooksPath);
+    mkdirSync(claudeSettingsPath);
+    const before = readFileSync(claudeMcpPath);
+
+    expect(inspectAgentConnections(options)).toMatchObject({
+      codex: { mcpRegistered: "unknown", hook: "unknown" },
+      claudeCode: { mcpRegistered: "unknown", hook: "unknown" },
+    });
+    const unknownFindings = await collectDoctorFindings(doctorOptions);
+    expect(unknownFindings.find((finding) => finding.title === "Claude MCP")).toMatchObject({
+      severity: "warning",
+      detail: expect.stringContaining("無法判定"),
+      recommendation: expect.stringContaining("可讀"),
+    });
+    expect(unknownFindings.find((finding) => finding.title === "Codex MCP")).toMatchObject({
+      severity: "warning",
+      detail: expect.stringContaining("無法判定"),
+      recommendation: expect.stringContaining("可讀"),
+    });
+    expect(unknownFindings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+      severity: "warning",
+      detail: expect.stringContaining("無法判定"),
+      recommendation: expect.stringContaining("可讀"),
+    });
+    expect(unknownFindings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
+      severity: "warning",
+      detail: expect.stringContaining("無法判定"),
+      recommendation: expect.stringContaining("可讀"),
+    });
+
+    rmSync(codexConfigPath, { recursive: true });
+    writeFileSync(codexConfigPath, "[features]\nhooks = true\n");
+    expect(inspectAgentConnections(options)).toMatchObject({
+      codex: { mcpRegistered: "missing", hook: "unknown" },
+      claudeCode: { mcpRegistered: "unknown", hook: "unknown" },
+    });
+    const mixedFindings = await collectDoctorFindings(doctorOptions);
+    expect(mixedFindings.find((finding) => finding.title === "Codex MCP")?.detail).toContain("未找到");
+    expect(mixedFindings.find((finding) => finding.title === "Codex 全域 hook")?.detail).toContain("無法判定");
+    expect(readFileSync(claudeMcpPath)).toEqual(before);
+    expect(readFileSync(codexConfigPath, "utf8")).toBe("[features]\nhooks = true\n");
+  });
+
+  it("reports malformed Codex TOML as unknown without changing config bytes", async () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository");
+    const codexHomeDirectory = join(homeDirectory, ".codex");
+    const claudeConfigDirectory = join(homeDirectory, ".claude");
+    const codexConfigPath = join(codexHomeDirectory, "config.toml");
+    const codexHooksPath = join(codexHomeDirectory, "hooks.json");
+    const codexHookPath = join(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+    mkdirSync(codexHomeDirectory, { recursive: true });
+    mkdirSync(claudeConfigDirectory, { recursive: true });
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    writeFileSync(codexHookPath, "// fixture\n");
+    writeFileSync(
+      codexHooksPath,
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: CODEX_POST_TOOL_USE_MATCHER,
+              hooks: [{ type: "command", command: commandForAgentHook(codexHookPath, process.platform) }],
+            },
+          ],
+          Stop: [{ hooks: [{ type: "command", command: commandForAgentHook(codexHookPath, process.platform) }] }],
+        },
+      }),
+    );
+    const hooksBefore = readFileSync(codexHooksPath);
+    const options = {
+      homeDirectory,
+      repositoryRoot,
+      environment: { HOME: homeDirectory, CODEX_HOME: codexHomeDirectory, CLAUDE_CONFIG_DIR: claudeConfigDirectory },
+    };
+    const doctorOptions = {
+      ...options,
+      environment: {
+        ...options.environment,
+        WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite"),
+        WORK_INTELLIGENCE_PORT: "65533",
+      },
+    };
+    const malformedConfigs = [
+      '[mcp_servers.work-intelligence]\ncommand = "unterminated',
+      'setting = "unterminated\n[mcp_servers.work-intelligence]\ncommand = "node"\n',
+      '[mcp_servers.work-intelligence]\ncommand = "node"\n[features]\nhooks = "unterminated',
+      '[mcp_servers.work-intelligence]\nargs = ["node" # EOF comment',
+    ];
+
+    for (const configText of malformedConfigs) {
+      writeFileSync(codexConfigPath, configText);
+      const before = readFileSync(codexConfigPath);
+
+      expect(inspectAgentConnections(options)).toMatchObject({
+        codex: { mcpRegistered: "unknown", hook: "unknown" },
+      });
+      const findings = await collectDoctorFindings(doctorOptions);
+      expect(findings.find((finding) => finding.title === "Codex MCP")).toMatchObject({
+        severity: "warning",
+        detail: expect.stringContaining("無法判定"),
+        recommendation: expect.stringContaining("格式有效"),
+      });
+      expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
+        severity: "warning",
+        detail: expect.stringContaining("無法判定"),
+      });
+      expect(readFileSync(codexConfigPath)).toEqual(before);
+      expect(readFileSync(codexHooksPath)).toEqual(hooksBefore);
+    }
   });
 });

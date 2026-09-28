@@ -10,6 +10,7 @@ const webPort = Number(
 // tests that act as an Agent (writing through the storage package) use the server's database.
 const databasePath =
   process.env.WORK_INTELLIGENCE_E2E_DB ?? path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}.sqlite`);
+const agentHomeDirectory = path.join(os.tmpdir(), `work-intelligence-e2e-agents-${process.pid}`);
 process.env.WORK_INTELLIGENCE_E2E_DB = databasePath;
 const chromeCandidates = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -70,6 +71,10 @@ export default defineConfig({
         WORK_INTELLIGENCE_BACKUP: "off",
         WORK_INTELLIGENCE_BACKUP_DIR: path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}-backups`),
         WORK_INTELLIGENCE_ALLOWED_ORIGINS: "",
+        HOME: agentHomeDirectory,
+        USERPROFILE: agentHomeDirectory,
+        CODEX_HOME: path.join(agentHomeDirectory, ".codex"),
+        CLAUDE_CONFIG_DIR: path.join(agentHomeDirectory, ".claude"),
       },
     },
   ],
