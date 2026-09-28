@@ -186,6 +186,14 @@ const diagramSourceSchema = z
   .max(20_000)
   .describe("Mermaid source (flowchart, sequenceDiagram, …) that explains the work; secrets are masked.");
 
+const knowledgePageSlugSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9][a-z0-9-]{1,39}$/, "Use 2–40 lowercase letters, digits, or hyphens.")
+  .describe(
+    `Page id within the project. Defaults: ${KNOWLEDGE_PAGE_DEFAULTS.map((page) => `${page.slug} (${page.title})`).join(", ")}.`,
+  );
+
 export const finalizeSessionInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: z.string().trim().min(1).max(300),
@@ -245,6 +253,13 @@ export const finalizeSessionInputSchema = z.object({
     .optional()
     .describe(
       "Up to five Mermaid diagrams; add one or two on your own when the work changed a cross-module flow, data path, state machine, architecture, or multi-step process. Skip small fixes, styling, config, and test-only work.",
+    ),
+  maintainedKnowledgePages: z
+    .array(knowledgePageSlugSchema)
+    .max(10)
+    .optional()
+    .describe(
+      "Slugs of Knowledge pages this work saved (work_save_knowledge_page) or checked (work_mark_knowledge_page_checked), so this Session does not count as new data for them.",
     ),
 });
 
@@ -706,13 +721,6 @@ export const recordKnowledgeInputSchema = z.object({
   supersedesId: z.string().trim().min(1).max(200).optional(),
 });
 
-const knowledgePageSlugSchema = z
-  .string()
-  .trim()
-  .regex(/^[a-z0-9][a-z0-9-]{1,39}$/, "Use 2–40 lowercase letters, digits, or hyphens.")
-  .describe(
-    `Page id within the project. Defaults: ${KNOWLEDGE_PAGE_DEFAULTS.map((page) => `${page.slug} (${page.title})`).join(", ")}.`,
-  );
 const knowledgePageSectionSchema = z
   .object({
     heading: z.string().trim().min(1).max(120),

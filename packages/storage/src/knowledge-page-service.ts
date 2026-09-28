@@ -53,6 +53,14 @@ type PageRow = {
   checked_through_session_id: string | null;
 };
 
+type ContextSessionRow = {
+  id: string;
+  title: string;
+  completed_at: string;
+  summary: string;
+  work_summary_json: string | null;
+};
+
 type VersionRow = {
   id: string;
   page_id: string;
@@ -78,10 +86,10 @@ type CitedSessionVoidEventRow = {
   occurred_at: string;
 };
 
-/** Sessions an Agent gets while writing a page, newest first. */
+/** Most Sessions an Agent gets for one page (newest first for a rewrite, oldest first for a review). */
 const CONTEXT_SESSION_LIMIT = 60;
 /** Character budget for those Sessions, so the context fits in one tool result. */
-const CONTEXT_CHAR_BUDGET = 40_000;
+const CONTEXT_CHAR_BUDGET = 24_000;
 /** How much of each page work_get_context includes, and of all pages together. */
 const DIGEST_PAGE_CHARS = 1_500;
 const DIGEST_TOTAL_CHARS = 4_500;
@@ -284,18 +292,28 @@ export class KnowledgePageService {
         reason: "Request the page with work_request_knowledge_page_update first.",
       };
     }
-    const { sessions, truncated } = this.contextSessions(decision.project.id);
+    const page = this.recordFor(row);
+    const mode = row.version === 0 || row.update_requested_at ? "full" : "review";
+    const { sessions, truncated } =
+      mode === "full" ? this.contextSessions(decision.project.id) : this.reviewSessions(row, page);
     return {
       outcome: "knowledge_page_context",
-      page: this.recordFor(row),
+      page,
+      mode,
       instructions:
-        `Answer the page question for this project from these Sessions only. Rewrite the whole page as sections; ` +
-        `every section cites the Session ids it is based on in sourceSessionIds. When the Sessions do not answer ` +
-        `part of the question, write a section whose content is exactly "${KNOWLEDGE_PAGE_INSUFFICIENT}" instead of ` +
-        `guessing. Keep facts current: drop what later Sessions contradict. A has_new_data status means assess newer ` +
-        `Sessions; rewrite only if they change the answer. Otherwise call work_mark_knowledge_page_checked with the ` +
-        `last Session you actually reviewed. Do not use that cursor to clear needsReview; cited-source changes still ` +
-        `require checking the named sources and saving a new page version.`,
+        mode === "full"
+          ? `Answer the page question for this project from these Sessions only. Rewrite the whole page as ` +
+            `sections; every section cites the Session ids it is based on in sourceSessionIds. When the Sessions ` +
+            `do not answer part of the question, write a section whose content is exactly ` +
+            `"${KNOWLEDGE_PAGE_INSUFFICIENT}" instead of guessing. Keep facts current: drop what later Sessions ` +
+            `contradict.`
+          : `Review mode: sessions holds only Sessions finished after this page's coverage (reason "new", oldest ` +
+            `first) and cited sources that changed since the page was saved (reason "source_changed"). If they do ` +
+            `not change the page answer, call work_mark_knowledge_page_checked with the last "new" Session you ` +
+            `reviewed. If they do, rewrite the whole page with work_save_knowledge_page, citing sourceSessionIds, ` +
+            `and write "${KNOWLEDGE_PAGE_INSUFFICIENT}" where the Sessions do not answer. The checked cursor never ` +
+            `clears needsReview: changed sources require a new page version. When you finalize this work, list the ` +
+            `page in maintainedKnowledgePages so this Session does not count as new data for it.`,
       sessions,
       truncated,
     };
@@ -383,6 +401,45 @@ export class KnowledgePageService {
     });
     if (result.outcome === "invalid_cursor") return result;
     return { outcome: "knowledge_page_checked", page: this.recordFor(this.findPageById(result.pageId)!) };
+  }
+
+  /**
+   * The Session that saved or checked a page should not make that page show new data. Runs inside the finalize
+   * transaction: for each named page, when the new Session is the first unreviewed one after the page's coverage
+   * point (its sourced-through time or checked cursor), the checked cursor moves to it. When other Sessions
+   * finished in between, nothing moves, so they are never hidden. Returns the slugs that moved.
+   */
+  public acknowledgeMaintenance(projectId: string, sessionId: string, slugs: readonly string[]): string[] {
+    const acknowledged: string[] = [];
+    const firstAfterSource = this.db.prepare(
+      `SELECT id, completed_at FROM sessions
+       WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
+       ORDER BY completed_at ASC, id ASC LIMIT 1`,
+    );
+    const firstAfterCursor = this.db.prepare(
+      `SELECT id, completed_at FROM sessions
+       WHERE project_id = ? AND voided_at IS NULL AND (completed_at > ? OR (completed_at = ? AND id > ?))
+       ORDER BY completed_at ASC, id ASC LIMIT 1`,
+    );
+    const cursorOf = this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?");
+    const moveCursor = this.db.prepare("UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?");
+    for (const slug of new Set(slugs)) {
+      const row = this.findPage(projectId, slug);
+      if (!row || row.version === 0 || !row.sourced_through) continue;
+      const checked = row.checked_through_session_id
+        ? (cursorOf.get(row.checked_through_session_id) as { id: string; completed_at: string } | undefined)
+        : undefined;
+      const coveredThroughCursor = checked && checked.completed_at >= row.sourced_through;
+      const next = (
+        coveredThroughCursor
+          ? firstAfterCursor.get(projectId, checked.completed_at, checked.completed_at, checked.id)
+          : firstAfterSource.get(projectId, row.sourced_through)
+      ) as { id: string } | undefined;
+      if (next?.id !== sessionId) continue;
+      moveCursor.run(sessionId, row.id);
+      acknowledged.push(slug);
+    }
+    return acknowledged;
   }
 
   /** A manual edit from the Web UI; it is kept as a version like an Agent update. */
@@ -760,6 +817,7 @@ export class KnowledgePageService {
     return { redactions: combineRedactionSummaries(redactedTitle.redactions, redactedSections.redactions) };
   }
 
+  /** Recent Sessions, newest first, for a full rewrite of an empty page or an explicitly requested update. */
   private contextSessions(projectId: string): { sessions: KnowledgePageContextSession[]; truncated: boolean } {
     const rows = this.db
       .prepare(
@@ -768,17 +826,22 @@ export class KnowledgePageService {
          ORDER BY completed_at DESC, id DESC
          LIMIT ?`,
       )
-      .all(projectId, CONTEXT_SESSION_LIMIT + 1) as Array<{
-      id: string;
-      title: string;
-      completed_at: string;
-      summary: string;
-      work_summary_json: string | null;
-    }>;
-    let truncated = rows.length > CONTEXT_SESSION_LIMIT;
+      .all(projectId, CONTEXT_SESSION_LIMIT + 1) as ContextSessionRow[];
+    return this.budgetSessions(
+      rows.slice(0, CONTEXT_SESSION_LIMIT).map((row) => ({ row })),
+      rows.length > CONTEXT_SESSION_LIMIT,
+    );
+  }
+
+  /** Converts rows in order until CONTEXT_CHAR_BUDGET is spent; the rest are left out and flagged. */
+  private budgetSessions(
+    entries: ReadonlyArray<{ row: ContextSessionRow; reason?: KnowledgePageContextSession["reason"] }>,
+    alreadyTruncated: boolean,
+  ): { sessions: KnowledgePageContextSession[]; truncated: boolean } {
+    let truncated = alreadyTruncated;
     let budget = CONTEXT_CHAR_BUDGET;
     const sessions: KnowledgePageContextSession[] = [];
-    for (const row of rows.slice(0, CONTEXT_SESSION_LIMIT)) {
+    for (const { row, reason } of entries) {
       const workSummary = parseWorkSummarySections(row.work_summary_json) ?? {
         outcomes: [],
         scope: [],
@@ -792,8 +855,68 @@ export class KnowledgePageService {
         break;
       }
       budget -= size;
-      sessions.push({ id: row.id, title: row.title, completedAt: row.completed_at, summary: row.summary, workSummary });
+      sessions.push({
+        id: row.id,
+        title: row.title,
+        completedAt: row.completed_at,
+        summary: row.summary,
+        workSummary,
+        ...(reason ? { reason } : {}),
+      });
     }
     return { sessions, truncated };
+  }
+
+  /**
+   * Sessions an Agent must read to review a written page: those finished after its coverage point (sourced-through
+   * time or checked cursor), oldest first, and the cited sources that changed since it was saved.
+   */
+  private reviewSessions(
+    row: PageRow,
+    page: KnowledgePageRecord,
+  ): { sessions: KnowledgePageContextSession[]; truncated: boolean } {
+    const checked = row.checked_through_session_id
+      ? (this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?").get(row.checked_through_session_id) as
+          { id: string; completed_at: string } | undefined)
+      : undefined;
+    const after =
+      checked && row.sourced_through && checked.completed_at >= row.sourced_through
+        ? { completedAt: checked.completed_at, id: checked.id }
+        : { completedAt: row.sourced_through ?? "", id: "" };
+    const newRows = this.db
+      .prepare(
+        `SELECT id, title, completed_at, summary, work_summary_json FROM sessions
+         WHERE project_id = ? AND voided_at IS NULL AND (completed_at > ? OR (completed_at = ? AND id > ?))
+         ORDER BY completed_at ASC, id ASC
+         LIMIT ?`,
+      )
+      .all(
+        row.project_id,
+        after.completedAt,
+        after.completedAt,
+        after.id,
+        CONTEXT_SESSION_LIMIT + 1,
+      ) as ContextSessionRow[];
+    const changedIds = [
+      ...new Set(
+        (page.reviewSections ?? []).flatMap((section) => section.sources.map((source) => source.sourceSessionId)),
+      ),
+    ];
+    const changedRows = changedIds.length
+      ? (this.db
+          .prepare(
+            `SELECT id, title, completed_at, summary, work_summary_json FROM sessions
+             WHERE id IN (SELECT value FROM json_each(?))
+             ORDER BY completed_at ASC, id ASC`,
+          )
+          .all(JSON.stringify(changedIds)) as ContextSessionRow[])
+      : [];
+    return this.budgetSessions(
+      [
+        ...changedRows.map((session) => ({ row: session, reason: "source_changed" as const })),
+        ...newRows.slice(0, CONTEXT_SESSION_LIMIT).map((session) => ({ row: session, reason: "new" as const })),
+      ],
+      newRows.length > CONTEXT_SESSION_LIMIT,
+    );
   }
 }

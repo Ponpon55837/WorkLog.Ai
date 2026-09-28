@@ -69,6 +69,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | Agent context | 2,500 ms |
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
+| 知識頁 review context（涵蓋範圍後的一年 Session，最多 60 筆） | 250 ms |
 | 工作歷程搜尋（`search`） | 500 ms |
 | 依月份範圍的排序檢索（`recall` 帶 `from`／`to`） | 500 ms |
 | 熱點檔案（全部期間前 20 名；依目錄、單月） | 各 500 ms |

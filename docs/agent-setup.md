@@ -229,6 +229,6 @@ Agent 會先查詢記錄狀態（`work_get_project_status`），再取回 contex
 
 Claude Code 也可以直接使用 MCP prompts：`/mcp__work-intelligence__finalize-work`（保存這次工作）與 `/mcp__work-intelligence__synthesize-report`（整理報告，可帶 `period`）。
 
-連線正確時，`/mcp` 會列出 31 個工具與 2 個 prompts；查詢類工具帶有 `readOnlyHint`，可以在用戶端的權限設定中放行。完整清單見 [mcp-tools.md](mcp-tools.md)。
+連線正確時，`/mcp` 會列出 44 個工具與 2 個 prompts；查詢類工具帶有 `readOnlyHint`，可以在用戶端的權限設定中放行。完整清單見 [mcp-tools.md](mcp-tools.md)。
 
 如果專案還是 `unregistered`、`paused` 或 `ignored`，Agent 會在記錄狀態查詢時就停下來，MCP 也會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git、source 資料；這是 default-deny 的預期行為。Agent 無法替你切換成「記錄中」，這一步只能在 Web UI 完成。

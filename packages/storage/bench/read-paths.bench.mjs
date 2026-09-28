@@ -162,6 +162,8 @@ try {
     getContext: () => benchStore.getContext(),
     "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
+    "getKnowledgePageContext (review)": () =>
+      benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfalls" }),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
     search: () => benchStore.search("renderer"),
     "recall (month range)": () =>
@@ -187,6 +189,7 @@ try {
     getContext: 2500,
     "getContext (project with pages)": 500,
     "listKnowledgePages (staleness)": 250,
+    "getKnowledgePageContext (review)": 250,
     "listSessionDecisions (pending)": 250,
     search: 500,
     "recall (month range)": 500,
