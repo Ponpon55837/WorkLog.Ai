@@ -1,38 +1,33 @@
-# MCP tools 參考
+# MCP dispatchers 與 operation 契約
 
 每個 MCP tool 的用途、必填欄位、範例 payload 與 policy 行為。一般使用者不需要記住這些名稱——在 Codex／Claude 對話中用自然語言描述需求即可，Agent 會依 `.agents/skills/work-intelligence` 自行選用。
 
 > 回到 [README](../README.md)
 
-## 工具總覽
+## tools/list 與 dispatcher
 
-| 類別 | Tool | 用途 |
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；原本 44 個 operation id 仍可呼叫，完整操作對照、由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations 由固定 MCP resource `work-intelligence://agent/tool-contracts` 提供。Agent 第一次寫入前必須讀取該 resource；dispatcher 會再以原 Zod full schema 驗證參數。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+
+| MCP tool | Annotation | 用途 |
 |---|---|---|
-| Project | `work_get_project_status` | 唯讀查詢某個 workspace 是否「記錄中」；不能變更記錄狀態 |
-| Session | `work_finalize_session` | 完成工作後保存 Session（必填 idempotencyKey、changedFiles、verification、workSummary） |
-| Session | `work_update_session_metadata` | 回填既有 Session 的 changed files、verification、Git metadata |
-| Session | `work_update_session_summary` | 以 replace／append 修正主摘要 |
-| Session | `work_update_session_work_summary` | 以 replace／patch 修正五段 workSummary |
-| Session | `work_attach_evidence` | 掛上 Agent 已確認的測試、命令或文件參考 |
-| Session | `work_attach_diagram` | 為 Session 附上說明工作的 Mermaid 圖表（可重試、不可刪除，可在 Web 作廢） |
-| Session | `work_link_sessions` | 連結規劃與實作等相關 Session，檢索找到一筆時帶出另一筆 |
-| Session | `work_void_session`<br>`work_void_evidence` | 作廢誤記錄的 Session、標示錯誤的 Evidence（可還原，保留作廢紀錄） |
-| Context | `work_get_context` | 取回 tracked 專案的近期 Session、決策、Knowledge、metadata 缺口與待處理的 Agent 請求；帶 `task`／`paths` 時另回傳與這次工作相關的記錄 |
-| Context | `work_recall` | 以關鍵字與檔案路徑排序查詢 Session（含 raw handoff 段落）與 Knowledge；結構化 Session 欄位優先，重複 raw 規劃片段降權；回報 confidence，無依據時回傳空 hits |
-| Context | `work_list_sessions`<br>`work_get_session` | 依關鍵字、日期、專案分頁列出精簡 Session 摘要；需要細節時讀取單筆完整內容 |
-| Context | `work_search` | 與 `work_recall` 同一個引擎，只查 Session；結構化欄位優先於 raw handoff，重複片段降權；以 `{ confidence, hits }` 回報檢索可信度 |
-| Knowledge | `work_record_knowledge`<br>`work_search_knowledge` | 明確提交與搜尋 Knowledge |
-| Knowledge | `work_update_knowledge` | 編輯、封存或恢復 Knowledge |
-| Knowledge | `work_request_knowledge_candidates`<br>`work_get_knowledge_candidate_context`<br>`work_submit_knowledge_candidates` | Agent 從已記錄的 Session 提出 Knowledge 候選；使用者在工作知識頁接受後才寫入 |
-| Knowledge | `work_get_knowledge_history` | 查詢 Knowledge 的不可變變更紀錄 |
-| Knowledge | `work_request_knowledge_page_update`<br>`work_get_knowledge_page_context`<br>`work_save_knowledge_page`<br>`work_mark_knowledge_page_checked` | 常駐知識頁：評估新 Session；答案改變才建立新版本，無須改寫時只推進檢查游標 |
-| Graph | `work_get_graph` | 讀取 deterministic 工作圖譜（可加上推導的「一起修改」邊） |
-| Graph | `work_get_graph_path` | 唯讀：找出兩個節點間的最短關聯並逐段說明 |
-| Report | `work_get_report`<br>`work_export_report` | deterministic 報告與 Markdown／JSON 匯出 |
-| Report | `work_request_report_synthesis`<br>`work_list_report_synthesis_requests`<br>`work_get_report_context`<br>`work_save_report_summary` | AI 報告整理流程（建立或找請求 → 取 context → 回寫） |
-| Report | `work_retry_report_synthesis`<br>`work_cancel_report_synthesis` | 重試逾時請求或取消整理 |
-| Backfill | `work_preview_metadata_backfill`<br>`work_request_metadata_backfill`<br>`work_list_metadata_backfill_requests`<br>`work_get_metadata_backfill_context`<br>`work_apply_metadata_backfill`<br>`work_cancel_metadata_backfill` | metadata 缺口掃描與 Agent 回補流程（見 REST API 文件的 Metadata backfill） |
-| Import | `work_preview_handoff_import`<br>`work_import_handoffs` | 歷史 handoff 預覽與匯入 |
+| `work_read` | `readOnlyHint: true`, `openWorldHint: false` | 執行任一唯讀操作 |
+| `work_write_idempotent` | `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false` | 新增記錄或冪等地推進請求狀態 |
+| `work_write_additive` | `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`, `openWorldHint: false` | 新增記錄或提案、建立請求或推進新的處理嘗試 |
+| `work_write_overwrite` | `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: true`, `openWorldHint: false` | 更新、連結、作廢或還原既有資料 |
+
+呼叫範例：
+
+```json
+{
+  "name": "work_read",
+  "arguments": {
+    "operation": "work_get_context",
+    "arguments": { "projectRoot": "C:\\work\\assistant", "task": "修正報表時區" }
+  }
+}
+```
+
+下方各節以原 operation id 作標題，方便查找欄位語義；這些名稱不是 `tools/list` 的工具名稱。確切路由與完整輸入 schema 以 `work-intelligence://agent/tool-contracts` 為準。
 
 ## 敏感資料遮蔽
 
@@ -180,15 +175,16 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## Tool annotations 與 prompts
 
-每個工具都有 MCP annotations，讓用戶端可以自動核准唯讀操作：
+四個 dispatcher 都帶有 MCP annotations，讓用戶端能按操作類型設定權限；每個原 operation 的精確 annotations 也保留在工具 contract resource：
 
-- `readOnlyHint: true`：查詢類（status、context、list、search、report、graph、preview、history）。
-- `destructiveHint: true`：可能取代既有值的更新（摘要、workSummary、metadata、Knowledge、metadata 回補）；變更前的狀態依各工具說明保留在 audit。
-- `idempotentHint: true`：相同 payload 重試不會再產生變化（finalize、evidence、Knowledge、摘要回寫等）。
+- `work_read`：`readOnlyHint: true`、`openWorldHint: false`。
+- `work_write_idempotent`：非唯讀、非破壞性、冪等、`openWorldHint: false`。
+- `work_write_additive`：非唯讀、非破壞性、非冪等、`openWorldHint: false`。
+- `work_write_overwrite`：非唯讀、破壞性、冪等、`openWorldHint: false`；涵蓋修正、連結、作廢與還原。
 
 另外提供兩個 MCP prompts：`finalize-work`（把這次工作記錄下來）與 `synthesize-report`（可選 `period`，整理報告）。
 
-Server instructions 只放路由規則；Work record、Report synthesis、Metadata backfill 三份 contract 只附在負責寫入該資料的工具說明上，避免用戶端截斷過長的 instructions。
+Server instructions 只放路由規則；44 項 operation 的長說明與 schema 按需由固定 contract resource 提供，避免初始工具清單被重複描述撐大。
 
 ## `work_get_report`
 

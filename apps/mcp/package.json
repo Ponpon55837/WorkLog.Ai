@@ -11,7 +11,8 @@
     "@work-intelligence/schema": "workspace:*",
     "@work-intelligence/shared": "workspace:*",
     "@work-intelligence/storage": "workspace:*",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
   },
   "scripts": {
     "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",

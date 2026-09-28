@@ -13,6 +13,8 @@ import { isFileInTrackedRoots, REMINDER, reminderWithStart } from "../../apps/mc
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const trackedCwd = join(repoRoot, "apps/mcp");
 const finalizeTool = "mcp__work-intelligence__work_finalize_session";
+const finalizeDispatcher = "mcp__work-intelligence__work_write_idempotent";
+const finalizeDispatcherInput = { operation: "work_finalize_session", arguments: {} };
 
 function createDeps(tracked = true, now = () => new Date("2026-09-27T01:00:00.000Z")) {
   const markers = new Set<string>();
@@ -95,7 +97,7 @@ describe("Codex finalize reminder hook", () => {
     );
 
     const saved = { content: [{ type: "text", text: JSON.stringify({ outcome: "finalized", session: { id: "s" } }) }] };
-    responseForCodexHook(postToolEvent(finalizeTool, saved), deps);
+    responseForCodexHook(postToolEvent(finalizeDispatcher, saved, finalizeDispatcherInput), deps);
     clock = new Date("2026-09-27T02:00:00.000Z");
     prompt();
     responseForCodexHook(postToolEvent("apply_patch"), deps);
@@ -135,11 +137,28 @@ describe("Codex finalize reminder hook", () => {
     expect(markers.has("session-1.dirty")).toBe(true);
     expect(markers.has("session-1.reminded")).toBe(true);
 
+    responseForCodexHook(
+      postToolEvent(
+        finalizeDispatcher,
+        { structuredContent: { outcome: "finalized", sessionId: "wrong-op" } },
+        {
+          operation: "work_update_session_summary",
+          arguments: {},
+        },
+      ),
+      deps,
+    );
+    expect(markers.has("session-1.dirty")).toBe(true);
+
     expect(
       responseForCodexHook(
-        postToolEvent(finalizeTool, {
-          structuredContent: { outcome: "finalized", sessionId: "saved-session" },
-        }),
+        postToolEvent(
+          finalizeDispatcher,
+          {
+            structuredContent: { outcome: "finalized", sessionId: "saved-session" },
+          },
+          finalizeDispatcherInput,
+        ),
         deps,
       ),
     ).toBeNull();

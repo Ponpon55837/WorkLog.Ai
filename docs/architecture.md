@@ -9,9 +9,9 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node.js 22.5 以上的內建 `node:sqlite` SQLite 儲存（建議 Node.js 24），避免額外 native binding
-- MCP stdio server：44 個工具與 2 個 prompts（`finalize-work`、`synthesize-report`），涵蓋專案記錄狀態、Session 保存／查詢／修正、Evidence、Knowledge、Graph、報告與 AI 報告整理、metadata 回補與 handoff 匯入；完整清單與 annotations 見 [mcp-tools.md](mcp-tools.md)
+- MCP stdio server：4 個依安全語義分類的 dispatcher 對應 44 個 operation，並提供 2 個 prompts（`finalize-work`、`synthesize-report`）；固定 MCP resource 提供完整 operation schema、行為與原始 annotations，詳見 [mcp-tools.md](mcp-tools.md)
 - Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
-- 報告匯出：MCP 的 work_export_report 與 REST 的 /api/reports/export，可輸出 Markdown 或 JSON
+- 報告匯出：唯讀 dispatcher `work_read` 的 operation `work_export_report` 與 REST `/api/reports/export`，可輸出 Markdown 或 JSON
 - 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization
 - 工作歷程可依關鍵字、專案與完成日期區間（系統時區）篩選；Session 面板可就地編輯主摘要與五段 workSummary
 - 工作歷程、Knowledge 與報告來源證據支援 10／20／50／100／All；All 仍由 server cap（Session／證據 100、Knowledge 200），回應會以 `pageInfo.truncated` 明確標示並保留分頁導覽，前端清單則以 `VirtualList` 限制 DOM 渲染量
@@ -124,9 +124,9 @@ REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdi
 3. `paused`、`ignored`、`unregistered` 都會安靜回傳 `outcome: "skipped"`，不讀 handoff、Git、source，也不建立 session/events。
 4. `tracked` 專案的 handoff path 會限制在 project root 內；越界 path 不會被讀取。同步 storage 流程使用既有 `createProjectPathResolver`；非同步檔案流程可使用 `createAsyncProjectPathResolver` 的保序批次 API，所有結果仍採相同 lexical／realpath boundary。
 5. registry 位於中央 SQLite；side project 不會因 MCP 連線而自動被記錄。
-6. Agent 可以用 `work_get_project_status` 唯讀查詢記錄狀態，但沒有任何 MCP 工具能變更它；切換為 `tracked` 只能由使用者在 Web UI 確認。
+6. Agent 可以透過唯讀 dispatcher `work_read` 執行 operation `work_get_project_status` 查詢記錄狀態，但沒有任何 MCP operation 能變更它；切換為 `tracked` 只能由使用者在 Web UI 確認。
 
-任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_get_context`、project-scoped `work_recall`／`work_search`、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
+任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_read` 的 `work_get_context`、project-scoped `work_recall`／`work_search` operations、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
 
 ## 後續擴充邊界
 

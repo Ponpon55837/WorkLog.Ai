@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import {
   attachDiagramInputSchema,
   attachEvidenceInputSchema,
@@ -65,7 +66,11 @@ import {
   type WorkIntelligenceStore,
 } from "@work-intelligence/storage";
 import { truncateText } from "@work-intelligence/shared";
-import { z } from "zod";
+import {
+  registerAgentResources,
+  registerToolContractsResource,
+  type AgentToolContractOperation,
+} from "./agent-resources.js";
 import {
   implementationDetail,
   knowledgeCandidateContract,
@@ -75,9 +80,40 @@ import {
   serverInstructions,
   workRecordContract,
 } from "./contracts.js";
-import { registerAgentResources } from "./agent-resources.js";
 import { parseMcpInput } from "./input.js";
 import { sessionTextResult, textResult } from "./result.js";
+
+interface StoreToolDefinition<S extends z.ZodTypeAny> {
+  title: string;
+  description: string;
+  /** Advertised input shape; may be the unrefined base object of `schema`. */
+  inputShape: z.ZodRawShape;
+  /** Full validation schema, including cross-field refinements. */
+  schema: S;
+  annotations: ToolAnnotations;
+  /** Rules that are enforced by runtime refinements or handler logic rather than JSON Schema alone. */
+  validationNotes?: readonly string[];
+  invalidMessage: string;
+  /** Session-shaped results also expose sessionId/verification as structuredContent. */
+  sessionResult?: boolean;
+  run: (input: z.infer<S>) => unknown;
+}
+
+export interface McpStartupFailure {
+  code: string;
+  message: string;
+}
+
+interface RegisteredStoreTool extends AgentToolContractOperation {
+  invoke: (input: unknown) => Promise<CallToolResult>;
+}
+
+interface ToolDispatcherDefinition {
+  name: string;
+  title: string;
+  description: string;
+  annotations: ToolAnnotations;
+}
 
 /** Reads only the central SQLite; nothing outside the tracked-project registry is touched. */
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
@@ -103,23 +139,92 @@ const OVERWRITE_IDEMPOTENT: ToolAnnotations = {
   openWorldHint: false,
 };
 
-interface StoreToolDefinition<S extends z.ZodTypeAny> {
-  title: string;
-  description: string;
-  /** Advertised input shape; may be the unrefined base object of `schema`. */
-  inputShape: z.ZodRawShape;
-  /** Full validation schema, including cross-field refinements. */
-  schema: S;
-  annotations: ToolAnnotations;
-  invalidMessage: string;
-  /** Session-shaped results also expose sessionId/verification as structuredContent. */
-  sessionResult?: boolean;
-  run: (input: z.infer<S>) => unknown;
+const TOOL_DISPATCHERS: readonly ToolDispatcherDefinition[] = [
+  {
+    name: "work_read",
+    title: "Read Work Intelligence",
+    description:
+      "Run one read-only Work Intelligence operation. Read the operation catalog for its complete schema and result rules.",
+    annotations: READ_ONLY,
+  },
+  {
+    name: "work_write_idempotent",
+    title: "Write Work Intelligence records",
+    description: "Run one idempotent additive write. Read its complete contract before the first write.",
+    annotations: ADDITIVE_IDEMPOTENT,
+  },
+  {
+    name: "work_write_additive",
+    title: "Add Work Intelligence records or proposals",
+    description:
+      "Create an additive record, request, proposal, or processing attempt; repeated calls may create another item. Read its complete contract first.",
+    annotations: ADDITIVE,
+  },
+  {
+    name: "work_write_overwrite",
+    title: "Update or void Work Intelligence records",
+    description:
+      "Update, link, void, or restore existing data with destructive, idempotent semantics. Read its complete contract and verify scope before writing.",
+    annotations: OVERWRITE_IDEMPOTENT,
+  },
+];
+
+function dispatcherForAnnotations(annotations: ToolAnnotations): ToolDispatcherDefinition {
+  const dispatcher = TOOL_DISPATCHERS.find(
+    (candidate) =>
+      candidate.annotations.readOnlyHint === annotations.readOnlyHint &&
+      candidate.annotations.destructiveHint === annotations.destructiveHint &&
+      candidate.annotations.idempotentHint === annotations.idempotentHint &&
+      candidate.annotations.openWorldHint === annotations.openWorldHint,
+  );
+  if (!dispatcher) throw new Error("Unsupported MCP tool annotation combination.");
+  return dispatcher;
 }
 
-export interface McpStartupFailure {
-  code: string;
-  message: string;
+function createDispatcherSchema(operations: readonly RegisteredStoreTool[]) {
+  const [first, ...rest] = operations.map((operation) => operation.name);
+  if (!first) throw new Error("MCP tool dispatcher cannot be empty.");
+  return z.object({
+    operation: z.enum([first, ...rest] as [string, ...string[]]),
+    arguments: z.record(z.unknown()).optional(),
+  });
+}
+
+function registerToolDispatchers(server: McpServer, operations: Map<string, RegisteredStoreTool>): void {
+  for (const dispatcher of TOOL_DISPATCHERS) {
+    const members = [...operations.values()].filter((operation) => operation.dispatcherName === dispatcher.name);
+    const inputSchema = createDispatcherSchema(members);
+    server.registerTool(
+      dispatcher.name,
+      {
+        title: dispatcher.title,
+        description: dispatcher.description,
+        inputSchema: inputSchema.shape,
+        annotations: { title: dispatcher.title, ...dispatcher.annotations },
+      },
+      async (input: unknown) => {
+        const parsed = inputSchema.safeParse(input);
+        if (!parsed.success) {
+          return {
+            isError: true,
+            ...textResult({
+              code: "INVALID_OPERATION_CALL",
+              error: "Invalid Work Intelligence operation call.",
+              details: parsed.error.flatten(),
+            }),
+          };
+        }
+        const operation = operations.get(parsed.data.operation);
+        if (!operation || operation.dispatcherName !== dispatcher.name) {
+          return {
+            isError: true,
+            ...textResult({ code: "UNKNOWN_OPERATION", error: "Operation is not available through this dispatcher." }),
+          };
+        }
+        return operation.invoke(parsed.data.arguments ?? {});
+      },
+    );
+  }
 }
 
 function compactSearchExcerpt(
@@ -162,17 +267,21 @@ export function createWorkIntelligenceMcpServer(
   const instructions = `${serverInstructions} Application version: ${version}; schema version: ${schemaVersion}.${failureInstructions}`;
   const server = new McpServer({ name: "work-intelligence", version }, { instructions });
   registerAgentResources(server);
+  const registeredStoreTools = new Map<string, RegisteredStoreTool>();
 
   function registerStoreTool<S extends z.ZodTypeAny>(name: string, definition: StoreToolDefinition<S>): void {
-    server.registerTool(
+    if (registeredStoreTools.has(name)) throw new Error(`Duplicate MCP operation: ${name}`);
+    const dispatcher = dispatcherForAnnotations(definition.annotations);
+    registeredStoreTools.set(name, {
       name,
-      {
-        title: definition.title,
-        description: definition.description,
-        inputSchema: definition.inputShape,
-        annotations: { title: definition.title, ...definition.annotations },
-      },
-      async (input: unknown) => {
+      dispatcherName: dispatcher.name,
+      title: definition.title,
+      description: definition.description,
+      inputShape: definition.inputShape,
+      schema: definition.schema,
+      validationNotes: definition.validationNotes,
+      annotations: { title: definition.title, ...definition.annotations },
+      invoke: async (input: unknown) => {
         if (startupFailure) {
           return {
             isError: true,
@@ -200,7 +309,7 @@ export function createWorkIntelligenceMcpServer(
           };
         }
       },
-    );
+    });
   }
 
   // ── Project and Session ────────────────────────────────────────────────
@@ -224,6 +333,10 @@ export function createWorkIntelligenceMcpServer(
       workRecordContract,
     inputShape: mcpFinalizeSessionInputSchema.shape,
     schema: mcpFinalizeSessionInputSchema,
+    validationNotes: [
+      "A changedFileChanges entry with status=renamed must include previousPath.",
+      "Timestamps with offsets are normalized to UTC; future values are rejected. If startedAt is after completedAt, it is not applied and the result includes a timestamp warning.",
+    ],
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid finalize payload.",
     sessionResult: true,
@@ -247,6 +360,9 @@ export function createWorkIntelligenceMcpServer(
       "List finalized tracked-project Session digests, newest first, with optional keyword (q), inclusive from/to calendar dates in the server's local time zone, a projectRoot or projectId scope, and voided (exclude by default, include, or only). Each digest has a truncated summary, verification status, changed-file count, and up to three open items; it omits changed-file paths, events, evidence, and full workSummary. Results are paged (pageSize up to 100) and include pageInfo.total. Read one full record with work_get_session. Non-tracked scopes are skipped quietly.",
     inputShape: mcpListSessionsInputSchemaBase.shape,
     schema: mcpListSessionsInputSchema,
+    validationNotes: [
+      "When both from and to are supplied, to must be on or after from (inclusive YYYY-MM-DD calendar dates in server time zone).",
+    ],
     annotations: READ_ONLY,
     invalidMessage: "Invalid session list query.",
     run: (input) => {
@@ -261,6 +377,10 @@ export function createWorkIntelligenceMcpServer(
       'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. Structured Session fields (title, summary, and workSummary) carry more weight than raw handoff text. Raw section content is normalized and hashed per project; only the earliest Session reference keeps full raw weight and later duplicates are downweighted. This helps completed implementation records rank ahead of repeated old planning excerpts while keeping raw-only answers searchable. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns confidence plus ranked hits with id, type, title, the strongest matchedIn field, raw section heading, an excerpt capped at 110 characters, and score; truncated excerpts are marked. confidence is "none" when no hit has meaningful query coverage or a path match, "low" for weak partial matches or matches found only in raw handoff text, and "high" when a hit matches most of the query in its title, summary, workSummary, or Knowledge, or matches a path. When confidence is "none", hits is empty and you must not use the result as evidence; rephrase the query or try a path. Hits keep only their strongest matchedIn field, raw section headings are capped at 24 characters, and related Session links keep their ids and relations without repeating titles. With projectRoot, the repeated top-level project object is omitted. Read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
     inputShape: recallQuerySchemaBase.shape,
     schema: recallQuerySchema,
+    validationNotes: [
+      "At least one of q or a non-empty paths array is required; both may be supplied.",
+      "When both from and to are supplied, to must be on or after from (inclusive YYYY-MM-DD calendar dates in server time zone).",
+    ],
     annotations: READ_ONLY,
     invalidMessage: "Invalid recall query.",
     run: (input) => {
@@ -288,6 +408,9 @@ export function createWorkIntelligenceMcpServer(
       'Search finalized work sessions with the same ranked engine as work_recall, Sessions only (up to 20 compact hits with id, title, date, matchedIn, optional raw section heading, excerpt capped at 110 characters, and verificationStatus; truncated excerpts are marked). Structured Session fields carry more weight than raw handoff text; repeated raw planning excerpts after the earliest project reference are downweighted. Returns { outcome: "search", confidence, hits, termHits? }. confidence is "none" when no hit has meaningful query coverage, "low" for weak partial matches or matches found only in raw handoff text, and "high" when a hit matches most of the query in its title, summary, or workSummary. When confidence is "none", hits is empty and you must not use the result as evidence; rephrase the query. When title is the strongest match and the Session summary also matches a query term, the excerpt uses the summary to keep answer context. A project-scoped result omits repeated project identifiers. Prefer work_recall, which also returns Knowledge and accepts paths. Read the full record with work_get_session. Pass from and/or to (YYYY-MM-DD, server time zone) when the user names a time such as last week or June. Search is limited to tracked projects, and a projectRoot query is policy-gated before any project-scoped access.',
     inputShape: searchQuerySchemaBase.shape,
     schema: searchQuerySchema,
+    validationNotes: [
+      "When both from and to are supplied, to must be on or after from (inclusive YYYY-MM-DD calendar dates in server time zone).",
+    ],
     annotations: READ_ONLY,
     invalidMessage: "Invalid search query.",
     run: (input) => {
@@ -339,6 +462,10 @@ export function createWorkIntelligenceMcpServer(
       "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. The Agent must inspect the worktree/diff first and provide the confirmed changedFiles list; use [] only when the work intentionally changed no files. By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. Non-tracked projects are skipped quietly.",
     inputShape: updateSessionMetadataInputSchema.shape,
     schema: updateSessionMetadataInputSchema,
+    validationNotes: [
+      "A changedFileChanges entry with status=renamed must include previousPath.",
+      "Timestamps with offsets are normalized to UTC; future values are rejected. If startedAt is after completedAt, it is not applied and the result includes a timestamp warning.",
+    ],
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid session metadata payload.",
     sessionResult: true,
@@ -365,6 +492,10 @@ export function createWorkIntelligenceMcpServer(
       workRecordContract,
     inputShape: updateSessionWorkSummaryInputSchemaBase.shape,
     schema: updateSessionWorkSummaryInputSchema,
+    validationNotes: [
+      "mode=replace requires all five workSummary arrays: outcomes, scope, decisions, verification, and nextSteps.",
+      "mode=patch must provide at least one workSummary section.",
+    ],
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid session workSummary payload.",
     sessionResult: true,
@@ -377,6 +508,7 @@ export function createWorkIntelligenceMcpServer(
       "Void a Session that was recorded by mistake or as a test (voided: true, with a reason), or restore it (voided: false). This is a reversible soft-delete: the Session stays readable with work_get_session and every change is audited, but a voided Session leaves Session lists, reports, the graph, context, and recall. Sensitive values in reasons are masked; results report counts by type only. Only void when the user asks or confirms; never void to hide real but unwanted work. Non-tracked projects are skipped quietly.",
     inputShape: setSessionVoidInputSchemaBase.shape,
     schema: setSessionVoidInputSchema,
+    validationNotes: ["voided=true requires a non-empty reason; voided=false may omit it."],
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid session void payload.",
     run: (input) => store.setSessionVoid(input),
@@ -399,6 +531,7 @@ export function createWorkIntelligenceMcpServer(
       "Mark an attached evidence reference as wrong (voided: true, with a reason) or restore it (voided: false). Voided evidence stays in Session detail with its reason but is left out of reports and the graph; every change is audited. Attach corrected evidence separately with work_attach_evidence. Non-tracked projects are skipped quietly.",
     inputShape: setEvidenceVoidInputSchemaBase.shape,
     schema: setEvidenceVoidInputSchema,
+    validationNotes: ["voided=true requires a non-empty reason; voided=false may omit it."],
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid evidence void payload.",
     run: (input) => store.setEvidenceVoid(input),
@@ -469,6 +602,7 @@ export function createWorkIntelligenceMcpServer(
       implementationDetail,
     inputShape: knowledgeCandidateContextQuerySchemaBase.shape,
     schema: knowledgeCandidateContextQuerySchema,
+    validationNotes: ["At least one of requestId or projectRoot is required; both may be supplied."],
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid knowledge candidate context query.",
     run: (input) => store.getKnowledgeCandidateContext(input),
@@ -492,6 +626,7 @@ export function createWorkIntelligenceMcpServer(
       "Update or archive explicitly recorded Knowledge for a tracked project; projectRoot is required so the policy gate runs first. Set status to archived to hide an item from active searches, or active to restore it. Set appliesTo to change the paths it covers, or confirm: true after checking that it still holds (clears possiblyStale and needsReview until files change again). Every change keeps an immutable before/after snapshot. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. Non-tracked projects are skipped quietly.",
     inputShape: updateKnowledgeInputSchemaBase.shape,
     schema: updateKnowledgeInputSchema,
+    validationNotes: ["At least one mutable Knowledge field besides knowledgeId and projectRoot must be supplied."],
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid knowledge update payload.",
     run: (input) => store.updateKnowledge(input),
@@ -538,6 +673,10 @@ export function createWorkIntelligenceMcpServer(
       knowledgePageContract,
     inputShape: saveKnowledgePageInputSchema.shape,
     schema: saveKnowledgePageInputSchema,
+    validationNotes: [
+      "Each section must cite at least one source Session, unless its content is exactly 資料不足 and sourceSessionIds is empty.",
+      "The sum of all section content is limited to 8,000 characters.",
+    ],
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid knowledge page payload.",
     run: (input) => store.saveKnowledgePage(input),
@@ -584,6 +723,7 @@ export function createWorkIntelligenceMcpServer(
       'Build a deterministic day, week, month, quarter, or year report from finalized tracked-project sessions, or pass from and to (YYYY-MM-DD, up to 366 days) for a custom range such as a sprint (period is then "custom" and the comparison is the same number of days before): period summary, previous-period comparison, completed work, verification, risks, decisions, trends (monthly for quarter/year and custom ranges over 92 days), spanning (work that started before, finished after, or was corrected during the period; not counted in the totals), source evidence, and source Session IDs. Calendar dates use the server\'s local time zone, returned as timezone. A non-tracked project scope is skipped quietly.',
     inputShape: reportQueryObjectSchema.shape,
     schema: reportQuerySchema,
+    validationNotes: ["Custom from/to dates must be supplied together, in order, and span no more than 366 days."],
     annotations: READ_ONLY,
     invalidMessage: "Invalid report query.",
     run: (input) => store.getReport(input),
@@ -595,6 +735,7 @@ export function createWorkIntelligenceMcpServer(
       "Export the same deterministic report as work_get_report as Markdown or JSON. A non-tracked project scope is skipped quietly.",
     inputShape: reportExportQueryObjectSchema.shape,
     schema: reportExportQuerySchema,
+    validationNotes: ["Custom from/to dates must be supplied together, in order, and span no more than 366 days."],
     annotations: READ_ONLY,
     invalidMessage: "Invalid report export query.",
     run: (input) => store.exportReport(input),
@@ -609,6 +750,10 @@ export function createWorkIntelligenceMcpServer(
       implementationDetail,
     inputShape: mcpCreateReportSynthesisRequestInputObjectSchema.shape,
     schema: mcpCreateReportSynthesisRequestInputSchema,
+    validationNotes: [
+      "Custom from/to dates must be supplied together, in order, and span no more than 366 days.",
+      "period=custom requires both from and to.",
+    ],
     annotations: ADDITIVE,
     invalidMessage: "Invalid report synthesis request payload.",
     run: (input) => store.requestReportSynthesis(input),
@@ -621,6 +766,9 @@ export function createWorkIntelligenceMcpServer(
       implementationDetail,
     inputShape: reportSynthesisRequestQueryObjectSchema.shape,
     schema: reportSynthesisRequestQuerySchema,
+    validationNotes: [
+      "If either custom from/to date is supplied, both must be supplied in order and span no more than 366 days.",
+    ],
     annotations: READ_ONLY,
     invalidMessage: "Invalid report synthesis request query.",
     run: (input) => store.listReportSynthesisRequests(input),
@@ -731,12 +879,16 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_apply_metadata_backfill", {
     title: "Apply session metadata backfill",
     description:
-      "Apply explicit changed-files, verification, and optional Git metadata updates to existing Sessions, using the requestId from the backfill context. The request completes only when all requested gaps are resolved. Every update is policy-gated per Session; no new Session is created and duplicate sessionIds in one batch are rejected. " +
+      "Apply explicit changed-files, verification, and optional Git metadata updates to existing Sessions, using the requestId from the backfill context. The request completes only when all requested gaps are resolved. Every update is policy-gated per Session; no new Session is created, and duplicate sessionIds are returned as failures after the first occurrence is processed. " +
       implementationDetail +
       " " +
       metadataBackfillContract,
     inputShape: metadataBackfillApplyInputSchema.shape,
     schema: metadataBackfillApplyInputSchema,
+    validationNotes: [
+      "updates must contain 1 to 100 entries. For each sessionId, the handler processes the first update and returns each later duplicate as a failure in the result.",
+      "Within each update, a changedFileChanges entry with status=renamed must include previousPath; timestamps with offsets are normalized to UTC, future values are rejected, and an invalid startedAt after completedAt is not applied and produces a warning.",
+    ],
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid metadata backfill payload.",
     run: (input) => store.applyMetadataBackfill(input),
@@ -777,6 +929,9 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid handoff import payload.",
     run: (input) => store.importHandoffs(input),
   });
+
+  registerToolDispatchers(server, registeredStoreTools);
+  registerToolContractsResource(server, [...registeredStoreTools.values()]);
 
   // ── Prompts: one-step entry points for common natural-language flows ───
 

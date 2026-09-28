@@ -38,6 +38,8 @@ Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定�
 
 `pnpm test:response-size` 以虛構合成資料透過 in-memory MCP transport 呼叫工具，計算 Agent 實際收到的文字長度（JavaScript 字元數，不是 UTF-8 位元組或 token）。所有工具的文字結果都是緊湊 JSON。資料包含 20 筆 Session、10 筆共用同一段舊規劃的 handoff、完成工作的決策與陷阱、4 筆 Knowledge，以及 3 頁 Knowledge page；資料庫只在記憶體中建立，不讀取 `data/` 或使用者資料。
 
+MCP 清單 regression test（`tests/mcp/tools-list-budget.test.ts`）以 MCP SDK 的 `Client` 和 linked in-memory transport 連接真實 server，對 `JSON.stringify(await client.listTools()).length` 直接量測完整序列化 tools/list 結果。這是 JavaScript UTF-16 code units（`.length`），不是只量 descriptions，也不是 UTF-8 bytes 或 token。A1 merge 的 44-tool 基線為 **81,487 code units**；把所有 description 設為空仍有 **46,474 code units**，所以必須縮減重複 schema/tool metadata。A2 的四 dispatcher 結果為 **3,769 code units**（比 A1 減少 95.4%），低於 **30,000 code units** 上限。測試也逐一透過 `Client.callTool()` 路由 44 個 operation，確認 fixed contract resource 列出完整 schema、behavior、runtime validation 規則及 annotations，涵蓋錯誤回應與各安全分類。測試只使用 `:memory:` storage，不讀取使用者資料庫或任意本機路徑。
+
 | MCP 工具與情境 | 第七輪開始前（字元） | 目前（字元） | CI 上限（字元） |
 | --- | ---: | ---: | ---: |
 | `work_get_context`，無 task | 16,175 | 13,984 | 16,000 |

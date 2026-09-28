@@ -127,6 +127,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isFinalizeToolCall(name: string, input: unknown): boolean {
+  if (name.endsWith("work_finalize_session")) return true;
+  return name.endsWith("work_write_idempotent") && isRecord(input) && input.operation === "work_finalize_session";
+}
+
 /** Return every affected path in Codex's structured apply_patch input, or null when it is unreadable. */
 export function parseApplyPatchFilePaths(toolInput: unknown): string[] | null {
   if (!isRecord(toolInput) || typeof toolInput.command !== "string") {
@@ -212,7 +217,7 @@ export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps)
     return;
   }
 
-  if (input.tool_name.endsWith("work_finalize_session") && finalizedSuccessfully(input.tool_response)) {
+  if (isFinalizeToolCall(input.tool_name, input.tool_input) && finalizedSuccessfully(input.tool_response)) {
     deps.removeMarker(markers.dirty);
     deps.removeMarker(markers.reminded);
     // The next prompt starts a new segment.

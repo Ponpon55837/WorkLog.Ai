@@ -5,8 +5,9 @@
 
 export const serverInstructions = [
   "Work Intelligence is a local-first, explicit-opt-in work record system. Only inspect or write project data when the project is tracked; unregistered, paused, and ignored projects are quiet skips. Read work-intelligence://agent/work-intelligence/SKILL.md with standard MCP resources/read for the complete privacy, workflow, and tool-use contract; read work-intelligence://agent/work-record-and-report-format.md when preparing or repairing records or reports.",
-  "Before any project-scoped inspection or finalization, confirm tracking with work_get_project_status or work_get_context. Never inspect source, handoff, Git, or evidence for a project that is not confirmed tracked.",
-  "Use work_get_context before starting tracked work and work_recall for prior work, Knowledge, gotchas, or recurring errors. Use work_finalize_session only after the work is complete; use the matching update, report, metadata, or Knowledge workflow when requested.",
+  "The MCP tools/list exposes work_read, work_write_idempotent, work_write_additive, and work_write_overwrite. Call an operation by passing its operation id and arguments object; read work-intelligence://agent/tool-contracts before the first write for the complete operation schemas and behavior.",
+  "Before any project-scoped inspection or finalization, use work_read with operation work_get_project_status or work_get_context to confirm tracking. Never inspect source, handoff, Git, or evidence for a project that is not confirmed tracked.",
+  "Use work_read with operation work_get_context before starting tracked work and work_recall for prior work, Knowledge, gotchas, or recurring errors. Use work_write_idempotent with operation work_finalize_session only after work is complete; route every other write through the dispatcher listed in its contract.",
   "Use natural language with the user; do not ask for tool names, request IDs, JSON, or call order. Keep deterministic report data separate from Agent-derived summaries. If context is insufficient, say 資料不足 rather than guessing.",
 ].join(" ");
 

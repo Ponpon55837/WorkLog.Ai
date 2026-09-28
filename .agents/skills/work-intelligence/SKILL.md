@@ -9,6 +9,12 @@ description: Use the Work Intelligence MCP to finalize or repair tracked-project
 
 Use this skill whenever a user asks to save or correct a Work Intelligence work record, retrieve its context, repair metadata, or prepare a Work Intelligence report. The user-facing interaction stays natural-language only: do not ask the user to name MCP tools, provide request IDs or JSON, or direct the user through an internal tool sequence.
 
+## MCP dispatcher calls
+
+- `tools/list` exposes four dispatchers: `work_read`, `work_write_idempotent`, `work_write_additive`, and `work_write_overwrite`. Names such as `work_get_context` below are operation ids, not MCP tool names. Call the matching dispatcher with `{ operation: "<operation id>", arguments: { ... } }`.
+- Before the first write in a conversation, read `work-intelligence://agent/tool-contracts` with standard `resources/read`. It contains the complete operation catalog, original argument schemas, behavior descriptions, and safety annotations. Do not infer missing rules from the compact dispatcher schema.
+- Keep writes on their assigned dispatcher: `work_write_idempotent` adds or advances idempotently; `work_write_additive` adds records or proposals and creates requests or new attempts; `work_write_overwrite` updates, links, voids, or restores existing data and retains its destructive annotation. Read operations always use `work_read`.
+
 For the canonical field definitions, reporting granularity, and examples, read the `work-intelligence://agent/work-record-and-report-format.md` MCP resource with standard `resources/read`. This skill describes how to apply that format through MCP and does not depend on a link into the Work Intelligence repository.
 
 ## Privacy and project policy
