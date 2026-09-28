@@ -13,7 +13,7 @@
 | 階段 | 項目 |
 | --- | --- |
 | A. 讓其他專案的 Agent 真的會用 | A2 工具清單瘦身（4 dispatcher 對應 44 operations，tools/list 由 81,487 降至 3,769 UTF-16 code units，低於 30,000；本機八項檢查通過，PR #161 四項 CI 通過並合併；PR #162 A2 follow-up 也已合併（merge `4a99fd4`，CI run `36433218104` 四項成功），保留索引加單一操作 resource、strict dispatcher envelope／argument unknown-key 錯誤；寫入對話讀取量約 18,300）；A3 偵測過期的 MCP 程序（runtime、doctor 與 System Status 已納入目前版本）；A4 第一次使用的引導與 Agent 連線狀態（實作與獨立複檢完成，本機八項檢查通過，待 PR CI） |
-| B. 找得到答案 | B1 中英與同義詞查詢擴展；B2 `pnpm eval:recall` 讓使用者在自己的資料上量測檢索品質 |
+| B. 找得到答案 | B1 固定中英軟體詞彙擴展已實作；`pnpm test:retrieval-quality` 24/24 通過，K/S/R/N/P 分類指標與既有 baseline 相同（K 1.00/1.00、S 1.00/1.00、R 1.00/0.50、N 1.00/1.00、P 1.00/1.00）；storage build 後 performance gate 19/19 通過，`search`／月份範圍 recall／同義詞 recall p90 為 11.62／13.85／1.42 ms；B2 `pnpm eval:recall` 讓使用者在自己的資料上量測檢索品質 |
 | C. 實際幫助 | C1 未結項追蹤；C2 知識頁的維護提示 |
 | D. 工程收尾 | D1 安全與相依性；D2 文件總整理 |
 | E. 發行 1.0.0 | E1 開機自動啟動；E2 發行 workflow 與 1.0.0；E3 使用者實機驗收清單 |

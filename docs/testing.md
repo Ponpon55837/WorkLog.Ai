@@ -80,6 +80,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 知識頁 review context（涵蓋範圍後的一年 Session，最多 60 筆） | 250 ms |
 | 工作歷程搜尋（`search`） | 500 ms |
 | 依月份範圍的排序檢索（`recall` 帶 `from`／`to`） | 500 ms |
+| 同義詞擴展排序檢索（`q=endpoint performance`） | 500 ms |
 | 熱點檔案（全部期間前 20 名；依目錄、單月） | 各 500 ms |
 | 圖譜含推導關係、兩節點路徑（500 節點內 BFS） | 各 750 ms |
 | 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |
@@ -97,11 +98,13 @@ $env:WI_BENCH_CACHE = "$env:TEMP\wi-bench"; pnpm exec node packages/storage/benc
 
 ## 檢索品質回歸門檻
 
-`tests/storage/retrieval-quality.test.ts` 以 20 題虛構查詢和暫存目錄的合成專案資料，透過 `WorkIntelligenceStore.recall` 評估 `work_recall` 使用的排序路徑。評估包含 K（gotcha／pattern）、S（Session 主題）、R（答案只在 raw handoff）、N（自然語句）與 P（路徑查詢）五類，各 4 題；題目涵蓋中文雙字詞、原始交接文件與絕對／相對／Windows 形式路徑。每題都放入合成近似干擾紀錄，以檢查正確答案排名。
+`tests/storage/retrieval-quality.test.ts` 以 20 題虛構查詢和暫存目錄的合成專案資料，透過 `WorkIntelligenceStore.recall` 評估 `work_recall` 使用的排序路徑。評估包含 K（gotcha／pattern）、S（Session 主題）、R（答案只在 raw handoff）、N（自然語句）與 P（路徑查詢）五類，各 4 題；題目涵蓋中文雙字詞、原始交接文件與絕對／相對／Windows 形式路徑。每題都放入合成近似干擾紀錄，以檢查正確答案排名。額外的 B1 合成案例獨立驗證固定詞彙擴展與完成紀錄對舊規劃片段的排序，不計入這 20 題分類指標。
 
 另有一個證據強度案例：三筆內容相同的 Knowledge 中，被 Session 確認兩次的排第一，被推翻的排在未回饋的之後。目前合成基線為整體 hit@5 1.00、MRR 0.90。門檻設定為整體 hit@5 ≥ 0.95、MRR ≥ 0.90；每一類 hit@5 ≥ 0.75，K／S／N／P 的 MRR ≥ 0.70，R 類 MRR ≥ 0.50。R 類答案只在 raw handoff，並刻意搭配共享部分查詢詞的標題干擾項；目前四題都排第 2，反映 raw 欄位較低的權重，因此以 0.50 作為該類不退化的基線。hit@5 表示正確 Session／Knowledge 是否進入前 5 筆，MRR 以正確項目的排名倒數取平均；沒有命中時計 0。測試不開啟 `data/work-intelligence.sqlite`，不使用私有的 36 題評估資料，也不將真實工作記錄寫入 repository。
 
-B1 另以合成查詢檢查 `confidence`：未命中的詞仍依文件頻率估算 IDF，因此只命中少數常見詞不會被誤判成完整命中；命中覆蓋低於 10% 且沒有路徑命中時回傳空 hits 與 `none`，只有弱部分命中時回傳 `low`，至少一筆達 50% 覆蓋或命中路徑時回傳 `high`。精確查詢的排序仍受上述 hit@5／MRR 門檻保護，`work_get_context`、`work_recall` 與 `work_search` 都檢查無命中訊號。
+B1 的固定軟體用語表只存在原始碼，不呼叫外部服務，也不由模型推測，包含 endpoint／API／路由／route、慣例／convention、效能／performance、測試／test、設定／config、遷移／migration。原詞照原權重計分；同義擴展另行計分，權重為 0.2，原詞已有分數時，擴展對單筆結果的加分最多為原詞文字分數的 25%；只有同義詞命中時，只取最強的單一 chunk 或 raw 片段，不累加多個片段。只靠同義詞找到的結果可作為 `low` 信心的線索；`termHits`、原詞命中比例與 `high` 判斷仍只看使用者原詞，因此同義詞不能把結果推成 `high`。合成案例確認「新增 REST endpoint 的慣例」能在前三名找到只寫「路由」的紀錄，同義詞命中不會改變原詞信心度與 `termHits`，而多個 alias-bearing chunks 不會累加放大 synonym-only 分數。另以「repositoryUrl、commit 與編輯器」查詢確認已完成紀錄排在重複舊規劃片段之前。
+
+原詞命中仍依文件頻率估算 IDF；命中覆蓋低於 10% 且沒有路徑或同義詞候選時回傳空 hits 與 `none`，只有弱部分命中或同義詞線索時回傳 `low`，至少一筆以原詞在結構化欄位達 50% 覆蓋或命中路徑時回傳 `high`。B1 前後的定向測試直接鎖定既有分類指標：K hit@5／MRR=1.00／1.00、S=1.00／1.00、R=1.00／0.50、N=1.00／1.00、P=1.00／1.00。本次 `pnpm test:retrieval-quality` 24/24 通過，五類指標與基線一致；重新建置 storage 套件後，5,000 筆 Session 的 performance gate 含同義詞擴展 recall，19/19 通過。本次實測 p90：`search` 11.62 ms、月份範圍 recall 13.85 ms、同義詞擴展 recall 1.42 ms；三者上限皆為 500 ms。精確查詢的排序仍受上述 hit@5／MRR 門檻保護，`work_get_context`、`work_recall` 與 `work_search` 都檢查無命中訊號。
 
 B2 加入重複規劃片段的反例：八筆合成 Session 共用舊 handoff 片段，分別以「新增 REST endpoint 的慣例」與「FTS 效能問題」查詢時，已完成的路由拆分與 FTS 修正 Session 必須排第一。Raw section 先做 NFKC、空白與大小寫正規化並存 SHA-256；同一專案最早的 Session 保留完整 raw 欄位權重，重複引用只計 10%，結構化 Session 欄位的權重高於 raw handoff。Schema 20 對既有索引加上衍生 `content_hash` 欄位並把舊 Session 標為待重建；`project-data-coverage` 確認此欄位留在可重建搜尋索引，不當作可匯出的專案資料。檢索品質案例另確認正確命中仍保留在結果內。
 

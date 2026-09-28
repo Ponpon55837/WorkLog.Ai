@@ -108,7 +108,7 @@ MCP client 的 stdio 設定可使用：
 
 | 欄位 | 內容 |
 | --- | --- |
-| `relevant.confidence` | 規則同 `work_recall`：`none` 時不能把相關命中當依據 |
+| `relevant.confidence` | 規則同 `work_recall`：`none` 時沒有可引用依據；`low` 與同義詞線索都要先核對原文 |
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
@@ -154,7 +154,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_recall`
 
-排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。回應附 `confidence`：`none` 表示沒有達到最低 10% IDF 加權命中比例且沒有路徑命中，此時 `hits` 必為空且不能把結果當依據；`low` 表示只有弱的部分命中，或查詢詞只出現在 raw handoff（例如舊規劃文件引用了這個詞）；`high` 表示至少一筆在標題、摘要、workSummary 或 Knowledge 命中一半以上的加權比例，或命中路徑。
+排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。固定軟體用語表會擴展 endpoint／API／路由／route、慣例／convention、效能／performance、測試／test、設定／config、遷移／migration；擴展分數低於原詞，且不呼叫外部服務或模型。回應附 `confidence`：`none` 表示沒有符合門檻的原詞、路徑或同義詞結果，此時 `hits` 為空且不能把結果當依據；`low` 表示弱的部分命中、只在 raw handoff 找到，或只有同義詞線索，應先核對原文；`high` 表示至少一筆只依原詞在標題、摘要、workSummary 或 Knowledge 命中一半以上的 IDF 加權比例，或命中路徑。`termHits` 與原詞命中比例只計原始查詢詞，同義詞候選不會讓結果升為 `high`。
 
 - **索引範圍**：Session 的 title、summary、五段 workSummary、changed files、branch、events，以及 raw handoff snapshot 依 `#`～`###` 標題切成的段落；Knowledge 的 title、body、tags、references。
 - **查詢**：以空白分隔的每個詞獨立比對，不需要整句完全相符；英文識別字會拆成 camelCase／snake_case 各段，中文以雙字切詞（兩字中文詞可直接查），常見虛詞（the、what、為什麼、如何…）會略過。
@@ -171,7 +171,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_search`
 
-與 `work_recall` 使用同一個排序引擎，但只查 Session，最多 20 筆，同樣可帶 `from`／`to`。排序優先採用 title、summary、workSummary 等結構化 Session 欄位；同一專案重複引用的 raw handoff 片段依正規化 hash 去重，最早來源保留完整權重，後續引用降為 10%。回傳 `{ outcome: "search", confidence, hits, termHits? }`；confidence 規則與 `work_recall` 相同，為 `none` 時 `hits` 為空，不能用作依據。每筆是精簡 hit：`id`、標題、完成日期、最強的 `matchedIn` 欄位、選用的 raw 段落標題、最多 110 字元的 `excerpt`、選用的 `truncated` 與 `verificationStatus`。當標題是最強命中且摘要也包含查詢詞時，`excerpt` 改取摘要片段，以保留回答脈絡。project-scoped 結果省略重複的專案識別欄位。它不再重複回傳整份 Session digest；以 `work_get_session` 讀取完整摘要、未結項及其他欄位。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
+與 `work_recall` 使用同一個排序引擎，但只查 Session，最多 20 筆，同樣可帶 `from`／`to`。排序優先採用 title、summary、workSummary 等結構化 Session 欄位；同一專案重複引用的 raw handoff 片段依正規化 hash 去重，最早來源保留完整權重，後續引用降為 10%。回傳 `{ outcome: "search", confidence, hits, termHits? }`；confidence 規則與 `work_recall` 相同，`none` 時 `hits` 為空，`low` 的部分命中與同義詞線索須先核對原文。每筆是精簡 hit：`id`、標題、完成日期、最強的 `matchedIn` 欄位、選用的 raw 段落標題、最多 110 字元的 `excerpt`、選用的 `truncated` 與 `verificationStatus`。當標題是最強命中且摘要也包含查詢詞時，`excerpt` 改取摘要片段，以保留回答脈絡。project-scoped 結果省略重複的專案識別欄位。它不再重複回傳整份 Session digest；以 `work_get_session` 讀取完整摘要、未結項及其他欄位。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
 
 ## Tool annotations 與 prompts
 
