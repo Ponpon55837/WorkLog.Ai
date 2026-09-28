@@ -147,7 +147,7 @@ async function serializedMcpPayload(
   name: string,
   args: Record<string, unknown>,
 ): Promise<SerializedMcpPayload> {
-  const result = await client.callTool({ name, arguments: args });
+  const result = await client.callTool({ name: "work_read", arguments: { operation: name, arguments: args } });
   expect(result.isError, name).not.toBe(true);
   const content = result.content as Array<{ type: string; text?: string }>;
   const text = content.find((item) => item.type === "text")?.text;

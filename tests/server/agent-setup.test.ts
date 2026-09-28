@@ -33,6 +33,8 @@ interface Fixture {
 }
 
 const temporaryRoots: string[] = [];
+const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
+const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 
 function writeJson(path: string, value: unknown): Buffer {
   const bytes = Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8");
@@ -182,6 +184,10 @@ describe("Agent setup", () => {
     expect(exitCode).toBe(0);
     expect(confirmationCount).toBe(1);
     expect(printed.some((message) => message.includes("已取消"))).toBe(true);
+    const projectInstruction = printed.find((message) => message.includes("## Work Intelligence")) ?? "";
+    expect(projectInstruction).toContain("透過 `work_read` 執行 `work_get_project_status`");
+    expect(projectInstruction).toContain("透過 `work_write_idempotent` 執行 operation `work_finalize_session`");
+    expect(projectInstruction).toContain("work-intelligence://agent/tool-contracts");
     expect(readdirSync(homeDirectory)).toEqual([]);
     expect(existsSync(fixture.paths.codexHome)).toBe(false);
     expect(existsSync(fixture.paths.claudeConfig)).toBe(false);
@@ -222,6 +228,9 @@ describe("Agent setup", () => {
     expect(object(codexHooks.hooks).PostToolUse as unknown[]).toHaveLength(1);
     expect(object(codexHooks.hooks).UserPromptSubmit as unknown[]).toHaveLength(1);
     expect(object(codexHooks.hooks).UserNotification as unknown[]).toHaveLength(1);
+    expect((object(codexHooks.hooks).PostToolUse as Array<Record<string, unknown>>)[0]?.matcher).toBe(
+      CODEX_POST_TOOL_USE_MATCHER,
+    );
 
     const manifest = readJson(fixture.paths.manifest);
     const componentIds = (manifest.components as Array<{ id: string }>).map((component) => component.id);
@@ -232,6 +241,34 @@ describe("Agent setup", () => {
     const secondPlan = createAgentSetupPlan(fixture.options);
     expect(secondPlan.conflicts).toEqual([]);
     expect(secondPlan.mutations).toEqual([]);
+  });
+
+  it("upgrades an owned legacy Codex matcher to include the dispatcher while preserving one hook", () => {
+    const fixture = createFixture();
+    install(fixture);
+
+    const codexHooks = readJson(fixture.paths.codexHooks);
+    const hooks = object(codexHooks.hooks);
+    const postToolUse = hooks.PostToolUse as Array<Record<string, unknown>>;
+    if (!postToolUse[0]) throw new Error("The managed PostToolUse hook fixture is missing.");
+    postToolUse[0].matcher = LEGACY_CODEX_POST_TOOL_USE_MATCHER;
+    writeJson(fixture.paths.codexHooks, codexHooks);
+
+    const manifest = readJson(fixture.paths.manifest);
+    const components = manifest.components as Array<Record<string, unknown>>;
+    const managedHook = components.find((component) => component.id === "codexPostToolUseHook");
+    if (!managedHook) throw new Error("The managed PostToolUse manifest entry is missing.");
+    object(managedHook.expected).matcher = LEGACY_CODEX_POST_TOOL_USE_MATCHER;
+    writeJson(fixture.paths.manifest, manifest);
+
+    const upgradePlan = createAgentSetupPlan(fixture.options);
+    expect(upgradePlan.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(upgradePlan).applied).toBe(true);
+
+    const updatedHooks = readJson(fixture.paths.codexHooks);
+    const updatedPostToolUse = object(updatedHooks.hooks).PostToolUse as Array<Record<string, unknown>>;
+    expect(updatedPostToolUse).toHaveLength(1);
+    expect(updatedPostToolUse[0]?.matcher).toBe(CODEX_POST_TOOL_USE_MATCHER);
   });
 
   it("keeps skill copies current by content hash and reports source drift as stale", () => {

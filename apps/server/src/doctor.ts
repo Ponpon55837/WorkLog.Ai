@@ -200,7 +200,7 @@ function hasClaudeStopHook(config: Record<string, unknown> | undefined, scriptPa
 function hasCodexGlobalHooks(config: Record<string, unknown> | undefined, scriptPath: string): boolean {
   const hooks = record(config?.hooks);
   const postToolUseEntries = entries(hooks?.PostToolUse);
-  const requiredMatcher = "^(apply_patch|.*work_finalize_session)$";
+  const requiredMatcher = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
   const postToolUseMatches = postToolUseEntries.some((entry) => {
     const hookEntry = record(entry);
     return (

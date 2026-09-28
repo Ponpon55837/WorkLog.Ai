@@ -12,7 +12,7 @@
 
 | 階段 | 項目 |
 | --- | --- |
-| A. 讓其他專案的 Agent 真的會用 | A2 工具清單瘦身（約 68,000 → 30,000 字元以內）；A3 偵測過期的 MCP 程序；A4 第一次使用的引導與 Agent 連線狀態 |
+| A. 讓其他專案的 Agent 真的會用 | A2 工具清單瘦身（4 dispatcher 對應 44 operations，tools/list 由 81,487 降至 3,769 UTF-16 code units，低於 30,000；本機 build、test、typecheck、coverage、performance、retrieval-quality、response-size、E2E 八項檢查全通過，四項 CI 尚未執行）；A3 偵測過期的 MCP 程序；A4 第一次使用的引導與 Agent 連線狀態 |
 | B. 找得到答案 | B1 中英與同義詞查詢擴展；B2 `pnpm eval:recall` 讓使用者在自己的資料上量測檢索品質 |
 | C. 實際幫助 | C1 未結項追蹤；C2 知識頁的維護提示 |
 | D. 工程收尾 | D1 安全與相依性；D2 文件總整理 |

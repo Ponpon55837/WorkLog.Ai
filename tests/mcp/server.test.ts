@@ -12,12 +12,55 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const TOOL_CONTRACT_RESOURCE_URI = "work-intelligence://agent/tool-contracts";
+const DISPATCHER_EXPECTATIONS = {
+  work_read: {
+    title: "Read Work Intelligence",
+    annotations: { title: "Read Work Intelligence", readOnlyHint: true, openWorldHint: false },
+    operationCount: 17,
+  },
+  work_write_idempotent: {
+    title: "Write Work Intelligence records",
+    annotations: {
+      title: "Write Work Intelligence records",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    operationCount: 15,
+  },
+  work_write_additive: {
+    title: "Add Work Intelligence records or proposals",
+    annotations: {
+      title: "Add Work Intelligence records or proposals",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    operationCount: 4,
+  },
+  work_write_overwrite: {
+    title: "Update or void Work Intelligence records",
+    annotations: {
+      title: "Update or void Work Intelligence records",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    operationCount: 8,
+  },
+} as const;
 
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) {
-    await cleanup();
-  }
-});
+interface ToolContractCatalog {
+  document: string;
+  dispatchers: Map<string, string>;
+  sections: Map<string, string>;
+}
+
+const toolContractCatalogs = new WeakMap<Client, Promise<ToolContractCatalog>>();
 
 async function connect() {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-test-"));
@@ -34,14 +77,52 @@ async function connect() {
   return { client, store, root };
 }
 
+async function getToolContractCatalog(client: Client): Promise<ToolContractCatalog> {
+  let pendingCatalog = toolContractCatalogs.get(client);
+  if (!pendingCatalog) {
+    pendingCatalog = client.readResource({ uri: TOOL_CONTRACT_RESOURCE_URI }).then((resource) => {
+      const content = resource.contents[0];
+      if (!content || !("text" in content)) throw new Error("The tool-contract resource must use text content.");
+      const document = content.text;
+      const sections = document.split(/(?=^## work_)/m).filter((section) => section.startsWith("## work_"));
+      const dispatchers = new Map<string, string>();
+      const operationSections = new Map<string, string>();
+
+      for (const section of sections) {
+        const operation = section.match(/^## (work_[^\n]+)/)?.[1];
+        const dispatcher = section.match(/^Dispatcher: (work_[^\n]+)/m)?.[1];
+        if (!operation || !dispatcher) throw new Error("A tool contract is missing its operation or dispatcher name.");
+        dispatchers.set(operation, dispatcher);
+        operationSections.set(operation, section);
+      }
+      return { document, dispatchers, sections: operationSections };
+    });
+    toolContractCatalogs.set(client, pendingCatalog);
+  }
+  return pendingCatalog;
+}
+
+async function callMcpOperation(client: Client, operation: string, args: Record<string, unknown>) {
+  const dispatcher = (await getToolContractCatalog(client)).dispatchers.get(operation);
+  if (!dispatcher) throw new Error(`No dispatcher is published for ${operation}.`);
+  return client.callTool({ name: dispatcher, arguments: { operation, arguments: args } });
+}
+
 async function callJson<T = Record<string, unknown>>(
   client: Client,
   name: string,
   args: Record<string, unknown>,
 ): Promise<T> {
-  const result = await client.callTool({ name, arguments: args });
+  const result = await callMcpOperation(client, name, args);
   const [content] = result.content as Array<{ type: string; text: string }>;
   return JSON.parse(content?.text ?? "null") as T;
+}
+
+async function operationAnnotations(client: Client, operation: string): Promise<Record<string, unknown>> {
+  const section = (await getToolContractCatalog(client)).sections.get(operation);
+  const annotations = section?.match(/^Annotations: (.+)$/m)?.[1];
+  if (!annotations) throw new Error(`The ${operation} contract has no annotations.`);
+  return JSON.parse(annotations) as Record<string, unknown>;
 }
 
 function finalizePayload(root: string, key: string, title: string) {
@@ -55,6 +136,12 @@ function finalizePayload(root: string, key: string, title: string) {
     verification: { status: "passed" },
   };
 }
+
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    await cleanup();
+  }
+});
 
 describe("Work Intelligence MCP server", () => {
   it("completes the handshake and exposes classified database startup failures to the Agent", async () => {
@@ -71,13 +158,14 @@ describe("Work Intelligence MCP server", () => {
     expect(client.getInstructions()).toContain(startupFailure.code);
     expect(client.getInstructions()).toContain(startupFailure.message);
     const { tools } = await client.listTools();
-    expect(tools.length).toBeGreaterThan(1);
+    expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(DISPATCHER_EXPECTATIONS).sort());
 
-    const statusResult = await client.callTool({ name: "work_get_project_status", arguments: { projectRoot: "/tmp" } });
-    const finalizeResult = await client.callTool({
-      name: "work_finalize_session",
-      arguments: finalizePayload("/tmp/startup-failure", "startup-failure-001", "Startup unavailable"),
-    });
+    const statusResult = await callMcpOperation(client, "work_get_project_status", { projectRoot: "/tmp" });
+    const finalizeResult = await callMcpOperation(
+      client,
+      "work_finalize_session",
+      finalizePayload("/tmp/startup-failure", "startup-failure-001", "Startup unavailable"),
+    );
     const statusContent = statusResult.content as Array<{ type: string; text: string }>;
     const finalizeContent = finalizeResult.content as Array<{ type: string; text: string }>;
     expect(statusResult.isError).toBe(true);
@@ -113,10 +201,11 @@ describe("Work Intelligence MCP server", () => {
     lockConnection.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
 
     try {
-      const result = await client.callTool({
-        name: "work_finalize_session",
-        arguments: finalizePayload(root, "mcp-busy-lock", "Busy lock"),
-      });
+      const result = await callMcpOperation(
+        client,
+        "work_finalize_session",
+        finalizePayload(root, "mcp-busy-lock", "Busy lock"),
+      );
       const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "null";
       expect(result.isError).toBe(true);
       expect(JSON.parse(text)).toEqual({ code: "DATABASE_BUSY", error: "資料庫暫時忙碌，請稍後再試" });
@@ -142,38 +231,37 @@ describe("Work Intelligence MCP server", () => {
     expect(client.getInstructions()?.length ?? 0).toBeLessThan(2_500);
 
     const { tools } = await client.listTools();
-    const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    expect(byName.has("work_delete_project")).toBe(false);
-    for (const name of [
-      "work_get_project_status",
-      "work_get_session",
-      "work_list_sessions",
-      "work_request_report_synthesis",
-      "work_request_metadata_backfill",
-    ]) {
-      expect(byName.has(name), name).toBe(true);
-    }
+    expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(DISPATCHER_EXPECTATIONS).sort());
     for (const tool of tools) {
-      expect(tool.annotations, tool.name).toBeDefined();
+      const expected = DISPATCHER_EXPECTATIONS[tool.name as keyof typeof DISPATCHER_EXPECTATIONS];
+      expect(tool.title, tool.name).toBe(expected.title);
+      expect(tool.annotations, tool.name).toEqual(expected.annotations);
+      expect(tool.inputSchema).toMatchObject({
+        type: "object",
+        properties: {
+          operation: { type: "string", enum: expect.any(Array) },
+          arguments: { type: "object" },
+        },
+        required: ["operation"],
+      });
+      const operationIds = (tool.inputSchema as { properties?: { operation?: { enum?: unknown[] } } }).properties
+        ?.operation?.enum;
+      expect(operationIds).toHaveLength(expected.operationCount);
+      expect(new Set(operationIds).size).toBe(expected.operationCount);
     }
-    expect(byName.get("work_search")?.annotations).toMatchObject({ readOnlyHint: true });
-    expect(byName.get("work_update_session_summary")?.annotations).toMatchObject({
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-    });
     // Contracts are attached only to the tools that write the governed data.
-    const withReportContract = tools.filter((tool) => tool.description?.includes("Report synthesis contract v3"));
-    expect(withReportContract.map((tool) => tool.name).sort()).toEqual([
-      "work_get_report_context",
-      "work_save_report_summary",
-    ]);
+    const catalog = await getToolContractCatalog(client);
+    const withReportContract = [...catalog.sections.entries()]
+      .filter(([, section]) => section.includes("Report synthesis contract v3"))
+      .map(([operation]) => operation);
+    expect(withReportContract.sort()).toEqual(["work_get_report_context", "work_save_report_summary"]);
 
     const { prompts } = await client.listPrompts();
     expect(prompts.map((prompt) => prompt.name).sort()).toEqual(["finalize-work", "synthesize-report"]);
 
     const { resources } = await client.listResources();
     expect(resources.map((resource) => resource.uri).sort()).toEqual([
+      TOOL_CONTRACT_RESOURCE_URI,
       "work-intelligence://agent/work-intelligence/SKILL.md",
       "work-intelligence://agent/work-record-and-report-format.md",
     ]);
@@ -185,13 +273,23 @@ describe("Work Intelligence MCP server", () => {
 
     const skill = await client.readResource({ uri: "work-intelligence://agent/work-intelligence/SKILL.md" });
     const format = await client.readResource({ uri: "work-intelligence://agent/work-record-and-report-format.md" });
+    const catalog = await client.readResource({ uri: TOOL_CONTRACT_RESOURCE_URI });
     const skillContent = skill.contents[0];
     const formatContent = format.contents[0];
-    if (!skillContent || !("text" in skillContent) || !formatContent || !("text" in formatContent)) {
+    const catalogContent = catalog.contents[0];
+    if (
+      !skillContent ||
+      !("text" in skillContent) ||
+      !formatContent ||
+      !("text" in formatContent) ||
+      !catalogContent ||
+      !("text" in catalogContent)
+    ) {
       throw new Error("Agent resources must use text content.");
     }
     const skillText = skillContent.text;
     const formatText = formatContent.text;
+    const catalogText = catalogContent.text;
 
     expect(skillText).toContain("## Privacy and project policy");
     expect(skillText).toContain("work-intelligence://agent/work-record-and-report-format.md");
@@ -204,6 +302,10 @@ describe("Work Intelligence MCP server", () => {
     expect(formatText).toBe(
       readFileSync(new URL("../../docs/work-record-and-report-format.md", import.meta.url), "utf8"),
     );
+    expect(catalogText).toContain("# Work Intelligence MCP tool contracts");
+    expect(catalogText).toContain("## work_recall");
+    expect(catalogText).toContain("Dispatcher: work_read");
+    expect(catalogText).toContain("At least one of q or a non-empty paths array is required");
     await expect(client.readResource({ uri: "work-intelligence://agent/missing.md" })).rejects.toThrow();
   });
 
@@ -278,9 +380,9 @@ describe("Work Intelligence MCP server", () => {
 
     // An estimated local time written with Z lands in the future: the Agent gets the server time and what to do.
     const future = new Date(Date.now() + 8 * 3_600_000).toISOString();
-    const rejected = await client.callTool({
-      name: "work_finalize_session",
-      arguments: { ...finalizePayload(root, "mcp-future-001", "Future"), completedAt: future },
+    const rejected = await callMcpOperation(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-future-001", "Future"),
+      completedAt: future,
     });
     expect(rejected.isError).toBe(true);
     expect(JSON.stringify(rejected.content)).toContain("after the server time");
@@ -460,7 +562,7 @@ describe("Work Intelligence MCP server", () => {
     });
     expect(noRecallHits).toMatchObject({ confidence: "none", hits: [] });
 
-    const invalid = await client.callTool({ name: "work_recall", arguments: { projectRoot: root } });
+    const invalid = await callMcpOperation(client, "work_recall", { projectRoot: root });
     expect(invalid.isError).toBe(true);
 
     const pastRange = await callJson<{ confidence: string; hits: unknown[] }>(client, "work_recall", {
@@ -485,9 +587,10 @@ describe("Work Intelligence MCP server", () => {
     });
     expect(noSearchHits).toMatchObject({ confidence: "none", hits: [] });
 
-    const reversed = await client.callTool({
-      name: "work_search",
-      arguments: { q: "humidity", from: "2000-02-01", to: "2000-01-01" },
+    const reversed = await callMcpOperation(client, "work_search", {
+      q: "humidity",
+      from: "2000-02-01",
+      to: "2000-01-01",
     });
     expect(reversed.isError).toBe(true);
 
@@ -515,7 +618,7 @@ describe("Work Intelligence MCP server", () => {
     );
     const sessionId = finalized.session.id;
 
-    const missingReason = await client.callTool({ name: "work_void_session", arguments: { sessionId } });
+    const missingReason = await callMcpOperation(client, "work_void_session", { sessionId });
     expect(missingReason.isError).toBe(true);
 
     expect(
@@ -609,8 +712,8 @@ describe("Work Intelligence MCP server", () => {
       }),
     ).toMatchObject({ outcome: "knowledge_candidates_submitted", candidates: [{ status: "proposed" }] });
 
-    const { tools } = await client.listTools();
-    expect(tools.some((tool) => /accept|decide/.test(tool.name))).toBe(false);
+    const catalog = await getToolContractCatalog(client);
+    expect([...catalog.sections.keys()].some((operation) => /accept|decide/.test(operation))).toBe(false);
   });
 
   it("lets an Agent rewrite a standing Knowledge page with cited Sessions, without a delete tool", async () => {
@@ -639,9 +742,11 @@ describe("Work Intelligence MCP server", () => {
       sessions: [{ id: finalized.session.id }],
     });
     const section = { heading: "Build", content: "Run the build first.", sourceSessionIds: [] as string[] };
-    const invalid = await client.callTool({
-      name: "work_save_knowledge_page",
-      arguments: { projectRoot: root, slug: "pitfalls", idempotencyKey: "page-1", sections: [section] },
+    const invalid = await callMcpOperation(client, "work_save_knowledge_page", {
+      projectRoot: root,
+      slug: "pitfalls",
+      idempotencyKey: "page-1",
+      sections: [section],
     });
     expect(invalid.isError).toBe(true);
     expect(
@@ -663,12 +768,21 @@ describe("Work Intelligence MCP server", () => {
       page: { version: 1, status: "fresh", checkedThrough: { sessionId: finalized.session.id } },
     });
 
-    const { tools } = await client.listTools();
-    const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    expect(byName.get("work_get_knowledge_page_context")?.annotations).toMatchObject({ readOnlyHint: true });
-    expect(byName.get("work_save_knowledge_page")?.annotations).toMatchObject({ destructiveHint: false });
-    expect(byName.get("work_mark_knowledge_page_checked")?.annotations).toMatchObject({ destructiveHint: false });
-    expect(tools.some((tool) => /knowledge_page/.test(tool.name) && /delete|remove/.test(tool.name))).toBe(false);
+    expect(await operationAnnotations(client, "work_get_knowledge_page_context")).toMatchObject({ readOnlyHint: true });
+    expect(await operationAnnotations(client, "work_save_knowledge_page")).toMatchObject({
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(await operationAnnotations(client, "work_mark_knowledge_page_checked")).toMatchObject({
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    const catalog = await getToolContractCatalog(client);
+    expect(
+      [...catalog.sections.keys()].some(
+        (operation) => /knowledge_page/.test(operation) && /delete|remove/.test(operation),
+      ),
+    ).toBe(false);
   });
 
   it("explains how two graph nodes are related with a read-only path tool", async () => {
@@ -696,8 +810,7 @@ describe("Work Intelligence MCP server", () => {
       projectRoot: root,
     });
     expect(new Set(graph.edges.map((edge) => edge.provenance))).toEqual(new Set(["recorded"]));
-    const { tools } = await client.listTools();
-    expect(tools.find((tool) => tool.name === "work_get_graph_path")?.annotations).toMatchObject({
+    expect(await operationAnnotations(client, "work_get_graph_path")).toMatchObject({
       readOnlyHint: true,
     });
   });
@@ -725,15 +838,17 @@ describe("Work Intelligence MCP server", () => {
       "At finalize",
       "Later",
     ]);
-    const { tools } = await client.listTools();
-    expect(tools.find((tool) => tool.name === "work_attach_diagram")?.annotations).toMatchObject({
+    expect(await operationAnnotations(client, "work_attach_diagram")).toMatchObject({
       destructiveHint: false,
       idempotentHint: true,
     });
-    expect(tools.some((tool) => /diagram/.test(tool.name) && /void|delete/.test(tool.name))).toBe(false);
+    const catalog = await getToolContractCatalog(client);
+    expect(
+      [...catalog.sections.keys()].some((operation) => /diagram/.test(operation) && /void|delete/.test(operation)),
+    ).toBe(false);
     // Agents attach diagrams on their own only for flow, architecture, or multi-step changes.
-    const finalizeTool = tools.find((tool) => tool.name === "work_finalize_session");
-    expect(finalizeTool?.description).toContain("without being asked");
-    expect(finalizeTool?.description).toContain("skip single-file fixes");
+    const finalizeContract = catalog.sections.get("work_finalize_session");
+    expect(finalizeContract).toContain("without being asked");
+    expect(finalizeContract).toContain("skip single-file fixes");
   });
 });

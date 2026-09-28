@@ -6,6 +6,8 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 
 日期參數（`from`、`to`、`date`）是 server 所在系統時區的日曆日期；報告回應的 `timezone` 會標出使用的 IANA 時區。
 
+本文提到的 `work_*` MCP 名稱是 operation id；目前 MCP `tools/list` 公告四個 dispatcher，呼叫時要依 [MCP 工具參考](mcp-tools.md) 將 operation 與輸入包進 dispatcher envelope。
+
 ## 錯誤回應與代碼
 
 由 API 錯誤處理器回覆的錯誤會保留既有 `error` 文字，並新增機器可讀的 `code`；驗證細節有提供時會附在 `details`：
@@ -114,11 +116,11 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 當既有 Session 顯示 Verification 待回報、明確 not_run，或沒有 changed-files metadata 時，可以先預覽缺口，再由 Agent 提供已確認的資料批次回填。
 
-- MCP：先呼叫 work_preview_metadata_backfill；可選 projectRoot 與 limit。
+- MCP：透過 `work_read` 執行 `work_preview_metadata_backfill` operation；可選 projectRoot 與 limit。
 - 專案 → Metadata 回補分頁按下「掃描 metadata 缺口」後，若找到缺口，WorkLog 會在中央 SQLite 建立一筆 pending metadata backfill request；不會猜測，也不會直接修改 Session。
 - UI 會顯示 Agent 狀態與「複製 Agent 指令」；使用者只需要在目前的 Codex 或 Claude 對話輸入：`請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。` 也可以不掃描，直接請 Agent 補齊；沒有待處理請求時 Agent 會用 `work_request_metadata_backfill` 自己建立一筆。
-- MCP Agent 會自動找最新的 pending／processing request，取得 bounded context，依 project policy 檢查對應 tracked project 的 handoff、worktree 或 diff，再呼叫 work_apply_metadata_backfill。使用者不需要提供 requestId、JSON 或工具順序。
-- MCP：Agent 檢查對應的 handoff、worktree 或 diff 後，呼叫 work_apply_metadata_backfill，updates 內只放明確確認的 sessionId 與 metadata；帶入 requestId 時，所有缺口完成後 request 才會標為 completed，部分回補則保留為 processing 並回傳 remainingItems。
+- MCP Agent 會自動找最新的 pending／processing request，取得 bounded context，依 project policy 檢查對應 tracked project 的 handoff、worktree 或 diff，再透過 `work_write_overwrite` 執行 `work_apply_metadata_backfill` operation。使用者不需要提供 requestId、JSON 或工具順序。
+- MCP：Agent 檢查對應的 handoff、worktree 或 diff 後，透過 `work_write_overwrite` 執行 `work_apply_metadata_backfill` operation，updates 內只放明確確認的 sessionId 與 metadata；帶入 requestId 時，所有缺口完成後 request 才會標為 completed，部分回補則保留為 processing 並回傳 remainingItems。
 - REST：GET /api/backfill/metadata/preview?projectRoot=tracked-project-root
 - REST：POST /api/backfill/metadata-requests 建立待 Agent 處理請求；GET /api/backfill/metadata-requests 查詢狀態；GET /api/backfill/metadata-requests/:id/context 取得受控 context。
 - REST：POST /api/backfill/metadata，body 為 { updates: [...] }。
@@ -133,7 +135,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 - REST：GET /api/reports/export?period=week&date=YYYY-MM-DD&format=markdown
 - REST：GET /api/reports/export?period=month&format=json&projectId=tracked-project-id
-- MCP：呼叫 work_export_report，format 可填 markdown 或 json
+- MCP：透過 `work_read` 執行 `work_export_report` operation，format 可填 markdown 或 json
 - markdown 會包含期間摘要、上一期比較、主要完成事項、Verification、風險、決策、趨勢、專案分布與來源證據。
 - json 會保留完整的 WorkReport 結構，適合後續自動化或外部保存。
 - `sessionTruncation.currentPeriod` 與 `sessionTruncation.previousPeriod` 分別標示本期及上一期是否超過 200 個 Session；若為 `true`，摘要、趨勢、專案分布與比較數值只依納入的 200 筆計算。Markdown 匯出會附上相同提醒。

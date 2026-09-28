@@ -21,8 +21,23 @@ const typed = (value: string, timestamp: string) =>
 const toolResult = (timestamp: string) =>
   JSON.stringify({ type: "user", timestamp, message: { content: [{ type: "tool_result", content: "ok" }] } });
 const FINALIZE = "mcp__work-intelligence__work_finalize_session";
+const FINALIZE_DISPATCHER = "mcp__work-intelligence__work_write_idempotent";
 const finalizeCall = (id: string) =>
   JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name: FINALIZE }] } });
+const finalizeDispatcherCall = (id: string, operation = "work_finalize_session") =>
+  JSON.stringify({
+    type: "assistant",
+    message: {
+      content: [
+        {
+          type: "tool_use",
+          id,
+          name: FINALIZE_DISPATCHER,
+          input: { operation, arguments: {} },
+        },
+      ],
+    },
+  });
 const finalizeResult = (id: string, content: unknown, isError = false) =>
   JSON.stringify({
     type: "user",
@@ -99,6 +114,23 @@ describe("finalize reminder hook", () => {
     expect(summary.segmentStartedAt).toBe("2026-09-27T02:00:00.000Z");
     // Nothing edited since the save: no reminder.
     expect(reminderFor(input, d)).toBeNull();
+  });
+
+  it("recognizes finalize routed through the idempotent-write dispatcher and only closes the segment on success", () => {
+    const d = deps([
+      typed("first", "2026-09-27T01:00:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      finalizeDispatcherCall("wrong-operation", "work_update_session_summary"),
+      finalizeResult("wrong-operation", [{ type: "text", text: saved }]),
+      finalizeDispatcherCall("failed-dispatch"),
+      finalizeResult("failed-dispatch", JSON.stringify({ error: "Invalid finalize payload." }), true),
+      finalizeDispatcherCall("saved-dispatch"),
+      finalizeResult("saved-dispatch", [{ type: "text", text: saved }]),
+      typed("second", "2026-09-27T02:00:00.000Z"),
+    ]);
+    const summary = summarizeTranscript(d.readTranscript(""));
+    expect(summary.lastFinalize).toBeGreaterThan(-1);
+    expect(summary.segmentStartedAt).toBe("2026-09-27T02:00:00.000Z");
   });
 
   it("falls back to the plain reminder when no typed message has a usable timestamp", () => {

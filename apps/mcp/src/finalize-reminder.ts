@@ -97,6 +97,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isFinalizeToolCall(name: string, input: unknown): boolean {
+  if (name.endsWith("work_finalize_session")) return true;
+  return name.endsWith("work_write_idempotent") && isRecord(input) && input.operation === "work_finalize_session";
+}
+
 function parseJson(value: unknown): unknown {
   if (typeof value !== "string") {
     return value;
@@ -193,7 +198,7 @@ export function summarizeTranscript(
           }
         }
         lastEdit = index;
-      } else if (name?.endsWith("work_finalize_session")) {
+      } else if (name && isFinalizeToolCall(name, tool.input)) {
         if (typeof tool.id === "string") {
           pendingFinalize.set(tool.id, index);
         } else {

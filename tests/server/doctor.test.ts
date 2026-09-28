@@ -9,6 +9,8 @@ import { inspectDatabaseReadOnly, inspectGlobalHooks } from "../../apps/server/s
 import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
 
 const temporaryDirectories: string[] = [];
+const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
+const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 
 function temporaryDirectory(): string {
   const path = mkdtempSync(join(tmpdir(), "work-intelligence-doctor-"));
@@ -99,7 +101,7 @@ describe("pnpm doctor read-only checks", () => {
       hooks: {
         PostToolUse: [
           {
-            matcher: "^(apply_patch|.*work_finalize_session)$",
+            matcher: LEGACY_CODEX_POST_TOOL_USE_MATCHER,
             hooks: [{ type: "command", command: "node " + JSON.stringify(codexHook) }],
           },
         ],
@@ -111,15 +113,23 @@ describe("pnpm doctor read-only checks", () => {
 
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot)).toEqual({
       claudeConfigured: true,
-      codexConfigured: true,
+      codexConfigured: false,
       codexSegmentStartConfigured: false,
       codexHooksFeature: "enabled",
     });
+
+    const dispatcherMatcherHooks = JSON.parse(codexHooks) as { hooks: Record<string, unknown> };
+    const dispatcherPostToolUse = dispatcherMatcherHooks.hooks.PostToolUse as Array<Record<string, unknown>>;
+    if (!dispatcherPostToolUse[0]) throw new Error("The PostToolUse hook fixture is missing.");
+    dispatcherPostToolUse[0].matcher = CODEX_POST_TOOL_USE_MATCHER;
+    writeFileSync(codexHooksPath, JSON.stringify(dispatcherMatcherHooks));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).codexConfigured).toBe(true);
 
     const withPromptHook = JSON.parse(codexHooks) as { hooks: Record<string, unknown> };
     withPromptHook.hooks.UserPromptSubmit = [
       { hooks: [{ type: "command", command: "node " + JSON.stringify(codexHook) }] },
     ];
+    (withPromptHook.hooks.PostToolUse as Array<Record<string, unknown>>)[0]!.matcher = CODEX_POST_TOOL_USE_MATCHER;
     writeFileSync(codexHooksPath, JSON.stringify(withPromptHook));
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot)).toMatchObject({
       codexConfigured: true,
@@ -132,7 +142,7 @@ describe("pnpm doctor read-only checks", () => {
         hooks: {
           PostToolUse: [
             {
-              matcher: "^(apply_patch|.*work_finalize_session)$",
+              matcher: CODEX_POST_TOOL_USE_MATCHER,
               hooks: [{ type: "command", command: "node " + JSON.stringify(codexHook) }],
             },
           ],
@@ -184,7 +194,7 @@ describe("pnpm doctor read-only checks", () => {
         hooks: {
           PostToolUse: [
             {
-              matcher: "^(apply_patch|.*work_finalize_session)$",
+              matcher: CODEX_POST_TOOL_USE_MATCHER,
               hooks: [{ type: "command", command: commandForAgentHook(codexHook, process.platform) }],
             },
           ],
