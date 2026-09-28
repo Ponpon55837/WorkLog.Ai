@@ -54,11 +54,18 @@ function findUnrecognizedKeys(
   if (base instanceof z.ZodObject) {
     if (!isPlainObject(value)) return;
     const shape = base.shape as z.ZodRawShape;
-    const allowsExtraKeys = base._def.unknownKeys === "passthrough" || !(base._def.catchall instanceof z.ZodNever);
+    const catchallSchema = base._def.catchall;
+    const hasCatchall = !(catchallSchema instanceof z.ZodNever);
+    const allowsExtraKeys = base._def.unknownKeys === "passthrough" || hasCatchall;
     const unknown = allowsExtraKeys ? [] : Object.keys(value).filter((key) => !Object.hasOwn(shape, key));
     if (unknown.length > 0) found.push({ path, keys: unknown });
     for (const [key, child] of Object.entries(shape)) {
       if (Object.hasOwn(value, key)) findUnrecognizedKeys(child, value[key], [...path, key], found);
+    }
+    if (hasCatchall) {
+      for (const [key, child] of Object.entries(value)) {
+        if (!Object.hasOwn(shape, key)) findUnrecognizedKeys(catchallSchema, child, [...path, key], found);
+      }
     }
     return;
   }
@@ -75,7 +82,21 @@ function findUnrecognizedKeys(
     return;
   }
   if (base instanceof z.ZodUnion || base instanceof z.ZodDiscriminatedUnion) {
-    // Report only when every member that fits the value's shape would strip something; keep the smallest report.
+    // Follow the branch Zod will parse, so a later union member cannot mask keys stripped by an earlier one.
+    let selected: z.ZodTypeAny | undefined;
+    if (base instanceof z.ZodDiscriminatedUnion) {
+      if (isPlainObject(value)) {
+        selected = base.optionsMap.get(value[base.discriminator] as Parameters<typeof base.optionsMap.get>[0]);
+      }
+    } else {
+      selected = (base.options as z.ZodTypeAny[]).find((option) => option.safeParse(value).success);
+    }
+    if (selected) {
+      findUnrecognizedKeys(selected, value, path, found);
+      return;
+    }
+
+    // If every branch fails validation, still report the smallest unknown-key finding among compatible shapes.
     let best: UnrecognizedKeys[] | undefined;
     for (const option of base.options as z.ZodTypeAny[]) {
       if (!acceptsShape(option, value)) continue;

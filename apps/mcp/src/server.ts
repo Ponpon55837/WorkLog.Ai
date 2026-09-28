@@ -184,10 +184,12 @@ function dispatcherForAnnotations(annotations: ToolAnnotations): ToolDispatcherD
 function createDispatcherSchema(operations: readonly RegisteredStoreTool[]) {
   const [first, ...rest] = operations.map((operation) => operation.name);
   if (!first) throw new Error("MCP tool dispatcher cannot be empty.");
-  return z.object({
-    operation: z.enum([first, ...rest] as [string, ...string[]]),
-    arguments: z.record(z.unknown()).optional(),
-  });
+  return z
+    .object({
+      operation: z.enum([first, ...rest] as [string, ...string[]]),
+      arguments: z.record(z.unknown()).optional(),
+    })
+    .strict();
 }
 
 function registerToolDispatchers(server: McpServer, operations: Map<string, RegisteredStoreTool>): void {
@@ -199,11 +201,11 @@ function registerToolDispatchers(server: McpServer, operations: Map<string, Regi
       {
         title: dispatcher.title,
         description: dispatcher.description,
-        inputSchema: inputSchema.shape,
+        inputSchema,
         annotations: { title: dispatcher.title, ...dispatcher.annotations },
       },
       async (input: unknown) => {
-        const parsed = inputSchema.safeParse(input);
+        const parsed = parseMcpInput(inputSchema, input);
         if (!parsed.success) {
           return {
             isError: true,

@@ -56,19 +56,65 @@ describe("MCP input boundary", () => {
       details: z.record(z.unknown()),
     });
     expect(
-      parseMcpInput(open, { loose: { a: "x", b: 1 }, extra: { a: "x", b: 2 }, details: { anything: { deep: true } } })
-        .success,
+      parseMcpInput(open, {
+        loose: { a: "x", b: { arbitrary: { deep: true } } },
+        extra: { a: "x", b: 2 },
+        details: { anything: { deep: true } },
+      }).success,
     ).toBe(true);
   });
 
-  it("checks union members only when they can hold the value's shape", () => {
+  it("allows catchall keys but checks nested catchall values and record value objects", () => {
+    const catchallValues = z.object({ fixed: z.string() }).catchall(z.object({ id: z.string() }));
+    expect(parseMcpInput(catchallValues, { fixed: "ok", custom: { id: "one" } }).success).toBe(true);
+
+    const invalidCatchall = parseMcpInput(catchallValues, {
+      fixed: "ok",
+      custom: { id: "one", typo: true },
+    });
+    expect(invalidCatchall.success).toBe(false);
+    if (!invalidCatchall.success) {
+      expect(invalidCatchall.error.issues[0]?.path).toEqual(["custom"]);
+      expect(invalidCatchall.error.issues[0]?.message).toContain("in custom: typo");
+    }
+
+    const recordValues = z.record(z.object({ id: z.string() }));
+    expect(parseMcpInput(recordValues, { arbitraryKey: { id: "one" } }).success).toBe(true);
+    const invalidRecord = parseMcpInput(recordValues, { arbitraryKey: { id: "one", typo: true } });
+    expect(invalidRecord.success).toBe(false);
+    if (!invalidRecord.success) expect(invalidRecord.error.issues[0]?.message).toContain("in arbitraryKey: typo");
+  });
+
+  it("checks the union branch Zod selects so an earlier object cannot silently strip a key", () => {
     const decisions = z.array(z.union([z.string(), z.object({ text: z.string() })]));
     expect(parseMcpInput(decisions, ["plain", { text: "ok" }]).success).toBe(true);
     const rejected = parseMcpInput(decisions, [{ text: "ok", why: "extra" }]);
     expect(rejected.success).toBe(false);
     if (!rejected.success) expect(rejected.error.issues[0]?.message).toContain("in 0: why");
 
-    const either = z.union([z.object({ a: z.string() }), z.object({ a: z.string(), b: z.string() })]);
-    expect(parseMcpInput(either, { a: "x", b: "y" }).success).toBe(true);
+    const shorterBranchFirst = z.union([z.object({ a: z.string() }), z.object({ a: z.string(), b: z.string() })]);
+    const strippedByFirstBranch = parseMcpInput(shorterBranchFirst, { a: "x", b: "y" });
+    expect(strippedByFirstBranch.success).toBe(false);
+    if (!strippedByFirstBranch.success) {
+      expect(strippedByFirstBranch.error.issues[0]?.message).toContain("Unknown argument(s): b");
+    }
+
+    const preservingBranchFirst = z.union([z.object({ a: z.string(), b: z.string() }), z.object({ a: z.string() })]);
+    const preservedByFirstBranch = parseMcpInput(preservingBranchFirst, { a: "x", b: "y" });
+    expect(preservedByFirstBranch).toMatchObject({ success: true, data: { a: "x", b: "y" } });
+
+    const discriminated = z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("one"), one: z.string() }),
+      z.object({ kind: z.literal("two"), two: z.string() }),
+    ]);
+    const wrongDiscriminatorField = parseMcpInput(discriminated, {
+      kind: "one",
+      one: "selected",
+      two: "belongs to another branch",
+    });
+    expect(wrongDiscriminatorField.success).toBe(false);
+    if (!wrongDiscriminatorField.success) {
+      expect(wrongDiscriminatorField.error.issues[0]?.message).toContain("Unknown argument(s): two");
+    }
   });
 });

@@ -215,6 +215,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
 
     for (const tool of listing.tools) {
       const expected = EXPECTED_DISPATCHER_ANNOTATIONS[tool.name as keyof typeof EXPECTED_DISPATCHER_ANNOTATIONS];
+      expect(tool.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
       expect(tool.annotations).toEqual(expected);
       expect(tool.annotations?.readOnlyHint).toBe(expected.readOnlyHint);
       expect(tool.annotations?.openWorldHint).toBe(false);
@@ -332,6 +333,17 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
 
   it("rejects unknown argument keys at every level instead of silently dropping them", async () => {
     const { client } = await connect();
+
+    const invalidEnvelope = await client.callTool({
+      name: "work_read",
+      arguments: {
+        operation: "work_get_project_status",
+        arguments: { projectRoot: PROJECT_ROOT },
+        typo: true,
+      },
+    });
+    expect(invalidEnvelope.isError).toBe(true);
+    expect(resultText(invalidEnvelope)).toContain("typo");
 
     const topLevel = await callOperation(client, "work_read", "work_list_sessions", {
       projectRoot: PROJECT_ROOT,
