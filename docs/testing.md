@@ -81,7 +81,7 @@ B1 加入 confidence 後，`work_recall`／`work_search` 改以緊湊 JSON text 
 | `work_recall`，5 筆 | 4,741 | 2,532 | 3,500 |
 | `work_search`，預設 20 筆 | 15,896 | 7,128 | 8,000 |
 
-C1 的來源核對壓力案例把 20 個已引用 Session 全部更正，確認 context 保留核對旗標、原因摘要與完整頁面查詢指標，同時守住整份預算。此情境的無 task context 為 18,662 字元（19,000 上限），聚焦 context 為 11,554 字元（12,000 上限）；來源細節不足時可用 `work_get_knowledge_page_context` 取得完整內容。
+C1 的來源核對壓力案例把 20 個已引用 Session 全部更正，確認 context 保留核對旗標、原因摘要與完整頁面查詢指標，同時守住整份預算。第七輪最終量測中，此情境的無 task context 為 18,836 字元（19,000 上限），聚焦 context 為 11,701 字元（12,000 上限）；來源細節不足時可用 `work_get_knowledge_page_context` 取得完整內容。
 
 ## 效能回歸門檻
 
