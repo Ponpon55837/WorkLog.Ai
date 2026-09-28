@@ -53,6 +53,12 @@ MCP 清單 regression test（`tests/mcp/tools-list-budget.test.ts`）以 MCP SDK
 - 來源核對壓力情境（20 個已引用 Session 全部更正）另有測試：無 task 15,982、有 task 9,849 字元，同樣守住上限並保留核對旗標。
 - 檢索品質門檻獨立執行，避免靠移除正確結果縮小回應。
 
+## MCP runtime 更新偵測
+
+`tests/shared/mcp-runtime.test.ts` 與 `tests/mcp/server.test.ts` 以暫存 runtime installation 模擬 MCP dist、workspace dependency dist 在連線啟動後更新，並檢查 incomplete build、缺少 dist、多個 heartbeat、過期／損毀 lease、正常退出只清自己的 lease，以及 build finalizer 注入 fingerprint 後再讀取 identity 一致。`tests/server/doctor.test.ts` 與 `tests/server/server.test.ts` 以暫存 repository、HOME 和 lease 驗證 doctor/API 同讀共享狀態，並確認 doctor 仍指出過期的 skill 複本；E2E 驗證系統狀態頁重新整理後取得新的 MCP 狀態。這些測試不讀寫實際資料庫或 Agent 設定。
+
+Root `pnpm build` 在任何 runtime dist 清理前建立排他的進行標記，完成所有 workspace builds 與 MCP entry fingerprint 注入後才移除；直接 runtime package build 使用相同標記。失敗時標記保留，狀態以 unknown 呈現。
+
 ## 效能回歸門檻
 
 ```powershell

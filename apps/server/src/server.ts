@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { URL } from "node:url";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, URL } from "node:url";
 import type { FolderPickResult } from "@work-intelligence/core";
 import { DATABASE_BUSY_MESSAGE, WorkIntelligenceStore, isDatabaseBusyError } from "@work-intelligence/storage";
+import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { JSON_HEADERS, RequestBodyError, sendError } from "./http.js";
 import { Router, apiRoutes, type RouteServices } from "./routes/index.js";
@@ -10,6 +12,7 @@ import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./stat
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
+const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /** Built once: the route table is static, and building it rejects duplicate routes at startup. */
 const router = new Router(apiRoutes);
@@ -84,6 +87,8 @@ export interface ApiHandlerOptions {
   maxEventClients?: number;
   /** Serves a built Web distribution on the same origin as this API server. */
   webDirectory?: string;
+  /** Install root used for the shared MCP runtime registry; injectable for isolated tests. */
+  repositoryRoot?: string;
 }
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
@@ -93,6 +98,7 @@ export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) =
 export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}): ApiHandler {
   const pickFolder = options.pickFolder ?? createFolderPicker();
   const serveWebFiles = options.webDirectory ? createStaticFilesHandler(options.webDirectory) : undefined;
+  const repositoryRoot = options.repositoryRoot ?? DEFAULT_REPOSITORY_ROOT;
   const eventClients = new Set<ServerResponse>();
   const eventPollIntervalMs = Math.max(1, options.eventPollIntervalMs ?? DEFAULT_EVENT_POLL_INTERVAL_MS);
   const requestedMaxEventClients = options.maxEventClients ?? DEFAULT_MAX_EVENT_CLIENTS;
@@ -184,6 +190,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     pickFolder,
     startEventStream,
     eventClientCount: () => eventClients.size,
+    mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
   };
 
   const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

@@ -33,6 +33,7 @@ import {
   knowledgeStatusVisual,
   metadataGapStatus,
   metadataGapsOf,
+  mcpRuntimeStatusVisual,
   requestStatus,
   trackingStatus,
   verificationOf,
@@ -101,6 +102,22 @@ describe("status and label maps", () => {
     expect(metadataGapsOf({ gaps: ["verification"], verificationStatus: "not_supplied" })).toEqual([
       "verification_missing",
     ]);
+    expect(
+      mcpRuntimeStatusVisual({
+        restartRequired: false,
+        monitoringAvailable: false,
+        activeProcesses: 0,
+        outdatedProcesses: 0,
+      }),
+    ).toMatchObject({ tone: "attention", label: "無法確認" });
+    expect(
+      mcpRuntimeStatusVisual({
+        restartRequired: false,
+        monitoringAvailable: true,
+        activeProcesses: 0,
+        outdatedProcesses: 0,
+      }),
+    ).toMatchObject({ tone: "neutral", label: "尚無可監測連線" });
   });
 });
 

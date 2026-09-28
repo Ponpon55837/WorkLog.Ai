@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount } from "vue";
+import { computed, onBeforeUnmount } from "vue";
 import { storeToRefs } from "pinia";
 import { Activity, Archive, Clock3, Code2, Database, RefreshCw, Wifi } from "lucide-vue-next";
 import PageHeader from "../components/layout/PageHeader.vue";
@@ -14,12 +14,13 @@ import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import { formatBytes, formatDate } from "../utils/format";
-import { databaseInspectionStatus, databaseMaintenanceStatus } from "../utils/status";
+import { databaseInspectionStatus, databaseMaintenanceStatus, mcpRuntimeStatusVisual } from "../utils/status";
 import { usePreferencesStore } from "../stores/preferences";
 import { useSystemStatusStore } from "../stores/system-status";
 import { EDITOR_PROTOCOLS, editorProtocolLabels } from "../utils/code-links";
 
 const systemStatusStore = useSystemStatusStore();
+const { editor } = storeToRefs(usePreferencesStore());
 const {
   systemStatus: status,
   systemStatusLoading: loading,
@@ -27,7 +28,7 @@ const {
   databaseStatus,
 } = storeToRefs(systemStatusStore);
 const { refreshSystemStatus } = systemStatusStore;
-const { editor } = storeToRefs(usePreferencesStore());
+const mcpStatus = computed(() => (status.value ? mcpRuntimeStatusVisual(status.value.mcp) : undefined));
 const editorOptions = EDITOR_PROTOCOLS.map((value) => ({ value, label: editorProtocolLabels[value] }));
 
 systemStatusStore.setSystemStatusActive(true);
@@ -49,6 +50,12 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
   <UiSkeleton v-if="loading && !status" variant="card" :count="4" />
 
   <template v-else-if="status">
+    <UiFlash v-if="status.mcp.restartRequired" tone="attention" title="MCP 需要重新連線">
+      {{ status.mcp.message ?? "Work Intelligence MCP 建置已更新，請重新連線 MCP。" }}
+    </UiFlash>
+    <UiFlash v-else-if="!status.mcp.monitoringAvailable" tone="attention" title="無法確認 MCP 建置狀態">
+      {{ status.mcp.message ?? "無法確認磁碟上的 MCP 建置。" }}
+    </UiFlash>
     <div class="system-status__stats">
       <UiStatCard
         label="程式版本"
@@ -111,6 +118,25 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
           </template>
         </UiBoxRow>
         <UiBoxRow v-if="!status.backups.available" title="備份資訊" meta="目前資料庫不支援備份清單" />
+      </UiBox>
+
+      <UiBox>
+        <template #header>
+          <UiBoxTitle :icon="Activity" title="MCP 連線" :count="status.mcp.activeProcesses" />
+          <StatusLabel v-if="mcpStatus" :status="mcpStatus" />
+        </template>
+        <UiBoxRow title="需要重新連線" :meta="`${status.mcp.outdatedProcesses} 個`" />
+        <UiBoxRow
+          v-if="!status.mcp.monitoringAvailable"
+          title="目前狀態"
+          :meta="status.mcp.message ?? '無法確認 MCP heartbeat 狀態'"
+        />
+        <UiBoxRow
+          v-else-if="status.mcp.activeProcesses === 0"
+          title="目前狀態"
+          meta="尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置"
+        />
+        <UiBoxRow v-else title="目前狀態" :meta="status.mcp.message ?? 'MCP heartbeat 正常'" />
       </UiBox>
 
       <UiBox>

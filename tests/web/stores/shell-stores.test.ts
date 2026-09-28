@@ -55,7 +55,16 @@ function shellResponder({ url }: StoreRequest): unknown {
   if (url.pathname === "/api/system/status") {
     return systemStatusError
       ? jsonResponse({ code: "service_unavailable", error: "English" }, 503)
-      : { database: { state: "missing" } };
+      : {
+          database: { state: "missing" },
+          mcp: {
+            restartRequired: false,
+            monitoringAvailable: true,
+            activeProcesses: 0,
+            outdatedProcesses: 0,
+            message: "尚無可監測的 MCP 連線。",
+          },
+        };
   }
   return {};
 }
@@ -183,6 +192,7 @@ describe("shell stores", () => {
     store.setSystemStatusActive(true);
     await store.refreshSystemStatus();
     expect(store.systemStatus?.database.state).toBe("missing");
+    expect(store.systemStatus?.mcp.monitoringAvailable).toBe(true);
     expect(store.databaseStatus.label).toBe("不存在");
     expect(harness.count("/api/system/status")).toBe(1);
 

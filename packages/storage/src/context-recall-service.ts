@@ -50,8 +50,8 @@ const RELEVANT_LIMIT = 5;
 const RECALL_DEFAULT_LIMIT = 8;
 const RECALL_MAX_LIMIT = 30;
 const SEARCH_LIMIT = 20;
-const CONTEXT_DEFAULT_BUDGET_CHARS = 16_000;
-const CONTEXT_TASK_BUDGET_CHARS = 10_000;
+const CONTEXT_DEFAULT_BUDGET_CHARS = 15_800;
+const CONTEXT_TASK_BUDGET_CHARS = 9_800;
 /** Budget-omitted ids listed per context section; the rest are counted in `moreIds`. */
 const CONTEXT_OMITTED_ID_LIMIT = 5;
 /** Reason prefix for an item left out because the same record is already shown in another section. */

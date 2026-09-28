@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspectDatabaseReadOnlyMetadata, resolveBackupDirectory } from "../../apps/server/src/database-inspection.js";
-import { inspectDatabaseReadOnly, inspectGlobalHooks } from "../../apps/server/src/doctor.js";
+import { collectDoctorFindings, inspectDatabaseReadOnly, inspectGlobalHooks } from "../../apps/server/src/doctor.js";
 import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
+import {
+  getMcpRuntimeDirectory,
+  getMcpRuntimeStatus,
+  readMcpBuildIdentity,
+  registerMcpProcess,
+} from "../../packages/shared/src/mcp-runtime.js";
+import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
 
 const temporaryDirectories: string[] = [];
 const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
@@ -25,6 +33,84 @@ afterEach(() => {
 });
 
 describe("pnpm doctor read-only checks", () => {
+  it("reports the shared stale MCP lease and an outdated skill from isolated fixtures", async () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const codexHome = join(homeDirectory, ".codex");
+    const claudeDirectory = join(homeDirectory, ".claude");
+    const repositoryRoot = createMcpRuntimeFixture(join(directory, "repository"));
+    const canonicalSkill = join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md");
+    const installedSkill = join(homeDirectory, ".agents/skills/work-intelligence/SKILL.md");
+    mkdirSync(join(canonicalSkill, ".."), { recursive: true });
+    mkdirSync(join(installedSkill, ".."), { recursive: true });
+    writeFileSync(canonicalSkill, "canonical skill after A2\n");
+    writeFileSync(installedSkill, "stale installed skill\n");
+
+    const runningBuild = readMcpBuildIdentity(repositoryRoot);
+    if (!runningBuild) throw new Error("The synthetic doctor runtime has no build identity.");
+    const stopMcpProcess = registerMcpProcess(repositoryRoot, runningBuild);
+    try {
+      writeFileSync(
+        join(repositoryRoot, "packages/shared/dist/index.js"),
+        'export const runtime = "shared-after-start";\n',
+      );
+      finalizeMcpRuntimeFixture(repositoryRoot);
+      const sharedStatus = getMcpRuntimeStatus(repositoryRoot);
+      const findings = await collectDoctorFindings({
+        homeDirectory,
+        repositoryRoot,
+        environment: {
+          HOME: homeDirectory,
+          CODEX_HOME: codexHome,
+          CLAUDE_CONFIG_DIR: claudeDirectory,
+          WORK_INTELLIGENCE_DB: join(homeDirectory, "synthetic.sqlite"),
+          WORK_INTELLIGENCE_PORT: "65533",
+        },
+      });
+      const mcpFinding = findings.find((finding) => finding.title === "MCP runtime");
+      const staleSkillFinding = findings.find((finding) => finding.title === "Codex canonical work-intelligence skill");
+
+      expect(sharedStatus.restartRequired).toBe(true);
+      expect(mcpFinding).toMatchObject({
+        severity: "warning",
+        detail: expect.stringContaining(sharedStatus.message ?? "請重新連線 MCP"),
+        recommendation: expect.stringContaining("重新連線"),
+      });
+      expect(staleSkillFinding).toMatchObject({
+        severity: "warning",
+        detail: expect.stringContaining("不同"),
+        recommendation: expect.stringContaining("pnpm setup:agents"),
+      });
+
+      // Windows does not enforce POSIX directory write bits; the shared status test uses a portable probe seam.
+      if (process.platform !== "win32") {
+        const registryDirectory = getMcpRuntimeDirectory(repositoryRoot);
+        chmodSync(registryDirectory, 0o500);
+        try {
+          const unavailableFindings = await collectDoctorFindings({
+            homeDirectory,
+            repositoryRoot,
+            environment: {
+              HOME: homeDirectory,
+              CODEX_HOME: codexHome,
+              CLAUDE_CONFIG_DIR: claudeDirectory,
+              WORK_INTELLIGENCE_DB: join(homeDirectory, "synthetic.sqlite"),
+              WORK_INTELLIGENCE_PORT: "65533",
+            },
+          });
+          expect(unavailableFindings.find((finding) => finding.title === "MCP runtime")).toMatchObject({
+            severity: "warning",
+            detail: expect.stringContaining("無法確認"),
+          });
+        } finally {
+          chmodSync(registryDirectory, 0o700);
+        }
+      }
+    } finally {
+      stopMcpProcess();
+      rmSync(getMcpRuntimeDirectory(repositoryRoot), { recursive: true, force: true });
+    }
+  });
   it("checks database integrity and schema metadata without changing the database", async () => {
     const directory = temporaryDirectory();
     const databasePath = join(directory, "synthetic.sqlite");
