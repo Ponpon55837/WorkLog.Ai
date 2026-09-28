@@ -257,6 +257,6 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 
 ## 已完成、不要再列為待辦
 
-- 第八輪 A1 實作完成：[Agent 設定指南](agent-setup.md)。MCP 以標準 resources 交付完整 skill 與記錄格式；`pnpm setup:agents` 預覽、備份、安裝及安全解除安裝 Codex／Claude Code 的 user skills、MCP 與 hooks，`pnpm run doctor` 以內容 hash 檢查三份 skill 複本。暫存 home/config roots 的 setup 測試 25/25 通過；PR 的四項 CI 仍待確認。
+- 第八輪 A1 實作完成：[Agent 設定指南](agent-setup.md)。MCP 以標準 resources 交付完整 skill 與記錄格式；`pnpm setup:agents` 預覽、備份、安裝及安全解除安裝 Codex／Claude Code 的 user skills、MCP 與 hooks，`pnpm run doctor` 以內容 hash 檢查三份 skill 複本。暫存 home/config roots 的 setup 測試 25/25 通過；跨平台 CI 結果以 PR 為準。
 
 UI 改版 P0–P4（六頁、共用 UI、App.vue 拆解、a11y、Ctrl／⌘ K）；集中 API client 與 AbortController；`store.ts` 拆出 repository；ESLint／Prettier；coverage 門檻（schema、storage handoff parser）；Graph server-side cursor 與 viewport culling；列表 virtual list；Provider + No-op；跨行程 idempotency 與 migration 交易保護；Content-Type 與 payload 上限；symlink real-path 二次檢查；`commit_required` 移除；handoff parser 單元測試與輸出邊界。
