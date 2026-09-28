@@ -99,8 +99,8 @@ watch(
       <div v-if="openPage" class="page-panel__meta">
         <StatusLabel :status="knowledgePageStatusVisual[openPage.status]" />
         <UiLabel v-if="openPage.needsReview" tone="danger">引用來源需要核對</UiLabel>
-        <UiLabel v-if="openPage.newSessionCount > 0" tone="attention"
-          >之後有 {{ openPage.newSessionCount }} 筆新 Session</UiLabel
+        <UiLabel v-if="openPage.newSessionCount > 0" tone="accent"
+          >有 {{ openPage.newSessionCount }} 筆新 Session 待評估</UiLabel
         >
         <UiLabel v-if="openPage.updateRequestedAt" tone="accent">已要求更新</UiLabel>
       </div>

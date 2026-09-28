@@ -489,6 +489,76 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(restoredPanel).toContainText("Build the shared packages first.");
   });
 
+  test("shows and filters new Knowledge page data separately from a required rewrite", async ({ page }) => {
+    const [sourceSessionId, newSessionId] = withAgentStore((store) => {
+      const finalize = (idempotencyKey: string, title: string, summary: string) => {
+        const result = store.finalizeSession({
+          projectRoot,
+          idempotencyKey,
+          title,
+          summary,
+          workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+          changedFiles: [],
+          verification: { status: "passed" },
+        });
+        if (result.outcome !== "finalized") throw new Error("Expected the fixture Session to finalize.");
+        return result.session.id;
+      };
+      const source = finalize(
+        `e2e-c2-source-${process.pid}`,
+        "E2E Knowledge page source",
+        "The page's existing answer.",
+      );
+      store.requestKnowledgePageUpdate({
+        projectRoot,
+        slug: "c2-checkpoint",
+        title: "E2E review checkpoint",
+        question: "What has changed since the answer was saved?",
+      });
+      const saved = store.saveKnowledgePage({
+        projectRoot,
+        slug: "c2-checkpoint",
+        idempotencyKey: `e2e-c2-page-${process.pid}`,
+        sections: [{ heading: "Existing answer", content: "The page's existing answer.", sourceSessionIds: [source] }],
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the C2 page to save.");
+      const later = finalize(
+        `e2e-c2-new-data-${process.pid}`,
+        "E2E unrelated new data",
+        "An unrelated Session to assess.",
+      );
+      return [source, later] as const;
+    });
+    expect(sourceSessionId).toBeTruthy();
+
+    await page.goto("/knowledge/pages");
+    const row = page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" });
+    await expect(row).toContainText("有新資料");
+    await expect(row).toContainText("待評估");
+
+    await page.getByRole("button", { name: "狀態" }).click();
+    await page.getByRole("menuitemradio", { name: "有新資料" }).click();
+    await expect(row).toBeVisible();
+
+    const checked = withAgentStore((store) =>
+      store.markKnowledgePageChecked({
+        projectRoot,
+        slug: "c2-checkpoint",
+        throughSessionId: newSessionId,
+      }),
+    );
+    expect(checked).toMatchObject({ outcome: "knowledge_page_checked", page: { version: 1, status: "fresh" } });
+    await page.reload();
+    await page.getByRole("button", { name: "狀態" }).click();
+    await page.getByRole("menuitemradio", { name: "有新資料" }).click();
+    await expect(page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" })).toHaveCount(0);
+    await page.getByRole("button", { name: "狀態" }).click();
+    await page.getByRole("menuitemradio", { name: "所有狀態" }).click();
+    await expect(page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" })).toContainText(
+      "最新",
+    );
+  });
+
   test("shows how often Sessions confirmed or contradicted Knowledge and links to them", async ({ page }) => {
     const title = `E2E evidence Knowledge ${process.pid}`;
     const confirmingTitle = `E2E confirming Session ${process.pid}`;

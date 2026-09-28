@@ -204,10 +204,11 @@ function rowAt(bundle: ReturnType<typeof validBundle>, table: ProjectDataTable) 
 }
 
 describe("project data transfer schemas", () => {
-  it("accepts exports that predate optional session counters and validates their values", () => {
+  it("accepts exports that predate optional session counters and page review cursors", () => {
     const legacy = validBundle();
     delete rowAt(legacy, "sessions").changed_files_confirmed;
     delete rowAt(legacy, "sessions").redaction_count;
+    delete rowAt(legacy, "knowledge_pages").checked_through_session_id;
     expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
 
     const invalid = validBundle();

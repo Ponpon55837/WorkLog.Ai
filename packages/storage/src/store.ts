@@ -109,6 +109,8 @@ import type {
   KnowledgePageListQuery,
   KnowledgePageListResult,
   KnowledgePageVersionsResult,
+  MarkKnowledgePageCheckedInput,
+  MarkKnowledgePageCheckedResult,
   RequestKnowledgePageUpdateInput,
   RequestKnowledgePageUpdateResult,
   SaveKnowledgePageInput,
@@ -1005,6 +1007,10 @@ export class WorkIntelligenceStore {
 
   public saveKnowledgePage(input: SaveKnowledgePageInput): SaveKnowledgePageResult {
     return this.knowledgePages.savePage(input);
+  }
+
+  public markKnowledgePageChecked(input: MarkKnowledgePageCheckedInput): MarkKnowledgePageCheckedResult {
+    return this.knowledgePages.markChecked(input);
   }
 
   public updateKnowledgePage(input: UpdateKnowledgePageInput): UpdateKnowledgePageResult {

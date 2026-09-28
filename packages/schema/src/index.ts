@@ -749,6 +749,13 @@ export const requestKnowledgePageUpdateInputSchema = z
 export const knowledgePageContextQuerySchema = z
   .object({ projectRoot: z.string().trim().min(1).max(1_000), slug: knowledgePageSlugSchema })
   .strict();
+export const markKnowledgePageCheckedInputSchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000),
+    slug: knowledgePageSlugSchema,
+    throughSessionId: z.string().trim().min(1).max(200),
+  })
+  .strict();
 export const saveKnowledgePageInputSchema = z
   .object({
     projectRoot: z.string().trim().min(1).max(1_000),
@@ -1127,6 +1134,7 @@ export const projectDataExportTableColumns = {
     "sourced_through",
     "update_requested_at",
     "last_author",
+    "checked_through_session_id",
     "created_at",
     "updated_at",
   ],
@@ -1483,6 +1491,7 @@ export const projectDataColumnDefaults: Partial<
 > = {
   sessions: { changed_files_confirmed: 0, redaction_count: 0 },
   projects: { repository_url: null },
+  knowledge_pages: { checked_through_session_id: null },
 };
 
 /** A row's value for a column, falling back to the column default for bundles that predate it. */

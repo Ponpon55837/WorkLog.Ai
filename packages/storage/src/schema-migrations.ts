@@ -528,6 +528,14 @@ const MIGRATIONS: SchemaMigration[] = [
       SELECT 'session', id FROM sessions;
     `,
   },
+  {
+    version: 21,
+    name: "knowledge-page-review-checkpoint",
+    sql: `
+      ALTER TABLE knowledge_pages
+        ADD COLUMN checked_through_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

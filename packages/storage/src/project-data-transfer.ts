@@ -503,6 +503,7 @@ function dependencyIssue(
   selectedIds: Record<ProjectDataTable, Set<string>>,
   availableIds: Record<ProjectDataTable, Set<string>>,
   conflictIds: Record<ProjectDataTable, Set<string>>,
+  sessionProjectIds: Map<string, string>,
 ): string | undefined {
   if (table !== "projects" && typeof row.project_id === "string") {
     const mappedProjectId = projectIds.get(row.project_id);
@@ -564,6 +565,19 @@ function dependencyIssue(
     }
     if (!isAvailable("knowledge_pages", pageId, selectedIds.knowledge_pages, availableIds, conflictIds)) {
       return "知識頁版本對應的頁面發生衝突或不存在。";
+    }
+  }
+
+  if (table === "knowledge_pages") {
+    const checkedThroughSessionId =
+      typeof row.checked_through_session_id === "string" ? row.checked_through_session_id : undefined;
+    if (checkedThroughSessionId) {
+      if (
+        !isAvailable("sessions", checkedThroughSessionId, selectedIds.sessions, availableIds, conflictIds) ||
+        sessionProjectIds.get(checkedThroughSessionId) !== row.project_id
+      ) {
+        return "知識頁的已檢查游標必須指向同一專案中可用的 Session。";
+      }
     }
   }
 
@@ -779,6 +793,21 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "new" });
   }
 
+  const checkedCursorIds = selectedBundle.tables.knowledge_pages.flatMap((row) =>
+    typeof row.checked_through_session_id === "string" ? [row.checked_through_session_id] : [],
+  );
+  const sessionProjectIds = new Map<string, string>();
+  for (const session of selectedBundle.tables.sessions) {
+    const projectId = String(session.project_id);
+    sessionProjectIds.set(String(session.id), projectIds.get(projectId) ?? projectId);
+  }
+  if (checkedCursorIds.length > 0) {
+    const existingCursorRows = db
+      .prepare("SELECT id, project_id FROM sessions WHERE id IN (SELECT value FROM json_each(?))")
+      .all(JSON.stringify(checkedCursorIds)) as Array<{ id: string; project_id: string }>;
+    for (const session of existingCursorRows) sessionProjectIds.set(session.id, session.project_id);
+  }
+
   for (const table of TABLE_ORDER) {
     if (table === "projects") {
       continue;
@@ -787,7 +816,15 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
       table === "knowledge" ? orderKnowledgeRows(selectedBundle.tables.knowledge) : selectedBundle.tables[table];
     for (const sourceRow of sourceRows) {
       const row = { ...sourceRow };
-      const dependencyError = dependencyIssue(table, row, projectIds, selectedIds, existingIds, conflictIds);
+      const dependencyError = dependencyIssue(
+        table,
+        row,
+        projectIds,
+        selectedIds,
+        existingIds,
+        conflictIds,
+        sessionProjectIds,
+      );
       if (dependencyError) {
         addPlan(table, row, "conflict", dependencyError);
         continue;

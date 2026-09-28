@@ -779,7 +779,6 @@ describe("synthetic retrieval quality regression", () => {
       expect(context.pendingRequests.knowledgePages).toContainEqual(
         expect.objectContaining({ slug: "source-review", needsReview: true }),
       );
-
       const pageContext = store.getKnowledgePageContext({ projectRoot: root, slug: "source-review" });
       expect(pageContext).toMatchObject({
         outcome: "knowledge_page_context",
@@ -880,6 +879,100 @@ describe("synthetic retrieval quality regression", () => {
             }),
           ],
         },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats later Sessions as new data that an Agent can check without creating a new page version", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2032, 0, 1));
+    try {
+      const sourceSessionId = createSession("c2-page-write-session", root, {
+        title: "This Session records the page update",
+        summary: "The page update itself is recorded here and cited as its source.",
+      });
+      store.requestKnowledgePageUpdate({
+        projectRoot: root,
+        slug: "review-checkpoint",
+        title: "Review checkpoint",
+        question: "What new data has been assessed?",
+      });
+      const saved = store.saveKnowledgePage({
+        projectRoot: root,
+        slug: "review-checkpoint",
+        idempotencyKey: "c2-page-write-save",
+        sections: [
+          { heading: "Checkpoint", content: "The checkpoint source is recorded.", sourceSessionIds: [sourceSessionId] },
+        ],
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the checkpoint page to save.");
+      expect(saved.page).toMatchObject({ version: 1, status: "fresh", newSessionCount: 0 });
+
+      vi.setSystemTime(Date.now() + 60_000);
+      const newSessionId = createSession("c2-new-session-after-save", root, {
+        title: "Independent orchard note",
+        summary: "This Session adds unrelated orchard information.",
+      });
+      const context = store.getContext(root);
+      if (context.outcome !== "context") throw new Error("Expected project context.");
+      expect(context.pendingRequests.knowledgePages).toContainEqual(
+        expect.objectContaining({
+          slug: "review-checkpoint",
+          status: "has_new_data",
+          newSessionCount: 1,
+          updateRequested: false,
+        }),
+      );
+      const focused = store.getContext(root, { task: "checkpoint" });
+      expect(focused).toMatchObject({
+        outcome: "context",
+        relevant: {
+          knowledgePages: [
+            expect.objectContaining({ slug: "review-checkpoint", status: "has_new_data", newSessionCount: 1 }),
+          ],
+        },
+      });
+
+      const checked = store.markKnowledgePageChecked({
+        projectRoot: root,
+        slug: "review-checkpoint",
+        throughSessionId: newSessionId,
+      });
+      expect(checked).toMatchObject({
+        outcome: "knowledge_page_checked",
+        page: {
+          version: 1,
+          status: "fresh",
+          newSessionCount: 0,
+          checkedThrough: { sessionId: newSessionId },
+        },
+      });
+      store.requestKnowledgePageUpdate({ projectRoot: root, slug: "review-checkpoint" });
+      const requestedAfterCheck = store.markKnowledgePageChecked({
+        projectRoot: root,
+        slug: "review-checkpoint",
+        throughSessionId: newSessionId,
+      });
+      expect(requestedAfterCheck).toMatchObject({
+        outcome: "knowledge_page_checked",
+        page: { version: 1, status: "fresh", updateRequestedAt: expect.any(String) },
+      });
+
+      vi.setSystemTime(Date.now() + 60_000);
+      createSession("c2-session-after-check", root, {
+        title: "Later unrelated orchard note",
+        summary: "A later Session remains visible as new data.",
+      });
+      const later = store.listKnowledgePages({ projectRoot: root });
+      expect(later.outcome).toBe("knowledge_pages");
+      if (later.outcome !== "knowledge_pages") throw new Error("Expected the page list.");
+      expect(later.items.find((page) => page.slug === "review-checkpoint")).toMatchObject({
+        version: 1,
+        status: "has_new_data",
+        newSessionCount: 1,
+        checkedThrough: { sessionId: newSessionId },
       });
     } finally {
       vi.useRealTimers();

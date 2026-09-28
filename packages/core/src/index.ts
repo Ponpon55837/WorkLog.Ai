@@ -1886,8 +1886,8 @@ export const KNOWLEDGE_PAGE_DEFAULTS = [
 ] as const;
 export const KNOWLEDGE_PAGE_AUTHORS = ["agent", "web"] as const;
 export type KnowledgePageAuthor = (typeof KNOWLEDGE_PAGE_AUTHORS)[number];
-/** `empty` until first written; `needs_update` once newer Sessions exist than the page was written from. */
-export type KnowledgePageStatus = "empty" | "fresh" | "needs_update";
+/** `empty` until first written; `has_new_data` when unreviewed Sessions postdate the saved page. */
+export type KnowledgePageStatus = "empty" | "fresh" | "has_new_data";
 /** The literal a section uses when its sources do not answer the question; only such a section may cite nothing. */
 export const KNOWLEDGE_PAGE_INSUFFICIENT = "資料不足";
 
@@ -1931,6 +1931,8 @@ export interface KnowledgePageRecord {
   status: KnowledgePageStatus;
   /** Non-voided Sessions completed after the page was last written. */
   newSessionCount: number;
+  /** Newest Session the Agent has assessed as not requiring a page rewrite. */
+  checkedThrough?: { sessionId: string; completedAt: string };
   /** Set when at least one cited source changed or its void state changed after the page was written. */
   needsReview?: boolean;
   /** Sections and cited source Sessions that triggered needsReview. */
@@ -1978,6 +1980,19 @@ export interface SaveKnowledgePageInput {
   idempotencyKey: string;
   sections: KnowledgePageSection[];
 }
+
+export interface MarkKnowledgePageCheckedInput {
+  projectRoot: string;
+  slug: string;
+  /** A Session returned by work_get_knowledge_page_context that the Agent has assessed. */
+  throughSessionId: string;
+}
+
+export type MarkKnowledgePageCheckedResult =
+  | { outcome: "knowledge_page_checked"; page: KnowledgePageRecord }
+  | { outcome: "not_found"; slug: string; reason: string }
+  | { outcome: "invalid_cursor"; reason: string }
+  | KnowledgePageSkippedResult;
 
 export interface UpdateKnowledgePageInput {
   pageId: string;
@@ -2049,6 +2064,7 @@ export interface KnowledgePageDigest {
   slug: string;
   title: string;
   status: KnowledgePageStatus;
+  newSessionCount: number;
   updatedAt: string;
   content: string;
   /** Session ids cited by the page, kept even when its rendered content is truncated or omitted. */
@@ -2094,11 +2110,12 @@ export interface ContextResult {
     knowledgeCandidates: KnowledgeCandidateRequest[];
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
-    /** Knowledge pages to (re)write: an update was requested, newer Sessions exist, or cited sources need review. */
+    /** Knowledge pages to inspect: an update was requested, new Sessions need assessment, or cited sources need review. */
     knowledgePages: Array<{
       slug: string;
       title: string;
       status: KnowledgePageStatus;
+      newSessionCount: number;
       updateRequested: boolean;
       needsReview?: boolean;
     }>;
@@ -2132,6 +2149,8 @@ export interface RelevantKnowledgePageDigest {
   projectName?: string;
   slug: string;
   title: string;
+  status: KnowledgePageStatus;
+  newSessionCount: number;
   needsReview?: boolean;
   reviewSections?: KnowledgePageReviewSection[];
   sections: Array<{

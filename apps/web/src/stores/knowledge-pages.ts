@@ -37,7 +37,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
     const result = listQuery.data.value;
     return result?.outcome === "skipped" ? (result.reason ?? "此專案目前未啟用記錄。") : "";
   });
-  const staleCount = computed(() => pages.value.filter((page) => page.status === "needs_update").length);
+  const newDataCount = computed(() => pages.value.filter((page) => page.status === "has_new_data").length);
   const openPage = computed(() => {
     const result = versionsQuery.data.value;
     const fromVersions = result?.outcome === "knowledge_page_versions" ? result.page : undefined;
@@ -101,7 +101,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
     pages,
     pagesLoading,
     pagesError,
-    staleCount,
+    newDataCount,
     openPage,
     versions,
     sources,
