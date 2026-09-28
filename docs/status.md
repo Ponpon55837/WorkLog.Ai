@@ -6,16 +6,16 @@
 
 - 最後更新：2026-09-28
 
-## 第七輪：Agent 脈絡的用量與準確度（進行中）
+## 第七輪：Agent 脈絡的用量與準確度（已完成）
 
-交接文件：[`.openspec/handoffs/2026-09-28-claude-to-codex-round7.md`](../.openspec/handoffs/2026-09-28-claude-to-codex-round7.md)。依據是使用者請 Codex 以實際資料做的兩次使用測試。
+原始交接文件：[`.openspec/handoffs/2026-09-28-claude-to-codex-round7.md`](../.openspec/handoffs/2026-09-28-claude-to-codex-round7.md)；複檢交接文件：[`.openspec/handoffs/2026-09-28-codex-round7-review.md`](../.openspec/handoffs/2026-09-28-codex-round7-review.md)。依據是使用者請 Codex 以實際資料做的兩次使用測試。A1–D2 各階段均各自開 PR，四項 CI 成功後以 merge commit 合併；詳見複檢交接文件的 SHA／CI／工作記錄對照表。
 
 | 階段 | 項目 |
 | --- | --- |
-| A. 回應用量 | A1 合成資料基線與暫行 CI 上限（PR #147 已合併）；A2 `work_get_context` 跨區去重、整份預算、任務優先（PR #148 已合併）；A3 `work_recall`／`work_search` 精簡結果（PR #149 已合併） |
+| A. 回應用量 | A1 合成資料基線與暫行 CI 上限（PR #147）；A2 `work_get_context` 跨區去重、整份預算、任務優先（PR #148）；A3 `work_recall`／`work_search` 精簡結果（PR #149） |
 | B. 檢索準確度 | B1 查不到時回傳 `confidence: "none"`（PR #150）；B2 重複的規劃片段只算一次、已完成的工作優先（PR #151） |
-| C. 知識頁更新判斷 | C1 已引用來源被更正、作廢或還原時標示需要核對（PR #152 已合併）；C2 新 Session 只提示「有新資料」，可回報已檢查（PR #153 已合併） |
-| D. 其他 | D1 跨專案情境的測試（PR #154 已合併）；D2 Mermaid 在嚴格 CSP 下不再產生 console 警告（PR #155） |
+| C. 知識頁更新判斷 | C1 已引用來源被更正、作廢或還原時標示需要核對（PR #152）；C2 新 Session 只提示「有新資料」，可回報已檢查（PR #153） |
+| D. 其他 | D1 跨專案情境的測試（PR #154）；D2 Mermaid 在嚴格 CSP 下不再產生 console 警告（PR #155） |
 
 ### D1 跨專案檢索隔離
 
@@ -26,6 +26,8 @@
 - 根因是 Mermaid 11 的 `render()` 將動態 `<style>` 插入 SVG；主頁的 `style-src-elem 'self'` 拒絕 inline style，雖然之後已抽出 CSS，瀏覽器仍會記錄 CSP 錯誤。
 - 每次繪圖使用獨立且連接至文件的暫存 render surface，在 Mermaid 將 `<style>` 插入 SVG 前收集 CSS 並略過該節點；樣式仍由圖表 Shadow DOM 的 Constructable Stylesheet 套用。主頁 CSP 不變。
 - Mermaid E2E 保留 `style-src-elem 'self'` 檢查，並斷言整個繪圖、原始碼 fallback 與作廢流程沒有 CSP console 錯誤。
+
+- PR #155 已合併；A1 基準與本輪最終回應大小、每階段 PR／SHA／CI／Work Intelligence Session 對照及複檢重點見第七輪複檢交接文件。
 
 ## 第六輪：可信度、洞察與好用度（已完成）
 
