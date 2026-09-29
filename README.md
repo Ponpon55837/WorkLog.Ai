@@ -26,15 +26,24 @@
 
 ## 快速開始
 
-需求：**Node.js 22.5 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 11**（版本見 `package.json` 的 `packageManager`）。
+需求：**Node.js 22.5 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 11**（版本見 `package.json` 的 `packageManager`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
 
 ```bash
+cd /path/to/WorkLog.Ai
 pnpm install
 pnpm build
+pnpm setup:agents
+```
+
+`pnpm setup:agents` 會先列出預計安裝的 MCP、user-level skills 與保存提醒 hook。預覽預設不會寫入；確認內容後，在互動提示輸入 `yes`，installer 會先備份再套用。若不想變更全域 Agent 設定，輸入其他內容或離開即可。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
+
+接著啟動本機 Dashboard 與 REST API：
+
+```bash
 pnpm start
 ```
 
-`pnpm start` 是正式模式：由同一個 process、同一個 port 提供 Web UI 與 REST API。終端機保持執行，按 `Ctrl+C` 停止。
+終端機保持執行，按 `Ctrl+C` 停止。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
 
 | 項目 | 位置 |
 |---|---|
@@ -50,11 +59,11 @@ pnpm run doctor
 
 請用 `pnpm run doctor`，不要用 `pnpm doctor`：pnpm 11 把 `doctor` 保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 註冊、skill 複本與全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
 
-開啟 Web UI 之後：
+在 Codex 或 Claude Code 中重新連線 Work Intelligence MCP；Codex 使用保存提醒 hook 時，請在 `/hooks` 檢查並信任它。接著在 Dashboard：
 
-1. 左側選單 →「專案」→「加入專案」，按「選擇資料夾」挑選要記錄的專案資料夾，也可以直接輸入路徑。
-2. 把狀態切換成「記錄中」。確認對話框會說明允許讀取的範圍。
-3. [連接 Agent](#連接-codexclaude)。之後完成的工作就會出現在「工作歷程」。
+1. 開啟「專案」→「加入專案」，選擇要記錄的專案資料夾。
+2. 將專案狀態切換成「記錄中」，並確認允許讀取的範圍。
+3. 在 Agent 對話中確認連線，之後照常工作；完成時請 Agent 保存這次工作。
 
 如果還沒有記錄中專案或尚無 Session，總覽會顯示「加入專案 → 設為記錄中 → 連接 Agent → 第一筆工作記錄」四步清單，並連到相關頁面或提供安裝命令。
 

@@ -132,6 +132,6 @@ REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdi
 
 任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_read` 的 `work_get_context`、project-scoped `work_recall`／`work_search` operations、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
 
-## 後續擴充邊界
+## 擴充邊界
 
-`packages/core/src/index.ts` 提供 reports、evidence、knowledge、graph 的公開型別與契約；目前已落地 reports、evidence、explicit knowledge（含維護、封存與 audit history）、deterministic graph read model、Graph 節點詳細面板、metadata backfill 的明確 replace／merge contract，以及 deleted／renamed path history。Graph 目前刻意維持 read-only，不做未確認的語意推論；原始 session/event/handoff snapshot、明確附加的 evidence 與 Agent 明確提交的 Knowledge 仍是可信來源，不讓 LLM 取代原始資料保存與 policy decision。後續可再加入受控的 report／knowledge automation。
+`packages/core/src/index.ts` 提供 reports、evidence、knowledge、graph 的公開型別與契約；目前已落地報告整理、Knowledge 候選與常駐知識頁維護、deterministic graph read model、Graph 節點詳細面板、metadata backfill 的明確 replace／merge contract，以及 deleted／renamed path history。Graph 刻意維持 read-only，不做未確認的語意推論；原始 session/event/handoff snapshot、明確附加的 evidence 與 Agent 明確提交的 Knowledge 仍是可信來源，不讓 LLM 取代原始資料保存與 policy decision。新增自動化仍須使用明確請求、受限 context 與可追溯來源，並遵守既有 project policy。

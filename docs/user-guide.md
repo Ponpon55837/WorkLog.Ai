@@ -34,6 +34,8 @@ pnpm run doctor
 
 設定 MCP 與全域保存提醒 hook 的方式見[連接 Agent](agent-setup.md)。MCP 使用 stdio，由 Codex／Claude 分別啟動；它不使用 Dashboard 的 HTTP 連接埠。
 
+也可以在 build 完成後執行 `pnpm setup:agents`，預覽 Codex／Claude Code 的 MCP、user-level skill 與保存提醒 hook 設定。互動終端輸入 `yes` 才會先備份並套用；詳細內容見[Agent 設定指南](agent-setup.md)。
+
 ## 第一次使用
 
 1. 在左側選單開啟「專案」，選「加入專案」，選擇或輸入 workspace 路徑。

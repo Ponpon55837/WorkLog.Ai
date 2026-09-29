@@ -143,7 +143,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_list_sessions` / `work_get_session`
 
-`work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的精簡 Session digest。每筆包含 id、專案、標題、最多 400 字摘要、完成／更新時間、Verification 狀態、changed-file 數量，以及最多 3 個截斷後的未結項；不含 changed-file 路徑、events、Evidence 或完整 workSummary。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。需要完整資料時，依 digest 的 `id` 呼叫 `work_get_session`。
+`work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的精簡 Session digest。每筆包含 id、專案、標題、最多 400 字摘要、完成／更新時間、Verification 狀態、changed-file 數量，以及最多 3 個目前狀態為 `pending` 的未結項；已完成或 `not_needed` 的 `nextSteps` 不會顯示為待處理內容。不含 changed-file 路徑、events、Evidence 或完整 workSummary。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。需要完整資料時，依 digest 的 `id` 呼叫 `work_get_session`。
 
 `work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
 
@@ -155,7 +155,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_list_outstanding_items`
 
-唯讀取得來源 Session 的未結項清單，可用 `projectRoot` 限定一個 tracked 專案，並以 `status` 篩選 `pending`（預設）、`completed` 或 `not_needed`；用 `page`、`pageSize` 分頁，`pageSize` 預設 5、最多 5 筆。MCP 每筆 `text` 最多回傳 4,000 字元；超過時會截短並加上 `textTruncated: true`，完整文字仍保存在 storage，並可透過 REST 匯出／匯入保留。REST 清單仍可每頁讀取最多 100 筆完整文字。每筆含 project 名稱、來源 Session id／標題／完成時間、文字、狀態與時間戳。傳入 `projectRoot` 時先通過專案追蹤政策；未追蹤範圍會安靜回傳 `skipped`，不讀取其他專案資料。這個操作不建立、刪除或更新項目；Web UI 負責狀態管理。只有經本次工作確認完成的 pending 項目，才可在 `work_finalize_session` 傳入其 id。
+唯讀取得來源 Session 的未結項清單，可用 `projectRoot` 限定一個 tracked 專案，並以 `status` 篩選 `pending`（預設）、`completed` 或 `not_needed`；用 `page`、`pageSize` 分頁，`pageSize` 預設 5、最多 5 筆。**完整序列化後的 MCP JSON 回應上限為 30,000 個 JavaScript 字元**；必要時會截短項目文字、Session 標題、專案名稱或時間戳，並以對應的 `Truncated` 旗標標示，識別碼保持完整。若識別碼本身放不進上限，`responseBudget` 會標出該頁項目並指向 Web UI 或專案匯出；分頁資訊仍會保留。每筆 `text` 最多回傳 4,000 字元；超過時另加上 `textTruncated: true`，完整文字仍保存在 storage，並可透過 REST 匯出／匯入保留。REST 清單仍可每頁讀取最多 100 筆完整文字。每筆含 project 名稱、來源 Session id／標題／完成時間、文字、狀態與時間戳。傳入 `projectRoot` 時先通過專案追蹤政策；未追蹤範圍會安靜回傳 `skipped`，不讀取其他專案資料。這個操作不建立、刪除或更新項目；Web UI 負責狀態管理。只有經本次工作確認完成的 pending 項目，才可在 `work_finalize_session` 傳入其 id。
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "status": "pending", "page": 1, "pageSize": 5 }
@@ -250,7 +250,7 @@ Server instructions 只放路由規則；45 項 operation 的長說明與 schema
 - `mode: "replace"` 取代完整主摘要；`mode: "append"` 在既有摘要後加入一個以空行分隔的後續段落。
 - 必須使用這次摘要更新自己的 `idempotencyKey`。相同 key、相同 payload 重試會回傳 `duplicate: true`，append 不會重複追加；相同 key 搭配不同 Session、模式或內容會回傳 conflict。
 - 只更新 `sessions.summary` 與摘要更新 audit row，保留 `changedFiles`、`changedFilesProvenance`、`changedFileChanges`、`verification`、`git`、`events`、raw handoff snapshot、evidence、Knowledge 與原 Session id。
-- 仍先通過 tracked project policy；`unregistered`、`paused`、`ignored` 會安靜回傳 `outcome: "skipped"`，不讀取或寫入受保護的專案資料。
+- 仍先通過 tracked project policy；`unregistered`、`paused`、`ignored` 會安靜回傳 `outcome: "skipped"`，不讀取或寫入受保護的專案資料。已作廢的 Session 不接受 workSummary 更新，會回傳 `skipped` 與原因；要修正它，先在 Web UI 還原 Session。
 - 如果 `work_finalize_session` 收到已使用過的 `idempotencyKey` 但 summary 不同，會回傳 `outcome: "idempotency_conflict"`，並提示改用本工具，不會假裝 duplicate 已更新摘要。
 
 ```json
@@ -323,7 +323,7 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 
 **Agent 何時主動附圖**（不需使用者要求，寫在 finalize 的記錄規則與 work-intelligence skill）：這次工作改了跨模組的流程或資料流（例如 API → store → 資料庫）、狀態機、架構或元件關係、多步驟的處理流程時，附一到兩張；單檔修正、文案、樣式、設定調整、依賴升級與純測試不附。只畫這次實際做的內容（約 3–12 個節點，偏好 `flowchart LR` 或 `sequenceDiagram`），不放敏感資料。標題與原始碼會先遮蔽敏感資料。同一個 `idempotencyKey` 重試回傳 `duplicate: true`；用已用過的 key 送不同內容會回傳 `idempotency_conflict`。圖表沒有刪除工具，只能在 Web 的 Session 面板作廢（需填原因，可還原）。
 
-Web 在 Session 面板渲染圖表：Mermaid 只在圖表捲入畫面時才延遲載入，使用 `securityLevel: "strict"`；SVG 放進 Shadow DOM，Mermaid 的樣式以 Constructable Stylesheet 套用，**主頁 CSP 不需放寬**（`style-src-elem 'self'` 會擋下 Mermaid 暫時插入的 `<style>`，瀏覽器主控台會出現對應訊息，但不影響顯示）。原始碼無法解析時顯示錯誤與原始碼。
+Web 在 Session 面板渲染圖表：Mermaid 只在圖表捲入畫面時才延遲載入，使用 `securityLevel: "strict"`；渲染時從連接文件的暫存畫布攔截 Mermaid 產生的 `<style>`，再把樣式以 Constructable Stylesheet 套用到 Shadow DOM 中的 SVG。**主頁 CSP 不需放寬，也不會因 Mermaid 插入 inline style 留下 CSP console error。**原始碼無法解析時顯示錯誤與原始碼。
 
 ## `work_attach_evidence`
 
