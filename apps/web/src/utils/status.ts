@@ -32,6 +32,7 @@ import type {
   ProjectStatus,
   ReportSynthesisRequest,
   ReportVerificationStatus,
+  SystemAgentConnections,
   SystemStatus,
 } from "@work-intelligence/core";
 import type { IconComponent, Tone } from "../components/ui/types";
@@ -74,10 +75,65 @@ export const agentSkillCopyStatus: Record<AgentSkillCopyState, StatusVisual> = {
 
 export const agentHookInstallStatus: Record<AgentHookInstallState, StatusVisual> = {
   installed: { tone: "success", icon: CircleCheck, label: "已安裝" },
+  stale: { tone: "attention", icon: Clock3, label: "需要更新" },
   missing: { tone: "attention", icon: CircleDashed, label: "未安裝" },
   disabled: { tone: "neutral", icon: CircleMinus, label: "已停用" },
   unknown: { tone: "attention", icon: CircleAlert, label: "無法確認" },
 };
+
+export interface AgentConnectionRow {
+  title: string;
+  /** Where the component lives, so the user knows what the state refers to. */
+  location: string;
+  status: StatusVisual;
+  /** Registered, current, installed, or deliberately disabled; anything else needs setup. */
+  ok: boolean;
+}
+
+export interface AgentConnectionGroup {
+  agent: "Codex" | "Claude Code";
+  rows: AgentConnectionRow[];
+}
+
+function mcpRow(location: string, state: AgentMcpRegistrationState): AgentConnectionRow {
+  return { title: "MCP 註冊", location, status: agentMcpRegistrationVisual(state), ok: state === "registered" };
+}
+
+function skillRow(title: string, location: string, state: AgentSkillCopyState): AgentConnectionRow {
+  return { title, location, status: agentSkillCopyStatus[state], ok: state === "current" };
+}
+
+function hookRow(location: string, state: AgentHookInstallState): AgentConnectionRow {
+  return {
+    title: "全域 hook",
+    location,
+    status: agentHookInstallStatus[state],
+    ok: state === "installed" || state === "disabled",
+  };
+}
+
+/** Groups the per-Agent setup components in the order a user fixes them: MCP, then skill, then hook. */
+export function agentConnectionGroups(agents: SystemAgentConnections): AgentConnectionGroup[] {
+  return [
+    {
+      agent: "Codex",
+      rows: [
+        mcpRow("CODEX_HOME/config.toml", agents.codex.mcpRegistered),
+        skillRow("Skill", "~/.agents/skills/work-intelligence", agents.codex.canonicalSkill),
+        skillRow("相容 skill", "CODEX_HOME/skills/work-intelligence（舊版 Codex）", agents.codex.legacySkill),
+        hookRow("CODEX_HOME/hooks.json · 保存提醒", agents.codex.hook),
+      ],
+    },
+    {
+      agent: "Claude Code",
+      rows: [
+        mcpRow("~/.claude.json", agents.claudeCode.mcpRegistered),
+        skillRow("Skill", "~/.claude/skills/work-intelligence", agents.claudeCode.skill),
+        hookRow("~/.claude/settings.json · 保存提醒", agents.claudeCode.hook),
+      ],
+    },
+  ];
+}
 
 export function onboardingStepStatusVisual(state: "complete" | "pending" | "checking" | "unknown"): StatusVisual {
   if (state === "complete") return { tone: "success", icon: CircleCheck, label: "已完成" };

@@ -2503,7 +2503,8 @@ export interface DatabaseMaintenanceRecord {
 /** Read-only system diagnostics returned by GET /api/system/status. */
 export type AgentSkillCopyState = "current" | "missing" | "stale" | "unreadable";
 
-export type AgentHookInstallState = "installed" | "missing" | "disabled" | "unknown";
+/** `stale`: the hook is installed but uses an older matcher that misses current MCP operation calls. */
+export type AgentHookInstallState = "installed" | "stale" | "missing" | "disabled" | "unknown";
 
 export type AgentMcpRegistrationState = "registered" | "missing" | "unknown";
 

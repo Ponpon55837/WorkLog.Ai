@@ -25,6 +25,8 @@ import {
   workSummarySectionLabels,
 } from "../../../apps/web/src/utils/labels.js";
 import {
+  agentConnectionGroups,
+  agentHookInstallStatus,
   databaseInspectionStatus,
   databaseMaintenanceStatus,
   executionStatusVisual,
@@ -169,5 +171,26 @@ describe("hotspotRiskVisual", () => {
       label: "未曾失敗",
     });
     expect(hotspotRiskVisual({ sessionCount: 0, failedCount: 0 })).toMatchObject({ tone: "success" });
+  });
+
+  it("groups Agent setup rows per Agent and marks only healthy or deliberately disabled parts as ok", () => {
+    const groups = agentConnectionGroups({
+      codex: { mcpRegistered: "registered", canonicalSkill: "missing", legacySkill: "stale", hook: "stale" },
+      claudeCode: { mcpRegistered: "unknown", skill: "current", hook: "disabled" },
+    });
+
+    expect(groups.map((group) => group.agent)).toEqual(["Codex", "Claude Code"]);
+    expect(groups[0]?.rows.map((row) => [row.title, row.ok, row.status.label])).toEqual([
+      ["MCP 註冊", true, "已註冊"],
+      ["Skill", false, "未安裝"],
+      ["相容 skill", false, "需要更新"],
+      ["全域 hook", false, "需要更新"],
+    ]);
+    expect(groups[1]?.rows.map((row) => [row.title, row.ok])).toEqual([
+      ["MCP 註冊", false],
+      ["Skill", true],
+      ["全域 hook", true],
+    ]);
+    expect(agentHookInstallStatus.stale).toMatchObject({ tone: "attention", label: "需要更新" });
   });
 });
