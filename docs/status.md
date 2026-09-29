@@ -1,22 +1,47 @@
 # 專案現況與未結項
 
-目前仍開放的工作，以及最近一次盤點的結果。完成的項目直接從這裡移除；過程細節請看 Git 歷史與 PR。
+本頁先列目前仍開放或暫緩的工作；已完成階段移到下方歷史段落。實作細節與逐項複檢結果另見 PR、CHANGELOG 與交接文件。
 
 > 回到 [README](../README.md)
 
-- 最後更新：2026-09-29
+- 最後更新：2026-09-30
 
-## 第八輪：收尾——可用、好用、能幫到其他專案，並發行 1.0.0（交給 Codex）
+## 第八輪目前開放
 
-交接文件：[`.openspec/handoffs/2026-09-28-claude-to-codex-round8.md`](../.openspec/handoffs/2026-09-28-claude-to-codex-round8.md)。依據是第七輪複檢，以及使用者請 Codex 做的兩次實測。開機自動啟動、發行 workflow 與 1.0.0 依使用者決定排在最後階段；需要實體環境的驗證寫成使用者驗收清單。
+依[第八輪交接文件](../.openspec/handoffs/2026-09-28-claude-to-codex-round8.md)的順序進行；E1、E2、E3 保持最後。需要實體環境的項目列為使用者驗收，不由自動化測試代替。
 
-| 階段 | 項目 |
+| 階段 | 狀態 | 項目 |
+| --- | --- | --- |
+| D2 | 進行中 | README 新手入門、文件行為盤點與狀態頁歷史整理（本 PR） |
+| E1 | 尚未開始 | 使用者層級開機自動啟動：macOS LaunchAgent、Windows 登入工作排程、Linux `systemd --user` |
+| E2 | 尚未開始 | Tag 觸發的發行 workflow、版本 `1.0.0`、發行步驟與升級說明；合併後由使用者決定何時打 tag |
+| E3 | 尚未開始 | 使用者實機驗收清單；包含原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案的完整使用流程 |
+
+## 其他暫緩工作
+
+| 項目 | 狀態 | 再次評估條件 |
+| --- | --- | --- |
+| TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
+| Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
+| Graph 總數計算 | 觀察中 | 目前 5,000 筆合成資料約 53 ms；出現可重現的效能問題時再評估 |
+
+## 第八輪已完成
+
+| 階段 | 狀態 |
 | --- | --- |
-| A. 讓其他專案的 Agent 真的會用 | A2 工具清單瘦身（4 dispatcher 對應 44 operations，tools/list 由 81,487 降至 3,769 UTF-16 code units，低於 30,000；本機八項檢查通過，PR #161 四項 CI 通過並合併；PR #162 A2 follow-up 也已合併（merge `4a99fd4`，CI run `36433218104` 四項成功），保留索引加單一操作 resource、strict dispatcher envelope／argument unknown-key 錯誤；寫入對話讀取量約 18,300）；A3 偵測過期的 MCP 程序（runtime、doctor 與 System Status 已納入目前版本）；A4 第一次使用的引導與 Agent 連線狀態（實作與獨立複檢完成，本機八項檢查通過，待 PR CI） |
-| B. 找得到答案 | B1 固定中英軟體詞彙擴展已實作；`pnpm test:retrieval-quality` 24/24 通過，K/S/R/N/P 分類指標與既有 baseline 相同（K 1.00/1.00、S 1.00/1.00、R 1.00/0.50、N 1.00/1.00、P 1.00/1.00）；storage build 後 performance gate 19/19 通過，`search`／月份範圍 recall／同義詞 recall p90 為 11.62／13.85／1.42 ms。B2 已完成唯讀 snapshot＋MCP recall/context evaluator；定向測試 5/5、CLI synthetic smoke 正例 hit@1/hit@5/MRR 全為 1、預期 no-hit 強命中會讓 CLI 失敗；workspace build、lint、typecheck、format check 通過，`pnpm test:performance` 共 20/20 通過，5,000 筆資料的 evaluator p90 為 239.84 ms（門檻 1,000 ms） |
-| C. 實際幫助 | C1 未結項追蹤（PR #170 已合併）；C2 知識頁維護提示（PR #171 已合併） |
-| D. 工程收尾 | D1 安全、相依性與 setup 等效判斷（本 PR）；D2 文件總整理 |
-| E. 發行 1.0.0 | E1 開機自動啟動；E2 發行 workflow 與 1.0.0；E3 使用者實機驗收清單 |
+| A1 Agent 設定與 onboarding | PR #160 已合併 |
+| A2 MCP tools/list 瘦身與 operation contract resources | PR #161、#162 已合併 |
+| A3 MCP runtime 過期偵測 | PR #163 已合併 |
+| A4 第一次使用引導與 Agent 連線狀態 | PR #164 已合併 |
+| B1 固定中英軟體詞彙檢索 | PR #165 已合併 |
+| B2 私有資料的唯讀 recall/context evaluator | PR #166 已合併 |
+| C1 未結項追蹤 | PR #170 已合併；已作廢 Session 不可更新 workSummary，context／digest 僅顯示 pending 項目，MCP 清單以完整序列化 JSON 限制 30,000 字元 |
+| C2 知識頁維護提示 | PR #171 已合併；來源需核對或累積 3 筆新 Session 時提示 Agent 評估 |
+| D1 安全、相依性與 setup 等效判斷 | PR #172 已合併（merge `7422beb`）；最新 head 四項 CI 全綠 |
+
+第八輪的後續修正也已合併：PR #167–#169。PR #172 包含 #169 複檢留下的 MCP／hook 有效命令判斷修正。
+
+## 過往輪次（已完成）
 
 ## 第七輪複檢（Claude，2026-09-28）
 
@@ -151,9 +176,9 @@ PR #147–#156 的 head、merge SHA、CI run（四項皆 success）與 Work Inte
   - 新增資料表與欄位的匯出覆蓋測試、收緊效能門檻、移除過渡轉接層。
 - 新增 `worklog-backend` skill，並更新 `worklog-web-code-style` 與 `worklog-ui` skill。
 
-暫緩項目：開機自動啟動、發行 workflow／tag／release、版本升到 1.0.0，以及實機平台驗證，依使用者決定留待所有功能完成後處理。
+第六輪結案時，依使用者決定暫緩開機自動啟動、發行 workflow／tag／release、升到 1.0.0 與實機平台驗證；第八輪已將這些工作重新排到最後的 E1–E3 階段。
 
-## 優先改善：Agent 檢索品質
+### 歷史計畫：Agent 檢索品質（已完成）
 
 目標：讓 Agent 透過 MCP 查工作記錄與 Knowledge 時「找得到、放得進 context、敢用」，工作記錄才會成為可靠的幫手。以下是 2026-09-24 在本機以真實 DB 快照做的評估；評估只讀快照副本、沒有修改資料。為保護使用者資料，這裡只記錄彙總數字與機制層面的發現，不收錄任何查詢內容、Session／Knowledge 內容、id 或專案檔名；評估題與腳本只留在本機，不進 repo。
 
@@ -197,17 +222,7 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 
 **第二階段：可信度與回饋**：已全部完成（Session 作廢、Session 關聯、Knowledge 可信度、Session 開始／更新時間、Knowledge 候選），見下方「最近完成」。
 
-## 未結項
-
-| 項目 | 狀態 | 說明 |
-| --- | --- | --- |
-| TypeSafe Adapter（Insight Provider Phase 2） | BLOCKED：等待外部契約 | Provider abstraction、No-op 與 optional injection 已完成，`WorkIntelligenceStore` 預設使用 No-op。開始實作前需要 TypeSafe／產品方先定稿：SDK 或 HTTP endpoint 與版本；backend-only credential 注入、日誌遮罩與資料外送規則；evaluation request／response／error schema（signal、confidence、usage、timeout）；timeout、retry、circuit-breaker 契約；egress guard 的呼叫邊界。這些到位前不新增依賴、網路呼叫、設定開關或假 adapter。 |
-| Async path resolver | 刻意延後 | 2026-09-22 以 200 個 changed-file paths 量測，中位數約 205 ms。只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時，才用真實資料重新量測並評估 async 重構。 |
-| Graph 總數計算 | 觀察中 | Graph 會載入所有 tracked Session 來計算節點總數；5,000 筆合成資料約 53 ms，目前不是瓶頸。 |
-| 人工平台驗證 | 暫緩 | 本輪功能項目已完成；依使用者決定，實機驗證仍留待後續處理。資料夾選擇器尚未在 macOS、Windows、Linux 實機驗證；Windows 備份還原尚未手動驗收。 |
-| 工程整理 | 進行中 | `store.ts` 已縮至約 1,360 行；Web 已改用 Pinia＋Pinia Colada，過渡轉接層已移除。尚待第六輪：query key 參數化（E1）、`server.ts` 路由拆分（E2）、composable 中剩下的模組層級狀態（E3）。 |
-
-## 最近完成（2026-09-23～26）
+### 第五輪後的交付補記（已完成）
 
 - **報表日期版面與長清單內部捲動**（PR #83，2026-09-26）：切換單日、自訂期間與預設期間時日期控制項維持固定位置；不完整自訂日期補最近 14 天，避免送出缺少起訖日的請求。主要頁面與 Session 詳情、輔助面板／對話框的長清單改在受限區域內捲動；補上 worklog-ui 規範，並以 Chromium／Firefox E2E 覆蓋桌面、平板與手機尺寸。
 
@@ -255,8 +270,6 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
   | Agent context | 84.1 ms | 29.8 ms |
   | metadata 預覽 | 58.0 ms | 17.6 ms |
 
-## 已完成、不要再列為待辦
-
-- 第八輪 A1 實作完成：[Agent 設定指南](agent-setup.md)。MCP 以標準 resources 交付完整 skill 與記錄格式；`pnpm setup:agents` 預覽、備份、安裝及安全解除安裝 Codex／Claude Code 的 user skills、MCP 與 hooks，`pnpm run doctor` 以內容 hash 檢查三份 skill 複本。暫存 home/config roots 的 setup 測試 25/25 通過；跨平台 CI 結果以 PR 為準。
+### 更早已完成的工程基礎
 
 UI 改版 P0–P4（六頁、共用 UI、App.vue 拆解、a11y、Ctrl／⌘ K）；集中 API client 與 AbortController；`store.ts` 拆出 repository；ESLint／Prettier；coverage 門檻（schema、storage handoff parser）；Graph server-side cursor 與 viewport culling；列表 virtual list；Provider + No-op；跨行程 idempotency 與 migration 交易保護；Content-Type 與 payload 上限；symlink real-path 二次檢查；`commit_required` 移除；handoff parser 單元測試與輸出邊界。
