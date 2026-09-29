@@ -14,6 +14,8 @@ pnpm format       # 格式化全專案（文件與 Agent 技能除外）
 pnpm test:coverage # core、政策、shared、schema、storage、server、MCP、Web 覆蓋率與最低門檻
 pnpm test:performance # 合成資料的匯入與關鍵讀取路徑效能門檻（需先 build）
 pnpm test:retrieval-quality # 只執行合成資料的 work_recall 檢索品質評估
+pnpm eval:recall <題目.json> # 在指定資料庫唯讀評估 recall/context
+pnpm run test:recall-eval:example # 以暫存合成資料庫跑 CLI 範例與排名 smoke gate
 pnpm typecheck    # 套件、Vue 樣板、單元測試與 E2E 設定型別
 pnpm build        # 工作區套件、server／MCP 與 Vite 正式版
 pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
@@ -28,11 +30,27 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 - **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。維護者主要使用 macOS；Windows 與 Linux 守住不同的路徑處理（大小寫、分隔符號、8.3 短檔名）與 shell 行為。
 - **生產依賴安全稽核**：Ubuntu Quality job 執行 `pnpm audit --prod --audit-level high`；生產依賴出現 high 或 critical 級別漏洞時，檢查會失敗。
 - **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。
+- **Recall evaluator 效能門檻**：同一個 `pnpm test:performance` 另以 5,000 筆合成 Sessions、MCP in-memory transport 與真實 snapshot 流程量測 recall/context evaluator，15 次執行的 p90 上限為 1,000 ms。此數字涵蓋唯讀來源備份、scratch store 啟動、必要的 scratch 索引同步與兩個 MCP 呼叫；不使用使用者資料庫。本輪 p90 為 239.84 ms（median 234.24、max 241.51），整體讀取效能 gate 20/20 通過。
+- **Recall evaluator CI smoke**：Quality 的 Ubuntu、Windows、macOS 三個 matrix 都執行 `pnpm run test:recall-eval:example`，在暫存目錄建立合成 SQLite，結構化代入臨時 project root 與本次 seed 的 Session／Knowledge ids，再直接用目前 Node 執行 evaluator，避免 shell 路徑與 `pnpm` shim 差異。recall 與 context 正例必須都達 hit@1、hit@5、MRR = 1；負例預期為 `confidence: "none"`，任何不符都以非零結束。CI 明確傳入暫存 `--db`，不讀取 `data/`。
 - **檢索品質門檻**：`pnpm test` 在三個 OS 都包含虛構合成資料的 storage 評估；Ubuntu 另以 `pnpm test:retrieval-quality` 明確顯示 hit@5／MRR 門檻結果。
 - **MCP 回應大小門檻**：`pnpm test` 在三個 OS 都執行合成資料的回應大小測試；Ubuntu 另以 `pnpm test:response-size` 顯示各工具序列化字元數並檢查上限。
 - **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium、Firefox 與 WebKit 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行 `@cross-browser` 與 `@accessibility` 流程，WebKit 執行 `@cross-browser` 核心流程。Chromium 與 Firefox 會在六個主要頁面、系統狀態與備份管理頁執行 axe，critical／serious impact 的違規會使測試失敗；第一次使用清單另在無專案狀態執行 axe，並在 1440／960／375px 檢查水平溢位。備份刪除確認也有鍵盤操作 E2E。三個瀏覽器分開執行，使用各自的暫存 SQLite 與隔離的 Agent home/config 路徑；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。CI 上的 WebKit 是 Ubuntu Playwright 執行環境，不等於 macOS Safari 實機驗證。
 
 Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的 macOS 基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）；project-policy 的 Windows branches 為 92.75%，因平台路徑分隔符走不同條件。
+
+## 檢索品質評估
+
+先執行 `pnpm build`，再用 `pnpm eval:recall <題目.json> [--db <資料庫.sqlite>] [--out <結果.json>]`。此 script 固定傳入 `--experimental-sqlite`：Node.js 22.5–22.12 需要此旗標，22.13 以上可接受這個冗餘旗標。未指定 `--db` 時使用 `WORK_INTELLIGENCE_DB`，否則使用 repo 的 `data/work-intelligence.sqlite`。題庫支援 JSON 陣列或 `{ "version": 1, "questions": [...] }`；最多 200 題、輸入檔最多 1 MB。每題必填 `mode`（`recall`／`context`）、`query` 和一項預期：`expectedIds`（最多 20 個 Session／Knowledge id）或 `expectedNoHit: true`。可選 `id`、`projectRoot`、最多 20 個 `paths`、`expectedConfidence`（`none`／`low`／`high`）；只有 recall 可用 `from`／`to`，兩端皆為有效的 `YYYY-MM-DD`，且日期端點包含在範圍內。Recall 固定取 MCP 回傳前 30 名；正例 hit@1／hit@5／MRR 的分母只算已評估的正例，負例另計，MRR 定義為 MRR@30。`expectedConfidence` 未指定時，報告會留空符合狀態，不從預期 id 推定 confidence。
+
+Context 每題呼叫 `work_get_context` 的實際 MCP handler；排名只看 `relevant.sessions` 與 `relevant.knowledge`，各自依型別從 1 排到最多 5，不使用 recent 區段。Context 的 hit@1／hit@5 與 MRR 使用命中預期 id 的最佳型別內排名。Recall 對 Session 與 Knowledge 使用 MCP `work_recall` 的合併排序。若 scoped project 回傳 `skipped`（例如專案未追蹤），問題狀態會標為 `skipped`、不加入 no-hit 分母，並使整份評估失敗。
+
+每題和整份報告的 `passed`（因此 CLI exit 0）表示：每個正例至少一個預期 id 出現在 MCP 回傳名單、明確指定的 `expectedConfidence` 符合、沒有 skipped，且預期 no-hit 沒有 `high` 信心。它不代表 hit@1／hit@5／MRR 達到品質門檻；CI 範例另要求兩個正例都排名第 1 並達 hit@1、hit@5、MRR = 1。
+
+每題記錄 MCP text payload 的 JavaScript `.length` 與 `Client.callTool()` 耗時、MCP 回傳 hit 數；confidence 比對只在題目明確填入 `expectedConfidence` 時執行。`expectedNoHit` 以 MCP confidence 作為通過判準：`high` 會使該題及整份報告失敗並列於 `expectedNoHitWithHighConfidence`；`low` 即使有弱候選仍通過，但每題 `unexpectedHits`、`returnedHitCount` 與頂層 `expectedNoHitWithHits` 會顯示候選數量。`--out` 只在使用者明確指定時寫報告，省略則把 JSON 報告寫到終端；為避免意外覆寫，既有目標一律拒絕，請另選新檔名。也拒絕輸出到題目檔、SQLite 主檔、其 `-wal`、`-shm` 或 `-journal` sidecar，並以 exclusive-create 再防一次路徑競態。
+
+唯讀保證來自 `DatabaseSync(source, { readOnly: true })`（評估器要求 Node.js 22.5+）：先透過 `node:sqlite backup()` 對來源做一致快照，再由正式 `WorkIntelligenceStore` 和 linked in-memory MCP Client/Server 在 OS 暫存副本執行相同 recall/context 路徑。Node 22.5–22.15 沒有 backup API 時，使用唯讀 source 的 `VACUUM INTO` 寫入同一暫存副本；此 fallback 也有強制路徑測試。由此產生的 `search_dirty` 同步只寫 scratch copy，確保尚未同步的來源索引不會漏掉新記錄。SQLite 為讀取 WAL 資料可能使用或建立來源旁的 `-wal`／`-shm` sidecars；這是 SQLite 正常唯讀 WAL 行為，評估器不會刪除它們。測試會逐位元組比對來源主檔和既有 WAL，並確認 records、search chunks/paths/FTS 與 dirty rows 不變、scratch 清理完成。
+
+合成題目模板在 [`tests/fixtures/recall-eval-example.json`](../tests/fixtures/recall-eval-example.json)；`scripts/run-recall-eval-example.mjs` 在 OS 暫存位置建立資料庫並代入本次 seed ids，故範例不含固定的隨機 UUID，也不會碰使用者的 DB。CI 也嘗試把 `--out` 指向 SQLite 主檔與各 sidecar，確認命令失敗且檔案位元組不變。MCP evaluator 的 source/WAL 保持不變與 scratch dirty-index 命中由 `tests/mcp/recall-evaluation.test.ts` 驗證。
 
 ## Agent MCP 回應大小
 

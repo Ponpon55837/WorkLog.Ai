@@ -123,6 +123,16 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 
 每筆 Session 都有一句話摘要，以及固定的五段內容：**成果／範圍／決策／驗證／狀態與未結項**。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。
 
+### 量測自己的檢索品質
+
+可以用私有題目重跑 recall 與 context，確認預期的 Session／Knowledge 是否出現在前段：
+
+```bash
+pnpm eval:recall ./recall-questions.json --db ./data/work-intelligence.sqlite --out ./recall-report.json
+```
+
+先執行 `pnpm build`（此 CLI 需 Node.js 22.5+，與 repo 其餘部分相同）。每題指定 `mode: "recall"` 或 `"context"`、`query`、預期 id（可多筆）或 `expectedNoHit: true`；可選專案路徑與 recall 的起訖日期。報告列出各模式 hit@1、hit@5、MRR、每題排名、confidence、MCP 回應字元數與呼叫耗時。資料庫以 SQLite 唯讀連線建立 OS 暫存快照，檢索與索引同步只作用在快照；結果只到終端機或 `--out` 指定的新檔案，不會上傳，也不會覆寫任何已存在檔案。範例格式見 [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json)，完整限制與指標定義見 [測試與驗證](docs/testing.md#檢索品質評估)。
+
 更完整的操作說明見 **[使用手冊](docs/user-guide.md)**。
 
 ## Web UI 導覽
@@ -272,6 +282,7 @@ pnpm test                     # ESLint、程式碼擺放順序、Prettier 檢查
 pnpm test:coverage            # 覆蓋率（schema、storage、server、mcp、web 各有門檻）
 pnpm test:performance         # 合成資料的讀取路徑效能門檻（需先 build）
 pnpm test:retrieval-quality   # 合成資料的 work_recall 檢索品質門檻（hit@5、MRR）
+pnpm eval:recall <題目.json>  # 在本機唯讀評估 recall/context（可加 --db 與 --out）
 pnpm test:response-size       # 合成 MCP 輸出大小基線與 CI 上限
 pnpm typecheck                # packages、Vue 與 E2E 型別
 pnpm test:e2e                 # build 後以正式模式跑 Playwright（Chromium 全套、Firefox／WebKit 核心流程），使用獨立的暫存 SQLite

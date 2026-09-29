@@ -15,6 +15,10 @@ export const mcpAliases = [
     replacement: fileURLToPath(new URL("../../packages/schema/src/index.ts", import.meta.url)),
   },
   {
+    find: "@work-intelligence/shared/app-version",
+    replacement: fileURLToPath(new URL("../../packages/shared/src/app-version.ts", import.meta.url)),
+  },
+  {
     find: "@work-intelligence/shared/mcp-runtime",
     replacement: fileURLToPath(new URL("../../packages/shared/src/mcp-runtime.ts", import.meta.url)),
   },
