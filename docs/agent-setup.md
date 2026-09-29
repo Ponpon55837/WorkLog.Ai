@@ -139,7 +139,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
           {
             "type": "command",
             "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 3
+            "timeout": 10
           }
         ]
       }
@@ -150,7 +150,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
           {
             "type": "command",
             "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 3
+            "timeout": 10
           }
         ]
       }
@@ -161,7 +161,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
           {
             "type": "command",
             "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 3
+            "timeout": 10
           }
         ]
       }
@@ -180,6 +180,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 - hook marker 只存放在目前使用者的暫存目錄：資料夾權限 `0700`，標記檔權限 `0600`。不儲存 Session 或對話內容；開始時間的標記只含一個時間值。
 - 只要讀不到 hook 輸入、patch 標頭或專案清單，或路徑無法判定，就放行 Codex。
 - 使用絕對路徑，因此不需要 `git rev-parse`，也不需要 `commandWindows`。Windows 上 Codex 會用 `cmd.exe /C` 執行 hook，`node "C:\path with space\...\codex-finalize-reminder.js"` 可以直接執行。若 `node` 不在 Codex 的 `PATH` 中，請改用 node 的絕對路徑。
+- `timeout` 設為 10 秒：hook 本身很快，但 Windows 上防毒掃描可能讓每次啟動 node 超過 1 秒，3 秒容易逾時。
 - Windows CI 會在 repo 以外的目錄，用 `cmd.exe /d /s /c` 執行同樣形式的指令，並傳入格式錯誤的輸入，確認 hook 可以啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認是否載入。官方說明見 [Codex hooks](https://developers.openai.com/codex/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
 
 ## Claude Desktop
