@@ -69,7 +69,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
-- `pnpm setup:agents` no longer refuses the whole install when Work Intelligence was registered by hand: an existing Codex or Claude MCP entry that launches this repository (`pnpm --dir <repo> start:mcp` or the built entry point with any node path) and hooks that run its reminder scripts (absolute node path or exec-form `command` + `args`) are kept unchanged and not recorded as setup-owned. A legacy Codex PostToolUse matcher is upgraded in place, keeping its other fields. Exec-form Claude Stop hooks are now recognized, so setup no longer adds a duplicate reminder.
+- `pnpm setup:agents` only treats an existing MCP entry as equivalent when a Node executable runs this repository's built entry point or pnpm runs `start:mcp` in this repository. Hooks are equivalent only when a Node executable runs the matching reminder script; a command that merely mentions its path (such as `echo <path>`) is preserved as a conflict. Valid hand-written registrations stay unchanged and are not recorded as setup-owned; a legacy Codex PostToolUse matcher is upgraded in place only when its hook actually runs the Node reminder script.
 - System Status no longer leaves large gaps between mismatched two-column cards: Agent connections and preferences form the main column and MCP, database, backup, and maintenance details a 340px side column (single column below 1200px). Agent connections are grouped by Codex and Claude Code with each item's location, a summary label, and a copyable `pnpm setup:agents` hint when anything needs setup; the duplicate MCP reconnect row moved into the MCP box.
 - A Codex hook installed with the pre-dispatcher PostToolUse matcher is reported as `stale` (需要更新) instead of `missing` (未安裝) in System Status and Doctor, with the setup command as the fix.
 - MCP operation calls reject unknown or misspelled argument keys at any nesting level with an `unrecognized_keys` error naming them, instead of silently dropping them (for example `limit` on `work_list_sessions`), matching the advertised `additionalProperties: false`.
@@ -85,4 +85,5 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Security
 
+- Dependency audit found no known vulnerabilities; license review of all 482 resolved lockfile packages found no conflict with the repository's MIT license, including cross-platform optional binaries.
 - Local API access checks, restrictive production content security policy, and safe error responses for unsupported database versions.
