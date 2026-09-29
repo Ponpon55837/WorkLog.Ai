@@ -2588,6 +2588,21 @@ export interface SystemAgentConnections {
   };
 }
 
+export type UserServiceState = "running" | "stopped" | "not_installed" | "unavailable" | "unsupported";
+export type UserServiceManager = "LaunchAgent" | "Task Scheduler" | "systemd --user";
+
+export interface UserServiceStatus {
+  supported: boolean;
+  state: UserServiceState;
+  manager: UserServiceManager | null;
+  enabled: boolean | null;
+  running: boolean | null;
+  configPath: string | null;
+  databasePath: string;
+  backupDirectory: string;
+  logPath: string;
+}
+
 export interface SystemStatus {
   version: string;
   /** The latest schema version supported by this application build. */
@@ -2605,6 +2620,8 @@ export interface SystemStatus {
     totalBytes: number;
   };
   maintenance: DatabaseMaintenanceRecord | null;
+  /** Read-only state of this user's optional login service. */
+  userService: UserServiceStatus;
   /** Shared MCP heartbeat status for this installation root. */
   mcp: {
     restartRequired: boolean;

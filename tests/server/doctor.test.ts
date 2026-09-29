@@ -5,9 +5,10 @@ import { join, resolve } from "node:path";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import type { UserServiceManager, UserServiceStatus } from "../../packages/core/src/index.js";
 import { inspectDatabaseReadOnlyMetadata, resolveBackupDirectory } from "../../apps/server/src/database-inspection.js";
 import {
-  collectDoctorFindings,
+  collectDoctorFindings as collectDoctorFindingsFromHost,
   inspectAgentConnections,
   inspectDatabaseReadOnly,
   inspectGlobalHooks,
@@ -25,6 +26,36 @@ const temporaryDirectories: string[] = [];
 const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
 const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 
+function isolatedUserServiceStatus(directory: string): UserServiceStatus {
+  const manager: UserServiceManager | null =
+    process.platform === "darwin"
+      ? "LaunchAgent"
+      : process.platform === "linux"
+        ? "systemd --user"
+        : process.platform === "win32"
+          ? "Task Scheduler"
+          : null;
+  return {
+    supported: manager !== null,
+    state: manager ? "not_installed" : "unsupported",
+    manager,
+    enabled: false,
+    running: false,
+    configPath: join(directory, "service", "work-intelligence.conf"),
+    databasePath: join(directory, "data", "work-intelligence.sqlite"),
+    backupDirectory: join(directory, "data", "backups"),
+    logPath: join(directory, "logs", "server.log"),
+  };
+}
+
+function collectDoctorFindings(options: Parameters<typeof collectDoctorFindingsFromHost>[0] = {}) {
+  const directory = options.repositoryRoot ?? options.homeDirectory ?? temporaryDirectory();
+  return collectDoctorFindingsFromHost({
+    ...options,
+    userServiceStatus: options.userServiceStatus ?? isolatedUserServiceStatus(directory),
+  });
+}
+
 function temporaryDirectory(): string {
   const path = mkdtempSync(join(tmpdir(), "work-intelligence-doctor-"));
   temporaryDirectories.push(path);
@@ -38,6 +69,31 @@ afterEach(() => {
 });
 
 describe("pnpm doctor read-only checks", () => {
+  it("warns when the login service is running but disabled for future logins", async () => {
+    const directory = temporaryDirectory();
+    const status = isolatedUserServiceStatus(directory);
+    status.state = "running";
+    status.enabled = false;
+    status.running = true;
+
+    const findings = await collectDoctorFindings({
+      homeDirectory: join(directory, "home"),
+      repositoryRoot: join(directory, "repository"),
+      environment: {
+        HOME: join(directory, "home"),
+        WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite"),
+        WORK_INTELLIGENCE_PORT: "65533",
+      },
+      userServiceStatus: status,
+    });
+
+    expect(findings.find((finding) => finding.title === "登入自動啟動服務")).toMatchObject({
+      severity: "warning",
+      detail: expect.stringContaining("正在執行"),
+      recommendation: expect.stringContaining("pnpm service:status"),
+    });
+  });
+
   it("reports the shared stale MCP lease and an outdated skill from isolated fixtures", async () => {
     const directory = temporaryDirectory();
     const homeDirectory = join(directory, "home");

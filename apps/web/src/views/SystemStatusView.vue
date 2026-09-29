@@ -10,6 +10,7 @@ import {
   Clock3,
   Code2,
   Database,
+  Power,
   RefreshCw,
   Settings2,
   Wifi,
@@ -37,6 +38,7 @@ import {
   databaseMaintenanceStatus,
   mcpReconnectStatusVisual,
   mcpRuntimeStatusVisual,
+  userServiceStatusVisual,
   type StatusVisual,
 } from "../utils/status";
 
@@ -63,13 +65,16 @@ const agentSummary = computed<StatusVisual>(() =>
     ? { tone: "success", icon: CircleCheck, label: "全部正常" }
     : { tone: "attention", icon: CircleAlert, label: `${agentIssueCount.value} 項需處理` },
 );
+const userServiceStatus = computed(() =>
+  status.value ? userServiceStatusVisual(status.value.userService) : undefined,
+);
 
 systemStatusStore.setSystemStatusActive(true);
 onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 </script>
 
 <template>
-  <PageHeader description="查看本機資料庫、備份、維護與連線狀態。完整環境診斷請在專案目錄執行 pnpm run doctor。">
+  <PageHeader description="查看本機服務、資料庫、備份、維護與連線狀態。完整環境診斷請在專案目錄執行 pnpm run doctor。">
     <template #actions>
       <UiButton :icon="RefreshCw" :disabled="loading" @click="refreshSystemStatus">重新整理狀態</UiButton>
     </template>
@@ -161,6 +166,38 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
       </div>
 
       <aside class="system-status__side" aria-label="資料與連線">
+        <UiBox data-testid="user-service">
+          <template #header>
+            <UiBoxTitle :icon="Power" title="登入自動啟動" />
+            <StatusLabel v-if="userServiceStatus" :status="userServiceStatus" />
+          </template>
+          <UiBoxRow title="服務管理器" :meta="status.userService.manager ?? '此平台不支援'" />
+          <UiBoxRow
+            title="登入時啟動"
+            :meta="status.userService.enabled === null ? '無法判定' : status.userService.enabled ? '是' : '否'"
+          />
+          <UiBoxRow title="服務設定">
+            <template #meta>
+              <code class="system-status__location">{{ status.userService.configPath ?? "不適用" }}</code>
+            </template>
+          </UiBoxRow>
+          <UiBoxRow title="服務日誌">
+            <template #meta
+              ><code class="system-status__location">{{ status.userService.logPath }}</code></template
+            >
+          </UiBoxRow>
+          <UiBoxRow title="服務使用的資料庫">
+            <template #meta
+              ><code class="system-status__location">{{ status.userService.databasePath }}</code></template
+            >
+          </UiBoxRow>
+          <UiBoxRow title="服務備份目錄">
+            <template #meta
+              ><code class="system-status__location">{{ status.userService.backupDirectory }}</code></template
+            >
+          </UiBoxRow>
+        </UiBox>
+
         <UiBox data-testid="mcp-connection">
           <template #header>
             <UiBoxTitle :icon="Code2" title="MCP 連線" :count="status.mcp.activeProcesses" />

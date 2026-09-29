@@ -163,8 +163,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 ## 系統狀態
 
-- REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`sseConnections` 是目前開啟的即時更新連線數。 `agents.codex` 與 `agents.claudeCode` 顯示 MCP 註冊狀態（`registered`／`missing`／`unknown`）、skill 複本狀態及 hook 狀態；Codex TOML 無法解析時回報 `unknown`，不會修改設定檔；`mcp.restartRequired` 保留 A3 的重新連線判斷。
-- Agent 診斷只讀取 Agent 設定檔、hook 設定與 canonical／user-scope skill 內容，回傳狀態而不回傳設定值、檔案路徑或 skill 內容；端點不寫入設定、不執行 setup 或 hook，也不執行資料庫 `integrity_check`。完整環境診斷請在專案目錄執行 `pnpm run doctor`。
+- REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`userService` 唯讀回報目前使用者的登入服務管理器、安裝／執行／啟用狀態、服務設定路徑、資料庫、備份目錄與日誌路徑；`sseConnections` 是目前開啟的即時更新連線數。 `agents.codex` 與 `agents.claudeCode` 顯示 MCP 註冊狀態（`registered`／`missing`／`unknown`）、skill 複本狀態及 hook 狀態；Codex TOML 無法解析時回報 `unknown`，不會修改設定檔；`mcp.restartRequired` 保留 A3 的重新連線判斷。
+- Agent 與登入服務診斷只讀取設定檔或查詢作業系統服務管理器，回傳狀態而不回傳 Agent 設定值或內容；端點不寫入設定、不安裝／啟動／停止服務、不執行 setup 或 hook，也不執行資料庫 `integrity_check`。完整環境診斷請在專案目錄執行 `pnpm run doctor`。
 - 端點受到 loopback `Host` 與 `Origin` 檢查保護；只有系統狀態頁需要的 `database.path` 會回傳完整本機路徑，備份資料仍只回傳檔名。
 
 ## 永久刪除專案

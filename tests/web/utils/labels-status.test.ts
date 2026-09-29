@@ -25,6 +25,7 @@ import {
   voidedFilterOptions,
   workSummarySectionLabels,
 } from "../../../apps/web/src/utils/labels.js";
+import type { SystemStatus } from "../../../packages/core/src/index.js";
 import {
   agentConnectionGroups,
   agentHookInstallStatus,
@@ -43,6 +44,7 @@ import {
   trackingStatus,
   verificationOf,
   verificationStatus,
+  userServiceStatusVisual,
 } from "../../../apps/web/src/utils/status.js";
 
 describe("status and label maps", () => {
@@ -165,6 +167,50 @@ describe("status and label maps", () => {
         outdatedProcesses: 0,
       }),
     ).toMatchObject({ tone: "success", label: "不需要重新連線" });
+  });
+
+  it("maps every login service state and warns when the service is not enabled", () => {
+    const serviceStatus = (
+      state: SystemStatus["userService"]["state"],
+      enabled: SystemStatus["userService"]["enabled"],
+    ): SystemStatus["userService"] => ({
+      supported: state !== "unsupported",
+      state,
+      manager: null,
+      enabled,
+      running: state === "running",
+      configPath: null,
+      databasePath: "/tmp/work-intelligence.sqlite",
+      backupDirectory: "/tmp/backups",
+      logPath: "/tmp/server.log",
+    });
+
+    expect(userServiceStatusVisual(serviceStatus("running", true))).toMatchObject({ tone: "success", label: "執行中" });
+    expect(userServiceStatusVisual(serviceStatus("running", null))).toMatchObject({ tone: "success", label: "執行中" });
+    expect(userServiceStatusVisual(serviceStatus("running", false))).toMatchObject({
+      tone: "attention",
+      label: "需檢查",
+    });
+    expect(userServiceStatusVisual(serviceStatus("not_installed", false))).toMatchObject({
+      tone: "neutral",
+      label: "未安裝",
+    });
+    expect(userServiceStatusVisual(serviceStatus("unsupported", null))).toMatchObject({
+      tone: "neutral",
+      label: "不支援",
+    });
+    expect(userServiceStatusVisual(serviceStatus("stopped", false))).toMatchObject({
+      tone: "neutral",
+      label: "已停用",
+    });
+    expect(userServiceStatusVisual(serviceStatus("stopped", true))).toMatchObject({
+      tone: "attention",
+      label: "需檢查",
+    });
+    expect(userServiceStatusVisual(serviceStatus("unavailable", null))).toMatchObject({
+      tone: "attention",
+      label: "需檢查",
+    });
   });
 });
 

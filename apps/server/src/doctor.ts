@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
-import type { AgentMcpRegistrationState, SystemAgentConnections } from "@work-intelligence/core";
+import type { AgentMcpRegistrationState, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import { getUserServiceStatus } from "./user-service.js";
 import {
   findLatestAutomaticBackup,
   inspectDatabaseReadOnlyMetadata,
@@ -571,6 +572,7 @@ export async function collectDoctorFindings(
     homeDirectory?: string;
     repositoryRoot?: string;
     environment?: NodeJS.ProcessEnv;
+    userServiceStatus?: UserServiceStatus;
   } = {},
 ): Promise<DoctorFinding[]> {
   const environment = options.environment ?? process.env;
@@ -639,6 +641,30 @@ export async function collectDoctorFindings(
       : mcpRuntime.monitoringAvailable
         ? "尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置。"
         : "請確認建置完成後重新執行 doctor。",
+  );
+
+  const userService = options.userServiceStatus ?? getUserServiceStatus({ homeDirectory, repositoryRoot, environment });
+  const userServiceLabel = {
+    running: "正在執行",
+    stopped: "已安裝但目前未執行",
+    not_installed: "尚未安裝",
+    unavailable: "無法判定服務管理器狀態",
+    unsupported: "此作業系統不支援自動啟動服務",
+  }[userService.state];
+  const userServiceHealthy =
+    (userService.state === "running" && userService.enabled !== false) ||
+    userService.state === "not_installed" ||
+    userService.state === "unsupported";
+  addFinding(
+    findings,
+    userServiceHealthy ? "ok" : "warning",
+    "登入自動啟動服務",
+    `${userService.manager ?? "服務管理器未提供"}；${userServiceLabel}。資料庫：${userService.databasePath}；備份：${userService.backupDirectory}；日誌：${userService.logPath}。`,
+    userService.state === "not_installed"
+      ? "如需在登入時自動啟動，請先執行 pnpm build，再執行 pnpm service:install。"
+      : userServiceHealthy
+        ? undefined
+        : "執行 pnpm service:status 查看狀態；若服務已停止，可重新執行 pnpm service:install。",
   );
 
   if (!parsedEnvironment.success) {

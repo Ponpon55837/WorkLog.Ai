@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import type { SystemAgentConnections } from "../../packages/core/src/index.js";
+import type { SystemAgentConnections, UserServiceManager, UserServiceStatus } from "../../packages/core/src/index.js";
 import { APP_VERSION } from "../../packages/shared/src/app-version.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
@@ -27,6 +27,28 @@ const resources: Array<{
   mcpRuntimeRoot?: string;
   mcpCleanup?: () => void;
 }> = [];
+
+function isolatedUserServiceStatus(root: string): UserServiceStatus {
+  const manager: UserServiceManager | null =
+    process.platform === "darwin"
+      ? "LaunchAgent"
+      : process.platform === "linux"
+        ? "systemd --user"
+        : process.platform === "win32"
+          ? "Task Scheduler"
+          : null;
+  return {
+    supported: manager !== null,
+    state: manager ? "not_installed" : "unsupported",
+    manager,
+    enabled: false,
+    running: false,
+    configPath: join(root, "service", "work-intelligence.conf"),
+    databasePath: join(root, "service-data", "work-intelligence.sqlite"),
+    backupDirectory: join(root, "service-data", "backups"),
+    logPath: join(root, "service-logs", "server.log"),
+  };
+}
 
 afterEach(async () => {
   for (const resource of resources.splice(0)) {
@@ -174,7 +196,12 @@ describe("Work Intelligence REST API", () => {
       codex: { mcpRegistered: "registered", canonicalSkill: "current", legacySkill: "missing", hook: "installed" },
       claudeCode: { mcpRegistered: "missing", skill: "stale", hook: "missing" },
     };
-    const { server, baseUrl } = await startApi(store, { repositoryRoot, agentConnections: () => expectedAgents });
+    const expectedUserService = isolatedUserServiceStatus(root);
+    const { server, baseUrl } = await startApi(store, {
+      repositoryRoot,
+      agentConnections: () => expectedAgents,
+      userServiceStatus: () => expectedUserService,
+    });
     resources.push({ server, store, root, mcpRuntimeRoot: repositoryRoot, mcpCleanup: stopMcpProcess });
     const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     const streamResponse = await fetch(`${baseUrl}/api/events`);
@@ -193,6 +220,7 @@ describe("Work Intelligence REST API", () => {
         totalBytes: number;
       };
       maintenance: { status: string; backupFileName: string; indexedSessions: number } | null;
+      userService: UserServiceStatus;
       mcp: {
         restartRequired: boolean;
         monitoringAvailable: boolean;
@@ -211,6 +239,7 @@ describe("Work Intelligence REST API", () => {
       database: { path: databasePath, state: "ok", schemaVersion: LATEST_SCHEMA_VERSION },
       backups: { available: true, latestAutomatic: { kind: "automatic", createdAt: "2026-09-25T12:00:00Z" }, count: 2 },
       maintenance: { status: "completed", backupFileName: "maintenance.sqlite", indexedSessions: 5 },
+      userService: expectedUserService,
       mcp: expectedMcpStatus,
       agents: expectedAgents,
       sseConnections: 1,

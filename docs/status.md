@@ -12,8 +12,8 @@
 
 | 階段 | 狀態 | 項目 |
 | --- | --- | --- |
-| D2 | 進行中 | README 新手入門、文件行為盤點與狀態頁歷史整理（本 PR） |
-| E1 | 尚未開始 | 使用者層級開機自動啟動：macOS LaunchAgent、Windows 登入工作排程、Linux `systemd --user` |
+| D2 | 已完成 | README 新手入門、文件行為盤點與狀態頁歷史整理（PR #173） |
+| E1 | 進行中 | 使用者層級登入自動啟動：macOS LaunchAgent、Windows 登入工作排程、Linux `systemd --user`（本 PR） |
 | E2 | 尚未開始 | Tag 觸發的發行 workflow、版本 `1.0.0`、發行步驟與升級說明；合併後由使用者決定何時打 tag |
 | E3 | 尚未開始 | 使用者實機驗收清單；包含原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案的完整使用流程 |
 
@@ -38,6 +38,7 @@
 | C1 未結項追蹤 | PR #170 已合併；已作廢 Session 不可更新 workSummary，context／digest 僅顯示 pending 項目，MCP 清單以完整序列化 JSON 限制 30,000 字元 |
 | C2 知識頁維護提示 | PR #171 已合併；來源需核對或累積 3 筆新 Session 時提示 Agent 評估 |
 | D1 安全、相依性與 setup 等效判斷 | PR #172 已合併（merge `7422beb`）；最新 head 四項 CI 全綠 |
+| D2 文件總整理 | PR #173 已合併（merge `f13123f`）；README 與文件已依第八輪實際狀態更新 |
 
 第八輪的後續修正也已合併：PR #167–#169。PR #172 包含 #169 複檢留下的 MCP／hook 有效命令判斷修正。
 

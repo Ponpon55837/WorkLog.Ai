@@ -6,6 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Optional user-level login startup on macOS (LaunchAgent), Windows (Task Scheduler), and Linux (`systemd --user`) through `pnpm service:install`, `pnpm service:uninstall`, and `pnpm service:status`. Installation previews the complete config file before confirmation; uninstall preserves the database, backups, and logs. Doctor and System Status report service state without installing or changing it; CI only generates configs in temporary directories and never installs an OS service.
 - Knowledge-page maintenance reminders now appear after a source needs review, an update was requested, or three new Sessions have accumulated; context orders those pages by review priority, finalize includes the same one-line hint, and the Pages tab shows the latest checked-through time.
 - The dashboard now shows a four-step first-run checklist when no project is tracked or no Session exists. System Status adds read-only Codex and Claude Code MCP registration, skill-copy freshness, hook installation, and A3 reconnect status; malformed or unreadable Codex configuration is shown as unknown and is never modified.
 - MCP processes embed a startup build fingerprint and maintain per-process heartbeat leases. `work_get_project_status`, `work_get_context`, `pnpm run doctor`, and the Web system status compare the same installation runtime; stale processes request reconnect, while interrupted or incomplete builds remain explicitly unknown.

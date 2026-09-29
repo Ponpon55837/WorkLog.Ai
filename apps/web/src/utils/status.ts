@@ -61,6 +61,22 @@ export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisua
   return { tone: "success", icon: CircleCheck, label: "目前版本" };
 }
 
+export function userServiceStatusVisual(status: SystemStatus["userService"]): StatusVisual {
+  if (status.state === "running" && status.enabled !== false) {
+    return { tone: "success", icon: CircleCheck, label: "執行中" };
+  }
+  if (status.state === "not_installed") {
+    return { tone: "neutral", icon: CircleDashed, label: "未安裝" };
+  }
+  if (status.state === "unsupported") {
+    return { tone: "neutral", icon: CircleMinus, label: "不支援" };
+  }
+  if (status.state === "stopped" && status.enabled === false) {
+    return { tone: "neutral", icon: CircleMinus, label: "已停用" };
+  }
+  return { tone: "attention", icon: CircleAlert, label: "需檢查" };
+}
+
 export function agentMcpRegistrationVisual(state: AgentMcpRegistrationState): StatusVisual {
   if (state === "registered") return { tone: "success", icon: CircleCheck, label: "已註冊" };
   if (state === "unknown") return { tone: "attention", icon: CircleAlert, label: "無法確認" };
