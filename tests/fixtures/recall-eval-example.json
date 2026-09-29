@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "questions": [
+    {
+      "id": "synthetic-recall-positive",
+      "mode": "recall",
+      "query": "aurora moss relay",
+      "projectRoot": "__PROJECT_ROOT__",
+      "expectedIds": ["__SESSION_ID__", "__KNOWLEDGE_ID__"],
+      "expectedConfidence": "high"
+    },
+    {
+      "id": "synthetic-context-positive",
+      "mode": "context",
+      "query": "aurora moss relay",
+      "projectRoot": "__PROJECT_ROOT__",
+      "expectedIds": ["__SESSION_ID__", "__KNOWLEDGE_ID__"]
+    },
+    {
+      "id": "synthetic-no-hit",
+      "mode": "recall",
+      "query": "lunar glass metronome",
+      "projectRoot": "__PROJECT_ROOT__",
+      "expectedNoHit": true,
+      "expectedConfidence": "none"
+    },
+    {
+      "id": "synthetic-context-no-hit",
+      "mode": "context",
+      "query": "lunar glass metronome",
+      "projectRoot": "__PROJECT_ROOT__",
+      "expectedNoHit": true,
+      "expectedConfidence": "none"
+    }
+  ]
+}

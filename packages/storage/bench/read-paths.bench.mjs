@@ -14,6 +14,7 @@ import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { WorkIntelligenceStore } from "../dist/index.js";
+import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "../../../apps/mcp/dist/recall-evaluation.js";
 
 const args = process.argv.slice(2);
 const sessionCountArgument = args.find((argument) => !argument.startsWith("--"));
@@ -149,6 +150,22 @@ try {
   if (benchPath.outcome !== "graph_path" || !benchPath.found) {
     throw new Error("The graph path benchmark must measure a path that exists.");
   }
+  const evaluationQuestions = parseRecallEvaluationQuestions([
+    {
+      id: "read-path-benchmark-recall",
+      mode: "recall",
+      query: "report pipeline",
+      projectRoot: alpha.rootPath,
+      expectedIds: [newestAlpha.id],
+    },
+    {
+      id: "read-path-benchmark-context",
+      mode: "context",
+      query: "report pipeline",
+      projectRoot: alpha.rootPath,
+      expectedIds: [newestAlpha.id],
+    },
+  ]);
 
   const cases = {
     "listSessionsPage (default)": () => benchStore.listSessionsPage({ page: 1, pageSize: 20 }),
@@ -172,6 +189,8 @@ try {
     "recall (month range)": () =>
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
     "recall (synonym expansion)": () => benchStore.recall({ q: "endpoint performance", limit: 8 }),
+    "recall evaluator (snapshot + MCP recall/context)": () =>
+      evaluateRecallQuestions(databasePath, evaluationQuestions),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
@@ -198,6 +217,7 @@ try {
     search: 500,
     "recall (month range)": 500,
     "recall (synonym expansion)": 500,
+    "recall evaluator (snapshot + MCP recall/context)": 1000,
     "getGraph (with derived)": 750,
     "getGraphPath (500 nodes)": 750,
     "getTimeline (month)": 250,
@@ -210,11 +230,11 @@ try {
   const results = [];
   const selectedCases = Object.entries(cases).filter(([name]) => !checkMode || name in limitsMs);
   for (const [name, run] of selectedCases) {
-    run();
+    await run();
     const samples = [];
     for (let index = 0; index < runs; index += 1) {
       const started = performance.now();
-      run();
+      await run();
       samples.push(performance.now() - started);
     }
     samples.sort((a, b) => a - b);

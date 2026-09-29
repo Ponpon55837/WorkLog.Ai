@@ -61,6 +61,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: pnpm run test:response-size
 
+      - name: Recall evaluator synthetic smoke test
+        run: pnpm run test:recall-eval:example
+
   e2e:
     name: E2E (Chromium + Firefox + WebKit)
     runs-on: ubuntu-latest
