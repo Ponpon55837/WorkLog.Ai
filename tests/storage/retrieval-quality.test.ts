@@ -1132,13 +1132,8 @@ describe("synthetic retrieval quality regression", () => {
       });
       const context = store.getContext(root);
       if (context.outcome !== "context") throw new Error("Expected project context.");
-      expect(context.pendingRequests.knowledgePages).toContainEqual(
-        expect.objectContaining({
-          slug: "review-checkpoint",
-          status: "has_new_data",
-          newSessionCount: 1,
-          updateRequested: false,
-        }),
+      expect(context.pendingRequests.knowledgePages).not.toContainEqual(
+        expect.objectContaining({ slug: "review-checkpoint" }),
       );
       const focused = store.getContext(root, { task: "checkpoint" });
       expect(focused).toMatchObject({

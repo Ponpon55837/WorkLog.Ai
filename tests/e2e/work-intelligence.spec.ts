@@ -668,6 +668,8 @@ test.describe("Work Intelligence browser regression", () => {
     const row = page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" });
     await expect(row).toContainText("有新資料");
     await expect(row).toContainText("待評估");
+    await expect(row).toContainText("已檢查至");
+    await expect(row.locator("time")).toHaveAttribute("datetime", sourcedThrough);
 
     await page.getByRole("button", { name: "狀態" }).click();
     await page.getByRole("menuitemradio", { name: "有新資料" }).click();
@@ -687,9 +689,12 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" })).toHaveCount(0);
     await page.getByRole("button", { name: "狀態" }).click();
     await page.getByRole("menuitemradio", { name: "所有狀態" }).click();
-    await expect(page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" })).toContainText(
-      "最新",
-    );
+    const checkedRow = page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" });
+    await expect(checkedRow).toContainText("最新");
+    if (checked.outcome !== "knowledge_page_checked" || !checked.page.checkedThrough) {
+      throw new Error("Expected the check cursor to expose its reviewed Session time.");
+    }
+    await expect(checkedRow.locator("time")).toHaveAttribute("datetime", checked.page.checkedThrough.completedAt);
   });
 
   test("shows how often Sessions confirmed or contradicted Knowledge and links to them", async ({ page }) => {

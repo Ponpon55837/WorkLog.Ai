@@ -5,7 +5,7 @@ import { BookMarked, Eye, FilePlus2, RefreshCw } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_DEFAULTS, type KnowledgePageRecord, type ProjectRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
-import { errorMessage, formatRelative } from "../../utils/format";
+import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { knowledgePageStatusVisual } from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
@@ -182,6 +182,14 @@ async function requestUpdate(row: PageRow): Promise<void> {
             <span v-if="!selectedProject">{{ projectsById.get(row.projectId)?.name ?? "未知專案" }} · </span>
             <span>{{ row.question }}</span>
             <span v-if="row.page?.sourcedThrough"> · 更新於 {{ formatRelative(row.page.sourcedThrough) }}</span>
+            <time
+              v-if="row.page && (row.page.checkedThrough?.completedAt || row.page.sourcedThrough)"
+              :datetime="row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough"
+              :title="`已檢查至 ${formatDate(row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough!)}`"
+            >
+              · 已檢查至 {{ formatRelative(row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough!) }}
+            </time>
+            <span v-else-if="row.page"> · 尚未檢查</span>
             <span v-if="row.page && row.page.newSessionCount > 0">
               · 有 {{ row.page.newSessionCount }} 筆新 Session 待評估</span
             >

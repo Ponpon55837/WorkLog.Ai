@@ -1068,6 +1068,20 @@ describe("Work Intelligence MCP server", () => {
       page: { version: 1, status: "fresh", checkedThrough: { sessionId: finalized.session.id } },
     });
 
+    for (let index = 1; index <= 3; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      const result = await callJson<{ knowledgePageMaintenanceHint?: string }>(
+        client,
+        "work_finalize_session",
+        finalizePayload(root, `mcp-page-new-${index}`, `New page data ${index}`),
+      );
+      if (index < 3) {
+        expect(result).not.toHaveProperty("knowledgePageMaintenanceHint");
+      } else {
+        expect(result.knowledgePageMaintenanceHint).toContain("常見陷阱（3 筆新 Session）");
+      }
+    }
+
     expect(await operationAnnotations(client, "work_get_knowledge_page_context")).toMatchObject({ readOnlyHint: true });
     expect(await operationAnnotations(client, "work_save_knowledge_page")).toMatchObject({
       destructiveHint: false,

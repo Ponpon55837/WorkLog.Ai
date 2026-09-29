@@ -139,26 +139,91 @@ describe("Knowledge pages", () => {
     expect(bySlug.get("pitfalls")).toMatchObject({ status: "has_new_data", newSessionCount: 1 });
 
     const context = store.getContext(projectRoot);
-    expect(context.outcome === "context" && context.pendingRequests.knowledgePages).toEqual([
-      {
-        slug: "architecture",
-        title: "架構與慣例",
-        status: "has_new_data",
-        newSessionCount: 2,
-        updateRequested: false,
-      },
-      {
-        slug: "pitfalls",
-        title: "常見陷阱",
-        status: "has_new_data",
-        newSessionCount: 1,
-        updateRequested: false,
-      },
-    ]);
+    expect(context.outcome === "context" && context.pendingRequests.knowledgePages).toEqual([]);
     expect(context.outcome === "context" && context.knowledgePages.map((page) => page.slug)).toEqual([
       "architecture",
       "pitfalls",
     ]);
+  });
+
+  it("prompts after three new Sessions and orders source review before requests and new data", () => {
+    const { store, projectRoot, finalize, tick, sections } = setup();
+    const source = finalize("maintenance-source");
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    store.saveKnowledgePage({
+      projectRoot,
+      slug: "pitfalls",
+      idempotencyKey: "maintenance-pitfalls",
+      sections: sections(source),
+    });
+
+    const finalizeWithResult = (key: string) => {
+      tick();
+      return store.finalizeSession({
+        projectRoot,
+        idempotencyKey: key,
+        title: `Session ${key}`,
+        summary: `${key} summary.`,
+        workSummary: { outcomes: [`${key} outcome`], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+    };
+
+    expect(finalizeWithResult("maintenance-new-1")).not.toHaveProperty("knowledgePageMaintenanceHint");
+    expect(finalizeWithResult("maintenance-new-2")).not.toHaveProperty("knowledgePageMaintenanceHint");
+    const third = finalizeWithResult("maintenance-new-3");
+    expect(third).toMatchObject({
+      outcome: "finalized",
+      knowledgePageMaintenanceHint: expect.stringContaining("常見陷阱（3 筆新 Session）"),
+    });
+    expect(store.getContext(projectRoot)).toMatchObject({
+      pendingRequests: {
+        knowledgePages: [{ slug: "pitfalls", newSessionCount: 3, updateRequested: false }],
+      },
+    });
+
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+    const saved = store.saveKnowledgePage({
+      projectRoot,
+      slug: "architecture",
+      idempotencyKey: "maintenance-architecture",
+      sections: sections(third.outcome === "finalized" ? third.session.id : ""),
+    });
+    expect(saved).toMatchObject({ outcome: "knowledge_page_saved", page: { newSessionCount: 0 } });
+    if (third.outcome !== "finalized") throw new Error("Expected the third Session to finalize.");
+
+    tick();
+    store.setSessionVoid({ sessionId: third.session.id, voided: true, reason: "Review reminder fixture." });
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "in-progress" });
+    expect(store.getContext(projectRoot)).toMatchObject({
+      pendingRequests: {
+        knowledgePages: [
+          { slug: "architecture", needsReview: true, newSessionCount: 0 },
+          { slug: "in-progress", updateRequested: true, newSessionCount: 0 },
+        ],
+      },
+    });
+    const fourth = finalizeWithResult("maintenance-new-4");
+    expect(fourth).toMatchObject({ outcome: "finalized" });
+    if (fourth.outcome !== "finalized") throw new Error("Expected the fourth Session to finalize.");
+
+    const hint = fourth.knowledgePageMaintenanceHint ?? "";
+    expect(hint.indexOf("架構與慣例（來源需要核對）")).toBeLessThan(
+      hint.indexOf("進行中的工作與未結項（已有更新請求）"),
+    );
+    expect(hint.indexOf("進行中的工作與未結項（已有更新請求）")).toBeLessThan(
+      hint.indexOf("常見陷阱（3 筆新 Session）"),
+    );
+    expect(store.getContext(projectRoot)).toMatchObject({
+      pendingRequests: {
+        knowledgePages: [
+          { slug: "architecture", needsReview: true, newSessionCount: 1 },
+          { slug: "in-progress", updateRequested: true, newSessionCount: 0 },
+          { slug: "pitfalls", newSessionCount: 3 },
+        ],
+      },
+    });
   });
 
   it("keeps manual Web edits as versions, redacts secrets, and bounds pages in the Agent context", () => {

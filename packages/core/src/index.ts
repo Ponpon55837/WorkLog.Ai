@@ -1356,6 +1356,8 @@ export interface FinalizedSessionResult {
   timestampWarnings?: string[];
   /** maintainedKnowledgePages whose review cursor moved to this Session (it no longer counts as their new data). */
   knowledgePagesAcknowledged?: string[];
+  /** One-line prompt for pages needing source review, an explicit update, or enough accumulated new Sessions. */
+  knowledgePageMaintenanceHint?: string;
   resolvedOutstandingItemIds?: string[];
   outstandingItemWarnings?: {
     unresolvedIds: string[];
@@ -2185,7 +2187,7 @@ export interface ContextResult {
     knowledgeCandidates: KnowledgeCandidateRequest[];
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
-    /** Knowledge pages to inspect: an update was requested, new Sessions need assessment, or cited sources need review. */
+    /** Knowledge pages to inspect: explicit update request, cited-source review, or at least three accumulated new Sessions; ordered by priority. */
     knowledgePages: Array<{
       slug: string;
       title: string;
