@@ -41,7 +41,8 @@ Work Intelligence hook 只使用使用者的全域設定，不使用單一專案
 2. Claude Code 的 Stop hook 設於全域 `~/.claude/settings.json`；Codex 的 `PostToolUse` 與 `Stop` hook 設於全域 `~/.codex/hooks.json`。指令必須指向這個 repo 內腳本的**絕對路徑**。
 3. Codex 請輸入 `/hooks`，確認保存提醒 hook 已載入並完成信任；未信任的 hook 會被略過。
 4. 確認 `node` 可以從 Agent 的 `PATH` 找到；若找不到，將 hook 指令中的 `node` 改成 Node.js 執行檔的絕對路徑。
-5. Codex 的提醒依 `apply_patch` 與 `work_write_idempotent`（operation `work_finalize_session`）標記未保存工作；舊的直接工具名稱仍相容。只用 Bash 編輯檔案不會觸發 Codex 的改檔標記。若全域設定仍有只匹配舊工具名稱的 PostToolUse matcher，請在檢查更新內容後依[Agent 設定說明](agent-setup.md)執行專案更新流程，讓 installer 更新由它管理的 matcher；Doctor 會將舊 matcher 顯示為未完整設定。
+5. 出現 `hook timed out after 3s` 之類的逾時：hook 本身幾乎不花時間，時間主要花在啟動 `node`。Windows 上防毒或端點防護掃描可能讓每次啟動 node 超過 1 秒，再加上 `cmd.exe` 與同時執行的其他 hook，很容易超過 3 秒。請把 Work Intelligence hook 的 `timeout` 調成 `10`（與 Claude Code 範例相同），Codex 需要在 `/hooks` 重新信任修改後的 hook。
+6. Codex 的提醒依 `apply_patch` 與 `work_write_idempotent`（operation `work_finalize_session`）標記未保存工作；舊的直接工具名稱仍相容。只用 Bash 編輯檔案不會觸發 Codex 的改檔標記。若全域設定仍有只匹配舊工具名稱的 PostToolUse matcher，請在檢查更新內容後依[Agent 設定說明](agent-setup.md)執行專案更新流程，讓 installer 更新由它管理的 matcher；Doctor 會將舊 matcher 顯示為未完整設定。
 
 hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態時會放行。`pnpm run doctor` 只讀取全域 Claude／Codex 設定檔與 hook dist 檔案，不會讀取 repo 內的 `.codex/hooks.json`，也不會修改任何 Agent 設定。
 
