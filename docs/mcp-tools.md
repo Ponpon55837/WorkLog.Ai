@@ -6,7 +6,7 @@
 
 ## tools/list 與 dispatcher
 
-`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；原本 44 個 operation id 仍可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；45 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
 
 | MCP tool | Annotation | 用途 |
 |---|---|---|
@@ -35,7 +35,7 @@
 
 ## `work_finalize_session`
 
-在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須在工作開始時（確認專案正在記錄後）擷取並保留當時已變更的路徑，finalize 時以 `baselineChangedFiles` 傳入；系統會從本次 Session 排除這些路徑、來源與變更事件。若從基準路徑改名，會將新路徑記為新增檔案。基準檔案在工作期間又被修改時仍整筆排除，因為單靠路徑無法判斷新增差異。若無法在開始時擷取基準，應省略欄位，不要事後推測。完成時再檢查工作樹／diff，沒有本次檔案變更時傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（API 相容欄位，畫面標示「狀態／未結項」）五個陣列；每個元素是一件已確認的短句，沒有證據時傳空陣列，不使用 `##` Markdown 標題。`nextSteps` 只能記錄已知限制、未完成項目、證據缺口或未驗證情境，不可寫建議或未來計畫。Git 狀態另由可選 metadata 記錄。這讓 工作歷程、Session 面板 與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
+在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須在工作開始時（確認專案正在記錄後）擷取並保留當時已變更的路徑，finalize 時以 `baselineChangedFiles` 傳入；系統會從本次 Session 排除這些路徑、來源與變更事件。若從基準路徑改名，會將新路徑記為新增檔案。基準檔案在工作期間又被修改時仍整筆排除，因為單靠路徑無法判斷新增差異。若無法在開始時擷取基準，應省略欄位，不要事後推測。完成時再檢查工作樹／diff，沒有本次檔案變更時傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（API 相容欄位，畫面標示「狀態／未結項」）五個陣列；每個元素是一件已確認的短句，沒有證據時傳空陣列，不使用 `##` Markdown 標題。`nextSteps` 只能記錄已知限制、未完成項目、證據缺口或未驗證情境，不可寫建議或未來計畫；每個項目也會成為有穩定 id、連結來源 Session 的未結項。只有本次工作直接驗證完成、且仍為同專案 `pending` 的項目，才能透過選填 `resolvedOutstandingItemIds` 傳入 id 標記完成；有效轉換與 Session 在同一交易保存並保留稽核紀錄，無效、已處理或跨專案 id 只回傳警告，不透露其他專案資料。不得依 `nextSteps` 文字推測完成狀態。Git 狀態另由可選 metadata 記錄。這讓工作歷程、Session 面板與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
 
 ```json
 {
@@ -93,7 +93,8 @@ MCP client 的 stdio 設定可使用：
 
 | 欄位 | 內容 | 讀取完整內容 |
 | --- | --- | --- |
-| `recentSessions` | 最近 12 筆 Session 的 id、標題、摘要（最多 400 字，句界優先截斷並標示 `summaryTruncated`）、完成時間、branch、verification 狀態、changed files 數量，以及前 3 項 `openItems`（`workSummary.nextSteps`） | `work_get_session` |
+| `recentSessions` | 最近 12 筆 Session 的 id、標題、摘要（最多 400 字，句界優先截斷並標示 `summaryTruncated`）、完成時間、branch、verification 狀態、changed files 數量，以及前 3 項 pending 未結項文字（`openItems`） | `work_get_session` |
+| `pendingOutstandingItems` | 最多 5 筆 pending 未結項，每筆含穩定 id、source Session id／標題／完成時間、狀態與最多 500 字文字；`pendingOutstandingItemsTotal`、`pendingOutstandingItemsOmitted`、`pendingOutstandingItemsTruncated` 分別提供總數、省略數與文字截短數，單筆截短另標示 `textTruncated` | `work_list_outstanding_items` |
 | `recentDecisions` | 最近 Session 的 `workSummary.decisions`（最多 12 條），每條附 `sessionId`、Session 標題與完成時間，方便引用來源 | `work_get_session` |
 | `recentKnowledge` | 最近 12 筆 active Knowledge 的 id、kind、標題、tags 與 `excerpt`（最多 400 字，截斷時標示 `excerptTruncated`；附 `possiblyStale`／`needsReview` 時要先核對） | `work_search_knowledge` |
 | `metadataFollowUps` | 只有筆數：`needsBackfill`、`changedFilesMissing`、`verificationMissing`、`verificationNotRun` | `work_preview_metadata_backfill` |
@@ -152,6 +153,14 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 { "projectRoot": "C:\\work\\assistant", "from": "2026-09-21", "to": "2026-09-27", "pageSize": 20 }
 ```
 
+## `work_list_outstanding_items`
+
+唯讀取得來源 Session 的未結項清單，可用 `projectRoot` 限定一個 tracked 專案，並以 `status` 篩選 `pending`（預設）、`completed` 或 `not_needed`；用 `page`、`pageSize` 分頁，`pageSize` 預設 5、最多 5 筆。MCP 每筆 `text` 最多回傳 4,000 字元；超過時會截短並加上 `textTruncated: true`，完整文字仍保存在 storage，並可透過 REST 匯出／匯入保留。REST 清單仍可每頁讀取最多 100 筆完整文字。每筆含 project 名稱、來源 Session id／標題／完成時間、文字、狀態與時間戳。傳入 `projectRoot` 時先通過專案追蹤政策；未追蹤範圍會安靜回傳 `skipped`，不讀取其他專案資料。這個操作不建立、刪除或更新項目；Web UI 負責狀態管理。只有經本次工作確認完成的 pending 項目，才可在 `work_finalize_session` 傳入其 id。
+
+```json
+{ "projectRoot": "C:\\work\\assistant", "status": "pending", "page": 1, "pageSize": 5 }
+```
+
 ## `work_recall`
 
 排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。固定軟體用語表會擴展 endpoint／API／路由／route、慣例／convention、效能／performance、測試／test、設定／config、遷移／migration；擴展分數低於原詞，且不呼叫外部服務或模型。回應附 `confidence`：`none` 表示沒有符合門檻的原詞、路徑或同義詞結果，此時 `hits` 為空且不能把結果當依據；`low` 表示弱的部分命中、只在 raw handoff 找到，或只有同義詞線索，應先核對原文；`high` 表示至少一筆只依原詞在標題、摘要、workSummary 或 Knowledge 命中一半以上的 IDF 加權比例，或命中路徑。`termHits` 與原詞命中比例只計原始查詢詞，同義詞候選不會讓結果升為 `high`。
@@ -184,7 +193,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 另外提供兩個 MCP prompts：`finalize-work`（把這次工作記錄下來）與 `synthesize-report`（可選 `period`，整理報告）。
 
-Server instructions 只放路由規則；44 項 operation 的長說明與 schema 按需由固定 contract resource 提供，避免初始工具清單被重複描述撐大。
+Server instructions 只放路由規則；45 項 operation 的長說明與 schema 按需由固定 contract resource 提供，避免初始工具清單被重複描述撐大。
 
 ## `work_get_report`
 

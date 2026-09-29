@@ -162,6 +162,9 @@ export const useSessionsStore = defineStore("sessions", () => {
       if (input.summary || input.workSummary || input.verification) {
         invalidations.push(queryCache.invalidateQueries({ key: queryKeys.views.reports }));
       }
+      if (input.workSummary) {
+        invalidations.push(queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }));
+      }
       await Promise.all(invalidations);
     },
   });
@@ -203,6 +206,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.views.reports }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
       ]);
     },
   });

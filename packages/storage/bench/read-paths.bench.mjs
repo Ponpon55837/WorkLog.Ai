@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
-import { WorkIntelligenceStore } from "../dist/index.js";
+import { toSessionDigests, WorkIntelligenceStore } from "../dist/index.js";
 import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "../../../apps/mcp/dist/recall-evaluation.js";
 
 const args = process.argv.slice(2);
@@ -130,6 +130,40 @@ function seedKnowledgePages(targetStore, project) {
   }
 }
 
+function seedOutstandingItems(targetStore, projectIds) {
+  const database = new DatabaseSync(targetStore.databasePath);
+  try {
+    const sessions = database
+      .prepare("SELECT id, project_id, created_at FROM sessions WHERE project_id IN (?, ?) ORDER BY id")
+      .all(...projectIds);
+    const insertItem = database.prepare(
+      `INSERT OR IGNORE INTO outstanding_items
+       (id, source_session_id, project_id, position, text, status, created_at, updated_at)
+       VALUES (?, ?, ?, 0, ?, 'pending', ?, ?)`,
+    );
+    const insertEvent = database.prepare(
+      `INSERT OR IGNORE INTO outstanding_item_events
+       (id, item_id, project_id, from_status, to_status, source, actor_session_id, created_at)
+       VALUES (?, ?, ?, NULL, 'pending', 'migration', NULL, ?)`,
+    );
+    sessions.forEach((session, index) => {
+      if (index % 5 !== 0) return;
+      const id = `benchmark-outstanding-${index}`;
+      const createdAt = String(session.created_at);
+      insertItem.run(id, session.id, session.project_id, `Synthetic pending item ${index}`, createdAt, createdAt);
+      insertEvent.run(`benchmark-outstanding-event-${index}`, id, session.project_id, createdAt);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+function listSessionDigestPage(targetStore, projectId) {
+  const result = targetStore.listSessionsPage({ projectId, trackedOnly: true, page: 1, pageSize: 100 });
+  const pendingItems = targetStore.pendingOutstandingItemsForSessions(result.items.map(({ id }) => id));
+  return { ...result, items: toSessionDigests(result.items, pendingItems) };
+}
+
 try {
   if (!cached) {
     seed();
@@ -141,6 +175,7 @@ try {
   const benchStore = cachePath && !cached ? new WorkIntelligenceStore(databasePath) : store;
   const alpha = benchStore.listProjects().find((project) => project.name === "alpha");
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
+  seedOutstandingItems(benchStore, [alpha.id, beta.id]);
   seedStaleKnowledge(benchStore, alpha);
   seedKnowledgePages(benchStore, alpha);
   // A file of the newest alpha Session, so the path search walks project → Session → file inside the graph.
@@ -175,6 +210,7 @@ try {
     "listSessionsPage (project + range)": () =>
       benchStore.listSessionsPage({ projectId: beta.id, from: "2026-03-01", to: "2026-03-31", page: 1, pageSize: 20 }),
     "listSessionsPage (query)": () => benchStore.listSessionsPage({ query: "graph", page: 1, pageSize: 20 }),
+    "listSessionDigests (page 100 + pending items)": () => listSessionDigestPage(benchStore, alpha.id),
     getDashboardSummary: () => benchStore.getDashboardSummary(),
     "getReport week": () => benchStore.getReport({ period: "week", date: "2026-03-11" }),
     "getReport month": () => benchStore.getReport({ period: "month", date: "2026-03-11" }),
@@ -185,6 +221,8 @@ try {
     "getKnowledgePageContext (review)": () =>
       benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfalls" }),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
+    "listOutstandingItems (pending)": () =>
+      benchStore.listOutstandingItems({ projectId: alpha.id, status: "pending", page: 1, pageSize: 20 }),
     search: () => benchStore.search("renderer"),
     "recall (month range)": () =>
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
@@ -206,6 +244,7 @@ try {
 
   const limitsMs = {
     "listSessionsPage (default)": 200,
+    "listSessionDigests (page 100 + pending items)": 100,
     getDashboardSummary: 1000,
     "getReport week": 750,
     "getReport year": 1500,
@@ -214,6 +253,7 @@ try {
     "listKnowledgePages (staleness)": 250,
     "getKnowledgePageContext (review)": 250,
     "listSessionDecisions (pending)": 250,
+    "listOutstandingItems (pending)": 250,
     search: 500,
     "recall (month range)": 500,
     "recall (synonym expansion)": 500,

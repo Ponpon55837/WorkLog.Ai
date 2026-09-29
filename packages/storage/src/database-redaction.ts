@@ -56,6 +56,7 @@ export const REDACTED_TEXT_FIELDS = {
   ],
   metadata_backfill_requests: ["failure_reason"],
   session_decisions: ["text"],
+  outstanding_items: ["text"],
   knowledge_pages: ["title", "question", "sections_json"],
   knowledge_page_versions: ["title", "question", "sections_json"],
   session_diagrams: ["title", "source", "void_reason"],
@@ -114,6 +115,7 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
     const selected = [
       "rowid AS __rowid__",
       ...(availableColumns.has("session_id") ? ["session_id"] : []),
+      ...(availableColumns.has("source_session_id") ? ["source_session_id"] : []),
       ...(availableColumns.has("id") ? ["id"] : []),
       ...(availableColumns.has("knowledge_id") ? ["knowledge_id"] : []),
       ...textFields,
@@ -140,7 +142,8 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
       if (rowRedactions === 0) {
         continue;
       }
-      const sessionId = table === "sessions" ? String(row.id ?? "") : String(row.session_id ?? "");
+      const sessionId =
+        table === "sessions" ? String(row.id ?? "") : String(row.session_id ?? row.source_session_id ?? "");
       if (sessionId) {
         sessionCounts.set(sessionId, (sessionCounts.get(sessionId) ?? 0) + rowRedactions);
         dirty.add(sessionId);

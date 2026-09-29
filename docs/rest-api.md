@@ -89,6 +89,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/insights/timeline`                         | 時間軸：期間內（預設最近 30 天，最長 366 天）的 Session（開始～完成）、Knowledge 事件與 Session 關聯；可帶 `projectId`、`from`、`to`；超過 2,000 筆 Session 時保留最新並標示 `truncated` |
 | GET      | `/api/insights/hotspots`                         | 熱點檔案：被最多 Session 修改的檔案（`groupBy=directory` 依目錄），附失敗／未執行次數與最近 5 筆 Session；可帶 `projectId`、`from`、`to`、`limit`（1–100，預設 20）。排除作廢與改動超過 20 個檔案的 Session |
 | GET      | `/api/context`                                   | Agent context query（含 `pendingRequests`：等待 Agent 的報告整理與 metadata 回補請求）     |
+| GET      | `/api/outstanding-items`                         | 分頁列出 tracked 專案的未結項；可帶 `projectId`、`status`、`page`、`pageSize`              |
+| PATCH    | `/api/outstanding-items/:itemId`                 | Web 更新未結項狀態（pending／completed／not_needed），追加狀態稽核紀錄                   |
 | GET      | `/api/search?q=...`                              | Work history search（與 MCP `work_recall` 同一個排序引擎，只查 Session，最多 20 筆；可帶 `from`／`to`）   |
 | GET      | `/api/backfill/metadata/preview?projectRoot=...` | 唯讀掃描 metadata 缺口                                                                 |
 | GET/POST | `/api/backfill/metadata-requests`                | 建立或查詢 Agent metadata 回補請求                                                     |
@@ -111,6 +113,13 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 文字寫入路徑會依固定規則遮蔽常見 API token、私鑰、JWT、連線字串密碼及指定變數值。支援的成功寫入回應可能包含 `redactions: { total, byKind }`；欄位只回報數量，不含原始文字或 token 片段。Session detail/list 則會包含 `redactionCount`。可攜式 JSON 匯出會遮蔽既有內容，匯入時也會再次遮蔽；要整理目前資料庫內的歷史內容，請依[安全政策](../SECURITY.md#敏感資料遮蔽)使用 `pnpm db:redact`。
 
 報告提煉請求與摘要查詢可使用 `period`、`date`、`projectId`／`scopeType`；指定自訂區間時傳入 `period=custom&from=YYYY-MM-DD&to=YYYY-MM-DD`，`from` 與 `to` 必須同時提供且最多 366 天。自訂區間以起訖日期共同識別，Agent 摘要的歷史版本也只會取代相同專案範圍、相同起訖日的目前版本。建立請求的 JSON 格式例如 `{ "period": "custom", "from": "2026-09-01", "to": "2026-09-14" }`。
+
+## 未結項
+
+- `GET /api/outstanding-items` 預設只列 `pending` 項目；可用 `status=pending|completed|not_needed`、`projectId`、`page` 與 `pageSize` 篩選及分頁。省略 `projectId` 時只涵蓋目前 tracked 的專案。
+- 每筆資料帶穩定 `id`、文字、狀態、來源 Session id／標題、專案及建立／更新時間。來源 Session 被作廢後不再出現在清單中。
+- Web 可呼叫 `PATCH /api/outstanding-items/:itemId`，JSON body 為 `{ "status": "completed" }`、`{ "status": "not_needed" }` 或 `{ "status": "pending" }`。狀態轉換會追加稽核事件；恢復為 `pending` 可重新開啟。這個 API 不提供建立或刪除項目的能力。
+- 專案不是 tracked 時回傳 `skipped`；無效的篩選或狀態回傳 `400 invalid_input`。找不到項目回傳 `not_found`，不揭露其他專案是否曾有該項目。
 
 ## Metadata backfill
 

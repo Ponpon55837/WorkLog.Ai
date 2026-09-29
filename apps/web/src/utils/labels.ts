@@ -4,6 +4,7 @@ import type {
   DatabaseBackupKind,
   GraphNode,
   KnowledgeAuditAction,
+  OutstandingItemStatus,
   ProjectDeletionCounts,
   ProjectStatus,
   ReportEvidence,
@@ -13,7 +14,13 @@ import type {
   WorkReportPeriod,
   WorkSummarySections,
 } from "@work-intelligence/core";
-import { knowledgeKindVisual, knowledgeStatusVisual, trackingStatus, type StatusVisual } from "./status";
+import {
+  knowledgeKindVisual,
+  knowledgeStatusVisual,
+  outstandingItemStatusVisual,
+  trackingStatus,
+  type StatusVisual,
+} from "./status";
 
 function labelsOf<K extends string>(visuals: Record<K, StatusVisual>): Record<K, string> {
   return Object.fromEntries(
@@ -25,6 +32,7 @@ function labelsOf<K extends string>(visuals: Record<K, StatusVisual>): Record<K,
 export const statusLabels = labelsOf(trackingStatus);
 export const knowledgeKindLabels = labelsOf(knowledgeKindVisual);
 export const knowledgeStatusLabels = labelsOf(knowledgeStatusVisual);
+export const outstandingItemStatusLabels: Record<OutstandingItemStatus, string> = labelsOf(outstandingItemStatusVisual);
 
 export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = {
   automatic: "每日自動",
@@ -53,6 +61,8 @@ export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, str
   sessionSummaryUpdates: "Session 摘要更新",
   sessionWorkSummaryUpdates: "WorkSummary 更新",
   sessionDecisions: "Session 決策",
+  outstandingItems: "未結項",
+  outstandingItemEvents: "未結項狀態稽核紀錄",
   knowledgePages: "知識頁",
   knowledgePageVersions: "知識頁版本",
   knowledgeFeedback: "Knowledge 確認與推翻紀錄",

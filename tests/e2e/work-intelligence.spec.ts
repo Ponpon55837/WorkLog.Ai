@@ -32,6 +32,7 @@ function withAgentStore<T>(task: (store: WorkIntelligenceStore) => T): T {
 const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/dashboard", "工作總覽"],
   ["/sessions", "工作歷程"],
+  ["/sessions/outstanding", "工作歷程"],
   ["/reports", "工作報告"],
   ["/knowledge", "工作知識"],
   ["/graph", "工作圖譜"],
@@ -212,6 +213,7 @@ test.describe("Work Intelligence browser regression", () => {
 
   let projectId = "";
   let sessionId = "";
+  let otherProjectId = "";
 
   test.beforeAll(async ({ request }) => {
     const project = await postJson<ProjectRecord>(request, "/api/projects", {
@@ -224,6 +226,16 @@ test.describe("Work Intelligence browser regression", () => {
       data: { status: "tracked" },
     });
     expect(trackedProject.ok()).toBeTruthy();
+
+    const otherProject = await postJson<ProjectRecord>(request, "/api/projects", {
+      name: "Outstanding Filter Fixture",
+      rootPath: `${projectRoot}/e2e-outstanding-filter-fixture`,
+    });
+    otherProjectId = otherProject.id;
+    const trackedOtherProject = await request.patch(`/api/projects/${otherProjectId}`, {
+      data: { status: "tracked" },
+    });
+    expect(trackedOtherProject.ok()).toBeTruthy();
 
     const finalized = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
       projectRoot,
@@ -251,6 +263,24 @@ test.describe("Work Intelligence browser regression", () => {
       completedAt: new Date().toISOString(),
     });
     sessionId = finalized.session.id;
+
+    const otherFinalized = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot: `${projectRoot}/e2e-outstanding-filter-fixture`,
+      idempotencyKey: `browser-regression-outstanding-other-${process.pid}`,
+      title: "Outstanding filter fixture session",
+      summary: "A second project provides an outstanding-item filter fixture.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["Check the other project filter."],
+      },
+      changedFiles: [],
+      verification: { status: "passed", summary: "Outstanding filter fixture is deterministic." },
+      completedAt: new Date(Date.now() - 30_000).toISOString(),
+    });
+    expect(otherFinalized.session.id).toBeTruthy();
 
     const evidence = await request.post(`/api/sessions/${sessionId}/evidence`, {
       data: {
@@ -354,6 +384,97 @@ test.describe("Work Intelligence browser regression", () => {
       promptVersion: "e2e-fixture-v2",
     });
     expect(newerSummary.outcome).toBe("report_summary_saved");
+  });
+
+  test("filters outstanding nextSteps and supports source navigation and status transitions", async ({ page }) => {
+    const primaryText = "Keep the UI regression suite green.";
+    const otherText = "Check the other project filter.";
+    const primaryItem = () => page.getByTestId("outstanding-item").filter({ hasText: primaryText });
+    const selectStatus = async (label: string): Promise<void> => {
+      await page.getByRole("button", { name: "狀態" }).click();
+      await page.getByRole("menuitemradio", { name: label, exact: true }).click();
+    };
+
+    await page.goto("/sessions");
+    await page.getByRole("tab", { name: /未結項/ }).click();
+    await expect(page).toHaveURL(/\/sessions\/outstanding$/);
+    await expect(page.getByRole("heading", { name: "工作歷程" }).first()).toBeVisible();
+    await expect(page.getByTestId("outstanding-item").filter({ hasText: primaryText })).toBeVisible();
+    await expect(page.getByTestId("outstanding-item").filter({ hasText: otherText })).toBeVisible();
+
+    await page.getByRole("button", { name: "專案" }).click();
+    await page.getByRole("menuitemradio", { name: "Browser Regression Fixture", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`itemProject=${projectId}`));
+    await expect(primaryItem()).toBeVisible();
+    await expect(page.getByTestId("outstanding-item").filter({ hasText: otherText })).toHaveCount(0);
+
+    await primaryItem().getByRole("button", { name: "開啟來源 Session：Browser regression fixture session" }).click();
+    const sessionPanel = page.getByRole("dialog", { name: "Session 詳情" });
+    await expect(sessionPanel).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`session=${sessionId}`));
+    await sessionPanel.getByRole("button", { name: "關閉", exact: true }).click();
+    await expect(sessionPanel).toBeHidden();
+
+    await primaryItem().getByRole("button", { name: "不再需要" }).click();
+    const confirmation = page.getByRole("dialog", { name: "將這項未結項標記為不再需要？" });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "保留為待處理" }).click();
+    await expect(confirmation).toBeHidden();
+    await expect(primaryItem()).toBeVisible();
+
+    await primaryItem().getByRole("button", { name: "標記完成" }).click();
+    await expect(page.getByText("已標記為完成。", { exact: true })).toBeVisible();
+    await expect(primaryItem()).toHaveCount(0);
+    await selectStatus("已完成");
+    await expect(primaryItem()).toBeVisible();
+    await primaryItem().getByRole("button", { name: "重新開啟" }).click();
+    await expect(page.getByText("已重新開啟這項未結項。", { exact: true })).toBeVisible();
+    await expect(primaryItem()).toHaveCount(0);
+
+    await selectStatus("待處理");
+    await expect(primaryItem()).toBeVisible();
+    await primaryItem().getByRole("button", { name: "不再需要" }).click();
+    await page
+      .getByRole("dialog", { name: "將這項未結項標記為不再需要？" })
+      .getByRole("button", { name: "標記不再需要" })
+      .click();
+    await expect(page.getByText("已標記為不再需要。", { exact: true })).toBeVisible();
+    await expect(primaryItem()).toHaveCount(0);
+    await selectStatus("不再需要");
+    await expect(primaryItem()).toBeVisible();
+    await primaryItem().getByRole("button", { name: "重新開啟" }).click();
+    await expect(page.getByText("已重新開啟這項未結項。", { exact: true })).toBeVisible();
+    await expect(primaryItem()).toHaveCount(0);
+    await selectStatus("待處理");
+    await expect(primaryItem()).toBeVisible();
+  });
+
+  test("shows outstanding-item loading, empty, and error states", async ({ page }) => {
+    await page.goto(`/sessions/outstanding?itemProject=${projectId}&itemStatus=completed`);
+    await expect(page.getByTestId("outstanding-items-empty")).toBeVisible();
+    await expect(page.getByTestId("outstanding-items-empty")).toContainText("目前沒有「已完成」項目");
+
+    await page.route("**/api/outstanding-items?*", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await route.continue();
+    });
+    await page.goto(`/sessions/outstanding?itemProject=${projectId}&itemStatus=pending`);
+    await expect(page.getByTestId("outstanding-items-loading")).toBeVisible();
+    await expect(
+      page.getByTestId("outstanding-item").filter({ hasText: "Keep the UI regression suite green." }),
+    ).toBeVisible();
+    await page.unroute("**/api/outstanding-items?*");
+
+    await page.route("**/api/outstanding-items*", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "The fixture API is unavailable.", code: "service_unavailable" }),
+      });
+    });
+    await page.goto(`/sessions/outstanding?itemProject=${projectId}&itemStatus=completed&itemPage=2`);
+    await expect(page.getByTestId("outstanding-items-error")).toContainText("服務暫時無法使用");
+    await expect(page.getByTestId("outstanding-items-error").getByRole("button", { name: "重試" })).toBeVisible();
   });
 
   test("reviews Agent decisions and promotes one with its source Session linked", async ({ page }) => {

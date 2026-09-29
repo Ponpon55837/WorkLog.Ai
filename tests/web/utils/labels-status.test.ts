@@ -13,6 +13,7 @@ import {
   knowledgeKindLabels,
   knowledgeStatusLabels,
   listPageSizeOptions,
+  outstandingItemStatusLabels,
   pageSizeToQuery,
   projectDeletionCountLabels,
   reportPeriodLabels,
@@ -37,6 +38,7 @@ import {
   metadataGapsOf,
   mcpReconnectStatusVisual,
   mcpRuntimeStatusVisual,
+  outstandingItemStatusVisual,
   requestStatus,
   trackingStatus,
   verificationOf,
@@ -66,6 +68,11 @@ describe("status and label maps", () => {
     expect(sessionLinkOptions).toHaveLength(3);
     expect(voidedFilterOptions.map(({ value }) => value)).toEqual(["exclude", "include", "only"]);
     expect(listPageSizeOptions).toHaveLength(5);
+    expect(outstandingItemStatusLabels).toEqual({
+      pending: "待處理",
+      completed: "已完成",
+      not_needed: "不再需要",
+    });
     expect(pageSizeToQuery("all")).toBe(0);
     expect(pageSizeToQuery(50)).toBe(50);
     expect(reportTabOptions.find(({ id }) => id === "raw")?.shortLabel).toBe("原始紀錄");
@@ -92,6 +99,11 @@ describe("status and label maps", () => {
     expect(verificationStatus.not_supplied.label).toBe("未回報");
     expect(trackingStatus.tracked.label).toBe("記錄中");
     expect(requestStatus.cancelled.label).toBe("已取消");
+    expect(outstandingItemStatusVisual).toMatchObject({
+      pending: { tone: "attention", label: "待處理" },
+      completed: { tone: "success", label: "已完成" },
+      not_needed: { tone: "neutral", label: "不再需要" },
+    });
     expect(metadataGapStatus.changed_files.label).toBe("檔案 metadata 缺漏");
     expect(knowledgeStatusVisual.archived.label).toBe("已封存");
     expect(knowledgeKindVisual.gotcha.label).toBe("注意事項");

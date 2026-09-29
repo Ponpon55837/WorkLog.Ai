@@ -95,7 +95,7 @@ export const sessionRoutes: Route[] = [
       updateSessionWorkSummaryInputSchema,
       "Invalid session workSummary payload.",
       async ({ request, params }) => ({ ...(await readJsonObject(request)), sessionId: params.sessionId }),
-      ({ store }, data) => store.updateSessionWorkSummary(data),
+      ({ store }, data) => store.updateSessionWorkSummary(data, "web"),
     ),
   },
   {

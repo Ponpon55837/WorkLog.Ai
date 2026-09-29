@@ -78,7 +78,7 @@ function createSource(): {
       scope: [],
       decisions: [{ text: "匯出保留 Agent 自主決策來源。", origin: "agent_autonomous" }],
       verification: [],
-      nextSteps: [],
+      nextSteps: ["Synthetic portable outstanding item."],
     },
     changedFiles: ["README.md"],
     verification: { status: "passed", summary: "單元檢查完成。" },
@@ -547,13 +547,16 @@ describe("portable project data transfer", () => {
       sourceDb
         .prepare("UPDATE work_events SET summary = ? WHERE session_id = ?")
         .run(exportToken, source.sessionIds[0]);
+      sourceDb
+        .prepare("UPDATE outstanding_items SET text = ? WHERE source_session_id = ?")
+        .run(exportToken, source.sessionIds[0]);
     } finally {
       sourceDb.close();
     }
 
     const exported = source.store.exportProjectData({ type: "project", projectId: source.projectId });
     expect(JSON.stringify(exported)).not.toContain(exportToken);
-    expect(exported.tables.sessions.find((session) => session.id === source.sessionIds[0])?.redaction_count).toBe(3);
+    expect(exported.tables.sessions.find((session) => session.id === source.sessionIds[0])?.redaction_count).toBe(4);
 
     const importToken = `sk-${"B".repeat(24)}`;
     const contaminated = structuredClone(exported);
@@ -571,7 +574,7 @@ describe("portable project data transfer", () => {
     expect(imported.redactions).toMatchObject({ total: 2, byKind: { openai_token: 2 } });
     const importedBundle = destination.exportProjectData({ type: "all" });
     expect(JSON.stringify(importedBundle)).not.toContain(importToken);
-    expect(importedBundle.tables.sessions.find((item) => item.id === source.sessionIds[0])?.redaction_count).toBe(5);
+    expect(importedBundle.tables.sessions.find((item) => item.id === source.sessionIds[0])?.redaction_count).toBe(6);
   });
 
   it("imports one selected project from an all-project file", () => {
@@ -710,6 +713,28 @@ describe("portable project data transfer", () => {
     expect(selfLinkPreview.conflictDetails.map((item) => item.reason)).toContain("Session 不可與自己建立關聯。");
   });
 
+  it("rejects an outstanding audit event assigned to a different project than its item", () => {
+    const source = createSource();
+    const secondRoot = join(source.root, "event-project-mismatch");
+    mkdirSync(secondRoot);
+    const secondProject = source.store.addProject("Synthetic other project", secondRoot);
+    const bundle = source.store.exportProjectData({ type: "all" });
+    const event = bundle.tables.outstanding_item_events[0];
+    if (!event) throw new Error("Expected the synthetic outstanding item audit event.");
+    event.project_id = secondProject.id;
+    event.actor_session_id = null;
+
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const preview = destination.previewProjectDataImport({ bundle });
+
+    expect(preview.conflictDetails).toContainEqual({
+      table: "outstanding_item_events",
+      id: event.id,
+      reason: "待結項稽核事件必須屬於對應項目的專案。",
+    });
+  });
+
   it("rolls back the entire import if a row fails during the transaction", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
@@ -742,6 +767,14 @@ describe("portable project data transfer", () => {
     expect(() =>
       destination.previewProjectDataImport({ bundle: { ...bundle, schemaVersion: bundle.schemaVersion - 1 } }),
     ).toThrow(/schema 版本/);
+    const legacy = structuredClone(bundle) as unknown as { schemaVersion: number; tables: Record<string, unknown> };
+    legacy.schemaVersion = 21;
+    delete legacy.tables.outstanding_items;
+    delete legacy.tables.outstanding_item_events;
+    expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
+    expect(() => destination.previewProjectDataImport({ bundle: legacy as unknown as ProjectDataExport })).toThrow(
+      /schema 版本/,
+    );
     const invalid = structuredClone(bundle) as ProjectDataExport;
     const project = invalid.tables.projects[0];
     if (!project) {

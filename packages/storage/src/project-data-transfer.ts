@@ -47,6 +47,8 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "metadata_backfill_requests",
   "session_summary_updates",
   "session_work_summary_updates",
+  "outstanding_items",
+  "outstanding_item_events",
   "knowledge_pages",
   "knowledge_page_versions",
   "session_diagrams",
@@ -60,6 +62,8 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   metadata_backfill_requests: [["idempotency_key"]],
   session_summary_updates: [["idempotency_key"]],
   session_work_summary_updates: [["idempotency_key"]],
+  outstanding_items: [["source_session_id", "position", "id"]],
+  outstanding_item_events: [["id"]],
   session_links: [["session_id", "related_session_id"]],
   session_decisions: [["session_id", "position"]],
   knowledge_pages: [["project_id", "slug"]],
@@ -83,6 +87,7 @@ const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = 
   session_verification_updates: ["previous_json", "resulting_json"],
   session_summary_updates: ["summary", "previous_summary", "resulting_summary"],
   session_work_summary_updates: ["work_summary_json", "previous_work_summary_json", "resulting_work_summary_json"],
+  outstanding_items: ["text"],
   knowledge: ["title", "body", "tags_json", "references_json", "applies_to_json", "review_json"],
   knowledge_audit: ["before_json", "after_json", "changed_fields_json"],
   knowledge_candidate_requests: ["failure_reason"],
@@ -130,7 +135,8 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
           }
         }
         if (rowCount > 0) {
-          const sessionId = table === "sessions" ? String(output.id) : String(output.session_id ?? "");
+          const sessionId =
+            table === "sessions" ? String(output.id) : String(output.session_id ?? output.source_session_id ?? "");
           if (sessionId) {
             sessionCounts.set(sessionId, (sessionCounts.get(sessionId) ?? 0) + rowCount);
           }
@@ -158,6 +164,27 @@ export class ProjectDataTransferError extends Error {
     super(message);
     this.name = "ProjectDataTransferError";
   }
+}
+
+function sanitizeImportInput(input: ProjectDataImportInput): {
+  input: ProjectDataImportInput;
+  redactions: ReturnType<typeof combineRedactionSummaries>;
+} {
+  const inputResult = projectDataImportInputSchema.safeParse(input);
+  if (!inputResult.success) {
+    throw new ProjectDataTransferError(
+      "invalid_input",
+      `匯入資料不符合格式：${inputResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`,
+    );
+  }
+  const sanitized = redactProjectDataRows(inputResult.data.bundle.tables);
+  return {
+    input: {
+      ...inputResult.data,
+      bundle: { ...inputResult.data.bundle, tables: sanitized.rows },
+    },
+    redactions: sanitized.redactions,
+  };
 }
 
 interface PlannedRow {
@@ -195,7 +222,8 @@ function sqlRows(
   values: ProjectDataValue[] = [],
 ): ProjectDataRow[] {
   const columns = projectDataExportTableColumns[table].join(", ");
-  const sql = `SELECT ${columns} FROM ${table}${where ? ` WHERE ${where}` : ""} ORDER BY id`;
+  const orderBy = table === "outstanding_item_events" ? "created_at, id" : "id";
+  const sql = `SELECT ${columns} FROM ${table}${where ? ` WHERE ${where}` : ""} ORDER BY ${orderBy}`;
   return db.prepare(sql).all(...values) as unknown as ProjectDataRow[];
 }
 
@@ -214,7 +242,13 @@ function rowsByIds(
     const placeholders = batch.map(() => "?").join(", ");
     results.push(...sqlRows(db, table, `${column} IN (${placeholders})`, [...batch]));
   }
-  return results.sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  return results.sort((left, right) => {
+    if (table === "outstanding_item_events") {
+      const byCreatedAt = String(left.created_at).localeCompare(String(right.created_at));
+      if (byCreatedAt !== 0) return byCreatedAt;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  });
 }
 
 function getRows(db: DatabaseSync, table: ProjectDataTable): Set<string> {
@@ -267,6 +301,8 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
         : sqlRows(db, "metadata_backfill_requests", "scope_type = 'project' AND project_id = ?", [scope.projectId]),
     session_summary_updates: rowsByIds(db, "session_summary_updates", "session_id", sessionIds),
     session_work_summary_updates: rowsByIds(db, "session_work_summary_updates", "session_id", sessionIds),
+    outstanding_items: rowsByIds(db, "outstanding_items", "project_id", projectIds),
+    outstanding_item_events: rowsByIds(db, "outstanding_item_events", "project_id", projectIds),
   };
 
   if (scope.type === "all") {
@@ -364,6 +400,10 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     session_work_summary_updates: filterSessionChildrenByScope
       ? bundle.tables.session_work_summary_updates.filter((row) => sessionIds.has(String(row.session_id)))
       : bundle.tables.session_work_summary_updates,
+    outstanding_items: bundle.tables.outstanding_items.filter((row) => selectedIds.has(String(row.project_id))),
+    outstanding_item_events: bundle.tables.outstanding_item_events.filter((row) =>
+      selectedIds.has(String(row.project_id)),
+    ),
   };
 
   for (const table of PROJECT_DATA_TABLES) {
@@ -504,6 +544,7 @@ function dependencyIssue(
   availableIds: Record<ProjectDataTable, Set<string>>,
   conflictIds: Record<ProjectDataTable, Set<string>>,
   sessionProjectIds: Map<string, string>,
+  outstandingItemProjectIds: Map<string, string>,
 ): string | undefined {
   if (table !== "projects" && typeof row.project_id === "string") {
     const mappedProjectId = projectIds.get(row.project_id);
@@ -555,6 +596,34 @@ function dependencyIssue(
     const knowledgeId = typeof row.knowledge_id === "string" ? row.knowledge_id : undefined;
     if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
       return "決策引用的 Knowledge 發生衝突或不存在。";
+    }
+  }
+
+  if (table === "outstanding_items") {
+    const sourceSessionId = String(row.source_session_id);
+    if (
+      !isAvailable("sessions", sourceSessionId, selectedIds.sessions, availableIds, conflictIds) ||
+      sessionProjectIds.get(sourceSessionId) !== row.project_id
+    ) {
+      return "待結項必須關聯同一專案中可用的來源 Session。";
+    }
+  }
+
+  if (table === "outstanding_item_events") {
+    const itemId = String(row.item_id);
+    if (!isAvailable("outstanding_items", itemId, selectedIds.outstanding_items, availableIds, conflictIds)) {
+      return "待結項稽核事件對應的項目發生衝突或不存在。";
+    }
+    if (outstandingItemProjectIds.get(itemId) !== row.project_id) {
+      return "待結項稽核事件必須屬於對應項目的專案。";
+    }
+    const actorSessionId = typeof row.actor_session_id === "string" ? row.actor_session_id : undefined;
+    if (
+      actorSessionId &&
+      (!isAvailable("sessions", actorSessionId, selectedIds.sessions, availableIds, conflictIds) ||
+        sessionProjectIds.get(actorSessionId) !== row.project_id)
+    ) {
+      return "待結項稽核事件的 actor Session 必須位於同一專案。";
     }
   }
 
@@ -801,6 +870,16 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     const projectId = String(session.project_id);
     sessionProjectIds.set(String(session.id), projectIds.get(projectId) ?? projectId);
   }
+  const outstandingItemProjectIds = new Map<string, string>();
+  for (const item of selectedBundle.tables.outstanding_items) {
+    const projectId = String(item.project_id);
+    outstandingItemProjectIds.set(String(item.id), projectIds.get(projectId) ?? projectId);
+  }
+  for (const item of existingRowsById.outstanding_items.values()) {
+    if (typeof item.project_id === "string") {
+      outstandingItemProjectIds.set(String(item.id), item.project_id);
+    }
+  }
   if (checkedCursorIds.length > 0) {
     const existingCursorRows = db
       .prepare("SELECT id, project_id FROM sessions WHERE id IN (SELECT value FROM json_each(?))")
@@ -824,6 +903,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
         existingIds,
         conflictIds,
         sessionProjectIds,
+        outstandingItemProjectIds,
       );
       if (dependencyError) {
         addPlan(table, row, "conflict", dependencyError);
@@ -915,16 +995,14 @@ export class ProjectDataTransferService {
   }
 
   public preview(input: ProjectDataImportInput): ProjectDataImportPreview {
-    const sanitized = redactProjectDataRows(input.bundle.tables);
-    const sanitizedInput = { ...input, bundle: { ...input.bundle, tables: sanitized.rows } };
-    return runReadTransaction(this.db, () => previewFromPlan(makePlan(this.db, sanitizedInput)));
+    const sanitized = sanitizeImportInput(input);
+    return runReadTransaction(this.db, () => previewFromPlan(makePlan(this.db, sanitized.input)));
   }
 
   public import(input: ProjectDataImportInput): ProjectDataImportResult {
-    const sanitized = redactProjectDataRows(input.bundle.tables);
-    const sanitizedInput = { ...input, bundle: { ...input.bundle, tables: sanitized.rows } };
+    const sanitized = sanitizeImportInput(input);
     return runImmediateTransaction(this.db, () => {
-      const plan = makePlan(this.db, sanitizedInput);
+      const plan = makePlan(this.db, sanitized.input);
       const insertStatements = new Map<ProjectDataTable, InsertStatement>();
       for (const table of TABLE_ORDER) {
         for (const entry of plan.rows[table]) {
@@ -942,7 +1020,7 @@ export class ProjectDataTransferService {
       }
       const preview = previewFromPlan(plan);
       const importedAt = nowIso();
-      const sourceDigest = createHash("sha256").update(JSON.stringify(sanitizedInput)).digest("hex");
+      const sourceDigest = createHash("sha256").update(JSON.stringify(sanitized.input)).digest("hex");
       const remapCounts = JSON.stringify(plan.remappedPaths);
       this.db
         .prepare(

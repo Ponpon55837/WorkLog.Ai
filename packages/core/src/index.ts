@@ -133,6 +133,8 @@ export interface ProjectDeletionCounts {
   sessionSummaryUpdates: number;
   sessionWorkSummaryUpdates: number;
   sessionDecisions: number;
+  outstandingItems: number;
+  outstandingItemEvents: number;
   knowledgePages: number;
   knowledgePageVersions: number;
   knowledgeFeedback: number;
@@ -211,6 +213,56 @@ export interface SessionDecisionRecord {
   sessionTitle?: string;
   sessionCompletedAt?: string;
 }
+
+export const OUTSTANDING_ITEM_STATUSES = ["pending", "completed", "not_needed"] as const;
+export type OutstandingItemStatus = (typeof OUTSTANDING_ITEM_STATUSES)[number];
+export type OutstandingItemEventSource = "agent" | "web" | "migration";
+
+export interface OutstandingItem {
+  id: string;
+  sourceSessionId: string;
+  projectId: string;
+  projectName: string;
+  sourceSessionTitle: string;
+  sourceSessionCompletedAt: string;
+  position: number;
+  text: string;
+  status: OutstandingItemStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListOutstandingItemsInput {
+  projectRoot?: string;
+  projectId?: string;
+  status?: OutstandingItemStatus;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface OutstandingItemListResult {
+  outcome: "outstanding_items";
+  items: OutstandingItem[];
+  pageInfo: PageInfo;
+}
+
+export interface ContextOutstandingItem extends OutstandingItem {
+  textTruncated?: true;
+}
+
+export type OutstandingItemListQueryResult =
+  | OutstandingItemListResult
+  | { outcome: "skipped"; projectId?: string; projectRoot?: string; projectStatus: PolicyStatus; reason?: string };
+
+export interface UpdateOutstandingItemStatusInput {
+  itemId: string;
+  status: OutstandingItemStatus;
+}
+
+export type UpdateOutstandingItemStatusResult =
+  | { outcome: "outstanding_item_updated"; item: OutstandingItem; duplicate: boolean }
+  | { outcome: "not_found"; itemId: string }
+  | { outcome: "skipped"; itemId: string; projectStatus: PolicyStatus; reason?: string };
 
 export interface ListSessionDecisionsInput {
   projectRoot?: string;
@@ -1271,6 +1323,8 @@ export interface FinalizeSessionInput {
   diagrams?: Array<{ title: string; source: string }>;
   /** Knowledge pages this work saved or checked; this Session does not count as their new data. */
   maintainedKnowledgePages?: string[];
+  /** Outstanding items completed in this Session; only pending items in this tracked project are resolved. */
+  resolvedOutstandingItemIds?: string[];
 }
 
 export interface UpdateSessionVerificationInput {
@@ -1302,6 +1356,11 @@ export interface FinalizedSessionResult {
   timestampWarnings?: string[];
   /** maintainedKnowledgePages whose review cursor moved to this Session (it no longer counts as their new data). */
   knowledgePagesAcknowledged?: string[];
+  resolvedOutstandingItemIds?: string[];
+  outstandingItemWarnings?: {
+    unresolvedIds: string[];
+    message: string;
+  };
 }
 
 export interface FinalizeIdempotencyConflictResult {
@@ -2112,6 +2171,11 @@ export interface ContextResult {
   recentSessions: SessionDigest[];
   recentDecisions: DecisionDigest[];
   recentKnowledge: KnowledgeDigest[];
+  /** Pending items only, each linked to its source Session. */
+  pendingOutstandingItems: ContextOutstandingItem[];
+  pendingOutstandingItemsTotal: number;
+  pendingOutstandingItemsOmitted: number;
+  pendingOutstandingItemsTruncated: number;
   /** Counts only; list the affected Sessions with work_preview_metadata_backfill. */
   metadataFollowUps: MetadataBackfillPreview["totals"];
   /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
@@ -2575,6 +2639,8 @@ export const PROJECT_DATA_TABLES = [
   "metadata_backfill_requests",
   "session_summary_updates",
   "session_work_summary_updates",
+  "outstanding_items",
+  "outstanding_item_events",
 ] as const;
 
 export type ProjectDataTable = (typeof PROJECT_DATA_TABLES)[number];
