@@ -277,7 +277,8 @@ describe("Agent setup", () => {
     const serverPath = join(repositoryRoot, "apps", "mcp", "dist", "index.js");
     const claudeHook = join(repositoryRoot, "apps", "mcp", "dist", "finalize-reminder.js");
     const codexHook = join(repositoryRoot, "apps", "mcp", "dist", "codex-finalize-reminder.js");
-    const absoluteNodeCommand = `/usr/local/bin/node ${JSON.stringify(codexHook)}`;
+    // Double-quoted as a user would write it; JSON.stringify would double Windows backslashes.
+    const absoluteNodeCommand = `/usr/local/bin/node "${codexHook}"`;
     mkdirSync(fixture.paths.codexHome, { recursive: true });
     const codexConfig = Buffer.from(
       [
