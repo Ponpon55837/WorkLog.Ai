@@ -39,6 +39,7 @@ export interface UserServiceOptions {
   packageManagerExecutable?: string;
   userId?: string;
   uid?: number;
+  configFileExists?: (path: string) => boolean;
   runCommand?: (command: string, args: string[]) => string;
 }
 
@@ -538,7 +539,7 @@ export function getUserServiceStatus(options: UserServiceOptions = {}): UserServ
   const paths = resolveServicePaths(options);
   const supported = paths.platform !== "unsupported";
   const runCommand = options.runCommand ?? runSystemCommand;
-  const installedFromFile = paths.configPath ? existsSync(paths.configPath) : false;
+  const installedFromFile = paths.configPath ? (options.configFileExists ?? existsSync)(paths.configPath) : false;
   let installed = installedFromFile;
   let enabled: boolean | null = installedFromFile ? true : false;
   let running: boolean | null = installedFromFile ? false : false;

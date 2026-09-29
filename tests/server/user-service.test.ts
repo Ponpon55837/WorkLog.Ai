@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, win32 } from "node:path";
+import { basename, delimiter, dirname, join, posix, win32 } from "node:path";
 import process from "node:process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -25,21 +25,30 @@ function managerFor(platform: UserServicePlatform): string {
   return platform === "darwin" ? "LaunchAgent" : platform === "linux" ? "systemd --user" : "Task Scheduler";
 }
 
+function temporaryRootForPlatform(platform: UserServicePlatform, root: string): string {
+  const name = basename(root);
+  if (platform === "win32") {
+    return process.platform === "win32" ? root : win32.join("C:\\", "Temp", name);
+  }
+  return process.platform === "win32" ? posix.join("/tmp", name) : root;
+}
+
 function createPlan(platform: Exclude<UserServicePlatform, "unsupported">, root: string) {
   const win = platform === "win32";
-  const pathJoin = win ? win32.join : join;
-  const homeDirectory = pathJoin(root, "home with spaces");
-  const repositoryRoot = pathJoin(root, "repository with spaces");
-  const databasePath = pathJoin(root, "database", "work-intelligence.sqlite");
-  const backupDirectory = pathJoin(root, "database", "snapshots");
-  const packageManagerExecutable = win ? "C:\\Program Files\\pnpm\\pnpm.cmd" : join(root, "bin", "pnpm");
+  const targetRoot = temporaryRootForPlatform(platform, root);
+  const pathJoin = win ? win32.join : posix.join;
+  const homeDirectory = pathJoin(targetRoot, "home with spaces");
+  const repositoryRoot = pathJoin(targetRoot, "repository with spaces");
+  const databasePath = pathJoin(targetRoot, "database", "work-intelligence.sqlite");
+  const backupDirectory = pathJoin(targetRoot, "database", "snapshots");
+  const packageManagerExecutable = win ? "C:\\Program Files\\pnpm\\pnpm.cmd" : posix.join(targetRoot, "bin", "pnpm");
   const nodeExecutable = win ? "C:\\Program Files\\nodejs\\node.exe" : "/usr/bin/node";
   const environment: NodeJS.ProcessEnv = {
     HOME: homeDirectory,
     USERPROFILE: homeDirectory,
     LOCALAPPDATA: win ? win32.join(homeDirectory, "AppData", "Local") : undefined,
-    XDG_CONFIG_HOME: win ? undefined : join(homeDirectory, ".config"),
-    XDG_STATE_HOME: win ? undefined : join(homeDirectory, ".local", "state"),
+    XDG_CONFIG_HOME: win ? undefined : posix.join(homeDirectory, ".config"),
+    XDG_STATE_HOME: win ? undefined : posix.join(homeDirectory, ".local", "state"),
     WORK_INTELLIGENCE_DB: databasePath,
     WORK_INTELLIGENCE_BACKUP_DIR: backupDirectory,
     PATH: process.env.PATH ?? delimiter,
@@ -58,18 +67,19 @@ function createPlan(platform: Exclude<UserServicePlatform, "unsupported">, root:
 
 function makeStatusOptions(platform: Exclude<UserServicePlatform, "unsupported">, root: string) {
   const win = platform === "win32";
-  const pathJoin = win ? win32.join : join;
-  const homeDirectory = pathJoin(root, "status home");
+  const targetRoot = temporaryRootForPlatform(platform, root);
+  const pathJoin = win ? win32.join : posix.join;
+  const homeDirectory = pathJoin(targetRoot, "status home");
   return {
     platform,
     homeDirectory,
-    repositoryRoot: pathJoin(root, "repository"),
+    repositoryRoot: pathJoin(targetRoot, "repository"),
     environment: {
       HOME: win ? undefined : homeDirectory,
       USERPROFILE: win ? homeDirectory : undefined,
       LOCALAPPDATA: win ? win32.join(homeDirectory, "AppData", "Local") : undefined,
-      WORK_INTELLIGENCE_DB: pathJoin(root, "data", "database.sqlite"),
-      WORK_INTELLIGENCE_BACKUP_DIR: pathJoin(root, "data", "backups"),
+      WORK_INTELLIGENCE_DB: pathJoin(targetRoot, "data", "database.sqlite"),
+      WORK_INTELLIGENCE_BACKUP_DIR: pathJoin(targetRoot, "data", "backups"),
     },
   };
 }
@@ -81,13 +91,14 @@ afterEach(() => {
 describe("user-level login service definitions", () => {
   it.each(supportedPlatforms)("generates a %s service for the shared Work Intelligence database", (platform) => {
     const root = temporaryDirectory();
+    const targetRoot = temporaryRootForPlatform(platform, root);
     const plan = createPlan(platform, root);
     const contents = plan.files[0]?.contents ?? "";
     const preview = formatUserServicePreview(plan);
 
     expect(plan.manager).toBe(managerFor(platform));
     expect(plan.configPath).toContain(
-      platform === "win32" ? win32.join(root, "home with spaces") : join(root, "home with spaces"),
+      platform === "win32" ? win32.join(targetRoot, "home with spaces") : posix.join(targetRoot, "home with spaces"),
     );
     expect(plan.databasePath).toContain("work-intelligence.sqlite");
     expect(plan.backupDirectory).toMatch(/snapshots$/);
@@ -129,11 +140,12 @@ describe("user-level login service definitions", () => {
 
   it("escapes XML paths and describes every file before asking for confirmation", async () => {
     const root = temporaryDirectory();
+    const targetRoot = temporaryRootForPlatform("darwin", root);
     const plan = createUserServicePlan({
       platform: "darwin",
-      homeDirectory: `${root}/R&D`,
-      repositoryRoot: `${root}/Work & Intelligence`,
-      environment: { HOME: `${root}/R&D`, WORK_INTELLIGENCE_DB: `${root}/db.sqlite` },
+      homeDirectory: `${targetRoot}/R&D`,
+      repositoryRoot: `${targetRoot}/Work & Intelligence`,
+      environment: { HOME: `${targetRoot}/R&D`, WORK_INTELLIGENCE_DB: `${targetRoot}/db.sqlite` },
       nodeExecutable: "/usr/bin/node",
       packageManagerExecutable: "/usr/local/bin/pnpm",
     });
@@ -202,17 +214,6 @@ describe("read-only login service status", () => {
   it.each(supportedPlatforms)("reports the %s manager state without installing a service", (platform) => {
     const root = temporaryDirectory();
     const options = makeStatusOptions(platform, root);
-    const plan = createUserServicePlan({
-      ...options,
-      nodeExecutable: platform === "win32" ? "C:\\Program Files\\nodejs\\node.exe" : "/usr/bin/node",
-      packageManagerExecutable: platform === "win32" ? "C:\\Program Files\\pnpm\\pnpm.cmd" : "/usr/bin/pnpm",
-      userId: "S-1-5-21-1000",
-      uid: 501,
-    });
-    if (platform !== "win32") {
-      mkdirSync(dirname(plan.configPath), { recursive: true });
-      writeFileSync(plan.configPath, plan.files[0]?.contents ?? "");
-    }
     const commands: string[] = [];
     const runCommand = (command: string, args: string[]): string => {
       commands.push(`${command} ${args.join(" ")}`);
@@ -220,7 +221,12 @@ describe("read-only login service status", () => {
       if (platform === "linux") return "LoadState=loaded\nActiveState=active\nUnitFileState=enabled\n";
       return JSON.stringify({ state: "Running", enabled: true });
     };
-    const status = getUserServiceStatus({ ...options, runCommand, uid: 501 });
+    const status = getUserServiceStatus({
+      ...options,
+      configFileExists: () => true,
+      runCommand,
+      uid: 501,
+    });
 
     expect(status).toMatchObject({ state: "running", enabled: true, running: true });
     expect(status.manager).toBe(managerFor(platform));
@@ -233,11 +239,12 @@ describe("read-only login service status", () => {
   it("reports an absent macOS or Linux config as not installed without calling the manager", () => {
     for (const platform of ["darwin", "linux"] as const) {
       const root = temporaryDirectory();
+      const targetRoot = temporaryRootForPlatform(platform, root);
       const status = getUserServiceStatus({
         platform,
-        homeDirectory: join(root, "home"),
-        repositoryRoot: join(root, "repository"),
-        environment: { HOME: join(root, "home") },
+        homeDirectory: posix.join(targetRoot, "home"),
+        repositoryRoot: posix.join(targetRoot, "repository"),
+        environment: { HOME: posix.join(targetRoot, "home") },
         runCommand: () => {
           throw new Error("No manager command should run when the service config is absent.");
         },
