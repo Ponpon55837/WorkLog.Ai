@@ -14,6 +14,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseToml } from "smol-toml";
 
 export type AgentSetupComponentId =
   | "codexSkill"
@@ -100,6 +101,13 @@ interface JsonMutationSpec {
   expected: unknown;
   label: string;
   similar?: (value: unknown) => boolean;
+  /**
+   * An existing entry that already does the job (for example written by hand before setup existed, with an
+   * absolute node path or exec-form args). It is kept as is and not recorded as setup-owned.
+   */
+  equivalent?: (value: unknown) => boolean;
+  /** Returns an upgraded copy of an existing entry that needs only a known fix, or undefined. */
+  upgrade?: (value: unknown) => unknown;
 }
 
 interface ReadFileResult {
@@ -360,7 +368,51 @@ function commandContains(value: unknown, scriptPath: string): boolean {
   ) {
     return true;
   }
+  // Exec form: `command` is the runtime and the script sits in `args` (Claude Code supports this).
+  if (
+    typeof value.command === "string" &&
+    Array.isArray(value.args) &&
+    value.args.some((arg) => typeof arg === "string" && normalizeConfigPath(arg) === normalizeConfigPath(scriptPath))
+  ) {
+    return true;
+  }
   return Object.values(value).some((item) => commandContains(item, scriptPath));
+}
+
+function normalizeConfigPath(value: string): string {
+  const normalized = value.replaceAll("\\", "/").replace(/\/+/g, "/").replace(/\/$/, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+/**
+ * Whether an MCP server entry launches this repository's MCP server, either through its built entry point
+ * (`node <repo>/apps/mcp/dist/index.js`, any node path) or `pnpm --dir <repo> start:mcp` / `cwd: <repo>`.
+ */
+function launchesRepositoryMcp(value: unknown, repositoryRoot: string): boolean {
+  if (!JSON_OBJECT(value) || typeof value.command !== "string") return false;
+  const parts = [value.command, ...(Array.isArray(value.args) ? value.args : [])].filter(
+    (part): part is string => typeof part === "string",
+  );
+  const serverPath = normalizeConfigPath(resolve(repositoryRoot, "apps/mcp/dist/index.js"));
+  if (parts.some((part) => normalizeConfigPath(part) === serverPath)) return true;
+  const dirFlag = parts.findIndex((part) => part === "--dir" || part === "-C");
+  const directory = dirFlag >= 0 ? parts[dirFlag + 1] : typeof value.cwd === "string" ? value.cwd : undefined;
+  return (
+    parts.includes("start:mcp") &&
+    directory !== undefined &&
+    normalizeConfigPath(directory) === normalizeConfigPath(resolve(repositoryRoot))
+  );
+}
+
+/** Reads `[mcp_servers.work-intelligence]` from config.toml when it parses; undefined otherwise. */
+function codexWorkIntelligenceServer(tomlText: string): unknown {
+  try {
+    const config = parseToml(tomlText, { maxDepth: 128, unsafeKeyBehaviour: "throw" }) as Record<string, unknown>;
+    const servers = config.mcp_servers;
+    return JSON_OBJECT(servers) ? servers["work-intelligence"] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sameManagedHookShape(actual: unknown, expected: unknown, key?: string): boolean {
@@ -418,6 +470,7 @@ function addJsonSpec(
   entries: ManagedEntry[],
   spec: JsonMutationSpec,
   conflicts: string[],
+  actions: string[],
 ): boolean {
   const previousIndex = entryIndex(entries, spec.id);
   const previous = previousIndex >= 0 ? entries[previousIndex] : undefined;
@@ -440,6 +493,10 @@ function addJsonSpec(
       setPathValue(root, spec.path, spec.expected);
       setEntry(entries, { id: spec.id as "claudeMcp", kind: "json-property", expected: spec.expected });
       return true;
+    }
+    if (spec.equivalent?.(current)) {
+      actions.push(`保留既有 ${spec.label}：已指向這個 Work Intelligence，不修改。`);
+      return false;
     }
     conflicts.push(`${spec.label} 已有不同設定，保留且拒絕覆寫。`);
     return changed;
@@ -477,6 +534,16 @@ function addJsonSpec(
       conflicts.push(`${spec.label} 已在安裝後修改；保留現有 hook 並拒絕新增重複項目。`);
       return false;
     }
+  }
+  if (spec.equivalent && array.some(spec.equivalent)) {
+    actions.push(`保留既有 ${spec.label}：已指向這個 Work Intelligence，不修改。`);
+    return false;
+  }
+  const upgradeIndex = spec.upgrade ? array.findIndex((item) => spec.upgrade?.(item) !== undefined) : -1;
+  if (spec.upgrade && upgradeIndex >= 0) {
+    array[upgradeIndex] = spec.upgrade(array[upgradeIndex]);
+    actions.push(`更新既有 ${spec.label} 的 matcher，其餘自訂設定保留。`);
+    return true;
   }
   if (arrayKey && spec.similar && array.some(spec.similar)) {
     conflicts.push(`${spec.label} 有已自訂的相似設定，保留且拒絕新增重複項目。`);
@@ -716,6 +783,7 @@ function getClaudeMcpSpec(repositoryRoot: string): JsonMutationSpec {
     path: ["mcpServers", "work-intelligence"],
     expected: { type: "stdio", command: "node", args: [serverPath] },
     label: "Claude MCP 註冊",
+    equivalent: (value) => launchesRepositoryMcp(value, repositoryRoot),
   };
 }
 
@@ -738,6 +806,7 @@ function getClaudeStopSpec(repositoryRoot: string, platform: NodeJS.Platform): J
     expected,
     label: "Claude Stop hook",
     similar: (value) => commandContains(value, scriptPath),
+    equivalent: (value) => commandContains(value, scriptPath),
   };
 }
 
@@ -759,6 +828,11 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
         typeof value.matcher === "string" &&
         compatibleMatchers.has(value.matcher) &&
         commandContains(value, scriptPath),
+      equivalent: (value) => JSON_OBJECT(value) && value.matcher === matcher && commandContains(value, scriptPath),
+      upgrade: (value) =>
+        JSON_OBJECT(value) && value.matcher === LEGACY_CODEX_POST_TOOL_USE_MATCHER && commandContains(value, scriptPath)
+          ? { ...value, matcher }
+          : undefined,
     },
     {
       id: "codexStopHook",
@@ -767,6 +841,7 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
       expected: simpleHook,
       label: "Codex Stop hook",
       similar: (value) => commandContains(value, scriptPath),
+      equivalent: (value) => commandContains(value, scriptPath),
     },
     {
       id: "codexUserPromptSubmitHook",
@@ -775,6 +850,7 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
       expected: simpleHook,
       label: "Codex UserPromptSubmit hook",
       similar: (value) => commandContains(value, scriptPath),
+      equivalent: (value) => commandContains(value, scriptPath),
     },
   ];
 }
@@ -854,6 +930,8 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     const next = tomlText.replace(tomlOwnedExpected, desiredBlock);
     stageMutation(plan, options, tomlPath, "Codex MCP 註冊", tomlFile.bytes, Buffer.from(next, "utf8"), tomlFile.mode);
     setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
+  } else if (!tomlOwned && launchesRepositoryMcp(codexWorkIntelligenceServer(tomlText), repositoryRoot)) {
+    plan.actions.push("保留既有 Codex MCP 註冊：已指向這個 Work Intelligence，不修改。");
   } else if (tomlOwned && !tomlText.includes(tomlOwnedExpected ?? "")) {
     if (tomlText.includes(TOML_BLOCK_START) || tomlText.includes(TOML_BLOCK_END)) {
       addConflict(plan, "Codex MCP 的安裝區塊已被修改；保留且拒絕覆寫。");
@@ -903,7 +981,7 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     const loaded = parseJsonFile(path, homeDirectory, plan.conflicts);
     const changes = { before: loaded.before, mode: loaded.mode, root: loaded.root, changed: false };
     for (const spec of specs)
-      changes.changed = addJsonSpec(changes.root, components, spec, plan.conflicts) || changes.changed;
+      changes.changed = addJsonSpec(changes.root, components, spec, plan.conflicts, plan.actions) || changes.changed;
     jsonFileChanges.set(path, changes);
   };
 

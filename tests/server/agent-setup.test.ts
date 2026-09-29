@@ -271,6 +271,94 @@ describe("Agent setup", () => {
     expect(updatedPostToolUse[0]?.matcher).toBe(CODEX_POST_TOOL_USE_MATCHER);
   });
 
+  it("keeps hand-written registrations and hooks that already point to this repository, upgrading only a legacy matcher", () => {
+    const fixture = createFixture();
+    const { repositoryRoot } = fixture.options;
+    const serverPath = join(repositoryRoot, "apps", "mcp", "dist", "index.js");
+    const claudeHook = join(repositoryRoot, "apps", "mcp", "dist", "finalize-reminder.js");
+    const codexHook = join(repositoryRoot, "apps", "mcp", "dist", "codex-finalize-reminder.js");
+    const absoluteNodeCommand = `/usr/local/bin/node ${JSON.stringify(codexHook)}`;
+    mkdirSync(fixture.paths.codexHome, { recursive: true });
+    const codexConfig = Buffer.from(
+      [
+        "[mcp_servers.work-intelligence]",
+        'command = "/usr/local/bin/pnpm"',
+        `args = ["--dir", ${JSON.stringify(repositoryRoot)}, "start:mcp"]`,
+        "",
+        "[mcp_servers.work-intelligence.env]",
+        'WORK_INTELLIGENCE_DB = "/fixture/work-intelligence.sqlite"',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    writeFileSync(fixture.paths.codexConfig, codexConfig);
+    const claudeJson = writeJson(fixture.paths.claudeJson, {
+      mcpServers: { "work-intelligence": { command: "/usr/local/bin/node", args: [serverPath] } },
+    });
+    const claudeSettings = writeJson(fixture.paths.claudeSettings, {
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: "/usr/local/bin/node", args: [claudeHook], timeout: 10 }] }],
+      },
+    });
+    writeJson(fixture.paths.codexHooks, {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: LEGACY_CODEX_POST_TOOL_USE_MATCHER,
+            hooks: [{ type: "command", command: absoluteNodeCommand, timeout: 3, statusMessage: "Checking" }],
+          },
+        ],
+        Stop: [{ hooks: [{ type: "command", command: absoluteNodeCommand }] }],
+        UserPromptSubmit: [{ hooks: [{ type: "command", command: absoluteNodeCommand }] }],
+      },
+    });
+
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.actions).toContain("保留既有 Codex MCP 註冊：已指向這個 Work Intelligence，不修改。");
+    expect(plan.actions).toContain("保留既有 Claude MCP 註冊：已指向這個 Work Intelligence，不修改。");
+    expect(plan.actions).toContain("保留既有 Claude Stop hook：已指向這個 Work Intelligence，不修改。");
+    expect(plan.actions).toContain("更新既有 Codex PostToolUse hook 的 matcher，其餘自訂設定保留。");
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+
+    // Registrations and the exec-form Claude hook are untouched; no duplicate hook is added.
+    expect(readFileSync(fixture.paths.codexConfig)).toEqual(codexConfig);
+    expect(readFileSync(fixture.paths.claudeJson)).toEqual(claudeJson);
+    expect(readFileSync(fixture.paths.claudeSettings)).toEqual(claudeSettings);
+    const codexHooks = object(readJson(fixture.paths.codexHooks).hooks);
+    expect(codexHooks.PostToolUse).toEqual([
+      {
+        matcher: CODEX_POST_TOOL_USE_MATCHER,
+        hooks: [{ type: "command", command: absoluteNodeCommand, timeout: 3, statusMessage: "Checking" }],
+      },
+    ]);
+    expect(codexHooks.Stop as unknown[]).toHaveLength(1);
+    expect(codexHooks.UserPromptSubmit as unknown[]).toHaveLength(1);
+    // Kept entries are not recorded as setup-owned, so uninstall never removes them.
+    const componentIds = (readJson(fixture.paths.manifest).components as Array<{ id: string }>).map(({ id }) => id);
+    expect(componentIds.sort()).toEqual(["claudeSkill", "codexLegacySkill", "codexSkill"]);
+
+    const secondPlan = createAgentSetupPlan(fixture.options);
+    expect(secondPlan.conflicts).toEqual([]);
+    expect(secondPlan.mutations).toEqual([]);
+  });
+
+  it("still refuses a Work Intelligence registration that points to another repository", () => {
+    const fixture = createFixture();
+    mkdirSync(fixture.paths.codexHome, { recursive: true });
+    writeFileSync(
+      fixture.paths.codexConfig,
+      '[mcp_servers.work-intelligence]\ncommand = "pnpm"\nargs = ["--dir", "/elsewhere/WorkLog.Ai", "start:mcp"]\n',
+    );
+    writeJson(fixture.paths.claudeJson, {
+      mcpServers: { "work-intelligence": { command: "node", args: ["/elsewhere/apps/mcp/dist/index.js"] } },
+    });
+
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toContain("Codex config.toml 已有未支援的 mcp_servers 結構；保留且拒絕修改。");
+    expect(plan.conflicts).toContain("Claude MCP 註冊 已有不同設定，保留且拒絕覆寫。");
+  });
+
   it("keeps skill copies current by content hash and reports source drift as stale", () => {
     const fixture = createFixture();
     expect(skillCopyStates(fixture)).toEqual({
