@@ -61,7 +61,12 @@ export type {
   UpdateSessionWorkSummaryResult,
 } from "@work-intelligence/core";
 
-import type { KnowledgeQuery, ReportPeriod, SessionVoidedFilter } from "@work-intelligence/core";
+import type {
+  KnowledgeQuery,
+  ListOutstandingItemsInput,
+  ReportPeriod,
+  SessionVoidedFilter,
+} from "@work-intelligence/core";
 
 export type ApiHealth = {
   ok: boolean;
@@ -96,3 +101,5 @@ export type ReportRequest = {
 };
 
 export type KnowledgeRequest = Omit<KnowledgeQuery, "pageSize"> & { pageSize?: number | "all" };
+
+export type OutstandingItemsRequest = Omit<ListOutstandingItemsInput, "pageSize"> & { pageSize?: number | "all" };

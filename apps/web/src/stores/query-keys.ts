@@ -31,6 +31,9 @@ export const queryKeys = {
   sessionDecisions: {
     list: ["session-decisions", "list"] as const,
   },
+  outstandingItems: {
+    list: ["outstanding-items", "list"] as const,
+  },
   sessions: {
     list: ["sessions", "list"] as const,
     detail: ["sessions", "detail"] as const,

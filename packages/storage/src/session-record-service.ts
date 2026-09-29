@@ -4,6 +4,7 @@ import { nowIso } from "@work-intelligence/shared";
 import type {
   LinkSessionsInput,
   LinkSessionsResult,
+  OutstandingItemEventSource,
   KnowledgeRecord,
   PolicyDecision,
   ProjectRecord,
@@ -99,6 +100,14 @@ export interface SessionRecordDependencies {
   getProjectById(projectId: string): ProjectRecord | undefined;
   withKnowledgeTrustMany(knowledge: KnowledgeRecord[]): KnowledgeRecord[];
   listDiagrams(sessionId: string): SessionDiagramRecord[];
+  syncOutstandingItems(
+    sessionId: string,
+    projectId: string,
+    nextSteps: readonly string[],
+    source: Exclude<OutstandingItemEventSource, "migration">,
+    actorSessionId: string,
+    updatedAt: string,
+  ): void;
 }
 
 export class SessionRecordService {
@@ -579,7 +588,10 @@ export class SessionRecordService {
     });
   }
 
-  public updateSessionWorkSummary(input: UpdateSessionWorkSummaryInput): UpdateSessionWorkSummaryResult {
+  public updateSessionWorkSummary(
+    input: UpdateSessionWorkSummaryInput,
+    source: Exclude<OutstandingItemEventSource, "migration"> = "web",
+  ): UpdateSessionWorkSummaryResult {
     const row = this.db
       .prepare(
         `SELECT s.*, p.name AS project_name
@@ -630,6 +642,20 @@ export class SessionRecordService {
     const project = decision.project;
 
     return runImmediateSqlTransaction(this.db, () => {
+      const currentSession = this.db.prepare("SELECT voided_at FROM sessions WHERE id = ?").get(input.sessionId) as
+        { voided_at: string | null } | undefined;
+      if (!currentSession) {
+        return { outcome: "not_found", sessionId: input.sessionId };
+      }
+      if (currentSession.voided_at) {
+        return {
+          outcome: "skipped",
+          sessionId: input.sessionId,
+          projectStatus: project.status,
+          reason: "已作廢的 Session 不可更新 workSummary。",
+        };
+      }
+
       const existingUpdate = this.db
         .prepare(
           `SELECT session_id, idempotency_key, mode, work_summary_json, previous_work_summary_json, resulting_work_summary_json
@@ -706,6 +732,14 @@ export class SessionRecordService {
         }));
         replaceSessionDecisions(this.db, input.sessionId, project.id, persistedDecisions);
       }
+      this.dependencies.syncOutstandingItems(
+        input.sessionId,
+        project.id,
+        appliedWorkSummary.nextSteps,
+        source,
+        input.sessionId,
+        createdAt,
+      );
       this.touchSession(input.sessionId, createdAt);
       this.db
         .prepare(

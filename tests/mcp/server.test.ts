@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import {
   getMcpRestartStatus,
@@ -23,7 +23,7 @@ const DISPATCHER_EXPECTATIONS = {
   work_read: {
     title: "Read Work Intelligence",
     annotations: { title: "Read Work Intelligence", readOnlyHint: true, openWorldHint: false },
-    operationCount: 17,
+    operationCount: 18,
   },
   work_write_idempotent: {
     title: "Write Work Intelligence records",
@@ -70,9 +70,10 @@ const toolContractCatalogs = new WeakMap<Client, Promise<ToolContractCatalog>>()
 
 async function connect(
   getRestartStatus?: () => { restartRequired: boolean; monitoringAvailable: boolean; message?: string },
+  fileBacked = false,
 ) {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-test-"));
-  const store = new WorkIntelligenceStore(":memory:");
+  const store = new WorkIntelligenceStore(fileBacked ? join(root, "work-intelligence.sqlite") : ":memory:");
   const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION, undefined, getRestartStatus);
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -527,6 +528,237 @@ describe("Work Intelligence MCP server", () => {
       outcome: "skipped",
       projectStatus: "paused",
     });
+  });
+
+  it("uses pending outstanding item state for paged Session digest open items", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Digest status project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const completedText = "This old nextSteps entry is already complete.";
+    const notNeededText = "This old nextSteps entry is no longer needed.";
+    const pendingText = "This remains open after review.";
+    const voidedPendingText = "A voided source must not expose this item.";
+    const source = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-digest-state-source", "Digest status source"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Created a source with mixed item states."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [completedText, notNeededText, pendingText],
+      },
+    });
+    const voidedSource = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-digest-state-voided", "Voided digest source"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Created a source to void."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [voidedPendingText],
+      },
+    });
+    const itemList = store.listOutstandingItems({ projectRoot: root, status: "pending", pageSize: 0 });
+    if (itemList.outcome !== "outstanding_items") throw new Error("Expected pending source items.");
+    const itemByText = new Map(itemList.items.map((item) => [item.text, item]));
+    const completed = itemByText.get(completedText);
+    const notNeeded = itemByText.get(notNeededText);
+    const voidedPending = itemByText.get(voidedPendingText);
+    if (!completed || !notNeeded || !voidedPending) throw new Error("Expected all synthetic source items.");
+    store.updateOutstandingItemStatus(completed.id, "completed");
+    store.updateOutstandingItemStatus(notNeeded.id, "not_needed");
+    store.setSessionVoid({ sessionId: voidedSource.session.id, voided: true, reason: "Synthetic source correction." });
+
+    const pendingBatch = vi.spyOn(store, "pendingOutstandingItemsForSessions");
+    const listed = await callJson<{
+      items: Array<{ id: string; title: string; openItems: string[] }>;
+    }>(client, "work_list_sessions", { projectRoot: root, voided: "include", pageSize: 100 });
+    expect(pendingBatch).toHaveBeenCalledTimes(1);
+    expect(pendingBatch).toHaveBeenCalledWith(listed.items.map((session) => session.id));
+    expect(listed.items.find((session) => session.id === source.session.id)?.openItems).toEqual([pendingText]);
+    expect(listed.items.find((session) => session.id === voidedSource.session.id)?.openItems).toEqual([]);
+    expect(JSON.stringify(listed)).not.toContain(completedText);
+    expect(JSON.stringify(listed)).not.toContain(notNeededText);
+    expect(JSON.stringify(listed)).not.toContain(voidedPendingText);
+  });
+
+  it("caps outstanding item text at 4,000 UTF-16 code units without splitting a surrogate pair", async () => {
+    const { client, store, root } = await connect(undefined, true);
+    const project = store.addProject("Long outstanding text project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const source = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-long-outstanding-source", "Long outstanding source"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Created a source for response-boundary coverage."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["temporary source item"],
+      },
+    });
+    const longText = `${"x".repeat(3_998)}😀tail`;
+    const database = new DatabaseSync(store.databasePath);
+    try {
+      database
+        .prepare("UPDATE outstanding_items SET text = ? WHERE source_session_id = ?")
+        .run(longText, source.session.id);
+    } finally {
+      database.close();
+    }
+
+    const listed = await callJson<{
+      items: Array<{ text: string; textTruncated?: boolean }>;
+    }>(client, "work_list_outstanding_items", { projectRoot: root });
+    expect(listed.items[0]?.text).toBe(`${"x".repeat(3_998)}…`);
+    expect(listed.items[0]?.text.length).toBeLessThanOrEqual(4_000);
+    expect(listed.items[0]?.text).not.toMatch(/[\uD800-\uDBFF]$/u);
+    expect(listed.items[0]?.textTruncated).toBe(true);
+  });
+
+  it("lists tracked pending items read-only and finalizes only same-project pending item ids", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Outstanding item project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const otherRoot = join(root, "private-project");
+    const otherProject = store.addProject("Private project name", otherRoot);
+    store.updateProject(otherProject.id, { status: "tracked" });
+    const ownText = "Finish the verified same-project follow-up.";
+    const privateText = "Private project follow-up text must never appear in another scope.";
+
+    const ownSource = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-outstanding-source-own", "Outstanding item source"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Saved the synthetic source Session."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [ownText],
+      },
+    });
+    const otherSource = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(otherRoot, "mcp-outstanding-source-other", "Private source title"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Saved the private synthetic source Session."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [privateText],
+      },
+    });
+
+    const beforeItems = store.listOutstandingItems({ projectRoot: root });
+    const beforeProjectRoots = store.listProjects().map(({ id, rootPath }) => ({ id, rootPath }));
+    const listed = await callJson<{
+      outcome: string;
+      items: Array<{
+        id: string;
+        projectId: string;
+        projectName: string;
+        sourceSessionId: string;
+        sourceSessionTitle: string;
+        sourceSessionCompletedAt: string;
+        text: string;
+        status: string;
+      }>;
+      pageInfo: { total: number };
+    }>(client, "work_list_outstanding_items", { projectRoot: root });
+    expect(await operationAnnotations(client, "work_list_outstanding_items")).toMatchObject({
+      readOnlyHint: true,
+      openWorldHint: false,
+    });
+    expect(listed).toMatchObject({ outcome: "outstanding_items", pageInfo: { total: 1 } });
+    expect(listed.items).toEqual([
+      expect.objectContaining({
+        projectId: project.id,
+        projectName: "Outstanding item project",
+        sourceSessionId: ownSource.session.id,
+        sourceSessionTitle: "Outstanding item source",
+        text: ownText,
+        status: "pending",
+      }),
+    ]);
+    expect(listed.items[0]?.sourceSessionCompletedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(JSON.stringify(listed)).not.toContain(privateText);
+    expect(JSON.stringify(listed)).not.toContain("Private source title");
+    expect(store.listOutstandingItems({ projectRoot: root })).toEqual(beforeItems);
+    expect(store.listProjects().map(({ id, rootPath }) => ({ id, rootPath }))).toEqual(beforeProjectRoots);
+
+    const untracked = await callJson<{ outcome: string; projectStatus: string }>(
+      client,
+      "work_list_outstanding_items",
+      { projectRoot: join(root, "untracked") },
+    );
+    expect(untracked).toMatchObject({ outcome: "skipped", projectStatus: "unregistered" });
+    expect(JSON.stringify(untracked)).not.toContain(ownText);
+    expect(JSON.stringify(untracked)).not.toContain(privateText);
+
+    const otherItem = store.listOutstandingItems({ projectRoot: otherRoot });
+    if (otherItem.outcome !== "outstanding_items") throw new Error("Expected the private synthetic item.");
+    const privateItemId = otherItem.items[0]?.id;
+    const ownItemId = listed.items[0]?.id;
+    if (!privateItemId || !ownItemId) throw new Error("Expected both synthetic item ids.");
+    expect(otherItem.items[0]?.sourceSessionId).toBe(otherSource.session.id);
+
+    const crossProject = await callJson<{
+      outstandingItemWarnings: { unresolvedIds: string[]; message: string };
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-outstanding-cross-project", "Reject cross-project id"),
+      resolvedOutstandingItemIds: [privateItemId],
+    });
+    expect(crossProject.outstandingItemWarnings).toMatchObject({ unresolvedIds: [privateItemId] });
+    expect(crossProject.outstandingItemWarnings.message).toContain("未標記完成");
+    expect(JSON.stringify(crossProject)).not.toContain(privateText);
+    expect(JSON.stringify(crossProject)).not.toContain("Private source title");
+    expect(JSON.stringify(crossProject)).not.toContain("Private project name");
+    expect(JSON.stringify(crossProject)).not.toContain(otherProject.id);
+    expect(JSON.stringify(crossProject)).not.toContain(otherSource.session.id);
+
+    const missingId = "fictional-outstanding-item-does-not-exist";
+    const nonexistent = await callJson<{
+      outstandingItemWarnings: { unresolvedIds: string[]; message: string };
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-outstanding-nonexistent", "Reject nonexistent id"),
+      resolvedOutstandingItemIds: [missingId],
+    });
+    expect(nonexistent.outstandingItemWarnings.unresolvedIds).toEqual([missingId]);
+    expect(JSON.stringify(nonexistent)).not.toContain(privateText);
+    expect(JSON.stringify(nonexistent)).not.toContain("Private source title");
+
+    const resolved = await callJson<{
+      outcome: string;
+      resolvedOutstandingItemIds: string[];
+      outstandingItemWarnings?: unknown;
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-outstanding-resolve-valid", "Resolve verified id"),
+      resolvedOutstandingItemIds: [ownItemId],
+    });
+    expect(resolved).toMatchObject({ outcome: "finalized", resolvedOutstandingItemIds: [ownItemId] });
+    expect(resolved).not.toHaveProperty("outstandingItemWarnings");
+    expect(
+      await callJson(client, "work_list_outstanding_items", { projectRoot: root, status: "pending" }),
+    ).toMatchObject({ outcome: "outstanding_items", items: [], pageInfo: { total: 0 } });
+    expect(
+      await callJson<{ items: Array<{ id: string; text: string; status: string }> }>(
+        client,
+        "work_list_outstanding_items",
+        { projectRoot: root, status: "completed" },
+      ),
+    ).toMatchObject({ items: [expect.objectContaining({ id: ownItemId, text: ownText, status: "completed" })] });
+
+    const nonPending = await callJson<{
+      outstandingItemWarnings: { unresolvedIds: string[]; message: string };
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-outstanding-non-pending", "Reject non-pending id"),
+      resolvedOutstandingItemIds: [ownItemId],
+    });
+    expect(nonPending.outstandingItemWarnings.unresolvedIds).toEqual([ownItemId]);
+    expect(JSON.stringify(nonPending)).not.toContain(ownText);
+    expect(JSON.stringify(nonPending)).not.toContain("Private project follow-up");
   });
 
   it("lets an Agent create report and metadata requests that show up in context", async () => {

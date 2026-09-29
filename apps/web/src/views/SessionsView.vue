@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
-import { storeToRefs } from "pinia";
+import { computed, onBeforeUnmount, watch } from "vue";
+import { useRoute } from "vue-router";
 import { ListChecks, Search, X } from "lucide-vue-next";
-import type { WorkSessionRecord } from "@work-intelligence/core";
+import { storeToRefs } from "pinia";
+import type { OutstandingItemStatus, WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
+import OutstandingItemsBox from "../components/domain/OutstandingItemsBox.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -17,14 +19,26 @@ import UiGroupLabel from "../components/ui/UiGroupLabel.vue";
 import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
+import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
+import { router } from "../router";
+import { useOutstandingItemsStore } from "../stores/outstanding-items";
 import { useProjectsStore } from "../stores/projects";
 import { useSessionsStore } from "../stores/sessions";
 import { formatDayGroup } from "../utils/format";
-import { listPageSizeOptions, voidedFilterOptions } from "../utils/labels";
+import {
+  listPageSizeOptions,
+  outstandingItemStatusLabels,
+  voidedFilterOptions,
+  type ListPageSize,
+} from "../utils/labels";
 
+type SessionsTab = "sessions" | "outstanding";
+const sessionTabs: readonly SessionsTab[] = ["sessions", "outstanding"];
+
+const route = useRoute();
 const projectsStore = useProjectsStore();
 const { projects } = storeToRefs(projectsStore);
 const sessionsStore = useSessionsStore();
@@ -45,6 +59,19 @@ const {
 } = storeToRefs(sessionsStore);
 const { loadSessions, clearSessionFilters, setSessionsListActive } = sessionsStore;
 const { openSessionDetail, setSessionSequence } = sessionsStore;
+const outstandingItemsStore = useOutstandingItemsStore();
+const {
+  items: outstandingItems,
+  projectId: outstandingProjectId,
+  status: outstandingStatus,
+  page: outstandingPage,
+  pageSize: outstandingPageSize,
+  pageInfo: outstandingPageInfo,
+  loading: outstandingLoading,
+  loaded: outstandingLoaded,
+  error: outstandingError,
+} = storeToRefs(outstandingItemsStore);
+const { reload: reloadOutstandingItems, setListActive: setOutstandingItemsListActive } = outstandingItemsStore;
 
 useRouteQuery("q", searchTerm, stringQuery());
 useRouteQuery("project", selectedProjectId, stringQuery());
@@ -67,15 +94,48 @@ useRouteQuery(
     10,
   ),
 );
+useRouteQuery("itemProject", outstandingProjectId, stringQuery());
+useRouteQuery(
+  "itemStatus",
+  outstandingStatus,
+  enumQuery<OutstandingItemStatus>(Object.keys(outstandingItemStatusLabels) as OutstandingItemStatus[], "pending"),
+);
+useRouteQuery("itemPage", outstandingPage, pageQuery());
+useRouteQuery(
+  "itemSize",
+  outstandingPageSize,
+  enumQuery<ListPageSize>(
+    listPageSizeOptions.map((option) => option.value),
+    10,
+  ),
+);
+
 const { reloadNow } = useListReload({
   load: loadSessions,
   page: sessionPage,
   filters: [selectedProjectId, dateFrom, dateTo, voidedFilter, sessionPageSize],
   search: searchTerm,
 });
+
+const tab = computed<SessionsTab>({
+  get: () => {
+    const value = String(route.params.tab ?? "");
+    return (sessionTabs as readonly string[]).includes(value) ? (value as SessionsTab) : "sessions";
+  },
+  set: (value) =>
+    void router.replace({
+      name: "sessions",
+      params: { tab: value === "sessions" ? undefined : value },
+      query: route.query,
+    }),
+});
 const projectItems = computed(() => [
   { value: "", label: "所有專案" },
   ...projects.value.map((project) => ({ value: project.id, label: project.name })),
+]);
+const tabs = computed(() => [
+  { value: "sessions" as const, label: "工作歷程", icon: ListChecks, count: sessionPageInfo.value.total },
+  { value: "outstanding" as const, label: "未結項", icon: ListChecks, count: outstandingPageInfo.value.total },
 ]);
 const dateRange = computed({
   get: () => ({ from: dateFrom.value, to: dateTo.value }),
@@ -99,16 +159,28 @@ function openSession(session: WorkSessionRecord): void {
   void openSessionDetail(session.id);
 }
 
+watch(
+  tab,
+  (selectedTab) => {
+    setSessionsListActive(selectedTab === "sessions");
+    setOutstandingItemsListActive(selectedTab === "outstanding");
+  },
+  { immediate: true },
+);
 watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
-onMounted(() => setSessionsListActive(true));
-onBeforeUnmount(() => setSessionsListActive(false));
+
+onBeforeUnmount(() => {
+  setSessionsListActive(false);
+  setOutstandingItemsListActive(false);
+});
 </script>
 
 <template>
   <PageHeader description="每一次完成，都留下可追溯的脈絡。" />
 
   <PageToolbar>
-    <form class="sessions-search" role="search" @submit.prevent="reloadNow">
+    <UiUnderlineNav v-model="tab" :items="tabs" label="工作歷程分頁" id-prefix="sessions" />
+    <form v-if="tab === 'sessions'" class="sessions-search" role="search" @submit.prevent="reloadNow">
       <UiTextInput
         v-model="searchTerm"
         class="sessions-search__input"
@@ -121,71 +193,95 @@ onBeforeUnmount(() => setSessionsListActive(false));
     </form>
   </PageToolbar>
 
-  <UiFlash v-if="sessionFilterError" tone="danger">{{ sessionFilterError }}</UiFlash>
+  <UiFlash v-if="sessionFilterError && tab === 'sessions'" tone="danger">{{ sessionFilterError }}</UiFlash>
 
-  <UiBox sticky-header>
-    <template #header>
-      <UiBoxTitle :icon="ListChecks" :title="`${sessionPageInfo.total} Sessions`">
-        <span v-if="sessionPageInfo.total" class="sessions__range"
-          >顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}</span
-        >
-      </UiBoxTitle>
-      <div class="sessions__filters">
-        <UiActionMenu
-          v-model="selectedProjectId"
-          label="專案"
-          header="篩選專案"
-          default-value=""
-          align="end"
-          :items="projectItems"
-        />
-        <UiDateRangeMenu v-model="dateRange" />
-        <UiActionMenu
-          v-model="voidedFilter"
-          label="作廢"
-          header="已作廢的 Session"
-          default-value="exclude"
-          align="end"
-          :items="voidedFilterOptions"
-        />
-      </div>
-    </template>
-
-    <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" />
-    <UiEmptyState
-      v-else-if="sessions.length === 0"
-      :icon="ListChecks"
-      :title="hasSessionFilters ? '沒有符合條件的 Session' : '還沒有工作紀錄'"
-      :description="
-        hasSessionFilters ? '調整搜尋或篩選條件後再試一次。' : '記錄中的專案完成 Session 後，會依時間出現在這裡。'
-      "
-    >
-      <template v-if="hasSessionFilters" #action><UiButton @click="clearSessionFilters">清除篩選</UiButton></template>
-    </UiEmptyState>
-    <VirtualList
-      v-else
-      :items="sessions"
-      :enabled="true"
-      fit-viewport
-      fit-viewport-to-panel
-      fill-available-space
-      label="工作歷程清單"
-    >
-      <template #default="{ item, index }">
-        <UiGroupLabel v-if="dayGroupAt(index)">{{ dayGroupAt(index) }}</UiGroupLabel>
-        <SessionRow :session="item" @open="openSession" />
+  <section
+    v-if="tab === 'sessions'"
+    id="sessions-panel-sessions"
+    role="tabpanel"
+    aria-labelledby="sessions-tab-sessions"
+  >
+    <UiBox sticky-header>
+      <template #header>
+        <UiBoxTitle :icon="ListChecks" :title="`${sessionPageInfo.total} Sessions`">
+          <span v-if="sessionPageInfo.total" class="sessions__range"
+            >顯示 {{ sessionPageInfo.from }}–{{ sessionPageInfo.to }}</span
+          >
+        </UiBoxTitle>
+        <div class="sessions__filters">
+          <UiActionMenu
+            v-model="selectedProjectId"
+            label="專案"
+            header="篩選專案"
+            default-value=""
+            align="end"
+            :items="projectItems"
+          />
+          <UiDateRangeMenu v-model="dateRange" />
+          <UiActionMenu
+            v-model="voidedFilter"
+            label="作廢"
+            header="已作廢的 Session"
+            default-value="exclude"
+            align="end"
+            :items="voidedFilterOptions"
+          />
+        </div>
       </template>
-    </VirtualList>
 
-    <template #footer>
-      <UiPagination
-        v-model:page-size="sessionPageSize"
-        :page-info="sessionPageInfo"
-        size-label="工作歷程每頁筆數"
-        @page="sessionPage = $event"
-      />
-    </template>
-  </UiBox>
+      <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" />
+      <UiEmptyState
+        v-else-if="sessions.length === 0"
+        :icon="ListChecks"
+        :title="hasSessionFilters ? '沒有符合條件的 Session' : '還沒有工作紀錄'"
+        :description="
+          hasSessionFilters ? '調整搜尋或篩選條件後再試一次。' : '記錄中的專案完成 Session 後，會依時間出現在這裡。'
+        "
+      >
+        <template v-if="hasSessionFilters" #action><UiButton @click="clearSessionFilters">清除篩選</UiButton></template>
+      </UiEmptyState>
+      <VirtualList
+        v-else
+        :items="sessions"
+        :enabled="true"
+        fit-viewport
+        fit-viewport-to-panel
+        fill-available-space
+        label="工作歷程清單"
+      >
+        <template #default="{ item, index }">
+          <UiGroupLabel v-if="dayGroupAt(index)">{{ dayGroupAt(index) }}</UiGroupLabel>
+          <SessionRow :session="item" @open="openSession" />
+        </template>
+      </VirtualList>
+
+      <template #footer>
+        <UiPagination
+          v-model:page-size="sessionPageSize"
+          :page-info="sessionPageInfo"
+          size-label="工作歷程每頁筆數"
+          @page="sessionPage = $event"
+        />
+      </template>
+    </UiBox>
+  </section>
+  <section v-else id="sessions-panel-outstanding" role="tabpanel" aria-labelledby="sessions-tab-outstanding">
+    <OutstandingItemsBox
+      v-model:project-id="outstandingProjectId"
+      v-model:status="outstandingStatus"
+      v-model:page="outstandingPage"
+      v-model:page-size="outstandingPageSize"
+      :items="outstandingItems"
+      :projects="projects"
+      :page-info="outstandingPageInfo"
+      :loading="outstandingLoading"
+      :loaded="outstandingLoaded"
+      :error="outstandingError"
+      @retry="reloadOutstandingItems"
+      @open-session="openSessionDetail"
+      @show-sessions="tab = 'sessions'"
+    />
+  </section>
 </template>
 
 <style scoped>

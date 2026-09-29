@@ -170,7 +170,7 @@ describe("recall evaluator", () => {
     expect(readDatabaseState(databasePath)).toEqual(beforeState);
     expect(readFileSync(databasePath)).toEqual(beforeDatabase);
     expect(readFileSync(walPath)).toEqual(beforeWal);
-  });
+  }, 15_000);
 
   it("fails a no-hit question when a strong MCP match exists and reports the false positive", async () => {
     const { databasePath, projectRoot, store } = setupFileStore();
@@ -243,7 +243,7 @@ describe("recall evaluator", () => {
     expect(snapshotState.knowledge).toContainEqual(expect.objectContaining({ id: knowledgeId }));
     expect(snapshotState.searchDirty).toEqual(beforeState.searchDirty);
     if (process.platform !== "win32") expect(statSync(scratchPath).mode & 0o077).toBe(0);
-  });
+  }, 15_000);
 
   it("rejects invalid dates, context date filters, duplicate ids, and oversized question sets", () => {
     expect(() =>

@@ -536,6 +536,85 @@ const MIGRATIONS: SchemaMigration[] = [
         ADD COLUMN checked_through_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;
     `,
   },
+  {
+    version: 22,
+    name: "outstanding-items",
+    sql: `
+      CREATE TABLE outstanding_items (
+        id TEXT PRIMARY KEY,
+        source_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'not_needed')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_outstanding_items_project_status
+        ON outstanding_items(project_id, status, source_session_id, position);
+      CREATE INDEX idx_outstanding_items_session
+        ON outstanding_items(source_session_id, position, id);
+
+      CREATE TABLE outstanding_item_events (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES outstanding_items(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        from_status TEXT CHECK (from_status IS NULL OR from_status IN ('pending', 'completed', 'not_needed')),
+        to_status TEXT NOT NULL CHECK (to_status IN ('pending', 'completed', 'not_needed')),
+        source TEXT NOT NULL CHECK (source IN ('agent', 'web', 'migration')),
+        actor_session_id TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_outstanding_item_events_item ON outstanding_item_events(item_id, created_at, id);
+      CREATE INDEX idx_outstanding_item_events_project ON outstanding_item_events(project_id, created_at);
+      CREATE TRIGGER trg_outstanding_item_events_no_update
+        BEFORE UPDATE ON outstanding_item_events BEGIN
+          SELECT RAISE(ABORT, 'outstanding item events are append-only');
+        END;
+      CREATE TRIGGER trg_outstanding_item_events_no_delete
+        BEFORE DELETE ON outstanding_item_events
+        WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id) BEGIN
+          SELECT RAISE(ABORT, 'outstanding item events are append-only');
+        END;
+
+      CREATE TEMP TABLE outstanding_items_migration_backfill (
+        id TEXT NOT NULL,
+        source_session_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO outstanding_items_migration_backfill
+      SELECT lower(hex(randomblob(16))), s.id, s.project_id, CAST(step.key AS INTEGER), step.value,
+             s.created_at, COALESCE(s.updated_at, s.created_at)
+      FROM sessions s
+      JOIN json_each(
+        CASE
+          WHEN json_valid(s.work_summary_json) THEN
+            CASE
+              WHEN json_type(s.work_summary_json, '$.nextSteps') = 'array'
+                THEN json_extract(s.work_summary_json, '$.nextSteps')
+              ELSE '[]'
+            END
+          ELSE '[]'
+        END
+      ) AS step
+      WHERE step.type = 'text' AND length(trim(step.value)) > 0;
+      INSERT INTO outstanding_items (
+        id, source_session_id, project_id, position, text, status, created_at, updated_at
+      )
+      SELECT id, source_session_id, project_id, position, text, 'pending', created_at, updated_at
+      FROM outstanding_items_migration_backfill;
+      INSERT INTO outstanding_item_events (
+        id, item_id, project_id, from_status, to_status, source, actor_session_id, created_at
+      )
+      SELECT lower(hex(randomblob(16))), id, project_id, NULL, 'pending', 'migration', NULL, updated_at
+      FROM outstanding_items_migration_backfill;
+      DROP TABLE outstanding_items_migration_backfill;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

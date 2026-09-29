@@ -23,6 +23,7 @@ import {
   KNOWLEDGE_PAGE_INSUFFICIENT,
   SESSION_DECISION_ORIGINS,
   SESSION_DECISION_REVIEW_STATUSES,
+  OUTSTANDING_ITEM_STATUSES,
   WORK_SUMMARY_DECISION_ORIGINS,
   WORK_REPORT_PERIODS,
   WORK_SUMMARY_UPDATE_MODES,
@@ -261,6 +262,7 @@ export const finalizeSessionInputSchema = z.object({
     .describe(
       "Slugs of Knowledge pages this work saved (work_save_knowledge_page) or checked (work_mark_knowledge_page_checked), so this Session does not count as new data for them.",
     ),
+  resolvedOutstandingItemIds: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);
@@ -330,6 +332,24 @@ export const reviewSessionDecisionInputSchema = z.discriminatedUnion("reviewStat
     })
     .strict(),
 ]);
+
+export const outstandingItemListQuerySchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000).optional(),
+  projectId: z.string().trim().min(1).max(200).optional(),
+  status: z.enum(OUTSTANDING_ITEM_STATUSES).default("pending"),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(0).max(100).default(20),
+});
+
+export const mcpOutstandingItemListQuerySchema = outstandingItemListQuerySchema
+  .omit({ projectId: true, pageSize: true })
+  .extend({ pageSize: z.coerce.number().int().min(1).max(5).default(5) })
+  .strict();
+
+export const updateOutstandingItemStatusInputSchema = z.object({
+  itemId: z.string().trim().min(1).max(200),
+  status: z.enum(OUTSTANDING_ITEM_STATUSES),
+});
 
 const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
 
@@ -1027,6 +1047,8 @@ export type UpdateSessionSummaryInput = z.infer<typeof updateSessionSummaryInput
 export type UpdateSessionWorkSummaryInput = z.infer<typeof updateSessionWorkSummaryInputSchema>;
 export type SessionDecisionListQuery = z.infer<typeof sessionDecisionListQuerySchema>;
 export type ReviewSessionDecisionInput = z.infer<typeof reviewSessionDecisionInputSchema>;
+export type OutstandingItemListQuery = z.infer<typeof outstandingItemListQuerySchema>;
+export type UpdateOutstandingItemStatusInput = z.infer<typeof updateOutstandingItemStatusInputSchema>;
 export type SessionsQuery = z.infer<typeof sessionsQuerySchema>;
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
 export type ReportExportQuery = z.infer<typeof reportExportQuerySchema>;
@@ -1279,6 +1301,26 @@ export const projectDataExportTableColumns = {
     "resulting_work_summary_json",
     "created_at",
   ],
+  outstanding_items: [
+    "id",
+    "source_session_id",
+    "project_id",
+    "position",
+    "text",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
+  outstanding_item_events: [
+    "id",
+    "item_id",
+    "project_id",
+    "from_status",
+    "to_status",
+    "source",
+    "actor_session_id",
+    "created_at",
+  ],
 } as const satisfies Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>;
 
 const projectDataValueSchema = z.union([z.string().max(2_000_000), z.number().finite(), z.null()]);
@@ -1307,6 +1349,8 @@ const projectDataTablesShape = {
   metadata_backfill_requests: projectDataRows,
   session_summary_updates: projectDataRows,
   session_work_summary_updates: projectDataRows,
+  outstanding_items: projectDataRows,
+  outstanding_item_events: projectDataRows,
 };
 
 export const projectDataExportScopeSchema = z.discriminatedUnion("type", [
@@ -1344,6 +1388,12 @@ const projectDataImportStatusValues: Partial<
   metadata_backfill_requests: { scope_type: METADATA_BACKFILL_SCOPE_TYPES, status: METADATA_BACKFILL_REQUEST_STATUSES },
   session_summary_updates: { mode: SESSION_SUMMARY_UPDATE_MODES },
   session_work_summary_updates: { mode: WORK_SUMMARY_UPDATE_MODES },
+  outstanding_items: { status: OUTSTANDING_ITEM_STATUSES },
+  outstanding_item_events: {
+    from_status: [...OUTSTANDING_ITEM_STATUSES],
+    to_status: OUTSTANDING_ITEM_STATUSES,
+    source: ["agent", "web", "migration"],
+  },
 };
 
 const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]> = {
@@ -1480,12 +1530,24 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
     "resulting_work_summary_json",
     "created_at",
   ],
+  outstanding_items: [
+    "id",
+    "source_session_id",
+    "project_id",
+    "position",
+    "text",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
+  outstanding_item_events: ["id", "item_id", "project_id", "to_status", "source", "created_at"],
 };
 const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>> = {
   knowledge_candidate_requests: ["candidate_count"],
   report_summaries: ["is_current"],
   sessions: ["changed_files_confirmed", "redaction_count"],
   session_decisions: ["position"],
+  outstanding_items: ["position"],
   knowledge_pages: ["version"],
   knowledge_page_versions: ["version"],
 };
@@ -1511,7 +1573,7 @@ export function projectDataColumnValue(
   return Object.hasOwn(row, column) ? row[column] : projectDataColumnDefaults[table]?.[column];
 }
 
-export const projectDataExportSchema = z
+const projectDataExportObjectSchema = z
   .object({
     format: z.literal("work-intelligence-export"),
     formatVersion: z.literal(1),
@@ -1596,6 +1658,7 @@ export const projectDataExportSchema = z
           });
         }
         for (const [column, allowed] of Object.entries(projectDataImportStatusValues[table] ?? {})) {
+          if (column === "from_status" && row[column] === null) continue;
           if (typeof row[column] !== "string" || !allowed.includes(row[column])) {
             context.addIssue({
               code: z.ZodIssueCode.custom,
@@ -1624,6 +1687,31 @@ export const projectDataExportSchema = z
       }
     }
   });
+
+/** Let validators recognize pre-22 export shapes; the storage importer separately rejects unsupported versions. */
+export const projectDataExportSchema = z.preprocess((input: unknown) => {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const bundle = input as Record<string, unknown>;
+  const tables = bundle.tables;
+  if (
+    typeof bundle.schemaVersion !== "number" ||
+    bundle.schemaVersion >= 22 ||
+    !tables ||
+    typeof tables !== "object" ||
+    Array.isArray(tables)
+  ) {
+    return input;
+  }
+  const sourceTables = tables as Record<string, unknown>;
+  return {
+    ...bundle,
+    tables: {
+      ...sourceTables,
+      outstanding_items: sourceTables.outstanding_items ?? [],
+      outstanding_item_events: sourceTables.outstanding_item_events ?? [],
+    },
+  };
+}, projectDataExportObjectSchema);
 
 export const projectDataExportRequestSchema = z
   .object({ scope: z.enum(["all", "project"]), projectId: z.string().trim().min(1).max(200).optional() })

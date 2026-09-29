@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   ContextOmission,
+  ContextOutstandingItem,
   ContextQueryResult,
   ContextResult,
   DecisionDigest,
@@ -17,6 +18,8 @@ import type {
   MetadataBackfillPreviewResult,
   MetadataBackfillRequestListQueryResult,
   MetadataBackfillRequestQuery,
+  OutstandingItem,
+  OutstandingItemListQueryResult,
   PolicyDecision,
   ProjectRecord,
   RecallHit,
@@ -59,6 +62,7 @@ const DUPLICATE_REASON_PREFIX = "已列於";
 const CONTEXT_PAGE_SECTION_LIMIT = 5;
 const CONTEXT_REVIEW_SOURCE_LIMIT = 8;
 const CONTEXT_SOURCE_SESSION_LIMIT = 8;
+const CONTEXT_OUTSTANDING_ITEM_TEXT_LENGTH = 500;
 const CONTEXT_PAGE_SECTION_CHARS = 500;
 const CONTEXT_EXCERPT_CHARS = 240;
 const RECALL_EXCERPT_CHARS = 110;
@@ -83,6 +87,13 @@ interface ContextRecallStoreReader {
   knowledgePageDigests(projectId: string): KnowledgePageDigest[];
   knowledgePagesForContext(projectId?: string): KnowledgePageRecord[];
   pendingKnowledgePages(projectId?: string): ContextResult["pendingRequests"]["knowledgePages"];
+  listOutstandingItems(input: {
+    projectId?: string;
+    status: "pending";
+    page: number;
+    pageSize: number;
+  }): OutstandingItemListQueryResult;
+  pendingOutstandingItemsForSessions(sessionIds: readonly string[]): OutstandingItem[];
   hotspotHints(projectId: string, paths: readonly string[]): HotspotHint[];
 }
 
@@ -183,20 +194,39 @@ export class ContextRecallService {
 
     const projects = this.store.listProjects().filter((project) => project.status === "tracked");
     const relevant = this.getRelevantContext(focus);
+    const recentSessions = this.store.listSessions({ limit: 12, trackedOnly: true });
+    const pendingBySession = this.groupOutstandingItems(
+      this.store.pendingOutstandingItemsForSessions(recentSessions.map((session) => session.id)),
+    );
+    const outstandingResult = this.store.listOutstandingItems({
+      status: "pending",
+      page: 1,
+      pageSize: 5,
+    });
+    const pendingOutstandingItems = outstandingResult.outcome === "outstanding_items" ? outstandingResult.items : [];
+    const pendingOutstandingItemsTotal =
+      outstandingResult.outcome === "outstanding_items" ? outstandingResult.pageInfo.total : 0;
     const context: ContextResult = {
       outcome: "context",
       clock: serverClock(),
       projects,
+      pendingOutstandingItems: pendingOutstandingItems.map((item) => this.boundOutstandingItem(item)),
+      pendingOutstandingItemsTotal,
+      pendingOutstandingItemsOmitted: Math.max(0, pendingOutstandingItemsTotal - pendingOutstandingItems.length),
+      pendingOutstandingItemsTruncated: pendingOutstandingItems.filter(
+        (item) => item.text.length > CONTEXT_OUTSTANDING_ITEM_TEXT_LENGTH,
+      ).length,
       ...(relevant ? { relevant } : {}),
       pendingRequests: this.getPendingRequests(),
       metadataFollowUps: this.getMetadataFollowUps(),
-      recentSessions: this.store
-        .listSessions({ limit: 12, trackedOnly: true })
-        .map((session) => this.contextSessionDigest(session)),
+      recentSessions: recentSessions.map((session) =>
+        this.contextSessionDigest(session, pendingBySession.get(session.id) ?? []),
+      ),
       recentDecisions: this.getRecentDecisions(),
       recentKnowledge: this.getRecentKnowledge(),
       knowledgePages: [],
     };
+    this.annotateOutstandingItemOmission(context);
     return this.fitContextBudget(this.deduplicateContext(context, focus), focus);
   }
 
@@ -287,20 +317,22 @@ export class ContextRecallService {
       to: range.to,
       limit: SEARCH_LIMIT,
     });
-    const hits = result.hits.flatMap((hit) => {
+    const sessions = result.hits.flatMap((hit) => {
       const record = this.store.getSessionById(hit.id);
       if (!record) {
         return [];
       }
-      return [
-        {
-          session: toSessionDigest(record),
-          matchedIn: hit.matchedIn[0] ?? "title",
-          ...(hit.section ? { section: hit.section } : {}),
-          excerpt: hit.excerpt,
-        },
-      ];
+      return [{ hit, record }];
     });
+    const pendingBySession = this.groupOutstandingItems(
+      this.store.pendingOutstandingItemsForSessions(sessions.map(({ record }) => record.id)),
+    );
+    const hits = sessions.map(({ hit, record }) => ({
+      session: toSessionDigest(record, this.openItemsForSession(record, pendingBySession.get(record.id) ?? [])),
+      matchedIn: hit.matchedIn[0] ?? "title",
+      ...(hit.section ? { section: hit.section } : {}),
+      excerpt: hit.excerpt,
+    }));
     return {
       outcome: "search",
       confidence: result.confidence,
@@ -311,17 +343,36 @@ export class ContextRecallService {
 
   private buildContext(project: ProjectRecord, focus: ContextFocus): ContextResult {
     const relevant = this.getRelevantContext(focus, project.id);
+    const recentSessions = this.store.listSessions({ projectId: project.id, limit: 12, trackedOnly: true });
+    const pendingBySession = this.groupOutstandingItems(
+      this.store.pendingOutstandingItemsForSessions(recentSessions.map((session) => session.id)),
+    );
+    const outstandingResult = this.store.listOutstandingItems({
+      projectId: project.id,
+      status: "pending",
+      page: 1,
+      pageSize: 5,
+    });
+    const pendingOutstandingItems = outstandingResult.outcome === "outstanding_items" ? outstandingResult.items : [];
+    const pendingOutstandingItemsTotal =
+      outstandingResult.outcome === "outstanding_items" ? outstandingResult.pageInfo.total : 0;
     const context: ContextResult = {
       outcome: "context",
       clock: serverClock(),
       project,
       projects: hasFocus(focus) ? [] : [project],
+      pendingOutstandingItems: pendingOutstandingItems.map((item) => this.boundOutstandingItem(item)),
+      pendingOutstandingItemsTotal,
+      pendingOutstandingItemsOmitted: Math.max(0, pendingOutstandingItemsTotal - pendingOutstandingItems.length),
+      pendingOutstandingItemsTruncated: pendingOutstandingItems.filter(
+        (item) => item.text.length > CONTEXT_OUTSTANDING_ITEM_TEXT_LENGTH,
+      ).length,
       ...(relevant ? { relevant } : {}),
       pendingRequests: this.getPendingRequests(project.id),
       metadataFollowUps: this.getMetadataFollowUps(project.id),
-      recentSessions: this.store
-        .listSessions({ projectId: project.id, limit: 12, trackedOnly: true })
-        .map((session) => this.contextSessionDigest(session)),
+      recentSessions: recentSessions.map((session) =>
+        this.contextSessionDigest(session, pendingBySession.get(session.id) ?? []),
+      ),
       recentDecisions: this.getRecentDecisions(project.id),
       recentKnowledge: this.getRecentKnowledge(project.id),
       knowledgePages:
@@ -329,6 +380,7 @@ export class ContextRecallService {
           ? []
           : this.store.knowledgePageDigests(project.id),
     };
+    this.annotateOutstandingItemOmission(context);
     return this.fitContextBudget(this.deduplicateContext(context, focus), focus);
   }
 
@@ -509,6 +561,21 @@ export class ContextRecallService {
         );
         return true;
       }
+      const outstandingItem = context.pendingOutstandingItems.pop();
+      if (outstandingItem) {
+        if (outstandingItem.textTruncated) {
+          context.pendingOutstandingItemsTruncated = Math.max(0, context.pendingOutstandingItemsTruncated - 1);
+        }
+        context.pendingOutstandingItemsOmitted += 1;
+        addOmission(
+          context,
+          "pendingOutstandingItems",
+          { id: outstandingItem.id, reason: "預算限制：較舊的待結項" },
+          "work_list_outstanding_items",
+        );
+        this.annotateOutstandingItemOmission(context);
+        return true;
+      }
       return false;
     };
 
@@ -628,6 +695,17 @@ export class ContextRecallService {
           }
         }
       }
+      for (const item of context.pendingOutstandingItems) {
+        if (item.text.length > CONTEXT_EXCERPT_CHARS) {
+          item.text = truncateAtSentenceBoundary(item.text, CONTEXT_EXCERPT_CHARS).text;
+          if (!item.textTruncated) {
+            item.textTruncated = true;
+            context.pendingOutstandingItemsTruncated += 1;
+          }
+          this.annotateOutstandingItemOmission(context);
+          return true;
+        }
+      }
       return false;
     };
 
@@ -666,6 +744,9 @@ export class ContextRecallService {
         const record = this.store.getSessionById(hit.id);
         return record ? [{ hit, record }] : [];
       });
+    const pendingBySession = this.groupOutstandingItems(
+      this.store.pendingOutstandingItemsForSessions(sessions.map(({ record }) => record.id)),
+    );
     const hotspots = projectId && paths.length > 0 ? this.store.hotspotHints(projectId, paths) : [];
     const decisions = sessions
       .flatMap(({ record }) =>
@@ -689,7 +770,10 @@ export class ContextRecallService {
       confidence: recalled.confidence,
       knowledge,
       decisions,
-      sessions: sessions.map(({ hit, record }) => ({ ...hit, openItems: toSessionDigest(record).openItems })),
+      sessions: sessions.map(({ hit, record }) => ({
+        ...hit,
+        openItems: this.openItemsForSession(record, pendingBySession.get(record.id) ?? []),
+      })),
       knowledgePages: this.getRelevantKnowledgePages(focus, projectId),
       ...(termHits ? { termHits } : {}),
       ...(hotspots.length > 0 ? { hotspots } : {}),
@@ -838,14 +922,53 @@ export class ContextRecallService {
       : [];
   }
 
-  private contextSessionDigest(session: WorkSessionRecord): ReturnType<typeof toSessionDigest> {
-    const digest = toSessionDigest(session);
+  private contextSessionDigest(
+    session: WorkSessionRecord,
+    pendingItems: OutstandingItem[],
+  ): ReturnType<typeof toSessionDigest> {
+    const digest = toSessionDigest(session, this.openItemsForSession(session, pendingItems));
     const bounded = truncateAtSentenceBoundary(session.summary, DIGEST_SUMMARY_LENGTH);
     return {
       ...digest,
       summary: bounded.text,
       ...(bounded.truncated ? { summaryTruncated: true } : {}),
     };
+  }
+
+  private openItemsForSession(session: WorkSessionRecord, pendingItems: OutstandingItem[]): string[] {
+    return pendingItems
+      .filter((item) => item.sourceSessionId === session.id)
+      .slice(0, 3)
+      .map((item) => truncateAtSentenceBoundary(item.text, DIGEST_ITEM_LENGTH).text);
+  }
+
+  private groupOutstandingItems(items: OutstandingItem[]): Map<string, OutstandingItem[]> {
+    const grouped = new Map<string, OutstandingItem[]>();
+    for (const item of items) {
+      const group = grouped.get(item.sourceSessionId) ?? [];
+      group.push(item);
+      grouped.set(item.sourceSessionId, group);
+    }
+    return grouped;
+  }
+
+  private boundOutstandingItem(item: OutstandingItem): ContextOutstandingItem {
+    const bounded = truncateAtSentenceBoundary(item.text, CONTEXT_OUTSTANDING_ITEM_TEXT_LENGTH);
+    return { ...item, text: bounded.text, ...(bounded.truncated ? { textTruncated: true } : {}) };
+  }
+
+  private annotateOutstandingItemOmission(context: ContextResult): void {
+    if (context.pendingOutstandingItemsOmitted === 0 && context.pendingOutstandingItemsTruncated === 0) return;
+    context.omitted ??= [];
+    let omission = context.omitted.find((item) => item.section === "pendingOutstandingItems");
+    if (!omission) {
+      omission = { section: "pendingOutstandingItems", count: 0, readWith: "work_list_outstanding_items" };
+      context.omitted.push(omission);
+    }
+    omission.count = context.pendingOutstandingItemsOmitted + context.pendingOutstandingItemsTruncated;
+    const reason = `待結項省略 ${context.pendingOutstandingItemsOmitted} 筆，文字截短 ${context.pendingOutstandingItemsTruncated} 筆`;
+    omission.reasons = (omission.reasons ?? []).filter((entry) => !entry.startsWith("待結項省略 "));
+    if (!omission.reasons.includes(reason)) omission.reasons.push(reason);
   }
 
   private contextKnowledgeDigest(knowledge: KnowledgeRecord): KnowledgeDigest {

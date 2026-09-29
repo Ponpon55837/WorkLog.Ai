@@ -35,6 +35,8 @@ const COUNTS_ADDED_LATER = new Set<keyof ProjectDeletionCounts>([
   "knowledgePageVersions",
   "knowledgeFeedback",
   "sessionDiagrams",
+  "outstandingItems",
+  "outstandingItemEvents",
 ]);
 
 const projectDeletionCountKeys = [
@@ -60,6 +62,8 @@ const projectDeletionCountKeys = [
   "knowledgePageVersions",
   "knowledgeFeedback",
   "sessionDiagrams",
+  "outstandingItems",
+  "outstandingItemEvents",
   "searchChunks",
   "searchFts",
   "searchPaths",
@@ -264,6 +268,20 @@ function makeDeletionCounts(
           OR knowledge_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
       projectId,
       sessionIdJson,
+      projectId,
+    ),
+    outstandingItems: countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM outstanding_items
+       WHERE project_id = ? OR source_session_id IN (SELECT value FROM json_each(?))`,
+      projectId,
+      sessionIdJson,
+    ),
+    outstandingItemEvents: countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM outstanding_item_events
+       WHERE project_id = ? OR item_id IN (SELECT id FROM outstanding_items WHERE project_id = ?)`,
+      projectId,
       projectId,
     ),
     knowledgePages: countRows(db, "SELECT COUNT(*) AS count FROM knowledge_pages WHERE project_id = ?", projectId),

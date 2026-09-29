@@ -21,6 +21,7 @@ import {
   mcpFinalizeSessionInputSchema,
   mcpListSessionsInputSchema,
   mcpListSessionsInputSchemaBase,
+  mcpOutstandingItemListQuerySchema,
   metadataBackfillApplyInputSchema,
   metadataBackfillPreviewQuerySchema,
   metadataBackfillRequestContextQuerySchema,
@@ -64,7 +65,7 @@ import type { McpRestartStatus } from "@work-intelligence/shared/mcp-runtime";
 import {
   DATABASE_BUSY_MESSAGE,
   isDatabaseBusyError,
-  toSessionDigest,
+  toSessionDigests,
   type WorkIntelligenceStore,
 } from "@work-intelligence/storage";
 import {
@@ -118,8 +119,47 @@ interface ToolDispatcherDefinition {
   annotations: ToolAnnotations;
 }
 
+type OutstandingItemListPage = Extract<
+  ReturnType<WorkIntelligenceStore["listOutstandingItems"]>,
+  { outcome: "outstanding_items" }
+>;
+type OutstandingItemTruncationMarker =
+  | "projectNameTruncated"
+  | "sourceSessionTitleTruncated"
+  | "sourceSessionCompletedAtTruncated"
+  | "textTruncated"
+  | "createdAtTruncated"
+  | "updatedAtTruncated";
+type OutstandingItemDisplayKey =
+  "projectName" | "sourceSessionTitle" | "sourceSessionCompletedAt" | "text" | "createdAt" | "updatedAt";
+interface OutstandingItemDisplayField {
+  key: OutstandingItemDisplayKey;
+  marker: OutstandingItemTruncationMarker;
+}
+type OutstandingItemResponseItem = OutstandingItemListPage["items"][number] &
+  Partial<Record<OutstandingItemTruncationMarker, true>>;
+type OutstandingItemsResponse = Omit<OutstandingItemListPage, "items"> & {
+  items: OutstandingItemResponseItem[];
+  responseBudget?: {
+    limit: number;
+    omittedCount: number;
+    omissions: Array<{ rowOnPage: number; reason: string }>;
+    readWith: "Web UI or project export";
+  };
+};
+
 /** Reads only the central SQLite; nothing outside the tracked-project registry is touched. */
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
+const OUTSTANDING_ITEM_TEXT_LENGTH = 4_000;
+const OUTSTANDING_ITEM_RESPONSE_LIMIT = 30_000;
+const OUTSTANDING_ITEM_DISPLAY_FIELDS: readonly OutstandingItemDisplayField[] = [
+  { key: "projectName", marker: "projectNameTruncated" },
+  { key: "sourceSessionTitle", marker: "sourceSessionTitleTruncated" },
+  { key: "sourceSessionCompletedAt", marker: "sourceSessionCompletedAtTruncated" },
+  { key: "text", marker: "textTruncated" },
+  { key: "createdAt", marker: "createdAtTruncated" },
+  { key: "updatedAt", marker: "updatedAtTruncated" },
+];
 /** Adds records or advances request state; retrying the same payload has no further effect. */
 const ADDITIVE_IDEMPOTENT: ToolAnnotations = {
   readOnlyHint: false,
@@ -171,6 +211,122 @@ const TOOL_DISPATCHERS: readonly ToolDispatcherDefinition[] = [
     annotations: OVERWRITE_IDEMPOTENT,
   },
 ];
+
+function truncateAtCodeUnitLimit(value: string, limit: number): { text: string; truncated: boolean } {
+  if (value.length <= limit) return { text: value, truncated: false };
+  if (limit <= 0) return { text: "", truncated: true };
+
+  let prefixLength = limit - 1;
+  const lastPrefixCodeUnit = value.charCodeAt(prefixLength - 1);
+  const nextCodeUnit = value.charCodeAt(prefixLength);
+  if (
+    lastPrefixCodeUnit >= 0xd800 &&
+    lastPrefixCodeUnit <= 0xdbff &&
+    nextCodeUnit >= 0xdc00 &&
+    nextCodeUnit <= 0xdfff
+  ) {
+    prefixLength -= 1;
+  }
+  return { text: `${value.slice(0, prefixLength)}…`, truncated: true };
+}
+
+function serializedResponseLength(value: unknown): number {
+  return JSON.stringify(value)?.length ?? 0;
+}
+
+function budgetOutstandingItemsResponse(result: OutstandingItemListPage): OutstandingItemsResponse {
+  const items = result.items.map((item): OutstandingItemResponseItem => {
+    const boundedText = truncateAtCodeUnitLimit(item.text, OUTSTANDING_ITEM_TEXT_LENGTH);
+    return {
+      ...item,
+      text: boundedText.text,
+      ...(boundedText.truncated ? { textTruncated: true } : {}),
+    };
+  });
+  const response: OutstandingItemsResponse = { ...result, items };
+  if (serializedResponseLength(response) <= OUTSTANDING_ITEM_RESPONSE_LIMIT) return response;
+
+  const maximumDisplayLength = Math.max(
+    0,
+    ...items.flatMap((item) => OUTSTANDING_ITEM_DISPLAY_FIELDS.map(({ key }) => item[key].length)),
+  );
+  const applyDisplayLimit = (limit: number): OutstandingItemResponseItem[] =>
+    items.map((source) => {
+      const bounded = { ...source };
+      for (const field of OUTSTANDING_ITEM_DISPLAY_FIELDS) {
+        const shortened = truncateAtCodeUnitLimit(source[field.key], limit);
+        bounded[field.key] = shortened.text;
+        if (shortened.truncated || source[field.marker] === true) {
+          bounded[field.marker] = true;
+        } else {
+          delete bounded[field.marker];
+        }
+      }
+      return bounded;
+    });
+
+  response.items = applyDisplayLimit(0);
+  if (serializedResponseLength(response) <= OUTSTANDING_ITEM_RESPONSE_LIMIT) {
+    let low = 0;
+    let high = maximumDisplayLength;
+    let bestLimit = 0;
+    while (low <= high) {
+      const candidateLimit = Math.floor((low + high) / 2);
+      response.items = applyDisplayLimit(candidateLimit);
+      if (serializedResponseLength(response) <= OUTSTANDING_ITEM_RESPONSE_LIMIT) {
+        bestLimit = candidateLimit;
+        low = candidateLimit + 1;
+      } else {
+        high = candidateLimit - 1;
+      }
+    }
+    response.items = applyDisplayLimit(bestLimit);
+    return response;
+  }
+
+  const remainingItems = response.items.map((item, index) => ({ item, index }));
+  const omittedRows: Array<{ rowOnPage: number; reason: string }> = [];
+  const updateBudgetOmissions = (): void => {
+    response.responseBudget = {
+      limit: OUTSTANDING_ITEM_RESPONSE_LIMIT,
+      omittedCount: omittedRows.length,
+      omissions: [...omittedRows].sort((left, right) => left.rowOnPage - right.rowOnPage),
+      readWith: "Web UI or project export",
+    };
+  };
+
+  while (serializedResponseLength(response) > OUTSTANDING_ITEM_RESPONSE_LIMIT && remainingItems.length > 0) {
+    let largestItemIndex = 0;
+    let largestItemSize = -1;
+    remainingItems.forEach(({ item }, index) => {
+      const itemSize = serializedResponseLength(item);
+      if (itemSize > largestItemSize) {
+        largestItemIndex = index;
+        largestItemSize = itemSize;
+      }
+    });
+    const [omitted] = remainingItems.splice(largestItemIndex, 1);
+    if (!omitted) break;
+    omittedRows.push({
+      rowOnPage: omitted.index + 1,
+      reason: "Stable identifiers alone exceed the 30,000-code-unit MCP response limit.",
+    });
+    response.items = remainingItems.map(({ item }) => item);
+    updateBudgetOmissions();
+  }
+
+  if (serializedResponseLength(response) > OUTSTANDING_ITEM_RESPONSE_LIMIT) {
+    response.items = [];
+    for (const { index } of remainingItems) {
+      omittedRows.push({
+        rowOnPage: index + 1,
+        reason: "Stable identifiers alone exceed the 30,000-code-unit MCP response limit.",
+      });
+    }
+    updateBudgetOmissions();
+  }
+  return response;
+}
 
 function dispatcherForAnnotations(annotations: ToolAnnotations): ToolDispatcherDefinition {
   const dispatcher = TOOL_DISPATCHERS.find(
@@ -344,6 +500,7 @@ export function createWorkIntelligenceMcpServer(
     title: "Finalize a work session",
     description:
       "Finalize a completed planning/execution/verification/closing session. Provide summary plus the required five-section workSummary; inspect the worktree and provide changedFiles (use [] only when no files were intentionally changed) plus an explicit verification status: passed, failed, or not_run. When known, provide baselineChangedFiles captured at the start of this work; those paths are excluded from the Session's changed files. A file already changed at the baseline is excluded even if edited again during this work; a rename from a baseline path is recorded as an added file. Optionally provide changedFilesProvenance with Agent, handoff, Git, or worktree evidence references and changedFileChanges with added, modified, deleted, or renamed semantics (renamed requires previousPath). If this work relied on recalled Knowledge, report appliedKnowledgeIds (still valid; confirms them) and contradictedKnowledgeIds (no longer true; flags them for review); link an earlier Session this one continues with parentSessionId. Times: omit completedAt for work that just finished, because the server records the current time; set it only to backfill earlier work from evidence (for example a commit time), with its UTC offset. Report startedAt only from evidence: the first message of this segment, which the save reminder hook states when it fires, or a transcript timestamp; include the UTC offset and never estimate it (omit it when unknown). Future times are rejected, and implausible ones come back as timestampWarnings; fix them with work_update_session_metadata. Sessions also carry updatedAt, the last change after finalize. This is independent from Git commit. The project must be explicitly tracked; unregistered, paused, and ignored projects are skipped without reading handoff, Git, or source files. The idempotencyKey makes retries safe. If legacy data is missing verification, changedFiles, or workSummary, the response includes a follow-up instruction. " +
+      "Optionally pass resolvedOutstandingItemIds only for pending items from this same tracked project that this work directly verified as completed; each valid pending→completed transition is recorded in the Session transaction and audited. No item is inferred complete from nextSteps wording. " +
       "Sensitive values in Session text are masked before storage; the result reports redaction counts by type only and never returns a token fragment. " +
       workRecordContract,
     inputShape: mcpFinalizeSessionInputSchema.shape,
@@ -372,7 +529,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_list_sessions", {
     title: "List work sessions",
     description:
-      "List finalized tracked-project Session digests, newest first, with optional keyword (q), inclusive from/to calendar dates in the server's local time zone, a projectRoot or projectId scope, and voided (exclude by default, include, or only). Each digest has a truncated summary, verification status, changed-file count, and up to three open items; it omits changed-file paths, events, evidence, and full workSummary. Results are paged (pageSize up to 100) and include pageInfo.total. Read one full record with work_get_session. Non-tracked scopes are skipped quietly.",
+      "List finalized tracked-project Session digests, newest first, with optional keyword (q), inclusive from/to calendar dates in the server's local time zone, a projectRoot or projectId scope, and voided (exclude by default, include, or only). Each digest has a truncated summary, verification status, changed-file count, and up to three nextSteps items currently marked pending; it omits changed-file paths, events, evidence, and full workSummary. Results are paged (pageSize up to 100) and include pageInfo.total. Read one full record with work_get_session. Non-tracked scopes are skipped quietly.",
     inputShape: mcpListSessionsInputSchemaBase.shape,
     schema: mcpListSessionsInputSchema,
     validationNotes: [
@@ -382,7 +539,24 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid session list query.",
     run: (input) => {
       const result = store.listSessionsForAgent(input);
-      return result.outcome === "sessions" ? { ...result, items: result.items.map(toSessionDigest) } : result;
+      if (result.outcome !== "sessions") return result;
+      const pendingItems = store.pendingOutstandingItemsForSessions(result.items.map((session) => session.id));
+      return { ...result, items: toSessionDigests(result.items, pendingItems) };
+    },
+  });
+
+  registerStoreTool("work_list_outstanding_items", {
+    title: "List outstanding work items",
+    description:
+      "List source-linked nextSteps items from tracked Sessions, newest source Session first. status defaults to pending and may select completed or not_needed; pageSize defaults to 5 and is capped at 5. The serialized response is capped at 30,000 JavaScript characters; display text, title, project name, and timestamps may be shortened and carry a matching Truncated flag, while identifiers remain complete. If an identifier alone cannot fit, responseBudget lists its row on this page and points to the Web UI or project export; pageInfo remains available. A text up to 4,000 characters is returned unchanged when the response fits. This is read-only; update status in the Web UI, and only resolve pending items you verified as completed by passing their ids to work_finalize_session. A projectRoot is policy-gated before reading; untracked projects are skipped quietly.",
+    inputShape: mcpOutstandingItemListQuerySchema.shape,
+    schema: mcpOutstandingItemListQuerySchema,
+    annotations: READ_ONLY,
+    invalidMessage: "Invalid outstanding item query.",
+    run: (input) => {
+      const result = store.listOutstandingItems(input);
+      if (result.outcome !== "outstanding_items") return result;
+      return budgetOutstandingItemsResponse(result);
     },
   });
 
@@ -463,7 +637,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. If server.restartRequired is true, tell the user to reconnect the MCP before continuing. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted: per section it gives count, duplicates (already shown elsewhere in this response), up to 5 ids with reasons for budget omissions plus moreIds, full entries for anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; truncated excerpts are marked. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.',
+      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. If server.restartRequired is true, tell the user to reconnect the MCP before continuing. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted: per section it gives count, duplicates (already shown elsewhere in this response), up to 5 ids with reasons for budget omissions plus moreIds, full entries for anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; truncated excerpts are marked. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.',
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,
@@ -515,7 +689,7 @@ export function createWorkIntelligenceMcpServer(
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid session workSummary payload.",
     sessionResult: true,
-    run: (input) => store.updateSessionWorkSummary(input),
+    run: (input) => store.updateSessionWorkSummary(input, "agent"),
   });
 
   registerStoreTool("work_void_session", {

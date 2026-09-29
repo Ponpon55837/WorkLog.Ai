@@ -29,6 +29,7 @@ import type {
   KnowledgePageReviewReason,
   KnowledgeStatus,
   MetadataBackfillRequest,
+  OutstandingItemStatus,
   ProjectStatus,
   ReportSynthesisRequest,
   ReportVerificationStatus,
@@ -194,6 +195,12 @@ export const knowledgeKindVisual: Record<KnowledgeKind, StatusVisual> = {
   gotcha: { tone: "attention", icon: TriangleAlert, label: "注意事項" },
   procedure: { tone: "success", icon: ListOrdered, label: "操作流程" },
   skill: { tone: "neutral", icon: GraduationCap, label: "技能" },
+};
+
+export const outstandingItemStatusVisual: Record<OutstandingItemStatus, StatusVisual> = {
+  pending: { tone: "attention", icon: CircleDashed, label: "待處理" },
+  completed: { tone: "success", icon: CircleCheck, label: "已完成" },
+  not_needed: { tone: "neutral", icon: CircleMinus, label: "不再需要" },
 };
 
 /** A standing Knowledge page: "missing" is a default page the project has not requested yet. */

@@ -48,7 +48,7 @@ describe("project deletion", () => {
         scope: [],
         decisions: [{ text: "Synthetic autonomous decision for deletion coverage.", origin: "agent_autonomous" }],
         verification: [],
-        nextSteps: [],
+        nextSteps: ["Synthetic outstanding item for deletion coverage."],
       },
       handoffContent: "Synthetic target handoff contains deletion search phrase.",
       changedFiles: ["src/target.ts"],
@@ -241,6 +241,8 @@ describe("project deletion", () => {
         sessionSummaryUpdates: 1,
         sessionWorkSummaryUpdates: 1,
         sessionDecisions: 1,
+        outstandingItems: 1,
+        outstandingItemEvents: 1,
       },
     });
     expect(result.deletedCounts.searchChunks).toBeGreaterThan(0);
@@ -271,10 +273,32 @@ describe("project deletion", () => {
         },
       );
       expect(
+        backup
+          .prepare("SELECT COUNT(*) AS count FROM outstanding_items WHERE source_session_id = ?")
+          .get(targetSessionId),
+      ).toMatchObject({ count: 1 });
+      expect(
+        backup
+          .prepare(
+            "SELECT COUNT(*) AS count FROM outstanding_item_events WHERE item_id IN (SELECT id FROM outstanding_items WHERE source_session_id = ?)",
+          )
+          .get(targetSessionId),
+      ).toMatchObject({ count: 1 });
+      expect(
         postDelete.prepare("SELECT COUNT(*) AS count FROM projects WHERE id = ?").get(targetProject.id),
       ).toMatchObject({
         count: 0,
       });
+      expect(
+        postDelete
+          .prepare("SELECT COUNT(*) AS count FROM outstanding_items WHERE source_session_id = ?")
+          .get(targetSessionId),
+      ).toMatchObject({ count: 0 });
+      expect(
+        postDelete
+          .prepare("SELECT COUNT(*) AS count FROM outstanding_item_events WHERE project_id = ?")
+          .get(targetProject.id),
+      ).toMatchObject({ count: 0 });
       expect(postDelete.prepare("SELECT COUNT(*) AS count FROM session_links").get()).toMatchObject({ count: 0 });
       expect(
         postDelete.prepare("SELECT COUNT(*) AS count FROM evidence WHERE session_id = ?").get(targetSessionId),

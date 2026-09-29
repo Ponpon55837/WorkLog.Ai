@@ -20,7 +20,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: "工作總覽", navLabel: "總覽", eyebrow: "TODAY'S SIGNAL", group: "work" },
   },
   {
-    path: "/sessions",
+    path: "/sessions/:tab?",
     name: "sessions",
     component: () => import("./views/SessionsView.vue"),
     meta: { title: "工作歷程", navLabel: "工作歷程", eyebrow: "SESSION ARCHIVE", group: "work" },

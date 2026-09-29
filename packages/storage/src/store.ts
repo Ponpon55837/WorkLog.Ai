@@ -104,6 +104,12 @@ import type {
   SessionDecisionListQueryResult,
   ReviewSessionDecisionInput,
   ReviewSessionDecisionResult,
+  OutstandingItem,
+  ListOutstandingItemsInput,
+  OutstandingItemEventSource,
+  OutstandingItemListQueryResult,
+  OutstandingItemStatus,
+  UpdateOutstandingItemStatusResult,
   KnowledgePageContextQuery,
   KnowledgePageContextResult,
   KnowledgePageListQuery,
@@ -187,6 +193,7 @@ import { ContextRecallService, type ContextFocus } from "./context-recall-servic
 import { ProjectDataTransferService } from "./project-data-transfer.js";
 import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
+import { OutstandingItemService } from "./outstanding-item-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
@@ -304,6 +311,7 @@ export class WorkIntelligenceStore {
   private readonly sessionRecords: SessionRecordService;
   private readonly diagrams: DiagramService;
   private readonly sessionDecisions: SessionDecisionService;
+  private readonly outstandingItems: OutstandingItemService;
   private readonly knowledgePages: KnowledgePageService;
   private readonly knowledge: KnowledgeRepository;
   private readonly knowledgeService: KnowledgeService;
@@ -347,12 +355,25 @@ export class WorkIntelligenceStore {
     this.diagrams = new DiagramService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
     });
+    this.outstandingItems = new OutstandingItemService(this.db, {
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+    });
     this.sessionRecords = new SessionRecordService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
       getSessionById: (sessionId) => this.getSessionById(sessionId),
       getProjectById: (projectId) => this.getProjectById(projectId),
       withKnowledgeTrustMany: (knowledge) => this.knowledgeService.withKnowledgeTrustMany(knowledge),
       listDiagrams: (sessionId) => this.diagrams.listForSession(sessionId),
+      syncOutstandingItems: (sessionId, projectId, nextSteps, source, actorSessionId, updatedAt) =>
+        this.outstandingItems.syncForSessionInTransaction(
+          sessionId,
+          projectId,
+          nextSteps,
+          source,
+          actorSessionId,
+          updatedAt,
+        ),
     });
     this.reportReader = new ReportReadService(this.db, this);
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
@@ -434,6 +455,8 @@ export class WorkIntelligenceStore {
       previewMetadataBackfill: (previewOptions) => this.previewMetadataBackfill(previewOptions),
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
+      listOutstandingItems: (input) => this.outstandingItems.list(input),
+      pendingOutstandingItemsForSessions: (sessionIds) => this.outstandingItems.pendingForSessions(sessionIds),
       knowledgePageDigests: (projectId) => this.knowledgePages.digestsForProject(projectId),
       knowledgePagesForContext: (projectId) => {
         const result = this.knowledgePages.listPages(projectId ? { projectId } : {});
@@ -872,6 +895,10 @@ export class WorkIntelligenceStore {
     return this.sessions.listPage(options);
   }
 
+  public pendingOutstandingItemsForSessions(sessionIds: readonly string[]): OutstandingItem[] {
+    return this.outstandingItems.pendingForSessions(sessionIds);
+  }
+
   public getSessionByIdempotencyKey(idempotencyKey: string): WorkSessionRecord | undefined {
     return this.sessions.getByIdempotencyKey(idempotencyKey);
   }
@@ -977,8 +1004,11 @@ export class WorkIntelligenceStore {
     return this.sessionRecords.updateSessionSummary(input);
   }
 
-  public updateSessionWorkSummary(input: UpdateSessionWorkSummaryInput): UpdateSessionWorkSummaryResult {
-    return this.sessionRecords.updateSessionWorkSummary(input);
+  public updateSessionWorkSummary(
+    input: UpdateSessionWorkSummaryInput,
+    source: Exclude<OutstandingItemEventSource, "migration"> = "web",
+  ): UpdateSessionWorkSummaryResult {
+    return this.sessionRecords.updateSessionWorkSummary(input, source);
   }
 
   public getSessionDetail(sessionId: string): SessionDetail | undefined {
@@ -991,6 +1021,18 @@ export class WorkIntelligenceStore {
 
   public reviewSessionDecision(input: ReviewSessionDecisionInput): ReviewSessionDecisionResult {
     return this.sessionDecisions.review(input);
+  }
+
+  public listOutstandingItems(input: ListOutstandingItemsInput = {}): OutstandingItemListQueryResult {
+    return this.outstandingItems.list(input);
+  }
+
+  public updateOutstandingItemStatus(
+    itemId: string,
+    status: OutstandingItemStatus,
+    source: Exclude<OutstandingItemEventSource, "migration"> = "web",
+  ): UpdateOutstandingItemStatusResult {
+    return this.outstandingItems.updateStatus(itemId, status, source);
   }
 
   public listKnowledgePages(query: KnowledgePageListQuery = {}): KnowledgePageListResult {
@@ -1298,6 +1340,7 @@ export class WorkIntelligenceStore {
             ? {}
             : { changedFilesFollowUp: getChangedFilesFollowUp(existing) }),
           workSummaryFollowUp: getWorkSummaryFollowUp(existing),
+          resolvedOutstandingItemIds: this.outstandingItems.resolvedByActorSession(existing.id),
         };
       }
 
@@ -1344,6 +1387,23 @@ export class WorkIntelligenceStore {
         origin: normalizedDecisionInputs[position]?.origin ?? "unspecified",
       }));
       replaceSessionDecisions(this.db, sessionId, project.id, persistedDecisions);
+      const sanitizedNextSteps = normalizedWorkSummary
+        ? (sanitizedWorkSummary.value as typeof normalizedWorkSummary).nextSteps
+        : [];
+      this.outstandingItems.syncForSessionInTransaction(
+        sessionId,
+        project.id,
+        sanitizedNextSteps,
+        "agent",
+        sessionId,
+        completedAt,
+      );
+      const resolution = this.outstandingItems.resolvePendingInTransaction(
+        input.resolvedOutstandingItemIds ?? [],
+        project.id,
+        sessionId,
+        completedAt,
+      );
 
       for (const event of events) {
         this.db
@@ -1419,6 +1479,15 @@ export class WorkIntelligenceStore {
         ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
         ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
         ...(knowledgePagesAcknowledged.length > 0 ? { knowledgePagesAcknowledged } : {}),
+        resolvedOutstandingItemIds: resolution.resolvedIds,
+        ...(resolution.unresolvedIds.length > 0
+          ? {
+              outstandingItemWarnings: {
+                unresolvedIds: resolution.unresolvedIds,
+                message: "部分指定項目不在此追蹤專案中或目前不是 pending，因此未標記完成。",
+              },
+            }
+          : {}),
       };
     });
   }

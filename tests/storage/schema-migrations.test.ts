@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { applySchemaMigrations } from "../../packages/storage/src/schema-migrations.js";
+import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 
 describe("custom report synthesis migration", () => {
   it("preserves existing requests and summaries while allowing custom periods", () => {
@@ -26,7 +27,10 @@ describe("custom report synthesis migration", () => {
         CREATE TABLE sessions (
           id TEXT PRIMARY KEY,
           project_id TEXT,
-          changed_files_json TEXT NOT NULL DEFAULT '[]'
+          changed_files_json TEXT NOT NULL DEFAULT '[]',
+          work_summary_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z',
+          updated_at TEXT
         );
         CREATE TABLE knowledge (id TEXT PRIMARY KEY);
         CREATE TABLE search_chunks (
@@ -215,7 +219,13 @@ describe("custom report synthesis migration", () => {
           applied_at TEXT NOT NULL
         );
         CREATE TABLE projects (id TEXT PRIMARY KEY);
-        CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT);
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT,
+          work_summary_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z',
+          updated_at TEXT
+        );
         CREATE TABLE knowledge (id TEXT PRIMARY KEY);
         CREATE TABLE search_chunks (
           id INTEGER PRIMARY KEY,
@@ -280,7 +290,21 @@ describe("custom report synthesis migration", () => {
           name TEXT NOT NULL,
           applied_at TEXT NOT NULL
         );
-        CREATE TABLE sessions (id TEXT PRIMARY KEY);
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          root_path TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT,
+          work_summary_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL DEFAULT '2026-09-01T00:00:00.000Z',
+          updated_at TEXT
+        );
         CREATE TABLE search_chunks (
           id INTEGER PRIMARY KEY,
           doc_type TEXT NOT NULL,
@@ -352,6 +376,100 @@ describe("custom report synthesis migration", () => {
           )
           .get(),
       ).toEqual({ name: "idx_search_chunks_raw_content_hash" });
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("outstanding item migration", () => {
+  it("backfills every legacy nextSteps string as pending without inferring completion", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      db.prepare(
+        `INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'tracked', ?, ?)`,
+      ).run(
+        "legacy-project",
+        "Legacy project",
+        "/tmp/legacy-project",
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-20T00:00:00.000Z",
+      );
+      const insertSession = db.prepare(
+        `INSERT INTO sessions (
+          id, project_id, idempotency_key, title, summary, work_summary_json, status,
+          execution_status, completed_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'finalized', 'completed', ?, ?, ?)`,
+      );
+      insertSession.run(
+        "legacy-with-steps",
+        "legacy-project",
+        "legacy-with-steps-key",
+        "Legacy work",
+        "Legacy summary",
+        JSON.stringify({ nextSteps: ["Looks complete", "Still unresolved"] }),
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-21T00:00:00.000Z",
+      );
+      insertSession.run(
+        "legacy-empty-steps",
+        "legacy-project",
+        "legacy-empty-key",
+        "Legacy empty",
+        "Legacy summary",
+        JSON.stringify({ nextSteps: [] }),
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-21T00:00:00.000Z",
+      );
+      insertSession.run(
+        "legacy-invalid-json",
+        "legacy-project",
+        "legacy-invalid-key",
+        "Legacy invalid",
+        "Legacy summary",
+        "not json",
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-21T00:00:00.000Z",
+      );
+      insertSession.run(
+        "legacy-non-array-steps",
+        "legacy-project",
+        "legacy-non-array-key",
+        "Legacy non-array",
+        "Legacy summary",
+        JSON.stringify({ nextSteps: "Already done" }),
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-20T00:00:00.000Z",
+        "2026-09-21T00:00:00.000Z",
+      );
+      db.exec("DROP TABLE outstanding_item_events; DROP TABLE outstanding_items;");
+      db.prepare("DELETE FROM schema_migrations WHERE version = 22").run();
+
+      db.exec("BEGIN IMMEDIATE");
+      applySchemaMigrations(db);
+      db.exec("COMMIT");
+
+      expect(
+        db
+          .prepare(
+            "SELECT source_session_id, position, text, status FROM outstanding_items ORDER BY source_session_id, position",
+          )
+          .all(),
+      ).toEqual([
+        { source_session_id: "legacy-with-steps", position: 0, text: "Looks complete", status: "pending" },
+        { source_session_id: "legacy-with-steps", position: 1, text: "Still unresolved", status: "pending" },
+      ]);
+      expect(
+        db.prepare("SELECT from_status, to_status, source, actor_session_id FROM outstanding_item_events").all(),
+      ).toEqual([
+        { from_status: null, to_status: "pending", source: "migration", actor_session_id: null },
+        { from_status: null, to_status: "pending", source: "migration", actor_session_id: null },
+      ]);
     } finally {
       db.close();
     }

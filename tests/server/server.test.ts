@@ -634,6 +634,131 @@ describe("Work Intelligence REST API", () => {
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });
 
+  it("lists, paginates, and updates outstanding items through the Web API", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-outstanding-items-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const project = store.addProject("Outstanding items API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-outstanding-items-finalize",
+      title: "Outstanding items source",
+      summary: "Creates two pending items for the REST list.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["First API item.", "Second API item."],
+      },
+    });
+    if (finalized.outcome !== "finalized") {
+      throw new Error("Expected the outstanding-items source Session to finalize.");
+    }
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    const pending = await requestJson<{
+      outcome: string;
+      items: Array<{
+        id: string;
+        text: string;
+        status: string;
+        sourceSessionId: string;
+        sourceSessionTitle: string;
+      }>;
+      pageInfo: { page: number; pageSize: number; total: number };
+    }>(baseUrl, `/api/outstanding-items?projectId=${project.id}&status=pending&page=1&pageSize=1`);
+    expect(pending.status).toBe(200);
+    expect(pending.body).toMatchObject({
+      outcome: "outstanding_items",
+      items: [
+        {
+          text: "First API item.",
+          status: "pending",
+          sourceSessionId: finalized.session.id,
+          sourceSessionTitle: "Outstanding items source",
+        },
+      ],
+      pageInfo: { page: 1, pageSize: 1, total: 2 },
+    });
+    const item = pending.body.items[0];
+    if (!item) throw new Error("Expected the first pending item on page one.");
+
+    const completed = await requestJson<{
+      outcome: string;
+      duplicate: boolean;
+      item: { id: string; text: string; status: string; sourceSessionId: string };
+    }>(baseUrl, `/api/outstanding-items/${item.id}`, { method: "PATCH", body: { status: "completed" } });
+    expect(completed).toMatchObject({
+      status: 200,
+      body: {
+        outcome: "outstanding_item_updated",
+        duplicate: false,
+        item: {
+          id: item.id,
+          text: "First API item.",
+          status: "completed",
+          sourceSessionId: finalized.session.id,
+        },
+      },
+    });
+
+    const remaining = await requestJson<{
+      items: Array<{ text: string }>;
+      pageInfo: { total: number };
+    }>(baseUrl, `/api/outstanding-items?projectId=${project.id}`);
+    expect(remaining.body).toMatchObject({ items: [{ text: "Second API item." }], pageInfo: { total: 1 } });
+
+    store.updateProject(project.id, { status: "paused" });
+    const skippedList = await requestJson<{ outcome: string; projectStatus: string }>(
+      baseUrl,
+      `/api/outstanding-items?projectId=${project.id}`,
+    );
+    expect(skippedList.body).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    const skippedUpdate = await requestJson<{ outcome: string; projectStatus: string }>(
+      baseUrl,
+      `/api/outstanding-items/${item.id}`,
+      { method: "PATCH", body: { status: "not_needed" } },
+    );
+    expect(skippedUpdate.body).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+  });
+
+  it("validates outstanding item filters and masks storage errors", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-outstanding-items-validation-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    store.listOutstandingItems = () => {
+      throw new Error("private outstanding item storage detail");
+    };
+    store.updateOutstandingItemStatus = () => {
+      throw new Error("private outstanding item storage detail");
+    };
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    const invalidFilters = await requestJson<{ code: string }>(baseUrl, "/api/outstanding-items?status=resolved");
+    expect(invalidFilters.status).toBe(400);
+    expect(invalidFilters.body.code).toBe("invalid_input");
+    const invalidStatus = await requestJson<{ code: string }>(baseUrl, "/api/outstanding-items/item-1", {
+      method: "PATCH",
+      body: { status: "resolved" },
+    });
+    expect(invalidStatus.status).toBe(400);
+    expect(invalidStatus.body.code).toBe("invalid_input");
+
+    for (const result of [
+      await requestJson<{ error: string; code: string }>(baseUrl, "/api/outstanding-items"),
+      await requestJson<{ error: string; code: string }>(baseUrl, "/api/outstanding-items/item-1", {
+        method: "PATCH",
+        body: { status: "completed" },
+      }),
+    ]) {
+      expect(result.status).toBe(500);
+      expect(result.body).toMatchObject({ error: "Internal server error.", code: "internal_error" });
+      expect(JSON.stringify(result.body)).not.toContain("private outstanding item storage detail");
+    }
+  });
+
   it("lists, confirms, and promotes Agent decisions through the Web review API", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-session-decisions-test-"));
     const store = new WorkIntelligenceStore(":memory:");

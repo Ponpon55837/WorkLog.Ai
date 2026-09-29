@@ -111,6 +111,8 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
     "resulting_work_summary_json",
     "created_at",
   ],
+  outstanding_items: ["source_session_id", "project_id", "position", "text", "status", "created_at", "updated_at"],
+  outstanding_item_events: ["item_id", "project_id", "to_status", "source", "created_at"],
   knowledge_feedback: ["knowledge_id", "project_id", "kind", "occurred_at"],
   session_diagrams: ["session_id", "project_id", "idempotency_key", "title", "kind", "source", "created_at"],
   knowledge_pages: ["project_id", "slug", "title", "question", "sections_json", "created_at", "updated_at"],
@@ -135,6 +137,8 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   metadata_backfill_requests: { scope_type: "project", status: "completed" },
   session_summary_updates: { mode: "replace" },
   session_work_summary_updates: { mode: "replace" },
+  outstanding_items: { status: "pending" },
+  outstanding_item_events: { to_status: "pending", source: "migration" },
   knowledge_page_versions: { author: "agent" },
   knowledge_feedback: { kind: "manual_confirm" },
   session_diagrams: { kind: "mermaid" },
@@ -165,6 +169,9 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
     row.candidate_count = 1;
   }
   if (table === "session_decisions") {
+    row.position = 0;
+  }
+  if (table === "outstanding_items") {
     row.position = 0;
   }
   if (table === "knowledge_pages" || table === "knowledge_page_versions") {

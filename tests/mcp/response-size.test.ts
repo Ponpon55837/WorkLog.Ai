@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { projectDataExportSchema } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore, LATEST_SCHEMA_VERSION } from "../../packages/storage/src/index.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
@@ -24,6 +26,7 @@ const retrievalQuery = "agent context retrieval budget gotcha";
 const RESPONSE_BUDGETS = {
   contextWithoutTask: 16_000,
   contextWithTask: 10_000,
+  outstandingItemsPage: 30_000,
   recallDefault: 7_000,
   recallFive: 3_500,
   searchDefault: 8_000,
@@ -160,6 +163,10 @@ describe("synthetic MCP response-size baseline", () => {
     const { client, projectRoot, store } = await connectWithSyntheticHistory();
     const contextWithoutTask = await serializedMcpPayload(client, "work_get_context", { projectRoot });
     const contextWithTask = await serializedMcpPayload(client, "work_get_context", { projectRoot, task: query });
+    const outstandingItemsPage = await serializedMcpPayload(client, "work_list_outstanding_items", {
+      projectRoot,
+      pageSize: 5,
+    });
     const recallDefault = await serializedMcpPayload(client, "work_recall", { projectRoot, q: retrievalQuery });
     const recallFive = await serializedMcpPayload(client, "work_recall", {
       projectRoot,
@@ -190,6 +197,26 @@ describe("synthetic MCP response-size baseline", () => {
     };
     const searchPayload = searchResponse.hits;
     const relatedLinks = recallFivePayload.hits.flatMap((hit) => hit.related ?? []);
+    const defaultContext = contextWithoutTask.value as {
+      pendingOutstandingItems: Array<{
+        id: string;
+        sourceSessionId: string;
+        sourceSessionTitle: string;
+        sourceSessionCompletedAt: string;
+        text: string;
+        status: string;
+        textTruncated?: boolean;
+      }>;
+      pendingOutstandingItemsTotal: number;
+      pendingOutstandingItemsOmitted: number;
+      pendingOutstandingItemsTruncated: number;
+      omitted?: Array<{ section: string; readWith: string }>;
+    };
+    const outstandingPage = outstandingItemsPage.value as {
+      items: Array<{ sourceSessionId: string; text: string; status: string }>;
+      pageInfo: { total: number };
+    };
+    const sourceSessionIds = new Set(store.listSessions().map((session) => session.id));
 
     const taskContext = store.getContext(projectRoot, { task: query });
     expect(taskContext.outcome).toBe("context");
@@ -214,13 +241,35 @@ describe("synthetic MCP response-size baseline", () => {
         page.sections.every((section) => section.sourceSessionIds.length > 0),
       ),
     ).toBe(true);
-    expect(taskContext.omitted?.some((section) => section.section === "recentSessions")).toBe(true);
-    expect(taskContext.omitted?.some((section) => section.section === "knowledgePages")).toBe(true);
+    expect(taskContext.recentSessions).toEqual([]);
+    expect(taskContext.knowledgePages).toEqual([]);
+    expect(defaultContext.pendingOutstandingItemsTotal).toBe(4);
+    expect(defaultContext.pendingOutstandingItems.length).toBeLessThanOrEqual(5);
+    expect(defaultContext.pendingOutstandingItemsOmitted).toBe(
+      defaultContext.pendingOutstandingItemsTotal - defaultContext.pendingOutstandingItems.length,
+    );
+    expect(defaultContext.pendingOutstandingItemsTruncated).toBe(0);
+    expect(
+      defaultContext.pendingOutstandingItems.every(
+        (item) =>
+          item.status === "pending" &&
+          sourceSessionIds.has(item.sourceSessionId) &&
+          item.sourceSessionTitle.length > 0 &&
+          item.sourceSessionCompletedAt.length > 0 &&
+          item.text.length <= 500,
+      ),
+    ).toBe(true);
+    expect(defaultContext.pendingOutstandingItems.every((item) => !item.textTruncated)).toBe(true);
+    expect(outstandingPage.pageInfo.total).toBe(4);
+    expect(outstandingPage.items).toHaveLength(4);
+    expect(outstandingPage.items.every((item) => item.status === "pending" && item.text === longOpenItem)).toBe(true);
+    expect(outstandingItemsPage.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingItemsPage);
 
     console.info(
       `Synthetic MCP response sizes (characters): ${JSON.stringify({
         contextWithoutTask: contextWithoutTask.length,
         contextWithTask: contextWithTask.length,
+        outstandingItemsPage: outstandingItemsPage.length,
         recallDefault: recallDefault.length,
         recallFive: recallFive.length,
         searchDefault: searchDefault.length,
@@ -259,6 +308,290 @@ describe("synthetic MCP response-size baseline", () => {
     expect(recallDefault.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallDefault);
     expect(recallFive.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallFive);
     expect(searchDefault.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.searchDefault);
+  });
+
+  it("bounds pending context items and points to the complete paged MCP list", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-response-size-"));
+    cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Synthetic Pending Project", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    const fullText = "Check this verified source-linked item before closing its work. "
+      .repeat(100)
+      .slice(0, 4_000)
+      .trimEnd();
+
+    for (let index = 0; index < 9; index += 1) {
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `outstanding-response-session-${index}`,
+        title: `Synthetic pending source ${index}`,
+        summary: `Saved fictional source Session ${index}.`,
+        workSummary: {
+          outcomes: [`Saved fictional source Session ${index}.`],
+          scope: [],
+          decisions: [],
+          verification: ["The synthetic response fixture is valid."],
+          nextSteps: [fullText],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (result.outcome !== "finalized") {
+        throw new Error(`Expected synthetic pending source ${index}; received ${result.outcome}.`);
+      }
+    }
+    const pendingBeforeUpdate = store.listOutstandingItems({ projectRoot });
+    if (pendingBeforeUpdate.outcome !== "outstanding_items") {
+      throw new Error("Expected pending synthetic items before status setup.");
+    }
+    const completedItemId = pendingBeforeUpdate.items[0]?.id;
+    if (!completedItemId) throw new Error("Expected a pending synthetic item to complete.");
+    expect(store.updateOutstandingItemStatus(completedItemId, "completed", "web").outcome).toBe(
+      "outstanding_item_updated",
+    );
+
+    const server = createWorkIntelligenceMcpServer(store, "0.1.0-test", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "outstanding-response-size-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const context = await serializedMcpPayload(client, "work_get_context", { projectRoot });
+    const contextValue = context.value as {
+      pendingOutstandingItems: Array<{
+        id: string;
+        sourceSessionId: string;
+        sourceSessionTitle: string;
+        sourceSessionCompletedAt: string;
+        text: string;
+        status: string;
+        textTruncated?: boolean;
+      }>;
+      pendingOutstandingItemsTotal: number;
+      pendingOutstandingItemsOmitted: number;
+      pendingOutstandingItemsTruncated: number;
+      omitted?: Array<{ section: string; readWith: string }>;
+    };
+    const fullListPage = await serializedMcpPayload(client, "work_list_outstanding_items", {
+      projectRoot,
+      pageSize: 5,
+    });
+    const fullList = fullListPage.value as {
+      items: Array<{ id: string; sourceSessionId: string; text: string; status: string }>;
+      pageInfo: { total: number };
+    };
+    const defaultListPage = await serializedMcpPayload(client, "work_list_outstanding_items", { projectRoot });
+    const defaultList = defaultListPage.value as { items: Array<{ id: string }>; pageInfo: { total: number } };
+    const completedListPage = await serializedMcpPayload(client, "work_list_outstanding_items", {
+      projectRoot,
+      status: "completed",
+      pageSize: 5,
+    });
+    const completedList = completedListPage.value as {
+      items: Array<{ id: string; text: string; status: string }>;
+      pageInfo: { total: number };
+    };
+
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithoutTask);
+    expect(contextValue.pendingOutstandingItemsTotal).toBe(8);
+    expect(contextValue.pendingOutstandingItems).toHaveLength(5);
+    expect(contextValue.pendingOutstandingItemsOmitted).toBe(3);
+    expect(contextValue.pendingOutstandingItemsTruncated).toBe(5);
+    expect(
+      contextValue.pendingOutstandingItems.every(
+        (item) =>
+          item.status === "pending" &&
+          item.sourceSessionId.length > 0 &&
+          item.sourceSessionTitle.length > 0 &&
+          item.sourceSessionCompletedAt.length > 0 &&
+          item.text.length <= 500 &&
+          item.textTruncated === true,
+      ),
+    ).toBe(true);
+    expect(contextValue.pendingOutstandingItems.some((item) => item.id === completedItemId)).toBe(false);
+    expect(contextValue.omitted?.some((section) => section.section === "pendingOutstandingItems")).toBe(true);
+    expect(contextValue.omitted?.some((section) => section.readWith === "work_list_outstanding_items")).toBe(true);
+    expect(fullText.length).toBeGreaterThanOrEqual(3_900);
+    expect(fullList.pageInfo.total).toBe(8);
+    expect(fullList.items).toHaveLength(5);
+    expect(fullList.items.every((item) => item.status === "pending" && item.text === fullText)).toBe(true);
+    expect(fullList.items.every((item) => item.sourceSessionId.length > 0)).toBe(true);
+    console.info(`Max MCP outstanding-item page size: ${fullListPage.length} UTF-16 code units`);
+    expect(fullListPage.length).toBeGreaterThan(20_000);
+    expect(fullListPage.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingItemsPage);
+    expect(defaultList.pageInfo.total).toBe(8);
+    expect(defaultList.items).toHaveLength(5);
+    expect(completedList).toMatchObject({
+      pageInfo: { total: 1 },
+      items: [expect.objectContaining({ id: completedItemId, text: fullText, status: "completed" })],
+    });
+  });
+
+  it("preserves long imported item text while bounding MCP pages", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-legacy-item-response-size-"));
+    cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));
+    const source = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => source.close());
+    const imported = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => imported.close());
+    const roundTrip = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => roundTrip.close());
+
+    const project = source.addProject("Synthetic Legacy Items", projectRoot);
+    source.updateProject(project.id, { status: "tracked" });
+    for (let index = 0; index < 5; index += 1) {
+      const result = source.finalizeSession({
+        projectRoot,
+        idempotencyKey: `legacy-item-response-session-${index}`,
+        title: `Synthetic legacy item source ${index}`,
+        summary: `Saved fictional source Session ${index}.`,
+        workSummary: {
+          outcomes: [`Saved fictional source Session ${index}.`],
+          scope: [],
+          decisions: [],
+          verification: ["The synthetic source record is valid."],
+          nextSteps: ["Short source text before portable import."],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (result.outcome !== "finalized") {
+        throw new Error(`Expected synthetic source Session ${index}; received ${result.outcome}.`);
+      }
+    }
+
+    const fullText = `Imported legacy open-item text. ${"This verified source-linked item remains complete in storage. ".repeat(80)}`;
+    expect(fullText.length).toBeGreaterThan(4_000);
+    const bundle = structuredClone(source.exportProjectData({ type: "project", projectId: project.id }));
+    for (const item of bundle.tables.outstanding_items) {
+      item.text = fullText;
+      const session = bundle.tables.sessions.find((row) => row.id === item.source_session_id);
+      if (!session) throw new Error("Expected a source Session for every synthetic outstanding item.");
+      session.work_summary_json = JSON.stringify({
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [fullText],
+      });
+    }
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
+    imported.importProjectData({ bundle });
+    imported.updateProject(project.id, { status: "tracked" });
+
+    const importedItems = imported.listOutstandingItems({ projectRoot });
+    if (importedItems.outcome !== "outstanding_items") {
+      throw new Error("Expected imported synthetic outstanding items.");
+    }
+    expect(importedItems.items).toHaveLength(5);
+    expect(importedItems.items.every((item) => item.text === fullText)).toBe(true);
+
+    const importedBundle = imported.exportProjectData({ type: "project", projectId: project.id });
+    expect(importedBundle.tables.outstanding_items.every((item) => item.text === fullText)).toBe(true);
+    roundTrip.importProjectData({ bundle: importedBundle });
+    roundTrip.updateProject(project.id, { status: "tracked" });
+    const roundTrippedItems = roundTrip.listOutstandingItems({ projectRoot });
+    if (roundTrippedItems.outcome !== "outstanding_items") {
+      throw new Error("Expected round-tripped synthetic outstanding items.");
+    }
+    expect(roundTrippedItems.items.every((item) => item.text === fullText)).toBe(true);
+
+    const server = createWorkIntelligenceMcpServer(roundTrip, "0.1.0-test", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "legacy-item-response-size-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const page = await serializedMcpPayload(client, "work_list_outstanding_items", { projectRoot, pageSize: 5 });
+    const payload = page.value as {
+      items: Array<{ text: string; textTruncated?: boolean }>;
+      pageInfo: { total: number };
+    };
+    expect(payload.pageInfo.total).toBe(5);
+    expect(payload.items).toHaveLength(5);
+    expect(
+      payload.items.every(
+        (item) => item.text.length === 4_000 && item.text.endsWith("…") && item.textTruncated === true,
+      ),
+    ).toBe(true);
+    expect(page.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingItemsPage);
+  });
+
+  it("bounds oversized serialized metadata and marks shortened display fields", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-oversized-item-metadata-"));
+    cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Synthetic Metadata Project", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    const fullText = "L".repeat(4_000);
+
+    for (let index = 0; index < 5; index += 1) {
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `oversized-metadata-session-${index}`,
+        title: `Synthetic metadata source ${index}`,
+        summary: `Saved fictional source Session ${index}.`,
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: [fullText],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (result.outcome !== "finalized") {
+        throw new Error(`Expected synthetic metadata source ${index}; received ${result.outcome}.`);
+      }
+    }
+
+    const oversizedMetadata = `"\\\n`.repeat(12_000);
+    const database = (store as unknown as { db: DatabaseSync }).db;
+    database.prepare("UPDATE projects SET name = ? WHERE id = ?").run(oversizedMetadata, project.id);
+    database.prepare("UPDATE sessions SET title = ? WHERE project_id = ?").run(oversizedMetadata, project.id);
+
+    const server = createWorkIntelligenceMcpServer(store, "0.1.0-test", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "oversized-item-metadata-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const page = await serializedMcpPayload(client, "work_list_outstanding_items", { projectRoot, pageSize: 5 });
+    const payload = page.value as {
+      items: Array<{
+        projectName: string;
+        projectNameTruncated?: boolean;
+        sourceSessionTitle: string;
+        sourceSessionTitleTruncated?: boolean;
+        text: string;
+        textTruncated?: boolean;
+      }>;
+    };
+
+    expect(page.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingItemsPage);
+    expect(payload.items).toHaveLength(5);
+    expect(
+      payload.items.every(
+        (item) =>
+          item.text.length <= fullText.length &&
+          (item.text.length === fullText.length
+            ? item.textTruncated === undefined
+            : item.text.endsWith("…") && item.textTruncated === true),
+      ),
+    ).toBe(true);
+    expect(
+      payload.items.every(
+        (item) =>
+          item.projectName.length < oversizedMetadata.length &&
+          item.projectNameTruncated === true &&
+          item.sourceSessionTitle.length < oversizedMetadata.length &&
+          item.sourceSessionTitleTruncated === true,
+      ),
+    ).toBe(true);
   });
 
   it("keeps cited-source review pointers bounded while preserving omitted counts and reasons", async () => {

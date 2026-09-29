@@ -37,6 +37,13 @@ describe("database redaction", () => {
       title: "舊資料遮蔽測試",
       summary: "不含敏感文字的初始摘要。",
       handoffContent: "安全的初始交接。",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["Synthetic redaction item"],
+      },
       completedAt: "2026-09-20T10:00:00.000Z",
     });
     if (finalized.outcome !== "finalized") {
@@ -59,6 +66,9 @@ describe("database redaction", () => {
       seed.prepare("UPDATE raw_snapshots SET content = ? WHERE session_id = ?").run(token, finalized.session.id);
       seed.prepare("UPDATE evidence SET summary = ? WHERE session_id = ?").run(token, finalized.session.id);
       seed.prepare("UPDATE knowledge SET body = ? WHERE session_id = ?").run(token, finalized.session.id);
+      seed
+        .prepare("UPDATE outstanding_items SET text = ? WHERE source_session_id = ?")
+        .run(token, finalized.session.id);
     } finally {
       seed.close();
     }
@@ -67,7 +77,7 @@ describe("database redaction", () => {
     stores.splice(stores.indexOf(store), 1);
 
     const preview = redactDatabase({ databasePath });
-    expect(preview).toMatchObject({ mode: "dry_run", affectedSessions: 1, redactions: { total: 5 } });
+    expect(preview).toMatchObject({ mode: "dry_run", affectedSessions: 1, redactions: { total: 6 } });
     const unchanged = new DatabaseSync(databasePath, { readOnly: true });
     try {
       expect(
@@ -89,7 +99,7 @@ describe("database redaction", () => {
     }
 
     const applied = redactDatabase({ databasePath, apply: true, backup: { directory: backupDirectory } });
-    expect(applied).toMatchObject({ mode: "applied", affectedSessions: 1, redactions: { total: 5 } });
+    expect(applied).toMatchObject({ mode: "applied", affectedSessions: 1, redactions: { total: 6 } });
     expect(applied.backupFileName).toBeTruthy();
     expect(existsSync(join(backupDirectory, applied.backupFileName ?? ""))).toBe(true);
 
@@ -101,6 +111,7 @@ describe("database redaction", () => {
         verify.prepare("SELECT content FROM raw_snapshots WHERE session_id = ?").get(finalized.session.id),
         verify.prepare("SELECT summary FROM evidence WHERE session_id = ?").get(finalized.session.id),
         verify.prepare("SELECT body FROM knowledge WHERE session_id = ?").get(finalized.session.id),
+        verify.prepare("SELECT text FROM outstanding_items WHERE source_session_id = ?").get(finalized.session.id),
       ];
       expect(JSON.stringify(textRows)).not.toContain(token);
       expect(
@@ -109,7 +120,7 @@ describe("database redaction", () => {
             redaction_count: number;
           }
         ).redaction_count,
-      ).toBe(5);
+      ).toBe(6);
       expect(
         (
           verify.prepare("SELECT COUNT(*) AS count FROM search_chunks WHERE content LIKE ?").get(`%${token}%`) as {

@@ -29,8 +29,8 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 - **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。維護者主要使用 macOS；Windows 與 Linux 守住不同的路徑處理（大小寫、分隔符號、8.3 短檔名）與 shell 行為。
 - **生產依賴安全稽核**：Ubuntu Quality job 執行 `pnpm audit --prod --audit-level high`；生產依賴出現 high 或 critical 級別漏洞時，檢查會失敗。
-- **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。
-- **Recall evaluator 效能門檻**：同一個 `pnpm test:performance` 另以 5,000 筆合成 Sessions、MCP in-memory transport 與真實 snapshot 流程量測 recall/context evaluator，15 次執行的 p90 上限為 1,000 ms。此數字涵蓋唯讀來源備份、scratch store 啟動、必要的 scratch 索引同步與兩個 MCP 呼叫；不使用使用者資料庫。本輪 p90 為 239.84 ms（median 234.24、max 241.51），整體讀取效能 gate 20/20 通過。
+- **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。未結項清單另在 5,000 Sessions／1,000 個合成未結項資料上量測，p90 上限為 250 ms；本輪為 2.04 ms。100 筆 Session digest 的 pending-items 批次查詢 p90 為 3.71 ms，低於 100 ms 門檻（前次量測為 8.11 ms）。
+- **Recall evaluator 效能門檻**：同一個 `pnpm test:performance` 另以 5,000 筆合成 Sessions、MCP in-memory transport 與真實 snapshot 流程量測 recall/context evaluator，15 次執行的 p90 上限為 1,000 ms。此數字涵蓋唯讀來源備份、scratch store 啟動、必要的 scratch 索引同步與兩個 MCP 呼叫；不使用使用者資料庫。本輪 p90 為 287.49 ms（median 250 ms、max 484.55），整體讀取效能 gate 22/22 通過。
 - **Recall evaluator CI smoke**：Quality 的 Ubuntu、Windows、macOS 三個 matrix 都執行 `pnpm run test:recall-eval:example`，在暫存目錄建立合成 SQLite，結構化代入臨時 project root 與本次 seed 的 Session／Knowledge ids，再直接用目前 Node 執行 evaluator，避免 shell 路徑與 `pnpm` shim 差異。recall 與 context 正例必須都達 hit@1、hit@5、MRR = 1；負例預期為 `confidence: "none"`，任何不符都以非零結束。CI 明確傳入暫存 `--db`，不讀取 `data/`。
 - **檢索品質門檻**：`pnpm test` 在三個 OS 都包含虛構合成資料的 storage 評估；Ubuntu 另以 `pnpm test:retrieval-quality` 明確顯示 hit@5／MRR 門檻結果。
 - **MCP 回應大小門檻**：`pnpm test` 在三個 OS 都執行合成資料的回應大小測試；Ubuntu 另以 `pnpm test:response-size` 顯示各工具序列化字元數並檢查上限。
@@ -54,9 +54,9 @@ Context 每題呼叫 `work_get_context` 的實際 MCP handler；排名只看 `re
 
 ## Agent MCP 回應大小
 
-`pnpm test:response-size` 以虛構合成資料透過 in-memory MCP transport 呼叫工具，計算 Agent 實際收到的文字長度（JavaScript 字元數，不是 UTF-8 位元組或 token）。所有工具的文字結果都是緊湊 JSON。資料包含 20 筆 Session、10 筆共用同一段舊規劃的 handoff、完成工作的決策與陷阱、4 筆 Knowledge，以及 3 頁 Knowledge page；資料庫只在記憶體中建立，不讀取 `data/` 或使用者資料。
+`pnpm test:response-size` 以虛構合成資料透過 in-memory MCP transport 呼叫工具，計算 Agent 實際收到的文字長度（JavaScript 字元數，不是 UTF-8 位元組或 token）。所有工具的文字結果都是緊湊 JSON。資料包含 20 筆 Session、10 筆共用同一段舊規劃的 handoff、完成工作的決策與陷阱、4 筆 Knowledge、3 頁 Knowledge page，以及 9 筆未結項；資料庫只在記憶體中建立，不讀取 `data/` 或使用者資料。一般未結項頁面為 2,183 字元；另透過合法的舊格式匯入資料建立超過 4,000 字元的全文，確認 storage 與匯出／匯入保留全文，而 MCP 單筆最多回傳 4,000 字元並以 `textTruncated: true` 標示截短。另一個邊界案例以合法的 4,000 字元項目文字作為輸入，同時把合成專案名稱與 Session title 設成含引號、反斜線及換行的超長已存 metadata；測試量完整序列化後的 MCP JSON，確認未結項頁面不超過 30,000 UTF-16 code units，且縮短欄位均帶對應的 `Truncated` 標記。一般五筆頁面仍低於 30,000 code units gate，並確認 MCP 專用 `pageSize` 預設及上限為 5、傳入 6 會被拒絕。REST 仍使用共用的 100 筆上限並保留完整文字。
 
-MCP 清單 regression test（`tests/mcp/tools-list-budget.test.ts`）以 MCP SDK 的 `Client` 和 linked in-memory transport 連接真實 server，對 `JSON.stringify(await client.listTools()).length` 直接量測完整序列化 tools/list 結果。這是 JavaScript UTF-16 code units（`.length`），不是只量 descriptions，也不是 UTF-8 bytes 或 token。A1 merge 的 44-tool 基線為 **81,487 code units**；把所有 description 設為空仍有 **46,474 code units**，所以必須縮減重複 schema/tool metadata。A2 的四 dispatcher 結果為 **3,769 code units**（比 A1 減少 95.4%），低於 **30,000 code units** 上限。測試也逐一透過 `Client.callTool()` 路由 44 個 operation，確認操作索引 resource（上限 6,000 code units）列出每個 operation 與 dispatcher，且每個 `tool-contracts/{operation}` resource（單一上限 12,000，最大為 finalize 的 10,608）提供完整 schema、behavior、runtime validation 規則及 annotations，涵蓋錯誤回應與各安全分類；另測試任何層級的未知參數鍵都會被拒絕而非靜默丟棄。測試只使用 `:memory:` storage，不讀取使用者資料庫或任意本機路徑。
+MCP 清單 regression test（`tests/mcp/tools-list-budget.test.ts`）以 MCP SDK 的 `Client` 和 linked in-memory transport 連接真實 server，對 `JSON.stringify(await client.listTools()).length` 直接量測完整序列化 tools/list 結果。這是 JavaScript UTF-16 code units（`.length`），不是只量 descriptions，也不是 UTF-8 bytes 或 token。A1 merge 的 44-tool 基線為 **81,487 code units**；把所有 description 設為空仍有 **46,474 code units**，所以必須縮減重複 schema/tool metadata。A2 的四 dispatcher 結果為 **3,769 code units**（比 A1 減少 95.4%），低於 **30,000 code units** 上限；A2 當時涵蓋 44 個 operation，C1 新增唯讀未結項列表後目前是 45 個。測試逐一透過 `Client.callTool()` 路由所有 operation，確認操作索引 resource（上限 6,000 code units）列出每個 operation 與 dispatcher，且每個 `tool-contracts/{operation}` resource（單一上限 12,000，最大為 finalize 的 10,608）提供完整 schema、behavior、runtime validation 規則及 annotations，涵蓋錯誤回應與各安全分類；另測試任何層級的未知參數鍵都會被拒絕而非靜默丟棄。測試只使用 `:memory:` storage，不讀取使用者資料庫或任意本機路徑。
 
 | MCP 工具與情境 | 第七輪開始前（字元） | 目前（字元） | CI 上限（字元） |
 | --- | ---: | ---: | ---: |
@@ -96,6 +96,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
 | 知識頁 review context（涵蓋範圍後的一年 Session，最多 60 筆） | 250 ms |
+| 未結項清單（5,000 個 Session 中的 1,000 筆合成項目） | 250 ms |
 | 工作歷程搜尋（`search`） | 500 ms |
 | 依月份範圍的排序檢索（`recall` 帶 `from`／`to`） | 500 ms |
 | 同義詞擴展排序檢索（`q=endpoint performance`） | 500 ms |
@@ -140,6 +141,8 @@ pnpm test:retrieval-quality
 $env:WORK_INTELLIGENCE_E2E_WEB_PORT = "5987"; pnpm exec playwright test
 ```
 
+C1 的 E2E 另確認工作歷程中的未結項可依專案與狀態篩選、開啟來源 Session、標記完成／不再需要／重新開啟，並覆蓋載入、空清單與錯誤狀態。
+
 E2E 涵蓋：Knowledge 候選（網頁建立請求、以 storage 套件模擬 Agent 回寫後頁面自動出現並接受）、Knowledge 可信度（改到 appliesTo 檔案後標示可能過時、確認仍有效後清除）、metadata 回補請求在 Agent 回寫後自動更新、專案頁「資料備份」立即備份、永久刪除專案前輸入完整名稱確認並顯示備份檔名（workspace sentinel 檔案保留）及刪除後在專案頁檢視不含內容的 audit、AI 報告整理卡（來源 Session、歷史版本、重新整理、Agent 存入結果後頁面自動更新並提示）、報告總覽依區間切換內容、工作歷程與工作報告「原始記錄」列表在桌機／平板／手機撐滿可用高度、保留可見分頁並維持內部捲動、工作歷程／知識的每頁筆數與 virtual list、Graph 篩選、節點搜尋（`?q=`、Enter 選取第一筆、無結果狀態）與節點面板、390px 寬度的 Session 面板、640／390px 各頁無水平捲動、六個主要頁面的 axe 掃描（critical／serious impact 必須為零）、直接路由與 `/worklog` 轉址、`?session=` 深連結、側邊面板拖曳調整寬度並記住、切換為記錄中前的同意對話框、Ctrl／⌘ K 指令面板、Session 面板「編輯 Session」（改主摘要、一段 workSummary 與 verification，未改的段落保留，verification 留下修改紀錄）、Session 作廢／「只看已作廢」篩選／還原。報告日期以測試機器的系統時區計算，與 server 一致。
 
 設定 `UI_SCREENSHOTS=<label>` 會額外把六頁 × 1440／960／375 的截圖寫到 `docs/ui-baseline/<label>/`（已被 `.gitignore` 排除），方便改版前後比對。
@@ -178,6 +181,6 @@ Unit／integration 測試涵蓋：
 - Session 列表把 `%`、`_` 當字面字元（Knowledge 搜尋共用同一個跳脫函式）
 - 檢索（`search-repository.test.ts`，全部使用虛構合成資料）：多關鍵字、兩字與較長中文詞、自然語句、raw handoff 切段與段落標題、路徑正規化與 changed files 異常降權、Knowledge references 的 commit SHA 分離、編輯／封存／專案狀態變更後索引同步、`termHits`、既有資料庫的索引回填，以及 context 的 `task`／`paths`
 - REST 拒絕非 loopback 的 `Host`（421）與不在白名單的 `Origin`（403）
-- MCP server 以 in-memory transport 端對端測試：工具清單、annotations、instructions 長度、contract 只掛在寫入工具、prompts、`work_get_project_status`、`work_list_sessions`／`work_get_session` 與 paused 專案 skip、Agent 建立報告／metadata 請求並出現在 context 的 `pendingRequests`
+- MCP server 以 in-memory transport 端對端測試：工具清單、annotations、instructions 長度、contract 只掛在寫入工具、prompts、`work_get_project_status`、`work_list_sessions`／`work_get_session`、分頁讀取未結項及 paused 專案 skip、Agent 建立報告／metadata 請求並出現在 context 的 `pendingRequests`
 
 模擬 Agent 的 E2E 會直接開啟 server 使用的暫存 SQLite（`WORK_INTELLIGENCE_E2E_DB`，由 `playwright.config.ts` 設定並傳給 worker），因為候選回寫只有 MCP 工具、沒有 REST。這些測試需要先 `pnpm build`（`pnpm test:e2e` 會自動執行）。

@@ -16,6 +16,7 @@ const EXPECTED_OPERATIONS = {
     "work_get_project_status",
     "work_get_session",
     "work_list_sessions",
+    "work_list_outstanding_items",
     "work_recall",
     "work_search",
     "work_get_context",
@@ -211,7 +212,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
         (count, name) => count + EXPECTED_OPERATIONS[name as keyof typeof EXPECTED_OPERATIONS].length,
         0,
       ),
-    ).toBe(44);
+    ).toBe(45);
 
     for (const tool of listing.tools) {
       const expected = EXPECTED_DISPATCHER_ANNOTATIONS[tool.name as keyof typeof EXPECTED_DISPATCHER_ANNOTATIONS];
@@ -228,16 +229,16 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     }
   });
 
-  it("publishes each of the 44 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
+  it("publishes each of the 45 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
     const { client } = await connect();
     const document = await readAllOperationContracts(client);
     const sections = resourceOperationSections(document);
     const expectedOperationIds = Object.values(EXPECTED_OPERATIONS).flat();
     const operationHeadingCount = [...document.matchAll(/^## work_/gm)].length;
 
-    expect(operationHeadingCount).toBe(44);
+    expect(operationHeadingCount).toBe(45);
     expect([...sections.keys()].sort()).toEqual([...expectedOperationIds].sort());
-    expect(sections.size).toBe(44);
+    expect(sections.size).toBe(45);
 
     for (const [dispatcher, operationIds] of Object.entries(EXPECTED_OPERATIONS)) {
       for (const operationId of operationIds) {
@@ -275,6 +276,23 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     const finalize = sections.get("work_finalize_session") ?? "";
     expect(finalize).toContain("A changedFileChanges entry with status=renamed must include previousPath.");
     expect(finalize).toContain("Timestamps with offsets are normalized to UTC; future values are rejected.");
+    expect(finalize).toContain("resolvedOutstandingItemIds");
+    expect(contractSchema(finalize).properties).toHaveProperty("resolvedOutstandingItemIds");
+
+    const outstandingItems = sections.get("work_list_outstanding_items") ?? "";
+    expect(outstandingItems).toContain("This is read-only");
+    expect(outstandingItems).toContain("projectRoot is policy-gated before reading");
+    expect(outstandingItems).toContain("pageSize defaults to 5 and is capped at 5");
+    expect(contractSchema(outstandingItems).properties).toHaveProperty("projectRoot");
+    const outstandingProperties = contractSchema(outstandingItems).properties as Record<string, unknown>;
+    expect(outstandingProperties.pageSize).toMatchObject({ minimum: 1, maximum: 5, default: 5 });
+    expect(outstandingProperties).not.toHaveProperty("projectId");
+
+    const context = sections.get("work_get_context") ?? "";
+    expect(context).toContain("Outstanding nextSteps items exposed by context are pending only");
+    expect(context).toContain("top-level pendingOutstandingItems list includes each source Session id");
+    expect(context).toContain("text capped at 500 characters");
+    expect(context).toContain("read-only work_list_outstanding_items to read the complete paged list");
 
     const sessionMetadata = sections.get("work_update_session_metadata") ?? "";
     expect(sessionMetadata).toContain("A changedFileChanges entry with status=renamed must include previousPath.");
@@ -313,11 +331,14 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     );
     const largest = contracts.reduce((max, entry) => (entry.length > max.length ? entry : max));
     const finalizeLength = contracts.find((entry) => entry.operation === "work_finalize_session")?.length ?? 0;
+    const outstandingItemsLength =
+      contracts.find((entry) => entry.operation === "work_list_outstanding_items")?.length ?? 0;
 
     console.info(
       `MCP contract sizes (UTF-16 code units): ${JSON.stringify({
         index: index.length,
         finalize: finalizeLength,
+        outstandingItems: outstandingItemsLength,
         largest,
         all: contracts.reduce((sum, entry) => sum + entry.length, 0),
       })}`,
@@ -351,6 +372,19 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     });
     expect(topLevel.isError).toBe(true);
     expect(resultText(topLevel)).toContain("Unknown argument(s): limit");
+
+    const outstandingScope = await callOperation(client, "work_read", "work_list_outstanding_items", {
+      projectRoot: PROJECT_ROOT,
+      projectId: "another-project",
+    });
+    expect(outstandingScope.isError).toBe(true);
+    expect(resultText(outstandingScope)).toContain("Unknown argument(s): projectId");
+
+    const oversizedOutstandingPage = await callOperation(client, "work_read", "work_list_outstanding_items", {
+      pageSize: 6,
+    });
+    expect(oversizedOutstandingPage.isError).toBe(true);
+    expect(resultText(oversizedOutstandingPage)).toContain("Invalid outstanding item query.");
 
     const nested = await callOperation(client, "work_write_idempotent", "work_finalize_session", {
       projectRoot: PROJECT_ROOT,
@@ -418,7 +452,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
       }
     }
 
-    expect(callCount).toBe(44);
+    expect(callCount).toBe(45);
   });
 
   it("routes representative handlers and reports invalid operation arguments as tool errors", async () => {

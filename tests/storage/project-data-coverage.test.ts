@@ -26,6 +26,7 @@ const NO_FREE_TEXT: Record<string, string> = {
   projects: "name, root path, and https repository URL (credentials rejected) are chosen by the user in the Web UI",
   session_links: "ids, relation, and source only",
   knowledge_feedback: "ids, kind, and time only",
+  outstanding_item_events: "item/session ids, status transitions, source, and time only",
 };
 
 function userTables(db: DatabaseSync): string[] {

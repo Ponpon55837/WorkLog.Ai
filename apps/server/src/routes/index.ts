@@ -1,5 +1,6 @@
 import { backfillRoutes } from "./backfill.js";
 import { insightRoutes } from "./insights.js";
+import { outstandingItemRoutes } from "./outstanding-items.js";
 import { knowledgeRoutes } from "./knowledge.js";
 import { projectRoutes } from "./projects.js";
 import { reportRoutes } from "./reports.js";
@@ -17,5 +18,6 @@ export const apiRoutes: readonly Route[] = [
   ...knowledgeRoutes,
   ...insightRoutes,
   ...sessionRoutes,
+  ...outstandingItemRoutes,
   ...backfillRoutes,
 ];

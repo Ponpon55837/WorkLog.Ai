@@ -209,7 +209,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 
 ## 在其他專案貼上使用說明
 
-任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是工作流程與隱私規則，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位與報告粒度，`work-intelligence://agent/tool-contracts` 是 44 項操作的精簡索引，`work-intelligence://agent/tool-contracts/<operation>` 是單一操作的完整 schema、說明與安全標註。第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。Skill 複本供 host 自動判斷何時使用；resources 是完整內容的跨 client 來源。
+任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是工作流程與隱私規則，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位與報告粒度，`work-intelligence://agent/tool-contracts` 是 45 項操作的精簡索引，`work-intelligence://agent/tool-contracts/<operation>` 是單一操作的完整 schema、說明與安全標註。第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。Skill 複本供 host 自動判斷何時使用；resources 是完整內容的跨 client 來源。
 
 如果 Agent 不會主動選用 user-level skill，可將下列簡短規則貼到其他專案的 `AGENTS.md` 或 `CLAUDE.md`。它不需要引用 Work Intelligence repo 的檔案：
 
