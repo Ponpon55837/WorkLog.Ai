@@ -175,6 +175,23 @@ try {
   const benchStore = cachePath && !cached ? new WorkIntelligenceStore(databasePath) : store;
   const alpha = benchStore.listProjects().find((project) => project.name === "alpha");
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
+  let maintenanceFinalizeIndex = 0;
+  const finalizeWithKnowledgePageMaintenance = () => {
+    const index = ++maintenanceFinalizeIndex;
+    const result = benchStore.finalizeSession({
+      projectRoot: alphaRoot,
+      idempotencyKey: `bench-page-maintenance-${index}`,
+      title: `Synthetic maintenance Session ${index}`,
+      summary: "Synthetic Session used to measure the knowledge-page maintenance reminder.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    if (result.outcome !== "finalized") {
+      throw new Error(`Could not finalize the maintenance benchmark Session: ${result.outcome}`);
+    }
+    return result;
+  };
   seedOutstandingItems(benchStore, [alpha.id, beta.id]);
   seedStaleKnowledge(benchStore, alpha);
   seedKnowledgePages(benchStore, alpha);
@@ -218,6 +235,7 @@ try {
     getContext: () => benchStore.getContext(),
     "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
+    "finalizeSession (knowledge page reminder)": finalizeWithKnowledgePageMaintenance,
     "getKnowledgePageContext (review)": () =>
       benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfalls" }),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
@@ -251,6 +269,7 @@ try {
     getContext: 2500,
     "getContext (project with pages)": 500,
     "listKnowledgePages (staleness)": 250,
+    "finalizeSession (knowledge page reminder)": 250,
     "getKnowledgePageContext (review)": 250,
     "listSessionDecisions (pending)": 250,
     "listOutstandingItems (pending)": 250,

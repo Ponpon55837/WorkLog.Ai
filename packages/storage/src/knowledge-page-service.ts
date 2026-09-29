@@ -95,6 +95,8 @@ const DIGEST_PAGE_CHARS = 1_500;
 const DIGEST_TOTAL_CHARS = 4_500;
 const DIGEST_REVIEW_SOURCE_LIMIT = 8;
 const DIGEST_SOURCE_SESSION_LIMIT = 8;
+/** Prompt for review after a small batch, while keeping single-session updates out of pending context. */
+export const KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD = 3;
 /** Versions shown in the Web history; older versions stay in the database and in exports. */
 const VERSION_HISTORY_LIMIT = 50;
 
@@ -547,7 +549,7 @@ export class KnowledgePageService {
     return digests;
   }
 
-  /** Pages an Agent should inspect: requested updates, unassessed Sessions, or cited sources needing review. */
+  /** Pages an Agent should inspect: explicit requests, cited sources needing review, or a batch of new Sessions. */
   public pendingForProject(projectId?: string): Array<{
     slug: string;
     title: string;
@@ -557,7 +559,20 @@ export class KnowledgePageService {
     needsReview?: boolean;
   }> {
     return this.pagesForProjects(projectId ? [projectId] : this.trackedProjectIds())
-      .filter((page) => page.status === "has_new_data" || page.updateRequestedAt || page.needsReview)
+      .filter(
+        (page) =>
+          page.updateRequestedAt ||
+          page.needsReview ||
+          page.newSessionCount >= KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD,
+      )
+      .sort((left, right) => {
+        const priority = (page: KnowledgePageRecord) => (page.needsReview ? 0 : page.updateRequestedAt ? 1 : 2);
+        return (
+          priority(left) - priority(right) ||
+          right.newSessionCount - left.newSessionCount ||
+          left.slug.localeCompare(right.slug)
+        );
+      })
       .map((page) => ({
         slug: page.slug,
         title: page.title,
@@ -566,6 +581,24 @@ export class KnowledgePageService {
         updateRequested: Boolean(page.updateRequestedAt),
         ...(page.needsReview ? { needsReview: true } : {}),
       }));
+  }
+
+  /** A single-line finalize reminder derived from the same ordered queue as work_get_context. */
+  public maintenanceHintForProject(projectId: string): string | undefined {
+    const pages = this.pendingForProject(projectId);
+    if (pages.length === 0) return undefined;
+
+    const entries = pages.map((page) => {
+      const reasons = [
+        ...(page.needsReview ? ["來源需要核對"] : []),
+        ...(page.updateRequested ? ["已有更新請求"] : []),
+        ...(page.newSessionCount >= KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD
+          ? [`${page.newSessionCount} 筆新 Session`]
+          : []),
+      ];
+      return `${page.title.replace(/\s+/g, " ").trim()}（${reasons.join("、")}）`;
+    });
+    return `知識頁維護提示：請檢查${entries.join("、")}。`;
   }
 
   private trackedProjectIds(): string[] {

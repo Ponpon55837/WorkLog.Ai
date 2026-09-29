@@ -1330,6 +1330,7 @@ export class WorkIntelligenceStore {
             suggestedTool: "work_update_session_summary",
           };
         }
+        const knowledgePageMaintenanceHint = this.knowledgePages.maintenanceHintForProject(existing.projectId);
         return {
           outcome: "finalized",
           duplicate: true,
@@ -1341,6 +1342,7 @@ export class WorkIntelligenceStore {
             : { changedFilesFollowUp: getChangedFilesFollowUp(existing) }),
           workSummaryFollowUp: getWorkSummaryFollowUp(existing),
           resolvedOutstandingItemIds: this.outstandingItems.resolvedByActorSession(existing.id),
+          ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         };
       }
 
@@ -1461,6 +1463,7 @@ export class WorkIntelligenceStore {
       const knowledgePagesAcknowledged = input.maintainedKnowledgePages?.length
         ? this.knowledgePages.acknowledgeMaintenance(project.id, sessionId, input.maintainedKnowledgePages)
         : [];
+      const knowledgePageMaintenanceHint = this.knowledgePages.maintenanceHintForProject(project.id);
 
       const session = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (!session) {
@@ -1479,6 +1482,7 @@ export class WorkIntelligenceStore {
         ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
         ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
         ...(knowledgePagesAcknowledged.length > 0 ? { knowledgePagesAcknowledged } : {}),
+        ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         resolvedOutstandingItemIds: resolution.resolvedIds,
         ...(resolution.unresolvedIds.length > 0
           ? {
