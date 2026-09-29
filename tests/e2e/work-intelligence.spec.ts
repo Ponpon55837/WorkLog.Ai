@@ -946,9 +946,12 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("最近自動備份", { exact: true })).toBeVisible();
     await expect(page.getByText("最近資料維護", { exact: true })).toBeVisible();
     await expect(page.getByText("pnpm run doctor").first()).toBeVisible();
-    await expect(page.getByTestId("agent-connections")).toContainText("Codex MCP 註冊");
-    await expect(page.getByTestId("agent-connections")).toContainText("Claude Code 全域 hook");
-    await expect(page.getByTestId("agent-connections")).toContainText("A3 MCP 重新連線");
+    const agentConnections = page.getByTestId("agent-connections");
+    await expect(agentConnections.getByText("Codex", { exact: true })).toBeVisible();
+    await expect(agentConnections.getByText("Claude Code", { exact: true })).toBeVisible();
+    await expect(agentConnections.getByText("MCP 註冊", { exact: true })).toHaveCount(2);
+    await expect(agentConnections.getByText("全域 hook", { exact: true })).toHaveCount(2);
+    await expect(page.getByTestId("agent-mcp-reconnect")).toContainText("重新連線");
 
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
@@ -1076,7 +1079,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("MCP 需要重新連線")).toBeVisible();
     await expect(
       page
-        .getByTestId("agent-connections")
+        .getByTestId("mcp-connection")
         .getByText("磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。", { exact: true }),
     ).toBeVisible();
 

@@ -205,6 +205,7 @@ describe("pnpm doctor read-only checks", () => {
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot)).toEqual({
       claudeConfigured: true,
       codexConfigured: false,
+      codexLegacyMatcher: true,
       codexSegmentStartConfigured: false,
       codexHooksFeature: "enabled",
     });
@@ -298,6 +299,7 @@ describe("pnpm doctor read-only checks", () => {
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot, codexHomeDirectory, claudeConfigDirectory)).toEqual({
       claudeConfigured: true,
       codexConfigured: true,
+      codexLegacyMatcher: false,
       codexSegmentStartConfigured: false,
       codexHooksFeature: "disabled",
     });
@@ -413,6 +415,30 @@ describe("pnpm doctor read-only checks", () => {
       claudeCode: { mcpRegistered: "registered", skill: "current", hook: "installed" },
     });
     expect([...configPaths, ...skillPaths].map((path) => readFileSync(path))).toEqual(before);
+
+    // A hook installed before the MCP dispatchers is stale, not missing: re-running setup upgrades it.
+    const legacyHooks = JSON.parse(readFileSync(join(codexHomeDirectory, "hooks.json"), "utf8")) as {
+      hooks: { PostToolUse: Array<Record<string, unknown>> };
+    };
+    legacyHooks.hooks.PostToolUse[0]!.matcher = LEGACY_CODEX_POST_TOOL_USE_MATCHER;
+    writeFileSync(join(codexHomeDirectory, "hooks.json"), JSON.stringify(legacyHooks));
+    expect(
+      inspectAgentConnections({
+        homeDirectory,
+        repositoryRoot,
+        environment: { HOME: homeDirectory, CODEX_HOME: codexHomeDirectory, CLAUDE_CONFIG_DIR: claudeConfigDirectory },
+      }).codex.hook,
+    ).toBe("stale");
+
+    legacyHooks.hooks.PostToolUse[0]!.matcher = "^apply_patch$";
+    writeFileSync(join(codexHomeDirectory, "hooks.json"), JSON.stringify(legacyHooks));
+    expect(
+      inspectAgentConnections({
+        homeDirectory,
+        repositoryRoot,
+        environment: { HOME: homeDirectory, CODEX_HOME: codexHomeDirectory, CLAUDE_CONFIG_DIR: claudeConfigDirectory },
+      }).codex.hook,
+    ).toBe("missing");
   });
 
   it("distinguishes absent and unreadable Agent configs in Doctor findings without rewriting them", async () => {

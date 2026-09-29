@@ -14,7 +14,13 @@ import {
   resolveBackupDirectory,
   type ReadOnlyDatabaseInspection,
 } from "./database-inspection.js";
-import { inspectAgentSkillCopies, type AgentSetupFinding, type CodexHooksFeature } from "./agent-setup.js";
+import {
+  CODEX_POST_TOOL_USE_MATCHER,
+  inspectAgentSkillCopies,
+  LEGACY_CODEX_POST_TOOL_USE_MATCHER,
+  type AgentSetupFinding,
+  type CodexHooksFeature,
+} from "./agent-setup.js";
 
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PACKAGE_MANAGER_SCHEMA = z.string().regex(/^pnpm@\d+\.\d+\.\d+(?:\+.*)?$/);
@@ -73,6 +79,8 @@ export type { ReadOnlyDatabaseInspection } from "./database-inspection.js";
 export interface GlobalHookInspection {
   claudeConfigured: boolean;
   codexConfigured: boolean;
+  /** Installed with the pre-dispatcher PostToolUse matcher; reported as stale rather than missing. */
+  codexLegacyMatcher: boolean;
   /** Optional UserPromptSubmit hook that lets the Codex reminder state when the segment began. */
   codexSegmentStartConfigured: boolean;
   codexHooksFeature: CodexHooksFeature;
@@ -268,19 +276,23 @@ function hasClaudeStopHook(config: Record<string, unknown> | undefined, scriptPa
   return collectCommands(entries(hooks?.Stop)).some((command) => commandPointsTo(command, scriptPath));
 }
 
-function hasCodexGlobalHooks(config: Record<string, unknown> | undefined, scriptPath: string): boolean {
+/**
+ * `legacy` means the Stop hook and a PostToolUse hook exist, but the PostToolUse matcher predates the MCP
+ * dispatchers and misses `work_write_idempotent` finalize calls; re-running setup upgrades it.
+ */
+function codexGlobalHookState(
+  config: Record<string, unknown> | undefined,
+  scriptPath: string,
+): "current" | "legacy" | "missing" {
   const hooks = record(config?.hooks);
-  const postToolUseEntries = entries(hooks?.PostToolUse);
-  const requiredMatcher = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
-  const postToolUseMatches = postToolUseEntries.some((entry) => {
-    const hookEntry = record(entry);
-    return (
-      hookEntry?.matcher === requiredMatcher &&
-      collectCommands(hookEntry.hooks).some((command) => commandPointsTo(command, scriptPath))
-    );
-  });
+  const matchersPointingToScript = entries(hooks?.PostToolUse)
+    .map((entry) => record(entry))
+    .filter((hookEntry) => collectCommands(hookEntry?.hooks).some((command) => commandPointsTo(command, scriptPath)))
+    .map((hookEntry) => hookEntry?.matcher);
   const stopMatches = collectCommands(entries(hooks?.Stop)).some((command) => commandPointsTo(command, scriptPath));
-  return postToolUseMatches && stopMatches;
+  if (!stopMatches) return "missing";
+  if (matchersPointingToScript.includes(CODEX_POST_TOOL_USE_MATCHER)) return "current";
+  return matchersPointingToScript.includes(LEGACY_CODEX_POST_TOOL_USE_MATCHER) ? "legacy" : "missing";
 }
 
 /** Inspects only the global Claude and Codex hook configuration files. */
@@ -301,10 +313,12 @@ function inspectGlobalHookConfigs(
   const codexSettingsFile = inspectJsonConfigFile(join(codexHomeDirectory, "hooks.json"));
   const claudeSettings = claudeSettingsFile.config;
   const codexSettings = codexSettingsFile.config;
+  const codexHookState = codexGlobalHookState(codexSettings, codexScript);
   return {
     inspection: {
       claudeConfigured: hasClaudeStopHook(claudeSettings, claudeScript),
-      codexConfigured: hasCodexGlobalHooks(codexSettings, codexScript),
+      codexConfigured: codexHookState === "current",
+      codexLegacyMatcher: codexHookState === "legacy",
       codexSegmentStartConfigured: collectCommands(entries(record(codexSettings?.hooks)?.UserPromptSubmit)).some(
         (command) => commandPointsTo(command, codexScript),
       ),
@@ -388,7 +402,9 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
           ? "unknown"
           : globalHooks.codexConfigured
             ? "installed"
-            : "missing";
+            : globalHooks.codexLegacyMatcher
+              ? "stale"
+              : "missing";
 
   return {
     connections: {
@@ -822,7 +838,9 @@ export async function collectDoctorFindings(
             ? globalHooks.codexSegmentStartConfigured
               ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
               : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
-            : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
+            : globalHooks.codexLegacyMatcher
+              ? "PostToolUse hook 仍使用 MCP dispatcher 之前的舊 matcher，漏掉 work_write_idempotent 的 finalize 呼叫。"
+              : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
           : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
     codexHookState === "unknown"
       ? "確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 pnpm doctor。"
@@ -832,7 +850,9 @@ export async function collectDoctorFindings(
           ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
           : globalHooks.codexHooksFeature === "unknown"
             ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm doctor。"
-            : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
+            : globalHooks.codexLegacyMatcher
+              ? "執行 pnpm setup:agents，預覽後確認即可更新 matcher；更新後在 Codex /hooks 重新信任。"
+              : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
   );
   return findings;
 }

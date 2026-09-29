@@ -108,6 +108,10 @@ interface ReadFileResult {
   conflict?: string;
 }
 
+/** PostToolUse matcher that sees finalize calls both as a legacy direct tool and through the MCP dispatcher. */
+export const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
+/** Pre-dispatcher matcher; setup upgrades it and Doctor reports it as stale. */
+export const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SKILL_SOURCE_RELATIVE_PATH = ".agents/skills/work-intelligence/SKILL.md";
 const MANIFEST_FILENAME = ".work-intelligence-agent-setup.json";
@@ -741,8 +745,8 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
   const scriptPath = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
   const command = commandForAgentHook(scriptPath, platform);
   const simpleHook = { hooks: [{ type: "command", command }] };
-  const matcher = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
-  const compatibleMatchers = new Set([matcher, "^(apply_patch|.*work_finalize_session)$"]);
+  const matcher = CODEX_POST_TOOL_USE_MATCHER;
+  const compatibleMatchers = new Set([matcher, LEGACY_CODEX_POST_TOOL_USE_MATCHER]);
   return [
     {
       id: "codexPostToolUseHook",
