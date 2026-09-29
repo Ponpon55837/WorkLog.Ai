@@ -344,6 +344,50 @@ describe("Agent setup", () => {
     expect(secondPlan.mutations).toEqual([]);
   });
 
+  it("does not treat a path-only echo command as an equivalent MCP server or hook", () => {
+    const fixture = createFixture();
+    const { repositoryRoot } = fixture.options;
+    const serverPath = join(repositoryRoot, "apps", "mcp", "dist", "index.js");
+    const claudeHook = join(repositoryRoot, "apps", "mcp", "dist", "finalize-reminder.js");
+    const codexHook = join(repositoryRoot, "apps", "mcp", "dist", "codex-finalize-reminder.js");
+
+    mkdirSync(fixture.paths.codexHome, { recursive: true });
+    writeFileSync(
+      fixture.paths.codexConfig,
+      ["[mcp_servers.work-intelligence]", 'command = "echo"', `args = [${JSON.stringify(serverPath)}]`, ""].join("\n"),
+    );
+    writeJson(fixture.paths.claudeJson, {
+      mcpServers: { "work-intelligence": { command: "echo", args: [serverPath] } },
+    });
+    writeJson(fixture.paths.claudeSettings, {
+      hooks: { Stop: [{ hooks: [{ type: "command", command: `echo ${claudeHook}` }] }] },
+    });
+    writeJson(fixture.paths.codexHooks, {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: LEGACY_CODEX_POST_TOOL_USE_MATCHER,
+            hooks: [{ type: "command", command: "echo", args: [codexHook] }],
+          },
+        ],
+        Stop: [{ hooks: [{ type: "command", command: `echo ${codexHook}` }] }],
+      },
+    });
+
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.actions).not.toContain("保留既有 Codex MCP 註冊：已指向這個 Work Intelligence，不修改。");
+    expect(plan.actions).not.toContain("保留既有 Claude MCP 註冊：已指向這個 Work Intelligence，不修改。");
+    expect(plan.actions).not.toContain("保留既有 Claude Stop hook：已指向這個 Work Intelligence，不修改。");
+    expect(plan.actions).not.toContain("更新既有 Codex PostToolUse hook 的 matcher，其餘自訂設定保留。");
+    expect(plan.actions).not.toContain("保留既有 Codex Stop hook：已指向這個 Work Intelligence，不修改。");
+    expect(plan.conflicts).toContain("Claude MCP 註冊 已有不同設定，保留且拒絕覆寫。");
+    expect(plan.conflicts).toContain("Codex config.toml 已有未支援的 mcp_servers 結構；保留且拒絕修改。");
+    expect(plan.conflicts).toContain("Claude Stop hook 有已自訂的相似設定，保留且拒絕新增重複項目。");
+    expect(plan.conflicts).toContain("Codex PostToolUse hook 有已自訂的相似設定，保留且拒絕新增重複項目。");
+    expect(plan.conflicts).toContain("Codex Stop hook 有已自訂的相似設定，保留且拒絕新增重複項目。");
+    expect(applyAgentSetupPlan(plan).applied).toBe(false);
+  });
+
   it("still refuses a Work Intelligence registration that points to another repository", () => {
     const fixture = createFixture();
     mkdirSync(fixture.paths.codexHome, { recursive: true });

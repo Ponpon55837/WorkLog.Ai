@@ -357,8 +357,8 @@ function deletePathValue(root: Record<string, unknown>, path: readonly string[])
   return true;
 }
 
-function commandContains(value: unknown, scriptPath: string): boolean {
-  if (Array.isArray(value)) return value.some((item) => commandContains(item, scriptPath));
+function referencesScriptPath(value: unknown, scriptPath: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => referencesScriptPath(item, scriptPath));
   if (!JSON_OBJECT(value)) return false;
   if (
     typeof value.command === "string" &&
@@ -368,20 +368,98 @@ function commandContains(value: unknown, scriptPath: string): boolean {
   ) {
     return true;
   }
-  // Exec form: `command` is the runtime and the script sits in `args` (Claude Code supports this).
   if (
-    typeof value.command === "string" &&
     Array.isArray(value.args) &&
-    value.args.some((arg) => typeof arg === "string" && normalizeConfigPath(arg) === normalizeConfigPath(scriptPath))
+    value.args.some(
+      (argument) => typeof argument === "string" && normalizeConfigPath(argument) === normalizeConfigPath(scriptPath),
+    )
   ) {
     return true;
   }
-  return Object.values(value).some((item) => commandContains(item, scriptPath));
+  return Object.values(value).some((item) => referencesScriptPath(item, scriptPath));
 }
 
 function normalizeConfigPath(value: string): string {
   const normalized = value.replaceAll("\\", "/").replace(/\/+/g, "/").replace(/\/$/, "");
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function isNodeExecutable(command: string): boolean {
+  const executable = command.trim().replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  return executable === "node" || executable === "node.exe" || executable === "nodejs" || executable === "nodejs.exe";
+}
+
+function isPnpmExecutable(command: string): boolean {
+  const executable = command.trim().replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  return executable === "pnpm" || executable === "pnpm.cmd" || executable === "pnpm.exe";
+}
+
+/** Split the quoted command form emitted by setup without evaluating shell syntax. */
+function commandWords(command: string): string[] | undefined {
+  const words: string[] = [];
+  let word = "";
+  let quote: "'" | '"' | undefined;
+  let wordStarted = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (character === undefined) continue;
+    const next = command[index + 1];
+
+    if (quote === "'") {
+      if (character === "'") quote = undefined;
+      else word += character;
+      continue;
+    }
+    if (quote === '"') {
+      if (character === '"') quote = undefined;
+      else if (character === "\\" && next === '"') {
+        word += '"';
+        index += 1;
+      } else word += character;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      wordStarted = true;
+    } else if (character === "\\") {
+      if (next === undefined) word += character;
+      else {
+        word += next;
+        index += 1;
+      }
+      wordStarted = true;
+    } else if (/\s/.test(character)) {
+      if (wordStarted) words.push(word);
+      word = "";
+      wordStarted = false;
+    } else {
+      word += character;
+      wordStarted = true;
+    }
+  }
+
+  if (quote) return undefined;
+  if (wordStarted) words.push(word);
+  return words;
+}
+
+function nodeCommandRunsScript(command: string, args: readonly string[], scriptPath: string): boolean {
+  const parsedCommand = commandWords(command);
+  if (!parsedCommand || !parsedCommand[0] || !isNodeExecutable(parsedCommand[0])) return false;
+  const scriptArgument = parsedCommand[1] ?? args[0];
+  return scriptArgument !== undefined && normalizeConfigPath(scriptArgument) === normalizeConfigPath(scriptPath);
+}
+
+/** A path alone does not prove that the command invokes Node with that script. */
+function invokesNodeScript(value: unknown, scriptPath: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => invokesNodeScript(item, scriptPath));
+  if (!JSON_OBJECT(value)) return false;
+
+  const args = Array.isArray(value.args) ? value.args.filter((arg): arg is string => typeof arg === "string") : [];
+  if (typeof value.command === "string" && nodeCommandRunsScript(value.command, args, scriptPath)) return true;
+  return Object.values(value).some((item) => invokesNodeScript(item, scriptPath));
 }
 
 /**
@@ -390,18 +468,15 @@ function normalizeConfigPath(value: string): string {
  */
 function launchesRepositoryMcp(value: unknown, repositoryRoot: string): boolean {
   if (!JSON_OBJECT(value) || typeof value.command !== "string") return false;
-  const parts = [value.command, ...(Array.isArray(value.args) ? value.args : [])].filter(
-    (part): part is string => typeof part === "string",
-  );
+  const args = Array.isArray(value.args) ? value.args.filter((part): part is string => typeof part === "string") : [];
   const serverPath = normalizeConfigPath(resolve(repositoryRoot, "apps/mcp/dist/index.js"));
-  if (parts.some((part) => normalizeConfigPath(part) === serverPath)) return true;
-  const dirFlag = parts.findIndex((part) => part === "--dir" || part === "-C");
-  const directory = dirFlag >= 0 ? parts[dirFlag + 1] : typeof value.cwd === "string" ? value.cwd : undefined;
-  return (
-    parts.includes("start:mcp") &&
-    directory !== undefined &&
-    normalizeConfigPath(directory) === normalizeConfigPath(resolve(repositoryRoot))
-  );
+
+  if (isNodeExecutable(value.command) && args[0] && normalizeConfigPath(args[0]) === serverPath) return true;
+  if (!isPnpmExecutable(value.command) || !args.includes("start:mcp")) return false;
+
+  const dirFlag = args.findIndex((part) => part === "--dir" || part === "-C");
+  const directory = dirFlag >= 0 ? args[dirFlag + 1] : typeof value.cwd === "string" ? value.cwd : undefined;
+  return directory !== undefined && normalizeConfigPath(directory) === normalizeConfigPath(resolve(repositoryRoot));
 }
 
 /** Reads `[mcp_servers.work-intelligence]` from config.toml when it parses; undefined otherwise. */
@@ -805,8 +880,8 @@ function getClaudeStopSpec(repositoryRoot: string, platform: NodeJS.Platform): J
     path: ["hooks", "Stop"],
     expected,
     label: "Claude Stop hook",
-    similar: (value) => commandContains(value, scriptPath),
-    equivalent: (value) => commandContains(value, scriptPath),
+    similar: (value) => referencesScriptPath(value, scriptPath),
+    equivalent: (value) => invokesNodeScript(value, scriptPath),
   };
 }
 
@@ -827,10 +902,12 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
         JSON_OBJECT(value) &&
         typeof value.matcher === "string" &&
         compatibleMatchers.has(value.matcher) &&
-        commandContains(value, scriptPath),
-      equivalent: (value) => JSON_OBJECT(value) && value.matcher === matcher && commandContains(value, scriptPath),
+        referencesScriptPath(value, scriptPath),
+      equivalent: (value) => JSON_OBJECT(value) && value.matcher === matcher && invokesNodeScript(value, scriptPath),
       upgrade: (value) =>
-        JSON_OBJECT(value) && value.matcher === LEGACY_CODEX_POST_TOOL_USE_MATCHER && commandContains(value, scriptPath)
+        JSON_OBJECT(value) &&
+        value.matcher === LEGACY_CODEX_POST_TOOL_USE_MATCHER &&
+        invokesNodeScript(value, scriptPath)
           ? { ...value, matcher }
           : undefined,
     },
@@ -840,8 +917,8 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
       path: ["hooks", "Stop"],
       expected: simpleHook,
       label: "Codex Stop hook",
-      similar: (value) => commandContains(value, scriptPath),
-      equivalent: (value) => commandContains(value, scriptPath),
+      similar: (value) => referencesScriptPath(value, scriptPath),
+      equivalent: (value) => invokesNodeScript(value, scriptPath),
     },
     {
       id: "codexUserPromptSubmitHook",
@@ -849,8 +926,8 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
       path: ["hooks", "UserPromptSubmit"],
       expected: simpleHook,
       label: "Codex UserPromptSubmit hook",
-      similar: (value) => commandContains(value, scriptPath),
-      equivalent: (value) => commandContains(value, scriptPath),
+      similar: (value) => referencesScriptPath(value, scriptPath),
+      equivalent: (value) => invokesNodeScript(value, scriptPath),
     },
   ];
 }
