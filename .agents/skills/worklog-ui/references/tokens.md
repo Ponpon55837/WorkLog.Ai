@@ -62,7 +62,7 @@ Keep "metadata 缺漏", "verification 尚未回報" and "verification 明確 not
 
 - Font: `-apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif`
 - Mono: `ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace` — paths, IDs, commands, event types.
-- Scale: 12 (meta, eyebrow, Label, Counter) · 14 (body, default) · 16 (section title) · 20 (page title, panel title) · 24 (stat value) · 32 (hero number, rare).
+- Scale: 12 (meta, eyebrow, Label, Counter) · 14 (body, default) · 16 (section title, page title) · 20 (panel title) · 24 (stat value) · 32 (hero number, rare).
 - Weights: 400 body, 500 buttons/labels, 600 titles. Line-height 1.5.
 - Eyebrow: 12px (11px inside Box headers / sidebar groups is the only exception), 600, uppercase, `letter-spacing: .08em`, `--fg-muted`.
 

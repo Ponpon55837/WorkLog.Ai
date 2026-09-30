@@ -11,7 +11,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`. |
 | `AppHeader` | Menu button (< 640px), `WI` logo, crumb from route meta, search trigger (`Ctrl/⌘ K`), Local-first dot, refresh `UiIconButton`. |
 | `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<route>"`. |
-| `PageHeader` | Props `title?`, `eyebrow?` (default to route meta), `description?`. Slot `actions`. Scrolls away with the page. |
+| `PageHeader` | Props `title?`, `eyebrow?` (default to route meta), `description?` (single line, truncated, full text in `title`). Slot `actions`. One compact row; scrolls away with the page. |
 | `PageToolbar` | Sticky container for page search and/or `UiUnderlineNav`; publishes `--page-toolbar-height` for sticky Box headers. One per page. |
 
 ## Actions & inputs

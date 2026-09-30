@@ -12,7 +12,7 @@
 | 視覺風格 | 深色，參考 GitHub（Primer dark）：Box 列表、Label、UnderlineNav、SegmentedControl |
 | 主題 | 只做深色，不做淺色主題與切換 |
 | Icon | `lucide-vue-next`，16px，stroke 1.75 |
-| 英文 eyebrow | 保留，改為 12px 大寫灰字 |
+| 英文 eyebrow | 保留，12px 大寫灰字，與標題同一行（頁首只佔一行） |
 | 詳情檢視 | 閱讀用右側 SidePanel；表單與確認用置中 Dialog |
 | 範圍 | P0–P4 全部 |
 

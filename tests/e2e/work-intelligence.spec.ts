@@ -2569,7 +2569,9 @@ test.describe("Work Intelligence browser regression", () => {
       await expectNoHorizontalOverflow(page);
     }
 
-    await page.setViewportSize({ width: 2048, height: 1015 });
+    // Wide but not so tall that one page of ten rows fits without internal scrolling: the compact
+    // page header leaves the list most of the viewport.
+    await page.setViewportSize({ width: 2048, height: 900 });
     for (const [path, heading, listName, paginationLabel] of [
       ["/sessions", "工作歷程", "工作歷程清單", "工作歷程每頁筆數"],
       ["/reports/raw?period=week", "工作報告", "報告原始工作紀錄清單", "報告原始工作紀錄每頁筆數"],

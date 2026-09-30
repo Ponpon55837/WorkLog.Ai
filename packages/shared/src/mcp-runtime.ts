@@ -61,6 +61,11 @@ const MCP_HEARTBEAT_TTL_MS = 30_000;
 const MCP_RECONNECT_MESSAGE = "磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。";
 const MCP_UNKNOWN_MESSAGE = "無法確認磁碟上的 MCP 建置；請重新連線 MCP 後再繼續。";
 const ROOT_PACKAGE_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/;
+/**
+ * Build identity per repository root, keyed by a cheap stat signature of every runtime file. Hashing the whole
+ * dist twice cost most of each System Status request; a rebuild changes a size, mtime or inode and misses here.
+ */
+const buildIdentityCache = new Map<string, { signature: string; identity: McpBuildIdentity | undefined }>();
 
 function packageVersion(repositoryRoot: string): string | undefined {
   try {
@@ -86,6 +91,30 @@ function javascriptFiles(directory: string, repositoryRoot: string): string[] {
       ? [relative(repositoryRoot, childPath).replaceAll("\\", "/")]
       : [];
   });
+}
+
+/** Paths, sizes, mtimes and inodes of package.json and every runtime dist file; undefined when unreadable. */
+function runtimeDistSignature(repositoryRoot: string): string | undefined {
+  try {
+    const parts: string[] = [];
+    for (const file of [
+      "package.json",
+      ...MCP_RUNTIME_DIST_DIRECTORIES.flatMap((directory) => {
+        const absolute = resolve(repositoryRoot, directory);
+        return existsSync(absolute) ? javascriptFiles(absolute, repositoryRoot).sort() : [`missing:${directory}`];
+      }),
+    ]) {
+      if (file.startsWith("missing:")) {
+        parts.push(file);
+        continue;
+      }
+      const stats = statSync(resolve(repositoryRoot, file));
+      parts.push(`${file}\0${stats.size}\0${stats.mtimeMs}\0${stats.ino}`);
+    }
+    return parts.join("\n");
+  } catch {
+    return undefined;
+  }
 }
 
 function stableFileRead(path: string): Buffer {
@@ -161,9 +190,16 @@ export function computeMcpBuildIdentity(repositoryRoot: string): McpBuildIdentit
 export function readMcpBuildIdentity(repositoryRoot: string): McpBuildIdentity | undefined {
   const root = resolve(repositoryRoot);
   if (existsSync(resolve(root, MCP_BUILD_PROGRESS_FILE))) return undefined;
-  const identity = computeMcpBuildIdentity(root);
-  if (!identity || embeddedMcpBuildHash(root) !== identity.distHash) return undefined;
+  const signature = runtimeDistSignature(root);
+  const cached = signature === undefined ? undefined : buildIdentityCache.get(root);
+  if (cached && cached.signature === signature) return cached.identity;
+  const computed = computeMcpBuildIdentity(root);
+  const identity = computed && embeddedMcpBuildHash(root) === computed.distHash ? computed : undefined;
   if (existsSync(resolve(root, MCP_BUILD_PROGRESS_FILE))) return undefined;
+  // Cache only when nothing changed while hashing, so a half-written build is never remembered.
+  if (signature !== undefined && runtimeDistSignature(root) === signature) {
+    buildIdentityCache.set(root, { signature, identity });
+  }
   return identity;
 }
 
