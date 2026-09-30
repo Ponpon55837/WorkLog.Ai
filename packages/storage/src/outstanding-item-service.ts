@@ -12,9 +12,8 @@ import type {
   UpdateOutstandingItemStatusResult,
 } from "@work-intelligence/core";
 import { MAX_OUTSTANDING_ITEM_BATCH_SIZE, OUTSTANDING_ITEM_STATUSES } from "@work-intelligence/core";
-import { localDayStartIso, nowIso } from "@work-intelligence/shared";
+import { nowIso } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
-import { nextCalendarDate } from "./session-repository.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 type OutstandingItemRow = {
@@ -62,6 +61,15 @@ function baseSelect(
           JOIN projects p ON p.id = i.project_id
           JOIN sessions s ON s.id = i.source_session_id AND s.project_id = i.project_id
           WHERE p.status = 'tracked' AND s.voided_at IS NULL ${where}`;
+}
+
+/** Parses local ISO dates without Date's numeric-year 0–99 remapping to 1900–1999. */
+function calendarDayBound(value: string, nextDay = false): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return nextDay ? `${value}￿` : value;
+  if (nextDay) date.setDate(date.getDate() + 1);
+  // Extended ISO years start with '+', which would sort before four-digit persisted timestamps.
+  return date.getUTCFullYear() > 9999 ? "￿" : date.toISOString();
 }
 
 function appendEvent(
@@ -127,8 +135,8 @@ export class OutstandingItemService {
     const params = [
       ...(projectId ? [projectId] : []),
       status,
-      ...(input.from ? [localDayStartIso(input.from) ?? input.from] : []),
-      ...(input.to ? [nextCalendarDate(input.to)] : []),
+      ...(input.from ? [calendarDayBound(input.from)] : []),
+      ...(input.to ? [calendarDayBound(input.to, true)] : []),
     ];
     const total = (this.db.prepare(baseSelect(where, "COUNT(*) AS count")).get(...params) as { count: number }).count;
     const pageInfo = createPageInfo(input.page, input.pageSize, total, 100);

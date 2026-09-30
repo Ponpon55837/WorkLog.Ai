@@ -413,12 +413,37 @@ describe("outstanding items", () => {
       const result = finalize(store, root, `outstanding-date-${key}`, [text], undefined, day.completedAt);
       if (result.outcome !== "finalized") throw new Error("Expected source Session.");
     }
+    const historical = new Date();
+    historical.setFullYear(50, 5, 15);
+    historical.setHours(12, 0, 0, 0);
+    const historicalResult = finalize(
+      store,
+      root,
+      "outstanding-date-historical",
+      ["Historical year 0050"],
+      undefined,
+      historical.toISOString(),
+    );
+    if (historicalResult.outcome !== "finalized") throw new Error("Expected historical source Session.");
 
     const filtered = store.listOutstandingItems({ from: from.date, to: to.date, projectId, pageSize: 0 });
     expect(filtered.outcome).toBe("outstanding_items");
     if (filtered.outcome !== "outstanding_items") throw new Error("Expected date-filtered outstanding items.");
     expect(filtered.items.map((item) => item.text).sort()).toEqual(["Inclusive end day", "Inclusive start day"]);
     expect(filtered.pageInfo.total).toBe(2);
+
+    const historicalDay = store.listOutstandingItems({ from: "0050-06-15", to: "0050-06-15", projectId, pageSize: 0 });
+    expect(historicalDay.outcome).toBe("outstanding_items");
+    if (historicalDay.outcome !== "outstanding_items") throw new Error("Expected historical date-filtered items.");
+    expect(historicalDay.items.map((item) => item.text)).toEqual(["Historical year 0050"]);
+
+    const fullRange = store.listOutstandingItems({ from: "0001-01-01", to: "9999-12-31", projectId, pageSize: 0 });
+    expect(fullRange.outcome).toBe("outstanding_items");
+    if (fullRange.outcome !== "outstanding_items") throw new Error("Expected full-range date-filtered items.");
+    expect(fullRange.items.map((item) => item.text).sort()).toEqual(
+      ["Outside before", "Inclusive start day", "Inclusive end day", "Outside after", "Historical year 0050"].sort(),
+    );
+    expect(fullRange.pageInfo.total).toBe(5);
   });
 
   it("rolls back every status and audit when one batch audit insert fails", () => {
