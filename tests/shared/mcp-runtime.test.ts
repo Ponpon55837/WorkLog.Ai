@@ -1,5 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  lutimesSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,8 +35,31 @@ vi.mock("node:os", async (importOriginal) => {
   return { ...original, tmpdir: () => testTmpDirectory };
 });
 
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...original,
+    opendirSync: vi.fn(original.opendirSync),
+    readdirSync: vi.fn(original.readdirSync),
+    unlinkSync: vi.fn(original.unlinkSync),
+  };
+});
+
+const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+
 const roots: string[] = [];
 const cleanups: Array<() => void> = [];
+const MCP_HEARTBEAT_TTL_MS = 30_000;
+const MCP_LEASE_CLEANUP_GRACE_MS = 60_000;
+const MCP_LEASE_CLEANUP_AGE_MS = MCP_HEARTBEAT_TTL_MS + MCP_LEASE_CLEANUP_GRACE_MS;
+
+interface TestLease {
+  instanceId: string;
+  buildId: string;
+  version: string;
+  startedAt: string;
+  heartbeatAt: string;
+}
 
 function createFixture(): string {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-runtime-test-"));
@@ -46,7 +82,49 @@ function setFixtureCompatibilityId(root: string, compatibilityId: string): void 
   writeFileSync(entryPath, updated);
 }
 
+function createLease(
+  directory: string,
+  instanceId: string,
+  options: { now: Date; heartbeatAt?: Date; mtime?: Date; contents?: string },
+): string {
+  mkdirSync(directory, { recursive: true });
+  const path = join(directory, `${instanceId}.json`);
+  const lease: TestLease = {
+    instanceId,
+    buildId: "synthetic-build",
+    version: "1.0.0",
+    startedAt: options.now.toISOString(),
+    heartbeatAt: (options.heartbeatAt ?? options.now).toISOString(),
+  };
+  writeFileSync(path, options.contents ?? JSON.stringify(lease));
+  const mtime = options.mtime ?? options.now;
+  utimesSync(path, mtime, mtime);
+  return path;
+}
+
+function createTemporaryLease(directory: string, instanceId: string, mtime: Date): string {
+  mkdirSync(directory, { recursive: true });
+  const path = join(directory, `${instanceId}.tmp`);
+  writeFileSync(path, "incomplete lease");
+  utimesSync(path, mtime, mtime);
+  return path;
+}
+
+function createFreshStatusLeaseFixture() {
+  const root = createFixture();
+  const build = readMcpBuildIdentity(root);
+  if (!build) throw new Error("The synthetic runtime has no build identity.");
+  const now = new Date();
+  const directory = getMcpRuntimeDirectory(root);
+  const freshLease = createLease(directory, randomUUID(), { now });
+  const freshTemporaryLease = createTemporaryLease(directory, randomUUID(), now);
+  return { root, build, now, freshLease, freshTemporaryLease };
+}
+
 afterEach(() => {
+  vi.mocked(fs.opendirSync).mockReset().mockImplementation(actualFs.opendirSync);
+  vi.mocked(fs.readdirSync).mockReset().mockImplementation(actualFs.readdirSync);
+  vi.mocked(fs.unlinkSync).mockReset().mockImplementation(actualFs.unlinkSync);
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
   for (const root of roots.splice(0)) {
     rmSync(getMcpRuntimeDirectory(join(root, "install")), { recursive: true, force: true });
@@ -375,5 +453,295 @@ describe("MCP runtime build identity and process leases", () => {
       restartRequired: true,
       monitoringAvailable: true,
     });
+  });
+});
+
+describe("MCP process lease cleanup", () => {
+  it("cleans stale files during registration while respecting heartbeat and mtime thresholds", () => {
+    const root = createFixture();
+    const otherRoot = createFixture();
+    const build = readMcpBuildIdentity(root);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const registryDirectory = getMcpRuntimeDirectory(root);
+    const otherRegistryDirectory = getMcpRuntimeDirectory(otherRoot);
+    const staleAt = new Date(now.getTime() - MCP_LEASE_CLEANUP_AGE_MS - 1_000);
+    const justTtlExpiredAt = new Date(now.getTime() - MCP_HEARTBEAT_TTL_MS - 1);
+    const boundaryAt = new Date(now.getTime() - MCP_LEASE_CLEANUP_AGE_MS);
+
+    const staleLease = createLease(registryDirectory, randomUUID(), {
+      now,
+      heartbeatAt: staleAt,
+      mtime: staleAt,
+    });
+    const staleTemporaryLease = createTemporaryLease(registryDirectory, randomUUID(), staleAt);
+    const freshTemporaryLease = createTemporaryLease(registryDirectory, randomUUID(), now);
+    const heartbeatExpiredButRecentlyWritten = createLease(registryDirectory, randomUUID(), {
+      now,
+      heartbeatAt: staleAt,
+      mtime: now,
+    });
+    const heartbeatFreshButOldFile = createLease(registryDirectory, randomUUID(), {
+      now,
+      heartbeatAt: now,
+      mtime: staleAt,
+    });
+    const justTtlExpiredLease = createLease(registryDirectory, randomUUID(), {
+      now,
+      heartbeatAt: justTtlExpiredAt,
+      mtime: justTtlExpiredAt,
+    });
+    const thresholdBoundaryLease = createLease(registryDirectory, randomUUID(), {
+      now,
+      heartbeatAt: boundaryAt,
+      mtime: staleAt,
+    });
+    const malformedStaleLease = join(registryDirectory, `${randomUUID()}.json`);
+    writeFileSync(malformedStaleLease, "{");
+    utimesSync(malformedStaleLease, staleAt, staleAt);
+    const malformedFreshLease = join(registryDirectory, `${randomUUID()}.json`);
+    writeFileSync(malformedFreshLease, "{");
+    utimesSync(malformedFreshLease, now, now);
+
+    const invalidUuidLease = join(registryDirectory, "11111111-1111-1111-8111-111111111111.json");
+    writeFileSync(invalidUuidLease, "{}");
+    utimesSync(invalidUuidLease, staleAt, staleAt);
+    const invalidNameLease = join(registryDirectory, "not-a-uuid.json");
+    writeFileSync(invalidNameLease, "{}");
+    utimesSync(invalidNameLease, staleAt, staleAt);
+    const otherExtension = join(registryDirectory, `${randomUUID()}.txt`);
+    writeFileSync(otherExtension, "{}");
+    utimesSync(otherExtension, staleAt, staleAt);
+
+    const directoryLease = join(registryDirectory, `${randomUUID()}.json`);
+    mkdirSync(directoryLease);
+    const nestedDirectory = join(registryDirectory, "nested");
+    mkdirSync(nestedDirectory);
+    const nestedLease = createTemporaryLease(nestedDirectory, randomUUID(), staleAt);
+
+    const symlinkTarget = join(root, "stale-target.txt");
+    writeFileSync(symlinkTarget, "outside the registry");
+    utimesSync(symlinkTarget, staleAt, staleAt);
+    const symlinkLease = join(registryDirectory, `${randomUUID()}.tmp`);
+    let symlinkCreated = false;
+    try {
+      symlinkSync(symlinkTarget, symlinkLease, "file");
+      lutimesSync(symlinkLease, staleAt, staleAt);
+      symlinkCreated = true;
+    } catch {
+      rmSync(symlinkLease, { force: true });
+      const symlinkTargetDirectory = join(root, "stale-target-directory");
+      mkdirSync(symlinkTargetDirectory);
+      try {
+        symlinkSync(symlinkTargetDirectory, symlinkLease, "junction");
+        symlinkCreated = true;
+      } catch {
+        // Some Windows environments disable links entirely; regular-file cleanup remains covered below.
+      }
+    }
+
+    const otherScopeLease = createTemporaryLease(otherRegistryDirectory, randomUUID(), staleAt);
+
+    const stopProcess = registerMcpProcess(root, build, { now: () => now });
+    cleanups.push(stopProcess);
+
+    expect(existsSync(staleLease)).toBe(false);
+    expect(existsSync(staleTemporaryLease)).toBe(false);
+    expect(existsSync(freshTemporaryLease)).toBe(true);
+    expect(existsSync(malformedStaleLease)).toBe(false);
+    expect(existsSync(heartbeatExpiredButRecentlyWritten)).toBe(true);
+    expect(existsSync(heartbeatFreshButOldFile)).toBe(true);
+    expect(existsSync(justTtlExpiredLease)).toBe(true);
+    expect(existsSync(thresholdBoundaryLease)).toBe(true);
+    expect(existsSync(malformedFreshLease)).toBe(true);
+    expect(existsSync(invalidUuidLease)).toBe(true);
+    expect(existsSync(invalidNameLease)).toBe(true);
+    expect(existsSync(otherExtension)).toBe(true);
+    expect(existsSync(directoryLease)).toBe(true);
+    expect(existsSync(nestedLease)).toBe(true);
+    if (symlinkCreated) expect(lstatSync(symlinkLease).isSymbolicLink()).toBe(true);
+    expect(existsSync(otherScopeLease)).toBe(true);
+  });
+
+  it("cleans stale leases during status reads without starting a second directory scan", () => {
+    const root = createFixture();
+    const build = readMcpBuildIdentity(root);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const registryDirectory = getMcpRuntimeDirectory(root);
+    const staleAt = new Date(now.getTime() - MCP_LEASE_CLEANUP_AGE_MS - 1_000);
+    const staleLease = createLease(registryDirectory, randomUUID(), {
+      now,
+      heartbeatAt: staleAt,
+      mtime: staleAt,
+    });
+    const staleTemporaryLease = createTemporaryLease(registryDirectory, randomUUID(), staleAt);
+    const freshLease = createLease(registryDirectory, randomUUID(), { now });
+
+    const directoryReads = vi.mocked(fs.readdirSync);
+    directoryReads.mockClear();
+    const status = getMcpRuntimeStatus(root, build, {
+      now,
+      probeRegistryWritable: () => true,
+    });
+
+    expect(status).toMatchObject({ activeProcesses: 1, monitoringAvailable: true });
+    expect(existsSync(staleLease)).toBe(false);
+    expect(existsSync(staleTemporaryLease)).toBe(false);
+    expect(existsSync(freshLease)).toBe(true);
+    expect(directoryReads).toHaveBeenCalledTimes(1);
+    directoryReads.mockRestore();
+  });
+
+  it("preserves fresh lease files when the status time is invalid", () => {
+    const fixture = createFreshStatusLeaseFixture();
+
+    const status = getMcpRuntimeStatus(fixture.root, fixture.build, {
+      now: new Date(Number.NaN),
+      probeRegistryWritable: () => true,
+    });
+
+    expect(status).toMatchObject({ activeProcesses: 1, monitoringAvailable: true });
+    expect(existsSync(fixture.freshLease)).toBe(true);
+    expect(existsSync(fixture.freshTemporaryLease)).toBe(true);
+  });
+
+  it("preserves fresh lease files when the status heartbeat TTL is NaN", () => {
+    const fixture = createFreshStatusLeaseFixture();
+
+    const status = getMcpRuntimeStatus(fixture.root, fixture.build, {
+      now: fixture.now,
+      heartbeatTtlMs: Number.NaN,
+      probeRegistryWritable: () => true,
+    });
+
+    expect(status).toMatchObject({ activeProcesses: 1, monitoringAvailable: true });
+    expect(existsSync(fixture.freshLease)).toBe(true);
+    expect(existsSync(fixture.freshTemporaryLease)).toBe(true);
+  });
+
+  it("limits registration and status cleanup to 64 deletions per pass", () => {
+    const root = createFixture();
+    const build = readMcpBuildIdentity(root);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const registryDirectory = getMcpRuntimeDirectory(root);
+    const staleAt = new Date(now.getTime() - MCP_LEASE_CLEANUP_AGE_MS - 1_000);
+    const temporaryLeases = Array.from({ length: 70 }, () =>
+      createTemporaryLease(registryDirectory, randomUUID(), staleAt),
+    );
+
+    const firstStop = registerMcpProcess(root, build, { now: () => now });
+    cleanups.push(firstStop);
+    expect(temporaryLeases.filter((path) => existsSync(path))).toHaveLength(6);
+
+    const secondStop = registerMcpProcess(root, build, { now: () => now });
+    cleanups.push(secondStop);
+    expect(temporaryLeases.filter((path) => existsSync(path))).toHaveLength(0);
+
+    const statusRoot = createFixture();
+    const statusBuild = readMcpBuildIdentity(statusRoot);
+    if (!statusBuild) throw new Error("The synthetic status runtime has no build identity.");
+    const statusDirectory = getMcpRuntimeDirectory(statusRoot);
+    const expiredLeases = Array.from({ length: 70 }, () =>
+      createLease(statusDirectory, randomUUID(), {
+        now,
+        heartbeatAt: staleAt,
+        mtime: staleAt,
+      }),
+    );
+
+    const statusOptions = { now, probeRegistryWritable: () => true };
+    getMcpRuntimeStatus(statusRoot, statusBuild, statusOptions);
+    expect(expiredLeases.filter((path) => existsSync(path))).toHaveLength(6);
+
+    getMcpRuntimeStatus(statusRoot, statusBuild, statusOptions);
+    expect(expiredLeases.filter((path) => existsSync(path))).toHaveLength(0);
+  });
+
+  it("checks no more than 512 registration directory entries", () => {
+    const root = createFixture();
+    const build = readMcpBuildIdentity(root);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const registryDirectory = getMcpRuntimeDirectory(root);
+    mkdirSync(registryDirectory, { recursive: true });
+    for (let index = 0; index < 512; index += 1) {
+      writeFileSync(join(registryDirectory, `.skip-${index.toString().padStart(3, "0")}`), "keep");
+    }
+    const staleTemporaryLease = createTemporaryLease(
+      registryDirectory,
+      randomUUID(),
+      new Date(now.getTime() - MCP_LEASE_CLEANUP_AGE_MS - 1_000),
+    );
+
+    const entries = actualFs
+      .readdirSync(registryDirectory, { withFileTypes: true })
+      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+    let readIndex = 0;
+    const fakeDirectory = {
+      readSync: vi.fn(() => entries[readIndex++] ?? null),
+      closeSync: vi.fn(),
+    } as unknown as fs.Dir;
+    const openedDirectories = vi.mocked(fs.opendirSync);
+    openedDirectories.mockClear().mockReturnValue(fakeDirectory);
+
+    const stopProcess = registerMcpProcess(root, build, { now: () => now });
+    cleanups.push(stopProcess);
+
+    expect(fakeDirectory.readSync).toHaveBeenCalledTimes(512);
+    expect(fakeDirectory.closeSync).toHaveBeenCalledTimes(1);
+    expect(existsSync(staleTemporaryLease)).toBe(true);
+  });
+
+  it("silently leaves a stale lease when unlinking it fails", () => {
+    const root = createFixture();
+    const build = readMcpBuildIdentity(root);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const registryDirectory = getMcpRuntimeDirectory(root);
+    const staleAt = new Date(now.getTime() - MCP_LEASE_CLEANUP_AGE_MS - 1_000);
+    const staleTemporaryLease = createTemporaryLease(registryDirectory, randomUUID(), staleAt);
+    const originalUnlinkSync = actualFs.unlinkSync;
+    const unlink = vi.mocked(fs.unlinkSync).mockImplementation((path) => {
+      if (String(path) === staleTemporaryLease) throw new Error("Synthetic unlink failure.");
+      return originalUnlinkSync(path);
+    });
+
+    let stopProcess: (() => void) | undefined;
+    try {
+      expect(() => {
+        stopProcess = registerMcpProcess(root, build, { now: () => now });
+      }).not.toThrow();
+      expect(unlink).toHaveBeenCalledWith(staleTemporaryLease);
+      expect(existsSync(staleTemporaryLease)).toBe(true);
+    } finally {
+      unlink.mockReset().mockImplementation(originalUnlinkSync);
+    }
+    if (stopProcess) cleanups.push(stopProcess);
+  });
+
+  it("stops after 64 unlink attempts even when every stale-file deletion fails", () => {
+    const root = createFixture();
+    const build = readMcpBuildIdentity(root);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const registryDirectory = getMcpRuntimeDirectory(root);
+    const staleAt = new Date(now.getTime() - MCP_LEASE_CLEANUP_AGE_MS - 1_000);
+    const staleTemporaryLeases = Array.from({ length: 70 }, () =>
+      createTemporaryLease(registryDirectory, randomUUID(), staleAt),
+    );
+    const staleLeasePaths = new Set(staleTemporaryLeases);
+    const originalUnlinkSync = actualFs.unlinkSync;
+    const unlink = vi.mocked(fs.unlinkSync).mockImplementation((path) => {
+      if (staleLeasePaths.has(String(path))) throw new Error("Synthetic unlink failure.");
+      return originalUnlinkSync(path);
+    });
+
+    const stopProcess = registerMcpProcess(root, build, { now: () => now });
+    cleanups.push(stopProcess);
+
+    expect(unlink).toHaveBeenCalledTimes(64);
+    expect(staleTemporaryLeases.every((path) => existsSync(path))).toBe(true);
   });
 });

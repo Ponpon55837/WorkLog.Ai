@@ -7,7 +7,8 @@
 // Seeding thousands of Sessions is slow, so set WI_BENCH_CACHE=<path prefix> to keep the
 // seeded SQLite file and reuse it on the next run (for before/after comparisons).
 import console from "node:console";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
@@ -17,7 +18,12 @@ import { DatabaseSync } from "node:sqlite";
 import { LATEST_SCHEMA_VERSION, toSessionDigests, WorkIntelligenceStore } from "../dist/index.js";
 import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "../../../apps/mcp/dist/recall-evaluation.js";
 
-import { getMcpRuntimeStatus } from "../../shared/dist/mcp-runtime.js";
+import {
+  getMcpRuntimeDirectory,
+  getMcpRuntimeStatus,
+  readMcpBuildIdentity,
+  registerMcpProcess,
+} from "../../shared/dist/mcp-runtime.js";
 
 const args = process.argv.slice(2);
 const sessionCountArgument = args.find((argument) => !argument.startsWith("--"));
@@ -189,6 +195,20 @@ try {
   ]) {
     cpSync(join(repositoryRoot, directory), join(mcpRuntimeRoot, directory), { recursive: true });
   }
+  const runtimeBuild = readMcpBuildIdentity(mcpRuntimeRoot);
+  const runtimeDirectory = getMcpRuntimeDirectory(mcpRuntimeRoot);
+  mkdirSync(runtimeDirectory, { recursive: true });
+  const seedExpiredLeases = () => {
+    rmSync(runtimeDirectory, { recursive: true, force: true });
+    mkdirSync(runtimeDirectory, { recursive: true });
+    const old = new Date(Date.now() - 120_000);
+    for (let index = 0; index < 286; index += 1) {
+      const instanceId = randomUUID();
+      const path = join(runtimeDirectory, `${instanceId}.${index % 2 === 0 ? "json" : "tmp"}`);
+      writeFileSync(path, JSON.stringify({ instanceId, heartbeatAt: old.toISOString(), buildId: "synthetic" }));
+      utimesSync(path, old, old);
+    }
+  };
   const benchStore = cachePath && !cached ? new WorkIntelligenceStore(databasePath) : store;
   const alpha = benchStore.listProjects().find((project) => project.name === "alpha");
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
@@ -256,6 +276,8 @@ try {
     "MCP guarded finalize (schema check)": () =>
       benchStore.withCompatibleSchema(LATEST_SCHEMA_VERSION, finalizeWithKnowledgePageMaintenance),
     "getMcpRuntimeStatus (cached identity)": () => getMcpRuntimeStatus(mcpRuntimeRoot),
+    "getMcpRuntimeStatus (286 expired leases)": () => getMcpRuntimeStatus(mcpRuntimeRoot),
+    "registerMcpProcess (286 expired leases)": () => registerMcpProcess(mcpRuntimeRoot, runtimeBuild)(),
     "getKnowledgePageContext (review)": () =>
       benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfalls" }),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
@@ -292,6 +314,8 @@ try {
     "finalizeSession (knowledge page reminder)": 250,
     "MCP guarded finalize (schema check)": 250,
     "getMcpRuntimeStatus (cached identity)": 50,
+    "getMcpRuntimeStatus (286 expired leases)": 100,
+    "registerMcpProcess (286 expired leases)": 100,
     "getKnowledgePageContext (review)": 250,
     "listSessionDecisions (pending)": 250,
     "listOutstandingItems (pending)": 250,
@@ -311,9 +335,11 @@ try {
   const results = [];
   const selectedCases = Object.entries(cases).filter(([name]) => !checkMode || name in limitsMs);
   for (const [name, run] of selectedCases) {
+    if (name.includes("286 expired leases")) seedExpiredLeases();
     await run();
     const samples = [];
     for (let index = 0; index < runs; index += 1) {
+      if (name.includes("286 expired leases")) seedExpiredLeases();
       const started = performance.now();
       await run();
       samples.push(performance.now() - started);
@@ -348,5 +374,6 @@ try {
   } catch {
     // Already closed after seeding.
   }
+  rmSync(getMcpRuntimeDirectory(join(root, "synthetic-runtime")), { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
 }
