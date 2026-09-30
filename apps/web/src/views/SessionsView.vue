@@ -66,6 +66,8 @@ const {
   status: outstandingStatus,
   page: outstandingPage,
   pageSize: outstandingPageSize,
+  from: outstandingFrom,
+  to: outstandingTo,
   pageInfo: outstandingPageInfo,
   loading: outstandingLoading,
   loaded: outstandingLoaded,
@@ -95,6 +97,8 @@ useRouteQuery(
   ),
 );
 useRouteQuery("itemProject", outstandingProjectId, stringQuery());
+useRouteQuery("itemFrom", outstandingFrom, stringQuery());
+useRouteQuery("itemTo", outstandingTo, stringQuery());
 useRouteQuery(
   "itemStatus",
   outstandingStatus,
@@ -115,6 +119,12 @@ const { reloadNow } = useListReload({
   page: sessionPage,
   filters: [selectedProjectId, dateFrom, dateTo, voidedFilter, sessionPageSize],
   search: searchTerm,
+});
+
+useListReload({
+  load: () => outstandingItemsStore.listEnabled && reloadOutstandingItems(),
+  page: outstandingPage,
+  filters: [outstandingProjectId, outstandingStatus, outstandingPageSize, outstandingFrom, outstandingTo],
 });
 
 const tab = computed<SessionsTab>({
@@ -271,6 +281,8 @@ onBeforeUnmount(() => {
       v-model:status="outstandingStatus"
       v-model:page="outstandingPage"
       v-model:page-size="outstandingPageSize"
+      v-model:from="outstandingFrom"
+      v-model:to="outstandingTo"
       :items="outstandingItems"
       :projects="projects"
       :page-info="outstandingPageInfo"

@@ -24,6 +24,7 @@ import {
   SESSION_DECISION_ORIGINS,
   SESSION_DECISION_REVIEW_STATUSES,
   OUTSTANDING_ITEM_STATUSES,
+  MAX_OUTSTANDING_ITEM_BATCH_SIZE,
   WORK_SUMMARY_DECISION_ORIGINS,
   WORK_REPORT_PERIODS,
   WORK_SUMMARY_UPDATE_MODES,
@@ -350,6 +351,38 @@ export const updateOutstandingItemStatusInputSchema = z.object({
   itemId: z.string().trim().min(1).max(200),
   status: z.enum(OUTSTANDING_ITEM_STATUSES),
 });
+
+const outstandingCalendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const year = Number(value.slice(0, 4));
+    const month = Number(value.slice(5, 7));
+    const day = Number(value.slice(8, 10));
+    if (!year || month < 1 || month > 12 || day < 1) return false;
+    const date = new Date(0);
+    date.setUTCFullYear(year, month - 1, day);
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }, "Provide a valid calendar date.");
+
+export const webOutstandingItemListQuerySchema = outstandingItemListQuerySchema
+  .extend({ from: outstandingCalendarDateSchema.optional(), to: outstandingCalendarDateSchema.optional() })
+  .refine((value) => !value.from || !value.to || value.from <= value.to, {
+    message: "The end date must be on or after the start date.",
+    path: ["to"],
+  });
+
+export const batchUpdateOutstandingItemStatusInputSchema = z
+  .object({
+    itemIds: z
+      .array(z.string().trim().min(1).max(200))
+      .min(1)
+      .max(MAX_OUTSTANDING_ITEM_BATCH_SIZE)
+      .refine((ids) => new Set(ids).size === ids.length, "Item ids must be unique."),
+    status: z.enum(OUTSTANDING_ITEM_STATUSES),
+    expectedStatus: z.enum(OUTSTANDING_ITEM_STATUSES).optional(),
+  })
+  .strict();
 
 const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
 

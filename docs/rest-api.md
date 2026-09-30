@@ -91,6 +91,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/context`                                   | Agent context query（含 `pendingRequests`：等待 Agent 的報告整理與 metadata 回補請求）     |
 | GET      | `/api/outstanding-items`                         | 分頁列出 tracked 專案的未結項；可帶 `projectId`、`status`、`page`、`pageSize`              |
 | PATCH    | `/api/outstanding-items/:itemId`                 | Web 更新未結項狀態（pending／completed／not_needed），追加狀態稽核紀錄                   |
+| PATCH    | `/api/outstanding-items/batch`                   | 一次更新 1–100 個不同項目；整批同一交易、逐筆稽核，可帶 expectedStatus 保護復原 |
 | GET      | `/api/search?q=...`                              | Work history search（與 MCP `work_recall` 同一個排序引擎，只查 Session，最多 20 筆；可帶 `from`／`to`）   |
 | GET      | `/api/backfill/metadata/preview?projectRoot=...` | 唯讀掃描 metadata 缺口                                                                 |
 | GET/POST | `/api/backfill/metadata-requests`                | 建立或查詢 Agent metadata 回補請求                                                     |
@@ -118,8 +119,11 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 - `GET /api/outstanding-items` 預設只列 `pending` 項目；可用 `status=pending|completed|not_needed`、`projectId`、`page` 與 `pageSize` 篩選及分頁。省略 `projectId` 時只涵蓋目前 tracked 的專案。
 - 每筆資料帶穩定 `id`、文字、狀態、來源 Session id／標題、專案及建立／更新時間。來源 Session 被作廢後不再出現在清單中。
+- `from`／`to` 是來源 Session 完成日期的含首尾日篩選（`YYYY-MM-DD`，伺服器時區）；非法日曆日期或倒置範圍回傳 `400 invalid_input`。MCP 既有清單參數保持不變。
 - Web 可呼叫 `PATCH /api/outstanding-items/:itemId`，JSON body 為 `{ "status": "completed" }`、`{ "status": "not_needed" }` 或 `{ "status": "pending" }`。狀態轉換會追加稽核事件；恢復為 `pending` 可重新開啟。這個 API 不提供建立或刪除項目的能力。
 - 專案不是 tracked 時回傳 `skipped`；無效的篩選或狀態回傳 `400 invalid_input`。找不到項目回傳 `not_found`，不揭露其他專案是否曾有該項目。
+- `PATCH /api/outstanding-items/batch` body 為 `{ "itemIds": ["id1", "id2"], "status": "completed" }`。ID 必須非空且不重複，每批最多 100；不存在或來源已作廢時整批回傳 `400 invalid_input`。含未啟用記錄的專案時整批 `skipped`，不讀內容、不部分更新。成功回傳 `outstanding_items_updated`，`updatedItemIds` 僅包含實際變更者；相同狀態不新增稽核。
+- 復原可傳 `status: "pending"` 與 `expectedStatus: "completed"`（或 `"not_needed"`）。任何一筆狀態已改變，整批回傳 `409 conflict` 並維持原狀；每筆狀態變更與稽核在同一個交易中完成。
 
 ## Metadata backfill
 

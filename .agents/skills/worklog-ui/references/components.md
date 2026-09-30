@@ -23,6 +23,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `UiCopyButton` | `text`, `label`, `successMessage`, `variant`, `size`, `iconOnly`. Toast + check-mark feedback. |
 | `UiTextInput` | `v-model`, `icon`, `type: text \| search \| date`, `placeholder`, `label`, `size`, `mono`, `maxlength`, `required`, `autofocus`. Slots `prefix`, `suffix`. |
 | `UiTextarea` | `v-model`, `rows`, `placeholder`, `maxlength`, `required`, `mono`. |
+| `UiCheckbox` | Native checkbox. Required boolean `v-model` and accessible `label`; optional `disabled`, `indeterminate` for mixed group selection. |
 | `UiSelect` | Native select. `v-model`, `options: SelectOption[]`, `label`, `icon`, `size`, `disabled`. Use for forms/toolbars and anything e2e selects by label. |
 | `UiField` | `label`, `hint`, `error`; wraps one control. |
 | `UiActionMenu` | Popover menu. `label` (trigger text), `items: SelectOption[]`, `header`, `icon`, `align: start \| end`, `variant: filter \| button`, `size`, `hideLabelOnMobile`. With `v-model` + `defaultValue` it is a single-select filter (trigger turns bold when applied); without `v-model` it is an action menu and emits `select`. Arrow keys, Esc, outside click. |

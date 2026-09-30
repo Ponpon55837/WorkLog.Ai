@@ -8,6 +8,8 @@ import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiCheckbox from "../ui/UiCheckbox.vue";
+import UiDateRangeMenu from "../ui/UiDateRangeMenu.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiPagination from "../ui/UiPagination.vue";
@@ -34,11 +36,30 @@ const projectId = defineModel<string>("projectId", { required: true });
 const status = defineModel<OutstandingItemStatus>("status", { required: true });
 const page = defineModel<number>("page", { required: true });
 const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
+const from = defineModel<string>("from", { required: true });
+const to = defineModel<string>("to", { required: true });
 
 const outstandingItemsStore = useOutstandingItemsStore();
 const { showToast } = useToast();
 
 const changingItemIds = ref<string[]>([]);
+const selectedIds = ref<string[]>([]);
+const batchBusy = ref(false);
+const undoBatch = ref<{ itemIds: string[]; status: OutstandingItemStatus }>();
+
+const allSelected = computed({
+  get: () => props.items.length > 0 && selectedIds.value.length === props.items.length,
+  set: (selected: boolean) => {
+    selectedIds.value = selected ? props.items.slice(0, 100).map((item) => item.id) : [];
+  },
+});
+const dateRange = computed({
+  get: () => ({ from: from.value, to: to.value }),
+  set: (range) => {
+    from.value = range.from;
+    to.value = range.to;
+  },
+});
 
 const projectOptions = computed(() => [
   { value: "", label: "所有記錄中專案" },
@@ -53,11 +74,15 @@ const statusOptions = (Object.keys(outstandingItemStatusLabels) as OutstandingIt
 const emptyTitle = computed(() =>
   status.value === "pending" ? "目前沒有待處理未結項" : `目前沒有「${outstandingItemStatusLabels[status.value]}」項目`,
 );
-const hasFilters = computed(() => projectId.value !== "" || status.value !== "pending");
+const hasFilters = computed(
+  () => projectId.value !== "" || status.value !== "pending" || Boolean(from.value || to.value),
+);
 
 function clearFilters(): void {
   projectId.value = "";
   status.value = "pending";
+  from.value = "";
+  to.value = "";
   page.value = 1;
 }
 
@@ -90,12 +115,67 @@ async function updateItemStatus(item: OutstandingItem, nextStatus: OutstandingIt
   }
 }
 
-function isChanging(item: OutstandingItem): boolean {
-  return changingItemIds.value.includes(item.id);
+async function updateBatch(nextStatus: "completed" | "not_needed"): Promise<void> {
+  if (batchBusy.value || status.value !== "pending" || selectedIds.value.length === 0) return;
+  const itemIds = [...selectedIds.value];
+  if (
+    nextStatus === "not_needed" &&
+    !(await confirmAction({
+      title: "批次不再需要",
+      message: `將選取的 ${itemIds.length} 項標記為不再需要，仍可從狀態篩選查看並重新開啟。`,
+      confirmLabel: "標記不再需要",
+      cancelLabel: "保留目前狀態",
+    }))
+  )
+    return;
+  batchBusy.value = true;
+  try {
+    const result = await outstandingItemsStore.batchUpdateStatus({
+      itemIds,
+      status: nextStatus,
+      expectedStatus: "pending",
+    });
+    undoBatch.value = result.updatedItemIds.length ? { itemIds: result.updatedItemIds, status: nextStatus } : undefined;
+    selectedIds.value = [];
+    showToast(`已更新 ${result.updatedItemIds.length} 項未結項。`, "success");
+  } catch (error) {
+    showToast(errorMessage(error, "無法批次更新未結項，請稍後再試。"), "danger");
+  } finally {
+    batchBusy.value = false;
+  }
 }
 
-watch([projectId, status, pageSize], () => {
-  page.value = 1;
+async function restoreBatch(): Promise<void> {
+  const batch = undoBatch.value;
+  if (!batch || batchBusy.value) return;
+  batchBusy.value = true;
+  try {
+    await outstandingItemsStore.batchUpdateStatus({
+      itemIds: batch.itemIds,
+      status: "pending",
+      expectedStatus: batch.status,
+    });
+    undoBatch.value = undefined;
+    showToast(`已將 ${batch.itemIds.length} 項復原為待處理。`, "success");
+  } catch (error) {
+    showToast(errorMessage(error, "無法復原，請重新整理並確認項目狀態。"), "danger");
+  } finally {
+    batchBusy.value = false;
+  }
+}
+
+function selectItem(itemId: string, selected: boolean): void {
+  selectedIds.value = selected
+    ? [...new Set([...selectedIds.value, itemId])].slice(0, 100)
+    : selectedIds.value.filter((id) => id !== itemId);
+}
+
+function isChanging(item: OutstandingItem): boolean {
+  return batchBusy.value || changingItemIds.value.includes(item.id);
+}
+
+watch([projectId, status, pageSize, page, from, to, () => props.items], () => {
+  selectedIds.value = [];
 });
 </script>
 
@@ -120,8 +200,38 @@ watch([projectId, status, pageSize], () => {
           align="end"
           :items="statusOptions"
         />
+        <UiDateRangeMenu v-model="dateRange" label="來源 Session 日期" />
       </div>
     </template>
+
+    <div class="outstanding-items__batch" role="group" aria-label="批次操作">
+      <UiCheckbox
+        v-model="allSelected"
+        label="選取本頁全部未結項"
+        :indeterminate="selectedIds.length > 0 && !allSelected"
+        :disabled="status !== 'pending' || loading || batchBusy || changingItemIds.length > 0 || items.length === 0"
+      />
+      <span aria-live="polite">已選取 {{ selectedIds.length }} 項</span>
+      <UiButton
+        size="sm"
+        :disabled="
+          status !== 'pending' || selectedIds.length === 0 || batchBusy || changingItemIds.length > 0 || loading
+        "
+        @click="updateBatch('completed')"
+        >批次標記完成</UiButton
+      >
+      <UiButton
+        size="sm"
+        :disabled="
+          status !== 'pending' || selectedIds.length === 0 || batchBusy || changingItemIds.length > 0 || loading
+        "
+        @click="updateBatch('not_needed')"
+        >批次不再需要</UiButton
+      >
+      <UiButton v-if="undoBatch" size="sm" :disabled="batchBusy || changingItemIds.length > 0" @click="restoreBatch"
+        >復原本次批次</UiButton
+      >
+    </div>
 
     <UiFlash v-if="error" tone="danger" data-testid="outstanding-items-error">
       {{ error }}
@@ -151,6 +261,14 @@ watch([projectId, status, pageSize], () => {
     >
       <template #default="{ item }">
         <UiBoxRow data-testid="outstanding-item">
+          <template #leading>
+            <UiCheckbox
+              :model-value="selectedIds.includes(item.id)"
+              :label="`選取未結項：${item.text}`"
+              :disabled="item.status !== 'pending' || loading || isChanging(item) || changingItemIds.length > 0"
+              @update:model-value="selectItem(item.id, $event)"
+            />
+          </template>
           <template #title>{{ item.text }}</template>
           <template #meta>
             <span>{{ item.projectName }}</span>
@@ -216,6 +334,17 @@ watch([projectId, status, pageSize], () => {
 </template>
 
 <style scoped>
+.outstanding-items__batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
 .outstanding-items__filters {
   display: flex;
   flex-wrap: wrap;

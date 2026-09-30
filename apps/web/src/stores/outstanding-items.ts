@@ -2,6 +2,8 @@ import { computed, ref, watch } from "vue";
 import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import type {
+  BatchUpdateOutstandingItemStatusInput,
+  BatchUpdateOutstandingItemStatusResult,
   OutstandingItem,
   OutstandingItemListQueryResult,
   OutstandingItemStatus,
@@ -31,6 +33,8 @@ type OutstandingListScope = {
   status: OutstandingItemStatus;
   page: number;
   pageSize: ListPageSize;
+  from?: string;
+  to?: string;
 };
 
 function buildListScope(
@@ -38,8 +42,10 @@ function buildListScope(
   status: OutstandingItemStatus,
   page: number,
   pageSize: ListPageSize,
+  from: string,
+  to: string,
 ): OutstandingListScope {
-  return { projectId: projectId || undefined, status, page, pageSize };
+  return { projectId: projectId || undefined, status, page, pageSize, from: from || undefined, to: to || undefined };
 }
 
 /** Owns the URL-scoped, project-filtered nextSteps work queue and its audited status transitions. */
@@ -50,15 +56,17 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
   const status = ref<OutstandingItemStatus>("pending");
   const page = ref(1);
   const pageSize = ref<ListPageSize>(10);
+  const from = ref("");
+  const to = ref("");
 
   const listQuery = useQuery<OutstandingItemListQueryResult>({
     key: () => [
       ...queryKeys.outstandingItems.list,
-      buildListScope(projectId.value, status.value, page.value, pageSize.value),
+      buildListScope(projectId.value, status.value, page.value, pageSize.value, from.value, to.value),
     ],
     enabled: listEnabled,
     query: ({ signal }) => {
-      const scope = buildListScope(projectId.value, status.value, page.value, pageSize.value);
+      const scope = buildListScope(projectId.value, status.value, page.value, pageSize.value, from.value, to.value);
       return useApi().client.listOutstandingItems({ ...scope, pageSize: pageSizeToQuery(pageSize.value) }, signal);
     },
   });
@@ -88,6 +96,19 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     },
   });
 
+  const batchStatusMutation = useMutation({
+    mutation: (input: BatchUpdateOutstandingItemStatusInput) => useApi().client.batchUpdateOutstandingItemStatus(input),
+    onSuccess: async (result: BatchUpdateOutstandingItemStatusResult) => {
+      if (result.outcome !== "outstanding_items_updated") return;
+      await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
+        queryCache.invalidateQueries({ key: queryKeys.dashboard.summary }),
+      ]);
+    },
+  });
+
   function setListActive(active: boolean): void {
     listEnabled.value = active;
   }
@@ -102,6 +123,20 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     if (result.outcome === "outstanding_item_updated") return result.item;
     if (result.outcome === "not_found") throw new Error("這筆未結項已不存在，請重新整理清單。");
     throw new Error(result.reason ?? "這筆未結項目前無法更新。");
+  }
+
+  async function batchUpdateStatus(
+    input: BatchUpdateOutstandingItemStatusInput,
+  ): Promise<Extract<BatchUpdateOutstandingItemStatusResult, { outcome: "outstanding_items_updated" }>> {
+    const result = await batchStatusMutation.mutateAsync(input);
+    if (result.outcome === "outstanding_items_updated") return result;
+    if (result.outcome === "rejected")
+      throw new Error(
+        result.reason === "status_conflict"
+          ? "未結項狀態已變更，請重新整理後再操作。"
+          : "部分未結項已不存在，請重新整理清單。",
+      );
+    throw new Error("此批次包含目前未啟用記錄的專案，整批未更新。");
   }
 
   watch(
@@ -122,6 +157,8 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     status,
     page,
     pageSize,
+    from,
+    to,
     items,
     pageInfo,
     loading,
@@ -130,5 +167,6 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     setListActive,
     reload,
     updateStatus,
+    batchUpdateStatus,
   };
 });

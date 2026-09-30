@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -23,6 +24,7 @@ function finalize(
   idempotencyKey: string,
   nextSteps: string[],
   resolvedOutstandingItemIds?: string[],
+  completedAt?: string,
 ) {
   return store.finalizeSession({
     projectRoot: root,
@@ -33,7 +35,22 @@ function finalize(
     verification: { status: "passed" },
     workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps },
     resolvedOutstandingItemIds,
+    completedAt,
   });
+}
+
+function localCalendarDay(daysFromToday: number): { date: string; completedAt: string } {
+  const completedAt = new Date();
+  completedAt.setHours(12, 0, 0, 0);
+  completedAt.setDate(completedAt.getDate() + daysFromToday);
+  return {
+    date: [
+      completedAt.getFullYear().toString().padStart(4, "0"),
+      (completedAt.getMonth() + 1).toString().padStart(2, "0"),
+      completedAt.getDate().toString().padStart(2, "0"),
+    ].join("-"),
+    completedAt: completedAt.toISOString(),
+  };
 }
 
 afterEach(() => {
@@ -213,6 +230,227 @@ describe("outstanding items", () => {
     const after = store.exportProjectData({ type: "project", projectId });
     expect(after.tables.outstanding_items.find((row) => row.id === item.id)?.status).toBe("pending");
     expect(after.tables.outstanding_item_events).toEqual(beforeEvents);
+  });
+
+  it("updates a batch atomically, skips duplicate audits, and supports undo", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding batch success fixture");
+    const result = finalize(store, root, "outstanding-batch-success", ["Batch alpha", "Batch beta"]);
+    if (result.outcome !== "finalized") throw new Error("Expected source Session.");
+    const initial = store.listOutstandingItems({ projectId, pageSize: 0 });
+    if (initial.outcome !== "outstanding_items") throw new Error("Expected outstanding items.");
+    const itemIds = initial.items.map((item) => item.id);
+    const beforeEvents = store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events;
+
+    const updated = store.batchUpdateOutstandingItemStatus({ itemIds, status: "completed" });
+    expect(updated).toMatchObject({
+      outcome: "outstanding_items_updated",
+      duplicate: false,
+      updatedItemIds: expect.arrayContaining(itemIds),
+    });
+    expect(updated.outcome === "outstanding_items_updated" ? updated.items.map((item) => item.status) : []).toEqual([
+      "completed",
+      "completed",
+    ]);
+
+    const afterUpdateEvents = store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events;
+    expect(afterUpdateEvents).toHaveLength(beforeEvents.length + itemIds.length);
+    expect(
+      afterUpdateEvents.filter((event) => typeof event.item_id === "string" && itemIds.includes(event.item_id)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from_status: "pending", to_status: "completed", source: "web" }),
+      ]),
+    );
+
+    expect(store.batchUpdateOutstandingItemStatus({ itemIds, status: "completed" })).toMatchObject({
+      outcome: "outstanding_items_updated",
+      duplicate: true,
+    });
+    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toHaveLength(
+      afterUpdateEvents.length,
+    );
+
+    const undone = store.batchUpdateOutstandingItemStatus({
+      itemIds,
+      status: "pending",
+      expectedStatus: "completed",
+    });
+    expect(undone).toMatchObject({
+      outcome: "outstanding_items_updated",
+      duplicate: false,
+      updatedItemIds: expect.arrayContaining(itemIds),
+    });
+    const afterUndo = store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events;
+    expect(
+      afterUndo.filter((event) => typeof event.item_id === "string" && itemIds.includes(event.item_id)),
+    ).toHaveLength(itemIds.length * 3);
+    expect(afterUndo).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from_status: "completed", to_status: "pending", source: "web" }),
+      ]),
+    );
+  });
+
+  it("rejects malformed batches and accepts the 100-item limit", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding batch limit fixture");
+    const itemIds: string[] = [];
+    for (let sessionIndex = 0; sessionIndex < 5; sessionIndex += 1) {
+      const result = finalize(
+        store,
+        root,
+        `outstanding-batch-limit-${sessionIndex}`,
+        Array.from({ length: 20 }, (_, itemIndex) => `Limit item ${sessionIndex}-${itemIndex}`),
+      );
+      if (result.outcome !== "finalized") throw new Error("Expected source Session.");
+    }
+    const listed = store.listOutstandingItems({ projectId, pageSize: 0 });
+    if (listed.outcome !== "outstanding_items") throw new Error("Expected outstanding items.");
+    itemIds.push(...listed.items.map((item) => item.id));
+    expect(itemIds).toHaveLength(100);
+
+    expect(store.batchUpdateOutstandingItemStatus({ itemIds: [], status: "completed" })).toMatchObject({
+      outcome: "rejected",
+      reason: "invalid_batch",
+    });
+    expect(
+      store.batchUpdateOutstandingItemStatus({ itemIds: [itemIds[0]!, itemIds[0]!], status: "completed" }),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: "invalid_batch",
+    });
+    expect(
+      store.batchUpdateOutstandingItemStatus({
+        itemIds: Array.from({ length: 101 }, (_, index) => `batch-limit-${index}`),
+        status: "completed",
+      }),
+    ).toMatchObject({ outcome: "rejected", reason: "invalid_batch" });
+
+    const atLimit = store.batchUpdateOutstandingItemStatus({ itemIds, status: "completed" });
+    expect(atLimit).toMatchObject({ outcome: "outstanding_items_updated", duplicate: false });
+    expect(atLimit.outcome === "outstanding_items_updated" ? atLimit.updatedItemIds : []).toHaveLength(100);
+  });
+
+  it("rejects status conflicts and missing or voided members without partial changes", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding batch rejection fixture");
+    const result = finalize(store, root, "outstanding-batch-rejection", ["Pending member", "Completed member"]);
+    if (result.outcome !== "finalized") throw new Error("Expected source Session.");
+    const initial = store.listOutstandingItems({ projectId, pageSize: 0 });
+    if (initial.outcome !== "outstanding_items") throw new Error("Expected outstanding items.");
+    const pending = initial.items.find((item) => item.text === "Pending member");
+    const completed = initial.items.find((item) => item.text === "Completed member");
+    if (!pending || !completed) throw new Error("Expected both members.");
+    store.updateOutstandingItemStatus(completed.id, "completed", "web");
+
+    const beforeConflict = store.exportProjectData({ type: "project", projectId }).tables;
+    expect(
+      store.batchUpdateOutstandingItemStatus({
+        itemIds: [pending.id, completed.id],
+        status: "completed",
+        expectedStatus: "pending",
+      }),
+    ).toMatchObject({ outcome: "rejected", reason: "status_conflict" });
+    expect(store.exportProjectData({ type: "project", projectId }).tables).toEqual(beforeConflict);
+
+    const voidedSource = finalize(store, root, "outstanding-batch-voided-source", ["Voided member"]);
+    if (voidedSource.outcome !== "finalized") throw new Error("Expected voidable source Session.");
+    const voidedList = store.listOutstandingItems({ projectId, pageSize: 0 });
+    if (voidedList.outcome !== "outstanding_items") throw new Error("Expected outstanding items.");
+    const voided = voidedList.items.find((item) => item.text === "Voided member");
+    if (!voided) throw new Error("Expected the voided member.");
+    store.setSessionVoid({ sessionId: voidedSource.session.id, voided: true, reason: "Synthetic source correction." });
+    const beforeInvalid = store.exportProjectData({ type: "project", projectId }).tables;
+
+    expect(
+      store.batchUpdateOutstandingItemStatus({
+        itemIds: [pending.id, voided.id, "missing-outstanding-item"],
+        status: "completed",
+      }),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: "invalid_items",
+      invalidItemIds: expect.arrayContaining([voided.id, "missing-outstanding-item"]),
+    });
+    expect(store.exportProjectData({ type: "project", projectId }).tables).toEqual(beforeInvalid);
+  });
+
+  it("skips an entire batch when one member belongs to a paused project", () => {
+    const first = createTrackedProject("Outstanding batch tracked fixture");
+    const secondRoot = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-batch-paused-"));
+    tempDirs.push(secondRoot);
+    const pausedProject = first.store.addProject("Outstanding batch paused fixture", secondRoot);
+    first.store.updateProject(pausedProject.id, { status: "tracked" });
+    const trackedSource = finalize(first.store, first.root, "outstanding-batch-tracked-source", ["Tracked member"]);
+    const pausedSource = finalize(first.store, secondRoot, "outstanding-batch-paused-source", ["Paused member"]);
+    if (trackedSource.outcome !== "finalized" || pausedSource.outcome !== "finalized") {
+      throw new Error("Expected both source Sessions.");
+    }
+    const listed = first.store.listOutstandingItems({ pageSize: 0 });
+    if (listed.outcome !== "outstanding_items") throw new Error("Expected outstanding items.");
+    const tracked = listed.items.find((item) => item.text === "Tracked member");
+    const paused = listed.items.find((item) => item.text === "Paused member");
+    if (!tracked || !paused) throw new Error("Expected both members.");
+    const before = first.store.exportProjectData({ type: "project", projectId: tracked.projectId }).tables;
+    first.store.updateProject(pausedProject.id, { status: "paused" });
+
+    expect(
+      first.store.batchUpdateOutstandingItemStatus({ itemIds: [tracked.id, paused.id], status: "completed" }),
+    ).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(first.store.exportProjectData({ type: "project", projectId: tracked.projectId }).tables).toEqual(before);
+  });
+
+  it("filters outstanding items by inclusive source-Session calendar dates", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding date-range fixture");
+    const before = localCalendarDay(-5);
+    const from = localCalendarDay(-4);
+    const to = localCalendarDay(-2);
+    const after = localCalendarDay(-1);
+    for (const [key, text, day] of [
+      ["before", "Outside before", before],
+      ["from", "Inclusive start day", from],
+      ["to", "Inclusive end day", to],
+      ["after", "Outside after", after],
+    ] as const) {
+      const result = finalize(store, root, `outstanding-date-${key}`, [text], undefined, day.completedAt);
+      if (result.outcome !== "finalized") throw new Error("Expected source Session.");
+    }
+
+    const filtered = store.listOutstandingItems({ from: from.date, to: to.date, projectId, pageSize: 0 });
+    expect(filtered.outcome).toBe("outstanding_items");
+    if (filtered.outcome !== "outstanding_items") throw new Error("Expected date-filtered outstanding items.");
+    expect(filtered.items.map((item) => item.text).sort()).toEqual(["Inclusive end day", "Inclusive start day"]);
+    expect(filtered.pageInfo.total).toBe(2);
+  });
+
+  it("rolls back every status and audit when one batch audit insert fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-batch-rollback-"));
+    tempDirs.push(root);
+    const store = new WorkIntelligenceStore(join(root, "store.sqlite"));
+    stores.push(store);
+    const project = store.addProject("Outstanding batch rollback fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const result = finalize(store, root, "outstanding-batch-rollback", [
+      "First rollback member",
+      "Second rollback member",
+    ]);
+    if (result.outcome !== "finalized") throw new Error("Expected source Session.");
+    const listed = store.listOutstandingItems({ projectId: project.id, pageSize: 0 });
+    if (listed.outcome !== "outstanding_items") throw new Error("Expected outstanding items.");
+    const ids = listed.items.map((item) => item.id);
+    const before = store.exportProjectData({ type: "project", projectId: project.id }).tables;
+
+    const sabotage = new DatabaseSync(store.databasePath);
+    try {
+      sabotage.exec(
+        `CREATE TRIGGER reject_outstanding_batch_audit BEFORE INSERT ON outstanding_item_events
+         WHEN NEW.item_id = '${ids[1]}' AND NEW.to_status = 'completed'
+         BEGIN SELECT RAISE(ABORT, 'synthetic outstanding batch audit failure'); END;`,
+      );
+    } finally {
+      sabotage.close();
+    }
+
+    expect(() => store.batchUpdateOutstandingItemStatus({ itemIds: ids, status: "completed" })).toThrow();
+    expect(store.exportProjectData({ type: "project", projectId: project.id }).tables).toEqual(before);
   });
 
   it("blocks workSummary synchronization and idempotent retries for a voided source Session", () => {

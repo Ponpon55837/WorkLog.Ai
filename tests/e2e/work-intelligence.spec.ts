@@ -55,6 +55,23 @@ async function postJson<T>(request: APIRequestContext, endpoint: string, body: u
   return (await response.json()) as ApiResult<T>;
 }
 
+async function getOutstandingItemTotal(
+  request: APIRequestContext,
+  projectId: string,
+  status: "pending" | "completed" | "not_needed",
+): Promise<number> {
+  const response = await request.get("/api/outstanding-items", {
+    params: { projectId, status, page: 1, pageSize: 100 },
+  });
+  expect(response.ok(), `/api/outstanding-items returned ${response.status()}`).toBeTruthy();
+  const result = (await response.json()) as { outcome?: string; pageInfo?: { total?: number } };
+  expect(result.outcome).toBe("outstanding_items");
+  if (typeof result.pageInfo?.total !== "number") {
+    throw new Error("Expected the outstanding-items response to include a total count.");
+  }
+  return result.pageInfo.total;
+}
+
 async function submitKnowledgeCandidateForReview(
   page: Page,
   input: { title: string; body: string; rationale: string },
@@ -274,13 +291,45 @@ test.describe("Work Intelligence browser regression", () => {
         scope: [],
         decisions: [],
         verification: [],
-        nextSteps: ["Check the other project filter."],
+        nextSteps: [
+          "Check the other project filter.",
+          ...Array.from(
+            { length: 19 },
+            (_, index) => `Batch limit fixture item ${String(index + 1).padStart(3, "0")}.`,
+          ),
+        ],
       },
       changedFiles: [],
       verification: { status: "passed", summary: "Outstanding filter fixture is deterministic." },
       completedAt: new Date(Date.now() - 30_000).toISOString(),
     });
     expect(otherFinalized.session.id).toBeTruthy();
+
+    // Five additional synthetic Sessions bring this project's pending queue to 120 items,
+    // allowing the browser test to exercise the 100-item per-page selection cap.
+    for (let group = 0; group < 5; group += 1) {
+      const firstItemNumber = 20 + group * 20;
+      const batchFixture = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+        projectRoot: `${projectRoot}/e2e-outstanding-filter-fixture`,
+        idempotencyKey: `browser-regression-outstanding-batch-${process.pid}-${group + 1}`,
+        title: `Outstanding batch fixture session ${group + 1}`,
+        summary: "Synthetic nextSteps exercise bounded batch selection and undo.",
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: Array.from(
+            { length: 20 },
+            (_, index) => `Batch limit fixture item ${String(firstItemNumber + index + 1).padStart(3, "0")}.`,
+          ),
+        },
+        changedFiles: [],
+        verification: { status: "passed", summary: "Outstanding batch fixture is deterministic." },
+        completedAt: new Date(Date.now() - (group + 2) * 30_000).toISOString(),
+      });
+      expect(batchFixture.session.id).toBeTruthy();
+    }
 
     const evidence = await request.post(`/api/sessions/${sessionId}/evidence`, {
       data: {
@@ -428,7 +477,7 @@ test.describe("Work Intelligence browser regression", () => {
     await selectStatus("已完成");
     await expect(primaryItem()).toBeVisible();
     await primaryItem().getByRole("button", { name: "重新開啟" }).click();
-    await expect(page.getByText("已重新開啟這項未結項。", { exact: true })).toBeVisible();
+    await expect(page.getByText("已重新開啟這項未結項。", { exact: true }).last()).toBeVisible();
     await expect(primaryItem()).toHaveCount(0);
 
     await selectStatus("待處理");
@@ -443,10 +492,137 @@ test.describe("Work Intelligence browser regression", () => {
     await selectStatus("不再需要");
     await expect(primaryItem()).toBeVisible();
     await primaryItem().getByRole("button", { name: "重新開啟" }).click();
-    await expect(page.getByText("已重新開啟這項未結項。", { exact: true })).toBeVisible();
+    await expect(page.getByText("已重新開啟這項未結項。", { exact: true }).last()).toBeVisible();
     await expect(primaryItem()).toHaveCount(0);
     await selectStatus("待處理");
     await expect(primaryItem()).toBeVisible();
+  });
+
+  test("batches at most 100 outstanding items and undoes the complete batch from another page", async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=100`);
+    await expect(page.getByText(/共 120 筆/)).toBeVisible();
+
+    const selectCurrentPage = page.getByRole("checkbox", { name: "選取本頁全部未結項" });
+    const completeBatch = page.getByRole("button", { name: "批次標記完成", exact: true });
+    const notNeededBatch = page.getByRole("button", { name: "批次不再需要", exact: true });
+    await selectCurrentPage.check();
+    await expect(completeBatch).toBeEnabled();
+    await expect(notNeededBatch).toBeEnabled();
+    await completeBatch.click();
+
+    const undoBatch = page.getByRole("button", { name: "復原本次批次", exact: true });
+    await expect(undoBatch).toBeVisible();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(100);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(20);
+    await expect(selectCurrentPage).not.toBeChecked();
+    await expect(completeBatch).toBeDisabled();
+
+    await page.getByRole("button", { name: "狀態" }).click();
+    await page.getByRole("menuitemradio", { name: "已完成", exact: true }).click();
+    await expect(selectCurrentPage).toBeDisabled();
+    await expect(completeBatch).toBeDisabled();
+    await expect(notNeededBatch).toBeDisabled();
+    await page.getByRole("button", { name: "狀態" }).click();
+    await page.getByRole("menuitemradio", { name: "待處理", exact: true }).click();
+
+    // The undo action belongs to the batch, not the page currently rendered in the list.
+    await page.getByLabel("未結項每頁筆數").selectOption("10");
+    await page.getByRole("button", { name: "下一頁", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemPage")).toBe("2");
+    await expect(undoBatch).toBeVisible();
+    await undoBatch.click();
+    await expect(undoBatch).toBeHidden();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
+
+    await selectCurrentPage.check();
+    await notNeededBatch.click();
+    const confirmation = page.getByRole("dialog", { name: "批次不再需要", exact: true });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "標記不再需要", exact: true }).click();
+    await expect(undoBatch).toBeVisible();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "not_needed")).toBe(10);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(110);
+
+    await undoBatch.click();
+    await expect(undoBatch).toBeHidden();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "not_needed")).toBe(0);
+  });
+
+  test("clears outstanding batch selection when the page or project filter changes", async ({ page }) => {
+    await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=10`);
+    const selectCurrentPage = page.getByRole("checkbox", { name: "選取本頁全部未結項" });
+    const itemCheckboxes = page.getByRole("checkbox", { name: /^選取未結項：/ });
+    const completeBatch = page.getByRole("button", { name: "批次標記完成", exact: true });
+
+    await itemCheckboxes.first().check();
+    await expect(completeBatch).toBeEnabled();
+    await page.getByRole("button", { name: "下一頁", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemPage")).toBe("2");
+    await expect(selectCurrentPage).not.toBeChecked();
+    await expect(itemCheckboxes.first()).not.toBeChecked();
+    await expect(completeBatch).toBeDisabled();
+
+    await itemCheckboxes.first().check();
+    await expect(completeBatch).toBeEnabled();
+    await page.getByRole("button", { name: "專案", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "Browser Regression Fixture", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemProject")).toBe(projectId);
+    await expect(selectCurrentPage).not.toBeChecked();
+    await expect(itemCheckboxes.first()).not.toBeChecked();
+    await expect(completeBatch).toBeDisabled();
+  });
+
+  test("syncs outstanding source Session date filters to the URL and API across reloads", async ({ page }) => {
+    const requestedRanges: Array<{ from: string | null; to: string | null }> = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (request.method() === "GET" && url.pathname === "/api/outstanding-items") {
+        requestedRanges.push({ from: url.searchParams.get("from"), to: url.searchParams.get("to") });
+      }
+    });
+
+    await page.goto(`/sessions/outstanding?itemProject=${projectId}&itemStatus=pending`);
+    const dateFilter = page.getByRole("button", { name: "來源 Session 日期", exact: true });
+    await expect(dateFilter).toBeVisible();
+    const firstItemCheckbox = page.getByRole("checkbox", { name: /^選取未結項：/ }).first();
+    await firstItemCheckbox.check();
+
+    await dateFilter.click();
+    await page.getByRole("button", { name: "今天", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemFrom")).toBe(reportDate);
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemTo")).toBe(reportDate);
+    await expect.poll(() => requestedRanges[requestedRanges.length - 1]).toEqual({ from: reportDate, to: reportDate });
+    await expect(page.getByRole("checkbox", { name: "選取本頁全部未結項" })).not.toBeChecked();
+    await expect(firstItemCheckbox).not.toBeChecked();
+
+    const requestsBeforeReload = requestedRanges.length;
+    await page.reload();
+    await expect.poll(() => requestedRanges.length).toBeGreaterThan(requestsBeforeReload);
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemFrom")).toBe(reportDate);
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemTo")).toBe(reportDate);
+    await expect.poll(() => requestedRanges[requestedRanges.length - 1]).toEqual({ from: reportDate, to: reportDate });
+    await expect(page.getByRole("button", { name: "今天", exact: true })).toBeVisible();
+  });
+
+  test("keeps the outstanding-items list bounded and overflow-free at desktop, tablet, and mobile widths", async ({
+    page,
+  }) => {
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=100`);
+      const list = await expectBoundedVirtualList(page, "未結項清單");
+      await expect(list.getByRole("listitem").first()).toBeVisible();
+      await expect(page.getByRole("checkbox", { name: "選取本頁全部未結項" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "批次標記完成", exact: true })).toBeVisible();
+      await page.screenshot({ path: `/private/tmp/round9-b1-ui-${width}.png` });
+      await expectUserScrollsListInternally(page, "未結項清單");
+      await expectNoHorizontalOverflow(page);
+    }
   });
 
   test("shows outstanding-item loading, empty, and error states", async ({ page }) => {
