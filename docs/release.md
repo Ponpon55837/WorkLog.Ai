@@ -2,6 +2,8 @@
 
 Work Intelligence 使用 Semantic Versioning。根目錄 `package.json` 是應用程式版本的唯一來源；`/api/health`、MCP metadata／instructions 與 Web 側欄都由它讀取。Schema 版本獨立由 storage migrations 管理，只有資料結構變更時才遞增。
 
+需要實體作業系統、瀏覽器或私人資料才能確認的項目，請依[發行實機驗收清單](release-checklist.md)由使用者操作並填寫結果；CI 不代表這些驗收已完成。
+
 ## 發行前檢查
 
 每次發行都先開一般 PR，完成審查與合併，再由維護者決定何時推送 tag。PR 本身不建立 Release。tag workflow 只接受 `v*` tag，並會確認 tag、根目錄版本與 CHANGELOG 版本段落一致；版本不一致或找不到對應段落時會停止。完整檢查通過後才會建立 GitHub Release，並附上 ZIP 與 tar.gz 原始碼封存檔。
