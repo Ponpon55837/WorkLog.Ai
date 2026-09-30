@@ -695,6 +695,7 @@ describe("Work Intelligence REST API", () => {
         status: string;
         sourceSessionId: string;
         sourceSessionTitle: string;
+        sourceSessionCompletedAt: string;
       }>;
       pageInfo: { page: number; pageSize: number; total: number };
     }>(baseUrl, `/api/outstanding-items?projectId=${project.id}&status=pending&page=1&pageSize=1`);
@@ -713,6 +714,22 @@ describe("Work Intelligence REST API", () => {
     });
     const item = pending.body.items[0];
     if (!item) throw new Error("Expected the first pending item on page one.");
+
+    const completedAt = new Date(item.sourceSessionCompletedAt);
+    const completedDate = [
+      completedAt.getFullYear().toString().padStart(4, "0"),
+      (completedAt.getMonth() + 1).toString().padStart(2, "0"),
+      completedAt.getDate().toString().padStart(2, "0"),
+    ].join("-");
+    const dateFiltered = await requestJson<{
+      items: Array<{ text: string }>;
+      pageInfo: { total: number };
+    }>(baseUrl, `/api/outstanding-items?projectId=${project.id}&from=${completedDate}&to=${completedDate}&pageSize=0`);
+    expect(dateFiltered.status).toBe(200);
+    expect(dateFiltered.body).toMatchObject({
+      items: [{ text: "First API item." }, { text: "Second API item." }],
+      pageInfo: { total: 2 },
+    });
 
     const completed = await requestJson<{
       outcome: string;
@@ -734,10 +751,68 @@ describe("Work Intelligence REST API", () => {
     });
 
     const remaining = await requestJson<{
-      items: Array<{ text: string }>;
+      items: Array<{ id: string; text: string }>;
       pageInfo: { total: number };
     }>(baseUrl, `/api/outstanding-items?projectId=${project.id}`);
     expect(remaining.body).toMatchObject({ items: [{ text: "Second API item." }], pageInfo: { total: 1 } });
+    const secondItem = remaining.body.items[0];
+    if (!secondItem) throw new Error("Expected the remaining pending item.");
+
+    const beforeBatchEvents = store.exportProjectData({ type: "project", projectId: project.id }).tables
+      .outstanding_item_events;
+    const batch = await requestJson<{
+      outcome: string;
+      duplicate: boolean;
+      updatedItemIds: string[];
+      items: Array<{ id: string; status: string }>;
+    }>(baseUrl, "/api/outstanding-items/batch", {
+      method: "PATCH",
+      body: { itemIds: [item.id, secondItem.id], status: "completed" },
+    });
+    expect(batch).toMatchObject({
+      status: 200,
+      body: {
+        outcome: "outstanding_items_updated",
+        duplicate: false,
+        updatedItemIds: [secondItem.id],
+        items: [
+          expect.objectContaining({ id: item.id, status: "completed" }),
+          expect.objectContaining({ id: secondItem.id, status: "completed" }),
+        ],
+      },
+    });
+    const afterBatchEvents = store.exportProjectData({ type: "project", projectId: project.id }).tables
+      .outstanding_item_events;
+    expect(afterBatchEvents).toHaveLength(beforeBatchEvents.length + 1);
+
+    const repeatedBatch = await requestJson<{ outcome: string; duplicate: boolean }>(
+      baseUrl,
+      "/api/outstanding-items/batch",
+      { method: "PATCH", body: { itemIds: [item.id, secondItem.id], status: "completed" } },
+    );
+    expect(repeatedBatch).toMatchObject({
+      status: 200,
+      body: { outcome: "outstanding_items_updated", duplicate: true },
+    });
+    expect(
+      store.exportProjectData({ type: "project", projectId: project.id }).tables.outstanding_item_events,
+    ).toHaveLength(afterBatchEvents.length);
+
+    const conflict = await requestJson(baseUrl, "/api/outstanding-items/batch", {
+      method: "PATCH",
+      body: { itemIds: [item.id, secondItem.id], status: "pending", expectedStatus: "pending" },
+    });
+    expect(conflict.status).toBe(409);
+    const invalidItems = await requestJson(baseUrl, "/api/outstanding-items/batch", {
+      method: "PATCH",
+      body: { itemIds: [item.id, "missing-api-outstanding-item"], status: "pending" },
+    });
+    expect(invalidItems.status).toBe(400);
+    const invalidBody = await requestJson(baseUrl, "/api/outstanding-items/batch", {
+      method: "PATCH",
+      body: { itemIds: [item.id], status: "pending", extra: true },
+    });
+    expect(invalidBody.status).toBe(400);
 
     store.updateProject(project.id, { status: "paused" });
     const skippedList = await requestJson<{ outcome: string; projectStatus: string }>(
@@ -751,6 +826,15 @@ describe("Work Intelligence REST API", () => {
       { method: "PATCH", body: { status: "not_needed" } },
     );
     expect(skippedUpdate.body).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    const skippedBatch = await requestJson<{ outcome: string; projectStatus: string }>(
+      baseUrl,
+      "/api/outstanding-items/batch",
+      { method: "PATCH", body: { itemIds: [item.id, secondItem.id], status: "pending" } },
+    );
+    expect(skippedBatch).toMatchObject({
+      status: 200,
+      body: { outcome: "skipped", projectStatus: "paused" },
+    });
   });
 
   it("validates outstanding item filters and masks storage errors", async () => {
@@ -762,12 +846,22 @@ describe("Work Intelligence REST API", () => {
     store.updateOutstandingItemStatus = () => {
       throw new Error("private outstanding item storage detail");
     };
+    store.batchUpdateOutstandingItemStatus = () => {
+      throw new Error("private outstanding item storage detail");
+    };
     const { server, baseUrl } = await startApi(store);
     resources.push({ server, store, root });
 
     const invalidFilters = await requestJson<{ code: string }>(baseUrl, "/api/outstanding-items?status=resolved");
     expect(invalidFilters.status).toBe(400);
     expect(invalidFilters.body.code).toBe("invalid_input");
+    const invalidCalendarDate = await requestJson<{ code: string }>(baseUrl, "/api/outstanding-items?from=2026-02-30");
+    expect(invalidCalendarDate.status).toBe(400);
+    const reversedDateRange = await requestJson<{ code: string }>(
+      baseUrl,
+      "/api/outstanding-items?from=2026-09-30&to=2026-09-01",
+    );
+    expect(reversedDateRange.status).toBe(400);
     const invalidStatus = await requestJson<{ code: string }>(baseUrl, "/api/outstanding-items/item-1", {
       method: "PATCH",
       body: { status: "resolved" },
@@ -786,6 +880,14 @@ describe("Work Intelligence REST API", () => {
       expect(result.body).toMatchObject({ error: "Internal server error.", code: "internal_error" });
       expect(JSON.stringify(result.body)).not.toContain("private outstanding item storage detail");
     }
+    const hiddenBatchError = await requestJson<{ error: string; code: string }>(
+      baseUrl,
+      "/api/outstanding-items/batch",
+      { method: "PATCH", body: { itemIds: ["item-1"], status: "completed" } },
+    );
+    expect(hiddenBatchError.status).toBe(500);
+    expect(hiddenBatchError.body).toMatchObject({ error: "Internal server error.", code: "internal_error" });
+    expect(JSON.stringify(hiddenBatchError.body)).not.toContain("private outstanding item storage detail");
   });
 
   it("lists, confirms, and promotes Agent decisions through the Web review API", async () => {

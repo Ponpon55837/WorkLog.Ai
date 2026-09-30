@@ -283,6 +283,15 @@ try {
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
     "listOutstandingItems (pending)": () =>
       benchStore.listOutstandingItems({ projectId: alpha.id, status: "pending", page: 1, pageSize: 20 }),
+    "listOutstandingItems (source date range)": () =>
+      benchStore.listOutstandingItems({
+        projectId: alpha.id,
+        status: "pending",
+        from: "2026-03-01",
+        to: "2026-03-31",
+        page: 1,
+        pageSize: 20,
+      }),
     search: () => benchStore.search("renderer"),
     "recall (month range)": () =>
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
@@ -319,6 +328,7 @@ try {
     "getKnowledgePageContext (review)": 250,
     "listSessionDecisions (pending)": 250,
     "listOutstandingItems (pending)": 250,
+    "listOutstandingItems (source date range)": 250,
     search: 500,
     "recall (month range)": 500,
     "recall (synonym expansion)": 500,

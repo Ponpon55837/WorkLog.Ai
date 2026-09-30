@@ -29,6 +29,8 @@ import {
   sessionDetailQuerySchema,
   sessionsQuerySchema,
   updateKnowledgeInputSchema,
+  batchUpdateOutstandingItemStatusInputSchema,
+  webOutstandingItemListQuerySchema,
   updateSessionMetadataInputSchema,
   updateSessionWorkSummaryInputSchema,
 } from "../../packages/schema/src/index.js";
@@ -286,6 +288,46 @@ describe("schema input boundaries", () => {
   it("rejects reversed session date ranges", () => {
     expect(sessionsQuerySchema.safeParse({ from: "2026-09-22", to: "2026-09-21" }).success).toBe(false);
     expect(sessionsQuerySchema.safeParse({ from: "2026-09-21", to: "2026-09-22" }).success).toBe(true);
+  });
+
+  it("validates strict outstanding-item batch requests and calendar-date filters", () => {
+    expect(
+      batchUpdateOutstandingItemStatusInputSchema.safeParse({ itemIds: ["item-1"], status: "completed" }).success,
+    ).toBe(true);
+    expect(
+      batchUpdateOutstandingItemStatusInputSchema.safeParse({
+        itemIds: Array.from({ length: 100 }, (_, index) => `item-${index}`),
+        status: "not_needed",
+        expectedStatus: "pending",
+      }).success,
+    ).toBe(true);
+    expect(batchUpdateOutstandingItemStatusInputSchema.safeParse({ itemIds: [], status: "completed" }).success).toBe(
+      false,
+    );
+    expect(
+      batchUpdateOutstandingItemStatusInputSchema.safeParse({
+        itemIds: ["item-1", "item-1"],
+        status: "completed",
+      }).success,
+    ).toBe(false);
+    expect(
+      batchUpdateOutstandingItemStatusInputSchema.safeParse({
+        itemIds: Array.from({ length: 101 }, (_, index) => `item-${index}`),
+        status: "completed",
+      }).success,
+    ).toBe(false);
+    expect(
+      batchUpdateOutstandingItemStatusInputSchema.safeParse({
+        itemIds: ["item-1"],
+        status: "completed",
+        unexpected: true,
+      }).success,
+    ).toBe(false);
+
+    expect(webOutstandingItemListQuerySchema.safeParse({ from: "2026-09-01", to: "2026-09-30" }).success).toBe(true);
+    expect(webOutstandingItemListQuerySchema.safeParse({ from: "2026-02-30" }).success).toBe(false);
+    expect(webOutstandingItemListQuerySchema.safeParse({ from: "2026-9-01" }).success).toBe(false);
+    expect(webOutstandingItemListQuerySchema.safeParse({ from: "2026-09-30", to: "2026-09-01" }).success).toBe(false);
   });
 
   it("accepts bounded graph cursor pages and rejects oversized pages", () => {

@@ -215,6 +215,7 @@ export interface SessionDecisionRecord {
 }
 
 export const OUTSTANDING_ITEM_STATUSES = ["pending", "completed", "not_needed"] as const;
+export const MAX_OUTSTANDING_ITEM_BATCH_SIZE = 100;
 export type OutstandingItemStatus = (typeof OUTSTANDING_ITEM_STATUSES)[number];
 export type OutstandingItemEventSource = "agent" | "web" | "migration";
 
@@ -238,6 +239,8 @@ export interface ListOutstandingItemsInput {
   status?: OutstandingItemStatus;
   page?: number;
   pageSize?: number;
+  from?: string;
+  to?: string;
 }
 
 export interface OutstandingItemListResult {
@@ -263,6 +266,17 @@ export type UpdateOutstandingItemStatusResult =
   | { outcome: "outstanding_item_updated"; item: OutstandingItem; duplicate: boolean }
   | { outcome: "not_found"; itemId: string }
   | { outcome: "skipped"; itemId: string; projectStatus: PolicyStatus; reason?: string };
+
+export interface BatchUpdateOutstandingItemStatusInput {
+  itemIds: string[];
+  status: OutstandingItemStatus;
+  expectedStatus?: OutstandingItemStatus;
+}
+
+export type BatchUpdateOutstandingItemStatusResult =
+  | { outcome: "outstanding_items_updated"; items: OutstandingItem[]; updatedItemIds: string[]; duplicate: boolean }
+  | { outcome: "rejected"; reason: "invalid_batch" | "invalid_items" | "status_conflict"; invalidItemIds: string[] }
+  | { outcome: "skipped"; projectStatus: PolicyStatus; reason?: string };
 
 export interface ListSessionDecisionsInput {
   projectRoot?: string;

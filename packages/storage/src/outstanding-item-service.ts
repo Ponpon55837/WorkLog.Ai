@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  BatchUpdateOutstandingItemStatusInput,
+  BatchUpdateOutstandingItemStatusResult,
   ListOutstandingItemsInput,
   OutstandingItem,
   OutstandingItemEventSource,
@@ -9,6 +11,7 @@ import type {
   PolicyDecision,
   UpdateOutstandingItemStatusResult,
 } from "@work-intelligence/core";
+import { MAX_OUTSTANDING_ITEM_BATCH_SIZE, OUTSTANDING_ITEM_STATUSES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -56,8 +59,17 @@ function baseSelect(
   return `SELECT ${columns}
           FROM outstanding_items i
           JOIN projects p ON p.id = i.project_id
-          JOIN sessions s ON s.id = i.source_session_id
+          JOIN sessions s ON s.id = i.source_session_id AND s.project_id = i.project_id
           WHERE p.status = 'tracked' AND s.voided_at IS NULL ${where}`;
+}
+
+/** Parses local ISO dates without Date's numeric-year 0–99 remapping to 1900–1999. */
+function calendarDayBound(value: string, nextDay = false): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return nextDay ? `${value}￿` : value;
+  if (nextDay) date.setDate(date.getDate() + 1);
+  // Extended ISO years start with '+', which would sort before four-digit persisted timestamps.
+  return date.getUTCFullYear() > 9999 ? "￿" : date.toISOString();
 }
 
 function appendEvent(
@@ -118,8 +130,14 @@ export class OutstandingItemService {
       }
     }
     const status = input.status ?? "pending";
-    const where = `${projectId ? "AND i.project_id = ?" : ""} AND i.status = ?`;
-    const params = [...(projectId ? [projectId] : []), status];
+    const where = `${projectId ? "AND i.project_id = ?" : ""} AND i.status = ?
+      ${input.from ? "AND s.completed_at >= ?" : ""} ${input.to ? "AND s.completed_at < ?" : ""}`;
+    const params = [
+      ...(projectId ? [projectId] : []),
+      status,
+      ...(input.from ? [calendarDayBound(input.from)] : []),
+      ...(input.to ? [calendarDayBound(input.to, true)] : []),
+    ];
     const total = (this.db.prepare(baseSelect(where, "COUNT(*) AS count")).get(...params) as { count: number }).count;
     const pageInfo = createPageInfo(input.page, input.pageSize, total, 100);
     const rows = this.db
@@ -128,6 +146,58 @@ export class OutstandingItemService {
       )
       .all(...params, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as OutstandingItemRow[];
     return { outcome: "outstanding_items", items: rows.map(toOutstandingItem), pageInfo };
+  }
+
+  public batchUpdateStatus(input: BatchUpdateOutstandingItemStatusInput): BatchUpdateOutstandingItemStatusResult {
+    const { itemIds, status, expectedStatus } = input;
+    if (
+      !Array.isArray(itemIds) ||
+      itemIds.length < 1 ||
+      itemIds.length > MAX_OUTSTANDING_ITEM_BATCH_SIZE ||
+      itemIds.some((id) => typeof id !== "string" || !id.trim() || id !== id.trim() || id.length > 200) ||
+      new Set(itemIds).size !== itemIds.length ||
+      !OUTSTANDING_ITEM_STATUSES.includes(status) ||
+      (expectedStatus !== undefined && !OUTSTANDING_ITEM_STATUSES.includes(expectedStatus))
+    ) {
+      return { outcome: "rejected", reason: "invalid_batch", invalidItemIds: [] };
+    }
+    return runImmediateTransaction(this.db, () => {
+      const placeholders = itemIds.map(() => "?").join(", ");
+      const metadata = this.db
+        .prepare(`SELECT id, project_id FROM outstanding_items WHERE id IN (${placeholders})`)
+        .all(...itemIds) as Array<{ id: string; project_id: string }>;
+      for (const projectId of new Set(metadata.map((row) => row.project_id))) {
+        const policy = this.dependencies.checkProjectById(projectId);
+        if (!policy.allowed || !policy.project) {
+          return { outcome: "skipped", projectStatus: policy.projectStatus, reason: policy.reason };
+        }
+      }
+      const rows = this.db.prepare(baseSelect(`AND i.id IN (${placeholders})`)).all(...itemIds) as OutstandingItemRow[];
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const invalidItemIds = itemIds.filter((id) => !byId.has(id));
+      if (invalidItemIds.length) return { outcome: "rejected", reason: "invalid_items", invalidItemIds };
+      const conflicts =
+        expectedStatus === undefined ? [] : rows.filter((row) => row.status !== expectedStatus).map((row) => row.id);
+      if (conflicts.length) return { outcome: "rejected", reason: "status_conflict", invalidItemIds: conflicts };
+      const updatedAt = nowIso();
+      const update = this.db.prepare("UPDATE outstanding_items SET status = ?, updated_at = ? WHERE id = ?");
+      const updatedItemIds: string[] = [];
+      for (const id of itemIds) {
+        const row = byId.get(id)!;
+        if (row.status === status) continue;
+        update.run(status, updatedAt, id);
+        appendEvent(this.db, id, row.project_id, row.status, status, "web", undefined, updatedAt);
+        row.status = status;
+        row.updated_at = updatedAt;
+        updatedItemIds.push(id);
+      }
+      return {
+        outcome: "outstanding_items_updated",
+        items: itemIds.map((id) => toOutstandingItem(byId.get(id)!)),
+        updatedItemIds,
+        duplicate: updatedItemIds.length === 0,
+      };
+    });
   }
 
   public updateStatus(

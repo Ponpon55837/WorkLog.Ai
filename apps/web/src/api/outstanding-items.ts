@@ -1,4 +1,6 @@
 import type {
+  BatchUpdateOutstandingItemStatusInput,
+  BatchUpdateOutstandingItemStatusResult,
   OutstandingItemListQueryResult,
   UpdateOutstandingItemStatusInput,
   UpdateOutstandingItemStatusResult,
@@ -7,6 +9,10 @@ import type { OutstandingItemsRequest } from "./types";
 import { appendQuery, type ApiTransport } from "./transport";
 
 export interface OutstandingItemsApi {
+  batchUpdateOutstandingItemStatus(
+    input: BatchUpdateOutstandingItemStatusInput,
+    signal?: AbortSignal,
+  ): Promise<BatchUpdateOutstandingItemStatusResult>;
   listOutstandingItems(
     options?: OutstandingItemsRequest,
     signal?: AbortSignal,
@@ -26,8 +32,19 @@ export function createOutstandingItemsApi(client: ApiTransport): OutstandingItem
           status: options.status,
           page: options.page,
           pageSize: options.pageSize === "all" ? 0 : options.pageSize,
+          from: options.from,
+          to: options.to,
         }),
         { signal },
+      );
+    },
+
+    batchUpdateOutstandingItemStatus(input: BatchUpdateOutstandingItemStatusInput, signal?: AbortSignal) {
+      return client.write<BatchUpdateOutstandingItemStatusResult>(
+        "/api/outstanding-items/batch",
+        "PATCH",
+        input,
+        signal,
       );
     },
 

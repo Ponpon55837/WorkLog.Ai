@@ -105,6 +105,8 @@ import type {
   ReviewSessionDecisionInput,
   ReviewSessionDecisionResult,
   OutstandingItem,
+  BatchUpdateOutstandingItemStatusInput,
+  BatchUpdateOutstandingItemStatusResult,
   ListOutstandingItemsInput,
   OutstandingItemEventSource,
   OutstandingItemListQueryResult,
@@ -1038,6 +1040,12 @@ export class WorkIntelligenceStore {
 
   public listOutstandingItems(input: ListOutstandingItemsInput = {}): OutstandingItemListQueryResult {
     return this.outstandingItems.list(input);
+  }
+
+  public batchUpdateOutstandingItemStatus(
+    input: BatchUpdateOutstandingItemStatusInput,
+  ): BatchUpdateOutstandingItemStatusResult {
+    return this.outstandingItems.batchUpdateStatus(input);
   }
 
   public updateOutstandingItemStatus(
