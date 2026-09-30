@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -130,6 +131,52 @@ const JSON_OBJECT = (value: unknown): value is Record<string, unknown> =>
 
 function sha256(value: Buffer | string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+/** Hash that ignores CRLF/LF differences, so a Windows checkout still matches the committed text. */
+function lineEndingNeutralSha256(value: Buffer): string {
+  return sha256(value.toString("utf8").replaceAll("\r\n", "\n"));
+}
+
+/**
+ * Hashes of every committed version of the canonical skill. A user-scope copy byte-identical to one of them was
+ * copied from this repository and never customised, so setup may upgrade it even without an ownership record.
+ * Returns an empty set when Git or the history is unavailable, which keeps the conservative refuse-to-overwrite path.
+ */
+function publishedSkillHashes(repositoryRoot: string): Set<string> {
+  const hashes = new Set<string>();
+  const git = (args: string[], input?: string): Buffer =>
+    execFileSync("git", ["-C", repositoryRoot, ...args], {
+      input,
+      stdio: ["pipe", "pipe", "ignore"],
+      windowsHide: true,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  try {
+    const commits = git(["rev-list", "HEAD", "--", SKILL_SOURCE_RELATIVE_PATH])
+      .toString("utf8")
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!commits.length) return hashes;
+    const output = git(
+      ["cat-file", "--batch"],
+      commits.map((commit) => `${commit}:${SKILL_SOURCE_RELATIVE_PATH}\n`).join(""),
+    );
+    let offset = 0;
+    while (offset < output.length) {
+      const headerEnd = output.indexOf(0x0a, offset);
+      if (headerEnd < 0) break;
+      const header = output.subarray(offset, headerEnd).toString("utf8").split(" ");
+      offset = headerEnd + 1;
+      if (header[1] !== "blob") continue;
+      const size = Number(header[2]);
+      hashes.add(lineEndingNeutralSha256(output.subarray(offset, offset + size)));
+      offset += size + 1;
+    }
+  } catch {
+    hashes.clear();
+  }
+  return hashes;
 }
 
 function equalValue(left: unknown, right: unknown): boolean {
@@ -971,6 +1018,9 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   }
   const skillBytes = sourceFile.bytes ?? Buffer.alloc(0);
   const skillHash = sha256(skillBytes);
+  let publishedHashes: Set<string> | undefined;
+  const isPublishedSkillCopy = (bytes: Buffer): boolean =>
+    (publishedHashes ??= publishedSkillHashes(repositoryRoot)).has(lineEndingNeutralSha256(bytes));
 
   for (const id of ["codexSkill", "codexLegacySkill", "claudeSkill"] as const) {
     const path = targetPath(id, options);
@@ -983,7 +1033,8 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
       if (owned?.kind === "file") setEntry(components, { id, kind: "file", expected: skillHash });
       continue;
     }
-    if (current.bytes && (!owned || owned.kind !== "file" || currentHash !== owned.expected)) {
+    const ownedAndUnchanged = owned?.kind === "file" && currentHash === owned.expected;
+    if (current.bytes && !ownedAndUnchanged && !isPublishedSkillCopy(current.bytes)) {
       addConflict(plan, `${displayPath(path, homeDirectory)} 已有不同內容；保留且拒絕覆寫。`);
       continue;
     }

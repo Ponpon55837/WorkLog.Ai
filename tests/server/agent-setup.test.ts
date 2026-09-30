@@ -450,6 +450,51 @@ describe("Agent setup", () => {
     });
   });
 
+  it("upgrades unrecorded skill copies of a committed version but still refuses customised copies", () => {
+    const fixture = createFixture();
+    const repositoryRoot = fixture.options.repositoryRoot;
+    const skillSource = join(repositoryRoot, ".agents", "skills", "work-intelligence", "SKILL.md");
+    const git = (...args: string[]) => {
+      const result = spawnSync(
+        "git",
+        ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "core.autocrlf=false", ...args],
+        { cwd: repositoryRoot, encoding: "utf8" },
+      );
+      expect(result.status, result.stderr).toBe(0);
+    };
+    git("init", "-q");
+    git("add", ".agents/skills/work-intelligence/SKILL.md");
+    git("commit", "-q", "-m", "skill v1");
+    const previousSkill = readFileSync(skillSource);
+    writeFileSync(skillSource, "# Work Intelligence\n\nFixture skill v2.\n");
+    git("commit", "-q", "-am", "skill v2");
+
+    for (const path of [fixture.paths.codexSkill, fixture.paths.codexLegacySkill]) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, previousSkill);
+    }
+    mkdirSync(dirname(fixture.paths.claudeSkill), { recursive: true });
+    writeFileSync(fixture.paths.claudeSkill, "# Work Intelligence\n\nMy own notes.\n");
+
+    const refused = createAgentSetupPlan(fixture.options);
+    expect(refused.conflicts).toEqual([expect.stringContaining("已有不同內容")]);
+    expect(refused.conflicts[0]).toContain(".claude");
+
+    rmSync(fixture.paths.claudeSkill);
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+    expect(skillCopyStates(fixture)).toEqual({
+      codexSkill: "current",
+      codexLegacySkill: "current",
+      claudeSkill: "current",
+    });
+    for (const path of [fixture.paths.codexSkill, fixture.paths.codexLegacySkill]) {
+      const backupPath = plan.mutations.find((mutation) => mutation.path === path)?.backupPath;
+      expect(backupPath && readFileSync(backupPath)).toEqual(previousSkill);
+    }
+  }, 30_000);
+
   it("refuses to register paths when any required build output is missing", () => {
     const fixture = createFixture();
     rmSync(join(fixture.options.repositoryRoot, "apps", "mcp", "dist", "codex-finalize-reminder.js"));
