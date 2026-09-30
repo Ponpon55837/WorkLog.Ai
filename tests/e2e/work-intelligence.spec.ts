@@ -611,7 +611,7 @@ test.describe("Work Intelligence browser regression", () => {
 
   test("keeps the outstanding-items list bounded and overflow-free at desktop, tablet, and mobile widths", async ({
     page,
-  }) => {
+  }, testInfo) => {
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=100`);
@@ -619,7 +619,7 @@ test.describe("Work Intelligence browser regression", () => {
       await expect(list.getByRole("listitem").first()).toBeVisible();
       await expect(page.getByRole("checkbox", { name: "選取本頁全部未結項" })).toBeVisible();
       await expect(page.getByRole("button", { name: "批次標記完成", exact: true })).toBeVisible();
-      await page.screenshot({ path: `/private/tmp/round9-b1-ui-${width}.png` });
+      await page.screenshot({ path: testInfo.outputPath(`outstanding-items-${width}.png`) });
       await expectUserScrollsListInternally(page, "未結項清單");
       await expectNoHorizontalOverflow(page);
     }
