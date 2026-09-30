@@ -2558,7 +2558,20 @@ test.describe("Work Intelligence browser regression", () => {
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/dashboard");
-      await expectBoundedVirtualList(page, "最近完成工作清單");
+      // grow-to-viewport: the list reaches the viewport bottom and scrolls inside only when its rows do not
+      // fit there, so it either scrolls internally or ends inside the viewport; it never stretches the page.
+      const recentWork = page.getByRole("list", { name: "最近完成工作清單" });
+      await expect(recentWork).toBeVisible();
+      await expect(recentWork).toHaveCSS("overflow-y", "auto");
+      const recentWorkFit = await recentWork.evaluate((element) => {
+        const main = element.closest("#main");
+        return {
+          scrolls: element.scrollHeight > element.clientHeight,
+          bottom: element.getBoundingClientRect().bottom,
+          mainBottom: main?.getBoundingClientRect().bottom ?? window.innerHeight,
+        };
+      });
+      if (!recentWorkFit.scrolls) expect(recentWorkFit.bottom).toBeLessThanOrEqual(recentWorkFit.mainBottom);
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/graph");

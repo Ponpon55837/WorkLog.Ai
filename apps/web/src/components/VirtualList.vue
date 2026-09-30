@@ -21,6 +21,12 @@ const props = withDefaults(
     fitViewport?: boolean;
     fitViewportToPanel?: boolean;
     fillAvailableSpace?: boolean;
+    /**
+     * Caps the list at the space left between its top and the bottom of the page viewport, so a long list
+     * reaches the bottom instead of stopping at `maxHeight`; a short list still shrinks to its content.
+     * Falls back to `maxHeight` when the list starts too low (for example stacked on narrow screens).
+     */
+    growToViewport?: boolean;
   }>(),
   {
     enabled: false,
@@ -31,6 +37,7 @@ const props = withDefaults(
     fitViewport: false,
     fitViewportToPanel: false,
     fillAvailableSpace: false,
+    growToViewport: false,
   },
 );
 
@@ -38,10 +45,14 @@ defineSlots<{
   default(props: { item: T; index: number }): unknown;
 }>();
 
+/** Below this, a list grown to the viewport would be too short to scroll comfortably; keep `maxHeight`. */
+const GROW_MIN_HEIGHT = 180;
+
 const viewport = ref<HTMLElement | null>(null);
 const viewportHeight = ref(480);
 const fitViewportPanelHeight = ref<number | null>(null);
 const fitViewportPanelFillsAvailableSpace = ref(false);
+const grownMaxHeight = ref<number | null>(null);
 const scrollTop = ref(0);
 const heights = reactive(new Map<number, number>());
 const itemElements = new Map<number, HTMLElement>();
@@ -49,6 +60,8 @@ let itemResizeObserver: ResizeObserver | undefined;
 let viewportResizeObserver: ResizeObserver | undefined;
 let fitViewportContentObserver: ResizeObserver | undefined;
 let fitViewportMain: HTMLElement | null = null;
+let growMain: HTMLElement | null = null;
+let growObserver: ResizeObserver | undefined;
 
 const offsets = computed(() => {
   const result = [0];
@@ -294,6 +307,27 @@ function updateFitViewportPanelHeight(): void {
   }
 }
 
+/** Space from the list's top (at page scroll 0) to the page viewport bottom, minus the Box footer and border. */
+function updateGrownMaxHeight(): void {
+  const list = viewport.value;
+  const main = growMain;
+  if (!props.growToViewport || !list || !main) {
+    grownMaxHeight.value = null;
+    return;
+  }
+  const panel = list.closest<HTMLElement>(".ui-box");
+  const footerHeight = panel?.querySelector<HTMLElement>(".ui-box__footer")?.getBoundingClientRect().height ?? 0;
+  const borderBottom = panel ? Number.parseFloat(window.getComputedStyle(panel).borderBottomWidth) || 0 : 0;
+  const bottomInset =
+    Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue("--space-6")) || 24;
+  const listTopInPage = list.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+  const available = Math.floor(main.clientHeight - listTopInPage - footerHeight - borderBottom - bottomInset);
+  const next = available >= GROW_MIN_HEIGHT ? available : null;
+  if (next === null || grownMaxHeight.value === null || Math.abs(grownMaxHeight.value - next) > 1) {
+    grownMaxHeight.value = next;
+  }
+}
+
 function handleFitViewportResize(): void {
   updateFitViewportPanelHeight();
   keepFitViewportPanelVisible();
@@ -375,6 +409,18 @@ onMounted(() => {
     updateFitViewportPanelHeight();
     void nextTick(handleFitViewportResize);
   }
+  if (props.growToViewport) {
+    growMain = viewport.value?.closest<HTMLElement>("#main") ?? null;
+    const content = growMain?.querySelector<HTMLElement>(".app-shell__content");
+    if (growMain && content && typeof ResizeObserver !== "undefined") {
+      // Content above the list (e.g. an inbox that fills in) moves the list, so watch the whole page.
+      growObserver = new ResizeObserver(updateGrownMaxHeight);
+      growObserver.observe(growMain);
+      growObserver.observe(content);
+    }
+    window.addEventListener("resize", updateGrownMaxHeight);
+    void nextTick(updateGrownMaxHeight);
+  }
   if (typeof ResizeObserver === "undefined") {
     return;
   }
@@ -394,8 +440,11 @@ onBeforeUnmount(() => {
   itemResizeObserver?.disconnect();
   viewportResizeObserver?.disconnect();
   fitViewportContentObserver?.disconnect();
+  growObserver?.disconnect();
   window.removeEventListener("resize", handleFitViewportResize);
+  window.removeEventListener("resize", updateGrownMaxHeight);
   fitViewportMain = null;
+  growMain = null;
 });
 </script>
 
@@ -415,7 +464,7 @@ onBeforeUnmount(() => {
       enabled && fitViewport && fitViewportToPanel && fitViewportPanelHeight !== null
         ? { '--virtual-list-panel-height': `${fitViewportPanelHeight}px` }
         : enabled && !fitViewport
-          ? { maxHeight }
+          ? { maxHeight: grownMaxHeight !== null ? `${grownMaxHeight}px` : maxHeight }
           : undefined
     "
     :role="enabled ? 'list' : undefined"
