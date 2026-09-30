@@ -12,6 +12,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Round-eight handoff Session references now match the existing MCP records. The combined E3 and closing record has source-backed conversation timestamps and evidence; missing execution times remain explicitly unverified without duplicate Sessions.
+
 - MCP startup and System Status now remove expired UUID lease files and abandoned temporary files after a 60-second grace beyond the heartbeat TTL. Each pass attempts at most 64 deletions, startup inspects at most 512 entries, and unrelated files, directories, and symlinks are preserved. Cleanup failures do not interrupt monitoring or recording.
 
 - Dashboard lists (最近完成的工作, 專案狀態) no longer stop at a fixed height with empty space below on tall screens: `VirtualList` gained `growToViewport`, which caps the list at the space left to the viewport bottom and falls back to `maxHeight` when the list starts below the fold.
