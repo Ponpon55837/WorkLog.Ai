@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Production dependency audit
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm audit --prod --audit-level high
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm test:coverage
+      - name: Performance regression gates
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm run test:performance
+      - name: Retrieval quality regression
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm run test:retrieval-quality
+      - name: MCP response-size budgets
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm run test:response-size
+      - name: Recall evaluator synthetic smoke test
+        run: pnpm run test:recall-eval:example
+
+  e2e:
+    name: E2E (Chromium + Firefox + WebKit)
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-playwright-results
+          path: test-results/
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [quality, e2e]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      - name: Prepare matching release notes
+        id: release
+        run: node scripts/prepare-release.mjs
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+      - name: Build source archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_root="work-intelligence-${GITHUB_REF_NAME}/"
+          git archive --format=tar --prefix="$archive_root" "$GITHUB_REF_NAME" | gzip -n > "$RUNNER_TEMP/${GITHUB_REF_NAME}.tar.gz"
+          git archive --format=zip --prefix="$archive_root" --output="$RUNNER_TEMP/${GITHUB_REF_NAME}.zip" "$GITHUB_REF_NAME"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_NOTES_FILE: ${{ steps.release.outputs.release_notes_file }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --verify-tag
+          --title "Work Intelligence $RELEASE_VERSION"
+          --notes-file "$RELEASE_NOTES_FILE"
+          "$RUNNER_TEMP/$GITHUB_REF_NAME.tar.gz"
+          "$RUNNER_TEMP/$GITHUB_REF_NAME.zip"

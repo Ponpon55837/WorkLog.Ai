@@ -135,14 +135,15 @@ pnpm start
 
 ## 更新 Work Intelligence
 
-這一輪尚未建立 tag、release 或發行 workflow；目前請依你取得更新版本的方式更新專案原始碼。完成程式碼更新後，在專案根目錄執行：
+取得新版原始碼或 Release source archive 後，先停止 Work Intelligence server 與 MCP 用戶端，再於新版專案目錄執行：
 
 ```sh
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
+pnpm run doctor
 pnpm start
 ```
 
-若新版本需要升級資料庫，Work Intelligence 會在套用 migration 前自動備份。若資料庫 schema 比目前程式新，程式會拒絕開啟並要求先更新 Work Intelligence；不要手動刪除 migration 記錄或直接編輯 SQLite。MCP 工具更新後，也請重新啟動或重新連線 Agent，讓用戶端重新載入工具清單。
+保留原本的 `WORK_INTELLIGENCE_DB` 設定與資料庫檔案位置。首次由新版程式開啟舊 schema 的資料庫時，系統會先建立 migration 前備份，再自動套用必要的 migration；備份失敗時會停止升級。不要手動刪除 migration 記錄或直接編輯 SQLite。若已安裝登入自動啟動服務，更新程式目錄前先執行 `pnpm service:uninstall`，更新並確認正常後再依[服務指南](service.md)重新安裝。
 
-版本號與 schema 版本可由 `/api/health` 查看，UI 側欄也會顯示程式版本。變更摘要見 [CHANGELOG](../CHANGELOG.md)。
+MCP 更新後請重新啟動或重新連線 Codex／Claude，讓用戶端載入新版工具。版本與 schema 可由 `/api/health` 查看，UI 側欄也會顯示程式版本。版本規則、tag 發行及完整升級前檢查見[發行指南](release.md)；變更摘要見 [CHANGELOG](../CHANGELOG.md)。

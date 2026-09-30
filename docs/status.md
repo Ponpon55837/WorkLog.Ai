@@ -13,8 +13,8 @@
 | 階段 | 狀態 | 項目 |
 | --- | --- | --- |
 | D2 | 已完成 | README 新手入門、文件行為盤點與狀態頁歷史整理（PR #173） |
-| E1 | 進行中 | 使用者層級登入自動啟動：macOS LaunchAgent、Windows 登入工作排程、Linux `systemd --user`（本 PR） |
-| E2 | 尚未開始 | Tag 觸發的發行 workflow、版本 `1.0.0`、發行步驟與升級說明；合併後由使用者決定何時打 tag |
+| E1 | 已完成 | 使用者層級登入自動啟動：macOS LaunchAgent、Windows 登入工作排程、Linux `systemd --user`（PR #174，merge `d6e768c`） |
+| E2 | 進行中 | Tag 觸發的發行 workflow、版本 `1.0.0`、發行步驟與升級說明（本 PR）；合併後由使用者決定何時打 tag |
 | E3 | 尚未開始 | 使用者實機驗收清單；包含原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案的完整使用流程 |
 
 ## 其他暫緩工作
