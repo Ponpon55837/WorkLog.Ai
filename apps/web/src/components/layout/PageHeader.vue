@@ -81,7 +81,10 @@ const resolvedEyebrow = computed(() => props.eyebrow ?? route.meta.eyebrow);
   gap: var(--space-2);
 }
 
-/* Phones: the app bar already names the page, so drop the eyebrow and let the description wrap. */
+/*
+ * Phones: the app bar already names the page, so drop the eyebrow and give the description its own line. It
+ * stays one line so a longer description (a custom report range) never pushes the controls below it.
+ */
 @media (max-width: 639px) {
   .page-header__copy {
     flex-wrap: wrap;
@@ -94,7 +97,6 @@ const resolvedEyebrow = computed(() => props.eyebrow ?? route.meta.eyebrow);
 
   .page-header__description {
     flex-basis: 100%;
-    white-space: normal;
   }
 
   /* Actions take their own full row so their controls keep a stable width. */
