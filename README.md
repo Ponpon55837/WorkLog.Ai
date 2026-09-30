@@ -328,6 +328,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 |---|---|
 | [docs/user-guide.md](docs/user-guide.md) | 安裝、正式模式、日常使用、報告、Knowledge、備份、刪除、換電腦與升級 |
 | [docs/release.md](docs/release.md) | SemVer、發行前檢查、tag-only GitHub Release 與跨版本升級 |
+| [docs/release-checklist.md](docs/release-checklist.md) | 各平台實機驗收步驟與使用者結果欄位；未執行的項目保持待驗收 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | API 連線、port、MCP、全域 hook、還原、匯入與維護的常見問題 |
 | [docs/service.md](docs/service.md) | macOS、Windows 與 Linux 的使用者層級登入自動啟動、移除與疑難排解 |
 | [docs/agent-setup.md](docs/agent-setup.md) | 註冊到 Codex CLI、Claude Code、Claude Desktop，以及全域保存提醒 hook |
