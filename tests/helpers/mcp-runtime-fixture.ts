@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { computeMcpBuildIdentity } from "../../packages/shared/src/mcp-runtime.js";
 
+export const SYNTHETIC_MCP_COMPATIBILITY_ID = "a".repeat(64);
+
 const runtimeDistDirectories = [
   "apps/mcp/dist",
   "packages/core/dist",
@@ -20,7 +22,7 @@ export function createMcpRuntimeFixture(repositoryRoot: string): string {
     writeFileSync(
       entryPath,
       directory === "apps/mcp/dist"
-        ? 'const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nexport const runtime = "mcp-a";\n'
+        ? `const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nconst MCP_BUILD_COMPATIBILITY_ID = "${SYNTHETIC_MCP_COMPATIBILITY_ID}";\nexport const runtime = "mcp-a";\n`
         : `export const runtime = ${JSON.stringify(directory)};\n`,
     );
   }

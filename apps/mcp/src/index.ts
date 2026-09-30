@@ -14,8 +14,15 @@ import { createWorkIntelligenceMcpServer } from "./server.js";
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(appRoot, "../..");
 const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";
+const MCP_BUILD_COMPATIBILITY_ID = "__WORK_INTELLIGENCE_COMPATIBILITY__";
 const runningBuild = /^[a-f0-9]{64}$/.test(MCP_BUILD_DIST_HASH)
-  ? { version: APP_VERSION, distHash: MCP_BUILD_DIST_HASH, buildId: `${APP_VERSION}:${MCP_BUILD_DIST_HASH}` }
+  ? {
+      version: APP_VERSION,
+      distHash: MCP_BUILD_DIST_HASH,
+      buildId: `${APP_VERSION}:${MCP_BUILD_DIST_HASH}`,
+      compatibilityId: MCP_BUILD_COMPATIBILITY_ID,
+      schemaVersion: LATEST_SCHEMA_VERSION,
+    }
   : undefined;
 const repoDataPath = resolve(appRoot, "../../data", "work-intelligence.sqlite");
 const databasePath = process.env.WORK_INTELLIGENCE_DB ?? repoDataPath;

@@ -2628,6 +2628,8 @@ export interface SystemStatus {
     monitoringAvailable: boolean;
     activeProcesses: number;
     outdatedProcesses: number;
+    updateAvailableProcesses: number;
+    updateAvailable?: boolean;
     message?: string;
   };
   /** Read-only snapshots of registered Agent clients, skill copies, and reminder hooks. */

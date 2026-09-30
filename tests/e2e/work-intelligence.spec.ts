@@ -1129,7 +1129,13 @@ test.describe("Work Intelligence browser regression", () => {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
-          mcp: { restartRequired: false, monitoringAvailable: false, activeProcesses: 0, outdatedProcesses: 0 },
+          mcp: {
+            restartRequired: false,
+            monitoringAvailable: false,
+            activeProcesses: 0,
+            outdatedProcesses: 0,
+            updateAvailableProcesses: 0,
+          },
           agents: disconnectedAgents,
         }),
       });
@@ -1169,13 +1175,24 @@ test.describe("Work Intelligence browser regression", () => {
         monitoringAvailable: true,
         activeProcesses: 2,
         outdatedProcesses: 1,
+        updateAvailableProcesses: 0,
         message: "磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。",
+      },
+      {
+        restartRequired: false,
+        updateAvailable: true,
+        monitoringAvailable: true,
+        activeProcesses: 2,
+        outdatedProcesses: 0,
+        updateAvailableProcesses: 1,
+        message: "MCP 有新版可用，仍可照常讀寫。",
       },
       {
         restartRequired: false,
         monitoringAvailable: true,
         activeProcesses: 1,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
         message: "所有可監測的 MCP 連線都是目前建置。",
       },
       {
@@ -1183,6 +1200,7 @@ test.describe("Work Intelligence browser regression", () => {
         monitoringAvailable: false,
         activeProcesses: 0,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
         message: "無法確認 MCP heartbeat 狀態。",
       },
       {
@@ -1190,6 +1208,7 @@ test.describe("Work Intelligence browser regression", () => {
         monitoringAvailable: true,
         activeProcesses: 0,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
         message: "尚無可監測的 MCP 連線。",
       },
     ];
@@ -1213,6 +1232,18 @@ test.describe("Work Intelligence browser regression", () => {
         .getByTestId("mcp-connection")
         .getByText("磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。", { exact: true }),
     ).toBeVisible();
+
+    await page.getByRole("button", { name: "重新整理狀態" }).click();
+    await expect(page.getByTestId("agent-mcp-reconnect")).toContainText("有新版可用");
+    await expect(page.getByText("MCP 需要重新連線")).toHaveCount(0);
+    const mcpCard = page.getByTestId("mcp-connection");
+    await expect(mcpCard.getByText("有新版可用的程序")).toBeVisible();
+    await expect(mcpCard.getByText("1 個", { exact: true })).toBeVisible();
+    await expect(mcpCard.getByText("0 個", { exact: true })).toBeVisible();
+    for (const width of [1440, 960, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
 
     await page.getByRole("button", { name: "重新整理狀態" }).click();
     await expect(page.getByText("MCP 需要重新連線")).toHaveCount(0);

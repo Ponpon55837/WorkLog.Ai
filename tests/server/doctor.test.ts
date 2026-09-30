@@ -115,6 +115,14 @@ describe("pnpm doctor read-only checks", () => {
         join(repositoryRoot, "packages/shared/dist/index.js"),
         'export const runtime = "shared-after-start";\n',
       );
+      const entryPath = join(repositoryRoot, "apps/mcp/dist/index.js");
+      writeFileSync(
+        entryPath,
+        readFileSync(entryPath, "utf8").replace(
+          /const MCP_BUILD_COMPATIBILITY_ID = "[a-f0-9]{64}";/,
+          `const MCP_BUILD_COMPATIBILITY_ID = "${"b".repeat(64)}";`,
+        ),
+      );
       finalizeMcpRuntimeFixture(repositoryRoot);
       const sharedStatus = getMcpRuntimeStatus(repositoryRoot);
       const findings = await collectDoctorFindings({

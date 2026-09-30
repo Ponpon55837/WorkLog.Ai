@@ -34,7 +34,11 @@ function runtimeDistIsIncomplete(root) {
     if (!runtimeDirectoryHasJavaScript(distPath)) return true;
   }
 
-  for (const entry of ["apps/mcp/dist/index.js", "packages/shared/dist/mcp-runtime.js"]) {
+  for (const entry of [
+    "apps/mcp/dist/index.js",
+    "apps/mcp/dist/build-compatibility.js",
+    "packages/shared/dist/mcp-runtime.js",
+  ]) {
     try {
       if (!statSync(resolve(root, entry)).isFile()) return true;
     } catch (error) {
@@ -49,6 +53,20 @@ function runtimeDistIsIncomplete(root) {
 export async function finalizeRuntimeBuild(repositoryRoot, computeIdentityOverride, options = {}) {
   const root = resolve(repositoryRoot);
   if (options.allowIncompleteRuntime && runtimeDistIsIncomplete(root)) return undefined;
+  if (!computeIdentityOverride) {
+    const { computeMcpCompatibility } = await import(
+      pathToFileURL(resolve(root, "apps/mcp/dist/build-compatibility.js")).href
+    );
+    const compatibility = await computeMcpCompatibility();
+    const entryPath = resolve(root, "apps/mcp/dist/index.js");
+    const source = readFileSync(entryPath, "utf8");
+    const pattern = /const MCP_BUILD_COMPATIBILITY_ID = "(?:[a-f0-9]{64}|__WORK_INTELLIGENCE_COMPATIBILITY__)";/g;
+    if (source.match(pattern)?.length !== 1) throw new Error("Missing unique MCP compatibility identity.");
+    writeFileSync(
+      entryPath,
+      source.replace(pattern, `const MCP_BUILD_COMPATIBILITY_ID = "${compatibility.compatibilityId}";`),
+    );
+  }
   const computeIdentity =
     computeIdentityOverride ??
     (await import(pathToFileURL(resolve(root, "packages/shared/dist/mcp-runtime.js")).href)).computeMcpBuildIdentity;

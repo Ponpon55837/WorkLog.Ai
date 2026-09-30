@@ -135,7 +135,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_project_status`
 
-唯讀查詢一個 workspace root 的記錄狀態：`tracked`、`paused`、`ignored` 或 `unregistered`，以及 `tracked: boolean` 與已註冊時的專案資料。回傳 `server.restartRequired` 表示目前進程的啟動 build fingerprint 與磁碟上的 runtime build 不同；為 `true` 時停止後續 MCP 操作並告訴使用者「請重新連線 MCP」。`server.monitoringAvailable` 為 `false` 表示 build 正在更新或無法穩定讀取，狀態未知。回傳也包含伺服器時鐘 `clock`（`serverTime` 為 UTC、`timeZone` 為 IANA 時區、`utcOffset` 例如 `+08:00`）；Agent 不知道現在幾點，需要時間時從這裡取得，不要自行估計。Agent 在準備 finalize payload 前先呼叫，非「記錄中」就不要整理或保存工作。這個工具**不能**變更記錄狀態；授權只能由使用者在 Web UI 操作。
+唯讀查詢一個 workspace root 的記錄狀態：`tracked`、`paused`、`ignored` 或 `unregistered`，以及 `tracked: boolean` 與已註冊時的專案資料。回傳 `server.restartRequired` 表示 schema／Agent 契約的相容性識別不同或無法判定相容性；為 `true` 時停止後續 MCP 操作並告訴使用者「請重新連線 MCP」。`server.monitoringAvailable` 為 `false` 表示 build 正在更新或無法穩定讀取，狀態未知且保守要求重連。`server.updateAvailable: true` 表示契約相容的實作更新，可繼續讀寫並在收尾提醒一次。所有 MCP 寫入也會在同一個 SQLite write transaction 檢查實際 schema 版本；外部 migration 後舊程序回傳 `MCP_RESTART_REQUIRED`，不寫入舊格式。回傳也包含伺服器時鐘 `clock`（`serverTime` 為 UTC、`timeZone` 為 IANA 時區、`utcOffset` 例如 `+08:00`）；Agent 不知道現在幾點，需要時間時從這裡取得，不要自行估計。Agent 在準備 finalize payload 前先呼叫，非「記錄中」就不要整理或保存工作。這個工具**不能**變更記錄狀態；授權只能由使用者在 Web UI 操作。
 
 ```json
 { "projectRoot": "C:\\work\\assistant" }
@@ -289,7 +289,7 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 
 - **格式**：接受含時區的 ISO 時間（例如 `2026-09-27T09:52:48+08:00`），存入時統一轉成 UTC。把台北時間直接加上 `Z` 會差 8 小時，請一律帶上時區。
 - **拒絕未來時間**：`startedAt`、`completedAt` 與 `events[].occurredAt` 晚於伺服器時間超過 5 分鐘時，finalize 會失敗，錯誤訊息寫出差了多少小時與伺服器時間。
-- **伺服器狀態與時鐘**：`work_get_project_status` 與 `work_get_context` 回傳 `server`。若 `server.restartRequired` 為 `true`，請停止 MCP 操作並要求使用者重新連線；`monitoringAvailable: false` 時狀態未知。`clock`（`serverTime`、`timeZone`、`utcOffset`）供 Agent 取得現在時間。
+- **伺服器狀態與時鐘**：`work_get_project_status` 與 `work_get_context` 回傳 `server`。若 `server.restartRequired` 為 `true`，請停止 MCP 操作並要求使用者重新連線；`monitoringAvailable: false` 時狀態未知且需要重連。`updateAvailable: true` 只代表實作更新，讀寫照常進行，收尾提醒一次即可。`clock`（`serverTime`、`timeZone`、`utcOffset`）供 Agent 取得現在時間。
 - `startedAt`：這一段工作實際開始的時間，也就是上一次保存之後的第一則使用者訊息。保存提醒 hook 觸發時會把這個時間寫在提醒裡：Claude Code 版從對話紀錄讀出，Codex 版在 `UserPromptSubmit` 時記錄（需要設定該 hook）。只有成功的保存才會開始新的一段。沒有回報時，若 `events` 有早於完成時間的 `occurredAt`，取最早的一筆；兩者都沒有就留空，UI 顯示「未回報」，不會推測。晚於 `completedAt` 的值不會套用，並在 `timestampWarnings` 中說明。
 - `completedAt`：完成時間。**剛完成的工作請省略**，伺服器會記錄 finalize 的時間；只有補登較早的工作、而且有依據（例如 commit 時間）時才填。報告與日期篩選以它為準。
 - **警告**（`timestampWarnings`，值仍會存入）：手填的 `completedAt` 比伺服器時間早超過 24 小時；`startedAt` 晚於 `completedAt`；開始到完成超過 7 天（通常是誤用了整段對話的開頭）。

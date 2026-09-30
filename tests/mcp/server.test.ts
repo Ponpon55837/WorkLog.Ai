@@ -204,12 +204,12 @@ describe("Work Intelligence MCP server", () => {
     expect(skill.contents[0]).toMatchObject({ mimeType: "text/markdown" });
   });
 
-  it("reports a changed runtime dist from both status and context operations after startup", async () => {
+  it("continues finalizing through an old connection after a compatible implementation rebuild", async () => {
     const runtimeRoot = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-runtime-install-"));
     createMcpRuntimeFixture(runtimeRoot);
     const startupBuild = readMcpBuildIdentity(runtimeRoot);
     if (!startupBuild) throw new Error("The synthetic MCP runtime has no build identity.");
-    const { client, root } = await connect(() => getMcpRestartStatus(runtimeRoot, startupBuild));
+    const { client, store, root } = await connect(() => getMcpRestartStatus(runtimeRoot, startupBuild));
     cleanups.push(() => rmSync(getMcpRuntimeDirectory(runtimeRoot), { recursive: true, force: true }));
     cleanups.push(() => rmSync(runtimeRoot, { recursive: true, force: true }));
 
@@ -237,10 +237,67 @@ describe("Work Intelligence MCP server", () => {
     );
 
     expect(projectStatus.server).toMatchObject({
-      restartRequired: true,
-      message: expect.stringContaining("請重新連線 MCP"),
+      restartRequired: false,
+      updateAvailable: true,
+      message: expect.stringContaining("有新版可用"),
     });
     expect(context.server).toEqual(projectStatus.server);
+    const project = store.addProject("Compatible rebuild", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ outcome: string; server: { updateAvailable: boolean } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "compatible-rebuild", "Compatible update"),
+    );
+    expect(finalized).toMatchObject({
+      outcome: "finalized",
+      server: { updateAvailable: true, restartRequired: false },
+    });
+  });
+
+  it("rejects stale writes after another connection migrates the database even when local dist is unchanged", async () => {
+    const { client, store, root } = await connect(() => ({ restartRequired: false, monitoringAvailable: true }), true);
+    const project = store.addProject("Externally migrated", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const external = new DatabaseSync(store.databasePath);
+    try {
+      external.exec("BEGIN IMMEDIATE");
+      external.exec("ALTER TABLE sessions ADD COLUMN future_format TEXT NOT NULL DEFAULT ''");
+      external
+        .prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")
+        .run(LATEST_SCHEMA_VERSION + 1, "synthetic_future_migration", new Date().toISOString());
+      external.exec("COMMIT");
+      const result = await callMcpOperation(
+        client,
+        "work_finalize_session",
+        finalizePayload(root, "stale-writer", "Stale"),
+      );
+      expect(result.isError).toBe(true);
+      expect(JSON.parse((result.content as Array<{ text: string }>)[0]?.text ?? "{}")).toMatchObject({
+        code: "MCP_RESTART_REQUIRED",
+        server: { restartRequired: true },
+      });
+      expect(external.prepare("SELECT COUNT(*) AS count FROM sessions").get()?.count).toBe(0);
+      expect(external.prepare("SELECT COUNT(*) AS count FROM work_events").get()?.count).toBe(0);
+    } finally {
+      external.close();
+    }
+  });
+
+  it("rejects every write dispatcher when the running MCP contract requires reconnection", async () => {
+    const { client, store, root } = await connect(() => ({ restartRequired: true, monitoringAvailable: true }));
+    const project = store.addProject("Contract update", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const result = await callMcpOperation(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "stale-contract", "Stale"),
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0]?.text ?? "{}")).toMatchObject({
+      code: "MCP_RESTART_REQUIRED",
+    });
+    expect(store.listSessions({ projectId: project.id })).toEqual([]);
   });
 
   it("returns a safe retryable error when another SQLite connection holds a write lock", async () => {

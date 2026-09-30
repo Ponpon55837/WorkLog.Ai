@@ -88,6 +88,8 @@ claude mcp remove work-intelligence
 
 Claude Code 的 `--` 後方是實際啟動 MCP server 的 command；`--scope user` 會將設定套用到使用者層級。詳見 [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp)。
 
+僅實作改變會回傳 `updateAvailable: true`，可照常讀寫並在收尾提醒一次；只有 `restartRequired: true`（schema／契約更新或無法確認）才停止操作並要求重連。
+
 MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更新 Work Intelligence 的 MCP contract（例如新增 `work_update_session_work_summary`）後，請先重新執行 `pnpm build`，再重新啟動或重新連線目前的 Codex／Claude 對話；若工具清單仍是舊的，請移除並重新加入 `work-intelligence` MCP 設定。只要 host 尚未重新載入，舊對話即使連到同一個 SQLite，也不會看到新工具。
 
 ### 保存提醒（選用）

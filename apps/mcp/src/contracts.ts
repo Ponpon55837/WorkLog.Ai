@@ -8,6 +8,7 @@ export const serverInstructions = [
   "The MCP tools/list exposes work_read, work_write_idempotent, work_write_additive, and work_write_overwrite. Call an operation by passing its operation id and arguments object; work-intelligence://agent/tool-contracts is a short operation index; before an operation's first call, read its complete schema and behavior at work-intelligence://agent/tool-contracts/<operation>. Unknown argument keys are rejected.",
   "Before any project-scoped inspection or finalization, use work_read with operation work_get_project_status or work_get_context to confirm tracking. Never inspect source, handoff, Git, or evidence for a project that is not confirmed tracked.",
   "Use work_read with operation work_get_context before starting tracked work and work_recall for prior work, Knowledge, gotchas, or recurring errors. Use work_write_idempotent with operation work_finalize_session only after work is complete; route every other write through the dispatcher listed in its contract.",
+  "Only server.restartRequired requires stopping and reconnecting; server.updateAvailable means compatible implementation changes, so continue reads and writes and remind the user once at closing.",
   "Use natural language with the user; do not ask for tool names, request IDs, JSON, or call order. Keep deterministic report data separate from Agent-derived summaries. If context is insufficient, say 資料不足 rather than guessing.",
 ].join(" ");
 
