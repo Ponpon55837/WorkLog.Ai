@@ -72,6 +72,24 @@ describe("MCP runtime build identity and process leases", () => {
     });
   });
 
+  it("reuses a cached identity only while every runtime file is unchanged", () => {
+    const root = createFixture();
+    const first = readMcpBuildIdentity(root);
+    expect(first).toBeDefined();
+    expect(readMcpBuildIdentity(root)).toEqual(first);
+
+    // A rebuild rewrites a dependency dist file; the stat signature changes and the hash is recomputed.
+    writeFileSync(join(root, "packages/storage/dist/index.js"), 'export const runtime = "storage-rebuilt";\n');
+    expect(readMcpBuildIdentity(root)).toBeUndefined();
+    const rebuilt = finalizeFixtureBuild(root);
+    expect(rebuilt.buildId).not.toBe(first?.buildId);
+    expect(readMcpBuildIdentity(root)).toEqual(rebuilt);
+
+    // A new runtime file also invalidates the cache.
+    writeFileSync(join(root, "apps/mcp/dist/extra.js"), "export const extra = true;\n");
+    expect(readMcpBuildIdentity(root)).toBeUndefined();
+  });
+
   it("keeps the candidate identity stable after the build hash is embedded in the MCP entry", () => {
     const root = createFixture();
     const candidateBuild = computeMcpBuildIdentity(root);

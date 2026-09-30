@@ -12,7 +12,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **Gi
 - Dark theme only. No light theme, no theme toggle, no `prefers-color-scheme` branches.
 - GitHub/Primer dark visual language: Box lists, Label pills, Counter, UnderlineNav, SegmentedControl, ActionMenu.
 - Icons: `lucide-vue-next` only, 16px, `stroke-width` 1.75. No Unicode glyph icons (⌂ ◈ ▥ ✦ ◎ ≡ ⌕ ↻).
-- Keep English uppercase eyebrows above Chinese titles (e.g. `SESSION ARCHIVE` / 工作歷程).
+- Keep the English uppercase eyebrow as a small label on the same row as the Chinese title (e.g. `SESSION ARCHIVE` 工作歷程). Page headers are one compact row; data, not the title block, fills the first screen.
 - Reading details → right **SidePanel**; forms and confirmations → centered **Dialog**.
 - Backend, MCP and HTTP API contracts are out of scope. Never add an endpoint to make a UI work; hide the block instead.
 - UI text is 繁體中文; technical terms (Session, Knowledge, verification, metadata, handoff) stay in English.
