@@ -135,7 +135,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 | 撤掉記錯的 Session | 「上一筆記到錯的專案，請作廢。」（可還原） | Session 面板 →「作廢」 |
 | 匯入歷史 handoff | 「幫我預覽這個專案可以匯入的 handoff。」 | 專案 → Handoff 匯入 |
 
-每筆 Session 都有一句話摘要，以及固定的五段內容：**成果／範圍／決策／驗證／狀態與未結項**。每個未結項都有穩定識別碼並連回來源 Session；既有資料升級時一律先標為未處理，不會推測它是否已完成。Agent 可在保存後續工作時回報已解決的項目，工作歷程的「未結項」分頁也能手動標記完成、不再需要或重新開啟。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。
+每筆 Session 都有一句話摘要，以及固定的五段內容：**成果／範圍／決策／驗證／狀態與未結項**。每個未結項都有穩定識別碼並連回來源 Session；既有資料升級時一律先標為未處理，不會推測它是否已完成。Agent 可在保存後續工作時回報已解決的項目，工作歷程的「未結項」分頁也能手動標記完成、不再需要或重新開啟。格式與報告粒度見 [Work record and report format v1](docs/work-record-and-report-format.md)。 補存歷史工作前先查既有 Session，實際起訖只使用對話或 hook 證據；資料不足時保留缺口，避免以 PR 合併時間推估。
 
 ### 量測自己的檢索品質
 

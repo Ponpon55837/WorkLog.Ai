@@ -1,6 +1,6 @@
 # Claude 複檢交接：Work Intelligence 第八輪
 
-> 狀態：各階段 PR 已合併，技術驗證已完成；Session ID 已由 Claude 於 2026-09-30 以 MCP 逐筆核對補齊（沒有記錄的 PR 標示「無 Session 記錄」）。所有實機驗收仍待使用者操作。
+> 狀態：各階段 PR 已合併，技術驗證已完成；Session ID 已於第九輪 A3 透過 MCP 再核對；Claude 補登的五筆均已存在，#177 與交接收尾已依 Codex 原始對話修正，其他四筆實際起訖資料不足。所有實機驗收仍待使用者操作。
 
 ## 複檢範圍與目前主線
 
@@ -22,8 +22,8 @@ PR 狀態、head、merge commit、四項 CI 與 run ID 已由 `gh` 逐筆核對�
 | [#164](https://github.com/Ponpon55837/WorkLog.Ai/pull/164) | A4：第一次使用引導與 Agent 狀態                          | `6b79971174d583ee4017131e106566d7a3b776aa` | `aabda780ec4346b9abcb0b2f43f08691d58e1381` | `36463146884` | `8eb1f92c-be74-435a-919c-ea61085180d2`                                                                            |
 | [#165](https://github.com/Ponpon55837/WorkLog.Ai/pull/165) | B1：中英軟體用語同義檢索                                 | `338c65358faf3c8443185754f640d4b2eb297082` | `e53919cba1a5b29634bae808648b0a61906a14c3` | `36471014316` | `8575e323-66e2-4385-9b1d-106f73e75f16`                                                                            |
 | [#166](https://github.com/Ponpon55837/WorkLog.Ai/pull/166) | B2：本機檢索品質評估器                                   | `07081b4cd3cf608ca9246d071b44001152aedddd` | `8245b13348d7ce95db730b58dd1a5ef545948bc7` | `36503039233` | `b231ad23-02de-4846-9e24-b31a695b8f4e`                                                                            |
-| [#167](https://github.com/Ponpon55837/WorkLog.Ai/pull/167) | A1 後續：獨立執行 pnpm build 修正                        | `0bef29043947ec5bba73ca5bccf1d65c869e46d2` | `75334506d0acbbeab46539a6c8ef6a589e0a9455` | `36505330633` | 無 Session 記錄                                                                                                   |
-| [#168](https://github.com/Ponpon55837/WorkLog.Ai/pull/168) | A1 後續：Codex reminder hook timeout 文件                | `94eb438b8e2beba0ef71577cc53979d79b86fec8` | `41146eb340149e289282d3d969d3e745f70534c1` | `36510194809` | 無 Session 記錄                                                                                                   |
+| [#167](https://github.com/Ponpon55837/WorkLog.Ai/pull/167) | A1 後續：獨立執行 pnpm build 修正                        | `0bef29043947ec5bba73ca5bccf1d65c869e46d2` | `75334506d0acbbeab46539a6c8ef6a589e0a9455` | `36505330633` | `e1289842-1a44-4a1c-84d3-d806db895953`（Claude 已補登；實際起訖資料不足）                                         |
+| [#168](https://github.com/Ponpon55837/WorkLog.Ai/pull/168) | A1 後續：Codex reminder hook timeout 文件                | `94eb438b8e2beba0ef71577cc53979d79b86fec8` | `41146eb340149e289282d3d969d3e745f70534c1` | `36510194809` | `212cd1b0-5c35-4c0a-b651-4c38097650b8`（Claude 已補登；實際起訖資料不足）                                         |
 | [#169](https://github.com/Ponpon55837/WorkLog.Ai/pull/169) | A4/A1：System Status、舊 hook 與設定保留修正             | `279f7b3101bd0333c82aa5a978e47bb6b7aa2470` | `72d41a267d34e5e812552693d679443b44cfb1b0` | `36583289087` | `d8cb1687-ac4e-463a-99c7-64db0acd8698`（System Status）；`e14f40ac-bb7b-46d5-b7eb-c21e52d03a80`（setup 保留設定） |
 | [#170](https://github.com/Ponpon55837/WorkLog.Ai/pull/170) | C1：未結項追蹤                                           | `e7440377136f43d1acf42b4516e39daac2d3db3b` | `10f9a67d443e08c81a0c1964c5b67e7047126ef1` | `36589475236` | `f51d0dea-37f5-4415-b6b6-3a852801eef8`                                                                            |
 | [#171](https://github.com/Ponpon55837/WorkLog.Ai/pull/171) | C2：知識頁維護提示                                       | `48d12d6f92f8df9d834df76c7bb1742b23ea0e8c` | `27a6f27e7e29b38894115edbb32b8f16d594e47b` | `36594872060` | `969694b9-0fc3-4530-b792-cb5101bd01ec`                                                                            |
@@ -31,9 +31,9 @@ PR 狀態、head、merge commit、四項 CI 與 run ID 已由 `gh` 逐筆核對�
 | [#173](https://github.com/Ponpon55837/WorkLog.Ai/pull/173) | D2：新手導引與第八輪狀態文件                             | `33ae694779abcfbc17b91fc276a177045dc5b16d` | `f13123f4618c781a6ba7f39fd474120e260cde48` | `36607543008` | `6f65e28b-3a5f-4607-80a9-acfefd86c541`                                                                            |
 | [#174](https://github.com/Ponpon55837/WorkLog.Ai/pull/174) | E1：使用者登入自動啟動服務                               | `07ea4d8e0685f56742b14d4a51809d413407f0ae` | `d6e768c8efe75d5c1ae73aacff6d265734daa9c4` | `36647789452` | `74aa2fb4-34e6-43b3-ae27-31494c020690`                                                                            |
 | [#175](https://github.com/Ponpon55837/WorkLog.Ai/pull/175) | E2：tag-only 發行 workflow 與 1.0.0                      | `704f8c9679e3ba00eb90bae32986c70e4a8e8c8a` | `6a01a9bbbd8124413b7a11d602f012416d9b731b` | `36651104344` | `3f14b68c-4da2-44af-a724-f6f53dc0c8a2`                                                                            |
-| [#176](https://github.com/Ponpon55837/WorkLog.Ai/pull/176) | A1 後續：升級已提交版本的 skill 複本                     | `bcd7dcf1615f7ef99b12f824044ede7e87baa6b3` | `9c7e16ee5cf2abb33da0c36132d2a3588835c712` | `36651207674` | 無 Session 記錄                                                                                                   |
-| [#177](https://github.com/Ponpon55837/WorkLog.Ai/pull/177) | E3：1.0.0 發行實機驗收清單                               | `1d4cbc6075e2731b532c720c3f2877aab548e4cb` | `e9e8fed1bd05f9330bc615cc0f1bf46d71b42738` | `36653678037` | 無 Session 記錄；本次 hook 起始時間 `2026-09-30T00:54:47.381Z`                                                    |
-| [#178](https://github.com/Ponpon55837/WorkLog.Ai/pull/178) | E2 後續：`pnpm start` 以 file URL 載入 server（Windows） | `4056a1936a08e78535b8a57cd8aa018943f16885` | `df959dde72e9017ead556eececaeb5be415269ac` | `36662803017` | 無 Session 記錄                                                                                                   |
+| [#176](https://github.com/Ponpon55837/WorkLog.Ai/pull/176) | A1 後續：升級已提交版本的 skill 複本                     | `bcd7dcf1615f7ef99b12f824044ede7e87baa6b3` | `9c7e16ee5cf2abb33da0c36132d2a3588835c712` | `36651207674` | `02ebc8c1-ffd2-44e1-a02f-2a00ac645f16`（Claude 已補登；實際起訖資料不足）                                         |
+| [#177](https://github.com/Ponpon55837/WorkLog.Ai/pull/177) | E3：1.0.0 發行實機驗收清單                               | `1d4cbc6075e2731b532c720c3f2877aab548e4cb` | `e9e8fed1bd05f9330bc615cc0f1bf46d71b42738` | `36653678037` | `f51eb5f3-4c4b-46c0-8b51-ab23aeb46189`（E3 與交接收尾；第九輪 A3 已核對）                                         |
+| [#178](https://github.com/Ponpon55837/WorkLog.Ai/pull/178) | E2 後續：`pnpm start` 以 file URL 載入 server（Windows） | `4056a1936a08e78535b8a57cd8aa018943f16885` | `df959dde72e9017ead556eececaeb5be415269ac` | `36662803017` | `523a9852-8803-4b2e-a5c0-3129d228e910`（Claude 已補登；實際起訖資料不足）                                         |
 
 ## 需要 Claude 特別複檢的結果
 
@@ -91,14 +91,15 @@ git tag -a v1.0.0 -m "Work Intelligence 1.0.0"
 git push origin v1.0.0
 ```
 
-## 尚待完成的工作記錄
+## 工作記錄核對結果（第九輪 A3）
 
-Work Intelligence MCP 上次回報 `restartRequired: true`，依 skill 規則目前沒有再呼叫 MCP。重連後：
+第九輪開始時，Claude 已補登 #167、#168、#176、#177、#178。上表已更新為 MCP 完整記錄的實際 ID，沒有另建重複 Session。
 
-1. 確認 `work_get_project_status`／`work_get_context` 回報 `restartRequired: false`。
-2. 查證 A2、B1、#167–#169、#176 的 Session ID 與每個已合併階段記錄；補回上表，勿以 PR 狀態推定 Session 對應。
-3. 以 Stop hook 提供的 `startedAt: 2026-09-30T00:54:47.381Z` 保存本次未記錄收尾工作，`completedAt` 省略，由伺服器填入。E3 原階段若已有獨立 Session，按實際記錄核對後再決定是否另行補存。
-4. 核對 Knowledge 頁面維護提示；最後一次 project context 指出「架構與慣例」及「常見陷阱」頁尚有新資料待檢視。
+- #177 既有 Session 已包含 E3 清單與最後交接草稿；原始 Codex 對話證明 E3 於 `2026-09-30T00:49:44.268Z` 開始，`01:22:39.290Z` 確認合併；最後收尾 turn 是 `01:33:12.610Z`–`01:43:57.384Z`。因此沿用同筆記錄，更正整段起訖、補上交接檔案與對話 Evidence；完成時間修改保留稽核事件。
+- 原先 `00:54:47.381Z` 是 main/setup 工作的 hook 時間，晚於 E3 明確開始訊息，不再作為 E3 起點。
+- #167、#168 只找到合併後回顧；#176 只有合併後狀態核對與分支清理；#178 未出現在指定 Codex 對話。四筆的實際工作起訖均為「資料不足」；本輪不估時間，也不改寫 Claude 已補登的 PR 資料。既有 completedAt 不代表本輪已驗證其為實際工作完成時間。
+- 完整證據、來源行號與既有記錄處理方式見[第九輪 A3 證據核對](2026-09-30-codex-round9-a3-evidence.md)。
+- Knowledge 頁「架構與慣例」及「常見陷阱」的來源檢視另依目前提示處理。
 
 ## 目前驗證注意事項
 
@@ -109,7 +110,7 @@ Work Intelligence MCP 上次回報 `restartRequired: true`，依 skill 規則目
 
 - 以 `gh` 重新核對 #170–#178：每個 PR 最新 head 的 Quality（Ubuntu、Windows、macOS）與 E2E 四項 CI 皆為 success；遠端沒有任何 tag；`package.json` 版本為 `1.0.0`；migration 22 SHA-256 仍為 `ee5ce7be…2ac52`；`docs/release-checklist.md` 與 `docs/release.md` 存在，驗收項目仍為「未執行」。
 - D1（#172）已補上 `echo <serverPath>` 不算等效設定的反例測試，#169 複檢留下的低優先問題已處理。
-- 上表 Session ID 以 MCP `work_list_sessions` 逐筆比對標題與 PR 編號補齊；#167、#168、#176、#177、#178 與 Codex 最後的收尾工作沒有對應的 Session 記錄。
+- 複檢當時曾列 #167、#168、#176、#177、#178 與 Codex 最後收尾缺少記錄；此描述已由上方「第九輪 A3」核對結果更新，請以目前 MCP 記錄與證據表為準。
 - 使用者設定：`pnpm setup:agents` 預覽為 0 衝突、0 項變更；`inspectAgentConnections` 七項皆為 registered／current／installed。
 - 後續修正（[#179](https://github.com/Ponpon55837/WorkLog.Ai/pull/179)）：頁首改為單列精簡版，讓列表等資料提早約 150px 出現，並同步更新 worklog-ui skill；System Status 每次請求不再重算兩次 MCP 建置 hash（約 16 ms → 3 ms）。實測從側欄點進 System Status 的時間與工作歷程、工作知識相同（約 240 ms）；首次載入較慢是 Vite 開發伺服器第一次編譯該頁模組所致。
 - 常駐知識頁「架構與慣例」與「常見陷阱」仍有 9 筆新 Session 與來源複核提示，尚未更新。
