@@ -73,7 +73,7 @@ MCP 清單 regression test（`tests/mcp/tools-list-budget.test.ts`）以 MCP SDK
 
 ## MCP runtime 更新偵測
 
-`tests/shared/mcp-runtime.test.ts` 與 `tests/mcp/server.test.ts` 以暫存 runtime installation 模擬 MCP dist、workspace dependency dist 在連線啟動後更新，並檢查 incomplete build、缺少 dist、多個 heartbeat、過期／損毀 lease、正常退出只清自己的 lease，以及 build finalizer 注入 fingerprint 後再讀取 identity 一致。`tests/server/doctor.test.ts` 與 `tests/server/server.test.ts` 以暫存 repository、HOME、Codex／Claude config roots 和 lease 驗證 Doctor/API 共用唯讀 Agent 診斷；涵蓋 registered／missing／unknown、skill hash drift、malformed JSON、malformed Codex TOML（MCP 表內外與 EOF comment）及不可讀 hook 設定，並比對設定檔檢查前後位元組相同。E2E 以隔離 Agent home 驗證系統狀態頁重新整理、首次使用四步與零 API 寫入。這些測試不讀寫實際資料庫或 Agent 設定。
+`tests/shared/mcp-runtime.test.ts` 與 `tests/mcp/server.test.ts` 以暫存 runtime installation 模擬 MCP dist、workspace dependency dist 在連線啟動後更新，並檢查 incomplete build、缺少 dist、多個 heartbeat、過期／損毀 lease、正常退出只清自己的 lease，以及 build finalizer 注入 fingerprint 後再讀取 identity 一致。`tests/server/doctor.test.ts` 與 `tests/server/server.test.ts` 以暫存 repository、HOME、Codex／Claude config roots 和 lease 驗證 Doctor/API 共用唯讀 Agent 診斷；涵蓋 registered／missing／unknown、skill hash drift、malformed JSON、malformed Codex TOML（MCP 表內外與 EOF comment）及不可讀 hook 設定，並比對設定檔檢查前後位元組相同。`tests/server/user-service.test.ts` 只在 OS 暫存目錄比對 macOS、Windows、Linux 服務設定內容，使用假服務管理器確認先預覽再確認、取消時沒有寫入、移除時保留資料與未支援平台不執行服務命令；CI 不安裝或操作實際服務。E2E 以隔離 Agent home 驗證系統狀態頁（含服務狀態）、重新整理、首次使用四步與零 API 寫入。這些測試不讀寫實際資料庫或 Agent 設定。
 
 Root `pnpm build` 在任何 runtime dist 清理前建立排他的進行標記，完成所有 workspace builds 與 MCP entry fingerprint 注入後才移除；直接 runtime package build 使用相同標記。失敗時標記保留，狀態以 unknown 呈現。
 

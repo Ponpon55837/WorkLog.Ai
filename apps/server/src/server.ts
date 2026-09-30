@@ -1,12 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
-import type { FolderPickResult, SystemAgentConnections } from "@work-intelligence/core";
+import type { FolderPickResult, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
 import { DATABASE_BUSY_MESSAGE, WorkIntelligenceStore, isDatabaseBusyError } from "@work-intelligence/storage";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { inspectAgentConnections } from "./doctor.js";
 import { JSON_HEADERS, RequestBodyError, sendError } from "./http.js";
+import { getUserServiceStatus } from "./user-service.js";
 import { Router, apiRoutes, type RouteServices } from "./routes/index.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
@@ -92,6 +93,8 @@ export interface ApiHandlerOptions {
   repositoryRoot?: string;
   /** Read-only Agent diagnostics; injectable so API tests never inspect real user settings. */
   agentConnections?: () => SystemAgentConnections;
+  /** Read-only login-service status; injectable so API tests never query the host service manager. */
+  userServiceStatus?: () => UserServiceStatus;
 }
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
@@ -103,6 +106,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const serveWebFiles = options.webDirectory ? createStaticFilesHandler(options.webDirectory) : undefined;
   const repositoryRoot = options.repositoryRoot ?? DEFAULT_REPOSITORY_ROOT;
   const inspectConnections = options.agentConnections ?? (() => inspectAgentConnections({ repositoryRoot }));
+  const inspectUserService = options.userServiceStatus ?? (() => getUserServiceStatus({ repositoryRoot }));
   const eventClients = new Set<ServerResponse>();
   const eventPollIntervalMs = Math.max(1, options.eventPollIntervalMs ?? DEFAULT_EVENT_POLL_INTERVAL_MS);
   const requestedMaxEventClients = options.maxEventClients ?? DEFAULT_MAX_EVENT_CLIENTS;
@@ -196,6 +200,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     eventClientCount: () => eventClients.size,
     mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
     agentConnections: inspectConnections,
+    userServiceStatus: inspectUserService,
   };
 
   const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

@@ -36,6 +36,8 @@ pnpm run doctor
 
 也可以在 build 完成後執行 `pnpm setup:agents`，預覽 Codex／Claude Code 的 MCP、user-level skill 與保存提醒 hook 設定。互動終端輸入 `yes` 才會先備份並套用；詳細內容見[Agent 設定指南](agent-setup.md)。
 
+若希望登入電腦後自動啟動正式模式，可使用 `pnpm service:install`；預覽服務設定內容並確認後，會安裝目前使用者的登入服務。服務狀態與移除方式見[登入自動啟動服務](service.md)。
+
 ## 第一次使用
 
 1. 在左側選單開啟「專案」，選「加入專案」，選擇或輸入 workspace 路徑。

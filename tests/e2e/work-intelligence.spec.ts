@@ -1072,6 +1072,11 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText("最近自動備份", { exact: true })).toBeVisible();
     await expect(page.getByText("最近資料維護", { exact: true })).toBeVisible();
     await expect(page.getByText("pnpm run doctor").first()).toBeVisible();
+    const userService = page.getByTestId("user-service");
+    await expect(userService).toBeVisible();
+    await expect(userService.getByText("登入時啟動", { exact: true })).toBeVisible();
+    await expect(userService.getByText("服務設定", { exact: true })).toBeVisible();
+    await expect(userService.getByText("服務日誌", { exact: true })).toBeVisible();
     const agentConnections = page.getByTestId("agent-connections");
     await expect(agentConnections.getByText("Codex", { exact: true })).toBeVisible();
     await expect(agentConnections.getByText("Claude Code", { exact: true })).toBeVisible();

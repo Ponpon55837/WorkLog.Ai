@@ -45,6 +45,8 @@ pnpm start
 
 終端機保持執行，按 `Ctrl+C` 停止。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
 
+如果希望在登入電腦後自動啟動，可先執行 `pnpm build`，再執行 `pnpm service:install`。安裝前會列出即將寫入的服務檔案與完整內容；確認後才會設定目前使用者的服務，無須管理員權限。`pnpm service:status` 查看狀態，`pnpm service:uninstall` 停止並移除服務設定，保留資料庫、備份與日誌。各平台位置與排除問題方式見[登入自動啟動](docs/service.md)。
+
 | 項目 | 位置 |
 |---|---|
 | Web UI | <http://127.0.0.1:3210> |
@@ -158,7 +160,7 @@ GitHub 深色風格的介面，左側選單分三組。長清單都在各自的�
 | **工作圖譜** | 分成三個分頁：**時間軸**（依專案分泳道；拉遠時每天一根依驗證結果分色的長條，點一下放大到那天，拉近後 Session 畫成長條或點、關聯畫成弧線；Knowledge 的建立／確認／推翻／取代畫成標記；可縮放、顯示整個期間與選擇期間，點選開啟 Session；也能切換成依日期分組的清單，手機寬度自動使用清單）、**關係圖**（Project、Session、Knowledge、Evidence、檔案與 Session 關聯；實線是記錄的關係，可開啟以虛線顯示的「一起修改」推導關係；在節點面板可選另一個節點，逐段說明兩者如何關聯）、**熱點**（被最多 Session 修改的檔案或目錄，附驗證失敗與未執行的比例、最近 5 筆 Session；可依專案、期間篩選）。工作報告的「風險」也會列出本期被 2 筆以上 Session 修改的檔案 |
 | **專案** | 專案清單與記錄狀態（加入時可用系統視窗選資料夾；可設定 https 儲存庫網址，Session 的 commit 會連到該儲存庫）、永久刪除專案、Metadata 回補、Handoff 匯入、資料備份（備份、匯出、匯入） |
 | **Session 圖表** | Agent 在工作改到跨模組流程、資料流、狀態機或架構時，會主動為 Session 附上一到兩張 Mermaid 圖表（`work_attach_diagram` 或 finalize 的 `diagrams`；單檔修正、樣式、設定與純測試不附），在 Session 面板延遲載入並渲染；無法解析時顯示原始碼。圖表可作廢、不能刪除，也會隨專案匯出與匯入 |
-| **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改 Agent 設定。「個人偏好」可選擇用 VS Code 或 Cursor 開啟 Session 的 changed files（只存在這個瀏覽器）。完整環境診斷請用 `pnpm run doctor` |
+| **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果、登入自動啟動服務，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改服務或 Agent 設定。「個人偏好」可選擇用 VS Code 或 Cursor 開啟 Session 的 changed files（只存在這個瀏覽器）。完整環境診斷請用 `pnpm run doctor` |
 
 快捷鍵：`Ctrl`/`⌘` + `K` 搜尋或跳頁，`/` 聚焦頁面搜尋，`g` + `d`／`s`／`r`／`k`／`g`／`p` 切換頁面。篩選條件與開啟中的 Session 都會寫進網址，可以直接分享或重新整理。
 
@@ -326,6 +328,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 |---|---|
 | [docs/user-guide.md](docs/user-guide.md) | 安裝、正式模式、日常使用、報告、Knowledge、備份、刪除、換電腦與升級 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | API 連線、port、MCP、全域 hook、還原、匯入與維護的常見問題 |
+| [docs/service.md](docs/service.md) | macOS、Windows 與 Linux 的使用者層級登入自動啟動、移除與疑難排解 |
 | [docs/agent-setup.md](docs/agent-setup.md) | 註冊到 Codex CLI、Claude Code、Claude Desktop，以及全域保存提醒 hook |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | 每個 MCP tool 的用途、欄位、範例、policy 行為、annotations 與 prompts |
 | [docs/rest-api.md](docs/rest-api.md) | REST endpoints、metadata backfill、報告匯出、備份、專案資料匯出／匯入、刪除與即時更新串流 |

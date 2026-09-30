@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { FolderPickResult, SystemAgentConnections } from "@work-intelligence/core";
+import type { FolderPickResult, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
 import type { WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
@@ -13,6 +13,7 @@ export interface RouteServices {
   eventClientCount(): number;
   mcpRuntimeStatus(): McpRuntimeStatus;
   agentConnections(): SystemAgentConnections;
+  userServiceStatus(): UserServiceStatus;
 }
 
 export interface RouteContext {
