@@ -1,13 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  type Dirent,
   existsSync,
+  lstatSync,
   mkdirSync,
+  opendirSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,6 +67,10 @@ const MCP_ENTRY_IDENTITY_PATTERN = /const MCP_BUILD_DIST_HASH = "(?:[a-f0-9]{64}
 const MCP_BUILD_PROGRESS_FILE = ".work-intelligence-build-in-progress";
 const MCP_HEARTBEAT_INTERVAL_MS = 5_000;
 const MCP_HEARTBEAT_TTL_MS = 30_000;
+const MCP_LEASE_CLEANUP_GRACE_MS = 60_000;
+const MCP_LEASE_CLEANUP_LIMIT = 64;
+const MCP_REGISTRATION_SCAN_LIMIT = 512;
+const MCP_LEASE_FILE_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.(json|tmp)$/;
 const MCP_RECONNECT_MESSAGE = "磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。";
 const MCP_UPDATE_MESSAGE =
   "Work Intelligence MCP 有新版可用；目前契約相容，讀寫可照常進行，收尾時提醒重新連線一次即可。";
@@ -179,6 +187,68 @@ function hashMcpRuntimeDist(repositoryRoot: string): string {
   return digest.digest("hex");
 }
 
+function readProcessLease(path: string): Partial<McpProcessLease> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return parsed && typeof parsed === "object" ? (parsed as Partial<McpProcessLease>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanupExpiredLease(
+  directory: string,
+  file: string,
+  now: number,
+  heartbeatTtlMs: number,
+  budget: { attempts: number },
+  lease?: Partial<McpProcessLease>,
+): void {
+  if (
+    !Number.isFinite(now) ||
+    !Number.isFinite(heartbeatTtlMs) ||
+    budget.attempts >= MCP_LEASE_CLEANUP_LIMIT ||
+    !MCP_LEASE_FILE_PATTERN.test(file)
+  )
+    return;
+  const path = join(directory, file);
+  try {
+    const stats = lstatSync(path);
+    const cutoff = now - heartbeatTtlMs - MCP_LEASE_CLEANUP_GRACE_MS;
+    // A recently rewritten file may belong to a resumed heartbeat; never remove it from a stale snapshot.
+    if (!stats.isFile() || stats.mtimeMs >= cutoff) return;
+    if (file.endsWith(".json") && typeof lease?.heartbeatAt === "string") {
+      const heartbeat = Date.parse(lease.heartbeatAt);
+      if (Number.isFinite(heartbeat) && heartbeat >= cutoff) return;
+    }
+    budget.attempts += 1;
+    unlinkSync(path);
+  } catch {
+    // Best-effort maintenance must not prevent startup or a System Status response.
+  }
+}
+
+function cleanupRegistrationLeases(directory: string, now: number): void {
+  try {
+    if (!lstatSync(directory).isDirectory()) return;
+    const entries = opendirSync(directory);
+    const budget = { attempts: 0 };
+    try {
+      for (let inspected = 0; inspected < MCP_REGISTRATION_SCAN_LIMIT; inspected += 1) {
+        const entry = entries.readSync();
+        if (!entry || budget.attempts >= MCP_LEASE_CLEANUP_LIMIT) break;
+        if (!entry.isFile() || !MCP_LEASE_FILE_PATTERN.test(entry.name)) continue;
+        const lease = entry.name.endsWith(".json") ? readProcessLease(join(directory, entry.name)) : undefined;
+        cleanupExpiredLease(directory, entry.name, now, MCP_HEARTBEAT_TTL_MS, budget, lease);
+      }
+    } finally {
+      entries.closeSync();
+    }
+  } catch {
+    // Unreadable registries are handled by the existing runtime monitoring path.
+  }
+}
+
 /** Build-only fingerprint calculation. Runtime status reads must use readMcpBuildIdentity instead. */
 export function computeMcpBuildIdentity(repositoryRoot: string): McpBuildIdentity | undefined {
   const root = resolve(repositoryRoot);
@@ -257,6 +327,7 @@ export function registerMcpProcess(
   } catch {
     return () => undefined;
   }
+  cleanupRegistrationLeases(directory, (options.now?.() ?? new Date()).getTime());
   const instanceId = randomUUID();
   const leasePath = join(directory, `${instanceId}.json`);
   const temporaryPath = join(directory, `${instanceId}.tmp`);
@@ -331,8 +402,13 @@ export function getMcpRuntimeStatus(
   options: McpRuntimeStatusOptions = {},
 ): McpRuntimeStatus {
   const directory = getMcpRuntimeDirectory(repositoryRoot);
-  const now = options.now?.getTime() ?? Date.now();
-  const heartbeatTtlMs = Math.max(1_000, options.heartbeatTtlMs ?? MCP_HEARTBEAT_TTL_MS);
+  const requestedNow = options.now?.getTime();
+  const now = requestedNow !== undefined && Number.isFinite(requestedNow) ? requestedNow : Date.now();
+  const requestedTtl = options.heartbeatTtlMs;
+  const heartbeatTtlMs = Math.max(
+    1_000,
+    requestedTtl !== undefined && Number.isFinite(requestedTtl) ? requestedTtl : MCP_HEARTBEAT_TTL_MS,
+  );
   const probeRegistryWritable = options.probeRegistryWritable ?? probeRuntimeDirectoryWritable;
   if (!probeRegistryWritable(directory)) {
     return {
@@ -346,9 +422,10 @@ export function getMcpRuntimeStatus(
     };
   }
 
-  let files: string[];
+  let files: Dirent[];
   try {
-    files = readdirSync(directory).filter((name) => name.endsWith(".json"));
+    if (!lstatSync(directory).isDirectory()) throw new Error("The runtime registry is not a directory.");
+    files = readdirSync(directory, { withFileTypes: true });
   } catch {
     return {
       activeProcesses: 0,
@@ -361,25 +438,23 @@ export function getMcpRuntimeStatus(
     };
   }
 
+  const cleanupBudget = { attempts: 0 };
   const activeLeases = files.flatMap((file) => {
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(join(directory, file), "utf8"));
-      if (!parsed || typeof parsed !== "object") return [];
-      const lease = parsed as Partial<McpProcessLease>;
-      if (
-        typeof lease.instanceId !== "string" ||
-        basename(file) !== `${lease.instanceId}.json` ||
-        typeof lease.buildId !== "string" ||
-        typeof lease.heartbeatAt !== "string"
-      ) {
-        return [];
-      }
-      const heartbeatTime = Date.parse(lease.heartbeatAt);
-      const age = now - heartbeatTime;
-      return Number.isFinite(heartbeatTime) && age <= heartbeatTtlMs && age >= -5_000 ? [lease] : [];
-    } catch {
+    if (!file.isFile() || !MCP_LEASE_FILE_PATTERN.test(file.name)) return [];
+    const lease = file.name.endsWith(".json") ? readProcessLease(join(directory, file.name)) : undefined;
+    cleanupExpiredLease(directory, file.name, now, heartbeatTtlMs, cleanupBudget, lease);
+    if (
+      !lease ||
+      typeof lease.instanceId !== "string" ||
+      basename(file.name) !== `${lease.instanceId}.json` ||
+      typeof lease.buildId !== "string" ||
+      typeof lease.heartbeatAt !== "string"
+    ) {
       return [];
     }
+    const heartbeatTime = Date.parse(lease.heartbeatAt);
+    const age = now - heartbeatTime;
+    return Number.isFinite(heartbeatTime) && age <= heartbeatTtlMs && age >= -5_000 ? [lease] : [];
   });
   const outdatedProcesses = currentBuild
     ? activeLeases.filter(

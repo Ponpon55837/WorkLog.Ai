@@ -12,6 +12,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- MCP startup and System Status now remove expired UUID lease files and abandoned temporary files after a 60-second grace beyond the heartbeat TTL. Each pass attempts at most 64 deletions, startup inspects at most 512 entries, and unrelated files, directories, and symlinks are preserved. Cleanup failures do not interrupt monitoring or recording.
+
 - Dashboard lists (最近完成的工作, 專案狀態) no longer stop at a fixed height with empty space below on tall screens: `VirtualList` gained `growToViewport`, which caps the list at the space left to the viewport bottom and falls back to `maxHeight` when the list starts below the fold.
 - System Status no longer hashes the whole MCP runtime build twice on every request: the build identity is cached per repository and reused while every runtime file keeps its size, mtime, and inode (about 16 ms to 3 ms per request on a real install).
 

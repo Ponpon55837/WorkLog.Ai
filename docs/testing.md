@@ -40,6 +40,8 @@ Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定�
 
 A1 新增合成 runtime 的 `getMcpRuntimeStatus (cached identity)` p90 ≤ 50 ms，以及 `MCP guarded finalize (schema check)` p90 ≤ 250 ms。前者複製建置檔到測試目錄再量測暖快取狀態讀取，後者在同一 write transaction 核對 schema 後 finalize；不使用實際資料庫或 Agent 設定。
 
+A2 另以 286 個合成過期 lease／tmp（每次計時前重建，建置資料不計時）量測狀態讀取及 MCP 註冊清理，兩者 p90 上限各為 100 ms。測試涵蓋 TTL＋60 秒邊界、每次 64 次刪除嘗試上限、重複讀取收斂、刪除失敗、非 UUID 檔案、符號連結及 scope 隔離；runtime 單元測試 mock `tmpdir()`，其餘本機驗證使用隔離 HOME／TMPDIR。
+
 ## 檢索品質評估
 
 先執行 `pnpm build`，再用 `pnpm eval:recall <題目.json> [--db <資料庫.sqlite>] [--out <結果.json>]`。此 script 固定傳入 `--experimental-sqlite`：Node.js 22.5–22.12 需要此旗標，22.13 以上可接受這個冗餘旗標。未指定 `--db` 時使用 `WORK_INTELLIGENCE_DB`，否則使用 repo 的 `data/work-intelligence.sqlite`。題庫支援 JSON 陣列或 `{ "version": 1, "questions": [...] }`；最多 200 題、輸入檔最多 1 MB。每題必填 `mode`（`recall`／`context`）、`query` 和一項預期：`expectedIds`（最多 20 個 Session／Knowledge id）或 `expectedNoHit: true`。可選 `id`、`projectRoot`、最多 20 個 `paths`、`expectedConfidence`（`none`／`low`／`high`）；只有 recall 可用 `from`／`to`，兩端皆為有效的 `YYYY-MM-DD`，且日期端點包含在範圍內。Recall 固定取 MCP 回傳前 30 名；正例 hit@1／hit@5／MRR 的分母只算已評估的正例，負例另計，MRR 定義為 MRR@30。`expectedConfidence` 未指定時，報告會留空符合狀態，不從預期 id 推定 confidence。
