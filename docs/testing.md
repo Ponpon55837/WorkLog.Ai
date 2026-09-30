@@ -38,6 +38,8 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的 macOS 基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）；project-policy 的 Windows branches 為 92.75%，因平台路徑分隔符走不同條件。
 
+A1 新增合成 runtime 的 `getMcpRuntimeStatus (cached identity)` p90 ≤ 50 ms，以及 `MCP guarded finalize (schema check)` p90 ≤ 250 ms。前者複製建置檔到測試目錄再量測暖快取狀態讀取，後者在同一 write transaction 核對 schema 後 finalize；不使用實際資料庫或 Agent 設定。
+
 ## 檢索品質評估
 
 先執行 `pnpm build`，再用 `pnpm eval:recall <題目.json> [--db <資料庫.sqlite>] [--out <結果.json>]`。此 script 固定傳入 `--experimental-sqlite`：Node.js 22.5–22.12 需要此旗標，22.13 以上可接受這個冗餘旗標。未指定 `--db` 時使用 `WORK_INTELLIGENCE_DB`，否則使用 repo 的 `data/work-intelligence.sqlite`。題庫支援 JSON 陣列或 `{ "version": 1, "questions": [...] }`；最多 200 題、輸入檔最多 1 MB。每題必填 `mode`（`recall`／`context`）、`query` 和一項預期：`expectedIds`（最多 20 個 Session／Knowledge id）或 `expectedNoHit: true`。可選 `id`、`projectRoot`、最多 20 個 `paths`、`expectedConfidence`（`none`／`low`／`high`）；只有 recall 可用 `from`／`to`，兩端皆為有效的 `YYYY-MM-DD`，且日期端點包含在範圍內。Recall 固定取 MCP 回傳前 30 名；正例 hit@1／hit@5／MRR 的分母只算已評估的正例，負例另計，MRR 定義為 MRR@30。`expectedConfidence` 未指定時，報告會留空符合狀態，不從預期 id 推定 confidence。

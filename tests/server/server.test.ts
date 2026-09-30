@@ -257,7 +257,7 @@ describe("Work Intelligence REST API", () => {
       try {
         const unavailable = await requestJson<{ mcp: Record<string, unknown> }>(baseUrl, "/api/system/status");
         expect(unavailable.body.mcp).toMatchObject({
-          restartRequired: false,
+          restartRequired: true,
           monitoringAvailable: false,
           activeProcesses: 0,
           outdatedProcesses: 0,

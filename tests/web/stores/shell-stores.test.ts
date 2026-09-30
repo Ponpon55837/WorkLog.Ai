@@ -62,6 +62,7 @@ function shellResponder({ url }: StoreRequest): unknown {
             monitoringAvailable: true,
             activeProcesses: 0,
             outdatedProcesses: 0,
+            updateAvailableProcesses: 0,
             message: "尚無可監測的 MCP 連線。",
           },
         };

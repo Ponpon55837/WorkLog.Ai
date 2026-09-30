@@ -1,11 +1,21 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeMcpBuildIdentity, readMcpBuildIdentity } from "../../packages/shared/src/mcp-runtime.ts";
 import { finalizeRuntimeBuild, finalizeRuntimePackageBuild } from "../../scripts/runtime-build-finalizer.mjs";
 
+const { testTmpDirectory } = vi.hoisted(() => ({
+  testTmpDirectory: `${globalThis.process.cwd()}/.test-sandbox/finalizer-${globalThis.process.pid}`,
+}));
+
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal();
+  return { ...original, tmpdir: () => testTmpDirectory };
+});
+
 const roots = [];
+const syntheticCompatibilityId = "c".repeat(64);
 const runtimeDistDirectories = [
   "apps/mcp/dist",
   "packages/core/dist",
@@ -25,11 +35,13 @@ function createFixture() {
     writeFileSync(
       entry,
       directory === "apps/mcp/dist"
-        ? 'const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nexport const runtime = "mcp-a";\n'
+        ? `const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nconst MCP_BUILD_COMPATIBILITY_ID = "${syntheticCompatibilityId}";\nexport const runtime = "mcp-a";\n`
         : `export const runtime = ${JSON.stringify(directory)};\n`,
     );
   }
   writeFileSync(join(root, "packages/shared/dist/mcp-runtime.js"), 'export const runtime = "shared-mcp-runtime";\n');
+  mkdirSync(join(root, "apps/mcp/dist"), { recursive: true });
+  writeFileSync(join(root, "apps/mcp/dist/build-compatibility.js"), "export const fixture = true;\n");
   return root;
 }
 
@@ -44,10 +56,12 @@ function createPartialFixture(includeSharedDist = false) {
     writeFileSync(
       entry,
       directory === "apps/mcp/dist"
-        ? 'const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nexport const runtime = "mcp-a";\n'
+        ? `const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nconst MCP_BUILD_COMPATIBILITY_ID = "${syntheticCompatibilityId}";\nexport const runtime = "mcp-a";\n`
         : 'export const runtime = "shared";\n',
     );
   }
+  mkdirSync(join(root, "apps/mcp/dist"), { recursive: true });
+  writeFileSync(join(root, "apps/mcp/dist/build-compatibility.js"), "export const fixture = true;\n");
   return root;
 }
 
@@ -55,11 +69,20 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+beforeEach(() => {
+  mkdirSync(tmpdir(), { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(tmpdir(), { recursive: true, force: true });
+});
+
 describe("MCP runtime build finalizer", () => {
   it("embeds a stable fingerprint and refreshes an existing identity after a dependency rebuild", async () => {
     const root = createFixture();
     const startupCandidate = computeMcpBuildIdentity(root);
     expect(startupCandidate).toBeDefined();
+    expect(startupCandidate?.compatibilityId).toBe(syntheticCompatibilityId);
 
     await finalizeRuntimeBuild(root, computeMcpBuildIdentity);
     expect(readMcpBuildIdentity(root)).toEqual(startupCandidate);
@@ -67,6 +90,7 @@ describe("MCP runtime build finalizer", () => {
     writeFileSync(join(root, "packages/storage/dist/index.js"), 'export const runtime = "storage-b";\n');
     const rebuiltCandidate = computeMcpBuildIdentity(root);
     expect(rebuiltCandidate?.distHash).not.toBe(startupCandidate?.distHash);
+    expect(rebuiltCandidate?.compatibilityId).toBe(startupCandidate?.compatibilityId);
 
     await finalizeRuntimeBuild(root, computeMcpBuildIdentity);
     expect(readMcpBuildIdentity(root)).toEqual(rebuiltCandidate);
@@ -109,6 +133,15 @@ describe("MCP runtime build finalizer", () => {
     await expect(finalizeRuntimePackageBuild(root, marker, computeMcpBuildIdentity)).resolves.toBeUndefined();
     expect(existsSync(marker)).toBe(false);
     expect(readMcpBuildIdentity(root)).toBeUndefined();
+  });
+
+  it("keeps a direct package build unknown when legacy MCP dist has no compatibility helper", async () => {
+    const root = createFixture();
+    const marker = join(root, ".work-intelligence-build-in-progress");
+    rmSync(join(root, "apps/mcp/dist/build-compatibility.js"));
+    writeFileSync(marker, "direct package build");
+    await expect(finalizeRuntimePackageBuild(root, marker, computeMcpBuildIdentity)).resolves.toBeUndefined();
+    expect(existsSync(marker)).toBe(false);
   });
 
   it("treats a missing shared MCP runtime module as incomplete when its dist has other JavaScript", async () => {

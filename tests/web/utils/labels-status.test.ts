@@ -125,6 +125,7 @@ describe("status and label maps", () => {
         monitoringAvailable: false,
         activeProcesses: 0,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
       }),
     ).toMatchObject({ tone: "attention", label: "無法確認" });
     expect(
@@ -133,6 +134,7 @@ describe("status and label maps", () => {
         monitoringAvailable: true,
         activeProcesses: 0,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
       }),
     ).toMatchObject({ tone: "neutral", label: "尚無可監測連線" });
     expect(
@@ -141,6 +143,7 @@ describe("status and label maps", () => {
         monitoringAvailable: false,
         activeProcesses: 0,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
       }),
     ).toMatchObject({ tone: "attention", label: "需要重新連線" });
     expect(
@@ -149,6 +152,7 @@ describe("status and label maps", () => {
         monitoringAvailable: false,
         activeProcesses: 0,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
       }),
     ).toMatchObject({ tone: "attention", label: "無法確認" });
     expect(
@@ -157,6 +161,7 @@ describe("status and label maps", () => {
         monitoringAvailable: true,
         activeProcesses: 0,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
       }),
     ).toMatchObject({ tone: "attention", label: "尚無可確認連線" });
     expect(
@@ -165,6 +170,7 @@ describe("status and label maps", () => {
         monitoringAvailable: true,
         activeProcesses: 1,
         outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
       }),
     ).toMatchObject({ tone: "success", label: "不需要重新連線" });
   });

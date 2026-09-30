@@ -207,6 +207,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             <template #labels><StatusLabel :status="mcpReconnectStatusVisual(status.mcp)" /></template>
             <template #meta>{{ status.mcp.message ?? "以 MCP heartbeat 判斷目前是否需要重新連線。" }}</template>
           </UiBoxRow>
+          <UiBoxRow title="有新版可用的程序" :meta="`${status.mcp.updateAvailableProcesses} 個`" />
           <UiBoxRow title="需要重新連線的程序" :meta="`${status.mcp.outdatedProcesses} 個`" />
         </UiBox>
 

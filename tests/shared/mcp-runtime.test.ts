@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeMcpBuildIdentity,
   getMcpRestartStatus,
@@ -11,7 +11,16 @@ import {
   readMcpBuildIdentity,
   registerMcpProcess,
 } from "../../packages/shared/src/mcp-runtime.js";
-import { createMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
+import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
+
+const { testTmpDirectory } = vi.hoisted(() => ({
+  testTmpDirectory: `${process.cwd()}/.test-sandbox/runtime-${process.pid}`,
+}));
+
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:os")>();
+  return { ...original, tmpdir: () => testTmpDirectory };
+});
 
 const roots: string[] = [];
 const cleanups: Array<() => void> = [];
@@ -23,17 +32,18 @@ function createFixture(): string {
 }
 
 function finalizeFixtureBuild(root: string) {
-  const candidate = computeMcpBuildIdentity(root);
-  if (!candidate) throw new Error("The synthetic runtime has no candidate build identity.");
+  return finalizeMcpRuntimeFixture(root);
+}
+
+function setFixtureCompatibilityId(root: string, compatibilityId: string): void {
   const entryPath = join(root, "apps/mcp/dist/index.js");
-  const source = readFileSync(entryPath, "utf8").replace(
-    /const MCP_BUILD_DIST_HASH = "(?:[a-f0-9]{64}|__WORK_INTELLIGENCE_BUILD_HASH__)";/,
-    `const MCP_BUILD_DIST_HASH = "${candidate.distHash}";`,
+  const source = readFileSync(entryPath, "utf8");
+  const updated = source.replace(
+    /const MCP_BUILD_COMPATIBILITY_ID = "[a-f0-9]{64}";/,
+    `const MCP_BUILD_COMPATIBILITY_ID = "${compatibilityId}";`,
   );
-  writeFileSync(entryPath, source);
-  const finalized = readMcpBuildIdentity(root);
-  if (!finalized) throw new Error("The synthetic runtime could not read its finalized identity.");
-  return finalized;
+  if (updated === source) throw new Error("The synthetic runtime fixture has no embedded compatibility identity.");
+  writeFileSync(entryPath, updated);
 }
 
 afterEach(() => {
@@ -44,30 +54,104 @@ afterEach(() => {
   }
 });
 
+beforeEach(() => {
+  mkdirSync(tmpdir(), { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(tmpdir(), { recursive: true, force: true });
+});
+
 describe("MCP runtime build identity and process leases", () => {
-  it("changes identity for MCP and workspace dependency dist updates and compares fingerprints by equality", () => {
+  it("allows implementation-only rebuilds and marks a compatible update as available", () => {
     const root = createFixture();
     const startupBuild = readMcpBuildIdentity(root);
-    expect(startupBuild).toBeDefined();
+    if (!startupBuild) throw new Error("The synthetic runtime has no startup build identity.");
 
-    writeFileSync(
-      join(root, "apps/mcp/dist/index.js"),
-      'const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nexport const runtime = "mcp-b";\n',
-    );
+    writeFileSync(join(root, "apps/mcp/dist/implementation.js"), 'export const runtime = "mcp-b";\n');
     const afterMcpUpdate = finalizeFixtureBuild(root);
-    expect(afterMcpUpdate?.distHash).not.toBe(startupBuild?.distHash);
+    expect(afterMcpUpdate.distHash).not.toBe(startupBuild.distHash);
+    expect(afterMcpUpdate.compatibilityId).toBe(startupBuild.compatibilityId);
     expect(getMcpRestartStatus(root, startupBuild)).toMatchObject({
-      restartRequired: true,
+      restartRequired: false,
+      updateAvailable: true,
       monitoringAvailable: true,
-      message: expect.stringContaining("請重新連線 MCP"),
+      message: expect.stringContaining("有新版可用"),
     });
 
     writeFileSync(join(root, "packages/storage/dist/index.js"), 'export const runtime = "storage-b";\n');
     const afterDependencyUpdate = finalizeFixtureBuild(root);
-    expect(afterDependencyUpdate?.distHash).not.toBe(afterMcpUpdate?.distHash);
-    expect(getMcpRestartStatus(root, afterMcpUpdate)).toMatchObject({ restartRequired: true });
+    expect(afterDependencyUpdate.distHash).not.toBe(afterMcpUpdate.distHash);
+    expect(afterDependencyUpdate.compatibilityId).toBe(afterMcpUpdate.compatibilityId);
+    expect(getMcpRestartStatus(root, afterMcpUpdate)).toMatchObject({
+      restartRequired: false,
+      updateAvailable: true,
+      monitoringAvailable: true,
+    });
     expect(getMcpRestartStatus(root, afterDependencyUpdate)).toMatchObject({
       restartRequired: false,
+      updateAvailable: false,
+      monitoringAvailable: true,
+    });
+  });
+
+  it.each(["schema version", "operation contract"])(
+    "requires reconnect when the %s compatibility identity changes",
+    (changeKind) => {
+      const root = createFixture();
+      const startupBuild = readMcpBuildIdentity(root);
+      if (!startupBuild) throw new Error("The synthetic runtime has no startup build identity.");
+
+      setFixtureCompatibilityId(root, changeKind === "schema version" ? "b".repeat(64) : "c".repeat(64));
+      const changedBuild = finalizeFixtureBuild(root);
+
+      expect(changedBuild.distHash).not.toBe(startupBuild.distHash);
+      expect(changedBuild.compatibilityId).not.toBe(startupBuild.compatibilityId);
+      expect(getMcpRestartStatus(root, startupBuild)).toMatchObject({
+        restartRequired: true,
+        updateAvailable: false,
+        monitoringAvailable: true,
+        message: expect.stringContaining("請重新連線 MCP"),
+      });
+    },
+  );
+
+  it("fails closed when either build has no compatibility identity", () => {
+    const root = createFixture();
+    const startupBuild = readMcpBuildIdentity(root);
+    if (!startupBuild) throw new Error("The synthetic runtime has no startup build identity.");
+
+    const entryPath = join(root, "apps/mcp/dist/index.js");
+    const source = readFileSync(entryPath, "utf8");
+    const withoutCompatibility = source.replace(/const MCP_BUILD_COMPATIBILITY_ID = "[a-f0-9]{64}";\n/, "");
+    if (withoutCompatibility === source) throw new Error("The fixture compatibility identity was not found.");
+    writeFileSync(entryPath, withoutCompatibility);
+    const currentWithoutCompatibility = finalizeFixtureBuild(root);
+
+    expect(currentWithoutCompatibility.compatibilityId).toBeUndefined();
+    expect(getMcpRuntimeStatus(root, currentWithoutCompatibility)).toMatchObject({
+      restartRequired: true,
+      monitoringAvailable: false,
+      activeProcesses: 0,
+    });
+    expect(getMcpRestartStatus(root, startupBuild)).toMatchObject({
+      restartRequired: true,
+      updateAvailable: false,
+      monitoringAvailable: true,
+    });
+
+    const legacyRoot = createFixture();
+    const currentBuild = readMcpBuildIdentity(legacyRoot);
+    if (!currentBuild) throw new Error("The synthetic runtime has no current build identity.");
+    const legacyRunningBuild = { ...currentBuild, compatibilityId: undefined };
+    writeFileSync(
+      join(legacyRoot, "packages/core/dist/index.js"),
+      'export const runtime = "implementation-after-legacy-start";\n',
+    );
+    finalizeFixtureBuild(legacyRoot);
+    expect(getMcpRestartStatus(legacyRoot, legacyRunningBuild)).toMatchObject({
+      restartRequired: true,
+      updateAvailable: false,
       monitoringAvailable: true,
     });
   });
@@ -96,7 +180,7 @@ describe("MCP runtime build identity and process leases", () => {
     if (!candidateBuild) throw new Error("The synthetic runtime has no candidate build identity.");
 
     const entryPath = join(root, "apps/mcp/dist/index.js");
-    const entry = 'const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nexport const runtime = "mcp-a";\n';
+    const entry = `const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nconst MCP_BUILD_COMPATIBILITY_ID = "${candidateBuild.compatibilityId}";\nexport const runtime = "mcp-a";\n`;
     writeFileSync(entryPath, entry.replace("__WORK_INTELLIGENCE_BUILD_HASH__", candidateBuild.distHash));
     expect(readMcpBuildIdentity(root)).toEqual(candidateBuild);
   });
@@ -145,8 +229,8 @@ describe("MCP runtime build identity and process leases", () => {
 
     expect(readMcpBuildIdentity(root)).toBeUndefined();
     expect(computeMcpBuildIdentity(root)).toBeDefined();
-    expect(getMcpRestartStatus(root, build)).toMatchObject({ restartRequired: false, monitoringAvailable: false });
-    expect(getMcpRuntimeStatus(root)).toMatchObject({ restartRequired: false, monitoringAvailable: false });
+    expect(getMcpRestartStatus(root, build)).toMatchObject({ restartRequired: true, monitoringAvailable: false });
+    expect(getMcpRuntimeStatus(root)).toMatchObject({ restartRequired: true, monitoringAvailable: false });
 
     rmSync(marker);
     rmSync(join(root, "packages/schema/dist/index.js"));
@@ -172,6 +256,7 @@ describe("MCP runtime build identity and process leases", () => {
 
     const registryDirectory = getMcpRuntimeDirectory(root);
     const expiredId = randomUUID();
+    const incompatibleId = randomUUID();
     writeFileSync(
       join(registryDirectory, `${expiredId}.json`),
       JSON.stringify({
@@ -182,22 +267,36 @@ describe("MCP runtime build identity and process leases", () => {
         heartbeatAt: new Date(now.getTime() - 60_000).toISOString(),
       }),
     );
+    writeFileSync(
+      join(registryDirectory, `${incompatibleId}.json`),
+      JSON.stringify({
+        instanceId: incompatibleId,
+        buildId: "old-contract-build",
+        compatibilityId: "b".repeat(64),
+        version: firstBuild.version,
+        startedAt: now.toISOString(),
+        heartbeatAt: now.toISOString(),
+      }),
+    );
     writeFileSync(join(registryDirectory, "corrupt.json"), "{");
     writeFileSync(join(registryDirectory, "incomplete.tmp"), "not a lease");
 
     expect(getMcpRuntimeStatus(root, currentBuild, { now })).toMatchObject({
-      activeProcesses: 2,
+      activeProcesses: 3,
       outdatedProcesses: 1,
+      updateAvailableProcesses: 1,
       restartRequired: true,
+      updateAvailable: true,
       monitoringAvailable: true,
       message: expect.stringContaining("請重新連線 MCP"),
     });
 
     stopOldProcess();
     expect(getMcpRuntimeStatus(root, currentBuild, { now })).toMatchObject({
-      activeProcesses: 1,
-      outdatedProcesses: 0,
-      restartRequired: false,
+      activeProcesses: 2,
+      outdatedProcesses: 1,
+      updateAvailableProcesses: 0,
+      restartRequired: true,
     });
     stopCurrentProcess();
     cleanups.length = 0;
@@ -221,13 +320,17 @@ describe("MCP runtime build identity and process leases", () => {
       }),
     ).toMatchObject({
       activeProcesses: 0,
-      restartRequired: false,
+      outdatedProcesses: 0,
+      updateAvailableProcesses: 0,
+      restartRequired: true,
       monitoringAvailable: false,
       message: expect.stringContaining("無法確認"),
     });
     expect(getMcpRuntimeStatus(root, build)).toMatchObject({
       activeProcesses: 0,
-      restartRequired: false,
+      outdatedProcesses: 0,
+      updateAvailableProcesses: 0,
+      restartRequired: true,
       monitoringAvailable: false,
       message: expect.stringContaining("無法確認"),
     });
@@ -249,7 +352,9 @@ describe("MCP runtime build identity and process leases", () => {
       }),
     ).toMatchObject({
       activeProcesses: 0,
-      restartRequired: false,
+      outdatedProcesses: 0,
+      updateAvailableProcesses: 0,
+      restartRequired: true,
       monitoringAvailable: false,
       message: expect.stringContaining("無法確認"),
     });
@@ -262,7 +367,7 @@ describe("MCP runtime build identity and process leases", () => {
     const stopUnknownProcess = registerMcpProcess(root, undefined);
     cleanups.push(stopUnknownProcess);
 
-    expect(getMcpRuntimeStatus(root)).toMatchObject({ restartRequired: false, monitoringAvailable: false });
+    expect(getMcpRuntimeStatus(root)).toMatchObject({ restartRequired: true, monitoringAvailable: false });
     rmSync(marker);
     expect(getMcpRuntimeStatus(root)).toMatchObject({
       activeProcesses: 1,

@@ -187,7 +187,7 @@ const TOOL_DISPATCHERS: readonly ToolDispatcherDefinition[] = [
     name: "work_read",
     title: "Read Work Intelligence",
     description:
-      "Run one read-only Work Intelligence operation. Read the operation catalog for its complete schema and result rules. If a result's server.restartRequired is true, tell the user to reconnect the MCP before continuing.",
+      "Run one read-only Work Intelligence operation. Read the operation catalog for its complete schema and result rules. Only server.restartRequired stops operations and requires reconnecting. server.updateAvailable means compatible implementation changes: continue reads and writes, then remind the user once at closing.",
     annotations: READ_ONLY,
   },
   {
@@ -466,10 +466,36 @@ export function createWorkIntelligenceMcpServer(
           };
         }
         try {
-          const result = await definition.run(parsed.data);
-          const output = definition.includeServerStatus ? withServerRestartStatus(result, getRestartStatus) : result;
+          const restartStatus = getRestartStatus();
+          if (!definition.annotations.readOnlyHint && restartStatus.restartRequired) {
+            return {
+              isError: true,
+              ...textResult({
+                code: "MCP_RESTART_REQUIRED",
+                error: "請重新連線 Work Intelligence MCP 後再寫入。",
+                server: restartStatus,
+              }),
+            };
+          }
+          const result = definition.annotations.readOnlyHint
+            ? await definition.run(parsed.data)
+            : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data));
+          const output =
+            definition.includeServerStatus || !definition.annotations.readOnlyHint
+              ? withServerRestartStatus(result, getRestartStatus)
+              : result;
           return definition.sessionResult ? sessionTextResult(output) : textResult(output);
         } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "MCP_RESTART_REQUIRED") {
+            return {
+              isError: true,
+              ...textResult({
+                code: "MCP_RESTART_REQUIRED",
+                error: "資料庫 schema 已更新，請重新連線 Work Intelligence MCP。",
+                server: { restartRequired: true, updateAvailable: false, monitoringAvailable: true },
+              }),
+            };
+          }
           if (!isDatabaseBusyError(error)) {
             throw error;
           }
@@ -487,7 +513,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_project_status", {
     title: "Get project recording status",
     description:
-      "Return whether a workspace root is tracked, paused, ignored, or unregistered in Work Intelligence, plus MCP build status. Call this before preparing a finalize payload: only tracked projects are recorded. The result includes clock (serverTime, timeZone, utcOffset): take the current time from it, never from your own estimate. If server.restartRequired is true, tell the user to reconnect the MCP before continuing. This is read-only and cannot change recording status; only the user can do that in the Web UI.",
+      "Return whether a workspace root is tracked, paused, ignored, or unregistered in Work Intelligence, plus MCP build status. Call this before preparing a finalize payload: only tracked projects are recorded. The result includes clock (serverTime, timeZone, utcOffset): take the current time from it, never from your own estimate. Only server.restartRequired stops operations; server.updateAvailable permits normal reads and writes with one reminder at closing. This is read-only and cannot change recording status; only the user can do that in the Web UI.",
     inputShape: projectStatusQuerySchema.shape,
     schema: projectStatusQuerySchema,
     annotations: READ_ONLY,
@@ -638,7 +664,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. If server.restartRequired is true, tell the user to reconnect the MCP before continuing. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted: per section it gives count, duplicates (already shown elsewhere in this response), up to 5 ids with reasons for budget omissions plus moreIds, full entries for anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; truncated excerpts are marked. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.',
+      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. Only server.restartRequired stops operations; server.updateAvailable permits normal reads and writes with one reminder at closing. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted: per section it gives count, duplicates (already shown elsewhere in this response), up to 5 ids with reasons for budget omissions plus moreIds, full entries for anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; truncated excerpts are marked. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and non-tracked projects are quietly skipped.',
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,

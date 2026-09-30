@@ -20,7 +20,7 @@
 
 ## MCP 需要重新連線，或建置狀態未知
 
-`work_get_project_status` 與 `work_get_context` 會比較目前磁碟建置和該 MCP 程序的 startup fingerprint；doctor 與「系統狀態」則彙總 OS 暫存目錄中的 heartbeat leases。首次安裝這項偵測時，先前 A2 MCP 沒有 heartbeat lease 與新的 server status 欄位；請手動重連一次 Work Intelligence MCP，讓新程序建立 lease，之後 Doctor/Web 才能偵測該程序及後續過期版本。若畫面指出需要重新連線，請在 Codex／Claude 的 MCP 面板中重連 Work Intelligence MCP，之後重新整理「系統狀態」。若 build 狀態未知，先等 `pnpm build` 完成並確認 runtime registry 可讀寫，再重新整理；不要把未知狀態當成目前版本。Registry 可用但尚無 heartbeat 時，Doctor 會提醒尚無可監測連線，Web 以中性狀態顯示尚無連線；registry 不可用或 build 未完成時兩者都顯示無法確認。
+`work_get_project_status` 與 `work_get_context` 會比較目前磁碟建置和該 MCP 程序的 startup fingerprint 及相容性識別（schema 版本、工具清單、完整 operation 契約資源）；doctor 與「系統狀態」則彙總 OS 暫存目錄中的 heartbeat leases。首次安裝這項偵測時，先前 A2 MCP 沒有 heartbeat lease 與新的 server status 欄位；請手動重連一次 Work Intelligence MCP，讓新程序建立 lease，之後 Doctor/Web 才能偵測該程序及後續過期版本。只改實作時顯示「有新版可用」，原連線可繼續讀寫，收尾再重連即可；系統狀態分開列出兩種程序數。schema／契約改變或無法判定相容性時要求重連，寫入前會攔下舊程序。若畫面指出需要重新連線，請在 Codex／Claude 的 MCP 面板中重連 Work Intelligence MCP，之後重新整理「系統狀態」。若 build 狀態未知，先等 `pnpm build` 完成並確認 runtime registry 可讀寫，再重新整理；不要把未知狀態當成目前版本。Registry 可用但尚無 heartbeat 時，Doctor 會提醒尚無可監測連線，Web 以中性狀態顯示尚無連線；registry 不可用或 build 未完成時兩者都顯示無法確認。
 
 Workspace build 中斷時 `.work-intelligence-build-in-progress` 會保留，避免混合 dist 被誤判為有效版本。確認 marker 記錄的 PID 已退出後，移除該 marker 並重新執行完整 `pnpm build`；不要在 build process 仍執行時刪除。
 

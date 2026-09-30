@@ -17,23 +17,28 @@ export interface McpBuildIdentity {
   version: string;
   distHash: string;
   buildId: string;
+  compatibilityId?: string;
+  schemaVersion?: number;
 }
 
 export interface McpRestartStatus {
   restartRequired: boolean;
   monitoringAvailable: boolean;
+  updateAvailable?: boolean;
   message?: string;
 }
 
 export interface McpRuntimeStatus extends McpRestartStatus {
   activeProcesses: number;
   outdatedProcesses: number;
+  updateAvailableProcesses: number;
 }
 
 interface McpProcessLease {
   instanceId: string;
   buildId: string;
   version: string;
+  compatibilityId?: string;
   startedAt: string;
   heartbeatAt: string;
 }
@@ -59,6 +64,8 @@ const MCP_BUILD_PROGRESS_FILE = ".work-intelligence-build-in-progress";
 const MCP_HEARTBEAT_INTERVAL_MS = 5_000;
 const MCP_HEARTBEAT_TTL_MS = 30_000;
 const MCP_RECONNECT_MESSAGE = "磁碟上的 Work Intelligence MCP 建置已更新，請重新連線 MCP。";
+const MCP_UPDATE_MESSAGE =
+  "Work Intelligence MCP 有新版可用；目前契約相容，讀寫可照常進行，收尾時提醒重新連線一次即可。";
 const MCP_UNKNOWN_MESSAGE = "無法確認磁碟上的 MCP 建置；請重新連線 MCP 後再繼續。";
 const ROOT_PACKAGE_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/;
 /**
@@ -180,7 +187,9 @@ export function computeMcpBuildIdentity(repositoryRoot: string): McpBuildIdentit
   try {
     const distHash = hashMcpRuntimeDist(root);
     if (packageVersion(root) !== version || hashMcpRuntimeDist(root) !== distHash) return undefined;
-    return { version, distHash, buildId: `${version}:${distHash}` };
+    const entry = stableFileRead(resolve(root, MCP_ENTRY_FILE)).toString("utf8");
+    const compatibilityId = entry.match(/const MCP_BUILD_COMPATIBILITY_ID = "([a-f0-9]{64})";/)?.[1];
+    return { version, distHash, buildId: `${version}:${distHash}`, ...(compatibilityId ? { compatibilityId } : {}) };
   } catch {
     return undefined;
   }
@@ -210,15 +219,18 @@ export function getMcpRestartStatus(
 ): McpRestartStatus {
   const currentBuild = readMcpBuildIdentity(repositoryRoot);
   if (!currentBuild) {
-    return { restartRequired: false, monitoringAvailable: false, message: MCP_UNKNOWN_MESSAGE };
+    return { restartRequired: true, updateAvailable: false, monitoringAvailable: false, message: MCP_UNKNOWN_MESSAGE };
   }
-  if (!runningBuild) {
-    return { restartRequired: true, monitoringAvailable: true, message: MCP_RECONNECT_MESSAGE };
+  if (!runningBuild?.compatibilityId || !currentBuild.compatibilityId) {
+    return { restartRequired: true, updateAvailable: false, monitoringAvailable: true, message: MCP_RECONNECT_MESSAGE };
   }
   if (currentBuild.buildId === runningBuild.buildId) {
-    return { restartRequired: false, monitoringAvailable: true };
+    return { restartRequired: false, updateAvailable: false, monitoringAvailable: true };
   }
-  return { restartRequired: true, monitoringAvailable: true, message: MCP_RECONNECT_MESSAGE };
+  if (runningBuild.compatibilityId && currentBuild.compatibilityId === runningBuild.compatibilityId) {
+    return { restartRequired: false, updateAvailable: true, monitoringAvailable: true, message: MCP_UPDATE_MESSAGE };
+  }
+  return { restartRequired: true, updateAvailable: false, monitoringAvailable: true, message: MCP_RECONNECT_MESSAGE };
 }
 
 /** Returns the process-lease directory shared by the MCP, local API server, and doctor for one install. */
@@ -257,6 +269,7 @@ export function registerMcpProcess(
     const lease: McpProcessLease = {
       instanceId,
       buildId: build?.buildId ?? "unknown",
+      compatibilityId: build?.compatibilityId,
       version: build?.version ?? packageVersion(resolve(repositoryRoot)) ?? "unknown",
       startedAt,
       heartbeatAt: (options.now?.() ?? new Date()).toISOString(),
@@ -325,7 +338,9 @@ export function getMcpRuntimeStatus(
     return {
       activeProcesses: 0,
       outdatedProcesses: 0,
-      restartRequired: false,
+      updateAvailableProcesses: 0,
+      updateAvailable: false,
+      restartRequired: true,
       monitoringAvailable: false,
       message: MCP_UNKNOWN_MESSAGE,
     };
@@ -338,7 +353,9 @@ export function getMcpRuntimeStatus(
     return {
       activeProcesses: 0,
       outdatedProcesses: 0,
-      restartRequired: false,
+      updateAvailableProcesses: 0,
+      updateAvailable: false,
+      restartRequired: true,
       monitoringAvailable: false,
       message: MCP_UNKNOWN_MESSAGE,
     };
@@ -365,22 +382,40 @@ export function getMcpRuntimeStatus(
     }
   });
   const outdatedProcesses = currentBuild
-    ? activeLeases.filter((lease) => lease.buildId !== currentBuild.buildId).length
+    ? activeLeases.filter(
+        (lease) =>
+          !lease.compatibilityId ||
+          !currentBuild.compatibilityId ||
+          lease.compatibilityId !== currentBuild.compatibilityId,
+      ).length
     : 0;
-  const restartRequired = outdatedProcesses > 0;
-  const message = !currentBuild
+  const updateAvailableProcesses = currentBuild
+    ? activeLeases.filter(
+        (lease) =>
+          lease.buildId !== currentBuild.buildId &&
+          lease.compatibilityId &&
+          lease.compatibilityId === currentBuild.compatibilityId,
+      ).length
+    : 0;
+  const compatibilityKnown = currentBuild?.compatibilityId !== undefined;
+  const restartRequired = !compatibilityKnown || outdatedProcesses > 0;
+  const message = !compatibilityKnown
     ? MCP_UNKNOWN_MESSAGE
     : restartRequired
       ? MCP_RECONNECT_MESSAGE
-      : activeLeases.length > 0
-        ? "所有可監測的 MCP 連線都是目前建置。"
-        : "尚無可監測的 MCP 連線。";
+      : updateAvailableProcesses > 0
+        ? MCP_UPDATE_MESSAGE
+        : activeLeases.length > 0
+          ? "所有可監測的 MCP 連線都是目前建置。"
+          : "尚無可監測的 MCP 連線。";
 
   return {
     activeProcesses: activeLeases.length,
     outdatedProcesses,
+    updateAvailableProcesses,
+    updateAvailable: updateAvailableProcesses > 0,
     restartRequired,
-    monitoringAvailable: currentBuild !== undefined,
+    monitoringAvailable: compatibilityKnown,
     message,
   };
 }

@@ -7,14 +7,17 @@
 // Seeding thousands of Sessions is slow, so set WI_BENCH_CACHE=<path prefix> to keep the
 // seeded SQLite file and reuse it on the next run (for before/after comparisons).
 import console from "node:console";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath, URL } from "node:url";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
-import { toSessionDigests, WorkIntelligenceStore } from "../dist/index.js";
+import { LATEST_SCHEMA_VERSION, toSessionDigests, WorkIntelligenceStore } from "../dist/index.js";
 import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "../../../apps/mcp/dist/recall-evaluation.js";
+
+import { getMcpRuntimeStatus } from "../../shared/dist/mcp-runtime.js";
 
 const args = process.argv.slice(2);
 const sessionCountArgument = args.find((argument) => !argument.startsWith("--"));
@@ -172,6 +175,20 @@ try {
       copyFileSync(databasePath, cachePath);
     }
   }
+  const mcpRuntimeRoot = join(root, "synthetic-runtime");
+  const repositoryRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+  mkdirSync(mcpRuntimeRoot);
+  copyFileSync(join(repositoryRoot, "package.json"), join(mcpRuntimeRoot, "package.json"));
+  for (const directory of [
+    "apps/mcp/dist",
+    "packages/core/dist",
+    "packages/project-policy/dist",
+    "packages/schema/dist",
+    "packages/shared/dist",
+    "packages/storage/dist",
+  ]) {
+    cpSync(join(repositoryRoot, directory), join(mcpRuntimeRoot, directory), { recursive: true });
+  }
   const benchStore = cachePath && !cached ? new WorkIntelligenceStore(databasePath) : store;
   const alpha = benchStore.listProjects().find((project) => project.name === "alpha");
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
@@ -236,6 +253,9 @@ try {
     "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
     "finalizeSession (knowledge page reminder)": finalizeWithKnowledgePageMaintenance,
+    "MCP guarded finalize (schema check)": () =>
+      benchStore.withCompatibleSchema(LATEST_SCHEMA_VERSION, finalizeWithKnowledgePageMaintenance),
+    "getMcpRuntimeStatus (cached identity)": () => getMcpRuntimeStatus(mcpRuntimeRoot),
     "getKnowledgePageContext (review)": () =>
       benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfalls" }),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
@@ -270,6 +290,8 @@ try {
     "getContext (project with pages)": 500,
     "listKnowledgePages (staleness)": 250,
     "finalizeSession (knowledge page reminder)": 250,
+    "MCP guarded finalize (schema check)": 250,
+    "getMcpRuntimeStatus (cached identity)": 50,
     "getKnowledgePageContext (review)": 250,
     "listSessionDecisions (pending)": 250,
     "listOutstandingItems (pending)": 250,

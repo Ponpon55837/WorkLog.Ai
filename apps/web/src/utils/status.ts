@@ -57,6 +57,7 @@ export const databaseInspectionStatus: Record<DatabaseInspectionState, StatusVis
 export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisual {
   if (status.restartRequired) return { tone: "attention", icon: TriangleAlert, label: "需要重新連線" };
   if (!status.monitoringAvailable) return { tone: "attention", icon: CircleAlert, label: "無法確認" };
+  if (status.updateAvailable) return { tone: "accent", icon: CircleAlert, label: "有新版可用" };
   if (status.activeProcesses === 0) return { tone: "neutral", icon: CircleDashed, label: "尚無可監測連線" };
   return { tone: "success", icon: CircleCheck, label: "目前版本" };
 }
@@ -162,6 +163,7 @@ export function onboardingStepStatusVisual(state: "complete" | "pending" | "chec
 export function mcpReconnectStatusVisual(status: SystemStatus["mcp"]): StatusVisual {
   if (status.restartRequired) return { tone: "attention", icon: TriangleAlert, label: "需要重新連線" };
   if (!status.monitoringAvailable) return { tone: "attention", icon: CircleAlert, label: "無法確認" };
+  if (status.updateAvailable) return { tone: "accent", icon: CircleAlert, label: "有新版可用" };
   if (status.activeProcesses === 0) return { tone: "attention", icon: CircleAlert, label: "尚無可確認連線" };
   return { tone: "success", icon: CircleCheck, label: "不需要重新連線" };
 }

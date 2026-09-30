@@ -486,6 +486,19 @@ export class WorkIntelligenceStore {
     return `${dataVersion?.data_version ?? 0}:${localChanges?.total_changes ?? 0}`;
   }
 
+  /** Prevents a stale MCP writer from using an externally migrated database, within the same write lock. */
+  public withCompatibleSchema<T>(schemaVersion: number, operation: () => T): T {
+    return runImmediateSqlTransaction(this.db, () => {
+      const row = this.db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get();
+      if (row?.version !== schemaVersion) {
+        throw Object.assign(new Error("資料庫 schema 已更新，請重新連線 Work Intelligence MCP。"), {
+          code: "MCP_RESTART_REQUIRED",
+        });
+      }
+      return operation();
+    });
+  }
+
   public close(): void {
     this.db.close();
   }
