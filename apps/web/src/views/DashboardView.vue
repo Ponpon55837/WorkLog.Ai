@@ -210,6 +210,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
           :enabled="recentSessions.length > 5"
           :estimate-item-height="112"
           max-height="min(40vh, 360px)"
+          grow-to-viewport
           label="最近完成工作清單"
         >
           <template #default="{ item: session }">
@@ -231,6 +232,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
         :enabled="visibleProjects.length > 5"
         :estimate-item-height="96"
         max-height="min(48vh, 520px)"
+        grow-to-viewport
         label="專案狀態清單"
       >
         <template #default="{ item: project }">

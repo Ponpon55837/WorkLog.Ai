@@ -10,6 +10,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Dashboard lists (最近完成的工作, 專案狀態) no longer stop at a fixed height with empty space below on tall screens: `VirtualList` gained `growToViewport`, which caps the list at the space left to the viewport bottom and falls back to `maxHeight` when the list starts below the fold.
 - System Status no longer hashes the whole MCP runtime build twice on every request: the build identity is cached per repository and reused while every runtime file keeps its size, mtime, and inode (about 16 ms to 3 ms per request on a real install).
 
 ## [1.0.0] - 2026-09-30
