@@ -1339,6 +1339,8 @@ export interface FinalizeSessionInput {
   maintainedKnowledgePages?: string[];
   /** Outstanding items completed in this Session; only pending items in this tracked project are resolved. */
   resolvedOutstandingItemIds?: string[];
+  /** Older pending items explicitly replaced by this Session; audited as not_needed with its actor id. */
+  supersededOutstandingItemIds?: string[];
 }
 
 export interface UpdateSessionVerificationInput {
@@ -1373,8 +1375,12 @@ export interface FinalizedSessionResult {
   /** One-line prompt for pages needing source review, an explicit update, or enough accumulated new Sessions. */
   knowledgePageMaintenanceHint?: string;
   resolvedOutstandingItemIds?: string[];
+  supersededOutstandingItemIds?: string[];
+  /** Still-pending older items related to this work; retrieval is not completion evidence. */
+  relatedOutstandingItems?: RelatedOutstandingItems;
   outstandingItemWarnings?: {
     unresolvedIds: string[];
+    unsupersededIds?: string[];
     message: string;
   };
 }
@@ -2340,6 +2346,22 @@ export interface RecallInput extends DateRange {
   limit?: number;
 }
 
+/** Bounded pointers to pending work; read the source Session before deciding its status. */
+export interface RelatedOutstandingItems {
+  items: Array<{
+    id: string;
+    sourceSessionId: string;
+    sourceSessionTitle: string;
+    sourceSessionCompletedAt: string;
+    text: string;
+    textTruncated?: boolean;
+    sourceSessionTitleTruncated?: boolean;
+  }>;
+  total: number;
+  omitted: number;
+  hint?: string;
+}
+
 export interface RelevantContext {
   task?: string;
   paths?: string[];
@@ -2349,6 +2371,8 @@ export interface RelevantContext {
   knowledge: RecallHit[];
   /** workSummary.decisions of the relevant Sessions, each citing its Session. */
   decisions: DecisionDigest[];
+  /** Pending items ranked by their text, source paths, and source Session relevance. */
+  outstandingItems?: RelatedOutstandingItems;
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<RecallHit & { openItems: string[] }>;
   /** Sections of standing Knowledge pages whose headings or content match this task. */

@@ -271,6 +271,30 @@ try {
     "getReport year": () => benchStore.getReport({ period: "year", date: "2026-03-11" }),
     getContext: () => benchStore.getContext(),
     "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
+    "getContext (related pending items)": () => {
+      const result = benchStore.getContext(alphaRoot, {
+        task: "report pipeline synthetic pending",
+        paths: ["src/module-0.ts"],
+      });
+      if (result.outcome !== "context" || !result.relevant?.outstandingItems?.items.length)
+        throw new Error("Related context benchmark must return pending pointers.");
+      return result;
+    },
+    "finalizeSession (related pending reminder)": () => {
+      const index = ++maintenanceFinalizeIndex;
+      const result = benchStore.finalizeSession({
+        projectRoot: alphaRoot,
+        idempotencyKey: `bench-outstanding-finalize-${index}`,
+        title: `Synthetic pending report pipeline ${index}`,
+        summary: "Verified report pipeline work with related older pending items.",
+        changedFiles: ["src/module-0.ts"],
+        verification: { status: "passed" },
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      });
+      if (result.outcome !== "finalized" || !result.relatedOutstandingItems?.items.length)
+        throw new Error("Related finalize benchmark must return pending pointers.");
+      return result;
+    },
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
     "finalizeSession (knowledge page reminder)": finalizeWithKnowledgePageMaintenance,
     "MCP guarded finalize (schema check)": () =>
@@ -319,6 +343,8 @@ try {
     "getReport year": 1500,
     getContext: 2500,
     "getContext (project with pages)": 500,
+    "getContext (related pending items)": 500,
+    "finalizeSession (related pending reminder)": 250,
     "listKnowledgePages (staleness)": 250,
     "finalizeSession (knowledge page reminder)": 250,
     "MCP guarded finalize (schema check)": 250,

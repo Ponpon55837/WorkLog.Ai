@@ -263,7 +263,20 @@ export const finalizeSessionInputSchema = z.object({
     .describe(
       "Slugs of Knowledge pages this work saved (work_save_knowledge_page) or checked (work_mark_knowledge_page_checked), so this Session does not count as new data for them.",
     ),
-  resolvedOutstandingItemIds: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
+  resolvedOutstandingItemIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(200)
+    .optional()
+    .describe(
+      "Only same-project pending items this work directly verified as completed; uncertainty must remain pending.",
+    ),
+  supersededOutstandingItemIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(200)
+    .optional()
+    .describe(
+      "Older same-project pending items explicitly replaced by this Session's nextSteps; audited as not_needed with actorSessionId. Conflicting completed/superseded requests leave the item pending.",
+    ),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);

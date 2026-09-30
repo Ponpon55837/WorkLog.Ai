@@ -6,6 +6,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- Task-focused context ranks pending outstanding items by item keywords, source paths and Session relevance, including older direct matches. Finalize can explicitly supersede replaced pending work with actor Session audit, conservatively leaves ambiguous requests unchanged, and returns bounded reminders for related items still open.
+
 - Outstanding items support current-page multi-selection, atomic batches of up to 100 items with per-item audit history, guarded one-click undo to pending, and inclusive source Session date filters preserved in the URL. Existing MCP list parameters remain compatible.
 
 - MCP build compatibility now fingerprints the schema version, actual tools/list, full operation contracts, and instructions. Compatible implementation rebuilds keep reads and writes available; incompatible or unknown builds require reconnecting. System Status separates reconnect-required and update-available process counts. Every MCP mutation checks the actual database schema inside its write transaction to block stale writers after external migrations.

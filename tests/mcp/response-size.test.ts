@@ -26,7 +26,9 @@ const retrievalQuery = "agent context retrieval budget gotcha";
 const RESPONSE_BUDGETS = {
   contextWithoutTask: 16_000,
   contextWithTask: 10_000,
+  finalizeWithRelatedOutstandingItems: 16_000,
   outstandingItemsPage: 30_000,
+  relatedOutstandingItems: 4_200,
   recallDefault: 7_000,
   recallFive: 3_500,
   searchDefault: 8_000,
@@ -155,6 +157,18 @@ async function serializedMcpPayload(
   const content = result.content as Array<{ type: string; text?: string }>;
   const text = content.find((item) => item.type === "text")?.text;
   expect(text, `${name} must return a text payload`).toBeTypeOf("string");
+  return { length: text!.length, value: JSON.parse(text!) as unknown };
+}
+
+async function serializedFinalizePayload(client: Client, args: Record<string, unknown>): Promise<SerializedMcpPayload> {
+  const result = await client.callTool({
+    name: "work_write_idempotent",
+    arguments: { operation: "work_finalize_session", arguments: args },
+  });
+  expect(result.isError, "work_finalize_session").not.toBe(true);
+  const content = result.content as Array<{ type: string; text?: string }>;
+  const text = content.find((item) => item.type === "text")?.text;
+  expect(text, "work_finalize_session must return a text payload").toBeTypeOf("string");
   return { length: text!.length, value: JSON.parse(text!) as unknown };
 }
 
@@ -427,6 +441,123 @@ describe("synthetic MCP response-size baseline", () => {
       pageInfo: { total: 1 },
       items: [expect.objectContaining({ id: completedItemId, text: fullText, status: "completed" })],
     });
+  });
+
+  it("keeps focused context and finalize related pointers bounded with many long pending items", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const phrase = "Quartz zephyr fixture";
+    const longTail = "Synthetic quartz zephyr fixture remains open pending verification. ".repeat(45);
+    const expectedItemCount = 12 * 5;
+
+    for (let sourceIndex = 0; sourceIndex < 12; sourceIndex += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const nextSteps = Array.from(
+        { length: 5 },
+        (_, itemIndex) => `${phrase} source ${sourceIndex + 1} item ${itemIndex + 1}. ${longTail}`,
+      );
+      const longSourceTitle = `${phrase} source ${sourceIndex + 1} ${"synthetic session title details ".repeat(5)}`;
+      const source = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `response-size-long-outstanding-${sourceIndex}`,
+        title: longSourceTitle,
+        summary: `Created long synthetic ${phrase.toLocaleLowerCase()} items for source ${sourceIndex + 1}.`,
+        workSummary: {
+          outcomes: ["Created fictional long outstanding-item fixtures."],
+          scope: [],
+          decisions: [],
+          verification: ["The response-budget fixture is synthetic."],
+          nextSteps,
+        },
+        changedFiles: [],
+        verification: { status: "passed", summary: "Synthetic fixture verification passed." },
+      });
+      if (source.outcome !== "finalized") {
+        throw new Error(`Expected long synthetic source ${sourceIndex}; received ${source.outcome}.`);
+      }
+    }
+
+    const context = await serializedMcpPayload(client, "work_get_context", {
+      projectRoot,
+      task: phrase.toLocaleLowerCase(),
+    });
+    const contextValue = context.value as {
+      relevant?: {
+        outstandingItems?: {
+          items: Array<{
+            id: string;
+            sourceSessionId: string;
+            sourceSessionTitle: string;
+            text: string;
+            textTruncated?: boolean;
+            sourceSessionTitleTruncated?: boolean;
+          }>;
+          total: number;
+          omitted: number;
+          hint?: string;
+        };
+      };
+    };
+    const contextItems = contextValue.relevant?.outstandingItems;
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    expect(contextItems?.total).toBeGreaterThanOrEqual(expectedItemCount);
+    expect(contextItems?.items).toHaveLength(5);
+    expect(contextItems?.omitted).toBe((contextItems?.total ?? 0) - 5);
+    expect(contextItems?.hint).toContain("仍未處理");
+    expect(contextItems?.items.every((item) => item.text.length <= 400 && item.textTruncated === true)).toBe(true);
+    expect(contextItems?.items.every((item) => item.sourceSessionTitle.length <= 160)).toBe(true);
+    expect(contextItems?.items.some((item) => item.sourceSessionTitleTruncated === true)).toBe(true);
+
+    const pending = store.listOutstandingItems({ projectRoot, status: "pending", pageSize: 100 });
+    if (pending.outcome !== "outstanding_items") throw new Error("Expected pending response-budget fixture items.");
+    const supersededItem = pending.items.find((item) => item.text.startsWith(`${phrase} source `));
+    if (!supersededItem) throw new Error("Expected a long pending item to supersede in the finalize fixture.");
+
+    const newNextStep = `${phrase} new follow-up for the next verification pass.`;
+    const finalized = await serializedFinalizePayload(client, {
+      projectRoot,
+      idempotencyKey: "response-size-finalize-with-related-outstanding-items",
+      title: `${phrase} replacement`,
+      summary: `Replaced one old ${phrase.toLocaleLowerCase()} item after verification.`,
+      workSummary: {
+        outcomes: ["Recorded one verified replacement."],
+        scope: [],
+        decisions: [],
+        verification: ["The synthetic replacement was verified."],
+        nextSteps: [newNextStep],
+      },
+      changedFiles: [],
+      verification: { status: "passed", summary: "Synthetic replacement verification passed." },
+      supersededOutstandingItemIds: [supersededItem.id],
+    });
+    const finalizeValue = finalized.value as {
+      session: { id: string };
+      supersededOutstandingItemIds: string[];
+      relatedOutstandingItems: {
+        items: Array<{
+          id: string;
+          sourceSessionId: string;
+          sourceSessionTitle: string;
+          text: string;
+          textTruncated?: boolean;
+          sourceSessionTitleTruncated?: boolean;
+        }>;
+        total: number;
+        omitted: number;
+        hint?: string;
+      };
+    };
+    const related = finalizeValue.relatedOutstandingItems;
+    expect(finalized.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.finalizeWithRelatedOutstandingItems);
+    expect(finalizeValue.supersededOutstandingItemIds).toEqual([supersededItem.id]);
+    expect(related.total).toBeGreaterThan(0);
+    expect(related.items.length).toBeLessThanOrEqual(5);
+    expect(related.items.every((item) => item.text.length <= 400 && item.textTruncated === true)).toBe(true);
+    expect(related.items.every((item) => item.sourceSessionTitle.length <= 160)).toBe(true);
+    expect(related.items.some((item) => item.sourceSessionTitleTruncated === true)).toBe(true);
+    expect(related.items.map((item) => item.id)).not.toContain(supersededItem.id);
+    expect(related.items.every((item) => item.sourceSessionId !== finalizeValue.session.id)).toBe(true);
+    expect(related.items.map((item) => item.text)).not.toContain(newNextStep);
+    expect(JSON.stringify(related).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.relatedOutstandingItems);
   });
 
   it("preserves long imported item text while bounding MCP pages", async () => {

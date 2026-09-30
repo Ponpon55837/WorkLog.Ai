@@ -459,6 +459,8 @@ export class WorkIntelligenceStore {
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
       listOutstandingItems: (input) => this.outstandingItems.list(input),
       pendingOutstandingItemsForSessions: (sessionIds) => this.outstandingItems.pendingForSessions(sessionIds),
+      hasPendingOutstandingItems: (projectId, excluded) => this.outstandingItems.hasPending(projectId, excluded),
+      relatedPendingOutstandingItems: (input) => this.outstandingItems.relatedPending(input),
       knowledgePageDigests: (projectId) => this.knowledgePages.digestsForProject(projectId),
       knowledgePagesForContext: (projectId) => {
         const result = this.knowledgePages.listPages(projectId ? { projectId } : {});
@@ -1363,6 +1365,15 @@ export class WorkIntelligenceStore {
             : { changedFilesFollowUp: getChangedFilesFollowUp(existing) }),
           workSummaryFollowUp: getWorkSummaryFollowUp(existing),
           resolvedOutstandingItemIds: this.outstandingItems.resolvedByActorSession(existing.id),
+          supersededOutstandingItemIds: this.outstandingItems.transitionedByActorSession(existing.id, "not_needed"),
+          relatedOutstandingItems: this.contextRecallService.relatedOutstandingItems(
+            existing.projectId,
+            {
+              task: `${existing.title} ${existing.summary}`.slice(0, 2_000),
+              paths: existing.changedFiles,
+            },
+            existing.id,
+          ),
           ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         };
       }
@@ -1421,12 +1432,31 @@ export class WorkIntelligenceStore {
         sessionId,
         completedAt,
       );
+      const resolvedRequested = input.resolvedOutstandingItemIds ?? [];
+      const supersededRequested = input.supersededOutstandingItemIds ?? [];
+      const supersededSet = new Set(supersededRequested);
+      const ambiguous = new Set(resolvedRequested.filter((id) => supersededSet.has(id)));
       const resolution = this.outstandingItems.resolvePendingInTransaction(
-        input.resolvedOutstandingItemIds ?? [],
+        resolvedRequested.filter((id) => !ambiguous.has(id)),
         project.id,
         sessionId,
         completedAt,
       );
+
+      const supersession = this.outstandingItems.supersedePendingInTransaction(
+        sanitizedNextSteps.length ? supersededRequested.filter((id) => !ambiguous.has(id)) : [],
+        project.id,
+        sessionId,
+        completedAt,
+      );
+      const unresolvedIds = [...new Set([...resolution.unresolvedIds, ...ambiguous])];
+      const unsupersededIds = [
+        ...new Set([
+          ...supersession.unresolvedIds,
+          ...ambiguous,
+          ...(sanitizedNextSteps.length ? [] : supersededRequested),
+        ]),
+      ];
 
       for (const event of events) {
         this.db
@@ -1505,11 +1535,22 @@ export class WorkIntelligenceStore {
         ...(knowledgePagesAcknowledged.length > 0 ? { knowledgePagesAcknowledged } : {}),
         ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         resolvedOutstandingItemIds: resolution.resolvedIds,
-        ...(resolution.unresolvedIds.length > 0
+        supersededOutstandingItemIds: supersession.resolvedIds,
+        relatedOutstandingItems: this.contextRecallService.relatedOutstandingItems(
+          project.id,
+          {
+            task: `${session.title} ${session.summary}`.slice(0, 2_000),
+            paths: session.changedFiles,
+          },
+          session.id,
+        ),
+        ...(unresolvedIds.length > 0 || unsupersededIds.length > 0
           ? {
               outstandingItemWarnings: {
-                unresolvedIds: resolution.unresolvedIds,
-                message: "部分指定項目不在此追蹤專案中或目前不是 pending，因此未標記完成。",
+                unresolvedIds,
+                unsupersededIds,
+                message:
+                  "部分指定項目無效、已處理、跨專案、未提供取代項目或同時指定完成與取代，因此未標記完成或不再需要，維持原狀。",
               },
             }
           : {}),

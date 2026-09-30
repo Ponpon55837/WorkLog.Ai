@@ -8,6 +8,14 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
+interface FinalizeTestOptions {
+  title?: string;
+  summary?: string;
+  changedFiles?: string[];
+  supersededOutstandingItemIds?: string[];
+  omitWorkSummary?: boolean;
+}
+
 function createTrackedProject(name: string): { store: WorkIntelligenceStore; root: string; projectId: string } {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-items-"));
   tempDirs.push(root);
@@ -25,18 +33,37 @@ function finalize(
   nextSteps: string[],
   resolvedOutstandingItemIds?: string[],
   completedAt?: string,
+  options: FinalizeTestOptions = {},
 ) {
   return store.finalizeSession({
     projectRoot: root,
     idempotencyKey,
-    title: idempotencyKey,
-    summary: `已完成 ${idempotencyKey} 的測試工作。`,
-    changedFiles: [],
+    title: options.title ?? idempotencyKey,
+    summary: options.summary ?? `已完成 ${idempotencyKey} 的測試工作。`,
+    changedFiles: options.changedFiles ?? [],
     verification: { status: "passed" },
-    workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps },
+    ...(options.omitWorkSummary
+      ? {}
+      : { workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps } }),
     resolvedOutstandingItemIds,
+    ...(options.supersededOutstandingItemIds
+      ? { supersededOutstandingItemIds: options.supersededOutstandingItemIds }
+      : {}),
     completedAt,
   });
+}
+
+function findOutstandingItem(
+  store: WorkIntelligenceStore,
+  projectId: string,
+  text: string,
+  status: "pending" | "completed" | "not_needed" = "pending",
+) {
+  const result = store.listOutstandingItems({ projectId, status, pageSize: 0 });
+  if (result.outcome !== "outstanding_items") throw new Error("Expected outstanding item list.");
+  const item = result.items.find((candidate) => candidate.text === text);
+  if (!item) throw new Error(`Expected outstanding item: ${text}`);
+  return item;
 }
 
 function localCalendarDay(daysFromToday: number): { date: string; completedAt: string } {
@@ -164,6 +191,271 @@ describe("outstanding items", () => {
         }),
       ]),
     );
+  });
+
+  it("resolves and supersedes eligible items together, warns on invalid requests, and audits the actor", () => {
+    const first = createTrackedProject("Outstanding mixed finalize fixture");
+    const source = finalize(first.store, first.root, "outstanding-mixed-source", [
+      "Resolve directly verified result",
+      "Supersede replaced obligation",
+      "Orbit cache conflicting request",
+      "Keep completed obligation",
+      "Keep not-needed obligation",
+      "Review Orbit cache lock state",
+    ]);
+    if (source.outcome !== "finalized") throw new Error("Expected source Session.");
+    const resolve = findOutstandingItem(first.store, first.projectId, "Resolve directly verified result");
+    const supersede = findOutstandingItem(first.store, first.projectId, "Supersede replaced obligation");
+    const ambiguous = findOutstandingItem(first.store, first.projectId, "Orbit cache conflicting request");
+    const completed = findOutstandingItem(first.store, first.projectId, "Keep completed obligation");
+    const notNeeded = findOutstandingItem(first.store, first.projectId, "Keep not-needed obligation");
+    const related = findOutstandingItem(first.store, first.projectId, "Review Orbit cache lock state");
+    first.store.updateOutstandingItemStatus(completed.id, "completed");
+    first.store.updateOutstandingItemStatus(notNeeded.id, "not_needed");
+
+    const voidedResolveSource = finalize(first.store, first.root, "outstanding-mixed-voided-resolve", [
+      "Void resolve request",
+    ]);
+    const voidedSupersedeSource = finalize(first.store, first.root, "outstanding-mixed-voided-supersede", [
+      "Void supersede request",
+    ]);
+    if (voidedResolveSource.outcome !== "finalized" || voidedSupersedeSource.outcome !== "finalized") {
+      throw new Error("Expected voidable source Sessions.");
+    }
+    const voidedResolve = findOutstandingItem(first.store, first.projectId, "Void resolve request");
+    const voidedSupersede = findOutstandingItem(first.store, first.projectId, "Void supersede request");
+    first.store.setSessionVoid({
+      sessionId: voidedResolveSource.session.id,
+      voided: true,
+      reason: "Synthetic source correction.",
+    });
+    first.store.setSessionVoid({
+      sessionId: voidedSupersedeSource.session.id,
+      voided: true,
+      reason: "Synthetic source correction.",
+    });
+
+    const secondRoot = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-mixed-cross-project-"));
+    tempDirs.push(secondRoot);
+    const otherProject = first.store.addProject("Outstanding mixed other fixture", secondRoot);
+    first.store.updateProject(otherProject.id, { status: "tracked" });
+    const otherSource = finalize(first.store, secondRoot, "outstanding-mixed-other-source", [
+      "Cross-project resolve request",
+      "Cross-project supersede request",
+    ]);
+    if (otherSource.outcome !== "finalized") throw new Error("Expected cross-project source Session.");
+    const crossResolve = findOutstandingItem(first.store, otherProject.id, "Cross-project resolve request");
+    const crossSupersede = findOutstandingItem(first.store, otherProject.id, "Cross-project supersede request");
+
+    const beforeEvents = first.store.exportProjectData({ type: "project", projectId: first.projectId }).tables
+      .outstanding_item_events;
+    const result = finalize(
+      first.store,
+      first.root,
+      "outstanding-mixed-finalize",
+      ["Replacement task"],
+      [resolve.id, ambiguous.id, completed.id, voidedResolve.id, crossResolve.id, "missing-resolve-item"],
+      undefined,
+      {
+        title: "Orbit cache follow-up",
+        summary: "Review the Orbit cache state before closing this work.",
+        supersededOutstandingItemIds: [
+          supersede.id,
+          ambiguous.id,
+          notNeeded.id,
+          voidedSupersede.id,
+          crossSupersede.id,
+          "missing-supersede-item",
+        ],
+      },
+    );
+    expect(result.outcome).toBe("finalized");
+    if (result.outcome !== "finalized") throw new Error("Expected mixed finalize result.");
+    expect(result).toMatchObject({
+      resolvedOutstandingItemIds: [resolve.id],
+      supersededOutstandingItemIds: [supersede.id],
+      outstandingItemWarnings: {
+        unresolvedIds: expect.arrayContaining([
+          ambiguous.id,
+          completed.id,
+          voidedResolve.id,
+          crossResolve.id,
+          "missing-resolve-item",
+        ]),
+        unsupersededIds: expect.arrayContaining([
+          ambiguous.id,
+          notNeeded.id,
+          voidedSupersede.id,
+          crossSupersede.id,
+          "missing-supersede-item",
+        ]),
+      },
+    });
+
+    const tables = first.store.exportProjectData({ type: "project", projectId: first.projectId }).tables;
+    expect(tables.outstanding_items.find((item) => item.id === resolve.id)?.status).toBe("completed");
+    expect(tables.outstanding_items.find((item) => item.id === supersede.id)?.status).toBe("not_needed");
+    expect(tables.outstanding_items.find((item) => item.id === ambiguous.id)?.status).toBe("pending");
+    expect(tables.outstanding_items.find((item) => item.id === related.id)?.status).toBe("pending");
+    expect(tables.outstanding_items.find((item) => item.id === voidedResolve.id)?.status).toBe("pending");
+    expect(tables.outstanding_items.find((item) => item.id === voidedSupersede.id)?.status).toBe("pending");
+    expect(
+      first.store
+        .exportProjectData({ type: "project", projectId: otherProject.id })
+        .tables.outstanding_items.filter(
+          (item) => typeof item.id === "string" && [crossResolve.id, crossSupersede.id].includes(item.id),
+        )
+        .every((item) => item.status === "pending"),
+    ).toBe(true);
+
+    const actorEvents = tables.outstanding_item_events.filter((event) => event.actor_session_id === result.session.id);
+    expect(tables.outstanding_item_events).toHaveLength(beforeEvents.length + 3);
+    expect(actorEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item_id: resolve.id,
+          from_status: "pending",
+          to_status: "completed",
+          source: "agent",
+          actor_session_id: result.session.id,
+        }),
+        expect.objectContaining({
+          item_id: supersede.id,
+          from_status: "pending",
+          to_status: "not_needed",
+          source: "agent",
+          actor_session_id: result.session.id,
+        }),
+      ]),
+    );
+    expect(actorEvents).toHaveLength(3);
+
+    expect(result.relatedOutstandingItems).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: related.id, sourceSessionId: related.sourceSessionId }),
+        expect.objectContaining({ id: ambiguous.id, sourceSessionId: ambiguous.sourceSessionId }),
+      ]),
+      hint: expect.stringContaining("先讀來源"),
+    });
+    expect(result.relatedOutstandingItems?.items.some((item) => item.sourceSessionId === result.session.id)).toBe(
+      false,
+    );
+  });
+
+  it("does not supersede requested items when finalize has no nextSteps", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding no-nextSteps fixture");
+    const source = finalize(store, root, "outstanding-no-nextSteps-source", [
+      "Remain pending without a replacement",
+      "Remain pending with empty nextSteps",
+    ]);
+    if (source.outcome !== "finalized") throw new Error("Expected source Session.");
+    const absent = findOutstandingItem(store, projectId, "Remain pending without a replacement");
+    const empty = findOutstandingItem(store, projectId, "Remain pending with empty nextSteps");
+    const beforeEvents = store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events;
+
+    const withoutWorkSummary = finalize(store, root, "outstanding-no-nextSteps-absent", [], undefined, undefined, {
+      omitWorkSummary: true,
+      supersededOutstandingItemIds: [absent.id],
+    });
+    const withEmptyNextSteps = finalize(store, root, "outstanding-no-nextSteps-empty", [], undefined, undefined, {
+      supersededOutstandingItemIds: [empty.id],
+    });
+    expect(withoutWorkSummary).toMatchObject({
+      outcome: "finalized",
+      supersededOutstandingItemIds: [],
+      outstandingItemWarnings: { unsupersededIds: [absent.id] },
+    });
+    expect(withEmptyNextSteps).toMatchObject({
+      outcome: "finalized",
+      supersededOutstandingItemIds: [],
+      outstandingItemWarnings: { unsupersededIds: [empty.id] },
+    });
+
+    const after = store.exportProjectData({ type: "project", projectId });
+    expect(after.tables.outstanding_items.find((item) => item.id === absent.id)?.status).toBe("pending");
+    expect(after.tables.outstanding_items.find((item) => item.id === empty.id)?.status).toBe("pending");
+    expect(after.tables.outstanding_item_events.filter((event) => event.to_status === "not_needed")).toEqual(
+      beforeEvents.filter((event) => event.to_status === "not_needed"),
+    );
+  });
+
+  it("recovers completed and superseded IDs from audit on idempotent finalize retries", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding retry fixture");
+    const source = finalize(store, root, "outstanding-retry-source", [
+      "Confirm retried completion",
+      "Replace retried obsolete task",
+      "Leave this retry item pending",
+    ]);
+    if (source.outcome !== "finalized") throw new Error("Expected source Session.");
+    const resolved = findOutstandingItem(store, projectId, "Confirm retried completion");
+    const superseded = findOutstandingItem(store, projectId, "Replace retried obsolete task");
+    const stillPending = findOutstandingItem(store, projectId, "Leave this retry item pending");
+    const actorKey = "outstanding-retry-finalize";
+    const first = finalize(store, root, actorKey, ["Replacement created on first finalize"], [resolved.id], undefined, {
+      supersededOutstandingItemIds: [superseded.id],
+    });
+    expect(first.outcome).toBe("finalized");
+    if (first.outcome !== "finalized") throw new Error("Expected first finalize result.");
+    const afterFirst = store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events;
+
+    const retry = finalize(store, root, actorKey, ["Ignored retry replacement"], [stillPending.id], undefined, {
+      supersededOutstandingItemIds: [stillPending.id],
+    });
+    expect(retry).toMatchObject({
+      outcome: "finalized",
+      duplicate: true,
+      resolvedOutstandingItemIds: [resolved.id],
+      supersededOutstandingItemIds: [superseded.id],
+    });
+    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toEqual(afterFirst);
+    expect(store.listOutstandingItems({ projectId, status: "pending", pageSize: 0 })).toMatchObject({
+      outcome: "outstanding_items",
+      items: expect.arrayContaining([expect.objectContaining({ id: stillPending.id, status: "pending" })]),
+    });
+  });
+
+  it("rolls back both finalize transitions and audit rows when superseded audit insertion fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-finalize-rollback-"));
+    tempDirs.push(root);
+    const store = new WorkIntelligenceStore(join(root, "store.sqlite"));
+    stores.push(store);
+    const project = store.addProject("Outstanding finalize rollback fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const source = finalize(store, root, "outstanding-finalize-rollback-source", [
+      "Rollback resolved member",
+      "Rollback superseded member",
+    ]);
+    if (source.outcome !== "finalized") throw new Error("Expected source Session.");
+    const resolved = findOutstandingItem(store, project.id, "Rollback resolved member");
+    const superseded = findOutstandingItem(store, project.id, "Rollback superseded member");
+    const before = store.exportProjectData({ type: "project", projectId: project.id }).tables;
+
+    const sabotage = new DatabaseSync(store.databasePath);
+    try {
+      sabotage.exec(
+        `CREATE TRIGGER fail_agent_superseded_event BEFORE INSERT ON outstanding_item_events
+         WHEN NEW.source = 'agent' AND NEW.to_status = 'not_needed'
+         BEGIN SELECT RAISE(ABORT, 'synthetic superseded audit failure'); END;`,
+      );
+    } finally {
+      sabotage.close();
+    }
+
+    expect(() =>
+      finalize(
+        store,
+        root,
+        "outstanding-finalize-rollback-actor",
+        ["New rollback follow-up"],
+        [resolved.id],
+        undefined,
+        {
+          supersededOutstandingItemIds: [superseded.id],
+        },
+      ),
+    ).toThrow();
+    expect(store.getSessionByIdempotencyKey("outstanding-finalize-rollback-actor")).toBeUndefined();
+    expect(store.exportProjectData({ type: "project", projectId: project.id }).tables).toEqual(before);
   });
 
   it("records web status changes including reopening, skips no-op audits, and policy-gates project reads", () => {
@@ -514,6 +806,199 @@ describe("outstanding items", () => {
     const after = store.exportProjectData({ type: "project", projectId });
     expect(after.tables.outstanding_items).toEqual(before.tables.outstanding_items);
     expect(after.tables.outstanding_item_events).toEqual(before.tables.outstanding_item_events);
+  });
+
+  it("ranks direct text, changed paths, and recalled source items beyond the recall window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+    const { store, root, projectId } = createTrackedProject("Outstanding relevance fixture");
+    const directSource = finalize(
+      store,
+      root,
+      "outstanding-relevance-direct",
+      ["Aster cache direct repair"],
+      undefined,
+      undefined,
+      {
+        title: "Legacy checklist",
+        summary: "An older maintenance note without task details.",
+      },
+    );
+    if (directSource.outcome !== "finalized") throw new Error("Expected direct-match source Session.");
+    const directItem = findOutstandingItem(store, projectId, "Aster cache direct repair");
+
+    vi.setSystemTime(new Date("2026-09-01T00:00:01.000Z"));
+    const pathSource = finalize(
+      store,
+      root,
+      "outstanding-relevance-path",
+      ["Review nearby worker contract"],
+      undefined,
+      undefined,
+      {
+        title: "Legacy file inspection",
+        summary: "An earlier review of a shared module.",
+        changedFiles: ["packages/shared/src/lease.ts"],
+      },
+    );
+    if (pathSource.outcome !== "finalized") throw new Error("Expected path-match source Session.");
+    const pathItem = findOutstandingItem(store, projectId, "Review nearby worker contract");
+
+    for (let index = 0; index < 21; index += 1) {
+      vi.setSystemTime(new Date(`2026-09-01T00:00:${String(index + 2).padStart(2, "0")}.000Z`));
+      const noise = finalize(store, root, `outstanding-relevance-noise-${index}`, [], undefined, undefined, {
+        title: `Aster cache unrelated entry ${index}`,
+        summary: `An unrelated recent record mentioning Aster cache ${index}.`,
+      });
+      if (noise.outcome !== "finalized") throw new Error("Expected unrelated recent Session.");
+    }
+
+    vi.setSystemTime(new Date("2026-09-01T00:01:00.000Z"));
+    const sourceA = finalize(
+      store,
+      root,
+      "outstanding-relevance-source-a",
+      ["Review worker behavior A"],
+      undefined,
+      undefined,
+      {
+        title: "Aster cache implementation",
+        summary: "Aster cache implementation notes.",
+      },
+    );
+    vi.setSystemTime(new Date("2026-09-01T00:01:01.000Z"));
+    const sourceB = finalize(
+      store,
+      root,
+      "outstanding-relevance-source-b",
+      ["Review worker behavior B"],
+      undefined,
+      undefined,
+      {
+        title: "Aster cache implementation",
+        summary: "Aster cache implementation notes.",
+      },
+    );
+    if (sourceA.outcome !== "finalized" || sourceB.outcome !== "finalized") {
+      throw new Error("Expected recalled source Sessions.");
+    }
+    const sourceItemA = findOutstandingItem(store, projectId, "Review worker behavior A");
+    const sourceItemB = findOutstandingItem(store, projectId, "Review worker behavior B");
+
+    const recall = store.recall({ q: "Aster cache", projectRoot: root, limit: 20 });
+    expect(recall.outcome).toBe("recall");
+    if (recall.outcome !== "recall") throw new Error("Expected focused recall.");
+    expect(recall.hits.map((hit) => hit.id)).not.toContain(directSource.session.id);
+
+    const context = store.getContext(root, { task: "Aster cache", paths: ["packages/shared/src/lease.ts"] });
+    expect(context.outcome).toBe("context");
+    if (context.outcome !== "context") throw new Error("Expected focused context.");
+    const related = context.relevant?.outstandingItems;
+    expect(related).toMatchObject({ total: 4, omitted: 0 });
+    if (!related) throw new Error("Expected related outstanding item digest.");
+    expect(related.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining([directItem.id, pathItem.id, sourceItemA.id, sourceItemB.id]),
+    );
+    const relatedIds = related.items.map((item) => item.id);
+    expect(relatedIds.indexOf(pathItem.id)).toBeLessThan(relatedIds.indexOf(directItem.id));
+    expect(relatedIds.indexOf(directItem.id)).toBeLessThan(
+      Math.min(relatedIds.indexOf(sourceItemA.id), relatedIds.indexOf(sourceItemB.id)),
+    );
+
+    const relevantContext = context.relevant;
+    if (!relevantContext) throw new Error("Expected relevant context.");
+    const recalledSourceOrder = relevantContext.sessions
+      .filter((hit) => [sourceA.session.id, sourceB.session.id].includes(hit.id))
+      .map((hit) => hit.id);
+    expect(
+      related.items
+        .filter((item) => [sourceA.session.id, sourceB.session.id].includes(item.sourceSessionId))
+        .map((item) => item.sourceSessionId),
+    ).toEqual(recalledSourceOrder);
+  });
+
+  it("matches Chinese item keywords and does not return unrelated items", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding Chinese relevance fixture");
+    const result = finalize(store, root, "outstanding-chinese-relevance", ["修復權限稽核流程"]);
+    if (result.outcome !== "finalized") throw new Error("Expected Chinese relevance source Session.");
+    const chineseItem = findOutstandingItem(store, projectId, "修復權限稽核流程");
+    const unrelated = finalize(store, root, "outstanding-chinese-unrelated", ["整理其他介面細節"]);
+    if (unrelated.outcome !== "finalized") throw new Error("Expected unrelated source Session.");
+
+    const matched = store.getContext(root, { task: "權限稽核" });
+    expect(matched.outcome).toBe("context");
+    if (matched.outcome !== "context") throw new Error("Expected Chinese focused context.");
+    expect(matched.relevant?.outstandingItems).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: chineseItem.id })],
+    });
+
+    const unmatched = store.getContext(root, { task: "天氣預報" });
+    expect(unmatched.outcome).toBe("context");
+    if (unmatched.outcome !== "context") throw new Error("Expected unmatched focused context.");
+    expect(unmatched.relevant?.outstandingItems).toMatchObject({ items: [], total: 0, omitted: 0 });
+  });
+
+  it("limits related digests to five, filters ineligible scope and statuses, and fits the task budget", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding digest bound fixture");
+    const manyLongItems = Array.from(
+      { length: 9 },
+      (_, index) => `Quartz ledger entry ${index}: ${"supporting detail ".repeat(80)}`,
+    );
+    const longTitle = `Quartz ledger maintenance ${"session title ".repeat(15)}`;
+    const activeSource = finalize(store, root, "outstanding-digest-long-source", manyLongItems, undefined, undefined, {
+      title: longTitle,
+      summary: "A long historical entry for the Quartz ledger.",
+    });
+    if (activeSource.outcome !== "finalized") throw new Error("Expected long source Session.");
+    const initialItems = store.listOutstandingItems({ projectId, pageSize: 0 });
+    if (initialItems.outcome !== "outstanding_items") throw new Error("Expected long pending items.");
+    const completedItem = initialItems.items.find((item) => item.text.startsWith("Quartz ledger entry 0:"));
+    const notNeededItem = initialItems.items.find((item) => item.text.startsWith("Quartz ledger entry 1:"));
+    if (!completedItem || !notNeededItem) throw new Error("Expected terminal-status digest fixtures.");
+    store.updateOutstandingItemStatus(completedItem.id, "completed");
+    store.updateOutstandingItemStatus(notNeededItem.id, "not_needed");
+
+    const voidedSource = finalize(store, root, "outstanding-digest-voided-source", ["Quartz ledger voided item"]);
+    if (voidedSource.outcome !== "finalized") throw new Error("Expected voided source Session.");
+    const voidedItem = findOutstandingItem(store, projectId, "Quartz ledger voided item");
+    store.setSessionVoid({ sessionId: voidedSource.session.id, voided: true, reason: "Synthetic source correction." });
+
+    const pausedRoot = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-digest-paused-"));
+    tempDirs.push(pausedRoot);
+    const pausedProject = store.addProject("Outstanding digest paused fixture", pausedRoot);
+    store.updateProject(pausedProject.id, { status: "tracked" });
+    const pausedSource = finalize(store, pausedRoot, "outstanding-digest-paused-source", ["Quartz ledger paused item"]);
+    if (pausedSource.outcome !== "finalized") throw new Error("Expected paused candidate source Session.");
+    const pausedItem = findOutstandingItem(store, pausedProject.id, "Quartz ledger paused item");
+    store.updateProject(pausedProject.id, { status: "paused" });
+
+    const longPaths = Array.from(
+      { length: 20 },
+      (_, index) => `packages/context-budget/${index}-${"segment".repeat(35)}.ts`,
+    );
+    const context = store.getContext(root, { task: "Quartz ledger", paths: longPaths });
+    expect(context.outcome).toBe("context");
+    if (context.outcome !== "context") throw new Error("Expected bounded focused context.");
+    const related = context.relevant?.outstandingItems;
+    expect(related).toBeDefined();
+    if (!related) throw new Error("Expected related digest.");
+    expect(related.total).toBe(7);
+    expect(related.items.length).toBeLessThanOrEqual(5);
+    expect(related.omitted).toBe(related.total - related.items.length);
+    expect(related.items.length).toBeLessThan(5);
+    expect(related.items.every((item) => item.text.length <= 400 && item.textTruncated)).toBe(true);
+    expect(
+      related.items.every((item) => item.sourceSessionTitle.length <= 160 && item.sourceSessionTitleTruncated),
+    ).toBe(true);
+    expect(related.items.map((item) => item.id)).not.toContain(completedItem.id);
+    expect(related.items.map((item) => item.id)).not.toContain(notNeededItem.id);
+    expect(related.items.map((item) => item.id)).not.toContain(voidedItem.id);
+    expect(related.items.map((item) => item.id)).not.toContain(pausedItem.id);
+    expect(JSON.stringify(context).length).toBeLessThan(10_000);
+    expect(context.omitted).toEqual(
+      expect.arrayContaining([expect.objectContaining({ section: "relevant.outstandingItems" })]),
+    );
   });
 
   it("bounds context items, reports truncation and omission, and links the read operation", () => {

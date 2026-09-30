@@ -100,6 +100,8 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
 | finalize 知識頁維護提示（3 頁 × 5,000 個新 Session） | 250 ms |
+| task context 相關未結項（5,000 Sessions／1,000 項，含文字與路徑排名） | 500 ms |
+| finalize 相關未結項提示（同一合成歷史，排除本次新項目） | 250 ms |
 | 知識頁 review context（涵蓋範圍後的一年 Session，最多 60 筆） | 250 ms |
 | 未結項清單（5,000 個 Session 中的 1,000 筆合成項目） | 250 ms |
 | 未結項清單（來源 Session 完成日期區間） | 250 ms |
@@ -192,3 +194,5 @@ Unit／integration 測試涵蓋：
 - MCP server 以 in-memory transport 端對端測試：工具清單、annotations、instructions 長度、contract 只掛在寫入工具、prompts、`work_get_project_status`、`work_list_sessions`／`work_get_session`、分頁讀取未結項及 paused 專案 skip、Agent 建立報告／metadata 請求並出現在 context 的 `pendingRequests`
 
 模擬 Agent 的 E2E 會直接開啟 server 使用的暫存 SQLite（`WORK_INTELLIGENCE_E2E_DB`，由 `playwright.config.ts` 設定並傳給 worker），因為候選回寫只有 MCP 工具、沒有 REST。這些測試需要先 `pnpm build`（`pnpm test:e2e` 會自動執行）。
+
+第九輪 B2 先以同一合成資料量測，完整 recall 加上相關未結項的 finalize 提示 p90 為 175.48 ms，原知識頁提示由 B1 的 12.92 ms 增至 139.06 ms。CPU profile 與 SQL plan 顯示完整文字檢索和重複 correlated scans 的成本；改成在收尾以 pending 項目、來源標題／摘要及路徑直接排名，並材料化查詢條件與每筆分數後，相關提示降為 22.59 ms、原提示 18.58 ms；task context 為 155.86 ms，30 組門檻全通過。關鍵字使用既有中英 tokenizer，單次最多 24 個不同詞，路徑最多 20 個；來源摘要評分讀前 2,000 字，task context 額外使用既有前 20 筆 Session 檢索順序，較新的無關項目不會遮掉直接文字／路徑命中的舊項目。所有值均來自隔離合成資料。後續完整檢查的 task context／finalize 相關提示 p90 分別為 128.53／22.73 ms。相關未結項的 SQL 比對涵蓋一般英文大小寫與中文詞；SQLite 內建 lower 不提供完整 Unicode case folding，全形 Latin 或非 ASCII 大寫文字可能漏掉直接命中，排名只作核對指引。
