@@ -1189,3 +1189,89 @@ describe("synthetic retrieval quality regression", () => {
     }
   });
 });
+
+// Pending-work ranking has its own fictional targets; do not mix it into the established K/S/R/N/P baseline.
+describe("synthetic related outstanding-item retrieval quality", () => {
+  it("keeps older item, path, and source-summary targets first ahead of newer unrelated work", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "wi-related-item-quality-"));
+    const fixtureStore = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = fixtureStore.addProject("Fictional Cedar", fixtureRoot);
+      fixtureStore.updateProject(project.id, { status: "tracked" });
+      const targets = [
+        {
+          key: "cobalt",
+          title: "Cedar maintenance",
+          summary: "Saved a fictional deferred inspection.",
+          text: "Verify cobalt pump gasket",
+          paths: [],
+          focus: { task: "cobalt pump gasket" },
+        },
+        {
+          key: "fir",
+          title: "Pine planning",
+          summary: "Saved another fictional deferred inspection.",
+          text: "Verify deferred acceptance",
+          paths: ["src/fir-path.ts"],
+          focus: { paths: ["src/fir-path.ts"] },
+        },
+        {
+          key: "amber",
+          title: "Willow checkout",
+          summary: "Scheduled amber valve calibration.",
+          text: "Verify deferred safety check",
+          paths: [],
+          focus: { task: "amber valve calibration" },
+        },
+      ];
+      const expected = new Map<string, string>();
+      for (const target of targets) {
+        const saved = fixtureStore.finalizeSession({
+          projectRoot: fixtureRoot,
+          idempotencyKey: `related-quality-${target.key}`,
+          title: target.title,
+          summary: target.summary,
+          completedAt: "2020-01-01T00:00:00.000Z",
+          changedFiles: target.paths,
+          verification: { status: "passed" },
+          workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [target.text] },
+        });
+        if (saved.outcome !== "finalized") throw new Error("Expected fictional pending target.");
+        const pending = fixtureStore.pendingOutstandingItemsForSessions([saved.session.id]);
+        expected.set(target.key, pending[0]!.id);
+      }
+      for (let index = 0; index < 8; index += 1) {
+        fixtureStore.finalizeSession({
+          projectRoot: fixtureRoot,
+          idempotencyKey: `related-quality-distractor-${index}`,
+          title: "Raspberry label planning",
+          summary: "Check the fictional inventory labels.",
+          completedAt: "2025-01-01T00:00:00.000Z",
+          changedFiles: ["src/raspberry.ts"],
+          verification: { status: "passed" },
+          workSummary: {
+            outcomes: [],
+            scope: [],
+            decisions: [],
+            verification: [],
+            nextSteps: ["Check raspberry inventory label"],
+          },
+        });
+      }
+      const ranks = targets.map((target) => {
+        const context = fixtureStore.getContext(fixtureRoot, target.focus);
+        if (context.outcome !== "context") throw new Error("Expected fictional related context.");
+        const pointers = context.relevant?.outstandingItems?.items ?? [];
+        expect(pointers.every((item) => !item.text.includes("raspberry"))).toBe(true);
+        return pointers.findIndex((item) => item.id === expected.get(target.key)) + 1;
+      });
+      const hitAt5 = ranks.filter((rank) => rank > 0 && rank <= 5).length / ranks.length;
+      const mrr = ranks.reduce((total, rank) => total + (rank ? 1 / rank : 0), 0) / ranks.length;
+      expect(hitAt5).toBe(1);
+      expect(mrr).toBe(1);
+    } finally {
+      fixtureStore.close();
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+});

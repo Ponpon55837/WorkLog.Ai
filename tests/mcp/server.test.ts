@@ -818,6 +818,215 @@ describe("Work Intelligence MCP server", () => {
     expect(JSON.stringify(nonPending)).not.toContain("Private project follow-up");
   });
 
+  it("surfaces related pending items and audits only explicit finalize supersessions", async () => {
+    const { client, store, root } = await connect(undefined, true);
+    const project = store.addProject("Encrypted cache work", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const pausedRoot = `${root}-paused`;
+    const pausedProject = store.addProject("Paused encrypted cache work", pausedRoot);
+    store.updateProject(pausedProject.id, { status: "tracked" });
+
+    const replacedText = "Replace the stale encrypted cache lookup with indexed pagination.";
+    const remainingText = "Verify encrypted cache pagination after replacing the stale lookup.";
+    const completedText = "Confirm encrypted cache backup compatibility already verified.";
+    const notNeededText = "Check the encrypted cache legacy lock order no longer needed.";
+    const voidedText = "Review the encrypted cache note from a voided source.";
+    const pausedText = "Verify encrypted cache pagination in the paused workspace.";
+    const guardText = "Rotate the synthetic integration key after each release.";
+
+    const source = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-supersede-source", "Encrypted cache proposal"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Created fictional encrypted cache follow-up items."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [replacedText, remainingText, completedText, notNeededText, guardText],
+      },
+    });
+    const voidedSource = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-supersede-voided-source", "Voided encrypted cache source"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Created a source that will be voided."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [voidedText],
+      },
+    });
+    await callJson(client, "work_finalize_session", {
+      ...finalizePayload(pausedRoot, "mcp-supersede-paused-source", "Paused encrypted cache source"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Created a source in the workspace that will be paused."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [pausedText],
+      },
+    });
+
+    const sourceItems = store.listOutstandingItems({ projectRoot: root, pageSize: 100 });
+    const pausedItems = store.listOutstandingItems({ projectRoot: pausedRoot, pageSize: 100 });
+    if (sourceItems.outcome !== "outstanding_items" || pausedItems.outcome !== "outstanding_items") {
+      throw new Error("Expected synthetic pending items before changing their scope or status.");
+    }
+    const itemByText = new Map(sourceItems.items.map((item) => [item.text, item]));
+    const replaced = itemByText.get(replacedText);
+    const remaining = itemByText.get(remainingText);
+    const completed = itemByText.get(completedText);
+    const notNeeded = itemByText.get(notNeededText);
+    const guard = itemByText.get(guardText);
+    const pausedItem = pausedItems.items.find((item) => item.text === pausedText);
+    if (!replaced || !remaining || !completed || !notNeeded || !guard || !pausedItem) {
+      throw new Error("Expected each synthetic outstanding item to be present.");
+    }
+    expect(replaced.sourceSessionId).toBe(source.session.id);
+    expect(remaining.sourceSessionId).toBe(source.session.id);
+    expect(pausedItem.projectId).toBe(pausedProject.id);
+    store.updateOutstandingItemStatus(completed.id, "completed");
+    store.updateOutstandingItemStatus(notNeeded.id, "not_needed");
+    store.setSessionVoid({
+      sessionId: voidedSource.session.id,
+      voided: true,
+      reason: "Synthetic source correction.",
+    });
+    store.updateProject(pausedProject.id, { status: "paused" });
+
+    const before = await callReadOperation<{
+      relevant?: { outstandingItems?: { items: Array<{ id: string; text: string }>; total: number } };
+    }>(client, "work_get_context", { task: "encrypted cache pagination stale lookup" });
+    const relevantItems = before.relevant?.outstandingItems?.items ?? [];
+    expect(before.relevant?.outstandingItems?.total).toBeGreaterThanOrEqual(2);
+    expect(relevantItems.map((item) => item.id)).toEqual(expect.arrayContaining([replaced.id, remaining.id]));
+    for (const excludedText of [completedText, notNeededText, voidedText, pausedText]) {
+      expect(relevantItems.map((item) => item.text)).not.toContain(excludedText);
+    }
+
+    const replacementText = "Record the verified encrypted cache pagination result.";
+    const replacementPayload = {
+      ...finalizePayload(root, "mcp-supersede-replacement", "Encrypted cache pagination replacement"),
+      summary: "Replaced the stale encrypted cache lookup after verifying pagination.",
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Recorded the verified replacement."],
+        scope: [],
+        decisions: [],
+        verification: ["The synthetic replacement was verified."],
+        nextSteps: [replacementText],
+      },
+      supersededOutstandingItemIds: [replaced.id],
+    };
+    const finalized = await callJson<{
+      duplicate?: boolean;
+      session: { id: string };
+      supersededOutstandingItemIds: string[];
+      relatedOutstandingItems: { items: Array<{ id: string; text: string }>; total: number };
+    }>(client, "work_finalize_session", replacementPayload);
+    expect(finalized.supersededOutstandingItemIds).toEqual([replaced.id]);
+    expect(finalized.relatedOutstandingItems.total).toBeGreaterThan(0);
+    expect(finalized.relatedOutstandingItems.items.map((item) => item.id)).toContain(remaining.id);
+    expect(finalized.relatedOutstandingItems.items.map((item) => item.id)).not.toContain(replaced.id);
+    expect(finalized.relatedOutstandingItems.items.map((item) => item.text)).not.toContain(replacementText);
+
+    const noReplacement = await callJson<{
+      session: { id: string };
+      supersededOutstandingItemIds: string[];
+      outstandingItemWarnings?: { unsupersededIds?: string[] };
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-supersede-empty-nextsteps", "No replacement evidence"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Recorded a synthetic result without replacement nextSteps."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [],
+      },
+      supersededOutstandingItemIds: [guard.id],
+    });
+    expect(noReplacement.supersededOutstandingItemIds).toEqual([]);
+    expect(noReplacement.outstandingItemWarnings?.unsupersededIds).toContain(guard.id);
+    expect(store.listOutstandingItems({ projectRoot: root, pageSize: 100 })).toMatchObject({
+      items: expect.arrayContaining([expect.objectContaining({ id: guard.id, status: "pending" })]),
+    });
+
+    const database = new DatabaseSync(store.databasePath);
+    try {
+      const targetEvents = database
+        .prepare(
+          `SELECT from_status AS fromStatus, to_status AS toStatus, source, actor_session_id AS actorSessionId
+           FROM outstanding_item_events WHERE item_id = ? AND actor_session_id = ?`,
+        )
+        .all(replaced.id, finalized.session.id);
+      expect(targetEvents).toEqual([
+        {
+          fromStatus: "pending",
+          toStatus: "not_needed",
+          source: "agent",
+          actorSessionId: finalized.session.id,
+        },
+      ]);
+      const guardEvents = database
+        .prepare("SELECT COUNT(*) AS count FROM outstanding_item_events WHERE item_id = ? AND actor_session_id = ?")
+        .get(guard.id, noReplacement.session.id) as { count: number };
+      expect(guardEvents.count).toBe(0);
+
+      const duplicate = await callJson<{
+        duplicate: boolean;
+        supersededOutstandingItemIds: string[];
+      }>(client, "work_finalize_session", replacementPayload);
+      expect(duplicate.duplicate).toBe(true);
+      expect(duplicate.supersededOutstandingItemIds).toEqual([replaced.id]);
+      const eventsAfterDuplicate = database
+        .prepare("SELECT COUNT(*) AS count FROM outstanding_item_events WHERE item_id = ? AND actor_session_id = ?")
+        .get(replaced.id, finalized.session.id) as { count: number };
+      expect(eventsAfterDuplicate.count).toBe(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("accepts at most 200 superseded outstanding item ids in the MCP schema", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Superseded item schema boundary", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const maximumIds = Array.from({ length: 200 }, (_, index) => `missing-superseded-item-${index}`);
+    const accepted = await callJson<{
+      outcome: string;
+      supersededOutstandingItemIds: string[];
+      outstandingItemWarnings?: { unsupersededIds?: string[] };
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-supersede-schema-max", "Maximum superseded id list"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Checked the synthetic MCP input boundary."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [],
+      },
+      supersededOutstandingItemIds: maximumIds,
+    });
+    expect(accepted).toMatchObject({
+      outcome: "finalized",
+      supersededOutstandingItemIds: [],
+      outstandingItemWarnings: { unsupersededIds: maximumIds },
+    });
+
+    const rejected = await callMcpOperation(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-supersede-schema-over-max", "Too many superseded ids"),
+      supersededOutstandingItemIds: [...maximumIds, "missing-superseded-item-200"],
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.parse((rejected.content as Array<{ text: string }>)[0]?.text ?? "{}")).toMatchObject({
+      error: "Invalid finalize payload.",
+    });
+    expect(store.listSessions({ projectId: project.id })).toHaveLength(1);
+  });
+
   it("lets an Agent create report and metadata requests that show up in context", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Request project", root);

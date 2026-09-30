@@ -140,6 +140,42 @@ describe("schema input boundaries", () => {
     expect(finalizeSessionInputSchema.safeParse(validFinalizeInput).success).toBe(true);
   });
 
+  it("validates superseded outstanding item IDs for REST/store and MCP finalize inputs", () => {
+    const ids = Array.from({ length: 200 }, (_, index) => `outstanding-${index}`);
+    const rest = finalizeSessionInputSchema.safeParse({
+      ...validFinalizeInput,
+      resolvedOutstandingItemIds: ["shared-item"],
+      supersededOutstandingItemIds: [" shared-item ", ...ids.slice(1)],
+    });
+    expect(rest.success).toBe(true);
+    expect(rest.success && rest.data.supersededOutstandingItemIds?.[0]).toBe("shared-item");
+
+    const mcp = mcpFinalizeSessionInputSchema.safeParse({
+      ...validFinalizeInput,
+      workSummary: validStructuredWorkSummary,
+      supersededOutstandingItemIds: ids,
+    });
+    expect(mcp.success).toBe(true);
+    expect(
+      finalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        supersededOutstandingItemIds: Array.from({ length: 201 }, (_, index) => `outstanding-${index}`),
+      }).success,
+    ).toBe(false);
+    expect(
+      finalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        supersededOutstandingItemIds: ["   "],
+      }).success,
+    ).toBe(false);
+    expect(
+      finalizeSessionInputSchema.safeParse({
+        ...validFinalizeInput,
+        supersededOutstandingItemIds: ["x".repeat(201)],
+      }).success,
+    ).toBe(false);
+  });
+
   it("stores work timestamps as UTC, accepts offsets, and rejects times after the server clock", () => {
     const withOffset = finalizeSessionInputSchema.safeParse({
       ...validFinalizeInput,

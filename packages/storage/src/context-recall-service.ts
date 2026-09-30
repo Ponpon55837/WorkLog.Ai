@@ -27,6 +27,7 @@ import type {
   RecallInput,
   RecallQueryResult,
   RelevantContext,
+  RelatedOutstandingItems,
   RelevantKnowledgePageDigest,
   ReportSynthesisRequestListQueryResult,
   ReportSynthesisRequestQuery,
@@ -37,6 +38,7 @@ import type {
   WorkSessionRecord,
 } from "@work-intelligence/core";
 import { serverClock } from "@work-intelligence/shared";
+import type { OutstandingItemFocus } from "./outstanding-item-service.js";
 import {
   DIGEST_ITEM_LENGTH,
   DIGEST_KNOWLEDGE_LENGTH,
@@ -94,6 +96,8 @@ interface ContextRecallStoreReader {
     pageSize: number;
   }): OutstandingItemListQueryResult;
   pendingOutstandingItemsForSessions(sessionIds: readonly string[]): OutstandingItem[];
+  hasPendingOutstandingItems(projectId: string, excludeSourceSessionId?: string): boolean;
+  relatedPendingOutstandingItems(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number };
   hotspotHints(projectId: string, paths: readonly string[]): HotspotHint[];
 }
 
@@ -262,6 +266,25 @@ export class ContextRecallService {
       ...result,
       hits: result.hits.map((hit) => this.compactRecallHit(this.withRelatedSessions(hit))),
     };
+  }
+
+  /** Closing skips the related query when no older pending items remain. */
+  public relatedOutstandingItems(
+    projectId: string,
+    focus: ContextFocus,
+    excludeSourceSessionId?: string,
+  ): RelatedOutstandingItems {
+    if (!this.store.hasPendingOutstandingItems(projectId, excludeSourceSessionId))
+      return { items: [], total: 0, omitted: 0 };
+    // Closing needs pending pointers, not full Session/Knowledge recall across the project history.
+    // Source title/summary relevance and changed paths are scored in the same bounded item query.
+    return this.outstandingItemDigest(
+      this.store.relatedPendingOutstandingItems({
+        projectId,
+        ...focus,
+        excludeSourceSessionId,
+      }),
+    );
   }
 
   private compactRecallHit(hit: RecallHit): RecallHit {
@@ -654,6 +677,18 @@ export class ContextRecallService {
         );
         return true;
       }
+      const outstanding = relevant?.outstandingItems;
+      const item = outstanding && outstanding.items.length > 1 ? outstanding.items.pop() : undefined;
+      if (outstanding && item) {
+        outstanding.omitted += 1;
+        addOmission(
+          context,
+          "relevant.outstandingItems",
+          { id: item.id, reason: "預算限制：較低相關未結項" },
+          "work_list_outstanding_items",
+        );
+        return true;
+      }
       return false;
     };
 
@@ -669,6 +704,13 @@ export class ContextRecallService {
         if (knowledge.excerpt.length > CONTEXT_EXCERPT_CHARS) {
           knowledge.excerpt = truncateAtSentenceBoundary(knowledge.excerpt, CONTEXT_EXCERPT_CHARS).text;
           knowledge.excerptTruncated = true;
+          return true;
+        }
+      }
+      for (const item of context.relevant?.outstandingItems?.items ?? []) {
+        if (item.text.length > CONTEXT_EXCERPT_CHARS) {
+          item.text = truncateAtSentenceBoundary(item.text, CONTEXT_EXCERPT_CHARS).text;
+          item.textTruncated = true;
           return true;
         }
       }
@@ -768,6 +810,14 @@ export class ContextRecallService {
       ...(task ? { task } : {}),
       ...(paths.length > 0 ? { paths } : {}),
       confidence: recalled.confidence,
+      outstandingItems: this.outstandingItemDigest(
+        this.store.relatedPendingOutstandingItems({
+          projectId,
+          task,
+          paths,
+          sourceSessionIds: recalled.hits.filter((hit) => hit.type === "session").map((hit) => hit.id),
+        }),
+      ),
       knowledge,
       decisions,
       sessions: sessions.map(({ hit, record }) => ({
@@ -950,6 +1000,31 @@ export class ContextRecallService {
       grouped.set(item.sourceSessionId, group);
     }
     return grouped;
+  }
+
+  private outstandingItemDigest(result: { items: OutstandingItem[]; total: number }): RelatedOutstandingItems {
+    return {
+      items: result.items.map((item) => {
+        const text = truncateAtSentenceBoundary(item.text, 400);
+        const title = truncateAtSentenceBoundary(item.sourceSessionTitle, 160);
+        return {
+          id: item.id,
+          sourceSessionId: item.sourceSessionId,
+          sourceSessionTitle: title.text,
+          sourceSessionCompletedAt: item.sourceSessionCompletedAt,
+          text: text.text,
+          ...(text.truncated ? { textTruncated: true } : {}),
+          ...(title.truncated ? { sourceSessionTitleTruncated: true } : {}),
+        };
+      }),
+      total: result.total,
+      omitted: Math.max(0, result.total - result.items.length),
+      ...(result.total > 0
+        ? {
+            hint: "這些相關項目仍未處理；先讀來源並核對證據，確認完成才結案，被本次 nextSteps 取代才標記不再需要，不確定就保留。",
+          }
+        : {}),
+    };
   }
 
   private boundOutstandingItem(item: OutstandingItem): ContextOutstandingItem {

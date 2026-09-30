@@ -13,8 +13,17 @@ import type {
 } from "@work-intelligence/core";
 import { MAX_OUTSTANDING_ITEM_BATCH_SIZE, OUTSTANDING_ITEM_STATUSES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
+import { normalizePath, parseQueryWords } from "./search-text.js";
 import { createPageInfo } from "./pagination.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
+
+export interface OutstandingItemFocus {
+  projectId?: string;
+  task?: string;
+  paths?: readonly string[];
+  sourceSessionIds?: readonly string[];
+  excludeSourceSessionId?: string;
+}
 
 type OutstandingItemRow = {
   id: string;
@@ -146,6 +155,80 @@ export class OutstandingItemService {
       )
       .all(...params, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as OutstandingItemRow[];
     return { outcome: "outstanding_items", items: rows.map(toOutstandingItem), pageInfo };
+  }
+
+  public hasPending(projectId: string, excludeSourceSessionId?: string): boolean {
+    const policy = this.dependencies.checkProjectById(projectId);
+    if (!policy.allowed || !policy.project) return false;
+    return Boolean(
+      this.db
+        .prepare(
+          `${baseSelect("AND i.project_id = ? AND i.status = 'pending' AND i.source_session_id <> ?", "i.id")} LIMIT 1`,
+        )
+        .get(projectId, excludeSourceSessionId ?? ""),
+    );
+  }
+
+  /** Scores every eligible pending item in SQL, returning at most five pointers without per-item queries. */
+  public relatedPending(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number } {
+    if (input.projectId) {
+      const policy = this.dependencies.checkProjectById(input.projectId);
+      if (!policy.allowed || !policy.project) return { items: [], total: 0 };
+    }
+    const terms = [...new Set(parseQueryWords((input.task ?? "").slice(0, 2_000)).flatMap((word) => word.terms))].slice(
+      0,
+      24,
+    );
+    const projects = input.paths?.length
+      ? (this.db
+          .prepare(
+            `SELECT name, root_path AS rootPath FROM projects WHERE status = 'tracked' ${input.projectId ? "AND id = ?" : ""}`,
+          )
+          .all(...(input.projectId ? [input.projectId] : [])) as Array<{ name: string; rootPath: string }>)
+      : [];
+    const paths = [...new Set((input.paths ?? []).map((path) => normalizePath(path, projects)).filter(Boolean))].slice(
+      0,
+      20,
+    );
+    const sources = [...new Set(input.sourceSessionIds ?? [])].slice(0, 20);
+    if (!terms.length && !paths.length && !sources.length) return { items: [], total: 0 };
+    const changedPath = "lower(replace(f.value, char(92), '/'))";
+    // Materialized CTEs parse query inputs and score each item once; window sorting must not repeat correlated scans.
+    // Equality and segment boundaries treat directories literally; Agent paths never become LIKE patterns.
+    const pathMatch = `${changedPath} = q.path
+      OR substr(${changedPath}, 1, length(q.path) + 1) = q.path || '/'
+      OR substr(${changedPath}, -length(q.path) - 1) = '/' || q.path
+      OR substr(q.path, -length(${changedPath}) - 1) = '/' || ${changedPath}`;
+    const score = `(SELECT COUNT(*) FROM keywords WHERE instr(lower(i.text), term) > 0) * 3.0
+      + (SELECT COUNT(*) FROM keywords WHERE instr(lower(s.title), term) > 0) * 0.5
+      + (SELECT COUNT(*) FROM keywords WHERE instr(lower(substr(s.summary, 1, 2000)), term) > 0) * 0.25
+      + COALESCE((SELECT weight FROM sources WHERE id = s.id), 0)
+      + (SELECT COUNT(*) FROM path_queries q WHERE EXISTS (
+        SELECT 1 FROM json_each(s.changed_files_json) f WHERE ${pathMatch}
+      )) * 10.0`;
+    const rows = this.db
+      .prepare(
+        `WITH
+      keywords AS MATERIALIZED (SELECT value AS term FROM json_each(?)),
+      path_queries AS MATERIALIZED (SELECT value AS path FROM json_each(?)),
+      sources AS MATERIALIZED (SELECT value AS id, (20 - CAST(key AS INTEGER)) / 20.0 AS weight FROM json_each(?)),
+      scored AS MATERIALIZED (${baseSelect(
+        `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?`,
+        `i.*, p.name AS project_name, s.title AS source_session_title,
+         s.completed_at AS source_session_completed_at, ${score} AS relevance`,
+      )})
+      SELECT *, COUNT(*) OVER () AS matching_total FROM scored WHERE relevance > 0
+      ORDER BY relevance DESC, source_session_completed_at DESC, source_session_id DESC, position ASC, id ASC
+      LIMIT 5`,
+      )
+      .all(
+        JSON.stringify(terms),
+        JSON.stringify(paths),
+        JSON.stringify(sources),
+        ...(input.projectId ? [input.projectId] : []),
+        input.excludeSourceSessionId ?? "",
+      ) as Array<OutstandingItemRow & { matching_total: number }>;
+    return { items: rows.map(toOutstandingItem), total: rows[0]?.matching_total ?? 0 };
   }
 
   public batchUpdateStatus(input: BatchUpdateOutstandingItemStatusInput): BatchUpdateOutstandingItemStatusResult {
@@ -307,47 +390,32 @@ export class OutstandingItemService {
     actorSessionId: string,
     updatedAt: string,
   ): { resolvedIds: string[]; unresolvedIds: string[] } {
-    const requestedIds = [...new Set(itemIds)];
-    if (requestedIds.length === 0) return { resolvedIds: [], unresolvedIds: [] };
-    const placeholders = requestedIds.map(() => "?").join(", ");
-    const pending = this.db
-      .prepare(
-        `SELECT i.id FROM outstanding_items i
-         JOIN sessions s ON s.id = i.source_session_id AND s.project_id = i.project_id
-         WHERE i.project_id = ? AND i.status = 'pending' AND s.voided_at IS NULL
-           AND i.id IN (${placeholders})`,
-      )
-      .all(projectId, ...requestedIds) as Array<{ id: string }>;
-    const update = this.db.prepare(
-      `UPDATE outstanding_items SET status = 'completed', updated_at = ?
-       WHERE id = ? AND status = 'pending' AND project_id = ?
-         AND EXISTS (
-           SELECT 1 FROM sessions s
-           WHERE s.id = outstanding_items.source_session_id
-             AND s.project_id = outstanding_items.project_id
-             AND s.voided_at IS NULL
-         )`,
-    );
-    for (const { id } of pending) {
-      update.run(updatedAt, id, projectId);
-      appendEvent(this.db, id, projectId, "pending", "completed", "agent", actorSessionId, updatedAt);
-    }
-    const resolvedIds = pending.map(({ id }) => id);
-    const resolved = new Set(resolvedIds);
-    return { resolvedIds, unresolvedIds: requestedIds.filter((id) => !resolved.has(id)) };
+    return this.transitionPendingInTransaction(itemIds, projectId, actorSessionId, updatedAt, "completed");
   }
 
-  public resolvedByActorSession(actorSessionId: string): string[] {
+  public supersedePendingInTransaction(
+    itemIds: readonly string[],
+    projectId: string,
+    actorSessionId: string,
+    updatedAt: string,
+  ): { resolvedIds: string[]; unresolvedIds: string[] } {
+    return this.transitionPendingInTransaction(itemIds, projectId, actorSessionId, updatedAt, "not_needed");
+  }
+
+  public transitionedByActorSession(actorSessionId: string, status: "completed" | "not_needed"): string[] {
     return (
       this.db
         .prepare(
           `SELECT item_id FROM outstanding_item_events
-           WHERE actor_session_id = ? AND source = 'agent'
-             AND from_status = 'pending' AND to_status = 'completed'
-           ORDER BY created_at, id`,
+      WHERE actor_session_id = ? AND source = 'agent' AND from_status = 'pending' AND to_status = ?
+      ORDER BY created_at, id`,
         )
-        .all(actorSessionId) as Array<{ item_id: string }>
+        .all(actorSessionId, status) as Array<{ item_id: string }>
     ).map(({ item_id }) => item_id);
+  }
+
+  public resolvedByActorSession(actorSessionId: string): string[] {
+    return this.transitionedByActorSession(actorSessionId, "completed");
   }
 
   public pendingForSessions(sessionIds: readonly string[]): OutstandingItem[] {
@@ -360,6 +428,43 @@ export class OutstandingItemService {
       )
       .all(...sessionIds) as OutstandingItemRow[];
     return rows.map(toOutstandingItem);
+  }
+
+  private transitionPendingInTransaction(
+    itemIds: readonly string[],
+    projectId: string,
+    actorSessionId: string,
+    updatedAt: string,
+    status: "completed" | "not_needed",
+  ): { resolvedIds: string[]; unresolvedIds: string[] } {
+    const requestedIds = [...new Set(itemIds)];
+    if (requestedIds.length === 0) return { resolvedIds: [], unresolvedIds: [] };
+    const placeholders = requestedIds.map(() => "?").join(", ");
+    const pending = this.db
+      .prepare(
+        `SELECT i.id FROM outstanding_items i
+         JOIN sessions s ON s.id = i.source_session_id AND s.project_id = i.project_id
+         WHERE i.project_id = ? AND i.status = 'pending' AND s.voided_at IS NULL
+           AND i.id IN (${placeholders})`,
+      )
+      .all(projectId, ...requestedIds) as Array<{ id: string }>;
+    const update = this.db.prepare(
+      `UPDATE outstanding_items SET status = ?, updated_at = ?
+       WHERE id = ? AND status = 'pending' AND project_id = ?
+         AND EXISTS (
+           SELECT 1 FROM sessions s
+           WHERE s.id = outstanding_items.source_session_id
+             AND s.project_id = outstanding_items.project_id
+             AND s.voided_at IS NULL
+         )`,
+    );
+    for (const { id } of pending) {
+      update.run(status, updatedAt, id, projectId);
+      appendEvent(this.db, id, projectId, "pending", status, "agent", actorSessionId, updatedAt);
+    }
+    const resolvedIds = pending.map(({ id }) => id);
+    const resolved = new Set(resolvedIds);
+    return { resolvedIds, unresolvedIds: requestedIds.filter((id) => !resolved.has(id)) };
   }
 
   private getRow(itemId: string): OutstandingItemRow | undefined {
