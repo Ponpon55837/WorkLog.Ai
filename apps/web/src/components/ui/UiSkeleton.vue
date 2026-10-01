@@ -3,8 +3,10 @@ withDefaults(defineProps<{ variant?: "row" | "card" | "text"; count?: number }>(
 </script>
 
 <template>
-  <div :class="['ui-skeleton', `ui-skeleton--${variant}`]" aria-busy="true" aria-label="載入中">
-    <div v-for="index in count" :key="index" class="ui-skeleton__item">
+  <!-- aria-label is not allowed on a role-less div, so the status role carries visually hidden text instead. -->
+  <div :class="['ui-skeleton', `ui-skeleton--${variant}`]" role="status" aria-busy="true">
+    <span class="sr-only">載入中</span>
+    <div v-for="index in count" :key="index" class="ui-skeleton__item" aria-hidden="true">
       <template v-if="variant === 'row'">
         <span class="ui-skeleton__dot"></span>
         <span class="ui-skeleton__lines">
@@ -29,7 +31,7 @@ withDefaults(defineProps<{ variant?: "row" | "card" | "text"; count?: number }>(
   border-top: 1px solid var(--border-muted);
 }
 
-.ui-skeleton--row .ui-skeleton__item:first-child {
+.ui-skeleton--row .ui-skeleton__item:first-of-type {
   border-top: 0;
 }
 
