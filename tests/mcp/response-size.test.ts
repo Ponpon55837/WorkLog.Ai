@@ -11,6 +11,7 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 
 interface ConnectedFixture {
   client: Client;
+  projectId: string;
   projectRoot: string;
   store: WorkIntelligenceStore;
 }
@@ -148,7 +149,7 @@ async function connectWithSyntheticHistory(): Promise<ConnectedFixture> {
     () => store.close(),
     () => client.close(),
   );
-  return { client, projectRoot, store };
+  return { client, projectId: project.id, projectRoot, store };
 }
 
 async function serializedMcpPayload(
@@ -565,9 +566,7 @@ describe("synthetic MCP response-size baseline", () => {
   });
 
   it("bounds cleanup reads while retaining all selected item and later Session IDs", async () => {
-    const { client, projectRoot, store } = await connectWithSyntheticHistory();
-    const project = store.listProjects().find((candidate) => candidate.rootPath === projectRoot);
-    if (!project) throw new Error("Expected the synthetic tracked project.");
+    const { client, projectId, projectRoot, store } = await connectWithSyntheticHistory();
 
     const longItem = `Verify this synthetic cleanup obligation against later source Sessions. ${"bounded item evidence ".repeat(160)}`;
     vi.setSystemTime(Date.now() + 60_000);
@@ -631,7 +630,7 @@ describe("synthetic MCP response-size baseline", () => {
 
     vi.setSystemTime(Date.now() + 60_000);
     const created = store.createOutstandingCleanupRequest({
-      projectId: project.id,
+      projectId,
       idempotencyKey: "response-size-cleanup-request",
     });
     if (created.outcome !== "outstanding_cleanup_request_created") {
@@ -655,7 +654,7 @@ describe("synthetic MCP response-size baseline", () => {
     expect(directContext.truncated).toBe(true);
 
     const requestsPayload = await serializedMcpPayload(client, "work_list_outstanding_cleanup_requests", {
-      projectId: project.id,
+      projectId,
       status: "pending",
       page: 1,
       pageSize: 5,
