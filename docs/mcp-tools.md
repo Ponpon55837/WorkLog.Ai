@@ -33,6 +33,16 @@
 
 會保存文字的寫入工具會先依固定規則遮蔽已知格式的憑證；成功回應可帶 `redactions: { total, byKind }`，其中只有各類型數量，不含原文或憑證片段。這涵蓋 finalize、摘要／workSummary／verification 修正、Evidence、Knowledge、候選、報告整理與 handoff 匯入。Session 回應另帶 `redactionCount`，Session 面板顯示已遮蔽數量。匯入／匯出與既有資料整理請使用 CLI `pnpm db:redact`；MCP 沒有資料庫整理、刪除備份或改路徑能力。
 
+## 更新與重新連線
+
+| 建置變更 | 回報 | Agent 行為 |
+| --- | --- | --- |
+| 僅實作改變、相容性識別相同 | `restartRequired: false`、`updateAvailable: true` | 照常讀寫，收尾提醒重新連線 |
+| schema、工具清單、完整 operation 契約或 instructions 改變 | `restartRequired: true` | 停止操作，請使用者重新連線 |
+| 建置識別不可讀或相容性無法確認 | 保守要求重新連線，監測可能不可用 | 先確認建置完整，不宣稱目前連線是最新版 |
+
+第九輪未結項整理新增 schema 23 與三個 operation，主安裝更新後須重新連線。所有 MCP 寫入還會在交易內檢查實際資料庫 schema；外部 migration 完成後，舊 writer 不會寫出舊格式資料。
+
 ## `work_finalize_session`
 
 在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須在工作開始時（確認專案正在記錄後）擷取並保留當時已變更的路徑，finalize 時以 `baselineChangedFiles` 傳入；系統會從本次 Session 排除這些路徑、來源與變更事件。若從基準路徑改名，會將新路徑記為新增檔案。基準檔案在工作期間又被修改時仍整筆排除，因為單靠路徑無法判斷新增差異。若無法在開始時擷取基準，應省略欄位，不要事後推測。完成時再檢查工作樹／diff，沒有本次檔案變更時傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed` 或 `not_run`。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（API 相容欄位，畫面標示「狀態／未結項」）五個陣列；每個元素是一件已確認的短句，沒有證據時傳空陣列，不使用 `##` Markdown 標題。`nextSteps` 只能記錄已知限制、未完成項目、證據缺口或未驗證情境，不可寫建議或未來計畫；每個項目也會成為有穩定 id、連結來源 Session 的未結項。只有本次工作直接驗證完成、且仍為同專案 `pending` 的項目，才能透過選填 `resolvedOutstandingItemIds` 傳入 id 標記完成；有效轉換與 Session 在同一交易保存並保留稽核紀錄，無效、已處理或跨專案 id 只回傳警告，不透露其他專案資料。收尾前重新取得帶本次 task／paths 的 context，閱讀 `relevant.outstandingItems` 的來源 Session 再判斷。當本次非空 `nextSteps` 明確取代舊項目時，才傳 `supersededOutstandingItemIds`（最多 200 個 id），舊項目在同一交易轉為 `not_needed`，稽核的 `actorSessionId` 指向本次 Session。沒有替代 nextSteps、兩個清單重複指定同一 id、或項目無效／已處理／作廢／跨專案時維持原狀，回傳 `unresolvedIds`／`unsupersededIds` 警告。重試從原 Session 稽核還原兩種結果，不套用新的 id。finalize 的 `relatedOutstandingItems` 用本次已保存 title／summary 與 changedFiles 排序仍 pending 的舊項目，最多 5 筆，含 total／omitted 和一行提示，排除本次新建的項目；文字／來源標題最多 400／160 字元，必要時標示截短。不得依 `nextSteps` 文字、排名或提示推測完成狀態。Git 狀態另由可選 metadata 記錄。這讓工作歷程、Session 面板與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 session，`duplicate: true`。`commitSha` 是可選 metadata；工作完成不要求 Git commit。

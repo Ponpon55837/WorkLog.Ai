@@ -6,33 +6,28 @@
 
 - 最後更新：2026-10-01
 
-## 第九輪目前開放
+## 使用者待辦
 
-依[第九輪交接文件](../.openspec/handoffs/2026-09-30-claude-to-codex-round9.md)的順序進行，每項開獨立 PR。
+| 項目 | 狀態與範圍 |
+| --- | --- |
+| E3 實機驗收 | 依[發行實機驗收清單](release-checklist.md)執行；原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案流程仍未驗證 |
+| v1.0.0 tag／Release | 發行 workflow 與版本已備妥；是否打 tag 與建立 Release 由使用者決定 |
+
+## 第九輪交付
+
+依[第九輪交接文件](../.openspec/handoffs/2026-09-30-claude-to-codex-round9.md)的順序進行，每項獨立 PR。
 
 | 階段 | 狀態 | 項目 |
 | --- | --- | --- |
-| A1 | 已完成（PR #183） | 區分「必須重新連線」（schema 或 Agent 契約改變）與「有新版可用」（只改實作），後者不中斷記錄 |
-| A2 | 已完成（PR #184） | MCP 註冊與系統狀態讀取清理超過 TTL＋60 秒的 lease／tmp；每次最多 64 次刪除嘗試 |
-| A3 | 已完成（PR #185） | 核對既有記錄、補正有來源的 E3／最後收尾時間；資料不足保留缺口，知識頁已更新 |
+| A1 | 已完成（PR #183） | schema／Agent 契約改變才要求重新連線；只改實作顯示有新版可用，原連線仍可記錄 |
+| A2 | 已完成（PR #184） | 分批清理超過 heartbeat TTL＋60 秒的 scope lease／tmp，每次最多 64 次刪除嘗試 |
+| A3 | 已完成（PR #185） | 核對既有記錄與來源時間、更新知識頁；缺少對話證據的時間保留資料不足 |
 | B1 | 已完成（PR #186） | Web 本頁多選、最多 100 筆原子批次、逐筆稽核、整批復原與來源 Session 日期篩選 |
-| B2 | 已完成（PR #187） | 收尾時列出相關未結項，finalize 可標記被取代的項目 |
-| B3 | 八類本機檢查通過，待 PR 四項 CI／合併 | Agent 對既有未結項提出附證據的整理建議，由使用者在 Web 審核 |
-| C1 | 待開始 | 文件與狀態頁 |
+| B2 | 已完成（PR #187） | 收尾取得相關未結項，明確完成或由新待辦取代時同交易留下稽核 |
+| B3 | 已完成（PR #188） | Agent 提出附證據的待審建議；Web 人工審核、來源版本重核，活躍快照防止 Agent 繞過審核 |
+| C1 | 文件已對齊（本 PR） | 重新連線規則、整理流程、測試基線、狀態與歷史文件收尾 |
 
-A1 本機驗證：build、603 項測試（另 1 skip）、typecheck、coverage、25 組效能情境、檢索品質、回應大小與三瀏覽器 E2E 全部通過。A2 已完成八類檢查與四項 CI，主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 記錄證據見[核對文件](../.openspec/handoffs/2026-09-30-codex-round9-a3-evidence.md)。B1 最新 head 四項 CI 全部成功、PR #186 已合併並保存階段記錄。B2 最新 head 四項 CI 已成功並合併、保存階段記錄。B3 → C1 依序處理；E3 實機驗收與 v1.0.0 tag／Release 仍由使用者執行。
-
-
-## 第八輪目前開放
-
-依[第八輪交接文件](../.openspec/handoffs/2026-09-28-claude-to-codex-round8.md)的順序進行；E1、E2、E3 保持最後。需要實體環境的項目列為使用者驗收，不由自動化測試代替。
-
-| 階段 | 狀態 | 項目 |
-| --- | --- | --- |
-| D2 | 已完成 | README 新手入門、文件行為盤點與狀態頁歷史整理（PR #173） |
-| E1 | 已完成 | 使用者層級登入自動啟動：macOS LaunchAgent、Windows 登入工作排程、Linux `systemd --user`（PR #174，merge `d6e768c`） |
-| E2 | 已完成 | Tag 觸發的發行 workflow、版本 `1.0.0`、發行步驟與升級說明（PR #175，merge `6a01a9b`）；是否打 tag 由使用者決定 |
-| E3 | 待使用者實機驗收 | 驗收程序已列於[發行實機驗收清單](release-checklist.md)；原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案流程尚未驗證 |
+A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](../.openspec/handoffs/2026-09-30-codex-round9-a3-evidence.md)保留缺漏證據；B3 的[合成準確度評估](../.openspec/handoffs/2026-10-01-codex-round9-b3-accuracy.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。schema 23 與新增 Agent 契約在主安裝更新後須重啟服務並重新連線；上述 PR／CI／Session 證據已核對，完整輪次交接會在 C1 階段收尾時保存於工作區。
 
 ## 其他暫緩工作
 
@@ -40,7 +35,9 @@ A1 本機驗證：build、603 項測試（另 1 skip）、typecheck、coverage�
 | --- | --- | --- |
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
-| Graph 總數計算 | 觀察中 | 目前 5,000 筆合成資料約 53 ms；出現可重現的效能問題時再評估 |
+| Graph 總數計算 | 觀察中 | 目前合成效能基準仍在既定門檻內；出現可重現的效能問題時再評估 |
+
+## 過往輪次（已完成）
 
 ## 第八輪已完成
 
@@ -56,10 +53,10 @@ A1 本機驗證：build、603 項測試（另 1 skip）、typecheck、coverage�
 | C2 知識頁維護提示 | PR #171 已合併；來源需核對或累積 3 筆新 Session 時提示 Agent 評估 |
 | D1 安全、相依性與 setup 等效判斷 | PR #172 已合併（merge `7422beb`）；最新 head 四項 CI 全綠 |
 | D2 文件總整理 | PR #173 已合併（merge `f13123f`）；README 與文件已依第八輪實際狀態更新 |
+| E1 登入自動啟動 | PR #174 已合併（merge `d6e768c`）；macOS LaunchAgent、Windows 登入工作排程、Linux `systemd --user` |
+| E2 發行機制 | PR #175 已合併（merge `6a01a9b`）；tag 觸發 workflow 與發行／升級文件，實際 tag／Release 由使用者決定 |
 
 第八輪的後續修正也已合併：PR #167–#169。PR #172 包含 #169 複檢留下的 MCP／hook 有效命令判斷修正。
-
-## 過往輪次（已完成）
 
 ## 第七輪複檢（Claude，2026-09-28）
 
