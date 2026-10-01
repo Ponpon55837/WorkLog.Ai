@@ -20,7 +20,7 @@ pnpm start
 pnpm run doctor
 ```
 
-請使用 `pnpm run doctor`，不要使用 `pnpm doctor`：pnpm 11 將 `doctor` 保留為套件管理器自己的命令，`pnpm doctor` 不會執行 Work Intelligence 診斷。
+請使用 `pnpm run doctor`，不要使用 `pnpm doctor`：pnpm 將 `doctor` 保留為套件管理器自己的命令，`pnpm doctor` 不會執行 Work Intelligence 診斷。
 
 資料預設放在 `data/work-intelligence.sqlite`，也可設定 `WORK_INTELLIGENCE_DB` 指定位置。常用設定如下：
 
