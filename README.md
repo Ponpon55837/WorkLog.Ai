@@ -100,6 +100,8 @@ claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTE
 
 Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-work` 與 `/mcp__work-intelligence__synthesize-report`。Claude Desktop 的設定、驗證方式與常見問題見 **[docs/agent-setup.md](docs/agent-setup.md)**。更新 Work Intelligence 後，請重新 `pnpm build`。只有 schema／Agent 契約改變或無法確認相容性時才必須重新連線；僅實作更新會顯示「有新版可用」，原連線仍可照常讀寫，收尾再提醒重連。
 
+第九輪的未結項整理新增 schema 與 Agent 契約。更新主安裝前先保存工作記錄，再依[升級說明](docs/user-guide.md#更新-work-intelligence)重新建置、重啟服務並重新連線 Agent；之後可在 Web 發起整理，由 Agent 提交建議，再由使用者接受或拒絕。
+
 ### 保存提醒 hook（選用）
 
 想讓 Agent 忘記保存時被提醒一次，可以加上保存提醒 hook。hook 和 MCP 一樣裝在**全域**，任何專案都能用；它只在「記錄中」的專案作用，其他專案一律放行，判斷失敗時也會放行。

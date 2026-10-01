@@ -606,7 +606,11 @@ test.describe("Work Intelligence browser regression", () => {
     const dateFilter = page.getByRole("button", { name: "來源 Session 日期", exact: true });
     await expect(dateFilter).toBeVisible();
     const firstItemCheckbox = page.getByRole("checkbox", { name: /^選取未結項：/ }).first();
-    await firstItemCheckbox.check();
+    // Initial query refreshes can briefly disable the checkbox between pointer events.
+    await expect(async () => {
+      await firstItemCheckbox.check();
+      await expect(firstItemCheckbox).toBeChecked();
+    }).toPass({ timeout: 8000 });
 
     await dateFilter.click();
     await page.getByRole("button", { name: "今天", exact: true }).click();
