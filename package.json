@@ -4,8 +4,10 @@
   "license": "MIT",
   "private": true,
   "description": "Local-first developer work intelligence MVP",
-  "packageManager": "pnpm@11.16.0",
   "type": "module",
+  "engines": {
+    "pnpm": ">=11.16.0"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "pnpm --parallel --filter @work-intelligence/server --filter @work-intelligence/web dev",
