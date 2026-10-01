@@ -27,7 +27,7 @@
 
 ## 快速開始
 
-需求：**Node.js 22.5 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 11**（版本見 `package.json` 的 `packageManager`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
+需求：**Node.js 22.5 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 11.16 以上**（見 `package.json` 的 `engines.pnpm`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
 
 ```bash
 cd /path/to/WorkLog.Ai
