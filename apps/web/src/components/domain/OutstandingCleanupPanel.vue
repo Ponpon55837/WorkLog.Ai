@@ -207,8 +207,12 @@ watch([projectId, requestPageSize], () => {
     return;
   requestPage.value = 1;
 });
-watch([requestId, reviewStatus, proposalPage, proposalPageSize, proposals], () => {
+watch([requestId, reviewStatus, proposalPage, proposalPageSize], () => {
   selectedIds.value = [];
+});
+watch([pendingProposals, canReview], ([items, reviewable]) => {
+  const eligibleIds = new Set(reviewable ? items.map((item) => item.id) : []);
+  selectedIds.value = selectedIds.value.filter((id) => eligibleIds.has(id));
 });
 
 onBeforeUnmount(() => cleanupStore.setActive(false));

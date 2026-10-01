@@ -26,6 +26,8 @@ interface FinalizeOptions {
   changedFiles?: string[];
   branch?: string;
   commitSha?: string;
+  resolvedOutstandingItemIds?: string[];
+  supersededOutstandingItemIds?: string[];
 }
 
 function addTrackedProject(store: WorkIntelligenceStore, name: string): Omit<ProjectFixture, "store"> {
@@ -50,7 +52,20 @@ function finalize(
   completedAt = SOURCE_TIME,
   options: FinalizeOptions = {},
 ): WorkSessionRecord {
-  const result = store.finalizeSession({
+  const result = finalizeAttempt(store, root, idempotencyKey, nextSteps, completedAt, options);
+  if (result.outcome !== "finalized") throw new Error(`Expected finalized Session, received ${result.outcome}.`);
+  return result.session;
+}
+
+function finalizeAttempt(
+  store: WorkIntelligenceStore,
+  root: string,
+  idempotencyKey: string,
+  nextSteps: string[],
+  completedAt = SOURCE_TIME,
+  options: FinalizeOptions = {},
+): ReturnType<WorkIntelligenceStore["finalizeSession"]> {
+  return store.finalizeSession({
     projectRoot: root,
     idempotencyKey,
     title: options.title ?? idempotencyKey,
@@ -72,10 +87,12 @@ function finalize(
           },
         }
       : {}),
+    ...(options.resolvedOutstandingItemIds ? { resolvedOutstandingItemIds: options.resolvedOutstandingItemIds } : {}),
+    ...(options.supersededOutstandingItemIds
+      ? { supersededOutstandingItemIds: options.supersededOutstandingItemIds }
+      : {}),
     completedAt,
   });
-  if (result.outcome !== "finalized") throw new Error(`Expected finalized Session, received ${result.outcome}.`);
-  return result.session;
 }
 
 function pendingItems(store: WorkIntelligenceStore, projectId: string) {
@@ -788,6 +805,208 @@ describe("outstanding cleanup requests", () => {
     ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", duplicate: true });
     expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toEqual(afterAccept);
     expect(allPendingItems(store, projectId)).toHaveLength(101);
+  });
+
+  it.each(["pending", "awaiting_review"] as const)(
+    "keeps %s cleanup snapshot items pending when finalize requests direct transitions",
+    (requestStatus) => {
+      const { store, root, projectId } = createTrackedProject("Cleanup finalize guard " + requestStatus + " fixture");
+      finalize(store, root, "cleanup-finalize-guard-" + requestStatus + "-source", [
+        "Keep the resolved item pending for review",
+        "Keep the superseded item pending for review",
+      ]);
+      const items = pendingItems(store, projectId);
+      const request = createRequest(store, projectId, "cleanup-finalize-guard-" + requestStatus + "-request");
+      if (requestStatus === "awaiting_review") {
+        const evidence = finalize(store, root, "cleanup-finalize-guard-evidence", [], EVIDENCE_TIME);
+        const submission = store.submitOutstandingCleanupProposals({
+          requestId: request.id,
+          idempotencyKey: "cleanup-finalize-guard-submit",
+          examinedItemIds: items.map((item) => item.id),
+          proposals: [
+            {
+              itemId: items[0]!.id,
+              status: "completed",
+              reason: "The synthetic later Session verifies the proposed completion.",
+              evidenceSessionIds: [evidence.id],
+            },
+          ],
+        });
+        expect(submission.outcome).toBe("outstanding_cleanup_proposals_submitted");
+      }
+      expect(store.getOutstandingCleanupContext({ requestId: request.id })).toMatchObject({
+        outcome: "outstanding_cleanup_context",
+        request: { id: request.id, status: requestStatus },
+      });
+      const targetIds = [items[0]!.id, items[1]!.id];
+      const eventsBefore = store
+        .exportProjectData({ type: "project", projectId })
+        .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id)));
+
+      const attempt = finalizeAttempt(
+        store,
+        root,
+        "cleanup-finalize-guard-" + requestStatus + "-attempt",
+        ["Unrelated follow-up from this Session"],
+        TEST_NOW,
+        {
+          resolvedOutstandingItemIds: [items[0]!.id],
+          supersededOutstandingItemIds: [items[1]!.id],
+        },
+      );
+
+      expect(attempt.outcome).toBe("finalized");
+      if (attempt.outcome !== "finalized") throw new Error("Expected the guard Session to finalize.");
+      expect(attempt).toMatchObject({
+        resolvedOutstandingItemIds: [],
+        supersededOutstandingItemIds: [],
+        outstandingItemWarnings: {
+          unresolvedIds: [items[0]!.id],
+          unsupersededIds: [items[1]!.id],
+        },
+      });
+      const pendingAfterFinalize = pendingItems(store, projectId);
+      expect(pendingAfterFinalize.map((item) => item.id)).toEqual(expect.arrayContaining(targetIds));
+      expect(pendingAfterFinalize).toEqual(
+        expect.arrayContaining([expect.objectContaining({ text: "Unrelated follow-up from this Session" })]),
+      );
+      expect(
+        store
+          .exportProjectData({ type: "project", projectId })
+          .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id))),
+      ).toEqual(eventsBefore);
+      if (requestStatus === "awaiting_review") {
+        expect(store.listOutstandingCleanupProposals({ requestId: request.id })).toMatchObject({
+          outcome: "outstanding_cleanup_proposals",
+          proposals: [expect.objectContaining({ itemId: items[0]!.id, reviewStatus: "pending" })],
+        });
+      }
+    },
+  );
+
+  it("holds Agent summary removals until cancellation, then restores normal transitions and Web edits", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup Agent summary guard fixture");
+    const source = finalize(store, root, "cleanup-agent-summary-source", [
+      "Resolve after cleanup cancellation",
+      "Supersede after cleanup cancellation",
+    ]);
+    const items = pendingItems(store, projectId);
+    const targetIds = [items[0]!.id, items[1]!.id];
+    const request = createRequest(store, projectId, "cleanup-agent-summary-request");
+    const eventsBefore = store
+      .exportProjectData({ type: "project", projectId })
+      .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id)));
+
+    const agentUpdate = store.updateSessionWorkSummary(
+      {
+        sessionId: source.id,
+        idempotencyKey: "cleanup-agent-summary-remove-next-step",
+        mode: "patch",
+        workSummary: { nextSteps: [] },
+      },
+      "agent",
+    );
+    expect(agentUpdate).toMatchObject({
+      outcome: "work_summary_updated",
+      duplicate: false,
+      appliedWorkSummary: { nextSteps: [] },
+    });
+    expect(pendingItems(store, projectId).map((pending) => pending.id)).toEqual(targetIds);
+    expect(
+      store
+        .exportProjectData({ type: "project", projectId })
+        .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id))),
+    ).toEqual(eventsBefore);
+    expect(store.getOutstandingCleanupContext({ requestId: request.id })).toMatchObject({
+      outcome: "outstanding_cleanup_context",
+      request: { id: request.id, status: "pending" },
+      items: [expect.objectContaining({ stale: true }), expect.objectContaining({ stale: true })],
+    });
+
+    expect(store.cancelOutstandingCleanupRequest(request.id)).toMatchObject({
+      outcome: "outstanding_cleanup_request_cancelled",
+      request: { status: "cancelled" },
+    });
+    const cancelledAttempt = finalizeAttempt(
+      store,
+      root,
+      "cleanup-agent-summary-after-cancel",
+      ["Unrelated post-cancellation follow-up"],
+      TEST_NOW,
+      {
+        resolvedOutstandingItemIds: [items[0]!.id],
+        supersededOutstandingItemIds: [items[1]!.id],
+      },
+    );
+    expect(cancelledAttempt.outcome).toBe("finalized");
+    if (cancelledAttempt.outcome !== "finalized") throw new Error("Expected canceled-request transitions.");
+    expect(cancelledAttempt).toMatchObject({
+      resolvedOutstandingItemIds: [items[0]!.id],
+      supersededOutstandingItemIds: [items[1]!.id],
+    });
+    expect(cancelledAttempt).not.toHaveProperty("outstandingItemWarnings");
+    expect(store.getOutstandingCleanupContext({ requestId: request.id })).toMatchObject({
+      outcome: "outstanding_cleanup_context",
+      request: { id: request.id, status: "cancelled" },
+      items: [expect.objectContaining({ stale: true }), expect.objectContaining({ stale: true })],
+    });
+    expect(
+      store
+        .exportProjectData({ type: "project", projectId })
+        .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id))),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item_id: items[0]!.id,
+          source: "agent",
+          actor_session_id: cancelledAttempt.session.id,
+          to_status: "completed",
+        }),
+        expect.objectContaining({
+          item_id: items[1]!.id,
+          source: "agent",
+          actor_session_id: cancelledAttempt.session.id,
+          to_status: "not_needed",
+        }),
+      ]),
+    );
+
+    const webProject = addTrackedProject(store, "Cleanup Web summary edit fixture");
+    const webSource = finalize(store, webProject.root, "cleanup-web-summary-source", ["Close by explicit Web edit"]);
+    const webItem = pendingItems(store, webProject.projectId)[0]!;
+    createRequest(store, webProject.projectId, "cleanup-web-summary-request");
+    const webUpdate = store.updateSessionWorkSummary(
+      {
+        sessionId: webSource.id,
+        idempotencyKey: "cleanup-web-summary-remove-next-step",
+        mode: "patch",
+        workSummary: { nextSteps: [] },
+      },
+      "web",
+    );
+    expect(webUpdate).toMatchObject({
+      outcome: "work_summary_updated",
+      duplicate: false,
+      appliedWorkSummary: { nextSteps: [] },
+    });
+    expect(
+      store.listOutstandingItems({ projectId: webProject.projectId, status: "not_needed", pageSize: 0 }),
+    ).toMatchObject({
+      outcome: "outstanding_items",
+      items: [expect.objectContaining({ id: webItem.id, status: "not_needed" })],
+    });
+    expect(
+      store.exportProjectData({ type: "project", projectId: webProject.projectId }).tables.outstanding_item_events,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item_id: webItem.id,
+          source: "web",
+          from_status: "pending",
+          to_status: "not_needed",
+        }),
+      ]),
+    );
   });
 
   it("cancels the review request without changing its snapshotted outstanding items", () => {

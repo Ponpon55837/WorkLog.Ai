@@ -1605,7 +1605,7 @@ export class WorkIntelligenceStore {
                 unresolvedIds,
                 unsupersededIds,
                 message:
-                  "部分指定項目無效、已處理、跨專案、未提供取代項目或同時指定完成與取代，因此未標記完成或不再需要，維持原狀。",
+                  "部分指定項目無效、已處理、跨專案、正在整理待審、未提供取代項目或同時指定完成與取代，因此未標記完成或不再需要，維持原狀。",
               },
             }
           : {}),

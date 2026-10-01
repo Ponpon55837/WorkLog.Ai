@@ -123,6 +123,19 @@ test("reviews cleanup proposals individually and in a batch, preserves rejected 
   await page.getByRole("dialog", { name: "接受整理建議？" }).getByRole("button", { name: "確認接受" }).click();
   await expect(panel.getByRole("button", { name: "接受建議", exact: true })).toHaveCount(2);
   await panel.getByRole("checkbox", { name: "選取本頁全部整理建議", exact: true }).check();
+  await page.route(
+    "**/api/outstanding-cleanup/requests/*/proposals?*",
+    async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { proposals: Array<{ reason: string }> };
+      for (const proposal of body.proposals) proposal.reason = "Verified background refresh";
+      await route.fulfill({ response, json: body });
+    },
+    { times: 1 },
+  );
+  await panel.getByRole("button", { name: "重新整理", exact: true }).click();
+  await expect(panel.getByText("Verified background refresh", { exact: true }).first()).toBeVisible();
+  await expect(panel.getByRole("checkbox", { name: "選取本頁全部整理建議", exact: true })).toBeChecked();
   await panel.getByRole("button", { name: "接受選取", exact: true }).click();
   await page.getByRole("dialog", { name: "接受整理建議？" }).getByRole("button", { name: "確認接受" }).click();
   await expect(panel.getByText("整理結束", { exact: true }).first()).toBeVisible();
@@ -204,6 +217,7 @@ test("disables stale acceptance and keeps cancelled proposals as read-only histo
   ).toBeVisible();
   await expect(panel.getByRole("button", { name: "接受建議", exact: true }).first()).toBeDisabled();
   await expect(panel.getByRole("button", { name: "拒絕建議", exact: true }).first()).toBeEnabled();
+  await panel.getByRole("checkbox", { name: "選取本頁全部整理建議", exact: true }).check();
   await panel.getByRole("button", { name: "取消整理請求", exact: true }).click();
   await page
     .getByRole("dialog", { name: "取消這份整理請求？" })
@@ -214,6 +228,8 @@ test("disables stale acceptance and keeps cancelled proposals as read-only histo
   ).toBeVisible();
   await expect(panel.getByRole("button", { name: "拒絕建議", exact: true }).first()).toBeDisabled();
   await expect(panel.getByRole("button", { name: "接受建議", exact: true }).first()).toBeDisabled();
+  await expect(panel.getByRole("checkbox", { name: "選取本頁全部整理建議", exact: true })).not.toBeChecked();
+  await expect(panel.getByText("已選取 0 項", { exact: true })).toBeVisible();
   expect(await countStatus(request, fixture.projectId, "pending")).toBe(1);
   expect(await countStatus(request, fixture.projectId, "not_needed")).toBe(1);
   await expect(panel.getByRole("button", { name: "建立整理請求", exact: true })).toBeEnabled();

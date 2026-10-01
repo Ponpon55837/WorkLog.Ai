@@ -349,6 +349,22 @@ export class OutstandingItemService {
         "SELECT id, position, text, status FROM outstanding_items WHERE source_session_id = ? ORDER BY position, id",
       )
       .all(sessionId) as Array<{ id: string; position: number; text: string; status: OutstandingItemStatus }>;
+    // An Agent's compatibility-array edit must not close obligations awaiting human cleanup review.
+    const heldIds =
+      source === "agent" && existing.some((row) => row.status === "pending")
+        ? new Set(
+            (
+              this.db
+                .prepare(
+                  `SELECT ci.item_id FROM outstanding_cleanup_requests r
+                   JOIN outstanding_cleanup_request_items ci ON ci.request_id = r.id AND ci.project_id = r.project_id
+                   WHERE r.project_id = ? AND r.status IN ('pending', 'awaiting_review')
+                     AND ci.source_session_id = ?`,
+                )
+                .all(projectId, sessionId) as Array<{ item_id: string }>
+            ).map((row) => row.item_id),
+          )
+        : new Set<string>();
     const byText = new Map<string, typeof existing>();
     for (const row of existing) {
       const queue = byText.get(row.text) ?? [];
@@ -377,7 +393,7 @@ export class OutstandingItemService {
       "UPDATE outstanding_items SET status = 'not_needed', updated_at = ? WHERE id = ? AND status = 'pending'",
     );
     for (const row of existing) {
-      if (retained.has(row.id) || row.status !== "pending") continue;
+      if (retained.has(row.id) || heldIds.has(row.id) || row.status !== "pending") continue;
       markNotNeeded.run(updatedAt, row.id);
       appendEvent(this.db, row.id, projectId, "pending", "not_needed", source, actorSessionId, updatedAt);
     }
@@ -445,6 +461,12 @@ export class OutstandingItemService {
         `SELECT i.id FROM outstanding_items i
          JOIN sessions s ON s.id = i.source_session_id AND s.project_id = i.project_id
          WHERE i.project_id = ? AND i.status = 'pending' AND s.voided_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM outstanding_cleanup_requests r
+             JOIN outstanding_cleanup_request_items ci ON ci.request_id = r.id AND ci.project_id = r.project_id
+             WHERE r.project_id = i.project_id AND r.status IN ('pending', 'awaiting_review')
+               AND ci.item_id = i.id
+           )
            AND i.id IN (${placeholders})`,
       )
       .all(projectId, ...requestedIds) as Array<{ id: string }>;

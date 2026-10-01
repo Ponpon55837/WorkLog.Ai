@@ -180,6 +180,8 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 提交只產生待審建議，未結項維持 pending；全部核對完且仍有待審建議時請求為 awaiting_review，審核完則 completed。使用者在 Web 接受／拒絕；接受時再次核對 item、來源與每個 evidence Session 的版本及內容指紋，任何過期項目都使整批拒絕。接受稽核以 Web source 連到 request／proposal，證據保存在 proposal evidence 關聯。MCP 不提供接受能力，也不能用 finalize 繞過整理審核。
 
+活躍整理請求（pending／awaiting_review）中的快照項目由儲存層保護：Agent finalize 的完成／取代 ID 會被略過並回傳警告，Agent 編輯來源 nextSteps 也不會將它們標為不再需要。取消或完成請求後解除此限制；Web 明確人工操作仍可執行，並使舊建議依版本核對失效。
+
 Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現有 Agent 需重新連線。完整工作流程見 [Agent skill](../.agents/skills/work-intelligence/SKILL.md)。
 
 ## `work_recall`

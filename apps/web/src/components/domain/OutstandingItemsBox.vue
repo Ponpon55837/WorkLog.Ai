@@ -175,9 +175,18 @@ function isChanging(item: OutstandingItem): boolean {
   return batchBusy.value || changingItemIds.value.includes(item.id);
 }
 
-watch([projectId, status, pageSize, page, from, to, () => props.items], () => {
+watch([projectId, status, pageSize, page, from, to], () => {
   selectedIds.value = [];
 });
+
+watch(
+  () => props.items,
+  (items) => {
+    // A same-page SSE refresh keeps eligible selections instead of undoing a user's click.
+    const eligibleIds = new Set(items.filter((item) => item.status === "pending").map((item) => item.id));
+    selectedIds.value = selectedIds.value.filter((id) => eligibleIds.has(id));
+  },
+);
 </script>
 
 <template>

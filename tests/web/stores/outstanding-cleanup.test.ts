@@ -25,6 +25,10 @@ const pageInfo = {
   hasNext: true,
   truncated: false,
 };
+const decisionRefreshScenarios = [
+  { name: "a committed acceptance", conflict: false },
+  { name: "a real conflict", conflict: true },
+] as const;
 let harness: ReturnType<typeof createStoreHarness>;
 function responder({ url, method, body }: StoreRequest): unknown {
   if (url.pathname === "/api/outstanding-cleanup/requests" && method === "GET")
@@ -92,5 +96,54 @@ describe("outstanding cleanup store", () => {
     useOutstandingItemsStore().projectId = "project-2";
     await vi.waitFor(() => expect(store.proposalError).toContain("其他專案"));
     expect(store.proposals).toEqual([]);
+  });
+
+  it.each(decisionRefreshScenarios)("preserves $name when its proposal refresh is aborted", async ({ conflict }) => {
+    const items = useOutstandingItemsStore();
+    items.projectId = "project-1";
+    const store = useOutstandingCleanupStore();
+    store.requestId = "cleanup-1";
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.selectedRequest?.id).toBe("cleanup-1"));
+    const proposalPath = "/api/outstanding-cleanup/requests/cleanup-1/proposals";
+    await vi.waitFor(() => expect(harness.count(proposalPath)).toBe(1));
+
+    let holdNextProposalRead = true;
+    let proposalReadAborted = false;
+    let notifyProposalReadStarted: () => void = () => undefined;
+    const proposalReadStarted = new Promise<void>((resolve) => {
+      notifyProposalReadStarted = resolve;
+    });
+    harness.setResponder((request) => {
+      if (conflict && request.url.pathname.endsWith("/decisions"))
+        return jsonResponse({ code: "conflict", error: "Conflict" }, 409);
+      if (request.url.pathname === proposalPath && request.method === "GET" && holdNextProposalRead) {
+        holdNextProposalRead = false;
+        notifyProposalReadStarted();
+        return new Promise<never>((_resolve, reject) => {
+          const signal = request.signal;
+          if (!signal) {
+            reject(new Error("The proposal refresh should receive an abort signal."));
+            return;
+          }
+          const onAbort = () => {
+            proposalReadAborted = true;
+            reject(new DOMException("Aborted", "AbortError"));
+          };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        });
+      }
+      return responder(request);
+    });
+
+    const decision = store.decide(["proposal-1"], "accept");
+    await proposalReadStarted;
+    const refresh = store.reload();
+    if (conflict) await expect(decision).rejects.toThrow("整批未套用");
+    else await expect(decision).resolves.toBeUndefined();
+    await refresh;
+
+    expect(proposalReadAborted).toBe(true);
   });
 });

@@ -134,13 +134,14 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
 
   const createMutation = useMutation({
     mutation: (input: CreateOutstandingCleanupRequestInput) => useApi().client.createOutstandingCleanupRequest(input),
-    onSuccess: () => queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
+    onSuccess: () => Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests })]),
   });
   const decideMutation = useMutation({
     mutation: (input: DecideOutstandingCleanupProposalsInput) =>
       useApi().client.decideOutstandingCleanupProposals(input),
     onSuccess: async () => {
-      await Promise.all([
+      // An SSE refetch can supersede these reads after the review write already committed.
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
@@ -149,12 +150,12 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary }),
       ]);
     },
-    onError: () => queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals }),
+    onError: () => Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals })]),
   });
   const cancelMutation = useMutation({
     mutation: (id: string) => useApi().client.cancelOutstandingCleanupRequest(id),
     onSuccess: async () => {
-      await Promise.all([
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals }),
       ]);

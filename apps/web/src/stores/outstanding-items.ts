@@ -92,7 +92,8 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     mutation: (input: UpdateOutstandingItemStatusInput) => useApi().client.updateOutstandingItemStatus(input),
     onSuccess: async (result: UpdateOutstandingItemStatusResult) => {
       if (result.outcome !== "outstanding_item_updated") return;
-      await queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list });
+      // A later SSE refresh may cancel this read after the write already succeeded.
+      await Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list })]);
     },
   });
 
@@ -100,7 +101,8 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     mutation: (input: BatchUpdateOutstandingItemStatusInput) => useApi().client.batchUpdateOutstandingItemStatus(input),
     onSuccess: async (result: BatchUpdateOutstandingItemStatusResult) => {
       if (result.outcome !== "outstanding_items_updated") return;
-      await Promise.all([
+      // Refresh errors belong to the queries and must not turn a committed write into a failure.
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
