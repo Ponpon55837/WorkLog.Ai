@@ -6,7 +6,7 @@
 
 ## tools/list 與 dispatcher
 
-`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；45 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；48 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
 
 | MCP tool | Annotation | 用途 |
 |---|---|---|
@@ -162,6 +162,28 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 { "projectRoot": "C:\\work\\assistant", "status": "pending", "page": 1, "pageSize": 5 }
 ```
 
+## 未結項整理：兩個讀取與一個提交 operation
+
+使用者先在 Web 選擇一個記錄中的專案建立「整理未結項」請求。MCP 不建立、取消或審核整理請求；只有以下三項新增操作：
+
+| Operation | Dispatcher | 參數與回應 |
+| --- | --- | --- |
+| `work_list_outstanding_cleanup_requests` | `work_read` | 可選 `projectId`、`status`、`page`；`pageSize` 預設／上限 5，列出 tracked 專案請求 |
+| `work_get_outstanding_cleanup_context` | `work_read` | `requestId`；獨立 `itemPage`／`sessionPage`，`itemPageSize` 上限 5、`sessionPageSize` 上限 10；整體 24,000 字元 |
+| `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個 `proposals` |
+
+若合法匯入資料的識別或時間欄位過長，文字截短後仍超過預算，context 整頁回傳 `rejected`／`context_too_large`；不截短 ID 或靜默漏掉項目。
+
+每項 proposal 包含 `itemId`、`status`（completed／not_needed）、1–2,000 字的 `reason` 及 1–10 個 `evidenceSessionIds`。項目與證據 ID 不得重複，proposal 必須是 examined 項目的子集。沒有充分證據時只回報 examined，不提建議；同 key／相同正規化內容重試回傳原提交，內容不同或項目已由其他提交核對時整批拒絕。
+
+請求固定當時未處理項目的快照（最多 10,000 項，超過則不建立）。context 只查同專案、未作廢、finalized 的後續 Session，完成／建立時間均不晚於 requestedAt；後續必須相對每個項目的來源時間判定。item 與 Session 分頁各有 pageInfo，摘要、outcomes 與 PR 截短／省略均明示。讀完整來源並檢查後續矛盾後才能提案；PR 或 passed 標記本身不是完成證據。`pendingRequests.outstandingCleanup` 在一般 context 顯示最多 5 個 pending 請求。
+
+提交只產生待審建議，未結項維持 pending；全部核對完且仍有待審建議時請求為 awaiting_review，審核完則 completed。使用者在 Web 接受／拒絕；接受時再次核對 item、來源與每個 evidence Session 的版本及內容指紋，任何過期項目都使整批拒絕。接受稽核以 Web source 連到 request／proposal，證據保存在 proposal evidence 關聯。MCP 不提供接受能力，也不能用 finalize 繞過整理審核。
+
+活躍整理請求（pending／awaiting_review）中的快照項目由儲存層保護：Agent finalize 的完成／取代 ID 會被略過並回傳警告，Agent 編輯來源 nextSteps 也不會將它們標為不再需要。取消或完成請求後解除此限制；Web 明確人工操作仍可執行，並使舊建議依版本核對失效。
+
+Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現有 Agent 需重新連線。完整工作流程見 [Agent skill](../.agents/skills/work-intelligence/SKILL.md)。
+
 ## `work_recall`
 
 排序檢索 tracked 專案的 Session 與 active Knowledge，Agent 開工前（`q` 描述任務、`paths` 帶要改的檔案）、遇到錯誤時（`q` 帶錯誤訊息）或使用者問到過去的工作時使用。`q` 與 `paths` 至少提供一個；可選 `projectRoot`（先過 policy gate）、`limit`（1–30，預設 8），以及 `from`／`to`（含頭尾的日曆日期 `YYYY-MM-DD`，依 server 系統時區）。使用者說「上週」「六月」「昨天」時，Agent 以 `clock` 換算成日期再帶入；Session 以完成時間、Knowledge 以最後更新時間判斷，篩選在 SQL 查詢中完成。固定軟體用語表會擴展 endpoint／API／路由／route、慣例／convention、效能／performance、測試／test、設定／config、遷移／migration；擴展分數低於原詞，且不呼叫外部服務或模型。回應附 `confidence`：`none` 表示沒有符合門檻的原詞、路徑或同義詞結果，此時 `hits` 為空且不能把結果當依據；`low` 表示弱的部分命中、只在 raw handoff 找到，或只有同義詞線索，應先核對原文；`high` 表示至少一筆只依原詞在標題、摘要、workSummary 或 Knowledge 命中一半以上的 IDF 加權比例，或命中路徑。`termHits` 與原詞命中比例只計原始查詢詞，同義詞候選不會讓結果升為 `high`。
@@ -194,7 +216,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 另外提供兩個 MCP prompts：`finalize-work`（把這次工作記錄下來）與 `synthesize-report`（可選 `period`，整理報告）。
 
-Server instructions 只放路由規則；45 項 operation 的長說明與 schema 按需由固定 contract resource 提供，避免初始工具清單被重複描述撐大。
+Server instructions 只放路由規則；48 項 operation 的長說明與 schema 按需由固定 contract resource 提供，避免初始工具清單被重複描述撐大。
 
 ## `work_get_report`
 

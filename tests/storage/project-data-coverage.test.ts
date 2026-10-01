@@ -27,6 +27,9 @@ const NO_FREE_TEXT: Record<string, string> = {
   session_links: "ids, relation, and source only",
   knowledge_feedback: "ids, kind, and time only",
   outstanding_item_events: "item/session ids, status transitions, source, and time only",
+  outstanding_cleanup_requests: "ids, idempotency key, status, and times only",
+  outstanding_cleanup_submissions: "ids, idempotency key, payload hash, and time only",
+  outstanding_cleanup_proposal_evidence: "ids, version fingerprints, and times only",
 };
 
 function userTables(db: DatabaseSync): string[] {

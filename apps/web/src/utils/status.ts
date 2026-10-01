@@ -30,6 +30,8 @@ import type {
   KnowledgeStatus,
   MetadataBackfillRequest,
   OutstandingItemStatus,
+  OutstandingCleanupRequestStatus,
+  OutstandingCleanupProposalStatus,
   ProjectStatus,
   ReportSynthesisRequest,
   ReportVerificationStatus,
@@ -213,6 +215,19 @@ export const knowledgeKindVisual: Record<KnowledgeKind, StatusVisual> = {
   gotcha: { tone: "attention", icon: TriangleAlert, label: "注意事項" },
   procedure: { tone: "success", icon: ListOrdered, label: "操作流程" },
   skill: { tone: "neutral", icon: GraduationCap, label: "技能" },
+};
+
+export const outstandingCleanupRequestVisual: Record<OutstandingCleanupRequestStatus, StatusVisual> = {
+  pending: { tone: "attention", icon: CircleDashed, label: "待 Agent 整理" },
+  awaiting_review: { tone: "done", icon: CircleAlert, label: "待審核" },
+  completed: { tone: "done", icon: Check, label: "整理結束" },
+  cancelled: { tone: "neutral", icon: CircleSlash, label: "已取消" },
+};
+
+export const outstandingCleanupProposalVisual: Record<OutstandingCleanupProposalStatus, StatusVisual> = {
+  pending: { tone: "attention", icon: CircleDashed, label: "待審核" },
+  accepted: { tone: "success", icon: Check, label: "已接受" },
+  rejected: { tone: "neutral", icon: CircleSlash, label: "已拒絕" },
 };
 
 export const outstandingItemStatusVisual: Record<OutstandingItemStatus, StatusVisual> = {

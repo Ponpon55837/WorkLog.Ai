@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { applySchemaMigrations } from "../../packages/storage/src/schema-migrations.js";
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
+import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
 describe("custom report synthesis migration", () => {
   it("preserves existing requests and summaries while allowing custom periods", () => {
@@ -447,8 +448,7 @@ describe("outstanding item migration", () => {
         "2026-09-20T00:00:00.000Z",
         "2026-09-21T00:00:00.000Z",
       );
-      db.exec("DROP TABLE outstanding_item_events; DROP TABLE outstanding_items;");
-      db.prepare("DELETE FROM schema_migrations WHERE version = 22").run();
+      undoMigrationsAfter(db, 21);
 
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
@@ -470,6 +470,83 @@ describe("outstanding item migration", () => {
         { from_status: null, to_status: "pending", source: "migration", actor_session_id: null },
         { from_status: null, to_status: "pending", source: "migration", actor_session_id: null },
       ]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("outstanding cleanup review migration", () => {
+  it("preserves schema-22 outstanding rows and leaves new audit links empty", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE projects (id TEXT PRIMARY KEY);
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          UNIQUE (id, project_id)
+        );
+        CREATE TABLE outstanding_items (
+          id TEXT PRIMARY KEY,
+          source_session_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE outstanding_item_events (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          from_status TEXT,
+          to_status TEXT NOT NULL,
+          source TEXT NOT NULL,
+          actor_session_id TEXT,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO schema_migrations (version, name, applied_at)
+          SELECT value, 'legacy-schema-version', '2026-09-30T00:00:00.000Z'
+          FROM json_each('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]');
+        INSERT INTO projects (id) VALUES ('migration-project');
+        INSERT INTO sessions (id, project_id) VALUES ('migration-session', 'migration-project');
+        INSERT INTO outstanding_items (
+          id, source_session_id, project_id, position, text, status, created_at, updated_at
+        ) VALUES (
+          'migration-item', 'migration-session', 'migration-project', 0, 'Pending survives migration',
+          'pending', '2026-09-20T00:00:00.000Z', '2026-09-20T00:00:00.000Z'
+        );
+        INSERT INTO outstanding_item_events (
+          id, item_id, project_id, from_status, to_status, source, actor_session_id, created_at
+        ) VALUES (
+          'migration-event', 'migration-item', 'migration-project', NULL, 'pending', 'migration', NULL,
+          '2026-09-20T00:00:00.000Z'
+        );
+      `);
+
+      db.exec("BEGIN IMMEDIATE");
+      applySchemaMigrations(db);
+      db.exec("COMMIT");
+
+      expect(db.prepare("SELECT id, status FROM outstanding_items").all()).toEqual([
+        { id: "migration-item", status: "pending" },
+      ]);
+      expect(
+        db.prepare("SELECT id, cleanup_request_id, cleanup_proposal_id FROM outstanding_item_events").all(),
+      ).toEqual([{ id: "migration-event", cleanup_request_id: null, cleanup_proposal_id: null }]);
+      expect(db.prepare("SELECT version, name FROM schema_migrations WHERE version = 23").get()).toEqual({
+        version: 23,
+        name: "outstanding-cleanup-review",
+      });
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally {
       db.close();
     }

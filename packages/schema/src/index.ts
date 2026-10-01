@@ -24,6 +24,8 @@ import {
   SESSION_DECISION_ORIGINS,
   SESSION_DECISION_REVIEW_STATUSES,
   OUTSTANDING_ITEM_STATUSES,
+  OUTSTANDING_CLEANUP_REQUEST_STATUSES,
+  OUTSTANDING_CLEANUP_PROPOSAL_STATUSES,
   MAX_OUTSTANDING_ITEM_BATCH_SIZE,
   WORK_SUMMARY_DECISION_ORIGINS,
   WORK_REPORT_PERIODS,
@@ -1126,6 +1128,57 @@ export type McpListSessionsInput = z.infer<typeof mcpListSessionsInputSchema>;
 export type McpCreateReportSynthesisRequestInput = z.infer<typeof mcpCreateReportSynthesisRequestInputSchema>;
 export type McpCreateMetadataBackfillRequestInput = z.infer<typeof mcpCreateMetadataBackfillRequestInputSchema>;
 
+const cleanupIdSchema = z.string().trim().min(1).max(200);
+const cleanupPageSchema = z.number().int().min(1).max(1_000_000).optional();
+
+export const createOutstandingCleanupRequestInputSchema = z.object({
+  projectId: cleanupIdSchema,
+  idempotencyKey: cleanupIdSchema,
+});
+export const outstandingCleanupRequestQuerySchema = z.object({
+  projectId: cleanupIdSchema.optional(),
+  status: z.enum(OUTSTANDING_CLEANUP_REQUEST_STATUSES).optional(),
+  page: cleanupPageSchema,
+  pageSize: z.number().int().min(1).max(100).optional(),
+});
+export const mcpOutstandingCleanupRequestQuerySchema = outstandingCleanupRequestQuerySchema.extend({
+  pageSize: z.number().int().min(1).max(5).optional(),
+});
+export const outstandingCleanupRequestIdSchema = z.object({ requestId: cleanupIdSchema });
+export const outstandingCleanupContextQuerySchema = z.object({
+  requestId: cleanupIdSchema,
+  itemPage: cleanupPageSchema,
+  sessionPage: cleanupPageSchema,
+  itemPageSize: z.number().int().min(1).max(5).optional(),
+  sessionPageSize: z.number().int().min(1).max(10).optional(),
+});
+export const submitOutstandingCleanupProposalsInputSchema = z.object({
+  requestId: cleanupIdSchema,
+  idempotencyKey: cleanupIdSchema,
+  examinedItemIds: z.array(cleanupIdSchema).min(1).max(100),
+  proposals: z
+    .array(
+      z.object({
+        itemId: cleanupIdSchema,
+        status: z.enum(["completed", "not_needed"]),
+        reason: z.string().trim().min(1).max(2_000),
+        evidenceSessionIds: z.array(cleanupIdSchema).min(1).max(10),
+      }),
+    )
+    .max(100),
+});
+export const outstandingCleanupProposalQuerySchema = z.object({
+  requestId: cleanupIdSchema,
+  reviewStatus: z.enum(OUTSTANDING_CLEANUP_PROPOSAL_STATUSES).optional(),
+  page: cleanupPageSchema,
+  pageSize: z.number().int().min(1).max(100).optional(),
+});
+export const decideOutstandingCleanupProposalsInputSchema = z.object({
+  requestId: cleanupIdSchema,
+  proposalIds: z.array(cleanupIdSchema).min(1).max(100),
+  decision: z.enum(["accept", "reject"]),
+});
+
 export const projectDataExportTableColumns = {
   projects: ["id", "name", "root_path", "status", "created_at", "updated_at", "last_ingested_at", "repository_url"],
   sessions: [
@@ -1366,6 +1419,53 @@ export const projectDataExportTableColumns = {
     "source",
     "actor_session_id",
     "created_at",
+    "cleanup_request_id",
+    "cleanup_proposal_id",
+  ],
+  outstanding_cleanup_requests: [
+    "id",
+    "project_id",
+    "idempotency_key",
+    "status",
+    "requested_at",
+    "completed_at",
+    "item_count",
+  ],
+  outstanding_cleanup_submissions: ["id", "request_id", "project_id", "idempotency_key", "payload_hash", "created_at"],
+  outstanding_cleanup_request_items: [
+    "id",
+    "request_id",
+    "project_id",
+    "item_id",
+    "source_session_id",
+    "position",
+    "text",
+    "item_updated_at",
+    "source_updated_at",
+    "source_fingerprint",
+    "source_completed_at",
+    "examined_submission_id",
+  ],
+  outstanding_cleanup_proposals: [
+    "id",
+    "request_id",
+    "project_id",
+    "request_item_id",
+    "submission_id",
+    "target_status",
+    "reason",
+    "review_status",
+    "created_at",
+    "decided_at",
+  ],
+  outstanding_cleanup_proposal_evidence: [
+    "id",
+    "proposal_id",
+    "project_id",
+    "session_id",
+    "session_updated_at",
+    "session_fingerprint",
+    "session_completed_at",
   ],
 } as const satisfies Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>;
 
@@ -1397,6 +1497,11 @@ const projectDataTablesShape = {
   session_work_summary_updates: projectDataRows,
   outstanding_items: projectDataRows,
   outstanding_item_events: projectDataRows,
+  outstanding_cleanup_requests: projectDataRows,
+  outstanding_cleanup_submissions: projectDataRows,
+  outstanding_cleanup_request_items: projectDataRows,
+  outstanding_cleanup_proposals: projectDataRows,
+  outstanding_cleanup_proposal_evidence: projectDataRows,
 };
 
 export const projectDataExportScopeSchema = z.discriminatedUnion("type", [
@@ -1408,6 +1513,11 @@ const projectDataImportStatusValues: Partial<
   Record<(typeof PROJECT_DATA_TABLES)[number], Record<string, readonly string[]>>
 > = {
   projects: { status: PROJECT_STATUSES },
+  outstanding_cleanup_requests: { status: OUTSTANDING_CLEANUP_REQUEST_STATUSES },
+  outstanding_cleanup_proposals: {
+    target_status: ["completed", "not_needed"],
+    review_status: OUTSTANDING_CLEANUP_PROPOSAL_STATUSES,
+  },
   sessions: { status: ["finalized"], execution_status: ["completed"] },
   work_events: { type: WORK_EVENT_TYPES },
   raw_snapshots: { kind: ["handoff"] },
@@ -1587,6 +1697,41 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
     "updated_at",
   ],
   outstanding_item_events: ["id", "item_id", "project_id", "to_status", "source", "created_at"],
+  outstanding_cleanup_requests: ["id", "project_id", "idempotency_key", "status", "requested_at", "item_count"],
+  outstanding_cleanup_submissions: ["id", "request_id", "project_id", "idempotency_key", "payload_hash", "created_at"],
+  outstanding_cleanup_request_items: [
+    "id",
+    "request_id",
+    "project_id",
+    "item_id",
+    "source_session_id",
+    "position",
+    "text",
+    "item_updated_at",
+    "source_updated_at",
+    "source_fingerprint",
+    "source_completed_at",
+  ],
+  outstanding_cleanup_proposals: [
+    "id",
+    "request_id",
+    "project_id",
+    "request_item_id",
+    "submission_id",
+    "target_status",
+    "reason",
+    "review_status",
+    "created_at",
+  ],
+  outstanding_cleanup_proposal_evidence: [
+    "id",
+    "proposal_id",
+    "project_id",
+    "session_id",
+    "session_updated_at",
+    "session_fingerprint",
+    "session_completed_at",
+  ],
 };
 const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>> = {
   knowledge_candidate_requests: ["candidate_count"],
@@ -1594,6 +1739,8 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
   sessions: ["changed_files_confirmed", "redaction_count"],
   session_decisions: ["position"],
   outstanding_items: ["position"],
+  outstanding_cleanup_requests: ["item_count"],
+  outstanding_cleanup_request_items: ["position"],
   knowledge_pages: ["version"],
   knowledge_page_versions: ["version"],
 };
@@ -1607,6 +1754,7 @@ export const projectDataColumnDefaults: Partial<
 > = {
   sessions: { changed_files_confirmed: 0, redaction_count: 0 },
   projects: { repository_url: null },
+  outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
   knowledge_pages: { checked_through_session_id: null },
 };
 
@@ -1734,14 +1882,14 @@ const projectDataExportObjectSchema = z
     }
   });
 
-/** Let validators recognize pre-22 export shapes; the storage importer separately rejects unsupported versions. */
+/** Let validators recognize pre-23 export shapes; the storage importer separately rejects unsupported versions. */
 export const projectDataExportSchema = z.preprocess((input: unknown) => {
   if (!input || typeof input !== "object" || Array.isArray(input)) return input;
   const bundle = input as Record<string, unknown>;
   const tables = bundle.tables;
   if (
     typeof bundle.schemaVersion !== "number" ||
-    bundle.schemaVersion >= 22 ||
+    bundle.schemaVersion >= 23 ||
     !tables ||
     typeof tables !== "object" ||
     Array.isArray(tables)
@@ -1753,8 +1901,17 @@ export const projectDataExportSchema = z.preprocess((input: unknown) => {
     ...bundle,
     tables: {
       ...sourceTables,
-      outstanding_items: sourceTables.outstanding_items ?? [],
-      outstanding_item_events: sourceTables.outstanding_item_events ?? [],
+      ...(bundle.schemaVersion < 22
+        ? {
+            outstanding_items: sourceTables.outstanding_items ?? [],
+            outstanding_item_events: sourceTables.outstanding_item_events ?? [],
+          }
+        : {}),
+      outstanding_cleanup_requests: sourceTables.outstanding_cleanup_requests ?? [],
+      outstanding_cleanup_submissions: sourceTables.outstanding_cleanup_submissions ?? [],
+      outstanding_cleanup_request_items: sourceTables.outstanding_cleanup_request_items ?? [],
+      outstanding_cleanup_proposals: sourceTables.outstanding_cleanup_proposals ?? [],
+      outstanding_cleanup_proposal_evidence: sourceTables.outstanding_cleanup_proposal_evidence ?? [],
     },
   };
 }, projectDataExportObjectSchema);

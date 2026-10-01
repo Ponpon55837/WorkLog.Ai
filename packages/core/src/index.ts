@@ -135,6 +135,11 @@ export interface ProjectDeletionCounts {
   sessionDecisions: number;
   outstandingItems: number;
   outstandingItemEvents: number;
+  outstandingCleanupRequests: number;
+  outstandingCleanupRequestItems: number;
+  outstandingCleanupSubmissions: number;
+  outstandingCleanupProposals: number;
+  outstandingCleanupProposalEvidence: number;
   knowledgePages: number;
   knowledgePageVersions: number;
   knowledgeFeedback: number;
@@ -2204,6 +2209,8 @@ export interface ContextResult {
   pendingRequests: {
     reportSynthesis: ReportSynthesisRequest[];
     metadataBackfill: MetadataBackfillRequest[];
+    /** Active project cleanup requests for Agents; proposals require Web review. */
+    outstandingCleanup?: OutstandingCleanupRequest[];
     knowledgeCandidates: KnowledgeCandidateRequest[];
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
@@ -2345,6 +2352,188 @@ export interface RecallInput extends DateRange {
   projectRoot?: string;
   limit?: number;
 }
+
+export const OUTSTANDING_CLEANUP_REQUEST_STATUSES = ["pending", "awaiting_review", "completed", "cancelled"] as const;
+export type OutstandingCleanupRequestStatus = (typeof OUTSTANDING_CLEANUP_REQUEST_STATUSES)[number];
+export const OUTSTANDING_CLEANUP_PROPOSAL_STATUSES = ["pending", "accepted", "rejected"] as const;
+export type OutstandingCleanupProposalStatus = (typeof OUTSTANDING_CLEANUP_PROPOSAL_STATUSES)[number];
+
+export interface OutstandingCleanupRequest {
+  id: string;
+  projectId: string;
+  projectName: string;
+  projectNameTruncated?: boolean;
+  status: OutstandingCleanupRequestStatus;
+  requestedAt: string;
+  completedAt?: string;
+  itemCount: number;
+  examinedCount: number;
+  proposalCount: number;
+  pendingProposalCount: number;
+}
+
+export interface CreateOutstandingCleanupRequestInput {
+  projectId: string;
+  idempotencyKey: string;
+}
+
+export interface OutstandingCleanupRequestQuery {
+  projectId?: string;
+  status?: OutstandingCleanupRequestStatus;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface OutstandingCleanupContextQuery {
+  requestId: string;
+  itemPage?: number;
+  sessionPage?: number;
+  itemPageSize?: number;
+  sessionPageSize?: number;
+}
+
+export interface OutstandingCleanupItem {
+  id: string;
+  sourceSessionId: string;
+  sourceSessionTitle: string;
+  sourceSessionCompletedAt: string;
+  text: string;
+  textTruncated?: boolean;
+  sourceSessionTitleTruncated?: boolean;
+  examined: boolean;
+  stale: boolean;
+}
+
+export interface OutstandingCleanupSession {
+  id: string;
+  title: string;
+  titleTruncated?: boolean;
+  summary: string;
+  summaryTruncated?: boolean;
+  completedAt: string;
+  outcomes: string[];
+  outcomesOmitted: number;
+  outcomesTruncated: boolean;
+  verificationStatus: VerificationStatus | "not_supplied";
+  branch?: string;
+  branchTruncated?: boolean;
+  commitSha?: string;
+  commitShaTruncated?: boolean;
+  pullRequests: string[];
+  pullRequestsOmitted: number;
+}
+
+export interface OutstandingCleanupProposal {
+  id: string;
+  requestId: string;
+  itemId: string;
+  sourceSessionId: string;
+  itemText: string;
+  status: "completed" | "not_needed";
+  reason: string;
+  evidenceSessionIds: string[];
+  reviewStatus: OutstandingCleanupProposalStatus;
+  createdAt: string;
+  decidedAt?: string;
+  stale: boolean;
+}
+
+export interface SubmitOutstandingCleanupProposalsInput {
+  requestId: string;
+  idempotencyKey: string;
+  /** Explicitly examined items with no proposal remain pending: no evidence means abstain. */
+  examinedItemIds: string[];
+  proposals: Array<{
+    itemId: string;
+    status: "completed" | "not_needed";
+    reason: string;
+    evidenceSessionIds: string[];
+  }>;
+}
+
+export interface OutstandingCleanupProposalQuery {
+  requestId: string;
+  reviewStatus?: OutstandingCleanupProposalStatus;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface DecideOutstandingCleanupProposalsInput {
+  requestId: string;
+  proposalIds: string[];
+  decision: "accept" | "reject";
+}
+
+export interface OutstandingCleanupRejectedResult {
+  outcome: "rejected";
+  reason:
+    | "invalid_items"
+    | "invalid_proposals"
+    | "invalid_evidence"
+    | "stale_proposal"
+    | "already_examined"
+    | "already_decided"
+    | "idempotency_conflict"
+    | "request_closed"
+    | "active_request_exists"
+    | "too_many_items"
+    | "context_too_large";
+  itemIds?: string[];
+  proposalIds?: string[];
+  requestId?: string;
+}
+
+export type OutstandingCleanupFailure =
+  OutstandingCleanupRejectedResult | ProjectIdSkippedResult | { outcome: "not_found"; requestId: string };
+export type CreateOutstandingCleanupRequestResult =
+  | { outcome: "outstanding_cleanup_request_created"; request: OutstandingCleanupRequest; duplicate: boolean }
+  | { outcome: "not_needed"; projectId: string }
+  | OutstandingCleanupRejectedResult
+  | ProjectIdSkippedResult;
+export type OutstandingCleanupRequestListResult =
+  | { outcome: "outstanding_cleanup_requests"; requests: OutstandingCleanupRequest[]; pageInfo: PageInfo }
+  | ProjectIdSkippedResult;
+export type OutstandingCleanupContextResult =
+  | {
+      outcome: "outstanding_cleanup_context";
+      request: OutstandingCleanupRequest;
+      items: OutstandingCleanupItem[];
+      itemPageInfo: PageInfo;
+      sessions: OutstandingCleanupSession[];
+      sessionPageInfo: PageInfo;
+      hint: string;
+      truncated: boolean;
+    }
+  | OutstandingCleanupFailure;
+export type SubmitOutstandingCleanupProposalsResult =
+  | {
+      outcome: "outstanding_cleanup_proposals_submitted";
+      request: OutstandingCleanupRequest;
+      examinedItemIds: string[];
+      proposalIds: string[];
+      duplicate: boolean;
+    }
+  | OutstandingCleanupFailure;
+export type OutstandingCleanupProposalListResult =
+  | {
+      outcome: "outstanding_cleanup_proposals";
+      request: OutstandingCleanupRequest;
+      proposals: OutstandingCleanupProposal[];
+      pageInfo: PageInfo;
+    }
+  | OutstandingCleanupFailure;
+export type DecideOutstandingCleanupProposalsResult =
+  | {
+      outcome: "outstanding_cleanup_proposals_decided";
+      request: OutstandingCleanupRequest;
+      proposalIds: string[];
+      decision: "accept" | "reject";
+      duplicate: boolean;
+    }
+  | OutstandingCleanupFailure;
+export type CancelOutstandingCleanupRequestResult =
+  | { outcome: "outstanding_cleanup_request_cancelled"; request: OutstandingCleanupRequest; duplicate: boolean }
+  | OutstandingCleanupFailure;
 
 /** Bounded pointers to pending work; read the source Session before deciding its status. */
 export interface RelatedOutstandingItems {
@@ -2700,6 +2889,11 @@ export const PROJECT_DATA_TABLES = [
   "session_work_summary_updates",
   "outstanding_items",
   "outstanding_item_events",
+  "outstanding_cleanup_requests",
+  "outstanding_cleanup_submissions",
+  "outstanding_cleanup_request_items",
+  "outstanding_cleanup_proposals",
+  "outstanding_cleanup_proposal_evidence",
 ] as const;
 
 export type ProjectDataTable = (typeof PROJECT_DATA_TABLES)[number];

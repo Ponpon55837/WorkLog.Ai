@@ -11,6 +11,7 @@ import { createMetadataBackfillApi, type MetadataBackfillApi } from "./metadata-
 import { createHandoffImportApi, type HandoffImportApi } from "./handoff-import";
 import { createSessionDecisionsApi, type SessionDecisionsApi } from "./session-decisions";
 import { createKnowledgePagesApi, type KnowledgePagesApi } from "./knowledge-pages";
+import { createOutstandingCleanupApi, type OutstandingCleanupApi } from "./outstanding-cleanup";
 import { createOutstandingItemsApi, type OutstandingItemsApi } from "./outstanding-items";
 
 export { ApiError } from "./transport";
@@ -29,7 +30,8 @@ export interface ApiClient
     HandoffImportApi,
     SessionDecisionsApi,
     KnowledgePagesApi,
-    OutstandingItemsApi {}
+    OutstandingItemsApi,
+    OutstandingCleanupApi {}
 
 // TypeScript declaration merging exposes the domain methods assigned in the constructor.
 // eslint-disable-next-line no-redeclare -- the interface describes this class's dynamic API surface.
@@ -50,6 +52,7 @@ export class ApiClient extends ApiTransport {
       createSessionDecisionsApi(this),
       createKnowledgePagesApi(this),
       createOutstandingItemsApi(this),
+      createOutstandingCleanupApi(this),
     );
   }
 

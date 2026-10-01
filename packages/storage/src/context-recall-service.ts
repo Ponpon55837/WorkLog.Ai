@@ -18,6 +18,8 @@ import type {
   MetadataBackfillPreviewResult,
   MetadataBackfillRequestListQueryResult,
   MetadataBackfillRequestQuery,
+  OutstandingCleanupRequestListResult,
+  OutstandingCleanupRequestQuery,
   OutstandingItem,
   OutstandingItemListQueryResult,
   PolicyDecision,
@@ -83,6 +85,7 @@ interface ContextRecallStoreReader {
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
   listReportSynthesisRequests(options: ReportSynthesisRequestQuery): ReportSynthesisRequestListQueryResult;
   listMetadataBackfillRequests(options: MetadataBackfillRequestQuery): MetadataBackfillRequestListQueryResult;
+  listOutstandingCleanupRequests(options: OutstandingCleanupRequestQuery): OutstandingCleanupRequestListResult;
   previewMetadataBackfill(options: { projectRoot?: string; limit?: number }): MetadataBackfillPreviewResult;
   openKnowledgeCandidateRequests(projectId?: string): KnowledgeCandidateRequest[];
   countPendingAgentDecisions(projectId?: string): number;
@@ -936,6 +939,7 @@ export class ContextRecallService {
       right.requestedAt.localeCompare(left.requestedAt);
     const reports = this.store.listReportSynthesisRequests({ limit: 100 });
     const backfills = this.store.listMetadataBackfillRequests({ limit: 100 });
+    const cleanups = this.store.listOutstandingCleanupRequests({ projectId, status: "pending", pageSize: 5 });
     return {
       reportSynthesis:
         reports.outcome === "report_synthesis_requests"
@@ -951,6 +955,9 @@ export class ContextRecallService {
               .sort(byNewest)
               .slice(0, 5)
           : [],
+      ...(cleanups.outcome === "outstanding_cleanup_requests" && cleanups.requests.length > 0
+        ? { outstandingCleanup: cleanups.requests }
+        : {}),
       knowledgeCandidates: this.store.openKnowledgeCandidateRequests(projectId),
       agentDecisions: this.store.countPendingAgentDecisions(projectId),
       knowledgePages: this.store.pendingKnowledgePages(projectId),

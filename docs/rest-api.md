@@ -129,6 +129,26 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 - `PATCH /api/outstanding-items/batch` body 為 `{ "itemIds": ["id1", "id2"], "status": "completed" }`。ID 必須非空且不重複，每批最多 100；不存在或來源已作廢時整批回傳 `400 invalid_input`。含未啟用記錄的專案時整批 `skipped`，不讀內容、不部分更新。成功回傳 `outstanding_items_updated`，`updatedItemIds` 僅包含實際變更者；相同狀態不新增稽核。
 - 復原可傳 `status: "pending"` 與 `expectedStatus: "completed"`（或 `"not_needed"`）。任何一筆狀態已改變，整批回傳 `409 conflict` 並維持原狀；每筆狀態變更與稽核在同一個交易中完成。
 
+## 未結項整理與人工審核
+
+| 方法 | 路徑 | 參數 |
+| --- | --- | --- |
+| POST | `/api/outstanding-cleanup/requests` | JSON `{projectId,idempotencyKey}`，建立固定 pending 快照 |
+| GET | `/api/outstanding-cleanup/requests` | `projectId?`、`status?`、`page?`、`pageSize?`（1–100） |
+| GET | `/api/outstanding-cleanup/requests/:requestId/context` | `itemPage?`／`sessionPage?`，itemPageSize 1–5、sessionPageSize 1–10 |
+| GET | `/api/outstanding-cleanup/requests/:requestId/proposals` | `reviewStatus?`（pending／accepted／rejected）、page、pageSize（1–100） |
+| POST | `/api/outstanding-cleanup/requests/:requestId/proposals` | `{idempotencyKey,examinedItemIds,proposals}`；path requestId 為準 |
+| POST | `/api/outstanding-cleanup/requests/:requestId/decisions` | `{proposalIds,decision}`，decision 為 accept／reject，1–100 筆 |
+| POST | `/api/outstanding-cleanup/requests/:requestId/cancel` | JSON `{}`；保留建議與未結項 |
+
+建立與提交成功為 201，policy skipped／not_needed／not_found 為 200；其他讀取與決策成功為 200。相同 key 的建立重試回傳原請求，另一個 key 遇到仍開放請求時回 409。context 無法在保留識別欄位下符合 24,000 字元預算時為 400 `invalid_input`（details.reason 為 `context_too_large`）；格式或 ID／證據不合格為 400 `invalid_input`；stale、already_examined／already_decided、idempotency_conflict、request_closed／active_request_exists 為 409 `conflict`，details 含 reason 與適用的 itemIds／proposalIds／requestId。未知例外固定 500 `internal_error`，不回傳資料庫或 Session 內容。
+
+接受以單一 immediate transaction 重新核對 snapshot／來源／證據；任一無效則 proposal、item、audit 整批維持原狀。拒絕只修改 reviewStatus，不改未結項；同決策重試不增加稽核。取消不刪除記錄，也不改未結項。所有寫入沿用 JSON、Host／Origin 驗證與無資料 SSE changed 通知。提案欄位及時間範圍見 [MCP 整理契約](mcp-tools.md#未結項整理兩個讀取與一個提交-operation)。
+
+pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：finalize 完成／取代與來源 nextSteps 編輯不能直接結案。Web 逐筆／批次人工操作仍可使用；若改動來源或項目，原建議會由版本核對判為過期。取消或完成整理請求後恢復正常 Agent 收尾結案。
+
+新增五個 project-data 表與 audit 關聯參與匯出、匯入、敏感資訊遮蔽與永久刪除；舊 schema bundle 預設空表與 null 關聯。整理理由是審核資料，不加入搜尋索引；原項目與來源仍由 Session 搜尋。遮蔽或重新匯入可能改變指紋，待審建議會保守視為過期，需要重新核對。
+
 ## Metadata backfill
 
 當既有 Session 顯示 Verification 待回報、明確 not_run，或沒有 changed-files metadata 時，可以先預覽缺口，再由 Agent 提供已確認的資料批次回填。

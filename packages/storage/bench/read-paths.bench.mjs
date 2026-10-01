@@ -167,6 +167,80 @@ function seedOutstandingItems(targetStore, projectIds) {
   }
 }
 
+function seedOutstandingCleanupReview(targetStore, project) {
+  const database = new DatabaseSync(targetStore.databasePath);
+  try {
+    const insertRequest = database.prepare(
+      `INSERT INTO outstanding_cleanup_requests
+       (id, project_id, idempotency_key, status, requested_at, completed_at, item_count)
+       VALUES (?, ?, ?, 'completed', ?, ?, 0)`,
+    );
+    for (let index = 0; index < 100; index += 1) {
+      const at = new Date(Date.UTC(2025, 0, 1, 0, 0, index)).toISOString();
+      insertRequest.run(
+        `benchmark-cleanup-history-${index}`,
+        project.id,
+        `benchmark-cleanup-history-key-${index}`,
+        at,
+        at,
+      );
+    }
+  } finally {
+    database.close();
+  }
+
+  const laterEvidence = targetStore.finalizeSession({
+    projectRoot: project.rootPath,
+    idempotencyKey: "benchmark-cleanup-later-evidence",
+    title: "Synthetic later cleanup evidence",
+    summary: "A finalized same-project Session used by the synthetic cleanup benchmark.",
+    workSummary: {
+      outcomes: [],
+      scope: [],
+      decisions: [],
+      verification: ["Synthetic benchmark evidence."],
+      nextSteps: [],
+    },
+    changedFiles: [],
+    verification: { status: "passed", summary: "Synthetic benchmark evidence." },
+  });
+  if (laterEvidence.outcome !== "finalized") {
+    throw new Error(`Could not finalize cleanup benchmark evidence: ${laterEvidence.outcome}`);
+  }
+
+  const created = targetStore.createOutstandingCleanupRequest({
+    projectId: project.id,
+    idempotencyKey: "benchmark-outstanding-cleanup-request",
+  });
+  if (created.outcome !== "outstanding_cleanup_request_created") {
+    throw new Error(`Could not create cleanup benchmark request: ${created.outcome}`);
+  }
+  const pending = targetStore.listOutstandingItems({
+    projectId: project.id,
+    status: "pending",
+    page: 1,
+    pageSize: 100,
+  });
+  if (pending.outcome !== "outstanding_items" || pending.items.length === 0) {
+    throw new Error("The cleanup benchmark needs at least one synthetic pending item.");
+  }
+  const submitted = targetStore.submitOutstandingCleanupProposals({
+    requestId: created.request.id,
+    idempotencyKey: "benchmark-outstanding-cleanup-submission",
+    examinedItemIds: pending.items.map((item) => item.id),
+    proposals: pending.items.map((item) => ({
+      itemId: item.id,
+      status: "completed",
+      reason: "Synthetic benchmark proposal with same-project later evidence.",
+      evidenceSessionIds: [laterEvidence.session.id],
+    })),
+  });
+  if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") {
+    throw new Error(`Could not seed cleanup benchmark proposals: ${submitted.outcome}`);
+  }
+  return created.request.id;
+}
+
 function listSessionDigestPage(targetStore, projectId) {
   const result = targetStore.listSessionsPage({ projectId, trackedOnly: true, page: 1, pageSize: 100 });
   const pendingItems = targetStore.pendingOutstandingItemsForSessions(result.items.map(({ id }) => id));
@@ -230,10 +304,12 @@ try {
     return result;
   };
   seedOutstandingItems(benchStore, [alpha.id, beta.id]);
+  // Capture the original graph/recall fixture before cleanup adds an evidence Session with no changed files.
+  const [newestAlpha] = benchStore.listSessionsPage({ projectId: alpha.id, page: 1, pageSize: 1 }).items;
+  const cleanupRequestId = seedOutstandingCleanupReview(benchStore, alpha);
   seedStaleKnowledge(benchStore, alpha);
   seedKnowledgePages(benchStore, alpha);
-  // A file of the newest alpha Session, so the path search walks project → Session → file inside the graph.
-  const [newestAlpha] = benchStore.listSessionsPage({ projectId: alpha.id, page: 1, pageSize: 1 }).items;
+  // A file of the newest original alpha Session, so the path search walks project → Session → file.
   const pathTarget = `file:${alpha.id}:${newestAlpha.changedFiles.at(-1)}`;
   const benchPath = benchStore.getGraphPath({ projectId: alpha.id, from: `project:${alpha.id}`, to: pathTarget });
   if (benchPath.outcome !== "graph_path" || !benchPath.found) {
@@ -316,6 +392,41 @@ try {
         page: 1,
         pageSize: 20,
       }),
+    "listOutstandingCleanupRequests (page 5)": () => {
+      const result = benchStore.listOutstandingCleanupRequests({ projectId: alpha.id, page: 1, pageSize: 5 });
+      if (result.outcome !== "outstanding_cleanup_requests" || result.requests.length === 0) {
+        throw new Error("Cleanup request benchmark must return synthetic tracked-project rows.");
+      }
+      return result;
+    },
+    "getOutstandingCleanupContext (5 items + 10 Sessions)": () => {
+      const result = benchStore.getOutstandingCleanupContext({
+        requestId: cleanupRequestId,
+        itemPage: 1,
+        itemPageSize: 5,
+        sessionPage: 1,
+        sessionPageSize: 10,
+      });
+      if (
+        result.outcome !== "outstanding_cleanup_context" ||
+        result.items.length === 0 ||
+        result.sessions.length === 0
+      ) {
+        throw new Error("Cleanup context benchmark must return synthetic items and later Session pointers.");
+      }
+      return result;
+    },
+    "listOutstandingCleanupProposals (page 100)": () => {
+      const result = benchStore.listOutstandingCleanupProposals({
+        requestId: cleanupRequestId,
+        page: 1,
+        pageSize: 100,
+      });
+      if (result.outcome !== "outstanding_cleanup_proposals" || result.proposals.length === 0) {
+        throw new Error("Cleanup proposal benchmark must return synthetic proposals.");
+      }
+      return result;
+    },
     search: () => benchStore.search("renderer"),
     "recall (month range)": () =>
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
@@ -355,6 +466,9 @@ try {
     "listSessionDecisions (pending)": 250,
     "listOutstandingItems (pending)": 250,
     "listOutstandingItems (source date range)": 250,
+    "listOutstandingCleanupRequests (page 5)": 250,
+    "getOutstandingCleanupContext (5 items + 10 Sessions)": 250,
+    "listOutstandingCleanupProposals (page 100)": 250,
     search: 500,
     "recall (month range)": 500,
     "recall (synonym expansion)": 500,

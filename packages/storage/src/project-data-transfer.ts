@@ -48,6 +48,11 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "session_summary_updates",
   "session_work_summary_updates",
   "outstanding_items",
+  "outstanding_cleanup_requests",
+  "outstanding_cleanup_submissions",
+  "outstanding_cleanup_request_items",
+  "outstanding_cleanup_proposals",
+  "outstanding_cleanup_proposal_evidence",
   "outstanding_item_events",
   "knowledge_pages",
   "knowledge_page_versions",
@@ -63,6 +68,14 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   session_summary_updates: [["idempotency_key"]],
   session_work_summary_updates: [["idempotency_key"]],
   outstanding_items: [["source_session_id", "position", "id"]],
+  outstanding_cleanup_requests: [["idempotency_key"]],
+  outstanding_cleanup_submissions: [["request_id", "idempotency_key"]],
+  outstanding_cleanup_request_items: [
+    ["request_id", "item_id"],
+    ["request_id", "position"],
+  ],
+  outstanding_cleanup_proposals: [["request_item_id"]],
+  outstanding_cleanup_proposal_evidence: [["proposal_id", "session_id"]],
   outstanding_item_events: [["id"]],
   session_links: [["session_id", "related_session_id"]],
   session_decisions: [["session_id", "position"]],
@@ -88,6 +101,8 @@ const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = 
   session_summary_updates: ["summary", "previous_summary", "resulting_summary"],
   session_work_summary_updates: ["work_summary_json", "previous_work_summary_json", "resulting_work_summary_json"],
   outstanding_items: ["text"],
+  outstanding_cleanup_request_items: ["text"],
+  outstanding_cleanup_proposals: ["reason"],
   knowledge: ["title", "body", "tags_json", "references_json", "applies_to_json", "review_json"],
   knowledge_audit: ["before_json", "after_json", "changed_fields_json"],
   knowledge_candidate_requests: ["failure_reason"],
@@ -115,6 +130,15 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
 } {
   const allRedactions = combineRedactionSummaries();
   const sessionCounts = new Map<string, number>();
+  const cleanupItemSourceSessionIds = new Map(
+    rows.outstanding_cleanup_request_items.map((item) => [String(item.id), String(item.source_session_id)]),
+  );
+  const cleanupProposalSourceSessionIds = new Map(
+    rows.outstanding_cleanup_proposals.flatMap((proposal) => {
+      const sourceSessionId = cleanupItemSourceSessionIds.get(String(proposal.request_item_id));
+      return sourceSessionId ? [[String(proposal.id), sourceSessionId] as const] : [];
+    }),
+  );
   const sanitized = Object.fromEntries(
     PROJECT_DATA_TABLES.map((table) => {
       const result = rows[table].map((row) => {
@@ -136,7 +160,16 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
         }
         if (rowCount > 0) {
           const sessionId =
-            table === "sessions" ? String(output.id) : String(output.session_id ?? output.source_session_id ?? "");
+            table === "sessions"
+              ? String(output.id)
+              : String(
+                  output.session_id ??
+                    output.source_session_id ??
+                    (table === "outstanding_cleanup_proposals"
+                      ? cleanupProposalSourceSessionIds.get(String(output.id))
+                      : "") ??
+                    "",
+                );
           if (sessionId) {
             sessionCounts.set(sessionId, (sessionCounts.get(sessionId) ?? 0) + rowCount);
           }
@@ -302,6 +335,16 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
     session_summary_updates: rowsByIds(db, "session_summary_updates", "session_id", sessionIds),
     session_work_summary_updates: rowsByIds(db, "session_work_summary_updates", "session_id", sessionIds),
     outstanding_items: rowsByIds(db, "outstanding_items", "project_id", projectIds),
+    outstanding_cleanup_requests: rowsByIds(db, "outstanding_cleanup_requests", "project_id", projectIds),
+    outstanding_cleanup_submissions: rowsByIds(db, "outstanding_cleanup_submissions", "project_id", projectIds),
+    outstanding_cleanup_request_items: rowsByIds(db, "outstanding_cleanup_request_items", "project_id", projectIds),
+    outstanding_cleanup_proposals: rowsByIds(db, "outstanding_cleanup_proposals", "project_id", projectIds),
+    outstanding_cleanup_proposal_evidence: rowsByIds(
+      db,
+      "outstanding_cleanup_proposal_evidence",
+      "project_id",
+      projectIds,
+    ),
     outstanding_item_events: rowsByIds(db, "outstanding_item_events", "project_id", projectIds),
   };
 
@@ -401,6 +444,21 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
       ? bundle.tables.session_work_summary_updates.filter((row) => sessionIds.has(String(row.session_id)))
       : bundle.tables.session_work_summary_updates,
     outstanding_items: bundle.tables.outstanding_items.filter((row) => selectedIds.has(String(row.project_id))),
+    outstanding_cleanup_requests: bundle.tables.outstanding_cleanup_requests.filter((row) =>
+      selectedIds.has(String(row.project_id)),
+    ),
+    outstanding_cleanup_submissions: bundle.tables.outstanding_cleanup_submissions.filter((row) =>
+      selectedIds.has(String(row.project_id)),
+    ),
+    outstanding_cleanup_request_items: bundle.tables.outstanding_cleanup_request_items.filter((row) =>
+      selectedIds.has(String(row.project_id)),
+    ),
+    outstanding_cleanup_proposals: bundle.tables.outstanding_cleanup_proposals.filter((row) =>
+      selectedIds.has(String(row.project_id)),
+    ),
+    outstanding_cleanup_proposal_evidence: bundle.tables.outstanding_cleanup_proposal_evidence.filter((row) =>
+      selectedIds.has(String(row.project_id)),
+    ),
     outstanding_item_events: bundle.tables.outstanding_item_events.filter((row) =>
       selectedIds.has(String(row.project_id)),
     ),
@@ -464,6 +522,17 @@ function uniqueIndexKey(fields: readonly string[], row: ProjectDataRow): string 
   return JSON.stringify([fields, values]);
 }
 
+function plannedUniqueKeysForRow(table: ProjectDataTable, row: ProjectDataRow): string[] {
+  const keys = (UNIQUE_FIELDS[table] ?? [])
+    .map((fields) => uniqueIndexKey(fields, row))
+    .filter((key): key is string => key !== undefined);
+  if (table === "outstanding_cleanup_requests" && (row.status === "pending" || row.status === "awaiting_review")) {
+    const activeProjectKey = uniqueIndexKey(["project_id"], row);
+    if (activeProjectKey) keys.push(activeProjectKey);
+  }
+  return keys;
+}
+
 function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
   db.exec("BEGIN");
   try {
@@ -512,6 +581,20 @@ function existingUniqueRow(db: DatabaseSync, table: ProjectDataTable, row: Proje
       return found;
     }
   }
+  if (
+    table === "outstanding_cleanup_requests" &&
+    (row.status === "pending" || row.status === "awaiting_review") &&
+    typeof row.project_id === "string"
+  ) {
+    const columns = projectDataExportTableColumns[table].join(", ");
+    const found = db
+      .prepare(
+        `SELECT ${columns} FROM outstanding_cleanup_requests
+         WHERE project_id = ? AND status IN ('pending', 'awaiting_review')`,
+      )
+      .get(row.project_id) as ProjectDataRow | undefined;
+    if (found) return found;
+  }
   return undefined;
 }
 
@@ -536,6 +619,24 @@ function isAvailable(
   return availableIds[table].has(id);
 }
 
+type CleanupRequestReference = { projectId: string };
+type CleanupSubmissionReference = { requestId: string; projectId: string };
+type CleanupRequestItemReference = {
+  requestId: string;
+  projectId: string;
+  itemId: string;
+  sourceSessionId: string;
+  examinedSubmissionId: string | null;
+};
+type CleanupProposalReference = {
+  requestId: string;
+  projectId: string;
+  requestItemId: string;
+  submissionId: string;
+  targetStatus: string;
+  reviewStatus: string;
+};
+
 function dependencyIssue(
   table: ProjectDataTable,
   row: ProjectDataRow,
@@ -545,6 +646,11 @@ function dependencyIssue(
   conflictIds: Record<ProjectDataTable, Set<string>>,
   sessionProjectIds: Map<string, string>,
   outstandingItemProjectIds: Map<string, string>,
+  outstandingItemSourceSessionIds: Map<string, string>,
+  cleanupRequestReferences: Map<string, CleanupRequestReference>,
+  cleanupSubmissionReferences: Map<string, CleanupSubmissionReference>,
+  cleanupRequestItemReferences: Map<string, CleanupRequestItemReference>,
+  cleanupProposalReferences: Map<string, CleanupProposalReference>,
 ): string | undefined {
   if (table !== "projects" && typeof row.project_id === "string") {
     const mappedProjectId = projectIds.get(row.project_id);
@@ -624,6 +730,206 @@ function dependencyIssue(
         sessionProjectIds.get(actorSessionId) !== row.project_id)
     ) {
       return "待結項稽核事件的 actor Session 必須位於同一專案。";
+    }
+
+    const hasCleanupRequestId = typeof row.cleanup_request_id === "string";
+    const hasCleanupProposalId = typeof row.cleanup_proposal_id === "string";
+    const cleanupRequestId = hasCleanupRequestId ? String(row.cleanup_request_id) : undefined;
+    const cleanupProposalId = hasCleanupProposalId ? String(row.cleanup_proposal_id) : undefined;
+    if (hasCleanupRequestId !== hasCleanupProposalId) {
+      return "清理稽核事件必須同時引用請求與提案。";
+    }
+    if (hasCleanupRequestId && hasCleanupProposalId) {
+      const requestId = cleanupRequestId ?? "";
+      const proposalId = cleanupProposalId ?? "";
+      const request = cleanupRequestReferences.get(requestId);
+      const proposal = cleanupProposalReferences.get(proposalId);
+      const requestItem = proposal ? cleanupRequestItemReferences.get(proposal.requestItemId) : undefined;
+      if (
+        !isAvailable(
+          "outstanding_cleanup_requests",
+          requestId,
+          selectedIds.outstanding_cleanup_requests,
+          availableIds,
+          conflictIds,
+        ) ||
+        !isAvailable(
+          "outstanding_cleanup_proposals",
+          proposalId,
+          selectedIds.outstanding_cleanup_proposals,
+          availableIds,
+          conflictIds,
+        ) ||
+        !request ||
+        !proposal ||
+        !requestItem
+      ) {
+        return "清理稽核事件引用的請求或提案發生衝突或不存在。";
+      }
+      if (
+        request.projectId !== row.project_id ||
+        proposal.projectId !== row.project_id ||
+        proposal.requestId !== requestId ||
+        requestItem.projectId !== row.project_id ||
+        requestItem.requestId !== requestId ||
+        requestItem.itemId !== itemId
+      ) {
+        return "清理稽核事件的請求、提案、項目必須屬於同一專案與請求。";
+      }
+      if (row.source !== "web" || proposal.reviewStatus !== "accepted" || proposal.targetStatus !== row.to_status) {
+        return "清理稽核事件必須對應已接受且狀態一致的提案。";
+      }
+    }
+  }
+
+  if (table === "outstanding_cleanup_submissions") {
+    const requestId = String(row.request_id);
+    const request = cleanupRequestReferences.get(requestId);
+    if (
+      !isAvailable(
+        "outstanding_cleanup_requests",
+        requestId,
+        selectedIds.outstanding_cleanup_requests,
+        availableIds,
+        conflictIds,
+      ) ||
+      !request
+    ) {
+      return "清理提案提交對應的請求發生衝突或不存在。";
+    }
+    if (request.projectId !== row.project_id) {
+      return "清理提案提交與請求必須屬於同一專案。";
+    }
+  }
+
+  if (table === "outstanding_cleanup_request_items") {
+    const requestId = String(row.request_id);
+    const request = cleanupRequestReferences.get(requestId);
+    const itemId = String(row.item_id);
+    const sourceSessionId = String(row.source_session_id);
+    if (
+      !isAvailable(
+        "outstanding_cleanup_requests",
+        requestId,
+        selectedIds.outstanding_cleanup_requests,
+        availableIds,
+        conflictIds,
+      ) ||
+      !request
+    ) {
+      return "清理快照項目對應的請求發生衝突或不存在。";
+    }
+    if (request.projectId !== row.project_id) {
+      return "清理快照項目與請求必須屬於同一專案。";
+    }
+    if (
+      !isAvailable("outstanding_items", itemId, selectedIds.outstanding_items, availableIds, conflictIds) ||
+      outstandingItemProjectIds.get(itemId) !== row.project_id
+    ) {
+      return "清理快照項目必須引用同一專案中可用的待結項。";
+    }
+    if (outstandingItemSourceSessionIds.get(itemId) !== sourceSessionId) {
+      return "清理快照項目的來源 Session 必須與待結項來源一致。";
+    }
+    if (
+      !isAvailable("sessions", sourceSessionId, selectedIds.sessions, availableIds, conflictIds) ||
+      sessionProjectIds.get(sourceSessionId) !== row.project_id
+    ) {
+      return "清理快照項目的來源 Session 必須位於同一專案。";
+    }
+    const examinedSubmissionId =
+      typeof row.examined_submission_id === "string" ? row.examined_submission_id : undefined;
+    if (examinedSubmissionId !== undefined) {
+      const submission = cleanupSubmissionReferences.get(examinedSubmissionId);
+      if (
+        !isAvailable(
+          "outstanding_cleanup_submissions",
+          examinedSubmissionId,
+          selectedIds.outstanding_cleanup_submissions,
+          availableIds,
+          conflictIds,
+        ) ||
+        !submission
+      ) {
+        return "清理快照項目的提交紀錄發生衝突或不存在。";
+      }
+      if (submission.projectId !== row.project_id || submission.requestId !== requestId) {
+        return "清理快照項目的提交紀錄必須屬於同一專案與請求。";
+      }
+    }
+  }
+
+  if (table === "outstanding_cleanup_proposals") {
+    const requestId = String(row.request_id);
+    const requestItemId = String(row.request_item_id);
+    const submissionId = String(row.submission_id);
+    const request = cleanupRequestReferences.get(requestId);
+    const requestItem = cleanupRequestItemReferences.get(requestItemId);
+    const submission = cleanupSubmissionReferences.get(submissionId);
+    if (
+      !isAvailable(
+        "outstanding_cleanup_requests",
+        requestId,
+        selectedIds.outstanding_cleanup_requests,
+        availableIds,
+        conflictIds,
+      ) ||
+      !isAvailable(
+        "outstanding_cleanup_request_items",
+        requestItemId,
+        selectedIds.outstanding_cleanup_request_items,
+        availableIds,
+        conflictIds,
+      ) ||
+      !isAvailable(
+        "outstanding_cleanup_submissions",
+        submissionId,
+        selectedIds.outstanding_cleanup_submissions,
+        availableIds,
+        conflictIds,
+      ) ||
+      !request ||
+      !requestItem ||
+      !submission
+    ) {
+      return "清理提案關聯的請求、快照項目或提交紀錄發生衝突或不存在。";
+    }
+    if (
+      request.projectId !== row.project_id ||
+      requestItem.projectId !== row.project_id ||
+      submission.projectId !== row.project_id ||
+      requestItem.requestId !== requestId ||
+      submission.requestId !== requestId
+    ) {
+      return "清理提案及其關聯資料必須屬於同一專案與請求。";
+    }
+    if (requestItem.examinedSubmissionId !== submissionId) {
+      return "清理提案提交紀錄必須與快照項目檢視的提交一致。";
+    }
+  }
+
+  if (table === "outstanding_cleanup_proposal_evidence") {
+    const proposalId = String(row.proposal_id);
+    const sessionId = String(row.session_id);
+    const proposal = cleanupProposalReferences.get(proposalId);
+    if (
+      !isAvailable(
+        "outstanding_cleanup_proposals",
+        proposalId,
+        selectedIds.outstanding_cleanup_proposals,
+        availableIds,
+        conflictIds,
+      ) ||
+      !proposal
+    ) {
+      return "清理提案證據對應的提案發生衝突或不存在。";
+    }
+    if (
+      proposal.projectId !== row.project_id ||
+      !isAvailable("sessions", sessionId, selectedIds.sessions, availableIds, conflictIds) ||
+      sessionProjectIds.get(sessionId) !== row.project_id
+    ) {
+      return "清理提案證據 Session 必須位於提案所屬專案。";
     }
   }
 
@@ -767,11 +1073,8 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
         conflictDetailsTruncated = true;
       }
     } else {
-      for (const fields of UNIQUE_FIELDS[table] ?? []) {
-        const key = uniqueIndexKey(fields, row);
-        if (key !== undefined) {
-          plannedUniqueKeys[table].add(key);
-        }
+      for (const key of plannedUniqueKeysForRow(table, row)) {
+        plannedUniqueKeys[table].add(key);
       }
     }
   };
@@ -865,26 +1168,159 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
   const checkedCursorIds = selectedBundle.tables.knowledge_pages.flatMap((row) =>
     typeof row.checked_through_session_id === "string" ? [row.checked_through_session_id] : [],
   );
+  const cleanupReferencedSessionIds = [
+    ...selectedBundle.tables.outstanding_cleanup_request_items.map((row) => String(row.source_session_id)),
+    ...selectedBundle.tables.outstanding_cleanup_proposal_evidence.map((row) => String(row.session_id)),
+    ...selectedBundle.tables.outstanding_item_events.flatMap((row) =>
+      typeof row.actor_session_id === "string" ? [row.actor_session_id] : [],
+    ),
+  ];
+  const referencedSessionIds = [...new Set([...checkedCursorIds, ...cleanupReferencedSessionIds])];
   const sessionProjectIds = new Map<string, string>();
+  if (referencedSessionIds.length > 0) {
+    const existingSessionRows = db
+      .prepare("SELECT id, project_id FROM sessions WHERE id IN (SELECT value FROM json_each(?))")
+      .all(JSON.stringify(referencedSessionIds)) as Array<{ id: string; project_id: string }>;
+    for (const session of existingSessionRows) sessionProjectIds.set(session.id, session.project_id);
+  }
   for (const session of selectedBundle.tables.sessions) {
     const projectId = String(session.project_id);
     sessionProjectIds.set(String(session.id), projectIds.get(projectId) ?? projectId);
   }
+  const referencedOutstandingItemIds = [
+    ...selectedBundle.tables.outstanding_cleanup_request_items.map((row) => String(row.item_id)),
+    ...selectedBundle.tables.outstanding_item_events.map((row) => String(row.item_id)),
+  ];
   const outstandingItemProjectIds = new Map<string, string>();
+  const outstandingItemSourceSessionIds = new Map<string, string>();
+  if (referencedOutstandingItemIds.length > 0) {
+    const existingItemRows = db
+      .prepare(
+        "SELECT id, project_id, source_session_id FROM outstanding_items WHERE id IN (SELECT value FROM json_each(?))",
+      )
+      .all(JSON.stringify([...new Set(referencedOutstandingItemIds)])) as Array<{
+      id: string;
+      project_id: string;
+      source_session_id: string;
+    }>;
+    for (const item of existingItemRows) {
+      outstandingItemProjectIds.set(item.id, item.project_id);
+      outstandingItemSourceSessionIds.set(item.id, item.source_session_id);
+    }
+  }
   for (const item of selectedBundle.tables.outstanding_items) {
     const projectId = String(item.project_id);
     outstandingItemProjectIds.set(String(item.id), projectIds.get(projectId) ?? projectId);
+    outstandingItemSourceSessionIds.set(String(item.id), String(item.source_session_id));
   }
-  for (const item of existingRowsById.outstanding_items.values()) {
-    if (typeof item.project_id === "string") {
-      outstandingItemProjectIds.set(String(item.id), item.project_id);
-    }
+
+  const cleanupRequestReferences = new Map<string, CleanupRequestReference>(
+    (
+      db.prepare("SELECT id, project_id FROM outstanding_cleanup_requests").all() as Array<{
+        id: string;
+        project_id: string;
+      }>
+    ).map((row) => [row.id, { projectId: row.project_id }]),
+  );
+  for (const row of selectedBundle.tables.outstanding_cleanup_requests) {
+    const sourceProjectId = String(row.project_id);
+    cleanupRequestReferences.set(String(row.id), {
+      projectId: projectIds.get(sourceProjectId) ?? sourceProjectId,
+    });
   }
-  if (checkedCursorIds.length > 0) {
-    const existingCursorRows = db
-      .prepare("SELECT id, project_id FROM sessions WHERE id IN (SELECT value FROM json_each(?))")
-      .all(JSON.stringify(checkedCursorIds)) as Array<{ id: string; project_id: string }>;
-    for (const session of existingCursorRows) sessionProjectIds.set(session.id, session.project_id);
+
+  const cleanupSubmissionReferences = new Map<string, CleanupSubmissionReference>(
+    (
+      db.prepare("SELECT id, request_id, project_id FROM outstanding_cleanup_submissions").all() as Array<{
+        id: string;
+        request_id: string;
+        project_id: string;
+      }>
+    ).map((row) => [row.id, { requestId: row.request_id, projectId: row.project_id }]),
+  );
+  for (const row of selectedBundle.tables.outstanding_cleanup_submissions) {
+    const sourceProjectId = String(row.project_id);
+    cleanupSubmissionReferences.set(String(row.id), {
+      requestId: String(row.request_id),
+      projectId: projectIds.get(sourceProjectId) ?? sourceProjectId,
+    });
+  }
+
+  const cleanupRequestItemReferences = new Map<string, CleanupRequestItemReference>(
+    (
+      db
+        .prepare(
+          `SELECT id, request_id, project_id, item_id, source_session_id, examined_submission_id
+         FROM outstanding_cleanup_request_items`,
+        )
+        .all() as Array<{
+        id: string;
+        request_id: string;
+        project_id: string;
+        item_id: string;
+        source_session_id: string;
+        examined_submission_id: string | null;
+      }>
+    ).map((row) => [
+      row.id,
+      {
+        requestId: row.request_id,
+        projectId: row.project_id,
+        itemId: row.item_id,
+        sourceSessionId: row.source_session_id,
+        examinedSubmissionId: row.examined_submission_id,
+      },
+    ]),
+  );
+  for (const row of selectedBundle.tables.outstanding_cleanup_request_items) {
+    const sourceProjectId = String(row.project_id);
+    cleanupRequestItemReferences.set(String(row.id), {
+      requestId: String(row.request_id),
+      projectId: projectIds.get(sourceProjectId) ?? sourceProjectId,
+      itemId: String(row.item_id),
+      sourceSessionId: String(row.source_session_id),
+      examinedSubmissionId: typeof row.examined_submission_id === "string" ? row.examined_submission_id : null,
+    });
+  }
+
+  const cleanupProposalReferences = new Map<string, CleanupProposalReference>(
+    (
+      db
+        .prepare(
+          `SELECT id, request_id, project_id, request_item_id, submission_id, target_status, review_status
+         FROM outstanding_cleanup_proposals`,
+        )
+        .all() as Array<{
+        id: string;
+        request_id: string;
+        project_id: string;
+        request_item_id: string;
+        submission_id: string;
+        target_status: string;
+        review_status: string;
+      }>
+    ).map((row) => [
+      row.id,
+      {
+        requestId: row.request_id,
+        projectId: row.project_id,
+        requestItemId: row.request_item_id,
+        submissionId: row.submission_id,
+        targetStatus: row.target_status,
+        reviewStatus: row.review_status,
+      },
+    ]),
+  );
+  for (const row of selectedBundle.tables.outstanding_cleanup_proposals) {
+    const sourceProjectId = String(row.project_id);
+    cleanupProposalReferences.set(String(row.id), {
+      requestId: String(row.request_id),
+      projectId: projectIds.get(sourceProjectId) ?? sourceProjectId,
+      requestItemId: String(row.request_item_id),
+      submissionId: String(row.submission_id),
+      targetStatus: String(row.target_status),
+      reviewStatus: String(row.review_status),
+    });
   }
 
   for (const table of TABLE_ORDER) {
@@ -904,6 +1340,11 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
         conflictIds,
         sessionProjectIds,
         outstandingItemProjectIds,
+        outstandingItemSourceSessionIds,
+        cleanupRequestReferences,
+        cleanupSubmissionReferences,
+        cleanupRequestItemReferences,
+        cleanupProposalReferences,
       );
       if (dependencyError) {
         addPlan(table, row, "conflict", dependencyError);
@@ -925,10 +1366,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
         addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。");
         continue;
       }
-      const hasPlannedUnique = (UNIQUE_FIELDS[table] ?? []).some((fields) => {
-        const key = uniqueIndexKey(fields, row);
-        return key !== undefined && plannedUniqueKeys[table].has(key);
-      });
+      const hasPlannedUnique = plannedUniqueKeysForRow(table, row).some((key) => plannedUniqueKeys[table].has(key));
       if (hasPlannedUnique) {
         addPlan(table, row, "conflict", "匯入檔內有重複的唯一識別值。");
         continue;

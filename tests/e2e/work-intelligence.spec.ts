@@ -537,8 +537,24 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(undoBatch).toBeHidden();
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
+    // The restored rows change page membership; wait for the UI to show them before selecting.
+    await expect(page.getByText(/共 120 筆/)).toBeVisible();
 
     await selectCurrentPage.check();
+    // Same-page background refreshes must not erase selections while a user prepares a batch.
+    await page.route(
+      "**/api/outstanding-items?*",
+      async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as { items: Array<{ sourceSessionTitle: string }> };
+        for (const item of body.items) item.sourceSessionTitle = "Refreshed batch source";
+        await route.fulfill({ response, json: body });
+      },
+      { times: 1 },
+    );
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(page.getByRole("button", { name: "開啟來源 Session：Refreshed batch source" }).first()).toBeVisible();
+    await expect(selectCurrentPage).toBeChecked();
     await notNeededBatch.click();
     const confirmation = page.getByRole("dialog", { name: "批次不再需要", exact: true });
     await expect(confirmation).toBeVisible();

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OutstandingItem, OutstandingItemStatus } from "@work-intelligence/core";
+import type {
+  BatchUpdateOutstandingItemStatusInput,
+  OutstandingItem,
+  OutstandingItemStatus,
+} from "@work-intelligence/core";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness } from "../helpers/store-harness.js";
 import { useOutstandingItemsStore } from "../../../apps/web/src/stores/outstanding-items.js";
@@ -17,6 +21,14 @@ const outstandingItem: OutstandingItem = {
   createdAt: "2026-09-29T00:00:00.000Z",
   updatedAt: "2026-09-29T00:00:00.000Z",
 };
+
+const batchScenarios: Array<{ name: string; input: BatchUpdateOutstandingItemStatusInput }> = [
+  { name: "batch update", input: { itemIds: ["item-1"], status: "completed" } },
+  {
+    name: "batch undo",
+    input: { itemIds: ["item-1"], status: "pending", expectedStatus: "completed" },
+  },
+];
 
 let harness: ReturnType<typeof createStoreHarness>;
 
@@ -103,5 +115,69 @@ describe("outstanding items store", () => {
       .reverse()
       .find((request) => request.url.pathname === "/api/outstanding-items/batch");
     expect(undo?.body).toEqual({ itemIds: ["item-1"], status: "pending", expectedStatus: "completed" });
+  });
+
+  it.each(batchScenarios)("preserves a successful $name when its list refetch is aborted", async ({ input }) => {
+    let listReadCount = 0;
+    let invalidationReadAborted = false;
+    let notifyInvalidationReadStarted: () => void = () => undefined;
+    const invalidationReadStarted = new Promise<void>((resolve) => {
+      notifyInvalidationReadStarted = resolve;
+    });
+
+    harness.setResponder((request) => {
+      if (request.url.pathname === "/api/outstanding-items" && request.method === "GET") {
+        listReadCount += 1;
+        if (listReadCount === 2) {
+          notifyInvalidationReadStarted();
+          return new Promise<never>((_resolve, reject) => {
+            const signal = request.signal;
+            if (!signal) {
+              reject(new Error("The list refetch should receive an abort signal."));
+              return;
+            }
+            const onAbort = () => {
+              invalidationReadAborted = true;
+              reject(new DOMException("Aborted", "AbortError"));
+            };
+            if (signal.aborted) onAbort();
+            else signal.addEventListener("abort", onAbort, { once: true });
+          });
+        }
+      }
+
+      if (request.url.pathname === "/api/outstanding-items/batch" && request.method === "PATCH") {
+        const { itemIds, status } = request.body as BatchUpdateOutstandingItemStatusInput;
+        return {
+          outcome: "outstanding_items_updated",
+          duplicate: false,
+          updatedItemIds: itemIds,
+          items: itemIds.map((id) => ({ ...outstandingItem, id, status })),
+        };
+      }
+
+      return responder(request);
+    });
+
+    const store = useOutstandingItemsStore();
+    store.setListActive(true);
+    await vi.waitFor(() => expect(listReadCount).toBe(1));
+    await vi.waitFor(() => expect(store.loaded).toBe(true));
+
+    const expectedResult = {
+      outcome: "outstanding_items_updated",
+      duplicate: false,
+      updatedItemIds: input.itemIds,
+      items: input.itemIds.map((id) => ({ ...outstandingItem, id, status: input.status })),
+    };
+    const mutation = store.batchUpdateStatus(input);
+    await invalidationReadStarted;
+
+    const refresh = store.reload();
+    await expect(mutation).resolves.toEqual(expectedResult);
+    await refresh;
+
+    expect(invalidationReadAborted).toBe(true);
+    expect(listReadCount).toBe(3);
   });
 });
