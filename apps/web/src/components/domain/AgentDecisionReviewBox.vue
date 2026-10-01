@@ -64,7 +64,7 @@ function openSource(item: SessionDecisionRecord): void {
 </script>
 
 <template>
-  <UiBox class="agent-decisions" data-testid="agent-decision-review">
+  <UiBox class="agent-decisions" sticky-header data-testid="agent-decision-review">
     <template #header>
       <UiBoxTitle eyebrow="Agent decisions" title="待確認的 Agent 自主決策" :count="pendingCount" />
     </template>
@@ -77,9 +77,11 @@ function openSource(item: SessionDecisionRecord): void {
     <VirtualList
       v-else
       :items="decisions"
-      :enabled="decisions.length > 4"
+      :enabled="true"
+      fit-viewport
+      fit-viewport-to-panel
+      fill-available-space
       :estimate-item-height="176"
-      max-height="min(42vh, 420px)"
       label="待確認的 Agent 自主決策清單"
     >
       <template #default="{ item }">
@@ -118,10 +120,6 @@ function openSource(item: SessionDecisionRecord): void {
 </template>
 
 <style scoped>
-.agent-decisions {
-  margin-bottom: var(--space-4);
-}
-
 .agent-decisions__item {
   display: grid;
   gap: var(--space-2);
