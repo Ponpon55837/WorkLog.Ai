@@ -37,6 +37,11 @@ const COUNTS_ADDED_LATER = new Set<keyof ProjectDeletionCounts>([
   "sessionDiagrams",
   "outstandingItems",
   "outstandingItemEvents",
+  "outstandingCleanupRequests",
+  "outstandingCleanupRequestItems",
+  "outstandingCleanupSubmissions",
+  "outstandingCleanupProposals",
+  "outstandingCleanupProposalEvidence",
 ]);
 
 const projectDeletionCountKeys = [
@@ -64,6 +69,11 @@ const projectDeletionCountKeys = [
   "sessionDiagrams",
   "outstandingItems",
   "outstandingItemEvents",
+  "outstandingCleanupRequests",
+  "outstandingCleanupRequestItems",
+  "outstandingCleanupSubmissions",
+  "outstandingCleanupProposals",
+  "outstandingCleanupProposalEvidence",
   "searchChunks",
   "searchFts",
   "searchPaths",
@@ -284,6 +294,31 @@ function makeDeletionCounts(
       projectId,
       projectId,
     ),
+    outstandingCleanupRequests: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM outstanding_cleanup_requests WHERE project_id = ?",
+      projectId,
+    ),
+    outstandingCleanupRequestItems: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM outstanding_cleanup_request_items WHERE project_id = ?",
+      projectId,
+    ),
+    outstandingCleanupSubmissions: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM outstanding_cleanup_submissions WHERE project_id = ?",
+      projectId,
+    ),
+    outstandingCleanupProposals: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM outstanding_cleanup_proposals WHERE project_id = ?",
+      projectId,
+    ),
+    outstandingCleanupProposalEvidence: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM outstanding_cleanup_proposal_evidence WHERE project_id = ?",
+      projectId,
+    ),
     knowledgePages: countRows(db, "SELECT COUNT(*) AS count FROM knowledge_pages WHERE project_id = ?", projectId),
     knowledgePageVersions: countRows(
       db,
@@ -464,6 +499,9 @@ export class ProjectDeletionService {
              WHERE project_id = ? OR session_id IN (SELECT value FROM json_each(?))`,
           )
           .run(projectId, JSON.stringify(sessionIds));
+        // Cleanup review rows and append-only item events are intentionally left for the project FK cascade.
+        // Deleting a cleanup parent first would cascade into outstanding_item_events while the project still exists,
+        // which its append-only delete trigger rejects.
         this.db.prepare("DELETE FROM projects WHERE id = ?").run(projectId);
 
         const searchCounts = this.searchIndex.deleteProjectDocuments(projectId, sessionIds, knowledgeIds);

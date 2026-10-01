@@ -615,6 +615,110 @@ const MIGRATIONS: SchemaMigration[] = [
       DROP TABLE outstanding_items_migration_backfill;
     `,
   },
+  {
+    version: 23,
+    name: "outstanding-cleanup-review",
+    sql: `
+      CREATE UNIQUE INDEX idx_sessions_id_project ON sessions(id, project_id);
+      CREATE UNIQUE INDEX idx_outstanding_items_id_project ON outstanding_items(id, project_id);
+      CREATE TABLE outstanding_cleanup_requests (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'awaiting_review', 'completed', 'cancelled')),
+        requested_at TEXT NOT NULL,
+        completed_at TEXT,
+        item_count INTEGER NOT NULL CHECK (item_count >= 0),
+        UNIQUE (id, project_id)
+      );
+      CREATE UNIQUE INDEX idx_outstanding_cleanup_active_project ON outstanding_cleanup_requests(project_id)
+        WHERE status IN ('pending', 'awaiting_review');
+      CREATE INDEX idx_outstanding_cleanup_requests_date ON outstanding_cleanup_requests(project_id, requested_at, id);
+      CREATE TABLE outstanding_cleanup_submissions (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (request_id, idempotency_key),
+        UNIQUE (id, request_id, project_id),
+        FOREIGN KEY (request_id, project_id) REFERENCES outstanding_cleanup_requests(id, project_id) ON DELETE CASCADE
+      );
+      CREATE TABLE outstanding_cleanup_request_items (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL,
+        source_session_id TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        text TEXT NOT NULL,
+        item_updated_at TEXT NOT NULL,
+        source_updated_at TEXT NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+        source_completed_at TEXT NOT NULL,
+        examined_submission_id TEXT,
+        UNIQUE (request_id, item_id),
+        UNIQUE (request_id, position),
+        UNIQUE (id, request_id, project_id),
+        FOREIGN KEY (request_id, project_id) REFERENCES outstanding_cleanup_requests(id, project_id) ON DELETE CASCADE,
+        FOREIGN KEY (item_id, project_id) REFERENCES outstanding_items(id, project_id) ON DELETE CASCADE,
+        FOREIGN KEY (source_session_id, project_id) REFERENCES sessions(id, project_id) ON DELETE CASCADE,
+        FOREIGN KEY (examined_submission_id, request_id, project_id)
+          REFERENCES outstanding_cleanup_submissions(id, request_id, project_id) ON DELETE CASCADE
+      );
+      CREATE INDEX idx_outstanding_cleanup_items_page ON outstanding_cleanup_request_items(request_id, position);
+      CREATE TABLE outstanding_cleanup_proposals (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        request_item_id TEXT NOT NULL UNIQUE,
+        submission_id TEXT NOT NULL,
+        target_status TEXT NOT NULL CHECK (target_status IN ('completed', 'not_needed')),
+        reason TEXT NOT NULL,
+        review_status TEXT NOT NULL CHECK (review_status IN ('pending', 'accepted', 'rejected')),
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        UNIQUE (id, project_id),
+        FOREIGN KEY (request_id, project_id) REFERENCES outstanding_cleanup_requests(id, project_id) ON DELETE CASCADE,
+        FOREIGN KEY (request_item_id, request_id, project_id)
+          REFERENCES outstanding_cleanup_request_items(id, request_id, project_id) ON DELETE CASCADE,
+        FOREIGN KEY (submission_id, request_id, project_id)
+          REFERENCES outstanding_cleanup_submissions(id, request_id, project_id) ON DELETE CASCADE
+      );
+      CREATE INDEX idx_outstanding_cleanup_proposals_review ON outstanding_cleanup_proposals(request_id, review_status, created_at, id);
+      CREATE TABLE outstanding_cleanup_proposal_evidence (
+        id TEXT PRIMARY KEY,
+        proposal_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL,
+        session_updated_at TEXT NOT NULL,
+        session_fingerprint TEXT NOT NULL,
+        session_completed_at TEXT NOT NULL,
+        UNIQUE (proposal_id, session_id),
+        FOREIGN KEY (proposal_id, project_id) REFERENCES outstanding_cleanup_proposals(id, project_id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id, project_id) REFERENCES sessions(id, project_id) ON DELETE CASCADE
+      );
+      CREATE INDEX idx_outstanding_cleanup_evidence_proposal ON outstanding_cleanup_proposal_evidence(proposal_id, session_id);
+      ALTER TABLE outstanding_item_events ADD COLUMN cleanup_request_id TEXT
+        REFERENCES outstanding_cleanup_requests(id) ON DELETE CASCADE;
+      ALTER TABLE outstanding_item_events ADD COLUMN cleanup_proposal_id TEXT
+        REFERENCES outstanding_cleanup_proposals(id) ON DELETE CASCADE;
+      CREATE TRIGGER trg_outstanding_cleanup_event_scope
+        BEFORE INSERT ON outstanding_item_events
+        WHEN NEW.cleanup_request_id IS NOT NULL OR NEW.cleanup_proposal_id IS NOT NULL BEGIN
+          SELECT CASE WHEN NEW.source <> 'web'
+            OR NEW.cleanup_request_id IS NULL OR NEW.cleanup_proposal_id IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM outstanding_cleanup_proposals cp
+              JOIN outstanding_cleanup_request_items ci ON ci.id = cp.request_item_id
+              WHERE cp.id = NEW.cleanup_proposal_id AND cp.request_id = NEW.cleanup_request_id
+                AND cp.project_id = NEW.project_id AND ci.item_id = NEW.item_id
+                AND cp.review_status = 'accepted' AND cp.target_status = NEW.to_status
+            ) THEN RAISE(ABORT, 'invalid cleanup audit scope') END;
+        END;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

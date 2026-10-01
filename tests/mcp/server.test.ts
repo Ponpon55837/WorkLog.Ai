@@ -23,7 +23,7 @@ const DISPATCHER_EXPECTATIONS = {
   work_read: {
     title: "Read Work Intelligence",
     annotations: { title: "Read Work Intelligence", readOnlyHint: true, openWorldHint: false },
-    operationCount: 18,
+    operationCount: 20,
   },
   work_write_idempotent: {
     title: "Write Work Intelligence records",
@@ -34,7 +34,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 15,
+    operationCount: 16,
   },
   work_write_additive: {
     title: "Add Work Intelligence records or proposals",
@@ -673,6 +673,130 @@ describe("Work Intelligence MCP server", () => {
     expect(listed.items[0]?.text.length).toBeLessThanOrEqual(4_000);
     expect(listed.items[0]?.text).not.toMatch(/[\uD800-\uDBFF]$/u);
     expect(listed.items[0]?.textTruncated).toBe(true);
+  });
+
+  it("routes cleanup reads and idempotent proposal submissions without changing item status", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("MCP cleanup proposal project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const source = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-cleanup-source", "Cleanup source"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Created the synthetic cleanup obligation."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["Verify the cleanup proposal remains only a proposal."],
+      },
+      completedAt: "2026-09-01T12:00:00.000Z",
+    });
+    const evidence = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-cleanup-evidence", "Cleanup evidence"),
+      changedFiles: [],
+      workSummary: {
+        outcomes: ["Verified the synthetic obligation."],
+        scope: [],
+        decisions: [],
+        verification: ["The synthetic outcome was verified."],
+        nextSteps: [],
+      },
+      completedAt: "2026-09-02T12:00:00.000Z",
+    });
+    const sourceItems = store.listOutstandingItems({ projectId: project.id, status: "pending", pageSize: 10 });
+    if (sourceItems.outcome !== "outstanding_items" || sourceItems.items.length !== 1) {
+      throw new Error("Expected one synthetic pending item.");
+    }
+    const itemId = sourceItems.items[0]!.id;
+    const created = store.createOutstandingCleanupRequest({
+      projectId: project.id,
+      idempotencyKey: "mcp-cleanup-request",
+    });
+    if (created.outcome !== "outstanding_cleanup_request_created") throw new Error("Expected a cleanup request.");
+
+    expect(await operationAnnotations(client, "work_list_outstanding_cleanup_requests")).toMatchObject({
+      readOnlyHint: true,
+      openWorldHint: false,
+    });
+    expect(await operationAnnotations(client, "work_get_outstanding_cleanup_context")).toMatchObject({
+      readOnlyHint: true,
+      openWorldHint: false,
+    });
+    expect(await operationAnnotations(client, "work_submit_outstanding_cleanup_proposals")).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+
+    const listed = await callJson<{ outcome: string; requests: Array<{ id: string }> }>(
+      client,
+      "work_list_outstanding_cleanup_requests",
+      { projectId: project.id, pageSize: 5 },
+    );
+    expect(listed).toMatchObject({ outcome: "outstanding_cleanup_requests", requests: [{ id: created.request.id }] });
+    const context = await callJson<{
+      outcome: string;
+      items: Array<{ id: string; sourceSessionId: string; stale: boolean }>;
+      sessions: Array<{ id: string }>;
+    }>(client, "work_get_outstanding_cleanup_context", { requestId: created.request.id });
+    expect(context).toMatchObject({
+      outcome: "outstanding_cleanup_context",
+      items: [expect.objectContaining({ id: itemId, sourceSessionId: source.session.id, stale: false })],
+    });
+    expect(context.sessions.map(({ id }) => id)).toContain(evidence.session.id);
+
+    const unknownField = await callMcpOperation(client, "work_list_outstanding_cleanup_requests", {
+      projectId: project.id,
+      pageSize: 5,
+      unexpectedFilter: true,
+    });
+    expect(unknownField.isError).toBe(true);
+    expect(JSON.stringify(unknownField.content)).toContain("Unknown argument(s)");
+
+    const beforeEvents = store.exportProjectData({ type: "project", projectId: project.id }).tables
+      .outstanding_item_events;
+    const proposalInput = {
+      requestId: created.request.id,
+      idempotencyKey: "mcp-cleanup-submit",
+      examinedItemIds: [itemId],
+      proposals: [
+        {
+          itemId,
+          status: "completed",
+          reason: "The later Session verifies the obligation was completed.",
+          evidenceSessionIds: [evidence.session.id],
+        },
+      ],
+    };
+    const submitted = await callJson<{
+      outcome: string;
+      duplicate: boolean;
+      proposalIds: string[];
+      request: { status: string };
+    }>(client, "work_submit_outstanding_cleanup_proposals", proposalInput);
+    expect(submitted).toMatchObject({ outcome: "outstanding_cleanup_proposals_submitted", duplicate: false });
+    const replay = await callJson<typeof submitted>(client, "work_submit_outstanding_cleanup_proposals", proposalInput);
+    expect(replay).toMatchObject({ duplicate: true, proposalIds: submitted.proposalIds });
+    const conflict = await callJson<{ outcome: string; reason: string }>(
+      client,
+      "work_submit_outstanding_cleanup_proposals",
+      {
+        ...proposalInput,
+        proposals: [{ ...proposalInput.proposals[0]!, status: "not_needed" }],
+      },
+    );
+    expect(conflict).toMatchObject({ outcome: "rejected", reason: "idempotency_conflict" });
+
+    const afterItems = store.listOutstandingItems({ projectId: project.id, pageSize: 10 });
+    expect(afterItems).toMatchObject({ items: [expect.objectContaining({ id: itemId, status: "pending" })] });
+    expect(store.exportProjectData({ type: "project", projectId: project.id }).tables.outstanding_item_events).toEqual(
+      beforeEvents,
+    );
+    expect(store.listOutstandingCleanupProposals({ requestId: created.request.id, pageSize: 10 })).toMatchObject({
+      outcome: "outstanding_cleanup_proposals",
+      proposals: [expect.objectContaining({ id: submitted.proposalIds[0], reviewStatus: "pending" })],
+    });
   });
 
   it("lists tracked pending items read-only and finalizes only same-project pending item ids", async () => {

@@ -28,6 +28,10 @@ const RESPONSE_BUDGETS = {
   contextWithTask: 10_000,
   finalizeWithRelatedOutstandingItems: 16_000,
   outstandingItemsPage: 30_000,
+  outstandingCleanupContext: 24_000,
+  contextWithOutstandingCleanup: 10_000,
+  outstandingCleanupRequestPage: 8_000,
+  outstandingCleanupProposalPage: 30_000,
   relatedOutstandingItems: 4_200,
   recallDefault: 7_000,
   recallFive: 3_500,
@@ -558,6 +562,257 @@ describe("synthetic MCP response-size baseline", () => {
     expect(related.items.every((item) => item.sourceSessionId !== finalizeValue.session.id)).toBe(true);
     expect(related.items.map((item) => item.text)).not.toContain(newNextStep);
     expect(JSON.stringify(related).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.relatedOutstandingItems);
+  });
+
+  it("bounds cleanup reads while retaining all selected item and later Session IDs", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const project = store.listProjects().find((candidate) => candidate.rootPath === projectRoot);
+    if (!project) throw new Error("Expected the synthetic tracked project.");
+
+    const longItem = `Verify this synthetic cleanup obligation against later source Sessions. ${"bounded item evidence ".repeat(160)}`;
+    vi.setSystemTime(Date.now() + 60_000);
+    const additionalSource = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "response-size-cleanup-additional-source",
+      title: `Long cleanup snapshot source ${"source title detail ".repeat(14)}`,
+      summary: "Synthetic source Session adding the fifth cleanup snapshot item.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: ["The synthetic cleanup source is valid."],
+        nextSteps: [longItem],
+      },
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    if (additionalSource.outcome !== "finalized") {
+      throw new Error(`Expected the fifth cleanup source; received ${additionalSource.outcome}.`);
+    }
+
+    const laterSessionIds: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const source = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `response-size-cleanup-later-source-${index}`,
+        title: `Later cleanup evidence ${index} ${"long source title detail ".repeat(12)}`,
+        summary: `Synthetic later cleanup evidence summary ${"verified bounded context detail ".repeat(90)}`,
+        workSummary: {
+          outcomes: Array.from(
+            { length: 20 },
+            (_, outcomeIndex) =>
+              `Verified cleanup outcome ${outcomeIndex + 1} ${"supporting evidence detail ".repeat(80)}`,
+          ),
+          scope: [],
+          decisions: [],
+          verification: ["The later evidence Session is synthetic and finalized."],
+          nextSteps: [],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (source.outcome !== "finalized") {
+        throw new Error(`Expected later cleanup evidence Session ${index}; received ${source.outcome}.`);
+      }
+      laterSessionIds.push(source.session.id);
+      for (let pullRequest = 0; pullRequest < 4; pullRequest += 1) {
+        const attached = store.attachEvidence({
+          sessionId: source.session.id,
+          kind: "pull_request",
+          reference: `https://github.com/example/cleanup-fixture/pull/${index * 10 + pullRequest + 1}`,
+          summary: "Synthetic later-session pull request pointer.",
+        });
+        if (attached.outcome !== "evidence_attached") {
+          throw new Error(`Expected synthetic PR evidence; received ${attached.outcome}.`);
+        }
+      }
+    }
+
+    vi.setSystemTime(Date.now() + 60_000);
+    const created = store.createOutstandingCleanupRequest({
+      projectId: project.id,
+      idempotencyKey: "response-size-cleanup-request",
+    });
+    if (created.outcome !== "outstanding_cleanup_request_created") {
+      throw new Error(`Expected a cleanup request; received ${created.outcome}.`);
+    }
+    const directContext = store.getOutstandingCleanupContext({
+      requestId: created.request.id,
+      itemPage: 1,
+      itemPageSize: 5,
+      sessionPage: 1,
+      sessionPageSize: 10,
+    });
+    if (directContext.outcome !== "outstanding_cleanup_context") {
+      throw new Error("Expected bounded direct cleanup context.");
+    }
+    expect(directContext.items).toHaveLength(5);
+    expect(directContext.sessions).toHaveLength(10);
+    expect(directContext.sessions.map((session) => session.id)).toEqual(laterSessionIds.slice().reverse());
+    expect(directContext.sessions.every((session) => session.pullRequests.length > 0)).toBe(true);
+    expect(directContext.sessions.every((session) => session.pullRequestsOmitted > 0)).toBe(true);
+    expect(directContext.truncated).toBe(true);
+
+    const requestsPayload = await serializedMcpPayload(client, "work_list_outstanding_cleanup_requests", {
+      projectId: project.id,
+      status: "pending",
+      page: 1,
+      pageSize: 5,
+    });
+    const requests = requestsPayload.value as {
+      requests: Array<{ id: string; itemCount: number; status: string }>;
+      pageInfo: { total: number };
+    };
+    expect(requestsPayload.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingCleanupRequestPage);
+    expect(requests.pageInfo.total).toBe(1);
+    expect(requests.requests).toEqual([
+      expect.objectContaining({ id: created.request.id, itemCount: 5, status: "pending" }),
+    ]);
+
+    const genericContext = await serializedMcpPayload(client, "work_get_context", {
+      projectRoot,
+      task: query,
+    });
+    const genericContextValue = genericContext.value as {
+      pendingRequests: { outstandingCleanup?: Array<{ id: string; itemCount: number; status: string }> };
+    };
+    expect(genericContext.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithOutstandingCleanup);
+    expect(genericContextValue.pendingRequests.outstandingCleanup).toEqual([
+      expect.objectContaining({ id: created.request.id, itemCount: 5, status: "pending" }),
+    ]);
+
+    const contextPayload = await serializedMcpPayload(client, "work_get_outstanding_cleanup_context", {
+      requestId: created.request.id,
+      itemPage: 1,
+      itemPageSize: 5,
+      sessionPage: 1,
+      sessionPageSize: 10,
+    });
+    const context = contextPayload.value as typeof directContext;
+    expect(contextPayload.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingCleanupContext);
+    expect(context.items.map((item) => item.id)).toEqual(directContext.items.map((item) => item.id));
+    expect(context.sessions.map((session) => session.id)).toEqual(directContext.sessions.map((session) => session.id));
+    expect(context.itemPageInfo).toMatchObject({ pageSize: 5, total: 5, hasNext: false });
+    expect(context.sessionPageInfo.pageSize).toBe(10);
+    expect(context.sessions).toHaveLength(10);
+    expect(context.sessions.every((session) => session.pullRequests.length > 0)).toBe(true);
+    expect(context.items.some((item) => item.textTruncated || item.sourceSessionTitleTruncated)).toBe(true);
+    expect(
+      context.sessions.some(
+        (session) => session.titleTruncated || session.summaryTruncated || session.outcomesTruncated,
+      ),
+    ).toBe(true);
+    expect(context.truncated).toBe(true);
+    expect(contextPayload.length).toBeGreaterThan(15_000);
+    console.info(`Max MCP cleanup evidence context size: ${contextPayload.length} UTF-16 code units`);
+
+    const submitted = store.submitOutstandingCleanupProposals({
+      requestId: created.request.id,
+      idempotencyKey: "response-size-cleanup-submission",
+      examinedItemIds: directContext.items.map((item) => item.id),
+      proposals: directContext.items.map((item) => ({
+        itemId: item.id,
+        status: "completed",
+        reason: "Synthetic response-size proposal backed by a later same-project source Session.",
+        evidenceSessionIds: [laterSessionIds[0]!],
+      })),
+    });
+    if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") {
+      throw new Error(`Expected cleanup proposals; received ${submitted.outcome}.`);
+    }
+    const proposals = store.listOutstandingCleanupProposals({ requestId: created.request.id, pageSize: 100 });
+    if (proposals.outcome !== "outstanding_cleanup_proposals") {
+      throw new Error("Expected a synthetic cleanup proposal page.");
+    }
+    expect(JSON.stringify(proposals).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingCleanupProposalPage);
+    expect(proposals.proposals).toHaveLength(5);
+    expect(proposals.proposals.every((proposal) => proposal.evidenceSessionIds.length === 1)).toBe(true);
+  });
+
+  it("rejects imported cleanup context when preserving a long source identity exceeds the response budget", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-long-cleanup-identity-"));
+    cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));
+    const source = new WorkIntelligenceStore(":memory:");
+    const imported = new WorkIntelligenceStore(":memory:");
+    cleanups.push(
+      () => source.close(),
+      () => imported.close(),
+    );
+
+    const project = source.addProject("Synthetic Long Identity Project", projectRoot);
+    source.updateProject(project.id, { status: "tracked" });
+    const finalized = source.finalizeSession({
+      projectRoot,
+      idempotencyKey: "long-cleanup-identity-source",
+      title: "Synthetic long identity source",
+      summary: "Fictional source for cleanup response-budget coverage.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: ["The synthetic long-identity fixture is valid."],
+        nextSteps: ["Preserve the complete source identity in cleanup context."],
+      },
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    if (finalized.outcome !== "finalized") {
+      throw new Error(`Expected the synthetic source Session; received ${finalized.outcome}.`);
+    }
+    const created = source.createOutstandingCleanupRequest({
+      projectId: project.id,
+      idempotencyKey: "long-cleanup-identity-request",
+    });
+    if (created.outcome !== "outstanding_cleanup_request_created") {
+      throw new Error(`Expected the synthetic cleanup request; received ${created.outcome}.`);
+    }
+
+    const longSessionId = `synthetic-session-${"identity-".repeat(3_000)}`;
+    const bundle = structuredClone(source.exportProjectData({ type: "project", projectId: project.id }));
+    for (const rows of Object.values(bundle.tables)) {
+      for (const row of rows) {
+        for (const [key, value] of Object.entries(row)) {
+          if (value === finalized.session.id) (row as Record<string, unknown>)[key] = longSessionId;
+        }
+      }
+    }
+    expect(longSessionId.length).toBeGreaterThan(RESPONSE_BUDGETS.outstandingCleanupContext);
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
+    imported.importProjectData({ bundle });
+    imported.updateProject(project.id, { status: "tracked" });
+
+    const importedDb = (imported as unknown as { db: DatabaseSync }).db;
+    expect(
+      importedDb
+        .prepare(
+          `SELECT ci.source_session_id, s.id AS session_id
+           FROM outstanding_cleanup_request_items ci
+           JOIN sessions s ON s.id = ci.source_session_id AND s.project_id = ci.project_id
+           WHERE ci.request_id = ?`,
+        )
+        .get(created.request.id),
+    ).toEqual({ source_session_id: longSessionId, session_id: longSessionId });
+
+    const server = createWorkIntelligenceMcpServer(imported, "0.1.0-test", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "long-cleanup-identity-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const context = await serializedMcpPayload(client, "work_get_outstanding_cleanup_context", {
+      requestId: created.request.id,
+      itemPage: 1,
+      itemPageSize: 5,
+      sessionPage: 1,
+      sessionPageSize: 10,
+    });
+    expect(context.value).toMatchObject({
+      outcome: "rejected",
+      reason: "context_too_large",
+      requestId: created.request.id,
+    });
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingCleanupContext);
   });
 
   it("preserves long imported item text while bounding MCP pages", async () => {

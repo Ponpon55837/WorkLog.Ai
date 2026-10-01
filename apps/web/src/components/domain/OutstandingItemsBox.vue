@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { ListChecks } from "lucide-vue-next";
 import type { OutstandingItem, OutstandingItemStatus, PageInfo, ProjectRecord } from "@work-intelligence/core";
+import OutstandingCleanupPanel from "./OutstandingCleanupPanel.vue";
 import StatusLabel from "./StatusLabel.vue";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
@@ -201,6 +202,7 @@ watch([projectId, status, pageSize, page, from, to, () => props.items], () => {
           :items="statusOptions"
         />
         <UiDateRangeMenu v-model="dateRange" label="來源 Session 日期" />
+        <OutstandingCleanupPanel @open-session="emit('openSession', $event)" />
       </div>
     </template>
 

@@ -13,6 +13,7 @@ import type {
 import {
   projectDataExportSchema,
   projectDataExportTableColumns,
+  projectDataColumnValue,
   projectDataImportInputSchema,
 } from "../../packages/schema/src/index.js";
 import { remapPathPrefix } from "../../packages/storage/src/project-path-remap.js";
@@ -336,6 +337,135 @@ function total(counts: Record<string, number | undefined>): number {
   return Object.values(counts).reduce<number>((sum, count) => sum + (count ?? 0), 0);
 }
 
+function seedCleanupReview(
+  store: WorkIntelligenceStore,
+  projectId: string,
+  sourceSessionId: string,
+  evidenceSessionId: string,
+  prefix: string,
+  accepted = false,
+): void {
+  const db = new DatabaseSync(store.databasePath);
+  try {
+    const item = db
+      .prepare(
+        `SELECT id, position, text, updated_at
+         FROM outstanding_items WHERE source_session_id = ? ORDER BY position, id LIMIT 1`,
+      )
+      .get(sourceSessionId) as { id: string; position: number; text: string; updated_at: string } | undefined;
+    const source = db
+      .prepare("SELECT updated_at, completed_at FROM sessions WHERE id = ? AND project_id = ?")
+      .get(sourceSessionId, projectId) as { updated_at: string; completed_at: string } | undefined;
+    const evidence = db
+      .prepare("SELECT updated_at, completed_at FROM sessions WHERE id = ? AND project_id = ?")
+      .get(evidenceSessionId, projectId) as { updated_at: string; completed_at: string } | undefined;
+    if (!item || !source || !evidence)
+      throw new Error("Cleanup review fixture needs same-project source and evidence Sessions.");
+
+    const createdAt = "2026-09-22T12:00:00.000Z";
+    const requestId = `${prefix}-request`;
+    const submissionId = `${prefix}-submission`;
+    const requestItemId = `${prefix}-request-item`;
+    const proposalId = `${prefix}-proposal`;
+    insertRow(
+      db,
+      "outstanding_cleanup_requests",
+      row("outstanding_cleanup_requests", {
+        id: requestId,
+        project_id: projectId,
+        idempotency_key: `${prefix}-request-key`,
+        status: accepted ? "completed" : "awaiting_review",
+        requested_at: createdAt,
+        completed_at: accepted ? createdAt : null,
+        item_count: 1,
+      }),
+    );
+    insertRow(
+      db,
+      "outstanding_cleanup_submissions",
+      row("outstanding_cleanup_submissions", {
+        id: submissionId,
+        request_id: requestId,
+        project_id: projectId,
+        idempotency_key: `${prefix}-submission-key`,
+        payload_hash: "a".repeat(64),
+        created_at: createdAt,
+      }),
+    );
+    insertRow(
+      db,
+      "outstanding_cleanup_request_items",
+      row("outstanding_cleanup_request_items", {
+        id: requestItemId,
+        request_id: requestId,
+        project_id: projectId,
+        item_id: item.id,
+        source_session_id: sourceSessionId,
+        position: item.position,
+        text: item.text,
+        item_updated_at: item.updated_at,
+        source_updated_at: source.updated_at,
+        source_fingerprint: "source-version-fixture",
+        source_completed_at: source.completed_at,
+        examined_submission_id: submissionId,
+      }),
+    );
+    insertRow(
+      db,
+      "outstanding_cleanup_proposals",
+      row("outstanding_cleanup_proposals", {
+        id: proposalId,
+        request_id: requestId,
+        project_id: projectId,
+        request_item_id: requestItemId,
+        submission_id: submissionId,
+        target_status: "completed",
+        reason: "A later same-project synthetic Session verifies this outcome.",
+        review_status: accepted ? "accepted" : "pending",
+        created_at: createdAt,
+        decided_at: accepted ? createdAt : null,
+      }),
+    );
+    insertRow(
+      db,
+      "outstanding_cleanup_proposal_evidence",
+      row("outstanding_cleanup_proposal_evidence", {
+        id: `${prefix}-evidence-link`,
+        proposal_id: proposalId,
+        project_id: projectId,
+        session_id: evidenceSessionId,
+        session_updated_at: evidence.updated_at,
+        session_fingerprint: "evidence-version-fixture",
+        session_completed_at: evidence.completed_at,
+      }),
+    );
+    if (accepted) {
+      db.prepare("UPDATE outstanding_items SET status = 'completed', updated_at = ? WHERE id = ?").run(
+        createdAt,
+        item.id,
+      );
+      insertRow(
+        db,
+        "outstanding_item_events",
+        row("outstanding_item_events", {
+          id: `${prefix}-event`,
+          item_id: item.id,
+          project_id: projectId,
+          from_status: "pending",
+          to_status: "completed",
+          source: "web",
+          actor_session_id: null,
+          created_at: createdAt,
+          cleanup_request_id: requestId,
+          cleanup_proposal_id: proposalId,
+        }),
+      );
+    }
+  } finally {
+    db.close();
+  }
+}
+
 describe("portable project data transfer", () => {
   // V8 coverage instruments fixture setup; the import itself still has a strict 20 s assertion below.
   it("imports 5,000 sessions and 50,000 events within the 20-second performance budget", () => {
@@ -496,6 +626,394 @@ describe("portable project data transfer", () => {
     expect(destination.listProjects()).toHaveLength(1);
   });
 
+  it("round-trips cleanup review records, scopes them to one project, and remaps only project IDs", () => {
+    const source = createSource();
+    seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-main", true);
+
+    const otherRoot = join(source.root, "cleanup-other-project");
+    mkdirSync(otherRoot);
+    const otherProject = source.store.addProject("Cleanup subset fixture", otherRoot);
+    source.store.updateProject(otherProject.id, { status: "tracked" });
+    const otherSource = source.store.finalizeSession({
+      projectRoot: otherRoot,
+      idempotencyKey: "cleanup-subset-source",
+      title: "Synthetic second-project source",
+      summary: "Synthetic second-project source for transfer scope checks.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["Synthetic second-project obligation."],
+      },
+      completedAt: "2026-09-22T10:00:00.000Z",
+    });
+    const otherEvidence = source.store.finalizeSession({
+      projectRoot: otherRoot,
+      idempotencyKey: "cleanup-subset-evidence",
+      title: "Synthetic second-project evidence",
+      summary: "Synthetic later evidence for transfer scope checks.",
+      completedAt: "2026-09-23T10:00:00.000Z",
+    });
+    if (otherSource.outcome !== "finalized" || otherEvidence.outcome !== "finalized") {
+      throw new Error("Expected the second cleanup project Sessions to finalize.");
+    }
+    seedCleanupReview(source.store, otherProject.id, otherSource.session.id, otherEvidence.session.id, "cleanup-other");
+
+    const bundle = source.store.exportProjectData({ type: "all" });
+    expect(bundle.tables.outstanding_cleanup_requests).toHaveLength(2);
+    expect(bundle.tables.outstanding_cleanup_submissions).toHaveLength(2);
+    expect(bundle.tables.outstanding_cleanup_request_items).toHaveLength(2);
+    expect(bundle.tables.outstanding_cleanup_proposals).toHaveLength(2);
+    expect(bundle.tables.outstanding_cleanup_proposal_evidence).toHaveLength(2);
+
+    const subset = new WorkIntelligenceStore(":memory:");
+    stores.push(subset);
+    const subsetPreview = subset.previewProjectDataImport({ bundle, projectId: source.projectId });
+    expect(total(subsetPreview.conflicts)).toBe(0);
+    expect(subsetPreview.additions).toMatchObject({
+      outstanding_cleanup_requests: 1,
+      outstanding_cleanup_submissions: 1,
+      outstanding_cleanup_request_items: 1,
+      outstanding_cleanup_proposals: 1,
+      outstanding_cleanup_proposal_evidence: 1,
+    });
+
+    const remappedRoot = join(source.root, "cleanup-remapped-project");
+    mkdirSync(remappedRoot);
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const existingProject = destination.addProject("Matched cleanup project", remappedRoot);
+    destination.updateProject(existingProject.id, { status: "tracked" });
+    const importInput = {
+      bundle,
+      projectId: source.projectId,
+      remap: [{ from: source.projectRoot, to: remappedRoot }],
+    };
+    const preview = destination.previewProjectDataImport(importInput);
+    expect(total(preview.conflicts)).toBe(0);
+    expect(preview.selectedProjects).toMatchObject([
+      { id: source.projectId, rootPath: remappedRoot, resolution: "existing" },
+    ]);
+    expect(preview.additions).toMatchObject({
+      outstanding_cleanup_requests: 1,
+      outstanding_cleanup_submissions: 1,
+      outstanding_cleanup_request_items: 1,
+      outstanding_cleanup_proposals: 1,
+      outstanding_cleanup_proposal_evidence: 1,
+    });
+    destination.importProjectData(importInput);
+    const imported = destination.exportProjectData({ type: "project", projectId: existingProject.id });
+    expect(imported.tables.outstanding_cleanup_requests[0]?.project_id).toBe(existingProject.id);
+    expect(imported.tables.outstanding_cleanup_request_items[0]).toMatchObject({
+      item_id: bundle.tables.outstanding_cleanup_request_items.find((item) => item.project_id === source.projectId)
+        ?.item_id,
+      project_id: existingProject.id,
+      source_session_id: source.sessionIds[0],
+    });
+    expect(imported.tables.outstanding_cleanup_proposal_evidence[0]).toMatchObject({
+      session_id: source.sessionIds[1],
+      project_id: existingProject.id,
+    });
+    expect(imported.tables.outstanding_item_events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cleanup_request_id: "cleanup-main-request",
+          cleanup_proposal_id: "cleanup-main-proposal",
+          project_id: existingProject.id,
+        }),
+      ]),
+    );
+  });
+
+  it("rejects cleanup imports with cross-project references or duplicate active requests", () => {
+    const source = createSource();
+    seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-main", true);
+
+    const otherRoot = join(source.root, "cleanup-conflict-project");
+    mkdirSync(otherRoot);
+    const otherProject = source.store.addProject("Cleanup conflict project", otherRoot);
+    source.store.updateProject(otherProject.id, { status: "tracked" });
+    const otherSource = source.store.finalizeSession({
+      projectRoot: otherRoot,
+      idempotencyKey: "cleanup-conflict-source",
+      title: "Synthetic conflicting source",
+      summary: "Synthetic source for transfer conflict checks.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["Synthetic conflict-project obligation."],
+      },
+      completedAt: "2026-09-22T10:00:00.000Z",
+    });
+    const otherEvidence = source.store.finalizeSession({
+      projectRoot: otherRoot,
+      idempotencyKey: "cleanup-conflict-evidence",
+      title: "Synthetic conflicting evidence",
+      summary: "Synthetic later evidence for transfer conflict checks.",
+      completedAt: "2026-09-23T10:00:00.000Z",
+    });
+    if (otherSource.outcome !== "finalized" || otherEvidence.outcome !== "finalized") {
+      throw new Error("Expected the second cleanup project Sessions to finalize.");
+    }
+    seedCleanupReview(source.store, otherProject.id, otherSource.session.id, otherEvidence.session.id, "cleanup-other");
+
+    const sameProjectSource = source.store.finalizeSession({
+      projectRoot: source.projectRoot,
+      idempotencyKey: "cleanup-same-project-source",
+      title: "Synthetic same-project source",
+      summary: "Synthetic second same-project cleanup source.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["Synthetic same-project second obligation."],
+      },
+      completedAt: "2026-09-24T10:00:00.000Z",
+    });
+    const sameProjectEvidence = source.store.finalizeSession({
+      projectRoot: source.projectRoot,
+      idempotencyKey: "cleanup-same-project-evidence",
+      title: "Synthetic same-project evidence",
+      summary: "Synthetic later same-project evidence.",
+      completedAt: "2026-09-25T10:00:00.000Z",
+    });
+    if (sameProjectSource.outcome !== "finalized" || sameProjectEvidence.outcome !== "finalized") {
+      throw new Error("Expected the same-project cleanup Sessions to finalize.");
+    }
+    seedCleanupReview(
+      source.store,
+      source.projectId,
+      sameProjectSource.session.id,
+      sameProjectEvidence.session.id,
+      "cleanup-main-second",
+    );
+
+    const bundle = source.store.exportProjectData({ type: "all" });
+    const mainRequest = bundle.tables.outstanding_cleanup_requests.find(
+      (request) => request.project_id === source.projectId,
+    );
+    const otherRequest = bundle.tables.outstanding_cleanup_requests.find(
+      (request) => request.project_id === otherProject.id,
+    );
+    const mainItem = bundle.tables.outstanding_cleanup_request_items.find(
+      (item) => item.project_id === source.projectId,
+    );
+    const mainEvidence = bundle.tables.outstanding_cleanup_proposal_evidence.find(
+      (item) => item.project_id === source.projectId,
+    );
+    const sameProjectRequest = bundle.tables.outstanding_cleanup_requests.find(
+      (request) => request.id === "cleanup-main-second-request",
+    );
+    const sameProjectSubmission = bundle.tables.outstanding_cleanup_submissions.find(
+      (submission) => submission.request_id === "cleanup-main-second-request",
+    );
+    const mainEvent = bundle.tables.outstanding_item_events.find(
+      (event) => event.cleanup_request_id === mainRequest?.id,
+    );
+    if (
+      !mainRequest ||
+      !otherRequest ||
+      !mainItem ||
+      !mainEvidence ||
+      !sameProjectRequest ||
+      !sameProjectSubmission ||
+      !mainEvent
+    ) {
+      throw new Error("Expected complete synthetic cleanup review records for both projects.");
+    }
+
+    const duplicateActive = {
+      ...otherRequest,
+      id: "zz-cleanup-duplicate-active-request",
+      idempotency_key: "cleanup-duplicate-active-key",
+    };
+    const mainRequestIdempotencyKey = mainRequest.idempotency_key;
+    if (typeof mainRequestIdempotencyKey !== "string") {
+      throw new Error("Expected a string request idempotency key in the portable export.");
+    }
+    const duplicateRequestKey = {
+      ...otherRequest,
+      id: "zz-cleanup-duplicate-request-key",
+      idempotency_key: mainRequestIdempotencyKey,
+      status: "completed",
+      completed_at: "2026-09-22T12:00:00.000Z",
+    };
+    const mainSubmission = bundle.tables.outstanding_cleanup_submissions.find(
+      (submission) => submission.request_id === mainRequest.id,
+    );
+    const mainProposal = bundle.tables.outstanding_cleanup_proposals.find(
+      (proposal) => proposal.request_id === mainRequest.id,
+    );
+    if (!mainSubmission || !mainProposal)
+      throw new Error("Expected a submission and proposal for the primary request.");
+    const duplicateSubmission = {
+      ...mainSubmission,
+      id: "zz-cleanup-duplicate-submission",
+    };
+    const duplicateRequestItem = {
+      ...mainItem,
+      id: "zz-cleanup-duplicate-request-item",
+    };
+    const duplicateProposal = {
+      ...mainProposal,
+      id: "zz-cleanup-duplicate-proposal",
+    };
+    const duplicateEvidence = {
+      ...mainEvidence,
+      id: "zz-cleanup-duplicate-evidence",
+    };
+
+    const crossProjectItemBundle = structuredClone(bundle);
+    const crossProjectItem = crossProjectItemBundle.tables.outstanding_cleanup_request_items.find(
+      (item) => item.project_id === source.projectId,
+    );
+    const otherItem = crossProjectItemBundle.tables.outstanding_cleanup_request_items.find(
+      (item) => item.project_id === otherProject.id,
+    );
+    if (!crossProjectItem || !otherItem) throw new Error("Expected request items for both projects.");
+    const otherItemId = otherItem.item_id;
+    if (typeof otherItemId !== "string") throw new Error("Expected a string item id in the portable export.");
+    crossProjectItem.item_id = otherItemId;
+    crossProjectItem.source_session_id = otherSource.session.id;
+
+    const sameProjectWrongSourceBundle = structuredClone(bundle);
+    const wrongSourceItem = sameProjectWrongSourceBundle.tables.outstanding_cleanup_request_items.find(
+      (item) => item.project_id === source.projectId,
+    );
+    if (!wrongSourceItem) throw new Error("Expected a same-project cleanup request item.");
+    wrongSourceItem.source_session_id = source.sessionIds[1];
+
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const duplicateEvidenceBundle = structuredClone(bundle);
+    duplicateEvidenceBundle.tables.outstanding_cleanup_proposal_evidence.push(duplicateEvidence);
+    const duplicateEvidencePreview = destination.previewProjectDataImport({ bundle: duplicateEvidenceBundle });
+    expect(duplicateEvidencePreview.conflictDetails).toContainEqual({
+      table: "outstanding_cleanup_proposal_evidence",
+      id: duplicateEvidence.id,
+      reason: "匯入檔內有重複的唯一識別值。",
+    });
+
+    const crossProjectItemPreview = destination.previewProjectDataImport({ bundle: crossProjectItemBundle });
+    expect(crossProjectItemPreview.conflictDetails).toContainEqual({
+      table: "outstanding_cleanup_request_items",
+      id: crossProjectItem.id,
+      reason: "清理快照項目必須引用同一專案中可用的待結項。",
+    });
+    const wrongSourcePreview = destination.previewProjectDataImport({ bundle: sameProjectWrongSourceBundle });
+    expect(wrongSourcePreview.conflictDetails).toContainEqual({
+      table: "outstanding_cleanup_request_items",
+      id: wrongSourceItem.id,
+      reason: "清理快照項目的來源 Session 必須與待結項來源一致。",
+    });
+
+    const wrongSubmissionBundle = structuredClone(bundle);
+    const wrongSubmissionProposal = wrongSubmissionBundle.tables.outstanding_cleanup_proposals.find(
+      (proposal) => proposal.request_id === mainRequest.id,
+    );
+    if (!wrongSubmissionProposal) throw new Error("Expected a proposal for the primary cleanup request.");
+    const sameProjectSubmissionId = sameProjectSubmission.id;
+    if (typeof sameProjectSubmissionId !== "string") {
+      throw new Error("Expected a string submission id in the portable export.");
+    }
+    wrongSubmissionProposal.submission_id = sameProjectSubmissionId;
+    const wrongSubmissionPreview = destination.previewProjectDataImport({ bundle: wrongSubmissionBundle });
+    expect(wrongSubmissionPreview.conflictDetails).toContainEqual({
+      table: "outstanding_cleanup_proposals",
+      id: wrongSubmissionProposal.id,
+      reason: "清理提案及其關聯資料必須屬於同一專案與請求。",
+    });
+
+    const mismatchedExaminedSubmissionBundle = structuredClone(bundle);
+    const extraSameRequestSubmission = {
+      ...mainSubmission,
+      id: "cleanup-main-alternate-submission",
+      idempotency_key: "cleanup-main-alternate-submission-key",
+    };
+    mismatchedExaminedSubmissionBundle.tables.outstanding_cleanup_submissions.push(extraSameRequestSubmission);
+    const mismatchedExaminedProposal = mismatchedExaminedSubmissionBundle.tables.outstanding_cleanup_proposals.find(
+      (proposal) => proposal.request_id === mainRequest.id,
+    );
+    if (!mismatchedExaminedProposal) throw new Error("Expected a proposal for the primary cleanup request.");
+    mismatchedExaminedProposal.submission_id = extraSameRequestSubmission.id;
+    const mismatchedExaminedPreview = destination.previewProjectDataImport({
+      bundle: mismatchedExaminedSubmissionBundle,
+    });
+    expect(mismatchedExaminedPreview.conflictDetails).toContainEqual({
+      table: "outstanding_cleanup_proposals",
+      id: mismatchedExaminedProposal.id,
+      reason: "清理提案提交紀錄必須與快照項目檢視的提交一致。",
+    });
+
+    const emptyCleanupAuditIdsBundle = structuredClone(bundle);
+    const emptyCleanupAuditEvent = emptyCleanupAuditIdsBundle.tables.outstanding_item_events.find(
+      (event) => event.cleanup_request_id === mainRequest.id,
+    );
+    if (!emptyCleanupAuditEvent) throw new Error("Expected a linked cleanup audit event.");
+    emptyCleanupAuditEvent.cleanup_request_id = "";
+    emptyCleanupAuditEvent.cleanup_proposal_id = "";
+    const emptyCleanupAuditPreview = destination.previewProjectDataImport({ bundle: emptyCleanupAuditIdsBundle });
+    expect(emptyCleanupAuditPreview.conflictDetails).toContainEqual({
+      table: "outstanding_item_events",
+      id: emptyCleanupAuditEvent.id,
+      reason: "清理稽核事件引用的請求或提案發生衝突或不存在。",
+    });
+
+    bundle.tables.outstanding_cleanup_requests.push(duplicateActive, duplicateRequestKey);
+    bundle.tables.outstanding_cleanup_submissions.push(duplicateSubmission);
+    bundle.tables.outstanding_cleanup_request_items.push(duplicateRequestItem);
+    bundle.tables.outstanding_cleanup_proposals.push(duplicateProposal);
+    mainEvidence.session_id = otherEvidence.session.id;
+    mainEvent.cleanup_proposal_id =
+      bundle.tables.outstanding_cleanup_proposals.find((proposal) => proposal.request_id === otherRequest.id)?.id ??
+      null;
+
+    const preview = destination.previewProjectDataImport({ bundle });
+    expect(preview.conflictDetails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "outstanding_cleanup_requests",
+          id: duplicateActive.id,
+          reason: "匯入檔內有重複的唯一識別值。",
+        }),
+        expect.objectContaining({
+          table: "outstanding_cleanup_requests",
+          id: duplicateRequestKey.id,
+          reason: "匯入檔內有重複的唯一識別值。",
+        }),
+        expect.objectContaining({
+          table: "outstanding_cleanup_submissions",
+          id: duplicateSubmission.id,
+          reason: "匯入檔內有重複的唯一識別值。",
+        }),
+        expect.objectContaining({
+          table: "outstanding_cleanup_request_items",
+          id: duplicateRequestItem.id,
+          reason: "匯入檔內有重複的唯一識別值。",
+        }),
+        expect.objectContaining({
+          table: "outstanding_cleanup_proposals",
+          id: duplicateProposal.id,
+          reason: "匯入檔內有重複的唯一識別值。",
+        }),
+        expect.objectContaining({
+          table: "outstanding_cleanup_proposal_evidence",
+          id: mainEvidence.id,
+          reason: "清理提案證據 Session 必須位於提案所屬專案。",
+        }),
+        expect.objectContaining({
+          table: "outstanding_item_events",
+          id: mainEvent.id,
+          reason: "清理稽核事件的請求、提案、項目必須屬於同一專案與請求。",
+        }),
+      ]),
+    );
+  });
+
   it("carries the confirmed-empty changed files flag and still imports exports made before it existed", () => {
     const source = createSource();
     const sourceDb = new DatabaseSync(source.store.databasePath);
@@ -575,6 +1093,47 @@ describe("portable project data transfer", () => {
     const importedBundle = destination.exportProjectData({ type: "all" });
     expect(JSON.stringify(importedBundle)).not.toContain(importToken);
     expect(importedBundle.tables.sessions.find((item) => item.id === source.sessionIds[0])?.redaction_count).toBe(6);
+  });
+
+  it("redacts cleanup snapshot text and proposal reasons in exports and imports", () => {
+    const source = createSource();
+    seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-redaction");
+    const token = `gho_${"C".repeat(36)}`;
+    const sourceDb = new DatabaseSync(source.store.databasePath);
+    try {
+      sourceDb
+        .prepare("UPDATE outstanding_cleanup_request_items SET text = ? WHERE request_id = ?")
+        .run(token, "cleanup-redaction-request");
+      sourceDb
+        .prepare("UPDATE outstanding_cleanup_proposals SET reason = ? WHERE request_id = ?")
+        .run(token, "cleanup-redaction-request");
+    } finally {
+      sourceDb.close();
+    }
+
+    const exported = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    expect(JSON.stringify(exported)).not.toContain(token);
+    expect(exported.tables.outstanding_cleanup_request_items[0]?.text).not.toBe(token);
+    expect(exported.tables.outstanding_cleanup_proposals[0]?.reason).not.toBe(token);
+    expect(exported.tables.sessions.find((session) => session.id === source.sessionIds[0])?.redaction_count).toBe(2);
+
+    const contaminated = structuredClone(exported);
+    const cleanupItem = contaminated.tables.outstanding_cleanup_request_items[0];
+    const proposal = contaminated.tables.outstanding_cleanup_proposals[0];
+    if (!cleanupItem || !proposal) throw new Error("Expected cleanup text rows in the portable export.");
+    cleanupItem.text = token;
+    proposal.reason = token;
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const imported = destination.importProjectData({ bundle: contaminated, remap: [] });
+    const importedRedactions = imported.redactions;
+    if (!importedRedactions) throw new Error("Expected the import redaction summary.");
+    expect(importedRedactions.total).toBe(2);
+    const importedBundle = destination.exportProjectData({ type: "all" });
+    expect(JSON.stringify(importedBundle)).not.toContain(token);
+    expect(importedBundle.tables.sessions.find((session) => session.id === source.sessionIds[0])?.redaction_count).toBe(
+      4,
+    );
   });
 
   it("imports one selected project from an all-project file", () => {
@@ -768,6 +1327,33 @@ describe("portable project data transfer", () => {
       destination.previewProjectDataImport({ bundle: { ...bundle, schemaVersion: bundle.schemaVersion - 1 } }),
     ).toThrow(/schema 版本/);
     const legacy = structuredClone(bundle) as unknown as { schemaVersion: number; tables: Record<string, unknown> };
+    legacy.schemaVersion = 22;
+    delete legacy.tables.outstanding_cleanup_requests;
+    delete legacy.tables.outstanding_cleanup_submissions;
+    delete legacy.tables.outstanding_cleanup_request_items;
+    delete legacy.tables.outstanding_cleanup_proposals;
+    delete legacy.tables.outstanding_cleanup_proposal_evidence;
+    const legacyEvents = legacy.tables.outstanding_item_events as ProjectDataRow[];
+    for (const event of legacyEvents) {
+      delete event.cleanup_request_id;
+      delete event.cleanup_proposal_id;
+    }
+    const parsedLegacy = projectDataExportSchema.safeParse(legacy);
+    expect(parsedLegacy.success).toBe(true);
+    if (parsedLegacy.success) {
+      expect(parsedLegacy.data.tables.outstanding_cleanup_requests).toEqual([]);
+      expect(parsedLegacy.data.tables.outstanding_cleanup_submissions).toEqual([]);
+      expect(parsedLegacy.data.tables.outstanding_cleanup_request_items).toEqual([]);
+      expect(parsedLegacy.data.tables.outstanding_cleanup_proposals).toEqual([]);
+      expect(parsedLegacy.data.tables.outstanding_cleanup_proposal_evidence).toEqual([]);
+    }
+    expect(
+      projectDataColumnValue(
+        "outstanding_item_events",
+        legacyEvents[0] ?? ({} as ProjectDataRow),
+        "cleanup_request_id",
+      ),
+    ).toBeNull();
     legacy.schemaVersion = 21;
     delete legacy.tables.outstanding_items;
     delete legacy.tables.outstanding_item_events;

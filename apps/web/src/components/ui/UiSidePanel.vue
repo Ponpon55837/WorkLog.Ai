@@ -136,7 +136,7 @@ onBeforeUnmount(stopResize);
       <div v-if="open && modal" class="ui-side-panel__backdrop" @click="emit('close')"></div>
     </Transition>
     <Transition name="ui-side-panel-slide">
-      <aside
+      <div
         v-if="open"
         ref="panel"
         :class="['ui-side-panel', { 'ui-side-panel--docked': !modal, 'is-resizing': resizing }]"
@@ -146,9 +146,9 @@ onBeforeUnmount(stopResize);
         :aria-label="label"
         tabindex="-1"
       >
-        <header v-if="$slots.header" class="ui-side-panel__header"><slot name="header" /></header>
+        <div v-if="$slots.header" class="ui-side-panel__header"><slot name="header" /></div>
         <div class="ui-side-panel__body"><slot /></div>
-        <footer v-if="$slots.footer" class="ui-side-panel__footer"><slot name="footer" /></footer>
+        <div v-if="$slots.footer" class="ui-side-panel__footer"><slot name="footer" /></div>
         <!-- Last in DOM order so the focus trap still lands on the panel content first. -->
         <div
           class="ui-side-panel__resize"
@@ -164,7 +164,7 @@ onBeforeUnmount(stopResize);
           @keydown="onResizeKey"
           @dblclick="setWidth(width, true)"
         ></div>
-      </aside>
+      </div>
     </Transition>
   </Teleport>
 </template>

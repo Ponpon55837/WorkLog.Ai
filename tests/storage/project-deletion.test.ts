@@ -208,6 +208,110 @@ describe("project deletion", () => {
           at,
           JSON.stringify([targetSessionId]),
         );
+
+      const cleanupItem = seed
+        .prepare("SELECT id, position, text, updated_at FROM outstanding_items WHERE source_session_id = ? LIMIT 1")
+        .get(targetSessionId) as { id: string; position: number; text: string; updated_at: string };
+      const cleanupSource = seed
+        .prepare("SELECT updated_at, completed_at FROM sessions WHERE id = ?")
+        .get(targetSessionId) as { updated_at: string; completed_at: string };
+      const cleanupRequestId = "delete-fixture-cleanup-request";
+      const cleanupSubmissionId = "delete-fixture-cleanup-submission";
+      const cleanupRequestItemId = "delete-fixture-cleanup-request-item";
+      const cleanupProposalId = "delete-fixture-cleanup-proposal";
+      const cleanupAt = "2026-09-26T00:01:00.000Z";
+      seed
+        .prepare(
+          `INSERT INTO outstanding_cleanup_requests
+         (id, project_id, idempotency_key, status, requested_at, completed_at, item_count)
+         VALUES (?, ?, ?, 'completed', ?, ?, 1)`,
+        )
+        .run(cleanupRequestId, targetProject.id, "delete-fixture-cleanup-request-key", at, cleanupAt);
+      seed
+        .prepare(
+          `INSERT INTO outstanding_cleanup_submissions
+         (id, request_id, project_id, idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          cleanupSubmissionId,
+          cleanupRequestId,
+          targetProject.id,
+          "delete-fixture-cleanup-submission-key",
+          "a".repeat(64),
+          cleanupAt,
+        );
+      seed
+        .prepare(
+          `INSERT INTO outstanding_cleanup_request_items
+         (id, request_id, project_id, item_id, source_session_id, position, text, item_updated_at,
+          source_updated_at, source_fingerprint, source_completed_at, examined_submission_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          cleanupRequestItemId,
+          cleanupRequestId,
+          targetProject.id,
+          cleanupItem.id,
+          targetSessionId,
+          cleanupItem.position,
+          cleanupItem.text,
+          cleanupItem.updated_at,
+          cleanupSource.updated_at,
+          "source-version-fixture",
+          cleanupSource.completed_at,
+          cleanupSubmissionId,
+        );
+      seed
+        .prepare(
+          `INSERT INTO outstanding_cleanup_proposals
+         (id, request_id, project_id, request_item_id, submission_id, target_status, reason, review_status,
+          created_at, decided_at)
+         VALUES (?, ?, ?, ?, ?, 'completed', ?, 'accepted', ?, ?)`,
+        )
+        .run(
+          cleanupProposalId,
+          cleanupRequestId,
+          targetProject.id,
+          cleanupRequestItemId,
+          cleanupSubmissionId,
+          "Synthetic evidence supports this accepted cleanup decision.",
+          cleanupAt,
+          cleanupAt,
+        );
+      seed
+        .prepare(
+          `INSERT INTO outstanding_cleanup_proposal_evidence
+         (id, proposal_id, project_id, session_id, session_updated_at, session_fingerprint, session_completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "delete-fixture-cleanup-evidence-link",
+          cleanupProposalId,
+          targetProject.id,
+          targetSessionId,
+          cleanupSource.updated_at,
+          "evidence-version-fixture",
+          cleanupSource.completed_at,
+        );
+      seed
+        .prepare("UPDATE outstanding_items SET status = 'completed', updated_at = ? WHERE id = ?")
+        .run(cleanupAt, cleanupItem.id);
+      seed
+        .prepare(
+          `INSERT INTO outstanding_item_events
+         (id, item_id, project_id, from_status, to_status, source, actor_session_id, created_at,
+          cleanup_request_id, cleanup_proposal_id)
+         VALUES (?, ?, ?, 'pending', 'completed', 'web', NULL, ?, ?, ?)`,
+        )
+        .run(
+          "delete-fixture-cleanup-event",
+          cleanupItem.id,
+          targetProject.id,
+          cleanupAt,
+          cleanupRequestId,
+          cleanupProposalId,
+        );
     } finally {
       seed.close();
     }
@@ -242,7 +346,12 @@ describe("project deletion", () => {
         sessionWorkSummaryUpdates: 1,
         sessionDecisions: 1,
         outstandingItems: 1,
-        outstandingItemEvents: 1,
+        outstandingItemEvents: 2,
+        outstandingCleanupRequests: 1,
+        outstandingCleanupRequestItems: 1,
+        outstandingCleanupSubmissions: 1,
+        outstandingCleanupProposals: 1,
+        outstandingCleanupProposalEvidence: 1,
       },
     });
     expect(result.deletedCounts.searchChunks).toBeGreaterThan(0);
@@ -283,7 +392,7 @@ describe("project deletion", () => {
             "SELECT COUNT(*) AS count FROM outstanding_item_events WHERE item_id IN (SELECT id FROM outstanding_items WHERE source_session_id = ?)",
           )
           .get(targetSessionId),
-      ).toMatchObject({ count: 1 });
+      ).toMatchObject({ count: 2 });
       expect(
         postDelete.prepare("SELECT COUNT(*) AS count FROM projects WHERE id = ?").get(targetProject.id),
       ).toMatchObject({
@@ -299,6 +408,19 @@ describe("project deletion", () => {
           .prepare("SELECT COUNT(*) AS count FROM outstanding_item_events WHERE project_id = ?")
           .get(targetProject.id),
       ).toMatchObject({ count: 0 });
+      for (const table of [
+        "outstanding_cleanup_requests",
+        "outstanding_cleanup_submissions",
+        "outstanding_cleanup_request_items",
+        "outstanding_cleanup_proposals",
+        "outstanding_cleanup_proposal_evidence",
+      ]) {
+        expect(
+          postDelete.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE project_id = ?`).get(targetProject.id),
+        ).toMatchObject({
+          count: 0,
+        });
+      }
       expect(postDelete.prepare("SELECT COUNT(*) AS count FROM session_links").get()).toMatchObject({ count: 0 });
       expect(
         postDelete.prepare("SELECT COUNT(*) AS count FROM evidence WHERE session_id = ?").get(targetSessionId),

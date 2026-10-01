@@ -9,7 +9,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - Vue 3 + TypeScript + Vite Dashboard
 - Node.js + TypeScript REST API
 - Node.js 22.5 以上的內建 `node:sqlite` SQLite 儲存（建議 Node.js 24），避免額外 native binding
-- MCP stdio server：4 個依安全語義分類的 dispatcher 對應 45 個 operation，並提供 2 個 prompts（`finalize-work`、`synthesize-report`）；精簡 MCP resource 提供 operation index，每個 operation 的完整 schema、行為與原始 annotations 由對應 resource template 提供，詳見 [mcp-tools.md](mcp-tools.md)
+- MCP stdio server：4 個依安全語義分類的 dispatcher 對應 48 個 operation，並提供 2 個 prompts（`finalize-work`、`synthesize-report`）；精簡 MCP resource 提供 operation index，每個 operation 的完整 schema、行為與原始 annotations 由對應 resource template 提供，詳見 [mcp-tools.md](mcp-tools.md)
 - Reports：日報／週報／月報／季報／年報（日曆日期依 server 所在系統時區，回應附 `timezone`），包含期間摘要、上一期比較、主要完成事項、Verification、風險／決策、活動趨勢與來源證據；季報／年報以月份聚合趨勢
 - 報告匯出：唯讀 dispatcher `work_read` 的 operation `work_export_report` 與 REST `/api/reports/export`，可輸出 Markdown 或 JSON
 - 工作圖譜提供 tracked project 篩選、節點類型／預覽量／資料載入上限控制、節點詳細資料，以及依 viewport 渲染的 SVG virtualization

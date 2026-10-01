@@ -7,8 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { inspectDatabaseReadOnly } from "../../apps/server/src/doctor.js";
 import { listDatabaseBackups } from "../../packages/storage/src/backup.js";
 import { DatabaseMaintenanceError, maintainDatabase } from "../../packages/storage/src/database-maintenance.js";
-import { LATEST_SCHEMA_VERSION, schemaMigrationSql } from "../../packages/storage/src/schema-migrations.js";
+import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
+import { undoSchemaMigration } from "../helpers/schema-migration-fixture.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -40,21 +41,6 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
-
-/** Rebuilds the database as it was before the latest migration by undoing what that migration's SQL created. */
-function undoLatestMigration(db: DatabaseSync): void {
-  const sql = schemaMigrationSql(LATEST_SCHEMA_VERSION) ?? "";
-  for (const [, name] of sql.matchAll(/CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?(\w+)/g)) {
-    db.exec(`DROP INDEX IF EXISTS ${name}`);
-  }
-  for (const [, name] of [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/g)].reverse()) {
-    db.exec(`DROP TABLE IF EXISTS ${name}`);
-  }
-  for (const [, table, column] of sql.matchAll(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)/g)) {
-    db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
-  }
-  db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(LATEST_SCHEMA_VERSION);
-}
 
 describe("database maintenance", () => {
   it("backs up, rebuilds search rows, and records a result that doctor reads without writing", async () => {
@@ -133,7 +119,7 @@ describe("database maintenance", () => {
     const { databasePath, store } = setup();
     store.close();
     const legacy = new DatabaseSync(databasePath);
-    undoLatestMigration(legacy);
+    undoSchemaMigration(legacy, LATEST_SCHEMA_VERSION);
     legacy.close();
 
     const result = maintainDatabase({ databasePath });

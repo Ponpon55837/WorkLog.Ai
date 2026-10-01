@@ -29,6 +29,19 @@ import type {
   RecallInput,
   RecallQueryResult,
   CancelMetadataBackfillRequestResult,
+  CancelOutstandingCleanupRequestResult,
+  CreateOutstandingCleanupRequestInput,
+  CreateOutstandingCleanupRequestResult,
+  OutstandingCleanupRequestQuery,
+  OutstandingCleanupRequestListResult,
+  OutstandingCleanupContextQuery,
+  OutstandingCleanupContextResult,
+  SubmitOutstandingCleanupProposalsInput,
+  SubmitOutstandingCleanupProposalsResult,
+  OutstandingCleanupProposalQuery,
+  OutstandingCleanupProposalListResult,
+  DecideOutstandingCleanupProposalsInput,
+  DecideOutstandingCleanupProposalsResult,
   CancelReportSynthesisRequestResult,
   CreateMetadataBackfillRequestInput,
   CreateMetadataBackfillRequestResult,
@@ -196,6 +209,7 @@ import { ProjectDataTransferService } from "./project-data-transfer.js";
 import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
 import { OutstandingItemService } from "./outstanding-item-service.js";
+import { OutstandingCleanupService } from "./outstanding-cleanup-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
@@ -314,6 +328,7 @@ export class WorkIntelligenceStore {
   private readonly diagrams: DiagramService;
   private readonly sessionDecisions: SessionDecisionService;
   private readonly outstandingItems: OutstandingItemService;
+  private readonly outstandingCleanup: OutstandingCleanupService;
   private readonly knowledgePages: KnowledgePageService;
   private readonly knowledge: KnowledgeRepository;
   private readonly knowledgeService: KnowledgeService;
@@ -360,6 +375,9 @@ export class WorkIntelligenceStore {
     this.outstandingItems = new OutstandingItemService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+    });
+    this.outstandingCleanup = new OutstandingCleanupService(this.db, {
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
     });
     this.sessionRecords = new SessionRecordService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
@@ -458,6 +476,7 @@ export class WorkIntelligenceStore {
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
       listOutstandingItems: (input) => this.outstandingItems.list(input),
+      listOutstandingCleanupRequests: (input) => this.outstandingCleanup.listRequests(input),
       pendingOutstandingItemsForSessions: (sessionIds) => this.outstandingItems.pendingForSessions(sessionIds),
       hasPendingOutstandingItems: (projectId, excluded) => this.outstandingItems.hasPending(projectId, excluded),
       relatedPendingOutstandingItems: (input) => this.outstandingItems.relatedPending(input),
@@ -1038,6 +1057,42 @@ export class WorkIntelligenceStore {
 
   public reviewSessionDecision(input: ReviewSessionDecisionInput): ReviewSessionDecisionResult {
     return this.sessionDecisions.review(input);
+  }
+
+  public listOutstandingCleanupRequests(
+    input: OutstandingCleanupRequestQuery = {},
+  ): OutstandingCleanupRequestListResult {
+    return this.outstandingCleanup.listRequests(input);
+  }
+
+  public getOutstandingCleanupContext(input: OutstandingCleanupContextQuery): OutstandingCleanupContextResult {
+    return this.outstandingCleanup.context(input);
+  }
+
+  public listOutstandingCleanupProposals(input: OutstandingCleanupProposalQuery): OutstandingCleanupProposalListResult {
+    return this.outstandingCleanup.listProposals(input);
+  }
+
+  public createOutstandingCleanupRequest(
+    input: CreateOutstandingCleanupRequestInput,
+  ): CreateOutstandingCleanupRequestResult {
+    return this.outstandingCleanup.create(input);
+  }
+
+  public submitOutstandingCleanupProposals(
+    input: SubmitOutstandingCleanupProposalsInput,
+  ): SubmitOutstandingCleanupProposalsResult {
+    return this.outstandingCleanup.submit(input);
+  }
+
+  public decideOutstandingCleanupProposals(
+    input: DecideOutstandingCleanupProposalsInput,
+  ): DecideOutstandingCleanupProposalsResult {
+    return this.outstandingCleanup.decide(input);
+  }
+
+  public cancelOutstandingCleanupRequest(requestId: string): CancelOutstandingCleanupRequestResult {
+    return this.outstandingCleanup.cancel(requestId);
   }
 
   public listOutstandingItems(input: ListOutstandingItemsInput = {}): OutstandingItemListQueryResult {

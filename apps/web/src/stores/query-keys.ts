@@ -31,6 +31,10 @@ export const queryKeys = {
   sessionDecisions: {
     list: ["session-decisions", "list"] as const,
   },
+  outstandingCleanup: {
+    requests: ["outstanding-cleanup", "requests"] as const,
+    proposals: ["outstanding-cleanup", "proposals"] as const,
+  },
   outstandingItems: {
     list: ["outstanding-items", "list"] as const,
   },

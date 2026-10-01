@@ -113,6 +113,38 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
   ],
   outstanding_items: ["source_session_id", "project_id", "position", "text", "status", "created_at", "updated_at"],
   outstanding_item_events: ["item_id", "project_id", "to_status", "source", "created_at"],
+  outstanding_cleanup_requests: ["project_id", "idempotency_key", "status", "requested_at", "item_count"],
+  outstanding_cleanup_submissions: ["request_id", "project_id", "idempotency_key", "payload_hash", "created_at"],
+  outstanding_cleanup_request_items: [
+    "request_id",
+    "project_id",
+    "item_id",
+    "source_session_id",
+    "position",
+    "text",
+    "item_updated_at",
+    "source_updated_at",
+    "source_fingerprint",
+    "source_completed_at",
+  ],
+  outstanding_cleanup_proposals: [
+    "request_id",
+    "project_id",
+    "request_item_id",
+    "submission_id",
+    "target_status",
+    "reason",
+    "review_status",
+    "created_at",
+  ],
+  outstanding_cleanup_proposal_evidence: [
+    "proposal_id",
+    "project_id",
+    "session_id",
+    "session_updated_at",
+    "session_fingerprint",
+    "session_completed_at",
+  ],
   knowledge_feedback: ["knowledge_id", "project_id", "kind", "occurred_at"],
   session_diagrams: ["session_id", "project_id", "idempotency_key", "title", "kind", "source", "created_at"],
   knowledge_pages: ["project_id", "slug", "title", "question", "sections_json", "created_at", "updated_at"],
@@ -138,6 +170,8 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   session_summary_updates: { mode: "replace" },
   session_work_summary_updates: { mode: "replace" },
   outstanding_items: { status: "pending" },
+  outstanding_cleanup_requests: { status: "pending" },
+  outstanding_cleanup_proposals: { target_status: "completed", review_status: "pending" },
   outstanding_item_events: { to_status: "pending", source: "migration" },
   knowledge_page_versions: { author: "agent" },
   knowledge_feedback: { kind: "manual_confirm" },
@@ -174,6 +208,8 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   if (table === "outstanding_items") {
     row.position = 0;
   }
+  if (table === "outstanding_cleanup_requests") row.item_count = 1;
+  if (table === "outstanding_cleanup_request_items") row.position = 0;
   if (table === "knowledge_pages" || table === "knowledge_page_versions") {
     row.version = 1;
   }

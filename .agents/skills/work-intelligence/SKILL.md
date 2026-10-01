@@ -77,6 +77,14 @@ When this Session continues an earlier recorded one (for example it implements a
 
 Use a stable per-work idempotency key. A retry with the same key and same payload must not create another Session. If that key already exists with a different primary summary, treat it as an idempotency conflict and update the existing Session explicitly; never claim the duplicate response updated it.
 
+## Review existing outstanding items through proposals
+
+When the user asks to 整理未結項, find the applicable Web-created pending request from `pendingRequests.outstandingCleanup` or paged `work_list_outstanding_cleanup_requests`. If no request exists, explain how to select one project on 工作歷程 → 未結項 and create a 整理未結項 request. Do not ask for IDs or create requests outside Web.
+
+Read `work_get_outstanding_cleanup_context` with independent item and Session pages (maximum 5 items and 10 Sessions, 24,000 serialized characters). Changing the item page changes its source time floor; a Session newer than one item can be older than another. Read every page needed and full source Sessions using `work_get_session`; inspect outcomes, verification, later contradictory work and PR evidence. Context truncation or a passed verification status alone does not establish completion. Eligible evidence is same-project, nonvoided, finalized, strictly later than that item's source and completed/created no later than requestedAt. Stale snapshot items must not receive new proposals.
+
+Use `work_submit_outstanding_cleanup_proposals` only for evidence-supported completed/not_needed recommendations, each with a concise reason and supporting `evidenceSessionIds`. Supply distinct `examinedItemIds` and a subset of proposals; empty proposals correctly withholds unsupported inspected items. Paginate until the fixed snapshot is fully examined. Reuse a key only with the same normalized payload; never overwrite another examination or silently retry a conflicting payload. The operation creates pending review proposals and never changes item status. Do not bypass this review with finalize resolved/superseded IDs. Tell the user how many recommendations were proposed and that they accept or reject them individually or in batches on Web after checking sources. Only the user reviews actual data; source or item changes make acceptance fail atomically.
+
 ## Repair an existing Session in place
 
 Never create a replacement Session just to fix its text or metadata.

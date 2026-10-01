@@ -22,6 +22,9 @@ import {
   mcpListSessionsInputSchema,
   mcpListSessionsInputSchemaBase,
   mcpOutstandingItemListQuerySchema,
+  mcpOutstandingCleanupRequestQuerySchema,
+  outstandingCleanupContextQuerySchema,
+  submitOutstandingCleanupProposalsInputSchema,
   metadataBackfillApplyInputSchema,
   metadataBackfillPreviewQuerySchema,
   metadataBackfillRequestContextQuerySchema,
@@ -78,6 +81,7 @@ import {
   knowledgeCandidateContract,
   knowledgePageContract,
   metadataBackfillContract,
+  outstandingCleanupContract,
   reportSynthesisContract,
   serverInstructions,
   workRecordContract,
@@ -551,6 +555,44 @@ export function createWorkIntelligenceMcpServer(
     annotations: READ_ONLY,
     invalidMessage: "Invalid session query.",
     run: (input) => store.getSessionDetailForAgent(input),
+  });
+
+  registerStoreTool("work_list_outstanding_cleanup_requests", {
+    title: "List outstanding cleanup requests",
+    description:
+      "Read Web-created cleanup requests for tracked projects, newest first; pageSize defaults to 5 and is at most 5. Process pending requests with work_get_outstanding_cleanup_context, not historical item status updates. Non-tracked scopes skip quietly.",
+    inputShape: mcpOutstandingCleanupRequestQuerySchema.shape,
+    schema: mcpOutstandingCleanupRequestQuerySchema,
+    annotations: READ_ONLY,
+    invalidMessage: "Invalid outstanding cleanup request query.",
+    run: (input) => store.listOutstandingCleanupRequests(input),
+  });
+
+  registerStoreTool("work_get_outstanding_cleanup_context", {
+    title: "Read outstanding cleanup evidence context",
+    description:
+      "Read a tracked Web request's fixed pending-item snapshot and later nonvoided finalized Session pointers, bounded to 5 items, 10 Sessions and 24,000 serialized characters. itemPage and sessionPage are independent; changing the item page changes its source time floor. Sources were completed/created no later than requestedAt and may be newer than only some items; validate each item's actual source date. Totals/pageInfo and truncated fields expose incomplete coverage; read full source Sessions with work_get_session. Stale/examined items stay identifiable and must not get guessed proposals. This read never claims or changes a request. " +
+      outstandingCleanupContract,
+    inputShape: outstandingCleanupContextQuerySchema.shape,
+    schema: outstandingCleanupContextQuerySchema,
+    annotations: READ_ONLY,
+    invalidMessage: "Invalid outstanding cleanup context query.",
+    run: (input) => store.getOutstandingCleanupContext(input),
+  });
+
+  registerStoreTool("work_submit_outstanding_cleanup_proposals", {
+    title: "Submit evidence-linked outstanding cleanup proposals",
+    description:
+      "Submit up to 100 examined snapshot item IDs with a subset of completed/not_needed proposals; each needs a reason and 1–10 supporting later Session IDs. Empty proposals explicitly withholds all examined items. Same idempotency key and normalized payload replays original proposal IDs; differing payload or already examined items conflict. Only pending requests accept new pages. Evidence and item/source eligibility are rechecked atomically, and no outstanding item or status audit changes. " +
+      outstandingCleanupContract,
+    inputShape: submitOutstandingCleanupProposalsInputSchema.shape,
+    schema: submitOutstandingCleanupProposalsInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    validationNotes: [
+      "Examined and evidence IDs must be distinct; proposal item IDs form a unique subset of examined IDs. All sources must belong to this request's tracked project and be later than each item's source, within requestedAt. Same-key payload conflicts reject without writes.",
+    ],
+    invalidMessage: "Invalid outstanding cleanup proposals.",
+    run: (input) => store.submitOutstandingCleanupProposals(input),
   });
 
   registerStoreTool("work_list_sessions", {
