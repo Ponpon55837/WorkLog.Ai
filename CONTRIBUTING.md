@@ -50,7 +50,7 @@ pnpm test:coverage
 pnpm test:e2e
 ```
 
-`pnpm test` 包含 lint、Prettier 檢查與各 workspace 單元測試。E2E 使用獨立暫存資料庫。診斷命令是 `pnpm run doctor`；pnpm 的 `pnpm doctor` 是套件管理器保留命令。
+`pnpm test` 包含 lint、Prettier 檢查與各 workspace 單元測試。E2E 使用獨立暫存資料庫。診斷命令是 `pnpm run doctor`；pnpm 11 的 `pnpm doctor` 是套件管理器保留命令。
 
 ## 分支與 Pull Request
 
