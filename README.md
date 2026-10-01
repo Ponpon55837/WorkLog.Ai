@@ -27,7 +27,7 @@
 
 ## 快速開始
 
-需求：**Node.js 22.5 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 11**（版本見 `package.json` 的 `packageManager`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
+需求：**Node.js 22.5 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 12**（版本見 `package.json` 的 `packageManager`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
 
 ```bash
 cd /path/to/WorkLog.Ai
@@ -60,7 +60,7 @@ pnpm start
 pnpm run doctor
 ```
 
-請用 `pnpm run doctor`，不要用 `pnpm doctor`：pnpm 11 把 `doctor` 保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 註冊、skill 複本與全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
+請用 `pnpm run doctor`，不要用 `pnpm doctor`：pnpm 把 `doctor` 保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 註冊、skill 複本與全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
 
 在 Codex 或 Claude Code 中重新連線 Work Intelligence MCP；Codex 使用保存提醒 hook 時，請在 `/hooks` 檢查並信任它。接著在 Dashboard：
 

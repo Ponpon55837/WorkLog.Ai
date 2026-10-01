@@ -1,6 +1,6 @@
 # 疑難排解
 
-> 執行只讀環境檢查：`pnpm run doctor`。不要使用 `pnpm doctor`；pnpm 11 會執行套件管理器自己的 doctor，而不是 Work Intelligence 診斷。
+> 執行只讀環境檢查：`pnpm run doctor`。不要使用 `pnpm doctor`；pnpm 會執行套件管理器自己的 doctor，而不是 Work Intelligence 診斷。
 
 ## Web 顯示無法連線到 API
 
