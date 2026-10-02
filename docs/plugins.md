@@ -52,7 +52,7 @@ Codex 的 MCP 設定在 `plugins/work-intelligence/codex.mcp.json`，以 plugin 
 
 plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者並存時 Agent 會看到兩份相同的工具、skill 與提醒（提醒本身每段工作只會出現一次）。`pnpm run doctor` 偵測到 Claude Code 已啟用 plugin、全域設定又註冊了 `work-intelligence` MCP 或 Stop hook 時會提出警告；只啟用 plugin 時，它不再要求手動註冊 Claude MCP、skill 與 hook。
 
-從手動註冊改用 plugin：先 `pnpm setup:agents --uninstall`（預覽後確認；它也會移除 Codex 的手動設定），再安裝 plugin。改回手動：在 Agent 中停用或移除 plugin，再執行 `pnpm setup:agents`。
+從手動註冊改用 plugin：先 `pnpm setup:agents --uninstall`（預覽後確認；它也會移除 Codex 的手動設定），再安裝 plugin。這個指令只移除它自己安裝的項目；依本頁以外的說明手動加入的設定要自己移除：Claude Code 執行 `claude mcp remove work-intelligence --scope user`，並刪除 `~/.claude/settings.json` 中指向 `apps/mcp/dist/finalize-reminder.js` 的 Stop hook；Codex 執行 `codex mcp remove work-intelligence`。移除後執行 `pnpm run doctor` 確認沒有重複。改回手動：在 Agent 中停用或移除 plugin，再執行 `pnpm setup:agents`。
 
 ## 信任與權限
 

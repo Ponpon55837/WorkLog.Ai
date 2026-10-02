@@ -232,7 +232,9 @@ describe("doctor with the Claude Code plugin", () => {
     const findings = await claudeFindings(true);
     expect(findings.find((finding) => finding.title === "Claude Code plugin")).toMatchObject({
       severity: "warning",
-      recommendation: expect.stringContaining("pnpm setup:agents --uninstall"),
+      recommendation: expect.stringMatching(
+        /pnpm setup:agents --uninstall.*claude mcp remove work-intelligence --scope user/,
+      ),
     });
   });
 });

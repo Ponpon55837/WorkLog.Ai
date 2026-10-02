@@ -816,7 +816,7 @@ export async function collectDoctorFindings(
         ? "work-intelligence plugin 已啟用，但全域設定也註冊了 work-intelligence MCP 或 Stop hook；Agent 會看到兩份相同工具與提醒。"
         : "work-intelligence plugin 已啟用，提供 MCP、skill 與 Stop hook。",
       duplicated
-        ? "保留一種接法即可：停用 plugin，或執行 pnpm setup:agents --uninstall 移除手動註冊（此指令也會移除 Codex 的手動設定；plugin 不會自動移除任何設定）。"
+        ? "保留一種接法即可：停用 plugin，或移除手動註冊。由 pnpm setup:agents 安裝的用 pnpm setup:agents --uninstall 移除（也會移除 Codex 的設定）；手動加入的請執行 claude mcp remove work-intelligence --scope user，並刪除 Claude settings.json 中指向 apps/mcp/dist/finalize-reminder.js 的 Stop hook。plugin 不會自動移除任何設定。"
         : undefined,
     );
   }
