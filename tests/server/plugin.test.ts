@@ -113,6 +113,12 @@ describe("plugin manifests", () => {
     );
   });
 
+  it("carry the README the Anthropic directory requires: at least 40 words outside code blocks", () => {
+    const readme = readFileSync(join(pluginRoot, "README.md"), "utf8").replace(/```[\s\S]*?```/g, "");
+    expect(readme.split(/\s+/).filter(Boolean).length).toBeGreaterThanOrEqual(40);
+    expect(readJson(join(pluginRoot, ".claude-plugin/plugin.json")).license).toBe("MIT");
+  });
+
   it("are listed by both marketplaces", () => {
     const claude = readJson(join(repositoryRoot, ".claude-plugin/marketplace.json"));
     const codex = readJson(join(repositoryRoot, ".agents/plugins/marketplace.json"));
