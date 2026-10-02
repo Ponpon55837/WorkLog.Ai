@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { WorkReport } from "../../../packages/core/src/index.js";
-import { buildReportBuckets, buildReportProjectShares, reportBucketMode } from "../../../apps/web/src/utils/report.js";
+import {
+  buildReportBuckets,
+  buildReportProjectShares,
+  reportBucketMode,
+  reportBucketUnits,
+} from "../../../apps/web/src/utils/report.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
 import { weekdayLabel } from "../../../apps/web/src/utils/format.js";
 
@@ -116,5 +121,18 @@ describe("report project shares", () => {
         projects: [project("empty", "沒有工作", 0)],
       }),
     ).toEqual([{ key: "empty", label: "沒有工作", sessions: 0, percent: 0 }]);
+  });
+});
+
+describe("reportBucketUnits", () => {
+  it("translates each bucket's unit and title and keeps the English eyebrow", () => {
+    expect(reportBucketUnits.week).toEqual({
+      unit: t("reports.unit.weeks"),
+      title: t("reports.byWeek"),
+      eyebrow: "By week",
+    });
+    expect(reportBucketUnits.day.unit).toBe(t("reports.unit.days"));
+    expect(reportBucketUnits.month.title).toBe(t("reports.byMonth"));
+    expect(reportBucketUnits.quarter.unit).toBe(t("reports.unit.quarters"));
   });
 });
