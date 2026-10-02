@@ -6,6 +6,8 @@
 
 這個 MCP 是本機 stdio server。正式模式 Dashboard 預設是 `http://127.0.0.1:3210`，開發模式 Web 是 `http://127.0.0.1:5966`；兩者都不是 MCP endpoint。Codex 與 Claude Code 會各自啟動本機 MCP process，並共用同一個中央 SQLite。
 
+> 想用 plugin 一次裝好 MCP、skill 與 Claude Code 保存提醒，見 [Claude Code 與 Codex plugin](plugins.md)。plugin 與本頁的註冊方式二選一即可。
+
 ## 以 setup 命令安裝
 
 在 Work Intelligence repo 根目錄先執行 `pnpm install`、`pnpm build`，再執行 `pnpm setup:agents`。缺少 dist 時設定命令會停止，不會自動 build。預設只預覽將要註冊的 MCP、安裝的 user-level skill 與保存提醒 hook，不建立目錄、不備份也不修改設定；互動終端輸入 `yes` 確認後，工具才會先備份再寫入。非互動終端一律只預覽。可以重複執行；已經指向這個 repo 的既有設定（例如手動加的 `pnpm --dir <repo> start:mcp` MCP 註冊、用 `/usr/local/bin/node` 絕對路徑或 `command` + `args` 形式寫的 hook）會原樣保留、不重複新增，也不記入安裝紀錄，所以解除安裝不會移除它們；只有舊版 Codex PostToolUse matcher 會就地升級，其他自訂欄位（timeout、statusMessage）保留。遇到指向別處或與支援格式不符的設定衝突時，整批安裝會停止，不會部分寫入或覆蓋。解除安裝使用 `pnpm setup:agents --uninstall`，同樣先預覽並確認；若 managed skill 或設定片段已被修改，解除安裝會保留並回報，讓你自行處理。Installer 會記錄安裝時使用的 `CODEX_HOME` 與 `CLAUDE_CONFIG_DIR`。已有安裝紀錄時，若目前 root 與紀錄不同，重新安裝會拒絕寫入；解除安裝則使用紀錄中的原 root 操作，即使目前環境變數已改變也不會指向別的目錄。

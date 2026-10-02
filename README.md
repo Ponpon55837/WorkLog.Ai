@@ -78,6 +78,8 @@ The bottom of the sidebar shows the current app version and schema version.
 
 The Work Intelligence MCP is a **local stdio server** started by the Agent itself; it does not use the Web UI's HTTP port. Run `pnpm build` once, then register it with your Agent. Use absolute paths so the API, MCP and CLI share one database.
 
+**Plugin (Claude Code / Codex):** after `pnpm build`, run `pnpm plugin:link`, then `claude plugin marketplace add /path/to/WorkLog.Ai` and `claude plugin install work-intelligence@worklog-ai` (Codex: install `work-intelligence` from `/plugins`). The plugin brings the MCP server, the skill and, in Claude Code, the save reminder; it runs this checkout's build against the same database and changes none of the setups below. Use either the plugin or the manual registration, not both. See the [plugin guide](docs/plugins.md).
+
 To set up the MCP server and the user-level skill in one go, run `pnpm setup:agents` to preview the install plan; nothing is written by default. Usage, backups and uninstalling are in the [Agent setup guide](docs/agent-setup.md). The MCP server also serves the full skill and record format through standard `resources/list` / `resources/read`, so any client that supports MCP resources can read `work-intelligence://agent/work-intelligence/SKILL.md` and `work-intelligence://agent/work-record-and-report-format.md`.
 
 macOS / Linux:
@@ -347,6 +349,7 @@ The guides under `docs/` are written in Traditional Chinese.
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common problems with API connections, ports, MCP, global hooks, restore, import and maintenance |
 | [docs/service.md](docs/service.md) | User-level start at login on macOS, Windows and Linux, removal and troubleshooting |
 | [docs/agent-setup.md](docs/agent-setup.md) | Registering with Codex CLI, Claude Code and Claude Desktop, and the global save-reminder hook |
+| [docs/plugins.md](docs/plugins.md) | The Claude Code / Codex plugin: install, `pnpm plugin:link`, and switching from manual registration |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | Every MCP tool's purpose, fields, examples, policy behaviour, annotations and prompts |
 | [docs/rest-api.md](docs/rest-api.md) | REST endpoints, metadata backfill, report export, backups, project data export / import, deletion and the live update stream |
 | [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | The five-section Session format, report granularity and backfill limits |

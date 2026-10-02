@@ -1,0 +1,13 @@
+{
+  "name": "worklog-ai",
+  "owner": { "name": "Ponpon55837", "url": "https://github.com/Ponpon55837" },
+  "description": "Work Intelligence plugins for Claude Code.",
+  "plugins": [
+    {
+      "name": "work-intelligence",
+      "source": "./plugins/work-intelligence",
+      "description": "Work Intelligence MCP server, agent skill, and finalize reminder, run from this checkout.",
+      "category": "productivity"
+    }
+  ]
+}

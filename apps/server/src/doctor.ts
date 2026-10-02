@@ -107,6 +107,8 @@ interface AgentConnectionInspection {
   globalHooks: GlobalHookInspection;
   claudeHookExists: boolean;
   codexHookExists: boolean;
+  /** The Work Intelligence Claude Code plugin is enabled in the user's settings.json. */
+  claudePluginEnabled: boolean;
 }
 
 interface AgentConnectionInspectionOptions {
@@ -348,6 +350,15 @@ export function inspectGlobalHooks(
   ).inspection;
 }
 
+/**
+ * Whether settings.json enables the Work Intelligence plugin (`enabledPlugins["work-intelligence@<marketplace>"]`).
+ * The plugin brings its own MCP server, skill, and Stop hook, so it replaces the manual registration.
+ */
+export function claudePluginEnabled(settings: Record<string, unknown> | undefined): boolean {
+  const enabled = record(settings?.enabledPlugins);
+  return Object.entries(enabled ?? {}).some(([key, value]) => key.startsWith("work-intelligence@") && value === true);
+}
+
 function inspectClaudeMcpState(homeDirectory: string): AgentMcpRegistrationState {
   const file = inspectJsonConfigFile(join(homeDirectory, ".claude.json"));
   if (file.state === "unreadable") return "unknown";
@@ -380,6 +391,7 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
     codexHomeDirectory,
     claudeConfigDirectory,
   );
+  const claudePlugin = claudePluginEnabled(inspectJsonConfigFile(join(claudeConfigDirectory, "settings.json")).config);
   const claudeHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js"));
   const codexHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js"));
   const skillState = (
@@ -427,6 +439,7 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
     globalHooks,
     claudeHookExists,
     codexHookExists,
+    claudePluginEnabled: claudePlugin,
   };
 }
 
@@ -792,21 +805,38 @@ export async function collectDoctorFindings(
   const { skillFindings, globalHooks, claudeHookExists, codexHookExists } = agentInspection;
   const claudeMcp = agentInspection.claudeMcp;
   const codexMcp = agentInspection.codexMcp;
-  addFinding(
-    findings,
-    claudeMcp === "registered" ? "ok" : "warning",
-    "Claude MCP",
-    claudeMcp === "registered"
-      ? "全域設定已註冊 work-intelligence。"
-      : claudeMcp === "missing"
-        ? "未找到全域 work-intelligence MCP 註冊。"
-        : "無法判定 Claude MCP 註冊狀態；.claude.json 無法讀取或不是有效 JSON。",
-    claudeMcp === "registered"
-      ? undefined
-      : claudeMcp === "missing"
-        ? "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。"
-        : "確認 .claude.json 存在且可讀、格式有效後重新執行 pnpm doctor。",
-  );
+  const claudePlugin = agentInspection.claudePluginEnabled;
+  if (claudePlugin) {
+    const duplicated = claudeMcp === "registered" || globalHooks.claudeConfigured;
+    addFinding(
+      findings,
+      duplicated ? "warning" : "ok",
+      "Claude Code plugin",
+      duplicated
+        ? "work-intelligence plugin 已啟用，但全域設定也註冊了 work-intelligence MCP 或 Stop hook；Agent 會看到兩份相同工具與提醒。"
+        : "work-intelligence plugin 已啟用，提供 MCP、skill 與 Stop hook。",
+      duplicated
+        ? "保留一種接法即可：停用 plugin，或執行 pnpm setup:agents --uninstall 移除手動註冊（此指令也會移除 Codex 的手動設定；plugin 不會自動移除任何設定）。"
+        : undefined,
+    );
+  }
+  if (!(claudePlugin && claudeMcp === "missing")) {
+    addFinding(
+      findings,
+      claudeMcp === "registered" ? "ok" : "warning",
+      "Claude MCP",
+      claudeMcp === "registered"
+        ? "全域設定已註冊 work-intelligence。"
+        : claudeMcp === "missing"
+          ? "未找到全域 work-intelligence MCP 註冊。"
+          : "無法判定 Claude MCP 註冊狀態；.claude.json 無法讀取或不是有效 JSON。",
+      claudeMcp === "registered"
+        ? undefined
+        : claudeMcp === "missing"
+          ? "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。"
+          : "確認 .claude.json 存在且可讀、格式有效後重新執行 pnpm doctor。",
+    );
+  }
   addFinding(
     findings,
     codexMcp === "registered" ? "ok" : "warning",
@@ -824,6 +854,7 @@ export async function collectDoctorFindings(
   );
 
   for (const finding of skillFindings) {
+    if (claudePlugin && finding.componentId === "claudeSkill" && finding.state === "missing") continue;
     const title =
       finding.componentId === "codexSkill"
         ? "Codex canonical work-intelligence skill"
@@ -840,23 +871,24 @@ export async function collectDoctorFindings(
   }
 
   const claudeHookState = agentInspection.connections.claudeCode.hook;
-  addFinding(
-    findings,
-    claudeHookState === "installed" ? "ok" : "warning",
-    "Claude 全域 hook",
-    claudeHookState === "unknown"
-      ? "無法判定 Claude Stop hook 狀態；settings.json 無法讀取或不是有效 JSON。"
-      : claudeHookExists
-        ? globalHooks.claudeConfigured
-          ? "全域 Stop hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
-          : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
-        : "apps/mcp/dist/finalize-reminder.js 不存在。",
-    claudeHookState === "installed"
-      ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
-      : claudeHookState === "unknown"
-        ? "確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 pnpm doctor。"
-        : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
-  );
+  if (!(claudePlugin && claudeHookState === "missing"))
+    addFinding(
+      findings,
+      claudeHookState === "installed" ? "ok" : "warning",
+      "Claude 全域 hook",
+      claudeHookState === "unknown"
+        ? "無法判定 Claude Stop hook 狀態；settings.json 無法讀取或不是有效 JSON。"
+        : claudeHookExists
+          ? globalHooks.claudeConfigured
+            ? "全域 Stop hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
+            : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
+          : "apps/mcp/dist/finalize-reminder.js 不存在。",
+      claudeHookState === "installed"
+        ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
+        : claudeHookState === "unknown"
+          ? "確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 pnpm doctor。"
+          : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
+    );
   const codexHookState = agentInspection.connections.codex.hook;
   const codexHooksDisabled = globalHooks.codexHooksFeature === "disabled";
   addFinding(
