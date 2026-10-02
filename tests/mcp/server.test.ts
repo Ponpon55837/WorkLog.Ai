@@ -274,28 +274,35 @@ describe("Work Intelligence MCP server", () => {
     const { client, store, root } = await connect(() => ({ restartRequired: false, monitoringAvailable: true }), true);
     const project = store.addProject("Externally migrated", root);
     store.updateProject(project.id, { status: "tracked" });
-    const external = new DatabaseSync(store.databasePath);
+    // The other connection migrates and then closes, as a newer MCP process would. Keeping it open while this
+    // connection writes lets Windows file locking on the WAL index stall BEGIN IMMEDIATE for the busy timeout.
+    const migrator = new DatabaseSync(store.databasePath);
     try {
-      external.exec("BEGIN IMMEDIATE");
-      external.exec("ALTER TABLE sessions ADD COLUMN future_format TEXT NOT NULL DEFAULT ''");
-      external
+      migrator.exec("BEGIN IMMEDIATE");
+      migrator.exec("ALTER TABLE sessions ADD COLUMN future_format TEXT NOT NULL DEFAULT ''");
+      migrator
         .prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")
         .run(LATEST_SCHEMA_VERSION + 1, "synthetic_future_migration", new Date().toISOString());
-      external.exec("COMMIT");
-      const result = await callMcpOperation(
-        client,
-        "work_finalize_session",
-        finalizePayload(root, "stale-writer", "Stale"),
-      );
-      expect(result.isError).toBe(true);
-      expect(JSON.parse((result.content as Array<{ text: string }>)[0]?.text ?? "{}")).toMatchObject({
-        code: "MCP_RESTART_REQUIRED",
-        server: { restartRequired: true },
-      });
-      expect(external.prepare("SELECT COUNT(*) AS count FROM sessions").get()?.count).toBe(0);
-      expect(external.prepare("SELECT COUNT(*) AS count FROM work_events").get()?.count).toBe(0);
+      migrator.exec("COMMIT");
     } finally {
-      external.close();
+      migrator.close();
+    }
+    const result = await callMcpOperation(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "stale-writer", "Stale"),
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0]?.text ?? "{}")).toMatchObject({
+      code: "MCP_RESTART_REQUIRED",
+      server: { restartRequired: true },
+    });
+    const reader = new DatabaseSync(store.databasePath, { readOnly: true });
+    try {
+      expect(reader.prepare("SELECT COUNT(*) AS count FROM sessions").get()?.count).toBe(0);
+      expect(reader.prepare("SELECT COUNT(*) AS count FROM work_events").get()?.count).toBe(0);
+    } finally {
+      reader.close();
     }
   });
 
