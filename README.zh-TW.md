@@ -78,7 +78,50 @@ pnpm run doctor
 
 Work Intelligence 的 MCP 是**本機 stdio server**，由 Agent 自己啟動，不使用 Web 的 HTTP port。先執行一次 `pnpm build`，再依你的 Agent 註冊。請用絕對路徑，讓 API、MCP 與 CLI 使用同一個資料庫。
 
-**Plugin（Claude Code／Codex）：** `pnpm build` 後執行 `pnpm plugin:link`，再執行 `claude plugin marketplace add /path/to/WorkLog.Ai` 與 `claude plugin install work-intelligence@worklog-ai`（Codex 從 `/plugins` 安裝 `work-intelligence`）。plugin 帶有 MCP server、skill，Claude Code 另含保存提醒；它執行這個 checkout 的 build、使用同一個資料庫，也不會更動下方任何設定。plugin 與手動註冊二選一即可。每個 release 也附上不需要 checkout 的自帶 MCP plugin zip 與 Claude Desktop 擴充（`.mcpb`，由 `pnpm build:plugin` 產生）。詳見 [plugin 指南](docs/plugins.md)。
+### 以 plugin 安裝（Claude Code／Codex）
+
+這是連接 Agent 最簡單的方式。Claude Code 與 Codex 都從這個 repo 的 marketplace 安裝 Work Intelligence；plugin 執行的是你本機的 checkout，所以先 build 一次並連結：
+
+```bash
+git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
+pnpm install && pnpm build && pnpm plugin:link
+```
+
+**Claude Code**
+
+```bash
+claude plugin marketplace add Ponpon55837/WorkLog.Ai
+claude plugin install work-intelligence@worklog-ai
+```
+
+重新開啟 Claude Code，`/mcp` 會顯示 `work-intelligence` 已連線。保存提醒不需要其他設定。
+
+**Codex**
+
+```bash
+codex plugin marketplace add Ponpon55837/WorkLog.Ai
+```
+
+在 Codex 開啟 `/plugins` 安裝 `work-intelligence`，再開啟 `/hooks`，檢視這個 plugin 的 hooks 並選擇**信任（Trust）**；未信任的 hook 會被略過，MCP 與 skill 不受影響。重新開啟 Codex，`/mcp` 會顯示 `work-intelligence` 已連線。
+
+| plugin 提供 | Claude Code | Codex |
+|---|---|---|
+| MCP server `work-intelligence`（回想、脈絡、保存、報告） | ✓ | ✓ |
+| Skill `work-intelligence`（何時、如何使用工具） | ✓ | ✓ |
+| Skill `dashboard`（開啟 Web UI） | ✓ `/work-intelligence:dashboard` | ✓ 直接請 Agent 開啟 |
+| 保存提醒 hooks | ✓ | ✓（在 `/hooks` **信任**後） |
+
+**開啟 Dashboard**：請 Agent「打開 Work Intelligence dashboard」（Claude Code 也可輸入 `/work-intelligence:dashboard`），或在 checkout 執行 `pnpm dashboard`。server 沒在執行時會在背景啟動，並開啟 <http://127.0.0.1:3210>。想要每次登入都自動啟動，執行一次 `pnpm service:install`。
+
+**更新**：在 checkout 執行 `git pull && pnpm install && pnpm build`，再執行 `claude plugin update work-intelligence@worklog-ai`；Codex 執行 `codex plugin marketplace remove worklog-ai` 後重新加入。Agent 提示重新連線時照做即可。
+
+**之前手動註冊過？** plugin 與下方的手動註冊擇一即可，兩者並存時 Agent 會看到兩份相同的工具與提醒。移除手動註冊：`claude mcp remove work-intelligence --scope user`／`codex mcp remove work-intelligence`，並刪除 Claude `settings.json` 與 Codex `hooks.json` 裡 Work Intelligence 的 hook；`pnpm run doctor` 會指出重複的項目。
+
+**沒有 checkout？** 每個 [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) 都附上 `work-intelligence-plugin-<版本>.zip`（內含 MCP server 的 plugin）與 `work-intelligence-<版本>.mcpb`（Claude Desktop 擴充）。需要 Node.js 22.13 以上，資料存在 `~/.work-intelligence/data`，但不含 Web UI。
+
+遇到問題先執行 `pnpm run doctor`，再看 [plugin 指南](docs/plugins.md) 的排錯表。
+
+### 手動註冊
 
 想讓 Work Intelligence MCP 與 user-level skill 一次完成設定，可執行 `pnpm setup:agents` 預覽安裝計畫；預設不會寫入。操作方式、備份與解除安裝見 [Agent 設定指南](docs/agent-setup.md)。MCP 也會用標準 `resources/list`／`resources/read` 提供完整 skill 與記錄格式，任何支援 MCP resources 的 client 都能讀取：`work-intelligence://agent/work-intelligence/SKILL.md`、`work-intelligence://agent/work-record-and-report-format.md`。
 
@@ -300,6 +343,9 @@ data/              本機 SQLite 與 backups/（不進版控）
 ```bash
 pnpm dev                      # 開發模式：Web UI 5966（Vite）＋ API 3210
 pnpm start                    # 正式模式：Web 與 API 同一個 port（需先 build）
+pnpm dashboard                # 必要時啟動正式模式 server，並開啟 Web UI
+pnpm plugin:link              # 讓 Claude Code／Codex plugin 找到這個 checkout
+pnpm build:plugin             # 在 dist/plugin/ 產生自帶 MCP 的 plugin zip 與 Claude Desktop .mcpb
 pnpm start:server             # 只啟動 API
 pnpm start:mcp                # 只啟動 MCP stdio server
 pnpm run doctor               # 唯讀診斷

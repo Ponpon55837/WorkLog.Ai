@@ -4,6 +4,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- Open the dashboard from the plugin: a `dashboard` skill (`/work-intelligence:dashboard` in Claude Code; ask for it in Codex) and `pnpm dashboard` start the production server from the checkout in the background when it is not running, wait for `/api/health`, print <http://127.0.0.1:3210> and open it. The README now has a full plugin section: marketplace install for Claude Code and Codex, trusting the Codex hooks, the dashboard, updates, switching from manual registration, and the release assets.
+- The Codex plugin now carries the save-reminder hooks (`PostToolUse`, `Stop`, `UserPromptSubmit`) in `plugins/work-intelligence/hooks/codex-hooks.json`, rooted at `${PLUGIN_ROOT}`; trust them under `/hooks`. `pnpm run doctor` warns when `~/.codex/hooks.json` still runs the same reminder, and no longer asks for a manual Codex hook when the plugin is enabled.
+
+### Fixed
+
+- `pnpm build:plugin` failed in the release job, so the v1.1.0 tag produced no GitHub Release: the bundle resolved the workspace packages through their `dist/` folders, which a fresh checkout does not have. It now bundles their TypeScript sources directly, and CI packs the plugin before `pnpm build` to keep it that way.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added

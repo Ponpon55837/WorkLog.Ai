@@ -22,6 +22,7 @@
     "service:uninstall": "node apps/server/dist/service-cli.js uninstall",
     "service:status": "node apps/server/dist/service-cli.js status",
     "plugin:link": "node scripts/plugin-link.mjs",
+    "dashboard": "node scripts/dashboard.mjs --open",
     "build:plugin": "node scripts/build-plugin.mjs",
     "setup:agents": "pnpm --filter @work-intelligence/server exec tsx src/setup-agents.ts",
     "eval:recall": "node --experimental-sqlite apps/mcp/dist/eval-recall.js",

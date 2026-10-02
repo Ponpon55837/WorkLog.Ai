@@ -11,7 +11,7 @@
  * The bundle keeps the repository layout (server/apps/mcp/dist, server/package.json, server/.agents, server/docs)
  * because the MCP reads its version and agent resources relative to its own file.
  */
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -21,7 +21,7 @@ import console from "node:console";
 import { build } from "esbuild";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ENTRY_POINTS = ["index", "finalize-reminder"];
+const ENTRY_POINTS = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** Copied beside the bundle at the paths apps/mcp/src/agent-resources.ts reads. */
 const AGENT_RESOURCES = [".agents/skills/work-intelligence/SKILL.md", "docs/work-record-and-report-format.md"];
 /** node:sqlite without a flag. */
@@ -30,6 +30,21 @@ export const MINIMUM_NODE = "22.13.0";
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
+
+/**
+ * Resolves `@work-intelligence/<package>[/<subpath>]` to the package's TypeScript source, so the bundle never depends
+ * on whether the workspace packages were built (the release job packs the plugin straight from a fresh checkout).
+ */
+const workspaceSources = {
+  name: "work-intelligence-workspace-sources",
+  setup(builder) {
+    builder.onResolve({ filter: /^@work-intelligence\/[^/]+(\/.+)?$/ }, (args) => {
+      const [, name, subpath = "index"] = /^@work-intelligence\/([^/]+)(?:\/(.+))?$/.exec(args.path);
+      const source = join(repositoryRoot, "packages", name, "src", `${subpath}.ts`);
+      return existsSync(source) ? { path: source } : undefined;
+    });
+  },
+};
 
 /** Writes the bundled MCP server and the files it reads into `<target>/server`. */
 async function buildServer(target, version) {
@@ -44,6 +59,7 @@ async function buildServer(target, version) {
     logLevel: "warning",
     legalComments: "none",
     define: { __WORK_INTELLIGENCE_STANDALONE__: "true" },
+    plugins: [workspaceSources],
     // Some dependencies still call require(); give the ESM bundle one.
     banner: {
       js: 'import { createRequire as __createRequire } from "node:module";const require = __createRequire(import.meta.url);',
