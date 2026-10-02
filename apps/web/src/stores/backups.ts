@@ -62,6 +62,7 @@ export const useBackupsStore = defineStore("backups", () => {
   const backupKeep = computed(() => backupsQuery.data.value?.keep ?? 0);
   const automaticBackupKeep = computed(() => backupsQuery.data.value?.automaticKeep ?? 0);
   const backupsLoading = computed(() => backupsQuery.isLoading.value);
+  const backupsLoaded = computed(() => backupsQuery.data.value !== undefined);
   const backupsError = computed(() =>
     backupsQuery.error.value ? errorMessage(backupsQuery.error.value, t("無法載入備份清單。")) : "",
   );
@@ -153,6 +154,7 @@ export const useBackupsStore = defineStore("backups", () => {
     backupKeep,
     automaticBackupKeep,
     backupsLoading,
+    backupsLoaded,
     backupsError,
     backupCreating,
     backupDeleting,

@@ -73,7 +73,7 @@ onBeforeUnmount(() => hotspotsStore.setActive(false));
       </div>
     </template>
     <UiFlash v-if="hotspotsError" tone="danger">{{ hotspotsError }}</UiFlash>
-    <UiSkeleton v-if="hotspotsLoading && hotspots.length === 0" :count="4" />
+    <UiSkeleton v-if="hotspotsLoading && hotspots.length === 0" :count="4" :label="t('正在載入熱點檔案…')" />
     <UiEmptyState
       v-else-if="hotspots.length === 0"
       :icon="Flame"

@@ -100,7 +100,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
     >
   </UiFlash>
 
-  <UiSkeleton v-if="loading && !status" variant="card" :count="4" />
+  <UiSkeleton v-if="loading && !status" variant="card" :count="4" :label="t('正在載入系統狀態…')" />
 
   <template v-else-if="status">
     <UiFlash v-if="status.mcp.restartRequired" tone="attention" :title="t('MCP 需要重新連線')">

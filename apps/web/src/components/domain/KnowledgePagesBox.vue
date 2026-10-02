@@ -151,7 +151,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
       }}
     </UiFlash>
 
-    <UiSkeleton v-if="pagesLoading && rows.length === 0" :count="3" />
+    <UiSkeleton v-if="pagesLoading && rows.length === 0" :count="3" :label="t('正在載入知識頁…')" />
     <UiEmptyState
       v-else-if="rows.length === 0"
       :icon="BookMarked"

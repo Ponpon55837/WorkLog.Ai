@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { storeToRefs } from "pinia";
 import { Check, ExternalLink, Pencil, Sparkles, X } from "lucide-vue-next";
 import type { ProjectRecord } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useKnowledgeCandidates } from "../../composables/useKnowledgeCandidates";
 import { useToast } from "../../composables/useToast";
+import { useKnowledgeStore } from "../../stores/knowledge";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatRelative } from "../../utils/format";
 import { knowledgeKindVisual } from "../../utils/status";
@@ -15,6 +17,7 @@ import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
@@ -35,6 +38,7 @@ const {
   rejectCandidate,
   openCandidateEditor,
 } = useKnowledgeCandidates();
+const { candidatesLoaded } = storeToRefs(useKnowledgeStore());
 const sessionsStore = useSessionsStore();
 const { openSessionDetail } = sessionsStore;
 const { showToast } = useToast();
@@ -75,7 +79,10 @@ function onRequest(projectId: string): void {
 <template>
   <UiBox class="knowledge-candidates" data-testid="knowledge-candidates">
     <template #header>
-      <UiBoxTitle :icon="Sparkles" :title="t('{length} 筆 Knowledge 候選', { length: candidates.length })" />
+      <UiBoxTitle
+        :icon="Sparkles"
+        :title="candidatesLoaded ? t('{length} 筆 Knowledge 候選', { length: candidates.length }) : t('Knowledge 候選')"
+      />
       <UiActionMenu
         :label="t('整理候選')"
         :header="t('選擇要整理的專案')"
@@ -103,7 +110,8 @@ function onRequest(projectId: string): void {
         )
       }}
     </UiFlash>
-    <p v-if="candidates.length === 0 && openCandidateRequests.length === 0" class="knowledge-candidates__empty">
+    <UiSkeleton v-if="!candidatesLoaded && !candidatesError" :count="2" :label="t('正在載入 Knowledge 候選…')" />
+    <p v-else-if="candidates.length === 0 && openCandidateRequests.length === 0" class="knowledge-candidates__empty">
       {{
         t(
           "沒有待審核的候選。按「整理候選」選擇專案，再請 Agent 從已記錄的 Session 整理；候選要在這裡接受後才會成為 Knowledge。",

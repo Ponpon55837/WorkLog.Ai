@@ -33,6 +33,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
 
   const pages = computed(() => (listQuery.data.value?.outcome === "knowledge_pages" ? listQuery.data.value.items : []));
   const pagesLoading = computed(() => listQuery.isLoading.value);
+  const pagesLoaded = computed(() => listQuery.data.value !== undefined);
   const pagesError = computed(() => {
     if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入知識頁。"));
     const result = listQuery.data.value;
@@ -101,6 +102,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
     openPageId,
     pages,
     pagesLoading,
+    pagesLoaded,
     pagesError,
     newDataCount,
     openPage,

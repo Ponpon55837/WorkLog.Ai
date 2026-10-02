@@ -42,6 +42,8 @@ function readTheme(): ThemePreference {
 function readLocale(): Locale {
   const stored = readStored(LOCALE_KEY);
   if (isLocale(stored)) return stored;
+  // Before the catalogs moved to JSON the English locale was stored as "en".
+  if (stored === "en") return "en-US";
   return detectLocale(typeof navigator === "undefined" ? undefined : navigator.languages);
 }
 

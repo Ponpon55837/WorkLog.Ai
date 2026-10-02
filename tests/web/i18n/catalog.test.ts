@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { nextTick, watchEffect } from "vue";
-import { en } from "../../../apps/web/src/i18n/en.js";
+import enUS from "../../../apps/web/src/i18n/locales/en-US.json";
 import { detectLocale, locale, t, tc, translatedOptions, translatedRecord } from "../../../apps/web/src/i18n/index.js";
 import { verificationStatus } from "../../../apps/web/src/utils/status.js";
 
@@ -61,18 +61,18 @@ describe("English catalog", () => {
   });
 
   it("translates every 繁體中文 string in the web UI", () => {
-    const missing = [...sources].filter((source) => !(source in en));
+    const missing = [...sources].filter((source) => !(source in enUS));
     expect(missing).toEqual([]);
   });
 
   it("has no entries the code no longer uses", () => {
-    const unused = Object.keys(en).filter((key) => !sources.has(key) && !/^\w[\w ]*\|/.test(key));
+    const unused = Object.keys(enUS).filter((key) => !sources.has(key) && !/^\w[\w ]*\|/.test(key));
     expect(unused).toEqual([]);
   });
 
   it("keeps every {placeholder} of the source string", () => {
     const placeholders = (text: string) => [...new Set(text.match(/\{\w+\}/g) ?? [])].sort();
-    const broken = Object.entries(en).filter(([key, value]) => {
+    const broken = Object.entries(enUS).filter(([key, value]) => {
       const source = /^\w[\w ]*\|/.test(key) ? key.slice(key.indexOf("|") + 1) : key;
       return placeholders(source).join() !== placeholders(value).join();
     });
@@ -83,26 +83,26 @@ describe("English catalog", () => {
 describe("t()", () => {
   it("returns the source text in Chinese and the catalog text in English", () => {
     expect(t("重新整理")).toBe("重新整理");
-    locale.value = "en";
+    locale.value = "en-US";
     expect(t("重新整理")).toBe("Refresh");
   });
 
   it("fills placeholders and falls back to the source for unknown strings", () => {
-    locale.value = "en";
+    locale.value = "en-US";
     expect(t("{name} 的位置已更新。", { name: "WorkLog" })).toBe("Location of WorkLog updated.");
     expect(t("尚未翻譯 {name}", { name: "x" })).toBe("尚未翻譯 x");
   });
 
   it("picks the singular English form for a count of one", () => {
     expect(t("{value} 個檔案", { value: 1 })).toBe("1 個檔案");
-    locale.value = "en";
+    locale.value = "en-US";
     expect(t("{value} 個檔案", { value: 1 })).toBe("1 file");
     expect(t("{value} 個檔案", { value: "1" })).toBe("1 file");
     expect(t("{value} 個檔案", { value: 3 })).toBe("3 files");
   });
 
   it("uses a context entry only where the same source means something else", () => {
-    locale.value = "en";
+    locale.value = "en-US";
     expect(tc("unit", "週")).toBe("weeks");
     expect(t("週")).toBe("Week");
   });
@@ -113,7 +113,7 @@ describe("t()", () => {
     const seen: string[] = [];
     const stop = watchEffect(() => seen.push(verificationStatus.passed.label));
     expect(labels.ok).toBe("正常");
-    locale.value = "en";
+    locale.value = "en-US";
     await nextTick();
     expect(labels.ok).toBe("Healthy");
     expect(option?.label).toBe("All");
@@ -126,8 +126,8 @@ describe("detectLocale", () => {
   it("picks Chinese for any zh browser language and English otherwise", () => {
     expect(detectLocale(["zh-TW", "en"])).toBe("zh-TW");
     expect(detectLocale(["zh-CN"])).toBe("zh-TW");
-    expect(detectLocale(["en-US", "zh-TW"])).toBe("en");
-    expect(detectLocale(["ja"])).toBe("en");
+    expect(detectLocale(["en-US", "zh-TW"])).toBe("en-US");
+    expect(detectLocale(["ja"])).toBe("en-US");
     expect(detectLocale(undefined)).toBe("zh-TW");
     expect(detectLocale([])).toBe("zh-TW");
   });

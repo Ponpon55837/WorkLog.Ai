@@ -4,27 +4,27 @@ All values live in `apps/web/src/styles/tokens.css`. Components reference tokens
 
 ## Color
 
-Two sets share the same token names: GitHub dark on `:root` (the default) and GitHub light on `:root[data-theme="light"]`. The light text colours are one step darker than stock Primer so 12px Label text on its 8% tint still reaches 4.5:1.
+Two sets share the same token names: GitHub dark on `:root` (the default) and a softened light set on `:root[data-theme="light"]`. Light surfaces are cool grey (the page is ~87% luminance) because pure white was too glaring; text colours are darkened so 12px Label text on its 10% tint still reaches 4.5:1 on every light surface.
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `--bg-canvas` | `#0d1117` | `#ffffff` | Page background, Box body, SidePanel |
-| `--bg-inset` | `#010409` | `#f6f8fa` | AppHeader, sidebar, text inputs, command blocks |
-| `--bg-subtle` | `#161b22` | `#f6f8fa` | Box header/footer, StatCard, popovers, Dialog |
-| `--bg-hover` | `#1c2128` | `#eff2f5` | Row / nav hover |
-| `--bg-muted` | `#21262d` | `#eff2f5` | Default button, active nav item, SegmentedControl track |
-| `--border` | `#30363d` | `#d1d9e0` | Box / input / button borders |
-| `--border-muted` | `#21262d` | `#dfe4e9` | Row dividers, header bottom borders |
-| `--fg` | `#e6edf3` | `#1f2328` | Primary text |
-| `--fg-muted` | `#9198a1` | `#59636e` | Meta text, eyebrows, secondary icons |
-| `--fg-subtle` | `#6e7681` | `#636c76` | Placeholders, sidebar group labels, empty dashes |
-| `--accent` | `#4493f8` | `#0860ca` | Links, focus ring, selected state, primary data series |
+| `--bg-canvas` | `#0d1117` | `#eef0f3` | Page background, Box body, SidePanel |
+| `--bg-inset` | `#010409` | `#e6e9ed` | AppHeader, sidebar, text inputs, command blocks |
+| `--bg-subtle` | `#161b22` | `#e6e9ed` | Box header/footer, StatCard, popovers, Dialog |
+| `--bg-hover` | `#1c2128` | `#e2e5ea` | Row / nav hover |
+| `--bg-muted` | `#21262d` | `#e2e5ea` | Default button, active nav item, SegmentedControl track |
+| `--border` | `#30363d` | `#c9d0d8` | Box / input / button borders |
+| `--border-muted` | `#21262d` | `#d6dbe1` | Row dividers, header bottom borders |
+| `--fg` | `#e6edf3` | `#24292f` | Primary text |
+| `--fg-muted` | `#9198a1` | `#4f5862` | Meta text, eyebrows, secondary icons |
+| `--fg-subtle` | `#6e7681` | `#58616b` | Placeholders, sidebar group labels, empty dashes |
+| `--accent` | `#4493f8` | `#0754ae` | Links, focus ring, selected state, primary data series |
 | `--accent-emphasis` | `#1f6feb` | `#0969da` | Input focus border |
-| `--success` | `#3fb950` | `#1a7431` | Passed, tracked, positive delta |
+| `--success` | `#3fb950` | `#16652a` | Passed, tracked, positive delta |
 | `--success-emphasis` | `#238636` | `#1f883d` | Primary button background (hover `#2ea043` / `#1c8139`) |
-| `--attention` | `#d29922` | `#8a5b00` | Missing / pending / paused |
-| `--danger` | `#f85149` | `#c4202c` | Failed, errors, negative delta, destructive actions |
-| `--done` | `#a371f7` | `#7340d0` | AI synthesis, completed synthesis, Knowledge accents |
+| `--attention` | `#d29922` | `#744c00` | Missing / pending / paused |
+| `--danger` | `#f85149` | `#a91b26` | Failed, errors, negative delta, destructive actions |
+| `--done` | `#a371f7` | `#6235b8` | AI synthesis, completed synthesis, Knowledge accents |
 | UnderlineNav active bar | `#f78166` | `#fd8c73` | Only for the selected UnderlineNav tab |
 
 Label recipe (GitHub style): text = color token, border = color at 40% alpha, background = color at 10% alpha. Neutral Label: `--fg-muted` text, `--border` border, transparent background.

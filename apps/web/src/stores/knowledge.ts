@@ -161,6 +161,8 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       : { ...emptyPageInfo, pageSize: pageSizeToQuery(knowledgePageSize.value) },
   );
   const knowledgeLoading = computed(() => listQuery.isLoading.value);
+  // "Loaded" means the first answer arrived; until then counts are unknown, not zero.
+  const knowledgeLoaded = computed(() => listQuery.data.value !== undefined);
   const knowledgeError = computed(() => {
     if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入 Knowledge。"));
     const result = listQuery.data.value;
@@ -189,6 +191,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     candidatesQuery.error.value ? errorMessage(candidatesQuery.error.value, t("無法載入 Knowledge 候選。")) : "",
   );
   const candidatesLoading = computed(() => candidatesQuery.isLoading.value && !candidatesQuietRefresh.value);
+  const candidatesLoaded = computed(() => candidatesQuery.data.value !== undefined);
 
   watch(
     () =>
@@ -282,6 +285,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     knowledgeProjectId,
     knowledgeStatus,
     knowledgeLoading,
+    knowledgeLoaded,
     knowledgeError,
     setKnowledgeListActive,
     loadKnowledge,
@@ -297,6 +301,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     candidates,
     openCandidateRequests,
     candidatesLoading,
+    candidatesLoaded,
     candidatesError,
     loadCandidates,
     requestKnowledgeCandidates,

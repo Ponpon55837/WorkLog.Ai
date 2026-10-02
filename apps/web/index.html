@@ -11,7 +11,15 @@
     <script src="/theme-init.js"></script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!-- Shown until Vue mounts and replaces #app; styled by base.css, which loads before the app script. -->
+      <div class="boot-splash" role="status">
+        <span class="boot-splash__mark" aria-hidden="true">WI</span>
+        <span class="boot-splash__spinner" aria-hidden="true"></span>
+        <span class="boot-splash__text">Work Intelligence</span>
+        <span class="sr-only">Loading 載入中</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

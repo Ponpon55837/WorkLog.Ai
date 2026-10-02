@@ -69,9 +69,9 @@ describe("preferences store", () => {
   });
 
   it("restores the saved language and switches every translation with it", async () => {
-    storage.set("work-intelligence:locale", "en");
+    storage.set("work-intelligence:locale", "en-US");
     const store = usePreferencesStore();
-    expect(store.locale).toBe("en");
+    expect(store.locale).toBe("en-US");
     expect(t("重新整理")).toBe("Refresh");
     store.locale = "zh-TW";
     await nextTick();
@@ -81,6 +81,11 @@ describe("preferences store", () => {
 
   it("follows the browser language when nothing is saved", () => {
     vi.stubGlobal("navigator", { languages: ["en-GB"] });
-    expect(usePreferencesStore().locale).toBe("en");
+    expect(usePreferencesStore().locale).toBe("en-US");
+  });
+
+  it("upgrades the locale saved as en before the JSON catalogs to en-US", () => {
+    storage.set("work-intelligence:locale", "en");
+    expect(usePreferencesStore().locale).toBe("en-US");
   });
 });

@@ -14,12 +14,13 @@ import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
 const props = defineProps<{ projectRoot?: string }>();
 const decisionStore = useSessionDecisionsStore();
-const { decisions, pendingCount, decisionsLoading, decisionsError } = storeToRefs(decisionStore);
+const { decisions, pendingCount, decisionsLoading, decisionsLoaded, decisionsError } = storeToRefs(decisionStore);
 const projectsStore = useProjectsStore();
 const { showToast } = useToast();
 const { openAgentDecisionEditor } = useKnowledgeActions();
@@ -67,9 +68,14 @@ function openSource(item: SessionDecisionRecord): void {
 <template>
   <UiBox class="agent-decisions" sticky-header data-testid="agent-decision-review">
     <template #header>
-      <UiBoxTitle eyebrow="Agent decisions" :title="t('待確認的 Agent 自主決策')" :count="pendingCount" />
+      <UiBoxTitle
+        eyebrow="Agent decisions"
+        :title="t('待確認的 Agent 自主決策')"
+        :count="decisionsLoaded ? pendingCount : undefined"
+      />
     </template>
     <UiFlash v-if="decisionsError" tone="danger">{{ decisionsError }}</UiFlash>
+    <UiSkeleton v-else-if="!decisionsLoaded" :count="3" :label="t('正在載入 Agent 自主決策…')" />
     <UiEmptyState
       v-else-if="!decisionsLoading && decisions.length === 0"
       :title="t('目前沒有待確認的決策')"

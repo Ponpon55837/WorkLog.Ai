@@ -1,6 +1,6 @@
 /* Design tokens — the only place raw colour values are allowed. See .agents/skills/worklog-ui/references/tokens.md
- * Dark (GitHub dark) is the default set; `:root[data-theme="light"]` below swaps in GitHub light. The theme is
- * chosen in the header (system / light / dark) and applied by composables/useAppearance.ts. */
+ * Dark (GitHub dark) is the default set; `:root[data-theme="light"]` below swaps in a softened light
+ * set. The theme is chosen in the header (system / light / dark) and applied by composables/useAppearance.ts. */
 :root {
   color-scheme: dark;
 
@@ -95,51 +95,54 @@
   --duration-slow: 360ms;
 }
 
+/* Soft light. Only colours change; type, spacing, radius and motion are shared. Surfaces are a cool grey (the page
+ * is ~87% luminance, not paper white) so long sessions are easier on the eyes; text colours are darkened to keep
+ * WCAG AA (4.5:1) for 12px labels on their 10% tinted backgrounds. */
 :root[data-theme="light"] {
   color-scheme: light;
 
   /* Surfaces */
-  --bg-canvas: #ffffff;
-  --bg-inset: #f6f8fa;
-  --bg-subtle: #f6f8fa;
-  --bg-hover: #eff2f5;
-  --bg-muted: #eff2f5;
-  --bg-muted-hover: #e6eaef;
-  --bg-overlay: rgba(31, 35, 40, 0.45);
+  --bg-canvas: #eef0f3;
+  --bg-inset: #e6e9ed;
+  --bg-subtle: #e6e9ed;
+  --bg-hover: #e2e5ea;
+  --bg-muted: #e2e5ea;
+  --bg-muted-hover: #d8dce2;
+  --bg-overlay: rgba(31, 35, 40, 0.4);
 
   /* Borders */
-  --border: #d1d9e0;
-  --border-muted: #dfe4e9;
-  --border-strong: #818b98;
+  --border: #c9d0d8;
+  --border-muted: #d6dbe1;
+  --border-strong: #7d8794;
   --border-on-emphasis: rgba(31, 35, 40, 0.15);
 
   /* Text */
-  --fg: #1f2328;
-  --fg-muted: #59636e;
-  --fg-subtle: #636c76;
+  --fg: #24292f;
+  --fg-muted: #4f5862;
+  --fg-subtle: #58616b;
   --fg-on-emphasis: #ffffff;
 
   /* Semantic */
-  --accent: #0860ca;
+  --accent: #0754ae;
   --accent-emphasis: #0969da;
-  --accent-soft: rgba(9, 105, 218, 0.08);
-  --accent-border: rgba(9, 105, 218, 0.4);
-  --success: #1a7431;
+  --accent-soft: rgba(7, 84, 174, 0.1);
+  --accent-border: rgba(7, 84, 174, 0.4);
+  --success: #16652a;
   --success-emphasis: #1f883d;
   --success-emphasis-hover: #1c8139;
-  --success-soft: rgba(26, 127, 55, 0.08);
-  --success-border: rgba(26, 127, 55, 0.4);
-  --attention: #8a5b00;
-  --attention-soft: rgba(138, 91, 0, 0.08);
-  --attention-border: rgba(138, 91, 0, 0.4);
-  --danger: #c4202c;
+  --success-soft: rgba(22, 101, 42, 0.1);
+  --success-border: rgba(22, 101, 42, 0.4);
+  --attention: #744c00;
+  --attention-soft: rgba(116, 76, 0, 0.1);
+  --attention-border: rgba(116, 76, 0, 0.4);
+  --danger: #a91b26;
   --danger-emphasis: #cf222e;
-  --danger-soft: rgba(209, 36, 47, 0.08);
-  --danger-border: rgba(209, 36, 47, 0.4);
-  --done: #7340d0;
-  --done-soft: rgba(115, 64, 208, 0.08);
-  --done-border: rgba(115, 64, 208, 0.4);
-  --neutral-soft: rgba(129, 139, 152, 0.2);
+  --danger-soft: rgba(169, 27, 38, 0.1);
+  --danger-border: rgba(169, 27, 38, 0.4);
+  --done: #6235b8;
+  --done-soft: rgba(98, 53, 184, 0.1);
+  --done-border: rgba(98, 53, 184, 0.4);
+  --neutral-soft: rgba(101, 110, 122, 0.2);
   --attention-counter: rgba(212, 167, 44, 0.3);
   --underline-active: #fd8c73;
 

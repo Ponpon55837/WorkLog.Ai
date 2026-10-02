@@ -18,6 +18,7 @@ import UiField from "../ui/UiField.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSelect from "../ui/UiSelect.vue";
+import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
@@ -31,6 +32,7 @@ const {
   backupKeep,
   automaticBackupKeep,
   backupsLoading,
+  backupsLoaded,
   backupsError,
   backupCreating,
   backupDeleting,
@@ -133,7 +135,12 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
     <UiBox>
       <template #header>
-        <UiBoxTitle :icon="Archive" eyebrow="Backups" :title="t('資料備份')" :count="backups.length" />
+        <UiBoxTitle
+          :icon="Archive"
+          eyebrow="Backups"
+          :title="t('資料備份')"
+          :count="backupsLoaded ? backups.length : undefined"
+        />
         <div class="backup-section__actions">
           <UiIconButton
             :icon="RefreshCw"
@@ -147,7 +154,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
           }}</UiButton>
         </div>
       </template>
-      <p class="backup-section__note">
+      <p v-if="backupsLoaded" class="backup-section__note">
         {{ t("API server 每個 UTC 日自動備份一次，存在資料庫旁的") }}
         <code>backups/</code>
         {{
@@ -157,8 +164,9 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
           )
         }}
       </p>
+      <UiSkeleton v-if="!backupsLoaded && !backupsError" :count="2" :label="t('正在載入備份清單…')" />
       <UiEmptyState
-        v-if="backups.length === 0 && !backupsLoading"
+        v-else-if="backups.length === 0 && !backupsLoading"
         compact
         :icon="Archive"
         :title="t('還沒有備份')"

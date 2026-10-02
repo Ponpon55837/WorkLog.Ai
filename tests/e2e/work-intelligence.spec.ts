@@ -1248,7 +1248,7 @@ test.describe("Work Intelligence browser regression", () => {
   });
 
   test("keeps every page free of horizontal overflow in English, whose copy runs longer", async ({ page }) => {
-    await page.addInitScript(() => window.localStorage.setItem("work-intelligence:locale", "en"));
+    await page.addInitScript(() => window.localStorage.setItem("work-intelligence:locale", "en-US"));
     for (const width of [640, 390]) {
       await page.setViewportSize({ width, height: 844 });
       for (const [path] of pageRoutes) {
