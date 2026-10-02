@@ -78,6 +78,8 @@ pnpm run doctor
 
 Work Intelligence 的 MCP 是**本機 stdio server**，由 Agent 自己啟動，不使用 Web 的 HTTP port。先執行一次 `pnpm build`，再依你的 Agent 註冊。請用絕對路徑，讓 API、MCP 與 CLI 使用同一個資料庫。
 
+**Plugin（Claude Code／Codex）：** `pnpm build` 後執行 `pnpm plugin:link`，再執行 `claude plugin marketplace add /path/to/WorkLog.Ai` 與 `claude plugin install work-intelligence@worklog-ai`（Codex 從 `/plugins` 安裝 `work-intelligence`）。plugin 帶有 MCP server、skill，Claude Code 另含保存提醒；它執行這個 checkout 的 build、使用同一個資料庫，也不會更動下方任何設定。plugin 與手動註冊二選一即可。詳見 [plugin 指南](docs/plugins.md)。
+
 想讓 Work Intelligence MCP 與 user-level skill 一次完成設定，可執行 `pnpm setup:agents` 預覽安裝計畫；預設不會寫入。操作方式、備份與解除安裝見 [Agent 設定指南](docs/agent-setup.md)。MCP 也會用標準 `resources/list`／`resources/read` 提供完整 skill 與記錄格式，任何支援 MCP resources 的 client 都能讀取：`work-intelligence://agent/work-intelligence/SKILL.md`、`work-intelligence://agent/work-record-and-report-format.md`。
 
 macOS／Linux：
@@ -346,6 +348,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 | [docs/troubleshooting.md](docs/troubleshooting.md) | API 連線、port、MCP、全域 hook、還原、匯入與維護的常見問題 |
 | [docs/service.md](docs/service.md) | macOS、Windows 與 Linux 的使用者層級登入自動啟動、移除與疑難排解 |
 | [docs/agent-setup.md](docs/agent-setup.md) | 註冊到 Codex CLI、Claude Code、Claude Desktop，以及全域保存提醒 hook |
+| [docs/plugins.md](docs/plugins.md) | Claude Code／Codex plugin：安裝、`pnpm plugin:link` 與從手動註冊切換 |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | 每個 MCP tool 的用途、欄位、範例、policy 行為、annotations 與 prompts |
 | [docs/rest-api.md](docs/rest-api.md) | REST endpoints、metadata backfill、報告匯出、備份、專案資料匯出／匯入、刪除與即時更新串流 |
 | [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | Session 五段格式、報告粒度與回填邊界 |

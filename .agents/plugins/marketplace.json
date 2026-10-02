@@ -1,0 +1,12 @@
+{
+  "name": "worklog-ai",
+  "interface": { "displayName": "WorkLog.Ai" },
+  "plugins": [
+    {
+      "name": "work-intelligence",
+      "source": { "source": "local", "path": "./plugins/work-intelligence" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}
