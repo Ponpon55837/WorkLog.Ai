@@ -2,6 +2,7 @@
 import type { WorkSummarySections } from "@work-intelligence/core";
 import { workSummarySectionLabels } from "../../utils/labels";
 import VirtualList from "../VirtualList.vue";
+import { t } from "../../i18n";
 
 /**
  * The five workSummary sections in fixed order. `nextSteps` is shown as 狀態／未結項 and never
@@ -12,7 +13,7 @@ defineProps<{ summary?: WorkSummarySections }>();
 
 <template>
   <div class="work-summary" data-testid="session-work-summary">
-    <p v-if="!summary" class="work-summary__legacy">此 Session 尚未提供五段摘要。</p>
+    <p v-if="!summary" class="work-summary__legacy">{{ t("此 Session 尚未提供五段摘要。") }}</p>
     <section v-for="section in workSummarySectionLabels" :key="section.key" class="work-summary__section">
       <h3>
         {{ section.label }} <span class="work-summary__key">{{ section.key }}</span>
@@ -23,7 +24,7 @@ defineProps<{ summary?: WorkSummarySections }>();
         :enabled="true"
         :estimate-item-height="56"
         max-height="min(24vh, 240px)"
-        :label="`${section.label}清單`"
+        :label="t('{label}清單', { label: section.label })"
       >
         <template #default="{ item }">
           <p class="work-summary__item">{{ item }}</p>

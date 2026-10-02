@@ -13,6 +13,7 @@ import VirtualList from "../VirtualList.vue";
 import { useGraph } from "../../composables/useGraph";
 import { useGraphStore } from "../../stores/graph";
 import { graphEdgeKindLabels, graphNodeKindLabels } from "../../utils/labels";
+import { t } from "../../i18n";
 
 /** Docked, non-modal node detail: the graph stays interactive while the panel is open. */
 const graphStore = useGraphStore();
@@ -39,10 +40,13 @@ const { selectGraphNode } = graphStore;
 const pathTarget = ref("");
 
 const targetOptions = computed(() => [
-  { value: "", label: "選擇要比對的節點" },
+  { value: "", label: t("選擇要比對的節點") },
   ...(graph.value?.nodes ?? [])
     .filter((item) => item.id !== node.value?.id)
-    .map((item) => ({ value: item.id, label: `${graphNodeKindLabels[item.kind]}：${graphNodeDisplayLabel(item, 40)}` }))
+    .map((item) => ({
+      value: item.id,
+      label: t("{value}：{value2}", { value: graphNodeKindLabels[item.kind], value2: graphNodeDisplayLabel(item, 40) }),
+    }))
     .sort((left, right) => left.label.localeCompare(right.label)),
 ]);
 
@@ -79,14 +83,14 @@ watch(
     :modal="false"
     :width="460"
     storage-key="graph-node"
-    label="Graph 節點詳細資料"
+    :label="t('Graph 節點詳細資料')"
     @close="selectGraphNode(null)"
     @resize="graphPanelWidth = $event"
   >
     <template v-if="node" #header>
       <div class="node-panel__top">
         <UiLabel tone="accent">{{ graphNodeKindLabels[node.kind] }}</UiLabel>
-        <UiIconButton :icon="X" label="關閉 Graph 節點詳細資料" @click="selectGraphNode(null)" />
+        <UiIconButton :icon="X" :label="t('關閉 Graph 節點詳細資料')" @click="selectGraphNode(null)" />
       </div>
       <h2 class="node-panel__title">{{ node.label }}</h2>
       <code class="node-panel__id">{{ node.id }}</code>
@@ -94,9 +98,9 @@ watch(
 
     <div v-if="node" class="node-panel">
       <dl class="node-panel__meta">
-        <dt>來源專案</dt>
+        <dt>{{ t("來源專案") }}</dt>
         <dd>{{ graphNodeProjectName(node) }}</dd>
-        <dt>關係數</dt>
+        <dt>{{ t("關係數") }}</dt>
         <dd>{{ relations.length }}</dd>
         <template v-for="item in metadata" :key="item.key">
           <dt>{{ item.label }}</dt>
@@ -105,34 +109,34 @@ watch(
       </dl>
 
       <div class="node-panel__actions">
-        <UiButton v-if="node.sessionId" size="sm" :icon="ListChecks" @click="openGraphSession(node)"
-          >查看 Session 詳情</UiButton
-        >
-        <UiButton v-if="node.kind === 'knowledge'" size="sm" :icon="BookOpen" @click="openGraphKnowledge(node)"
-          >維護 Knowledge</UiButton
-        >
-        <UiButton v-if="node.kind === 'project'" size="sm" :icon="FolderGit2" @click="openGraphProject"
-          >管理專案</UiButton
-        >
+        <UiButton v-if="node.sessionId" size="sm" :icon="ListChecks" @click="openGraphSession(node)">{{
+          t("查看 Session 詳情")
+        }}</UiButton>
+        <UiButton v-if="node.kind === 'knowledge'" size="sm" :icon="BookOpen" @click="openGraphKnowledge(node)">{{
+          t("維護 Knowledge")
+        }}</UiButton>
+        <UiButton v-if="node.kind === 'project'" size="sm" :icon="FolderGit2" @click="openGraphProject">{{
+          t("管理專案")
+        }}</UiButton>
       </div>
 
       <section class="node-panel__path" data-testid="graph-path">
-        <h3 class="node-panel__heading">找出與其他節點的關聯</h3>
+        <h3 class="node-panel__heading">{{ t("找出與其他節點的關聯") }}</h3>
         <form class="node-panel__path-form" @submit.prevent="explainPath">
-          <UiSelect v-model="pathTarget" :options="targetOptions" size="sm" label="選擇要找出關聯的節點" />
-          <UiButton type="submit" size="sm" :icon="Route" :disabled="!pathTarget" :loading="graphPathLoading"
-            >找出關聯</UiButton
-          >
+          <UiSelect v-model="pathTarget" :options="targetOptions" size="sm" :label="t('選擇要找出關聯的節點')" />
+          <UiButton type="submit" size="sm" :icon="Route" :disabled="!pathTarget" :loading="graphPathLoading">{{
+            t("找出關聯")
+          }}</UiButton>
         </form>
         <UiFlash v-if="graphPathError" tone="danger">{{ graphPathError }}</UiFlash>
         <template v-else-if="graphPath">
           <p v-if="!graphPath.found" class="node-panel__empty">{{ graphPath.reason }}</p>
-          <ol v-else class="node-panel__steps" aria-label="關聯路徑">
+          <ol v-else class="node-panel__steps" :aria-label="t('關聯路徑')">
             <li v-for="(step, index) in graphPath.steps" :key="step.edge.id">
               <span class="node-panel__step-number">{{ index + 1 }}</span>
               <span>
                 {{ step.reason }}
-                <UiLabel v-if="step.edge.provenance === 'derived'" tone="attention">推導</UiLabel>
+                <UiLabel v-if="step.edge.provenance === 'derived'" tone="attention">{{ t("推導") }}</UiLabel>
               </span>
             </li>
           </ol>
@@ -140,8 +144,8 @@ watch(
       </section>
 
       <section>
-        <h3 class="node-panel__heading">關聯紀錄</h3>
-        <p v-if="relations.length === 0" class="node-panel__empty">這個節點目前沒有其他已保存的關係。</p>
+        <h3 class="node-panel__heading">{{ t("關聯紀錄") }}</h3>
+        <p v-if="relations.length === 0" class="node-panel__empty">{{ t("這個節點目前沒有其他已保存的關係。") }}</p>
         <VirtualList
           v-else
           class="node-panel__relations"
@@ -149,7 +153,7 @@ watch(
           :enabled="true"
           :estimate-item-height="72"
           max-height="min(50vh, 420px)"
-          label="Graph 關聯紀錄清單"
+          :label="t('Graph 關聯紀錄清單')"
         >
           <template #default="{ item: relation }">
             <button type="button" class="node-panel__relation" @click="selectGraphNode(relation.relatedNode)">

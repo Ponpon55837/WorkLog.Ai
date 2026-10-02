@@ -2,6 +2,7 @@
 import { ref, toRef } from "vue";
 import { X } from "lucide-vue-next";
 import { useFocusTrap } from "../../composables/useFocusTrap";
+import { t } from "../../i18n";
 
 /** Centered dialog for forms and decisions. Footer actions are right-aligned, primary last. */
 const props = withDefaults(
@@ -49,7 +50,7 @@ function requestClose(): void {
             <button
               type="button"
               class="ui-dialog__close"
-              aria-label="關閉對話框"
+              :aria-label="t('關閉對話框')"
               :disabled="busy"
               @click="requestClose"
             >

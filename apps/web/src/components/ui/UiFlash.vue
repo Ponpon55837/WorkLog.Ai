@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-vue-next";
+import { t } from "../../i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -25,7 +26,13 @@ const icon = computed(
       <slot />
     </div>
     <div v-if="$slots.actions" class="ui-flash__actions"><slot name="actions" /></div>
-    <button v-if="dismissible" type="button" class="ui-flash__close" aria-label="關閉提示" @click="emit('dismiss')">
+    <button
+      v-if="dismissible"
+      type="button"
+      class="ui-flash__close"
+      :aria-label="t('關閉提示')"
+      @click="emit('dismiss')"
+    >
       <X :size="16" :stroke-width="1.75" aria-hidden="true" />
     </button>
   </div>

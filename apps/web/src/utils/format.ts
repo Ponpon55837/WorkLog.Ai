@@ -1,7 +1,8 @@
 import type { ApiErrorCode, WorkReport } from "@work-intelligence/core";
+import { intlLocale, t, translatedRecord } from "../i18n";
 
 export function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("zh-TW", {
+  return new Intl.DateTimeFormat(intlLocale(), {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
@@ -9,7 +10,7 @@ export function formatDate(value: string): string {
 
 /** Local time of day (e.g. 下午6:32), for lists already grouped by date. */
 export function formatTimeOfDay(value: string): string {
-  return new Intl.DateTimeFormat("zh-TW", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+  return new Intl.DateTimeFormat(intlLocale(), { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
 export function formatReadableSummary(value: string): string {
@@ -78,7 +79,7 @@ export function graphNodeLabel(value: string, maxDisplayUnits = 25): string {
   return label;
 }
 
-const apiErrorMessages: Record<string, string> = {
+const apiErrorMessages: Record<string, string> = translatedRecord<string>({
   invalid_input: "輸入資料有誤，請檢查後再試。",
   not_found: "找不到請求的資料，請重新整理後再試。",
   conflict: "資料狀態已變更，請重新整理後再試。",
@@ -102,7 +103,7 @@ const apiErrorMessages: Record<string, string> = {
   PROJECT_DELETE_FAILED: "刪除作業未完成，專案資料已保留；刪除前備份仍在。",
   network_error: "無法連線至本機 API，請確認 API 是否已啟動。",
   malformed_response: "API 回應格式不正確，請重新整理後再試。",
-} satisfies Partial<Record<ApiErrorCode | "network_error" | "malformed_response", string>>;
+} satisfies Partial<Record<ApiErrorCode | "network_error" | "malformed_response", string>>);
 
 export function errorMessage(error: unknown, fallback: string): string {
   if (typeof error === "object" && error !== null && "code" in error && "status" in error) {
@@ -119,22 +120,24 @@ export function formatRelative(value: string, now = new Date()): string {
   const date = new Date(value);
   const diffMinutes = Math.round((now.getTime() - date.getTime()) / 60_000);
   if (diffMinutes < 1) {
-    return "剛剛";
+    return t("剛剛");
   }
   if (diffMinutes < 60) {
-    return `${diffMinutes} 分鐘前`;
+    return t("{diffMinutes} 分鐘前", { diffMinutes });
   }
-  const time = new Intl.DateTimeFormat("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  const time = new Intl.DateTimeFormat(intlLocale(), { hour: "2-digit", minute: "2-digit", hour12: false }).format(
+    date,
+  );
   const dayDiff = dayIndex(now) - dayIndex(date);
   if (dayDiff === 0) {
-    return `${Math.round(diffMinutes / 60)} 小時前`;
+    return t("{value} 小時前", { value: Math.round(diffMinutes / 60) });
   }
   if (dayDiff === 1) {
-    return `昨天 ${time}`;
+    return t("昨天 {time}", { time });
   }
   const sameYear = date.getFullYear() === now.getFullYear();
   return new Intl.DateTimeFormat(
-    "zh-TW",
+    intlLocale(),
     sameYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" },
   ).format(date);
 }
@@ -148,14 +151,14 @@ export function formatDayGroup(value: string, now = new Date()): string {
   const date = new Date(value);
   const dayDiff = dayIndex(now) - dayIndex(date);
   if (dayDiff === 0) {
-    return "今天";
+    return t("今天");
   }
   if (dayDiff === 1) {
-    return "昨天";
+    return t("昨天");
   }
   const sameYear = date.getFullYear() === now.getFullYear();
   return new Intl.DateTimeFormat(
-    "zh-TW",
+    intlLocale(),
     sameYear ? { month: "long", day: "numeric", weekday: "short" } : { dateStyle: "long" },
   ).format(date);
 }
@@ -167,12 +170,16 @@ export function formatDuration(from: string, to: string): string {
     return "";
   }
   if (minutes < 1) {
-    return "不到 1 分鐘";
+    return t("不到 1 分鐘");
   }
   const days = Math.floor(minutes / 1_440);
   const hours = Math.floor((minutes % 1_440) / 60);
   const rest = minutes % 60;
-  const parts = [days ? `${days} 天` : "", hours ? `${hours} 小時` : "", !days && rest ? `${rest} 分鐘` : ""];
+  const parts = [
+    days ? t("{days} 天", { days }) : "",
+    hours ? t("{hours} 小時", { hours }) : "",
+    !days && rest ? t("{rest} 分鐘", { rest }) : "",
+  ];
   return parts.filter(Boolean).join(" ");
 }
 
@@ -191,4 +198,10 @@ export function formatBytes(bytes: number): string {
     unit += 1;
   }
   return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** Weekday name for the current locale (週日 / Sun); `narrow` gives 日 in Chinese and stays short in English. */
+export function weekdayLabel(date: Date, utc = false, width: "short" | "narrow" = "short"): string {
+  const weekday = width === "narrow" && intlLocale() !== "zh-TW" ? "short" : width;
+  return new Intl.DateTimeFormat(intlLocale(), { weekday, ...(utc ? { timeZone: "UTC" } : {}) }).format(date);
 }

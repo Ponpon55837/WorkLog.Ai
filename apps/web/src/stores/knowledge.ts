@@ -24,6 +24,7 @@ import { errorMessage } from "../utils/format";
 import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { useApi } from "../composables/useApi";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 export type KnowledgeChanges = Partial<
   Pick<KnowledgeRecord, "kind" | "title" | "body" | "tags" | "references" | "status" | "appliesTo">
@@ -161,7 +162,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   );
   const knowledgeLoading = computed(() => listQuery.isLoading.value);
   const knowledgeError = computed(() => {
-    if (listQuery.error.value) return errorMessage(listQuery.error.value, "無法載入 Knowledge。");
+    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入 Knowledge。"));
     const result = listQuery.data.value;
     return result?.outcome === "skipped" ? result.reason : "";
   });
@@ -173,10 +174,10 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   );
   const knowledgeHistoryLoading = computed(() => historyQuery.isLoading.value);
   const knowledgeHistoryError = computed(() => {
-    if (historyQuery.error.value) return errorMessage(historyQuery.error.value, "無法載入 Knowledge 變更紀錄。");
+    if (historyQuery.error.value) return errorMessage(historyQuery.error.value, t("無法載入 Knowledge 變更紀錄。"));
     const result = historyQuery.data.value;
     if (result?.outcome === "skipped") return result.reason;
-    return result?.outcome === "not_found" ? "這筆 Knowledge 已不存在。" : "";
+    return result?.outcome === "not_found" ? t("這筆 Knowledge 已不存在。") : "";
   });
   const candidates = computed<KnowledgeCandidate[]>(() =>
     candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.items : [],
@@ -185,7 +186,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.openRequests : [],
   );
   const candidatesError = computed(() =>
-    candidatesQuery.error.value ? errorMessage(candidatesQuery.error.value, "無法載入 Knowledge 候選。") : "",
+    candidatesQuery.error.value ? errorMessage(candidatesQuery.error.value, t("無法載入 Knowledge 候選。")) : "",
   );
   const candidatesLoading = computed(() => candidatesQuery.isLoading.value && !candidatesQuietRefresh.value);
 

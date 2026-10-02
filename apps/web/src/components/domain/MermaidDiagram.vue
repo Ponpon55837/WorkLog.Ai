@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { renderMermaid } from "../../utils/mermaid";
+import { storeToRefs } from "pinia";
 import UiSpinner from "../ui/UiSpinner.vue";
+import { usePreferencesStore } from "../../stores/preferences";
+import { renderMermaid } from "../../utils/mermaid";
+import { t } from "../../i18n";
 
 /**
  * Renders Mermaid source without loosening the page's Content Security Policy: Mermaid is loaded only when a
@@ -9,6 +12,8 @@ import UiSpinner from "../ui/UiSpinner.vue";
  * constructed stylesheet (CSSOM), which `style-src-elem 'self'` does not block. On failure the source is shown.
  */
 const props = defineProps<{ source: string; title: string }>();
+
+const { resolvedTheme } = storeToRefs(usePreferencesStore());
 
 const host = ref<HTMLElement | null>(null);
 const state = ref<"idle" | "loading" | "rendered" | "failed">("idle");
@@ -28,13 +33,13 @@ async function render(): Promise<void> {
     root.innerHTML = svg;
     state.value = "rendered";
   } catch (error) {
-    failure.value = error instanceof Error ? error.message.split("\n")[0]! : "無法繪製這張圖表。";
+    failure.value = error instanceof Error ? error.message.split("\n")[0]! : t("無法繪製這張圖表。");
     state.value = "failed";
   }
 }
 
 watch(
-  () => props.source,
+  () => [props.source, resolvedTheme.value],
   () => {
     if (state.value !== "idle") void render();
   },
@@ -62,14 +67,14 @@ onBeforeUnmount(() => observer?.disconnect());
     <figcaption>{{ title }}</figcaption>
     <div v-show="state !== 'failed'" ref="host" class="mermaid-diagram__canvas" role="img" :aria-label="title" />
     <p v-if="state === 'loading' || state === 'idle'" class="mermaid-diagram__status">
-      <UiSpinner :size="14" label="載入圖表" /> 載入圖表…
+      <UiSpinner :size="14" :label="t('載入圖表')" /> {{ t("載入圖表…") }}
     </p>
     <div v-if="state === 'failed'" class="mermaid-diagram__failure">
-      <p>無法繪製這張圖表（{{ failure }}），以下是原始碼：</p>
+      <p>{{ t("無法繪製這張圖表（{failure}），以下是原始碼：", { failure }) }}</p>
       <pre><code>{{ source }}</code></pre>
     </div>
     <details v-else-if="state === 'rendered'" class="mermaid-diagram__source">
-      <summary>檢視原始碼</summary>
+      <summary>{{ t("檢視原始碼") }}</summary>
       <pre><code>{{ source }}</code></pre>
     </details>
   </figure>

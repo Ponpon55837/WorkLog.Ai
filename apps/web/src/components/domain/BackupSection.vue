@@ -19,6 +19,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import VirtualList from "../VirtualList.vue";
+import { t } from "../../i18n";
 
 /**
  * Database backups and the whole-database export for moving to another computer. Restoring replaces
@@ -63,17 +64,17 @@ const scrollAfter = 6;
 const exportScope = ref<"all" | "project">("all");
 const exportProjectId = ref("");
 const exportScopeOptions = [
-  { value: "all", label: "全部專案" },
-  { value: "project", label: "單一專案" },
+  { value: "all", label: t("全部專案") },
+  { value: "project", label: t("單一專案") },
 ];
 
 const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
-const restoreCommand = "pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>";
+const restoreCommand = t("pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>");
 const exportProjectOptions = computed(() =>
   projects.value.map((project) => ({ value: project.id, label: project.name })),
 );
 const importProjectOptions = computed(() => [
-  { value: "", label: "全部專案" },
+  { value: "", label: t("全部專案") },
   ...importProjects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
@@ -89,14 +90,14 @@ const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
   };
 });
 const importProjectResolutionLabels = {
-  existing: "已對應既有專案",
-  new: "將新增專案",
-  conflict: "專案衝突",
+  existing: t("已對應既有專案"),
+  new: t("將新增專案"),
+  conflict: t("專案衝突"),
 } as const;
 const importFolderStatusLabels = {
-  found: "找到資料夾",
-  missing: "這台電腦找不到這個資料夾",
-  unavailable: "無法確認資料夾",
+  found: t("找到資料夾"),
+  missing: t("這台電腦找不到這個資料夾"),
+  unavailable: t("無法確認資料夾"),
 } as const;
 const remappedProjectCount = computed(
   () => importPreview.value?.remappedPaths.reduce((total, item) => total + item.projects, 0) ?? 0,
@@ -132,29 +133,36 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
     <UiBox>
       <template #header>
-        <UiBoxTitle :icon="Archive" eyebrow="Backups" title="資料備份" :count="backups.length" />
+        <UiBoxTitle :icon="Archive" eyebrow="Backups" :title="t('資料備份')" :count="backups.length" />
         <div class="backup-section__actions">
           <UiIconButton
             :icon="RefreshCw"
-            label="重新整理備份清單"
+            :label="t('重新整理備份清單')"
             size="sm"
             :loading="backupsLoading"
             @click="loadBackups"
           />
-          <UiButton size="sm" :icon="DatabaseBackup" :loading="backupCreating" @click="createBackup">立即備份</UiButton>
+          <UiButton size="sm" :icon="DatabaseBackup" :loading="backupCreating" @click="createBackup">{{
+            t("立即備份")
+          }}</UiButton>
         </div>
       </template>
       <p class="backup-section__note">
-        API server 每個 UTC 日自動備份一次，存在資料庫旁的
-        <code>backups/</code> 資料夾；自動與其他備份分開保留，分別最多 {{ automaticBackupKeep }} 份與
-        {{ backupKeep }} 份。共 {{ backups.length }} 份，總大小 {{ formatBytes(totalBackupBytes) }}。
+        {{ t("API server 每個 UTC 日自動備份一次，存在資料庫旁的") }}
+        <code>backups/</code>
+        {{
+          t(
+            "資料夾；自動與其他備份分開保留，分別最多 {automaticBackupKeep} 份與 {backupKeep} 份。共 {length} 份，總大小 {value}。",
+            { automaticBackupKeep, backupKeep, length: backups.length, value: formatBytes(totalBackupBytes) },
+          )
+        }}
       </p>
       <UiEmptyState
         v-if="backups.length === 0 && !backupsLoading"
         compact
         :icon="Archive"
-        title="還沒有備份"
-        description="按「立即備份」建立第一份。"
+        :title="t('還沒有備份')"
+        :description="t('按「立即備份」建立第一份。')"
       />
       <!-- Past a handful of backups the list scrolls inside its Box instead of stretching the page. -->
       <VirtualList
@@ -163,7 +171,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         :enabled="backups.length > scrollAfter"
         fit-viewport
         :estimate-item-height="60"
-        label="備份清單"
+        :label="t('備份清單')"
       >
         <template #default="{ item }">
           <UiBoxRow
@@ -178,7 +186,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
                   :icon="Trash2"
                   variant="danger"
                   size="sm"
-                  :label="`刪除備份 ${item.fileName}`"
+                  :label="t('刪除備份 {fileName}', { fileName: item.fileName })"
                   :loading="backupDeleting === item.fileName"
                   :disabled="backupDeleting !== null"
                   @click="deleteBackup(item)"
@@ -192,50 +200,64 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
     <UiBox padded>
       <template #header>
-        <UiBoxTitle :icon="Download" eyebrow="Move to another computer" title="匯出整份資料" />
-        <UiButton size="sm" variant="primary" :icon="Download" :loading="databaseExporting" @click="exportDatabase"
-          >匯出</UiButton
-        >
+        <UiBoxTitle :icon="Download" eyebrow="Move to another computer" :title="t('匯出整份資料')" />
+        <UiButton size="sm" variant="primary" :icon="Download" :loading="databaseExporting" @click="exportDatabase">{{
+          t("匯出")
+        }}</UiButton>
       </template>
       <p>
-        匯出一個 <code>.sqlite</code> 檔，包含所有專案、Session、Knowledge、報告與
-        handoff。檔案沒有加密，請用可信任的方式帶到新電腦。
+        {{ t("匯出一個") }} <code>.sqlite</code>
+        {{ t("檔，包含所有專案、Session、Knowledge、報告與 handoff。檔案沒有加密，請用可信任的方式帶到新電腦。") }}
       </p>
       <ol class="backup-section__steps">
-        <li>在新電腦安裝 Work Intelligence 並執行 <code>pnpm build</code>。</li>
-        <li>確認 API server 沒有在執行，也關閉會啟動 MCP 的 Codex／Claude 對話。</li>
+        <li>{{ t("在新電腦安裝 Work Intelligence 並執行") }} <code>pnpm build</code>{{ t("。") }}</li>
+        <li>{{ t("確認 API server 沒有在執行，也關閉會啟動 MCP 的 Codex／Claude 對話。") }}</li>
         <li>
-          在 repo 根目錄執行下面的指令。專案在新電腦的位置不同時，用
-          <code>--remap-root</code> 換掉路徑前綴；位置相同就不用加。
+          {{ t("在 repo 根目錄執行下面的指令。專案在新電腦的位置不同時，用") }}
+          <code>--remap-root</code> {{ t("換掉路徑前綴；位置相同就不用加。") }}
         </li>
       </ol>
       <div class="backup-section__command">
         <code>{{ restoreCommand }}</code>
-        <UiCopyButton :text="restoreCommand" label="複製還原指令" success-message="已複製還原指令。" size="sm" />
+        <UiCopyButton
+          :text="restoreCommand"
+          :label="t('複製還原指令')"
+          :success-message="t('已複製還原指令。')"
+          size="sm"
+        />
       </div>
       <p class="backup-section__hint">
-        還原前會自動備份新電腦上原本的資料；比目前版本新的資料檔會被拒絕，請先更新 Work Intelligence。
+        {{ t("還原前會自動備份新電腦上原本的資料；比目前版本新的資料檔會被拒絕，請先更新 Work Intelligence。") }}
       </p>
     </UiBox>
 
     <UiBox padded>
       <template #header>
-        <UiBoxTitle :icon="Archive" eyebrow="Portable project data" title="依專案匯出與匯入" :count="projects.length" />
+        <UiBoxTitle
+          :icon="Archive"
+          eyebrow="Portable project data"
+          :title="t('依專案匯出與匯入')"
+          :count="projects.length"
+        />
       </template>
       <UiFlash v-if="transferError" tone="danger">{{ transferError }}</UiFlash>
       <p class="backup-section__hint">
-        JSON 匯出檔沒有加密。匯入會合併資料，先顯示新增、略過與衝突數量，再由你確認執行；新匯入的專案會先暫停記錄。
+        {{
+          t(
+            "JSON 匯出檔沒有加密。匯入會合併資料，先顯示新增、略過與衝突數量，再由你確認執行；新匯入的專案會先暫停記錄。",
+          )
+        }}
       </p>
 
       <div class="transfer-controls">
-        <UiField label="匯出範圍">
-          <UiSelect v-model="exportScope" :options="exportScopeOptions" label="選擇匯出範圍" />
+        <UiField :label="t('匯出範圍')">
+          <UiSelect v-model="exportScope" :options="exportScopeOptions" :label="t('選擇匯出範圍')" />
         </UiField>
-        <UiField v-if="exportScope === 'project'" label="匯出專案">
+        <UiField v-if="exportScope === 'project'" :label="t('匯出專案')">
           <UiSelect
             v-model="exportProjectId"
             :options="exportProjectOptions"
-            label="選擇匯出專案"
+            :label="t('選擇匯出專案')"
             :disabled="projects.length === 0"
           />
         </UiField>
@@ -246,12 +268,12 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
           :disabled="exportScope === 'project' && !exportProjectId"
           @click="exportPortableData"
         >
-          匯出 JSON
+          {{ t("匯出 JSON") }}
         </UiButton>
       </div>
 
       <div class="transfer-controls transfer-controls--import">
-        <UiField label="匯入檔" hint="選擇 Work Intelligence 的 .json 匯出檔，最大 50 MiB。">
+        <UiField :label="t('匯入檔')" :hint="t('選擇 Work Intelligence 的 .json 匯出檔，最大 50 MiB。')">
           <!-- The native file picker is required so the user can select a local export without uploading it elsewhere. -->
           <input
             class="backup-section__file-input"
@@ -261,26 +283,26 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             @change="onImportFileChange"
           />
         </UiField>
-        <UiField v-if="importProjects.length > 1" label="匯入範圍">
-          <UiSelect v-model="importProjectId" :options="importProjectOptions" label="選擇匯入範圍" />
+        <UiField v-if="importProjects.length > 1" :label="t('匯入範圍')">
+          <UiSelect v-model="importProjectId" :options="importProjectOptions" :label="t('選擇匯入範圍')" />
         </UiField>
         <p class="backup-section__hint">
-          選取檔案後會立即預覽。找不到資料夾時，可逐一選擇新位置；也可以保留原始路徑匯入。
+          {{ t("選取檔案後會立即預覽。找不到資料夾時，可逐一選擇新位置；也可以保留原始路徑匯入。") }}
         </p>
         <UiButton size="sm" :loading="importLoading" :disabled="!importFileName" @click="previewProjectDataImport">
-          重新預覽
+          {{ t("重新預覽") }}
         </UiButton>
       </div>
 
       <UiFlash v-if="importError" tone="danger">{{ importError }}</UiFlash>
       <div v-if="importPreview" class="transfer-preview" data-testid="project-import-preview" aria-live="polite">
-        <p>匯入專案與套用路徑</p>
+        <p>{{ t("匯入專案與套用路徑") }}</p>
         <VirtualList
           :items="importPreview.selectedProjects"
           :enabled="importPreview.selectedProjects.length > 4"
           :estimate-item-height="68"
           max-height="min(40vh, 320px)"
-          label="匯入專案與路徑"
+          :label="t('匯入專案與路徑')"
           data-testid="project-import-selected-projects"
         >
           <template #default="{ item }">
@@ -291,14 +313,14 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             >
               <template #trailing>
                 <span class="backup-section__folder-status">
-                  {{ item.folderStatus ? importFolderStatusLabels[item.folderStatus] : "尚未檢查" }}
+                  {{ item.folderStatus ? importFolderStatusLabels[item.folderStatus] : t("尚未檢查") }}
                 </span>
                 <UiButton
                   v-if="item.folderStatus !== 'found'"
                   size="sm"
                   :disabled="importLoading"
                   @click="chooseImportProjectLocation(item.id)"
-                  >選擇 {{ item.name }} 的新位置</UiButton
+                  >{{ t("選擇 {name} 的新位置", { name: item.name }) }}</UiButton
                 >
               </template>
             </UiBoxRow>
@@ -306,24 +328,32 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         </VirtualList>
         <div class="transfer-preview__counts">
           <div data-testid="project-import-additions">
-            <span>新增</span>
+            <span>{{ t("新增") }}</span>
             <strong>{{ importSummary(importPreview).additions }}</strong>
-            <small
-              >專案 {{ importSummary(importPreview).projects }} · Session {{ importSummary(importPreview).sessions }} ·
-              Knowledge {{ importSummary(importPreview).knowledge }}</small
-            >
+            <small>{{
+              t("專案 {value} · Session {value2} · Knowledge {value3}", {
+                value: importSummary(importPreview).projects,
+                value2: importSummary(importPreview).sessions,
+                value3: importSummary(importPreview).knowledge,
+              })
+            }}</small>
           </div>
           <div data-testid="project-import-skipped">
-            <span>略過</span>
+            <span>{{ t("略過") }}</span>
             <strong>{{ importSummary(importPreview).skipped }}</strong>
           </div>
           <div data-testid="project-import-conflicts">
-            <span>衝突</span>
+            <span>{{ t("衝突") }}</span>
             <strong>{{ importSummary(importPreview).conflicts }}</strong>
           </div>
         </div>
         <p v-if="remappedProjectCount > 0 || remappedSnapshotCount > 0" class="backup-section__hint">
-          已套用路徑轉換：專案 {{ remappedProjectCount }} 個、handoff {{ remappedSnapshotCount }} 個。
+          {{
+            t("已套用路徑轉換：專案 {remappedProjectCount} 個、handoff {remappedSnapshotCount} 個。", {
+              remappedProjectCount,
+              remappedSnapshotCount,
+            })
+          }}
         </p>
         <VirtualList
           v-if="importPreview.conflictDetails.length > 0"
@@ -331,21 +361,23 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
           :enabled="importPreview.conflictDetails.length > 4"
           :estimate-item-height="68"
           max-height="min(40vh, 320px)"
-          label="匯入衝突"
+          :label="t('匯入衝突')"
         >
           <template #default="{ item }">
             <UiBoxRow :title="item.reason" :meta="`${item.table} · ${item.id}`" />
           </template>
         </VirtualList>
         <p v-if="importPreview.conflictDetailsTruncated" class="backup-section__hint">
-          衝突明細超過 100 筆，僅顯示前 100 筆。
+          {{ t("衝突明細超過 100 筆，僅顯示前 100 筆。") }}
         </p>
         <p class="backup-section__hint">
-          匯入不會覆寫衝突或已存在的資料，也不會改變既有專案的記錄狀態。新專案若保留原始路徑，會以暫停狀態匯入。
+          {{
+            t("匯入不會覆寫衝突或已存在的資料，也不會改變既有專案的記錄狀態。新專案若保留原始路徑，會以暫停狀態匯入。")
+          }}
         </p>
-        <UiButton size="sm" variant="primary" :loading="importLoading" @click="applyProjectDataImport"
-          >確認並匯入</UiButton
-        >
+        <UiButton size="sm" variant="primary" :loading="importLoading" @click="applyProjectDataImport">{{
+          t("確認並匯入")
+        }}</UiButton>
       </div>
     </UiBox>
   </div>

@@ -61,6 +61,11 @@ defineProps<{
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-subtle);
+  transition: border-color var(--duration-instant) ease-out;
+}
+
+.ui-stat:hover {
+  border-color: var(--border-strong);
 }
 
 .ui-stat__label {

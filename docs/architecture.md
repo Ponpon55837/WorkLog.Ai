@@ -46,8 +46,15 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - **寫入後的失效**：每個 mutation 宣告會影響哪些 key 前綴，成功後讓它們失效。Pinia Colada 只會重新載入目前有畫面在使用的 query。
 - **即時更新**：server 的 `/api/events`（SSE）只送不帶資料的 `changed` 事件。Web 收到後呼叫 `invalidateActiveQueries()`；分頁回到前景、或 API 恢復連線時也會做同樣的事。不會讓所有畫面重新載入全部資料。
 - **網址是篩選條件的唯一來源**：`useRouteQuery` 讓網址與篩選 ref 雙向同步；`useListReload` 處理「篩選改變回到第 1 頁、搜尋 debounce」。
-- **API 呼叫**：只有 `api/transport.ts` 會呼叫 `fetch()`；各領域的 API 模組（`api/projects.ts`、`api/sessions.ts`…）由 `api/client.ts` 組合。錯誤帶有機器可讀的 `code`，前端依 `code` 顯示繁體中文訊息。
+- **API 呼叫**：只有 `api/transport.ts` 會呼叫 `fetch()`；各領域的 API 模組（`api/projects.ts`、`api/sessions.ts`…）由 `api/client.ts` 組合。錯誤帶有機器可讀的 `code`，前端依 `code` 顯示目前介面語言的訊息。
 - **離線判斷**：只有網路錯誤或不是 API 自己回的 5xx（例如開發模式的 proxy）才顯示「無法連線」；API 回傳的 JSON 5xx（包含 `database_busy`）不算離線。
+
+## Web 介面語言與主題
+
+- **i18n**：`apps/web/src/i18n/` 以繁體中文原文作為訊息 key（gettext 風格），`t()` 依目前語系查 `en.ts`，找不到時顯示原文。`tc(context, 原文)` 處理同字異義（例如「週」是分頁名稱 Week，也是單位 weeks）；英文翻譯可寫成 `單數|複數`，依第一個數字參數選擇。模組層級的標籤表與狀態對照（`utils/labels.ts`、`utils/status.ts`、路由 meta）以 getter 在讀取時翻譯，所以切換語言不必重新載入頁面；`App.vue` 以語系作為頁面與 overlay 的 key，讓元件 setup 時產生的文字也一起更新。日期、星期與相對時間用 `Intl` 依目前語系格式化。
+- **不翻譯的資料**：Session、報告、Knowledge、Agent 輸出與 API 回傳的 `reason` 原樣顯示；`資料不足` 等資料標記以原文比對。後端與 MCP 的契約不受語系影響。
+- **主題**：`styles/tokens.css` 在 `:root` 定義深色色票，在 `:root[data-theme="light"]` 以同名 token 定義淺色色票；元件只引用 token，不判斷主題。`composables/useAppearance.ts` 依偏好（跟隨系統／淺色／深色）設定 `<html data-theme>` 與 `lang`。`public/theme-init.js` 在 Vue 載入前先套用已儲存的主題，避免淺色使用者看到深色閃爍；它是同源檔案，因為正式模式的 CSP 不允許 inline script。Mermaid 圖表在主題改變時以對應的 Mermaid 主題重新繪製。
+- **偏好設定**：主題、語言與編輯器選擇都由 `stores/preferences.ts` 存在瀏覽器 localStorage；儲存空間無法使用時只在本次瀏覽有效。
 
 ## 效能設計
 

@@ -74,6 +74,26 @@ pre,
   outline-offset: 1px;
 }
 
+/* Keyboard users can jump past the header and sidebar; the link appears only while focused. */
+.skip-link {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 100;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--accent-emphasis);
+  color: var(--fg-on-emphasis);
+  font-weight: 600;
+  transform: translateY(-160%);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.skip-link:focus {
+  transform: none;
+  text-decoration: none;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -140,6 +160,59 @@ pre,
     opacity: 0;
     transform: translateY(-4px) scale(0.98);
   }
+}
+
+@keyframes wi-pop {
+  40% {
+    transform: scale(1.18);
+  }
+}
+
+@keyframes wi-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes wi-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* Switching the theme cross-fades colours for a moment (useAppearance adds the class), instead of flashing. */
+.is-theme-switching,
+.is-theme-switching *,
+.is-theme-switching *::before,
+.is-theme-switching *::after {
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard),
+    color var(--duration-base) var(--ease-standard),
+    fill var(--duration-base) var(--ease-standard),
+    stroke var(--duration-base) var(--ease-standard) !important;
+}
+
+/* Shared <Transition name="fade"> for banners and inline notices that come and go. */
+.fade-enter-active {
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out);
+}
+
+.fade-leave-active {
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* Switching tabs remounts the panel; fade it in. */

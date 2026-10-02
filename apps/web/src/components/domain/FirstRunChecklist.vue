@@ -8,6 +8,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiCommandBlock from "../ui/UiCommandBlock.vue";
 import UiCopyButton from "../ui/UiCopyButton.vue";
 import { onboardingStepStatusVisual } from "../../utils/status";
+import { t } from "../../i18n";
 
 /** Inputs summarize project setup and read-only Agent diagnostics for the first-run steps. */
 const props = defineProps<{
@@ -40,55 +41,57 @@ const agentStepState = computed(() => {
 
 <template>
   <UiBox data-testid="first-run-checklist">
-    <template #header><UiBoxTitle eyebrow="FIRST RUN" title="開始使用工作紀錄" /></template>
+    <template #header><UiBoxTitle eyebrow="FIRST RUN" :title="t('開始使用工作紀錄')" /></template>
     <ol class="first-run-checklist__steps">
       <li data-testid="first-run-step-project">
         <div class="first-run-checklist__step-heading">
           <StatusLabel :status="onboardingStepStatusVisual(hasProject ? 'complete' : 'pending')" />
           <div>
-            <h3>加入專案</h3>
-            <p>先將本機專案加入 registry。</p>
+            <h3>{{ t("加入專案") }}</h3>
+            <p>{{ t("先將本機專案加入 registry。") }}</p>
           </div>
         </div>
-        <UiButton v-if="!hasProject" size="sm" :to="{ name: 'projects' }">加入專案</UiButton>
+        <UiButton v-if="!hasProject" size="sm" :to="{ name: 'projects' }">{{ t("加入專案") }}</UiButton>
       </li>
       <li data-testid="first-run-step-tracking">
         <div class="first-run-checklist__step-heading">
           <StatusLabel :status="onboardingStepStatusVisual(hasTrackedProject ? 'complete' : 'pending')" />
           <div>
-            <h3>設為記錄中</h3>
-            <p>明確啟用專案記錄後，Agent 才能為它保存工作紀錄。</p>
+            <h3>{{ t("設為記錄中") }}</h3>
+            <p>{{ t("明確啟用專案記錄後，Agent 才能為它保存工作紀錄。") }}</p>
           </div>
         </div>
-        <UiButton v-if="hasProject && !hasTrackedProject" size="sm" :to="{ name: 'projects' }">查看專案</UiButton>
+        <UiButton v-if="hasProject && !hasTrackedProject" size="sm" :to="{ name: 'projects' }">{{
+          t("查看專案")
+        }}</UiButton>
       </li>
       <li data-testid="first-run-step-agent">
         <div class="first-run-checklist__step-heading">
           <StatusLabel :status="onboardingStepStatusVisual(agentStepState)" />
           <div>
-            <h3>連接 Agent</h3>
-            <p>在 Codex 或 Claude Code 註冊 Work Intelligence MCP。</p>
+            <h3>{{ t("連接 Agent") }}</h3>
+            <p>{{ t("在 Codex 或 Claude Code 註冊 Work Intelligence MCP。") }}</p>
           </div>
         </div>
         <div v-if="!agentConnected" class="first-run-checklist__actions">
-          <UiButton size="sm" :to="{ name: 'system-status' }">查看連線狀態</UiButton>
-          <UiCopyButton size="sm" label="複製安裝命令" text="pnpm setup:agents" />
+          <UiButton size="sm" :to="{ name: 'system-status' }">{{ t("查看連線狀態") }}</UiButton>
+          <UiCopyButton size="sm" :label="t('複製安裝命令')" text="pnpm setup:agents" />
         </div>
       </li>
       <li data-testid="first-run-step-session">
         <div class="first-run-checklist__step-heading">
           <StatusLabel :status="onboardingStepStatusVisual(hasSession ? 'complete' : 'pending')" />
           <div>
-            <h3>第一筆工作記錄</h3>
-            <p>完成工作後，請 Agent 整理並保存 Session。</p>
+            <h3>{{ t("第一筆工作記錄") }}</h3>
+            <p>{{ t("完成工作後，請 Agent 整理並保存 Session。") }}</p>
           </div>
         </div>
         <div v-if="!hasSession" class="first-run-checklist__actions first-run-checklist__session-actions">
           <UiCommandBlock
-            text="請整理這次完成的工作、變更檔案與驗證結果，並保存第一筆工作記錄。"
-            success-message="已複製工作記錄指令。"
+            :text="t('請整理這次完成的工作、變更檔案與驗證結果，並保存第一筆工作記錄。')"
+            :success-message="t('已複製工作記錄指令。')"
           />
-          <UiButton size="sm" :to="{ name: 'sessions' }">查看工作歷程</UiButton>
+          <UiButton size="sm" :to="{ name: 'sessions' }">{{ t("查看工作歷程") }}</UiButton>
         </div>
       </li>
     </ol>

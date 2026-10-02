@@ -5,6 +5,7 @@ import type { ApiHealth } from "../api/client";
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 /** Owns app-wide health data that is shown in the shell on every route. */
 export const useAppStore = defineStore("app", () => {
@@ -19,7 +20,7 @@ export const useAppStore = defineStore("app", () => {
   const appHealth = computed<ApiHealth | null>(() => healthQuery.data.value ?? null);
   const appHealthError = computed(() =>
     healthQuery.error.value
-      ? errorMessage(healthQuery.error.value, "無法載入 Work Intelligence，請確認本機 API 是否已啟動。")
+      ? errorMessage(healthQuery.error.value, t("無法載入 Work Intelligence，請確認本機 API 是否已啟動。"))
       : null,
   );
 

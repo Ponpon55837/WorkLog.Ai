@@ -10,7 +10,7 @@
 | 項目 | 決定 |
 |---|---|
 | 視覺風格 | 深色，參考 GitHub（Primer dark）：Box 列表、Label、UnderlineNav、SegmentedControl |
-| 主題 | 只做深色，不做淺色主題與切換 |
+| 主題 | P0–P4 只做深色；2026-10 起加入 GitHub light 主題與切換（見 §8 後續） |
 | Icon | `lucide-vue-next`，16px，stroke 1.75 |
 | 英文 eyebrow | 保留，12px 大寫灰字，與標題同一行（頁首只佔一行） |
 | 詳情檢視 | 閱讀用右側 SidePanel；表單與確認用置中 Dialog |
@@ -117,3 +117,12 @@ apps/web/src/
 3. **Dashboard 待處理清單**只讀取既有的 report synthesis／metadata backfill request；同一報告範圍只看最新一筆，避免已被後續完成的失敗請求重複出現。
 4. **報告時區**跟隨 server 所在系統時區，頁首顯示後端回傳的 `timezone`（例如「（Asia/Taipei）」）。
 5. **捲動**：搜尋列與分頁標籤放在 `PageToolbar`，捲動時固定在內容頂端；清單的 Box header 固定在其下方。換頁（分頁按鈕）時捲回清單頂端，切換頁面或分頁標籤時回到頁首。
+
+### 後續：淺色主題、介面語言與動態（2026-10）
+
+改版完成後的追加，取代「只做深色」與「只用繁體中文」兩項決策：
+
+1. **淺色主題**：`tokens.css` 以同名 token 新增 GitHub light 色票；語意色比 Primer 深一階，讓 12px Label 在淡色底上達到 WCAG AA。偏好為跟隨系統／淺色／深色，頁首有太陽／月亮切換鈕。
+2. **介面語言**：`src/i18n` 以繁中原文為 key，提供 English 目錄；資料內容不翻譯。頁首語言選單與「個人偏好」可切換。
+3. **動態與 UX**：主題交叉淡入、換頁進度條、跳至主要內容連結、側欄目前頁指示條、計數徽章變動提示、橫幅進出場；全部遵守 `prefers-reduced-motion`。
+4. **檢查**：e2e 新增淺色主題 axe、語言／主題切換與英文窄螢幕溢出測試；單元測試確保每條中文介面文字都有英文翻譯。

@@ -12,6 +12,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
+import { t } from "../../i18n";
 
 /** Links the open Session to another one (planning ↔ implementation, follow-ups) so recall finds both. */
 const {
@@ -39,7 +40,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 <template>
   <UiDialog
     :open="Boolean(linkSource)"
-    title="新增 Session 關聯"
+    :title="t('新增 Session 關聯')"
     :description="linkSource?.title"
     :busy="linkSaving"
     @close="closeLinkDialog"
@@ -50,19 +51,19 @@ onBeforeUnmount(() => window.clearTimeout(timer));
         v-model="linkQuery"
         type="search"
         :icon="Search"
-        label="搜尋要關聯的 Session"
-        placeholder="搜尋 title、summary 或 event"
+        :label="t('搜尋要關聯的 Session')"
+        :placeholder="t('搜尋 title、summary 或 event')"
         autofocus
       />
       <UiSkeleton v-if="linkCandidatesLoading && linkCandidates.length === 0" :count="3" />
       <UiEmptyState
         v-else-if="linkCandidates.length === 0"
         compact
-        title="沒有符合的 Session"
-        description="換個關鍵字再試一次。"
+        :title="t('沒有符合的 Session')"
+        :description="t('換個關鍵字再試一次。')"
       />
       <fieldset v-else class="session-link__candidates">
-        <legend class="session-link__legend">選擇 Session</legend>
+        <legend class="session-link__legend">{{ t("選擇 Session") }}</legend>
         <label v-for="candidate in linkCandidates" :key="candidate.id" class="session-link__candidate">
           <input v-model="linkTargetId" type="radio" name="link-target" :value="candidate.id" />
           <span class="session-link__candidate-text">
@@ -71,11 +72,15 @@ onBeforeUnmount(() => window.clearTimeout(timer));
           </span>
         </label>
       </fieldset>
-      <UiField label="關係"><UiSelect v-model="linkDirection" label="關係" :options="sessionLinkOptions" /></UiField>
+      <UiField :label="t('關係')"
+        ><UiSelect v-model="linkDirection" :label="t('關係')" :options="sessionLinkOptions"
+      /></UiField>
     </form>
     <template #footer>
-      <UiButton :disabled="linkSaving" @click="closeLinkDialog">取消</UiButton>
-      <UiButton variant="primary" type="submit" form="session-link-form" :loading="linkSaving">建立關聯</UiButton>
+      <UiButton :disabled="linkSaving" @click="closeLinkDialog">{{ t("取消") }}</UiButton>
+      <UiButton variant="primary" type="submit" form="session-link-form" :loading="linkSaving">{{
+        t("建立關聯")
+      }}</UiButton>
     </template>
   </UiDialog>
 </template>

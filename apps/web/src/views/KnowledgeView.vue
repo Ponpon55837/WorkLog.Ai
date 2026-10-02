@@ -32,6 +32,7 @@ import { useKnowledgePagesStore } from "../stores/knowledge-pages";
 import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
 import { knowledgeKindVisual } from "../utils/status";
+import { t } from "../i18n";
 
 type KnowledgeTab = "list" | "pages" | "candidates" | "decisions";
 const knowledgeTabs: readonly KnowledgeTab[] = ["list", "pages", "candidates", "decisions"];
@@ -113,16 +114,16 @@ const tab = computed<KnowledgeTab>({
 
 const tabs = computed(() => [
   { value: "list" as const, label: "Knowledge", icon: BookOpen, count: knowledgePageInfo.value.total },
-  { value: "pages" as const, label: "知識頁", icon: BookMarked, count: pages.value.length },
-  { value: "candidates" as const, label: "候選", icon: Sparkles, count: candidates.value.length },
-  { value: "decisions" as const, label: "待確認決策", icon: ListChecks, count: pendingCount.value },
+  { value: "pages" as const, label: t("知識頁"), icon: BookMarked, count: pages.value.length },
+  { value: "candidates" as const, label: t("候選"), icon: Sparkles, count: candidates.value.length },
+  { value: "decisions" as const, label: t("待確認決策"), icon: ListChecks, count: pendingCount.value },
 ]);
 const projectItems = computed(() => [
-  { value: "", label: "所有記錄中專案" },
+  { value: "", label: t("所有記錄中專案") },
   ...knowledgeProjects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const kindItems = [
-  { value: "" as const, label: "所有類型" },
+  { value: "" as const, label: t("所有類型") },
   ...kinds.map((kind) => ({
     value: kind,
     label: knowledgeKindLabels[kind],
@@ -178,26 +179,30 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageHeader description="Knowledge 只接受 Agent 明確提交、已確認的內容，不會自行讀取 source 或用猜測取代證據。" />
+  <PageHeader
+    :description="t('Knowledge 只接受 Agent 明確提交、已確認的內容，不會自行讀取 source 或用猜測取代證據。')"
+  />
 
   <PageToolbar>
-    <UiUnderlineNav v-model="tab" :items="tabs" label="工作知識分頁" id-prefix="knowledge" />
+    <UiUnderlineNav v-model="tab" :items="tabs" :label="t('工作知識分頁')" id-prefix="knowledge" />
     <form v-if="tab === 'list'" class="knowledge-search" role="search" @submit.prevent="reloadNow">
       <UiTextInput
         v-model="knowledgeQuery"
         class="knowledge-search__input"
         type="search"
         :icon="Search"
-        label="搜尋 Knowledge"
-        placeholder="搜尋標題、內容、標籤或參考"
+        :label="t('搜尋 Knowledge')"
+        :placeholder="t('搜尋標題、內容、標籤或參考')"
       />
-      <UiButton v-if="hasFilters" :icon="X" @click="clearFilters">清除篩選</UiButton>
+      <UiButton v-if="hasFilters" :icon="X" @click="clearFilters">{{ t("清除篩選") }}</UiButton>
     </form>
   </PageToolbar>
 
   <UiFlash v-if="knowledgeError && tab === 'list'" tone="danger">
     {{ knowledgeError }}
-    <template #actions><UiButton size="sm" @click="retryKnowledge">重試</UiButton></template>
+    <template #actions
+      ><UiButton size="sm" @click="retryKnowledge">{{ t("重試") }}</UiButton></template
+    >
   </UiFlash>
 
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
@@ -226,29 +231,33 @@ onBeforeUnmount(() => {
     <template #header>
       <UiBoxTitle
         :icon="BookOpen"
-        :title="`${knowledgePageInfo.total} 筆${knowledgeStatus === 'active' ? '使用中' : '已封存'} Knowledge`"
+        :title="
+          knowledgeStatus === 'active'
+            ? t('{total} 筆使用中 Knowledge', { total: knowledgePageInfo.total })
+            : t('{total} 筆已封存 Knowledge', { total: knowledgePageInfo.total })
+        "
       />
       <div class="knowledge__filters">
         <UiActionMenu
           v-model="knowledgeProjectId"
-          label="專案"
-          header="篩選專案"
+          :label="t('專案')"
+          :header="t('篩選專案')"
           default-value=""
           align="end"
           :items="projectItems"
         />
         <UiActionMenu
           v-model="knowledgeKind"
-          label="類型"
-          header="篩選類型"
+          :label="t('類型')"
+          :header="t('篩選類型')"
           default-value=""
           align="end"
           :items="kindItems"
         />
         <UiActionMenu
           v-model="knowledgeStatus"
-          label="狀態"
-          header="篩選狀態"
+          :label="t('狀態')"
+          :header="t('篩選狀態')"
           default-value="active"
           align="end"
           :items="statusItems"
@@ -260,14 +269,16 @@ onBeforeUnmount(() => {
     <UiEmptyState
       v-else-if="knowledgeItems.length === 0"
       :icon="BookOpen"
-      :title="hasFilters ? '沒有符合條件的 Knowledge' : '還沒有已確認的 Knowledge'"
+      :title="hasFilters ? t('沒有符合條件的 Knowledge') : t('還沒有已確認的 Knowledge')"
       :description="
         hasFilters
-          ? '調整搜尋或篩選條件後再試一次。'
-          : 'Agent 明確提交 decision、pattern、gotcha、procedure 或 skill 後，會出現在這裡。'
+          ? t('調整搜尋或篩選條件後再試一次。')
+          : t('Agent 明確提交 decision、pattern、gotcha、procedure 或 skill 後，會出現在這裡。')
       "
     >
-      <template v-if="hasFilters" #action><UiButton @click="clearFilters">清除篩選</UiButton></template>
+      <template v-if="hasFilters" #action
+        ><UiButton @click="clearFilters">{{ t("清除篩選") }}</UiButton></template
+      >
     </UiEmptyState>
     <VirtualList
       v-else
@@ -277,7 +288,7 @@ onBeforeUnmount(() => {
       fit-viewport-to-panel
       fill-available-space
       :estimate-item-height="140"
-      label="工作知識清單"
+      :label="t('工作知識清單')"
     >
       <template #default="{ item }">
         <KnowledgeRow :item="item" @action="onAction" />
@@ -288,7 +299,7 @@ onBeforeUnmount(() => {
       <UiPagination
         v-model:page-size="knowledgePageSize"
         :page-info="knowledgePageInfo"
-        size-label="Knowledge 每頁筆數"
+        :size-label="t('Knowledge 每頁筆數')"
         @page="knowledgePage = $event"
       />
     </template>

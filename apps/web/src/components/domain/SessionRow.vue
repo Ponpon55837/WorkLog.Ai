@@ -7,6 +7,7 @@ import { verificationOf, verificationStatus } from "../../utils/status";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
+import { t } from "../../i18n";
 
 /** One Session in any list (Sessions, Dashboard, Reports). Selecting it opens the SessionPanel. */
 const props = withDefaults(defineProps<{ session: WorkSessionRecord; showSummary?: boolean }>(), { showSummary: true });
@@ -38,15 +39,15 @@ const firstOutcome = computed(
       }}</time>
       <template v-if="wasUpdatedAfterFinalize(session)">
         ·
-        <time :datetime="session.updatedAt" :title="`最後更新 ${formatDate(session.updatedAt)}`"
-          >更新於 {{ formatRelative(session.updatedAt) }}</time
-        ></template
+        <time :datetime="session.updatedAt" :title="t('最後更新 {value}', { value: formatDate(session.updatedAt) })">{{
+          t("更新於 {value}", { value: formatRelative(session.updatedAt) })
+        }}</time></template
       >
       <template v-if="session.gitBranch"> · {{ session.gitBranch }}</template>
       <template v-if="showSummary && firstOutcome"> · {{ firstOutcome }}</template>
     </template>
     <template #trailing>
-      <UiLabel v-if="session.voided" tone="danger" :icon="Ban">已作廢</UiLabel>
+      <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("已作廢") }}</UiLabel>
       <StatusLabel :status="verification" :show-icon="false" />
       <UiLabel class="hide-sm" :icon="FileDiff">{{ session.changedFiles.length }}</UiLabel>
     </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, toRef, watch } from "vue";
 import { useFocusTrap } from "../../composables/useFocusTrap";
+import { t } from "../../i18n";
 
 /**
  * Right-hand panel for reading a record. `modal` (default) adds a backdrop, traps focus and locks
@@ -154,12 +155,12 @@ onBeforeUnmount(stopResize);
           class="ui-side-panel__resize"
           role="separator"
           aria-orientation="vertical"
-          :aria-label="`調整${label}寬度`"
+          :aria-label="t('調整{label}寬度', { label })"
           :aria-valuenow="currentWidth"
           :aria-valuemin="minWidth"
           :aria-valuemax="maxWidth"
           tabindex="0"
-          title="拖曳調整寬度（方向鍵微調，Home 還原）"
+          :title="t('拖曳調整寬度（方向鍵微調，Home 還原）')"
           @pointerdown="startResize"
           @keydown="onResizeKey"
           @dblclick="setWidth(width, true)"

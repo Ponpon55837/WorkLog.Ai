@@ -40,6 +40,10 @@ function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): v
 <style scoped>
 .ui-segmented {
   display: inline-flex;
+  /* Longer translations must not push the page wider; the track scrolls instead. */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -55,6 +59,10 @@ function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): v
   color: var(--fg-muted);
   font-size: var(--text-sm);
   white-space: nowrap;
+  transition:
+    background-color var(--duration-instant) ease-out,
+    border-color var(--duration-instant) ease-out,
+    color var(--duration-instant) ease-out;
 }
 
 .ui-segmented button:hover {
@@ -66,5 +74,11 @@ function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): v
   background: var(--bg-canvas);
   color: var(--fg);
   font-weight: 600;
+}
+
+@media (max-width: 639px) {
+  .ui-segmented button {
+    padding: 0 var(--space-2);
+  }
 }
 </style>

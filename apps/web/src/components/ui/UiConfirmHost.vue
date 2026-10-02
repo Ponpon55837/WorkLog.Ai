@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { useConfirmState } from "../../composables/useConfirm";
 import UiButton from "./UiButton.vue";
 import UiDialog from "./UiDialog.vue";
+import { t } from "../../i18n";
 
 const { pending, settle } = useConfirmState();
 const open = computed(() => Boolean(pending.value));
@@ -12,9 +13,9 @@ const open = computed(() => Boolean(pending.value));
   <UiDialog :open="open" :title="pending?.title ?? ''" size="sm" @close="settle(false)">
     <p v-if="pending?.message" class="ui-confirm__message">{{ pending.message }}</p>
     <template #footer>
-      <UiButton autofocus @click="settle(false)">{{ pending?.cancelLabel ?? "取消" }}</UiButton>
+      <UiButton autofocus @click="settle(false)">{{ pending?.cancelLabel ?? t("取消") }}</UiButton>
       <UiButton :variant="pending?.danger ? 'danger' : 'primary'" @click="settle(true)">{{
-        pending?.confirmLabel ?? "確認"
+        pending?.confirmLabel ?? t("確認")
       }}</UiButton>
     </template>
   </UiDialog>

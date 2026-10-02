@@ -6,6 +6,7 @@ import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import { databaseInspectionStatus } from "../utils/status";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 /** Owns the system diagnostics query and its page-scoped request lifecycle. */
 export const useSystemStatusStore = defineStore("system-status", () => {
@@ -21,7 +22,7 @@ export const useSystemStatusStore = defineStore("system-status", () => {
   const systemStatusLoading = computed(() => systemStatusQuery.isLoading.value);
   const systemStatusError = computed(() =>
     systemStatusQuery.error.value
-      ? errorMessage(systemStatusQuery.error.value, "無法載入系統狀態，請確認本機 API 是否已啟動。")
+      ? errorMessage(systemStatusQuery.error.value, t("無法載入系統狀態，請確認本機 API 是否已啟動。"))
       : "",
   );
   const databaseStatus = computed(() =>

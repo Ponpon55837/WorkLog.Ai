@@ -8,8 +8,8 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 
 | Component | API |
 |---|---|
-| `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`. |
-| `AppHeader` | Menu button (< 640px), `WI` logo, crumb from route meta, search trigger (`Ctrl/⌘ K`), Local-first dot, refresh `UiIconButton`. |
+| `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`, a "跳至主要內容" skip link, and a 2px top progress bar while a page chunk loads or `refreshing` is set (`useNavigationProgress`). |
+| `AppHeader` | Menu button (< 640px), `WI` logo, crumb from route meta, search trigger (`Ctrl/⌘ K`), Local-first dot (hidden < 640px), language `UiActionMenu` (label hidden < 640px), sun/moon theme `UiIconButton`, refresh `UiIconButton`. |
 | `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<route>"`. |
 | `PageHeader` | Props `title?`, `eyebrow?` (default to route meta), `description?` (single line, truncated, full text in `title`). Slot `actions`. One compact row; scrolls away with the page. |
 | `PageToolbar` | Sticky container for page search and/or `UiUnderlineNav`; publishes `--page-toolbar-height` for sticky Box headers. One per page. |
@@ -25,7 +25,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `UiTextarea` | `v-model`, `rows`, `placeholder`, `maxlength`, `required`, `mono`. |
 | `UiCheckbox` | Native checkbox. Required boolean `v-model` and accessible `label`; optional `disabled`, `indeterminate` for mixed group selection. |
 | `UiSelect` | Native select. `v-model`, `options: SelectOption[]`, `label`, `icon`, `size`, `disabled`. Use for forms/toolbars and anything e2e selects by label. |
-| `UiField` | `label`, `hint`, `error`; wraps one control. |
+| `UiField` | `label`, `hint`, `error`, `group`; wraps one control. Pass `group` around a SegmentedControl or other button set: it renders a labelled `role="group"` instead of a `<label>`, which would name only the first button. |
 | `UiActionMenu` | Popover menu. `label` (trigger text), `items: SelectOption[]`, `header`, `icon`, `align: start \| end`, `variant: filter \| button`, `size`, `hideLabelOnMobile`. With `v-model` + `defaultValue` it is a single-select filter (trigger turns bold when applied); without `v-model` it is an action menu and emits `select`. Arrow keys, Esc, outside click. |
 | `UiSegmentedControl` | `v-model`, `options`, `label`. Arrow keys move selection. |
 | `UiUnderlineNav` | `v-model`, `items: SelectOption[]` (`icon`, `count`), `label`, `idPrefix` (tabs get `${idPrefix}-tab-<v>`, panels should use `${idPrefix}-panel-<v>`). |

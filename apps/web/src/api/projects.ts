@@ -11,6 +11,7 @@ import type {
   ProjectStatus,
 } from "@work-intelligence/core";
 import { type ApiTransport } from "./transport";
+import { t } from "../i18n";
 
 export interface ProjectsApi {
   exportProjectData(scope: ProjectDataExportScope): Promise<{ blob: Blob; fileName: string }>;
@@ -93,7 +94,7 @@ export function createProjectsApi(client: ApiTransport): ProjectsApi {
 
     async exportProjectData(scope: ProjectDataExportScope): Promise<{ blob: Blob; fileName: string }> {
       const body = scope.type === "all" ? { scope: "all" } : { scope: "project", projectId: scope.projectId };
-      const blob = await client.download("/api/export", body, "無法匯出專案資料，請確認 API 是否已啟動。");
+      const blob = await client.download("/api/export", body, t("無法匯出專案資料，請確認 API 是否已啟動。"));
       const fileName =
         "work-intelligence-projects-" + new Date().toLocaleDateString("sv-SE").replace(/-/g, "") + ".json";
       return { blob, fileName };

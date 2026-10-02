@@ -8,6 +8,7 @@ import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
+import { t } from "../../i18n";
 
 export type KnowledgeAction = "edit" | "history" | "toggle-status" | "source" | "confirm" | "stale-source";
 
@@ -17,16 +18,16 @@ const emit = defineEmits<{ action: [action: KnowledgeAction, item: KnowledgeReco
 const expanded = ref(false);
 const kind = computed(() => knowledgeKindVisual[props.item.kind]);
 const actions = computed(() => [
-  { value: "edit" as const, label: "編輯", icon: Pencil },
-  { value: "confirm" as const, label: "確認仍有效", icon: CheckCheck },
+  { value: "edit" as const, label: t("編輯"), icon: Pencil },
+  { value: "confirm" as const, label: t("確認仍有效"), icon: CheckCheck },
   ...(props.item.possiblyStale
-    ? [{ value: "stale-source" as const, label: "查看改動檔案的 Session", icon: FileSearch }]
+    ? [{ value: "stale-source" as const, label: t("查看改動檔案的 Session"), icon: FileSearch }]
     : []),
-  { value: "history" as const, label: "變更紀錄", icon: History },
-  ...(props.item.sessionId ? [{ value: "source" as const, label: "查看來源 Session", icon: ExternalLink }] : []),
+  { value: "history" as const, label: t("變更紀錄"), icon: History },
+  ...(props.item.sessionId ? [{ value: "source" as const, label: t("查看來源 Session"), icon: ExternalLink }] : []),
   props.item.status === "active"
-    ? { value: "toggle-status" as const, label: "封存", icon: Archive }
-    : { value: "toggle-status" as const, label: "恢復使用", icon: ArchiveRestore },
+    ? { value: "toggle-status" as const, label: t("封存"), icon: Archive }
+    : { value: "toggle-status" as const, label: t("恢復使用"), icon: ArchiveRestore },
 ]);
 </script>
 
@@ -44,40 +45,60 @@ const actions = computed(() => [
     </template>
     <template #meta>
       <span v-if="item.projectName">{{ item.projectName }} · </span>
-      <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)"
-        >更新於 {{ formatRelative(item.updatedAt) }}</time
-      >
+      <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)">{{
+        t("更新於 {value}", { value: formatRelative(item.updatedAt) })
+      }}</time>
       <template v-if="item.evidence">
         ·
         <button
           type="button"
           class="knowledge-row__evidence"
-          :aria-label="`被 ${item.evidence.confirmed} 次確認、${item.evidence.contradicted} 次推翻，查看來源 Session`"
+          :aria-label="
+            t('被 {confirmed} 次確認、{contradicted} 次推翻，查看來源 Session', {
+              confirmed: item.evidence.confirmed,
+              contradicted: item.evidence.contradicted,
+            })
+          "
           @click="emit('action', 'history', item)"
         >
-          確認 {{ item.evidence.confirmed }}・推翻 {{ item.evidence.contradicted }}
+          {{
+            t("確認 {confirmed}・推翻 {contradicted}", {
+              confirmed: item.evidence.confirmed,
+              contradicted: item.evidence.contradicted,
+            })
+          }}
         </button>
       </template>
       <template v-if="item.lastConfirmedAt">
         ·
-        <time :datetime="item.lastConfirmedAt" :title="formatDate(item.lastConfirmedAt)"
-          >確認有效於 {{ formatRelative(item.lastConfirmedAt) }}</time
-        >
+        <time :datetime="item.lastConfirmedAt" :title="formatDate(item.lastConfirmedAt)">{{
+          t("確認有效於 {value}", { value: formatRelative(item.lastConfirmedAt) })
+        }}</time>
       </template>
     </template>
     <p v-if="item.review" class="knowledge-row__trust knowledge-row__trust--danger">
-      有 Session 回報這筆內容已不成立（{{ formatRelative(item.review.at) }}）；確認後請更新內容，或選「確認仍有效」。
+      {{
+        t("有 Session 回報這筆內容已不成立（{value}）；確認後請更新內容，或選「確認仍有效」。", {
+          value: formatRelative(item.review.at),
+        })
+      }}
     </p>
     <p v-else-if="item.possiblyStale" class="knowledge-row__trust">
-      「{{ item.possiblyStale.sessionTitle }}」在 {{ formatRelative(item.possiblyStale.completedAt) }}改了
-      <code>{{ item.possiblyStale.paths.join("、") }}</code
-      ><template v-if="item.possiblyStale.sessionCount > 1"
-        >，之後共有 {{ item.possiblyStale.sessionCount }} 筆 Session 改過適用路徑</template
-      >。
+      {{
+        t("「{sessionTitle}」在 {when}改了", {
+          sessionTitle: item.possiblyStale.sessionTitle,
+          when: formatRelative(item.possiblyStale.completedAt),
+        })
+      }}
+      <code>{{ item.possiblyStale.paths.join(t("、")) }}</code
+      ><template v-if="item.possiblyStale.sessionCount > 1">{{
+        t("，之後共有 {sessionCount} 筆 Session 改過適用路徑", { sessionCount: item.possiblyStale.sessionCount })
+      }}</template
+      >{{ t("。") }}
     </p>
     <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
     <button v-if="item.body.length > 180" type="button" class="knowledge-row__more" @click="expanded = !expanded">
-      {{ expanded ? "收合" : "展開全文" }}
+      {{ expanded ? t("收合") : t("展開全文") }}
     </button>
     <div v-if="item.tags.length || item.references.length || item.appliesTo.length" class="knowledge-row__chips">
       <UiLabel v-for="tag in item.tags" :key="`tag-${tag}`">#{{ tag }}</UiLabel>
@@ -88,13 +109,13 @@ const actions = computed(() => [
         v-for="pattern in item.appliesTo"
         :key="`applies-${pattern}`"
         class="knowledge-row__ref"
-        :title="`適用路徑：${pattern}`"
-        >適用 {{ pattern }}</code
+        :title="t('適用路徑：{pattern}', { pattern })"
+        >{{ t("適用 {pattern}", { pattern }) }}</code
       >
     </div>
     <template #trailing>
       <UiActionMenu
-        label="更多"
+        :label="t('更多')"
         hide-label-on-mobile
         variant="button"
         size="sm"

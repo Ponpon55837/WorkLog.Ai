@@ -12,6 +12,7 @@ import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 function previewKey(project: ProjectRecord): readonly string[] {
   return [...queryKeys.projects.handoffImportPreview, project.id, project.rootPath];
@@ -36,7 +37,7 @@ export const useHandoffImportStore = defineStore("handoff-import", () => {
     enabled: false,
     query: ({ signal }): Promise<HandoffImportPreviewResult> => {
       const project = previewProject.value;
-      if (!project) throw new Error("請先選擇要預覽的專案。");
+      if (!project) throw new Error(t("請先選擇要預覽的專案。"));
       return useApi().client.previewHandoffs(project.rootPath, undefined, signal);
     },
   });
@@ -94,14 +95,14 @@ export const useHandoffImportStore = defineStore("handoff-import", () => {
   }
 
   function handoffDecisionLabel(item: HandoffImportPreviewItem): string {
-    if (item.decision === "eligible") return "可匯入";
-    if (item.decision === "already_imported") return "已匯入";
-    if (item.reason === "excluded_by_user") return "使用者排除";
-    if (item.reason === "blocked") return "Blocked，略過";
-    if (item.reason === "pending") return "Pending，略過";
-    if (item.reason === "planning_only") return "僅規劃，略過";
-    if (item.decision === "error") return "讀取失敗";
-    return "缺少完成狀態";
+    if (item.decision === "eligible") return t("可匯入");
+    if (item.decision === "already_imported") return t("已匯入");
+    if (item.reason === "excluded_by_user") return t("使用者排除");
+    if (item.reason === "blocked") return t("Blocked，略過");
+    if (item.reason === "pending") return t("Pending，略過");
+    if (item.reason === "planning_only") return t("僅規劃，略過");
+    if (item.decision === "error") return t("讀取失敗");
+    return t("缺少完成狀態");
   }
 
   async function previewHandoffs(project: ProjectRecord): Promise<void> {
@@ -120,7 +121,7 @@ export const useHandoffImportStore = defineStore("handoff-import", () => {
       if (requestId !== previewRequestId.value) return;
       if (result.status !== "success") {
         const error = result.error;
-        handoffImportError.value = errorMessage(error, "無法建立 handoff 匯入預覽。");
+        handoffImportError.value = errorMessage(error, t("無法建立 handoff 匯入預覽。"));
         useToast().showToast(handoffImportError.value);
         return;
       }
@@ -131,7 +132,7 @@ export const useHandoffImportStore = defineStore("handoff-import", () => {
       previewVisible.value = true;
     } catch (error) {
       if (requestId !== previewRequestId.value || useApi().isAbortError(error)) return;
-      handoffImportError.value = errorMessage(error, "無法建立 handoff 匯入預覽。");
+      handoffImportError.value = errorMessage(error, t("無法建立 handoff 匯入預覽。"));
       useToast().showToast(handoffImportError.value);
     } finally {
       if (requestId === previewRequestId.value) handoffImportLoading.value = false;
@@ -168,12 +169,16 @@ export const useHandoffImportStore = defineStore("handoff-import", () => {
       }
 
       useToast().showToast(
-        `已匯入 ${result.imported.length} 個 handoff；略過 ${result.skipped.length} 個，失敗 ${result.failures.length} 個。`,
+        t("已匯入 {length} 個 handoff；略過 {length2} 個，失敗 {length3} 個。", {
+          length: result.imported.length,
+          length2: result.skipped.length,
+          length3: result.failures.length,
+        }),
       );
       closeHandoffImport();
       await importRefreshPromise;
     } catch (error) {
-      handoffImportError.value = errorMessage(error, "套用 handoff 匯入失敗。");
+      handoffImportError.value = errorMessage(error, t("套用 handoff 匯入失敗。"));
     } finally {
       handoffImportApplying.value = false;
     }

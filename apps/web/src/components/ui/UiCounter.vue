@@ -3,7 +3,8 @@ withDefaults(defineProps<{ count: number | string; tone?: "default" | "attention
 </script>
 
 <template>
-  <span :class="['ui-counter', `ui-counter--${tone}`]">{{ count }}</span>
+  <!-- Keyed by the value so a changed count re-runs the pop and draws the eye to it. -->
+  <span :key="count" :class="['ui-counter', `ui-counter--${tone}`]">{{ count }}</span>
 </template>
 
 <style scoped>
@@ -18,6 +19,8 @@ withDefaults(defineProps<{ count: number | string; tone?: "default" | "attention
   font-weight: 500;
   line-height: 18px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
+  animation: wi-pop var(--duration-base) var(--ease-out);
 }
 
 .ui-counter--attention {

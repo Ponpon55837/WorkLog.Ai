@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { BookOpen, CornerDownLeft, ListChecks, Search } from "lucide-vue-next";
+import { BookOpen, CornerDownLeft, Languages, ListChecks, Monitor, Moon, Search, Sun } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import { navItems } from "../layout/navigation";
 import type { IconComponent } from "../ui/types";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { router } from "../../router";
 import { useCommandPaletteStore } from "../../stores/command-palette";
+import { usePreferencesStore } from "../../stores/preferences";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatRelative } from "../../utils/format";
+import { LOCALE_OPTIONS, t } from "../../i18n";
 
 type PaletteItem = { id: string; group: string; label: string; hint?: string; icon: IconComponent; run: () => void };
 
@@ -17,6 +19,7 @@ const open = defineModel<boolean>("open", { required: true });
 
 const paletteStore = useCommandPaletteStore();
 const { sessions, knowledge } = storeToRefs(paletteStore);
+const { locale, resolvedTheme, theme } = storeToRefs(usePreferencesStore());
 
 const query = ref("");
 const active = ref(0);
@@ -32,12 +35,42 @@ const items = computed<PaletteItem[]>(() => {
     .filter((item) => !term || item.label.toLowerCase().includes(term) || item.name.includes(term))
     .map((item) => ({
       id: `page-${item.name}`,
-      group: "頁面",
+      group: t("頁面"),
       label: item.label,
       hint: item.shortcut,
       icon: item.icon,
       run: () => void router.push({ name: item.name }),
     }));
+  // Matched by their label in either language plus a few keywords, so "theme" or "語言" finds them.
+  const preferences = [
+    {
+      id: "pref-theme",
+      label: resolvedTheme.value === "dark" ? t("切換為淺色主題") : t("切換為深色主題"),
+      keywords: "theme light dark",
+      icon: resolvedTheme.value === "dark" ? Sun : Moon,
+      run: () => (theme.value = resolvedTheme.value === "dark" ? "light" : "dark"),
+    },
+    ...(theme.value === "system"
+      ? []
+      : [
+          {
+            id: "pref-theme-system",
+            label: t("主題跟隨系統"),
+            keywords: "theme system",
+            icon: Monitor,
+            run: () => (theme.value = "system"),
+          },
+        ]),
+    ...LOCALE_OPTIONS.filter((option) => option.value !== locale.value).map((option) => ({
+      id: `pref-locale-${option.value}`,
+      label: t("介面語言：{language}", { language: option.label }),
+      keywords: "language locale english chinese",
+      icon: Languages,
+      run: () => (locale.value = option.value),
+    })),
+  ]
+    .filter((item) => !term || `${item.label} ${item.keywords}`.toLowerCase().includes(term))
+    .map(({ keywords: _keywords, ...item }) => ({ ...item, group: t("偏好設定") }));
   const sessionItems = sessions.value.map((session) => ({
     id: `session-${session.id}`,
     group: "Sessions",
@@ -54,7 +87,7 @@ const items = computed<PaletteItem[]>(() => {
     icon: BookOpen,
     run: () => void router.push({ name: "knowledge", query: { q: item.title } }),
   }));
-  return [...pages, ...sessionItems, ...knowledgeItems];
+  return [...pages, ...preferences, ...sessionItems, ...knowledgeItems];
 });
 
 function close(): void {
@@ -106,14 +139,14 @@ watch(open, async (value) => {
 <template>
   <Teleport to="body">
     <div v-if="open" class="palette__backdrop" @click.self="close">
-      <div ref="dialog" class="palette" role="dialog" aria-modal="true" aria-label="搜尋或跳至頁面">
+      <div ref="dialog" class="palette" role="dialog" aria-modal="true" :aria-label="t('搜尋或跳至頁面')">
         <label class="palette__search">
           <Search :size="16" :stroke-width="1.75" aria-hidden="true" />
           <input
             ref="input"
             v-model="query"
             type="text"
-            placeholder="搜尋 Session、Knowledge 或頁面…"
+            :placeholder="t('搜尋 Session、Knowledge 或頁面…')"
             role="combobox"
             aria-expanded="true"
             aria-controls="palette-results"
@@ -144,9 +177,11 @@ watch(open, async (value) => {
               />
             </li>
           </template>
-          <li v-if="items.length === 0" class="palette__empty">找不到符合的項目</li>
+          <li v-if="items.length === 0" class="palette__empty">{{ t("找不到符合的項目") }}</li>
         </ul>
-        <div class="palette__footer"><kbd>↑</kbd><kbd>↓</kbd> 選擇 · <kbd>Enter</kbd> 開啟 · <kbd>Esc</kbd> 關閉</div>
+        <div class="palette__footer">
+          <kbd>↑</kbd><kbd>↓</kbd> {{ t("選擇 ·") }} <kbd>Enter</kbd> {{ t("開啟 ·") }} <kbd>Esc</kbd> {{ t("關閉") }}
+        </div>
       </div>
     </div>
   </Teleport>

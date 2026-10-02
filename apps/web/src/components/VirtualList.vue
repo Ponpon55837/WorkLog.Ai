@@ -9,6 +9,7 @@ import {
   watch,
   type ComponentPublicInstance,
 } from "vue";
+import { t } from "../i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -32,7 +33,6 @@ const props = withDefaults(
     enabled: false,
     estimateItemHeight: 96,
     overscan: 4,
-    label: "可捲動清單",
     maxHeight: "min(68vh, 720px)",
     fitViewport: false,
     fitViewportToPanel: false,
@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
           : undefined
     "
     :role="enabled ? 'list' : undefined"
-    :aria-label="enabled ? label : undefined"
+    :aria-label="enabled ? (label ?? t('可捲動清單')) : undefined"
     :tabindex="enabled ? 0 : undefined"
     @scroll="handleScroll"
     @keydown="handleKeydown"

@@ -24,6 +24,7 @@ import { router } from "../router";
 import { graphLoadPresetOptions, useGraphStore } from "../stores/graph";
 import { useProjectsStore } from "../stores/projects";
 import { graphEdgeKindLabels, graphNodeKindLabels, graphNodeKindOrder } from "../utils/labels";
+import { t } from "../i18n";
 
 type GraphTab = "graph" | "timeline" | "hotspots";
 const graphTabs: readonly GraphTab[] = ["graph", "timeline", "hotspots"];
@@ -69,24 +70,27 @@ const tab = computed<GraphTab>({
     void router.replace({ name: "graph", params: { tab: value === "graph" ? undefined : value }, query: route.query }),
 });
 const tabItems = [
-  { value: "graph" as const, label: "關係圖", icon: Share2 },
-  { value: "timeline" as const, label: "時間軸", icon: CalendarRange },
-  { value: "hotspots" as const, label: "熱點", icon: Flame },
+  { value: "graph" as const, label: t("關係圖"), icon: Share2 },
+  { value: "timeline" as const, label: t("時間軸"), icon: CalendarRange },
+  { value: "hotspots" as const, label: t("熱點"), icon: Flame },
 ];
 const projectOptions = computed(() => [
-  { value: "", label: "所有記錄中專案" },
+  { value: "", label: t("所有記錄中專案") },
   ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const kindOptions: { value: GraphNodeFilter; label: string }[] = [
-  { value: "all", label: "全部類型" },
+  { value: "all", label: t("全部類型") },
   ...graphNodeKindOrder.map((kind) => ({ value: kind, label: graphNodeKindLabels[kind] })),
 ];
 const previewOptions = [
-  { value: 60, label: "精簡（最多 60）" },
-  { value: 120, label: "標準（最多 120）" },
-  { value: 180, label: "展開（最多 180）" },
+  { value: 60, label: t("精簡（最多 60）") },
+  { value: 120, label: t("標準（最多 120）") },
+  { value: 180, label: t("展開（最多 180）") },
 ];
-const presetOptions = graphLoadPresetOptions.map((preset) => ({ value: preset.value as string, label: preset.label }));
+const presetOptions = graphLoadPresetOptions.map((preset) => ({
+  value: preset.value as string,
+  label: t(preset.label),
+}));
 
 const truncationNote = computed(() => {
   const current = graph.value;
@@ -95,22 +99,29 @@ const truncationNote = computed(() => {
   }
   const parts = [
     current.truncation.nodesTruncated || current.truncation.edgesTruncated
-      ? "資料已依載入上限受控，可提高上限或載入更多。"
-      : "目前範圍的資料已完整載入。",
+      ? t("資料已依載入上限受控，可提高上限或載入更多。")
+      : t("目前範圍的資料已完整載入。"),
   ];
   if (graphVisual.value.hiddenNodes) {
-    parts.push(`畫面另省略 ${graphVisual.value.hiddenNodes} 個節點。`);
+    parts.push(t("畫面另省略 {hiddenNodes} 個節點。", { hiddenNodes: graphVisual.value.hiddenNodes }));
   }
   if (graphVisual.value.hiddenEdges) {
-    parts.push(`${graphVisual.value.hiddenEdges} 條關係因端點被省略而未繪出。`);
+    parts.push(t("{hiddenEdges} 條關係因端點被省略而未繪出。", { hiddenEdges: graphVisual.value.hiddenEdges }));
   }
   return parts.join(" ");
 });
 
 const countLabel = computed(() =>
   graphSearch.value.trim()
-    ? `符合 ${graphVisual.value.searchMatches} 個節點 · 顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`
-    : `顯示 ${graphVisual.value.nodes.length} / ${graphFilteredTotalNodes.value} 節點`,
+    ? t("符合 {searchMatches} 個節點 · 顯示 {length} / {graphFilteredTotalNodes} 節點", {
+        searchMatches: graphVisual.value.searchMatches,
+        length: graphVisual.value.nodes.length,
+        graphFilteredTotalNodes: graphFilteredTotalNodes.value,
+      })
+    : t("顯示 {length} / {graphFilteredTotalNodes} 節點", {
+        length: graphVisual.value.nodes.length,
+        graphFilteredTotalNodes: graphFilteredTotalNodes.value,
+      }),
 );
 
 function onSelect(node: GraphNode): void {
@@ -135,10 +146,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageHeader description="只使用已保存的結構化資料；不讀取 source、handoff 或 Git，也不替資料推測語意關係。" />
+  <PageHeader :description="t('只使用已保存的結構化資料；不讀取 source、handoff 或 Git，也不替資料推測語意關係。')" />
 
   <PageToolbar>
-    <UiUnderlineNav v-model="tab" :items="tabItems" label="工作圖譜分頁" id-prefix="graph" />
+    <UiUnderlineNav v-model="tab" :items="tabItems" :label="t('工作圖譜分頁')" id-prefix="graph" />
   </PageToolbar>
 
   <section v-if="tab === 'timeline'" id="graph-panel-timeline" role="tabpanel" aria-labelledby="graph-tab-timeline">
@@ -156,7 +167,9 @@ onBeforeUnmount(() => {
   <section v-else id="graph-panel-graph" role="tabpanel" aria-labelledby="graph-tab-graph">
     <UiFlash v-if="graphError" tone="danger">
       {{ graphError }}
-      <template #actions><UiButton size="sm" @click="load">重試</UiButton></template>
+      <template #actions
+        ><UiButton size="sm" @click="load">{{ t("重試") }}</UiButton></template
+      >
     </UiFlash>
 
     <UiBox class="graph">
@@ -167,8 +180,8 @@ onBeforeUnmount(() => {
             type="search"
             :icon="Search"
             size="sm"
-            placeholder="搜尋節點名稱…"
-            label="搜尋 Graph 節點"
+            :placeholder="t('搜尋節點名稱…')"
+            :label="t('搜尋 Graph 節點')"
             class="graph__search"
             @keydown.enter.prevent="selectFirstMatch"
           />
@@ -177,34 +190,44 @@ onBeforeUnmount(() => {
             :options="projectOptions"
             :icon="FolderGit2"
             size="sm"
-            label="選擇 Graph 專案範圍"
+            :label="t('選擇 Graph 專案範圍')"
           />
-          <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" label="選擇 Graph 節點類型" />
-          <UiSelect v-model="graphPreviewLimit" :options="previewOptions" size="sm" label="選擇 Graph 畫面預覽量" />
-          <UiSelect v-model="graphLoadPreset" :options="presetOptions" size="sm" label="選擇 Graph 資料載入上限" />
+          <UiSelect v-model="graphNodeFilter" :options="kindOptions" size="sm" :label="t('選擇 Graph 節點類型')" />
+          <UiSelect
+            v-model="graphPreviewLimit"
+            :options="previewOptions"
+            size="sm"
+            :label="t('選擇 Graph 畫面預覽量')"
+          />
+          <UiSelect
+            v-model="graphLoadPreset"
+            :options="presetOptions"
+            size="sm"
+            :label="t('選擇 Graph 資料載入上限')"
+          />
           <label class="graph__derived">
             <input v-model="graphShowDerived" type="checkbox" data-testid="graph-show-derived" />
-            顯示推導關係
+            {{ t("顯示推導關係") }}
           </label>
-          <UiButton type="submit" size="sm" :loading="graphLoading">更新圖譜</UiButton>
+          <UiButton type="submit" size="sm" :loading="graphLoading">{{ t("更新圖譜") }}</UiButton>
           <UiButton
             v-if="graphCanLoadMore"
             size="sm"
             variant="invisible"
             :disabled="graphLoading"
             @click="graphStore.loadMoreGraph"
-            >載入更多資料</UiButton
+            >{{ t("載入更多資料") }}</UiButton
           >
         </form>
         <span v-if="graph" class="graph__count" data-testid="graph-visible-count">{{ countLabel }}</span>
       </template>
 
-      <div v-if="graph" class="graph__legend" aria-label="節點分布">
+      <div v-if="graph" class="graph__legend" :aria-label="t('節點分布')">
         <span
-          ><strong>{{ graph.totalNodes }}</strong> 節點</span
+          ><strong>{{ graph.totalNodes }}</strong> {{ t("節點") }}</span
         >
         <span
-          ><strong>{{ graph.totalEdges }}</strong> 關係</span
+          ><strong>{{ graph.totalEdges }}</strong> {{ t("關係") }}</span
         >
         <span
           v-for="item in graphNodeCounts"
@@ -213,11 +236,12 @@ onBeforeUnmount(() => {
           ><i aria-hidden="true"></i>{{ item.label }} {{ item.count }}</span
         >
         <span class="graph__legend-line"
-          ><svg aria-hidden="true" width="24" height="6"><line x1="0" y1="3" x2="24" y2="3" /></svg>記錄的關係</span
+          ><svg aria-hidden="true" width="24" height="6"><line x1="0" y1="3" x2="24" y2="3" /></svg
+          >{{ t("記錄的關係") }}</span
         >
         <span class="graph__legend-line graph__legend-line--derived"
           ><svg aria-hidden="true" width="24" height="6"><line x1="0" y1="3" x2="24" y2="3" /></svg
-          >推導的關係（一起修改，預設隱藏）</span
+          >{{ t("推導的關係（一起修改，預設隱藏）") }}</span
         >
       </div>
 
@@ -225,16 +249,18 @@ onBeforeUnmount(() => {
       <UiEmptyState
         v-else-if="!graph || graph.nodes.length === 0"
         :icon="Share2"
-        title="目前沒有可視化資料"
-        description="記錄中的專案完成 Session 後，這裡會出現工作關係。"
+        :title="t('目前沒有可視化資料')"
+        :description="t('記錄中的專案完成 Session 後，這裡會出現工作關係。')"
       />
       <UiEmptyState
         v-else-if="graphSearch.trim() && graphVisual.nodes.length === 0"
         :icon="SearchX"
-        title="沒有符合的節點"
-        description="搜尋只比對目前已載入的節點；可以換個關鍵字，或提高資料載入上限。"
+        :title="t('沒有符合的節點')"
+        :description="t('搜尋只比對目前已載入的節點；可以換個關鍵字，或提高資料載入上限。')"
       >
-        <template #action><UiButton size="sm" @click="graphSearch = ''">清除搜尋</UiButton></template>
+        <template #action
+          ><UiButton size="sm" @click="graphSearch = ''">{{ t("清除搜尋") }}</UiButton></template
+        >
       </UiEmptyState>
       <GraphCanvas
         v-else
@@ -256,7 +282,12 @@ onBeforeUnmount(() => {
 
       <template v-if="graph" #footer>
         <span>{{ truncationNote }}</span>
-        <span>來源 Projects {{ graph.sourceProjectIds.length }} · Sessions {{ graph.sourceSessionIds.length }}</span>
+        <span>{{
+          t("來源 Projects {length} · Sessions {length2}", {
+            length: graph.sourceProjectIds.length,
+            length2: graph.sourceSessionIds.length,
+          })
+        }}</span>
       </template>
     </UiBox>
   </section>

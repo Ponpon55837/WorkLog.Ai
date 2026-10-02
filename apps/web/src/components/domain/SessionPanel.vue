@@ -12,6 +12,7 @@ import UiSidePanel from "../ui/UiSidePanel.vue";
 import SessionPanelActivity from "./SessionPanelActivity.vue";
 import SessionPanelHeader from "./SessionPanelHeader.vue";
 import SessionPanelSummary from "./SessionPanelSummary.vue";
+import { t } from "../../i18n";
 
 /**
  * Session detail, mounted once in App. Opened from any list or via `?session=<id>`; J/K move
@@ -30,7 +31,7 @@ const body = ref<HTMLElement | null>(null);
 const session = computed(() => selectedDetail.value?.session);
 
 function copyLink(): void {
-  void useToast().copyWithToast(window.location.href, "已複製 Session 連結。");
+  void useToast().copyWithToast(window.location.href, t("已複製 Session 連結。"));
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -84,7 +85,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 <template>
   <UiSidePanel
     :open="Boolean(selectedDetail)"
-    label="Session 詳情"
+    :label="t('Session 詳情')"
     :width="760"
     storage-key="session"
     @close="closeSessionDetail"
@@ -115,7 +116,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
     <template #footer>
       <div class="session-panel__footer">
-        <span><kbd>J</kbd> / <kbd>K</kbd> 切換上下筆 · <kbd>Esc</kbd> 關閉</span>
+        <span><kbd>J</kbd> / <kbd>K</kbd> {{ t("切換上下筆 ·") }} <kbd>Esc</kbd> {{ t("關閉") }}</span>
         <span v-if="position.index >= 0">{{ position.index + 1 }} / {{ position.total }}</span>
       </div>
     </template>

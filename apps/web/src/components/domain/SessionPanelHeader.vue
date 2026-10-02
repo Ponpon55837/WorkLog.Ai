@@ -7,6 +7,7 @@ import { verificationOf, verificationStatus } from "../../utils/status";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
+import { t } from "../../i18n";
 
 const props = defineProps<{
   detail: SessionDetail;
@@ -40,36 +41,36 @@ const sessionTarget = computed<VoidTarget>(() => ({
     <div class="session-panel__actions">
       <UiIconButton
         :icon="ChevronUp"
-        label="上一筆 (K)"
+        :label="t('上一筆 (K)')"
         size="sm"
         :disabled="position.index <= 0"
         @click="emit('previous')"
       />
       <UiIconButton
         :icon="ChevronDown"
-        label="下一筆 (J)"
+        :label="t('下一筆 (J)')"
         size="sm"
         :disabled="position.index < 0 || position.index >= position.total - 1"
         @click="emit('next')"
       />
-      <UiIconButton :icon="Pencil" label="編輯 Session" size="sm" @click="emit('edit', session)" />
+      <UiIconButton :icon="Pencil" :label="t('編輯 Session')" size="sm" @click="emit('edit', session)" />
       <UiIconButton
         v-if="!session.voided"
         :icon="Ban"
-        label="作廢 Session"
+        :label="t('作廢 Session')"
         size="sm"
         @click="emit('voidRecord', sessionTarget)"
       />
-      <UiIconButton :icon="Link" label="複製連結" size="sm" @click="emit('copyLink')" />
-      <UiIconButton :icon="X" label="關閉" @click="emit('close')" />
+      <UiIconButton :icon="Link" :label="t('複製連結')" size="sm" @click="emit('copyLink')" />
+      <UiIconButton :icon="X" :label="t('關閉')" @click="emit('close')" />
     </div>
   </div>
   <h2 class="session-panel__title">{{ session.title }}</h2>
   <div class="session-panel__labels">
     <StatusLabel :status="verification" />
     <UiLabel :icon="FolderGit2">{{ detail.project.name }}</UiLabel>
-    <UiLabel :icon="FileDiff">{{ session.changedFiles.length }} files</UiLabel>
-    <UiLabel v-if="session.voided" tone="danger" :icon="Ban">已作廢</UiLabel>
+    <UiLabel :icon="FileDiff">{{ t("{value} 個檔案", { value: session.changedFiles.length }) }}</UiLabel>
+    <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("已作廢") }}</UiLabel>
   </div>
 </template>
 

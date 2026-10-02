@@ -21,11 +21,15 @@ import {
   trackingStatus,
   type StatusVisual,
 } from "./status";
+import { translatedOptions, translatedRecord } from "../i18n";
 
 function labelsOf<K extends string>(visuals: Record<K, StatusVisual>): Record<K, string> {
-  return Object.fromEntries(
-    Object.entries<StatusVisual>(visuals).map(([key, visual]) => [key, visual.label]),
-  ) as Record<K, string>;
+  const labels = {} as Record<K, string>;
+  for (const key of Object.keys(visuals) as K[]) {
+    // A getter, so the label follows the locale like the StatusVisual it reads.
+    Object.defineProperty(labels, key, { enumerable: true, get: () => visuals[key].label });
+  }
+  return labels;
 }
 
 /** Label-only views of the status maps in utils/status.ts (single source of truth). */
@@ -34,15 +38,15 @@ export const knowledgeKindLabels = labelsOf(knowledgeKindVisual);
 export const knowledgeStatusLabels = labelsOf(knowledgeStatusVisual);
 export const outstandingItemStatusLabels: Record<OutstandingItemStatus, string> = labelsOf(outstandingItemStatusVisual);
 
-export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = {
+export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = translatedRecord({
   automatic: "每日自動",
   manual: "手動",
   migration: "資料庫遷移前",
   deletion: "專案刪除前",
   maintenance: "資料維護前",
-};
+});
 
-export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, string> = {
+export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, string> = translatedRecord({
   projects: "專案",
   sessions: "Sessions",
   workEvents: "工作事件",
@@ -76,7 +80,7 @@ export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, str
   searchFts: "全文搜尋索引",
   searchPaths: "搜尋路徑",
   searchDirty: "待更新搜尋索引項目",
-};
+});
 
 export const listPageSizeOptions = [
   { value: 10, label: "10" },
@@ -87,119 +91,132 @@ export const listPageSizeOptions = [
 ] as const;
 export type ListPageSize = (typeof listPageSizeOptions)[number]["value"];
 
-export const sessionLinkDirectionLabels: Record<SessionLinkDirection, string> = {
+export const sessionLinkDirectionLabels: Record<SessionLinkDirection, string> = translatedRecord({
   continues: "接續自",
   continued_by: "後續",
   related: "相關",
-};
+});
 
 /** Link choices from the open Session's point of view; `reverse` stores the link on the other Session. */
-export const sessionLinkOptions = [
-  { value: "continues", label: "這筆接續所選 Session（例如實作接續規劃）" },
-  { value: "continued_by", label: "所選 Session 接續這筆" },
-  { value: "related", label: "一般相關" },
-] as const satisfies ReadonlyArray<{ value: SessionLinkDirection; label: string }>;
+export const sessionLinkOptions = translatedOptions(
+  [
+    { value: "continues", label: "這筆接續所選 Session（例如實作接續規劃）" },
+    { value: "continued_by", label: "所選 Session 接續這筆" },
+    { value: "related", label: "一般相關" },
+  ] as const satisfies ReadonlyArray<{ value: SessionLinkDirection; label: string }>,
+  "label",
+);
 
-export const voidedFilterOptions: Array<{ value: SessionVoidedFilter; label: string }> = [
-  { value: "exclude", label: "不含已作廢" },
-  { value: "include", label: "包含已作廢" },
-  { value: "only", label: "只看已作廢" },
-];
+export const voidedFilterOptions: Array<{ value: SessionVoidedFilter; label: string }> = translatedOptions(
+  [
+    { value: "exclude", label: "不含已作廢" },
+    { value: "include", label: "包含已作廢" },
+    { value: "only", label: "只看已作廢" },
+  ],
+  "label",
+);
 
 export function pageSizeToQuery(value: ListPageSize): number {
   return value === "all" ? 0 : value;
 }
 
 export type ReportTab = "overview" | "work" | "trend" | "risks" | "raw" | "evidence";
-export const reportTabOptions: Array<{ id: ReportTab; label: string; shortLabel: string }> = [
-  { id: "overview", label: "報告總覽", shortLabel: "總覽" },
-  { id: "work", label: "完成與驗證", shortLabel: "工作" },
-  { id: "trend", label: "趨勢與專案", shortLabel: "趨勢" },
-  { id: "risks", label: "風險與決策", shortLabel: "風險" },
-  { id: "raw", label: "原始工作紀錄", shortLabel: "原始紀錄" },
-  { id: "evidence", label: "來源證據", shortLabel: "證據" },
-];
+export const reportTabOptions: Array<{ id: ReportTab; label: string; shortLabel: string }> = translatedOptions(
+  [
+    { id: "overview", label: "報告總覽", shortLabel: "總覽" },
+    { id: "work", label: "完成與驗證", shortLabel: "工作" },
+    { id: "trend", label: "趨勢與專案", shortLabel: "趨勢" },
+    { id: "risks", label: "風險與決策", shortLabel: "風險" },
+    { id: "raw", label: "原始工作紀錄", shortLabel: "原始紀錄" },
+    { id: "evidence", label: "來源證據", shortLabel: "證據" },
+  ],
+  "label",
+  "shortLabel",
+);
 
-export const workSummarySectionLabels: Array<{ key: keyof WorkSummarySections; label: string }> = [
-  { key: "outcomes", label: "成果" },
-  { key: "scope", label: "範圍" },
-  { key: "decisions", label: "決策" },
-  { key: "verification", label: "驗證" },
-  { key: "nextSteps", label: "狀態／未結項" },
-];
+export const workSummarySectionLabels: Array<{ key: keyof WorkSummarySections; label: string }> = translatedOptions(
+  [
+    { key: "outcomes", label: "成果" },
+    { key: "scope", label: "範圍" },
+    { key: "decisions", label: "決策" },
+    { key: "verification", label: "驗證" },
+    { key: "nextSteps", label: "狀態／未結項" },
+  ],
+  "label",
+);
 
-export const statusDescriptions: Record<ProjectStatus, string> = {
+export const statusDescriptions: Record<ProjectStatus, string> = translatedRecord({
   unregistered: "尚未授權，所有 ingest 都會略過。",
   tracked: "明確授權；可讀取 handoff 並保存工作紀錄。",
   paused: "暫停記錄，既有資料保留。",
   ignored: "明確排除，不會建立新的工作資料。",
-};
+});
 
-export const changedFileSourceLabels: Record<ChangedFileSource, string> = {
+export const changedFileSourceLabels: Record<ChangedFileSource, string> = translatedRecord({
   agent: "Agent",
   handoff: "Handoff",
   git: "Git",
   worktree: "工作樹",
-};
+});
 
-export const changedFileChangeStatusLabels: Record<ChangedFileChangeStatus, string> = {
+export const changedFileChangeStatusLabels: Record<ChangedFileChangeStatus, string> = translatedRecord({
   added: "新增",
   modified: "修改",
   deleted: "刪除",
   renamed: "重新命名",
-};
+});
 
-export const reportPeriodLabels: Record<WorkReportPeriod, string> = {
+export const reportPeriodLabels: Record<WorkReportPeriod, string> = translatedRecord({
   day: "今日",
   week: "本週",
   month: "本月",
   quarter: "本季",
   year: "本年",
   custom: "自訂期間",
-};
+});
 
-export const insightKindLabels: Record<ReportInsightKind, string> = {
+export const insightKindLabels: Record<ReportInsightKind, string> = translatedRecord({
   verification: "Verification",
   metadata: "Metadata",
   event: "Event",
   hotspot: "熱點",
-};
+});
 
-export const evidenceKindLabels: Record<ReportEvidence["kind"], string> = {
+export const evidenceKindLabels: Record<ReportEvidence["kind"], string> = translatedRecord({
   handoff: "Handoff",
   verification: "Verification",
   "changed-files": "Changed files",
   event: "Event",
   attached: "Attached evidence",
-};
+});
 
-export const knowledgeAuditActionLabels: Record<KnowledgeAuditAction, string> = {
+export const knowledgeAuditActionLabels: Record<KnowledgeAuditAction, string> = translatedRecord({
   created: "建立",
   updated: "更新",
   archived: "封存",
   restored: "恢復",
-};
+});
 
 export const graphNodeKindOrder = ["project", "session", "knowledge", "evidence", "file"] as const;
 
-export const graphNodeKindLabels: Record<GraphNode["kind"], string> = {
+export const graphNodeKindLabels: Record<GraphNode["kind"], string> = translatedRecord({
   project: "專案",
   session: "工作 Session",
   knowledge: "工作知識",
   evidence: "證據",
   file: "變更檔案",
-};
+});
 
-export const graphEdgeKindLabels = {
+export const graphEdgeKindLabels = translatedRecord({
   contains: "包含",
   changed_file: "變更檔案",
   has_knowledge: "關聯知識",
   has_evidence: "附加證據",
   session_link: "Session 關聯",
   co_changed: "一起修改（推導）",
-} as const;
+});
 
-export const graphMetadataLabels: Record<string, string> = {
+export const graphMetadataLabels: Record<string, string> = translatedRecord({
   rootPath: "專案根目錄",
   status: "記錄狀態",
   completedAt: "完成時間",
@@ -210,4 +227,4 @@ export const graphMetadataLabels: Record<string, string> = {
   reference: "參考位置",
   capturedAt: "擷取時間",
   path: "檔案路徑",
-};
+});
