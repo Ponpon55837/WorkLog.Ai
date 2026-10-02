@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { claudePluginEnabled, codexPluginEnabled, collectDoctorFindings } from "../../apps/server/src/doctor.js";
+import type { UserServiceStatus } from "../../packages/core/src/index.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const pluginRoot = join(repositoryRoot, "plugins/work-intelligence");
@@ -60,6 +61,21 @@ function run(script: string, args: string[], environment: NodeJS.ProcessEnv, inp
     encoding: "utf8",
     env: { ...inheritedEnvironment(), USERPROFILE: environment.HOME, ...environment },
   });
+}
+
+/** Keeps doctor off the host's real login service (Task Scheduler on Windows takes seconds to query). */
+function isolatedUserServiceStatus(home: string): UserServiceStatus {
+  return {
+    supported: false,
+    state: "unsupported",
+    manager: null,
+    enabled: false,
+    running: false,
+    configPath: join(home, "service", "work-intelligence.conf"),
+    databasePath: join(home, "data", "work-intelligence.sqlite"),
+    backupDirectory: join(home, "data", "backups"),
+    logPath: join(home, "logs", "server.log"),
+  };
 }
 
 afterEach(() => {
@@ -228,6 +244,7 @@ describe("doctor with the Claude Code plugin", () => {
     }
     const findings = await collectDoctorFindings({
       homeDirectory: home,
+      userServiceStatus: isolatedUserServiceStatus(home),
       repositoryRoot: home,
       environment: {
         HOME: home,
@@ -283,6 +300,7 @@ describe("doctor with the Codex plugin", () => {
     );
     const findings = await collectDoctorFindings({
       homeDirectory: home,
+      userServiceStatus: isolatedUserServiceStatus(home),
       repositoryRoot,
       environment: {
         HOME: home,
