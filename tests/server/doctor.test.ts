@@ -12,6 +12,7 @@ import {
   inspectAgentConnections,
   inspectDatabaseReadOnly,
   inspectGlobalHooks,
+  pnpmRequirementSatisfied,
 } from "../../apps/server/src/doctor.js";
 import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
 import {
@@ -657,5 +658,19 @@ describe("pnpm doctor read-only checks", () => {
       expect(readFileSync(codexConfigPath)).toEqual(before);
       expect(readFileSync(codexHooksPath)).toEqual(hooksBefore);
     }
+  });
+});
+
+describe("pnpm requirement", () => {
+  it("accepts the engines.pnpm minimum this repository declares as well as an exact packageManager pin", () => {
+    expect(pnpmRequirementSatisfied("11.16.0", ">=11.16.0")).toBe(true);
+    expect(pnpmRequirementSatisfied("11.28.3", ">=11.16.0")).toBe(true);
+    expect(pnpmRequirementSatisfied("12.0.0", ">= 11.16.0")).toBe(true);
+    expect(pnpmRequirementSatisfied("11.15.9", ">=11.16.0")).toBe(false);
+    expect(pnpmRequirementSatisfied("10.30.0", ">=11.16.0")).toBe(false);
+    expect(pnpmRequirementSatisfied("11.16.0", "11.16.0")).toBe(true);
+    expect(pnpmRequirementSatisfied("11.17.0", "11.16.0")).toBe(false);
+    expect(pnpmRequirementSatisfied(undefined, ">=11.16.0")).toBe(false);
+    expect(pnpmRequirementSatisfied("11.16.0", "未知")).toBe(false);
   });
 });
