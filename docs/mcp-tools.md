@@ -2,7 +2,7 @@
 
 每個 MCP tool 的用途、必填欄位、範例 payload 與 policy 行為。一般使用者不需要記住這些名稱——在 Codex／Claude 對話中用自然語言描述需求即可，Agent 會依 `.agents/skills/work-intelligence` 自行選用。
 
-> 回到 [README](../README.md)
+> 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
 ## tools/list 與 dispatcher
 

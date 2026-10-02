@@ -9,13 +9,13 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 
 ## Fixed decisions (do not re-ask the user)
 
-- Two themes, GitHub dark (default) and GitHub light, chosen in the header or System status → 個人偏好 (跟隨系統 / 淺色 / 深色). Both are the same token names in `styles/tokens.css` (`:root` and `:root[data-theme="light"]`); components never branch on the theme or use `prefers-color-scheme` themselves — `composables/useAppearance.ts` sets `data-theme`.
+- Two themes, GitHub dark (default) and a softened light theme (cool grey surfaces, never paper white), chosen in the header or System status → 個人偏好 (跟隨系統 / 淺色 / 深色). Both are the same token names in `styles/tokens.css` (`:root` and `:root[data-theme="light"]`); components never branch on the theme or use `prefers-color-scheme` themselves — `composables/useAppearance.ts` sets `data-theme`.
 - GitHub/Primer visual language: Box lists, Label pills, Counter, UnderlineNav, SegmentedControl, ActionMenu.
 - Icons: `lucide-vue-next` only, 16px, `stroke-width` 1.75. No Unicode glyph icons (⌂ ◈ ▥ ✦ ◎ ≡ ⌕ ↻).
 - Keep the English uppercase eyebrow as a small label on the same row as the Chinese title (e.g. `SESSION ARCHIVE` 工作歷程). Page headers are one compact row; data, not the title block, fills the first screen.
 - Reading details → right **SidePanel**; forms and confirmations → centered **Dialog**.
 - Backend, MCP and HTTP API contracts are out of scope. Never add an endpoint to make a UI work; hide the block instead.
-- UI text is written in 繁體中文 and wrapped in `t()`; the English catalog (`src/i18n/en.ts`) translates it. Technical terms (Session, Knowledge, verification, metadata, handoff) stay in English in both languages. Data (Session text, reports, Agent output, data markers such as `資料不足`) is never translated. See [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) §6a for the mechanics.
+- UI text is written in 繁體中文 and wrapped in `t()`; the English catalog (`src/i18n/locales/en-US.json`) translates it. Technical terms (Session, Knowledge, verification, metadata, handoff) stay in English in both languages. Data (Session text, reports, Agent output, data markers such as `資料不足`) is never translated. See [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) §6a for the mechanics.
 
 ## Workflow
 
@@ -58,10 +58,10 @@ Then check in a browser at **1440 / 960 / 375** px widths:
 - [ ] No horizontal page scroll; no overlapping or clipped text.
 - [ ] Long lists and tables scroll inside a bounded body; headers, filters, and pagination stay in place while wheel and keyboard scrolling move the list.
 - [ ] Sidebar: full at ≥ 960, icon rail at 640–959, drawer at < 640.
-- [ ] Loading shows Skeleton, empty state has a next-step action, errors show a Flash with retry.
+- [ ] Loading shows Skeleton with its caption (no `0` counts or empty states before the first answer), empty state has a next-step action, errors show a Flash with retry.
 - [ ] All interactive elements reachable by keyboard with visible focus.
 - [ ] Status colors follow the mapping in [references/tokens.md](references/tokens.md#status-mapping).
 - [ ] Domain distinctions in [references/domain-semantics.md](references/domain-semantics.md) are visible (狀態／未結項 label, four verification states, Git separate from changed files, synthesis blocks cite sources).
 - [ ] No raw hex outside `tokens.css`, no Unicode icons, no font size < 12px.
-- [ ] Checked in both themes (header sun/moon button) and both languages (header language menu); new strings have an `en.ts` entry (`pnpm --filter @work-intelligence/web test` fails otherwise).
+- [ ] Checked in both themes (header sun/moon button) and both languages (header language menu); new strings have an `en-US.json` entry (`pnpm --filter @work-intelligence/web test` fails otherwise).
 - [ ] For a migrated page: its old classes are gone from `style.css`, and before/after screenshots are attached to the PR.

@@ -6,6 +6,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Pages show a boot splash before the app loads, and every loading skeleton now carries a visible "Loading…" caption. Counts, totals, pagination and empty states wait for the first answer instead of showing `0` or "nothing here" while data is still loading (Work history, Knowledge tabs, candidates, decisions to confirm, backups).
+
 - The Web UI has a GitHub light theme next to the dark one. The header's sun/moon button switches between them, and System status → 個人偏好 offers 跟隨系統／淺色／深色; the default follows the operating system. The saved theme is applied before the first paint (`public/theme-init.js`, CSP-safe), and Mermaid diagrams redraw with the matching theme. Light semantic colours are one step darker than stock Primer so 12px labels meet WCAG AA.
 - The Web UI is available in 繁體中文 and English. The header language menu and 個人偏好 switch it without reloading; the first visit follows the browser language. Dates, weekdays and relative times follow the language. Only interface text is translated; Sessions, reports, Knowledge and Agent output keep the language they were recorded in. A unit test fails when a Chinese UI string has no English translation or a translation drops a placeholder.
 - Motion and usability: a colour cross-fade when the theme changes, a top progress bar while a page loads or everything refreshes, a "跳至主要內容" skip link, an animated sidebar indicator, a pop when a counter changes, fading banners, and theme/language commands in the `Ctrl`/`⌘` + `K` palette. All of it turns off with `prefers-reduced-motion`.
@@ -13,6 +15,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Web-created project cleanup requests snapshot pending outstanding items. Agents read bounded evidence pages and submit idempotent recommendations without changing items; people accept or reject individually or in atomic batches. Acceptance checks source/evidence versions and retains linked audit. Schema 23 cleanup data participates in transfer, redaction and permanent deletion.
 
 ### Changed
+
+- English translations moved from `apps/web/src/i18n/en.ts` to the JSON catalog `apps/web/src/i18n/locales/en-US.json`, and the English locale is now `en-US` (a saved `en` preference upgrades automatically).
+- The light theme uses cool grey surfaces (about 87% luminance) instead of pure white to reduce glare, with darker text colours that keep WCAG AA contrast.
+- `README.md` is now in English, with the Traditional Chinese version in `README.zh-TW.md`; both link to each other.
 
 - 第九輪文件對齊相容性分級、未結項整理與 schema 23 升級重連；狀態頁保留使用者實機驗收／tag 待辦，已完成的第八輪階段移入歷史。測試文件更新合成回應基線與審核／刷新回歸覆蓋。
 
@@ -88,6 +94,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Quality gates in CI: macOS alongside Ubuntu and Windows, a core Firefox E2E flow, read-path and import performance limits, a synthetic retrieval-quality evaluation (hit@5 and MRR), and axe accessibility checks on the six main pages.
 
 ### Changed
+
+- English translations moved from `apps/web/src/i18n/en.ts` to the JSON catalog `apps/web/src/i18n/locales/en-US.json`, and the English locale is now `en-US` (a saved `en` preference upgrades automatically).
+- The light theme uses cool grey surfaces (about 87% luminance) instead of pure white to reduce glare, with darker text colours that keep WCAG AA contrast.
+- `README.md` is now in English, with the Traditional Chinese version in `README.zh-TW.md`; both link to each other.
 
 - The MCP contract resource `work-intelligence://agent/tool-contracts` is now a short operation index (3,954 UTF-16 code units); each operation's complete contract is served by the `work-intelligence://agent/tool-contracts/{operation}` resource template with compact JSON Schema. An Agent that saves a record reads about 18,300 code units (tools/list, index, and the finalize contract) instead of the 109,755-unit full catalog.
 - `work_get_knowledge_page_context` has two modes. `full` (an empty page or an explicit update request) gives recent Sessions for a complete rewrite; `review` (a written page) gives only Sessions finished after the page's coverage and cited sources that changed, oldest first. The Session budget dropped from 40,000 to 24,000 characters; on a real project a page review went from about 60,000 to 24,000 characters.

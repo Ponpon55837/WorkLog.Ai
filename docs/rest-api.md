@@ -49,7 +49,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 
 Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code` 顯示目前介面語言（繁體中文或 English）的訊息；`network_error` 與 `malformed_response` 是 client 本地代碼，不會由 REST API 回傳。
 
-> 回到 [README](../README.md)
+> 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
 | Method   | Route                                            | 用途                                                                                   |
 | -------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |

@@ -16,7 +16,7 @@ apps/web/src/
 ├─ router.ts            routes, lazy views, route meta (title/eyebrow/group)
 ├─ api/                 transport.ts is the only place that calls fetch(); one module per domain
 │                       (projects.ts, sessions.ts…), composed by client.ts
-├─ i18n/                index.ts (t, tc, translatedRecord, locale) and en.ts (English catalog)
+├─ i18n/                index.ts (t, tc, translatedRecord, locale) and locales/en-US.json (English catalog)
 ├─ styles/              tokens.css (all raw colours, dark + light sets) and base.css (reset/typography/focus/motion)
 ├─ utils/               pure functions and constant maps, no Vue reactivity
 │  ├─ format.ts         dates, relative time, text formatting
@@ -120,9 +120,10 @@ The UI ships in 繁體中文 and English. The Chinese source text is the message
 - **Counts**: give the English entry a `one|other` form (`"{count} file|{count} files"`); the first number placeholder picks the form.
 - **Same text, different meaning**: use `tc(context, source)` and add a `context|source` key (`tc("unit", "週")` → "weeks", while `t("週")` is the "Week" tab). Route titles and nav labels use the `nav` context.
 - **Module-level constants** (label maps, status visuals, option lists, route meta) are built once, so they must translate on read: `translatedRecord({...})`, `translatedOptions(list, "label")`, the `visual()` helper in `utils/status.ts`, or store the source text and call `t()` where it is displayed. Never call `t()` in a module-level initializer or a `withDefaults` default — resolve defaults in a `computed`.
+- **Loading**: until a query's first answer arrives, show `UiSkeleton` (it renders a visible "正在載入…" caption; pass `label` to name what loads) and hide counts, totals and pagination — expose a `xxxLoaded` computed (`query.data.value !== undefined`) from the store. Never render an empty state or a `0` count before the data is known.
 - **Do not translate data**: Session text, report content, Agent output, API `reason` strings and data markers (`資料不足`, `KNOWLEDGE_PAGE_INSUFFICIENT`) are compared and shown as stored.
 - **Dates and numbers** go through `utils/format.ts`, which uses `intlLocale()`; do not hard-code `"zh-TW"` in `Intl` calls.
-- **Catalog**: add the English text to `src/i18n/en.ts` in the same change. `tests/web/i18n/catalog.test.ts` fails when a Chinese string in `src/` has no entry, when an entry is no longer used, or when a translation drops a `{placeholder}`.
+- **Catalog**: add the English text to `src/i18n/locales/en-US.json` (a flat `{ "原文": "translation" }` object; catalogs are JSON, never TypeScript) in the same change. Locales are BCP 47 tags (`zh-TW`, `en-US`) used as-is for `Intl` and `<html lang>`. `tests/web/i18n/catalog.test.ts` fails when a Chinese string in `src/` has no entry, when an entry is no longer used, or when a translation drops a `{placeholder}`.
 - The locale is a module-level ref in `src/i18n` (utils translate outside components); `stores/preferences.ts` persists it and the theme. `App.vue` keys the page and overlays by locale, so setup-time strings refresh on a language switch.
 
 ## 7. TypeScript

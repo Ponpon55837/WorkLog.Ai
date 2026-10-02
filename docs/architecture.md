@@ -2,7 +2,7 @@
 
 Work Intelligence 的資料模型、Session metadata 契約、一致性保證、Project Recording Policy 與設計驗收基準。欄位格式與報告粒度的正式定義見 [Work record and report format v1](work-record-and-report-format.md)。
 
-> 回到 [README](../README.md)
+> 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
 ## 功能範圍
 
@@ -51,9 +51,10 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 
 ## Web 介面語言與主題
 
-- **i18n**：`apps/web/src/i18n/` 以繁體中文原文作為訊息 key（gettext 風格），`t()` 依目前語系查 `en.ts`，找不到時顯示原文。`tc(context, 原文)` 處理同字異義（例如「週」是分頁名稱 Week，也是單位 weeks）；英文翻譯可寫成 `單數|複數`，依第一個數字參數選擇。模組層級的標籤表與狀態對照（`utils/labels.ts`、`utils/status.ts`、路由 meta）以 getter 在讀取時翻譯，所以切換語言不必重新載入頁面；`App.vue` 以語系作為頁面與 overlay 的 key，讓元件 setup 時產生的文字也一起更新。日期、星期與相對時間用 `Intl` 依目前語系格式化。
+- **i18n**：`apps/web/src/i18n/` 以繁體中文原文作為訊息 key（gettext 風格），`t()` 依目前語系查 `locales/<語系>.json`（目前為 `en-US.json`，扁平的 `{ "原文": "翻譯" }` 物件），找不到時顯示原文。語系以 BCP 47 代碼命名（`zh-TW`、`en-US`），直接用於 `Intl` 與 `<html lang>`。`tc(context, 原文)` 處理同字異義（例如「週」是分頁名稱 Week，也是單位 weeks）；英文翻譯可寫成 `單數|複數`，依第一個數字參數選擇。模組層級的標籤表與狀態對照（`utils/labels.ts`、`utils/status.ts`、路由 meta）以 getter 在讀取時翻譯，所以切換語言不必重新載入頁面；`App.vue` 以語系作為頁面與 overlay 的 key，讓元件 setup 時產生的文字也一起更新。日期、星期與相對時間用 `Intl` 依目前語系格式化。
 - **不翻譯的資料**：Session、報告、Knowledge、Agent 輸出與 API 回傳的 `reason` 原樣顯示；`資料不足` 等資料標記以原文比對。後端與 MCP 的契約不受語系影響。
-- **主題**：`styles/tokens.css` 在 `:root` 定義深色色票，在 `:root[data-theme="light"]` 以同名 token 定義淺色色票；元件只引用 token，不判斷主題。`composables/useAppearance.ts` 依偏好（跟隨系統／淺色／深色）設定 `<html data-theme>` 與 `lang`。`public/theme-init.js` 在 Vue 載入前先套用已儲存的主題，避免淺色使用者看到深色閃爍；它是同源檔案，因為正式模式的 CSP 不允許 inline script。Mermaid 圖表在主題改變時以對應的 Mermaid 主題重新繪製。
+- **主題**：`styles/tokens.css` 在 `:root` 定義深色色票，在 `:root[data-theme="light"]` 以同名 token 定義淺色色票（冷灰底、頁面約 87% 亮度而非純白，降低長時間使用的刺眼感）；元件只引用 token，不判斷主題。`composables/useAppearance.ts` 依偏好（跟隨系統／淺色／深色）設定 `<html data-theme>` 與 `lang`。`public/theme-init.js` 在 Vue 載入前先套用已儲存的主題，避免淺色使用者看到深色閃爍；它是同源檔案，因為正式模式的 CSP 不允許 inline script。Mermaid 圖表在主題改變時以對應的 Mermaid 主題重新繪製。
+- **載入狀態**：`index.html` 在 Vue 掛載前顯示啟動畫面（樣式在 `base.css`，同源載入）。資料載入中時 `UiSkeleton` 顯示「正在載入…」與佔位列；分頁數量、清單標題與分頁列在資料第一次回來前不顯示，避免把「尚未載入」顯示成 0 筆。各 store 以 `xxxLoaded`（query 已有資料）判斷。
 - **偏好設定**：主題、語言與編輯器選擇都由 `stores/preferences.ts` 存在瀏覽器 localStorage；儲存空間無法使用時只在本次瀏覽有效。
 
 ## 效能設計

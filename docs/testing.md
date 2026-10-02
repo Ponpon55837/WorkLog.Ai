@@ -2,7 +2,7 @@
 
 各層測試指令、覆蓋率門檻與 E2E 範圍。
 
-> 回到 [README](../README.md)
+> 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
 ## 測試檔案位置
 
@@ -25,7 +25,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 ## 介面語言與主題
 
-- **英文目錄完整性**：`tests/web/i18n/catalog.test.ts` 掃描 `apps/web/src` 中所有含中文的字串，確認每一條都在 `src/i18n/en.ts` 有翻譯、`en.ts` 沒有已不再使用的條目，且翻譯保留原文的每個 `{placeholder}`。新增或修改介面文字時要同步更新 `en.ts`，否則 `pnpm test` 會失敗。同一檔案也測試插值、單複數、`tc()` 與常數標籤表隨語系切換。
+- **英文目錄完整性**：`tests/web/i18n/catalog.test.ts` 掃描 `apps/web/src` 中所有含中文的字串，確認每一條都在 `src/i18n/locales/en-US.json` 有翻譯、`en-US.json` 沒有已不再使用的條目，且翻譯保留原文的每個 `{placeholder}`。新增或修改介面文字時要同步更新 `en-US.json`，否則 `pnpm test` 會失敗。同一檔案也測試插值、單複數、`tc()` 與常數標籤表隨語系切換。
 - **偏好設定**：`tests/web/stores/preferences-store.test.ts` 涵蓋主題（含跟隨系統）、語言的保存與還原，以及無法使用 localStorage 時的退回行為。
 - **E2E 預設**：Playwright 以 `locale: "zh-TW"`、`colorScheme: "dark"` 執行，所以既有測試維持以繁體中文文案與深色主題斷言。淺色主題由「light theme @accessibility」axe 測試覆蓋；「switches the interface language and theme」測試從頁首切換英文與主題並確認重新整理後保留；另有英文版在 640／390px 的水平溢位檢查，因為英文文案較長。
 

@@ -2,7 +2,7 @@
 
 把 Work Intelligence MCP stdio server 註冊到 Codex CLI、Claude Code 與 Claude Desktop，並完成第一次使用。
 
-> 回到 [README](../README.md)
+> 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
 這個 MCP 是本機 stdio server。正式模式 Dashboard 預設是 `http://127.0.0.1:3210`，開發模式 Web 是 `http://127.0.0.1:5966`；兩者都不是 MCP endpoint。Codex 與 Claude Code 會各自啟動本機 MCP process，並共用同一個中央 SQLite。
 
