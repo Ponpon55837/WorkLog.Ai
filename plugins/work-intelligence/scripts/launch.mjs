@@ -8,7 +8,7 @@
  */
 import { spawn } from "node:child_process";
 import console from "node:console";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
@@ -106,4 +106,13 @@ function main() {
   });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main();
+/** Run directly, not imported. Compares real paths: the plugin cache or temp directory may sit behind a symlink. */
+function isEntryPoint() {
+  try {
+    return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) main();

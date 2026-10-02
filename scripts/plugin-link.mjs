@@ -5,7 +5,7 @@
  * else is written, and the repository's data/ and agent settings are left alone.
  */
 import console from "node:console";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -33,7 +33,16 @@ export function linkRepository({ root = repositoryRoot, remove = false, environm
   return { path, message: `Linked the Work Intelligence plugin to ${root}${replaced}.${missing}` };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+/** Run directly, not imported. Compares real paths: the plugin cache or temp directory may sit behind a symlink. */
+function isEntryPoint() {
+  try {
+    return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   const { path, message } = linkRepository({ remove: process.argv.includes("--remove") });
   console.log(message);
   console.log(`Link file: ${path}`);

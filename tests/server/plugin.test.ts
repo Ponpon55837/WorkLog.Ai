@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,11 +45,20 @@ function fakeRepository(root: string, built = true): string {
   return root;
 }
 
+/** The test runner's environment (Windows needs SystemRoot and friends) without any Work Intelligence location. */
+function inheritedEnvironment(): NodeJS.ProcessEnv {
+  const inherited = { ...process.env };
+  for (const name of ["WORK_INTELLIGENCE_HOME", "WORK_INTELLIGENCE_CONFIG_DIR", "WORK_INTELLIGENCE_DB"]) {
+    delete inherited[name];
+  }
+  return inherited;
+}
+
 function run(script: string, args: string[], environment: NodeJS.ProcessEnv, input = "") {
   return spawnSync(process.execPath, [script, ...args], {
     input,
     encoding: "utf8",
-    env: { PATH: process.env.PATH, ...environment },
+    env: { ...inheritedEnvironment(), USERPROFILE: environment.HOME, ...environment },
   });
 }
 
@@ -130,6 +139,19 @@ describe("plugin launcher", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({ name: "finalize-reminder", input: "{}" });
     // A hook never blocks the Agent, whatever the reminder script exits with.
     expect(result.status).toBe(0);
+  });
+
+  it("still runs when started through a symlinked plugin directory", () => {
+    const home = temporaryDirectory();
+    const repository = fakeRepository(join(home, "checkout"));
+    cpSync(pluginRoot, join(home, "real"), { recursive: true });
+    // A junction needs no privilege on Windows and behaves as a directory symlink elsewhere.
+    symlinkSync(join(home, "real"), join(home, "linked"), "junction");
+    const result = run(join(home, "linked/scripts/launch.mjs"), ["mcp"], {
+      HOME: home,
+      WORK_INTELLIGENCE_HOME: repository,
+    });
+    expect(JSON.parse(result.stdout)).toMatchObject({ name: "mcp" });
   });
 
   it("explains a missing repository or build, but keeps the Stop hook silent", () => {
