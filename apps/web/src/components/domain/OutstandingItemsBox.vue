@@ -253,7 +253,12 @@ watch(
         ><UiButton size="sm" @click="emit('retry')">{{ t("重試") }}</UiButton></template
       >
     </UiFlash>
-    <UiSkeleton v-if="loading && !loaded" :count="4" data-testid="outstanding-items-loading" />
+    <UiSkeleton
+      v-if="loading && !loaded"
+      :count="4"
+      :label="t('正在載入未結項…')"
+      data-testid="outstanding-items-loading"
+    />
     <UiEmptyState
       v-else-if="loaded && !error && items.length === 0"
       :icon="ListChecks"

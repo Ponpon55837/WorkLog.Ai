@@ -145,8 +145,19 @@ const projectItems = computed(() => [
   ...projects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const tabs = computed(() => [
-  { value: "sessions" as const, label: t("工作歷程"), icon: ListChecks, count: sessionPageInfo.value.total },
-  { value: "outstanding" as const, label: t("未結項"), icon: ListChecks, count: outstandingPageInfo.value.total },
+  // Counts appear once loaded; "0" before then would read as "nothing here".
+  {
+    value: "sessions" as const,
+    label: t("工作歷程"),
+    icon: ListChecks,
+    count: sessionsLoaded.value ? sessionPageInfo.value.total : undefined,
+  },
+  {
+    value: "outstanding" as const,
+    label: t("未結項"),
+    icon: ListChecks,
+    count: outstandingLoaded.value ? outstandingPageInfo.value.total : undefined,
+  },
 ]);
 const dateRange = computed({
   get: () => ({ from: dateFrom.value, to: dateTo.value }),
@@ -214,7 +225,7 @@ onBeforeUnmount(() => {
   >
     <UiBox sticky-header>
       <template #header>
-        <UiBoxTitle :icon="ListChecks" :title="`${sessionPageInfo.total} Sessions`">
+        <UiBoxTitle :icon="ListChecks" :title="sessionsLoaded ? `${sessionPageInfo.total} Sessions` : 'Sessions'">
           <span v-if="sessionPageInfo.total" class="sessions__range">{{
             t("顯示 {from}–{to}", { from: sessionPageInfo.from, to: sessionPageInfo.to })
           }}</span>
@@ -240,7 +251,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" />
+      <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" :label="t('正在載入工作歷程…')" />
       <UiEmptyState
         v-else-if="sessions.length === 0"
         :icon="ListChecks"
@@ -270,7 +281,7 @@ onBeforeUnmount(() => {
         </template>
       </VirtualList>
 
-      <template #footer>
+      <template v-if="sessionsLoaded" #footer>
         <UiPagination
           v-model:page-size="sessionPageSize"
           :page-info="sessionPageInfo"

@@ -105,7 +105,7 @@ const {
   </PageHeader>
 
   <UiFlash v-if="reportError" tone="danger">{{ reportError }}</UiFlash>
-  <UiSkeleton v-if="reportLoading && !report" variant="card" :count="4" />
+  <UiSkeleton v-if="reportLoading && !report" variant="card" :count="4" :label="t('正在載入工作報告…')" />
   <UiEmptyState
     v-else-if="!report"
     :icon="ChartColumn"

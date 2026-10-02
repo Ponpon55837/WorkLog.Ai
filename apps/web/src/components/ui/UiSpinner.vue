@@ -1,11 +1,16 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { t } from "../../i18n";
-withDefaults(defineProps<{ size?: number; label?: string }>(), { size: 16, label: t("載入中") });
+
+const props = withDefaults(defineProps<{ size?: number; label?: string }>(), { size: 16 });
+
+// Resolved here rather than in withDefaults so the default follows the current locale.
+const text = computed(() => props.label ?? t("載入中"));
 </script>
 
 <template>
   <span class="ui-spinner" role="status" :style="{ width: `${size}px`, height: `${size}px` }">
-    <span class="sr-only">{{ label }}</span>
+    <span class="sr-only">{{ text }}</span>
   </span>
 </template>
 

@@ -55,6 +55,7 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
     listQuery.data.value?.outcome === "session_decisions" ? listQuery.data.value.pendingCount : 0,
   );
   const decisionsLoading = computed(() => listQuery.isLoading.value);
+  const decisionsLoaded = computed(() => listQuery.data.value !== undefined);
   const decisionsError = computed(() => {
     if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入 Agent 自主決策。"));
     const result = listQuery.data.value;
@@ -79,6 +80,7 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
     decisions,
     pendingCount,
     decisionsLoading,
+    decisionsLoaded,
     decisionsError,
     listEnabled,
     setListActive,

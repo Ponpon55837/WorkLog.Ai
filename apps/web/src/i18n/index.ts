@@ -1,26 +1,26 @@
 import { ref } from "vue";
-import { en } from "./en";
+import enUS from "./locales/en-US.json";
 
 /**
  * Gettext-style localisation: the 繁體中文 source text is the message key, and each other locale maps it to a
- * translation. Missing translations fall back to the source text, so an untranslated string is never blank.
+ * translation in `locales/<BCP 47 tag>.json` (a flat `{ "原文": "translation" }` object). Missing translations fall back to the source text, so an untranslated string is never blank.
  *
  * The locale lives in a module-level ref (not a Pinia store) because pure utils — status maps, label maps,
  * formatters, router meta — translate outside any component or active Pinia. Anything that calls `t()` while
  * rendering or inside a computed re-runs when the locale changes.
  */
-export const LOCALES = ["zh-TW", "en"] as const;
+export const LOCALES = ["zh-TW", "en-US"] as const;
 export type Locale = (typeof LOCALES)[number];
 export type MessageParams = Record<string, string | number | boolean | null | undefined>;
 
 export const locale = ref<Locale>("zh-TW");
 
-const catalogs: Record<Exclude<Locale, "zh-TW">, Readonly<Record<string, string>>> = { en };
+const catalogs: Record<Exclude<Locale, "zh-TW">, Readonly<Record<string, string>>> = { "en-US": enUS };
 
 /** Each language is named in itself, so it stays recognisable whatever the current locale is. */
 export const LOCALE_OPTIONS: ReadonlyArray<{ value: Locale; label: string }> = [
   { value: "zh-TW", label: "繁體中文" },
-  { value: "en", label: "English" },
+  { value: "en-US", label: "English" },
 ];
 
 /**
@@ -33,14 +33,11 @@ export function tc(context: string, source: string, params?: MessageParams): str
   return key in catalogs[locale.value] ? t(key, params) : t(source, params);
 }
 
-/** BCP 47 tag handed to Intl formatters and `<html lang>`. */
-const INTL_LOCALES: Record<Locale, string> = { "zh-TW": "zh-TW", en: "en-US" };
-
 /** Picks the browser's language on first visit; anything that is not Chinese gets English. */
 export function detectLocale(languages: readonly string[] | undefined): Locale {
   const first = languages?.[0];
   if (!first) return "zh-TW";
-  return first.toLowerCase().startsWith("zh") ? "zh-TW" : "en";
+  return first.toLowerCase().startsWith("zh") ? "zh-TW" : "en-US";
 }
 
 export function isLocale(value: unknown): value is Locale {
@@ -63,8 +60,9 @@ export function t(source: string, params?: MessageParams): string {
   return text.replace(/\{(\w+)\}/g, (match, name: string) => (name in params ? String(params[name] ?? "") : match));
 }
 
+/** BCP 47 tag handed to Intl formatters and `<html lang>`; locales are already named by their tag. */
 export function intlLocale(): string {
-  return INTL_LOCALES[locale.value];
+  return locale.value;
 }
 
 /**

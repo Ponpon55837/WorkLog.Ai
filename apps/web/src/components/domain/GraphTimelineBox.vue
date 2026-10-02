@@ -481,7 +481,7 @@ onBeforeUnmount(() => {
     <UiFlash v-else-if="timeline?.truncated" tone="attention">{{
       t("這段期間的 Session 超過 2,000 筆，只顯示最新的部分；請縮小期間或選擇單一專案。")
     }}</UiFlash>
-    <UiSkeleton v-if="timelineLoading && !timeline" variant="card" :count="2" />
+    <UiSkeleton v-if="timelineLoading && !timeline" variant="card" :count="2" :label="t('正在載入時間軸…')" />
     <UiEmptyState
       v-else-if="isEmpty"
       :icon="CalendarRange"

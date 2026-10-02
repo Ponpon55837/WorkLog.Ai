@@ -85,10 +85,10 @@ const route = useRoute();
 
 // The page owns the candidate and decision queries so every tab can show its count, not only the open one.
 const decisionStore = useSessionDecisionsStore();
-const { pendingCount } = storeToRefs(decisionStore);
-const { candidates } = storeToRefs(knowledgeStore);
+const { pendingCount, decisionsLoaded } = storeToRefs(decisionStore);
+const { candidates, candidatesLoaded, knowledgeLoaded } = storeToRefs(knowledgeStore);
 const pagesStore = useKnowledgePagesStore();
-const { pages } = storeToRefs(pagesStore);
+const { pages, pagesLoaded } = storeToRefs(pagesStore);
 
 const hasFilters = computed(() =>
   Boolean(
@@ -112,11 +112,32 @@ const tab = computed<KnowledgeTab>({
     }),
 });
 
+// A tab shows its count only once that count has loaded; "0" before then would read as "nothing here".
 const tabs = computed(() => [
-  { value: "list" as const, label: "Knowledge", icon: BookOpen, count: knowledgePageInfo.value.total },
-  { value: "pages" as const, label: t("知識頁"), icon: BookMarked, count: pages.value.length },
-  { value: "candidates" as const, label: t("候選"), icon: Sparkles, count: candidates.value.length },
-  { value: "decisions" as const, label: t("待確認決策"), icon: ListChecks, count: pendingCount.value },
+  {
+    value: "list" as const,
+    label: "Knowledge",
+    icon: BookOpen,
+    count: knowledgeLoaded.value ? knowledgePageInfo.value.total : undefined,
+  },
+  {
+    value: "pages" as const,
+    label: t("知識頁"),
+    icon: BookMarked,
+    count: pagesLoaded.value ? pages.value.length : undefined,
+  },
+  {
+    value: "candidates" as const,
+    label: t("候選"),
+    icon: Sparkles,
+    count: candidatesLoaded.value ? candidates.value.length : undefined,
+  },
+  {
+    value: "decisions" as const,
+    label: t("待確認決策"),
+    icon: ListChecks,
+    count: decisionsLoaded.value ? pendingCount.value : undefined,
+  },
 ]);
 const projectItems = computed(() => [
   { value: "", label: t("所有記錄中專案") },
@@ -265,7 +286,7 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <UiSkeleton v-if="knowledgeLoading && knowledgeItems.length === 0" :count="4" />
+    <UiSkeleton v-if="knowledgeLoading && knowledgeItems.length === 0" :count="4" :label="t('正在載入 Knowledge…')" />
     <UiEmptyState
       v-else-if="knowledgeItems.length === 0"
       :icon="BookOpen"

@@ -245,7 +245,7 @@ onBeforeUnmount(() => {
         >
       </div>
 
-      <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" />
+      <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" :label="t('正在載入工作圖譜…')" />
       <UiEmptyState
         v-else-if="!graph || graph.nodes.length === 0"
         :icon="Share2"

@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
         >
       </UiFlash>
     </Transition>
-    <UiSkeleton v-if="loading" variant="card" :count="4" />
+    <UiSkeleton v-if="loading" variant="card" :count="4" :label="t('正在載入 Work Intelligence…')" />
     <RouterView v-else v-slot="{ Component, route: current }">
       <!-- Keyed by route name: switching tabs inside a page keeps the page and only fades its panel.
            The locale is part of the key so a language switch re-runs setup code that translated once. -->
