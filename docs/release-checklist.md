@@ -143,7 +143,7 @@ $env:WORK_INTELLIGENCE_BACKUP_DIR = "C:\wi-e3-validation\backups"
 1. 在 WorkLog.Ai 根目錄執行 `pnpm build` 與 `pnpm plugin:link`，確認只多出 `~/.work-intelligence/plugin-link.json`。
 2. Claude Code：`claude plugin marketplace add <repo>`、`claude plugin install work-intelligence@worklog-ai`，重新開啟工作階段；在 `/mcp` 確認 server 已連線，並在另一個追蹤中的專案改檔後結束一輪，確認保存提醒出現一次。
 3. Codex：從 `/plugins` 安裝 `work-intelligence`，重新開啟工作階段，確認 MCP 已連線且 skill 可用。
-4. 執行 `pnpm doctor`，確認 Claude Code plugin 顯示正常、沒有要求手動註冊；Web UI、CLI 與既有資料庫照常可用。
+4. 執行 `pnpm run doctor`，確認 Claude Code plugin 顯示正常、沒有要求手動註冊；Web UI、CLI 與既有資料庫照常可用。
 
 **預期結果：** 兩個 Agent 透過 plugin 讀寫同一個 `data/work-intelligence.sqlite`，原有使用方式不受影響。
 
