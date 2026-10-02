@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { t } from "../../i18n";
+import { tc } from "../../i18n";
 
 /**
  * Compact one-row page title: eyebrow, title and a one-line description share a row with the actions,
@@ -9,7 +9,7 @@ import { t } from "../../i18n";
  */
 const props = defineProps<{ title?: string; eyebrow?: string; description?: string }>();
 const route = useRoute();
-const resolvedTitle = computed(() => props.title ?? t(route.meta.title ?? ""));
+const resolvedTitle = computed(() => props.title ?? tc("nav", route.meta.title ?? ""));
 const resolvedEyebrow = computed(() => props.eyebrow ?? route.meta.eyebrow);
 </script>
 

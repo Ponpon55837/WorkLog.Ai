@@ -93,6 +93,14 @@ describe("t()", () => {
     expect(t("尚未翻譯 {name}", { name: "x" })).toBe("尚未翻譯 x");
   });
 
+  it("picks the singular English form for a count of one", () => {
+    expect(t("{value} 個檔案", { value: 1 })).toBe("1 個檔案");
+    locale.value = "en";
+    expect(t("{value} 個檔案", { value: 1 })).toBe("1 file");
+    expect(t("{value} 個檔案", { value: "1" })).toBe("1 file");
+    expect(t("{value} 個檔案", { value: 3 })).toBe("3 files");
+  });
+
   it("uses a context entry only where the same source means something else", () => {
     locale.value = "en";
     expect(tc("unit", "週")).toBe("weeks");

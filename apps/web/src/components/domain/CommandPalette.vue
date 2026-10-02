@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { BookOpen, CornerDownLeft, ListChecks, Search } from "lucide-vue-next";
+import { BookOpen, CornerDownLeft, Languages, ListChecks, Monitor, Moon, Search, Sun } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import { navItems } from "../layout/navigation";
 import type { IconComponent } from "../ui/types";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { router } from "../../router";
 import { useCommandPaletteStore } from "../../stores/command-palette";
+import { usePreferencesStore } from "../../stores/preferences";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatRelative } from "../../utils/format";
-import { t } from "../../i18n";
+import { LOCALE_OPTIONS, t } from "../../i18n";
 
 type PaletteItem = { id: string; group: string; label: string; hint?: string; icon: IconComponent; run: () => void };
 
@@ -18,6 +19,7 @@ const open = defineModel<boolean>("open", { required: true });
 
 const paletteStore = useCommandPaletteStore();
 const { sessions, knowledge } = storeToRefs(paletteStore);
+const { locale, resolvedTheme, theme } = storeToRefs(usePreferencesStore());
 
 const query = ref("");
 const active = ref(0);
@@ -39,6 +41,36 @@ const items = computed<PaletteItem[]>(() => {
       icon: item.icon,
       run: () => void router.push({ name: item.name }),
     }));
+  // Matched by their label in either language plus a few keywords, so "theme" or "語言" finds them.
+  const preferences = [
+    {
+      id: "pref-theme",
+      label: resolvedTheme.value === "dark" ? t("切換為淺色主題") : t("切換為深色主題"),
+      keywords: "theme light dark",
+      icon: resolvedTheme.value === "dark" ? Sun : Moon,
+      run: () => (theme.value = resolvedTheme.value === "dark" ? "light" : "dark"),
+    },
+    ...(theme.value === "system"
+      ? []
+      : [
+          {
+            id: "pref-theme-system",
+            label: t("主題跟隨系統"),
+            keywords: "theme system",
+            icon: Monitor,
+            run: () => (theme.value = "system"),
+          },
+        ]),
+    ...LOCALE_OPTIONS.filter((option) => option.value !== locale.value).map((option) => ({
+      id: `pref-locale-${option.value}`,
+      label: t("介面語言：{language}", { language: option.label }),
+      keywords: "language locale english chinese",
+      icon: Languages,
+      run: () => (locale.value = option.value),
+    })),
+  ]
+    .filter((item) => !term || `${item.label} ${item.keywords}`.toLowerCase().includes(term))
+    .map(({ keywords: _keywords, ...item }) => ({ ...item, group: t("偏好設定") }));
   const sessionItems = sessions.value.map((session) => ({
     id: `session-${session.id}`,
     group: "Sessions",
@@ -55,7 +87,7 @@ const items = computed<PaletteItem[]>(() => {
     icon: BookOpen,
     run: () => void router.push({ name: "knowledge", query: { q: item.title } }),
   }));
-  return [...pages, ...sessionItems, ...knowledgeItems];
+  return [...pages, ...preferences, ...sessionItems, ...knowledgeItems];
 });
 
 function close(): void {

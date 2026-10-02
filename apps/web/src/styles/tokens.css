@@ -95,7 +95,6 @@
   --duration-slow: 360ms;
 }
 
-/* GitHub light. Only colours change; type, spacing, radius and motion are shared. */
 :root[data-theme="light"] {
   color-scheme: light;
 
@@ -117,29 +116,29 @@
   /* Text */
   --fg: #1f2328;
   --fg-muted: #59636e;
-  --fg-subtle: #6e7781;
+  --fg-subtle: #636c76;
   --fg-on-emphasis: #ffffff;
 
   /* Semantic */
-  --accent: #0969da;
+  --accent: #0860ca;
   --accent-emphasis: #0969da;
   --accent-soft: rgba(9, 105, 218, 0.08);
   --accent-border: rgba(9, 105, 218, 0.4);
-  --success: #1a7f37;
+  --success: #1a7431;
   --success-emphasis: #1f883d;
   --success-emphasis-hover: #1c8139;
   --success-soft: rgba(26, 127, 55, 0.08);
   --success-border: rgba(26, 127, 55, 0.4);
-  --attention: #9a6700;
-  --attention-soft: rgba(154, 103, 0, 0.08);
-  --attention-border: rgba(154, 103, 0, 0.4);
-  --danger: #d1242f;
+  --attention: #8a5b00;
+  --attention-soft: rgba(138, 91, 0, 0.08);
+  --attention-border: rgba(138, 91, 0, 0.4);
+  --danger: #c4202c;
   --danger-emphasis: #cf222e;
   --danger-soft: rgba(209, 36, 47, 0.08);
   --danger-border: rgba(209, 36, 47, 0.4);
-  --done: #8250df;
-  --done-soft: rgba(130, 80, 223, 0.08);
-  --done-border: rgba(130, 80, 223, 0.4);
+  --done: #7340d0;
+  --done-soft: rgba(115, 64, 208, 0.08);
+  --done-border: rgba(115, 64, 208, 0.4);
   --neutral-soft: rgba(129, 139, 152, 0.2);
   --attention-counter: rgba(212, 167, 44, 0.3);
   --underline-active: #fd8c73;

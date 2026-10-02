@@ -1,12 +1,13 @@
 import { Activity, BookOpen, ChartColumn, FolderGit2, LayoutDashboard, ListChecks, Share2 } from "lucide-vue-next";
-import { translatedOptions } from "../../i18n";
+import { translatedOptionsIn } from "../../i18n";
 import type { NavGroup } from "../../router";
 import type { IconComponent } from "../ui/types";
 
 export type NavItem = { name: string; label: string; icon: IconComponent; group: NavGroup; shortcut: string };
 
 /** Sidebar order and icons. Titles and eyebrows live in route meta (router.ts). */
-export const navItems: readonly NavItem[] = translatedOptions<NavItem, "label">(
+export const navItems: readonly NavItem[] = translatedOptionsIn<NavItem, "label">(
+  "nav",
   [
     { name: "dashboard", label: "總覽", icon: LayoutDashboard, group: "work", shortcut: "g d" },
     { name: "sessions", label: "工作歷程", icon: ListChecks, group: "work", shortcut: "g s" },

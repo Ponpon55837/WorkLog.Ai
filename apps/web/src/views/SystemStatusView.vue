@@ -173,10 +173,10 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
         <UiBox data-testid="preferences">
           <template #header><UiBoxTitle :icon="Settings2" :title="t('個人偏好')" /></template>
           <div class="system-status__preference">
-            <UiField :label="t('外觀主題')" :hint="t('「跟隨系統」會隨作業系統的淺色／深色設定自動切換。')">
+            <UiField group :label="t('外觀主題')" :hint="t('「跟隨系統」會隨作業系統的淺色／深色設定自動切換。')">
               <UiSegmentedControl v-model="theme" :options="themeOptions" :label="t('外觀主題')" />
             </UiField>
-            <UiField :label="t('介面語言')" :hint="t('只改變介面文字；Session 與報告內容維持原本記錄的語言。')">
+            <UiField group :label="t('介面語言')" :hint="t('只改變介面文字；Session 與報告內容維持原本記錄的語言。')">
               <UiSegmentedControl v-model="locale" :options="LOCALE_OPTIONS" :label="t('介面語言')" />
             </UiField>
             <UiField

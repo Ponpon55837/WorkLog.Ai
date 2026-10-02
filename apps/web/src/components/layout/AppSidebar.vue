@@ -131,6 +131,18 @@ const emit = defineEmits<{ close: [] }>();
   width: 4px;
   border-radius: var(--radius);
   background: var(--accent);
+  animation: wi-grow-y var(--duration-base) var(--ease-out);
+}
+
+.app-sidebar__item :deep(.lucide) {
+  transition:
+    color var(--duration-instant) ease-out,
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.app-sidebar__item:hover :deep(.lucide) {
+  color: var(--fg);
+  transform: translateX(1px);
 }
 
 .app-sidebar__counter {
@@ -225,6 +237,7 @@ const emit = defineEmits<{ close: [] }>();
     z-index: 34;
     display: block;
     background: var(--bg-overlay);
+    animation: wi-fade-in var(--duration-base) var(--ease-out);
   }
 }
 </style>

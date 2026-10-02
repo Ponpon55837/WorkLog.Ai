@@ -34,6 +34,10 @@ export default defineConfig({
   use: {
     // Motion is decoration; tests (and axe contrast checks) should not race fade-ins.
     reducedMotion: "reduce",
+    // The UI follows the browser language on first visit; the specs assert the 繁體中文 copy.
+    locale: "zh-TW",
+    // The theme follows the OS by default; specs run against the dark theme unless they choose light.
+    colorScheme: "dark",
     baseURL: `http://127.0.0.1:${webPort}`,
     headless: true,
     screenshot: "only-on-failure",

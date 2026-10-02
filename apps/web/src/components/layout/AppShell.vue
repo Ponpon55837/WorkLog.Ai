@@ -6,6 +6,8 @@ import UiConfirmHost from "../ui/UiConfirmHost.vue";
 import UiToastHost from "../ui/UiToastHost.vue";
 import AppHeader from "./AppHeader.vue";
 import AppSidebar from "./AppSidebar.vue";
+import { useNavigationProgress } from "../../composables/useNavigationProgress";
+import { t } from "../../i18n";
 
 defineProps<{
   refreshing?: boolean;
@@ -17,6 +19,7 @@ defineProps<{
 const emit = defineEmits<{ refresh: []; search: [] }>();
 
 const route = useRoute();
+const navigating = useNavigationProgress();
 
 const menuOpen = ref(false);
 const main = ref<HTMLElement | null>(null);
@@ -31,6 +34,11 @@ watch(
 
 <template>
   <div class="app-shell">
+    <a class="skip-link" href="#main">{{ t("跳至主要內容") }}</a>
+    <!-- Indeterminate bar while a page loads or everything refreshes; it waits a moment so fast loads never flash it. -->
+    <div v-if="navigating || refreshing" class="app-shell__progress" role="progressbar" :aria-label="t('載入中')">
+      <span></span>
+    </div>
     <AppHeader
       :refreshing="refreshing"
       :menu-open="menuOpen"
@@ -40,7 +48,7 @@ watch(
     />
     <div class="app-shell__body">
       <AppSidebar :open="menuOpen" :counts="counts" :app-health="appHealth" @close="menuOpen = false" />
-      <main id="main" ref="main" class="app-shell__main">
+      <main id="main" ref="main" class="app-shell__main" tabindex="-1">
         <div :class="['app-shell__content', { 'app-shell__content--full': fullWidth }]">
           <slot />
         </div>
@@ -59,6 +67,31 @@ watch(
   grid-template-rows: var(--header-height) minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
+}
+
+.app-shell__progress {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 90;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  animation: wi-fade-in var(--duration-fast) var(--ease-out) 150ms both;
+}
+
+.app-shell__progress span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  animation: wi-progress 1.1s var(--ease-standard) infinite;
+}
+
+.app-shell__main:focus {
+  outline: none;
 }
 
 .app-shell__body {

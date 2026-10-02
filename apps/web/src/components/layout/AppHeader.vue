@@ -5,7 +5,7 @@ import { storeToRefs } from "pinia";
 import { Languages, Menu, Moon, RefreshCw, Search, Sun } from "lucide-vue-next";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
-import { LOCALE_OPTIONS, t } from "../../i18n";
+import { LOCALE_OPTIONS, t, tc } from "../../i18n";
 import { usePreferencesStore } from "../../stores/preferences";
 
 defineProps<{ refreshing?: boolean; menuOpen?: boolean }>();
@@ -14,7 +14,7 @@ const emit = defineEmits<{ refresh: []; search: []; toggleMenu: [] }>();
 const route = useRoute();
 const preferencesStore = usePreferencesStore();
 const { locale, resolvedTheme, theme } = storeToRefs(preferencesStore);
-const crumb = computed(() => t(route.meta.title ?? ""));
+const crumb = computed(() => tc("nav", route.meta.title ?? ""));
 const localeLabel = computed(() => LOCALE_OPTIONS.find((option) => option.value === locale.value)?.label ?? "");
 const themeToggleLabel = computed(() => (resolvedTheme.value === "dark" ? t("切換為淺色主題") : t("切換為深色主題")));
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);

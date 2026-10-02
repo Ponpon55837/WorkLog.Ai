@@ -47,11 +47,19 @@ export function isLocale(value: unknown): value is Locale {
   return (LOCALES as readonly unknown[]).includes(value);
 }
 
+function pluralForm(text: string, params: MessageParams): string {
+  const [one = text, other = text] = text.split("|");
+  const name = /\{(\w+)\}/.exec(other)?.[1];
+  return name !== undefined && Number(params[name]) === 1 ? one : other;
+}
+
 /** Translates a source string and fills `{name}` placeholders. */
 export function t(source: string, params?: MessageParams): string {
   const current = locale.value;
-  const text = current === "zh-TW" ? source : (catalogs[current][source] ?? source);
+  let text = current === "zh-TW" ? source : (catalogs[current][source] ?? source);
   if (!params) return text;
+  // A translation written as "one|other" picks its form from the first number placeholder (Chinese has one form).
+  if (current !== "zh-TW" && text.includes("|")) text = pluralForm(text, params);
   return text.replace(/\{(\w+)\}/g, (match, name: string) => (name in params ? String(params[name] ?? "") : match));
 }
 
@@ -71,8 +79,19 @@ export function translatedRecord<K extends string>(record: Record<K, string>): R
   return result;
 }
 
-/** Same as translatedRecord, for option lists: the named text fields translate on every read. */
+/**
+ * Same as translatedRecord, for option lists: the named text fields translate on every read. Pass a `context`
+ * first (see tc) when the list's wording differs from the same source text elsewhere.
+ */
 export function translatedOptions<T extends object, F extends keyof T & string>(
+  options: readonly T[],
+  ...fields: F[]
+): T[] {
+  return translatedOptionsIn("", options, ...fields);
+}
+
+export function translatedOptionsIn<T extends object, F extends keyof T & string>(
+  context: string,
   options: readonly T[],
   ...fields: F[]
 ): T[] {
@@ -80,7 +99,11 @@ export function translatedOptions<T extends object, F extends keyof T & string>(
     const copy = { ...option };
     for (const field of fields) {
       const source = option[field];
-      if (typeof source === "string") Object.defineProperty(copy, field, { enumerable: true, get: () => t(source) });
+      if (typeof source !== "string") continue;
+      Object.defineProperty(copy, field, {
+        enumerable: true,
+        get: () => (context ? tc(context, source) : t(source)),
+      });
     }
     return copy;
   });

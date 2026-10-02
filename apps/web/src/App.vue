@@ -99,15 +99,17 @@ onBeforeUnmount(() => {
     @refresh="refresh"
     @search="paletteOpen = true"
   >
-    <UiFlash v-if="isApiOffline" tone="danger" :title="t('無法連線到 Work Intelligence API')">
-      {{ t("API 恢復連線後會自動重新載入目前頁面資料。") }}
-    </UiFlash>
-    <UiFlash v-if="errorMessage && !isApiOffline" tone="danger" :title="t('無法載入')">
-      {{ errorMessage }}
-      <template #actions
-        ><UiButton size="sm" @click="refresh">{{ t("重試") }}</UiButton></template
-      >
-    </UiFlash>
+    <Transition name="fade" mode="out-in">
+      <UiFlash v-if="isApiOffline" key="offline" tone="danger" :title="t('無法連線到 Work Intelligence API')">
+        {{ t("API 恢復連線後會自動重新載入目前頁面資料。") }}
+      </UiFlash>
+      <UiFlash v-else-if="errorMessage" key="error" tone="danger" :title="t('無法載入')">
+        {{ errorMessage }}
+        <template #actions
+          ><UiButton size="sm" @click="refresh">{{ t("重試") }}</UiButton></template
+        >
+      </UiFlash>
+    </Transition>
     <UiSkeleton v-if="loading" variant="card" :count="4" />
     <RouterView v-else v-slot="{ Component, route: current }">
       <!-- Keyed by route name: switching tabs inside a page keeps the page and only fades its panel.
