@@ -16,6 +16,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- Interface text now lives in per-locale JSON catalogs, `apps/web/src/i18n/locales/zh-TW.json` and `en-US.json`, under semantic keys such as `common.refresh`; the code and the tests no longer contain interface copy. `t()` accepts only known keys, so a missing or mistyped key fails type checking, and tests fail when the catalogs drift apart or Chinese copy is hard-coded in the web source or in browser specs. A few English-only labels (the Local-first badge, the policy-gate note, Default deny) are now translated too.
+
 - English translations moved from `apps/web/src/i18n/en.ts` to the JSON catalog `apps/web/src/i18n/locales/en-US.json`, and the English locale is now `en-US` (a saved `en` preference upgrades automatically).
 - The light theme uses cool grey surfaces (about 87% luminance) instead of pure white to reduce glare, with darker text colours that keep WCAG AA contrast.
 - `README.md` is now in English, with the Traditional Chinese version in `README.zh-TW.md`; both link to each other.
@@ -94,6 +96,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Quality gates in CI: macOS alongside Ubuntu and Windows, a core Firefox E2E flow, read-path and import performance limits, a synthetic retrieval-quality evaluation (hit@5 and MRR), and axe accessibility checks on the six main pages.
 
 ### Changed
+
+- Interface text now lives in per-locale JSON catalogs, `apps/web/src/i18n/locales/zh-TW.json` and `en-US.json`, under semantic keys such as `common.refresh`; the code and the tests no longer contain interface copy. `t()` accepts only known keys, so a missing or mistyped key fails type checking, and tests fail when the catalogs drift apart or Chinese copy is hard-coded in the web source or in browser specs. A few English-only labels (the Local-first badge, the policy-gate note, Default deny) are now translated too.
 
 - English translations moved from `apps/web/src/i18n/en.ts` to the JSON catalog `apps/web/src/i18n/locales/en-US.json`, and the English locale is now `en-US` (a saved `en` preference upgrades automatically).
 - The light theme uses cool grey surfaces (about 87% luminance) instead of pure white to reduce glare, with darker text colours that keep WCAG AA contrast.

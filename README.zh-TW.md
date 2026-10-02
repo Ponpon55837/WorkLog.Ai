@@ -281,7 +281,7 @@ pnpm db:maintain
 
 ```text
 apps/
-  web/       Vue 3 + Vite Web UI（GitHub/Primer design system，深色／淺色主題，繁體中文／English 介面，翻譯放在 JSON）；Pinia store 管理狀態，Pinia Colada 管理 API 資料的快取與失效
+  web/       Vue 3 + Vite Web UI（GitHub/Primer design system，深色／淺色主題，繁體中文／English 介面，文字放在各語系的 JSON 目錄）；Pinia store 管理狀態，Pinia Colada 管理 API 資料的快取與失效
   server/    REST API、正式模式靜態檔、CLI（db:*）與 doctor
   mcp/       MCP stdio server 與保存提醒 hook
 packages/

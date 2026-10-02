@@ -21,7 +21,7 @@ pnpm dev
 - [worklog-ui skill](.agents/skills/worklog-ui/SKILL.md)：設計 token、元件目錄、頁面與無障礙規則。
 - [worklog-web-code-style skill](.agents/skills/worklog-web-code-style/SKILL.md)：Vue、TypeScript、CSS、Pinia store 與 query key 規範。
 
-介面文字以繁體中文撰寫並包在 `t()` 裡，同一個變更要在 `apps/web/src/i18n/locales/en-US.json` 加上英文翻譯（漏掉時 `pnpm test` 會失敗）；新顏色要同時定義深色與淺色 token。送出前請在兩種主題、兩種語言下各看一次畫面。
+介面文字不寫在程式碼裡：在 `apps/web/src/i18n/locales/zh-TW.json` 與 `en-US.json` 以同一個語意 key 加上繁中與英文，再用 `t("區域.key")` 引用；測試也用 key 取字（E2E 用 `tests/e2e/helpers/i18n.ts`）。漏翻、key 不一致或寫死中文時 `pnpm test`／`pnpm typecheck` 會失敗。新顏色要同時定義深色與淺色 token。送出前請在兩種主題、兩種語言下各看一次畫面。
 
 ### 程式碼擺放順序
 

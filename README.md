@@ -280,7 +280,7 @@ The threat model and how to report vulnerabilities are in [SECURITY.md](SECURITY
 
 ```text
 apps/
-  web/       Vue 3 + Vite Web UI (GitHub/Primer design system, dark / light themes, English / 繁體中文 interface with JSON message catalogs); Pinia stores hold state, Pinia Colada caches and invalidates API data
+  web/       Vue 3 + Vite Web UI (GitHub/Primer design system, dark / light themes, English / 繁體中文 interface from per-locale JSON message catalogs); Pinia stores hold state, Pinia Colada caches and invalidates API data
   server/    REST API, production static files, CLI (db:*) and doctor
   mcp/       MCP stdio server and save-reminder hooks
 packages/

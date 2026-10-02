@@ -16,7 +16,7 @@ apps/web/src/
 ├─ router.ts            routes, lazy views, route meta (title/eyebrow/group)
 ├─ api/                 transport.ts is the only place that calls fetch(); one module per domain
 │                       (projects.ts, sessions.ts…), composed by client.ts
-├─ i18n/                index.ts (t, tc, translatedRecord, locale) and locales/en-US.json (English catalog)
+├─ i18n/                index.ts (t, translatedRecord, locale) and locales/zh-TW.json + en-US.json (message catalogs)
 ├─ styles/              tokens.css (all raw colours, dark + light sets) and base.css (reset/typography/focus/motion)
 ├─ utils/               pure functions and constant maps, no Vue reactivity
 │  ├─ format.ts         dates, relative time, text formatting
@@ -105,7 +105,7 @@ Template rules:
 
 ## 6. Comments
 
-- Language: code comments and JSDoc in **English**; user-facing strings in **繁體中文**, wrapped in `t()` (§6a).
+- Language: code comments and JSDoc in **English**; user-facing strings live in the JSON catalogs and are referenced by key through `t()` (§6a).
 - Every exported composable function, util with non-obvious behaviour, and every component gets a one-sentence `/** … */` stating purpose or contract.
 - Inline `//` comments explain **why** (a trade-off, a data-contract rule, a browser quirk), never restate the code.
 - Reference the rule source when a comment encodes a domain rule, e.g. `// Missing verification is historical not_supplied, never not_run.`
@@ -113,17 +113,20 @@ Template rules:
 
 ## 6a. Interface language (i18n)
 
-The UI ships in 繁體中文 and English. The Chinese source text is the message key (gettext style), so code stays readable and an untranslated string falls back to Chinese rather than to a blank.
+The UI ships in 繁體中文 and English. Every interface string lives in one JSON catalog per locale — `src/i18n/locales/zh-TW.json` and `src/i18n/locales/en-US.json` — nested by area and looked up by a semantic key such as `common.refresh` or `projects.deletedBackup`. Code never contains interface copy.
 
-- **Wrap every user-visible string** — text, `label`, `aria-label`, `title`, `placeholder`, toast and error messages — in `t("…")` from `src/i18n`. In templates bind it: `:label="t('重新整理')"`, `{{ t("全部 Sessions") }}`.
-- **Interpolate, never concatenate**: `t("已匯入 {count} 個 handoff。", { count })`. Name placeholders after what they hold; word order differs between languages, so one sentence is one `t()` call.
-- **Counts**: give the English entry a `one|other` form (`"{count} file|{count} files"`); the first number placeholder picks the form.
-- **Same text, different meaning**: use `tc(context, source)` and add a `context|source` key (`tc("unit", "週")` → "weeks", while `t("週")` is the "Week" tab). Route titles and nav labels use the `nav` context.
-- **Module-level constants** (label maps, status visuals, option lists, route meta) are built once, so they must translate on read: `translatedRecord({...})`, `translatedOptions(list, "label")`, the `visual()` helper in `utils/status.ts`, or store the source text and call `t()` where it is displayed. Never call `t()` in a module-level initializer or a `withDefaults` default — resolve defaults in a `computed`.
-- **Loading**: until a query's first answer arrives, show `UiSkeleton` (it renders a visible "正在載入…" caption; pass `label` to name what loads) and hide counts, totals and pagination — expose a `xxxLoaded` computed (`query.data.value !== undefined`) from the store. Never render an empty state or a `0` count before the data is known.
+- **Wrap every user-visible string** — text, `label`, `aria-label`, `title`, `placeholder`, toast and error messages — in `t("area.key")` from `src/i18n`. In templates bind it: `:label="t('common.refresh')"`, `{{ t("dashboard.allSessions") }}`. `t()` only accepts `MessageKey` (every path in `zh-TW.json`), so a typo or a missing key is a type error in `vue-tsc`.
+- **Keys**: `<area>.<camelCaseMeaning>` — the area is the page or domain (`dashboard`, `sessions`, `session`, `reports`, `knowledge`, `graph`, `outstanding`, `projects`, `systemStatus`, `status`, `labels`, `format`, `layout`, `ui`, `nav`, `palette`, `app`, `api`, `showcase`), `common` for text several areas share. Name the meaning, not the wording (`projects.deleteBackupConfirm`, not `projects.text2`).
+- **Add a string in both catalogs in the same change.** `tests/web/i18n/catalog.test.ts` fails when the two catalogs' keys or `{placeholders}` differ, when a message is empty, when a key is no longer used, or when a Chinese string literal appears anywhere in `src/` (data markers such as `資料不足` are the only allowlisted exceptions).
+- **Interpolate, never concatenate**: `t("projects.importedHandoffsSkippedFailed", { length, length2, length3 })`. Word order differs between languages, so one sentence is one key.
+- **Counts**: write the English message as `one|other` (`"{count} file|{count} files"`); the first number placeholder picks the form.
+- **Same text, different meaning** gets different keys (`common.week` is the "Week" tab, `reports.unit.weeks` the unit).
+- **Module-level constants** (label maps, status visuals, option lists, route meta) hold keys and translate on read: `translatedRecord({...})`, `translatedOptions(list, "label")`, the `visual()` helper in `utils/status.ts`, or `t(route.meta.title)` where it is displayed. Never call `t()` in a module-level initializer or a `withDefaults` default — resolve defaults in a `computed`.
+- **Technical terms and product names** that stay English in both languages (Session, Knowledge, Evidence, Git, VS Code) still go through a key when they are interface copy; English eyebrows (`TODAY'S SIGNAL`) are a design element and stay literal.
+- **Loading**: until a query's first answer arrives, show `UiSkeleton` (it renders a visible "loading" caption; pass `label` to name what loads) and hide counts, totals and pagination — expose a `xxxLoaded` computed (`query.data.value !== undefined`) from the store. Never render an empty state or a `0` count before the data is known.
 - **Do not translate data**: Session text, report content, Agent output, API `reason` strings and data markers (`資料不足`, `KNOWLEDGE_PAGE_INSUFFICIENT`) are compared and shown as stored.
-- **Dates and numbers** go through `utils/format.ts`, which uses `intlLocale()`; do not hard-code `"zh-TW"` in `Intl` calls.
-- **Catalog**: add the English text to `src/i18n/locales/en-US.json` (a flat `{ "原文": "translation" }` object; catalogs are JSON, never TypeScript) in the same change. Locales are BCP 47 tags (`zh-TW`, `en-US`) used as-is for `Intl` and `<html lang>`. `tests/web/i18n/catalog.test.ts` fails when a Chinese string in `src/` has no entry, when an entry is no longer used, or when a translation drops a `{placeholder}`.
+- **Dates and numbers** go through `utils/format.ts`, which uses `intlLocale()`; do not hard-code `"zh-TW"` in `Intl` calls. Locales are BCP 47 tags (`zh-TW`, `en-US`) used as-is for `Intl` and `<html lang>`.
+- **Tests read copy from the catalogs too**: unit tests call `t("key", params)`; browser specs use `tt()`, `ttPattern()` and `textIn()` from `tests/e2e/helpers/i18n.ts`. `tests/web/i18n/e2e-copy.test.ts` fails when a spec passes Chinese text to a locator or text assertion (server and fixture data excepted).
 - The locale is a module-level ref in `src/i18n` (utils translate outside components); `stores/preferences.ts` persists it and the theme. `App.vue` keys the page and overlays by locale, so setup-time strings refresh on a language switch.
 
 ## 7. TypeScript

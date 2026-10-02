@@ -15,7 +15,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 - Keep the English uppercase eyebrow as a small label on the same row as the Chinese title (e.g. `SESSION ARCHIVE` 工作歷程). Page headers are one compact row; data, not the title block, fills the first screen.
 - Reading details → right **SidePanel**; forms and confirmations → centered **Dialog**.
 - Backend, MCP and HTTP API contracts are out of scope. Never add an endpoint to make a UI work; hide the block instead.
-- UI text is written in 繁體中文 and wrapped in `t()`; the English catalog (`src/i18n/locales/en-US.json`) translates it. Technical terms (Session, Knowledge, verification, metadata, handoff) stay in English in both languages. Data (Session text, reports, Agent output, data markers such as `資料不足`) is never translated. See [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) §6a for the mechanics.
+- UI text lives in the JSON catalogs `src/i18n/locales/zh-TW.json` and `en-US.json` and is referenced by semantic key through `t("area.key")`; no interface copy is written in code. Technical terms (Session, Knowledge, verification, metadata, handoff) stay in English in both languages. Data (Session text, reports, Agent output, data markers such as `資料不足`) is never translated. See [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) §6a for the mechanics.
 
 ## Workflow
 
@@ -63,5 +63,5 @@ Then check in a browser at **1440 / 960 / 375** px widths:
 - [ ] Status colors follow the mapping in [references/tokens.md](references/tokens.md#status-mapping).
 - [ ] Domain distinctions in [references/domain-semantics.md](references/domain-semantics.md) are visible (狀態／未結項 label, four verification states, Git separate from changed files, synthesis blocks cite sources).
 - [ ] No raw hex outside `tokens.css`, no Unicode icons, no font size < 12px.
-- [ ] Checked in both themes (header sun/moon button) and both languages (header language menu); new strings have an `en-US.json` entry (`pnpm --filter @work-intelligence/web test` fails otherwise).
+- [ ] Checked in both themes (header sun/moon button) and both languages (header language menu); new keys exist in both `zh-TW.json` and `en-US.json` (`pnpm --filter @work-intelligence/web test` fails otherwise).
 - [ ] For a migrated page: its old classes are gone from `style.css`, and before/after screenshots are attached to the PR.
