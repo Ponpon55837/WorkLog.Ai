@@ -144,6 +144,14 @@ describe("plugin manifests", () => {
     expect(skill).toContain("plugin-link.json");
   });
 
+  it("ship the Web UI's icon for the Anthropic directory listing", () => {
+    const icon = readJson(join(pluginRoot, ".claude-plugin/plugin.json")).icon as string;
+    expect(icon).toBe("./assets/icon.svg");
+    expect(readFileSync(join(pluginRoot, icon), "utf8")).toBe(
+      readFileSync(join(repositoryRoot, "apps/web/public/favicon.svg"), "utf8"),
+    );
+  });
+
   it("are listed by both marketplaces", () => {
     const claude = readJson(join(repositoryRoot, ".claude-plugin/marketplace.json"));
     const codex = readJson(join(repositoryRoot, ".agents/plugins/marketplace.json"));
