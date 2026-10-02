@@ -9,11 +9,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const dashboardScript = join(repositoryRoot, "scripts/dashboard.mjs");
-const cleanups: Array<() => void> = [];
+const cleanups: Array<() => unknown> = [];
 
 function temporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "work-intelligence-dashboard-"));
-  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  // Windows keeps a folder locked briefly after a process that used it exits.
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return directory;
 }
 
@@ -46,7 +47,17 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** A checkout whose scripts/start.mjs serves /api/health on WORK_INTELLIGENCE_PORT for a few seconds. */
+/**
+ * A checkout whose scripts/start.mjs serves /api/health on WORK_INTELLIGENCE_PORT until /shutdown (or 5 seconds).
+ * The server runs in the checkout, which Windows cannot delete while it is alive, so tests stop it first.
+ */
+function stopServerOn(port: number): void {
+  cleanups.push(async () => {
+    await fetch(`http://127.0.0.1:${port}/shutdown`).catch(() => undefined);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+  });
+}
+
 function builtCheckout(root: string): string {
   mkdirSync(join(root, "scripts"), { recursive: true });
   cpSync(dashboardScript, join(root, "scripts/dashboard.mjs"));
@@ -57,6 +68,7 @@ function builtCheckout(root: string): string {
       "const server = createServer((request, response) => {",
       '  response.setHeader("content-type", "application/json");',
       '  response.end(JSON.stringify({ ok: true, database: "ok" }));',
+      '  if (request.url === "/shutdown") setImmediate(() => process.exit(0));',
       "});",
       'server.listen(Number(process.env.WORK_INTELLIGENCE_PORT), "127.0.0.1");',
       "setTimeout(() => process.exit(0), 5000);",
@@ -69,8 +81,8 @@ function builtCheckout(root: string): string {
   return root;
 }
 
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
 describe("pnpm dashboard", () => {
@@ -88,6 +100,7 @@ describe("pnpm dashboard", () => {
     const home = temporaryDirectory();
     const checkout = builtCheckout(join(home, "checkout"));
     const port = await freePort();
+    stopServerOn(port);
     const result = await run(join(checkout, "scripts/dashboard.mjs"), [], {
       HOME: home,
       WORK_INTELLIGENCE_PORT: String(port),
@@ -142,6 +155,7 @@ describe("pnpm dashboard", () => {
     mkdirSync(join(home, ".work-intelligence"));
     writeFileSync(join(home, ".work-intelligence/plugin-link.json"), JSON.stringify({ repositoryRoot: checkout }));
     const port = await freePort();
+    stopServerOn(port);
     const result = await run(join(clone, "plugins/work-intelligence/scripts/launch.mjs"), ["dashboard"], {
       HOME: home,
       WORK_INTELLIGENCE_PORT: String(port),
