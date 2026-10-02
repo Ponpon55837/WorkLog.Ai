@@ -31,6 +31,8 @@ A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並
 
 2026-10-02 修正 MCP 報告儲存與重試在 schema 保護交易內重複開啟 SQLite 交易的回歸。三個 MCP 回歸案例覆蓋實際 dispatcher 提交、冪等重送、重試與失敗回滾；報告版本與請求狀態維持原子更新。
 
+PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒，等待更新後 CI 驗證。
+
 ## 其他暫緩工作
 
 | 項目 | 狀態 | 再次評估條件 |

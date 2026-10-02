@@ -172,6 +172,7 @@ describe("recall evaluator", () => {
     expect(readFileSync(walPath)).toEqual(beforeWal);
   }, 15_000);
 
+  // File-backed snapshot setup can exceed Vitest's default 5 seconds under Windows coverage.
   it("fails a no-hit question when a strong MCP match exists and reports the false positive", async () => {
     const { databasePath, projectRoot, store } = setupFileStore();
     createRecallFixtures(store, projectRoot);
@@ -200,7 +201,7 @@ describe("recall evaluator", () => {
     expect(report.expectedNoHitWithHits).toEqual([
       expect.objectContaining({ id: "false-positive", mode: "recall", returnedHitCount: expect.any(Number) }),
     ]);
-  });
+  }, 15_000);
 
   it("does not count a skipped untracked project as an expected no-hit", async () => {
     const { databasePath, temporaryRoot, store } = setupFileStore();

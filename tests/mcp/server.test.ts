@@ -1043,6 +1043,7 @@ describe("Work Intelligence MCP server", () => {
     expect(JSON.stringify(nonPending)).not.toContain("Private project follow-up");
   });
 
+  // File-backed SQLite setup and this multi-write flow exceed 5 seconds under Windows coverage.
   it("surfaces related pending items and audits only explicit finalize supersessions", async () => {
     const { client, store, root } = await connect(undefined, true);
     const project = store.addProject("Encrypted cache work", root);
@@ -1212,7 +1213,7 @@ describe("Work Intelligence MCP server", () => {
     } finally {
       database.close();
     }
-  });
+  }, 15_000);
 
   it("accepts at most 200 superseded outstanding item ids in the MCP schema", async () => {
     const { client, store, root } = await connect();
