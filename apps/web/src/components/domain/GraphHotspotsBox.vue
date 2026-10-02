@@ -13,20 +13,21 @@ import UiSegmentedControl from "../ui/UiSegmentedControl.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import HotspotList from "./HotspotList.vue";
+import { t } from "../../i18n";
 
 /** The graph page's hotspot view: files or directories many Sessions changed, and how often they failed. */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 
 const groupOptions: { value: HotspotGroup; label: string }[] = [
-  { value: "file", label: "檔案" },
-  { value: "directory", label: "目錄" },
+  { value: "file", label: t("檔案") },
+  { value: "directory", label: t("目錄") },
 ];
 const periodOptions: { value: HotspotPeriod; label: string }[] = [
-  { value: "30", label: "最近 30 天" },
-  { value: "90", label: "最近 90 天" },
-  { value: "365", label: "最近一年" },
-  { value: "all", label: "全部期間" },
+  { value: "30", label: t("最近 30 天") },
+  { value: "90", label: t("最近 90 天") },
+  { value: "365", label: t("最近一年") },
+  { value: "all", label: t("全部期間") },
 ];
 
 const hotspotsStore = useHotspotsStore();
@@ -34,12 +35,12 @@ const { groupBy, period, hotspots, hotspotsLoading, hotspotsError } = storeToRef
 const sessionsStore = useSessionsStore();
 
 const projectOptions = computed(() => [
-  { value: "", label: "所有記錄中專案" },
+  { value: "", label: t("所有記錄中專案") },
   ...props.projects.map((project) => ({ value: project.id, label: project.name })),
 ]);
 
 function openSession(sessionId: string): void {
-  void sessionsStore.openSessionDetail(sessionId, "無法載入修改這個檔案的 Session。");
+  void sessionsStore.openSessionDetail(sessionId, t("無法載入修改這個檔案的 Session。"));
 }
 
 // The graph page keeps the project filter in the URL; the store follows it.
@@ -58,11 +59,17 @@ onBeforeUnmount(() => hotspotsStore.setActive(false));
 <template>
   <UiBox class="graph-hotspots" sticky-header data-testid="graph-hotspots">
     <template #header>
-      <UiBoxTitle :icon="Flame" title="熱點檔案" :count="hotspots.length" />
+      <UiBoxTitle :icon="Flame" :title="t('熱點檔案')" :count="hotspots.length" />
       <div class="graph-hotspots__tools">
-        <UiSelect v-model="projectId" :options="projectOptions" :icon="FolderGit2" size="sm" label="選擇熱點專案範圍" />
-        <UiSelect v-model="period" :options="periodOptions" size="sm" label="選擇熱點期間" />
-        <UiSegmentedControl v-model="groupBy" :options="groupOptions" label="熱點彙總方式" />
+        <UiSelect
+          v-model="projectId"
+          :options="projectOptions"
+          :icon="FolderGit2"
+          size="sm"
+          :label="t('選擇熱點專案範圍')"
+        />
+        <UiSelect v-model="period" :options="periodOptions" size="sm" :label="t('選擇熱點期間')" />
+        <UiSegmentedControl v-model="groupBy" :options="groupOptions" :label="t('熱點彙總方式')" />
       </div>
     </template>
     <UiFlash v-if="hotspotsError" tone="danger">{{ hotspotsError }}</UiFlash>
@@ -70,10 +77,18 @@ onBeforeUnmount(() => hotspotsStore.setActive(false));
     <UiEmptyState
       v-else-if="hotspots.length === 0"
       :icon="Flame"
-      title="這段期間沒有熱點"
-      description="Session 記錄 changed files 後，這裡會列出被最多 Session 修改的檔案；改動超過 20 個檔案的 Session 不計入。"
+      :title="t('這段期間沒有熱點')"
+      :description="
+        t('Session 記錄 changed files 後，這裡會列出被最多 Session 修改的檔案；改動超過 20 個檔案的 Session 不計入。')
+      "
     />
-    <HotspotList v-else :items="hotspots" :show-project="!projectId" label="熱點檔案清單" @open-session="openSession" />
+    <HotspotList
+      v-else
+      :items="hotspots"
+      :show-project="!projectId"
+      :label="t('熱點檔案清單')"
+      @open-session="openSession"
+    />
   </UiBox>
 </template>
 

@@ -15,8 +15,12 @@ import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
 import { useSessionsStore } from "./sessions";
+import { t } from "../i18n";
 
-export const metadataBackfillInstruction = "請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。";
+/** The natural-language request the user pastes into their Agent conversation. */
+export function metadataBackfillInstruction(): string {
+  return t("請處理我剛在 Work Intelligence 掃描出的 metadata 缺口。");
+}
 
 /** Owns metadata-gap scans and Agent requests while the Projects backfill tab is active. */
 export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
@@ -81,7 +85,7 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
   const metadataBackfillLoading = computed(() => previewQuery.isLoading.value);
   const metadataBackfillError = computed(() => {
     if (metadataBackfillActionError.value) return metadataBackfillActionError.value;
-    if (previewQuery.error.value) return errorMessage(previewQuery.error.value, "無法掃描 metadata 缺口。");
+    if (previewQuery.error.value) return errorMessage(previewQuery.error.value, t("無法掃描 metadata 缺口。"));
     const result = previewQuery.data.value;
     return result && result.outcome !== "backfill_preview" ? result.reason : "";
   });
@@ -101,7 +105,7 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
   const metadataBackfillRequestError = computed(() => {
     if (metadataBackfillRequestActionError.value) return metadataBackfillRequestActionError.value;
     if (requestQuery.error.value) {
-      return errorMessage(requestQuery.error.value, "無法載入 metadata 回補請求狀態。");
+      return errorMessage(requestQuery.error.value, t("無法載入 metadata 回補請求狀態。"));
     }
     const result = requestQuery.data.value;
     return result && result.outcome !== "metadata_backfill_requests" ? result.reason : "";
@@ -132,7 +136,7 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
       await requestQuery.refetch(true);
     } catch (error) {
       if (!useApi().isAbortError(error)) {
-        metadataBackfillRequestActionError.value = errorMessage(error, "無法載入 metadata 回補請求狀態。");
+        metadataBackfillRequestActionError.value = errorMessage(error, t("無法載入 metadata 回補請求狀態。"));
       }
     } finally {
       requestRefreshQuietly.value = false;
@@ -158,8 +162,10 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
       if (result.outcome === "metadata_backfill_request") {
         useToast().showToast(
           result.duplicate
-            ? "已有待處理的 metadata 回補請求；請在目前的 Agent 對話中處理。"
-            : `已建立 metadata 回補請求；請在目前的 Agent 對話中說：「${metadataBackfillInstruction}」`,
+            ? t("已有待處理的 metadata 回補請求；請在目前的 Agent 對話中處理。")
+            : t("已建立 metadata 回補請求；請在目前的 Agent 對話中說：「{metadataBackfillInstruction}」", {
+                metadataBackfillInstruction: metadataBackfillInstruction(),
+              }),
         );
       } else if (result.outcome === "metadata_backfill_not_needed") {
         useToast().showToast(result.reason);
@@ -167,7 +173,7 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
         metadataBackfillRequestActionError.value = result.reason;
       }
     } catch (error) {
-      metadataBackfillRequestActionError.value = errorMessage(error, "建立 metadata 回補請求失敗。");
+      metadataBackfillRequestActionError.value = errorMessage(error, t("建立 metadata 回補請求失敗。"));
     }
   }
 
@@ -176,10 +182,10 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
     if (!request || !metadataBackfillRequestIsActive.value || metadataBackfillRequestLoading.value) return;
     if (
       !(await confirmAction({
-        title: "取消這批 metadata 回補？",
-        message: "既有 Session 資料不會被刪除。",
-        confirmLabel: "取消回補",
-        cancelLabel: "繼續等待",
+        title: t("取消這批 metadata 回補？"),
+        message: t("既有 Session 資料不會被刪除。"),
+        confirmLabel: t("取消回補"),
+        cancelLabel: t("繼續等待"),
         danger: true,
       }))
     ) {
@@ -191,12 +197,12 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
       const result = await cancelRequestMutation.mutateAsync(request.id);
       if (result.outcome !== "metadata_backfill_request_cancelled") {
         metadataBackfillRequestActionError.value =
-          "reason" in result ? result.reason : "這批 metadata 回補目前無法取消。";
+          "reason" in result ? result.reason : t("這批 metadata 回補目前無法取消。");
         return;
       }
-      useToast().showToast("已取消這批 metadata 回補；既有 Session 資料仍然保留。");
+      useToast().showToast(t("已取消這批 metadata 回補；既有 Session 資料仍然保留。"));
     } catch (error) {
-      metadataBackfillRequestActionError.value = errorMessage(error, "取消 metadata 回補失敗。");
+      metadataBackfillRequestActionError.value = errorMessage(error, t("取消 metadata 回補失敗。"));
     }
   }
 
@@ -213,13 +219,13 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
       }
     } catch (error) {
       if (!useApi().isAbortError(error)) {
-        metadataBackfillActionError.value = errorMessage(error, "無法掃描 metadata 缺口。");
+        metadataBackfillActionError.value = errorMessage(error, t("無法掃描 metadata 缺口。"));
       }
     }
   }
 
   function openMetadataBackfillSession(item: MetadataBackfillItem): Promise<void> {
-    return useSessionsStore().openSessionDetail(item.sessionId, "無法載入待回補的 Session。");
+    return useSessionsStore().openSessionDetail(item.sessionId, t("無法載入待回補的 Session。"));
   }
 
   return {

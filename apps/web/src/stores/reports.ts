@@ -21,8 +21,12 @@ import { errorMessage, toDateInputValue } from "../utils/format";
 import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { emptyPageInfo } from "./sessions";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
-export const reportSynthesisInstruction = "請處理我剛在 Work Intelligence 建立的報告提煉請求。";
+/** The natural-language request the user pastes into their Agent conversation. */
+export function reportSynthesisInstruction(): string {
+  return t("請處理我剛在 Work Intelligence 建立的報告提煉請求。");
+}
 
 /** A calendar period, or "custom" for the from/to range in reportRange. */
 export type ReportViewPeriod = ReportPeriod | "custom";
@@ -217,11 +221,11 @@ export const useReportsStore = defineStore("reports", () => {
   const reportLoading = computed(() => reportQuery.isLoading.value);
   const reportError = computed(() => {
     if (reportActionError.value) return reportActionError.value;
-    if (reportQuery.error.value) return errorMessage(reportQuery.error.value, "無法載入工作報告。");
+    if (reportQuery.error.value) return errorMessage(reportQuery.error.value, t("無法載入工作報告。"));
     const result = reportQuery.data.value;
     if (result?.outcome === "skipped") return result.reason;
     if (reportEvidenceActive.value && evidenceQuery.error.value) {
-      return errorMessage(evidenceQuery.error.value, "無法更新來源證據。");
+      return errorMessage(evidenceQuery.error.value, t("無法更新來源證據。"));
     }
     const evidenceResult = evidenceQuery.data.value;
     return reportEvidenceActive.value && evidenceResult?.outcome === "skipped" ? evidenceResult.reason : "";
@@ -263,9 +267,9 @@ export const useReportsStore = defineStore("reports", () => {
   const reportSynthesisError = computed(() => {
     if (reportSynthesisActionError.value) return reportSynthesisActionError.value;
     if (reportSessionsQuery.error.value) {
-      return errorMessage(reportSessionsQuery.error.value, "無法載入報告原始 Session。");
+      return errorMessage(reportSessionsQuery.error.value, t("無法載入報告原始 Session。"));
     }
-    if (synthesisQuery.error.value) return errorMessage(synthesisQuery.error.value, "無法載入報告提煉狀態。");
+    if (synthesisQuery.error.value) return errorMessage(synthesisQuery.error.value, t("無法載入報告提煉狀態。"));
     const requests = synthesisQuery.data.value?.requests;
     if (requests?.outcome === "skipped") return requests.reason;
     const summaries = synthesisQuery.data.value?.summaries;
@@ -282,13 +286,18 @@ export const useReportsStore = defineStore("reports", () => {
   const reportComparisons = computed(() => {
     if (!report.value) return [];
     return [
-      { key: "sessions", label: "完成 Sessions", comparison: report.value.comparison.sessions, foot: "與上一期比較" },
-      { key: "events", label: "Recorded Events", comparison: report.value.comparison.events, foot: "可追溯事件" },
+      {
+        key: "sessions",
+        label: t("完成 Sessions"),
+        comparison: report.value.comparison.sessions,
+        foot: t("與上一期比較"),
+      },
+      { key: "events", label: "Recorded Events", comparison: report.value.comparison.events, foot: t("可追溯事件") },
       {
         key: "changedFiles",
         label: "Changed Files",
         comparison: report.value.comparison.changedFiles,
-        foot: "不等同 Git commit",
+        foot: t("不等同 Git commit"),
       },
     ];
   });
@@ -311,9 +320,9 @@ export const useReportsStore = defineStore("reports", () => {
 
   function customRangeProblem(): string {
     const { from, to } = reportRange.value;
-    if (!from || !to) return "請選擇自訂期間的起訖日期。";
+    if (!from || !to) return t("請選擇自訂期間的起訖日期。");
     const days = (Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / 86_400_000 + 1;
-    return days > MAX_CUSTOM_DAYS ? "自訂期間最長 " + MAX_CUSTOM_DAYS + " 天。" : "";
+    return days > MAX_CUSTOM_DAYS ? t("自訂期間最長 {days} 天。", { days: MAX_CUSTOM_DAYS }) : "";
   }
 
   function loadReport(resetPages = false): void {
@@ -352,7 +361,7 @@ export const useReportsStore = defineStore("reports", () => {
       await synthesisQuery.refetch(true);
     } catch (error) {
       if (!useApi().isAbortError(error)) {
-        reportSynthesisActionError.value = errorMessage(error, "無法載入報告提煉狀態。");
+        reportSynthesisActionError.value = errorMessage(error, t("無法載入報告提煉狀態。"));
       }
     } finally {
       reportSynthesisLoadingState.value = false;
@@ -366,7 +375,7 @@ export const useReportsStore = defineStore("reports", () => {
       await synthesisQuery.refetch(true);
     } catch (error) {
       if (!useApi().isAbortError(error)) {
-        reportSynthesisActionError.value = errorMessage(error, "無法載入報告提煉狀態。");
+        reportSynthesisActionError.value = errorMessage(error, t("無法載入報告提煉狀態。"));
       }
     }
   }
@@ -394,11 +403,13 @@ export const useReportsStore = defineStore("reports", () => {
       }
       useToast().showToast(
         reportSynthesisSummary.value
-          ? "已建立重新提煉請求。上一版摘要會先保留，新的 Agent 摘要完成後才會替換。"
-          : "報告請求已建立。請在目前的 Agent 對話中說：「" + reportSynthesisInstruction + "」",
+          ? t("已建立重新提煉請求。上一版摘要會先保留，新的 Agent 摘要完成後才會替換。")
+          : t("報告請求已建立。請在目前的 Agent 對話中說：「{instruction}」", {
+              instruction: reportSynthesisInstruction(),
+            }),
       );
     } catch (error) {
-      reportSynthesisActionError.value = errorMessage(error, "建立報告提煉請求失敗。");
+      reportSynthesisActionError.value = errorMessage(error, t("建立報告提煉請求失敗。"));
     }
   }
 
@@ -409,12 +420,12 @@ export const useReportsStore = defineStore("reports", () => {
     try {
       const result = await retrySynthesisMutation.mutateAsync(requestToRetry.id);
       if (result.outcome !== "report_synthesis_request_retried") {
-        reportSynthesisActionError.value = "reason" in result ? result.reason : "這份報告目前無法重試。";
+        reportSynthesisActionError.value = "reason" in result ? result.reason : t("這份報告目前無法重試。");
         return;
       }
-      useToast().showToast("已重新建立提煉請求。請在目前的 Agent 對話中處理它。");
+      useToast().showToast(t("已重新建立提煉請求。請在目前的 Agent 對話中處理它。"));
     } catch (error) {
-      reportSynthesisActionError.value = errorMessage(error, "重新建立報告提煉請求失敗。");
+      reportSynthesisActionError.value = errorMessage(error, t("重新建立報告提煉請求失敗。"));
     }
   }
 
@@ -423,10 +434,10 @@ export const useReportsStore = defineStore("reports", () => {
     if (!requestToCancel || !reportSynthesisIsActive.value || cancelSynthesisMutation.isLoading.value) return;
     if (
       !(await confirmAction({
-        title: "取消這次報告提煉？",
-        message: "既有報告與歷史版本會保留。",
-        confirmLabel: "取消提煉",
-        cancelLabel: "繼續等待",
+        title: t("取消這次報告提煉？"),
+        message: t("既有報告與歷史版本會保留。"),
+        confirmLabel: t("取消提煉"),
+        cancelLabel: t("繼續等待"),
         danger: true,
       }))
     )
@@ -435,12 +446,12 @@ export const useReportsStore = defineStore("reports", () => {
     try {
       const result = await cancelSynthesisMutation.mutateAsync(requestToCancel.id);
       if (result.outcome !== "report_synthesis_request_cancelled") {
-        reportSynthesisActionError.value = "reason" in result ? result.reason : "這份報告目前無法取消。";
+        reportSynthesisActionError.value = "reason" in result ? result.reason : t("這份報告目前無法取消。");
         return;
       }
-      useToast().showToast("已取消這次報告提煉；既有報告與歷史版本仍然保留。");
+      useToast().showToast(t("已取消這次報告提煉；既有報告與歷史版本仍然保留。"));
     } catch (error) {
-      reportSynthesisActionError.value = errorMessage(error, "取消報告提煉失敗。");
+      reportSynthesisActionError.value = errorMessage(error, t("取消報告提煉失敗。"));
     }
   }
 
@@ -448,9 +459,9 @@ export const useReportsStore = defineStore("reports", () => {
     if (summary.isCurrent) return;
     if (
       !(await confirmAction({
-        title: "移除這個歷史版本？",
-        message: "「" + summary.title + "」將被移除，此操作無法復原。",
-        confirmLabel: "移除版本",
+        title: t("移除這個歷史版本？"),
+        message: t("「{title}」將被移除，此操作無法復原。", { title: summary.title }),
+        confirmLabel: t("移除版本"),
         danger: true,
       }))
     )
@@ -459,19 +470,19 @@ export const useReportsStore = defineStore("reports", () => {
     try {
       const result = await deleteSynthesisMutation.mutateAsync(summary.id);
       if (result.outcome !== "report_summary_deleted") {
-        reportSynthesisActionError.value = "reason" in result ? result.reason : "這個報告版本目前無法移除。";
+        reportSynthesisActionError.value = "reason" in result ? result.reason : t("這個報告版本目前無法移除。");
         return;
       }
-      useToast().showToast("已移除報告歷史版本。");
+      useToast().showToast(t("已移除報告歷史版本。"));
     } catch (error) {
-      reportSynthesisActionError.value = errorMessage(error, "移除報告歷史版本失敗。");
+      reportSynthesisActionError.value = errorMessage(error, t("移除報告歷史版本失敗。"));
     }
   }
 
   async function exportReport(format: ReportExportFormat): Promise<void> {
     const { showToast } = useToast();
     if (!report.value) {
-      showToast("請先載入一份報告，再進行匯出。");
+      showToast(t("請先載入一份報告，再進行匯出。"));
       return;
     }
     reportExportLoading.value = format;
@@ -496,9 +507,9 @@ export const useReportsStore = defineStore("reports", () => {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      showToast("已下載 " + (format === "markdown" ? "Markdown" : "JSON") + " 報告。");
+      showToast(t("已下載 {format} 報告。", { format: format === "markdown" ? "Markdown" : "JSON" }));
     } catch (error) {
-      showToast(errorMessage(error, "報告匯出失敗。"));
+      showToast(errorMessage(error, t("報告匯出失敗。")));
     } finally {
       reportExportLoading.value = null;
     }

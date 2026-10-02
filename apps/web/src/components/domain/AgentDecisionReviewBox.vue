@@ -15,6 +15,7 @@ import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import VirtualList from "../VirtualList.vue";
+import { t } from "../../i18n";
 
 const props = defineProps<{ projectRoot?: string }>();
 const decisionStore = useSessionDecisionsStore();
@@ -31,48 +32,48 @@ function projectRootFor(item: SessionDecisionRecord): string | undefined {
 async function review(item: SessionDecisionRecord, reviewStatus: "confirmed" | "rejected"): Promise<void> {
   const projectRoot = projectRootFor(item);
   if (!projectRoot) {
-    showToast("找不到決策所屬的 tracked project。", "danger");
+    showToast(t("找不到決策所屬的 tracked project。"), "danger");
     return;
   }
   try {
     const result = await decisionStore.reviewDecision({ decisionId: item.id, projectRoot, reviewStatus });
     if (result.outcome === "session_decision_reviewed") {
-      showToast(reviewStatus === "confirmed" ? "已確認這項 Agent 自主決策。" : "已拒絕這項 Agent 自主決策。");
+      showToast(reviewStatus === "confirmed" ? t("已確認這項 Agent 自主決策。") : t("已拒絕這項 Agent 自主決策。"));
     } else {
       showToast(
-        result.outcome === "skipped" ? (result.reason ?? "此專案目前未啟用記錄。") : "找不到這項決策。",
+        result.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : t("找不到這項決策。"),
         "danger",
       );
     }
   } catch {
-    showToast("更新決策審核狀態失敗，請重試。", "danger");
+    showToast(t("更新決策審核狀態失敗，請重試。"), "danger");
   }
 }
 
 function promote(item: SessionDecisionRecord): void {
   const project = projectsStore.projects.find((entry) => entry.id === item.projectId);
   if (!project) {
-    showToast("找不到決策所屬的 tracked project。", "danger");
+    showToast(t("找不到決策所屬的 tracked project。"), "danger");
     return;
   }
   openAgentDecisionEditor(item, project);
 }
 
 function openSource(item: SessionDecisionRecord): void {
-  void openSessionDetail(item.sessionId, "無法載入這項決策的來源 Session。");
+  void openSessionDetail(item.sessionId, t("無法載入這項決策的來源 Session。"));
 }
 </script>
 
 <template>
   <UiBox class="agent-decisions" sticky-header data-testid="agent-decision-review">
     <template #header>
-      <UiBoxTitle eyebrow="Agent decisions" title="待確認的 Agent 自主決策" :count="pendingCount" />
+      <UiBoxTitle eyebrow="Agent decisions" :title="t('待確認的 Agent 自主決策')" :count="pendingCount" />
     </template>
     <UiFlash v-if="decisionsError" tone="danger">{{ decisionsError }}</UiFlash>
     <UiEmptyState
       v-else-if="!decisionsLoading && decisions.length === 0"
-      title="目前沒有待確認的決策"
-      description="Agent 明確標記為自主選擇的決策會出現在這裡。"
+      :title="t('目前沒有待確認的決策')"
+      :description="t('Agent 明確標記為自主選擇的決策會出現在這裡。')"
     />
     <VirtualList
       v-else
@@ -82,12 +83,12 @@ function openSource(item: SessionDecisionRecord): void {
       fit-viewport-to-panel
       fill-available-space
       :estimate-item-height="176"
-      label="待確認的 Agent 自主決策清單"
+      :label="t('待確認的 Agent 自主決策清單')"
     >
       <template #default="{ item }">
         <article class="agent-decisions__item" data-testid="agent-decision-item">
           <div class="agent-decisions__meta">
-            <UiLabel tone="attention">Agent 自主決策</UiLabel>
+            <UiLabel tone="attention">{{ t("Agent 自主決策") }}</UiLabel>
             <span>{{
               projectsStore.projects.find((project) => project.id === item.projectId)?.name ?? "Tracked project"
             }}</span>
@@ -105,12 +106,14 @@ function openSource(item: SessionDecisionRecord): void {
               :icon="ExternalLink"
               @click="openSource(item)"
             >
-              {{ item.sessionTitle ?? "開啟來源 Session" }}
+              {{ item.sessionTitle ?? t("開啟來源 Session") }}
             </UiButton>
             <div class="agent-decisions__actions">
-              <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed')">確認</UiButton>
-              <UiButton size="sm" :icon="X" @click="review(item, 'rejected')">拒絕</UiButton>
-              <UiButton size="sm" variant="primary" :icon="BookOpen" @click="promote(item)">整理成 Knowledge</UiButton>
+              <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed')">{{ t("確認") }}</UiButton>
+              <UiButton size="sm" :icon="X" @click="review(item, 'rejected')">{{ t("拒絕") }}</UiButton>
+              <UiButton size="sm" variant="primary" :icon="BookOpen" @click="promote(item)">{{
+                t("整理成 Knowledge")
+              }}</UiButton>
             </div>
           </div>
         </article>

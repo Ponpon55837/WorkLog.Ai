@@ -11,6 +11,7 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { formatDate, formatRelative } from "../../utils/format";
 import { projectDeletionCountLabels } from "../../utils/labels";
+import { t } from "../../i18n";
 
 defineProps<{
   items: ProjectDeletionAuditRecord[];
@@ -34,14 +35,16 @@ function countEntries(
 <template>
   <UiBox sticky-header data-testid="project-deletion-audit">
     <template #header>
-      <UiBoxTitle eyebrow="PROJECT DELETION AUDIT" title="已刪除專案紀錄" :icon="History" :count="items.length" />
-      <span class="project-deletion-audit__note">只保留時間、專案 id 與各類刪除筆數，不含名稱、路徑或工作內容</span>
+      <UiBoxTitle eyebrow="PROJECT DELETION AUDIT" :title="t('已刪除專案紀錄')" :icon="History" :count="items.length" />
+      <span class="project-deletion-audit__note">{{
+        t("只保留時間、專案 id 與各類刪除筆數，不含名稱、路徑或工作內容")
+      }}</span>
     </template>
 
-    <UiFlash v-if="error" tone="danger" title="無法載入刪除紀錄">
+    <UiFlash v-if="error" tone="danger" :title="t('無法載入刪除紀錄')">
       {{ error }}
       <template #actions>
-        <UiButton size="sm" :icon="RefreshCw" @click="emit('retry')">重試</UiButton>
+        <UiButton size="sm" :icon="RefreshCw" @click="emit('retry')">{{ t("重試") }}</UiButton>
       </template>
     </UiFlash>
     <UiSkeleton v-if="loading && items.length === 0" variant="row" :count="2" />
@@ -49,8 +52,8 @@ function countEntries(
       v-else-if="items.length === 0 && !error"
       compact
       :icon="History"
-      title="尚無刪除紀錄"
-      description="永久刪除專案後，時間、專案 id 與刪除筆數會顯示在這裡。"
+      :title="t('尚無刪除紀錄')"
+      :description="t('永久刪除專案後，時間、專案 id 與刪除筆數會顯示在這裡。')"
     />
     <VirtualList
       v-else-if="items.length > 0"
@@ -60,7 +63,7 @@ function countEntries(
       fit-viewport-to-panel
       fill-available-space
       :estimate-item-height="96"
-      label="已刪除專案紀錄清單"
+      :label="t('已刪除專案紀錄清單')"
     >
       <template #default="{ item }">
         <UiBoxRow>

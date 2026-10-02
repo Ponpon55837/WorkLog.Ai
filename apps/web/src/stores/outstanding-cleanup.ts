@@ -15,6 +15,7 @@ import { errorMessage } from "../utils/format";
 import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { useOutstandingItemsStore } from "./outstanding-items";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 const emptyPageInfo: PageInfo = {
   page: 1,
@@ -119,16 +120,16 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     () => requestsQuery.data.value?.outcome === "skipped" || proposalsQuery.data.value?.outcome === "skipped",
   );
   const error = computed(() => {
-    if (requestsQuery.error.value) return errorMessage(requestsQuery.error.value, "無法載入整理請求。");
+    if (requestsQuery.error.value) return errorMessage(requestsQuery.error.value, t("無法載入整理請求。"));
     return "";
   });
   const proposalError = computed(() => {
-    if (proposalsQuery.error.value) return errorMessage(proposalsQuery.error.value, "無法載入整理建議。");
+    if (proposalsQuery.error.value) return errorMessage(proposalsQuery.error.value, t("無法載入整理建議。"));
     const result = proposalsQuery.data.value;
-    if (result?.outcome === "not_found") return "這份整理請求已不存在。";
+    if (result?.outcome === "not_found") return t("這份整理請求已不存在。");
 
     if (result?.outcome === "outstanding_cleanup_proposals" && result.request.projectId !== projectId.value)
-      return "這份整理請求屬於其他專案，請切換專案後查看。";
+      return t("這份整理請求屬於其他專案，請切換專案後查看。");
     return "";
   });
 
@@ -179,11 +180,11 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
         reviewStatus.value = "pending";
         return;
       }
-      if (result.outcome === "not_needed") throw new Error("此專案目前沒有待處理未結項。");
-      throw new Error("此專案目前無法建立整理請求。");
+      if (result.outcome === "not_needed") throw new Error(t("此專案目前沒有待處理未結項。"));
+      throw new Error(t("此專案目前無法建立整理請求。"));
     } catch (error) {
       if (error instanceof ApiError && error.code === "conflict")
-        throw new Error("此專案已有整理請求，請先查看現有請求。", { cause: error });
+        throw new Error(t("此專案已有整理請求，請先查看現有請求。"), { cause: error });
       throw error;
     }
   }
@@ -191,17 +192,17 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   async function decide(proposalIds: string[], decision: "accept" | "reject"): Promise<void> {
     try {
       const result = await decideMutation.mutateAsync({ requestId: requestId.value, proposalIds, decision });
-      if (result.outcome !== "outstanding_cleanup_proposals_decided") throw new Error("目前無法審核這些建議。");
+      if (result.outcome !== "outstanding_cleanup_proposals_decided") throw new Error(t("目前無法審核這些建議。"));
     } catch (error) {
       if (error instanceof ApiError && error.code === "conflict")
-        throw new Error("項目、來源或建議已變更，整批未套用。請重新整理後核對。", { cause: error });
+        throw new Error(t("項目、來源或建議已變更，整批未套用。請重新整理後核對。"), { cause: error });
       throw error;
     }
   }
 
   async function cancelRequest(): Promise<void> {
     const result = await cancelMutation.mutateAsync(requestId.value);
-    if (result.outcome !== "outstanding_cleanup_request_cancelled") throw new Error("目前無法取消這份請求。");
+    if (result.outcome !== "outstanding_cleanup_request_cancelled") throw new Error(t("目前無法取消這份請求。"));
   }
 
   return {

@@ -1,4 +1,5 @@
 import type { ApiErrorCode } from "@work-intelligence/core";
+import { t } from "../i18n";
 
 type ApiErrorPayload = { error?: string; code?: string };
 
@@ -89,7 +90,7 @@ export class ApiTransport {
         throw error;
       }
       this.onConnectionChange?.(false);
-      throw new ApiError("network_error", 0, "無法連線至本機 API，請確認 API 是否已啟動。");
+      throw new ApiError("network_error", 0, t("無法連線至本機 API，請確認 API 是否已啟動。"));
     }
   }
 
@@ -125,11 +126,11 @@ export class ApiTransport {
       throw new ApiError(
         payload?.code ?? errorCodeForStatus(response.status),
         response.status,
-        payload?.error ?? "請求失敗，請確認 API 是否已啟動。",
+        payload?.error ?? t("請求失敗，請確認 API 是否已啟動。"),
       );
     }
     if (payload === undefined) {
-      throw new ApiError("malformed_response", response.status, "API 回應格式不正確，請重新整理後再試。");
+      throw new ApiError("malformed_response", response.status, t("API 回應格式不正確，請重新整理後再試。"));
     }
     return payload;
   }

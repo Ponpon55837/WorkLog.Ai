@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CircleAlert, CircleCheck, Info, X } from "lucide-vue-next";
 import { useToast } from "../../composables/useToast";
+import { t } from "../../i18n";
 
 const { toasts, dismissToast } = useToast();
 const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as const;
@@ -12,7 +13,7 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
       <div v-for="toast in toasts" :key="toast.id" :class="['ui-toast', `ui-toast--${toast.tone}`]" role="status">
         <component :is="icons[toast.tone]" :size="16" :stroke-width="1.75" class="ui-toast__icon" aria-hidden="true" />
         <span class="ui-toast__message">{{ toast.message }}</span>
-        <button type="button" class="ui-toast__close" aria-label="關閉通知" @click="dismissToast(toast.id)">
+        <button type="button" class="ui-toast__close" :aria-label="t('關閉通知')" @click="dismissToast(toast.id)">
           <X :size="14" :stroke-width="1.75" aria-hidden="true" />
         </button>
       </div>

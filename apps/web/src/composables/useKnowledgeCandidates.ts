@@ -5,6 +5,7 @@ import { useKnowledgeCandidateEditorStore } from "../stores/knowledge-candidate-
 import { errorMessage } from "../utils/format";
 import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
+import { t } from "../i18n";
 
 function splitValues(value: string): string[] {
   return [
@@ -28,12 +29,15 @@ async function requestCandidates(project: ProjectRecord, refreshProjectRoot?: st
     } else {
       showToast(
         result.duplicate
-          ? `${project.name} 已有整理請求在等待 Agent。`
-          : `已建立 ${project.name} 的整理請求（${result.request.sourceSessionIds.length} 筆 Session），請 Agent「整理 Knowledge 候選」。`,
+          ? t("{name} 已有整理請求在等待 Agent。", { name: project.name })
+          : t("已建立 {name} 的整理請求（{length} 筆 Session），請 Agent「整理 Knowledge 候選」。", {
+              name: project.name,
+              length: result.request.sourceSessionIds.length,
+            }),
       );
     }
   } catch (error) {
-    showToast(errorMessage(error, "無法建立整理請求。"), "danger");
+    showToast(errorMessage(error, t("無法建立整理請求。")), "danger");
   }
 }
 
@@ -50,15 +54,15 @@ async function decide(
       refreshProjectRoot,
     );
     if (result.outcome === "already_decided") {
-      showToast("這筆候選已經處理過了。");
+      showToast(t("這筆候選已經處理過了。"));
     } else if (result.outcome !== "knowledge_candidate_decided") {
-      showToast(result.outcome === "skipped" ? result.reason : "找不到這筆候選。", "danger");
+      showToast(result.outcome === "skipped" ? result.reason : t("找不到這筆候選。"), "danger");
       return false;
     } else {
-      showToast(decision === "accept" ? "已加入 Knowledge。" : "已拒絕這筆候選。");
+      showToast(decision === "accept" ? t("已加入 Knowledge。") : t("已拒絕這筆候選。"));
     }
   } catch (error) {
-    showToast(errorMessage(error, "無法處理這筆候選。"), "danger");
+    showToast(errorMessage(error, t("無法處理這筆候選。")), "danger");
     return false;
   }
   return true;
@@ -70,9 +74,11 @@ function acceptCandidate(candidate: KnowledgeCandidate, refreshProjectRoot?: str
 
 async function rejectCandidate(candidate: KnowledgeCandidate, refreshProjectRoot?: string): Promise<void> {
   const confirmed = await confirmAction({
-    title: "拒絕這筆候選？",
-    message: `「${candidate.title}」不會成為 Knowledge；之後的整理請求也不會再用同一筆 Session 產生候選。`,
-    confirmLabel: "拒絕",
+    title: t("拒絕這筆候選？"),
+    message: t("「{title}」不會成為 Knowledge；之後的整理請求也不會再用同一筆 Session 產生候選。", {
+      title: candidate.title,
+    }),
+    confirmLabel: t("拒絕"),
     danger: true,
   });
   if (confirmed) await decide(candidate, "reject", refreshProjectRoot);
@@ -100,7 +106,7 @@ async function saveCandidateEditor(refreshProjectRoot?: string): Promise<void> {
   const form = useKnowledgeCandidateEditorStore().candidateForm;
   if (!candidate) return;
   if (!form.title.trim() || !form.body.trim()) {
-    useKnowledgeCandidateEditorStore().candidateError = "標題與內容不能留白。";
+    useKnowledgeCandidateEditorStore().candidateError = t("標題與內容不能留白。");
     return;
   }
   useKnowledgeCandidateEditorStore().candidateSaving = true;

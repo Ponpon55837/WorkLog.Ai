@@ -1,5 +1,6 @@
 import type { DatabaseBackupCreated, DatabaseBackupDeleted, DatabaseBackupList } from "@work-intelligence/core";
 import { type ApiTransport } from "./transport";
+import { t } from "../i18n";
 
 export interface BackupsApi {
   listBackups(signal?: AbortSignal): Promise<DatabaseBackupList>;
@@ -23,7 +24,7 @@ export function createBackupsApi(client: ApiTransport): BackupsApi {
     },
 
     async exportDatabase(): Promise<{ blob: Blob; fileName: string }> {
-      const blob = await client.download("/api/export", {}, "無法匯出資料，請確認 API 是否已啟動。");
+      const blob = await client.download("/api/export", {}, t("無法匯出資料，請確認 API 是否已啟動。"));
       const fileName =
         "work-intelligence-export-" + new Date().toLocaleDateString("sv-SE").replace(/-/g, "") + ".sqlite";
       return { blob, fileName };

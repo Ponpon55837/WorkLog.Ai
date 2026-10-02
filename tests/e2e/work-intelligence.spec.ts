@@ -1247,6 +1247,19 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
+  test("keeps every page free of horizontal overflow in English, whose copy runs longer", async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem("work-intelligence:locale", "en"));
+    for (const width of [640, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const [path] of pageRoutes) {
+        await page.goto(path);
+        await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
+        await expect(page.getByRole("heading").first()).toBeVisible();
+        await expectNoHorizontalOverflow(page);
+      }
+    }
+  });
+
   test("supports direct page routes @cross-browser", async ({ page }) => {
     for (const [path, heading] of pageRoutes) {
       await page.goto(path);
@@ -1472,6 +1485,57 @@ test.describe("Work Intelligence browser regression", () => {
     }
 
     expect(failures, `axe found critical or serious accessibility issues:\n${failures.join("\n")}`).toEqual([]);
+  });
+
+  test("has no critical or serious axe violations in the light theme @accessibility", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.addInitScript(() => window.localStorage.setItem("work-intelligence:theme", "light"));
+    const failures: string[] = [];
+
+    for (const [path, heading] of accessibilityRoutes) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+      const { violations } = await new AxeBuilder({ page }).analyze();
+      for (const violation of violations) {
+        if (violation.impact !== "critical" && violation.impact !== "serious") continue;
+
+        const selectors = violation.nodes.map((node) => node.target.join(" ")).join("; ");
+        failures.push(`${path}: ${violation.id} — ${violation.help}${selectors ? ` (${selectors})` : ""}`);
+      }
+    }
+
+    expect(failures, `axe found critical or serious accessibility issues:\n${failures.join("\n")}`).toEqual([]);
+  });
+
+  test("switches the interface language and theme from the header and remembers both", async ({ page }) => {
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { name: "工作總覽" }).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "繁體中文" }).click();
+    await page.getByRole("menuitemradio", { name: "English" }).click();
+    await expect(page.getByRole("heading", { name: "Work overview" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Work history" }).first()).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
+
+    const theme = await page.locator("html").getAttribute("data-theme");
+    const next = theme === "dark" ? "light" : "dark";
+    await page
+      .getByRole("button", { name: next === "light" ? "Switch to light theme" : "Switch to dark theme" })
+      .click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", next);
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Work overview" }).first()).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", next);
+
+    await page.goto("/system-status");
+    const preferences = page.getByTestId("preferences");
+    await preferences.getByRole("radio", { name: "繁體中文" }).click();
+    await expect(page.getByRole("heading", { name: "系統狀態" }).first()).toBeVisible();
+    await preferences.getByRole("radio", { name: "跟隨系統" }).click();
+    await expect(page.locator("html")).toHaveAttribute("lang", "zh-TW");
   });
 
   test("opens the Session panel from a ?session deep link and closes it", async ({ page }) => {

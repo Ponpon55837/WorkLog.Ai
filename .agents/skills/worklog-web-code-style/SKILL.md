@@ -16,7 +16,8 @@ apps/web/src/
 ├─ router.ts            routes, lazy views, route meta (title/eyebrow/group)
 ├─ api/                 transport.ts is the only place that calls fetch(); one module per domain
 │                       (projects.ts, sessions.ts…), composed by client.ts
-├─ styles/              tokens.css (all raw colours) and base.css (reset/typography/focus)
+├─ i18n/                index.ts (t, tc, translatedRecord, locale) and en.ts (English catalog)
+├─ styles/              tokens.css (all raw colours, dark + light sets) and base.css (reset/typography/focus/motion)
 ├─ utils/               pure functions and constant maps, no Vue reactivity
 │  ├─ format.ts         dates, relative time, text formatting
 │  ├─ labels.ts         UI label maps and option lists
@@ -72,6 +73,7 @@ Import order (blank-line-free, one group after another, alphabetical inside a gr
 6. `../router`
 7. `../stores/*`
 8. `../utils/*`
+9. `../i18n` (always the last import)
 
 Template rules:
 - Use `v-if`/`v-else-if` chains for loading → empty → content; never render an empty list without `UiEmptyState`.
@@ -103,11 +105,25 @@ Template rules:
 
 ## 6. Comments
 
-- Language: code comments and JSDoc in **English**; user-facing strings in **繁體中文**.
+- Language: code comments and JSDoc in **English**; user-facing strings in **繁體中文**, wrapped in `t()` (§6a).
 - Every exported composable function, util with non-obvious behaviour, and every component gets a one-sentence `/** … */` stating purpose or contract.
 - Inline `//` comments explain **why** (a trade-off, a data-contract rule, a browser quirk), never restate the code.
 - Reference the rule source when a comment encodes a domain rule, e.g. `// Missing verification is historical not_supplied, never not_run.`
 - No commented-out code, no TODOs without an owner/issue, no section-divider banners.
+
+## 6a. Interface language (i18n)
+
+The UI ships in 繁體中文 and English. The Chinese source text is the message key (gettext style), so code stays readable and an untranslated string falls back to Chinese rather than to a blank.
+
+- **Wrap every user-visible string** — text, `label`, `aria-label`, `title`, `placeholder`, toast and error messages — in `t("…")` from `src/i18n`. In templates bind it: `:label="t('重新整理')"`, `{{ t("全部 Sessions") }}`.
+- **Interpolate, never concatenate**: `t("已匯入 {count} 個 handoff。", { count })`. Name placeholders after what they hold; word order differs between languages, so one sentence is one `t()` call.
+- **Counts**: give the English entry a `one|other` form (`"{count} file|{count} files"`); the first number placeholder picks the form.
+- **Same text, different meaning**: use `tc(context, source)` and add a `context|source` key (`tc("unit", "週")` → "weeks", while `t("週")` is the "Week" tab). Route titles and nav labels use the `nav` context.
+- **Module-level constants** (label maps, status visuals, option lists, route meta) are built once, so they must translate on read: `translatedRecord({...})`, `translatedOptions(list, "label")`, the `visual()` helper in `utils/status.ts`, or store the source text and call `t()` where it is displayed. Never call `t()` in a module-level initializer or a `withDefaults` default — resolve defaults in a `computed`.
+- **Do not translate data**: Session text, report content, Agent output, API `reason` strings and data markers (`資料不足`, `KNOWLEDGE_PAGE_INSUFFICIENT`) are compared and shown as stored.
+- **Dates and numbers** go through `utils/format.ts`, which uses `intlLocale()`; do not hard-code `"zh-TW"` in `Intl` calls.
+- **Catalog**: add the English text to `src/i18n/en.ts` in the same change. `tests/web/i18n/catalog.test.ts` fails when a Chinese string in `src/` has no entry, when an entry is no longer used, or when a translation drops a `{placeholder}`.
+- The locale is a module-level ref in `src/i18n` (utils translate outside components); `stores/preferences.ts` persists it and the theme. `App.vue` keys the page and overlays by locale, so setup-time strings refresh on a language switch.
 
 ## 7. TypeScript
 

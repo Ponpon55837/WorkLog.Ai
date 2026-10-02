@@ -23,6 +23,12 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 `pnpm db:redact` 的 dry-run 與 `--apply` 測試只使用暫存目錄內的合成 SQLite 資料庫；不會讀寫使用者的實際資料庫。測試中的憑證字串由執行期片段組合，不在原始碼保存完整假 token。
 
+## 介面語言與主題
+
+- **英文目錄完整性**：`tests/web/i18n/catalog.test.ts` 掃描 `apps/web/src` 中所有含中文的字串，確認每一條都在 `src/i18n/en.ts` 有翻譯、`en.ts` 沒有已不再使用的條目，且翻譯保留原文的每個 `{placeholder}`。新增或修改介面文字時要同步更新 `en.ts`，否則 `pnpm test` 會失敗。同一檔案也測試插值、單複數、`tc()` 與常數標籤表隨語系切換。
+- **偏好設定**：`tests/web/stores/preferences-store.test.ts` 涵蓋主題（含跟隨系統）、語言的保存與還原，以及無法使用 localStorage 時的退回行為。
+- **E2E 預設**：Playwright 以 `locale: "zh-TW"`、`colorScheme: "dark"` 執行，所以既有測試維持以繁體中文文案與深色主題斷言。淺色主題由「light theme @accessibility」axe 測試覆蓋；「switches the interface language and theme」測試從頁首切換英文與主題並確認重新整理後保留；另有英文版在 640／390px 的水平溢位檢查，因為英文文案較長。
+
 ## CI
 
 `.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：
@@ -34,7 +40,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 - **Recall evaluator CI smoke**：Quality 的 Ubuntu、Windows、macOS 三個 matrix 都執行 `pnpm run test:recall-eval:example`，在暫存目錄建立合成 SQLite，結構化代入臨時 project root 與本次 seed 的 Session／Knowledge ids，再直接用目前 Node 執行 evaluator，避免 shell 路徑與 `pnpm` shim 差異。recall 與 context 正例必須都達 hit@1、hit@5、MRR = 1；負例預期為 `confidence: "none"`，任何不符都以非零結束。CI 明確傳入暫存 `--db`，不讀取 `data/`。
 - **檢索品質門檻**：`pnpm test` 在三個 OS 都包含虛構合成資料的 storage 評估；Ubuntu 另以 `pnpm test:retrieval-quality` 明確顯示 hit@5／MRR 門檻結果。
 - **MCP 回應大小門檻**：`pnpm test` 在三個 OS 都執行合成資料的回應大小測試；Ubuntu 另以 `pnpm test:response-size` 顯示各工具序列化字元數並檢查上限。
-- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium、Firefox 與 WebKit 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行 `@cross-browser` 與 `@accessibility` 流程，WebKit 執行 `@cross-browser` 核心流程。Chromium 與 Firefox 會在六個主要頁面、系統狀態與備份管理頁執行 axe，critical／serious impact 的違規會使測試失敗；第一次使用清單另在無專案狀態執行 axe，並在 1440／960／375px 檢查水平溢位。備份刪除確認也有鍵盤操作 E2E。三個瀏覽器分開執行，使用各自的暫存 SQLite 與隔離的 Agent home/config 路徑；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。CI 上的 WebKit 是 Ubuntu Playwright 執行環境，不等於 macOS Safari 實機驗證。
+- **E2E**（`ubuntu-latest`，Quality 通過後）：安裝 Playwright Chromium、Firefox 與 WebKit 後執行 `pnpm test:e2e`；Chromium 執行完整回歸，Firefox 執行 `@cross-browser` 與 `@accessibility` 流程，WebKit 執行 `@cross-browser` 核心流程。Chromium 與 Firefox 會在六個主要頁面、系統狀態與備份管理頁執行 axe，深色與淺色主題各跑一次，critical／serious impact 的違規（包含色彩對比）會使測試失敗；第一次使用清單另在無專案狀態執行 axe，並在 1440／960／375px 檢查水平溢位。備份刪除確認也有鍵盤操作 E2E。三個瀏覽器分開執行，使用各自的暫存 SQLite 與隔離的 Agent home/config 路徑；失敗時上傳 `test-results/` 供除錯。測試以 `pnpm start` 在正式模式啟動 Web 與 API，並共用一個 port。CI 上的 WebKit 是 Ubuntu Playwright 執行環境，不等於 macOS Safari 實機驗證。
 
 Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的 macOS 基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）；project-policy 的 Windows branches 為 92.75%，因平台路徑分隔符走不同條件。
 

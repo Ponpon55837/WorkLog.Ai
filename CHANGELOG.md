@@ -6,6 +6,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- The Web UI has a GitHub light theme next to the dark one. The header's sun/moon button switches between them, and System status → 個人偏好 offers 跟隨系統／淺色／深色; the default follows the operating system. The saved theme is applied before the first paint (`public/theme-init.js`, CSP-safe), and Mermaid diagrams redraw with the matching theme. Light semantic colours are one step darker than stock Primer so 12px labels meet WCAG AA.
+- The Web UI is available in 繁體中文 and English. The header language menu and 個人偏好 switch it without reloading; the first visit follows the browser language. Dates, weekdays and relative times follow the language. Only interface text is translated; Sessions, reports, Knowledge and Agent output keep the language they were recorded in. A unit test fails when a Chinese UI string has no English translation or a translation drops a placeholder.
+- Motion and usability: a colour cross-fade when the theme changes, a top progress bar while a page loads or everything refreshes, a "跳至主要內容" skip link, an animated sidebar indicator, a pop when a counter changes, fading banners, and theme/language commands in the `Ctrl`/`⌘` + `K` palette. All of it turns off with `prefers-reduced-motion`.
+
 - Web-created project cleanup requests snapshot pending outstanding items. Agents read bounded evidence pages and submit idempotent recommendations without changing items; people accept or reject individually or in atomic batches. Acceptance checks source/evidence versions and retains linked audit. Schema 23 cleanup data participates in transfer, redaction and permanent deletion.
 
 ### Changed
@@ -23,6 +27,9 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Fixed
 
 - MCP report summary saves and report synthesis retries share the schema guard's write transaction instead of starting a nested SQLite transaction. Failed saves preserve the previous current summary and leave the request available for resubmission.
+
+- A field label wrapped around a segmented control no longer becomes the accessible name of its first option; `UiField` has a `group` mode for button sets.
+- Segmented controls scroll inside their own track on narrow screens instead of widening the page when their labels are long.
 
 - 活躍整理快照阻擋 Agent finalize／nextSteps 編輯直接結案。未結項與整理審核保留已成功寫入的結果，即使背景刷新遭取消；同頁刷新保留有效勾選，取消整理後清空選取。
 

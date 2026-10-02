@@ -5,6 +5,7 @@ import { errorMessage } from "../utils/format";
 import { workSummarySectionLabels } from "../utils/labels";
 import { useSessionsStore, type SessionEditorSaveInput } from "../stores/sessions";
 import { useToast } from "./useToast";
+import { t } from "../i18n";
 
 function sectionItems(text: string): string[] {
   return text
@@ -45,7 +46,7 @@ async function saveSessionEditor(): Promise<void> {
   const form = useSessionEditorStore().sessionEditorForm;
   const summary = form.summary.trim();
   if (!summary) {
-    useSessionEditorStore().sessionEditorError = "主摘要不能留白。";
+    useSessionEditorStore().sessionEditorError = t("主摘要不能留白。");
     return;
   }
   const original = toForm(session);
@@ -58,7 +59,7 @@ async function saveSessionEditor(): Promise<void> {
     verificationStatus !== original.verificationStatus ||
     form.verificationSummary.trim() !== original.verificationSummary.trim();
   if (verificationChanged && verificationStatus === "not_supplied") {
-    useSessionEditorStore().sessionEditorError = "請選擇 Verification 狀態（通過、失敗或未執行）才能填寫說明。";
+    useSessionEditorStore().sessionEditorError = t("請選擇 Verification 狀態（通過、失敗或未執行）才能填寫說明。");
     return;
   }
   if (!summaryChanged && changedSections.length === 0 && !verificationChanged) {
@@ -90,14 +91,14 @@ async function saveSessionEditor(): Promise<void> {
     }
     await useSessionsStore().saveSessionEdits(edits);
   } catch (error) {
-    useSessionEditorStore().sessionEditorError = errorMessage(error, "無法更新 Session 摘要。");
+    useSessionEditorStore().sessionEditorError = errorMessage(error, t("無法更新 Session 摘要。"));
     useSessionEditorStore().sessionEditorSaving = false;
     return;
   }
 
   useSessionEditorStore().sessionEditorSaving = false;
   closeSessionEditor();
-  useToast().showToast("Session 已更新。");
+  useToast().showToast(t("Session 已更新。"));
 }
 
 export function useSessionEditor() {

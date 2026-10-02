@@ -6,6 +6,7 @@ import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 export type GraphNodeFilter = GraphNode["kind"] | "all";
 
@@ -122,8 +123,8 @@ export const useGraphStore = defineStore("graph", () => {
 
   const graphError = computed(() => {
     if (graphRequestError.value) return graphRequestError.value;
-    if (graphQuery.error.value) return errorMessage(graphQuery.error.value, "無法載入工作圖譜。");
-    if (graphPageQuery.error.value) return errorMessage(graphPageQuery.error.value, "無法載入工作圖譜。");
+    if (graphQuery.error.value) return errorMessage(graphQuery.error.value, t("無法載入工作圖譜。"));
+    if (graphPageQuery.error.value) return errorMessage(graphPageQuery.error.value, t("無法載入工作圖譜。"));
     const firstPage = graphQuery.data.value;
     if (firstPage?.outcome === "skipped") return firstPage.reason;
     const currentPage = graphPageQuery.data.value;
@@ -150,7 +151,7 @@ export const useGraphStore = defineStore("graph", () => {
   );
   const graphPathLoading = computed(() => graphPathQuery.isLoading.value);
   const graphPathError = computed(() => {
-    if (graphPathQuery.error.value) return errorMessage(graphPathQuery.error.value, "無法找出兩個節點的關聯。");
+    if (graphPathQuery.error.value) return errorMessage(graphPathQuery.error.value, t("無法找出兩個節點的關聯。"));
     const result = graphPathQuery.data.value;
     return result?.outcome === "skipped" ? result.reason : "";
   });
@@ -184,7 +185,7 @@ export const useGraphStore = defineStore("graph", () => {
       await graphQuery.refetch(true);
     } catch (error) {
       if (!useApi().isAbortError(error)) {
-        graphRequestError.value = errorMessage(error, "無法載入工作圖譜。");
+        graphRequestError.value = errorMessage(error, t("無法載入工作圖譜。"));
       }
     }
   }
@@ -192,7 +193,7 @@ export const useGraphStore = defineStore("graph", () => {
   async function loadMoreGraph(): Promise<void> {
     const cursor = graph.value?.nextCursor;
     if (!cursor) {
-      useToast().showToast("圖譜已載入完成。");
+      useToast().showToast(t("圖譜已載入完成。"));
       return;
     }
 
@@ -210,7 +211,7 @@ export const useGraphStore = defineStore("graph", () => {
       graphExtraPages.value = [...graphExtraPages.value, result.data];
     } catch (error) {
       if (generation === graphGeneration.value && !useApi().isAbortError(error)) {
-        graphRequestError.value = errorMessage(error, "無法載入工作圖譜。");
+        graphRequestError.value = errorMessage(error, t("無法載入工作圖譜。"));
       }
     }
   }

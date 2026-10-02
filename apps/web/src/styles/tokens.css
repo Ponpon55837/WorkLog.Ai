@@ -1,4 +1,6 @@
-/* Design tokens — the only place raw colour values are allowed. See .agents/skills/worklog-ui/references/tokens.md */
+/* Design tokens — the only place raw colour values are allowed. See .agents/skills/worklog-ui/references/tokens.md
+ * Dark (GitHub dark) is the default set; `:root[data-theme="light"]` below swaps in GitHub light. The theme is
+ * chosen in the header (system / light / dark) and applied by composables/useAppearance.ts. */
 :root {
   color-scheme: dark;
 
@@ -91,4 +93,57 @@
   --duration-fast: 180ms;
   --duration-base: 240ms;
   --duration-slow: 360ms;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg-canvas: #ffffff;
+  --bg-inset: #f6f8fa;
+  --bg-subtle: #f6f8fa;
+  --bg-hover: #eff2f5;
+  --bg-muted: #eff2f5;
+  --bg-muted-hover: #e6eaef;
+  --bg-overlay: rgba(31, 35, 40, 0.45);
+
+  /* Borders */
+  --border: #d1d9e0;
+  --border-muted: #dfe4e9;
+  --border-strong: #818b98;
+  --border-on-emphasis: rgba(31, 35, 40, 0.15);
+
+  /* Text */
+  --fg: #1f2328;
+  --fg-muted: #59636e;
+  --fg-subtle: #636c76;
+  --fg-on-emphasis: #ffffff;
+
+  /* Semantic */
+  --accent: #0860ca;
+  --accent-emphasis: #0969da;
+  --accent-soft: rgba(9, 105, 218, 0.08);
+  --accent-border: rgba(9, 105, 218, 0.4);
+  --success: #1a7431;
+  --success-emphasis: #1f883d;
+  --success-emphasis-hover: #1c8139;
+  --success-soft: rgba(26, 127, 55, 0.08);
+  --success-border: rgba(26, 127, 55, 0.4);
+  --attention: #8a5b00;
+  --attention-soft: rgba(138, 91, 0, 0.08);
+  --attention-border: rgba(138, 91, 0, 0.4);
+  --danger: #c4202c;
+  --danger-emphasis: #cf222e;
+  --danger-soft: rgba(209, 36, 47, 0.08);
+  --danger-border: rgba(209, 36, 47, 0.4);
+  --done: #7340d0;
+  --done-soft: rgba(115, 64, 208, 0.08);
+  --done-border: rgba(115, 64, 208, 0.4);
+  --neutral-soft: rgba(129, 139, 152, 0.2);
+  --attention-counter: rgba(212, 167, 44, 0.3);
+  --underline-active: #fd8c73;
+
+  /* Elevation: light surfaces need softer, cooler shadows */
+  --shadow-popover: 0 8px 24px rgba(66, 74, 83, 0.16), 0 1px 3px rgba(31, 35, 40, 0.08);
+  --shadow-panel: -16px 0 48px rgba(31, 35, 40, 0.12);
 }

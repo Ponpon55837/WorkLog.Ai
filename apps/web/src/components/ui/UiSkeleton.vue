@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 withDefaults(defineProps<{ variant?: "row" | "card" | "text"; count?: number }>(), { variant: "row", count: 3 });
 </script>
 
 <template>
   <!-- aria-label is not allowed on a role-less div, so the status role carries visually hidden text instead. -->
   <div :class="['ui-skeleton', `ui-skeleton--${variant}`]" role="status" aria-busy="true">
-    <span class="sr-only">載入中</span>
+    <span class="sr-only">{{ t("載入中") }}</span>
     <div v-for="index in count" :key="index" class="ui-skeleton__item" aria-hidden="true">
       <template v-if="variant === 'row'">
         <span class="ui-skeleton__dot"></span>
