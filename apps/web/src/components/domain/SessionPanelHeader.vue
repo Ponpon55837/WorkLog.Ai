@@ -69,7 +69,7 @@ const sessionTarget = computed<VoidTarget>(() => ({
   <div class="session-panel__labels">
     <StatusLabel :status="verification" />
     <UiLabel :icon="FolderGit2">{{ detail.project.name }}</UiLabel>
-    <UiLabel :icon="FileDiff">{{ session.changedFiles.length }} files</UiLabel>
+    <UiLabel :icon="FileDiff">{{ t("{value} 個檔案", { value: session.changedFiles.length }) }}</UiLabel>
     <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("已作廢") }}</UiLabel>
   </div>
 </template>
