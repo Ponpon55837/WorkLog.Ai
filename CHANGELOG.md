@@ -4,6 +4,12 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-02
+
+### Added
+
+- The plugin has an icon for its Anthropic directory listing: `plugins/work-intelligence/assets/icon.svg`, the Web UI's favicon, set as `icon` in `.claude-plugin/plugin.json`.
+
 ## [1.2.0] - 2026-10-02
 
 ### Added
