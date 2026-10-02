@@ -3,6 +3,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 export type NavGroup = "work" | "knowledge" | "manage";
 
 declare module "vue-router" {
+  /** title and navLabel are 繁體中文 source strings; display sites translate them with t(). */
   interface RouteMeta {
     title?: string;
     eyebrow?: string;

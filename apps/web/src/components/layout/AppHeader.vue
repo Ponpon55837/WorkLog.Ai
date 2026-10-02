@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { Menu, RefreshCw, Search } from "lucide-vue-next";
+import { storeToRefs } from "pinia";
+import { Languages, Menu, Moon, RefreshCw, Search, Sun } from "lucide-vue-next";
+import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { LOCALE_OPTIONS, t } from "../../i18n";
+import { usePreferencesStore } from "../../stores/preferences";
 
 defineProps<{ refreshing?: boolean; menuOpen?: boolean }>();
 const emit = defineEmits<{ refresh: []; search: []; toggleMenu: [] }>();
 
 const route = useRoute();
-const crumb = computed(() => route.meta.title ?? "");
+const preferencesStore = usePreferencesStore();
+const { locale, resolvedTheme, theme } = storeToRefs(preferencesStore);
+const crumb = computed(() => t(route.meta.title ?? ""));
+const localeLabel = computed(() => LOCALE_OPTIONS.find((option) => option.value === locale.value)?.label ?? "");
+const themeToggleLabel = computed(() => (resolvedTheme.value === "dark" ? t("切換為淺色主題") : t("切換為深色主題")));
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 </script>
 
@@ -18,27 +26,47 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
       class="app-header__menu"
       type="button"
       :aria-expanded="menuOpen"
-      aria-label="開啟主選單"
+      :aria-label="t('開啟主選單')"
       @click="emit('toggleMenu')"
     >
       <Menu :size="16" :stroke-width="1.75" aria-hidden="true" />
     </button>
-    <RouterLink :to="{ name: 'dashboard' }" class="app-header__logo" aria-label="Work Intelligence 首頁">WI</RouterLink>
+    <RouterLink :to="{ name: 'dashboard' }" class="app-header__logo" :aria-label="t('Work Intelligence 首頁')"
+      >WI</RouterLink
+    >
     <div class="app-header__crumb">
       <span class="app-header__app">Work Intelligence</span>
       <span class="app-header__sep" aria-hidden="true">/</span>
       <span class="app-header__page">{{ crumb }}</span>
     </div>
-    <button class="app-header__search" type="button" aria-label="搜尋或跳至頁面" @click="emit('search')">
+    <button class="app-header__search" type="button" :aria-label="t('搜尋或跳至頁面')" @click="emit('search')">
       <Search :size="16" :stroke-width="1.75" aria-hidden="true" />
-      <span class="app-header__search-text">搜尋 Session、Knowledge 或跳至頁面…</span>
+      <span class="app-header__search-text">{{ t("搜尋 Session、Knowledge 或跳至頁面…") }}</span>
       <kbd>{{ isMac ? "⌘" : "Ctrl" }} K</kbd>
     </button>
-    <span class="app-header__status" title="資料只存在本機 SQLite">
+    <span class="app-header__status" :title="t('資料只存在本機 SQLite')">
       <span class="app-header__dot" aria-hidden="true"></span>
       <span class="app-header__status-text">Local-first</span>
     </span>
-    <UiIconButton :icon="RefreshCw" label="重新整理" :loading="refreshing" @click="emit('refresh')" />
+    <UiActionMenu
+      v-model="locale"
+      class="app-header__locale"
+      :label="localeLabel"
+      :header="t('介面語言')"
+      :items="LOCALE_OPTIONS"
+      :icon="Languages"
+      align="end"
+      size="sm"
+      hide-label-on-mobile
+    />
+    <!-- An explicit choice overrides the system setting; System status → 個人偏好 can return to it. -->
+    <UiIconButton
+      class="app-header__theme"
+      :icon="resolvedTheme === 'dark' ? Sun : Moon"
+      :label="themeToggleLabel"
+      @click="theme = resolvedTheme === 'dark' ? 'light' : 'dark'"
+    />
+    <UiIconButton :icon="RefreshCw" :label="t('重新整理')" :loading="refreshing" @click="emit('refresh')" />
   </header>
 </template>
 
@@ -156,6 +184,18 @@ kbd {
   background: var(--success);
 }
 
+/* The sun/moon swap turns in, so the switch reads as the same control changing state. */
+.app-header__theme :deep(.lucide) {
+  animation: app-header-theme-in var(--duration-slow) var(--ease-out);
+}
+
+@keyframes app-header-theme-in {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.6);
+  }
+}
+
 @media (max-width: 959px) {
   .app-header__search {
     width: 220px;
@@ -185,7 +225,7 @@ kbd {
 
   .app-header__search-text,
   .app-header__search kbd,
-  .app-header__status-text {
+  .app-header__status {
     display: none;
   }
 }

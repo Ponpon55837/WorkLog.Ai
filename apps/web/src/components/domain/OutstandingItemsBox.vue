@@ -22,6 +22,7 @@ import { useOutstandingItemsStore } from "../../stores/outstanding-items";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { outstandingItemStatusLabels, type ListPageSize } from "../../utils/labels";
 import { outstandingItemStatusVisual } from "../../utils/status";
+import { t } from "../../i18n";
 
 /** Filters, paginates, and updates the tracked Session nextSteps queue. */
 const props = defineProps<{
@@ -63,7 +64,7 @@ const dateRange = computed({
 });
 
 const projectOptions = computed(() => [
-  { value: "", label: "所有記錄中專案" },
+  { value: "", label: t("所有記錄中專案") },
   ...props.projects.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const statusOptions = (Object.keys(outstandingItemStatusLabels) as OutstandingItemStatus[]).map((value) => ({
@@ -73,7 +74,9 @@ const statusOptions = (Object.keys(outstandingItemStatusLabels) as OutstandingIt
   tone: outstandingItemStatusVisual[value].tone,
 }));
 const emptyTitle = computed(() =>
-  status.value === "pending" ? "目前沒有待處理未結項" : `目前沒有「${outstandingItemStatusLabels[status.value]}」項目`,
+  status.value === "pending"
+    ? t("目前沒有待處理未結項")
+    : t("目前沒有「{value}」項目", { value: outstandingItemStatusLabels[status.value] }),
 );
 const hasFilters = computed(
   () => projectId.value !== "" || status.value !== "pending" || Boolean(from.value || to.value),
@@ -91,10 +94,10 @@ async function updateItemStatus(item: OutstandingItem, nextStatus: OutstandingIt
   if (changingItemIds.value.includes(item.id)) return;
   if (nextStatus === "not_needed") {
     const confirmed = await confirmAction({
-      title: "將這項未結項標記為不再需要？",
-      message: `「${item.text}」會從待處理清單移除，但仍可在「不再需要」篩選中查看並重新開啟。`,
-      confirmLabel: "標記不再需要",
-      cancelLabel: "保留為待處理",
+      title: t("將這項未結項標記為不再需要？"),
+      message: t("「{text}」會從待處理清單移除，但仍可在「不再需要」篩選中查看並重新開啟。", { text: item.text }),
+      confirmLabel: t("標記不再需要"),
+      cancelLabel: t("保留為待處理"),
     });
     if (!confirmed) return;
   }
@@ -104,13 +107,13 @@ async function updateItemStatus(item: OutstandingItem, nextStatus: OutstandingIt
     await outstandingItemsStore.updateStatus({ itemId: item.id, status: nextStatus });
     const message =
       nextStatus === "pending"
-        ? "已重新開啟這項未結項。"
+        ? t("已重新開啟這項未結項。")
         : nextStatus === "completed"
-          ? "已標記為完成。"
-          : "已標記為不再需要。";
+          ? t("已標記為完成。")
+          : t("已標記為不再需要。");
     showToast(message, "success");
   } catch (error) {
-    showToast(errorMessage(error, "無法更新未結項，請稍後再試。"), "danger");
+    showToast(errorMessage(error, t("無法更新未結項，請稍後再試。")), "danger");
   } finally {
     changingItemIds.value = changingItemIds.value.filter((id) => id !== item.id);
   }
@@ -122,10 +125,10 @@ async function updateBatch(nextStatus: "completed" | "not_needed"): Promise<void
   if (
     nextStatus === "not_needed" &&
     !(await confirmAction({
-      title: "批次不再需要",
-      message: `將選取的 ${itemIds.length} 項標記為不再需要，仍可從狀態篩選查看並重新開啟。`,
-      confirmLabel: "標記不再需要",
-      cancelLabel: "保留目前狀態",
+      title: t("批次不再需要"),
+      message: t("將選取的 {length} 項標記為不再需要，仍可從狀態篩選查看並重新開啟。", { length: itemIds.length }),
+      confirmLabel: t("標記不再需要"),
+      cancelLabel: t("保留目前狀態"),
     }))
   )
     return;
@@ -138,9 +141,9 @@ async function updateBatch(nextStatus: "completed" | "not_needed"): Promise<void
     });
     undoBatch.value = result.updatedItemIds.length ? { itemIds: result.updatedItemIds, status: nextStatus } : undefined;
     selectedIds.value = [];
-    showToast(`已更新 ${result.updatedItemIds.length} 項未結項。`, "success");
+    showToast(t("已更新 {length} 項未結項。", { length: result.updatedItemIds.length }), "success");
   } catch (error) {
-    showToast(errorMessage(error, "無法批次更新未結項，請稍後再試。"), "danger");
+    showToast(errorMessage(error, t("無法批次更新未結項，請稍後再試。")), "danger");
   } finally {
     batchBusy.value = false;
   }
@@ -157,9 +160,9 @@ async function restoreBatch(): Promise<void> {
       expectedStatus: batch.status,
     });
     undoBatch.value = undefined;
-    showToast(`已將 ${batch.itemIds.length} 項復原為待處理。`, "success");
+    showToast(t("已將 {length} 項復原為待處理。", { length: batch.itemIds.length }), "success");
   } catch (error) {
-    showToast(errorMessage(error, "無法復原，請重新整理並確認項目狀態。"), "danger");
+    showToast(errorMessage(error, t("無法復原，請重新整理並確認項目狀態。")), "danger");
   } finally {
     batchBusy.value = false;
   }
@@ -192,44 +195,44 @@ watch(
 <template>
   <UiBox sticky-header data-testid="outstanding-items-box">
     <template #header>
-      <UiBoxTitle :icon="ListChecks" title="未結項" :count="pageInfo.total" />
+      <UiBoxTitle :icon="ListChecks" :title="t('未結項')" :count="pageInfo.total" />
       <div class="outstanding-items__filters">
         <UiActionMenu
           v-model="projectId"
-          label="專案"
-          header="篩選專案"
+          :label="t('專案')"
+          :header="t('篩選專案')"
           default-value=""
           align="end"
           :items="projectOptions"
         />
         <UiActionMenu
           v-model="status"
-          label="狀態"
-          header="篩選未結項狀態"
+          :label="t('狀態')"
+          :header="t('篩選未結項狀態')"
           default-value="pending"
           align="end"
           :items="statusOptions"
         />
-        <UiDateRangeMenu v-model="dateRange" label="來源 Session 日期" />
+        <UiDateRangeMenu v-model="dateRange" :label="t('來源 Session 日期')" />
         <OutstandingCleanupPanel @open-session="emit('openSession', $event)" />
       </div>
     </template>
 
-    <div class="outstanding-items__batch" role="group" aria-label="批次操作">
+    <div class="outstanding-items__batch" role="group" :aria-label="t('批次操作')">
       <UiCheckbox
         v-model="allSelected"
-        label="選取本頁全部未結項"
+        :label="t('選取本頁全部未結項')"
         :indeterminate="selectedIds.length > 0 && !allSelected"
         :disabled="status !== 'pending' || loading || batchBusy || changingItemIds.length > 0 || items.length === 0"
       />
-      <span aria-live="polite">已選取 {{ selectedIds.length }} 項</span>
+      <span aria-live="polite">{{ t("已選取 {length} 項", { length: selectedIds.length }) }}</span>
       <UiButton
         size="sm"
         :disabled="
           status !== 'pending' || selectedIds.length === 0 || batchBusy || changingItemIds.length > 0 || loading
         "
         @click="updateBatch('completed')"
-        >批次標記完成</UiButton
+        >{{ t("批次標記完成") }}</UiButton
       >
       <UiButton
         size="sm"
@@ -237,28 +240,30 @@ watch(
           status !== 'pending' || selectedIds.length === 0 || batchBusy || changingItemIds.length > 0 || loading
         "
         @click="updateBatch('not_needed')"
-        >批次不再需要</UiButton
+        >{{ t("批次不再需要") }}</UiButton
       >
-      <UiButton v-if="undoBatch" size="sm" :disabled="batchBusy || changingItemIds.length > 0" @click="restoreBatch"
-        >復原本次批次</UiButton
-      >
+      <UiButton v-if="undoBatch" size="sm" :disabled="batchBusy || changingItemIds.length > 0" @click="restoreBatch">{{
+        t("復原本次批次")
+      }}</UiButton>
     </div>
 
     <UiFlash v-if="error" tone="danger" data-testid="outstanding-items-error">
       {{ error }}
-      <template #actions><UiButton size="sm" @click="emit('retry')">重試</UiButton></template>
+      <template #actions
+        ><UiButton size="sm" @click="emit('retry')">{{ t("重試") }}</UiButton></template
+      >
     </UiFlash>
     <UiSkeleton v-if="loading && !loaded" :count="4" data-testid="outstanding-items-loading" />
     <UiEmptyState
       v-else-if="loaded && !error && items.length === 0"
       :icon="ListChecks"
       :title="emptyTitle"
-      description="完成的 Session 中回報的 nextSteps 會自動列在這裡；可以依專案篩選，並更新追蹤狀態。"
+      :description="t('完成的 Session 中回報的 nextSteps 會自動列在這裡；可以依專案篩選，並更新追蹤狀態。')"
       data-testid="outstanding-items-empty"
     >
       <template #action>
-        <UiButton v-if="hasFilters" @click="clearFilters">清除篩選</UiButton>
-        <UiButton v-else @click="emit('showSessions')">返回工作歷程</UiButton>
+        <UiButton v-if="hasFilters" @click="clearFilters">{{ t("清除篩選") }}</UiButton>
+        <UiButton v-else @click="emit('showSessions')">{{ t("返回工作歷程") }}</UiButton>
       </template>
     </UiEmptyState>
     <VirtualList
@@ -268,14 +273,14 @@ watch(
       fit-viewport
       fit-viewport-to-panel
       fill-available-space
-      label="未結項清單"
+      :label="t('未結項清單')"
     >
       <template #default="{ item }">
         <UiBoxRow data-testid="outstanding-item">
           <template #leading>
             <UiCheckbox
               :model-value="selectedIds.includes(item.id)"
-              :label="`選取未結項：${item.text}`"
+              :label="t('選取未結項：{text}', { text: item.text })"
               :disabled="item.status !== 'pending' || loading || isChanging(item) || changingItemIds.length > 0"
               @update:model-value="selectItem(item.id, $event)"
             />
@@ -288,7 +293,7 @@ watch(
             <button
               type="button"
               class="outstanding-items__source"
-              :aria-label="`開啟來源 Session：${item.sourceSessionTitle}`"
+              :aria-label="t('開啟來源 Session：{sourceSessionTitle}', { sourceSessionTitle: item.sourceSessionTitle })"
               @click="emit('openSession', item.sourceSessionId)"
             >
               {{ item.sourceSessionTitle }}
@@ -308,14 +313,14 @@ watch(
                     :loading="isChanging(item)"
                     :disabled="isChanging(item)"
                     @click="updateItemStatus(item, 'completed')"
-                    >標記完成</UiButton
+                    >{{ t("標記完成") }}</UiButton
                   >
                   <UiButton
                     size="sm"
                     :loading="isChanging(item)"
                     :disabled="isChanging(item)"
                     @click="updateItemStatus(item, 'not_needed')"
-                    >不再需要</UiButton
+                    >{{ t("不再需要") }}</UiButton
                   >
                 </template>
                 <UiButton
@@ -324,7 +329,7 @@ watch(
                   :loading="isChanging(item)"
                   :disabled="isChanging(item)"
                   @click="updateItemStatus(item, 'pending')"
-                  >重新開啟</UiButton
+                  >{{ t("重新開啟") }}</UiButton
                 >
               </div>
             </div>
@@ -337,7 +342,7 @@ watch(
       <UiPagination
         v-model:page-size="pageSize"
         :page-info="pageInfo"
-        size-label="未結項每頁筆數"
+        :size-label="t('未結項每頁筆數')"
         @page="page = $event"
       />
     </template>

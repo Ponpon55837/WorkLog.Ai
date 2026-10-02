@@ -9,6 +9,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
+import { t } from "../../i18n";
 
 const {
   knowledgeEditor,
@@ -33,17 +34,22 @@ const statusOptions = Object.entries(knowledgeStatusLabels).map(([value, label])
 }));
 const description = computed(() => {
   if (knowledgeEditorCreating.value) {
-    const sourceTitle = agentDecisionDraft.value?.decision.sessionTitle ?? "來源 Session";
-    return `${knowledgeEditorProject.value?.name ?? "Tracked project"} · ${sourceTitle} 儲存後會自動連結為 Knowledge。`;
+    const sourceTitle = agentDecisionDraft.value?.decision.sessionTitle ?? t("來源 Session");
+    return t("{value} · {sourceTitle} 儲存後會自動連結為 Knowledge。", {
+      value: knowledgeEditorProject.value?.name ?? "Tracked project",
+      sourceTitle,
+    });
   }
-  return `${knowledgeEditor.value?.projectName ?? "Tracked project"} · 只修改中央 registry，不會讀取或修改來源 repo。`;
+  return t("{value} · 只修改中央 registry，不會讀取或修改來源 repo。", {
+    value: knowledgeEditor.value?.projectName ?? "Tracked project",
+  });
 });
 </script>
 
 <template>
   <UiDialog
     :open="knowledgeEditorOpen"
-    :title="knowledgeEditorCreating ? '整理 Agent 決策為 Knowledge' : '編輯 Knowledge'"
+    :title="knowledgeEditorCreating ? t('整理 Agent 決策為 Knowledge') : t('編輯 Knowledge')"
     :description="description"
     size="lg"
     :busy="knowledgeEditorSaving"
@@ -51,43 +57,45 @@ const description = computed(() => {
   >
     <form id="knowledge-editor-form" class="knowledge-editor" @submit.prevent="saveKnowledge">
       <UiFlash v-if="knowledgeEditorError" tone="danger">{{ knowledgeEditorError }}</UiFlash>
-      <UiField label="標題"
+      <UiField :label="t('標題')"
         ><UiTextInput v-model="knowledgeEditorForm.title" :maxlength="300" required autofocus
       /></UiField>
       <div class="knowledge-editor__row">
-        <UiField label="類型"
-          ><UiSelect v-model="knowledgeEditorForm.kind" :options="kindOptions" label="Knowledge 類型"
+        <UiField :label="t('類型')"
+          ><UiSelect v-model="knowledgeEditorForm.kind" :options="kindOptions" :label="t('Knowledge 類型')"
         /></UiField>
-        <UiField label="狀態" hint="封存不會刪除記錄，只會從預設搜尋與 Graph 隱藏。"
-          ><UiSelect v-model="knowledgeEditorForm.status" :options="statusOptions" label="Knowledge 狀態"
+        <UiField :label="t('狀態')" :hint="t('封存不會刪除記錄，只會從預設搜尋與 Graph 隱藏。')"
+          ><UiSelect v-model="knowledgeEditorForm.status" :options="statusOptions" :label="t('Knowledge 狀態')"
         /></UiField>
       </div>
-      <UiField label="內容"
+      <UiField :label="t('內容')"
         ><UiTextarea v-model="knowledgeEditorForm.body" :rows="8" :maxlength="20000" required
       /></UiField>
       <div class="knowledge-editor__row">
-        <UiField label="標籤" hint="以逗號分隔"
+        <UiField :label="t('標籤')" :hint="t('以逗號分隔')"
           ><UiTextInput v-model="knowledgeEditorForm.tags" placeholder="architecture, registry"
         /></UiField>
-        <UiField label="參考資料" hint="每行一個 reference"
+        <UiField :label="t('參考資料')" :hint="t('每行一個 reference')"
           ><UiTextarea v-model="knowledgeEditorForm.references" :rows="3" mono
         /></UiField>
       </div>
       <UiField
-        label="適用路徑"
-        hint="每行一個專案內的路徑或 glob（例如 src/report/**）。之後有 Session 改到這些檔案時，會標示「可能過時」。"
+        :label="t('適用路徑')"
+        :hint="
+          t('每行一個專案內的路徑或 glob（例如 src/report/**）。之後有 Session 改到這些檔案時，會標示「可能過時」。')
+        "
         ><UiTextarea v-model="knowledgeEditorForm.appliesTo" :rows="3" mono
       /></UiField>
     </form>
     <template #footer>
-      <UiButton :disabled="knowledgeEditorSaving" @click="closeKnowledgeEditor">取消</UiButton>
+      <UiButton :disabled="knowledgeEditorSaving" @click="closeKnowledgeEditor">{{ t("取消") }}</UiButton>
       <UiButton variant="primary" type="submit" form="knowledge-editor-form" :loading="knowledgeEditorSaving">
         {{
           knowledgeEditorCreating
             ? agentDecisionDraft?.knowledgeId
-              ? "完成來源連結"
-              : "建立並連結 Knowledge"
-            : "儲存變更"
+              ? t("完成來源連結")
+              : t("建立並連結 Knowledge")
+            : t("儲存變更")
         }}
       </UiButton>
     </template>

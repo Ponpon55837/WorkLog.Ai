@@ -16,11 +16,12 @@ import UiSidePanel from "../ui/UiSidePanel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import KnowledgePageEditorDialog from "./KnowledgePageEditorDialog.vue";
 import StatusLabel from "./StatusLabel.vue";
+import { t } from "../../i18n";
 
 /** One standing Knowledge page: its cited sections, its version history, and the edit and update actions. */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 
-const authorLabels = { agent: "Agent", web: "手動編輯" } as const;
+const authorLabels = { agent: "Agent", web: t("手動編輯") } as const;
 
 const pagesStore = useKnowledgePagesStore();
 const { openPage, versions, versionsLoading, versionsError, sources } = storeToRefs(pagesStore);
@@ -57,7 +58,7 @@ function close(): void {
 function openSource(sessionId: string): void {
   // The Session panel is also a modal side panel; close this one so focus moves cleanly.
   close();
-  void sessionsStore.openSessionDetail(sessionId, "無法載入知識頁的來源 Session。");
+  void sessionsStore.openSessionDetail(sessionId, t("無法載入知識頁的來源 Session。"));
 }
 
 async function requestUpdate(): Promise<void> {
@@ -68,12 +69,12 @@ async function requestUpdate(): Promise<void> {
     const result = await pagesStore.requestUpdate({ projectRoot: project.value.rootPath, slug: page.slug });
     showToast(
       result.outcome === "knowledge_page_update_requested"
-        ? "已要求 Agent 更新。在 Claude Code 或 Codex 說「更新知識頁」即可。"
-        : (result.reason ?? "無法要求更新這個知識頁。"),
+        ? t("已要求 Agent 更新。在 Claude Code 或 Codex 說「更新知識頁」即可。")
+        : (result.reason ?? t("無法要求更新這個知識頁。")),
       result.outcome === "knowledge_page_update_requested" ? "success" : "danger",
     );
   } catch (error) {
-    showToast(errorMessage(error, "無法要求更新這個知識頁。"), "danger");
+    showToast(errorMessage(error, t("無法要求更新這個知識頁。")), "danger");
   } finally {
     requesting.value = false;
   }
@@ -88,33 +89,37 @@ watch(
 </script>
 
 <template>
-  <UiSidePanel :open="Boolean(openPage)" label="知識頁" :width="720" storage-key="knowledge-page" @close="close">
+  <UiSidePanel :open="Boolean(openPage)" :label="t('知識頁')" :width="720" storage-key="knowledge-page" @close="close">
     <template #header>
       <div class="page-panel__top">
-        <span class="page-panel__eyebrow">{{ project?.name ?? "知識頁" }}</span>
-        <UiIconButton :icon="X" label="關閉知識頁" @click="close" />
+        <span class="page-panel__eyebrow">{{ project?.name ?? t("知識頁") }}</span>
+        <UiIconButton :icon="X" :label="t('關閉知識頁')" @click="close" />
       </div>
       <h2 class="page-panel__title">{{ shown?.title }}</h2>
       <p class="page-panel__question">{{ shown?.question }}</p>
       <div v-if="openPage" class="page-panel__meta">
         <StatusLabel :status="knowledgePageStatusVisual[openPage.status]" />
-        <UiLabel v-if="openPage.needsReview" tone="danger">引用來源需要核對</UiLabel>
-        <UiLabel v-if="openPage.newSessionCount > 0" tone="accent"
-          >有 {{ openPage.newSessionCount }} 筆新 Session 待評估</UiLabel
-        >
-        <UiLabel v-if="openPage.updateRequestedAt" tone="accent">已要求更新</UiLabel>
+        <UiLabel v-if="openPage.needsReview" tone="danger">{{ t("引用來源需要核對") }}</UiLabel>
+        <UiLabel v-if="openPage.newSessionCount > 0" tone="accent">{{
+          t("有 {newSessionCount} 筆新 Session 待評估", { newSessionCount: openPage.newSessionCount })
+        }}</UiLabel>
+        <UiLabel v-if="openPage.updateRequestedAt" tone="accent">{{ t("已要求更新") }}</UiLabel>
       </div>
       <div class="page-panel__actions">
-        <UiButton size="sm" :icon="RefreshCw" :loading="requesting" @click="requestUpdate">要求 Agent 更新</UiButton>
-        <UiButton size="sm" :icon="Pencil" :disabled="shownVersion !== null" @click="editorOpen = true"
-          >手動編輯</UiButton
-        >
+        <UiButton size="sm" :icon="RefreshCw" :loading="requesting" @click="requestUpdate">{{
+          t("要求 Agent 更新")
+        }}</UiButton>
+        <UiButton size="sm" :icon="Pencil" :disabled="shownVersion !== null" @click="editorOpen = true">{{
+          t("手動編輯")
+        }}</UiButton>
       </div>
     </template>
 
     <UiFlash v-if="shownVersion !== null" tone="accent">
-      正在檢視第 {{ shownVersion }} 版。
-      <template #actions><UiButton size="sm" @click="shownVersion = null">回到目前版本</UiButton></template>
+      {{ t("正在檢視第 {shownVersion} 版。", { shownVersion }) }}
+      <template #actions
+        ><UiButton size="sm" @click="shownVersion = null">{{ t("回到目前版本") }}</UiButton></template
+      >
     </UiFlash>
 
     <section
@@ -129,19 +134,19 @@ watch(
       <UiFlash
         v-if="reviewSourcesForHeading(section.heading).length > 0"
         tone="danger"
-        title="這些來源在頁面儲存後有變動"
+        :title="t('這些來源在頁面儲存後有變動')"
       >
         <div class="page-panel__review-list">
           <div v-for="source in reviewSourcesForHeading(section.heading)" :key="source.sourceSessionId">
             <UiButton size="sm" variant="invisible" :icon="ExternalLink" @click="openSource(source.sourceSessionId)">{{
               source.title
             }}</UiButton>
-            <span>{{ source.reasons.map((reason) => knowledgePageReviewReasonLabels[reason]).join("；") }}</span>
+            <span>{{ source.reasons.map((reason) => knowledgePageReviewReasonLabels[reason]).join(t("；")) }}</span>
           </div>
         </div>
       </UiFlash>
       <div v-if="section.sourceSessionIds.length > 0" class="page-panel__sources">
-        <span class="page-panel__sources-label">來源</span>
+        <span class="page-panel__sources-label">{{ t("來源") }}</span>
         <UiButton
           v-for="sessionId in section.sourceSessionIds"
           :key="sessionId"
@@ -149,7 +154,7 @@ watch(
           variant="invisible"
           :icon="ExternalLink"
           :disabled="!sourceTitles.has(sessionId)"
-          :title="sourceTitles.has(sessionId) ? undefined : '來源 Session 已作廢或不存在'"
+          :title="sourceTitles.has(sessionId) ? undefined : t('來源 Session 已作廢或不存在')"
           @click="openSource(sessionId)"
           >{{ sourceTitles.get(sessionId) ?? `Session ${sessionId.slice(0, 8)}` }}</UiButton
         >
@@ -157,7 +162,7 @@ watch(
     </section>
 
     <section class="page-panel__history" aria-labelledby="knowledge-page-history-title">
-      <h3 id="knowledge-page-history-title"><History :size="16" aria-hidden="true" /> 版本紀錄</h3>
+      <h3 id="knowledge-page-history-title"><History :size="16" aria-hidden="true" /> {{ t("版本紀錄") }}</h3>
       <UiSkeleton v-if="versionsLoading" variant="text" :count="3" />
       <UiFlash v-else-if="versionsError" tone="danger">{{ versionsError }}</UiFlash>
       <ol v-else class="page-panel__versions">
@@ -168,7 +173,7 @@ watch(
             :aria-current="(shownVersion ?? openPage?.version) === version.version ? 'true' : undefined"
             @click="shownVersion = version.version === openPage?.version ? null : version.version"
           >
-            <strong>第 {{ version.version }} 版</strong>
+            <strong>{{ t("第 {version} 版", { version: version.version }) }}</strong>
             <span>{{ authorLabels[version.author] }}</span>
             <time :datetime="version.createdAt" :title="formatDate(version.createdAt)">{{
               formatRelative(version.createdAt)

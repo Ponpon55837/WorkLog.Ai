@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { GraphEdge, GraphNode } from "@work-intelligence/core";
 import type { GraphVisualEdge, GraphVisualNode } from "../composables/useGraph";
+import { t } from "../i18n";
 
 /**
  * Lane-based SVG graph (one column per node kind). Lanes stretch to the available width, only
@@ -219,7 +220,7 @@ onBeforeUnmount(() => {
     :class="['graph-canvas', { 'has-focus': selectedId }]"
     data-testid="graph-viewport"
     role="group"
-    aria-label="Work Intelligence 結構化工作關係圖"
+    :aria-label="t('Work Intelligence 結構化工作關係圖')"
     @scroll="handleScroll"
     @keydown.esc="emit('clear')"
   >
@@ -262,7 +263,9 @@ onBeforeUnmount(() => {
       >
         <title>
           {{
-            item.edge.reason ? `${edgeKindLabels[item.edge.kind]}：${item.edge.reason}` : edgeKindLabels[item.edge.kind]
+            item.edge.reason
+              ? t("{value}：{reason}", { value: edgeKindLabels[item.edge.kind], reason: item.edge.reason })
+              : edgeKindLabels[item.edge.kind]
           }}
         </title>
       </path>
@@ -273,7 +276,7 @@ onBeforeUnmount(() => {
         :transform="`translate(${laneCentre(item.lane)}, ${item.y})`"
         role="button"
         tabindex="0"
-        :aria-label="`查看${nodeKindLabels[item.node.kind]}：${item.node.label}`"
+        :aria-label="t('查看{value}：{label}', { value: nodeKindLabels[item.node.kind], label: item.node.label })"
         :aria-pressed="item.node.id === selectedId"
         @click="emit('select', item.node)"
         @keydown.enter="emit('select', item.node)"

@@ -9,6 +9,7 @@ import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiPagination from "../ui/UiPagination.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
+import { t } from "../../i18n";
 
 const { items, loading, pageInfo } = defineProps<{
   items: WorkSessionRecord[];
@@ -29,10 +30,10 @@ function openSession(session: WorkSessionRecord): void {
   <section id="report-panel-raw" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-raw">
     <UiBox sticky-header>
       <template #header
-        ><UiBoxTitle eyebrow="Raw work records" title="原始工作紀錄" :count="pageInfo.total"
+        ><UiBoxTitle eyebrow="Raw work records" :title="t('原始工作紀錄')" :count="pageInfo.total"
       /></template>
       <UiSkeleton v-if="loading && items.length === 0" />
-      <UiEmptyState v-else-if="items.length === 0" compact :icon="FileText" title="這段期間沒有原始 Session" />
+      <UiEmptyState v-else-if="items.length === 0" compact :icon="FileText" :title="t('這段期間沒有原始 Session')" />
       <VirtualList
         v-else
         :items="items"
@@ -40,7 +41,7 @@ function openSession(session: WorkSessionRecord): void {
         fit-viewport
         fit-viewport-to-panel
         fill-available-space
-        label="報告原始工作紀錄清單"
+        :label="t('報告原始工作紀錄清單')"
       >
         <template #default="{ item }">
           <SessionRow :session="item" @open="openSession" />
@@ -50,7 +51,7 @@ function openSession(session: WorkSessionRecord): void {
         <UiPagination
           v-model:page-size="pageSize"
           :page-info="pageInfo"
-          size-label="報告原始工作紀錄每頁筆數"
+          :size-label="t('報告原始工作紀錄每頁筆數')"
           @page="emit('page', $event)"
         />
       </template>

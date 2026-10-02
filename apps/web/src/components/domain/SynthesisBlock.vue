@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { ReportSummaryBlock } from "@work-intelligence/core";
+import { t } from "../../i18n";
 
 /** One synthesis section. Every item cites its source Sessions; `資料不足` is shown as-is. */
 defineProps<{ title: string; hint?: string; blocks: readonly ReportSummaryBlock[] }>();
 const emit = defineEmits<{ openSources: [sessionIds: string[]] }>();
 
 function isInsufficient(detail: string): boolean {
+  // A data marker written by the Agent, not UI copy, so it is matched untranslated.
   return detail.includes("資料不足");
 }
 </script>
@@ -24,12 +26,12 @@ function isInsufficient(detail: string): boolean {
         v-if="block.sourceSessionIds.length"
         type="button"
         class="synthesis-block__sources"
-        :title="`查看 ${block.sourceSessionIds.length} 個來源 Session`"
+        :title="t('查看 {length} 個來源 Session', { length: block.sourceSessionIds.length })"
         @click="emit('openSources', block.sourceSessionIds)"
       >
         {{ block.sourceSessionIds.length }} Session{{ block.sourceSessionIds.length > 1 ? "s" : "" }}
       </button>
-      <span v-else class="synthesis-block__no-source">未提供來源</span>
+      <span v-else class="synthesis-block__no-source">{{ t("未提供來源") }}</span>
     </div>
   </section>
 </template>

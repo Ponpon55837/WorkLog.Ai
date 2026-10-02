@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { verificationStatus } from "../../utils/status";
 import UiMeter from "../ui/UiMeter.vue";
+import { t } from "../../i18n";
 
 /**
  * Four-state verification distribution. Deliberately no single pass-rate percentage: missing
@@ -29,8 +30,8 @@ const summary = computed(() =>
 </script>
 
 <template>
-  <UiMeter :segments="segments" :label="segments.map((segment) => `${segment.label} ${segment.value}`).join('，')" />
-  <div class="verification-breakdown__foot">{{ summary || "沒有失敗或缺漏" }}</div>
+  <UiMeter :segments="segments" :label="segments.map((segment) => `${segment.label} ${segment.value}`).join(t('，'))" />
+  <div class="verification-breakdown__foot">{{ summary || t("沒有失敗或缺漏") }}</div>
 </template>
 
 <style scoped>

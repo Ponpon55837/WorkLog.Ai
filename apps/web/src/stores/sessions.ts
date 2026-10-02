@@ -22,6 +22,7 @@ import type { ListPageSize } from "../utils/labels";
 import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 export const emptyPageInfo: PageInfo = {
   page: 1,
@@ -47,7 +48,7 @@ type EvidenceVoidMutationInput = SetEvidenceVoidInput & { sessionId: string };
 type DiagramVoidMutationInput = SetDiagramVoidInput & { sessionId: string };
 
 function updateFailureMessage(result: { outcome: string; reason?: string }): string {
-  return result.outcome === "not_found" ? "找不到這筆 Session。" : (result.reason ?? "無法更新 Session 摘要。");
+  return result.outcome === "not_found" ? t("找不到這筆 Session。") : (result.reason ?? t("無法更新 Session 摘要。"));
 }
 
 /** Owns the filtered Session list query and its URL-backed view state. */
@@ -242,7 +243,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   );
   const linkCandidatesLoading = computed(() => linkCandidatesQuery.isLoading.value);
   const linkCandidatesError = computed(() =>
-    linkCandidatesQuery.error.value ? errorMessage(linkCandidatesQuery.error.value, "無法搜尋 Session。") : "",
+    linkCandidatesQuery.error.value ? errorMessage(linkCandidatesQuery.error.value, t("無法搜尋 Session。")) : "",
   );
   const position = computed(() => {
     const id = selectedDetail.value?.session.id;
@@ -263,12 +264,12 @@ export const useSessionsStore = defineStore("sessions", () => {
     listActive.value = active;
     if (!active) return;
     appliedSearchTerm.value = searchTerm.value.trim();
-    sessionFilterError.value = dateRangeIsValid.value ? "" : "起始日期必須早於或等於結束日期。";
+    sessionFilterError.value = dateRangeIsValid.value ? "" : t("起始日期必須早於或等於結束日期。");
   }
 
   function loadSessions(): void {
     if (!dateRangeIsValid.value) {
-      sessionFilterError.value = "起始日期必須早於或等於結束日期。";
+      sessionFilterError.value = t("起始日期必須早於或等於結束日期。");
       return;
     }
     sessionFilterError.value = "";
@@ -326,7 +327,7 @@ export const useSessionsStore = defineStore("sessions", () => {
 
   async function openSessionDetail(
     sessionId: string | undefined,
-    failureMessage = "無法載入 Session detail。",
+    failureMessage = t("無法載入 Session detail。"),
   ): Promise<void> {
     if (!sessionId) return;
     const previousId = selectedSessionId.value;

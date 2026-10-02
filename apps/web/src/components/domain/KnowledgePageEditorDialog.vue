@@ -12,6 +12,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
+import { t } from "../../i18n";
 
 interface SectionDraft {
   heading: string;
@@ -66,13 +67,15 @@ async function save(): Promise<void> {
     sourceSessionIds: splitIds(section.sources),
   }));
   if (payload.length === 0 || payload.some((section) => !section.heading || !section.content)) {
-    error.value = "每個段落都需要標題與內容。";
+    error.value = t("每個段落都需要標題與內容。");
     return;
   }
   if (
     payload.some((section) => section.sourceSessionIds.length === 0 && section.content !== KNOWLEDGE_PAGE_INSUFFICIENT)
   ) {
-    error.value = `每個段落都要列出來源 Session；沒有來源時，內容請寫「${KNOWLEDGE_PAGE_INSUFFICIENT}」。`;
+    error.value = t("每個段落都要列出來源 Session；沒有來源時，內容請寫「{KNOWLEDGE_PAGE_INSUFFICIENT}」。", {
+      KNOWLEDGE_PAGE_INSUFFICIENT,
+    });
     return;
   }
   saving.value = true;
@@ -84,18 +87,20 @@ async function save(): Promise<void> {
       sections: payload,
     });
     if (result.outcome === "invalid_sources") {
-      error.value = `這些來源 Session 不存在、已作廢或屬於其他專案：${result.sessionIds.join("、")}`;
+      error.value = t("這些來源 Session 不存在、已作廢或屬於其他專案：{value}", {
+        value: result.sessionIds.join(t("、")),
+      });
       return;
     }
     if (result.outcome !== "knowledge_page_updated") {
-      error.value = result.reason ?? "無法儲存知識頁。";
+      error.value = result.reason ?? t("無法儲存知識頁。");
       return;
     }
-    showToast(`已儲存為第 ${result.page.version} 版。`, "success");
+    showToast(t("已儲存為第 {version} 版。", { version: result.page.version }), "success");
     saving.value = false;
     emit("close");
   } catch (caught) {
-    error.value = errorMessage(caught, "無法儲存知識頁。");
+    error.value = errorMessage(caught, t("無法儲存知識頁。"));
   } finally {
     saving.value = false;
   }
@@ -120,38 +125,42 @@ watch(
 <template>
   <UiDialog
     :open="open"
-    title="編輯知識頁"
-    description="儲存後會成為新版本，舊版本仍可在版本紀錄中檢視。"
+    :title="t('編輯知識頁')"
+    :description="t('儲存後會成為新版本，舊版本仍可在版本紀錄中檢視。')"
     size="lg"
     :busy="saving"
     @close="close"
   >
     <form id="knowledge-page-editor-form" class="page-editor" @submit.prevent="save">
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
-      <UiField label="標題"><UiTextInput v-model="title" :maxlength="80" required /></UiField>
+      <UiField :label="t('標題')"><UiTextInput v-model="title" :maxlength="80" required /></UiField>
       <fieldset v-for="(section, index) in sections" :key="index" class="page-editor__section">
-        <legend>段落 {{ index + 1 }}</legend>
+        <legend>{{ t("段落 {value}", { value: index + 1 }) }}</legend>
         <div class="page-editor__heading">
-          <UiField label="段落標題"><UiTextInput v-model="section.heading" :maxlength="120" required /></UiField>
+          <UiField :label="t('段落標題')"><UiTextInput v-model="section.heading" :maxlength="120" required /></UiField>
           <UiIconButton
             :icon="Trash2"
-            :label="`移除段落 ${index + 1}`"
+            :label="t('移除段落 {value}', { value: index + 1 })"
             :disabled="sections.length === 1"
             @click="removeSection(index)"
           />
         </div>
-        <UiField label="內容"><UiTextarea v-model="section.content" :rows="4" :maxlength="4000" required /></UiField>
-        <UiField label="來源 Session ID" hint="每行一個；沒有來源時，內容請寫「資料不足」。">
+        <UiField :label="t('內容')"
+          ><UiTextarea v-model="section.content" :rows="4" :maxlength="4000" required
+        /></UiField>
+        <UiField :label="t('來源 Session ID')" :hint="t('每行一個；沒有來源時，內容請寫「資料不足」。')">
           <UiTextarea v-model="section.sources" :rows="2" mono />
         </UiField>
       </fieldset>
-      <UiButton :icon="Plus" :disabled="sections.length >= maxSections" @click="addSection">新增段落</UiButton>
+      <UiButton :icon="Plus" :disabled="sections.length >= maxSections" @click="addSection">{{
+        t("新增段落")
+      }}</UiButton>
     </form>
     <template #footer>
-      <UiButton :disabled="saving" @click="close">取消</UiButton>
-      <UiButton variant="primary" type="submit" form="knowledge-page-editor-form" :loading="saving"
-        >儲存新版本</UiButton
-      >
+      <UiButton :disabled="saving" @click="close">{{ t("取消") }}</UiButton>
+      <UiButton variant="primary" type="submit" form="knowledge-page-editor-form" :loading="saving">{{
+        t("儲存新版本")
+      }}</UiButton>
     </template>
   </UiDialog>
 </template>

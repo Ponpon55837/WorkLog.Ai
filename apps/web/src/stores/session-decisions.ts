@@ -9,6 +9,7 @@ import type {
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 /** Owns the tracked-project inbox for Agent-autonomous decisions and its Web-only review action. */
 export const useSessionDecisionsStore = defineStore("session-decisions", () => {
@@ -55,9 +56,9 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   );
   const decisionsLoading = computed(() => listQuery.isLoading.value);
   const decisionsError = computed(() => {
-    if (listQuery.error.value) return errorMessage(listQuery.error.value, "無法載入 Agent 自主決策。");
+    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入 Agent 自主決策。"));
     const result = listQuery.data.value;
-    return result?.outcome === "skipped" ? (result.reason ?? "此專案目前未啟用記錄。") : "";
+    return result?.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : "";
   });
 
   function setListActive(active: boolean, root?: string): void {

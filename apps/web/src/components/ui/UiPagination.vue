@@ -5,6 +5,7 @@ import type { PageInfo } from "@work-intelligence/core";
 import { listPageSizeOptions, type ListPageSize } from "../../utils/labels";
 import UiButton from "./UiButton.vue";
 import UiSelect from "./UiSelect.vue";
+import { t } from "../../i18n";
 
 /** The single pagination control: summary, page-size select (10/20/50/100/All) and prev/next. */
 defineProps<{ pageInfo: PageInfo; sizeLabel: string }>();
@@ -28,20 +29,24 @@ const sizeOptions = listPageSizeOptions.map((option) => ({ value: option.value, 
 <template>
   <div ref="root" class="ui-pagination">
     <span class="ui-pagination__summary">
-      顯示 {{ pageInfo.from }}–{{ pageInfo.to }}，共 {{ pageInfo.total }} 筆
-      <span v-if="pageInfo.truncated"> · All 已限制每頁 {{ pageInfo.pageSize }} 筆</span>
+      {{ t("顯示 {from}–{to}，共 {total} 筆", { from: pageInfo.from, to: pageInfo.to, total: pageInfo.total }) }}
+      <span v-if="pageInfo.truncated"> {{ t("· All 已限制每頁 {pageSize} 筆", { pageSize: pageInfo.pageSize }) }}</span>
     </span>
     <span class="ui-pagination__size">
-      每頁
+      {{ t("每頁") }}
       <UiSelect v-model="pageSize" :options="sizeOptions" :label="sizeLabel" size="sm" />
     </span>
     <span v-if="pageInfo.totalPages > 1" class="ui-pagination__pages">
-      <UiButton size="sm" :icon="ChevronLeft" :disabled="!pageInfo.hasPrevious" @click="goTo(pageInfo.page - 1)"
-        >上一頁</UiButton
-      >
-      <span>第 {{ pageInfo.page }} / {{ pageInfo.totalPages }} 頁</span>
-      <UiButton size="sm" :trailing-icon="ChevronRight" :disabled="!pageInfo.hasNext" @click="goTo(pageInfo.page + 1)"
-        >下一頁</UiButton
+      <UiButton size="sm" :icon="ChevronLeft" :disabled="!pageInfo.hasPrevious" @click="goTo(pageInfo.page - 1)">{{
+        t("上一頁")
+      }}</UiButton>
+      <span>{{ t("第 {page} / {totalPages} 頁", { page: pageInfo.page, totalPages: pageInfo.totalPages }) }}</span>
+      <UiButton
+        size="sm"
+        :trailing-icon="ChevronRight"
+        :disabled="!pageInfo.hasNext"
+        @click="goTo(pageInfo.page + 1)"
+        >{{ t("下一頁") }}</UiButton
       >
     </span>
   </div>

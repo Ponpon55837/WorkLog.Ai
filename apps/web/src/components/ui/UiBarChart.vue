@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { Tone } from "./types";
+import { t } from "../../i18n";
 
 /**
  * Grouped vertical bar chart for small deterministic series (≤ ~31 points).
@@ -54,15 +55,17 @@ function height(seriesIndex: number, value: number): string {
         >
       </div>
     </div>
-    <p class="ui-bar-chart__hint">長條高度各自依該指標的最高值縮放；實際數量列在下方。</p>
-    <div class="ui-bar-chart__data" role="region" aria-label="趨勢圖數值表" tabindex="0">
+    <p class="ui-bar-chart__hint">{{ t("長條高度各自依該指標的最高值縮放；實際數量列在下方。") }}</p>
+    <div class="ui-bar-chart__data" role="region" :aria-label="t('趨勢圖數值表')" tabindex="0">
       <table>
         <caption>
-          每期實際數量
+          {{
+            t("每期實際數量")
+          }}
         </caption>
         <thead>
           <tr>
-            <th scope="col">期間</th>
+            <th scope="col">{{ t("期間") }}</th>
             <th v-for="item in series" :key="item.name" scope="col">{{ item.name }}</th>
           </tr>
         </thead>

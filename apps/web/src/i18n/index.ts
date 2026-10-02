@@ -1,0 +1,87 @@
+import { ref } from "vue";
+import { en } from "./en";
+
+/**
+ * Gettext-style localisation: the 繁體中文 source text is the message key, and each other locale maps it to a
+ * translation. Missing translations fall back to the source text, so an untranslated string is never blank.
+ *
+ * The locale lives in a module-level ref (not a Pinia store) because pure utils — status maps, label maps,
+ * formatters, router meta — translate outside any component or active Pinia. Anything that calls `t()` while
+ * rendering or inside a computed re-runs when the locale changes.
+ */
+export const LOCALES = ["zh-TW", "en"] as const;
+export type Locale = (typeof LOCALES)[number];
+export type MessageParams = Record<string, string | number | boolean | null | undefined>;
+
+export const locale = ref<Locale>("zh-TW");
+
+const catalogs: Record<Exclude<Locale, "zh-TW">, Readonly<Record<string, string>>> = { en };
+
+/** Each language is named in itself, so it stays recognisable whatever the current locale is. */
+export const LOCALE_OPTIONS: ReadonlyArray<{ value: Locale; label: string }> = [
+  { value: "zh-TW", label: "繁體中文" },
+  { value: "en", label: "English" },
+];
+
+/**
+ * Translates a source string that means different things in different places (週 is both the "Week" tab and the
+ * "weeks" unit). The catalog key is `context|source`; Chinese shows the source unchanged.
+ */
+export function tc(context: string, source: string, params?: MessageParams): string {
+  if (locale.value === "zh-TW") return t(source, params);
+  const key = `${context}|${source}`;
+  return key in catalogs[locale.value] ? t(key, params) : t(source, params);
+}
+
+/** BCP 47 tag handed to Intl formatters and `<html lang>`. */
+const INTL_LOCALES: Record<Locale, string> = { "zh-TW": "zh-TW", en: "en-US" };
+
+/** Picks the browser's language on first visit; anything that is not Chinese gets English. */
+export function detectLocale(languages: readonly string[] | undefined): Locale {
+  const first = languages?.[0];
+  if (!first) return "zh-TW";
+  return first.toLowerCase().startsWith("zh") ? "zh-TW" : "en";
+}
+
+export function isLocale(value: unknown): value is Locale {
+  return (LOCALES as readonly unknown[]).includes(value);
+}
+
+/** Translates a source string and fills `{name}` placeholders. */
+export function t(source: string, params?: MessageParams): string {
+  const current = locale.value;
+  const text = current === "zh-TW" ? source : (catalogs[current][source] ?? source);
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (match, name: string) => (name in params ? String(params[name] ?? "") : match));
+}
+
+export function intlLocale(): string {
+  return INTL_LOCALES[locale.value];
+}
+
+/**
+ * Wraps a constant label map so every read translates with the current locale. Module-level maps are built
+ * once; getters keep them reactive without turning every caller into a function call.
+ */
+export function translatedRecord<K extends string>(record: Record<K, string>): Record<K, string> {
+  const result = {} as Record<K, string>;
+  for (const key of Object.keys(record) as K[]) {
+    Object.defineProperty(result, key, { enumerable: true, get: () => t(record[key]) });
+  }
+  return result;
+}
+
+/** Same as translatedRecord, for option lists: the named text fields translate on every read. */
+export function translatedOptions<T extends object, F extends keyof T & string>(
+  options: readonly T[],
+  ...fields: F[]
+): T[] {
+  return options.map((option) => {
+    const copy = { ...option };
+    for (const field of fields) {
+      const source = option[field];
+      if (typeof source === "string") Object.defineProperty(copy, field, { enumerable: true, get: () => t(source) });
+    }
+    return copy;
+  });
+}

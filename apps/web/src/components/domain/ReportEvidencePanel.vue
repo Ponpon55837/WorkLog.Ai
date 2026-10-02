@@ -12,6 +12,7 @@ import UiPagination from "../ui/UiPagination.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { evidenceKindLabels } from "../../utils/labels";
+import { t } from "../../i18n";
 
 const { report, loading } = defineProps<{
   report: WorkReport;
@@ -24,7 +25,7 @@ const emit = defineEmits<{
 const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const kind = defineModel<ReportEvidence["kind"] | "">("kind", { required: true });
 const evidenceKindItems = [
-  { value: "" as const, label: "所有類型" },
+  { value: "" as const, label: t("所有類型") },
   ...(Object.keys(evidenceKindLabels) as ReportEvidence["kind"][]).map((evidenceKind) => ({
     value: evidenceKind,
     label: evidenceKindLabels[evidenceKind],
@@ -43,11 +44,11 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   <section id="report-panel-evidence" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-evidence">
     <UiBox sticky-header>
       <template #header>
-        <UiBoxTitle eyebrow="Source evidence" title="來源證據" :count="report.evidencePageInfo.total" />
+        <UiBoxTitle eyebrow="Source evidence" :title="t('來源證據')" :count="report.evidencePageInfo.total" />
         <UiActionMenu
           v-model="kind"
-          label="類型"
-          header="篩選 Evidence 類型"
+          :label="t('類型')"
+          :header="t('篩選 Evidence 類型')"
           default-value=""
           align="end"
           :items="evidenceKindItems"
@@ -58,8 +59,8 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         v-else-if="report.evidence.length === 0"
         compact
         :icon="Link"
-        title="尚無可呈現的證據"
-        description="Session 提供 handoff、verification、changed files 或 event 後，報告就能建立追溯線索。"
+        :title="t('尚無可呈現的證據')"
+        :description="t('Session 提供 handoff、verification、changed files 或 event 後，報告就能建立追溯線索。')"
       />
       <VirtualList
         v-else
@@ -69,7 +70,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         fit-viewport-to-panel
         fill-available-space
         :estimate-item-height="72"
-        label="報告來源證據清單"
+        :label="t('報告來源證據清單')"
       >
         <template #default="{ item }">
           <UiBoxRow clickable :title="item.label" @select="emit('open', item)">
@@ -93,7 +94,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         <UiPagination
           v-model:page-size="pageSize"
           :page-info="report.evidencePageInfo"
-          size-label="報告來源證據每頁筆數"
+          :size-label="t('報告來源證據每頁筆數')"
           @page="emit('page', $event)"
         />
       </template>

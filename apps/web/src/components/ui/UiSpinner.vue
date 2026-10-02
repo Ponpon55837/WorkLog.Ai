@@ -1,5 +1,6 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ size?: number; label?: string }>(), { size: 16, label: "載入中" });
+import { t } from "../../i18n";
+withDefaults(defineProps<{ size?: number; label?: string }>(), { size: 16, label: t("載入中") });
 </script>
 
 <template>

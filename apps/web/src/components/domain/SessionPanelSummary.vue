@@ -15,6 +15,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import StatusLabel from "./StatusLabel.vue";
 import WorkSummarySections from "./WorkSummarySections.vue";
+import { t } from "../../i18n";
 
 const props = defineProps<{ detail: SessionDetail }>();
 const emit = defineEmits<{ restoreRecord: [target: VoidTarget] }>();
@@ -31,43 +32,57 @@ const sessionTarget = computed<VoidTarget>(() => ({
 </script>
 
 <template>
-  <UiFlash v-if="session.voided" tone="attention" title="這筆 Session 已作廢">
-    {{ session.voided.reason }}（{{ formatDate(session.voided.at) }}）。不會出現在工作歷程、報告、圖譜與 Agent 檢索。
+  <UiFlash v-if="session.voided" tone="attention" :title="t('這筆 Session 已作廢')">
+    {{
+      t("{reason}（{date}）。不會出現在工作歷程、報告、圖譜與 Agent 檢索。", {
+        reason: session.voided.reason,
+        date: formatDate(session.voided.at),
+      })
+    }}
     <template #actions
-      ><UiButton size="sm" :icon="RotateCcw" @click="emit('restoreRecord', sessionTarget)">還原</UiButton></template
+      ><UiButton size="sm" :icon="RotateCcw" @click="emit('restoreRecord', sessionTarget)">{{
+        t("還原")
+      }}</UiButton></template
     >
   </UiFlash>
   <p class="session-panel__summary">{{ formatReadableSummary(session.summary) }}</p>
-  <p v-if="redactionCount > 0" class="session-panel__redaction" role="status">已遮蔽 {{ redactionCount }} 處敏感資訊</p>
+  <p v-if="redactionCount > 0" class="session-panel__redaction" role="status">
+    {{ t("已遮蔽 {redactionCount} 處敏感資訊", { redactionCount }) }}
+  </p>
 
   <dl class="session-panel__meta">
-    <dt>專案</dt>
+    <dt>{{ t("專案") }}</dt>
     <dd>
       <span>{{ detail.project.name }}</span>
       <code class="session-panel__path">{{ detail.project.rootPath }}</code>
     </dd>
-    <dt>開始時間</dt>
+    <dt>{{ t("開始時間") }}</dt>
     <dd>
       <template v-if="session.startedAt">
         <time :datetime="session.startedAt">{{ formatDate(session.startedAt) }}</time>
-        <span class="session-panel__muted">耗時 {{ formatDuration(session.startedAt, session.completedAt) }}</span>
+        <span class="session-panel__muted">{{
+          t("耗時 {value}", { value: formatDuration(session.startedAt, session.completedAt) })
+        }}</span>
       </template>
-      <span v-else class="session-panel__muted">未回報</span>
+      <span v-else class="session-panel__muted">{{ t("未回報") }}</span>
     </dd>
-    <dt>完成時間</dt>
+    <dt>{{ t("完成時間") }}</dt>
     <dd>
-      <time :datetime="session.completedAt"
-        >{{ formatDate(session.completedAt) }}（{{ formatRelative(session.completedAt) }}）</time
-      >
+      <time :datetime="session.completedAt">{{
+        t("{value}（{value2}）", {
+          value: formatDate(session.completedAt),
+          value2: formatRelative(session.completedAt),
+        })
+      }}</time>
     </dd>
-    <dt>最後更新</dt>
+    <dt>{{ t("最後更新") }}</dt>
     <dd>
-      <time v-if="wasUpdatedAfterFinalize(session)" :datetime="session.updatedAt"
-        >{{ formatDate(session.updatedAt) }}（{{ formatRelative(session.updatedAt) }}）</time
-      >
-      <span v-else class="session-panel__muted">完成後未修改</span>
+      <time v-if="wasUpdatedAfterFinalize(session)" :datetime="session.updatedAt">{{
+        t("{value}（{value2}）", { value: formatDate(session.updatedAt), value2: formatRelative(session.updatedAt) })
+      }}</time>
+      <span v-else class="session-panel__muted">{{ t("完成後未修改") }}</span>
     </dd>
-    <dt>執行狀態</dt>
+    <dt>{{ t("執行狀態") }}</dt>
     <dd><StatusLabel :status="executionStatusVisual" /></dd>
     <dt>Verification</dt>
     <dd>

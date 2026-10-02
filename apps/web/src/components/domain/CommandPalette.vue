@@ -9,6 +9,7 @@ import { router } from "../../router";
 import { useCommandPaletteStore } from "../../stores/command-palette";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatRelative } from "../../utils/format";
+import { t } from "../../i18n";
 
 type PaletteItem = { id: string; group: string; label: string; hint?: string; icon: IconComponent; run: () => void };
 
@@ -32,7 +33,7 @@ const items = computed<PaletteItem[]>(() => {
     .filter((item) => !term || item.label.toLowerCase().includes(term) || item.name.includes(term))
     .map((item) => ({
       id: `page-${item.name}`,
-      group: "頁面",
+      group: t("頁面"),
       label: item.label,
       hint: item.shortcut,
       icon: item.icon,
@@ -106,14 +107,14 @@ watch(open, async (value) => {
 <template>
   <Teleport to="body">
     <div v-if="open" class="palette__backdrop" @click.self="close">
-      <div ref="dialog" class="palette" role="dialog" aria-modal="true" aria-label="搜尋或跳至頁面">
+      <div ref="dialog" class="palette" role="dialog" aria-modal="true" :aria-label="t('搜尋或跳至頁面')">
         <label class="palette__search">
           <Search :size="16" :stroke-width="1.75" aria-hidden="true" />
           <input
             ref="input"
             v-model="query"
             type="text"
-            placeholder="搜尋 Session、Knowledge 或頁面…"
+            :placeholder="t('搜尋 Session、Knowledge 或頁面…')"
             role="combobox"
             aria-expanded="true"
             aria-controls="palette-results"
@@ -144,9 +145,11 @@ watch(open, async (value) => {
               />
             </li>
           </template>
-          <li v-if="items.length === 0" class="palette__empty">找不到符合的項目</li>
+          <li v-if="items.length === 0" class="palette__empty">{{ t("找不到符合的項目") }}</li>
         </ul>
-        <div class="palette__footer"><kbd>↑</kbd><kbd>↓</kbd> 選擇 · <kbd>Enter</kbd> 開啟 · <kbd>Esc</kbd> 關閉</div>
+        <div class="palette__footer">
+          <kbd>↑</kbd><kbd>↓</kbd> {{ t("選擇 ·") }} <kbd>Enter</kbd> {{ t("開啟 ·") }} <kbd>Esc</kbd> {{ t("關閉") }}
+        </div>
       </div>
     </div>
   </Teleport>

@@ -10,6 +10,7 @@ import type {
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 /** Owns the standing Knowledge pages of the Knowledge page: the list, the open page, and its version history. */
 export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
@@ -33,9 +34,9 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   const pages = computed(() => (listQuery.data.value?.outcome === "knowledge_pages" ? listQuery.data.value.items : []));
   const pagesLoading = computed(() => listQuery.isLoading.value);
   const pagesError = computed(() => {
-    if (listQuery.error.value) return errorMessage(listQuery.error.value, "無法載入知識頁。");
+    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入知識頁。"));
     const result = listQuery.data.value;
-    return result?.outcome === "skipped" ? (result.reason ?? "此專案目前未啟用記錄。") : "";
+    return result?.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : "";
   });
   const newDataCount = computed(() => pages.value.filter((page) => page.status === "has_new_data").length);
   const openPage = computed(() => {
@@ -51,7 +52,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   );
   const versionsLoading = computed(() => versionsQuery.isLoading.value);
   const versionsError = computed(() =>
-    versionsQuery.error.value ? errorMessage(versionsQuery.error.value, "無法載入知識頁版本。") : "",
+    versionsQuery.error.value ? errorMessage(versionsQuery.error.value, t("無法載入知識頁版本。")) : "",
   );
 
   async function invalidatePages(): Promise<void> {

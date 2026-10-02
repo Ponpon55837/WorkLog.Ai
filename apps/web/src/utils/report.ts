@@ -1,4 +1,6 @@
 import type { ReportPeriod, WorkReport } from "@work-intelligence/core";
+import { t, tc } from "../i18n";
+import { weekdayLabel } from "./format";
 
 export interface ReportBucket {
   key: string;
@@ -17,11 +19,23 @@ export interface ReportShare {
 /** How a report's trend points are grouped for the overview. */
 export type ReportBucketMode = "day" | "week" | "month" | "quarter";
 
+function bucketUnit(unit: string, title: string, eyebrow: string): { unit: string; title: string; eyebrow: string } {
+  return {
+    get unit() {
+      return tc("unit", unit);
+    },
+    get title() {
+      return t(title);
+    },
+    eyebrow,
+  };
+}
+
 export const reportBucketUnits: Record<ReportBucketMode, { unit: string; title: string; eyebrow: string }> = {
-  day: { unit: "天", title: "每日分布", eyebrow: "By day" },
-  week: { unit: "週", title: "每週分布", eyebrow: "By week" },
-  month: { unit: "個月", title: "每月分布", eyebrow: "By month" },
-  quarter: { unit: "季", title: "每季分布", eyebrow: "By quarter" },
+  day: bucketUnit("天", "每日分布", "By day"),
+  week: bucketUnit("週", "每週分布", "By week"),
+  month: bucketUnit("個月", "每月分布", "By month"),
+  quarter: bucketUnit("季", "每季分布", "By quarter"),
 };
 
 /**
@@ -47,8 +61,6 @@ export function reportBucketMode(
   }
   return report.trends.length <= 14 ? "day" : "week";
 }
-
-const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
 
 // Report dates are server-local calendar dates; UTC arithmetic keeps them from shifting in the browser.
 function calendarDate(value: string): Date {
@@ -97,10 +109,16 @@ export function buildReportBuckets(report: Pick<WorkReport, "period" | "trends" 
   const spansYears = new Set(report.trends.map((point) => point.date.slice(0, 4))).size > 1;
   return [...buckets.values()].map(({ first, last, ...bucket }) => {
     const labels: Record<ReportBucketMode, string> = {
-      day: `週${weekdayLabels[calendarDate(first).getUTCDay()]} ${monthDay(first)}`,
+      day: `${weekdayLabel(calendarDate(first), true)} ${monthDay(first)}`,
       week: first === last ? monthDay(first) : `${monthDay(first)}–${monthDay(last)}`,
-      month: spansYears ? `${first.slice(0, 4)}/${first.slice(5, 7)}` : `${Number(first.slice(5, 7))} 月`,
-      quarter: `${bucket.key} · ${Number(first.slice(5, 7))}–${Number(last.slice(5, 7))} 月`,
+      month: spansYears
+        ? `${first.slice(0, 4)}/${first.slice(5, 7)}`
+        : t("{value} 月", { value: Number(first.slice(5, 7)) }),
+      quarter: t("{key} · {value}–{value2} 月", {
+        key: bucket.key,
+        value: Number(first.slice(5, 7)),
+        value2: Number(last.slice(5, 7)),
+      }),
     };
     return { ...bucket, label: labels[mode] };
   });

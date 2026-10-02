@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+import { weekdayLabel } from "./format";
 /** A bar on the timeline, in milliseconds since the epoch. */
 export interface TimelineSpan {
   start: number;
@@ -146,8 +148,6 @@ export interface AxisTick {
   major: boolean;
 }
 
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
-
 /**
  * Axis ticks that stay readable at any zoom: months when a day is only a few pixels wide, Mondays for a
  * week-level view, every day (or every other day) when days are wider, and six-hour marks when very wide.
@@ -161,7 +161,7 @@ export function axisTicks(rangeStart: number, rangeEnd: number, dayWidth: number
     if (cursor.getTime() < rangeStart) cursor.setMonth(cursor.getMonth() + 1);
     for (; cursor.getTime() < rangeEnd; cursor.setMonth(cursor.getMonth() + 1)) {
       const month = cursor.getMonth() + 1;
-      const label = month === 1 ? `${cursor.getFullYear()}年1月` : `${month}月`;
+      const label = month === 1 ? t("{value}年1月", { value: cursor.getFullYear() }) : t("{month}月", { month });
       ticks.push({ time: cursor.getTime(), label, major: true });
     }
     return ticks;
@@ -175,7 +175,10 @@ export function axisTicks(rangeStart: number, rangeEnd: number, dayWidth: number
       continue;
     }
     if (index % dayStep !== 0) continue;
-    const label = dayWidth >= 60 ? `${monthDay}（${WEEKDAYS[cursor.getDay()]}）` : monthDay;
+    const label =
+      dayWidth >= 60
+        ? t("{monthDay}（{weekday}）", { monthDay, weekday: weekdayLabel(cursor, false, "narrow") })
+        : monthDay;
     ticks.push({ time, label, major: true });
     if (dayWidth >= 240) {
       for (const hour of [6, 12, 18]) {

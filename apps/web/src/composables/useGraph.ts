@@ -9,6 +9,7 @@ import { useKnowledgeActions } from "./useKnowledge";
 import { formatDate, graphNodeLabel, graphNodeLabelTail } from "../utils/format";
 import { graphMetadataLabels, graphNodeKindLabels, graphNodeKindOrder, statusLabels } from "../utils/labels";
 import { verificationStatus } from "../utils/status";
+import { t } from "../i18n";
 
 export type { GraphNodeFilter } from "../stores/graph";
 export type GraphVisualNode = { node: GraphNode; lane: number; y: number };
@@ -239,12 +240,12 @@ export function useGraph() {
       const status = String(node.metadata.verification ?? "not_supplied");
       const label =
         status in verificationStatus ? verificationStatus[status as ReportVerificationStatus].label : status;
-      return `${label} · ${String(node.metadata.changedFilesCount ?? 0)} 個檔案`;
+      return t("{label} · {value} 個檔案", { label, value: String(node.metadata.changedFilesCount ?? 0) });
     }
     if (node.kind === "knowledge") return String(node.metadata.kind ?? "knowledge");
     if (node.kind === "evidence") return String(node.metadata.kind ?? "evidence");
     if (node.kind === "file") {
-      return graphNodeLabelTail(splitFilePath(node.label).folder || "（專案根目錄）", maxDisplayUnits);
+      return graphNodeLabelTail(splitFilePath(node.label).folder || t("（專案根目錄）"), maxDisplayUnits);
     }
     const status = String(node.metadata.status ?? "tracked");
     return status in statusLabels ? statusLabels[status as ProjectStatus] : status;
@@ -258,9 +259,9 @@ export function useGraph() {
       return verificationStatus[value as ReportVerificationStatus].label;
     }
     if ((key === "completedAt" || key === "capturedAt") && typeof value === "string") return formatDate(value);
-    if (key === "changedFilesCount") return `${value} 個檔案`;
-    if (key === "tagsCount") return `${value} 個標籤`;
-    if (typeof value === "boolean") return value ? "是" : "否";
+    if (key === "changedFilesCount") return t("{value} 個檔案", { value });
+    if (key === "tagsCount") return t("{value} 個標籤", { value });
+    if (typeof value === "boolean") return value ? t("是") : t("否");
     return String(value);
   }
 
@@ -286,12 +287,12 @@ export function useGraph() {
 
   function graphNodeProjectName(node: GraphNode): string {
     if (!node.projectId) return "—";
-    return graph.value?.projects.find((project) => project.id === node.projectId)?.name ?? "記錄中專案";
+    return graph.value?.projects.find((project) => project.id === node.projectId)?.name ?? t("記錄中專案");
   }
 
   function openGraphSession(node: GraphNode): void {
     store.selectGraphNode(null);
-    void useSessionsStore().openSessionDetail(node.sessionId, "無法載入 Graph 對應的 Session。");
+    void useSessionsStore().openSessionDetail(node.sessionId, t("無法載入 Graph 對應的 Session。"));
   }
 
   function openGraphKnowledge(node: GraphNode): void {

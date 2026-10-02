@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { Check, Copy } from "lucide-vue-next";
 import { useToast } from "../../composables/useToast";
 import UiButton from "./UiButton.vue";
+import { t } from "../../i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -13,13 +14,16 @@ const props = withDefaults(
     size?: "md" | "sm";
     iconOnly?: boolean;
   }>(),
-  { label: "複製", successMessage: "已複製到剪貼簿。", variant: "default", size: "md" },
+  { variant: "default", size: "md" },
 );
 
 const copied = ref(false);
 
+// Defaults are resolved here, not in withDefaults, so they follow the current locale.
+const buttonLabel = computed(() => props.label ?? t("複製"));
+
 async function copy(): Promise<void> {
-  await useToast().copyWithToast(props.text, props.successMessage);
+  await useToast().copyWithToast(props.text, props.successMessage ?? t("已複製到剪貼簿。"));
   copied.value = true;
   window.setTimeout(() => (copied.value = false), 1_500);
 }
@@ -31,10 +35,10 @@ async function copy(): Promise<void> {
     :size="size"
     :icon="copied ? Check : Copy"
     :icon-only="iconOnly"
-    :label="label"
-    :aria-label="iconOnly ? label : undefined"
+    :label="buttonLabel"
+    :aria-label="iconOnly ? buttonLabel : undefined"
     @click="copy"
   >
-    {{ label }}
+    {{ buttonLabel }}
   </UiButton>
 </template>

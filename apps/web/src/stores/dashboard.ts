@@ -6,6 +6,7 @@ import { useApi } from "../composables/useApi";
 import { reportPeriodLabels } from "../utils/labels";
 import { toDateInputValue } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { t } from "../i18n";
 
 export type InboxItem =
   | { kind: "synthesis"; request: ReportSynthesisRequest; title: string; meta: string }
@@ -75,8 +76,16 @@ export const useDashboardStore = defineStore("dashboard", () => {
       .map((request) => ({
         kind: "synthesis",
         request,
-        title: `${reportPeriodLabels[request.period]}報告${request.status === "failed" ? " AI 整理未完成" : "待 Agent 整理"}`,
-        meta: `Report synthesis · ${request.range.from} – ${request.range.to} · ${request.projectName ?? "所有記錄中專案"} · ${request.sourceSessionIds.length} 個來源 Session`,
+        title:
+          request.status === "failed"
+            ? t("{period}報告 AI 整理未完成", { period: reportPeriodLabels[request.period] })
+            : t("{period}報告待 Agent 整理", { period: reportPeriodLabels[request.period] }),
+        meta: t("Report synthesis · {from} – {to} · {project} · {count} 個來源 Session", {
+          from: request.range.from,
+          to: request.range.to,
+          project: request.projectName ?? t("所有記錄中專案"),
+          count: request.sourceSessionIds.length,
+        }),
       }));
     const backfill = backfillRequest.value;
     if (
@@ -86,8 +95,8 @@ export const useDashboardStore = defineStore("dashboard", () => {
       items.push({
         kind: "backfill",
         request: backfill,
-        title: "Session metadata 待 Agent 回補",
-        meta: "Metadata backfill · 只回寫已確認的 changed files 與 verification",
+        title: t("Session metadata 待 Agent 回補"),
+        meta: t("Metadata backfill · 只回寫已確認的 changed files 與 verification"),
       });
     }
     return items;

@@ -62,6 +62,7 @@ beforeEach(() => {
   vi.stubGlobal("SVGSVGElement", FakeSvgElement);
   vi.stubGlobal("document", {
     body: { append: vi.fn() },
+    documentElement: { dataset: { theme: "dark" } },
     createElement: (name: string) =>
       name === "svg" ? new FakeSvgElement() : name === "div" ? new FakeDivElement() : new FakeElement(name),
   });
@@ -102,6 +103,16 @@ describe("renderMermaid", () => {
     expect(first.css).toContain(".node{fill:red}");
     expect(mermaidMock.render.mock.calls[0]?.[2]).toBeDefined();
     expect(second.svg).not.toEqual(first.svg);
+  });
+
+  it("switches the Mermaid theme with the page theme", async () => {
+    const { renderMermaid } = await import("../../../apps/web/src/utils/mermaid.js");
+    await renderMermaid("flowchart LR\n  A --> B");
+    const calls = mermaidMock.initialize.mock.calls.length;
+    (document.documentElement.dataset as Record<string, string>).theme = "light";
+    await renderMermaid("flowchart LR\n  A --> B");
+    expect(mermaidMock.initialize).toHaveBeenCalledTimes(calls + 1);
+    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "default" }));
   });
 
   it("rejects source Mermaid cannot parse", async () => {

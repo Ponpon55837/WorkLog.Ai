@@ -9,6 +9,7 @@ import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
 import { formatReadableSummary } from "../../utils/format";
+import { t } from "../../i18n";
 
 const { report, reportComparisons } = defineProps<{
   report: WorkReport;
@@ -42,19 +43,28 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
         :value="item.comparison.current"
         :delta="{
           direction: item.comparison.direction,
-          text: item.comparison.direction === 'flat' ? '與上期相同' : `${Math.abs(item.comparison.delta)} vs 上期`,
+          text:
+            item.comparison.direction === 'flat'
+              ? t('與上期相同')
+              : t('{value} vs 上期', { value: Math.abs(item.comparison.delta) }),
         }"
         :foot="item.foot"
       />
-      <UiStatCard label="Verification" :value="verificationCounts.passed" :suffix="`/ ${report.totals.sessions} 通過`">
+      <UiStatCard
+        label="Verification"
+        :value="verificationCounts.passed"
+        :suffix="t('/ {sessions} 通過', { sessions: report.totals.sessions })"
+      >
         <VerificationBreakdown :counts="verificationCounts" />
       </UiStatCard>
     </div>
     <ReportPeriodBreakdown :report="report" @open="openSession" @show-all="emit('show-all')" />
     <UiBox padded>
       <template #header>
-        <UiBoxTitle eyebrow="Period summary" title="這段時間發生了什麼" />
-        <span class="reports__muted">比較期間 {{ report.previousRange.from }} – {{ report.previousRange.to }}</span>
+        <UiBoxTitle eyebrow="Period summary" :title="t('這段時間發生了什麼')" />
+        <span class="reports__muted">{{
+          t("比較期間 {from} – {to}", { from: report.previousRange.from, to: report.previousRange.to })
+        }}</span>
       </template>
       <p class="reports__summary">{{ formatReadableSummary(report.periodSummary) }}</p>
     </UiBox>

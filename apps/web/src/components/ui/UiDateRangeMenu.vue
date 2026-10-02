@@ -2,8 +2,9 @@
 import { computed, ref, watch } from "vue";
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from "lucide-vue-next";
 import { usePopover } from "../../composables/usePopover";
-import { startOfMonth, toDateInputValue } from "../../utils/format";
+import { startOfMonth, toDateInputValue, weekdayLabel } from "../../utils/format";
 import type { DateRange } from "./types";
+import { intlLocale, t } from "../../i18n";
 
 /** The app's only date picker: preset ranges plus a two-click custom range calendar. */
 const props = withDefaults(
@@ -16,7 +17,6 @@ const props = withDefaults(
     dialogLabel?: string;
   }>(),
   {
-    label: "日期",
     variant: "filter",
     align: "end",
     allowAllDates: true,
@@ -30,8 +30,15 @@ const { open, trigger, panel, style, toggle, close } = usePopover({ align: compu
 const month = ref(startOfMonth(new Date()));
 const draftFrom = ref("");
 
+// The default label is resolved here, not in withDefaults, so it follows the current locale.
+const label = computed(() => props.label ?? t("日期"));
 const dialogLabel = computed(
-  () => props.dialogLabel ?? (props.selectionMode === "single" ? props.label : "選擇日期區間"),
+  () => props.dialogLabel ?? (props.selectionMode === "single" ? label.value : t("選擇日期區間")),
+);
+
+// 2024-01-07 is a Sunday; the calendar grid starts its weeks on Sunday.
+const weekdays = computed(() =>
+  Array.from({ length: 7 }, (_, day) => weekdayLabel(new Date(2024, 0, 7 + day), false, "narrow")),
 );
 
 const presets = computed(() => {
@@ -41,15 +48,15 @@ const presets = computed(() => {
   const today = new Date();
   const todayValue = toDateInputValue(today);
   return [
-    ...(props.allowAllDates ? [{ key: "all", label: "不限日期", range: { from: "", to: "" } }] : []),
-    { key: "today", label: "今天", range: { from: todayValue, to: todayValue } },
+    ...(props.allowAllDates ? [{ key: "all", label: t("不限日期"), range: { from: "", to: "" } }] : []),
+    { key: "today", label: t("今天"), range: { from: todayValue, to: todayValue } },
     {
       key: "yesterday",
-      label: "昨天",
+      label: t("昨天"),
       range: { from: toDateInputValue(shift(today, -1)), to: toDateInputValue(shift(today, -1)) },
     },
-    { key: "7d", label: "近 7 天", range: { from: toDateInputValue(shift(today, -6)), to: todayValue } },
-    { key: "month", label: "本月", range: { from: toDateInputValue(startOfMonth(today)), to: todayValue } },
+    { key: "7d", label: t("近 7 天"), range: { from: toDateInputValue(shift(today, -6)), to: todayValue } },
+    { key: "month", label: t("本月"), range: { from: toDateInputValue(startOfMonth(today)), to: todayValue } },
   ];
 });
 
@@ -59,7 +66,7 @@ const activePreset = computed(() =>
 const applied = computed(() => Boolean(model.value.from || model.value.to));
 const triggerText = computed(() => {
   if (!applied.value) {
-    return props.label;
+    return label.value;
   }
   if (activePreset.value) {
     return activePreset.value.label;
@@ -71,7 +78,7 @@ const triggerText = computed(() => {
 });
 
 const monthLabel = computed(() =>
-  new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "long" }).format(month.value),
+  new Intl.DateTimeFormat(intlLocale(), { year: "numeric", month: "long" }).format(month.value),
 );
 const days = computed(() => {
   const start = shift(month.value, -month.value.getDay());
@@ -162,7 +169,7 @@ watch(open, (value) => {
         <div class="ui-date-range__toolbar">
           <button
             type="button"
-            aria-label="上一個月"
+            :aria-label="t('上一個月')"
             @click="month = new Date(month.getFullYear(), month.getMonth() - 1, 1)"
           >
             <ChevronLeft :size="16" :stroke-width="1.75" aria-hidden="true" />
@@ -170,14 +177,14 @@ watch(open, (value) => {
           <strong>{{ monthLabel }}</strong>
           <button
             type="button"
-            aria-label="下一個月"
+            :aria-label="t('下一個月')"
             @click="month = new Date(month.getFullYear(), month.getMonth() + 1, 1)"
           >
             <ChevronRight :size="16" :stroke-width="1.75" aria-hidden="true" />
           </button>
         </div>
         <div class="ui-date-range__weekdays" aria-hidden="true">
-          <span v-for="weekday in ['日', '一', '二', '三', '四', '五', '六']" :key="weekday">{{ weekday }}</span>
+          <span v-for="(weekday, index) in weekdays" :key="index">{{ weekday }}</span>
         </div>
         <div class="ui-date-range__grid">
           <button
@@ -200,10 +207,10 @@ watch(open, (value) => {
         <p class="ui-date-range__hint">
           {{
             selectionMode === "single"
-              ? "點選日期套用報表區間"
+              ? t("點選日期套用報表區間")
               : draftFrom
-                ? `起始 ${draftFrom}，請選擇結束日期`
-                : "點選兩個日期作為自訂區間"
+                ? t("起始 {draftFrom}，請選擇結束日期", { draftFrom })
+                : t("點選兩個日期作為自訂區間")
           }}
         </p>
       </div>
