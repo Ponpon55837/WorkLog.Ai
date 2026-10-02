@@ -141,20 +141,20 @@ const tab = computed<SessionsTab>({
     }),
 });
 const projectItems = computed(() => [
-  { value: "", label: t("所有專案") },
+  { value: "", label: t("common.allProjects") },
   ...projects.value.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const tabs = computed(() => [
   // Counts appear once loaded; "0" before then would read as "nothing here".
   {
     value: "sessions" as const,
-    label: t("工作歷程"),
+    label: t("common.workHistory"),
     icon: ListChecks,
     count: sessionsLoaded.value ? sessionPageInfo.value.total : undefined,
   },
   {
     value: "outstanding" as const,
-    label: t("未結項"),
+    label: t("common.openItems"),
     icon: ListChecks,
     count: outstandingLoaded.value ? outstandingPageInfo.value.total : undefined,
   },
@@ -198,20 +198,22 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageHeader :description="t('每一次完成，都留下可追溯的脈絡。')" />
+  <PageHeader :description="t('sessions.everyFinishedTaskLeavesTraceable')" />
 
   <PageToolbar>
-    <UiUnderlineNav v-model="tab" :items="tabs" :label="t('工作歷程分頁')" id-prefix="sessions" />
+    <UiUnderlineNav v-model="tab" :items="tabs" :label="t('sessions.workHistoryTabs')" id-prefix="sessions" />
     <form v-if="tab === 'sessions'" class="sessions-search" role="search" @submit.prevent="reloadNow">
       <UiTextInput
         v-model="searchTerm"
         class="sessions-search__input"
         type="search"
         :icon="Search"
-        :label="t('搜尋工作歷程')"
-        :placeholder="t('搜尋 title、summary 或 event')"
+        :label="t('sessions.searchWorkHistory')"
+        :placeholder="t('common.searchTitleSummaryOrEvent')"
       />
-      <UiButton v-if="hasSessionFilters" :icon="X" @click="clearSessionFilters">{{ t("清除篩選") }}</UiButton>
+      <UiButton v-if="hasSessionFilters" :icon="X" @click="clearSessionFilters">{{
+        t("common.clearFilters")
+      }}</UiButton>
     </form>
   </PageToolbar>
 
@@ -227,14 +229,14 @@ onBeforeUnmount(() => {
       <template #header>
         <UiBoxTitle :icon="ListChecks" :title="sessionsLoaded ? `${sessionPageInfo.total} Sessions` : 'Sessions'">
           <span v-if="sessionPageInfo.total" class="sessions__range">{{
-            t("顯示 {from}–{to}", { from: sessionPageInfo.from, to: sessionPageInfo.to })
+            t("sessions.showing", { from: sessionPageInfo.from, to: sessionPageInfo.to })
           }}</span>
         </UiBoxTitle>
         <div class="sessions__filters">
           <UiActionMenu
             v-model="selectedProjectId"
-            :label="t('專案')"
-            :header="t('篩選專案')"
+            :label="t('common.project')"
+            :header="t('common.filterProject')"
             default-value=""
             align="end"
             :items="projectItems"
@@ -242,8 +244,8 @@ onBeforeUnmount(() => {
           <UiDateRangeMenu v-model="dateRange" />
           <UiActionMenu
             v-model="voidedFilter"
-            :label="t('作廢')"
-            :header="t('已作廢的 Session')"
+            :label="t('common.void')"
+            :header="t('sessions.voidedSessions')"
             default-value="exclude"
             align="end"
             :items="voidedFilterOptions"
@@ -251,19 +253,17 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" :label="t('正在載入工作歷程…')" />
+      <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" :label="t('sessions.loadingWorkHistory')" />
       <UiEmptyState
         v-else-if="sessions.length === 0"
         :icon="ListChecks"
-        :title="hasSessionFilters ? t('沒有符合條件的 Session') : t('還沒有工作紀錄')"
+        :title="hasSessionFilters ? t('sessions.noSessionsMatchTheFilters') : t('common.noWorkRecordsYet')"
         :description="
-          hasSessionFilters
-            ? t('調整搜尋或篩選條件後再試一次。')
-            : t('記錄中的專案完成 Session 後，會依時間出現在這裡。')
+          hasSessionFilters ? t('common.adjustTheSearchOrFilters') : t('sessions.sessionsCompletedInTrackedProjects')
         "
       >
         <template v-if="hasSessionFilters" #action
-          ><UiButton @click="clearSessionFilters">{{ t("清除篩選") }}</UiButton></template
+          ><UiButton @click="clearSessionFilters">{{ t("common.clearFilters") }}</UiButton></template
         >
       </UiEmptyState>
       <VirtualList
@@ -273,7 +273,7 @@ onBeforeUnmount(() => {
         fit-viewport
         fit-viewport-to-panel
         fill-available-space
-        :label="t('工作歷程清單')"
+        :label="t('sessions.workHistoryList')"
       >
         <template #default="{ item, index }">
           <UiGroupLabel v-if="dayGroupAt(index)">{{ dayGroupAt(index) }}</UiGroupLabel>
@@ -285,7 +285,7 @@ onBeforeUnmount(() => {
         <UiPagination
           v-model:page-size="sessionPageSize"
           :page-info="sessionPageInfo"
-          :size-label="t('工作歷程每頁筆數')"
+          :size-label="t('sessions.workHistoryPerPage')"
           @page="sessionPage = $event"
         />
       </template>

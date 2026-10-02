@@ -94,7 +94,7 @@ export function createProjectsApi(client: ApiTransport): ProjectsApi {
 
     async exportProjectData(scope: ProjectDataExportScope): Promise<{ blob: Blob; fileName: string }> {
       const body = scope.type === "all" ? { scope: "all" } : { scope: "project", projectId: scope.projectId };
-      const blob = await client.download("/api/export", body, t("無法匯出專案資料，請確認 API 是否已啟動。"));
+      const blob = await client.download("/api/export", body, t("api.couldNotExportProjectData"));
       const fileName =
         "work-intelligence-projects-" + new Date().toLocaleDateString("sv-SE").replace(/-/g, "") + ".json";
       return { blob, fileName };

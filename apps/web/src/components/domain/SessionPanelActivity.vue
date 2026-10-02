@@ -63,21 +63,21 @@ function verificationLabel(verification: { status: keyof typeof verificationStat
 
 function voidHistoryLabel(entry: { targetType: string; action: string }): string {
   const target = entry.targetType === "session" ? "Session" : "Evidence";
-  return entry.action === "voided" ? t("{target} 作廢", { target }) : t("{target} 還原", { target });
+  return entry.action === "voided" ? t("session.voided", { target }) : t("session.restored", { target });
 }
 
 function decisionOriginLabel(origin: string): string {
-  if (origin === "user_requested") return t("使用者要求");
-  if (origin === "agent_autonomous") return t("Agent 自主選擇");
-  return t("來源未標記");
+  if (origin === "user_requested") return t("session.requestedByYou");
+  if (origin === "agent_autonomous") return t("session.agentSOwnChoice");
+  return t("session.sourceNotMarked");
 }
 
 function decisionStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    pending: t("待確認"),
-    confirmed: t("已確認"),
-    rejected: t("已拒絕"),
-    promoted: t("已整理為 Knowledge"),
+    pending: t("common.unconfirmed"),
+    confirmed: t("common.confirmed"),
+    rejected: t("common.rejected"),
+    promoted: t("session.turnedIntoKnowledge"),
   };
   return labels[status] ?? status;
 }
@@ -97,10 +97,15 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
 
 <template>
   <div class="session-panel__sections">
-    <UiDisclosure title="Changed files" :icon="FileDiff" :count="session.changedFiles.length" open>
+    <UiDisclosure :title="t('session.sectionChangedFiles')" :icon="FileDiff" :count="session.changedFiles.length" open>
       <ChangedFileList :session="session" :project="detail.project" />
     </UiDisclosure>
-    <UiDisclosure v-if="hasGit" title="Git" :icon="GitBranch" hint="observed metadata">
+    <UiDisclosure
+      v-if="hasGit"
+      :title="t('session.sectionGit')"
+      :icon="GitBranch"
+      :hint="t('session.observedMetadata')"
+    >
       <dl class="session-panel__meta session-panel__meta--inset">
         <template v-if="session.gitBranch"
           ><dt>Branch</dt>
@@ -123,7 +128,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
     </UiDisclosure>
     <UiDisclosure
       v-if="detail.diagrams.length"
-      :title="t('圖表')"
+      :title="t('common.diagram')"
       :icon="Workflow"
       :count="detail.diagrams.length"
       open
@@ -135,13 +140,13 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
           :class="['session-panel__item', { 'is-voided': item.voided }]"
         >
           <div class="session-panel__item-head">
-            <UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{ t("已作廢") }}</UiLabel
+            <UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel
             ><time :title="formatDate(item.createdAt)">{{ formatRelative(item.createdAt) }}</time>
             <UiIconButton
               v-if="item.voided"
               class="session-panel__item-action"
               :icon="RotateCcw"
-              :label="t('還原圖表')"
+              :label="t('session.restoreDiagram')"
               size="sm"
               @click="emit('restoreRecord', diagramTarget(item))"
             />
@@ -149,14 +154,14 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
               v-else
               class="session-panel__item-action"
               :icon="Ban"
-              :label="t('作廢圖表')"
+              :label="t('session.voidDiagram')"
               size="sm"
               @click="emit('voidRecord', diagramTarget(item))"
             />
           </div>
           <template v-if="item.voided">
             <p class="session-panel__void-reason">
-              {{ t("{title} · 原因：{reason}", { title: item.title, reason: item.voided.reason }) }}
+              {{ t("session.reason", { title: item.title, reason: item.voided.reason }) }}
             </p>
           </template>
           <MermaidDiagram v-else :title="item.title" :source="item.source" />
@@ -165,29 +170,29 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
     </UiDisclosure>
     <UiDisclosure
       v-if="detail.evidence.length"
-      title="Evidence"
+      :title="t('session.sectionEvidence')"
       :icon="Paperclip"
       :count="detail.evidence.length"
-      :hint="voidedEvidenceCount ? t('{voidedEvidenceCount} 筆已標示錯誤', { voidedEvidenceCount }) : undefined"
+      :hint="voidedEvidenceCount ? t('session.markedAsWrong', { voidedEvidenceCount }) : undefined"
     >
       <VirtualList
         :items="detail.evidence"
         :enabled="detail.evidence.length > 3"
         :estimate-item-height="112"
         max-height="min(38vh, 360px)"
-        :label="t('Session Evidence 清單')"
+        :label="t('session.sessionEvidenceList')"
       >
         <template #default="{ item }">
           <div :class="['session-panel__item', { 'is-voided': item.voided }]" data-testid="session-evidence">
             <div class="session-panel__item-head">
               <UiLabel>{{ item.kind }}</UiLabel
-              ><UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{ t("已標示錯誤") }}</UiLabel
+              ><UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{ t("session.markedAsWrongLabel") }}</UiLabel
               ><time :title="formatDate(item.capturedAt)">{{ formatRelative(item.capturedAt) }}</time>
               <UiIconButton
                 v-if="item.voided"
                 class="session-panel__item-action"
                 :icon="RotateCcw"
-                :label="t('還原 Evidence')"
+                :label="t('session.restoreEvidence')"
                 size="sm"
                 @click="emit('restoreRecord', evidenceTarget(item))"
               />
@@ -195,13 +200,13 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
                 v-else
                 class="session-panel__item-action"
                 :icon="Ban"
-                :label="t('標示 Evidence 為錯誤')"
+                :label="t('session.markEvidenceAsWrong')"
                 size="sm"
                 @click="emit('voidRecord', evidenceTarget(item))"
               />
             </div>
             <p v-if="item.voided" class="session-panel__void-reason">
-              {{ t("原因：{reason}", { reason: item.voided.reason }) }}
+              {{ t("session.reasonValue", { reason: item.voided.reason }) }}
             </p>
             <p v-if="item.summary">{{ item.summary }}</p>
             <code>{{ item.reference }}</code>
@@ -209,13 +214,17 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         </template>
       </VirtualList>
     </UiDisclosure>
-    <UiDisclosure v-if="detail.decisions.length" :title="t('決策與來源')" :count="detail.decisions.length">
+    <UiDisclosure
+      v-if="detail.decisions.length"
+      :title="t('session.decisionsAndSources')"
+      :count="detail.decisions.length"
+    >
       <VirtualList
         :items="detail.decisions"
         :enabled="detail.decisions.length > 4"
         :estimate-item-height="96"
         max-height="min(38vh, 360px)"
-        :label="t('Session 決策與來源清單')"
+        :label="t('session.sessionDecisionsAndSourcesList')"
       >
         <template #default="{ item }">
           <div class="session-panel__item" data-testid="session-decision">
@@ -230,13 +239,18 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         </template>
       </VirtualList>
     </UiDisclosure>
-    <UiDisclosure v-if="detail.knowledge.length" title="Knowledge" :icon="BookOpen" :count="detail.knowledge.length">
+    <UiDisclosure
+      v-if="detail.knowledge.length"
+      :title="t('session.sectionKnowledge')"
+      :icon="BookOpen"
+      :count="detail.knowledge.length"
+    >
       <VirtualList
         :items="detail.knowledge"
         :enabled="detail.knowledge.length > 2"
         :estimate-item-height="160"
         max-height="min(38vh, 360px)"
-        :label="t('Session Knowledge 清單')"
+        :label="t('session.sessionKnowledgeList')"
       >
         <template #default="{ item }">
           <div class="session-panel__item">
@@ -250,7 +264,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
       </VirtualList>
     </UiDisclosure>
     <UiDisclosure
-      :title="t('關聯 Session')"
+      :title="t('session.linkedSessions')"
       :icon="Link2"
       :count="detail.links.length"
       :open="detail.links.length > 0"
@@ -261,7 +275,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         :enabled="detail.links.length > 4"
         :estimate-item-height="80"
         max-height="min(38vh, 360px)"
-        :label="t('關聯 Session 清單')"
+        :label="t('session.linkedSessionsList')"
       >
         <template #default="{ item: link }">
           <div class="session-panel__item">
@@ -269,12 +283,12 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
               <UiLabel :tone="link.relation === 'related' ? 'neutral' : 'accent'">{{
                 sessionLinkDirectionLabels[link.relation]
               }}</UiLabel
-              ><UiLabel v-if="link.voided" tone="danger" :icon="Ban">{{ t("已作廢") }}</UiLabel
+              ><UiLabel v-if="link.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel
               ><time :title="formatDate(link.completedAt)">{{ formatRelative(link.completedAt) }}</time>
               <UiIconButton
                 class="session-panel__item-action"
                 :icon="Unlink"
-                :label="t('移除關聯')"
+                :label="t('session.removeLink')"
                 size="sm"
                 @click="emit('removeLink', session.id, link.sessionId, link.title)"
               />
@@ -286,16 +300,16 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         </template>
       </VirtualList>
       <div class="session-panel__item session-panel__item--action">
-        <UiButton size="sm" :icon="Plus" @click="emit('addLink', session)">{{ t("新增關聯") }}</UiButton>
+        <UiButton size="sm" :icon="Plus" @click="emit('addLink', session)">{{ t("session.addLink") }}</UiButton>
       </div>
     </UiDisclosure>
-    <UiDisclosure title="Events" :icon="GitCommitHorizontal" :count="detail.events.length">
+    <UiDisclosure :title="t('session.sectionEvents')" :icon="GitCommitHorizontal" :count="detail.events.length">
       <VirtualList
         :items="detail.events"
         :enabled="detail.events.length > 5"
         :estimate-item-height="72"
         max-height="min(38vh, 360px)"
-        :label="t('Session Events 清單')"
+        :label="t('session.sessionEventsList')"
       >
         <template #default="{ item: event }">
           <div class="session-panel__event">
@@ -308,12 +322,12 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         </template>
       </VirtualList>
     </UiDisclosure>
-    <UiDisclosure v-if="detail.rawSnapshots.length" title="Handoff snapshot" :icon="FileText">
+    <UiDisclosure v-if="detail.rawSnapshots.length" :title="t('session.sectionHandoffSnapshot')" :icon="FileText">
       <pre class="session-panel__snapshot">{{ detail.rawSnapshots[0]?.content }}</pre>
     </UiDisclosure>
     <UiDisclosure
       v-if="detail.verificationHistory.length"
-      :title="t('Verification 修改紀錄')"
+      :title="t('session.verificationChangeHistory')"
       :icon="History"
       :count="detail.verificationHistory.length"
     >
@@ -322,7 +336,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         :enabled="detail.verificationHistory.length > 4"
         :estimate-item-height="72"
         max-height="min(32vh, 320px)"
-        :label="t('Verification 修改紀錄清單')"
+        :label="t('session.verificationChangeHistoryList')"
       >
         <template #default="{ item: entry }">
           <div class="session-panel__event">
@@ -331,7 +345,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
               <span
                 >{{ verificationLabel(entry.previous) }} → {{ verificationLabel(entry.resulting)
                 }}<template v-if="entry.resulting.summary">{{
-                  t("：{summary}", { summary: entry.resulting.summary })
+                  t("session.summarySuffix", { summary: entry.resulting.summary })
                 }}</template></span
               >
               <time :title="formatDate(entry.createdAt)">{{ formatRelative(entry.createdAt) }}</time>
@@ -342,7 +356,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
     </UiDisclosure>
     <UiDisclosure
       v-if="detail.voidHistory.length"
-      :title="t('作廢紀錄')"
+      :title="t('session.voidHistory')"
       :icon="History"
       :count="detail.voidHistory.length"
     >
@@ -351,13 +365,13 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         :enabled="detail.voidHistory.length > 4"
         :estimate-item-height="72"
         max-height="min(32vh, 320px)"
-        :label="t('Session 作廢紀錄清單')"
+        :label="t('session.sessionVoidHistoryList')"
       >
         <template #default="{ item: entry }">
           <div class="session-panel__event">
             <code>{{ voidHistoryLabel(entry) }}</code>
             <div>
-              <span>{{ entry.reason ?? t("未填原因") }}</span>
+              <span>{{ entry.reason ?? t("session.noReasonGiven") }}</span>
               <time :title="formatDate(entry.occurredAt)">{{ formatRelative(entry.occurredAt) }}</time>
             </div>
           </div>

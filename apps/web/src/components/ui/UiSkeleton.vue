@@ -12,7 +12,7 @@ const props = withDefaults(
   { variant: "row", count: 3 },
 );
 
-const caption = computed(() => props.label ?? t("正在載入資料…"));
+const caption = computed(() => props.label ?? t("ui.loadingData"));
 </script>
 
 <template>

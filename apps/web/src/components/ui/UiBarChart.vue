@@ -55,17 +55,17 @@ function height(seriesIndex: number, value: number): string {
         >
       </div>
     </div>
-    <p class="ui-bar-chart__hint">{{ t("長條高度各自依該指標的最高值縮放；實際數量列在下方。") }}</p>
-    <div class="ui-bar-chart__data" role="region" :aria-label="t('趨勢圖數值表')" tabindex="0">
+    <p class="ui-bar-chart__hint">{{ t("ui.eachBarScalesToIts") }}</p>
+    <div class="ui-bar-chart__data" role="region" :aria-label="t('ui.trendChartValues')" tabindex="0">
       <table>
         <caption>
           {{
-            t("每期實際數量")
+            t("ui.actualCountsPerPeriod")
           }}
         </caption>
         <thead>
           <tr>
-            <th scope="col">{{ t("期間") }}</th>
+            <th scope="col">{{ t("ui.period") }}</th>
             <th v-for="item in series" :key="item.name" scope="col">{{ item.name }}</th>
           </tr>
         </thead>

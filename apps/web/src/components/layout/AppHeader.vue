@@ -6,7 +6,7 @@ import { Languages, Menu, Moon, RefreshCw, Search, Sun } from "lucide-vue-next";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { usePreferencesStore } from "../../stores/preferences";
-import { LOCALE_OPTIONS, t, tc } from "../../i18n";
+import { LOCALE_OPTIONS, t } from "../../i18n";
 
 defineProps<{ refreshing?: boolean; menuOpen?: boolean }>();
 const emit = defineEmits<{ refresh: []; search: []; toggleMenu: [] }>();
@@ -14,9 +14,11 @@ const emit = defineEmits<{ refresh: []; search: []; toggleMenu: [] }>();
 const route = useRoute();
 const preferencesStore = usePreferencesStore();
 const { locale, resolvedTheme, theme } = storeToRefs(preferencesStore);
-const crumb = computed(() => tc("nav", route.meta.title ?? ""));
+const crumb = computed(() => (route.meta.title ? t(route.meta.title) : ""));
 const localeLabel = computed(() => LOCALE_OPTIONS.find((option) => option.value === locale.value)?.label ?? "");
-const themeToggleLabel = computed(() => (resolvedTheme.value === "dark" ? t("切換為淺色主題") : t("切換為深色主題")));
+const themeToggleLabel = computed(() =>
+  resolvedTheme.value === "dark" ? t("common.switchToLightTheme") : t("common.switchToDarkTheme"),
+);
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 </script>
 
@@ -26,12 +28,12 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
       class="app-header__menu"
       type="button"
       :aria-expanded="menuOpen"
-      :aria-label="t('開啟主選單')"
+      :aria-label="t('layout.openMainMenu')"
       @click="emit('toggleMenu')"
     >
       <Menu :size="16" :stroke-width="1.75" aria-hidden="true" />
     </button>
-    <RouterLink :to="{ name: 'dashboard' }" class="app-header__logo" :aria-label="t('Work Intelligence 首頁')"
+    <RouterLink :to="{ name: 'dashboard' }" class="app-header__logo" :aria-label="t('layout.workIntelligenceHome')"
       >WI</RouterLink
     >
     <div class="app-header__crumb">
@@ -39,20 +41,20 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
       <span class="app-header__sep" aria-hidden="true">/</span>
       <span class="app-header__page">{{ crumb }}</span>
     </div>
-    <button class="app-header__search" type="button" :aria-label="t('搜尋或跳至頁面')" @click="emit('search')">
+    <button class="app-header__search" type="button" :aria-label="t('common.searchOrJumpToA')" @click="emit('search')">
       <Search :size="16" :stroke-width="1.75" aria-hidden="true" />
-      <span class="app-header__search-text">{{ t("搜尋 Session、Knowledge 或跳至頁面…") }}</span>
+      <span class="app-header__search-text">{{ t("layout.searchSessionsKnowledgeOrJump") }}</span>
       <kbd>{{ isMac ? "⌘" : "Ctrl" }} K</kbd>
     </button>
-    <span class="app-header__status" :title="t('資料只存在本機 SQLite')">
+    <span class="app-header__status" :title="t('layout.dataStaysInLocalSqlite')">
       <span class="app-header__dot" aria-hidden="true"></span>
-      <span class="app-header__status-text">Local-first</span>
+      <span class="app-header__status-text">{{ t("layout.localFirst") }}</span>
     </span>
     <UiActionMenu
       v-model="locale"
       class="app-header__locale"
       :label="localeLabel"
-      :header="t('介面語言')"
+      :header="t('common.language')"
       :items="LOCALE_OPTIONS"
       :icon="Languages"
       align="end"
@@ -66,7 +68,7 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
       :label="themeToggleLabel"
       @click="theme = resolvedTheme === 'dark' ? 'light' : 'dark'"
     />
-    <UiIconButton :icon="RefreshCw" :label="t('重新整理')" :loading="refreshing" @click="emit('refresh')" />
+    <UiIconButton :icon="RefreshCw" :label="t('common.refresh')" :loading="refreshing" @click="emit('refresh')" />
   </header>
 </template>
 

@@ -48,7 +48,9 @@ type EvidenceVoidMutationInput = SetEvidenceVoidInput & { sessionId: string };
 type DiagramVoidMutationInput = SetDiagramVoidInput & { sessionId: string };
 
 function updateFailureMessage(result: { outcome: string; reason?: string }): string {
-  return result.outcome === "not_found" ? t("找不到這筆 Session。") : (result.reason ?? t("無法更新 Session 摘要。"));
+  return result.outcome === "not_found"
+    ? t("session.sessionNotFound")
+    : (result.reason ?? t("session.couldNotUpdateTheSession"));
 }
 
 /** Owns the filtered Session list query and its URL-backed view state. */
@@ -243,7 +245,9 @@ export const useSessionsStore = defineStore("sessions", () => {
   );
   const linkCandidatesLoading = computed(() => linkCandidatesQuery.isLoading.value);
   const linkCandidatesError = computed(() =>
-    linkCandidatesQuery.error.value ? errorMessage(linkCandidatesQuery.error.value, t("無法搜尋 Session。")) : "",
+    linkCandidatesQuery.error.value
+      ? errorMessage(linkCandidatesQuery.error.value, t("session.couldNotSearchSessions"))
+      : "",
   );
   const position = computed(() => {
     const id = selectedDetail.value?.session.id;
@@ -264,12 +268,12 @@ export const useSessionsStore = defineStore("sessions", () => {
     listActive.value = active;
     if (!active) return;
     appliedSearchTerm.value = searchTerm.value.trim();
-    sessionFilterError.value = dateRangeIsValid.value ? "" : t("起始日期必須早於或等於結束日期。");
+    sessionFilterError.value = dateRangeIsValid.value ? "" : t("session.theStartDateMustBe");
   }
 
   function loadSessions(): void {
     if (!dateRangeIsValid.value) {
-      sessionFilterError.value = t("起始日期必須早於或等於結束日期。");
+      sessionFilterError.value = t("session.theStartDateMustBe");
       return;
     }
     sessionFilterError.value = "";
@@ -327,7 +331,7 @@ export const useSessionsStore = defineStore("sessions", () => {
 
   async function openSessionDetail(
     sessionId: string | undefined,
-    failureMessage = t("無法載入 Session detail。"),
+    failureMessage = t("session.couldNotLoadSessionDetails"),
   ): Promise<void> {
     if (!sessionId) return;
     const previousId = selectedSessionId.value;

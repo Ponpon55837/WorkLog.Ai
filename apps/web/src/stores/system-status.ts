@@ -22,7 +22,7 @@ export const useSystemStatusStore = defineStore("system-status", () => {
   const systemStatusLoading = computed(() => systemStatusQuery.isLoading.value);
   const systemStatusError = computed(() =>
     systemStatusQuery.error.value
-      ? errorMessage(systemStatusQuery.error.value, t("無法載入系統狀態，請確認本機 API 是否已啟動。"))
+      ? errorMessage(systemStatusQuery.error.value, t("systemStatus.couldNotLoadSystemStatusCheckThatThe"))
       : "",
   );
   const databaseStatus = computed(() =>

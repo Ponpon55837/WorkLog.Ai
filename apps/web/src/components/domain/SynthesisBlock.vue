@@ -26,12 +26,12 @@ function isInsufficient(detail: string): boolean {
         v-if="block.sourceSessionIds.length"
         type="button"
         class="synthesis-block__sources"
-        :title="t('查看 {length} 個來源 Session', { length: block.sourceSessionIds.length })"
+        :title="t('reports.viewSourceSessions', { length: block.sourceSessionIds.length })"
         @click="emit('openSources', block.sourceSessionIds)"
       >
         {{ block.sourceSessionIds.length }} Session{{ block.sourceSessionIds.length > 1 ? "s" : "" }}
       </button>
-      <span v-else class="synthesis-block__no-source">{{ t("未提供來源") }}</span>
+      <span v-else class="synthesis-block__no-source">{{ t("common.noSourceProvided") }}</span>
     </div>
   </section>
 </template>

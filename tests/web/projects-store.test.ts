@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "vue";
 import type { ProjectDeletionCounts, ProjectRecord } from "@work-intelligence/core";
 import { useProjectsStore } from "../../apps/web/src/stores/projects.js";
+import { t } from "../../apps/web/src/i18n/index.js";
 
 const toastMocks = vi.hoisted(() => ({ showToast: vi.fn() }));
 const confirmMocks = vi.hoisted(() => ({ confirmAction: vi.fn(async () => true) }));
@@ -222,15 +223,15 @@ describe("projects Pinia store", () => {
   it("validates project forms and handles folder picker outcomes and transport failures", async () => {
     const store = useProjectsStore();
     expect(await store.addProject({ name: "  ", rootPath: "/projects/empty" })).toBe(false);
-    expect(toastMocks.showToast).toHaveBeenCalledWith("請填寫專案名稱與根目錄。", "danger");
+    expect(toastMocks.showToast).toHaveBeenCalledWith(t("projects.enterAProjectNameAnd"), "danger");
 
     expect(await store.pickProjectFolder()).toEqual({ path: "/projects/selected", name: "selected" });
     folderPickResult = { outcome: "folder_pick_busy" };
     expect(await store.pickProjectFolder()).toBeNull();
-    expect(toastMocks.showToast).toHaveBeenCalledWith("已經有一個選擇資料夾視窗開著，請先在那個視窗完成選擇。");
+    expect(toastMocks.showToast).toHaveBeenCalledWith(t("projects.aFolderPickerIsAlready"));
     folderPickResult = { outcome: "folder_pick_unavailable" };
     expect(await store.pickProjectFolder()).toBeNull();
-    expect(toastMocks.showToast).toHaveBeenCalledWith("這台電腦無法開啟選擇資料夾視窗，請直接輸入路徑。", "danger");
+    expect(toastMocks.showToast).toHaveBeenCalledWith(t("projects.thisComputerCannotOpenA"), "danger");
 
     vi.stubGlobal(
       "fetch",
@@ -239,7 +240,7 @@ describe("projects Pinia store", () => {
       }),
     );
     expect(await store.pickProjectFolder()).toBeNull();
-    expect(toastMocks.showToast).toHaveBeenLastCalledWith("無法連線至本機 API，請確認 API 是否已啟動。", "danger");
+    expect(toastMocks.showToast).toHaveBeenLastCalledWith(t("common.cannotReachTheLocalApi"), "danger");
   });
 
   it("asks before enabling tracking and skips the update when the user declines", async () => {

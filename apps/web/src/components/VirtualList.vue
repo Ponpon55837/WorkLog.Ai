@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
           : undefined
     "
     :role="enabled ? 'list' : undefined"
-    :aria-label="enabled ? (label ?? t('可捲動清單')) : undefined"
+    :aria-label="enabled ? (label ?? t('ui.scrollableList')) : undefined"
     :tabindex="enabled ? 0 : undefined"
     @scroll="handleScroll"
     @keydown="handleKeydown"

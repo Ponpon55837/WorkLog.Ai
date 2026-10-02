@@ -9,6 +9,8 @@ import {
   startOfLocalDay,
   visibleSpans,
 } from "../../../apps/web/src/utils/timeline-layout.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
+import { weekdayLabel } from "../../../apps/web/src/utils/format.js";
 
 describe("timeline layout", () => {
   it("stacks overlapping bars into the fewest rows and reuses a row once it frees up", () => {
@@ -89,7 +91,7 @@ describe("timeline overview helpers", () => {
     const start = startOfLocalDay(day(1, 15));
     const yearEnd = startOfLocalDay(day(12, 31)) + DAY_MS;
     const months = axisTicks(start, yearEnd, 3);
-    expect(months[0]!.label).toBe("2月");
+    expect(months[0]!.label).toBe(t("graph.axisMonth", { month: 2 }));
     expect(months).toHaveLength(11);
 
     const march = startOfLocalDay(day(3, 1));
@@ -98,10 +100,15 @@ describe("timeline overview helpers", () => {
     expect(weeks[0]!.label).toBe("3/3");
 
     expect(axisTicks(march, march + 4 * DAY_MS, 20).map((tick) => tick.label)).toEqual(["3/1", "3/3"]);
-    expect(axisTicks(march, march + 2 * DAY_MS, 80).map((tick) => tick.label)).toEqual(["3/1（六）", "3/2（日）"]);
+    const withWeekday = (monthDay: string, date: Date) =>
+      t("graph.axisDayWithWeekday", { monthDay, weekday: weekdayLabel(date, false, "narrow") });
+    expect(axisTicks(march, march + 2 * DAY_MS, 80).map((tick) => tick.label)).toEqual([
+      withWeekday("3/1", new Date(day(3, 1))),
+      withWeekday("3/2", new Date(day(3, 2))),
+    ]);
     const hours = axisTicks(march, march + DAY_MS, 300);
     expect(hours.map((tick) => [tick.label, tick.major])).toEqual([
-      ["3/1（六）", true],
+      [withWeekday("3/1", new Date(day(3, 1))), true],
       ["06:00", false],
       ["12:00", false],
       ["18:00", false],

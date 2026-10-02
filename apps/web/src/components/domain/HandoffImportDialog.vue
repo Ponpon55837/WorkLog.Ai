@@ -47,16 +47,18 @@ function decisionTone(item: HandoffImportPreviewItem): "success" | "neutral" | "
 
 function filesText(item: HandoffImportPreviewItem): string {
   if (item.changedFilesStatus === "detected") {
-    return t("{length} 個檔案", { length: item.changedFiles.length });
+    return t("projects.files", { length: item.changedFiles.length });
   }
-  return item.changedFilesStatus === "not_found" ? t("尚未找到檔案 metadata") : t("未讀取檔案 metadata");
+  return item.changedFilesStatus === "not_found"
+    ? t("projects.noFileMetadataFoundYet")
+    : t("projects.fileMetadataNotRead");
 }
 </script>
 
 <template>
   <UiDialog
     :open="Boolean(handoffImportPreview)"
-    :title="t('歷史 handoff 匯入預覽')"
+    :title="t('projects.pastHandoffImportPreview')"
     :description="description"
     size="lg"
     :busy="handoffImportApplying"
@@ -64,17 +66,19 @@ function filesText(item: HandoffImportPreviewItem): string {
   >
     <template v-if="handoffImportPreview">
       <p class="handoff__intro">
-        {{
-          t("只有明確標示完成的文件可匯入；blocked、pending、僅規劃與缺少完成狀態的文件會列出原因但不會建立 Session。")
-        }}
+        {{ t("projects.onlyDocumentsExplicitlyMarkedComplete") }}
       </p>
       <UiFlash v-if="handoffImportError" tone="danger">{{ handoffImportError }}</UiFlash>
       <div class="handoff__stats">
-        <UiStatCard :label="t('發現')" :value="handoffImportPreview.totals.discovered" />
-        <UiStatCard :label="t('可匯入')" :value="handoffImportPreview.totals.eligible" value-tone="success" />
-        <UiStatCard :label="t('已匯入')" :value="handoffImportPreview.totals.alreadyImported" />
+        <UiStatCard :label="t('projects.discovered')" :value="handoffImportPreview.totals.discovered" />
         <UiStatCard
-          :label="t('略過／錯誤')"
+          :label="t('projects.importable')"
+          :value="handoffImportPreview.totals.eligible"
+          value-tone="success"
+        />
+        <UiStatCard :label="t('projects.imported')" :value="handoffImportPreview.totals.alreadyImported" />
+        <UiStatCard
+          :label="t('projects.skippedErrors')"
           :value="handoffImportPreview.totals.excluded + handoffImportPreview.totals.errors"
         />
       </div>
@@ -82,9 +86,9 @@ function filesText(item: HandoffImportPreviewItem): string {
         v-if="!handoffImportPreview.directoryFound"
         compact
         :icon="FileText"
-        :title="t('找不到 handoff 目錄')"
+        :title="t('projects.handoffFolderNotFound')"
         :description="
-          t('{handoffDirectory} 不存在或沒有可讀取的 Markdown 文件。', {
+          t('projects.doesNotExistOrHas', {
             handoffDirectory: handoffImportPreview.handoffDirectory,
           })
         "
@@ -96,7 +100,7 @@ function filesText(item: HandoffImportPreviewItem): string {
         :enabled="true"
         :estimate-item-height="128"
         max-height="min(56vh, 560px)"
-        :label="t('Handoff 匯入預覽清單')"
+        :label="t('projects.handoffImportPreviewList')"
       >
         <template #default="{ item }">
           <label :class="['handoff__item', { 'is-disabled': item.decision !== 'eligible' }]">
@@ -116,7 +120,7 @@ function filesText(item: HandoffImportPreviewItem): string {
               <span v-if="item.summaryPreview" class="handoff__summary">{{ item.summaryPreview }}</span>
               <small>
                 <template v-if="item.recordedDate"
-                  >{{ t("記錄日期 {recordedDate} ·", { recordedDate: item.recordedDate }) }} </template
+                  >{{ t("projects.recorded", { recordedDate: item.recordedDate }) }} </template
                 >{{ filesText(item) }}<template v-if="item.detail"> · {{ item.detail }}</template>
               </small>
             </span>
@@ -126,27 +130,29 @@ function filesText(item: HandoffImportPreviewItem): string {
     </template>
     <template #footer>
       <span class="handoff__selection">
-        {{ t("已選取 {selectedHandoffCount} 個", { selectedHandoffCount })
-        }}<template v-if="handoffImportPreview?.truncated"> {{ t("· 已達檔案上限，預覽被截斷") }}</template>
+        {{ t("projects.selected", { selectedHandoffCount })
+        }}<template v-if="handoffImportPreview?.truncated">
+          {{ t("projects.fileLimitReachedPreviewTruncated") }}</template
+        >
       </span>
       <UiButton
         variant="invisible"
         :disabled="handoffImportApplying || importableHandoffs.length === 0"
         @click="selectAllHandoffs"
-        >{{ t("全選可匯入") }}</UiButton
+        >{{ t("projects.selectAllImportable") }}</UiButton
       >
       <UiButton
         variant="invisible"
         :disabled="handoffImportApplying || selectedHandoffCount === 0"
         @click="clearHandoffSelection"
-        >{{ t("清除選取") }}</UiButton
+        >{{ t("projects.clearSelection") }}</UiButton
       >
       <UiButton
         variant="primary"
         :loading="handoffImportApplying"
         :disabled="selectedHandoffCount === 0"
         @click="applyHandoffImport"
-        >{{ t("匯入選取項目") }}</UiButton
+        >{{ t("projects.importSelected") }}</UiButton
       >
     </template>
   </UiDialog>

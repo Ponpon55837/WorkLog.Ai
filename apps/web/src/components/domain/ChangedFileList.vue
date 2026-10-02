@@ -30,7 +30,9 @@ const rows = computed(() => {
         path,
         status: change?.status,
         previousPath: change?.previousPath,
-        sources: provenance?.sources.map((source) => changedFileSourceLabels[source]).join(" · ") || t("未提供來源"),
+        sources:
+          provenance?.sources.map((source) => changedFileSourceLabels[source]).join(" · ") ||
+          t("common.noSourceProvided"),
         // Only files of a tracked project, inside its folder, and not deleted get an editor link.
         editorUrl:
           props.project?.status === "tracked" && change?.status !== "deleted"
@@ -48,13 +50,13 @@ const rows = computed(() => {
       :enabled="rows.length > 10"
       :estimate-item-height="40"
       max-height="min(40vh, 400px)"
-      :label="t('Session changed files 清單')"
+      :label="t('session.sessionChangedFilesList')"
     >
       <template #default="{ item: row }">
         <div class="changed-files__row">
           <span
             :class="['changed-files__badge', row.status && `is-${row.status}`]"
-            :title="row.status ? changedFileChangeStatusLabels[row.status] : t('未提供變更類型')"
+            :title="row.status ? changedFileChangeStatusLabels[row.status] : t('session.changeTypeNotProvided')"
             >{{ row.status ? statusLetter[row.status] : "·" }}</span
           >
           <code class="changed-files__path"
@@ -67,15 +69,15 @@ const rows = computed(() => {
             class="changed-files__open"
             :href="row.editorUrl"
             rel="noopener noreferrer"
-            :aria-label="t('在 {value} 開啟 {path}', { value: editorProtocolLabels[editor], path: row.path })"
+            :aria-label="t('session.openIn', { value: editorProtocolLabels[editor], path: row.path })"
             data-testid="open-in-editor"
-            ><SquareArrowOutUpRight :size="14" aria-hidden="true" />{{ t("在編輯器開啟") }}</a
+            ><SquareArrowOutUpRight :size="14" aria-hidden="true" />{{ t("session.openInEditor") }}</a
           >
         </div>
       </template>
     </VirtualList>
-    <p v-if="!rows.length" class="changed-files__empty">{{ t("尚未提供檔案 metadata") }}</p>
-    <p class="changed-files__note">{{ t("changed files 不代表 Git commit") }}</p>
+    <p v-if="!rows.length" class="changed-files__empty">{{ t("session.noFileMetadataProvidedYet") }}</p>
+    <p class="changed-files__note">{{ t("session.changedFilesAreNotGit") }}</p>
   </div>
 </template>
 

@@ -9,7 +9,7 @@ defineProps<{ text: string; successMessage?: string }>();
 <template>
   <div class="ui-command-block">
     <span class="ui-command-block__text">{{ text }}</span>
-    <UiCopyButton :text="text" :success-message="successMessage" size="sm" :label="t('複製 Agent 指令')" />
+    <UiCopyButton :text="text" :success-message="successMessage" size="sm" :label="t('common.copyAgentInstruction')" />
   </div>
 </template>
 

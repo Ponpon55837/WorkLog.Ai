@@ -59,18 +59,18 @@ function dailyBucketWidth(count: number): string {
     aria-labelledby="report-tab-trend"
   >
     <UiBox>
-      <template #header><UiBoxTitle eyebrow="Activity trend" :title="t('工作節奏')" /></template>
+      <template #header><UiBoxTitle eyebrow="Activity trend" :title="t('reports.workRhythm')" /></template>
       <div v-if="report.period === 'day'" class="reports__day-trend">
         <div class="reports__day-stats">
-          <UiStatCard :label="t('當日完成 Sessions')" :value="report.totals.sessions" />
-          <UiStatCard :label="t('當日 Events')" :value="report.totals.events" value-tone="success" />
+          <UiStatCard :label="t('reports.sessionsCompletedThatDay')" :value="report.totals.sessions" />
+          <UiStatCard :label="t('reports.eventsThatDay')" :value="report.totals.events" value-tone="success" />
         </div>
-        <p class="reports__note">{{ t("依 Session 完成時間分布 · {timezone} 時區", { timezone: report.timezone }) }}</p>
+        <p class="reports__note">{{ t("reports.bySessionCompletionTimeTime", { timezone: report.timezone }) }}</p>
         <ol v-if="report.sessions.length > 0" class="reports__day-buckets">
           <li v-for="bucket in dailySessionBuckets" :key="bucket.label" class="reports__day-bucket">
             <div class="reports__day-bucket-label">
               <span>{{ bucket.label }}</span>
-              <strong>{{ t("{count} 筆", { count: bucket.count }) }}</strong>
+              <strong>{{ t("reports.records", { count: bucket.count }) }}</strong>
             </div>
             <div class="reports__day-bucket-track" aria-hidden="true">
               <span :style="{ width: dailyBucketWidth(bucket.count) }"></span>
@@ -81,23 +81,36 @@ function dailyBucketWidth(count: number): string {
           v-else
           compact
           :icon="ChartColumn"
-          :title="t('當日沒有完成的 Session')"
-          :description="t('上方仍會顯示當日 Events 總數。')"
+          :title="t('reports.noSessionsCompletedThatDay')"
+          :description="t('reports.theDaySTotalEvents')"
         />
         <p class="reports__note">
-          {{ t("Events 目前顯示整日總數，尚未按時段拆分。")
+          {{ t("reports.eventsCurrentlyShowTheWhole")
           }}<template v-if="report.sessionTruncation.currentPeriod">
-            {{ t("時段分布受報表 200 筆 Session 上限影響。") }}</template
+            {{ t("reports.theTimeDistributionIsLimited") }}</template
           >
         </p>
       </div>
-      <UiBarChart v-else :labels="trend.labels" :series="trend.series" :label="t('每期完成 Session 與事件數')" />
+      <UiBarChart
+        v-else
+        :labels="trend.labels"
+        :series="trend.series"
+        :label="t('reports.completedSessionsAndEventsPer')"
+      />
     </UiBox>
     <UiBox>
       <template #header
-        ><UiBoxTitle eyebrow="Project breakdown" :title="t('專案分布')" :count="report.projects.length"
+        ><UiBoxTitle
+          eyebrow="Project breakdown"
+          :title="t('reports.projectDistribution')"
+          :count="report.projects.length"
       /></template>
-      <UiEmptyState v-if="report.projects.length === 0" compact :icon="FolderGit2" :title="t('沒有專案資料')" />
+      <UiEmptyState
+        v-if="report.projects.length === 0"
+        compact
+        :icon="FolderGit2"
+        :title="t('reports.noProjectData')"
+      />
       <VirtualList
         v-else
         :items="report.projects"
@@ -105,13 +118,13 @@ function dailyBucketWidth(count: number): string {
         fit-viewport
         fit-viewport-to-panel
         :estimate-item-height="72"
-        :label="t('報表專案分布清單')"
+        :label="t('reports.reportProjectDistributionList')"
       >
         <template #default="{ item: project }">
           <UiBoxRow
             :title="project.projectName"
             :meta="
-              t('{sessionCount} 個 Session · {eventCount} 個事件', {
+              t('reports.sessionsEvents', {
                 sessionCount: project.sessionCount,
                 eventCount: project.eventCount,
               })
@@ -119,7 +132,7 @@ function dailyBucketWidth(count: number): string {
           >
             <template #leading><FolderGit2 :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
             <template #trailing
-              ><UiLabel>{{ t("{length} 個來源", { length: project.sourceSessionIds.length }) }}</UiLabel></template
+              ><UiLabel>{{ t("reports.sources", { length: project.sourceSessionIds.length }) }}</UiLabel></template
             >
           </UiBoxRow>
         </template>

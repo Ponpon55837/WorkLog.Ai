@@ -1,9 +1,11 @@
 import { ref } from "vue";
 import enUS from "./locales/en-US.json";
+import zhTW from "./locales/zh-TW.json";
 
 /**
- * Gettext-style localisation: the 繁體中文 source text is the message key, and each other locale maps it to a
- * translation in `locales/<BCP 47 tag>.json` (a flat `{ "原文": "translation" }` object). Missing translations fall back to the source text, so an untranslated string is never blank.
+ * Interface strings live in one JSON catalog per locale (`locales/<BCP 47 tag>.json`), nested by area and looked up
+ * by a dotted key such as `common.refresh`. Every locale has the same keys (tests/web/i18n/catalog.test.ts checks
+ * it); a key missing from the current locale falls back to 繁體中文, then to the key itself, so text is never blank.
  *
  * The locale lives in a module-level ref (not a Pinia store) because pure utils — status maps, label maps,
  * formatters, router meta — translate outside any component or active Pinia. Anything that calls `t()` while
@@ -13,25 +15,34 @@ export const LOCALES = ["zh-TW", "en-US"] as const;
 export type Locale = (typeof LOCALES)[number];
 export type MessageParams = Record<string, string | number | boolean | null | undefined>;
 
-export const locale = ref<Locale>("zh-TW");
+type Catalog = { readonly [key: string]: string | Catalog };
+/** Every dotted path to a string in a nested catalog. */
+type KeyPaths<T, Prefix extends string = ""> = {
+  [K in keyof T & string]: T[K] extends string ? `${Prefix}${K}` : KeyPaths<T[K], `${Prefix}${K}.`>;
+}[keyof T & string];
+/** A key of the 繁體中文 catalog, the reference every other locale must match. */
+export type MessageKey = KeyPaths<typeof zhTW>;
 
-const catalogs: Record<Exclude<Locale, "zh-TW">, Readonly<Record<string, string>>> = { "en-US": enUS };
+function flatten(catalog: Catalog, prefix = "", into: Record<string, string> = {}): Record<string, string> {
+  for (const [key, value] of Object.entries(catalog)) {
+    if (typeof value === "string") into[prefix + key] = value;
+    else flatten(value, `${prefix}${key}.`, into);
+  }
+  return into;
+}
+
+const catalogs: Record<Locale, Readonly<Record<string, string>>> = {
+  "zh-TW": flatten(zhTW),
+  "en-US": flatten(enUS),
+};
+
+export const locale = ref<Locale>("zh-TW");
 
 /** Each language is named in itself, so it stays recognisable whatever the current locale is. */
 export const LOCALE_OPTIONS: ReadonlyArray<{ value: Locale; label: string }> = [
   { value: "zh-TW", label: "繁體中文" },
   { value: "en-US", label: "English" },
 ];
-
-/**
- * Translates a source string that means different things in different places (週 is both the "Week" tab and the
- * "weeks" unit). The catalog key is `context|source`; Chinese shows the source unchanged.
- */
-export function tc(context: string, source: string, params?: MessageParams): string {
-  if (locale.value === "zh-TW") return t(source, params);
-  const key = `${context}|${source}`;
-  return key in catalogs[locale.value] ? t(key, params) : t(source, params);
-}
 
 /** Picks the browser's language on first visit; anything that is not Chinese gets English. */
 export function detectLocale(languages: readonly string[] | undefined): Locale {
@@ -44,19 +55,25 @@ export function isLocale(value: unknown): value is Locale {
   return (LOCALES as readonly unknown[]).includes(value);
 }
 
+/** The flat key → text map of one locale, for tests and tooling that check catalogs against each other. */
+export function catalogEntries(target: Locale): Readonly<Record<string, string>> {
+  return catalogs[target];
+}
+
 function pluralForm(text: string, params: MessageParams): string {
   const [one = text, other = text] = text.split("|");
   const name = /\{(\w+)\}/.exec(other)?.[1];
   return name !== undefined && Number(params[name]) === 1 ? one : other;
 }
 
-/** Translates a source string and fills `{name}` placeholders. */
-export function t(source: string, params?: MessageParams): string {
-  const current = locale.value;
-  let text = current === "zh-TW" ? source : (catalogs[current][source] ?? source);
+/**
+ * Translates a message key and fills `{name}` placeholders. A message written as "one|other" picks its form from
+ * the first number placeholder (Chinese messages have a single form).
+ */
+export function t(key: MessageKey, params?: MessageParams): string {
+  let text = catalogs[locale.value][key] ?? catalogs["zh-TW"][key] ?? key;
   if (!params) return text;
-  // A translation written as "one|other" picks its form from the first number placeholder (Chinese has one form).
-  if (current !== "zh-TW" && text.includes("|")) text = pluralForm(text, params);
+  if (text.includes("|")) text = pluralForm(text, params);
   return text.replace(/\{(\w+)\}/g, (match, name: string) => (name in params ? String(params[name] ?? "") : match));
 }
 
@@ -66,10 +83,10 @@ export function intlLocale(): string {
 }
 
 /**
- * Wraps a constant label map so every read translates with the current locale. Module-level maps are built
- * once; getters keep them reactive without turning every caller into a function call.
+ * Wraps a constant map of message keys so every read translates with the current locale. Module-level maps are
+ * built once; getters keep them reactive without turning every caller into a function call.
  */
-export function translatedRecord<K extends string>(record: Record<K, string>): Record<K, string> {
+export function translatedRecord<K extends string>(record: Record<K, MessageKey>): Record<K, string> {
   const result = {} as Record<K, string>;
   for (const key of Object.keys(record) as K[]) {
     Object.defineProperty(result, key, { enumerable: true, get: () => t(record[key]) });
@@ -77,31 +94,17 @@ export function translatedRecord<K extends string>(record: Record<K, string>): R
   return result;
 }
 
-/**
- * Same as translatedRecord, for option lists: the named text fields translate on every read. Pass a `context`
- * first (see tc) when the list's wording differs from the same source text elsewhere.
- */
+/** Same as translatedRecord, for option lists: the named fields hold message keys and translate on every read. */
 export function translatedOptions<T extends object, F extends keyof T & string>(
-  options: readonly T[],
-  ...fields: F[]
-): T[] {
-  return translatedOptionsIn("", options, ...fields);
-}
-
-export function translatedOptionsIn<T extends object, F extends keyof T & string>(
-  context: string,
   options: readonly T[],
   ...fields: F[]
 ): T[] {
   return options.map((option) => {
     const copy = { ...option };
     for (const field of fields) {
-      const source = option[field];
-      if (typeof source !== "string") continue;
-      Object.defineProperty(copy, field, {
-        enumerable: true,
-        get: () => (context ? tc(context, source) : t(source)),
-      });
+      const key = option[field];
+      if (typeof key !== "string") continue;
+      Object.defineProperty(copy, field, { enumerable: true, get: () => t(key as MessageKey) });
     }
     return copy;
   });

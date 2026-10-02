@@ -161,7 +161,7 @@ export function axisTicks(rangeStart: number, rangeEnd: number, dayWidth: number
     if (cursor.getTime() < rangeStart) cursor.setMonth(cursor.getMonth() + 1);
     for (; cursor.getTime() < rangeEnd; cursor.setMonth(cursor.getMonth() + 1)) {
       const month = cursor.getMonth() + 1;
-      const label = month === 1 ? t("{value}年1月", { value: cursor.getFullYear() }) : t("{month}月", { month });
+      const label = month === 1 ? t("graph.jan", { value: cursor.getFullYear() }) : t("graph.axisMonth", { month });
       ticks.push({ time: cursor.getTime(), label, major: true });
     }
     return ticks;
@@ -177,7 +177,7 @@ export function axisTicks(rangeStart: number, rangeEnd: number, dayWidth: number
     if (index % dayStep !== 0) continue;
     const label =
       dayWidth >= 60
-        ? t("{monthDay}（{weekday}）", { monthDay, weekday: weekdayLabel(cursor, false, "narrow") })
+        ? t("graph.axisDayWithWeekday", { monthDay, weekday: weekdayLabel(cursor, false, "narrow") })
         : monthDay;
     ticks.push({ time, label, major: true });
     if (dayWidth >= 240) {

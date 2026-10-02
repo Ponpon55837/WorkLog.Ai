@@ -68,20 +68,20 @@ const pageInfo = {
 
 async function tryConfirm(): Promise<void> {
   const confirmed = await confirmAction({
-    title: t("移除這個歷史版本？"),
-    message: t("此操作無法復原。"),
-    confirmLabel: t("移除"),
+    title: t("common.removeThisVersion"),
+    message: t("showcase.thisCannotBeUndone"),
+    confirmLabel: t("common.remove"),
     danger: true,
   });
-  showToast(confirmed ? t("已確認") : t("已取消"), confirmed ? "success" : "default");
+  showToast(confirmed ? t("common.confirmed") : t("common.cancelled"), confirmed ? "success" : "default");
 }
 </script>
 
 <template>
   <PageHeader
-    :title="t('UI 元件展示')"
+    :title="t('common.uiComponentShowcase')"
     eyebrow="DESIGN SYSTEM"
-    :description="t('開發用：檢查每個 ui/ 元件在各狀態的樣式與鍵盤操作。')"
+    :description="t('showcase.forDevelopmentCheckEveryUi')"
   >
     <template #actions>
       <UiButton :icon="Download">Default</UiButton>
@@ -91,7 +91,7 @@ async function tryConfirm(): Promise<void> {
 
   <div class="showcase">
     <UiBox padded>
-      <template #header><UiBoxTitle eyebrow="Buttons" :title="t('按鈕')" /></template>
+      <template #header><UiBoxTitle eyebrow="Buttons" :title="t('showcase.button')" /></template>
       <div class="showcase__row">
         <UiButton>Default</UiButton>
         <UiButton variant="primary">Primary</UiButton>
@@ -100,72 +100,72 @@ async function tryConfirm(): Promise<void> {
         <UiButton loading>Loading</UiButton>
         <UiButton disabled>Disabled</UiButton>
         <UiButton size="sm" :icon="RefreshCw">Small</UiButton>
-        <UiIconButton :icon="Search" :label="t('搜尋')" />
-        <UiIconButton :icon="RefreshCw" :label="t('重新整理')" variant="default" />
+        <UiIconButton :icon="Search" :label="t('showcase.search')" />
+        <UiIconButton :icon="RefreshCw" :label="t('common.refresh')" variant="default" />
       </div>
     </UiBox>
 
     <UiBox padded>
-      <template #header><UiBoxTitle eyebrow="Labels" :title="t('Label 與 Counter')" /></template>
+      <template #header><UiBoxTitle eyebrow="Labels" :title="t('showcase.labelAndCounter')" /></template>
       <div class="showcase__row">
         <UiLabel>Neutral</UiLabel>
         <UiLabel tone="accent">Accent</UiLabel>
-        <UiLabel tone="success" :icon="CircleCheck">{{ t("通過") }}</UiLabel>
-        <UiLabel tone="danger" :icon="CircleX">{{ t("失敗") }}</UiLabel>
-        <UiLabel tone="attention" :icon="CircleDashed">{{ t("未回報") }}</UiLabel>
-        <UiLabel tone="done">{{ t("已完成") }}</UiLabel>
+        <UiLabel tone="success" :icon="CircleCheck">{{ t("common.passed") }}</UiLabel>
+        <UiLabel tone="danger" :icon="CircleX">{{ t("common.failed") }}</UiLabel>
+        <UiLabel tone="attention" :icon="CircleDashed">{{ t("common.notReported") }}</UiLabel>
+        <UiLabel tone="done">{{ t("common.completedStatus") }}</UiLabel>
         <UiCounter :count="128" />
         <UiCounter :count="3" tone="attention" />
       </div>
     </UiBox>
 
     <UiBox padded>
-      <template #header><UiBoxTitle eyebrow="Inputs" :title="t('輸入')" /></template>
+      <template #header><UiBoxTitle eyebrow="Inputs" :title="t('showcase.input')" /></template>
       <div class="showcase__grid">
-        <UiField :label="t('文字')" :hint="t('說明文字')"
-          ><UiTextInput v-model="text" :icon="Search" :placeholder="t('搜尋…')"
+        <UiField :label="t('showcase.textLabel')" :hint="t('showcase.description')"
+          ><UiTextInput v-model="text" :icon="Search" :placeholder="t('showcase.searchPlaceholder')"
         /></UiField>
-        <UiField :label="t('選單')"
+        <UiField :label="t('showcase.menu')"
           ><UiSelect
             v-model="select"
             :options="[
-              { value: 'all', label: t('全部') },
+              { value: 'all', label: t('showcase.all') },
               { value: 'a', label: 'A' },
             ]"
-            :label="t('示範選單')"
+            :label="t('showcase.demoMenu')"
         /></UiField>
-        <UiField :label="t('錯誤')" :error="t('必填欄位')"><UiTextInput v-model="text" /></UiField>
+        <UiField :label="t('showcase.error')" :error="t('showcase.required')"><UiTextInput v-model="text" /></UiField>
       </div>
       <div class="showcase__row showcase__row--spaced">
         <UiSegmentedControl
           v-model="segment"
-          :label="t('區間')"
+          :label="t('showcase.period')"
           :options="[
-            { value: 'day', label: t('日') },
-            { value: 'week', label: t('週') },
-            { value: 'month', label: t('月') },
+            { value: 'day', label: t('common.day') },
+            { value: 'week', label: t('common.week') },
+            { value: 'month', label: t('common.month') },
           ]"
         />
         <UiActionMenu
           v-model="menu"
-          :label="t('驗證')"
-          :header="t('篩選 verification')"
+          :label="t('common.verification')"
+          :header="t('showcase.filterVerification')"
           default-value="all"
           :items="[
-            { value: 'all', label: t('全部') },
-            { value: 'passed', label: t('通過'), icon: CircleCheck, tone: 'success' },
-            { value: 'failed', label: t('失敗'), icon: CircleX, tone: 'danger' },
+            { value: 'all', label: t('showcase.all') },
+            { value: 'passed', label: t('common.passed'), icon: CircleCheck, tone: 'success' },
+            { value: 'failed', label: t('common.failed'), icon: CircleX, tone: 'danger' },
           ]"
         />
         <UiActionMenu
-          :label="t('匯出')"
+          :label="t('common.export')"
           variant="button"
           :icon="Download"
           :items="[
             { value: 'md', label: 'Markdown' },
             { value: 'json', label: 'JSON' },
           ]"
-          @select="showToast(t('匯出 {$event}', { $event }))"
+          @select="showToast(t('showcase.exportEvent', { $event }))"
         />
         <UiDateRangeMenu v-model="range" />
       </div>
@@ -173,34 +173,34 @@ async function tryConfirm(): Promise<void> {
 
     <UiUnderlineNav
       v-model="tab"
-      :label="t('示範分頁')"
+      :label="t('showcase.demoTabs')"
       id-prefix="showcase"
       :items="[
-        { value: 'overview', label: t('總覽'), icon: Inbox },
-        { value: 'list', label: t('清單'), icon: ListChecks, count: 24 },
+        { value: 'overview', label: t('common.overview'), icon: Inbox },
+        { value: 'list', label: t('common.list'), icon: ListChecks, count: 24 },
       ]"
     />
 
     <div class="showcase__stats">
-      <UiStatCard :label="t('記錄中專案')" :icon="FolderGit2" :value="3" foot="explicit opt-in" />
+      <UiStatCard :label="t('common.trackedProjects')" :icon="FolderGit2" :value="3" foot="explicit opt-in" />
       <UiStatCard
-        :label="t('完成 Sessions')"
+        :label="t('common.completedSessions')"
         :value="24"
         :delta="{ direction: 'up', text: '4' }"
-        :foot="t('不等同 Git commit')"
+        :foot="t('common.notTheSameAsGit')"
       />
-      <UiStatCard label="Verification" :icon="ShieldCheck" :value="21" :suffix="t('/ 24 通過')">
+      <UiStatCard label="Verification" :icon="ShieldCheck" :value="21" :suffix="t('showcase.passedOf24')">
         <UiMeter
-          :label="t('驗證分布')"
+          :label="t('showcase.verificationBreakdown')"
           :segments="[
-            { value: 21, tone: 'success', label: t('通過') },
-            { value: 1, tone: 'danger', label: t('失敗') },
-            { value: 1, tone: 'neutral', label: t('未執行') },
-            { value: 1, tone: 'attention', label: t('未回報') },
+            { value: 21, tone: 'success', label: t('common.passed') },
+            { value: 1, tone: 'danger', label: t('common.failed') },
+            { value: 1, tone: 'neutral', label: t('common.notRun') },
+            { value: 1, tone: 'attention', label: t('common.notReported') },
           ]"
         />
       </UiStatCard>
-      <UiStatCard :label="t('待處理')" :icon="Inbox" :value="3" value-tone="attention" />
+      <UiStatCard :label="t('common.pending')" :icon="Inbox" :value="3" value-tone="attention" />
     </div>
 
     <UiBox>
@@ -208,70 +208,78 @@ async function tryConfirm(): Promise<void> {
         <UiBoxTitle title="128 Sessions" :icon="ListChecks" />
         <UiActionMenu
           v-model="menu"
-          :label="t('驗證')"
+          :label="t('common.verification')"
           default-value="all"
           align="end"
           :items="[
-            { value: 'all', label: t('全部') },
-            { value: 'passed', label: t('通過') },
+            { value: 'all', label: t('showcase.all') },
+            { value: 'passed', label: t('common.passed') },
           ]"
         />
       </template>
-      <UiGroupLabel>{{ t("今天") }}</UiGroupLabel>
-      <UiBoxRow clickable :title="t('可點擊的列')" :meta="t('WorkLog.Ai · 12 分鐘前')" @select="panelOpen = true">
+      <UiGroupLabel>{{ t("common.today") }}</UiGroupLabel>
+      <UiBoxRow
+        clickable
+        :title="t('showcase.clickableRow')"
+        :meta="t('showcase.worklogAi12MinutesAgo')"
+        @select="panelOpen = true"
+      >
         <template #leading><CircleCheck :size="16" class="c-success" /></template>
         <template #trailing
-          ><UiLabel tone="success">{{ t("通過") }}</UiLabel></template
+          ><UiLabel tone="success">{{ t("common.passed") }}</UiLabel></template
         >
       </UiBoxRow>
-      <UiBoxRow :title="t('靜態列')" :meta="t('沒有點擊行為')" />
+      <UiBoxRow :title="t('showcase.staticRow')" :meta="t('showcase.noClickAction')" />
       <template #footer
-        ><UiPagination v-model:page-size="pageSize" :page-info="pageInfo" :size-label="t('示範每頁筆數')"
+        ><UiPagination v-model:page-size="pageSize" :page-info="pageInfo" :size-label="t('showcase.demoPageSize')"
       /></template>
     </UiBox>
 
     <UiBox><UiSkeleton /></UiBox>
     <UiBox
-      ><UiEmptyState :icon="Inbox" :title="t('全部處理完畢')" :description="t('目前沒有需要處理的項目。')"
+      ><UiEmptyState
+        :icon="Inbox"
+        :title="t('common.allCaughtUp')"
+        :description="t('showcase.nothingNeedsAttentionRightNow')"
         ><template #action
-          ><UiButton>{{ t("前往") }}</UiButton></template
+          ><UiButton>{{ t("common.go") }}</UiButton></template
         ></UiEmptyState
       ></UiBox
     >
 
-    <UiFlash tone="danger" :title="t('無法載入')"
-      >{{ t("伺服器沒有回應。")
+    <UiFlash tone="danger" :title="t('common.couldNotLoad')"
+      >{{ t("showcase.theServerDidNotRespond")
       }}<template #actions
-        ><UiButton size="sm">{{ t("重試") }}</UiButton></template
+        ><UiButton size="sm">{{ t("common.retry") }}</UiButton></template
       ></UiFlash
     >
-    <UiFlash tone="attention" dismissible>{{ t("資料已截斷。") }}</UiFlash>
-    <UiCommandBlock :text="t('請處理我剛在 Work Intelligence 建立的報告提煉請求。')" />
+    <UiFlash tone="attention" dismissible>{{ t("showcase.dataTruncated") }}</UiFlash>
+    <UiCommandBlock :text="t('common.pleaseProcessTheReportSynthesis')" />
 
     <div class="showcase__row showcase__row--spaced">
-      <UiButton @click="panelOpen = true">{{ t("開啟 SidePanel") }}</UiButton>
-      <UiButton @click="dialogOpen = true">{{ t("開啟 Dialog") }}</UiButton>
+      <UiButton @click="panelOpen = true">{{ t("showcase.openSidepanel") }}</UiButton>
+      <UiButton @click="dialogOpen = true">{{ t("showcase.openDialog") }}</UiButton>
       <UiButton variant="danger" @click="tryConfirm">Confirm</UiButton>
-      <UiButton @click="showToast(t('一般通知'))">Toast</UiButton>
-      <UiButton @click="showToast(t('失敗通知'), 'danger')">Toast (danger)</UiButton>
+      <UiButton @click="showToast(t('showcase.infoToast'))">Toast</UiButton>
+      <UiButton @click="showToast(t('showcase.errorToast'), 'danger')">Toast (danger)</UiButton>
     </div>
   </div>
 
-  <UiSidePanel :open="panelOpen" :label="t('示範面板')" @close="panelOpen = false">
+  <UiSidePanel :open="panelOpen" :label="t('showcase.demoPanel')" @close="panelOpen = false">
     <template #header><strong>SidePanel</strong></template>
-    <p>{{ t("Esc 關閉、Tab 不會離開面板。") }}</p>
-    <UiButton @click="panelOpen = false">{{ t("關閉") }}</UiButton>
+    <p>{{ t("showcase.escClosesTabStaysInside") }}</p>
+    <UiButton @click="panelOpen = false">{{ t("common.close") }}</UiButton>
   </UiSidePanel>
   <UiDialog
     :open="dialogOpen"
-    :title="t('示範對話框')"
-    :description="t('表單或決策使用置中對話框。')"
+    :title="t('showcase.demoDialog')"
+    :description="t('showcase.formsAndDecisionsUseA')"
     @close="dialogOpen = false"
   >
-    <UiField :label="t('名稱')"><UiTextInput v-model="text" autofocus /></UiField>
+    <UiField :label="t('showcase.name')"><UiTextInput v-model="text" autofocus /></UiField>
     <template #footer>
-      <UiButton @click="dialogOpen = false">{{ t("取消") }}</UiButton>
-      <UiButton variant="primary" @click="dialogOpen = false">{{ t("儲存") }}</UiButton>
+      <UiButton @click="dialogOpen = false">{{ t("common.cancel") }}</UiButton>
+      <UiButton variant="primary" @click="dialogOpen = false">{{ t("common.save") }}</UiButton>
     </template>
   </UiDialog>
 </template>

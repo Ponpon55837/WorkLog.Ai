@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { WorkReport } from "../../../packages/core/src/index.js";
 import { buildReportBuckets, buildReportProjectShares, reportBucketMode } from "../../../apps/web/src/utils/report.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
+import { weekdayLabel } from "../../../apps/web/src/utils/format.js";
 
 type ReportBucketInput = Pick<WorkReport, "period" | "trends" | "trendGranularity">;
 
@@ -21,8 +23,18 @@ describe("report buckets", () => {
     expect(buildReportBuckets(report("day", [trend("2026-01-01", 2, 3)]))).toEqual([]);
     expect(reportBucketMode(report("week", []))).toBe("day");
     expect(buildReportBuckets(report("week", [trend("2026-01-01", 2, 3), trend("2026-01-02", 1, 4)]))).toEqual([
-      { key: "2026-01-01", label: "週四 01/01", sessions: 2, events: 3 },
-      { key: "2026-01-02", label: "週五 01/02", sessions: 1, events: 4 },
+      {
+        key: "2026-01-01",
+        label: `${weekdayLabel(new Date("2026-01-01T00:00:00Z"), true)} 01/01`,
+        sessions: 2,
+        events: 3,
+      },
+      {
+        key: "2026-01-02",
+        label: `${weekdayLabel(new Date("2026-01-02T00:00:00Z"), true)} 01/02`,
+        sessions: 1,
+        events: 4,
+      },
     ]);
   });
 
@@ -50,8 +62,8 @@ describe("report buckets", () => {
     );
 
     expect(buckets).toEqual([
-      { key: "Q1", label: "Q1 · 1–3 月", sessions: 3, events: 5 },
-      { key: "Q2", label: "Q2 · 4–4 月", sessions: 4, events: 5 },
+      { key: "Q1", label: t("reports.months", { key: "Q1", value: 1, value2: 3 }), sessions: 3, events: 5 },
+      { key: "Q2", label: t("reports.months", { key: "Q2", value: 4, value2: 4 }), sessions: 4, events: 5 },
     ]);
   });
 

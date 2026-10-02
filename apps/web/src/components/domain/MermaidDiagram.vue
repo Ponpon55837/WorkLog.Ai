@@ -33,7 +33,7 @@ async function render(): Promise<void> {
     root.innerHTML = svg;
     state.value = "rendered";
   } catch (error) {
-    failure.value = error instanceof Error ? error.message.split("\n")[0]! : t("無法繪製這張圖表。");
+    failure.value = error instanceof Error ? error.message.split("\n")[0]! : t("session.couldNotDrawThisDiagram");
     state.value = "failed";
   }
 }
@@ -67,14 +67,14 @@ onBeforeUnmount(() => observer?.disconnect());
     <figcaption>{{ title }}</figcaption>
     <div v-show="state !== 'failed'" ref="host" class="mermaid-diagram__canvas" role="img" :aria-label="title" />
     <p v-if="state === 'loading' || state === 'idle'" class="mermaid-diagram__status">
-      <UiSpinner :size="14" :label="t('載入圖表')" /> {{ t("載入圖表…") }}
+      <UiSpinner :size="14" :label="t('session.loadingDiagram')" /> {{ t("session.loadingDiagramText") }}
     </p>
     <div v-if="state === 'failed'" class="mermaid-diagram__failure">
-      <p>{{ t("無法繪製這張圖表（{failure}），以下是原始碼：", { failure }) }}</p>
+      <p>{{ t("session.couldNotDrawThisDiagramHereIsThe", { failure }) }}</p>
       <pre><code>{{ source }}</code></pre>
     </div>
     <details v-else-if="state === 'rendered'" class="mermaid-diagram__source">
-      <summary>{{ t("檢視原始碼") }}</summary>
+      <summary>{{ t("session.viewSource") }}</summary>
       <pre><code>{{ source }}</code></pre>
     </details>
   </figure>

@@ -90,8 +90,8 @@ const canReview = computed(
 
 const staleMessage = computed(() =>
   selectedRequest.value?.status === "cancelled"
-    ? t("整理請求已取消，既有建議僅供查閱；未結項保持原狀。")
-    : t("項目、來源或證據已變更；請核對後拒絕建議，再建立新的整理請求。"),
+    ? t("outstanding.theRequestWasCancelledExisting")
+    : t("outstanding.itemsSourcesOrEvidenceChanged"),
 );
 
 function close(): void {
@@ -114,10 +114,10 @@ async function createRequest(): Promise<void> {
   if (busy.value || !projectId.value) return;
   if (
     !(await confirmAction({
-      title: t("建立整理未結項請求？"),
-      message: t("Agent 會核對此專案未結項與後續工作紀錄，提出附證據的建議。你接受前，項目保持原狀。"),
-      confirmLabel: t("建立整理請求"),
-      cancelLabel: t("取消"),
+      title: t("outstanding.createARequestToTidy"),
+      message: t("outstanding.theAgentChecksThisProject"),
+      confirmLabel: t("outstanding.createRequest"),
+      cancelLabel: t("common.cancel"),
     }))
   )
     return;
@@ -126,9 +126,9 @@ async function createRequest(): Promise<void> {
   try {
     await cleanupStore.createRequest(createKey.value);
     createKey.value = "";
-    showToast(t("已建立整理請求，可請 Agent 整理此專案未結項。"), "success");
+    showToast(t("outstanding.requestCreatedYouCanNow"), "success");
   } catch (error) {
-    showToast(errorMessage(error, t("無法建立整理請求。")), "danger");
+    showToast(errorMessage(error, t("common.couldNotCreateTheRequest")), "danger");
   } finally {
     busy.value = false;
   }
@@ -138,14 +138,14 @@ async function decide(ids: string[], decision: "accept" | "reject"): Promise<voi
   const accept = decision === "accept";
   if (
     !(await confirmAction({
-      title: accept ? t("接受整理建議？") : t("拒絕整理建議？"),
+      title: accept ? t("outstanding.acceptSuggestions") : t("outstanding.rejectSuggestions"),
       message: accept
-        ? t("接受這 {length} 項建議後，未結項會標記為建議狀態並保存證據。項目或證據已變更時，整批不會套用。", {
+        ? t("outstanding.acceptingTheseSuggestionsSetsThe", {
             length: ids.length,
           })
-        : t("拒絕這 {length} 項建議，未結項保持原狀。", { length: ids.length }),
-      confirmLabel: accept ? t("確認接受") : t("確認拒絕"),
-      cancelLabel: t("返回核對"),
+        : t("outstanding.rejectTheseSuggestionsOpenItems", { length: ids.length }),
+      confirmLabel: accept ? t("outstanding.confirmAcceptance") : t("outstanding.confirmRejection"),
+      cancelLabel: t("outstanding.backToReview"),
     }))
   )
     return;
@@ -153,9 +153,12 @@ async function decide(ids: string[], decision: "accept" | "reject"): Promise<voi
   try {
     await cleanupStore.decide(ids, decision);
     selectedIds.value = [];
-    showToast(accept ? t("已接受整理建議。") : t("已拒絕整理建議，未結項保持原狀。"), "success");
+    showToast(
+      accept ? t("outstanding.suggestionsAccepted") : t("outstanding.suggestionsRejectedOpenItemsAre"),
+      "success",
+    );
   } catch (error) {
-    showToast(errorMessage(error, t("無法審核整理建議。")), "danger");
+    showToast(errorMessage(error, t("outstanding.couldNotReviewTheSuggestions")), "danger");
   } finally {
     busy.value = false;
   }
@@ -164,19 +167,19 @@ async function cancelRequest(): Promise<void> {
   if (
     busy.value ||
     !(await confirmAction({
-      title: t("取消這份整理請求？"),
-      message: t("既有建議保留供查閱，未結項保持原狀；之後可以建立新的整理請求。"),
-      confirmLabel: t("取消整理請求"),
-      cancelLabel: t("保留請求"),
+      title: t("outstanding.cancelThisRequest"),
+      message: t("outstanding.existingSuggestionsStayReadableAnd"),
+      confirmLabel: t("outstanding.cancelRequest"),
+      cancelLabel: t("outstanding.keepRequest"),
     }))
   )
     return;
   busy.value = true;
   try {
     await cleanupStore.cancelRequest();
-    showToast(t("已取消整理請求。"), "success");
+    showToast(t("outstanding.requestCancelled"), "success");
   } catch (error) {
-    showToast(errorMessage(error, t("無法取消整理請求。")), "danger");
+    showToast(errorMessage(error, t("outstanding.couldNotCancelTheRequest")), "danger");
   } finally {
     busy.value = false;
   }
@@ -224,41 +227,41 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
 <template>
   <div class="outstanding-cleanup__entry">
     <UiButton size="sm" :icon="ListChecks" :disabled="!projectId" @click="panelMode = 'review'">{{
-      t("整理未結項")
+      t("outstanding.tidyOpenItems")
     }}</UiButton>
-    <span v-if="!projectId" class="outstanding-cleanup__hint">{{ t("先選擇一個專案") }}</span>
+    <span v-if="!projectId" class="outstanding-cleanup__hint">{{ t("outstanding.chooseAProjectFirst") }}</span>
   </div>
-  <UiSidePanel :open="isOpen" :label="t('整理未結項')" :width="720" @close="close">
+  <UiSidePanel :open="isOpen" :label="t('outstanding.tidyOpenItems')" :width="720" @close="close">
     <template #header>
-      <h2>{{ t("整理未結項") }}</h2>
-      <UiButton size="sm" :icon="X" icon-only :label="t('關閉整理未結項')" @click="close" />
+      <h2>{{ t("outstanding.tidyOpenItems") }}</h2>
+      <UiButton size="sm" :icon="X" icon-only :label="t('outstanding.closeOpenItemCleanup')" @click="close" />
     </template>
     <div class="outstanding-cleanup__body">
       <p class="outstanding-cleanup__hint">
-        {{ t("先請 Agent 整理這個專案的未結項，再核對理由與證據。接受前，項目保持原狀。") }}
+        {{ t("outstanding.askTheAgentToTidy") }}
       </p>
       <div class="outstanding-cleanup__actions">
         <UiButton variant="primary" :disabled="busy || loading || skipped || hasActiveRequest" @click="createRequest">{{
-          t("建立整理請求")
+          t("outstanding.createRequest")
         }}</UiButton>
-        <UiButton :icon="RefreshCw" :disabled="busy" @click="cleanupStore.reload">{{ t("重新整理") }}</UiButton>
+        <UiButton :icon="RefreshCw" :disabled="busy" @click="cleanupStore.reload">{{ t("common.refresh") }}</UiButton>
       </div>
-      <UiFlash v-if="skipped" tone="accent">{{ t("此專案目前未啟用記錄，整理請求無法讀取或建立。") }}</UiFlash>
+      <UiFlash v-if="skipped" tone="accent">{{ t("outstanding.trackingIsNotEnabledFor") }}</UiFlash>
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
       <UiBox>
-        <template #header><UiBoxTitle :title="t('整理請求')" :count="requestPageInfo.total" /></template>
+        <template #header><UiBoxTitle :title="t('common.cleanupRequests')" :count="requestPageInfo.total" /></template>
         <UiSkeleton v-if="loading && !requests.length" :count="2" />
         <UiEmptyState
           v-else-if="!error && !requests.length"
-          :title="t('尚無整理請求')"
-          :description="t('建立請求後，可請 Agent 核對此專案未結項。')"
+          :title="t('outstanding.noRequestsYet')"
+          :description="t('outstanding.afterCreatingARequestYou')"
         />
         <VirtualList
           v-else-if="!error"
           :items="requests"
           :enabled="requests.length > 3"
           max-height="240px"
-          :label="t('整理請求清單')"
+          :label="t('outstanding.requestList')"
         >
           <template #default="{ item }">
             <UiBoxRow
@@ -270,7 +273,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
             >
               <template #labels><StatusLabel :status="outstandingCleanupRequestVisual[item.status]" /></template>
               <template #meta>{{
-                t("已核對 {examinedCount} / {itemCount} 項 · {pendingProposalCount} 項待審", {
+                t("outstanding.checkedItemsToReview", {
                   examinedCount: item.examinedCount,
                   itemCount: item.itemCount,
                   pendingProposalCount: item.pendingProposalCount,
@@ -283,17 +286,17 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
           ><UiPagination
             v-model:page-size="requestPageSize"
             :page-info="requestPageInfo"
-            :size-label="t('整理請求每頁筆數')"
+            :size-label="t('outstanding.requestsPerPage')"
             @page="requestPage = $event"
         /></template>
       </UiBox>
       <UiBox v-if="requestId">
         <template #header>
-          <UiBoxTitle :title="t('整理建議')" :count="proposalPageInfo.total" />
+          <UiBoxTitle :title="t('common.suggestions')" :count="proposalPageInfo.total" />
           <UiActionMenu
             v-model="reviewStatus"
-            :label="t('審核狀態')"
-            :header="t('篩選整理建議')"
+            :label="t('outstanding.reviewStatus')"
+            :header="t('outstanding.filterSuggestions')"
             :items="reviewOptions"
             default-value="pending"
           />
@@ -301,48 +304,48 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
         <div v-if="selectedRequest" class="outstanding-cleanup__summary">
           <StatusLabel :status="outstandingCleanupRequestVisual[selectedRequest.status]" />
           <span>{{
-            t("已核對 {examinedCount} / {itemCount} 項", {
+            t("outstanding.checkedItems", {
               examinedCount: selectedRequest.examinedCount,
               itemCount: selectedRequest.itemCount,
             })
           }}</span>
-          <span>{{ t("未提建議的項目保持未處理。") }}</span>
+          <span>{{ t("outstanding.itemsWithoutASuggestionStay") }}</span>
           <UiButton v-if="canReview" size="sm" :disabled="busy" @click="cancelRequest">{{
-            t("取消整理請求")
+            t("outstanding.cancelRequest")
           }}</UiButton>
         </div>
         <div
           v-if="reviewStatus === 'pending' && pendingProposals.length"
           class="outstanding-cleanup__actions outstanding-cleanup__batch"
           role="group"
-          :aria-label="t('批次審核整理建議')"
+          :aria-label="t('outstanding.reviewSuggestionsInBulk')"
         >
           <UiCheckbox
             v-model="allSelected"
-            :label="t('選取本頁全部整理建議')"
+            :label="t('outstanding.selectAllSuggestionsOnThis')"
             :indeterminate="selectedIds.length > 0 && !allSelected"
             :disabled="busy || !canReview"
           />
-          <span aria-live="polite">{{ t("已選取 {length} 項", { length: selectedIds.length }) }}</span>
+          <span aria-live="polite">{{ t("outstanding.selected", { length: selectedIds.length }) }}</span>
           <UiButton
             size="sm"
             :disabled="busy || !canReview || !selectedIds.length || hasStaleSelection"
             @click="decide([...selectedIds], 'accept')"
-            >{{ t("接受選取") }}</UiButton
+            >{{ t("outstanding.acceptSelected") }}</UiButton
           >
           <UiButton
             size="sm"
             :disabled="busy || !canReview || !selectedIds.length"
             @click="decide([...selectedIds], 'reject')"
-            >{{ t("拒絕選取") }}</UiButton
+            >{{ t("outstanding.rejectSelected") }}</UiButton
           >
         </div>
         <UiFlash v-if="proposalError" tone="danger">{{ proposalError }}</UiFlash>
         <UiSkeleton v-if="proposalsLoading && !proposals.length" :count="3" />
         <UiEmptyState
           v-else-if="!proposalError && !proposals.length"
-          :title="t('目前沒有這個狀態的建議')"
-          :description="t('請求待整理時，可請 Agent 整理此專案未結項；證據不足的項目不會產生建議。')"
+          :title="t('outstanding.noSuggestionsWithThisStatus')"
+          :description="t('outstanding.whileARequestAwaitsCleanup')"
         />
         <VirtualList
           v-else-if="!proposalError"
@@ -350,7 +353,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
           :enabled="proposals.length > 3"
           max-height="440px"
           :estimate-item-height="240"
-          :label="t('整理建議清單')"
+          :label="t('outstanding.suggestionList')"
         >
           <template #default="{ item }">
             <UiBoxRow :title="item.itemText" class="outstanding-cleanup__proposal">
@@ -358,7 +361,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
                 ><UiCheckbox
                   v-if="item.reviewStatus === 'pending'"
                   :model-value="selectedIds.includes(item.id)"
-                  :label="t('選取整理建議：{itemText}', { itemText: item.itemText })"
+                  :label="t('outstanding.selectSuggestion', { itemText: item.itemText })"
                   :disabled="busy || !canReview"
                   @update:model-value="selectProposal(item.id, $event)"
               /></template>
@@ -371,23 +374,25 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
                 staleMessage
               }}</UiFlash>
               <div class="outstanding-cleanup__actions">
-                <UiButton size="sm" @click="openSession(item.sourceSessionId)">{{ t("來源 Session") }}</UiButton>
+                <UiButton size="sm" @click="openSession(item.sourceSessionId)">{{
+                  t("common.sourceSession")
+                }}</UiButton>
                 <UiButton v-for="(id, index) in item.evidenceSessionIds" :key="id" size="sm" @click="openSession(id)">{{
-                  t("證據 {value}", { value: index + 1 })
+                  t("outstanding.evidence", { value: index + 1 })
                 }}</UiButton>
                 <UiButton
                   v-if="item.reviewStatus === 'pending'"
                   size="sm"
                   :disabled="busy || !canReview || item.stale"
                   @click="decide([item.id], 'accept')"
-                  >{{ t("接受建議") }}</UiButton
+                  >{{ t("outstanding.acceptSuggestion") }}</UiButton
                 >
                 <UiButton
                   v-if="item.reviewStatus === 'pending'"
                   size="sm"
                   :disabled="busy || !canReview"
                   @click="decide([item.id], 'reject')"
-                  >{{ t("拒絕建議") }}</UiButton
+                  >{{ t("outstanding.rejectSuggestion") }}</UiButton
                 >
               </div>
             </UiBoxRow>
@@ -397,7 +402,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
           ><UiPagination
             v-model:page-size="proposalPageSize"
             :page-info="proposalPageInfo"
-            :size-label="t('整理建議每頁筆數')"
+            :size-label="t('outstanding.suggestionsPerPage')"
             @page="proposalPage = $event"
         /></template>
       </UiBox>

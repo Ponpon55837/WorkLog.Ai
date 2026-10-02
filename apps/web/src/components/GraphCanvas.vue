@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
     :class="['graph-canvas', { 'has-focus': selectedId }]"
     data-testid="graph-viewport"
     role="group"
-    :aria-label="t('Work Intelligence 結構化工作關係圖')"
+    :aria-label="t('graph.workIntelligenceStructuredWorkGraph')"
     @scroll="handleScroll"
     @keydown.esc="emit('clear')"
   >
@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
         <title>
           {{
             item.edge.reason
-              ? t("{value}：{reason}", { value: edgeKindLabels[item.edge.kind], reason: item.edge.reason })
+              ? t("graph.edgeReason", { value: edgeKindLabels[item.edge.kind], reason: item.edge.reason })
               : edgeKindLabels[item.edge.kind]
           }}
         </title>
@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
         :transform="`translate(${laneCentre(item.lane)}, ${item.y})`"
         role="button"
         tabindex="0"
-        :aria-label="t('查看{value}：{label}', { value: nodeKindLabels[item.node.kind], label: item.node.label })"
+        :aria-label="t('graph.view', { value: nodeKindLabels[item.node.kind], label: item.node.label })"
         :aria-pressed="item.node.id === selectedId"
         @click="emit('select', item.node)"
         @keydown.enter="emit('select', item.node)"

@@ -25,14 +25,16 @@ const {
 } = useSessionEditor();
 
 const sectionHints: Record<string, string> = {
-  nextSteps: t("只寫已知的限制、未完成項目或未驗證情境，不寫建議或計畫。"),
+  nextSteps: t("session.writeOnlyKnownLimitsUnfinished"),
 };
 const description = computed(() =>
-  t("{value} · 直接修改這筆 Session，不會建立新的 Session。", { value: sessionEditor.value?.title ?? "Session" }),
+  t("session.editsThisSessionInPlace", { value: sessionEditor.value?.title ?? "Session" }),
 );
 // 未回報 stays selectable only while the Session has no reported verification; it cannot be set.
 const verificationOptions = computed(() => [
-  ...(sessionEditor.value?.verification ? [] : [{ value: "not_supplied" as const, label: t("未回報（維持不變）") }]),
+  ...(sessionEditor.value?.verification
+    ? []
+    : [{ value: "not_supplied" as const, label: t("session.notReportedUnchanged") }]),
   ...(["passed", "failed", "not_run"] as const).map((value) => ({ value, label: verificationStatus[value].label })),
 ]);
 </script>
@@ -40,7 +42,7 @@ const verificationOptions = computed(() => [
 <template>
   <UiDialog
     :open="Boolean(sessionEditor)"
-    :title="t('編輯 Session')"
+    :title="t('session.editSession')"
     :description="description"
     size="lg"
     :busy="sessionEditorSaving"
@@ -48,32 +50,32 @@ const verificationOptions = computed(() => [
   >
     <form id="session-editor-form" class="session-editor" @submit.prevent="saveSessionEditor">
       <UiFlash v-if="sessionEditorError" tone="danger">{{ sessionEditorError }}</UiFlash>
-      <UiField :label="t('主摘要')" :hint="t('一句話，先寫結果。')"
+      <UiField :label="t('session.summary')" :hint="t('session.oneSentenceOutcomeFirst')"
         ><UiTextarea v-model="sessionEditorForm.summary" :rows="3" :maxlength="20000" required autofocus
       /></UiField>
       <UiField
         v-for="section in workSummarySectionLabels"
         :key="section.key"
         :label="section.label"
-        :hint="sectionHints[section.key] ?? t('每行一項；留白代表這段沒有內容。')"
+        :hint="sectionHints[section.key] ?? t('session.oneItemPerLineLeave')"
         ><UiTextarea v-model="sessionEditorForm.sections[section.key]" :rows="3"
       /></UiField>
       <div class="session-editor__verification">
-        <UiField :label="t('Verification 狀態')" :hint="t('只寫實際結果；沒跑測試請選「未執行」，不要選「通過」。')"
+        <UiField :label="t('session.verificationStatus')" :hint="t('session.writeOnlyWhatActuallyHappened')"
           ><UiSelect
             v-model="sessionEditorForm.verificationStatus"
-            :label="t('Verification 狀態')"
+            :label="t('session.verificationStatus')"
             :options="verificationOptions"
         /></UiField>
-        <UiField :label="t('Verification 說明')" :hint="t('選填：實際跑了什麼、結果或未驗證的範圍。')"
+        <UiField :label="t('session.verificationNotes')" :hint="t('session.optionalWhatActuallyRanThe')"
           ><UiTextarea v-model="sessionEditorForm.verificationSummary" :rows="2" :maxlength="2000"
         /></UiField>
       </div>
     </form>
     <template #footer>
-      <UiButton :disabled="sessionEditorSaving" @click="closeSessionEditor">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="sessionEditorSaving" @click="closeSessionEditor">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="primary" type="submit" form="session-editor-form" :loading="sessionEditorSaving">{{
-        t("儲存變更")
+        t("common.saveChanges")
       }}</UiButton>
     </template>
   </UiDialog>

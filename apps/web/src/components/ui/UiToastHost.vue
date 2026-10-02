@@ -13,7 +13,12 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
       <div v-for="toast in toasts" :key="toast.id" :class="['ui-toast', `ui-toast--${toast.tone}`]" role="status">
         <component :is="icons[toast.tone]" :size="16" :stroke-width="1.75" class="ui-toast__icon" aria-hidden="true" />
         <span class="ui-toast__message">{{ toast.message }}</span>
-        <button type="button" class="ui-toast__close" :aria-label="t('關閉通知')" @click="dismissToast(toast.id)">
+        <button
+          type="button"
+          class="ui-toast__close"
+          :aria-label="t('ui.dismissNotification')"
+          @click="dismissToast(toast.id)"
+        >
           <X :size="14" :stroke-width="1.75" aria-hidden="true" />
         </button>
       </div>

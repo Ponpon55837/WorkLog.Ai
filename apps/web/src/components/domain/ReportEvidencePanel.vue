@@ -25,7 +25,7 @@ const emit = defineEmits<{
 const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const kind = defineModel<ReportEvidence["kind"] | "">("kind", { required: true });
 const evidenceKindItems = [
-  { value: "" as const, label: t("所有類型") },
+  { value: "" as const, label: t("common.allKinds") },
   ...(Object.keys(evidenceKindLabels) as ReportEvidence["kind"][]).map((evidenceKind) => ({
     value: evidenceKind,
     label: evidenceKindLabels[evidenceKind],
@@ -44,11 +44,15 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   <section id="report-panel-evidence" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-evidence">
     <UiBox sticky-header>
       <template #header>
-        <UiBoxTitle eyebrow="Source evidence" :title="t('來源證據')" :count="report.evidencePageInfo.total" />
+        <UiBoxTitle
+          eyebrow="Source evidence"
+          :title="t('common.sourceEvidence')"
+          :count="report.evidencePageInfo.total"
+        />
         <UiActionMenu
           v-model="kind"
-          :label="t('類型')"
-          :header="t('篩選 Evidence 類型')"
+          :label="t('common.kind')"
+          :header="t('reports.filterEvidenceKind')"
           default-value=""
           align="end"
           :items="evidenceKindItems"
@@ -59,8 +63,8 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         v-else-if="report.evidence.length === 0"
         compact
         :icon="Link"
-        :title="t('尚無可呈現的證據')"
-        :description="t('Session 提供 handoff、verification、changed files 或 event 後，報告就能建立追溯線索。')"
+        :title="t('reports.noEvidenceToShowYet')"
+        :description="t('reports.onceSessionsProvideHandoffsVerification')"
       />
       <VirtualList
         v-else
@@ -70,7 +74,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         fit-viewport-to-panel
         fill-available-space
         :estimate-item-height="72"
-        :label="t('報告來源證據清單')"
+        :label="t('reports.reportEvidenceList')"
       >
         <template #default="{ item }">
           <UiBoxRow clickable :title="item.label" @select="emit('open', item)">
@@ -94,7 +98,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
         <UiPagination
           v-model:page-size="pageSize"
           :page-info="report.evidencePageInfo"
-          :size-label="t('報告來源證據每頁筆數')"
+          :size-label="t('reports.reportEvidencePerPage')"
           @page="emit('page', $event)"
         />
       </template>

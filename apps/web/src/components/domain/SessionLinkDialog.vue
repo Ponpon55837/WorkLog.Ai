@@ -40,7 +40,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 <template>
   <UiDialog
     :open="Boolean(linkSource)"
-    :title="t('新增 Session 關聯')"
+    :title="t('session.addSessionLink')"
     :description="linkSource?.title"
     :busy="linkSaving"
     @close="closeLinkDialog"
@@ -51,19 +51,19 @@ onBeforeUnmount(() => window.clearTimeout(timer));
         v-model="linkQuery"
         type="search"
         :icon="Search"
-        :label="t('搜尋要關聯的 Session')"
-        :placeholder="t('搜尋 title、summary 或 event')"
+        :label="t('session.searchForASessionTo')"
+        :placeholder="t('common.searchTitleSummaryOrEvent')"
         autofocus
       />
       <UiSkeleton v-if="linkCandidatesLoading && linkCandidates.length === 0" :count="3" />
       <UiEmptyState
         v-else-if="linkCandidates.length === 0"
         compact
-        :title="t('沒有符合的 Session')"
-        :description="t('換個關鍵字再試一次。')"
+        :title="t('session.noMatchingSessions')"
+        :description="t('session.tryADifferentKeyword')"
       />
       <fieldset v-else class="session-link__candidates">
-        <legend class="session-link__legend">{{ t("選擇 Session") }}</legend>
+        <legend class="session-link__legend">{{ t("session.chooseSession") }}</legend>
         <label v-for="candidate in linkCandidates" :key="candidate.id" class="session-link__candidate">
           <input v-model="linkTargetId" type="radio" name="link-target" :value="candidate.id" />
           <span class="session-link__candidate-text">
@@ -72,14 +72,14 @@ onBeforeUnmount(() => window.clearTimeout(timer));
           </span>
         </label>
       </fieldset>
-      <UiField :label="t('關係')"
-        ><UiSelect v-model="linkDirection" :label="t('關係')" :options="sessionLinkOptions"
+      <UiField :label="t('common.relationships')"
+        ><UiSelect v-model="linkDirection" :label="t('common.relationships')" :options="sessionLinkOptions"
       /></UiField>
     </form>
     <template #footer>
-      <UiButton :disabled="linkSaving" @click="closeLinkDialog">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="linkSaving" @click="closeLinkDialog">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="primary" type="submit" form="session-link-form" :loading="linkSaving">{{
-        t("建立關聯")
+        t("session.createLink")
       }}</UiButton>
     </template>
   </UiDialog>

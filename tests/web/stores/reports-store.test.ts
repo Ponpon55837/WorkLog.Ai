@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness } from "../helpers/store-harness.js";
 import { useReportsStore } from "../../../apps/web/src/stores/reports.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
 
 const mocks = vi.hoisted(() => ({ showToast: vi.fn(), confirmAction: vi.fn(async () => true) }));
 vi.mock("../../../apps/web/src/composables/useToast", () => ({ useToast: () => ({ showToast: mocks.showToast }) }));
@@ -225,7 +226,7 @@ describe("reports store", () => {
     expect(anchor.download).toBe("report.md");
     expect(anchor.click).toHaveBeenCalledOnce();
     expect(store.reportExportLoading).toBeNull();
-    expect(mocks.showToast).toHaveBeenCalledWith("已下載 Markdown 報告。");
+    expect(mocks.showToast).toHaveBeenCalledWith(t("reports.downloadedTheReport", { format: "Markdown" }));
 
     exportStatus = "skipped";
     await store.exportReport("json");
@@ -235,7 +236,7 @@ describe("reports store", () => {
   it("does not run export without a report and respects declined cancellation confirmations", async () => {
     const empty = useReportsStore();
     await empty.exportReport("json");
-    expect(mocks.showToast).toHaveBeenCalledWith("請先載入一份報告，再進行匯出。");
+    expect(mocks.showToast).toHaveBeenCalledWith(t("reports.loadAReportBeforeExporting"));
     empty.loadReport();
     await vi.waitFor(() => expect(empty.report).not.toBeNull());
 

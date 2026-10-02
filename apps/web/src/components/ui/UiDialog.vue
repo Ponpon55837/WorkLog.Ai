@@ -50,7 +50,7 @@ function requestClose(): void {
             <button
               type="button"
               class="ui-dialog__close"
-              :aria-label="t('關閉對話框')"
+              :aria-label="t('ui.closeDialog')"
               :disabled="busy"
               @click="requestClose"
             >

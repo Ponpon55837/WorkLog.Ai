@@ -9,19 +9,19 @@ import { t, translatedRecord } from "../i18n";
 export type { VoidTarget } from "../stores/record-void";
 
 const voidedMessages = translatedRecord({
-  session: "Session 已作廢。",
-  evidence: "Evidence 已標示為錯誤。",
-  diagram: "圖表已作廢。",
+  session: "session.sessionVoided",
+  evidence: "session.evidenceMarkedAsWrong",
+  diagram: "session.diagramVoided",
 });
 const restoreCopy = {
-  session: { title: t("還原這筆 Session？"), message: t("還原後會重新出現在工作歷程、報告、圖譜與 Agent 檢索。") },
-  evidence: { title: t("還原這筆 Evidence？"), message: t("還原後會重新出現在報告與圖譜。") },
-  diagram: { title: t("還原這張圖表？"), message: t("還原後會重新顯示圖形。") },
+  session: { title: t("session.restoreThisSession"), message: t("session.onceRestoredItReappearsInTheWorkHistory") },
+  evidence: { title: t("session.restoreThisEvidence"), message: t("session.onceRestoredItReappearsIn") },
+  diagram: { title: t("session.restoreThisDiagram"), message: t("session.onceRestoredTheDiagramIs") },
 };
 const restoredMessages = translatedRecord({
-  session: "Session 已還原。",
-  evidence: "Evidence 已還原。",
-  diagram: "圖表已還原。",
+  session: "session.sessionRestored",
+  evidence: "session.evidenceRestored",
+  diagram: "session.diagramRestored",
 });
 
 function openVoidDialog(target: VoidTarget): void {
@@ -47,7 +47,7 @@ async function applyVoid(target: VoidTarget, voided: boolean, reason?: string): 
         ? await store.setDiagramVoid({ diagramId: target.id, sessionId: target.sessionId, voided, reason })
         : await store.setEvidenceVoid({ evidenceId: target.id, sessionId: target.sessionId, voided, reason });
   if (result.outcome === "not_found") {
-    throw new Error(t("找不到這筆資料，可能已被刪除。"));
+    throw new Error(t("session.recordNotFoundItMay"));
   }
   if (result.outcome === "skipped") {
     throw new Error(result.reason);
@@ -66,7 +66,7 @@ async function submitVoid(): Promise<void> {
     return;
   }
   if (!reason) {
-    useRecordVoidStore().voidError = t("請填寫作廢原因。");
+    useRecordVoidStore().voidError = t("session.enterAReasonForVoiding");
     return;
   }
   useRecordVoidStore().voidSaving = true;
@@ -74,7 +74,7 @@ async function submitVoid(): Promise<void> {
   try {
     await applyVoid(target, true, reason);
   } catch (error) {
-    useRecordVoidStore().voidError = errorMessage(error, t("無法作廢。"));
+    useRecordVoidStore().voidError = errorMessage(error, t("session.couldNotVoid"));
     useRecordVoidStore().voidSaving = false;
     return;
   }
@@ -88,7 +88,7 @@ async function restoreRecord(target: VoidTarget): Promise<void> {
   const confirmed = await confirmAction({
     title: restoreCopy[target.type].title,
     message: restoreCopy[target.type].message,
-    confirmLabel: t("還原"),
+    confirmLabel: t("session.restore"),
   });
   if (!confirmed) {
     return;
@@ -96,7 +96,7 @@ async function restoreRecord(target: VoidTarget): Promise<void> {
   try {
     await applyVoid(target, false);
   } catch (error) {
-    useToast().showToast(errorMessage(error, t("無法還原。")), "danger");
+    useToast().showToast(errorMessage(error, t("session.couldNotRestore")), "danger");
     return;
   }
   afterChange(restoredMessages[target.type]);

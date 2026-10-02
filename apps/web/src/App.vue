@@ -56,7 +56,7 @@ async function loadRootData(): Promise<void> {
   try {
     await Promise.all([loadDashboard(), loadProjects(), loadHealth(), loadDashboardData()]);
   } catch (error) {
-    errorMessage.value = toErrorMessage(error, t("無法載入 Work Intelligence，請確認本機 API 是否已啟動。"));
+    errorMessage.value = toErrorMessage(error, t("common.couldNotLoadWorkIntelligence"));
   } finally {
     loading.value = false;
   }
@@ -68,7 +68,7 @@ async function refresh(): Promise<void> {
   try {
     await invalidateActiveQueries();
   } catch (error) {
-    errorMessage.value = toErrorMessage(error, t("重新整理失敗，請稍後再試。"));
+    errorMessage.value = toErrorMessage(error, t("app.refreshFailedPleaseTryAgain"));
   } finally {
     refreshing.value = false;
   }
@@ -100,17 +100,17 @@ onBeforeUnmount(() => {
     @search="paletteOpen = true"
   >
     <Transition name="fade" mode="out-in">
-      <UiFlash v-if="isApiOffline" key="offline" tone="danger" :title="t('無法連線到 Work Intelligence API')">
-        {{ t("API 恢復連線後會自動重新載入目前頁面資料。") }}
+      <UiFlash v-if="isApiOffline" key="offline" tone="danger" :title="t('app.cannotReachTheWorkIntelligence')">
+        {{ t("app.thisPageReloadsItsData") }}
       </UiFlash>
-      <UiFlash v-else-if="errorMessage" key="error" tone="danger" :title="t('無法載入')">
+      <UiFlash v-else-if="errorMessage" key="error" tone="danger" :title="t('common.couldNotLoad')">
         {{ errorMessage }}
         <template #actions
-          ><UiButton size="sm" @click="refresh">{{ t("重試") }}</UiButton></template
+          ><UiButton size="sm" @click="refresh">{{ t("common.retry") }}</UiButton></template
         >
       </UiFlash>
     </Transition>
-    <UiSkeleton v-if="loading" variant="card" :count="4" :label="t('正在載入 Work Intelligence…')" />
+    <UiSkeleton v-if="loading" variant="card" :count="4" :label="t('app.loadingWorkIntelligence')" />
     <RouterView v-else v-slot="{ Component, route: current }">
       <!-- Keyed by route name: switching tabs inside a page keeps the page and only fades its panel.
            The locale is part of the key so a language switch re-runs setup code that translated once. -->

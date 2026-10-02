@@ -1,5 +1,5 @@
 import type { ApiErrorCode, WorkReport } from "@work-intelligence/core";
-import { intlLocale, t, translatedRecord } from "../i18n";
+import { intlLocale, t, translatedRecord, type MessageKey } from "../i18n";
 
 export function formatDate(value: string): string {
   return new Intl.DateTimeFormat(intlLocale(), {
@@ -79,31 +79,31 @@ export function graphNodeLabel(value: string, maxDisplayUnits = 25): string {
   return label;
 }
 
-const apiErrorMessages: Record<string, string> = translatedRecord<string>({
-  invalid_input: "輸入資料有誤，請檢查後再試。",
-  not_found: "找不到請求的資料，請重新整理後再試。",
-  conflict: "資料狀態已變更，請重新整理後再試。",
-  payload_too_large: "資料超過可處理大小。",
-  unsupported_media_type: "請求格式不支援。",
-  host_not_allowed: "請求主機不受允許。",
-  origin_not_allowed: "請求來源不受允許。",
-  service_unavailable: "服務暫時無法使用，請稍後再試。",
-  project_not_found: "找不到指定專案，請重新整理專案清單。",
-  invalid_bundle: "匯入檔格式無效，請確認檔案內容。",
-  unsupported_schema: "匯入檔的資料版本不受支援。",
-  invalid_project_deletion_confirmation: "刪除確認資料無效，請重新輸入完整專案名稱。",
-  project_location_confirmation_required: "重新指定記錄中專案的位置前，請先確認 Agent 可讀取的範圍會改變。",
-  project_location_conflict: "新資料夾與其他專案的根目錄重疊。",
-  project_location_invalid: "請選擇一個存在且可用的資料夾。",
-  backup_unavailable: "目前無法使用備份功能。",
-  database_busy: "資料庫暫時忙碌，請稍後再試。",
-  PROJECT_NOT_FOUND: "找不到這個專案；請重新整理專案清單。",
-  PROJECT_NAME_MISMATCH: "輸入的名稱與專案名稱不相符，專案尚未刪除。",
-  PROJECT_BACKUP_FAILED: "無法建立並檢查刪除前備份，專案尚未刪除。請確認資料庫可寫入後再試。",
-  PROJECT_DELETE_FAILED: "刪除作業未完成，專案資料已保留；刪除前備份仍在。",
-  network_error: "無法連線至本機 API，請確認 API 是否已啟動。",
-  malformed_response: "API 回應格式不正確，請重新整理後再試。",
-} satisfies Partial<Record<ApiErrorCode | "network_error" | "malformed_response", string>>);
+const apiErrorMessages: Record<string, string> = translatedRecord({
+  invalid_input: "format.theInputIsInvalidCheck",
+  not_found: "format.theRequestedDataWasNot",
+  conflict: "format.theDataChangedRefreshAnd",
+  payload_too_large: "format.theDataExceedsTheSize",
+  unsupported_media_type: "format.theRequestFormatIsNot",
+  host_not_allowed: "format.theRequestHostIsNot",
+  origin_not_allowed: "format.theRequestOriginIsNot",
+  service_unavailable: "format.theServiceIsTemporarilyUnavailable",
+  project_not_found: "format.projectNotFoundRefreshThe",
+  invalid_bundle: "format.theImportFileIsInvalid",
+  unsupported_schema: "format.theImportFileSData",
+  invalid_project_deletion_confirmation: "format.theDeletionConfirmationIsInvalid",
+  project_location_confirmation_required: "format.beforeRelocatingATrackedProject",
+  project_location_conflict: "format.theNewFolderOverlapsAnother",
+  project_location_invalid: "format.chooseAFolderThatExists",
+  backup_unavailable: "format.backupsAreUnavailableRightNow",
+  database_busy: "format.theDatabaseIsBusyPlease",
+  PROJECT_NOT_FOUND: "format.thisProjectWasNotFound",
+  PROJECT_NAME_MISMATCH: "format.theNameDoesNotMatch",
+  PROJECT_BACKUP_FAILED: "format.couldNotCreateAndVerify",
+  PROJECT_DELETE_FAILED: "format.theDeletionDidNotFinish",
+  network_error: "common.cannotReachTheLocalApi",
+  malformed_response: "common.theApiResponseWasMalformed",
+} satisfies Partial<Record<ApiErrorCode | "network_error" | "malformed_response", MessageKey>>);
 
 export function errorMessage(error: unknown, fallback: string): string {
   if (typeof error === "object" && error !== null && "code" in error && "status" in error) {
@@ -120,20 +120,20 @@ export function formatRelative(value: string, now = new Date()): string {
   const date = new Date(value);
   const diffMinutes = Math.round((now.getTime() - date.getTime()) / 60_000);
   if (diffMinutes < 1) {
-    return t("剛剛");
+    return t("format.justNow");
   }
   if (diffMinutes < 60) {
-    return t("{diffMinutes} 分鐘前", { diffMinutes });
+    return t("format.minutesAgo", { diffMinutes });
   }
   const time = new Intl.DateTimeFormat(intlLocale(), { hour: "2-digit", minute: "2-digit", hour12: false }).format(
     date,
   );
   const dayDiff = dayIndex(now) - dayIndex(date);
   if (dayDiff === 0) {
-    return t("{value} 小時前", { value: Math.round(diffMinutes / 60) });
+    return t("format.hoursAgo", { value: Math.round(diffMinutes / 60) });
   }
   if (dayDiff === 1) {
-    return t("昨天 {time}", { time });
+    return t("format.yesterday", { time });
   }
   const sameYear = date.getFullYear() === now.getFullYear();
   return new Intl.DateTimeFormat(
@@ -151,10 +151,10 @@ export function formatDayGroup(value: string, now = new Date()): string {
   const date = new Date(value);
   const dayDiff = dayIndex(now) - dayIndex(date);
   if (dayDiff === 0) {
-    return t("今天");
+    return t("common.today");
   }
   if (dayDiff === 1) {
-    return t("昨天");
+    return t("common.yesterday");
   }
   const sameYear = date.getFullYear() === now.getFullYear();
   return new Intl.DateTimeFormat(
@@ -170,15 +170,15 @@ export function formatDuration(from: string, to: string): string {
     return "";
   }
   if (minutes < 1) {
-    return t("不到 1 分鐘");
+    return t("format.under1Minute");
   }
   const days = Math.floor(minutes / 1_440);
   const hours = Math.floor((minutes % 1_440) / 60);
   const rest = minutes % 60;
   const parts = [
-    days ? t("{days} 天", { days }) : "",
-    hours ? t("{hours} 小時", { hours }) : "",
-    !days && rest ? t("{rest} 分鐘", { rest }) : "",
+    days ? t("format.durationDays", { days }) : "",
+    hours ? t("format.durationHours", { hours }) : "",
+    !days && rest ? t("format.durationMinutes", { rest }) : "",
   ];
   return parts.filter(Boolean).join(" ");
 }

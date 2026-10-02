@@ -59,7 +59,9 @@ const weekDelta = computed(() => {
     return undefined;
   }
   const text =
-    comparison.direction === "flat" ? t("與上週相同") : t("{value} vs 上週", { value: Math.abs(comparison.delta) });
+    comparison.direction === "flat"
+      ? t("dashboard.sameAsLastWeek")
+      : t("dashboard.vsLastWeek", { value: Math.abs(comparison.delta) });
   return { direction: comparison.direction, text };
 });
 const showFirstRunChecklist = computed(
@@ -92,12 +94,10 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 </script>
 
 <template>
-  <PageHeader
-    :description="t('{today} · {trackedProjects} 個專案記錄中', { today, trackedProjects: dashboard.trackedProjects })"
-  >
+  <PageHeader :description="t('dashboard.projectsTracked', { today, trackedProjects: dashboard.trackedProjects })">
     <template #actions>
-      <UiButton :icon="ChartColumn" :to="{ name: 'reports' }">{{ t("本週報告") }}</UiButton>
-      <UiButton :icon="ListChecks" :to="{ name: 'sessions' }">{{ t("全部 Sessions") }}</UiButton>
+      <UiButton :icon="ChartColumn" :to="{ name: 'reports' }">{{ t("dashboard.thisWeekSReport") }}</UiButton>
+      <UiButton :icon="ListChecks" :to="{ name: 'sessions' }">{{ t("dashboard.allSessions") }}</UiButton>
     </template>
   </PageHeader>
 
@@ -114,36 +114,36 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 
   <div class="dashboard__stats">
     <UiStatCard
-      :label="t('記錄中專案')"
+      :label="t('common.trackedProjects')"
       :icon="FolderGit2"
       :value="dashboard.trackedProjects"
-      :foot="`explicit opt-in${pausedCount ? t(' · {pausedCount} 個已暫停', { pausedCount }) : ''}`"
+      :foot="`${t('dashboard.explicitOptIn')}${pausedCount ? t('dashboard.paused', { pausedCount }) : ''}`"
     />
     <UiStatCard
-      :label="t('本週完成 Sessions')"
+      :label="t('dashboard.sessionsCompletedThisWeek')"
       :icon="CircleCheckBig"
       :value="weekReport?.totals.sessions ?? 0"
       :delta="weekDelta"
     >
-      <UiSparkline v-if="weekTrend.length" :values="weekTrend" :label="t('本週每日完成 Session 數')" />
+      <UiSparkline v-if="weekTrend.length" :values="weekTrend" :label="t('dashboard.sessionsCompletedPerDayThis')" />
       <template #foot>{{
-        t("不等同 Git commit · 累計 {finalizedSessions}", { finalizedSessions: dashboard.finalizedSessions })
+        t("dashboard.notTheSameAsGit", { finalizedSessions: dashboard.finalizedSessions })
       }}</template>
     </UiStatCard>
     <UiStatCard
-      :label="t('本週 Verification')"
+      :label="t('dashboard.verificationThisWeek')"
       :icon="ShieldCheck"
       :value="weekVerification.passed"
-      :suffix="t('/ {total} 通過', { total: weekVerification.total })"
+      :suffix="t('dashboard.passed', { total: weekVerification.total })"
     >
       <VerificationBreakdown :counts="weekVerification" />
     </UiStatCard>
     <UiStatCard
-      :label="t('待處理')"
+      :label="t('common.pending')"
       :icon="Inbox"
       :value="inbox.length"
       :value-tone="inbox.length ? 'attention' : undefined"
-      :foot="inbox.length ? t('等待 Agent 或需要重試') : t('全部處理完畢')"
+      :foot="inbox.length ? t('dashboard.waitingForTheAgentOr') : t('common.allCaughtUp')"
     />
   </div>
 
@@ -151,17 +151,23 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
     <div class="dashboard__main">
       <UiBox>
         <template #header>
-          <UiBoxTitle eyebrow="Action required" :title="t('需要處理')" />
+          <UiBoxTitle eyebrow="Action required" :title="t('dashboard.needsAttention')" />
           <UiCounter v-if="inbox.length" :count="inbox.length" tone="attention" />
         </template>
         <UiEmptyState
           v-if="inbox.length === 0"
           compact
           :icon="CircleCheckBig"
-          :title="t('全部處理完畢')"
-          :description="t('沒有等待 Agent 的報告整理或 metadata 回補請求。')"
+          :title="t('common.allCaughtUp')"
+          :description="t('dashboard.noReportSynthesisOrMetadata')"
         />
-        <VirtualList v-else :items="inbox" :enabled="true" :estimate-item-height="104" :label="t('待處理請求清單')">
+        <VirtualList
+          v-else
+          :items="inbox"
+          :enabled="true"
+          :estimate-item-height="104"
+          :label="t('dashboard.pendingRequestsList')"
+        >
           <template #default="{ item }">
             <UiBoxRow :title="item.title" :meta="item.meta">
               <template #leading>
@@ -180,13 +186,15 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
                 <UiCopyButton
                   v-if="item.request.status !== 'failed'"
                   size="sm"
-                  :label="t('複製 Agent 指令')"
+                  :label="t('common.copyAgentInstruction')"
                   :text="item.kind === 'synthesis' ? reportSynthesisInstruction() : metadataBackfillInstruction()"
-                  :success-message="t('已複製自然語言指令。')"
+                  :success-message="t('dashboard.naturalLanguageInstructionCopied')"
                 />
-                <UiButton v-else size="sm" :icon="RotateCcw" @click="openRequest(item)">{{ t("前往重試") }}</UiButton>
+                <UiButton v-else size="sm" :icon="RotateCcw" @click="openRequest(item)">{{
+                  t("dashboard.goToRetry")
+                }}</UiButton>
                 <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" @click="openRequest(item)">{{
-                  t("前往")
+                  t("common.go")
                 }}</UiButton>
               </template>
             </UiBoxRow>
@@ -196,20 +204,20 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 
       <UiBox>
         <template #header>
-          <UiBoxTitle eyebrow="Latest memory" :title="t('最近完成的工作')" />
+          <UiBoxTitle eyebrow="Latest memory" :title="t('dashboard.recentlyCompletedWork')" />
           <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" :to="{ name: 'sessions' }">{{
-            t("查看全部")
+            t("dashboard.viewAll")
           }}</UiButton>
         </template>
         <UiEmptyState
           v-if="recentSessions.length === 0"
           compact
           :icon="ListChecks"
-          :title="t('還沒有工作紀錄')"
-          :description="t('先到專案頁加入一個專案，並明確切換為「記錄中」。')"
+          :title="t('common.noWorkRecordsYet')"
+          :description="t('dashboard.addAProjectOnThe')"
         >
           <template #action
-            ><UiButton :to="{ name: 'projects' }">{{ t("前往專案") }}</UiButton></template
+            ><UiButton :to="{ name: 'projects' }">{{ t("dashboard.goToProjects") }}</UiButton></template
           >
         </UiEmptyState>
         <VirtualList
@@ -219,7 +227,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
           :estimate-item-height="112"
           max-height="min(40vh, 360px)"
           grow-to-viewport
-          :label="t('最近完成工作清單')"
+          :label="t('dashboard.recentlyCompletedWorkList')"
         >
           <template #default="{ item: session }">
             <SessionRow :session="session" @open="openSession" />
@@ -230,10 +238,10 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 
     <UiBox>
       <template #header>
-        <UiBoxTitle eyebrow="Projects" :title="t('專案狀態')" />
-        <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">{{ t("管理") }}</UiButton>
+        <UiBoxTitle eyebrow="Projects" :title="t('dashboard.projectStatus')" />
+        <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">{{ t("dashboard.manage") }}</UiButton>
       </template>
-      <UiEmptyState v-if="projects.length === 0" compact :icon="FolderGit2" :title="t('尚未加入專案')" />
+      <UiEmptyState v-if="projects.length === 0" compact :icon="FolderGit2" :title="t('dashboard.noProjectsYet')" />
       <VirtualList
         v-else
         :items="visibleProjects"
@@ -241,7 +249,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
         :estimate-item-height="96"
         max-height="min(48vh, 520px)"
         grow-to-viewport
-        :label="t('專案狀態清單')"
+        :label="t('dashboard.projectStatusList')"
       >
         <template #default="{ item: project }">
           <UiBoxRow :title="project.name">
@@ -254,8 +262,8 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             <div class="dashboard__project-meta">
               {{
                 project.lastIngestedAt
-                  ? t("最後寫入 {value}", { value: formatRelative(project.lastIngestedAt) })
-                  : t("更新於 {value}", { value: formatRelative(project.updatedAt) })
+                  ? t("dashboard.lastWritten", { value: formatRelative(project.lastIngestedAt) })
+                  : t("common.updated", { value: formatRelative(project.updatedAt) })
               }}
             </div>
             <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>

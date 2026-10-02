@@ -67,13 +67,13 @@ async function save(): Promise<void> {
     sourceSessionIds: splitIds(section.sources),
   }));
   if (payload.length === 0 || payload.some((section) => !section.heading || !section.content)) {
-    error.value = t("每個段落都需要標題與內容。");
+    error.value = t("knowledge.everySectionNeedsATitle");
     return;
   }
   if (
     payload.some((section) => section.sourceSessionIds.length === 0 && section.content !== KNOWLEDGE_PAGE_INSUFFICIENT)
   ) {
-    error.value = t("每個段落都要列出來源 Session；沒有來源時，內容請寫「{KNOWLEDGE_PAGE_INSUFFICIENT}」。", {
+    error.value = t("knowledge.everySectionMustListIts", {
       KNOWLEDGE_PAGE_INSUFFICIENT,
     });
     return;
@@ -87,20 +87,20 @@ async function save(): Promise<void> {
       sections: payload,
     });
     if (result.outcome === "invalid_sources") {
-      error.value = t("這些來源 Session 不存在、已作廢或屬於其他專案：{value}", {
-        value: result.sessionIds.join(t("、")),
+      error.value = t("knowledge.theseSourceSessionsDoNot", {
+        value: result.sessionIds.join(t("common.listSeparator")),
       });
       return;
     }
     if (result.outcome !== "knowledge_page_updated") {
-      error.value = result.reason ?? t("無法儲存知識頁。");
+      error.value = result.reason ?? t("knowledge.couldNotSaveTheKnowledge");
       return;
     }
-    showToast(t("已儲存為第 {version} 版。", { version: result.page.version }), "success");
+    showToast(t("knowledge.savedAsVersion", { version: result.page.version }), "success");
     saving.value = false;
     emit("close");
   } catch (caught) {
-    error.value = errorMessage(caught, t("無法儲存知識頁。"));
+    error.value = errorMessage(caught, t("knowledge.couldNotSaveTheKnowledge"));
   } finally {
     saving.value = false;
   }
@@ -125,41 +125,43 @@ watch(
 <template>
   <UiDialog
     :open="open"
-    :title="t('編輯知識頁')"
-    :description="t('儲存後會成為新版本，舊版本仍可在版本紀錄中檢視。')"
+    :title="t('knowledge.editKnowledgePage')"
+    :description="t('knowledge.savingCreatesANewVersion')"
     size="lg"
     :busy="saving"
     @close="close"
   >
     <form id="knowledge-page-editor-form" class="page-editor" @submit.prevent="save">
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
-      <UiField :label="t('標題')"><UiTextInput v-model="title" :maxlength="80" required /></UiField>
+      <UiField :label="t('knowledge.title')"><UiTextInput v-model="title" :maxlength="80" required /></UiField>
       <fieldset v-for="(section, index) in sections" :key="index" class="page-editor__section">
-        <legend>{{ t("段落 {value}", { value: index + 1 }) }}</legend>
+        <legend>{{ t("knowledge.section", { value: index + 1 }) }}</legend>
         <div class="page-editor__heading">
-          <UiField :label="t('段落標題')"><UiTextInput v-model="section.heading" :maxlength="120" required /></UiField>
+          <UiField :label="t('knowledge.sectionTitle')"
+            ><UiTextInput v-model="section.heading" :maxlength="120" required
+          /></UiField>
           <UiIconButton
             :icon="Trash2"
-            :label="t('移除段落 {value}', { value: index + 1 })"
+            :label="t('knowledge.removeSection', { value: index + 1 })"
             :disabled="sections.length === 1"
             @click="removeSection(index)"
           />
         </div>
-        <UiField :label="t('內容')"
+        <UiField :label="t('common.body')"
           ><UiTextarea v-model="section.content" :rows="4" :maxlength="4000" required
         /></UiField>
-        <UiField :label="t('來源 Session ID')" :hint="t('每行一個；沒有來源時，內容請寫「資料不足」。')">
+        <UiField :label="t('knowledge.sourceSessionId')" :hint="t('knowledge.onePerLineWithoutA')">
           <UiTextarea v-model="section.sources" :rows="2" mono />
         </UiField>
       </fieldset>
       <UiButton :icon="Plus" :disabled="sections.length >= maxSections" @click="addSection">{{
-        t("新增段落")
+        t("knowledge.addSection")
       }}</UiButton>
     </form>
     <template #footer>
-      <UiButton :disabled="saving" @click="close">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="saving" @click="close">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="primary" type="submit" form="knowledge-page-editor-form" :loading="saving">{{
-        t("儲存新版本")
+        t("knowledge.saveNewVersion")
       }}</UiButton>
     </template>
   </UiDialog>

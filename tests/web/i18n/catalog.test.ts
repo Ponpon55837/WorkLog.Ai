@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { nextTick, watchEffect } from "vue";
-import enUS from "../../../apps/web/src/i18n/locales/en-US.json";
-import { detectLocale, locale, t, tc, translatedOptions, translatedRecord } from "../../../apps/web/src/i18n/index.js";
+import {
+  catalogEntries,
+  detectLocale,
+  locale,
+  t,
+  translatedOptions,
+  translatedRecord,
+} from "../../../apps/web/src/i18n/index.js";
 import { verificationStatus } from "../../../apps/web/src/utils/status.js";
 
 // Every web source file except the catalogs themselves, read as text.
@@ -11,9 +17,12 @@ const SOURCES = import.meta.glob(["../../../apps/web/src/**/*.{ts,vue}", "!../..
   eager: true,
 }) as Record<string, string>;
 const CJK = /[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]/;
+const KEY = /^[a-z][A-Za-z]*(\.[A-Za-z0-9]+)+$/;
+/** Chinese literals that are data, not interface text: they are compared against stored records as written. */
+const DATA_MARKERS = new Set(["資料不足"]);
 
-/** Every quoted string containing Chinese, comments excluded; template attribute values are scanned as code. */
-function collectSourceStrings(code: string, found: Set<string>): void {
+/** Every quoted string, comments excluded; template attribute values are scanned as code. */
+function collectStrings(code: string, found: string[]): void {
   let index = 0;
   while (index < code.length) {
     if (code.startsWith("//", index) && code[index - 1] !== ":") {
@@ -37,9 +46,9 @@ function collectSourceStrings(code: string, found: Set<string>): void {
           end += 1;
         }
       }
-      if (code[end] === quote && CJK.test(text)) {
-        if (/['`]/.test(text)) collectSourceStrings(text, found);
-        else found.add(text);
+      if (code[end] === quote) {
+        if (/['`]/.test(text) && /\bt\(/.test(text)) collectStrings(text, found);
+        else found.push(text);
       }
       index = end + 1;
     } else {
@@ -48,71 +57,81 @@ function collectSourceStrings(code: string, found: Set<string>): void {
   }
 }
 
+function placeholders(text: string): string {
+  return [...new Set(text.match(/\{\w+\}/g) ?? [])].sort().join();
+}
+
 afterEach(() => {
   locale.value = "zh-TW";
 });
 
-describe("English catalog", () => {
-  const sources = new Set<string>();
-  for (const code of Object.values(SOURCES)) collectSourceStrings(code, sources);
+describe("message catalogs", () => {
+  const strings: string[] = [];
+  for (const code of Object.values(SOURCES)) collectStrings(code, strings);
+  const zhTW = catalogEntries("zh-TW");
+  const enUS = catalogEntries("en-US");
 
   it("reads the web sources", () => {
     expect(Object.keys(SOURCES).length).toBeGreaterThan(100);
   });
 
-  it("translates every 繁體中文 string in the web UI", () => {
-    const missing = [...sources].filter((source) => !(source in enUS));
-    expect(missing).toEqual([]);
+  it("gives zh-TW and en-US the same keys", () => {
+    expect(Object.keys(enUS).filter((key) => !(key in zhTW))).toEqual([]);
+    expect(Object.keys(zhTW).filter((key) => !(key in enUS))).toEqual([]);
   });
 
-  it("has no entries the code no longer uses", () => {
-    const unused = Object.keys(enUS).filter((key) => !sources.has(key) && !/^\w[\w ]*\|/.test(key));
-    expect(unused).toEqual([]);
-  });
-
-  it("keeps every {placeholder} of the source string", () => {
-    const placeholders = (text: string) => [...new Set(text.match(/\{\w+\}/g) ?? [])].sort();
-    const broken = Object.entries(enUS).filter(([key, value]) => {
-      const source = /^\w[\w ]*\|/.test(key) ? key.slice(key.indexOf("|") + 1) : key;
-      return placeholders(source).join() !== placeholders(value).join();
-    });
+  it("keeps every {placeholder} in both languages and leaves no message empty", () => {
+    const broken = Object.keys(zhTW).filter((key) => placeholders(zhTW[key]!) !== placeholders(enUS[key] ?? ""));
     expect(broken).toEqual([]);
+    expect(Object.keys(zhTW).filter((key) => !zhTW[key] || !enUS[key])).toEqual([]);
   });
+
+  it("keeps interface text out of the code: no Chinese literal outside the catalogs", () => {
+    const hardCoded = strings.filter((text) => CJK.test(text) && !DATA_MARKERS.has(text));
+    expect(hardCoded).toEqual([]);
+  });
+
+  it("has no keys the code no longer uses", () => {
+    const used = new Set(strings.filter((text) => KEY.test(text)));
+    expect(Object.keys(zhTW).filter((key) => !used.has(key))).toEqual([]);
+  });
+
+  // A key missing from the catalogs is a type error: t() only accepts MessageKey, so vue-tsc catches it.
 });
 
 describe("t()", () => {
-  it("returns the source text in Chinese and the catalog text in English", () => {
-    expect(t("重新整理")).toBe("重新整理");
+  it("returns the current locale's text", () => {
+    expect(t("common.refresh")).toBe("重新整理");
     locale.value = "en-US";
-    expect(t("重新整理")).toBe("Refresh");
+    expect(t("common.refresh")).toBe("Refresh");
   });
 
-  it("fills placeholders and falls back to the source for unknown strings", () => {
+  it("fills placeholders", () => {
+    expect(t("projects.locationOfUpdated", { name: "WorkLog" })).toBe("WorkLog 的位置已更新。");
     locale.value = "en-US";
-    expect(t("{name} 的位置已更新。", { name: "WorkLog" })).toBe("Location of WorkLog updated.");
-    expect(t("尚未翻譯 {name}", { name: "x" })).toBe("尚未翻譯 x");
+    expect(t("projects.locationOfUpdated", { name: "WorkLog" })).toBe("Location of WorkLog updated.");
   });
 
   it("picks the singular English form for a count of one", () => {
-    expect(t("{value} 個檔案", { value: 1 })).toBe("1 個檔案");
+    expect(t("common.files", { value: 1 })).toBe("1 個檔案");
     locale.value = "en-US";
-    expect(t("{value} 個檔案", { value: 1 })).toBe("1 file");
-    expect(t("{value} 個檔案", { value: "1" })).toBe("1 file");
-    expect(t("{value} 個檔案", { value: 3 })).toBe("3 files");
+    expect(t("common.files", { value: 1 })).toBe("1 file");
+    expect(t("common.files", { value: "1" })).toBe("1 file");
+    expect(t("common.files", { value: 3 })).toBe("3 files");
   });
 
-  it("uses a context entry only where the same source means something else", () => {
+  it("gives words with two meanings their own keys", () => {
     locale.value = "en-US";
-    expect(tc("unit", "週")).toBe("weeks");
-    expect(t("週")).toBe("Week");
+    expect(t("reports.unit.weeks")).toBe("weeks");
+    expect(t("common.week")).toBe("Week");
   });
 
   it("keeps constant label maps in step with the locale", async () => {
-    const labels = translatedRecord({ ok: "正常" });
-    const [option] = translatedOptions([{ value: "a", label: "全部" }], "label");
+    const labels = translatedRecord({ ok: "status.healthy" });
+    const [option] = translatedOptions([{ value: "a", label: "showcase.all" }], "label");
     const seen: string[] = [];
     const stop = watchEffect(() => seen.push(verificationStatus.passed.label));
-    expect(labels.ok).toBe("正常");
+    expect(labels.ok).toBe(t("status.healthy"));
     locale.value = "en-US";
     await nextTick();
     expect(labels.ok).toBe("Healthy");

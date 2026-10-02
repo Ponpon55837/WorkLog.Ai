@@ -77,11 +77,16 @@ const tab = computed<ProjectsTab>({
 const metadataBackfillActive = computed(() => tab.value === "backfill");
 
 const tabs = computed(() => [
-  { value: "registry" as const, label: t("專案清單"), icon: FolderGit2, count: projects.value.length },
-  { value: "backfill" as const, label: t("Metadata 回補"), icon: ScanSearch },
-  { value: "import" as const, label: t("Handoff 匯入"), icon: FileInput, count: trackedProjects.value.length },
-  { value: "backup" as const, label: t("資料備份"), icon: Archive },
-  { value: "deletion-audit" as const, label: t("刪除紀錄"), icon: History },
+  { value: "registry" as const, label: t("projects.projectList"), icon: FolderGit2, count: projects.value.length },
+  { value: "backfill" as const, label: t("projects.metadataBackfill"), icon: ScanSearch },
+  {
+    value: "import" as const,
+    label: t("projects.handoffImport"),
+    icon: FileInput,
+    count: trackedProjects.value.length,
+  },
+  { value: "backup" as const, label: t("projects.dataBackup"), icon: Archive },
+  { value: "deletion-audit" as const, label: t("projects.deletionHistory"), icon: History },
 ]);
 const statusOptions = (Object.keys(statusLabels) as ProjectStatus[]).map((status) => ({
   value: status,
@@ -138,31 +143,33 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageHeader :description="t('你決定哪些專案值得被記住。Registry 只存在中央 SQLite，不會寫入任何專案 repo。')">
+  <PageHeader :description="t('projects.youDecideWhichProjectsAre')">
     <template #actions>
-      <UiButton variant="primary" :icon="Plus" @click="addOpen = true">{{ t("加入專案") }}</UiButton>
+      <UiButton variant="primary" :icon="Plus" @click="addOpen = true">{{ t("common.addProject") }}</UiButton>
     </template>
   </PageHeader>
 
   <PageToolbar>
-    <UiUnderlineNav v-model="tab" :items="tabs" :label="t('專案管理分頁')" id-prefix="projects" />
+    <UiUnderlineNav v-model="tab" :items="tabs" :label="t('projects.projectManagementTabs')" id-prefix="projects" />
   </PageToolbar>
 
   <UiFlash
     v-if="projectDeletionNotice"
     tone="attention"
-    :title="t('專案資料已刪除，備份仍保留資料')"
+    :title="t('projects.projectDataDeletedTheBackup')"
     dismissible
     @dismiss="clearProjectDeletionNotice"
   >
     {{
-      t("「{projectName}」的刪除前備份 {backupFileName} 仍包含專案資料；其他既有備份也可能保留副本。", {
+      t("projects.thePreDeletionBackupOf", {
         projectName: projectDeletionNotice.projectName,
         backupFileName: projectDeletionNotice.backupFileName,
       })
     }}
     <template #actions>
-      <RouterLink :to="{ name: 'projects', params: { tab: 'backup' } }">{{ t("前往資料備份管理") }}</RouterLink>
+      <RouterLink :to="{ name: 'projects', params: { tab: 'backup' } }">{{
+        t("projects.goToBackupManagement")
+      }}</RouterLink>
     </template>
   </UiFlash>
 
@@ -172,26 +179,30 @@ onBeforeUnmount(() => {
     role="tabpanel"
     aria-labelledby="projects-tab-registry"
   >
-    <UiFlash v-if="!policyDismissed" tone="accent" title="Default deny" dismissible @dismiss="dismissPolicy">
-      {{
-        t(
-          "任何 handoff、Git 或 source 讀取，都必須先通過 project policy gate：專案被發現 → 你明確切換為「記錄中」→ Agent 才能 finalize Session。",
-        )
-      }}
+    <UiFlash
+      v-if="!policyDismissed"
+      tone="accent"
+      :title="t('projects.defaultDeny')"
+      dismissible
+      @dismiss="dismissPolicy"
+    >
+      {{ t("projects.everyHandoffGitOrSource") }}
     </UiFlash>
     <UiBox sticky-header>
       <template #header>
-        <UiBoxTitle :icon="FolderGit2" :title="t('所有專案')" :count="projects.length" />
-        <span class="projects__tracked">{{ t("{length} 個記錄中", { length: trackedProjects.length }) }}</span>
+        <UiBoxTitle :icon="FolderGit2" :title="t('common.allProjects')" :count="projects.length" />
+        <span class="projects__tracked">{{ t("projects.tracked", { length: trackedProjects.length }) }}</span>
       </template>
       <UiEmptyState
         v-if="projects.length === 0"
         :icon="FolderGit2"
-        :title="t('還沒有專案')"
-        :description="t('加入第一個 workspace，建立你的中央 project registry。')"
+        :title="t('projects.noProjectsYet')"
+        :description="t('projects.addYourFirstWorkspaceTo')"
       >
         <template #action
-          ><UiButton variant="primary" :icon="Plus" @click="addOpen = true">{{ t("加入專案") }}</UiButton></template
+          ><UiButton variant="primary" :icon="Plus" @click="addOpen = true">{{
+            t("common.addProject")
+          }}</UiButton></template
         >
       </UiEmptyState>
       <VirtualList
@@ -202,7 +213,7 @@ onBeforeUnmount(() => {
         fit-viewport-to-panel
         fill-available-space
         :estimate-item-height="128"
-        :label="t('專案清單')"
+        :label="t('projects.projectList')"
       >
         <template #default="{ item: project }">
           <UiBoxRow :title="project.name" data-testid="project-row">
@@ -226,16 +237,16 @@ onBeforeUnmount(() => {
             <p class="projects__description">
               {{ statusDescriptions[project.status] }}
               <span v-if="project.lastIngestedAt" class="projects__ingest"
-                >{{ t("最後寫入") }}
+                >{{ t("projects.lastWritten") }}
                 <time :title="formatDate(project.lastIngestedAt)">{{
                   formatRelative(project.lastIngestedAt)
                 }}</time></span
               >
               <span v-if="project.folderStatus === 'missing'" class="projects__location-status">{{
-                t("找不到資料夾")
+                t("projects.folderNotFound")
               }}</span>
               <span v-else-if="project.folderStatus === 'unavailable'" class="projects__location-status">{{
-                t("無法確認資料夾")
+                t("projects.cannotCheckTheFolder")
               }}</span>
             </p>
             <template #trailing>
@@ -244,22 +255,22 @@ onBeforeUnmount(() => {
                 :model-value="project.status"
                 :options="statusOptions"
                 size="sm"
-                :label="t('更新 {name} 的專案記錄狀態', { name: project.name })"
+                :label="t('projects.updateTheTrackingStatusOf', { name: project.name })"
                 @update:model-value="changeStatus(project, $event)"
               />
               <UiButton
                 v-if="project.folderStatus === 'missing'"
                 size="sm"
                 :icon="FolderGit2"
-                :label="t('重新指定 {name} 的位置', { name: project.name })"
+                :label="t('projects.relocate', { name: project.name })"
                 @click="updateProjectLocation(project)"
-                >{{ t("重新指定位置") }}</UiButton
+                >{{ t("projects.relocateAction") }}</UiButton
               >
               <UiButton
                 size="sm"
                 :icon="GitCommitHorizontal"
                 icon-only
-                :label="t('設定 {name} 的儲存庫網址', { name: project.name })"
+                :label="t('projects.setRepositoryUrlLabel', { name: project.name })"
                 @click="repositoryTarget = project"
               />
               <UiButton
@@ -267,7 +278,7 @@ onBeforeUnmount(() => {
                 size="sm"
                 :icon="Trash2"
                 icon-only
-                :label="t('永久刪除 {name}', { name: project.name })"
+                :label="t('projects.permanentlyDelete', { name: project.name })"
                 :disabled="deletingProjectId === project.id"
                 @click="deleteTarget = project"
               />
@@ -313,17 +324,17 @@ onBeforeUnmount(() => {
   <section v-else id="projects-panel-import" role="tabpanel" aria-labelledby="projects-tab-import">
     <UiBox>
       <template #header>
-        <UiBoxTitle eyebrow="Handoff import" :title="t('匯入歷史 handoff')" />
+        <UiBoxTitle eyebrow="Handoff import" :title="t('projects.importPastHandoffs')" />
       </template>
       <UiEmptyState
         v-if="trackedProjects.length === 0"
         compact
         :icon="FileInput"
-        :title="t('沒有記錄中的專案')"
-        :description="t('只有「記錄中」的專案可以預覽與匯入 handoff。')"
+        :title="t('projects.noTrackedProjects')"
+        :description="t('projects.onlyTrackedProjectsCanPreview')"
       >
         <template #action
-          ><UiButton @click="tab = 'registry'">{{ t("前往專案清單") }}</UiButton></template
+          ><UiButton @click="tab = 'registry'">{{ t("projects.goToProjectList") }}</UiButton></template
         >
       </UiEmptyState>
       <VirtualList
@@ -334,7 +345,7 @@ onBeforeUnmount(() => {
         fit-viewport-to-panel
         fill-available-space
         :estimate-item-height="80"
-        :label="t('Handoff 匯入專案清單')"
+        :label="t('projects.handoffImportProjectList')"
       >
         <template #default="{ item: project }">
           <UiBoxRow :title="project.name">
@@ -348,7 +359,7 @@ onBeforeUnmount(() => {
                 :icon="FileInput"
                 :loading="handoffImportLoading && handoffImportProjectId === project.id"
                 @click="previewHandoffs(project)"
-                >{{ t("預覽 handoff") }}</UiButton
+                >{{ t("projects.previewHandoffs") }}</UiButton
               >
             </template>
           </UiBoxRow>

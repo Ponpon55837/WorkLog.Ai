@@ -23,15 +23,15 @@ const kindOptions = Object.entries(knowledgeKindLabels).map(([value, label]) => 
 }));
 const description = computed(() =>
   candidateEditor.value?.sessionTitle
-    ? t("來源：{sessionTitle}", { sessionTitle: candidateEditor.value.sessionTitle })
-    : t("Agent 提出的候選"),
+    ? t("knowledge.sourceSessionTitle", { sessionTitle: candidateEditor.value.sessionTitle })
+    : t("knowledge.candidatesProposedByTheAgent"),
 );
 </script>
 
 <template>
   <UiDialog
     :open="Boolean(candidateEditor)"
-    :title="t('修改後接受 Knowledge 候選')"
+    :title="t('knowledge.editAndAcceptKnowledgeCandidate')"
     :description="description"
     size="lg"
     :busy="candidateSaving"
@@ -43,24 +43,26 @@ const description = computed(() =>
       @submit.prevent="saveCandidateEditor(props.projectRoot)"
     >
       <UiFlash v-if="candidateError" tone="danger">{{ candidateError }}</UiFlash>
-      <UiField :label="t('標題')"
+      <UiField :label="t('knowledge.title')"
         ><UiTextInput v-model="candidateForm.title" :maxlength="300" required autofocus
       /></UiField>
-      <UiField :label="t('類型')"
-        ><UiSelect v-model="candidateForm.kind" :options="kindOptions" :label="t('Knowledge 類型')"
+      <UiField :label="t('common.kind')"
+        ><UiSelect v-model="candidateForm.kind" :options="kindOptions" :label="t('knowledge.knowledgeKind')"
       /></UiField>
-      <UiField :label="t('內容')"
+      <UiField :label="t('common.body')"
         ><UiTextarea v-model="candidateForm.body" :rows="6" :maxlength="20000" required
       /></UiField>
-      <UiField :label="t('標籤')" :hint="t('以逗號分隔')"><UiTextInput v-model="candidateForm.tags" /></UiField>
-      <UiField :label="t('適用路徑')" :hint="t('每行一個專案內的路徑或 glob')"
+      <UiField :label="t('knowledge.tags')" :hint="t('knowledge.commaSeparated')"
+        ><UiTextInput v-model="candidateForm.tags"
+      /></UiField>
+      <UiField :label="t('knowledge.appliesToPaths')" :hint="t('knowledge.onePathOrGlobInside')"
         ><UiTextarea v-model="candidateForm.appliesTo" :rows="3" mono
       /></UiField>
     </form>
     <template #footer>
-      <UiButton :disabled="candidateSaving" @click="closeCandidateEditor">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="candidateSaving" @click="closeCandidateEditor">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="primary" type="submit" form="knowledge-candidate-form" :loading="candidateSaving">{{
-        t("接受並加入 Knowledge")
+        t("knowledge.acceptAndAddToKnowledge")
       }}</UiButton>
     </template>
   </UiDialog>
