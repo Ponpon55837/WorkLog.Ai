@@ -45,11 +45,11 @@ function readLinkedRoot(path) {
 }
 
 /**
- * Where the repository is, in order: WORK_INTELLIGENCE_HOME, an ancestor of the plugin (the plugin loaded in place
- * from this repository's marketplace), then the link file. Returns the first candidate with the reason it was picked,
- * or undefined when none points at a Work Intelligence checkout.
+ * Every checkout the plugin could use, in order: WORK_INTELLIGENCE_HOME, an ancestor of the plugin (the plugin loaded
+ * in place from this repository's marketplace), then the link file. Codex runs a plugin inside its own clone of the
+ * marketplace repository, which is never built, so an ancestor is only one candidate among several.
  */
-export function findRepository({ pluginRoot, environment = process.env, home = homedir() }) {
+export function findRepositories({ pluginRoot, environment = process.env, home = homedir() }) {
   const candidates = [];
   const fromEnvironment = environment.WORK_INTELLIGENCE_HOME?.trim();
   if (fromEnvironment) candidates.push({ root: resolve(fromEnvironment), source: "WORK_INTELLIGENCE_HOME" });
@@ -62,7 +62,12 @@ export function findRepository({ pluginRoot, environment = process.env, home = h
   }
   const linked = readLinkedRoot(linkFilePath(environment, home));
   if (linked) candidates.push({ root: linked, source: "plugin link" });
-  return candidates.find((candidate) => isRepository(candidate.root));
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    if (!isRepository(candidate.root) || seen.has(candidate.root)) return false;
+    seen.add(candidate.root);
+    return true;
+  });
 }
 
 /**
@@ -74,26 +79,32 @@ function bundledServer(pluginRoot) {
   return existsSync(join(root, ENTRY_POINTS.mcp)) ? { root, source: "bundled server" } : undefined;
 }
 
-/** Resolves the script to run, or explains (for stderr) why it cannot. */
+/**
+ * Resolves the script to run: the first candidate checkout that is built, else the bundled server, else an
+ * explanation (for stderr) of why nothing can run.
+ */
 export function resolveEntryPoint(command, options) {
   const relativePath = ENTRY_POINTS[command];
   if (!relativePath) return { error: `Unknown command "${command}". Use: ${Object.keys(ENTRY_POINTS).join(" | ")}.` };
+  const repositories = findRepositories(options);
+  const built = repositories.find((repository) => existsSync(join(repository.root, relativePath)));
+  if (built) return { script: join(built.root, relativePath), repository: built };
+  // The bundle still opens a linked checkout's database even when that checkout is not built (database-location.ts).
   const bundled = bundledServer(options.pluginRoot);
-  const repository = findRepository(options) ?? bundled;
-  if (!repository) {
+  if (bundled) return { script: join(bundled.root, relativePath), repository: bundled };
+  if (repositories.length === 0) {
     return {
       error:
         "Work Intelligence repository not found. Clone it, run `pnpm install && pnpm build && pnpm plugin:link` " +
         "there, or set WORK_INTELLIGENCE_HOME to the checkout.",
     };
   }
-  const script = join(repository.root, relativePath);
-  // A checkout that is not built yet: the bundle still opens that checkout's database (see database-location.ts).
-  if (!existsSync(script) && bundled) return { script: join(bundled.root, relativePath), repository: bundled };
-  if (!existsSync(script)) {
-    return { error: `Missing ${relativePath} in ${repository.root} (found via ${repository.source}); run pnpm build.` };
-  }
-  return { script, repository };
+  const tried = repositories.map((repository) => `${repository.root} (${repository.source})`).join(", ");
+  return {
+    error:
+      `Missing ${relativePath} in ${tried}. Run pnpm build in your checkout, then pnpm plugin:link ` +
+      "so the plugin finds it.",
+  };
 }
 
 function main() {

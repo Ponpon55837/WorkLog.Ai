@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { claudePluginEnabled, collectDoctorFindings } from "../../apps/server/src/doctor.js";
+import { claudePluginEnabled, codexPluginEnabled, collectDoctorFindings } from "../../apps/server/src/doctor.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const pluginRoot = join(repositoryRoot, "plugins/work-intelligence");
@@ -83,7 +83,8 @@ describe("plugin manifests", () => {
     const codex = readJson(join(pluginRoot, ".codex-plugin/plugin.json"));
     expect(existsSync(join(pluginRoot, codex.mcpServers as string))).toBe(true);
     expect(readJson(join(pluginRoot, codex.mcpServers as string)).mcpServers).toEqual({
-      "work-intelligence": { command: "node", args: ["./scripts/launch.mjs", "mcp"] },
+      // Codex starts plugin servers in the plugin directory only when cwd says so.
+      "work-intelligence": { command: "node", args: ["./scripts/launch.mjs", "mcp"], cwd: "." },
     });
     // Claude Code reads a root .mcp.json and Codex discovers one too; neither may load the other's paths.
     expect(existsSync(join(pluginRoot, ".mcp.json"))).toBe(false);
@@ -141,6 +142,23 @@ describe("plugin launcher", () => {
     expect(result.status).toBe(0);
   });
 
+  it("skips the unbuilt marketplace clone Codex runs the plugin from and uses the linked checkout", () => {
+    const home = temporaryDirectory();
+    // Codex keeps a full clone of the marketplace repository and runs the plugin inside it, without building it.
+    const clone = fakeRepository(join(home, ".codex/.tmp/marketplaces/worklog-ai"), false);
+    cpSync(pluginRoot, join(clone, "plugins/work-intelligence"), { recursive: true });
+    const repository = fakeRepository(join(home, "checkout"));
+    mkdirSync(join(home, ".work-intelligence"));
+    writeFileSync(join(home, ".work-intelligence/plugin-link.json"), JSON.stringify({ repositoryRoot: repository }));
+    const result = run(join(clone, "plugins/work-intelligence/scripts/launch.mjs"), ["mcp"], { HOME: home }, "x");
+    expect(JSON.parse(result.stdout)).toMatchObject({ name: "mcp", input: "x" });
+    const unlinked = run(join(clone, "plugins/work-intelligence/scripts/launch.mjs"), ["mcp"], {
+      HOME: join(home, "nobody"),
+    });
+    expect(unlinked.status).toBe(1);
+    expect(unlinked.stderr).toContain(`${clone} (plugin location)`);
+  });
+
   it("still runs when started through a symlinked plugin directory", () => {
     const home = temporaryDirectory();
     const repository = fakeRepository(join(home, "checkout"));
@@ -167,7 +185,7 @@ describe("plugin launcher", () => {
     const unbuilt = fakeRepository(join(home, "unbuilt"), false);
     const notBuilt = run(script, ["mcp"], { HOME: home, WORK_INTELLIGENCE_HOME: unbuilt });
     expect(notBuilt.status).toBe(1);
-    expect(notBuilt.stderr).toContain("run pnpm build");
+    expect(notBuilt.stderr).toContain("Run pnpm build in your checkout");
     expect(run(script, ["serve"], { HOME: home }).stderr).toContain('Unknown command "serve"');
   });
 });
@@ -235,6 +253,60 @@ describe("doctor with the Claude Code plugin", () => {
       recommendation: expect.stringMatching(
         /pnpm setup:agents --uninstall.*claude mcp remove work-intelligence --scope user/,
       ),
+    });
+  });
+});
+
+describe("doctor with the Codex plugin", () => {
+  it("recognises the enabled plugin from config.toml", () => {
+    expect(codexPluginEnabled({ plugins: { "work-intelligence@worklog-ai": { enabled: true } } })).toBe(true);
+    expect(codexPluginEnabled({ plugins: { "work-intelligence@worklog-ai": { enabled: false } } })).toBe(false);
+    expect(codexPluginEnabled({ plugins: { "slack@openai-curated": { enabled: true } } })).toBe(false);
+    expect(codexPluginEnabled(undefined)).toBe(false);
+  });
+
+  async function codexFindings(registered: boolean) {
+    const home = temporaryDirectory();
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    // The repository publishes the skill; only the user-scope copies are missing, as after setup:agents --uninstall.
+    const repositoryRoot = join(home, "repository");
+    mkdirSync(join(repositoryRoot, ".agents/skills/work-intelligence"), { recursive: true });
+    writeFileSync(join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md"), "skill\n");
+    writeFileSync(
+      join(home, ".codex/config.toml"),
+      [
+        '[plugins."work-intelligence@worklog-ai"]',
+        "enabled = true",
+        ...(registered ? ["", "[mcp_servers.work-intelligence]", 'command = "node"', 'args = ["index.js"]'] : []),
+        "",
+      ].join("\n"),
+    );
+    const findings = await collectDoctorFindings({
+      homeDirectory: home,
+      repositoryRoot,
+      environment: {
+        HOME: home,
+        CODEX_HOME: join(home, ".codex"),
+        CLAUDE_CONFIG_DIR: join(home, ".claude"),
+        WORK_INTELLIGENCE_DB: join(home, "synthetic.sqlite"),
+        WORK_INTELLIGENCE_PORT: "65532",
+      },
+    });
+    return findings.filter((finding) => finding.title.startsWith("Codex"));
+  }
+
+  it("counts the plugin as the Codex MCP and skill instead of asking for setup:agents", async () => {
+    const findings = await codexFindings(false);
+    expect(findings.find((finding) => finding.title === "Codex plugin")).toMatchObject({ severity: "ok" });
+    expect(findings.map((finding) => finding.title)).not.toContain("Codex MCP");
+    expect(findings.some((finding) => finding.title.includes("skill"))).toBe(false);
+  });
+
+  it("warns when the plugin and a config.toml registration would both load", async () => {
+    const findings = await codexFindings(true);
+    expect(findings.find((finding) => finding.title === "Codex plugin")).toMatchObject({
+      severity: "warning",
+      recommendation: expect.stringContaining("codex mcp remove work-intelligence"),
     });
   });
 });
