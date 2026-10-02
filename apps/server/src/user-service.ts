@@ -207,8 +207,19 @@ function findPackageManagerExecutable(platform: SupportedPlatform, environment: 
   throw new Error("找不到 pnpm 的絕對路徑；請在已安裝 pnpm 的終端機執行 service:install。");
 }
 
+/** Git for Windows puts coreutils (e.g. GNU whoami.exe) ahead of System32 in PATH, so pin Windows tools. */
+function resolveWindowsSystemCommand(command: string): string {
+  const systemRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
+  if (command === "whoami.exe" || command === "schtasks.exe") return win32.join(systemRoot, "System32", command);
+  if (command === "powershell.exe") {
+    return win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", command);
+  }
+  return command;
+}
+
 function runSystemCommand(command: string, args: string[]): string {
-  return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const executable = process.platform === "win32" ? resolveWindowsSystemCommand(command) : command;
+  return execFileSync(executable, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function escapeXml(value: string): string {
@@ -297,7 +308,10 @@ function renderSystemdUnit(plan: RenderServicePlan, runnerPath: string): string 
 }
 
 function renderWindowsTask(plan: RenderServicePlan, runnerPath: string, userId: string): string {
+  // A console app started at logon gets a visible window, and closing it stops the server; conhost --headless keeps it hidden.
   const argumentsList = [
+    "--headless",
+    plan.nodeExecutable,
     runnerPath,
     plan.repositoryRoot,
     plan.databasePath,
@@ -307,7 +321,7 @@ function renderWindowsTask(plan: RenderServicePlan, runnerPath: string, userId: 
   ];
   const argumentsXml = argumentsList.map(quoteWindowsArgument).join(" ");
   return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<?xml version="1.0" encoding="UTF-16"?>',
     '<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
     "  <RegistrationInfo>",
     `    <URI>${escapeXml(plan.serviceTarget)}</URI>`,
@@ -334,7 +348,7 @@ function renderWindowsTask(plan: RenderServicePlan, runnerPath: string, userId: 
     "  </Settings>",
     '  <Actions Context="Author">',
     "    <Exec>",
-    `      <Command>${escapeXml(plan.nodeExecutable)}</Command>`,
+    "      <Command>%SystemRoot%\\System32\\conhost.exe</Command>",
     `      <Arguments>${escapeXml(argumentsXml)}</Arguments>`,
     `      <WorkingDirectory>${escapeXml(plan.repositoryRoot)}</WorkingDirectory>`,
     "    </Exec>",
@@ -506,7 +520,12 @@ export function formatUserServiceStatus(status: UserServiceStatus): string {
 
 export function installUserService(plan: UserServicePlan, runCommand = runSystemCommand): void {
   for (const directory of plan.directories) mkdirSync(directory, { recursive: true, mode: 0o700 });
-  for (const file of plan.files) writeFileSync(file.path, file.contents, { encoding: "utf8", mode: 0o600 });
+  for (const file of plan.files) {
+    // schtasks /XML only accepts UTF-16 task files; write UTF-16LE with a BOM to match the XML declaration.
+    if (plan.platform === "win32")
+      writeFileSync(file.path, String.fromCharCode(0xfeff) + file.contents, { encoding: "utf16le", mode: 0o600 });
+    else writeFileSync(file.path, file.contents, { encoding: "utf8", mode: 0o600 });
+  }
   managerCommand(plan, runCommand);
 }
 
