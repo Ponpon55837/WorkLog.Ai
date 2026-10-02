@@ -4,6 +4,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-02
+
 ### Added
 
 - Open the dashboard from the plugin: a `dashboard` skill (`/work-intelligence:dashboard` in Claude Code; ask for it in Codex) and `pnpm dashboard` start the production server from the checkout in the background when it is not running, wait for `/api/health`, print <http://127.0.0.1:3210> and open it. The README now has a full plugin section: marketplace install for Claude Code and Codex, trusting the Codex hooks, the dashboard, updates, switching from manual registration, and the release assets.
@@ -11,6 +13,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- `pnpm run doctor` read the required pnpm version only from `packageManager`, so with this repository's `engines.pnpm` (`>=11.16.0`) it always reported "專案要求 未知" and a warning. It now reads `engines.pnpm` too and checks the installed version against the minimum.
 - `pnpm build:plugin` failed in the release job, so the v1.1.0 tag produced no GitHub Release: the bundle resolved the workspace packages through their `dist/` folders, which a fresh checkout does not have. It now bundles their TypeScript sources directly, and CI packs the plugin before `pnpm build` to keep it that way.
 
 ## [1.1.0] - 2026-10-02

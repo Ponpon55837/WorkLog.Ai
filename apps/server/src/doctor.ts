@@ -26,7 +26,8 @@ import {
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PACKAGE_MANAGER_SCHEMA = z.string().regex(/^pnpm@\d+\.\d+\.\d+(?:\+.*)?$/);
 const ROOT_PACKAGE_SCHEMA = z.object({
-  packageManager: PACKAGE_MANAGER_SCHEMA,
+  packageManager: PACKAGE_MANAGER_SCHEMA.optional(),
+  engines: z.object({ pnpm: z.string().trim().min(1).optional() }).optional(),
 });
 const ENVIRONMENT_SCHEMA = z.object({
   WORK_INTELLIGENCE_DB: z.string().trim().min(1).optional(),
@@ -547,7 +548,8 @@ function readPackageManagerVersion(): { required: string; installed?: string } {
     const rootPackage: unknown = JSON.parse(readFileSync(join(ROOT_DIRECTORY, "package.json"), "utf8"));
     const parsed = ROOT_PACKAGE_SCHEMA.safeParse(rootPackage);
     if (parsed.success) {
-      required = parsed.data.packageManager.slice("pnpm@".length).split("+")[0] ?? "未知";
+      // packageManager pins one version; engines.pnpm (what this repository declares) gives a range such as ">=11.16.0".
+      required = parsed.data.packageManager?.slice("pnpm@".length).split("+")[0] ?? parsed.data.engines?.pnpm ?? "未知";
     }
   } catch {
     // Report an unknown requirement without exposing the file contents.
@@ -573,6 +575,25 @@ function readPackageManagerVersion(): { required: string; installed?: string } {
   } catch {
     return { required, installed: undefined };
   }
+}
+
+function versionParts(version: string): number[] | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  return match ? match.slice(1, 4).map(Number) : undefined;
+}
+
+/** True when the installed pnpm meets the requirement: an exact version, or a ">=x.y.z" minimum. */
+export function pnpmRequirementSatisfied(installed: string | undefined, required: string): boolean {
+  if (!installed) return false;
+  const minimum = /^>=\s*(\S+)$/.exec(required.trim())?.[1];
+  if (!minimum) return installed === required;
+  const have = versionParts(installed);
+  const need = versionParts(minimum);
+  if (!have || !need) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (have[index]! !== need[index]!) return have[index]! > need[index]!;
+  }
+  return true;
 }
 
 function nodeSupportsSqlite(version: string): boolean {
@@ -624,7 +645,7 @@ export async function collectDoctorFindings(
   );
 
   const packageManager = readPackageManagerVersion();
-  const pnpmMatches = packageManager.installed !== undefined && packageManager.installed === packageManager.required;
+  const pnpmMatches = pnpmRequirementSatisfied(packageManager.installed, packageManager.required);
   addFinding(
     findings,
     pnpmMatches ? "ok" : "warning",
@@ -632,7 +653,7 @@ export async function collectDoctorFindings(
     packageManager.installed
       ? "目前版本 " + packageManager.installed + "；專案要求 " + packageManager.required + "。"
       : "無法取得 pnpm 版本；專案要求 " + packageManager.required + "。",
-    pnpmMatches ? undefined : "使用 package.json 指定的 pnpm 版本執行 pnpm install 與 pnpm run doctor。",
+    pnpmMatches ? undefined : "使用符合 package.json 要求的 pnpm 版本執行 pnpm install 與 pnpm run doctor。",
   );
 
   const missingDist = expectedDistFiles(repositoryRoot).filter(
