@@ -6,7 +6,7 @@
  *
  * A release build (`pnpm build:plugin`) also carries a bundled server, used when no checkout is found.
  *
- * Usage: node launch.mjs mcp | finalize-reminder | codex-finalize-reminder
+ * Usage: node launch.mjs mcp | finalize-reminder | codex-finalize-reminder | dashboard [--open]
  */
 import { spawn } from "node:child_process";
 import console from "node:console";
@@ -20,7 +20,13 @@ export const ENTRY_POINTS = {
   mcp: "apps/mcp/dist/index.js",
   "finalize-reminder": "apps/mcp/dist/finalize-reminder.js",
   "codex-finalize-reminder": "apps/mcp/dist/codex-finalize-reminder.js",
+  dashboard: "scripts/dashboard.mjs",
 };
+/**
+ * The file that shows a checkout is built for a command. scripts/dashboard.mjs is in every clone, including the
+ * unbuilt one Codex runs the plugin from, so the dashboard looks for the built server instead.
+ */
+const BUILT_MARKERS = { dashboard: "apps/server/dist/index.js" };
 /** Hook commands: they must never block the Agent, so they stay silent and exit 0 whatever happens. */
 const HOOK_COMMANDS = new Set(["finalize-reminder", "codex-finalize-reminder"]);
 
@@ -90,10 +96,12 @@ export function resolveEntryPoint(command, options) {
   const relativePath = ENTRY_POINTS[command];
   if (!relativePath) return { error: `Unknown command "${command}". Use: ${Object.keys(ENTRY_POINTS).join(" | ")}.` };
   const repositories = findRepositories(options);
-  const built = repositories.find((repository) => existsSync(join(repository.root, relativePath)));
+  const marker = BUILT_MARKERS[command] ?? relativePath;
+  const built = repositories.find((repository) => existsSync(join(repository.root, marker)));
   if (built) return { script: join(built.root, relativePath), repository: built };
   // The bundle still opens a linked checkout's database even when that checkout is not built (database-location.ts).
-  const bundled = bundledServer(options.pluginRoot);
+  // It carries no Web UI, so the dashboard always needs a built checkout.
+  const bundled = command === "dashboard" ? undefined : bundledServer(options.pluginRoot);
   if (bundled) return { script: join(bundled.root, relativePath), repository: bundled };
   if (repositories.length === 0) {
     return {
@@ -105,7 +113,7 @@ export function resolveEntryPoint(command, options) {
   const tried = repositories.map((repository) => `${repository.root} (${repository.source})`).join(", ");
   return {
     error:
-      `Missing ${relativePath} in ${tried}. Run pnpm build in your checkout, then pnpm plugin:link ` +
+      `Missing ${marker} in ${tried}. Run pnpm build in your checkout, then pnpm plugin:link ` +
       "so the plugin finds it.",
   };
 }

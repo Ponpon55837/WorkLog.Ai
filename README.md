@@ -78,7 +78,50 @@ The bottom of the sidebar shows the current app version and schema version.
 
 The Work Intelligence MCP is a **local stdio server** started by the Agent itself; it does not use the Web UI's HTTP port. Run `pnpm build` once, then register it with your Agent. Use absolute paths so the API, MCP and CLI share one database.
 
-**Plugin (Claude Code / Codex):** after `pnpm build`, run `pnpm plugin:link`, then `claude plugin marketplace add /path/to/WorkLog.Ai` and `claude plugin install work-intelligence@worklog-ai` (Codex: install `work-intelligence` from `/plugins`). The plugin brings the MCP server, the skill and the save reminder (in Codex, trust its hooks under `/hooks`); it runs this checkout's build against the same database and changes none of the setups below. Use either the plugin or the manual registration, not both. Each release also attaches a self-contained plugin zip and a Claude Desktop extension (`.mcpb`) that need no checkout (`pnpm build:plugin`). See the [plugin guide](docs/plugins.md).
+### Install as a plugin (Claude Code / Codex)
+
+The simplest way to connect an Agent. Claude Code and Codex install Work Intelligence from this repository's marketplace; the plugin runs your local checkout, so build it once and link it:
+
+```bash
+git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
+pnpm install && pnpm build && pnpm plugin:link
+```
+
+**Claude Code**
+
+```bash
+claude plugin marketplace add Ponpon55837/WorkLog.Ai
+claude plugin install work-intelligence@worklog-ai
+```
+
+Restart Claude Code; `/mcp` lists `work-intelligence` as connected. The save reminder works with no further step.
+
+**Codex**
+
+```bash
+codex plugin marketplace add Ponpon55837/WorkLog.Ai
+```
+
+In Codex, open `/plugins` and install `work-intelligence`, then open `/hooks`, review the plugin's hooks and choose **Trust** (untrusted hooks are skipped; the MCP server and skills work without them). Restart Codex; `/mcp` lists `work-intelligence` as connected.
+
+| The plugin brings | Claude Code | Codex |
+|---|---|---|
+| MCP server `work-intelligence` (recall, context, finalize, reports) | ✓ | ✓ |
+| Skill `work-intelligence` (when and how to use the tools) | ✓ | ✓ |
+| Skill `dashboard` (opens the Web UI) | ✓ `/work-intelligence:dashboard` | ✓ ask for it |
+| Save reminder hooks | ✓ | ✓ after **Trust** in `/hooks` |
+
+**Open the dashboard**: ask the Agent to "open the Work Intelligence dashboard" (in Claude Code also `/work-intelligence:dashboard`), or run `pnpm dashboard` in the checkout. It starts the server in the background when it is not running and opens <http://127.0.0.1:3210>. To have it running after every login, run `pnpm service:install` once.
+
+**Update**: in the checkout run `git pull && pnpm install && pnpm build`, then `claude plugin update work-intelligence@worklog-ai`; for Codex run `codex plugin marketplace remove worklog-ai` and add it again. Reconnect the Agent when it says so.
+
+**Already registered by hand?** Use either the plugin or the manual registration below, not both, or the Agent sees every tool and reminder twice. Remove the manual one with `claude mcp remove work-intelligence --scope user` / `codex mcp remove work-intelligence` and delete the Work Intelligence entries from the Claude `settings.json` and Codex `hooks.json` hooks; `pnpm run doctor` reports any duplicate.
+
+**No checkout?** Each [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) attaches `work-intelligence-plugin-<version>.zip` (the plugin with a bundled MCP server) and `work-intelligence-<version>.mcpb` (a Claude Desktop extension). They need Node.js 22.13+ and keep data in `~/.work-intelligence/data`, but carry no Web UI.
+
+Something wrong? Run `pnpm run doctor`, and see the [plugin guide](docs/plugins.md) for its troubleshooting table.
+
+### Register manually
 
 To set up the MCP server and the user-level skill in one go, run `pnpm setup:agents` to preview the install plan; nothing is written by default. Usage, backups and uninstalling are in the [Agent setup guide](docs/agent-setup.md). The MCP server also serves the full skill and record format through standard `resources/list` / `resources/read`, so any client that supports MCP resources can read `work-intelligence://agent/work-intelligence/SKILL.md` and `work-intelligence://agent/work-record-and-report-format.md`.
 
@@ -299,6 +342,9 @@ data/              local SQLite and backups/ (not version-controlled)
 ```bash
 pnpm dev                      # development: Web UI on 5966 (Vite) + API on 3210
 pnpm start                    # production: Web and API on one port (build first)
+pnpm dashboard                # start the production server if needed and open the Web UI
+pnpm plugin:link              # let the Claude Code / Codex plugin find this checkout
+pnpm build:plugin             # self-contained plugin zip and Claude Desktop .mcpb in dist/plugin/
 pnpm start:server             # API only
 pnpm start:mcp                # MCP stdio server only
 pnpm run doctor               # read-only diagnostics

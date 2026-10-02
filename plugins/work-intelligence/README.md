@@ -6,6 +6,7 @@ Work Intelligence keeps a local, searchable record of the work your coding agent
 
 - **MCP server `work-intelligence`**: four tools (`work_read`, `work_write_idempotent`, `work_write_additive`, `work_write_overwrite`) for project status, task context, recall of past work, saving a finished session, and reports. Only projects you mark as tracked in the Work Intelligence Web UI are recorded.
 - **Skill `work-intelligence`**: tells the agent when and how to use those tools.
+- **Skill `dashboard`**: opens the Work Intelligence Web UI. It runs your checkout's `scripts/dashboard.mjs`, which starts the local server (`scripts/start.mjs`, listening on `127.0.0.1` only) in the background when it is not running and prints `http://127.0.0.1:3210`; with `--open` it also opens your default browser. In Claude Code: `/work-intelligence:dashboard`.
 - **Save-reminder hooks**: a `Stop` hook in Claude Code, and `PostToolUse`, `Stop` and `UserPromptSubmit` hooks in Codex (`hooks/codex-hooks.json`; trust them under `/hooks`). After the agent edits files in a tracked project and has not saved a record since, it reminds the agent once. To decide, it reads the current session's transcript file (the path the agent passes to the hook) and the tracked-project list from the database, read-only. It writes an empty marker file under the system temp directory so it reminds only once, and never blocks the agent if it cannot tell.
 
 ## Requirements

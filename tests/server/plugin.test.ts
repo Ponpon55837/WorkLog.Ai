@@ -135,6 +135,15 @@ describe("plugin manifests", () => {
     expect(readJson(join(pluginRoot, ".claude-plugin/plugin.json")).license).toBe("MIT");
   });
 
+  it("ship a dashboard skill that both agents can follow", () => {
+    const skill = readFileSync(join(pluginRoot, "skills/dashboard/SKILL.md"), "utf8");
+    expect(skill).toMatch(/^---\nname: dashboard\ndescription: .+\n---\n/);
+    // Claude Code substitutes CLAUDE_PLUGIN_ROOT in skill content; Codex finds the checkout through the plugin link.
+    expect(skill).toContain('node "${CLAUDE_PLUGIN_ROOT}/scripts/launch.mjs" dashboard --open');
+    expect(skill).toContain('node "<checkout>/scripts/dashboard.mjs" --open');
+    expect(skill).toContain("plugin-link.json");
+  });
+
   it("are listed by both marketplaces", () => {
     const claude = readJson(join(repositoryRoot, ".claude-plugin/marketplace.json"));
     const codex = readJson(join(repositoryRoot, ".agents/plugins/marketplace.json"));

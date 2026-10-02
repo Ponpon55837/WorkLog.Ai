@@ -16,6 +16,7 @@
 |---|---|---|
 | MCP server `work-intelligence` | ✓ | ✓ |
 | `work-intelligence` skill（與 `.agents/skills/work-intelligence/SKILL.md` 相同） | ✓ | ✓ |
+| `dashboard` skill（開啟 Web UI，見下方 [Dashboard](#dashboard)） | ✓（`/work-intelligence:dashboard`） | ✓（直接請 Agent 開啟） |
 | 保存提醒 hook | ✓（`Stop`） | ✓（`PostToolUse`、`Stop`、`UserPromptSubmit`；需在 `/hooks` 信任） |
 
 ## 共用準備
@@ -48,6 +49,18 @@ plugin 的 MCP server 由 Claude Code 以 plugin 名稱區分，工具與 prompt
 
 Codex 的 MCP 設定在 `plugins/work-intelligence/codex.mcp.json`，以 `"cwd": "."`（plugin 根目錄）執行 `node ./scripts/launch.mjs mcp`；沒有寫 `cwd` 時 Codex 不會從 plugin 目錄啟動。Codex 的保存提醒 hook 在 `plugins/work-intelligence/hooks/codex-hooks.json`（由 `.codex-plugin/plugin.json` 的 `hooks` 指定；不用 Claude Code 的預設檔名 `hooks/hooks.json`），以 `node "${PLUGIN_ROOT}/scripts/launch.mjs" codex-finalize-reminder` 執行；Codex 從工作目錄執行 hook，所以路徑必須以 `${PLUGIN_ROOT}` 開頭。內容與 `pnpm setup:agents` 寫入 `~/.codex/hooks.json` 的相同；改用 plugin 後，請刪除 `~/.codex/hooks.json` 中指向 `apps/mcp/dist/codex-finalize-reminder.js` 的項目，否則提醒會執行兩次。
 
+## Dashboard
+
+plugin 不會自動啟動 Web UI；Dashboard 由 checkout 的正式模式 server 提供（預設 <http://127.0.0.1:3210>，可用 `WORK_INTELLIGENCE_PORT` 改 port），與 MCP 使用同一個資料庫。三種開法：
+
+- **請 Agent 開啟**：說「打開 Work Intelligence dashboard」。plugin 的 `dashboard` skill 會讓 Agent 執行下列指令並回傳網址。Claude Code 也可以直接輸入 `/work-intelligence:dashboard`。
+  - Claude Code：`node "${CLAUDE_PLUGIN_ROOT}/scripts/launch.mjs" dashboard --open`，launcher 用與 MCP 相同的順序找到已 build 的 checkout（略過 Codex 沒有 build 的 marketplace clone）。
+  - Codex：從 `WORK_INTELLIGENCE_HOME` 或 `~/.work-intelligence/plugin-link.json` 找到 checkout，再執行 `node "<checkout>/scripts/dashboard.mjs" --open`。Codex 的沙盒若擋下背景程序或 `127.0.0.1` 連線，Agent 會請你核准，或改由你自己執行 `pnpm dashboard`。
+- **自己執行**：在 checkout 執行 `pnpm dashboard`。
+- **登入時自動啟動**：執行一次 `pnpm service:install`，見 [登入自動啟動](service.md)。
+
+`scripts/dashboard.mjs` 先檢查 `/api/health`：server 已在執行就只印出網址；否則以 `node scripts/start.mjs`（與 `pnpm start` 相同）在背景啟動，等到 health 正常再印出網址，加上 `--open` 會開啟預設瀏覽器。port 被其他程式占用、或 checkout 尚未 build 時，會說明原因並結束，不會覆寫任何設定。以這種方式啟動的 server 會持續執行，直到重新開機或你結束它。release 附的自帶 server 版本沒有 Web UI。
+
 ## 不要同時用兩種接法
 
 plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者並存時 Agent 會看到兩份相同的工具、skill 與提醒（提醒本身每段工作只會出現一次）。`pnpm run doctor` 偵測到 Claude Code 已啟用 plugin、全域設定又註冊了 `work-intelligence` MCP 或 Stop hook 時會提出警告；只啟用 plugin 時，它不再要求手動註冊 Claude MCP、skill 與 hook。Codex 同理：`config.toml` 啟用了 `work-intelligence@…` plugin 時，doctor 不再要求手動註冊 Codex MCP 與 skill；plugin 與 `[mcp_servers.work-intelligence]` 並存時會提出警告。
@@ -69,6 +82,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 | 工具或 skill 出現兩份 | plugin 與 `pnpm setup:agents`／手動 `mcp add` 同時啟用。依上方「不要同時用兩種接法」擇一；`pnpm run doctor` 會指出重複。 |
 | 資料庫不是預期的那一個 | MCP 啟動時在 stderr 印出 `connected using <路徑>`。依序檢查 `WORK_INTELLIGENCE_DB`、`WORK_INTELLIGENCE_HOME`、`~/.work-intelligence/plugin-link.json`。 |
 | 更新 repo 後 Agent 提示需要重新連線 | 與手動註冊相同：`pnpm build` 後重新連線 MCP（Claude Code 可用 `/mcp` 重新連線，或重新開啟工作階段）。 |
+| Dashboard 打不開 | 執行 `pnpm dashboard` 看訊息：未 build 時先 `pnpm build`；port 被占用時停止該程式或設定 `WORK_INTELLIGENCE_PORT`；server 沒有在時限內就緒時，改用 `pnpm start` 在前景執行查看錯誤。 |
 | 保存提醒沒有出現 | 提醒只在「追蹤中」的專案、改過檔案且上次保存後才出現，同一段工作只提醒一次；`pnpm run doctor` 會檢查 hook 設定。 |
 
 其餘 MCP、資料庫與 hook 問題見 [疑難排解](troubleshooting.md)。
