@@ -4,6 +4,7 @@ import { tmpdir, userInfo } from "node:os";
 import { basename, dirname, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { databasePathFor } from "./database-location.js";
 
 /**
  * Claude Code Stop hook: when an Agent changed files in a tracked project and has not saved a Work
@@ -266,10 +267,7 @@ export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | 
 }
 
 export function databasePath(): string {
-  return (
-    process.env.WORK_INTELLIGENCE_DB ??
-    resolve(dirname(fileURLToPath(import.meta.url)), "../../../data", "work-intelligence.sqlite")
-  );
+  return databasePathFor(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data", "work-intelligence.sqlite"));
 }
 
 export function readTrackedRoots(): string[] {

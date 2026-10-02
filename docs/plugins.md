@@ -54,8 +54,50 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 
 從手動註冊改用 plugin：先 `pnpm setup:agents --uninstall`（預覽後確認；它也會移除 Codex 的手動設定），再安裝 plugin。改回手動：在 Agent 中停用或移除 plugin，再執行 `pnpm setup:agents`。
 
+## 信任與權限
+
+- **Claude Code**：plugin 的 Stop hook 隨 plugin 啟用，不必另外授權；可在 `/hooks` 檢視，或在 `/plugin` 停用整個 plugin。第一次呼叫 MCP 工具時，Claude Code 會照一般 MCP 權限規則詢問。
+- **Codex**：本 plugin 沒有帶 hook。若依 [保存提醒](agent-setup.md#保存提醒選用) 手動設定 Codex hook，需在 Codex 輸入 `/hooks` 檢視並信任；未信任的 hook 會被略過。
+
+## 安裝與排錯
+
+| 症狀 | 原因與處理 |
+|---|---|
+| MCP 沒有連上，stderr 出現 `Work Intelligence repository not found` | Agent 把 plugin 複製到快取後找不到 checkout。在 repo 執行 `pnpm plugin:link`，或設定 `WORK_INTELLIGENCE_HOME`；也可以改用 release 附的自帶 server 版本。 |
+| `Missing apps/mcp/dist/index.js … run pnpm build` | checkout 還沒 build 或 build 中斷。在 repo 執行 `pnpm install && pnpm build`，再重新連線 MCP。 |
+| `node:sqlite` 相關錯誤或 `ERR_UNKNOWN_BUILTIN_MODULE` | Node.js 低於 22.13。升級 Node.js；`node --version` 確認 Agent 使用的是同一個 Node。 |
+| 工具或 skill 出現兩份 | plugin 與 `pnpm setup:agents`／手動 `mcp add` 同時啟用。依上方「不要同時用兩種接法」擇一；`pnpm doctor` 會指出重複。 |
+| 資料庫不是預期的那一個 | MCP 啟動時在 stderr 印出 `connected using <路徑>`。依序檢查 `WORK_INTELLIGENCE_DB`、`WORK_INTELLIGENCE_HOME`、`~/.work-intelligence/plugin-link.json`。 |
+| 更新 repo 後 Agent 提示需要重新連線 | 與手動註冊相同：`pnpm build` 後重新連線 MCP（Claude Code 可用 `/mcp` 重新連線，或重新開啟工作階段）。 |
+| 保存提醒沒有出現 | 提醒只在「追蹤中」的專案、改過檔案且上次保存後才出現，同一段工作只提醒一次；`pnpm doctor` 會檢查 hook 設定。 |
+
+其餘 MCP、資料庫與 hook 問題見 [疑難排解](troubleshooting.md)。
+
 ## 版本與檢查
 
-`plugin.json` 的版本與根目錄 `package.json` 相同，發版時一起更新；`tests/server/plugin.test.ts` 會檢查版本、兩個 Agent 的 MCP 設定、skill 與 `.agents/skills/work-intelligence/SKILL.md` 一致，以及啟動器的尋找、轉送與失敗行為。修改 canonical skill 後請同步複製到 `plugins/work-intelligence/skills/work-intelligence/SKILL.md`。`claude plugin validate plugins/work-intelligence` 與 `claude plugin validate .` 可檢查 Claude Code 的 manifest 與 marketplace。
+`plugin.json` 的版本與根目錄 `package.json` 相同，發版時一起更新；`tests/server/plugin.test.ts` 會檢查版本、兩個 Agent 的 MCP 設定、skill 與 `.agents/skills/work-intelligence/SKILL.md` 一致，以及啟動器的尋找、轉送與失敗行為；`tests/server/plugin-bundle.test.ts` 會實際執行 `pnpm build:plugin`，在沒有 checkout 的暫存 HOME 啟動內附 server，確認 MCP 握手、skill resource 與資料庫位置。修改 canonical skill 後請同步複製到 `plugins/work-intelligence/skills/work-intelligence/SKILL.md`。`claude plugin validate plugins/work-intelligence` 與 `claude plugin validate .` 可檢查 Claude Code 的 manifest 與 marketplace。
 
-Claude Desktop（`.mcpb`）與 ChatGPT／claude.ai 網頁版需要另外的封裝或遠端 HTTPS MCP，目前不在這個 plugin 的範圍。
+## 不用 checkout 的版本（release 附件）
+
+`pnpm build:plugin` 在 `dist/plugin/` 產生：
+
+| 檔案 | 用途 |
+|---|---|
+| `work-intelligence/`、`work-intelligence-plugin-<版本>.zip` | 同一個 plugin，另外帶有以 esbuild 打包的 MCP server（`server/`），不需要 clone 或 build |
+| `work-intelligence-<版本>.mcpb` | Claude Desktop 擴充，雙擊安裝 |
+
+發行 tag 時 workflow 會把兩個檔案附到 GitHub Release。repo 內的 `plugins/work-intelligence/` 不含 `server/`，所以從本 repo marketplace 安裝的行為不變。
+
+啟動器仍然先找 checkout（`WORK_INTELLIGENCE_HOME` → 所在 repository → `plugin-link.json`），只有找不到已 build 的 checkout 時才用內附的 server。內附 server 的資料庫：
+
+1. `WORK_INTELLIGENCE_DB`（`.mcpb` 安裝時可填「Database file」）
+2. `WORK_INTELLIGENCE_HOME` 或 `pnpm plugin:link` 指向的 checkout 的 `data/work-intelligence.sqlite`：與 Web UI 共用同一個資料庫
+3. 都沒有時：`~/.work-intelligence/data/work-intelligence.sqlite`（可用 `WORK_INTELLIGENCE_CONFIG_DIR` 改目錄）
+
+內附 server 隨 plugin 整包更新，不做 checkout 的 build 監看與重新連線提示。它需要 Node.js 22.13 以上（`node:sqlite`）；`.mcpb` 的 manifest 宣告了這個需求，Claude Desktop 內建的 Node.js 不符時會拒絕安裝。Web UI、REST API、備份 CLI 仍需要 checkout。
+
+- Claude Code：`claude --plugin-url <zip 的網址>` 試用一次，或解壓後加入自己的 marketplace。
+- Claude Desktop：下載 `.mcpb` 後雙擊，或從「設定 → 擴充功能」安裝。
+- 上架 Anthropic 目錄或 OpenAI plugin 目錄時，應提交這個自帶 server 的版本；目錄的審核規則以各平台說明為準。
+
+claude.ai 與 ChatGPT 網頁版只能連遠端 HTTPS MCP，與「資料只留在本機」的設計衝突，目前不提供。

@@ -4,6 +4,8 @@
  * repository checkout and runs the same built entry points that `pnpm setup:agents` registers, so the MCP server,
  * database location, and build checks behave exactly as they do without the plugin.
  *
+ * A release build (`pnpm build:plugin`) also carries a bundled server, used when no checkout is found.
+ *
  * Usage: node launch.mjs mcp | finalize-reminder
  */
 import { spawn } from "node:child_process";
@@ -63,11 +65,21 @@ export function findRepository({ pluginRoot, environment = process.env, home = h
   return candidates.find((candidate) => isRepository(candidate.root));
 }
 
+/**
+ * A release build of the plugin (`pnpm build:plugin`) carries the MCP server in server/; it is used only when no
+ * built checkout is found, and it opens the linked checkout's database when there is one.
+ */
+function bundledServer(pluginRoot) {
+  const root = join(resolve(pluginRoot), "server");
+  return existsSync(join(root, ENTRY_POINTS.mcp)) ? { root, source: "bundled server" } : undefined;
+}
+
 /** Resolves the script to run, or explains (for stderr) why it cannot. */
 export function resolveEntryPoint(command, options) {
   const relativePath = ENTRY_POINTS[command];
   if (!relativePath) return { error: `Unknown command "${command}". Use: ${Object.keys(ENTRY_POINTS).join(" | ")}.` };
-  const repository = findRepository(options);
+  const bundled = bundledServer(options.pluginRoot);
+  const repository = findRepository(options) ?? bundled;
   if (!repository) {
     return {
       error:
@@ -76,6 +88,8 @@ export function resolveEntryPoint(command, options) {
     };
   }
   const script = join(repository.root, relativePath);
+  // A checkout that is not built yet: the bundle still opens that checkout's database (see database-location.ts).
+  if (!existsSync(script) && bundled) return { script: join(bundled.root, relativePath), repository: bundled };
   if (!existsSync(script)) {
     return { error: `Missing ${relativePath} in ${repository.root} (found via ${repository.source}); run pnpm build.` };
   }
@@ -93,7 +107,8 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  const child = spawn(process.execPath, [result.script, ...rest], { stdio: "inherit" });
+  // The real path: the entry points compare it with import.meta.url to decide that they were run directly.
+  const child = spawn(process.execPath, [realpathSync(result.script), ...rest], { stdio: "inherit" });
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => child.kill(signal));
   }

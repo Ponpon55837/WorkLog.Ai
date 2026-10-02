@@ -9,6 +9,7 @@ import {
   LATEST_SCHEMA_VERSION,
   WorkIntelligenceStore,
 } from "@work-intelligence/storage";
+import { databasePathFor, STANDALONE } from "./database-location.js";
 import { createWorkIntelligenceMcpServer } from "./server.js";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,7 +26,7 @@ const runningBuild = /^[a-f0-9]{64}$/.test(MCP_BUILD_DIST_HASH)
     }
   : undefined;
 const repoDataPath = resolve(appRoot, "../../data", "work-intelligence.sqlite");
-const databasePath = process.env.WORK_INTELLIGENCE_DB ?? repoDataPath;
+const databasePath = databasePathFor(repoDataPath);
 
 async function startMcpServer(): Promise<void> {
   let store: WorkIntelligenceStore | null = null;
@@ -44,13 +45,20 @@ async function startMcpServer(): Promise<void> {
   }
 
   try {
-    try {
-      registerMcpProcess(repositoryRoot, runningBuild);
-    } catch {
-      console.error("Work Intelligence MCP runtime 狀態無法寫入；本次連線仍會回報本機建置狀態。");
+    // A standalone bundle is replaced as a whole on update, so there is no on-disk build to watch.
+    if (!STANDALONE) {
+      try {
+        registerMcpProcess(repositoryRoot, runningBuild);
+      } catch {
+        console.error("Work Intelligence MCP runtime 狀態無法寫入；本次連線仍會回報本機建置狀態。");
+      }
     }
-    const server = createWorkIntelligenceMcpServer(store, APP_VERSION, LATEST_SCHEMA_VERSION, startupFailure, () =>
-      getMcpRestartStatus(repositoryRoot, runningBuild),
+    const server = createWorkIntelligenceMcpServer(
+      store,
+      APP_VERSION,
+      LATEST_SCHEMA_VERSION,
+      startupFailure,
+      STANDALONE ? undefined : () => getMcpRestartStatus(repositoryRoot, runningBuild),
     );
     await server.connect(new StdioServerTransport());
     if (!startupFailure) {

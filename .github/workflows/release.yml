@@ -95,6 +95,16 @@ jobs:
           archive_root="work-intelligence-${GITHUB_REF_NAME}/"
           git archive --format=tar --prefix="$archive_root" "$GITHUB_REF_NAME" | gzip -n > "$RUNNER_TEMP/${GITHUB_REF_NAME}.tar.gz"
           git archive --format=zip --prefix="$archive_root" --output="$RUNNER_TEMP/${GITHUB_REF_NAME}.zip" "$GITHUB_REF_NAME"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the plugin and Claude Desktop extension
+        run: pnpm build:plugin
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,3 +117,5 @@ jobs:
           --notes-file "$RELEASE_NOTES_FILE"
           "$RUNNER_TEMP/$GITHUB_REF_NAME.tar.gz"
           "$RUNNER_TEMP/$GITHUB_REF_NAME.zip"
+          "dist/plugin/work-intelligence-plugin-$RELEASE_VERSION.zip"
+          "dist/plugin/work-intelligence-$RELEASE_VERSION.mcpb"

@@ -6,7 +6,7 @@ Work Intelligence 使用 Semantic Versioning。根目錄 `package.json` 是應�
 
 ## 發行前檢查
 
-每次發行都先開一般 PR，完成審查與合併，再由維護者決定何時推送 tag。PR 本身不建立 Release。tag workflow 只接受 `v*` tag，並會確認 tag、根目錄版本與 CHANGELOG 版本段落一致；版本不一致或找不到對應段落時會停止。完整檢查通過後才會建立 GitHub Release，並附上 ZIP 與 tar.gz 原始碼封存檔。
+每次發行都先開一般 PR，完成審查與合併，再由維護者決定何時推送 tag。PR 本身不建立 Release。tag workflow 只接受 `v*` tag，並會確認 tag、根目錄版本與 CHANGELOG 版本段落一致；版本不一致或找不到對應段落時會停止。完整檢查通過後才會建立 GitHub Release，並附上 ZIP 與 tar.gz 原始碼封存檔，以及 `pnpm build:plugin` 產生的自帶 MCP plugin（`work-intelligence-plugin-<版本>.zip`）與 Claude Desktop 擴充（`work-intelligence-<版本>.mcpb`）；見 [plugin 指南](plugins.md#不用-checkout-的版本release-附件)。
 
 合併發行 PR 前，逐項確認以下八項本機檢查成功，且 PR 最新 head 的 Quality（Ubuntu、Windows、macOS）與 E2E 四項 CI 都是 success：
 
