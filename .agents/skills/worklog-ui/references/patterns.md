@@ -77,7 +77,7 @@ Order is fixed: StatCards → **ACTION REQUIRED** (pending/failed report synthes
 
 ## Copy rules
 
-- 繁體中文 UI; keep Session, Knowledge, verification, metadata, handoff, Agent, MCP in English.
+- Copy is written in 繁體中文 and translated to English through `src/i18n/en.ts`; keep Session, Knowledge, verification, metadata, handoff, Agent, MCP in English in both. English copy: sentence case, plain verbs ("Back up now", "Copy Agent instruction"), singular Label names ("Reusable pattern"), and a `one|other` plural form for counts.
 - Eyebrows are English uppercase noun phrases: `TODAY'S SIGNAL`, `SESSION ARCHIVE`, `WORK REPORTS`, `EXPLICIT KNOWLEDGE`, `DETERMINISTIC WORK GRAPH`, `PROJECT REGISTRY`, `ACTION REQUIRED`, `LATEST MEMORY`, `AI SYNTHESIS`.
 - Buttons are verbs: 重試、複製 Agent 指令、前往回補、加入專案、匯出.
 - Never ask the user for MCP tool names, request IDs or JSON; instructions shown for Agents are natural language inside a copyable mono block.

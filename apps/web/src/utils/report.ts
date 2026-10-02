@@ -1,6 +1,6 @@
 import type { ReportPeriod, WorkReport } from "@work-intelligence/core";
-import { t, tc } from "../i18n";
 import { weekdayLabel } from "./format";
+import { t, tc } from "../i18n";
 
 export interface ReportBucket {
   key: string;

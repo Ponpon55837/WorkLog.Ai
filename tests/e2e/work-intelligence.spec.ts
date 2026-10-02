@@ -1521,7 +1521,9 @@ test.describe("Work Intelligence browser regression", () => {
 
     const theme = await page.locator("html").getAttribute("data-theme");
     const next = theme === "dark" ? "light" : "dark";
-    await page.getByRole("button", { name: next === "light" ? "Switch to light theme" : "Switch to dark theme" }).click();
+    await page
+      .getByRole("button", { name: next === "light" ? "Switch to light theme" : "Switch to dark theme" })
+      .click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", next);
 
     await page.reload();

@@ -1,5 +1,5 @@
-import { t } from "../i18n";
 import { weekdayLabel } from "./format";
+import { t } from "../i18n";
 /** A bar on the timeline, in milliseconds since the epoch. */
 export interface TimelineSpan {
   start: number;

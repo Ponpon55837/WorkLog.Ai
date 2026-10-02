@@ -2,9 +2,9 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import UiSpinner from "../ui/UiSpinner.vue";
-import { t } from "../../i18n";
 import { usePreferencesStore } from "../../stores/preferences";
 import { renderMermaid } from "../../utils/mermaid";
+import { t } from "../../i18n";
 
 /**
  * Renders Mermaid source without loosening the page's Content Security Policy: Mermaid is loaded only when a

@@ -1,6 +1,6 @@
 ---
 name: worklog-ui
-description: Use for ANY change to the Work Intelligence web UI (apps/web) — pages, components, styles, layouts, lists, filters, dialogs/side panels, icons, copy, or the P0–P4 UI redesign migration. Load this BEFORE editing any .vue or .css file under apps/web.
+description: Use for ANY change to the Work Intelligence web UI (apps/web) — pages, components, styles, layouts, lists, filters, dialogs/side panels, icons, copy and translations, light/dark theming, motion, or the P0–P4 UI redesign migration. Load this BEFORE editing any .vue or .css file under apps/web.
 ---
 
 # Work Intelligence UI (pointer)

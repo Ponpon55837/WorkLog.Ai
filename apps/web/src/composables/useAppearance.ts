@@ -1,7 +1,7 @@
 import { onBeforeUnmount, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { intlLocale } from "../i18n";
 import { usePreferencesStore } from "../stores/preferences";
+import { intlLocale } from "../i18n";
 
 /**
  * Applies the theme and language preferences to the document: `data-theme` selects the token set in

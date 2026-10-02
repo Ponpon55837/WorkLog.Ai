@@ -21,6 +21,8 @@ pnpm dev
 - [worklog-ui skill](.agents/skills/worklog-ui/SKILL.md)：設計 token、元件目錄、頁面與無障礙規則。
 - [worklog-web-code-style skill](.agents/skills/worklog-web-code-style/SKILL.md)：Vue、TypeScript、CSS、Pinia store 與 query key 規範。
 
+介面文字以繁體中文撰寫並包在 `t()` 裡，同一個變更要在 `apps/web/src/i18n/en.ts` 加上英文翻譯（漏掉時 `pnpm test` 會失敗）；新顏色要同時定義深色與淺色 token。送出前請在兩種主題、兩種語言下各看一次畫面。
+
 ### 程式碼擺放順序
 
 所有檔案都依 [worklog-code-layout skill](.agents/skills/worklog-code-layout/SKILL.md) 的固定順序擺放：Vue `<script setup>`、Pinia store、composable、後端模組與 class、測試各有固定的區塊順序，而且變數一律先宣告後使用。`pnpm lint` 會用 ESLint（`no-use-before-define`、`vue/define-macros-order`）與 `scripts/sfc-layout.mjs` 檢查；`node scripts/sfc-layout.mjs --fix <檔案>` 可以自動重排不符合順序的元件。

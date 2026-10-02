@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
-import { detectLocale, isLocale, locale as activeLocale, type Locale } from "../i18n";
 import { EDITOR_PROTOCOLS, type EditorProtocol } from "../utils/code-links";
+import { detectLocale, isLocale, locale as activeLocale, type Locale } from "../i18n";
 
 export const THEME_PREFERENCES = ["system", "light", "dark"] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];

@@ -1,21 +1,21 @@
 ---
 name: worklog-ui
-description: Use for ANY change to the Work Intelligence web UI (apps/web) — new pages, components, styles, layouts, lists, filters, dialogs/side panels, icons, copy, or the P0–P4 UI redesign migration. Defines the GitHub-dark design tokens, the ui/ component catalog, layout and detail-view rules, status→color mapping, copy/eyebrow rules, and the verification checklist. Load this BEFORE editing any .vue or .css file under apps/web.
+description: Use for ANY change to the Work Intelligence web UI (apps/web) — new pages, components, styles, layouts, lists, filters, dialogs/side panels, icons, copy and translations, light/dark theming, motion, or the P0–P4 UI redesign migration. Defines the GitHub (Primer) light and dark design tokens, the ui/ component catalog, layout and detail-view rules, status→color mapping, copy/eyebrow and i18n rules, and the verification checklist. Load this BEFORE editing any .vue or .css file under apps/web.
 ---
 
 # Work Intelligence UI
 
-The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **GitHub-dark (Primer-like)**, data-first tool UI. This skill is the single source of truth for how UI code must look and be built. The rationale and phase plan live in [`docs/ui-redesign-plan.md`](../../../docs/ui-redesign-plan.md). The approved visual reference is [`assets/preview.html`](assets/preview.html) — open it in a browser when in doubt about look and feel. Every implemented component is live in the dev-only `/__ui` route. File placement, naming, comments and composable rules are in the companion [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) skill.
+The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**, data-first tool UI with a dark and a light theme and a 繁體中文 / English interface. This skill is the single source of truth for how UI code must look and be built. The rationale and phase plan live in [`docs/ui-redesign-plan.md`](../../../docs/ui-redesign-plan.md). The approved visual reference is [`assets/preview.html`](assets/preview.html) — open it in a browser when in doubt about look and feel. Every implemented component is live in the dev-only `/__ui` route. File placement, naming, comments and composable rules are in the companion [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) skill.
 
 ## Fixed decisions (do not re-ask the user)
 
-- Dark theme only. No light theme, no theme toggle, no `prefers-color-scheme` branches.
-- GitHub/Primer dark visual language: Box lists, Label pills, Counter, UnderlineNav, SegmentedControl, ActionMenu.
+- Two themes, GitHub dark (default) and GitHub light, chosen in the header or System status → 個人偏好 (跟隨系統 / 淺色 / 深色). Both are the same token names in `styles/tokens.css` (`:root` and `:root[data-theme="light"]`); components never branch on the theme or use `prefers-color-scheme` themselves — `composables/useAppearance.ts` sets `data-theme`.
+- GitHub/Primer visual language: Box lists, Label pills, Counter, UnderlineNav, SegmentedControl, ActionMenu.
 - Icons: `lucide-vue-next` only, 16px, `stroke-width` 1.75. No Unicode glyph icons (⌂ ◈ ▥ ✦ ◎ ≡ ⌕ ↻).
 - Keep the English uppercase eyebrow as a small label on the same row as the Chinese title (e.g. `SESSION ARCHIVE` 工作歷程). Page headers are one compact row; data, not the title block, fills the first screen.
 - Reading details → right **SidePanel**; forms and confirmations → centered **Dialog**.
 - Backend, MCP and HTTP API contracts are out of scope. Never add an endpoint to make a UI work; hide the block instead.
-- UI text is 繁體中文; technical terms (Session, Knowledge, verification, metadata, handoff) stay in English.
+- UI text is written in 繁體中文 and wrapped in `t()`; the English catalog (`src/i18n/en.ts`) translates it. Technical terms (Session, Knowledge, verification, metadata, handoff) stay in English in both languages. Data (Session text, reports, Agent output, data markers such as `資料不足`) is never translated. See [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) §6a for the mechanics.
 
 ## Workflow
 
@@ -39,6 +39,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is being redesigned to a **Gi
 - **Accessibility**: every icon-only button has `aria-label`; focus is always visible (`:focus-visible` accent outline); Dialog/SidePanel trap focus, close on Esc, restore focus to the trigger, lock background scroll.
 - **Data semantics are not styling choices**: `nextSteps` is labeled 狀態／未結項 (never 後續); `executionStatus` is neutral, not success; missing verification (未回報) ≠ `not_run` (未執行) ≠ passed; changed files ≠ Git commit; deterministic report numbers ≠ Agent synthesis text; summary, workSummary, and verification are edited only in place through the Session editor Dialog, and voiding a Session or evidence always asks for a reason (changed files, events, and evidence content stay read-only).
 - **Motion** uses the tokens and keyframes in tokens.md → Motion: entrances fade (and move a few pixels at most), exits are faster, and reduced motion turns it all off.
+- **Both themes, both languages**: a new color must exist in both token sets and reach WCAG AA (4.5:1 for 12–14px text, including Label text on its 8–10% tinted background). English copy runs about 1.5× longer than Chinese, so controls must wrap, truncate with a `title`, or scroll inside their own track — never widen the page.
 - **Test hooks**: e2e selects by role, label or `data-testid` — never by styling class. When you rename or remove a class, check `e2e/` first.
 
 ## Verification checklist
@@ -62,4 +63,5 @@ Then check in a browser at **1440 / 960 / 375** px widths:
 - [ ] Status colors follow the mapping in [references/tokens.md](references/tokens.md#status-mapping).
 - [ ] Domain distinctions in [references/domain-semantics.md](references/domain-semantics.md) are visible (狀態／未結項 label, four verification states, Git separate from changed files, synthesis blocks cite sources).
 - [ ] No raw hex outside `tokens.css`, no Unicode icons, no font size < 12px.
+- [ ] Checked in both themes (header sun/moon button) and both languages (header language menu); new strings have an `en.ts` entry (`pnpm --filter @work-intelligence/web test` fails otherwise).
 - [ ] For a migrated page: its old classes are gone from `style.css`, and before/after screenshots are attached to the PR.

@@ -1,7 +1,7 @@
 import { Activity, BookOpen, ChartColumn, FolderGit2, LayoutDashboard, ListChecks, Share2 } from "lucide-vue-next";
-import { translatedOptionsIn } from "../../i18n";
 import type { NavGroup } from "../../router";
 import type { IconComponent } from "../ui/types";
+import { translatedOptionsIn } from "../../i18n";
 
 export type NavItem = { name: string; label: string; icon: IconComponent; group: NavGroup; shortcut: string };
 

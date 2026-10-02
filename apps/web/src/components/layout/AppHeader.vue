@@ -5,8 +5,8 @@ import { storeToRefs } from "pinia";
 import { Languages, Menu, Moon, RefreshCw, Search, Sun } from "lucide-vue-next";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
-import { LOCALE_OPTIONS, t, tc } from "../../i18n";
 import { usePreferencesStore } from "../../stores/preferences";
+import { LOCALE_OPTIONS, t, tc } from "../../i18n";
 
 defineProps<{ refreshing?: boolean; menuOpen?: boolean }>();
 const emit = defineEmits<{ refresh: []; search: []; toggleMenu: [] }>();
