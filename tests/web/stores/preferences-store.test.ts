@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createStoreHarness } from "../helpers/store-harness.js";
-import { locale, t } from "../../../apps/web/src/i18n/index.js";
+import { catalogEntries, locale, t } from "../../../apps/web/src/i18n/index.js";
 import { usePreferencesStore } from "../../../apps/web/src/stores/preferences.js";
 
 let harness: ReturnType<typeof createStoreHarness>;
@@ -72,11 +72,11 @@ describe("preferences store", () => {
     storage.set("work-intelligence:locale", "en-US");
     const store = usePreferencesStore();
     expect(store.locale).toBe("en-US");
-    expect(t("重新整理")).toBe("Refresh");
+    expect(t("common.refresh")).toBe(catalogEntries("en-US")["common.refresh"]);
     store.locale = "zh-TW";
     await nextTick();
     expect(storage.get("work-intelligence:locale")).toBe("zh-TW");
-    expect(t("重新整理")).toBe("重新整理");
+    expect(t("common.refresh")).toBe(catalogEntries("zh-TW")["common.refresh"]);
   });
 
   it("follows the browser language when nothing is saved", () => {

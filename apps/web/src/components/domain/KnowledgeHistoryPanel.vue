@@ -23,22 +23,22 @@ const { knowledgeHistory, knowledgeFeedback, knowledgeHistoryLoading, knowledgeH
 const sessionsStore = useSessionsStore();
 const actionTone = { created: "success", updated: "accent", archived: "neutral", restored: "done" } as const;
 const feedbackVisual = {
-  applied: { tone: "success", label: t("Session 確認") },
-  manual_confirm: { tone: "done", label: t("手動確認") },
-  contradicted: { tone: "danger", label: t("Session 推翻") },
+  applied: { tone: "success", label: t("knowledge.confirmedBySession") },
+  manual_confirm: { tone: "done", label: t("knowledge.confirmedByHand") },
+  contradicted: { tone: "danger", label: t("knowledge.contradictedBySession") },
 } as const;
 
 function openFeedbackSession(sessionId: string): void {
   // The Session panel is also a modal side panel; close this one so focus moves cleanly.
   closeKnowledgeHistory();
-  void sessionsStore.openSessionDetail(sessionId, t("無法載入確認或推翻這筆 Knowledge 的 Session。"));
+  void sessionsStore.openSessionDetail(sessionId, t("knowledge.couldNotLoadTheSessionThatConfirmedOr"));
 }
 </script>
 
 <template>
   <UiSidePanel
     :open="Boolean(knowledgeHistoryItem)"
-    :label="t('Knowledge 變更紀錄')"
+    :label="t('knowledge.knowledgeChangeHistory')"
     :width="640"
     storage-key="knowledge-history"
     @close="closeKnowledgeHistory"
@@ -46,18 +46,18 @@ function openFeedbackSession(sessionId: string): void {
     <template #header>
       <div class="history__top">
         <span class="history__eyebrow">Knowledge audit history</span>
-        <UiIconButton :icon="X" :label="t('關閉 Knowledge 變更紀錄')" @click="closeKnowledgeHistory" />
+        <UiIconButton :icon="X" :label="t('knowledge.closeKnowledgeChangeHistory')" @click="closeKnowledgeHistory" />
       </div>
       <h2 class="history__title">{{ knowledgeHistoryItem?.title }}</h2>
-      <p class="history__note">{{ t("顯示中央 registry 保存的前後快照；不會讀取來源 repo，也不會重新推論內容。") }}</p>
+      <p class="history__note">{{ t("knowledge.showsTheBeforeAndAfter") }}</p>
     </template>
 
     <UiDisclosure
       v-if="!knowledgeHistoryLoading && knowledgeFeedback.length > 0"
       class="history__feedback"
-      :title="t('確認與推翻')"
+      :title="t('knowledge.confirmationsAndContradictions')"
       :count="knowledgeFeedback.length"
-      :hint="t('Session 套用後回報仍有效、回報已不成立，或在這裡手動確認的紀錄')"
+      :hint="t('knowledge.recordsFromSessionsThatReported')"
       open
     >
       <ul class="history__feedback-list" data-testid="knowledge-feedback">
@@ -83,8 +83,8 @@ function openFeedbackSession(sessionId: string): void {
       v-else-if="knowledgeHistory.length === 0"
       compact
       :icon="History"
-      :title="t('尚無變更紀錄')"
-      :description="t('這筆 Knowledge 可能在 audit history 功能加入前建立，會從下一次變更開始追蹤。')"
+      :title="t('knowledge.noChangeHistory')"
+      :description="t('knowledge.thisKnowledgeMayPredateAudit')"
     />
     <VirtualList
       v-else
@@ -93,7 +93,7 @@ function openFeedbackSession(sessionId: string): void {
       :enabled="true"
       :estimate-item-height="320"
       max-height="min(64vh, 680px)"
-      :label="t('Knowledge 變更紀錄清單')"
+      :label="t('knowledge.knowledgeChangeHistoryList')"
     >
       <template #default="{ item: entry }">
         <article class="history__entry">
@@ -106,12 +106,14 @@ function openFeedbackSession(sessionId: string): void {
           </div>
           <div class="history__snapshots">
             <div v-if="entry.before" class="history__snapshot">
-              <span class="history__snapshot-label">{{ t("變更前") }}</span>
+              <span class="history__snapshot-label">{{ t("knowledge.before") }}</span>
               <strong>{{ entry.before.title }}</strong>
               <p>{{ entry.before.body }}</p>
             </div>
             <div class="history__snapshot history__snapshot--after">
-              <span class="history__snapshot-label">{{ entry.before ? t("變更後") : t("初始內容") }}</span>
+              <span class="history__snapshot-label">{{
+                entry.before ? t("knowledge.after") : t("knowledge.initialContent")
+              }}</span>
               <strong>{{ entry.after.title }}</strong>
               <p>{{ entry.after.body }}</p>
             </div>

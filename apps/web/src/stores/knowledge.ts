@@ -164,7 +164,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   // "Loaded" means the first answer arrived; until then counts are unknown, not zero.
   const knowledgeLoaded = computed(() => listQuery.data.value !== undefined);
   const knowledgeError = computed(() => {
-    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入 Knowledge。"));
+    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("knowledge.couldNotLoadKnowledge"));
     const result = listQuery.data.value;
     return result?.outcome === "skipped" ? result.reason : "";
   });
@@ -176,10 +176,11 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   );
   const knowledgeHistoryLoading = computed(() => historyQuery.isLoading.value);
   const knowledgeHistoryError = computed(() => {
-    if (historyQuery.error.value) return errorMessage(historyQuery.error.value, t("無法載入 Knowledge 變更紀錄。"));
+    if (historyQuery.error.value)
+      return errorMessage(historyQuery.error.value, t("knowledge.couldNotLoadTheKnowledge"));
     const result = historyQuery.data.value;
     if (result?.outcome === "skipped") return result.reason;
-    return result?.outcome === "not_found" ? t("這筆 Knowledge 已不存在。") : "";
+    return result?.outcome === "not_found" ? t("knowledge.knowledgeGone") : "";
   });
   const candidates = computed<KnowledgeCandidate[]>(() =>
     candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.items : [],
@@ -188,7 +189,9 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.openRequests : [],
   );
   const candidatesError = computed(() =>
-    candidatesQuery.error.value ? errorMessage(candidatesQuery.error.value, t("無法載入 Knowledge 候選。")) : "",
+    candidatesQuery.error.value
+      ? errorMessage(candidatesQuery.error.value, t("knowledge.couldNotLoadKnowledgeCandidates"))
+      : "",
   );
   const candidatesLoading = computed(() => candidatesQuery.isLoading.value && !candidatesQuietRefresh.value);
   const candidatesLoaded = computed(() => candidatesQuery.data.value !== undefined);

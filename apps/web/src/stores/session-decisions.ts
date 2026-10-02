@@ -57,9 +57,9 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   const decisionsLoading = computed(() => listQuery.isLoading.value);
   const decisionsLoaded = computed(() => listQuery.data.value !== undefined);
   const decisionsError = computed(() => {
-    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入 Agent 自主決策。"));
+    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("knowledge.couldNotLoadAgentAutonomous"));
     const result = listQuery.data.value;
-    return result?.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : "";
+    return result?.outcome === "skipped" ? (result.reason ?? t("common.trackingIsNotEnabledFor")) : "";
   });
 
   function setListActive(active: boolean, root?: string): void {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useOutstandingCleanupStore } from "../../../apps/web/src/stores/outstanding-cleanup.js";
 import { useOutstandingItemsStore } from "../../../apps/web/src/stores/outstanding-items.js";
 import { createStoreHarness, jsonResponse, type StoreRequest } from "../helpers/store-harness.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
 
 const requestRecord = {
   id: "cleanup-1",
@@ -89,12 +90,14 @@ describe("outstanding cleanup store", () => {
         : responder(input),
     );
     const before = harness.count("/api/outstanding-cleanup/requests/cleanup-1/proposals");
-    await expect(store.decide(["proposal-1"], "accept")).rejects.toThrow("整批未套用");
+    await expect(store.decide(["proposal-1"], "accept")).rejects.toThrow(
+      t("outstanding.itemsSourcesOrSuggestionsChanged"),
+    );
     await vi.waitFor(() =>
       expect(harness.count("/api/outstanding-cleanup/requests/cleanup-1/proposals")).toBeGreaterThan(before),
     );
     useOutstandingItemsStore().projectId = "project-2";
-    await vi.waitFor(() => expect(store.proposalError).toContain("其他專案"));
+    await vi.waitFor(() => expect(store.proposalError).toBe(t("outstanding.thisRequestBelongsToAnother")));
     expect(store.proposals).toEqual([]);
   });
 
@@ -140,7 +143,7 @@ describe("outstanding cleanup store", () => {
     const decision = store.decide(["proposal-1"], "accept");
     await proposalReadStarted;
     const refresh = store.reload();
-    if (conflict) await expect(decision).rejects.toThrow("整批未套用");
+    if (conflict) await expect(decision).rejects.toThrow(t("outstanding.itemsSourcesOrSuggestionsChanged"));
     else await expect(decision).resolves.toBeUndefined();
     await refresh;
 

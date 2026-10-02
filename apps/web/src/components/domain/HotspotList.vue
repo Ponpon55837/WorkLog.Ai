@@ -18,19 +18,23 @@ const legend = [
   hotspotRiskVisual({ sessionCount: 2, failedCount: 0.1 }),
   hotspotRiskVisual({ sessionCount: 1, failedCount: 0 }),
 ];
-const legendNotes = [t("失敗 ≥ {value}%", { value: HOTSPOT_HIGH_FAILURE_RATE * 100 }), t("失敗 > 0"), t("沒有失敗")];
+const legendNotes = [
+  t("graph.failedAtLeastPercent", { value: HOTSPOT_HIGH_FAILURE_RATE * 100 }),
+  t("graph.failedAboveZero"),
+  t("graph.noFailures"),
+];
 
 function failureText(item: Hotspot): string {
   const rate = Math.round((item.failedCount / item.sessionCount) * 100);
-  const notRun = item.notRunCount > 0 ? t("・未執行 {notRunCount}", { notRunCount: item.notRunCount }) : "";
-  return t("失敗 {failedCount}（{rate}%）{notRun}", { failedCount: item.failedCount, rate, notRun });
+  const notRun = item.notRunCount > 0 ? t("graph.notRun", { notRunCount: item.notRunCount }) : "";
+  return t("graph.failed", { failedCount: item.failedCount, rate, notRun });
 }
 </script>
 
 <template>
   <div class="hotspots">
-    <p class="hotspots__legend" :aria-label="t('熱點圖例')">
-      <span>{{ t("長條＝修改它的 Session 數") }}</span>
+    <p class="hotspots__legend" :aria-label="t('graph.hotspotLegend')">
+      <span>{{ t("graph.barSessionsThatChangedIt") }}</span>
       <span v-for="(visual, index) in legend" :key="visual.label">
         <StatusLabel :status="visual" /> {{ legendNotes[index] }}
       </span>
@@ -49,14 +53,14 @@ function failureText(item: Hotspot): string {
         </div>
         <p class="hotspots__meta">
           <span v-if="showProject">{{ item.projectName }} · </span>
-          <strong>{{ t("{sessionCount} 筆 Session", { sessionCount: item.sessionCount }) }}</strong>
-          {{ t("· {value} · 最後修改", { value: failureText(item) }) }}
+          <strong>{{ t("graph.sessions", { sessionCount: item.sessionCount }) }}</strong>
+          {{ t("graph.lastModified", { value: failureText(item) }) }}
           <time :datetime="item.lastChangedAt" :title="formatDate(item.lastChangedAt)">{{
             formatRelative(item.lastChangedAt)
           }}</time>
         </p>
         <details class="hotspots__sessions">
-          <summary>{{ t("最近 {length} 筆 Session", { length: item.recentSessions.length }) }}</summary>
+          <summary>{{ t("graph.lastSessions", { length: item.recentSessions.length }) }}</summary>
           <ul>
             <li v-for="session in item.recentSessions" :key="session.id">
               <button type="button" class="hotspots__session" @click="emit('open-session', session.id)">

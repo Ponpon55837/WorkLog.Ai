@@ -84,9 +84,9 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
   const loading = computed(() => listQuery.isLoading.value);
   const loaded = computed(() => listQuery.data.value !== undefined);
   const error = computed(() => {
-    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入未結項。"));
+    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("outstanding.couldNotLoadOpenItems"));
     const result = listQuery.data.value;
-    return result?.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : "";
+    return result?.outcome === "skipped" ? (result.reason ?? t("common.trackingIsNotEnabledFor")) : "";
   });
 
   const updateStatusMutation = useMutation({
@@ -124,8 +124,8 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
   async function updateStatus(input: UpdateOutstandingItemStatusInput): Promise<OutstandingItem> {
     const result: UpdateOutstandingItemStatusResult = await updateStatusMutation.mutateAsync(input);
     if (result.outcome === "outstanding_item_updated") return result.item;
-    if (result.outcome === "not_found") throw new Error(t("這筆未結項已不存在，請重新整理清單。"));
-    throw new Error(result.reason ?? t("這筆未結項目前無法更新。"));
+    if (result.outcome === "not_found") throw new Error(t("outstanding.thisOpenItemNoLonger"));
+    throw new Error(result.reason ?? t("outstanding.thisOpenItemCannotBe"));
   }
 
   async function batchUpdateStatus(
@@ -136,10 +136,10 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     if (result.outcome === "rejected")
       throw new Error(
         result.reason === "status_conflict"
-          ? t("未結項狀態已變更，請重新整理後再操作。")
-          : t("部分未結項已不存在，請重新整理清單。"),
+          ? t("outstanding.theOpenItemStatusChanged")
+          : t("outstanding.someOpenItemsNoLonger"),
       );
-    throw new Error(t("此批次包含目前未啟用記錄的專案，整批未更新。"));
+    throw new Error(t("outstanding.thisBatchIncludesProjectsWithout"));
   }
 
   watch(

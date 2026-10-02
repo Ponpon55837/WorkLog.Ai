@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { WorkReport } from "../../../packages/core/src/index.js";
-import { buildReportBuckets, buildReportProjectShares, reportBucketMode } from "../../../apps/web/src/utils/report.js";
+import {
+  buildReportBuckets,
+  buildReportProjectShares,
+  reportBucketMode,
+  reportBucketUnits,
+} from "../../../apps/web/src/utils/report.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
+import { weekdayLabel } from "../../../apps/web/src/utils/format.js";
 
 type ReportBucketInput = Pick<WorkReport, "period" | "trends" | "trendGranularity">;
 
@@ -21,8 +28,18 @@ describe("report buckets", () => {
     expect(buildReportBuckets(report("day", [trend("2026-01-01", 2, 3)]))).toEqual([]);
     expect(reportBucketMode(report("week", []))).toBe("day");
     expect(buildReportBuckets(report("week", [trend("2026-01-01", 2, 3), trend("2026-01-02", 1, 4)]))).toEqual([
-      { key: "2026-01-01", label: "週四 01/01", sessions: 2, events: 3 },
-      { key: "2026-01-02", label: "週五 01/02", sessions: 1, events: 4 },
+      {
+        key: "2026-01-01",
+        label: `${weekdayLabel(new Date("2026-01-01T00:00:00Z"), true)} 01/01`,
+        sessions: 2,
+        events: 3,
+      },
+      {
+        key: "2026-01-02",
+        label: `${weekdayLabel(new Date("2026-01-02T00:00:00Z"), true)} 01/02`,
+        sessions: 1,
+        events: 4,
+      },
     ]);
   });
 
@@ -50,8 +67,8 @@ describe("report buckets", () => {
     );
 
     expect(buckets).toEqual([
-      { key: "Q1", label: "Q1 · 1–3 月", sessions: 3, events: 5 },
-      { key: "Q2", label: "Q2 · 4–4 月", sessions: 4, events: 5 },
+      { key: "Q1", label: t("reports.months", { key: "Q1", value: 1, value2: 3 }), sessions: 3, events: 5 },
+      { key: "Q2", label: t("reports.months", { key: "Q2", value: 4, value2: 4 }), sessions: 4, events: 5 },
     ]);
   });
 
@@ -104,5 +121,18 @@ describe("report project shares", () => {
         projects: [project("empty", "沒有工作", 0)],
       }),
     ).toEqual([{ key: "empty", label: "沒有工作", sessions: 0, percent: 0 }]);
+  });
+});
+
+describe("reportBucketUnits", () => {
+  it("translates each bucket's unit and title and keeps the English eyebrow", () => {
+    expect(reportBucketUnits.week).toEqual({
+      unit: t("reports.unit.weeks"),
+      title: t("reports.byWeek"),
+      eyebrow: "By week",
+    });
+    expect(reportBucketUnits.day.unit).toBe(t("reports.unit.days"));
+    expect(reportBucketUnits.month.title).toBe(t("reports.byMonth"));
+    expect(reportBucketUnits.quarter.unit).toBe(t("reports.unit.quarters"));
   });
 });

@@ -23,7 +23,7 @@ const emit = defineEmits<{ close: [] }>();
 <template>
   <div v-if="open" class="app-sidebar__scrim" @click="emit('close')"></div>
   <aside :class="['app-sidebar', { 'is-open': open }]">
-    <nav :aria-label="t('主選單')">
+    <nav :aria-label="t('layout.mainMenu')">
       <div v-for="group in navGroups" :key="group.id" class="app-sidebar__group">
         <div class="app-sidebar__group-label">{{ group.label }}</div>
         <RouterLink
@@ -47,14 +47,14 @@ const emit = defineEmits<{ close: [] }>();
         </RouterLink>
       </div>
     </nav>
-    <div class="app-sidebar__policy" :title="t('任何 handoff、Git 或 source 讀取，都必須先通過 project policy gate。')">
+    <div class="app-sidebar__policy" :title="t('layout.everyHandoffGitOrSource')">
       <ShieldCheck :size="16" :stroke-width="1.75" aria-hidden="true" />
       <div class="app-sidebar__policy-copy">
-        <strong>Policy gate enabled</strong>
-        <span>{{ t("未明確加入的專案，不讀取、不保存。") }}</span>
+        <strong>{{ t("layout.policyGateEnabled") }}</strong>
+        <span>{{ t("layout.projectsYouHaveNotExplicitly") }}</span>
       </div>
     </div>
-    <div v-if="appHealth" class="app-sidebar__app-info" :aria-label="t('Work Intelligence 版本資訊')">
+    <div v-if="appHealth" class="app-sidebar__app-info" :aria-label="t('layout.workIntelligenceVersionInformation')">
       <span data-testid="app-version">v{{ appHealth.version }}</span>
       <span data-testid="schema-version">Schema v{{ appHealth.schemaVersion }}</span>
     </div>

@@ -146,41 +146,42 @@ function createReportsViewModel() {
   }
 
   const periodShortLabels: Record<ReportViewPeriod, string> = {
-    day: t("日"),
-    week: t("週"),
-    month: t("月"),
-    quarter: t("季"),
-    year: t("年"),
-    custom: t("自訂"),
+    day: t("common.day"),
+    week: t("common.week"),
+    month: t("common.month"),
+    quarter: t("reports.quarter"),
+    year: t("reports.year"),
+    custom: t("reports.custom"),
   };
 
   const periodOptions = periods.map((period) => ({ value: period, label: periodShortLabels[period] }));
 
   const projectItems = computed(() => [
-    { value: "", label: t("所有記錄中專案") },
+    { value: "", label: t("common.allTrackedProjects") },
     ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
   ]);
 
   const projectLabel = computed(
-    () => projectItems.value.find((item) => item.value === reportProjectId.value)?.label ?? t("所有記錄中專案"),
+    () =>
+      projectItems.value.find((item) => item.value === reportProjectId.value)?.label ?? t("common.allTrackedProjects"),
   );
 
   const exportItems = [
-    { value: "markdown" as ReportExportFormat, label: t("下載 Markdown"), icon: Download },
-    { value: "json" as ReportExportFormat, label: t("匯出 JSON"), icon: Download },
+    { value: "markdown" as ReportExportFormat, label: t("reports.downloadMarkdown"), icon: Download },
+    { value: "json" as ReportExportFormat, label: t("common.exportJson"), icon: Download },
   ];
 
   const description = computed(() => {
     const current = report.value;
     return current
-      ? t("{value} · {from} – {to}（{timezone}）· {projectLabel}", {
+      ? t("reports.periodSummary", {
           value: reportPeriodLabels[current.period],
           from: current.range.from,
           to: current.range.to,
           timezone: current.timezone,
           projectLabel: projectLabel.value,
         })
-      : t("報告只聚合「記錄中」的專案，並保留每筆來源 Session。");
+      : t("reports.reportsAggregateOnlyTrackedProjects");
   });
 
   function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecord[]): void {
@@ -189,7 +190,7 @@ function createReportsViewModel() {
   }
 
   function openReportSession(sessionId: string | undefined): Promise<void> {
-    return openSessionDetail(sessionId, t("無法載入來源 Session。"));
+    return openSessionDetail(sessionId, t("reports.couldNotLoadTheSource"));
   }
 
   function openReportEvidence(evidence: ReportEvidence): Promise<void> {

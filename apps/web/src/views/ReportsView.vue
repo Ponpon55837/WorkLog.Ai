@@ -58,14 +58,14 @@ const {
 <template>
   <PageHeader :description="description">
     <template #actions>
-      <UiSegmentedControl v-model="reportPeriod" :options="periodOptions" :label="t('選擇報表區間')" />
+      <UiSegmentedControl v-model="reportPeriod" :options="periodOptions" :label="t('reports.chooseReportPeriod')" />
       <div class="reports__period-control" data-testid="report-period-date-control">
         <!-- The report API requires both bounds and has no unbounded custom-range mode. -->
         <UiDateRangeMenu
           v-if="reportPeriod === 'custom'"
           v-model="reportRange"
           variant="button"
-          :label="t('自訂期間')"
+          :label="t('common.customRange')"
           :allow-all-dates="false"
         />
         <UiDateRangeMenu
@@ -73,7 +73,7 @@ const {
           v-model="reportDatePickerRange"
           selection-mode="single"
           variant="button"
-          :label="t('選擇報告日期')"
+          :label="t('reports.chooseReportDate')"
         />
       </div>
       <UiActionMenu
@@ -81,13 +81,13 @@ const {
         :label="projectLabel"
         :icon="FolderGit2"
         variant="button"
-        :header="t('專案範圍')"
+        :header="t('reports.projectScope')"
         default-value=""
         align="end"
         :items="projectItems"
       />
       <UiActionMenu
-        :label="t('匯出')"
+        :label="t('common.export')"
         :icon="Download"
         variant="button"
         align="end"
@@ -96,7 +96,7 @@ const {
       />
       <UiIconButton
         :icon="RefreshCw"
-        :label="t('重新整理報告')"
+        :label="t('reports.refreshReport')"
         variant="default"
         :loading="reportLoading || Boolean(reportExportLoading)"
         @click="refreshReport(true)"
@@ -105,35 +105,35 @@ const {
   </PageHeader>
 
   <UiFlash v-if="reportError" tone="danger">{{ reportError }}</UiFlash>
-  <UiSkeleton v-if="reportLoading && !report" variant="card" :count="4" :label="t('正在載入工作報告…')" />
+  <UiSkeleton v-if="reportLoading && !report" variant="card" :count="4" :label="t('reports.loadingTheWorkReport')" />
   <UiEmptyState
     v-else-if="!report"
     :icon="ChartColumn"
-    :title="t('尚未產生報告')"
-    :description="t('選擇區間後，系統會從已授權的工作紀錄建立 deterministic 報告。')"
+    :title="t('reports.noReportYet')"
+    :description="t('reports.afterYouChooseAPeriod')"
   />
 
   <template v-else>
     <UiFlash
       v-if="report.sessionTruncation?.currentPeriod || report.sessionTruncation?.previousPeriod"
       tone="attention"
-      :title="t('報告只涵蓋部分資料')"
+      :title="t('reports.theReportCoversOnlyPart')"
       data-testid="report-session-truncation"
     >
-      <span v-if="report.sessionTruncation?.currentPeriod">{{ t("本期超過 200 個 Session 的報告上限；") }}</span>
-      <span v-if="report.sessionTruncation?.previousPeriod">{{ t("比較期間超過 200 個 Session 的報告上限；") }}</span>
-      {{ t("摘要、趨勢、專案占比與比較數值只依納入報告的 Session 計算。") }}
+      <span v-if="report.sessionTruncation?.currentPeriod">{{ t("reports.thisPeriodExceedsTheReport") }}</span>
+      <span v-if="report.sessionTruncation?.previousPeriod">{{ t("reports.theComparisonPeriodExceedsThe") }}</span>
+      {{ t("reports.summariesTrendsProjectSharesAnd") }}
     </UiFlash>
 
     <PageToolbar>
-      <UiUnderlineNav v-model="tab" :items="tabs" :label="t('工作報告內容分頁')" id-prefix="report" />
+      <UiUnderlineNav v-model="tab" :items="tabs" :label="t('reports.workReportTabs')" id-prefix="report" />
       <div v-if="tab === 'evidence'" class="reports__evidence-search">
         <UiTextInput
           v-model="reportEvidenceQuery"
           type="search"
           :icon="Search"
-          :label="t('搜尋來源證據')"
-          :placeholder="t('搜尋 Session、來源或證據內容')"
+          :label="t('reports.searchSourceEvidence')"
+          :placeholder="t('reports.searchSessionsSourcesOrEvidence')"
         />
       </div>
     </PageToolbar>

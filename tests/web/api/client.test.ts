@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../../../apps/web/src/api/client.js";
 import { appendQuery } from "../../../apps/web/src/api/transport.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
 
 function respond(status: number, body: string, contentType = "application/json"): void {
   vi.stubGlobal(
@@ -45,7 +46,7 @@ describe("ApiClient.request", () => {
   it("explains that the API is unavailable when the dev proxy answers with an empty body", async () => {
     // Vite's proxy returns 500 text/plain with no body while the API server restarts.
     respond(500, "", "text/plain");
-    await expect(new ApiClient().request("/api/dashboard")).rejects.toThrow("請求失敗，請確認 API 是否已啟動。");
+    await expect(new ApiClient().request("/api/dashboard")).rejects.toThrow(t("api.theRequestFailedCheckThat"));
   });
 
   it("rejects a successful response that is not JSON instead of throwing a parse error", async () => {
@@ -75,7 +76,9 @@ describe("ApiClient.request", () => {
   it("marks only non-API gateway failures offline, not the API's own JSON errors", async () => {
     const onConnectionChange = vi.fn();
     respond(500, "", "text/plain");
-    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow("請確認 API 是否已啟動");
+    await expect(new ApiClient("", onConnectionChange).request("/api/health")).rejects.toThrow(
+      t("api.theRequestFailedCheckThat"),
+    );
     expect(onConnectionChange).toHaveBeenLastCalledWith(false);
 
     respond(503, JSON.stringify({ error: "資料庫暫時忙碌，請稍後再試", code: "database_busy" }));

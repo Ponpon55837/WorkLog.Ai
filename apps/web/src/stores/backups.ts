@@ -64,7 +64,7 @@ export const useBackupsStore = defineStore("backups", () => {
   const backupsLoading = computed(() => backupsQuery.isLoading.value);
   const backupsLoaded = computed(() => backupsQuery.data.value !== undefined);
   const backupsError = computed(() =>
-    backupsQuery.error.value ? errorMessage(backupsQuery.error.value, t("無法載入備份清單。")) : "",
+    backupsQuery.error.value ? errorMessage(backupsQuery.error.value, t("projects.couldNotLoadTheBackup")) : "",
   );
   const backupCreating = computed(() => createBackupMutation.isLoading.value);
 
@@ -91,9 +91,9 @@ export const useBackupsStore = defineStore("backups", () => {
     const { showToast } = useToast();
     try {
       await createBackupMutation.mutateAsync();
-      showToast(t("已備份目前的資料。"), "success");
+      showToast(t("projects.backedUpTheCurrentData"), "success");
     } catch (error) {
-      showToast(errorMessage(error, t("備份失敗。")), "danger");
+      showToast(errorMessage(error, t("projects.backupFailed")), "danger");
     }
   }
 
@@ -102,13 +102,13 @@ export const useBackupsStore = defineStore("backups", () => {
     const { showToast } = useToast();
     const isLastBackup = backups.value.length === 1;
     const confirmed = await confirmAction({
-      title: t("刪除備份「{fileName}」？", { fileName: backup.fileName }),
+      title: t("projects.deleteBackupConfirm", { fileName: backup.fileName }),
       message: [
-        t("類型：{value}。", { value: databaseBackupKindLabels[backup.kind] }),
-        t("這會永久刪除這份備份檔。"),
-        ...(isLastBackup ? [t("這是目前唯一列出的備份；刪除後將沒有可供還原的備份。")] : []),
+        t("projects.kind", { value: databaseBackupKindLabels[backup.kind] }),
+        t("projects.thisPermanentlyDeletesTheBackup"),
+        ...(isLastBackup ? [t("projects.thisIsTheOnlyBackup")] : []),
       ].join(" "),
-      confirmLabel: t("永久刪除備份"),
+      confirmLabel: t("projects.deleteBackupPermanently"),
       danger: true,
     });
     if (!confirmed) return;
@@ -117,12 +117,12 @@ export const useBackupsStore = defineStore("backups", () => {
     try {
       const result = await deleteBackupMutation.mutateAsync(backup.fileName);
       if (result.outcome !== "backup_deleted") {
-        showToast(t("找不到這份備份，請重新整理清單。"), "danger");
+        showToast(t("projects.backupNotFoundRefreshThe"), "danger");
         return;
       }
-      showToast(t("已刪除備份：{fileName}", { fileName: result.deleted.fileName }), "success");
+      showToast(t("projects.deletedBackup", { fileName: result.deleted.fileName }), "success");
     } catch (error) {
-      showToast(errorMessage(error, t("刪除備份失敗。")), "danger");
+      showToast(errorMessage(error, t("projects.couldNotDeleteTheBackup")), "danger");
     } finally {
       backupDeleting.value = null;
     }
@@ -141,9 +141,9 @@ export const useBackupsStore = defineStore("backups", () => {
       link.click();
       // Some browsers start the download asynchronously; revoking right away can cancel it.
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      showToast(t("已匯出整份資料。檔案包含全部工作記錄，請妥善保管。"), "success");
+      showToast(t("projects.allDataExportedTheFile"), "success");
     } catch (error) {
-      showToast(errorMessage(error, t("匯出失敗。")), "danger");
+      showToast(errorMessage(error, t("projects.exportFailed")), "danger");
     } finally {
       databaseExporting.value = false;
     }

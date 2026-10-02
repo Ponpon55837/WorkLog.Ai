@@ -1,14 +1,17 @@
 import { isSafeRepositoryUrl } from "@work-intelligence/core";
-import { translatedRecord } from "../i18n";
+import { t } from "../i18n";
 
 export const EDITOR_PROTOCOLS = ["none", "vscode", "cursor"] as const;
 export type EditorProtocol = (typeof EDITOR_PROTOCOLS)[number];
 
-export const editorProtocolLabels: Record<EditorProtocol, string> = translatedRecord({
-  none: "不使用",
+// Editor names are product names and stay as they are in every language.
+export const editorProtocolLabels: Record<EditorProtocol, string> = {
+  get none() {
+    return t("labels.none");
+  },
   vscode: "VS Code",
   cursor: "Cursor",
-});
+};
 
 const COMMIT_SHA = /^[0-9a-f]{7,40}$/i;
 const WINDOWS_DRIVE = /^[a-z]:$/i;

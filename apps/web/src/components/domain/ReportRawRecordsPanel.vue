@@ -30,10 +30,10 @@ function openSession(session: WorkSessionRecord): void {
   <section id="report-panel-raw" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-raw">
     <UiBox sticky-header>
       <template #header
-        ><UiBoxTitle eyebrow="Raw work records" :title="t('原始工作紀錄')" :count="pageInfo.total"
+        ><UiBoxTitle eyebrow="Raw work records" :title="t('common.rawWorkRecords')" :count="pageInfo.total"
       /></template>
       <UiSkeleton v-if="loading && items.length === 0" />
-      <UiEmptyState v-else-if="items.length === 0" compact :icon="FileText" :title="t('這段期間沒有原始 Session')" />
+      <UiEmptyState v-else-if="items.length === 0" compact :icon="FileText" :title="t('reports.noRawSessionsInThis')" />
       <VirtualList
         v-else
         :items="items"
@@ -41,7 +41,7 @@ function openSession(session: WorkSessionRecord): void {
         fit-viewport
         fit-viewport-to-panel
         fill-available-space
-        :label="t('報告原始工作紀錄清單')"
+        :label="t('reports.rawReportRecordsList')"
       >
         <template #default="{ item }">
           <SessionRow :session="item" @open="openSession" />
@@ -51,7 +51,7 @@ function openSession(session: WorkSessionRecord): void {
         <UiPagination
           v-model:page-size="pageSize"
           :page-info="pageInfo"
-          :size-label="t('報告原始工作紀錄每頁筆數')"
+          :size-label="t('reports.rawReportRecordsPerPage')"
           @page="emit('page', $event)"
         />
       </template>

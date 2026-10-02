@@ -3,6 +3,7 @@ import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
 import { useReportsStore } from "../../../apps/web/src/stores/reports.js";
 import { useSessionsStore } from "../../../apps/web/src/stores/sessions.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
 
 const toastMocks = vi.hoisted(() => ({ showToast: vi.fn() }));
 
@@ -104,7 +105,7 @@ describe("work data stores", () => {
     store.dateTo = "2026-09-01";
     expect(store.hasSessionFilters).toBe(true);
     await store.loadSessions();
-    expect(store.sessionFilterError).toBe("起始日期必須早於或等於結束日期。");
+    expect(store.sessionFilterError).toBe(t("session.theStartDateMustBe"));
     expect(harness.count("/api/sessions")).toBe(0);
 
     store.clearSessionFilters();
@@ -130,12 +131,12 @@ describe("work data stores", () => {
     store.reportPeriod = "custom";
     store.reportRange = { from: "", to: "" };
     await store.loadReport();
-    expect(store.reportError).toBe("請選擇自訂期間的起訖日期。");
+    expect(store.reportError).toBe(t("reports.chooseTheStartAndEnd"));
     expect(harness.count("/api/reports")).toBe(0);
 
     store.reportRange = { from: "2025-01-01", to: "2026-09-27" };
     await store.loadReport();
-    expect(store.reportError).toBe("自訂期間最長 366 天。");
+    expect(store.reportError).toBe(t("reports.aCustomRangeCanSpan", { days: 366 }));
     expect(harness.count("/api/reports")).toBe(0);
 
     store.reportPeriod = "week";
@@ -145,8 +146,8 @@ describe("work data stores", () => {
         : workResponder({ url, method: "GET", body: undefined, signal: undefined }),
     );
     store.loadReport();
-    await vi.waitFor(() => expect(store.reportError).toBe("服務暫時無法使用，請稍後再試。"));
-    expect(store.reportError).toBe("服務暫時無法使用，請稍後再試。");
+    await vi.waitFor(() => expect(store.reportError).toBe(t("format.theServiceIsTemporarilyUnavailable")));
+    expect(store.reportError).toBe(t("format.theServiceIsTemporarilyUnavailable"));
     expect(store.report).toBeNull();
     expect(store.reportComparisons).toEqual([]);
     await store.loadReportEvidence();
@@ -185,6 +186,6 @@ describe("work data stores", () => {
     await store.openSessionDetail("session-1");
     await store.openSessionDetail("bad");
     expect(store.selectedDetail?.session.id).toBe("session-1");
-    expect(toastMocks.showToast).toHaveBeenLastCalledWith("找不到請求的資料，請重新整理後再試。", "danger");
+    expect(toastMocks.showToast).toHaveBeenLastCalledWith(t("format.theRequestedDataWasNot"), "danger");
   });
 });

@@ -35,16 +35,19 @@ function countEntries(
 <template>
   <UiBox sticky-header data-testid="project-deletion-audit">
     <template #header>
-      <UiBoxTitle eyebrow="PROJECT DELETION AUDIT" :title="t('已刪除專案紀錄')" :icon="History" :count="items.length" />
-      <span class="project-deletion-audit__note">{{
-        t("只保留時間、專案 id 與各類刪除筆數，不含名稱、路徑或工作內容")
-      }}</span>
+      <UiBoxTitle
+        eyebrow="PROJECT DELETION AUDIT"
+        :title="t('projects.deletedProjectRecords')"
+        :icon="History"
+        :count="items.length"
+      />
+      <span class="project-deletion-audit__note">{{ t("projects.keepsOnlyTheTimeProject") }}</span>
     </template>
 
-    <UiFlash v-if="error" tone="danger" :title="t('無法載入刪除紀錄')">
+    <UiFlash v-if="error" tone="danger" :title="t('projects.couldNotLoadDeletionHistory')">
       {{ error }}
       <template #actions>
-        <UiButton size="sm" :icon="RefreshCw" @click="emit('retry')">{{ t("重試") }}</UiButton>
+        <UiButton size="sm" :icon="RefreshCw" @click="emit('retry')">{{ t("common.retry") }}</UiButton>
       </template>
     </UiFlash>
     <UiSkeleton v-if="loading && items.length === 0" variant="row" :count="2" />
@@ -52,8 +55,8 @@ function countEntries(
       v-else-if="items.length === 0 && !error"
       compact
       :icon="History"
-      :title="t('尚無刪除紀錄')"
-      :description="t('永久刪除專案後，時間、專案 id 與刪除筆數會顯示在這裡。')"
+      :title="t('projects.noDeletionHistory')"
+      :description="t('projects.afterAProjectIsPermanently')"
     />
     <VirtualList
       v-else-if="items.length > 0"
@@ -63,7 +66,7 @@ function countEntries(
       fit-viewport-to-panel
       fill-available-space
       :estimate-item-height="96"
-      :label="t('已刪除專案紀錄清單')"
+      :label="t('projects.deletedProjectRecordsList')"
     >
       <template #default="{ item }">
         <UiBoxRow>

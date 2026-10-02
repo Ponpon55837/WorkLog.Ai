@@ -34,7 +34,7 @@ async function submit(): Promise<void> {
   if (!project) return;
   const slug = form.value.slug.trim();
   if (!slugPattern.test(slug)) {
-    error.value = t("代稱需為 2–40 個小寫英文字母、數字或連字號，且以字母或數字開頭。");
+    error.value = t("knowledge.slugsNeed240Lowercase");
     return;
   }
   saving.value = true;
@@ -47,14 +47,14 @@ async function submit(): Promise<void> {
       question: form.value.question.trim(),
     });
     if (result.outcome !== "knowledge_page_update_requested") {
-      error.value = result.reason ?? t("無法建立知識頁。");
+      error.value = result.reason ?? t("knowledge.couldNotCreateTheKnowledge");
       return;
     }
-    showToast(t("已建立「{title}」並要求 Agent 撰寫。", { title: result.page.title }), "success");
+    showToast(t("knowledge.createdAndAskedTheAgent", { title: result.page.title }), "success");
     saving.value = false;
     emit("close");
   } catch (caught) {
-    error.value = errorMessage(caught, t("無法建立知識頁。"));
+    error.value = errorMessage(caught, t("knowledge.couldNotCreateTheKnowledge"));
   } finally {
     saving.value = false;
   }
@@ -74,10 +74,10 @@ watch(
 <template>
   <UiDialog
     :open="open"
-    :title="t('自訂知識頁')"
+    :title="t('knowledge.customKnowledgePage')"
     :description="
-      t('{value} · Agent 會依這個問題，從已記錄的 Session 撰寫並標示來源。', {
-        value: project?.name ?? t('記錄中專案'),
+      t('knowledge.theAgentWritesThePage', {
+        value: project?.name ?? t('common.trackedProjects'),
       })
     "
     :busy="saving"
@@ -85,18 +85,20 @@ watch(
   >
     <form id="knowledge-page-request-form" class="page-request" @submit.prevent="submit">
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
-      <UiField :label="t('標題')"><UiTextInput v-model="form.title" :maxlength="80" required autofocus /></UiField>
-      <UiField :label="t('代稱')" :hint="t('網址與 Agent 使用的識別，例如 release-process')">
+      <UiField :label="t('knowledge.title')"
+        ><UiTextInput v-model="form.title" :maxlength="80" required autofocus
+      /></UiField>
+      <UiField :label="t('knowledge.slug')" :hint="t('knowledge.usedInTheUrlAnd')">
         <UiTextInput v-model="form.slug" :maxlength="40" required mono />
       </UiField>
-      <UiField :label="t('這一頁要回答的問題')">
+      <UiField :label="t('knowledge.theQuestionThisPageAnswers')">
         <UiTextarea v-model="form.question" :rows="3" :maxlength="300" required />
       </UiField>
     </form>
     <template #footer>
-      <UiButton :disabled="saving" @click="close">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="saving" @click="close">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="primary" type="submit" form="knowledge-page-request-form" :loading="saving">{{
-        t("建立並要求撰寫")
+        t("knowledge.createAndRequestWriting")
       }}</UiButton>
     </template>
   </UiDialog>

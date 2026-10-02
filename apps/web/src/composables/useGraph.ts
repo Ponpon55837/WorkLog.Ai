@@ -240,12 +240,12 @@ export function useGraph() {
       const status = String(node.metadata.verification ?? "not_supplied");
       const label =
         status in verificationStatus ? verificationStatus[status as ReportVerificationStatus].label : status;
-      return t("{label} · {value} 個檔案", { label, value: String(node.metadata.changedFilesCount ?? 0) });
+      return t("graph.files", { label, value: String(node.metadata.changedFilesCount ?? 0) });
     }
     if (node.kind === "knowledge") return String(node.metadata.kind ?? "knowledge");
     if (node.kind === "evidence") return String(node.metadata.kind ?? "evidence");
     if (node.kind === "file") {
-      return graphNodeLabelTail(splitFilePath(node.label).folder || t("（專案根目錄）"), maxDisplayUnits);
+      return graphNodeLabelTail(splitFilePath(node.label).folder || t("graph.projectRoot"), maxDisplayUnits);
     }
     const status = String(node.metadata.status ?? "tracked");
     return status in statusLabels ? statusLabels[status as ProjectStatus] : status;
@@ -259,9 +259,9 @@ export function useGraph() {
       return verificationStatus[value as ReportVerificationStatus].label;
     }
     if ((key === "completedAt" || key === "capturedAt") && typeof value === "string") return formatDate(value);
-    if (key === "changedFilesCount") return t("{value} 個檔案", { value });
-    if (key === "tagsCount") return t("{value} 個標籤", { value });
-    if (typeof value === "boolean") return value ? t("是") : t("否");
+    if (key === "changedFilesCount") return t("common.files", { value });
+    if (key === "tagsCount") return t("graph.tags", { value });
+    if (typeof value === "boolean") return value ? t("common.yes") : t("common.no");
     return String(value);
   }
 
@@ -287,12 +287,12 @@ export function useGraph() {
 
   function graphNodeProjectName(node: GraphNode): string {
     if (!node.projectId) return "—";
-    return graph.value?.projects.find((project) => project.id === node.projectId)?.name ?? t("記錄中專案");
+    return graph.value?.projects.find((project) => project.id === node.projectId)?.name ?? t("common.trackedProjects");
   }
 
   function openGraphSession(node: GraphNode): void {
     store.selectGraphNode(null);
-    void useSessionsStore().openSessionDetail(node.sessionId, t("無法載入 Graph 對應的 Session。"));
+    void useSessionsStore().openSessionDetail(node.sessionId, t("graph.couldNotLoadTheSession"));
   }
 
   function openGraphKnowledge(node: GraphNode): void {

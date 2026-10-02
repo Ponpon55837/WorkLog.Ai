@@ -29,24 +29,24 @@ const sizeOptions = listPageSizeOptions.map((option) => ({ value: option.value, 
 <template>
   <div ref="root" class="ui-pagination">
     <span class="ui-pagination__summary">
-      {{ t("顯示 {from}–{to}，共 {total} 筆", { from: pageInfo.from, to: pageInfo.to, total: pageInfo.total }) }}
-      <span v-if="pageInfo.truncated"> {{ t("· All 已限制每頁 {pageSize} 筆", { pageSize: pageInfo.pageSize }) }}</span>
+      {{ t("ui.showingOf", { from: pageInfo.from, to: pageInfo.to, total: pageInfo.total }) }}
+      <span v-if="pageInfo.truncated"> {{ t("ui.allIsCappedAtPer", { pageSize: pageInfo.pageSize }) }}</span>
     </span>
     <span class="ui-pagination__size">
-      {{ t("每頁") }}
+      {{ t("ui.perPage") }}
       <UiSelect v-model="pageSize" :options="sizeOptions" :label="sizeLabel" size="sm" />
     </span>
     <span v-if="pageInfo.totalPages > 1" class="ui-pagination__pages">
       <UiButton size="sm" :icon="ChevronLeft" :disabled="!pageInfo.hasPrevious" @click="goTo(pageInfo.page - 1)">{{
-        t("上一頁")
+        t("ui.previousPage")
       }}</UiButton>
-      <span>{{ t("第 {page} / {totalPages} 頁", { page: pageInfo.page, totalPages: pageInfo.totalPages }) }}</span>
+      <span>{{ t("ui.page", { page: pageInfo.page, totalPages: pageInfo.totalPages }) }}</span>
       <UiButton
         size="sm"
         :trailing-icon="ChevronRight"
         :disabled="!pageInfo.hasNext"
         @click="goTo(pageInfo.page + 1)"
-        >{{ t("下一頁") }}</UiButton
+        >{{ t("ui.nextPage") }}</UiButton
       >
     </span>
   </div>

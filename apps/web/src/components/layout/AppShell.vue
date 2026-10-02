@@ -34,9 +34,14 @@ watch(
 
 <template>
   <div class="app-shell">
-    <a class="skip-link" href="#main">{{ t("跳至主要內容") }}</a>
+    <a class="skip-link" href="#main">{{ t("layout.skipToMainContent") }}</a>
     <!-- Indeterminate bar while a page loads or everything refreshes; it waits a moment so fast loads never flash it. -->
-    <div v-if="navigating || refreshing" class="app-shell__progress" role="progressbar" :aria-label="t('載入中')">
+    <div
+      v-if="navigating || refreshing"
+      class="app-shell__progress"
+      role="progressbar"
+      :aria-label="t('common.loading')"
+    >
       <span></span>
     </div>
     <AppHeader

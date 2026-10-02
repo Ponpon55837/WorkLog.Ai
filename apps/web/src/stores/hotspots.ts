@@ -41,9 +41,9 @@ export const useHotspotsStore = defineStore("hotspots", () => {
   const hotspots = computed(() => (query.data.value?.outcome === "hotspots" ? query.data.value.items : []));
   const hotspotsLoading = computed(() => query.isLoading.value);
   const hotspotsError = computed(() => {
-    if (query.error.value) return errorMessage(query.error.value, t("無法載入熱點檔案。"));
+    if (query.error.value) return errorMessage(query.error.value, t("graph.couldNotLoadHotspotFiles"));
     const result = query.data.value;
-    return result?.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : "";
+    return result?.outcome === "skipped" ? (result.reason ?? t("common.trackingIsNotEnabledFor")) : "";
   });
 
   function setActive(active: boolean): void {

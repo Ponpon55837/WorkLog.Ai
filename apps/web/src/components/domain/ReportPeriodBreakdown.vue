@@ -40,7 +40,7 @@ const bucketSummary = computed(() => {
     return "";
   }
   const active = buckets.value.filter((bucket) => bucket.sessions > 0).length;
-  return t("最多：{label}（{sessions} 個 Session）· {length} {unit}中有 {active} {unit}完成工作", {
+  return t("reports.busiestSessionsWorkCompletedIn", {
     label: top.label,
     sessions: top.sessions,
     length: buckets.value.length,
@@ -52,9 +52,7 @@ const daySessions = computed(() => props.report.sessions.slice(0, dayLimit));
 const shares = computed(() => buildReportProjectShares(props.report));
 const shareSummary = computed(() => {
   const [top] = shares.value;
-  return top && shares.value.length > 1
-    ? t("以 {label} 為主（{percent}%）", { label: top.label, percent: top.percent })
-    : "";
+  return top && shares.value.length > 1 ? t("reports.mostly", { label: top.label, percent: top.percent }) : "";
 });
 
 function barWidth(value: number, max: number): string {
@@ -66,16 +64,25 @@ function barWidth(value: number, max: number): string {
   <div class="report-breakdown" data-testid="report-breakdown">
     <UiBox v-if="!unit">
       <template #header>
-        <UiBoxTitle eyebrow="Completed work" :title="t('當日完成的工作')" :count="report.totals.sessions" />
+        <UiBoxTitle
+          eyebrow="Completed work"
+          :title="t('reports.workCompletedThatDay')"
+          :count="report.totals.sessions"
+        />
       </template>
-      <UiEmptyState v-if="daySessions.length === 0" compact :icon="CircleCheckBig" :title="t('這一天沒有完成工作')" />
+      <UiEmptyState
+        v-if="daySessions.length === 0"
+        compact
+        :icon="CircleCheckBig"
+        :title="t('reports.noWorkCompletedThisDay')"
+      />
       <VirtualList
         v-else
         :items="daySessions"
         :enabled="daySessions.length > 4"
         :estimate-item-height="88"
         max-height="min(56vh, 560px)"
-        :label="t('當日完成工作清單')"
+        :label="t('reports.workCompletedThatDayList')"
       >
         <template #default="{ item: session }">
           <SessionRow :session="session" :show-summary="false" @open="emit('open', $event, report.sessions)" />
@@ -83,7 +90,7 @@ function barWidth(value: number, max: number): string {
       </VirtualList>
       <template v-if="report.sessions.length > dayLimit" #footer>
         <UiButton variant="invisible" size="sm" @click="emit('showAll')">
-          {{ t("在原始紀錄查看全部 {length} 個 Session", { length: report.sessions.length }) }}
+          {{ t("reports.seeAllSessionsInRaw", { length: report.sessions.length }) }}
         </UiButton>
       </template>
     </UiBox>
@@ -93,22 +100,22 @@ function barWidth(value: number, max: number): string {
         <UiBoxTitle :icon="CalendarRange" :eyebrow="unit.eyebrow" :title="unit.title" />
         <span v-if="bucketSummary" class="report-breakdown__muted">{{ bucketSummary }}</span>
       </template>
-      <UiEmptyState v-if="!busiest" compact :icon="CalendarRange" :title="t('這段期間沒有完成工作')" />
+      <UiEmptyState v-if="!busiest" compact :icon="CalendarRange" :title="t('reports.noWorkCompletedInThis')" />
       <template v-else>
         <VirtualList
           :items="buckets"
           :enabled="true"
           :estimate-item-height="76"
           max-height="min(56vh, 560px)"
-          :label="t('報告期間分布清單')"
+          :label="t('reports.reportPeriodDistributionList')"
         >
           <template #default="{ item: bucket }">
             <UiBoxRow
               :title="bucket.label"
-              :meta="t('{sessions} 個 Session · {events} 個事件', { sessions: bucket.sessions, events: bucket.events })"
+              :meta="t('reports.sessionEventCounts', { sessions: bucket.sessions, events: bucket.events })"
             >
               <template #labels>
-                <UiLabel v-if="bucket.key === busiest.key" tone="accent">{{ t("最多") }}</UiLabel>
+                <UiLabel v-if="bucket.key === busiest.key" tone="accent">{{ t("reports.busiest") }}</UiLabel>
               </template>
               <span class="report-breakdown__bar" aria-hidden="true"
                 ><i :style="{ width: barWidth(bucket.sessions, busiest.sessions) }"></i
@@ -121,22 +128,22 @@ function barWidth(value: number, max: number): string {
 
     <UiBox>
       <template #header>
-        <UiBoxTitle :icon="FolderGit2" eyebrow="Projects" :title="t('專案占比')" :count="shares.length" />
+        <UiBoxTitle :icon="FolderGit2" eyebrow="Projects" :title="t('reports.projectShare')" :count="shares.length" />
         <span v-if="shareSummary" class="report-breakdown__muted">{{ shareSummary }}</span>
       </template>
-      <UiEmptyState v-if="shares.length === 0" compact :icon="FolderGit2" :title="t('沒有專案資料')" />
+      <UiEmptyState v-if="shares.length === 0" compact :icon="FolderGit2" :title="t('reports.noProjectData')" />
       <VirtualList
         v-else
         :items="shares"
         :enabled="true"
         :estimate-item-height="72"
         max-height="min(56vh, 560px)"
-        :label="t('報告專案占比清單')"
+        :label="t('reports.reportProjectShareList')"
       >
         <template #default="{ item: share }">
           <UiBoxRow
             :title="share.label"
-            :meta="t('{sessions} 個 Session · {percent}%', { sessions: share.sessions, percent: share.percent })"
+            :meta="t('reports.sessions', { sessions: share.sessions, percent: share.percent })"
           >
             <span class="report-breakdown__bar" aria-hidden="true"
               ><i :style="{ width: `${share.percent}%` }"></i

@@ -39,15 +39,17 @@ const firstOutcome = computed(
       }}</time>
       <template v-if="wasUpdatedAfterFinalize(session)">
         ·
-        <time :datetime="session.updatedAt" :title="t('最後更新 {value}', { value: formatDate(session.updatedAt) })">{{
-          t("更新於 {value}", { value: formatRelative(session.updatedAt) })
-        }}</time></template
+        <time
+          :datetime="session.updatedAt"
+          :title="t('session.lastUpdatedAt', { value: formatDate(session.updatedAt) })"
+          >{{ t("common.updated", { value: formatRelative(session.updatedAt) }) }}</time
+        ></template
       >
       <template v-if="session.gitBranch"> · {{ session.gitBranch }}</template>
       <template v-if="showSummary && firstOutcome"> · {{ firstOutcome }}</template>
     </template>
     <template #trailing>
-      <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("已作廢") }}</UiLabel>
+      <UiLabel v-if="session.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel>
       <StatusLabel :status="verification" :show-icon="false" />
       <UiLabel class="hide-sm" :icon="FileDiff">{{ session.changedFiles.length }}</UiLabel>
     </template>

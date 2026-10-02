@@ -50,11 +50,11 @@ useActiveRequestWatch({
   check: refreshMetadataBackfillRequest,
   onSettled: (_request, status) => {
     if (status === "completed") {
-      showToast(t("Agent 已完成 metadata 回補。"), "success");
+      showToast(t("projects.theAgentFinishedTheMetadata"), "success");
       // The gap list is a separate scan; rerun it so resolved gaps disappear.
       void previewMetadataBackfill();
     } else if (status === "failed") {
-      showToast(t("metadata 回補沒有完成。"), "danger");
+      showToast(t("projects.theMetadataBackfillDidNot"), "danger");
     }
   },
 });
@@ -64,16 +64,14 @@ const requestMessage = computed(() => {
     return "";
   }
   if (metadataBackfillRequestIsActive.value) {
-    return t(
-      "在目前的 Codex 或 Claude 對話中貼上下面的指令。Agent 會取得待回補清單、檢查 tracked 專案的 worktree／handoff，只寫回已確認的 metadata。",
-    );
+    return t("projects.pasteTheInstructionBelowInto");
   }
   if (request.value.status === "completed") {
-    return t("這批 metadata 已完成回補。重新掃描後，若仍有缺口會建立新的請求。");
+    return t("projects.thisMetadataBackfillIsComplete");
   }
   return preview.value?.items.length
-    ? t("這批 metadata 回補尚未完成，可以重新建立請求後再請 Agent 處理。")
-    : t("這批 metadata 回補尚未完成。重新掃描後，若仍有缺口即可建立新的請求。");
+    ? t("projects.thisMetadataBackfillDidNotFinishCreateA")
+    : t("projects.thisMetadataBackfillDidNot");
 });
 </script>
 
@@ -84,12 +82,12 @@ const requestMessage = computed(() => {
 
     <UiBox v-if="request" padded>
       <template #header>
-        <UiBoxTitle eyebrow="Agent request" :title="t('請 Agent 回補 metadata')" />
+        <UiBoxTitle eyebrow="Agent request" :title="t('projects.askAgentToBackfillMetadata')" />
         <div class="backfill__request-actions">
           <StatusLabel :status="requestStatus[request.status]" />
           <UiIconButton
             :icon="RefreshCw"
-            :label="t('重新整理回補狀態')"
+            :label="t('projects.refreshBackfillStatus')"
             size="sm"
             :loading="metadataBackfillRequestLoading"
             @click="loadMetadataBackfillRequest"
@@ -100,7 +98,7 @@ const requestMessage = computed(() => {
       <UiCommandBlock
         v-if="metadataBackfillRequestIsActive"
         :text="metadataBackfillInstruction()"
-        :success-message="t('已複製自然語言 metadata 回補指令。')"
+        :success-message="t('projects.naturalLanguageMetadataBackfillInstruction')"
       />
       <div class="backfill__buttons">
         <UiButton
@@ -110,48 +108,52 @@ const requestMessage = computed(() => {
           :icon="X"
           :disabled="metadataBackfillRequestLoading"
           @click="cancelMetadataBackfillRequest"
-          >{{ t("取消回補") }}</UiButton
+          >{{ t("projects.cancelBackfill") }}</UiButton
         >
         <UiButton
           v-else-if="preview?.items.length"
           size="sm"
           :loading="metadataBackfillRequestCreating"
           @click="createMetadataBackfillRequest"
-          >{{ t("重新建立回補請求") }}</UiButton
+          >{{ t("projects.createBackfillRequestAgain") }}</UiButton
         >
       </div>
     </UiBox>
-    <UiFlash v-else-if="preview?.items.length" tone="attention" :title="t('這些缺口需要 Agent 確認')">
-      {{ t("掃描結果不會自行猜測檔案或驗證狀態；建立請求後，Agent 才能在目前對話中檢查並回寫。") }}
+    <UiFlash v-else-if="preview?.items.length" tone="attention" :title="t('projects.theseGapsNeedAgentConfirmation')">
+      {{ t("projects.theScanNeverGuessesFiles") }}
       <template #actions
         ><UiButton
           variant="primary"
           size="sm"
           :loading="metadataBackfillRequestCreating"
           @click="createMetadataBackfillRequest"
-          >{{ t("請 Agent 回補") }}</UiButton
+          >{{ t("projects.askAgentToBackfill") }}</UiButton
         ></template
       >
     </UiFlash>
 
     <UiBox sticky-header>
       <template #header>
-        <UiBoxTitle eyebrow="Agent follow-ups" :title="t('需要回補的 Session')" :count="preview?.items.length" />
+        <UiBoxTitle
+          eyebrow="Agent follow-ups"
+          :title="t('projects.sessionsThatNeedBackfill')"
+          :count="preview?.items.length"
+        />
         <UiButton size="sm" :icon="ScanSearch" :loading="metadataBackfillLoading" @click="previewMetadataBackfill">{{
-          preview ? t("重新掃描") : t("掃描 metadata 缺口")
+          preview ? t("projects.rescan") : t("projects.scanMetadataGaps")
         }}</UiButton>
       </template>
       <UiEmptyState
         v-if="!preview"
         compact
         :icon="ScanSearch"
-        :title="t('尚未掃描')"
-        :description="t('掃描只讀取中央 SQLite 中已保存的 Session metadata，不會讀取專案檔案。')"
+        :title="t('projects.notScannedYet')"
+        :description="t('projects.theScanReadsOnlySession')"
       />
       <template v-else>
         <div class="backfill__stats">
           <UiStatCard
-            :label="t('需要回補')"
+            :label="t('projects.needsBackfill')"
             :value="preview.totals.needsBackfill"
             :value-tone="preview.totals.needsBackfill ? 'attention' : undefined"
           />
@@ -175,8 +177,8 @@ const requestMessage = computed(() => {
           v-if="!preview.items.length"
           compact
           :icon="CircleCheckBig"
-          :title="t('目前沒有待回補資料')"
-          :description="t('所有 tracked Session 都已提供必要的結構化 metadata。')"
+          :title="t('projects.nothingAwaitingBackfill')"
+          :description="t('projects.everyTrackedSessionHasThe')"
         />
         <VirtualList
           :items="preview.items"
@@ -185,7 +187,7 @@ const requestMessage = computed(() => {
           fit-viewport-to-panel
           fill-available-space
           :estimate-item-height="72"
-          :label="t('metadata 回補清單')"
+          :label="t('projects.metadataBackfillList')"
         >
           <template #default="{ item }">
             <UiBoxRow clickable :title="item.title" @select="openMetadataBackfillSession(item)">
@@ -196,7 +198,7 @@ const requestMessage = computed(() => {
                 {{ item.projectName }} ·
                 <time :title="formatDate(item.completedAt)">{{ formatRelative(item.completedAt) }}</time>
                 {{
-                  t("· {changedFilesCount} 個檔案 · {rawSnapshotCount} 份 handoff snapshot", {
+                  t("projects.filesHandoffSnapshots", {
                     changedFilesCount: item.changedFilesCount,
                     rawSnapshotCount: item.rawSnapshotCount,
                   })
@@ -209,7 +211,7 @@ const requestMessage = computed(() => {
           </template>
         </VirtualList>
         <p v-if="preview.truncated" class="backfill__note">
-          {{ t("結果已達顯示上限，其餘 Session 會由 Agent 分頁檢查。") }}
+          {{ t("projects.resultsReachedTheDisplayLimit") }}
         </p>
       </template>
     </UiBox>

@@ -42,35 +42,30 @@ watch(
 <template>
   <UiDialog
     :open="open && !!project"
-    :title="t('永久刪除專案資料？')"
-    :description="t('此操作會從 WorkLog 的中央資料庫移除專案與所有相關工作記錄。')"
+    :title="t('projects.permanentlyDeleteProjectData')"
+    :description="t('projects.thisRemovesTheProjectAnd')"
     size="md"
     :busy="busy"
     @close="emit('close')"
   >
     <template v-if="project">
-      <UiFlash tone="attention" :title="t('刪除前會先建立整份資料庫備份')">
-        {{
-          t(
-            "備份成功後才會刪除，並依手動備份保留規則管理。這會移除「{name}」的 Sessions、handoff、事件、Evidence、Knowledge、候選、稽核記錄與搜尋資料；其他專案共用且引用這些 Sessions 的報告或整理請求也會一併移除。專案資料夾與原始檔案不會被刪除。",
-            { name: project.name },
-          )
-        }}
+      <UiFlash tone="attention" :title="t('projects.aFullDatabaseBackupIs')">
+        {{ t("projects.deletionHappensOnlyAfterA", { name: project.name }) }}
       </UiFlash>
-      <p class="delete-project__label">{{ t("輸入專案名稱以確認") }}</p>
+      <p class="delete-project__label">{{ t("projects.typeTheProjectNameTo") }}</p>
       <UiTextInput
         v-model="typedName"
         :maxlength="120"
         :required="true"
         :autofocus="true"
         :placeholder="project.name"
-        :label="t('輸入 {name} 以確認永久刪除', { name: project.name })"
+        :label="t('projects.typeToConfirmPermanentDeletion', { name: project.name })"
       />
     </template>
     <template #footer>
-      <UiButton :disabled="busy" @click="emit('close')">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="busy" @click="emit('close')">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="danger" :icon="Trash2" :disabled="!canDelete" :loading="busy" @click="confirmDeletion">
-        {{ t("永久刪除") }}
+        {{ t("projects.deletePermanently") }}
       </UiButton>
     </template>
   </UiDialog>

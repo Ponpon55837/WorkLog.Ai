@@ -35,20 +35,20 @@ const spanningGroups = computed(() => {
   return [
     {
       key: "startedEarlier",
-      title: t("更早開始、在這段期間完成"),
+      title: t("reports.startedEarlierCompletedInThis"),
       items: spanning.startedEarlier,
       meta: (item: ReportSpanningSession) =>
-        t("{project}開始於 {started}", {
+        t("reports.started", {
           project: project(item),
           started: formatDate(item.startedAt ?? item.completedAt),
         }),
     },
     {
       key: "continuedLater",
-      title: t("在這段期間開始、之後才完成"),
+      title: t("reports.startedInThisPeriodCompleted"),
       items: spanning.continuedLater,
       meta: (item: ReportSpanningSession) =>
-        t("{project}開始於 {started} · 完成於 {completed}", {
+        t("reports.startedCompleted", {
           project: project(item),
           started: formatDate(item.startedAt ?? item.completedAt),
           completed: formatDate(item.completedAt),
@@ -56,10 +56,10 @@ const spanningGroups = computed(() => {
     },
     {
       key: "updatedInPeriod",
-      title: t("更早完成、在這段期間修改"),
+      title: t("reports.completedEarlierChangedInThis"),
       items: spanning.updatedInPeriod,
       meta: (item: ReportSpanningSession) =>
-        t("{project}完成於 {completed} · 更新於 {updated}", {
+        t("reports.completedUpdated", {
           project: project(item),
           completed: formatDate(item.completedAt),
           updated: formatDate(item.updatedAt),
@@ -100,13 +100,13 @@ function openCompletedSession(session: WorkSessionRecord): void {
   >
     <UiBox sticky-header>
       <template #header
-        ><UiBoxTitle eyebrow="Completed work" :title="t('主要完成事項')" :count="report.totals.sessions"
+        ><UiBoxTitle eyebrow="Completed work" :title="t('reports.mainOutcomes')" :count="report.totals.sessions"
       /></template>
       <UiEmptyState
         v-if="report.completedWork.length === 0"
         compact
         :icon="CircleCheckBig"
-        :title="t('這段期間沒有完成工作')"
+        :title="t('reports.noWorkCompletedInThis')"
       />
       <VirtualList
         v-else
@@ -115,7 +115,7 @@ function openCompletedSession(session: WorkSessionRecord): void {
         fit-viewport
         fit-viewport-to-panel
         :estimate-item-height="112"
-        :label="t('報表完成事項清單')"
+        :label="t('reports.reportOutcomesList')"
       >
         <template #default="{ item: session }">
           <SessionRow :session="session" @open="openCompletedSession" />
@@ -124,17 +124,15 @@ function openCompletedSession(session: WorkSessionRecord): void {
     </UiBox>
     <div class="reports__side">
       <UiBox padded>
-        <template #header><UiBoxTitle eyebrow="Verification" :title="t('驗證狀態')" /></template>
+        <template #header><UiBoxTitle eyebrow="Verification" :title="t('reports.verificationStatus')" /></template>
         <VerificationBreakdown :counts="verificationCounts" />
         <p class="reports__note">
-          {{
-            t("未回報代表沒有結構化 verification；未執行代表 Agent 明確表示尚未驗證。報告不會替 Agent 推測驗證結果。")
-          }}
+          {{ t("reports.notReportedMeansThereIs") }}
         </p>
       </UiBox>
       <UiBox v-if="spanningCount > 0" data-testid="report-spanning">
         <template #header
-          ><UiBoxTitle eyebrow="Across periods" :title="t('跨期工作')" :count="spanningCount"
+          ><UiBoxTitle eyebrow="Across periods" :title="t('reports.crossPeriodWork')" :count="spanningCount"
         /></template>
         <VirtualList
           :items="spanningRows"
@@ -142,7 +140,7 @@ function openCompletedSession(session: WorkSessionRecord): void {
           fit-viewport
           fit-viewport-to-panel
           :estimate-item-height="64"
-          :label="t('跨期工作清單')"
+          :label="t('reports.crossPeriodWorkList')"
         >
           <template #default="{ item }">
             <UiGroupLabel v-if="item.kind === 'group'">{{ item.title }}</UiGroupLabel>
@@ -156,7 +154,7 @@ function openCompletedSession(session: WorkSessionRecord): void {
           </template>
         </VirtualList>
         <p class="reports__spanning-note">
-          {{ t("數字只計算這段期間完成的 Session；這裡列出跨越期間邊界的工作，不重複計算。") }}
+          {{ t("reports.numbersCountOnlySessionsCompleted") }}
         </p>
       </UiBox>
     </div>

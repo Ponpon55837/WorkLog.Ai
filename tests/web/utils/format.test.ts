@@ -16,6 +16,7 @@ import {
   toDateInputValue,
   wasUpdatedAfterFinalize,
 } from "../../../apps/web/src/utils/format.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
 
 describe("formatBytes", () => {
   it("keeps small sizes in bytes and scales larger sizes", () => {
@@ -32,11 +33,15 @@ describe("formatDuration", () => {
     const start = Date.parse("2026-01-01T00:00:00.000Z");
     const end = (minutes: number): string => new Date(start + minutes * 60_000).toISOString();
 
-    expect(formatDuration(end(0), end(0))).toBe("不到 1 分鐘");
-    expect(formatDuration(end(0), end(1))).toBe("1 分鐘");
-    expect(formatDuration(end(0), end(45))).toBe("45 分鐘");
-    expect(formatDuration(end(0), end(63))).toBe("1 小時 3 分鐘");
-    expect(formatDuration(end(0), end(1_620))).toBe("1 天 3 小時");
+    expect(formatDuration(end(0), end(0))).toBe(t("format.under1Minute"));
+    expect(formatDuration(end(0), end(1))).toBe(t("format.durationMinutes", { rest: 1 }));
+    expect(formatDuration(end(0), end(45))).toBe(t("format.durationMinutes", { rest: 45 }));
+    expect(formatDuration(end(0), end(63))).toBe(
+      `${t("format.durationHours", { hours: 1 })} ${t("format.durationMinutes", { rest: 3 })}`,
+    );
+    expect(formatDuration(end(0), end(1_620))).toBe(
+      `${t("format.durationDays", { days: 1 })} ${t("format.durationHours", { hours: 3 })}`,
+    );
   });
 
   it("returns an empty label for invalid or reversed intervals", () => {
@@ -48,10 +53,10 @@ describe("formatDuration", () => {
 describe("errorMessage", () => {
   it("localizes API errors by machine-readable code", () => {
     expect(errorMessage(new ApiError("PROJECT_NAME_MISMATCH", 409, "English message"), "fallback")).toBe(
-      "輸入的名稱與專案名稱不相符，專案尚未刪除。",
+      t("format.theNameDoesNotMatch"),
     );
     expect(errorMessage(new ApiError("database_busy", 503, "English message"), "fallback")).toBe(
-      "資料庫暫時忙碌，請稍後再試。",
+      t("format.theDatabaseIsBusyPlease"),
     );
   });
 
@@ -92,13 +97,13 @@ describe("date and summary formatting", () => {
 
   it("uses relative time and day grouping across current, previous, and older dates", () => {
     const now = new Date("2026-09-27T12:00:00.000Z");
-    expect(formatRelative("2026-09-27T11:59:45.000Z", now)).toBe("剛剛");
-    expect(formatRelative("2026-09-27T11:40:00.000Z", now)).toBe("20 分鐘前");
-    expect(formatRelative("2026-09-27T06:00:00.000Z", now)).toBe("6 小時前");
-    expect(formatRelative("2026-09-26T06:00:00.000Z", now)).toContain("昨天");
+    expect(formatRelative("2026-09-27T11:59:45.000Z", now)).toBe(t("format.justNow"));
+    expect(formatRelative("2026-09-27T11:40:00.000Z", now)).toBe(t("format.minutesAgo", { diffMinutes: 20 }));
+    expect(formatRelative("2026-09-27T06:00:00.000Z", now)).toBe(t("format.hoursAgo", { value: 6 }));
+    expect(formatRelative("2026-09-26T06:00:00.000Z", now)).toContain(t("common.yesterday"));
     expect(formatRelative("2025-09-27T06:00:00.000Z", now)).not.toBe("");
-    expect(formatDayGroup("2026-09-27T06:00:00.000Z", now)).toBe("今天");
-    expect(formatDayGroup("2026-09-26T06:00:00.000Z", now)).toBe("昨天");
+    expect(formatDayGroup("2026-09-27T06:00:00.000Z", now)).toBe(t("common.today"));
+    expect(formatDayGroup("2026-09-26T06:00:00.000Z", now)).toBe(t("common.yesterday"));
     expect(formatDayGroup("2025-09-27T06:00:00.000Z", now)).not.toBe("");
   });
 

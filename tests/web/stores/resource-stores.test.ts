@@ -8,6 +8,7 @@ import { useHandoffImportStore } from "../../../apps/web/src/stores/handoff-impo
 import { useKnowledgeStore } from "../../../apps/web/src/stores/knowledge.js";
 import { useMetadataBackfillStore } from "../../../apps/web/src/stores/metadata-backfill.js";
 import { useProjectDataTransferStore } from "../../../apps/web/src/stores/project-data-transfer.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
 
 const mocks = vi.hoisted(() => ({ showToast: vi.fn(), confirmAction: vi.fn(async () => true) }));
 
@@ -262,7 +263,7 @@ describe("resource stores", () => {
     expect(store.backupKeep).toBe(3);
     await store.createBackup();
     await vi.waitFor(() => expect(harness.count("/api/backups")).toBeGreaterThan(1));
-    expect(mocks.showToast).toHaveBeenCalledWith("已備份目前的資料。", "success");
+    expect(mocks.showToast).toHaveBeenCalledWith(t("projects.backedUpTheCurrentData"), "success");
 
     harness.setResponder(({ url }) =>
       url.pathname === "/api/backups"
@@ -270,7 +271,7 @@ describe("resource stores", () => {
         : resourceResponder({ url, method: "GET", body: undefined, signal: undefined }),
     );
     await store.loadBackups();
-    expect(store.backupsError).toBe("服務暫時無法使用，請稍後再試。");
+    expect(store.backupsError).toBe(t("format.theServiceIsTemporarilyUnavailable"));
     store.setBackupsActive(false);
   });
 
@@ -284,11 +285,14 @@ describe("resource stores", () => {
     await store.deleteBackup(backup as never);
     expect(harness.count("/api/backups/backup-1.sqlite", "DELETE")).toBe(1);
     expect(store.backupDeleting).toBeNull();
-    expect(mocks.showToast).toHaveBeenLastCalledWith("已刪除備份：backup-1.sqlite", "success");
+    expect(mocks.showToast).toHaveBeenLastCalledWith(
+      t("projects.deletedBackup", { fileName: "backup-1.sqlite" }),
+      "success",
+    );
 
     backupDeleteOutcome = "missing";
     await store.deleteBackup(backup as never);
-    expect(mocks.showToast).toHaveBeenLastCalledWith("找不到這份備份，請重新整理清單。", "danger");
+    expect(mocks.showToast).toHaveBeenLastCalledWith(t("projects.backupNotFoundRefreshThe"), "danger");
 
     const anchor = { href: "", download: "", click: vi.fn() };
     vi.stubGlobal("document", { createElement: vi.fn(() => anchor) });
@@ -302,7 +306,7 @@ describe("resource stores", () => {
 
     exportFailure = true;
     await store.exportDatabase();
-    expect(mocks.showToast).toHaveBeenLastCalledWith("服務暫時無法使用，請稍後再試。", "danger");
+    expect(mocks.showToast).toHaveBeenLastCalledWith(t("format.theServiceIsTemporarilyUnavailable"), "danger");
   });
 
   it("pages Graph data, removes duplicate nodes, and exposes completion and selection state", async () => {
@@ -318,7 +322,7 @@ describe("resource stores", () => {
     store.selectGraphNode(selected);
     expect(store.selectedGraphNode).toEqual(selected);
     await store.loadMoreGraph();
-    expect(mocks.showToast).toHaveBeenCalledWith("圖譜已載入完成。");
+    expect(mocks.showToast).toHaveBeenCalledWith(t("graph.theGraphFinishedLoading"));
   });
 
   it("previews handoffs, filters selectable rows, applies selected imports, and clears the dialog", async () => {
@@ -333,23 +337,31 @@ describe("resource stores", () => {
     expect(store.selectedHandoffCount).toBe(1);
     store.clearHandoffSelection();
     expect(store.selectedHandoffCount).toBe(0);
-    expect(store.handoffDecisionLabel({ decision: "already_imported" } as never)).toBe("已匯入");
+    expect(store.handoffDecisionLabel({ decision: "already_imported" } as never)).toBe(t("projects.imported"));
     expect(store.handoffDecisionLabel({ decision: "excluded", reason: "excluded_by_user" } as never)).toBe(
-      "使用者排除",
+      t("projects.excludedByYou"),
     );
-    expect(store.handoffDecisionLabel({ decision: "excluded", reason: "blocked" } as never)).toBe("Blocked，略過");
-    expect(store.handoffDecisionLabel({ decision: "excluded", reason: "pending" } as never)).toBe("Pending，略過");
-    expect(store.handoffDecisionLabel({ decision: "excluded", reason: "planning_only" } as never)).toBe("僅規劃，略過");
-    expect(store.handoffDecisionLabel({ decision: "error" } as never)).toBe("讀取失敗");
+    expect(store.handoffDecisionLabel({ decision: "excluded", reason: "blocked" } as never)).toBe(
+      t("projects.blockedSkipped"),
+    );
+    expect(store.handoffDecisionLabel({ decision: "excluded", reason: "pending" } as never)).toBe(
+      t("projects.pendingSkipped"),
+    );
+    expect(store.handoffDecisionLabel({ decision: "excluded", reason: "planning_only" } as never)).toBe(
+      t("projects.planningOnlySkipped"),
+    );
+    expect(store.handoffDecisionLabel({ decision: "error" } as never)).toBe(t("projects.readFailed"));
     expect(store.handoffDecisionLabel({ decision: "excluded", reason: "missing_status" } as never)).toBe(
-      "缺少完成狀態",
+      t("projects.completionStatusMissing"),
     );
     store.selectAllHandoffs();
     await store.applyHandoffImport();
     expect(harness.count("/api/imports/handoffs", "POST")).toBe(1);
     expect(store.handoffImportPreview).toBeNull();
     expect(store.handoffImportApplying).toBe(false);
-    expect(mocks.showToast).toHaveBeenCalledWith("已匯入 1 個 handoff；略過 0 個，失敗 0 個。");
+    expect(mocks.showToast).toHaveBeenCalledWith(
+      t("projects.importedHandoffsSkippedFailed", { length: 1, length2: 0, length3: 0 }),
+    );
   });
 
   it("loads Knowledge, history, and candidates, then refreshes the active list after an edit", async () => {
@@ -375,11 +387,11 @@ describe("resource stores", () => {
     await vi.waitFor(() => expect(store.knowledgeError).toBe("Knowledge 已暫停。"));
     knowledgeListMode = "error";
     await store.retryKnowledge();
-    expect(store.knowledgeError).toBe("服務暫時無法使用，請稍後再試。");
+    expect(store.knowledgeError).toBe(t("format.theServiceIsTemporarilyUnavailable"));
 
     knowledgeHistoryMode = "missing";
     await store.loadKnowledgeHistory("knowledge-1", "/projects/alpha");
-    expect(store.knowledgeHistoryError).toBe("這筆 Knowledge 已不存在。");
+    expect(store.knowledgeHistoryError).toBe(t("knowledge.knowledgeGone"));
     store.closeKnowledgeHistory();
     expect(store.knowledgeHistory).toEqual([]);
 
@@ -422,7 +434,7 @@ describe("resource stores", () => {
 
     backfillPreviewMode = "error";
     await store.previewMetadataBackfill();
-    expect(store.metadataBackfillError).toBe("服務暫時無法使用，請稍後再試。");
+    expect(store.metadataBackfillError).toBe(t("format.theServiceIsTemporarilyUnavailable"));
     await store.loadMetadataBackfillRequest();
 
     backfillPreviewMode = "normal";
@@ -447,11 +459,11 @@ describe("resource stores", () => {
     const store = useProjectDataTransferStore();
     await store.loadImportFile(undefined);
     await store.loadImportFile({ name: "large.json", size: 50 * 1024 * 1024 + 1, text: async () => "" } as File);
-    expect(store.importError).toBe("匯入檔不可超過 50 MiB。");
+    expect(store.importError).toBe(t("projects.importFilesCannotExceed50"));
     await store.loadImportFile({ name: "broken.json", size: 8, text: async () => "{" } as File);
     expect(store.importError).toContain("JSON");
     await store.loadImportFile({ name: "wrong-shape.json", size: 8, text: async () => "{}" } as File);
-    expect(store.importError).toContain("匯出檔格式錯誤：");
+    expect(store.importError).toContain(t("projects.theExportFileIsMalformed", { value: "" }));
 
     const bundle = {
       format: "work-intelligence-export",
@@ -478,7 +490,7 @@ describe("resource stores", () => {
 
     exportFailure = true;
     await store.exportProjectData({ type: "all" });
-    expect(store.transferError).toBe("服務暫時無法使用，請稍後再試。");
+    expect(store.transferError).toBe(t("format.theServiceIsTemporarilyUnavailable"));
     expect(store.portableExporting).toBe(false);
   });
 });

@@ -31,9 +31,9 @@ const month = ref(startOfMonth(new Date()));
 const draftFrom = ref("");
 
 // The default label is resolved here, not in withDefaults, so it follows the current locale.
-const label = computed(() => props.label ?? t("日期"));
+const label = computed(() => props.label ?? t("ui.date"));
 const dialogLabel = computed(
-  () => props.dialogLabel ?? (props.selectionMode === "single" ? label.value : t("選擇日期區間")),
+  () => props.dialogLabel ?? (props.selectionMode === "single" ? label.value : t("ui.chooseDateRange")),
 );
 
 // 2024-01-07 is a Sunday; the calendar grid starts its weeks on Sunday.
@@ -48,15 +48,19 @@ const presets = computed(() => {
   const today = new Date();
   const todayValue = toDateInputValue(today);
   return [
-    ...(props.allowAllDates ? [{ key: "all", label: t("不限日期"), range: { from: "", to: "" } }] : []),
-    { key: "today", label: t("今天"), range: { from: todayValue, to: todayValue } },
+    ...(props.allowAllDates ? [{ key: "all", label: t("ui.anyDate"), range: { from: "", to: "" } }] : []),
+    { key: "today", label: t("common.today"), range: { from: todayValue, to: todayValue } },
     {
       key: "yesterday",
-      label: t("昨天"),
+      label: t("common.yesterday"),
       range: { from: toDateInputValue(shift(today, -1)), to: toDateInputValue(shift(today, -1)) },
     },
-    { key: "7d", label: t("近 7 天"), range: { from: toDateInputValue(shift(today, -6)), to: todayValue } },
-    { key: "month", label: t("本月"), range: { from: toDateInputValue(startOfMonth(today)), to: todayValue } },
+    { key: "7d", label: t("ui.last7Days"), range: { from: toDateInputValue(shift(today, -6)), to: todayValue } },
+    {
+      key: "month",
+      label: t("common.thisMonth"),
+      range: { from: toDateInputValue(startOfMonth(today)), to: todayValue },
+    },
   ];
 });
 
@@ -169,7 +173,7 @@ watch(open, (value) => {
         <div class="ui-date-range__toolbar">
           <button
             type="button"
-            :aria-label="t('上一個月')"
+            :aria-label="t('ui.previousMonth')"
             @click="month = new Date(month.getFullYear(), month.getMonth() - 1, 1)"
           >
             <ChevronLeft :size="16" :stroke-width="1.75" aria-hidden="true" />
@@ -177,7 +181,7 @@ watch(open, (value) => {
           <strong>{{ monthLabel }}</strong>
           <button
             type="button"
-            :aria-label="t('下一個月')"
+            :aria-label="t('ui.nextMonth')"
             @click="month = new Date(month.getFullYear(), month.getMonth() + 1, 1)"
           >
             <ChevronRight :size="16" :stroke-width="1.75" aria-hidden="true" />
@@ -207,10 +211,10 @@ watch(open, (value) => {
         <p class="ui-date-range__hint">
           {{
             selectionMode === "single"
-              ? t("點選日期套用報表區間")
+              ? t("ui.clickADateToSet")
               : draftFrom
-                ? t("起始 {draftFrom}，請選擇結束日期", { draftFrom })
-                : t("點選兩個日期作為自訂區間")
+                ? t("ui.startsChooseAnEndDate", { draftFrom })
+                : t("ui.clickTwoDatesForA")
           }}
         </p>
       </div>

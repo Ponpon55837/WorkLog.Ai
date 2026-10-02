@@ -46,7 +46,7 @@ async function saveSessionEditor(): Promise<void> {
   const form = useSessionEditorStore().sessionEditorForm;
   const summary = form.summary.trim();
   if (!summary) {
-    useSessionEditorStore().sessionEditorError = t("主摘要不能留白。");
+    useSessionEditorStore().sessionEditorError = t("session.theSummaryCannotBeEmpty");
     return;
   }
   const original = toForm(session);
@@ -59,7 +59,7 @@ async function saveSessionEditor(): Promise<void> {
     verificationStatus !== original.verificationStatus ||
     form.verificationSummary.trim() !== original.verificationSummary.trim();
   if (verificationChanged && verificationStatus === "not_supplied") {
-    useSessionEditorStore().sessionEditorError = t("請選擇 Verification 狀態（通過、失敗或未執行）才能填寫說明。");
+    useSessionEditorStore().sessionEditorError = t("session.chooseAVerificationStatusPassed");
     return;
   }
   if (!summaryChanged && changedSections.length === 0 && !verificationChanged) {
@@ -91,14 +91,14 @@ async function saveSessionEditor(): Promise<void> {
     }
     await useSessionsStore().saveSessionEdits(edits);
   } catch (error) {
-    useSessionEditorStore().sessionEditorError = errorMessage(error, t("無法更新 Session 摘要。"));
+    useSessionEditorStore().sessionEditorError = errorMessage(error, t("session.couldNotUpdateTheSession"));
     useSessionEditorStore().sessionEditorSaving = false;
     return;
   }
 
   useSessionEditorStore().sessionEditorSaving = false;
   closeSessionEditor();
-  useToast().showToast(t("Session 已更新。"));
+  useToast().showToast(t("session.sessionUpdated"));
 }
 
 export function useSessionEditor() {

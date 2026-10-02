@@ -19,9 +19,7 @@ export const useAppStore = defineStore("app", () => {
 
   const appHealth = computed<ApiHealth | null>(() => healthQuery.data.value ?? null);
   const appHealthError = computed(() =>
-    healthQuery.error.value
-      ? errorMessage(healthQuery.error.value, t("無法載入 Work Intelligence，請確認本機 API 是否已啟動。"))
-      : null,
+    healthQuery.error.value ? errorMessage(healthQuery.error.value, t("common.couldNotLoadWorkIntelligence")) : null,
   );
 
   async function loadHealth(): Promise<void> {

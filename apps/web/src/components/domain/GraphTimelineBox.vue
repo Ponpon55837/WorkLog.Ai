@@ -87,20 +87,20 @@ const MAX_DETAIL_ROWS = 10;
 /** Zoom levels tried when looking for the first one where single Sessions fit. */
 const DETAIL_WIDTHS = [DETAIL_MIN_DAY_WIDTH, 96, 192, 384, 768, MAX_DAY_WIDTH];
 const rangeOptions: { value: TimelineRange; label: string }[] = [
-  { value: "7", label: t("最近 7 天") },
-  { value: "30", label: t("最近 30 天") },
-  { value: "90", label: t("最近 90 天") },
-  { value: "365", label: t("最近一年") },
+  { value: "7", label: t("graph.last7Days") },
+  { value: "30", label: t("graph.last30Days") },
+  { value: "90", label: t("graph.last90Days") },
+  { value: "365", label: t("graph.lastYear") },
 ];
 const viewOptions: { value: TimelineView; label: string }[] = [
-  { value: "chart", label: t("圖表") },
-  { value: "list", label: t("清單") },
+  { value: "chart", label: t("common.diagram") },
+  { value: "list", label: t("common.list") },
 ];
 const eventLabels: Record<TimelineKnowledgeEventKind, string> = {
-  created: t("Knowledge 建立"),
-  confirmed: t("Knowledge 被確認"),
-  contradicted: t("Knowledge 被推翻"),
-  superseded: t("Knowledge 被取代"),
+  created: t("graph.knowledgeCreated"),
+  confirmed: t("graph.knowledgeConfirmed"),
+  contradicted: t("graph.knowledgeContradicted"),
+  superseded: t("graph.knowledgeSuperseded"),
 };
 
 const timelineStore = useTimelineStore();
@@ -120,7 +120,7 @@ let pendingAnchor: number | undefined;
 
 const view = computed<TimelineView>(() => (narrow.value ? "list" : chosenView.value));
 const projectOptions = computed(() => [
-  { value: "", label: t("所有記錄中專案") },
+  { value: "", label: t("common.allTrackedProjects") },
   ...props.projects.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const rangeStart = computed(() => (timeline.value ? Date.parse(`${timeline.value.from}T00:00:00`) : 0));
@@ -327,16 +327,16 @@ function columnSegments(lane: Lane, bucket: DayBucket): Array<{ key: string; y: 
 function bucketLabel(lane: Lane, bucket: DayBucket): string {
   const date = new Date(bucket.day);
   const parts = [
-    t("通過 {passed}", { passed: bucket.passed }),
-    t("失敗 {failed}", { failed: bucket.failed }),
-    t("其他 {other}", { other: bucket.other }),
+    t("graph.passed", { passed: bucket.passed }),
+    t("graph.failedCount", { failed: bucket.failed }),
+    t("graph.other", { other: bucket.other }),
   ];
-  return t("{name}，{month}/{day}：{total} 筆 Session（{breakdown}），放大這一天", {
+  return t("graph.sessionsZoomInToThis", {
     name: lane.name,
     month: date.getMonth() + 1,
     day: date.getDate(),
     total: bucket.total,
-    breakdown: parts.join(t("、")),
+    breakdown: parts.join(t("common.listSeparator")),
   });
 }
 
@@ -355,8 +355,8 @@ function barY(lane: Lane, bar: PackedSpan<SessionBar>): number {
 function sessionLabel(session: TimelineSession): string {
   const status = verificationStatus[session.verificationStatus].label;
   const end = formatDate(session.completedAt);
-  if (!session.startedAt) return t("{title}，{end}，驗證：{status}", { title: session.title, end, status });
-  return t("{title}，{start} 至 {end}，驗證：{status}", {
+  if (!session.startedAt) return t("graph.verification", { title: session.title, end, status });
+  return t("graph.toVerification", {
     title: session.title,
     start: formatDate(session.startedAt),
     end,
@@ -365,7 +365,7 @@ function sessionLabel(session: TimelineSession): string {
 }
 
 function openSession(sessionId: string): void {
-  void sessionsStore.openSessionDetail(sessionId, t("無法載入時間軸上的 Session。"));
+  void sessionsStore.openSessionDetail(sessionId, t("graph.couldNotLoadTheSessionOnTheTimeline"));
 }
 
 function onScroll(): void {
@@ -448,55 +448,58 @@ onBeforeUnmount(() => {
 <template>
   <UiBox class="timeline" sticky-header data-testid="graph-timeline">
     <template #header>
-      <UiBoxTitle :icon="CalendarRange" :title="t('時間軸')" :count="timeline?.sessions.length ?? 0" />
+      <UiBoxTitle :icon="CalendarRange" :title="t('graph.timeline')" :count="timeline?.sessions.length ?? 0" />
       <div class="timeline__tools">
         <UiSelect
           v-model="projectId"
           :options="projectOptions"
           :icon="FolderGit2"
           size="sm"
-          :label="t('選擇時間軸專案範圍')"
+          :label="t('graph.chooseTimelineProjectScope')"
         />
-        <UiSelect v-model="range" :options="rangeOptions" size="sm" :label="t('選擇時間軸期間')" />
-        <UiSegmentedControl v-if="!narrow" v-model="chosenView" :options="viewOptions" :label="t('時間軸檢視方式')" />
+        <UiSelect v-model="range" :options="rangeOptions" size="sm" :label="t('graph.chooseTimelinePeriod')" />
+        <UiSegmentedControl
+          v-if="!narrow"
+          v-model="chosenView"
+          :options="viewOptions"
+          :label="t('graph.timelineView')"
+        />
         <template v-if="view === 'chart'">
           <UiIconButton
             :icon="ZoomOut"
-            :label="t('縮小時間軸')"
+            :label="t('graph.zoomOutTimeline')"
             :disabled="dayWidth <= MIN_DAY_WIDTH"
             @click="zoomTo(dayWidth / 2)"
           />
           <UiIconButton
             :icon="ZoomIn"
-            :label="t('放大時間軸')"
+            :label="t('graph.zoomTimeline')"
             :disabled="dayWidth >= MAX_DAY_WIDTH"
             @click="zoomTo(dayWidth * 2)"
           />
-          <UiIconButton :icon="Maximize2" :label="t('顯示整個期間')" @click="fitRange" />
+          <UiIconButton :icon="Maximize2" :label="t('graph.showWholePeriod')" @click="fitRange" />
         </template>
       </div>
     </template>
 
     <UiFlash v-if="timelineError" tone="danger">{{ timelineError }}</UiFlash>
-    <UiFlash v-else-if="timeline?.truncated" tone="attention">{{
-      t("這段期間的 Session 超過 2,000 筆，只顯示最新的部分；請縮小期間或選擇單一專案。")
-    }}</UiFlash>
-    <UiSkeleton v-if="timelineLoading && !timeline" variant="card" :count="2" :label="t('正在載入時間軸…')" />
+    <UiFlash v-else-if="timeline?.truncated" tone="attention">{{ t("graph.thisPeriodHasMoreThan") }}</UiFlash>
+    <UiSkeleton v-if="timelineLoading && !timeline" variant="card" :count="2" :label="t('graph.loadingTheTimeline')" />
     <UiEmptyState
       v-else-if="isEmpty"
       :icon="CalendarRange"
-      :title="t('這段期間沒有紀錄')"
-      :description="t('換一個期間或專案；Session 完成後會出現在時間軸上。')"
+      :title="t('graph.noRecordsInThisPeriod')"
+      :description="t('graph.tryAnotherPeriodOrProject')"
     />
 
     <template v-else-if="timeline">
       <p v-if="view === 'chart'" class="timeline__legend" aria-hidden="true">
-        <span><i class="timeline__swatch timeline__swatch--passed" />{{ t("驗證通過") }}</span>
-        <span><i class="timeline__swatch timeline__swatch--failed" />{{ t("驗證失敗") }}</span>
-        <span><i class="timeline__swatch timeline__swatch--other" />{{ t("未執行或未提供") }}</span>
-        <span>{{ t("◆ Knowledge 事件") }}</span>
-        <span v-if="detailed">{{ t("弧線＝Session 關聯（虛線為一般相關）") }}</span>
-        <span v-else>{{ t("每根長條是一天的 Session 數，點一下放大那一天") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--passed" />{{ t("graph.verificationPassed") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--failed" />{{ t("graph.verificationFailed") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--other" />{{ t("graph.notRunOrNotProvided") }}</span>
+        <span>{{ t("graph.knowledgeEvent") }}</span>
+        <span v-if="detailed">{{ t("graph.arcsSessionLinksDashedRelated") }}</span>
+        <span v-else>{{ t("graph.eachBarIsOneDay") }}</span>
       </p>
       <div
         v-show="view === 'chart'"
@@ -504,7 +507,7 @@ onBeforeUnmount(() => {
         class="timeline__viewport"
         tabindex="0"
         role="region"
-        :aria-label="t('時間軸圖表，可左右捲動；同樣的內容可切換成清單檢視')"
+        :aria-label="t('graph.timelineChartScrollsHorizontallyThe')"
         @scroll.passive="onScroll"
       >
         <svg ref="chart" :width="chartWidth" :height="chartHeight" class="timeline__chart">
@@ -525,7 +528,7 @@ onBeforeUnmount(() => {
             >
               <title>
                 {{
-                  t("{kind}：{title}（{date}）", {
+                  t("graph.knowledgeEventTooltip", {
                     kind: eventLabels[event.kind],
                     title: event.title,
                     date: formatDate(event.at),
@@ -606,10 +609,10 @@ onBeforeUnmount(() => {
           </caption>
           <thead>
             <tr>
-              <th scope="col">{{ t("時間") }}</th>
-              <th scope="col">{{ t("專案") }}</th>
-              <th scope="col">{{ t("類型") }}</th>
-              <th scope="col">{{ t("內容") }}</th>
+              <th scope="col">{{ t("graph.time") }}</th>
+              <th scope="col">{{ t("common.project") }}</th>
+              <th scope="col">{{ t("common.kind") }}</th>
+              <th scope="col">{{ t("common.body") }}</th>
             </tr>
           </thead>
           <tbody>

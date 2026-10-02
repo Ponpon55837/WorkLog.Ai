@@ -45,15 +45,15 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
           direction: item.comparison.direction,
           text:
             item.comparison.direction === 'flat'
-              ? t('與上期相同')
-              : t('{value} vs 上期', { value: Math.abs(item.comparison.delta) }),
+              ? t('reports.sameAsPreviousPeriod')
+              : t('reports.vsPreviousPeriod', { value: Math.abs(item.comparison.delta) }),
         }"
         :foot="item.foot"
       />
       <UiStatCard
-        label="Verification"
+        :label="t('labels.verification')"
         :value="verificationCounts.passed"
-        :suffix="t('/ {sessions} 通過', { sessions: report.totals.sessions })"
+        :suffix="t('reports.passed', { sessions: report.totals.sessions })"
       >
         <VerificationBreakdown :counts="verificationCounts" />
       </UiStatCard>
@@ -61,9 +61,9 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
     <ReportPeriodBreakdown :report="report" @open="openSession" @show-all="emit('show-all')" />
     <UiBox padded>
       <template #header>
-        <UiBoxTitle eyebrow="Period summary" :title="t('這段時間發生了什麼')" />
+        <UiBoxTitle eyebrow="Period summary" :title="t('reports.whatHappenedInThisPeriod')" />
         <span class="reports__muted">{{
-          t("比較期間 {from} – {to}", { from: report.previousRange.from, to: report.previousRange.to })
+          t("reports.comparisonPeriod", { from: report.previousRange.from, to: report.previousRange.to })
         }}</span>
       </template>
       <p class="reports__summary">{{ formatReadableSummary(report.periodSummary) }}</p>

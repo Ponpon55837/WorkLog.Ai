@@ -55,7 +55,7 @@ export const useProjectsStore = defineStore("projects", () => {
   const projectDeletionAuditsLoading = computed(() => projectDeletionAuditsQuery.isLoading.value);
   const projectDeletionAuditsError = computed(() =>
     projectDeletionAuditsQuery.error.value
-      ? errorMessage(projectDeletionAuditsQuery.error.value, t("無法載入刪除紀錄。"))
+      ? errorMessage(projectDeletionAuditsQuery.error.value, t("projects.couldNotLoadDeletionHistorySentence"))
       : null,
   );
 
@@ -169,12 +169,12 @@ export const useProjectsStore = defineStore("projects", () => {
         return { path: result.path, name: result.name };
       }
       if (result.outcome === "folder_pick_busy") {
-        showToast(t("已經有一個選擇資料夾視窗開著，請先在那個視窗完成選擇。"));
+        showToast(t("projects.aFolderPickerIsAlready"));
       } else if (result.outcome === "folder_pick_unavailable") {
-        showToast(t("這台電腦無法開啟選擇資料夾視窗，請直接輸入路徑。"), "danger");
+        showToast(t("projects.thisComputerCannotOpenA"), "danger");
       }
     } catch (error) {
-      showToast(errorMessage(error, t("無法開啟選擇資料夾視窗。")), "danger");
+      showToast(errorMessage(error, t("projects.couldNotOpenTheFolder")), "danger");
     }
     return null;
   }
@@ -182,16 +182,16 @@ export const useProjectsStore = defineStore("projects", () => {
   async function addProject(input: ProjectInput): Promise<boolean> {
     const { showToast } = useToast();
     if (!input.name.trim() || !input.rootPath.trim()) {
-      showToast(t("請填寫專案名稱與根目錄。"), "danger");
+      showToast(t("projects.enterAProjectNameAnd"), "danger");
       return false;
     }
 
     try {
       await addProjectMutation.mutateAsync(input);
-      showToast(t("專案已加入 registry；目前仍是未註冊狀態。請明確切換為記錄中。"), "success");
+      showToast(t("projects.theProjectWasAddedTo"), "success");
       return true;
     } catch (error) {
-      showToast(errorMessage(error, t("加入專案失敗。")), "danger");
+      showToast(errorMessage(error, t("projects.couldNotAddTheProject")), "danger");
       return false;
     }
   }
@@ -205,20 +205,21 @@ export const useProjectsStore = defineStore("projects", () => {
     if (
       status === "tracked" &&
       !(await confirmAction({
-        title: t("將「{name}」切換為記錄中？", { name: project.name }),
-        message: t(
-          "切換後，Agent 可以在這個專案讀取 handoff、Git／worktree 與 source 並保存工作紀錄。其他狀態會安靜略過所有讀取。",
-        ),
-        confirmLabel: t("開始記錄"),
+        title: t("projects.switchToTracked", { name: project.name }),
+        message: t("projects.onceTrackedTheAgentCan"),
+        confirmLabel: t("projects.startTracking"),
       }))
     ) {
       return;
     }
     try {
       const updated = await updateProjectStatusMutation.mutateAsync({ projectId: project.id, status });
-      showToast(t("{name}：{value}", { name: updated.name, value: statusLabels[updated.status] }), "success");
+      showToast(
+        t("projects.projectStatusChanged", { name: updated.name, value: statusLabels[updated.status] }),
+        "success",
+      );
     } catch (error) {
-      showToast(errorMessage(error, t("更新專案狀態失敗。")), "danger");
+      showToast(errorMessage(error, t("projects.couldNotUpdateTheProject")), "danger");
     }
   }
 
@@ -232,13 +233,13 @@ export const useProjectsStore = defineStore("projects", () => {
       });
       showToast(
         repositoryUrl.trim()
-          ? t("已設定 {name} 的儲存庫網址。", { name: project.name })
-          : t("已移除 {name} 的儲存庫網址。", { name: project.name }),
+          ? t("projects.setTheRepositoryUrlOf", { name: project.name })
+          : t("projects.removedTheRepositoryUrlOf", { name: project.name }),
         "success",
       );
       return true;
     } catch (error) {
-      showToast(errorMessage(error, t("更新儲存庫網址失敗。")), "danger");
+      showToast(errorMessage(error, t("projects.couldNotUpdateTheRepository")), "danger");
       return false;
     }
   }
@@ -251,11 +252,9 @@ export const useProjectsStore = defineStore("projects", () => {
     const confirmedTrackedScope =
       project.status === "tracked" &&
       (await confirmAction({
-        title: t("重新指定「{name}」的位置？", { name: project.name }),
-        message: t(
-          "這個專案目前正在記錄。更改位置會改變 Agent 可讀取的資料夾範圍，並同步更新已保存 handoff 的來源路徑。",
-        ),
-        confirmLabel: t("確認重新指定"),
+        title: t("projects.relocateConfirm", { name: project.name }),
+        message: t("projects.thisProjectIsBeingTracked"),
+        confirmLabel: t("projects.confirmNewLocation"),
       }));
     if (project.status === "tracked" && !confirmedTrackedScope) return;
 
@@ -265,9 +264,9 @@ export const useProjectsStore = defineStore("projects", () => {
         rootPath: selected.path,
         confirmedTrackedScope,
       });
-      showToast(t("{name} 的位置已更新。", { name: updated.name }), "success");
+      showToast(t("projects.locationOfUpdated", { name: updated.name }), "success");
     } catch (error) {
-      showToast(errorMessage(error, t("重新指定專案位置失敗。")), "danger");
+      showToast(errorMessage(error, t("projects.couldNotRelocateTheProject")), "danger");
     }
   }
 
@@ -279,12 +278,12 @@ export const useProjectsStore = defineStore("projects", () => {
     try {
       const result = await deleteProjectMutation.mutateAsync({ projectId: project.id, confirmationName });
       showToast(
-        t("專案已永久刪除；刪除前資料庫備份：{backupFileName}", { backupFileName: result.backupFileName }),
+        t("projects.projectPermanentlyDeletedPreDeletion", { backupFileName: result.backupFileName }),
         "success",
       );
       return { projectName: project.name, backupFileName: result.backupFileName };
     } catch (error) {
-      showToast(errorMessage(error, t("刪除作業未完成；請確認 API 與資料庫狀態後再試。")), "danger");
+      showToast(errorMessage(error, t("projects.theDeletionDidNotFinish")), "danger");
       return null;
     }
   }

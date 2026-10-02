@@ -78,12 +78,12 @@ export const useDashboardStore = defineStore("dashboard", () => {
         request,
         title:
           request.status === "failed"
-            ? t("{period}報告 AI 整理未完成", { period: reportPeriodLabels[request.period] })
-            : t("{period}報告待 Agent 整理", { period: reportPeriodLabels[request.period] }),
-        meta: t("Report synthesis · {from} – {to} · {project} · {count} 個來源 Session", {
+            ? t("dashboard.reportAiSynthesisDidNot", { period: reportPeriodLabels[request.period] })
+            : t("dashboard.reportAwaitingAgentSynthesis", { period: reportPeriodLabels[request.period] }),
+        meta: t("dashboard.reportSynthesisSourceSessions", {
           from: request.range.from,
           to: request.range.to,
-          project: request.projectName ?? t("所有記錄中專案"),
+          project: request.projectName ?? t("common.allTrackedProjects"),
           count: request.sourceSessionIds.length,
         }),
       }));
@@ -95,8 +95,8 @@ export const useDashboardStore = defineStore("dashboard", () => {
       items.push({
         kind: "backfill",
         request: backfill,
-        title: t("Session metadata 待 Agent 回補"),
-        meta: t("Metadata backfill · 只回寫已確認的 changed files 與 verification"),
+        title: t("dashboard.sessionMetadataAwaitingAgentBackfill"),
+        meta: t("dashboard.metadataBackfillWritesBackOnly"),
       });
     }
     return items;

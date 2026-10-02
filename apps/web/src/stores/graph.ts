@@ -11,9 +11,9 @@ import { t } from "../i18n";
 export type GraphNodeFilter = GraphNode["kind"] | "all";
 
 export const graphLoadPresetOptions = [
-  { value: "180", label: "180 節點 / 360 關係", maxNodes: 180, maxEdges: 360 },
-  { value: "300", label: "300 節點 / 720 關係", maxNodes: 300, maxEdges: 720 },
-  { value: "500", label: "500 節點 / 1,000 關係", maxNodes: 500, maxEdges: 1_000 },
+  { value: "180", label: "graph.preset180", maxNodes: 180, maxEdges: 360 },
+  { value: "300", label: "graph.preset300", maxNodes: 300, maxEdges: 720 },
+  { value: "500", label: "graph.preset500", maxNodes: 500, maxEdges: 1_000 },
 ] as const;
 
 function graphPreset(value: string) {
@@ -123,8 +123,8 @@ export const useGraphStore = defineStore("graph", () => {
 
   const graphError = computed(() => {
     if (graphRequestError.value) return graphRequestError.value;
-    if (graphQuery.error.value) return errorMessage(graphQuery.error.value, t("無法載入工作圖譜。"));
-    if (graphPageQuery.error.value) return errorMessage(graphPageQuery.error.value, t("無法載入工作圖譜。"));
+    if (graphQuery.error.value) return errorMessage(graphQuery.error.value, t("graph.couldNotLoadTheWork"));
+    if (graphPageQuery.error.value) return errorMessage(graphPageQuery.error.value, t("graph.couldNotLoadTheWork"));
     const firstPage = graphQuery.data.value;
     if (firstPage?.outcome === "skipped") return firstPage.reason;
     const currentPage = graphPageQuery.data.value;
@@ -151,7 +151,7 @@ export const useGraphStore = defineStore("graph", () => {
   );
   const graphPathLoading = computed(() => graphPathQuery.isLoading.value);
   const graphPathError = computed(() => {
-    if (graphPathQuery.error.value) return errorMessage(graphPathQuery.error.value, t("無法找出兩個節點的關聯。"));
+    if (graphPathQuery.error.value) return errorMessage(graphPathQuery.error.value, t("graph.couldNotFindAPath"));
     const result = graphPathQuery.data.value;
     return result?.outcome === "skipped" ? result.reason : "";
   });
@@ -185,7 +185,7 @@ export const useGraphStore = defineStore("graph", () => {
       await graphQuery.refetch(true);
     } catch (error) {
       if (!useApi().isAbortError(error)) {
-        graphRequestError.value = errorMessage(error, t("無法載入工作圖譜。"));
+        graphRequestError.value = errorMessage(error, t("graph.couldNotLoadTheWork"));
       }
     }
   }
@@ -193,7 +193,7 @@ export const useGraphStore = defineStore("graph", () => {
   async function loadMoreGraph(): Promise<void> {
     const cursor = graph.value?.nextCursor;
     if (!cursor) {
-      useToast().showToast(t("圖譜已載入完成。"));
+      useToast().showToast(t("graph.theGraphFinishedLoading"));
       return;
     }
 
@@ -211,7 +211,7 @@ export const useGraphStore = defineStore("graph", () => {
       graphExtraPages.value = [...graphExtraPages.value, result.data];
     } catch (error) {
       if (generation === graphGeneration.value && !useApi().isAbortError(error)) {
-        graphRequestError.value = errorMessage(error, t("無法載入工作圖譜。"));
+        graphRequestError.value = errorMessage(error, t("graph.couldNotLoadTheWork"));
       }
     }
   }

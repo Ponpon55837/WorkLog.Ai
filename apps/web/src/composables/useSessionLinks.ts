@@ -47,7 +47,7 @@ async function saveLink(): Promise<void> {
     return;
   }
   if (!targetId) {
-    useSessionLinkDialogStore().linkActionError = t("請先選擇要關聯的 Session。");
+    useSessionLinkDialogStore().linkActionError = t("session.chooseASessionToLink");
     return;
   }
   const reverse = useSessionLinkDialogStore().linkDirection === "continued_by";
@@ -60,24 +60,24 @@ async function saveLink(): Promise<void> {
       relation: useSessionLinkDialogStore().linkDirection === "related" ? "related" : "continues",
     });
     if (result.outcome !== "session_link_updated") {
-      throw new Error(result.outcome === "not_found" ? t("找不到這筆 Session。") : result.reason);
+      throw new Error(result.outcome === "not_found" ? t("session.sessionNotFound") : result.reason);
     }
   } catch (error) {
-    useSessionLinkDialogStore().linkActionError = errorMessage(error, t("無法建立關聯。"));
+    useSessionLinkDialogStore().linkActionError = errorMessage(error, t("session.couldNotCreateTheLink"));
     useSessionLinkDialogStore().linkSaving = false;
     return;
   }
   useSessionLinkDialogStore().linkSaving = false;
   useSessionLinkDialogStore().linkSource = null;
   useSessionsStore().closeLinkCandidates();
-  afterLinkChange(t("已建立 Session 關聯。"));
+  afterLinkChange(t("session.sessionLinkCreated"));
 }
 
 async function removeLink(sessionId: string, relatedSessionId: string, relatedTitle: string): Promise<void> {
   const confirmed = await confirmAction({
-    title: t("移除這個關聯？"),
-    message: t("只移除與「{relatedTitle}」的關聯，兩筆 Session 本身都不受影響。", { relatedTitle }),
-    confirmLabel: t("移除"),
+    title: t("session.removeThisLink"),
+    message: t("session.onlyTheLinkToIs", { relatedTitle }),
+    confirmLabel: t("common.remove"),
     danger: true,
   });
   if (!confirmed) {
@@ -86,13 +86,13 @@ async function removeLink(sessionId: string, relatedSessionId: string, relatedTi
   try {
     const result = await useSessionsStore().unlinkSessions({ sessionId, relatedSessionId });
     if (result.outcome !== "session_link_updated") {
-      throw new Error(result.outcome === "not_found" ? t("找不到這筆 Session。") : result.reason);
+      throw new Error(result.outcome === "not_found" ? t("session.sessionNotFound") : result.reason);
     }
   } catch (error) {
-    useToast().showToast(errorMessage(error, t("無法移除關聯。")), "danger");
+    useToast().showToast(errorMessage(error, t("session.couldNotRemoveTheLink")), "danger");
     return;
   }
-  afterLinkChange(t("已移除 Session 關聯。"));
+  afterLinkChange(t("session.sessionLinkRemoved"));
 }
 
 export function useSessionLinks() {

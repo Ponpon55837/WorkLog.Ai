@@ -13,9 +13,9 @@ const open = computed(() => Boolean(pending.value));
   <UiDialog :open="open" :title="pending?.title ?? ''" size="sm" @close="settle(false)">
     <p v-if="pending?.message" class="ui-confirm__message">{{ pending.message }}</p>
     <template #footer>
-      <UiButton autofocus @click="settle(false)">{{ pending?.cancelLabel ?? t("取消") }}</UiButton>
+      <UiButton autofocus @click="settle(false)">{{ pending?.cancelLabel ?? t("common.cancel") }}</UiButton>
       <UiButton :variant="pending?.danger ? 'danger' : 'primary'" @click="settle(true)">{{
-        pending?.confirmLabel ?? t("確認")
+        pending?.confirmLabel ?? t("common.confirm")
       }}</UiButton>
     </template>
   </UiDialog>

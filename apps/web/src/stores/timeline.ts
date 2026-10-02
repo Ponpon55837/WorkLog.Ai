@@ -38,9 +38,9 @@ export const useTimelineStore = defineStore("timeline", () => {
   const timeline = computed(() => (query.data.value?.outcome === "timeline" ? query.data.value : null));
   const timelineLoading = computed(() => query.isLoading.value);
   const timelineError = computed(() => {
-    if (query.error.value) return errorMessage(query.error.value, t("無法載入時間軸。"));
+    if (query.error.value) return errorMessage(query.error.value, t("graph.couldNotLoadTheTimeline"));
     const result = query.data.value;
-    return result?.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : "";
+    return result?.outcome === "skipped" ? (result.reason ?? t("common.trackingIsNotEnabledFor")) : "";
   });
 
   function setActive(active: boolean): void {

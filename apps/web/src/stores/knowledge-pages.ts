@@ -35,9 +35,9 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   const pagesLoading = computed(() => listQuery.isLoading.value);
   const pagesLoaded = computed(() => listQuery.data.value !== undefined);
   const pagesError = computed(() => {
-    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("無法載入知識頁。"));
+    if (listQuery.error.value) return errorMessage(listQuery.error.value, t("knowledge.couldNotLoadKnowledgePages"));
     const result = listQuery.data.value;
-    return result?.outcome === "skipped" ? (result.reason ?? t("此專案目前未啟用記錄。")) : "";
+    return result?.outcome === "skipped" ? (result.reason ?? t("common.trackingIsNotEnabledFor")) : "";
   });
   const newDataCount = computed(() => pages.value.filter((page) => page.status === "has_new_data").length);
   const openPage = computed(() => {
@@ -53,7 +53,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   );
   const versionsLoading = computed(() => versionsQuery.isLoading.value);
   const versionsError = computed(() =>
-    versionsQuery.error.value ? errorMessage(versionsQuery.error.value, t("無法載入知識頁版本。")) : "",
+    versionsQuery.error.value ? errorMessage(versionsQuery.error.value, t("knowledge.couldNotLoadKnowledgePage")) : "",
   );
 
   async function invalidatePages(): Promise<void> {

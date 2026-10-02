@@ -4,7 +4,7 @@ export function useClipboard(): {
 } {
   async function copyText(value: string): Promise<void> {
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      throw new Error(t("目前瀏覽器不允許使用剪貼簿 API，請手動複製文字。"));
+      throw new Error(t("ui.thisBrowserDoesNotAllow"));
     }
     await navigator.clipboard.writeText(value);
   }

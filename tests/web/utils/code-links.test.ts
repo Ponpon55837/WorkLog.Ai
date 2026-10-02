@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { commitUrl, editorFileUrl, pathInsideProject } from "../../../apps/web/src/utils/code-links.js";
+import {
+  commitUrl,
+  editorFileUrl,
+  editorProtocolLabels,
+  pathInsideProject,
+} from "../../../apps/web/src/utils/code-links.js";
+import { locale, t } from "../../../apps/web/src/i18n/index.js";
 
 describe("pathInsideProject", () => {
   it("joins project-relative and absolute paths under the root", () => {
@@ -60,5 +66,16 @@ describe("commitUrl", () => {
     expect(commitUrl("https://github.com/owner/repo", "abc/../../x")).toBeUndefined();
     expect(commitUrl(undefined, "abcdef1")).toBeUndefined();
     expect(commitUrl("https://github.com/owner/repo", undefined)).toBeUndefined();
+  });
+});
+
+describe("editorProtocolLabels", () => {
+  it("translates the no-editor choice and keeps product names as they are", () => {
+    expect(editorProtocolLabels.none).toBe(t("labels.none"));
+    locale.value = "en-US";
+    expect(editorProtocolLabels.none).toBe(t("labels.none"));
+    expect(editorProtocolLabels.vscode).toBe("VS Code");
+    expect(editorProtocolLabels.cursor).toBe("Cursor");
+    locale.value = "zh-TW";
   });
 });

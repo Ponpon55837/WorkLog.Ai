@@ -31,7 +31,7 @@ const body = ref<HTMLElement | null>(null);
 const session = computed(() => selectedDetail.value?.session);
 
 function copyLink(): void {
-  void useToast().copyWithToast(window.location.href, t("已複製 Session 連結。"));
+  void useToast().copyWithToast(window.location.href, t("session.sessionLinkCopied"));
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -85,7 +85,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 <template>
   <UiSidePanel
     :open="Boolean(selectedDetail)"
-    :label="t('Session 詳情')"
+    :label="t('session.sessionDetails')"
     :width="760"
     storage-key="session"
     @close="closeSessionDetail"
@@ -116,7 +116,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
     <template #footer>
       <div class="session-panel__footer">
-        <span><kbd>J</kbd> / <kbd>K</kbd> {{ t("切換上下筆 ·") }} <kbd>Esc</kbd> {{ t("關閉") }}</span>
+        <span><kbd>J</kbd> / <kbd>K</kbd> {{ t("session.previousNext") }} <kbd>Esc</kbd> {{ t("common.close") }}</span>
         <span v-if="position.index >= 0">{{ position.index + 1 }} / {{ position.total }}</span>
       </div>
     </template>

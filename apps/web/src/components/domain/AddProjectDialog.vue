@@ -46,33 +46,31 @@ async function pickFolder(): Promise<void> {
 <template>
   <UiDialog
     :open="open"
-    :title="t('加入專案')"
-    :description="t('Registry 只存在中央 SQLite，不會把設定檔寫進專案 repo。加入後預設為未註冊。')"
+    :title="t('common.addProject')"
+    :description="t('projects.theRegistryLivesOnlyIn')"
     :busy="addingProject"
     @close="open = false"
   >
     <form id="add-project-form" class="add-project" data-testid="add-project-form" @submit.prevent="submit">
-      <UiField :label="t('專案名稱')"
-        ><UiTextInput v-model="projectName" :placeholder="t('例如：Assistant Console')" required autofocus
+      <UiField :label="t('projects.projectName')"
+        ><UiTextInput v-model="projectName" :placeholder="t('projects.eGAssistantConsole')" required autofocus
       /></UiField>
       <UiField
-        :label="t('Workspace 根目錄')"
-        :hint="
-          pickingFolder ? t('請在跳出的視窗中選擇資料夾。') : t('按「選擇資料夾」挑選專案 repo，或直接輸入絕對路徑。')
-        "
+        :label="t('projects.workspaceRoot')"
+        :hint="pickingFolder ? t('projects.chooseAFolderInThe') : t('projects.pressChooseFolderToPick')"
       >
         <div class="add-project__root">
           <UiTextInput v-model="projectRoot" placeholder="/Users/you/project" mono required />
           <UiButton :icon="FolderOpen" :loading="pickingFolder" @click.prevent="pickFolder">{{
-            t("選擇資料夾")
+            t("projects.chooseFolder")
           }}</UiButton>
         </div>
       </UiField>
     </form>
     <template #footer>
-      <UiButton :disabled="addingProject" @click="open = false">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="addingProject" @click="open = false">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="primary" type="submit" form="add-project-form" :loading="addingProject">{{
-        t("加入專案")
+        t("common.addProject")
       }}</UiButton>
     </template>
   </UiDialog>

@@ -30,8 +30,11 @@ const summary = computed(() =>
 </script>
 
 <template>
-  <UiMeter :segments="segments" :label="segments.map((segment) => `${segment.label} ${segment.value}`).join(t('，'))" />
-  <div class="verification-breakdown__foot">{{ summary || t("沒有失敗或缺漏") }}</div>
+  <UiMeter
+    :segments="segments"
+    :label="segments.map((segment) => `${segment.label} ${segment.value}`).join(t('session.comma'))"
+  />
+  <div class="verification-breakdown__foot">{{ summary || t("session.noFailuresOrGaps") }}</div>
 </template>
 
 <style scoped>

@@ -5,7 +5,7 @@ import { t } from "../../i18n";
 const props = withDefaults(defineProps<{ size?: number; label?: string }>(), { size: 16 });
 
 // Resolved here rather than in withDefaults so the default follows the current locale.
-const text = computed(() => props.label ?? t("載入中"));
+const text = computed(() => props.label ?? t("common.loading"));
 </script>
 
 <template>

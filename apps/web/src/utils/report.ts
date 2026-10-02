@@ -1,6 +1,6 @@
 import type { ReportPeriod, WorkReport } from "@work-intelligence/core";
 import { weekdayLabel } from "./format";
-import { t, tc } from "../i18n";
+import { t, type MessageKey } from "../i18n";
 
 export interface ReportBucket {
   key: string;
@@ -19,10 +19,14 @@ export interface ReportShare {
 /** How a report's trend points are grouped for the overview. */
 export type ReportBucketMode = "day" | "week" | "month" | "quarter";
 
-function bucketUnit(unit: string, title: string, eyebrow: string): { unit: string; title: string; eyebrow: string } {
+function bucketUnit(
+  unit: MessageKey,
+  title: MessageKey,
+  eyebrow: string,
+): { unit: string; title: string; eyebrow: string } {
   return {
     get unit() {
-      return tc("unit", unit);
+      return t(unit);
     },
     get title() {
       return t(title);
@@ -32,10 +36,10 @@ function bucketUnit(unit: string, title: string, eyebrow: string): { unit: strin
 }
 
 export const reportBucketUnits: Record<ReportBucketMode, { unit: string; title: string; eyebrow: string }> = {
-  day: bucketUnit("天", "每日分布", "By day"),
-  week: bucketUnit("週", "每週分布", "By week"),
-  month: bucketUnit("個月", "每月分布", "By month"),
-  quarter: bucketUnit("季", "每季分布", "By quarter"),
+  day: bucketUnit("reports.unit.days", "reports.byDay", "By day"),
+  week: bucketUnit("reports.unit.weeks", "reports.byWeek", "By week"),
+  month: bucketUnit("reports.unit.months", "reports.byMonth", "By month"),
+  quarter: bucketUnit("reports.unit.quarters", "reports.byQuarter", "By quarter"),
 };
 
 /**
@@ -113,8 +117,8 @@ export function buildReportBuckets(report: Pick<WorkReport, "period" | "trends" 
       week: first === last ? monthDay(first) : `${monthDay(first)}–${monthDay(last)}`,
       month: spansYears
         ? `${first.slice(0, 4)}/${first.slice(5, 7)}`
-        : t("{value} 月", { value: Number(first.slice(5, 7)) }),
-      quarter: t("{key} · {value}–{value2} 月", {
+        : t("reports.month", { value: Number(first.slice(5, 7)) }),
+      quarter: t("reports.months", {
         key: bucket.key,
         value: Number(first.slice(5, 7)),
         value2: Number(last.slice(5, 7)),

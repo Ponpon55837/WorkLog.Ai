@@ -24,7 +24,7 @@ export function createBackupsApi(client: ApiTransport): BackupsApi {
     },
 
     async exportDatabase(): Promise<{ blob: Blob; fileName: string }> {
-      const blob = await client.download("/api/export", {}, t("無法匯出資料，請確認 API 是否已啟動。"));
+      const blob = await client.download("/api/export", {}, t("api.couldNotExportDataCheck"));
       const fileName =
         "work-intelligence-export-" + new Date().toLocaleDateString("sv-SE").replace(/-/g, "") + ".sqlite";
       return { blob, fileName };

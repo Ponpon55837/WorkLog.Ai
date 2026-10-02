@@ -44,7 +44,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     enabled: false,
     query: () => {
       const input = importPreviewInput.value;
-      if (!input) throw new Error(t("請先選擇 Work Intelligence 匯出檔。"));
+      if (!input) throw new Error(t("projects.chooseAWorkIntelligenceExport"));
       return useApi().client.previewProjectDataImport(input);
     },
   });
@@ -75,7 +75,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   }
 
   function currentInput(): ProjectDataImportInput {
-    if (!importBundle.value) throw new Error(t("請先選擇 Work Intelligence 匯出檔。"));
+    if (!importBundle.value) throw new Error(t("projects.chooseAWorkIntelligenceExport"));
     const remap = currentRemaps();
     return {
       bundle: importBundle.value,
@@ -94,15 +94,15 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importRemaps.value = [];
     if (!file) return;
     if (file.size > MAX_PROJECT_IMPORT_BYTES) {
-      importError.value = t("匯入檔不可超過 50 MiB。");
+      importError.value = t("projects.importFilesCannotExceed50");
       return;
     }
     try {
       const parsedJson: unknown = JSON.parse(await file.text());
       const parsed = projectDataExportSchema.safeParse(parsedJson);
       if (!parsed.success) {
-        importError.value = t("匯出檔格式錯誤：{value}", {
-          value: parsed.error.issues[0]?.message ?? t("欄位驗證失敗。"),
+        importError.value = t("projects.theExportFileIsMalformed", {
+          value: parsed.error.issues[0]?.message ?? t("projects.fieldValidationFailed"),
         });
         return;
       }
@@ -111,7 +111,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       importFileName.value = file.name;
       await previewProjectDataImport();
     } catch (error) {
-      importError.value = errorMessage(error, t("無法讀取匯入檔。"));
+      importError.value = errorMessage(error, t("projects.couldNotReadTheImport"));
     }
   }
 
@@ -130,12 +130,12 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       const result = await importPreviewQuery.refetch(true);
       if (requestId !== importPreviewRequestId.value) return;
       if (result.status !== "success") {
-        throw result.error ?? new Error(t("無法預覽匯入資料。"));
+        throw result.error ?? new Error(t("projects.couldNotPreviewTheImport"));
       }
       importPreviewVisible.value = true;
     } catch (error) {
       if (requestId === importPreviewRequestId.value && !useApi().isAbortError(error)) {
-        importError.value = errorMessage(error, t("無法預覽匯入資料。"));
+        importError.value = errorMessage(error, t("projects.couldNotPreviewTheImport"));
       }
     } finally {
       if (requestId === importPreviewRequestId.value) importPreviewLoading.value = false;
@@ -179,12 +179,9 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     const skipped = countItems(preview.skipped);
     const conflicts = countItems(preview.conflicts);
     const confirmed = await confirmAction({
-      title: t("確認匯入專案資料"),
-      message: t(
-        "即將新增 {additions} 筆、略過 {skipped} 筆、保留衝突 {conflicts} 筆既有資料不變。新匯入的專案會先暫停記錄。",
-        { additions, skipped, conflicts },
-      ),
-      confirmLabel: t("匯入"),
+      title: t("projects.confirmProjectDataImport"),
+      message: t("projects.recordsWillBeAddedAnd", { additions, skipped, conflicts }),
+      confirmLabel: t("projects.import"),
     });
     if (!confirmed) return;
 
@@ -193,7 +190,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     try {
       const result = await importProjectDataMutation.mutateAsync(currentInput());
       useToast().showToast(
-        t("匯入完成：新增 {value} 筆、略過 {value2} 筆，衝突 {value3} 筆。", {
+        t("projects.importFinishedAddedSkippedIn", {
           value: countItems(result.additions),
           value2: countItems(result.skipped),
           value3: countItems(result.conflicts),
@@ -206,7 +203,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       importProjectId.value = "";
       importRemaps.value = [];
     } catch (error) {
-      importError.value = errorMessage(error, t("匯入專案資料失敗。"));
+      importError.value = errorMessage(error, t("projects.couldNotImportProjectData"));
     } finally {
       importApplying.value = false;
     }
@@ -278,11 +275,11 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     if (foundCandidates.length === 0) return;
 
     const confirmed = await confirmAction({
-      title: t("套用其他專案的位置？"),
-      message: t("其他 {length} 個專案也在新資料夾旁找到同名資料夾，要一起套用嗎？", {
+      title: t("projects.applyOtherProjectsLocations"),
+      message: t("projects.otherProjectsAlsoHaveA", {
         length: foundCandidates.length,
       }),
-      confirmLabel: t("一起套用"),
+      confirmLabel: t("projects.applyToAll"),
     });
     if (!confirmed) return;
 
@@ -301,9 +298,9 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       link.download = fileName;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      useToast().showToast(t("已匯出專案資料。檔案沒有加密，請妥善保管。"), "success");
+      useToast().showToast(t("projects.projectDataExportedTheFile"), "success");
     } catch (error) {
-      transferError.value = errorMessage(error, t("匯出專案資料失敗。"));
+      transferError.value = errorMessage(error, t("projects.couldNotExportProjectData"));
     } finally {
       portableExporting.value = false;
     }

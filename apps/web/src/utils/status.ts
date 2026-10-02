@@ -39,7 +39,7 @@ import type {
   SystemStatus,
 } from "@work-intelligence/core";
 import type { IconComponent, Tone } from "../components/ui/types";
-import { t, translatedRecord } from "../i18n";
+import { t, translatedRecord, type MessageKey } from "../i18n";
 
 /**
  * Single source of truth for status → tone/icon/label.
@@ -47,8 +47,8 @@ import { t, translatedRecord } from "../i18n";
  */
 export type StatusVisual = { tone: Tone; icon?: IconComponent; label: string };
 
-/** The label is a 繁體中文 source string translated on every read, so module-level maps follow the locale. */
-function visual(tone: Tone, icon: IconComponent | undefined, label: string): StatusVisual {
+/** The label is a message key translated on every read, so module-level maps follow the locale. */
+function visual(tone: Tone, icon: IconComponent | undefined, label: MessageKey): StatusVisual {
   return {
     tone,
     ...(icon ? { icon } : {}),
@@ -62,55 +62,55 @@ export type RequestStatus = ReportSynthesisRequest["status"] | MetadataBackfillR
 export type MetadataGapKind = "changed_files" | "verification_missing" | "verification_not_run";
 
 export const databaseInspectionStatus: Record<DatabaseInspectionState, StatusVisual> = {
-  ok: visual("success", CircleCheck, "正常"),
-  missing: visual("attention", CircleAlert, "不存在"),
-  unhealthy: visual("danger", CircleX, "異常"),
-  unreadable: visual("danger", CircleAlert, "無法讀取"),
+  ok: visual("success", CircleCheck, "status.healthy"),
+  missing: visual("attention", CircleAlert, "status.missing"),
+  unhealthy: visual("danger", CircleX, "status.unhealthy"),
+  unreadable: visual("danger", CircleAlert, "status.unreadable"),
 };
 
 export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisual {
-  if (status.restartRequired) return visual("attention", TriangleAlert, "需要重新連線");
-  if (!status.monitoringAvailable) return visual("attention", CircleAlert, "無法確認");
-  if (status.updateAvailable) return visual("accent", CircleAlert, "有新版可用");
-  if (status.activeProcesses === 0) return visual("neutral", CircleDashed, "尚無可監測連線");
-  return visual("success", CircleCheck, "目前版本");
+  if (status.restartRequired) return visual("attention", TriangleAlert, "status.reconnectNeeded");
+  if (!status.monitoringAvailable) return visual("attention", CircleAlert, "status.cannotConfirm");
+  if (status.updateAvailable) return visual("accent", CircleAlert, "status.updateAvailable");
+  if (status.activeProcesses === 0) return visual("neutral", CircleDashed, "status.noConnectionsToMonitorYet");
+  return visual("success", CircleCheck, "status.currentVersion");
 }
 
 export function userServiceStatusVisual(status: SystemStatus["userService"]): StatusVisual {
   if (status.state === "running" && status.enabled !== false) {
-    return visual("success", CircleCheck, "執行中");
+    return visual("success", CircleCheck, "status.running");
   }
   if (status.state === "not_installed") {
-    return visual("neutral", CircleDashed, "未安裝");
+    return visual("neutral", CircleDashed, "status.notInstalled");
   }
   if (status.state === "unsupported") {
-    return visual("neutral", CircleMinus, "不支援");
+    return visual("neutral", CircleMinus, "status.notSupported");
   }
   if (status.state === "stopped" && status.enabled === false) {
-    return visual("neutral", CircleMinus, "已停用");
+    return visual("neutral", CircleMinus, "status.disabled");
   }
-  return visual("attention", CircleAlert, "需檢查");
+  return visual("attention", CircleAlert, "status.needsChecking");
 }
 
 export function agentMcpRegistrationVisual(state: AgentMcpRegistrationState): StatusVisual {
-  if (state === "registered") return visual("success", CircleCheck, "已註冊");
-  if (state === "unknown") return visual("attention", CircleAlert, "無法確認");
-  return visual("attention", CircleDashed, "未註冊");
+  if (state === "registered") return visual("success", CircleCheck, "status.registered");
+  if (state === "unknown") return visual("attention", CircleAlert, "status.cannotConfirm");
+  return visual("attention", CircleDashed, "status.unregistered");
 }
 
 export const agentSkillCopyStatus: Record<AgentSkillCopyState, StatusVisual> = {
-  current: visual("success", CircleCheck, "最新"),
-  missing: visual("attention", CircleDashed, "未安裝"),
-  stale: visual("attention", Clock3, "需要更新"),
-  unreadable: visual("attention", CircleAlert, "無法確認"),
+  current: visual("success", CircleCheck, "common.upToDate"),
+  missing: visual("attention", CircleDashed, "status.notInstalled"),
+  stale: visual("attention", Clock3, "status.updateNeeded"),
+  unreadable: visual("attention", CircleAlert, "status.cannotConfirm"),
 };
 
 export const agentHookInstallStatus: Record<AgentHookInstallState, StatusVisual> = {
-  installed: visual("success", CircleCheck, "已安裝"),
-  stale: visual("attention", Clock3, "需要更新"),
-  missing: visual("attention", CircleDashed, "未安裝"),
-  disabled: visual("neutral", CircleMinus, "已停用"),
-  unknown: visual("attention", CircleAlert, "無法確認"),
+  installed: visual("success", CircleCheck, "status.installed"),
+  stale: visual("attention", Clock3, "status.updateNeeded"),
+  missing: visual("attention", CircleDashed, "status.notInstalled"),
+  disabled: visual("neutral", CircleMinus, "status.disabled"),
+  unknown: visual("attention", CircleAlert, "status.cannotConfirm"),
 };
 
 export interface AgentConnectionRow {
@@ -128,7 +128,12 @@ export interface AgentConnectionGroup {
 }
 
 function mcpRow(location: string, state: AgentMcpRegistrationState): AgentConnectionRow {
-  return { title: t("MCP 註冊"), location, status: agentMcpRegistrationVisual(state), ok: state === "registered" };
+  return {
+    title: t("status.mcpRegistration"),
+    location,
+    status: agentMcpRegistrationVisual(state),
+    ok: state === "registered",
+  };
 }
 
 function skillRow(title: string, location: string, state: AgentSkillCopyState): AgentConnectionRow {
@@ -137,7 +142,7 @@ function skillRow(title: string, location: string, state: AgentSkillCopyState): 
 
 function hookRow(location: string, state: AgentHookInstallState): AgentConnectionRow {
   return {
-    title: t("全域 hook"),
+    title: t("status.globalHook"),
     location,
     status: agentHookInstallStatus[state],
     ok: state === "installed" || state === "disabled",
@@ -152,8 +157,8 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
       rows: [
         mcpRow("CODEX_HOME/config.toml", agents.codex.mcpRegistered),
         skillRow("Skill", "~/.agents/skills/work-intelligence", agents.codex.canonicalSkill),
-        skillRow(t("相容 skill"), t("CODEX_HOME/skills/work-intelligence（舊版 Codex）"), agents.codex.legacySkill),
-        hookRow(t("CODEX_HOME/hooks.json · 保存提醒"), agents.codex.hook),
+        skillRow(t("status.compatibilitySkill"), t("status.codexHomeSkillsWorkIntelligence"), agents.codex.legacySkill),
+        hookRow(t("status.codexHomeHooksJsonSave"), agents.codex.hook),
       ],
     },
     {
@@ -161,107 +166,107 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
       rows: [
         mcpRow("~/.claude.json", agents.claudeCode.mcpRegistered),
         skillRow("Skill", "~/.claude/skills/work-intelligence", agents.claudeCode.skill),
-        hookRow(t("~/.claude/settings.json · 保存提醒"), agents.claudeCode.hook),
+        hookRow(t("status.claudeSettingsJsonSaveReminder"), agents.claudeCode.hook),
       ],
     },
   ];
 }
 
 export function onboardingStepStatusVisual(state: "complete" | "pending" | "checking" | "unknown"): StatusVisual {
-  if (state === "complete") return visual("success", CircleCheck, "已完成");
-  if (state === "checking") return visual("accent", LoaderCircle, "檢查中");
-  if (state === "unknown") return visual("attention", CircleAlert, "無法確認");
-  return visual("attention", CircleDashed, "待完成");
+  if (state === "complete") return visual("success", CircleCheck, "common.completedStatus");
+  if (state === "checking") return visual("accent", LoaderCircle, "status.checking");
+  if (state === "unknown") return visual("attention", CircleAlert, "status.cannotConfirm");
+  return visual("attention", CircleDashed, "status.toDo");
 }
 
 export function mcpReconnectStatusVisual(status: SystemStatus["mcp"]): StatusVisual {
-  if (status.restartRequired) return visual("attention", TriangleAlert, "需要重新連線");
-  if (!status.monitoringAvailable) return visual("attention", CircleAlert, "無法確認");
-  if (status.updateAvailable) return visual("accent", CircleAlert, "有新版可用");
-  if (status.activeProcesses === 0) return visual("attention", CircleAlert, "尚無可確認連線");
-  return visual("success", CircleCheck, "不需要重新連線");
+  if (status.restartRequired) return visual("attention", TriangleAlert, "status.reconnectNeeded");
+  if (!status.monitoringAvailable) return visual("attention", CircleAlert, "status.cannotConfirm");
+  if (status.updateAvailable) return visual("accent", CircleAlert, "status.updateAvailable");
+  if (status.activeProcesses === 0) return visual("attention", CircleAlert, "status.noConnectionsToConfirmYet");
+  return visual("success", CircleCheck, "status.noReconnectNeeded");
 }
 
 export const databaseMaintenanceStatus: Record<DatabaseMaintenanceStatus, StatusVisual> = {
-  running: visual("accent", LoaderCircle, "執行中"),
-  completed: visual("success", CircleCheck, "成功"),
-  failed: visual("danger", CircleX, "失敗"),
+  running: visual("accent", LoaderCircle, "status.running"),
+  completed: visual("success", CircleCheck, "status.succeeded"),
+  failed: visual("danger", CircleX, "common.failed"),
 };
 
 export const verificationStatus: Record<ReportVerificationStatus, StatusVisual> = {
-  passed: visual("success", CircleCheck, "通過"),
-  failed: visual("danger", CircleX, "失敗"),
-  not_run: visual("neutral", CircleMinus, "未執行"),
-  not_supplied: visual("attention", CircleDashed, "未回報"),
+  passed: visual("success", CircleCheck, "common.passed"),
+  failed: visual("danger", CircleX, "common.failed"),
+  not_run: visual("neutral", CircleMinus, "common.notRun"),
+  not_supplied: visual("attention", CircleDashed, "common.notReported"),
 };
 
 export const trackingStatus: Record<ProjectStatus, StatusVisual> = {
-  tracked: visual("success", FolderGit2, "記錄中"),
-  paused: visual("attention", Folder, "已暫停"),
-  ignored: visual("neutral", FolderX, "已忽略"),
-  unregistered: visual("neutral", Folder, "未註冊"),
+  tracked: visual("success", FolderGit2, "status.tracked"),
+  paused: visual("attention", Folder, "status.paused"),
+  ignored: visual("neutral", FolderX, "status.ignored"),
+  unregistered: visual("neutral", Folder, "status.unregistered"),
 };
 
 export const requestStatus: Record<RequestStatus, StatusVisual> = {
-  pending: visual("attention", CircleDashed, "待處理"),
-  processing: visual("accent", LoaderCircle, "處理中"),
-  completed: visual("done", Check, "已完成"),
-  failed: visual("danger", CircleX, "失敗"),
-  cancelled: visual("neutral", CircleSlash, "已取消"),
+  pending: visual("attention", CircleDashed, "common.pending"),
+  processing: visual("accent", LoaderCircle, "status.processing"),
+  completed: visual("done", Check, "common.completedStatus"),
+  failed: visual("danger", CircleX, "common.failed"),
+  cancelled: visual("neutral", CircleSlash, "common.cancelled"),
 };
 
 export const metadataGapStatus: Record<MetadataGapKind, StatusVisual> = {
-  changed_files: visual("attention", FileQuestion, "檔案 metadata 缺漏"),
-  verification_missing: visual("attention", CircleDashed, "Verification 未回報"),
-  verification_not_run: visual("neutral", CircleMinus, "明確未執行"),
+  changed_files: visual("attention", FileQuestion, "status.fileMetadataMissing"),
+  verification_missing: visual("attention", CircleDashed, "status.verificationNotReported"),
+  verification_not_run: visual("neutral", CircleMinus, "status.explicitlyNotRun"),
 };
 
 export const knowledgeStatusVisual: Record<KnowledgeStatus, StatusVisual> = {
-  active: visual("success", undefined, "使用中"),
-  archived: visual("neutral", undefined, "已封存"),
+  active: visual("success", undefined, "status.active"),
+  archived: visual("neutral", undefined, "status.archived"),
 };
 
 export const knowledgeKindVisual: Record<KnowledgeKind, StatusVisual> = {
-  decision: visual("accent", Scale, "技術決策"),
-  pattern: visual("done", Shapes, "可重用模式"),
-  gotcha: visual("attention", TriangleAlert, "注意事項"),
-  procedure: visual("success", ListOrdered, "操作流程"),
-  skill: visual("neutral", GraduationCap, "技能"),
+  decision: visual("accent", Scale, "status.technicalDecision"),
+  pattern: visual("done", Shapes, "status.reusablePattern"),
+  gotcha: visual("attention", TriangleAlert, "status.gotcha"),
+  procedure: visual("success", ListOrdered, "status.procedure"),
+  skill: visual("neutral", GraduationCap, "status.skill"),
 };
 
 export const outstandingCleanupRequestVisual: Record<OutstandingCleanupRequestStatus, StatusVisual> = {
-  pending: visual("attention", CircleDashed, "待 Agent 整理"),
-  awaiting_review: visual("done", CircleAlert, "待審核"),
-  completed: visual("done", Check, "整理結束"),
-  cancelled: visual("neutral", CircleSlash, "已取消"),
+  pending: visual("attention", CircleDashed, "status.awaitingAgent"),
+  awaiting_review: visual("done", CircleAlert, "status.awaitingReview"),
+  completed: visual("done", Check, "status.cleanupFinished"),
+  cancelled: visual("neutral", CircleSlash, "common.cancelled"),
 };
 
 export const outstandingCleanupProposalVisual: Record<OutstandingCleanupProposalStatus, StatusVisual> = {
-  pending: visual("attention", CircleDashed, "待審核"),
-  accepted: visual("success", Check, "已接受"),
-  rejected: visual("neutral", CircleSlash, "已拒絕"),
+  pending: visual("attention", CircleDashed, "status.awaitingReview"),
+  accepted: visual("success", Check, "status.accepted"),
+  rejected: visual("neutral", CircleSlash, "common.rejected"),
 };
 
 export const outstandingItemStatusVisual: Record<OutstandingItemStatus, StatusVisual> = {
-  pending: visual("attention", CircleDashed, "待處理"),
-  completed: visual("success", CircleCheck, "已完成"),
-  not_needed: visual("neutral", CircleMinus, "不再需要"),
+  pending: visual("attention", CircleDashed, "common.pending"),
+  completed: visual("success", CircleCheck, "common.completedStatus"),
+  not_needed: visual("neutral", CircleMinus, "common.noLongerNeeded"),
 };
 
 /** A standing Knowledge page: "missing" is a default page the project has not requested yet. */
 export const knowledgePageStatusVisual: Record<KnowledgePageStatus | "missing", StatusVisual> = {
-  missing: visual("neutral", CircleDashed, "尚未建立"),
-  empty: visual("accent", LoaderCircle, "等待 Agent 撰寫"),
-  fresh: visual("success", CircleCheck, "最新"),
-  has_new_data: visual("accent", Clock3, "有新資料"),
+  missing: visual("neutral", CircleDashed, "common.notCreatedYet"),
+  empty: visual("accent", LoaderCircle, "common.waitingForTheAgentTo"),
+  fresh: visual("success", CircleCheck, "common.upToDate"),
+  has_new_data: visual("accent", Clock3, "common.newDataAvailable"),
 };
 
 export const knowledgePageReviewReasonLabels: Record<KnowledgePageReviewReason, string> = translatedRecord({
-  source_updated_after_save: "來源 Session 在儲存後有修改",
-  source_voided_after_save: "來源 Session 在儲存後已作廢",
-  source_restored_after_save: "來源 Session 在儲存後已還原",
-  source_missing: "來源 Session 已不存在或無法存取",
-  source_state_unknown: "無法確認頁面儲存時的來源狀態",
+  source_updated_after_save: "status.theSourceSessionChangedAfter",
+  source_voided_after_save: "status.theSourceSessionWasVoided",
+  source_restored_after_save: "status.theSourceSessionWasRestored",
+  source_missing: "status.theSourceSessionNoLonger",
+  source_state_unknown: "status.cannotConfirmTheSourceStatus",
 });
 
 export const HOTSPOT_HIGH_FAILURE_RATE = 0.3;
@@ -269,18 +274,18 @@ export const HOTSPOT_HIGH_FAILURE_RATE = 0.3;
 /** Hotspot risk from the share of Sessions whose verification failed; the label carries the meaning, not the color. */
 export function hotspotRiskVisual(hotspot: { sessionCount: number; failedCount: number }): StatusVisual {
   const rate = hotspot.sessionCount > 0 ? hotspot.failedCount / hotspot.sessionCount : 0;
-  if (rate >= HOTSPOT_HIGH_FAILURE_RATE) return visual("danger", CircleX, "失敗比例高");
-  if (rate > 0) return visual("attention", TriangleAlert, "曾驗證失敗");
-  return visual("success", CircleCheck, "未曾失敗");
+  if (rate >= HOTSPOT_HIGH_FAILURE_RATE) return visual("danger", CircleX, "status.highFailureRate");
+  if (rate > 0) return visual("attention", TriangleAlert, "status.hasFailedVerification");
+  return visual("success", CircleCheck, "status.neverFailed");
 }
 
 /** Trust markers: stale is rule-based (later Sessions changed appliesTo paths); review follows a reported contradiction. */
 export const knowledgeTrustVisual = {
-  possiblyStale: visual("attention", Clock3, "可能過時"),
-  needsReview: visual("danger", CircleAlert, "需要檢視"),
+  possiblyStale: visual("attention", Clock3, "status.possiblyStale"),
+  needsReview: visual("danger", CircleAlert, "status.needsReview"),
 } satisfies Record<string, StatusVisual>;
 
-export const executionStatusVisual: StatusVisual = visual("neutral", undefined, "completed");
+export const executionStatusVisual: StatusVisual = visual("neutral", undefined, "status.executionCompleted");
 
 /** Missing verification is historical `not_supplied`, never `not_run`. */
 export function verificationOf(session: {

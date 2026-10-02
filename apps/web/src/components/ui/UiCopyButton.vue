@@ -20,10 +20,10 @@ const props = withDefaults(
 const copied = ref(false);
 
 // Defaults are resolved here, not in withDefaults, so they follow the current locale.
-const buttonLabel = computed(() => props.label ?? t("複製"));
+const buttonLabel = computed(() => props.label ?? t("ui.copy"));
 
 async function copy(): Promise<void> {
-  await useToast().copyWithToast(props.text, props.successMessage ?? t("已複製到剪貼簿。"));
+  await useToast().copyWithToast(props.text, props.successMessage ?? t("ui.copiedToClipboard"));
   copied.value = true;
   window.setTimeout(() => (copied.value = false), 1_500);
 }

@@ -30,7 +30,7 @@ const icon = computed(
       v-if="dismissible"
       type="button"
       class="ui-flash__close"
-      :aria-label="t('關閉提示')"
+      :aria-label="t('ui.dismiss')"
       @click="emit('dismiss')"
     >
       <X :size="16" :stroke-width="1.75" aria-hidden="true" />

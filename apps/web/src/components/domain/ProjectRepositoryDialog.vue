@@ -28,7 +28,7 @@ async function save(): Promise<void> {
   if (!project) return;
   const value = url.value.trim();
   if (value && !isSafeRepositoryUrl(value)) {
-    error.value = t("請輸入 https:// 開頭、不含帳號或 token 的網址。");
+    error.value = t("projects.enterAUrlThatStarts");
     return;
   }
   saving.value = true;
@@ -50,23 +50,21 @@ watch(
 <template>
   <UiDialog
     :open="Boolean(project)"
-    :title="t('儲存庫網址')"
-    :description="
-      t('{value} · Session 記錄了 commit 時，會連到這個儲存庫上的 commit 頁面。', { value: project?.name ?? '' })
-    "
+    :title="t('projects.repositoryUrl')"
+    :description="t('projects.whenASessionRecordsA', { value: project?.name ?? '' })"
     :busy="saving"
     @close="close"
   >
     <form id="project-repository-form" class="repository-form" @submit.prevent="save">
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
-      <UiField :label="t('網址')" :hint="t('只接受 https://，例如 https://github.com/owner/repo；留白代表移除。')">
+      <UiField :label="t('projects.url')" :hint="t('projects.onlyHttpsIsAcceptedE')">
         <UiTextInput v-model="url" :maxlength="500" mono autofocus placeholder="https://github.com/owner/repo" />
       </UiField>
     </form>
     <template #footer>
-      <UiButton :disabled="saving" @click="close">{{ t("取消") }}</UiButton>
+      <UiButton :disabled="saving" @click="close">{{ t("common.cancel") }}</UiButton>
       <UiButton variant="primary" type="submit" form="project-repository-form" :loading="saving">{{
-        t("儲存")
+        t("common.save")
       }}</UiButton>
     </template>
   </UiDialog>

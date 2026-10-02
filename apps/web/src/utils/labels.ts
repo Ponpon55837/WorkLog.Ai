@@ -39,47 +39,47 @@ export const knowledgeStatusLabels = labelsOf(knowledgeStatusVisual);
 export const outstandingItemStatusLabels: Record<OutstandingItemStatus, string> = labelsOf(outstandingItemStatusVisual);
 
 export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = translatedRecord({
-  automatic: "每日自動",
-  manual: "手動",
-  migration: "資料庫遷移前",
-  deletion: "專案刪除前",
-  maintenance: "資料維護前",
+  automatic: "labels.dailyAutomatic",
+  manual: "labels.manual",
+  migration: "labels.beforeDatabaseMigration",
+  deletion: "labels.beforeProjectDeletion",
+  maintenance: "labels.beforeDataMaintenance",
 });
 
 export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, string> = translatedRecord({
-  projects: "專案",
-  sessions: "Sessions",
-  workEvents: "工作事件",
-  rawSnapshots: "原始快照",
-  evidence: "Evidence",
-  knowledge: "Knowledge",
-  knowledgeAudit: "Knowledge 稽核紀錄",
-  voidAudit: "作廢稽核紀錄",
-  sessionVerificationUpdates: "Verification 更新",
-  sessionLinks: "Session 關聯",
-  knowledgeCandidateRequests: "Knowledge 候選請求",
-  knowledgeCandidates: "Knowledge 候選",
-  reportSynthesisRequests: "報告整理請求",
-  reportSummaries: "報告摘要",
-  metadataBackfillRequests: "Metadata 回補請求",
-  sessionSummaryUpdates: "Session 摘要更新",
-  sessionWorkSummaryUpdates: "WorkSummary 更新",
-  sessionDecisions: "Session 決策",
-  outstandingItems: "未結項",
-  outstandingCleanupRequests: "整理請求",
-  outstandingCleanupRequestItems: "整理項目快照",
-  outstandingCleanupSubmissions: "整理提交紀錄",
-  outstandingCleanupProposals: "整理建議",
-  outstandingCleanupProposalEvidence: "整理建議證據",
-  outstandingItemEvents: "未結項狀態稽核紀錄",
-  knowledgePages: "知識頁",
-  knowledgePageVersions: "知識頁版本",
-  knowledgeFeedback: "Knowledge 確認與推翻紀錄",
-  sessionDiagrams: "Session 圖表",
-  searchChunks: "搜尋索引片段",
-  searchFts: "全文搜尋索引",
-  searchPaths: "搜尋路徑",
-  searchDirty: "待更新搜尋索引項目",
+  projects: "common.project",
+  sessions: "labels.sessions",
+  workEvents: "labels.workEvents",
+  rawSnapshots: "labels.rawSnapshots",
+  evidence: "labels.evidenceTerm",
+  knowledge: "labels.knowledge",
+  knowledgeAudit: "labels.knowledgeAuditRecords",
+  voidAudit: "labels.voidAuditRecords",
+  sessionVerificationUpdates: "labels.verificationUpdates",
+  sessionLinks: "labels.sessionLinks",
+  knowledgeCandidateRequests: "labels.knowledgeCandidateRequests",
+  knowledgeCandidates: "common.knowledgeCandidates",
+  reportSynthesisRequests: "labels.reportSynthesisRequests",
+  reportSummaries: "labels.reportSummaries",
+  metadataBackfillRequests: "labels.metadataBackfillRequests",
+  sessionSummaryUpdates: "labels.sessionSummaryUpdates",
+  sessionWorkSummaryUpdates: "labels.worksummaryUpdates",
+  sessionDecisions: "labels.sessionDecisions",
+  outstandingItems: "common.openItems",
+  outstandingCleanupRequests: "common.cleanupRequests",
+  outstandingCleanupRequestItems: "labels.cleanupItemSnapshots",
+  outstandingCleanupSubmissions: "labels.cleanupSubmissions",
+  outstandingCleanupProposals: "common.suggestions",
+  outstandingCleanupProposalEvidence: "labels.suggestionEvidence",
+  outstandingItemEvents: "labels.openItemStatusAuditRecords",
+  knowledgePages: "common.knowledgePages",
+  knowledgePageVersions: "labels.knowledgePageVersions",
+  knowledgeFeedback: "labels.knowledgeConfirmationAndContradictionRecords",
+  sessionDiagrams: "labels.sessionDiagrams",
+  searchChunks: "labels.searchIndexChunks",
+  searchFts: "labels.fullTextSearchIndex",
+  searchPaths: "labels.searchPaths",
+  searchDirty: "labels.pendingSearchIndexItems",
 });
 
 export const listPageSizeOptions = [
@@ -92,26 +92,26 @@ export const listPageSizeOptions = [
 export type ListPageSize = (typeof listPageSizeOptions)[number]["value"];
 
 export const sessionLinkDirectionLabels: Record<SessionLinkDirection, string> = translatedRecord({
-  continues: "接續自",
-  continued_by: "後續",
-  related: "相關",
+  continues: "labels.continues",
+  continued_by: "labels.continuedBy",
+  related: "labels.relatedOption",
 });
 
 /** Link choices from the open Session's point of view; `reverse` stores the link on the other Session. */
 export const sessionLinkOptions = translatedOptions(
   [
-    { value: "continues", label: "這筆接續所選 Session（例如實作接續規劃）" },
-    { value: "continued_by", label: "所選 Session 接續這筆" },
-    { value: "related", label: "一般相關" },
+    { value: "continues", label: "labels.thisSessionContinuesTheSelected" },
+    { value: "continued_by", label: "labels.theSelectedSessionContinuesThis" },
+    { value: "related", label: "labels.related" },
   ] as const satisfies ReadonlyArray<{ value: SessionLinkDirection; label: string }>,
   "label",
 );
 
 export const voidedFilterOptions: Array<{ value: SessionVoidedFilter; label: string }> = translatedOptions(
   [
-    { value: "exclude", label: "不含已作廢" },
-    { value: "include", label: "包含已作廢" },
-    { value: "only", label: "只看已作廢" },
+    { value: "exclude", label: "labels.excludeVoided" },
+    { value: "include", label: "labels.includeVoided" },
+    { value: "only", label: "labels.voidedOnly" },
   ],
   "label",
 );
@@ -123,12 +123,12 @@ export function pageSizeToQuery(value: ListPageSize): number {
 export type ReportTab = "overview" | "work" | "trend" | "risks" | "raw" | "evidence";
 export const reportTabOptions: Array<{ id: ReportTab; label: string; shortLabel: string }> = translatedOptions(
   [
-    { id: "overview", label: "報告總覽", shortLabel: "總覽" },
-    { id: "work", label: "完成與驗證", shortLabel: "工作" },
-    { id: "trend", label: "趨勢與專案", shortLabel: "趨勢" },
-    { id: "risks", label: "風險與決策", shortLabel: "風險" },
-    { id: "raw", label: "原始工作紀錄", shortLabel: "原始紀錄" },
-    { id: "evidence", label: "來源證據", shortLabel: "證據" },
+    { id: "overview", label: "labels.reportOverview", shortLabel: "common.overview" },
+    { id: "work", label: "labels.outcomesAndVerification", shortLabel: "labels.work" },
+    { id: "trend", label: "labels.trendsAndProjects", shortLabel: "labels.trend" },
+    { id: "risks", label: "labels.risksAndDecisions", shortLabel: "labels.risks" },
+    { id: "raw", label: "common.rawWorkRecords", shortLabel: "labels.rawRecords" },
+    { id: "evidence", label: "common.sourceEvidence", shortLabel: "labels.evidence" },
   ],
   "label",
   "shortLabel",
@@ -136,95 +136,95 @@ export const reportTabOptions: Array<{ id: ReportTab; label: string; shortLabel:
 
 export const workSummarySectionLabels: Array<{ key: keyof WorkSummarySections; label: string }> = translatedOptions(
   [
-    { key: "outcomes", label: "成果" },
-    { key: "scope", label: "範圍" },
-    { key: "decisions", label: "決策" },
-    { key: "verification", label: "驗證" },
-    { key: "nextSteps", label: "狀態／未結項" },
+    { key: "outcomes", label: "labels.outcomes" },
+    { key: "scope", label: "labels.scope" },
+    { key: "decisions", label: "common.decisions" },
+    { key: "verification", label: "common.verification" },
+    { key: "nextSteps", label: "common.statusOpenItems" },
   ],
   "label",
 );
 
 export const statusDescriptions: Record<ProjectStatus, string> = translatedRecord({
-  unregistered: "尚未授權，所有 ingest 都會略過。",
-  tracked: "明確授權；可讀取 handoff 並保存工作紀錄。",
-  paused: "暫停記錄，既有資料保留。",
-  ignored: "明確排除，不會建立新的工作資料。",
+  unregistered: "labels.notAuthorizedEveryIngestIs",
+  tracked: "labels.explicitlyAuthorizedHandoffsCanBe",
+  paused: "labels.trackingPausedExistingDataIs",
+  ignored: "labels.explicitlyExcludedNoNewWork",
 });
 
 export const changedFileSourceLabels: Record<ChangedFileSource, string> = translatedRecord({
-  agent: "Agent",
-  handoff: "Handoff",
-  git: "Git",
-  worktree: "工作樹",
+  agent: "labels.agent",
+  handoff: "labels.handoff",
+  git: "labels.git",
+  worktree: "labels.worktree",
 });
 
 export const changedFileChangeStatusLabels: Record<ChangedFileChangeStatus, string> = translatedRecord({
-  added: "新增",
-  modified: "修改",
-  deleted: "刪除",
-  renamed: "重新命名",
+  added: "common.added",
+  modified: "labels.modified",
+  deleted: "labels.delete",
+  renamed: "labels.renamed",
 });
 
 export const reportPeriodLabels: Record<WorkReportPeriod, string> = translatedRecord({
-  day: "今日",
-  week: "本週",
-  month: "本月",
-  quarter: "本季",
-  year: "本年",
-  custom: "自訂期間",
+  day: "labels.today",
+  week: "labels.thisWeek",
+  month: "common.thisMonth",
+  quarter: "labels.thisQuarter",
+  year: "labels.thisYear",
+  custom: "common.customRange",
 });
 
 export const insightKindLabels: Record<ReportInsightKind, string> = translatedRecord({
-  verification: "Verification",
-  metadata: "Metadata",
-  event: "Event",
-  hotspot: "熱點",
+  verification: "labels.verification",
+  metadata: "labels.metadata",
+  event: "labels.event",
+  hotspot: "common.hotspots",
 });
 
 export const evidenceKindLabels: Record<ReportEvidence["kind"], string> = translatedRecord({
-  handoff: "Handoff",
-  verification: "Verification",
-  "changed-files": "Changed files",
-  event: "Event",
-  attached: "Attached evidence",
+  handoff: "labels.handoff",
+  verification: "labels.verification",
+  "changed-files": "labels.changedFilesTerm",
+  event: "labels.event",
+  attached: "labels.attachedEvidenceTerm",
 });
 
 export const knowledgeAuditActionLabels: Record<KnowledgeAuditAction, string> = translatedRecord({
-  created: "建立",
-  updated: "更新",
-  archived: "封存",
-  restored: "恢復",
+  created: "labels.create",
+  updated: "labels.updated",
+  archived: "common.archive",
+  restored: "labels.restored",
 });
 
 export const graphNodeKindOrder = ["project", "session", "knowledge", "evidence", "file"] as const;
 
 export const graphNodeKindLabels: Record<GraphNode["kind"], string> = translatedRecord({
-  project: "專案",
-  session: "工作 Session",
-  knowledge: "工作知識",
-  evidence: "證據",
-  file: "變更檔案",
+  project: "common.project",
+  session: "labels.workSession",
+  knowledge: "common.workKnowledge",
+  evidence: "labels.evidence",
+  file: "labels.changedFiles",
 });
 
 export const graphEdgeKindLabels = translatedRecord({
-  contains: "包含",
-  changed_file: "變更檔案",
-  has_knowledge: "關聯知識",
-  has_evidence: "附加證據",
-  session_link: "Session 關聯",
-  co_changed: "一起修改（推導）",
+  contains: "labels.contains",
+  changed_file: "labels.changedFiles",
+  has_knowledge: "labels.linkedKnowledge",
+  has_evidence: "labels.attachedEvidence",
+  session_link: "labels.sessionLinks",
+  co_changed: "labels.changedTogetherDerived",
 });
 
 export const graphMetadataLabels: Record<string, string> = translatedRecord({
-  rootPath: "專案根目錄",
-  status: "記錄狀態",
-  completedAt: "完成時間",
-  changedFilesCount: "變更檔案",
-  verification: "Verification",
-  kind: "資料類型",
-  tagsCount: "標籤數量",
-  reference: "參考位置",
-  capturedAt: "擷取時間",
-  path: "檔案路徑",
+  rootPath: "labels.projectRoot",
+  status: "labels.trackingStatus",
+  completedAt: "common.completed",
+  changedFilesCount: "labels.changedFiles",
+  verification: "labels.verification",
+  kind: "labels.dataType",
+  tagsCount: "labels.tagCount",
+  reference: "labels.reference",
+  capturedAt: "labels.captured",
+  path: "labels.filePath",
 });

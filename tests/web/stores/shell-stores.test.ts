@@ -5,6 +5,8 @@ import { useAppStore } from "../../../apps/web/src/stores/app.js";
 import { useCommandPaletteStore } from "../../../apps/web/src/stores/command-palette.js";
 import { useDashboardStore } from "../../../apps/web/src/stores/dashboard.js";
 import { useSystemStatusStore } from "../../../apps/web/src/stores/system-status.js";
+import { t } from "../../../apps/web/src/i18n/index.js";
+import { reportPeriodLabels } from "../../../apps/web/src/utils/labels.js";
 
 let harness: ReturnType<typeof createStoreHarness>;
 let systemStatusError: boolean;
@@ -91,7 +93,7 @@ describe("shell stores", () => {
         : shellResponder({ url, method: "GET", body: undefined, signal: undefined }),
     );
     await expect(store.loadHealth()).rejects.toMatchObject({ code: "service_unavailable" });
-    expect(store.appHealthError).toBe("服務暫時無法使用，請稍後再試。");
+    expect(store.appHealthError).toBe(t("format.theServiceIsTemporarilyUnavailable"));
 
     let aborted = false;
     harness.setResponder(
@@ -172,8 +174,12 @@ describe("shell stores", () => {
     expect(store.weekReport).toBeNull();
     expect(store.weekVerification).toEqual({ total: 0, passed: 0, failed: 0, notRun: 0, notSupplied: 0 });
     expect(store.inbox.map(({ kind }) => kind)).toEqual(["synthesis", "synthesis", "backfill"]);
-    expect(store.inbox[0]?.title).toContain("待 Agent 整理");
-    expect(store.inbox[1]?.title).toContain("AI 整理未完成");
+    expect(store.inbox[0]?.title).toContain(t("status.awaitingAgent"));
+    const failed = store.inbox[1];
+    expect(failed?.kind === "synthesis" && failed.title).toBe(
+      failed?.kind === "synthesis" &&
+        t("dashboard.reportAiSynthesisDidNot", { period: reportPeriodLabels[failed.request.period] }),
+    );
     expect(store.inbox[2]?.title).toContain("metadata");
   });
 
@@ -189,12 +195,12 @@ describe("shell stores", () => {
   it("maps system diagnostic state and stops its page query when the page closes", async () => {
     const store = useSystemStatusStore();
     expect(store.systemStatus).toBeNull();
-    expect(store.databaseStatus.label).toBe("無法讀取");
+    expect(store.databaseStatus.label).toBe(t("status.unreadable"));
     store.setSystemStatusActive(true);
     await store.refreshSystemStatus();
     expect(store.systemStatus?.database.state).toBe("missing");
     expect(store.systemStatus?.mcp.monitoringAvailable).toBe(true);
-    expect(store.databaseStatus.label).toBe("不存在");
+    expect(store.databaseStatus.label).toBe(t("status.missing"));
     expect(harness.count("/api/system/status")).toBe(1);
 
     let aborted = false;
@@ -222,6 +228,6 @@ describe("shell stores", () => {
     systemStatusError = true;
     harness.setResponder(shellResponder);
     await store.refreshSystemStatus();
-    expect(store.systemStatusError).toBe("服務暫時無法使用，請稍後再試。");
+    expect(store.systemStatusError).toBe(t("format.theServiceIsTemporarilyUnavailable"));
   });
 });

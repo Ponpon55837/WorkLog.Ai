@@ -49,17 +49,17 @@ const statusFilter = ref("all");
 const projectsById = computed(() => new Map(props.projects.map((project) => [project.id, project])));
 const selectedProject = computed(() => projectsById.value.get(projectId.value));
 const projectItems = computed(() => [
-  { value: "", label: t("所有記錄中專案") },
+  { value: "", label: t("common.allTrackedProjects") },
   ...props.projects.map((project) => ({ value: project.id, label: project.name })),
 ]);
 const statusItems = [
-  { value: "all", label: t("所有狀態") },
-  { value: "has_new_data", label: t("有新資料") },
-  { value: "needs_review", label: t("來源需要核對") },
-  { value: "fresh", label: t("最新") },
-  { value: "empty", label: t("等待 Agent 撰寫") },
-  { value: "missing", label: t("尚未建立") },
-  { value: "update_requested", label: t("已要求更新") },
+  { value: "all", label: t("knowledge.allStatuses") },
+  { value: "has_new_data", label: t("common.newDataAvailable") },
+  { value: "needs_review", label: t("knowledge.sourcesNeedChecking") },
+  { value: "fresh", label: t("common.upToDate") },
+  { value: "empty", label: t("common.waitingForTheAgentTo") },
+  { value: "missing", label: t("common.notCreatedYet") },
+  { value: "update_requested", label: t("knowledge.updateRequested") },
 ];
 const rows = computed<PageRow[]>(() => {
   const saved: PageRow[] = pages.value.map((page) => ({
@@ -95,22 +95,19 @@ const filteredRows = computed(() =>
 async function requestUpdate(row: PageRow): Promise<void> {
   const project = projectsById.value.get(row.projectId);
   if (!project) {
-    showToast(t("找不到這個知識頁所屬的記錄中專案。"), "danger");
+    showToast(t("knowledge.couldNotFindTheTrackedProjectThisKnowledge"), "danger");
     return;
   }
   requesting.value = row.key;
   try {
     const result = await pagesStore.requestUpdate({ projectRoot: project.rootPath, slug: row.slug });
     if (result.outcome === "knowledge_page_update_requested") {
-      showToast(
-        t("已要求 Agent 更新「{title}」。在 Claude Code 或 Codex 說「更新知識頁」即可。", { title: row.title }),
-        "success",
-      );
+      showToast(t("knowledge.requestedAnUpdateOfSay", { title: row.title }), "success");
     } else {
-      showToast(result.reason ?? t("無法要求更新這個知識頁。"), "danger");
+      showToast(result.reason ?? t("knowledge.couldNotRequestAnUpdate"), "danger");
     }
   } catch (error) {
-    showToast(errorMessage(error, t("無法要求更新這個知識頁。")), "danger");
+    showToast(errorMessage(error, t("knowledge.couldNotRequestAnUpdate")), "danger");
   } finally {
     requesting.value = "";
   }
@@ -120,49 +117,47 @@ async function requestUpdate(row: PageRow): Promise<void> {
 <template>
   <UiBox class="knowledge-pages" sticky-header data-testid="knowledge-pages">
     <template #header>
-      <UiBoxTitle :icon="BookMarked" :title="t('{length} 個知識頁', { length: pages.length })" />
+      <UiBoxTitle :icon="BookMarked" :title="t('knowledge.knowledgePages', { length: pages.length })" />
       <div class="knowledge-pages__tools">
         <UiActionMenu
           v-model="projectId"
-          :label="t('專案')"
-          :header="t('篩選專案')"
+          :label="t('common.project')"
+          :header="t('common.filterProject')"
           default-value=""
           align="end"
           :items="projectItems"
         />
         <UiActionMenu
           v-model="statusFilter"
-          :label="t('狀態')"
-          :header="t('篩選狀態')"
+          :label="t('common.status')"
+          :header="t('knowledge.filterStatus')"
           default-value="all"
           align="end"
           :items="statusItems"
         />
         <UiButton size="sm" :icon="FilePlus2" :disabled="!selectedProject" @click="requestDialogOpen = true">{{
-          t("自訂知識頁")
+          t("knowledge.customKnowledgePage")
         }}</UiButton>
       </div>
     </template>
 
     <UiFlash v-if="pagesError" tone="danger">{{ pagesError }}</UiFlash>
     <UiFlash v-if="waitingCount > 0" tone="accent">
-      {{
-        t("{waitingCount} 個知識頁等待 Agent 更新。在 Claude Code 或 Codex 說「更新知識頁」即可。", { waitingCount })
-      }}
+      {{ t("knowledge.knowledgePagesAreWaitingFor", { waitingCount }) }}
     </UiFlash>
 
-    <UiSkeleton v-if="pagesLoading && rows.length === 0" :count="3" :label="t('正在載入知識頁…')" />
+    <UiSkeleton v-if="pagesLoading && rows.length === 0" :count="3" :label="t('knowledge.loadingKnowledgePages')" />
     <UiEmptyState
       v-else-if="rows.length === 0"
       :icon="BookMarked"
-      :title="t('還沒有知識頁')"
-      :description="t('選擇一個專案，就能要求 Agent 從已記錄的 Session 撰寫架構與慣例、進行中的工作與常見陷阱。')"
+      :title="t('knowledge.noKnowledgePagesYet')"
+      :description="t('knowledge.chooseAProjectToHave')"
     />
     <UiEmptyState
       v-else-if="filteredRows.length === 0"
       :icon="BookMarked"
-      :title="t('沒有符合狀態的知識頁')"
-      :description="t('調整狀態篩選，即可查看其他知識頁。')"
+      :title="t('knowledge.noKnowledgePagesWithThis')"
+      :description="t('knowledge.changeTheStatusFilterTo')"
     />
     <VirtualList
       v-else
@@ -172,7 +167,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
       fit-viewport-to-panel
       fill-available-space
       :estimate-item-height="96"
-      :label="t('知識頁清單')"
+      :label="t('knowledge.knowledgePageList')"
     >
       <template #default="{ item: row }">
         <UiBoxRow tag="article" data-testid="knowledge-page-row">
@@ -180,43 +175,43 @@ async function requestUpdate(row: PageRow): Promise<void> {
           <template #title>{{ row.title }}</template>
           <template #labels>
             <StatusLabel :status="knowledgePageStatusVisual[row.page?.status ?? 'missing']" />
-            <UiLabel v-if="row.page?.needsReview" tone="danger">{{ t("來源需要核對") }}</UiLabel>
+            <UiLabel v-if="row.page?.needsReview" tone="danger">{{ t("knowledge.sourcesNeedChecking") }}</UiLabel>
             <UiLabel v-if="row.page && row.page.version > 0">{{
-              t("第 {version} 版", { version: row.page.version })
+              t("knowledge.version", { version: row.page.version })
             }}</UiLabel>
-            <UiLabel v-if="row.page?.updateRequestedAt" tone="accent">{{ t("已要求更新") }}</UiLabel>
+            <UiLabel v-if="row.page?.updateRequestedAt" tone="accent">{{ t("knowledge.updateRequested") }}</UiLabel>
           </template>
           <template #meta>
             <span v-if="!selectedProject"
-              >{{ t("{value} ·", { value: projectsById.get(row.projectId)?.name ?? t("未知專案") }) }}
+              >{{ `${projectsById.get(row.projectId)?.name ?? t("knowledge.unknownProject")} ·` }}
             </span>
             <span>{{ row.question }}</span>
             <span v-if="row.page?.sourcedThrough">
-              {{ t("· 更新於 {value}", { value: formatRelative(row.page.sourcedThrough) }) }}</span
+              {{ t("knowledge.updated", { value: formatRelative(row.page.sourcedThrough) }) }}</span
             >
             <time
               v-if="row.page && (row.page.checkedThrough?.completedAt || row.page.sourcedThrough)"
               :datetime="row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough"
               :title="
-                t('已檢查至 {value}', {
+                t('knowledge.checkedThroughValue', {
                   value: formatDate(row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough!),
                 })
               "
             >
               {{
-                t("· 已檢查至 {value}", {
+                t("knowledge.checkedThrough", {
                   value: formatRelative(row.page.checkedThrough?.completedAt ?? row.page.sourcedThrough!),
                 })
               }}
             </time>
-            <span v-else-if="row.page"> {{ t("· 尚未檢查") }}</span>
+            <span v-else-if="row.page"> {{ t("knowledge.notCheckedYet") }}</span>
             <span v-if="row.page && row.page.newSessionCount > 0">
-              {{ t("· 有 {newSessionCount} 筆新 Session 待評估", { newSessionCount: row.page.newSessionCount }) }}</span
+              {{ t("knowledge.newSessionsToAssess", { newSessionCount: row.page.newSessionCount }) }}</span
             >
             <span v-if="row.page?.needsReview">
               {{
-                t("· 需核對段落：{value}", {
-                  value: row.page.reviewSections?.map((section) => section.heading).join(t("、")),
+                t("knowledge.sectionsToCheck", {
+                  value: row.page.reviewSections?.map((section) => section.heading).join(t("common.listSeparator")),
                 })
               }}</span
             >
@@ -228,7 +223,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
                 size="sm"
                 :icon="Eye"
                 @click="pagesStore.showPage(row.page.id)"
-                >{{ t("查看") }}</UiButton
+                >{{ t("knowledge.view") }}</UiButton
               >
               <UiButton
                 size="sm"
@@ -236,7 +231,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
                 :icon="RefreshCw"
                 :loading="requesting === row.key"
                 @click="requestUpdate(row)"
-                >{{ row.page ? t("要求更新") : t("要求建立") }}</UiButton
+                >{{ row.page ? t("knowledge.requestUpdate") : t("knowledge.requestCreation") }}</UiButton
               >
             </div>
           </template>

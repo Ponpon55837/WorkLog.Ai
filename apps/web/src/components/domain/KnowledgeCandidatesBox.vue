@@ -52,14 +52,16 @@ useActiveRequestWatch({
     const project = request.projectName;
     if (status === "failed") {
       showToast(
-        project ? t("{project} 的 Knowledge 候選整理沒有完成。", { project }) : t("Knowledge 候選整理沒有完成。"),
+        project
+          ? t("knowledge.knowledgeCandidateSynthesisForDid", { project })
+          : t("knowledge.knowledgeCandidateSynthesisDidNot"),
         "danger",
       );
     } else if (!status) {
       showToast(
         project
-          ? t("Agent 已送出 {project} 的 Knowledge 候選，請檢視。", { project })
-          : t("Agent 已送出 Knowledge 候選，請檢視。"),
+          ? t("knowledge.theAgentSubmittedKnowledgeCandidatesForPleaseReview", { project })
+          : t("knowledge.theAgentSubmittedKnowledgeCandidates"),
         "success",
       );
     }
@@ -81,11 +83,15 @@ function onRequest(projectId: string): void {
     <template #header>
       <UiBoxTitle
         :icon="Sparkles"
-        :title="candidatesLoaded ? t('{length} 筆 Knowledge 候選', { length: candidates.length }) : t('Knowledge 候選')"
+        :title="
+          candidatesLoaded
+            ? t('knowledge.knowledgeCandidates', { length: candidates.length })
+            : t('common.knowledgeCandidates')
+        "
       />
       <UiActionMenu
-        :label="t('整理候選')"
-        :header="t('選擇要整理的專案')"
+        :label="t('knowledge.synthesizeCandidates')"
+        :header="t('knowledge.chooseAProjectToSynthesize')"
         variant="button"
         size="sm"
         align="end"
@@ -100,30 +106,27 @@ function onRequest(projectId: string): void {
       :tone="request.status === 'failed' ? 'attention' : 'accent'"
     >
       {{
-        t(
-          "{projectName} 有 {length} 筆 Session 等待 Agent 整理{value}。在 Claude Code 或 Codex 說「整理 Knowledge 候選」即可。",
-          {
-            projectName: request.projectName,
-            length: request.sourceSessionIds.length,
-            value: request.status === "failed" ? t("（上次中斷，可重新處理）") : "",
-          },
-        )
+        t("knowledge.hasSessionsWaitingForThe", {
+          projectName: request.projectName,
+          length: request.sourceSessionIds.length,
+          value: request.status === "failed" ? t("knowledge.interruptedLastTimeCanBe") : "",
+        })
       }}
     </UiFlash>
-    <UiSkeleton v-if="!candidatesLoaded && !candidatesError" :count="2" :label="t('正在載入 Knowledge 候選…')" />
+    <UiSkeleton
+      v-if="!candidatesLoaded && !candidatesError"
+      :count="2"
+      :label="t('knowledge.loadingKnowledgeCandidates')"
+    />
     <p v-else-if="candidates.length === 0 && openCandidateRequests.length === 0" class="knowledge-candidates__empty">
-      {{
-        t(
-          "沒有待審核的候選。按「整理候選」選擇專案，再請 Agent 從已記錄的 Session 整理；候選要在這裡接受後才會成為 Knowledge。",
-        )
-      }}
+      {{ t("knowledge.noCandidatesToReviewPress") }}
     </p>
     <VirtualList
       :items="candidates"
       :enabled="candidates.length > 2"
       :estimate-item-height="220"
       max-height="min(56vh, 560px)"
-      :label="t('Knowledge 候選清單')"
+      :label="t('knowledge.knowledgeCandidateList')"
     >
       <template #default="{ item: candidate }">
         <UiBoxRow tag="article" data-testid="knowledge-candidate">
@@ -141,11 +144,11 @@ function onRequest(projectId: string): void {
           </template>
           <template #meta>
             <span v-if="candidate.projectName">{{ candidate.projectName }} · </span>
-            <span>{{ t("提出於 {value}", { value: formatRelative(candidate.createdAt) }) }}</span>
+            <span>{{ t("knowledge.proposed", { value: formatRelative(candidate.createdAt) }) }}</span>
           </template>
           <p class="knowledge-candidates__body">{{ candidate.body }}</p>
           <p class="knowledge-candidates__rationale">
-            {{ t("依據：{rationale}", { rationale: candidate.rationale }) }}
+            {{ t("knowledge.rationale", { rationale: candidate.rationale }) }}
           </p>
           <div class="knowledge-candidates__chips">
             <UiButton
@@ -154,22 +157,24 @@ function onRequest(projectId: string): void {
               variant="invisible"
               :icon="ExternalLink"
               @click="openSessionDetail(candidate.sessionId)"
-              >{{ candidate.sessionTitle ?? t("來源 Session") }}</UiButton
+              >{{ candidate.sessionTitle ?? t("common.sourceSession") }}</UiButton
             >
             <UiLabel v-for="tag in candidate.tags" :key="`tag-${tag}`">#{{ tag }}</UiLabel>
             <code v-for="pattern in candidate.appliesTo" :key="`applies-${pattern}`">{{
-              t("適用 {pattern}", { pattern })
+              t("knowledge.appliesTo", { pattern })
             }}</code>
           </div>
           <template #trailing>
             <div class="knowledge-candidates__actions">
               <UiButton size="sm" variant="primary" :icon="Check" @click="acceptCandidate(candidate, projectRoot)">{{
-                t("接受")
+                t("knowledge.accept")
               }}</UiButton>
               <UiButton size="sm" :icon="Pencil" @click="openCandidateEditor(candidate)">{{
-                t("修改後接受")
+                t("knowledge.editAndAccept")
               }}</UiButton>
-              <UiButton size="sm" :icon="X" @click="rejectCandidate(candidate, projectRoot)">{{ t("拒絕") }}</UiButton>
+              <UiButton size="sm" :icon="X" @click="rejectCandidate(candidate, projectRoot)">{{
+                t("knowledge.reject")
+              }}</UiButton>
             </div>
           </template>
         </UiBoxRow>

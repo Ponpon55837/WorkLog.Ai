@@ -25,7 +25,8 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 ## 介面語言與主題
 
-- **英文目錄完整性**：`tests/web/i18n/catalog.test.ts` 掃描 `apps/web/src` 中所有含中文的字串，確認每一條都在 `src/i18n/locales/en-US.json` 有翻譯、`en-US.json` 沒有已不再使用的條目，且翻譯保留原文的每個 `{placeholder}`。新增或修改介面文字時要同步更新 `en-US.json`，否則 `pnpm test` 會失敗。同一檔案也測試插值、單複數、`tc()` 與常數標籤表隨語系切換。
+- **訊息目錄**：`tests/web/i18n/catalog.test.ts` 確認 `zh-TW.json` 與 `en-US.json` 的 key 與 `{placeholder}` 完全一致、沒有空字串、沒有已不再使用的 key，且 `apps/web/src` 裡沒有寫死的中文字串（只允許 `資料不足` 這類資料標記）。不存在的 key 由型別檢查擋下（`t()` 只接受 `MessageKey`）。同一檔案也測試插值、單複數與常數標籤表隨語系切換。
+- **測試也不寫死介面文字**：單元測試以 `t("key", 參數)` 取得預期文字；E2E 以 `tests/e2e/helpers/i18n.ts` 的 `tt()`、`ttPattern()`、`textIn()` 從同一份 JSON 取字。`tests/web/i18n/e2e-copy.test.ts` 會在 spec 把中文直接傳給 locator 或文字斷言時失敗（伺服器與 fixture 寫入的資料除外）。
 - **偏好設定**：`tests/web/stores/preferences-store.test.ts` 涵蓋主題（含跟隨系統）、語言的保存與還原，以及無法使用 localStorage 時的退回行為。
 - **E2E 預設**：Playwright 以 `locale: "zh-TW"`、`colorScheme: "dark"` 執行，所以既有測試維持以繁體中文文案與深色主題斷言。淺色主題由「light theme @accessibility」axe 測試覆蓋；「switches the interface language and theme」測試從頁首切換英文與主題並確認重新整理後保留；另有英文版在 640／390px 的水平溢位檢查，因為英文文案較長。
 

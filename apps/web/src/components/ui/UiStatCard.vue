@@ -5,7 +5,7 @@ defineProps<{
   label: string;
   value: string | number;
   icon?: IconComponent;
-  /** Secondary value after the main number, e.g. "/ 24 通過". */
+  /** Secondary value after the main number, e.g. "showcase.passedOf24". */
   suffix?: string;
   foot?: string;
   valueTone?: Tone;
