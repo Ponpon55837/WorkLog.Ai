@@ -40,6 +40,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: pnpm audit --prod --audit-level high
 
+      # Before pnpm build, as in the release job: the plugin bundle must not depend on the workspace dist folders.
+      - name: Plugin bundle from a fresh checkout
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm build:plugin
+
       # Workspace packages resolve each other through dist/, so build before testing.
       - run: pnpm build
 
