@@ -22,6 +22,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- MCP report summary saves and report synthesis retries share the schema guard's write transaction instead of starting a nested SQLite transaction. Failed saves preserve the previous current summary and leave the request available for resubmission.
+
 - 活躍整理快照阻擋 Agent finalize／nextSteps 編輯直接結案。未結項與整理審核保留已成功寫入的結果，即使背景刷新遭取消；同頁刷新保留有效勾選，取消整理後清空選取。
 
 - Round-eight handoff Session references now match the existing MCP records. The combined E3 and closing record has source-backed conversation timestamps and evidence; missing execution times remain explicitly unverified without duplicate Sessions.

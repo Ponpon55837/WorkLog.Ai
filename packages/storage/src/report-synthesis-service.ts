@@ -466,8 +466,7 @@ export class ReportSynthesisService {
     const nextRequestId = randomUUID();
     const nextIdempotencyKey = `${request.idempotencyKey}:retry:${nextRequestId}`;
     const requestedAt = nowIso();
-    this.db.exec("BEGIN");
-    try {
+    return runImmediateSqlTransaction(this.db, () => {
       this.db
         .prepare(
           `UPDATE report_synthesis_requests
@@ -505,16 +504,12 @@ export class ReportSynthesisService {
       if (!nextRow) {
         throw new Error("Report synthesis retry request was inserted but could not be loaded.");
       }
-      this.db.exec("COMMIT");
       return {
         outcome: "report_synthesis_request_retried",
         previousRequestId: request.id,
         request: toReportSynthesisRequest(nextRow),
       };
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
 
   public cancelReportSynthesisRequest(requestId: string): CancelReportSynthesisRequestResult {
@@ -841,8 +836,7 @@ export class ReportSynthesisService {
       isCurrent: true,
     };
 
-    this.db.exec("BEGIN");
-    try {
+    runImmediateSqlTransaction(this.db, () => {
       this.db
         .prepare(
           `UPDATE report_summaries
@@ -897,11 +891,7 @@ export class ReportSynthesisService {
           "UPDATE report_synthesis_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?",
         )
         .run(summary.createdAt, request.id);
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+    });
 
     return { outcome: "report_summary_saved", duplicate: false, summary, redactions: sanitizedInput.redactions };
   }

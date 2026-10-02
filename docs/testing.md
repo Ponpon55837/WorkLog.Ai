@@ -40,6 +40,8 @@ Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定�
 
 A1 新增合成 runtime 的 `getMcpRuntimeStatus (cached identity)` p90 ≤ 50 ms，以及 `MCP guarded finalize (schema check)` p90 ≤ 250 ms。前者複製建置檔到測試目錄再量測暖快取狀態讀取，後者在同一 write transaction 核對 schema 後 finalize；不使用實際資料庫或 Agent 設定。
 
+`tests/mcp/server.test.ts` 的報告回歸透過真實 MCP in-memory transport 與 dispatcher 儲存、冪等重送及重試報告，確認內層服務共用 schema 保護交易。另在隔離 SQLite 注入 INSERT 失敗，驗證先前目前版本與未完成請求均保留，移除失敗條件後可重新提交；不使用使用者報告。
+
 A2 另以 286 個合成過期 lease／tmp（每次計時前重建，建置資料不計時）量測狀態讀取及 MCP 註冊清理，兩者 p90 上限各為 100 ms。測試涵蓋 TTL＋60 秒邊界、每次 64 次刪除嘗試上限、重複讀取收斂、刪除失敗、非 UUID 檔案、符號連結及 scope 隔離；runtime 單元測試 mock `tmpdir()`，其餘本機驗證使用隔離 HOME／TMPDIR。
 
 ## 檢索品質評估
