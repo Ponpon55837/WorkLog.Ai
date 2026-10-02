@@ -834,7 +834,7 @@ export async function collectDoctorFindings(
         ? undefined
         : claudeMcp === "missing"
           ? "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。"
-          : "確認 .claude.json 存在且可讀、格式有效後重新執行 pnpm doctor。",
+          : "確認 .claude.json 存在且可讀、格式有效後重新執行 pnpm run doctor。",
     );
   }
   addFinding(
@@ -850,7 +850,7 @@ export async function collectDoctorFindings(
       ? undefined
       : codexMcp === "missing"
         ? "依 docs/agent-setup.md 註冊 work-intelligence MCP。"
-        : "確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 pnpm doctor。",
+        : "確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 pnpm run doctor。",
   );
 
   for (const finding of skillFindings) {
@@ -886,7 +886,7 @@ export async function collectDoctorFindings(
       claudeHookState === "installed"
         ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
         : claudeHookState === "unknown"
-          ? "確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 pnpm doctor。"
+          ? "確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 pnpm run doctor。"
           : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
     );
   const codexHookState = agentInspection.connections.codex.hook;
@@ -909,13 +909,13 @@ export async function collectDoctorFindings(
               : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
           : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
     codexHookState === "unknown"
-      ? "確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 pnpm doctor。"
+      ? "確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 pnpm run doctor。"
       : codexHooksDisabled
-        ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm doctor。"
+        ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm run doctor。"
         : codexHookExists && globalHooks.codexConfigured
           ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
           : globalHooks.codexHooksFeature === "unknown"
-            ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm doctor。"
+            ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm run doctor。"
             : globalHooks.codexLegacyMatcher
               ? "執行 pnpm setup:agents，預覽後確認即可更新 matcher；更新後在 Codex /hooks 重新信任。"
               : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",

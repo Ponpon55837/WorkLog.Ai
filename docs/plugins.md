@@ -50,7 +50,7 @@ Codex 的 MCP 設定在 `plugins/work-intelligence/codex.mcp.json`，以 plugin 
 
 ## 不要同時用兩種接法
 
-plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者並存時 Agent 會看到兩份相同的工具、skill 與提醒（提醒本身每段工作只會出現一次）。`pnpm doctor` 偵測到 Claude Code 已啟用 plugin、全域設定又註冊了 `work-intelligence` MCP 或 Stop hook 時會提出警告；只啟用 plugin 時，它不再要求手動註冊 Claude MCP、skill 與 hook。
+plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者並存時 Agent 會看到兩份相同的工具、skill 與提醒（提醒本身每段工作只會出現一次）。`pnpm run doctor` 偵測到 Claude Code 已啟用 plugin、全域設定又註冊了 `work-intelligence` MCP 或 Stop hook 時會提出警告；只啟用 plugin 時，它不再要求手動註冊 Claude MCP、skill 與 hook。
 
 從手動註冊改用 plugin：先 `pnpm setup:agents --uninstall`（預覽後確認；它也會移除 Codex 的手動設定），再安裝 plugin。改回手動：在 Agent 中停用或移除 plugin，再執行 `pnpm setup:agents`。
 
@@ -66,10 +66,10 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 | MCP 沒有連上，stderr 出現 `Work Intelligence repository not found` | Agent 把 plugin 複製到快取後找不到 checkout。在 repo 執行 `pnpm plugin:link`，或設定 `WORK_INTELLIGENCE_HOME`；也可以改用 release 附的自帶 server 版本。 |
 | `Missing apps/mcp/dist/index.js … run pnpm build` | checkout 還沒 build 或 build 中斷。在 repo 執行 `pnpm install && pnpm build`，再重新連線 MCP。 |
 | `node:sqlite` 相關錯誤或 `ERR_UNKNOWN_BUILTIN_MODULE` | Node.js 低於 22.13。升級 Node.js；`node --version` 確認 Agent 使用的是同一個 Node。 |
-| 工具或 skill 出現兩份 | plugin 與 `pnpm setup:agents`／手動 `mcp add` 同時啟用。依上方「不要同時用兩種接法」擇一；`pnpm doctor` 會指出重複。 |
+| 工具或 skill 出現兩份 | plugin 與 `pnpm setup:agents`／手動 `mcp add` 同時啟用。依上方「不要同時用兩種接法」擇一；`pnpm run doctor` 會指出重複。 |
 | 資料庫不是預期的那一個 | MCP 啟動時在 stderr 印出 `connected using <路徑>`。依序檢查 `WORK_INTELLIGENCE_DB`、`WORK_INTELLIGENCE_HOME`、`~/.work-intelligence/plugin-link.json`。 |
 | 更新 repo 後 Agent 提示需要重新連線 | 與手動註冊相同：`pnpm build` 後重新連線 MCP（Claude Code 可用 `/mcp` 重新連線，或重新開啟工作階段）。 |
-| 保存提醒沒有出現 | 提醒只在「追蹤中」的專案、改過檔案且上次保存後才出現，同一段工作只提醒一次；`pnpm doctor` 會檢查 hook 設定。 |
+| 保存提醒沒有出現 | 提醒只在「追蹤中」的專案、改過檔案且上次保存後才出現，同一段工作只提醒一次；`pnpm run doctor` 會檢查 hook 設定。 |
 
 其餘 MCP、資料庫與 hook 問題見 [疑難排解](troubleshooting.md)。
 
