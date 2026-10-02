@@ -191,7 +191,10 @@ describe("user-level login service definitions", () => {
 
     expect(installed).toBe(true);
     expect(existsSync(plan.configPath)).toBe(true);
-    expect(readFileSync(plan.configPath, "utf8")).toBe(plan.files[0]?.contents);
+    // Task Scheduler only imports UTF-16 XML, so Windows writes UTF-16LE with a BOM.
+    const expectedConfig =
+      plan.platform === "win32" ? `${String.fromCharCode(0xfeff)}${plan.files[0]?.contents}` : plan.files[0]?.contents;
+    expect(readFileSync(plan.configPath, plan.platform === "win32" ? "utf16le" : "utf8")).toBe(expectedConfig);
     expect(managerCalls.length).toBeGreaterThan(0);
     expect(existsSync(plan.databasePath)).toBe(false);
 
