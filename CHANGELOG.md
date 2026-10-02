@@ -6,6 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- `pnpm run doctor` recognises the Codex plugin (`[plugins."work-intelligence@…"]` in `config.toml`): it no longer asks for a manual Codex MCP or skill, and warns when the plugin and `[mcp_servers.work-intelligence]` are both present.
 - `pnpm build:plugin` packs a self-contained plugin (the MCP server bundled with esbuild) and a Claude Desktop extension (`.mcpb`) into `dist/plugin/`; tagged releases attach both. Without a built checkout, the bundle uses `WORK_INTELLIGENCE_DB`, else the checkout from `WORK_INTELLIGENCE_HOME` or `pnpm plugin:link`, else `~/.work-intelligence/data`. The repository build and `plugins/work-intelligence/` are unchanged.
 - A Claude Code and Codex plugin in `plugins/work-intelligence/` with marketplaces at `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`. It provides the MCP server, the `work-intelligence` skill and, in Claude Code, the save-reminder Stop hook. A small launcher finds the local checkout (`WORK_INTELLIGENCE_HOME`, the plugin's own repository, or the link written by the new `pnpm plugin:link`) and runs the same `apps/mcp/dist` build, so the database, updates and every existing setup stay unchanged. `pnpm run doctor` accepts the enabled Claude Code plugin in place of manual registration and warns when both are active. See `docs/plugins.md`.
 - Pages show a boot splash before the app loads, and every loading skeleton now carries a visible "Loading…" caption. Counts, totals, pagination and empty states wait for the first answer instead of showing `0` or "nothing here" while data is still loading (Work history, Knowledge tabs, candidates, decisions to confirm, backups).
@@ -35,6 +36,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Page headers are one compact row (inline eyebrow, 16px title, one-line description with the full text on hover, actions on the right) instead of a stacked title block, so lists and data start about 150px higher at desktop widths. Actions wrap to their own row when they would leave the title less than 360px; on phones the eyebrow hides and the description takes its own single line.
 
 ### Fixed
+
+- The Codex plugin failed to start its MCP server: Codex runs plugins inside its unbuilt clone of the marketplace repository, and the launcher stopped at that clone instead of the checkout linked by `pnpm plugin:link`. The launcher now uses the first built checkout, and `codex.mcp.json` sets `"cwd": "."` so Codex starts the server in the plugin directory.
 
 - MCP report summary saves and report synthesis retries share the schema guard's write transaction instead of starting a nested SQLite transaction. Failed saves preserve the previous current summary and leave the request available for resubmission.
 

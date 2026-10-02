@@ -109,6 +109,8 @@ interface AgentConnectionInspection {
   codexHookExists: boolean;
   /** The Work Intelligence Claude Code plugin is enabled in the user's settings.json. */
   claudePluginEnabled: boolean;
+  /** The Work Intelligence Codex plugin is enabled in config.toml. */
+  codexPluginEnabled: boolean;
 }
 
 interface AgentConnectionInspectionOptions {
@@ -359,6 +361,16 @@ export function claudePluginEnabled(settings: Record<string, unknown> | undefine
   return Object.entries(enabled ?? {}).some(([key, value]) => key.startsWith("work-intelligence@") && value === true);
 }
 
+/**
+ * Whether config.toml enables the Work Intelligence plugin (`[plugins."work-intelligence@<marketplace>"]` with
+ * `enabled = true`). It brings the MCP server and the skill; the Codex save-reminder hooks stay in hooks.json.
+ */
+export function codexPluginEnabled(config: Record<string, unknown> | undefined): boolean {
+  return Object.entries(record(config?.plugins) ?? {}).some(
+    ([key, value]) => key.startsWith("work-intelligence@") && record(value)?.enabled === true,
+  );
+}
+
 function inspectClaudeMcpState(homeDirectory: string): AgentMcpRegistrationState {
   const file = inspectJsonConfigFile(join(homeDirectory, ".claude.json"));
   if (file.state === "unreadable") return "unknown";
@@ -385,6 +397,7 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
   );
   const globalHooks = globalHookConfigs.inspection;
   const codexMcp = inspectCodexMcpState(codexConfig);
+  const codexPlugin = codexPluginEnabled(codexConfig.config);
   const skillFindings = inspectAgentSkillCopies(
     homeDirectory,
     repositoryRoot,
@@ -440,6 +453,7 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
     claudeHookExists,
     codexHookExists,
     claudePluginEnabled: claudePlugin,
+    codexPluginEnabled: codexPlugin,
   };
 }
 
@@ -837,24 +851,43 @@ export async function collectDoctorFindings(
           : "確認 .claude.json 存在且可讀、格式有效後重新執行 pnpm run doctor。",
     );
   }
-  addFinding(
-    findings,
-    codexMcp === "registered" ? "ok" : "warning",
-    "Codex MCP",
-    codexMcp === "registered"
-      ? "全域設定已註冊 work-intelligence。"
-      : codexMcp === "missing"
-        ? "未找到全域 work-intelligence MCP 註冊。"
-        : "無法判定 Codex MCP 註冊狀態；config.toml 無法讀取或格式無法判定。",
-    codexMcp === "registered"
-      ? undefined
-      : codexMcp === "missing"
-        ? "依 docs/agent-setup.md 註冊 work-intelligence MCP。"
-        : "確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 pnpm run doctor。",
-  );
+  const codexPlugin = agentInspection.codexPluginEnabled;
+  if (codexPlugin) {
+    const duplicated = codexMcp === "registered";
+    addFinding(
+      findings,
+      duplicated ? "warning" : "ok",
+      "Codex plugin",
+      duplicated
+        ? "work-intelligence plugin 已啟用，但 config.toml 也註冊了 work-intelligence MCP；Agent 會看到兩份相同工具。"
+        : "work-intelligence plugin 已啟用，提供 MCP 與 skill；保存提醒仍由 Codex hooks.json 提供。",
+      duplicated
+        ? "保留一種接法即可：停用 plugin，或執行 codex mcp remove work-intelligence 移除手動註冊。plugin 不會自動移除任何設定。"
+        : undefined,
+    );
+  }
+  if (!(codexPlugin && codexMcp === "missing")) {
+    addFinding(
+      findings,
+      codexMcp === "registered" ? "ok" : "warning",
+      "Codex MCP",
+      codexMcp === "registered"
+        ? "全域設定已註冊 work-intelligence。"
+        : codexMcp === "missing"
+          ? "未找到全域 work-intelligence MCP 註冊。"
+          : "無法判定 Codex MCP 註冊狀態；config.toml 無法讀取或格式無法判定。",
+      codexMcp === "registered"
+        ? undefined
+        : codexMcp === "missing"
+          ? "依 docs/agent-setup.md 註冊 work-intelligence MCP。"
+          : "確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 pnpm run doctor。",
+    );
+  }
 
   for (const finding of skillFindings) {
     if (claudePlugin && finding.componentId === "claudeSkill" && finding.state === "missing") continue;
+    // The Codex plugin carries its own copy of the skill.
+    if (codexPlugin && finding.componentId !== "claudeSkill" && finding.state === "missing") continue;
     const title =
       finding.componentId === "codexSkill"
         ? "Codex canonical work-intelligence skill"
