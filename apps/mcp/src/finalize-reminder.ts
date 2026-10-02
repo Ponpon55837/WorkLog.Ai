@@ -335,6 +335,12 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// The file name check matters in the plugin bundle, where codex-finalize-reminder.js inlines this module and shares
+// its import.meta.url; without it both reminders would run there.
+if (
+  process.argv[1] &&
+  basename(process.argv[1]) === "finalize-reminder.js" &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   void main();
 }

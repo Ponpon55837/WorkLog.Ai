@@ -69,6 +69,7 @@ describe("pnpm build:plugin", () => {
   it("writes the plugin, its zip and a Claude Desktop extension", () => {
     expect(existsSync(join(output, "work-intelligence/server/apps/mcp/dist/index.js"))).toBe(true);
     expect(existsSync(join(output, "work-intelligence/server/apps/mcp/dist/finalize-reminder.js"))).toBe(true);
+    expect(existsSync(join(output, "work-intelligence/server/apps/mcp/dist/codex-finalize-reminder.js"))).toBe(true);
     expect(
       readFileSync(join(output, "work-intelligence/server/.agents/skills/work-intelligence/SKILL.md"), "utf8"),
     ).toBe(readFileSync(join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md"), "utf8"));

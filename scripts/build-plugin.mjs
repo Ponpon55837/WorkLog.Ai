@@ -21,7 +21,7 @@ import console from "node:console";
 import { build } from "esbuild";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ENTRY_POINTS = ["index", "finalize-reminder"];
+const ENTRY_POINTS = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** Copied beside the bundle at the paths apps/mcp/src/agent-resources.ts reads. */
 const AGENT_RESOURCES = [".agents/skills/work-intelligence/SKILL.md", "docs/work-record-and-report-format.md"];
 /** node:sqlite without a flag. */

@@ -853,17 +853,28 @@ export async function collectDoctorFindings(
   }
   const codexPlugin = agentInspection.codexPluginEnabled;
   if (codexPlugin) {
-    const duplicated = codexMcp === "registered";
+    const duplicateMcp = codexMcp === "registered";
+    // The plugin brings the save-reminder hooks too; one still in hooks.json runs a second time.
+    const duplicateHook = globalHooks.codexConfigured || globalHooks.codexLegacyMatcher;
+    const duplicates = [
+      duplicateMcp ? "config.toml 也註冊了 work-intelligence MCP" : "",
+      duplicateHook ? "hooks.json 也設定了保存提醒 hook" : "",
+    ].filter(Boolean);
     addFinding(
       findings,
-      duplicated ? "warning" : "ok",
+      duplicates.length ? "warning" : "ok",
       "Codex plugin",
-      duplicated
-        ? "work-intelligence plugin 已啟用，但 config.toml 也註冊了 work-intelligence MCP；Agent 會看到兩份相同工具。"
-        : "work-intelligence plugin 已啟用，提供 MCP 與 skill；保存提醒仍由 Codex hooks.json 提供。",
-      duplicated
-        ? "保留一種接法即可：停用 plugin，或執行 codex mcp remove work-intelligence 移除手動註冊。plugin 不會自動移除任何設定。"
-        : undefined,
+      duplicates.length
+        ? `work-intelligence plugin 已啟用，但${duplicates.join("，")}；Agent 會看到兩份相同的工具或提醒。`
+        : "work-intelligence plugin 已啟用，提供 MCP、skill 與保存提醒 hook；hook 需在 Codex 的 /hooks 審查並信任才會執行。",
+      duplicates.length
+        ? [
+            "保留一種接法即可：停用 plugin，或移除手動設定。",
+            duplicateMcp ? "執行 codex mcp remove work-intelligence。" : "",
+            duplicateHook ? "刪除 Codex hooks.json 中指向 apps/mcp/dist/codex-finalize-reminder.js 的項目。" : "",
+            "plugin 不會自動移除任何設定。",
+          ].join("")
+        : "在 Codex 執行 /hooks，檢視並信任 work-intelligence plugin 的 hooks。",
     );
   }
   if (!(codexPlugin && codexMcp === "missing")) {
@@ -924,35 +935,37 @@ export async function collectDoctorFindings(
     );
   const codexHookState = agentInspection.connections.codex.hook;
   const codexHooksDisabled = globalHooks.codexHooksFeature === "disabled";
-  addFinding(
-    findings,
-    codexHookState === "installed" ? "ok" : "warning",
-    "Codex 全域 hook",
-    codexHookState === "unknown"
-      ? "無法判定 Codex hook 狀態；config.toml 或 hooks.json 無法讀取或格式無法判定。"
-      : codexHooksDisabled
-        ? "config.toml 明確停用了 Codex hooks；hooks.json 即使有設定也不代表會執行。"
-        : codexHookExists
-          ? globalHooks.codexConfigured
-            ? globalHooks.codexSegmentStartConfigured
-              ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
-              : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
-            : globalHooks.codexLegacyMatcher
-              ? "PostToolUse hook 仍使用 MCP dispatcher 之前的舊 matcher，漏掉 work_write_idempotent 的 finalize 呼叫。"
-              : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
-          : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
-    codexHookState === "unknown"
-      ? "確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 pnpm run doctor。"
-      : codexHooksDisabled
-        ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm run doctor。"
-        : codexHookExists && globalHooks.codexConfigured
-          ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
-          : globalHooks.codexHooksFeature === "unknown"
-            ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm run doctor。"
-            : globalHooks.codexLegacyMatcher
-              ? "執行 pnpm setup:agents，預覽後確認即可更新 matcher；更新後在 Codex /hooks 重新信任。"
-              : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
-  );
+  // The Codex plugin carries its own hooks; the Codex plugin finding above reports them.
+  if (!(codexPlugin && (codexHookState === "missing" || codexHookState === "installed" || codexHookState === "stale")))
+    addFinding(
+      findings,
+      codexHookState === "installed" ? "ok" : "warning",
+      "Codex 全域 hook",
+      codexHookState === "unknown"
+        ? "無法判定 Codex hook 狀態；config.toml 或 hooks.json 無法讀取或格式無法判定。"
+        : codexHooksDisabled
+          ? "config.toml 明確停用了 Codex hooks；hooks.json 即使有設定也不代表會執行。"
+          : codexHookExists
+            ? globalHooks.codexConfigured
+              ? globalHooks.codexSegmentStartConfigured
+                ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
+                : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
+              : globalHooks.codexLegacyMatcher
+                ? "PostToolUse hook 仍使用 MCP dispatcher 之前的舊 matcher，漏掉 work_write_idempotent 的 finalize 呼叫。"
+                : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
+            : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
+      codexHookState === "unknown"
+        ? "確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 pnpm run doctor。"
+        : codexHooksDisabled
+          ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm run doctor。"
+          : codexHookExists && globalHooks.codexConfigured
+            ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
+            : globalHooks.codexHooksFeature === "unknown"
+              ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm run doctor。"
+              : globalHooks.codexLegacyMatcher
+                ? "執行 pnpm setup:agents，預覽後確認即可更新 matcher；更新後在 Codex /hooks 重新信任。"
+                : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
+    );
   return findings;
 }
 

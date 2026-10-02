@@ -16,7 +16,7 @@
 |---|---|---|
 | MCP server `work-intelligence` | ✓ | ✓ |
 | `work-intelligence` skill（與 `.agents/skills/work-intelligence/SKILL.md` 相同） | ✓ | ✓ |
-| 保存提醒 Stop hook | ✓ | ✗（Codex 的 hook 仍依 [保存提醒](agent-setup.md#保存提醒選用) 設定） |
+| 保存提醒 hook | ✓（`Stop`） | ✓（`PostToolUse`、`Stop`、`UserPromptSubmit`；需在 `/hooks` 信任） |
 
 ## 共用準備
 
@@ -46,7 +46,7 @@ plugin 的 MCP server 由 Claude Code 以 plugin 名稱區分，工具與 prompt
 
 在本 repo 開啟 Codex 時，它會讀到 `.agents/plugins/marketplace.json`，可以從 `/plugins` 安裝 `work-intelligence`。要在其他專案也使用，請把它加為個人 marketplace：`codex plugin marketplace add Ponpon55837/WorkLog.Ai`（或本機路徑），再從 `/plugins` 安裝。Codex 會在自己的 marketplace clone（例如 `~/.codex/.tmp/marketplaces/worklog-ai`）裡執行 plugin，那份 clone 沒有 build，所以**必須**先在你的 checkout 執行 `pnpm plugin:link`，或在 Codex 環境設定 `WORK_INTELLIGENCE_HOME`。啟動器會略過沒有 build 的 checkout，改用連結的那一份。
 
-Codex 的 MCP 設定在 `plugins/work-intelligence/codex.mcp.json`，以 `"cwd": "."`（plugin 根目錄）執行 `node ./scripts/launch.mjs mcp`；沒有寫 `cwd` 時 Codex 不會從 plugin 目錄啟動。Codex 的保存提醒 hook 不在 plugin 裡，仍依 [保存提醒](agent-setup.md#保存提醒選用) 設定在 `~/.codex/hooks.json`。
+Codex 的 MCP 設定在 `plugins/work-intelligence/codex.mcp.json`，以 `"cwd": "."`（plugin 根目錄）執行 `node ./scripts/launch.mjs mcp`；沒有寫 `cwd` 時 Codex 不會從 plugin 目錄啟動。Codex 的保存提醒 hook 在 `plugins/work-intelligence/hooks/codex-hooks.json`（由 `.codex-plugin/plugin.json` 的 `hooks` 指定；不用 Claude Code 的預設檔名 `hooks/hooks.json`），以 `node "${PLUGIN_ROOT}/scripts/launch.mjs" codex-finalize-reminder` 執行；Codex 從工作目錄執行 hook，所以路徑必須以 `${PLUGIN_ROOT}` 開頭。內容與 `pnpm setup:agents` 寫入 `~/.codex/hooks.json` 的相同；改用 plugin 後，請刪除 `~/.codex/hooks.json` 中指向 `apps/mcp/dist/codex-finalize-reminder.js` 的項目，否則提醒會執行兩次。
 
 ## 不要同時用兩種接法
 
@@ -57,7 +57,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 ## 信任與權限
 
 - **Claude Code**：plugin 的 Stop hook 隨 plugin 啟用，不必另外授權；可在 `/hooks` 檢視，或在 `/plugin` 停用整個 plugin。第一次呼叫 MCP 工具時，Claude Code 會照一般 MCP 權限規則詢問。
-- **Codex**：本 plugin 沒有帶 hook。若依 [保存提醒](agent-setup.md#保存提醒選用) 手動設定 Codex hook，需在 Codex 輸入 `/hooks` 檢視並信任；未信任的 hook 會被略過。
+- **Codex**：安裝 plugin 後，在 Codex 輸入 `/hooks`，找到 work-intelligence plugin 的 hooks，檢視後選擇信任（Trust）；未信任的 hook 會被略過，MCP 與 skill 不受影響。hook 內容改變（例如更新 plugin）後，Codex 可能要求重新信任。
 
 ## 安裝與排錯
 

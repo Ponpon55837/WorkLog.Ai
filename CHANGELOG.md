@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- The Codex plugin now carries the save-reminder hooks (`PostToolUse`, `Stop`, `UserPromptSubmit`) in `plugins/work-intelligence/hooks/codex-hooks.json`, rooted at `${PLUGIN_ROOT}`; trust them under `/hooks`. `pnpm run doctor` warns when `~/.codex/hooks.json` still runs the same reminder, and no longer asks for a manual Codex hook when the plugin is enabled.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added

@@ -1,7 +1,7 @@
 {
   "name": "work-intelligence",
   "version": "1.1.0",
-  "description": "Local-first work records for coding agents: the Work Intelligence MCP server and its agent skill, run from your local WorkLog.Ai checkout.",
+  "description": "Local-first work records for coding agents: the Work Intelligence MCP server, its agent skill, and the save reminder hooks, run from your local WorkLog.Ai checkout.",
   "author": { "name": "Ponpon55837", "url": "https://github.com/Ponpon55837" },
   "homepage": "https://github.com/Ponpon55837/WorkLog.Ai",
   "repository": "https://github.com/Ponpon55837/WorkLog.Ai",
@@ -9,6 +9,7 @@
   "keywords": ["work-log", "mcp", "local-first", "reports"],
   "skills": "./skills/",
   "mcpServers": "./codex.mcp.json",
+  "hooks": "./hooks/codex-hooks.json",
   "interface": {
     "displayName": "Work Intelligence",
     "shortDescription": "Save, recall, and report on your coding work locally",

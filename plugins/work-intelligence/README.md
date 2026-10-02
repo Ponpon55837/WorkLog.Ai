@@ -6,7 +6,7 @@ Work Intelligence keeps a local, searchable record of the work your coding agent
 
 - **MCP server `work-intelligence`**: four tools (`work_read`, `work_write_idempotent`, `work_write_additive`, `work_write_overwrite`) for project status, task context, recall of past work, saving a finished session, and reports. Only projects you mark as tracked in the Work Intelligence Web UI are recorded.
 - **Skill `work-intelligence`**: tells the agent when and how to use those tools.
-- **Stop hook (Claude Code)**: after the agent edits files in a tracked project and has not saved a record since, it reminds the agent once. To decide, it reads the current session's transcript file (the path Claude Code passes to the hook) and the tracked-project list from the database, read-only. It writes an empty marker file under the system temp directory so it reminds only once, and never blocks the agent if it cannot tell.
+- **Save-reminder hooks**: a `Stop` hook in Claude Code, and `PostToolUse`, `Stop` and `UserPromptSubmit` hooks in Codex (`hooks/codex-hooks.json`; trust them under `/hooks`). After the agent edits files in a tracked project and has not saved a record since, it reminds the agent once. To decide, it reads the current session's transcript file (the path the agent passes to the hook) and the tracked-project list from the database, read-only. It writes an empty marker file under the system temp directory so it reminds only once, and never blocks the agent if it cannot tell.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ pnpm install && pnpm build && pnpm plugin:link
 
 ## What it runs and reads
 
-The plugin contains no copy of Work Intelligence. Its MCP server and hook start `scripts/launch.mjs`, which finds your checkout and runs that checkout's built `apps/mcp/dist/index.js` (MCP server) or `apps/mcp/dist/finalize-reminder.js` (hook) with the same Node.js. It looks for the checkout in this order:
+The plugin contains no copy of Work Intelligence. Its MCP server and hooks start `scripts/launch.mjs`, which finds your checkout and runs that checkout's built `apps/mcp/dist/index.js` (MCP server), `apps/mcp/dist/finalize-reminder.js` (Claude Code hook) or `apps/mcp/dist/codex-finalize-reminder.js` (Codex hooks) with the same Node.js. It looks for the checkout in this order:
 
 1. the `WORK_INTELLIGENCE_HOME` environment variable;
 2. a checkout that contains the plugin folder;

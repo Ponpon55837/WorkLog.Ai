@@ -6,7 +6,7 @@
  *
  * A release build (`pnpm build:plugin`) also carries a bundled server, used when no checkout is found.
  *
- * Usage: node launch.mjs mcp | finalize-reminder
+ * Usage: node launch.mjs mcp | finalize-reminder | codex-finalize-reminder
  */
 import { spawn } from "node:child_process";
 import console from "node:console";
@@ -19,7 +19,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const ENTRY_POINTS = {
   mcp: "apps/mcp/dist/index.js",
   "finalize-reminder": "apps/mcp/dist/finalize-reminder.js",
+  "codex-finalize-reminder": "apps/mcp/dist/codex-finalize-reminder.js",
 };
+/** Hook commands: they must never block the Agent, so they stay silent and exit 0 whatever happens. */
+const HOOK_COMMANDS = new Set(["finalize-reminder", "codex-finalize-reminder"]);
 
 /** Written by `pnpm plugin:link`; read when the plugin runs from an agent's plugin cache outside the repository. */
 export function linkFilePath(environment = process.env, home = homedir()) {
@@ -112,8 +115,8 @@ function main() {
   const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const result = resolveEntryPoint(command, { pluginRoot });
   if (result.error) {
-    // A Stop hook must never block the Agent because Work Intelligence is unavailable; the MCP server should fail.
-    if (command === "finalize-reminder") return;
+    // A hook must never block the Agent because Work Intelligence is unavailable; the MCP server should fail.
+    if (HOOK_COMMANDS.has(command)) return;
     console.error(`Work Intelligence plugin: ${result.error}`);
     process.exitCode = 1;
     return;
@@ -124,11 +127,11 @@ function main() {
     process.on(signal, () => child.kill(signal));
   }
   child.on("error", (error) => {
-    if (command !== "finalize-reminder") console.error(`Work Intelligence plugin: ${error.message}`);
-    process.exitCode = command === "finalize-reminder" ? 0 : 1;
+    if (!HOOK_COMMANDS.has(command)) console.error(`Work Intelligence plugin: ${error.message}`);
+    process.exitCode = HOOK_COMMANDS.has(command) ? 0 : 1;
   });
   child.on("exit", (code, signal) => {
-    process.exitCode = command === "finalize-reminder" ? 0 : (code ?? (signal ? 1 : 0));
+    process.exitCode = HOOK_COMMANDS.has(command) ? 0 : (code ?? (signal ? 1 : 0));
   });
 }
 

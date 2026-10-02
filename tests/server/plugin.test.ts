@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { CODEX_POST_TOOL_USE_MATCHER, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
 import { claudePluginEnabled, codexPluginEnabled, collectDoctorFindings } from "../../apps/server/src/doctor.js";
 import type { UserServiceStatus } from "../../packages/core/src/index.js";
 
@@ -88,6 +89,21 @@ describe("plugin manifests", () => {
   it("ship the repository version", () => {
     expect(readJson(join(pluginRoot, ".claude-plugin/plugin.json")).version).toBe(version);
     expect(readJson(join(pluginRoot, ".codex-plugin/plugin.json")).version).toBe(version);
+  });
+
+  it("give Codex the save-reminder hooks setup:agents installs, rooted at PLUGIN_ROOT", () => {
+    const codex = readJson(join(pluginRoot, ".codex-plugin/plugin.json"));
+    // Codex also reads hooks/hooks.json, Claude Code's default, so the Codex hooks need a file of their own.
+    expect(codex.hooks).toBe("./hooks/codex-hooks.json");
+    const command = 'node "${PLUGIN_ROOT}/scripts/launch.mjs" codex-finalize-reminder';
+    const handler = [{ type: "command", command }];
+    expect(readJson(join(pluginRoot, "hooks/codex-hooks.json"))).toEqual({
+      hooks: {
+        PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler }],
+        Stop: [{ hooks: handler }],
+        UserPromptSubmit: [{ hooks: handler }],
+      },
+    });
   });
 
   it("start the MCP server through the launcher in both agents", () => {
@@ -202,8 +218,9 @@ describe("plugin launcher", () => {
     const missing = run(script, ["mcp"], { HOME: home });
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain("pnpm plugin:link");
-    const hook = run(script, ["finalize-reminder"], { HOME: home }, "{}");
-    expect(hook).toMatchObject({ status: 0, stdout: "", stderr: "" });
+    for (const reminder of ["finalize-reminder", "codex-finalize-reminder"]) {
+      expect(run(script, [reminder], { HOME: home }, "{}")).toMatchObject({ status: 0, stdout: "", stderr: "" });
+    }
     const unbuilt = fakeRepository(join(home, "unbuilt"), false);
     const notBuilt = run(script, ["mcp"], { HOME: home, WORK_INTELLIGENCE_HOME: unbuilt });
     expect(notBuilt.status).toBe(1);
@@ -288,13 +305,29 @@ describe("doctor with the Codex plugin", () => {
     expect(codexPluginEnabled(undefined)).toBe(false);
   });
 
-  async function codexFindings(registered: boolean) {
+  async function codexFindings(registered: boolean, manualHooks = false) {
     const home = temporaryDirectory();
     mkdirSync(join(home, ".codex"), { recursive: true });
     // The repository publishes the skill; only the user-scope copies are missing, as after setup:agents --uninstall.
     const repositoryRoot = join(home, "repository");
     mkdirSync(join(repositoryRoot, ".agents/skills/work-intelligence"), { recursive: true });
     writeFileSync(join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md"), "skill\n");
+    if (manualHooks) {
+      // What setup:agents writes to ~/.codex/hooks.json, pointing at the checkout's built reminder.
+      const script = join(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+      mkdirSync(dirname(script), { recursive: true });
+      writeFileSync(script, "");
+      const handler = [{ type: "command", command: commandForAgentHook(script) }];
+      writeFileSync(
+        join(home, ".codex/hooks.json"),
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler }],
+            Stop: [{ hooks: handler }],
+          },
+        }),
+      );
+    }
     writeFileSync(
       join(home, ".codex/config.toml"),
       [
@@ -324,6 +357,8 @@ describe("doctor with the Codex plugin", () => {
     expect(findings.find((finding) => finding.title === "Codex plugin")).toMatchObject({ severity: "ok" });
     expect(findings.map((finding) => finding.title)).not.toContain("Codex MCP");
     expect(findings.some((finding) => finding.title.includes("skill"))).toBe(false);
+    // The plugin brings the save-reminder hooks, so a missing hooks.json entry is not a problem either.
+    expect(findings.map((finding) => finding.title)).not.toContain("Codex 全域 hook");
   });
 
   it("warns when the plugin and a config.toml registration would both load", async () => {
@@ -332,5 +367,14 @@ describe("doctor with the Codex plugin", () => {
       severity: "warning",
       recommendation: expect.stringContaining("codex mcp remove work-intelligence"),
     });
+  });
+
+  it("warns when hooks.json still runs the save reminder the plugin already brings", async () => {
+    const findings = await codexFindings(false, true);
+    expect(findings.find((finding) => finding.title === "Codex plugin")).toMatchObject({
+      severity: "warning",
+      recommendation: expect.stringContaining("codex-finalize-reminder.js"),
+    });
+    expect(findings.map((finding) => finding.title)).not.toContain("Codex 全域 hook");
   });
 });
