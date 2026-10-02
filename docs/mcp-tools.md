@@ -15,6 +15,8 @@
 | `work_write_additive` | `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`, `openWorldHint: false` | 新增記錄或提案、建立請求或推進新的處理嘗試 |
 | `work_write_overwrite` | `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: true`, `openWorldHint: false` | 更新、連結、作廢或還原既有資料 |
 
+MCP 寫入會在同一個 SQLite write transaction 核對 schema。報告儲存與提煉重試共用該交易；報告版本替換與請求完成狀態會一起提交，失敗時一起回滾並保留先前的目前版本。同一個已完成請求重送摘要會回傳原結果，不會新增版本。
+
 呼叫範例：
 
 ```json

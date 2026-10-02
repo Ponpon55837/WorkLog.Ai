@@ -4,7 +4,7 @@
 
 > 回到 [README](../README.md)
 
-- 最後更新：2026-10-01
+- 最後更新：2026-10-02
 
 ## 使用者待辦
 
@@ -28,6 +28,10 @@
 | C1 | 文件已對齊（本 PR） | 重新連線規則、整理流程、測試基線、狀態與歷史文件收尾 |
 
 A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](../.openspec/handoffs/2026-09-30-codex-round9-a3-evidence.md)保留缺漏證據；B3 的[合成準確度評估](../.openspec/handoffs/2026-10-01-codex-round9-b3-accuracy.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。schema 23 與新增 Agent 契約在主安裝更新後須重啟服務並重新連線；上述 PR／CI／Session 證據已核對，完整輪次交接會在 C1 階段收尾時保存於工作區。
+
+2026-10-02 修正 MCP 報告儲存與重試在 schema 保護交易內重複開啟 SQLite 交易的回歸。三個 MCP 回歸案例覆蓋實際 dispatcher 提交、冪等重送、重試與失敗回滾；報告版本與請求狀態維持原子更新。
+
+PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒，等待更新後 CI 驗證。
 
 ## 其他暫緩工作
 

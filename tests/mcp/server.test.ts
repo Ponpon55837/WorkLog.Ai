@@ -158,7 +158,22 @@ function finalizePayload(root: string, key: string, title: string) {
     summary: `${title} summary.`,
     workSummary: { outcomes: [`${title} done.`], scope: [], decisions: [], verification: [], nextSteps: [] },
     changedFiles: ["src/a.ts"],
-    verification: { status: "passed" },
+    verification: { status: "passed" as const },
+  };
+}
+
+function reportSummaryPayload(requestId: string, sourceSessionIds: string[]) {
+  return {
+    requestId,
+    title: "Synthetic weekly report",
+    executiveSummary: "Verified synthetic report outcomes.",
+    highlights: [{ title: "Synthetic outcome", detail: "Completed synthetic work.", sourceSessionIds }],
+    risks: [],
+    decisions: [],
+    nextSteps: [],
+    sourceSessionIds,
+    generatedByAgent: "test-client",
+    promptVersion: "report-synthesis-v3",
   };
 }
 
@@ -387,6 +402,92 @@ describe("Work Intelligence MCP server", () => {
       "work-intelligence://agent/work-record-and-report-format.md",
     ]);
     expect(client.getInstructions()).toContain("work-intelligence://agent/work-intelligence/SKILL.md");
+  });
+
+  it("saves and idempotently resubmits a report through the guarded MCP dispatcher", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Synthetic report project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession(finalizePayload(root, "report-source", "Synthetic report work"));
+    if (finalized.outcome !== "finalized") throw new Error("Expected synthetic report source.");
+    const created = await callJson<{ request: { id: string } }>(client, "work_request_report_synthesis", {
+      period: "week",
+      projectId: project.id,
+      idempotencyKey: "guarded-report-request",
+    });
+    await callJson(client, "work_get_report_context", { requestId: created.request.id });
+    const payload = reportSummaryPayload(created.request.id, [finalized.session.id]);
+
+    const saved = await callJson<{ outcome: string; duplicate: boolean; summary: { id: string } }>(
+      client,
+      "work_save_report_summary",
+      payload,
+    );
+    expect(saved).toMatchObject({ outcome: "report_summary_saved", duplicate: false });
+    expect(store.getReportSynthesisRequest(created.request.id)).toMatchObject({
+      request: { status: "completed" },
+      summary: { id: saved.summary.id, sourceSessionIds: [finalized.session.id] },
+    });
+    expect(await callJson(client, "work_save_report_summary", payload)).toMatchObject({
+      outcome: "report_summary_saved",
+      duplicate: true,
+      summary: { id: saved.summary.id },
+    });
+  });
+
+  it("retries a cancelled report through the guarded MCP dispatcher", async () => {
+    const { client, store } = await connect();
+    const created = store.createReportSynthesisRequest({ period: "week", idempotencyKey: "guarded-report-retry" });
+    if (created.outcome !== "report_synthesis_request") throw new Error("Expected synthetic report request.");
+    store.cancelReportSynthesisRequest(created.request.id);
+
+    const retried = await callJson<{ request: { id: string } }>(client, "work_retry_report_synthesis", {
+      requestId: created.request.id,
+    });
+    expect(retried).toMatchObject({
+      outcome: "report_synthesis_request_retried",
+      previousRequestId: created.request.id,
+      request: { status: "pending" },
+    });
+    expect(retried.request.id).not.toBe(created.request.id);
+    expect(store.getReportSynthesisRequest(created.request.id)).toMatchObject({
+      request: { status: "cancelled", failureReason: `Superseded by retry request ${retried.request.id}.` },
+    });
+  });
+
+  it("rolls back a failed MCP report replacement and preserves the previous current summary", async () => {
+    const { client, store, root } = await connect(undefined, true);
+    const first = store.createReportSynthesisRequest({ period: "week", idempotencyKey: "report-before-failure" });
+    if (first.outcome !== "report_synthesis_request") throw new Error("Expected synthetic report request.");
+    const previous = store.saveReportSummary(reportSummaryPayload(first.request.id, []));
+    if (previous.outcome !== "report_summary_saved") throw new Error("Expected synthetic report summary.");
+    const replacement = store.createReportSynthesisRequest({ period: "week", idempotencyKey: "report-with-failure" });
+    if (replacement.outcome !== "report_synthesis_request") throw new Error("Expected synthetic report request.");
+    store.getReportSynthesisContext({ requestId: replacement.request.id });
+    const connection = new DatabaseSync(join(root, "work-intelligence.sqlite"));
+    cleanups.push(() => connection.close());
+    connection.exec(`CREATE TRIGGER synthetic_report_failure BEFORE INSERT ON report_summaries
+      BEGIN SELECT RAISE(ABORT, 'synthetic report insert failure'); END`);
+
+    const failed = await callMcpOperation(
+      client,
+      "work_save_report_summary",
+      reportSummaryPayload(replacement.request.id, []),
+    );
+    expect(failed.isError).toBe(true);
+    expect(failed.content).toEqual([{ type: "text", text: "synthetic report insert failure" }]);
+    expect(store.getReportSynthesisRequest(replacement.request.id)).toMatchObject({
+      request: { status: "processing" },
+    });
+    expect(store.listReportSummaries()).toMatchObject({ summaries: [{ id: previous.summary.id, isCurrent: true }] });
+    connection.exec("DROP TRIGGER synthetic_report_failure");
+    expect(
+      await callJson(client, "work_save_report_summary", reportSummaryPayload(replacement.request.id, [])),
+    ).toMatchObject({
+      outcome: "report_summary_saved",
+      duplicate: false,
+    });
+    expect(store.listReportSummaries()).toMatchObject({ summaries: [{ requestId: replacement.request.id }] });
   });
 
   it("serves the complete skill and supporting format contract as standard MCP resources", async () => {
@@ -942,6 +1043,7 @@ describe("Work Intelligence MCP server", () => {
     expect(JSON.stringify(nonPending)).not.toContain("Private project follow-up");
   });
 
+  // File-backed SQLite setup and this multi-write flow exceed 5 seconds under Windows coverage.
   it("surfaces related pending items and audits only explicit finalize supersessions", async () => {
     const { client, store, root } = await connect(undefined, true);
     const project = store.addProject("Encrypted cache work", root);
@@ -1111,7 +1213,7 @@ describe("Work Intelligence MCP server", () => {
     } finally {
       database.close();
     }
-  });
+  }, 15_000);
 
   it("accepts at most 200 superseded outstanding item ids in the MCP schema", async () => {
     const { client, store, root } = await connect();

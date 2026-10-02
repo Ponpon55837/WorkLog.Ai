@@ -26,6 +26,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- MCP report summary saves and report synthesis retries share the schema guard's write transaction instead of starting a nested SQLite transaction. Failed saves preserve the previous current summary and leave the request available for resubmission.
+
+- Two file-backed MCP integration tests use a bounded 15-second timeout to accommodate Windows coverage overhead while preserving their assertions and the separate performance gates.
+
 - A field label wrapped around a segmented control no longer becomes the accessible name of its first option; `UiField` has a `group` mode for button sets.
 - Segmented controls scroll inside their own track on narrow screens instead of widening the page when their labels are long.
 
