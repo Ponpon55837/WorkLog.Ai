@@ -91,9 +91,11 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium firefox webkit
 
       # Builds production packages, then runs Playwright against an isolated temp SQLite.
+      # A failed browser project is rerun once from scratch (scripts/run-e2e.mjs).
       - run: pnpm test:e2e
 
-      - if: failure()
+      # Also keep the first attempt's traces when a rerun made the job pass.
+      - if: failure() || hashFiles('test-results/*-rerun-*/**') != ''
         uses: actions/upload-artifact@v7
         with:
           name: playwright-results
