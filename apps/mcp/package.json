@@ -7,7 +7,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@work-intelligence/schema": "workspace:*",
     "@work-intelligence/shared": "workspace:*",
     "@work-intelligence/storage": "workspace:*",
