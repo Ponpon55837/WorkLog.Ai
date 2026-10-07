@@ -682,7 +682,8 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(
       page.getByTestId("outstanding-item").filter({ hasText: "Keep the UI regression suite green." }),
     ).toBeVisible();
-    await page.unroute("**/api/outstanding-items?*");
+    // A refetch can still be inside its 250 ms delay; wait for it so its continue() does not race the removal.
+    await page.unrouteAll({ behavior: "wait" });
 
     await page.route("**/api/outstanding-items*", async (route) => {
       await route.fulfill({
