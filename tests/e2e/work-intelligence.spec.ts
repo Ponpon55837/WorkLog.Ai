@@ -173,8 +173,11 @@ async function expectUserScrollsListInternally(page: Page, name: string): Promis
   await list.scrollIntoViewIfNeeded();
   await list.getByRole("listitem").first().hover();
   const pageScrollTop = await pageScroller.evaluate((element) => element.scrollTop);
-  await page.mouse.wheel(0, 240);
-  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  // Chromium can drop a wheel sent right after a viewport resize and reload, so send it again until the list scrolls.
+  await expect(async () => {
+    await page.mouse.wheel(0, 240);
+    await expect.poll(() => list.evaluate((element) => element.scrollTop), { timeout: 1000 }).toBeGreaterThan(0);
+  }).toPass({ timeout: 8000 });
   await expect(pageScroller).toHaveJSProperty("scrollTop", pageScrollTop);
 
   await list.evaluate((element) => {
