@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activityQuerySchema,
   reportQuerySchema,
   searchQuerySchema,
   saveKnowledgePageInputSchema,
@@ -543,5 +544,15 @@ describe("recall date ranges", () => {
     expect(recallQuerySchema.safeParse({ q: "valve", from: "2031-07-01", to: "2031-06-30" }).success).toBe(false);
     expect(searchQuerySchema.safeParse({ q: "valve", from: "June" }).success).toBe(false);
     expect(searchQuerySchema.safeParse({ q: "valve", to: "2031-06-30" }).success).toBe(true);
+  });
+});
+
+describe("activity ranges", () => {
+  it("accepts an ordered range up to 400 days and rejects reversed, longer, or unknown input", () => {
+    expect(activityQuerySchema.safeParse({ from: "2031-01-01", to: "2032-02-04" }).success).toBe(true);
+    expect(activityQuerySchema.safeParse({ from: "2031-01-01", to: "2032-02-05" }).success).toBe(false);
+    expect(activityQuerySchema.safeParse({ from: "2031-06-30", to: "2031-06-01" }).success).toBe(false);
+    expect(activityQuerySchema.safeParse({ from: "2031-06-01" }).success).toBe(false);
+    expect(activityQuerySchema.safeParse({ from: "2031-06-01", to: "2031-06-30", extra: 1 }).success).toBe(false);
   });
 });

@@ -2633,6 +2633,23 @@ export type TimelineResult =
     }
   | SkippedContextResult;
 
+export interface ActivityQuery {
+  projectRoot?: string;
+  projectId?: string;
+  /** Inclusive calendar dates (YYYY-MM-DD) in the server time zone; both are required, at most 400 days apart. */
+  from: string;
+  to: string;
+}
+
+/** A local calendar day on which at least one Session was completed. */
+export interface ActivityDay {
+  date: string;
+  sessions: number;
+}
+
+export type ActivityResult =
+  { outcome: "activity"; from: string; to: string; days: ActivityDay[] } | SkippedContextResult;
+
 export const HOTSPOT_GROUPS = ["file", "directory"] as const;
 export type HotspotGroup = (typeof HOTSPOT_GROUPS)[number];
 

@@ -55,6 +55,8 @@ import type {
   GraphPathQuery,
   GraphPathResult,
   GraphQueryResult,
+  ActivityQuery,
+  ActivityResult,
   HotspotQuery,
   TimelineQuery,
   TimelineResult,
@@ -201,6 +203,7 @@ import { initializeWorkIntelligenceDatabase } from "./database-initialization.js
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { DiagramService } from "./diagram-service.js";
+import { ActivityRepository } from "./activity-repository.js";
 import { HotspotRepository } from "./hotspot-repository.js";
 import { TimelineRepository } from "./timeline-repository.js";
 import { SearchRepository } from "./search-repository.js";
@@ -345,6 +348,7 @@ export class WorkIntelligenceStore {
   private readonly searchIndex: SearchRepository;
   private readonly hotspots: HotspotRepository;
   private readonly timelines: TimelineRepository;
+  private readonly activity: ActivityRepository;
   private readonly projectDeletionService: ProjectDeletionService;
   private readonly projectLocationService: ProjectLocationService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
@@ -447,6 +451,7 @@ export class WorkIntelligenceStore {
     this.searchIndex = new SearchRepository(this.db);
     this.hotspots = new HotspotRepository(this.db);
     this.timelines = new TimelineRepository(this.db);
+    this.activity = new ActivityRepository(this.db);
     this.projectDeletionService = new ProjectDeletionService(
       this.db,
       this.databasePath,
@@ -1219,6 +1224,31 @@ export class WorkIntelligenceStore {
       projects: projects.map((project) => ({ id: project.id, name: project.name })),
       ...rows,
     };
+  }
+
+  /** Sessions completed per local calendar day over a date range, tracked projects only (for the Dashboard heatmap). */
+  public getActivity(query: ActivityQuery): ActivityResult {
+    let projects = this.listProjects().filter((project) => project.status === "tracked");
+    if (query.projectRoot || query.projectId) {
+      const decision = query.projectRoot
+        ? this.checkProjectRoot(query.projectRoot)
+        : this.checkProjectById(query.projectId!);
+      if (!decision.allowed || !decision.project) {
+        return {
+          outcome: "skipped",
+          projectRoot: decision.canonicalRoot,
+          projectStatus: decision.projectStatus,
+          reason: decision.reason ?? "Project recording is not enabled.",
+        };
+      }
+      projects = [decision.project];
+    }
+    const days = this.activity.dailySessions({
+      projectIds: projects.map((project) => project.id),
+      from: query.from,
+      to: query.to,
+    });
+    return { outcome: "activity", from: query.from, to: query.to, days };
   }
 
   /** Most changed files or directories of tracked projects, from the search path index (kept in sync first). */

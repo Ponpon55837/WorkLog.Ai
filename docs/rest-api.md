@@ -92,6 +92,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/graph/path?from=&to=`                      | 兩個節點間的最短關聯（500 節點內 BFS），逐段附理由；可帶 `projectId`、`includeDerived=true` |
 | PATCH    | `/api/diagrams/:id/void`                         | 作廢（`voided: true` 需 `reason`）或還原 Session 圖表；圖表不能刪除                     |
 | GET      | `/api/insights/timeline`                         | 時間軸：期間內（預設最近 30 天，最長 366 天）的 Session（開始～完成）、Knowledge 事件與 Session 關聯；可帶 `projectId`、`from`、`to`；超過 2,000 筆 Session 時保留最新並標示 `truncated` |
+| GET      | `/api/insights/activity`                         | 工作熱度日曆：`from`、`to`（必填，含頭尾，最長 400 天）期間內每個「伺服器時區本地日」完成的 Session 數，回傳 `{ outcome: "activity", from, to, days: [{ date, sessions }] }`，只列有工作的日期；僅 tracked 專案、排除作廢；可帶 `projectId` |
 | GET      | `/api/insights/hotspots`                         | 熱點檔案：被最多 Session 修改的檔案（`groupBy=directory` 依目錄），附失敗／未執行次數與最近 5 筆 Session；可帶 `projectId`、`from`、`to`、`limit`（1–100，預設 20）。排除作廢與改動超過 20 個檔案的 Session |
 | GET      | `/api/context`                                   | Agent context query（含 `pendingRequests`：等待 Agent 的報告整理與 metadata 回補請求）     |
 | GET      | `/api/outstanding-items`                         | 分頁列出 tracked 專案的未結項；可帶 `projectId`、`status`、`page`、`pageSize`              |

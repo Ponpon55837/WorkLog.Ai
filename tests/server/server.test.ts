@@ -1105,6 +1105,33 @@ describe("Work Intelligence REST API", () => {
     expect(reversed.status).toBe(400);
   });
 
+  it("serves per-day activity counts with validated ranges", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-activity-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Activity API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    for (const key of ["one", "two"]) {
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `api-activity-${key}`,
+        title: `Activity ${key}`,
+        summary: "Finished some work.",
+        completedAt: "2026-09-26T12:00:00.000Z",
+      });
+    }
+
+    const listed = await requestJson(baseUrl, "/api/insights/activity?from=2026-09-01&to=2026-09-30");
+    expect(listed.body).toMatchObject({ outcome: "activity", days: [{ date: "2026-09-26", sessions: 2 }] });
+    const empty = await requestJson(baseUrl, "/api/insights/activity?from=2026-01-01&to=2026-01-31");
+    expect(empty.body).toMatchObject({ outcome: "activity", days: [] });
+    expect((await requestJson(baseUrl, "/api/insights/activity?from=2026-09-01")).status).toBe(400);
+    expect((await requestJson(baseUrl, "/api/insights/activity?from=2026-09-30&to=2026-09-01")).status).toBe(400);
+    expect((await requestJson(baseUrl, "/api/insights/activity?from=2025-01-01&to=2026-09-30")).status).toBe(400);
+    expect((await requestJson(baseUrl, "/api/insights/activity?from=2025-08-27&to=2026-09-30")).status).toBe(200);
+  });
+
   it("serves derived graph edges on request and explains graph paths", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-graph-path-test-"));
     const store = new WorkIntelligenceStore(":memory:");

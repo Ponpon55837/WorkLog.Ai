@@ -1,4 +1,6 @@
 import type {
+  ActivityQuery,
+  ActivityResult,
   GraphPathQuery,
   GraphPathResult,
   GraphQuery,
@@ -12,6 +14,7 @@ import { appendQuery, type ApiTransport } from "./transport";
 
 export interface GraphApi {
   getGraph(options?: GraphQuery, signal?: AbortSignal): Promise<GraphQueryResult>;
+  getActivity(query: ActivityQuery, signal?: AbortSignal): Promise<ActivityResult>;
   getHotspots(options?: HotspotQuery, signal?: AbortSignal): Promise<HotspotResult>;
   getGraphPath(query: GraphPathQuery, signal?: AbortSignal): Promise<GraphPathResult>;
   getTimeline(query?: TimelineQuery, signal?: AbortSignal): Promise<TimelineResult>;
@@ -51,6 +54,13 @@ export function createGraphApi(client: ApiTransport): GraphApi {
     getTimeline(query: TimelineQuery = {}, signal?: AbortSignal): Promise<TimelineResult> {
       return client.request<TimelineResult>(
         appendQuery("/api/insights/timeline", { projectId: query.projectId, from: query.from, to: query.to }),
+        { signal },
+      );
+    },
+
+    getActivity(query: ActivityQuery, signal?: AbortSignal): Promise<ActivityResult> {
+      return client.request<ActivityResult>(
+        appendQuery("/api/insights/activity", { projectId: query.projectId, from: query.from, to: query.to }),
         { signal },
       );
     },
