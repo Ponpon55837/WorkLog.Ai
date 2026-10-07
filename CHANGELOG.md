@@ -4,6 +4,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Report totals, the previous-period comparison, project shares, verification counts and the period summary were computed from at most 200 Sessions per period, so a busy month, quarter or year showed 200 in both periods and a delta of 0. They are now counted in SQL over the whole period; the 200-Session limit applies only to the listed Sessions, trends, risks, decisions and evidence.
+- Report Changed Files no longer counts Sessions that list more than 20 files, which usually swept in an unrelated dirty worktree; recall and hotspots already treated them this way. `totals.changedFilesOversizedSessions` reports how many were left out, and the summary, Markdown export and the Web card say so.
+
 ## [1.2.1] - 2026-10-02
 
 ### Added

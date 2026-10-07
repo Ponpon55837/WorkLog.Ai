@@ -252,7 +252,8 @@ Server instructions 只放路由規則；48 項 operation 的長說明與 schema
 - `completedWork`：主要完成事項（可由 Agent/UI 追到原始 Session）
 - `totals.verification`（`not_supplied` 代表 Agent 尚未回報，不等同 `not_run`）、`risks`、`decisions`、`trends`
 - `evidence`、`sessions`、`sourceSessionIds`：來源證據與完整 provenance
-- `sessionTruncation.currentPeriod`／`previousPeriod`：本期或上一期超過 200 個 Session 時為 `true`；相關摘要與統計只計算納入的 200 筆。
+- `totals.changedFiles` 不計入列出超過 20 個檔案的 Session（多半混入無關的未提交變更），略過的數量在 `totals.changedFilesOversizedSessions`；`comparison.changedFiles` 兩期都用同一規則。
+- `sessionTruncation.currentPeriod`／`previousPeriod`：本期或上一期超過 200 個 Session 時為 `true`。`totals`、`comparison`、`projects` 的數量與 `periodSummary` 仍涵蓋整個期間；只有 `sessions`、`trends`、`risks`、`decisions`、`evidence` 與各專案的 `sourceSessionIds` 限於最新 200 筆。
 
 報告只聚合 tracked projects；指定 `unregistered`、`paused`、`ignored` 或不存在的 project 會回傳 `outcome: "skipped"`，不會讀取專案檔案。若 legacy caller 沒有提供 verification 或 changedFiles，finalize 回應會附上 `verificationFollowUp`／`changedFilesFollowUp`，要求 Agent 檢查後用 metadata tool 補回。
 

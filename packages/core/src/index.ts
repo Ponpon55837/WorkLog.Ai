@@ -1002,7 +1002,11 @@ export interface WorkReport {
   periodSummary: string;
   sourceSessionIds: string[];
   sessions: WorkSessionRecord[];
-  /** Whether the current or comparison period contains more sessions than the report's 200-session limit. */
+  /**
+   * Whether the current or comparison period contains more sessions than the report's 200-session limit. Totals,
+   * comparison, project shares and the period summary still count the whole period; only the listed sessions,
+   * trends, risks, decisions and evidence come from the 200 newest.
+   */
   sessionTruncation: {
     currentPeriod: boolean;
     previousPeriod: boolean;
@@ -1012,7 +1016,10 @@ export interface WorkReport {
   totals: {
     sessions: number;
     events: number;
+    /** Changed files of the period's Sessions, leaving out Sessions that list more than 20 files. */
     changedFiles: number;
+    /** Sessions left out of changedFiles because they list more than 20 files, usually an unrelated dirty worktree. */
+    changedFilesOversizedSessions: number;
     verification: Record<ReportVerificationStatus, number>;
   };
   comparison: ReportComparison;
