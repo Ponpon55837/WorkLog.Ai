@@ -99,11 +99,14 @@ async function openDayReport(date: string): Promise<void> {
   await router.push({ name: "reports", query: { period: "day", date } });
 }
 
-onMounted(() => activityStore.setActive(true));
-onBeforeUnmount(() => activityStore.setActive(false));
 watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
 watch(showFirstRunChecklist, (visible) => systemStatusStore.setSystemStatusActive(visible), { immediate: true });
-onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
+
+onMounted(() => activityStore.setActive(true));
+onBeforeUnmount(() => {
+  activityStore.setActive(false);
+  systemStatusStore.setSystemStatusActive(false);
+});
 </script>
 
 <template>
