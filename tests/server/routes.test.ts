@@ -25,6 +25,7 @@ const EXPECTED_ROUTES = [
   "POST /api/import/preview",
   "POST /api/imports/handoffs",
   "GET /api/imports/handoffs/preview",
+  "GET /api/insights/activity",
   "GET /api/insights/hotspots",
   "GET /api/insights/timeline",
   "GET /api/knowledge",

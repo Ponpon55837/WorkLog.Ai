@@ -466,6 +466,25 @@ export const timelineQuerySchema = z
     { message: `A timeline covers at most ${TIMELINE_MAX_DAYS} days.`, path: ["from"] },
   );
 
+/** An activity calendar covers about a year plus slack for week alignment. */
+const ACTIVITY_MAX_DAYS = 400;
+
+export const activityQuerySchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000).optional(),
+    projectId: z.string().trim().min(1).max(200).optional(),
+    from: calendarDateSchema,
+    to: calendarDateSchema,
+  })
+  .strict()
+  .refine(dateRangeInOrder, dateRangeOrderIssue)
+  .refine(
+    (value) =>
+      (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 + 1 <=
+      ACTIVITY_MAX_DAYS,
+    { message: `An activity range covers at most ${ACTIVITY_MAX_DAYS} days.`, path: ["from"] },
+  );
+
 export const hotspotQuerySchema = z
   .object({
     projectRoot: z.string().trim().min(1).max(1_000).optional(),

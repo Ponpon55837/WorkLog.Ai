@@ -1,4 +1,5 @@
 import {
+  activityQuerySchema,
   graphPathQuerySchema,
   graphQuerySchema,
   hotspotQuerySchema,
@@ -56,6 +57,20 @@ export const insightRoutes: Route[] = [
         to: url.searchParams.get("to") || undefined,
       }),
       ({ store }, data) => store.getTimeline(data),
+    ),
+  },
+  {
+    method: "GET",
+    pattern: "/api/insights/activity",
+    handler: validatedRoute(
+      activityQuerySchema,
+      "Invalid activity query.",
+      ({ url }) => ({
+        projectId: textParam(url, "projectId"),
+        from: url.searchParams.get("from") ?? "",
+        to: url.searchParams.get("to") ?? "",
+      }),
+      ({ store }, data) => store.getActivity(data),
     ),
   },
   {
