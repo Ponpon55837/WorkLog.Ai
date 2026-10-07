@@ -396,6 +396,8 @@
     "decisionSourceLoadFailed": "無法載入這項決策的來源 Session。",
     "decisionsTheAgentExplicitlyMarks": "Agent 明確標記為自主選擇的決策會出現在這裡。",
     "decisionsToConfirm": "待確認決策",
+    "diffLineAdded": "新增：",
+    "diffLineRemoved": "刪除：",
     "diffSectionAdded": "新增段落",
     "diffSectionChanged": "已變更",
     "diffSectionRemoved": "移除段落",

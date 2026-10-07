@@ -15,6 +15,12 @@ const props = defineProps<{
 
 const SHORT_ID_LENGTH = 8;
 const LINE_MARKS: Record<LineDiffKind, string> = { same: " ", added: "+", removed: "−" };
+// Screen readers get the line kind as text; the +/− marks and colours are visual only.
+const lineKindLabels: Record<LineDiffKind, () => string> = {
+  same: () => "",
+  added: () => t("knowledge.diffLineAdded"),
+  removed: () => t("knowledge.diffLineRemoved"),
+};
 const statusLabels: Record<SectionDiffStatus, () => string> = {
   added: () => t("knowledge.diffSectionAdded"),
   removed: () => t("knowledge.diffSectionRemoved"),
@@ -54,6 +60,7 @@ function shortIds(ids: readonly string[]): string {
       <ul v-if="section.lines.length > 0" class="page-diff__lines">
         <li v-for="(line, lineIndex) in section.lines" :key="lineIndex" :class="`page-diff__line--${line.kind}`">
           <span class="page-diff__mark" aria-hidden="true">{{ LINE_MARKS[line.kind] }}</span>
+          <span v-if="line.kind !== 'same'" class="sr-only">{{ lineKindLabels[line.kind]() }}</span>
           <span>{{ line.text }}</span>
         </li>
       </ul>
