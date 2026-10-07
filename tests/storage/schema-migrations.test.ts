@@ -551,4 +551,33 @@ describe("outstanding cleanup review migration", () => {
       db.close();
     }
   });
+
+  it("adds empty agent source columns on upgrade from schema 23 and leaves old Sessions unknown", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      db.exec(
+        "INSERT INTO projects (id, name, root_path, status, created_at, updated_at) VALUES ('p1', 'Fiction', '/fiction', 'tracked', 't', 't')",
+      );
+      undoMigrationsAfter(db, 23);
+      db.exec(
+        "INSERT INTO sessions (id, project_id, idempotency_key, title, summary, status, completed_at, created_at) VALUES ('s1', 'p1', 'k1', 'Old', 'Old summary', 'finalized', 't', 't')",
+      );
+      expect(db.prepare("SELECT name FROM pragma_table_info('sessions') WHERE name LIKE 'agent_%'").all()).toEqual([]);
+
+      db.exec("BEGIN IMMEDIATE");
+      applySchemaMigrations(db);
+      db.exec("COMMIT");
+
+      expect(db.prepare("SELECT agent_client, agent_model FROM sessions WHERE id = 's1'").get()).toEqual({
+        agent_client: null,
+        agent_model: null,
+      });
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 24").get()).toEqual({
+        name: "session-agent-source",
+      });
+    } finally {
+      db.close();
+    }
+  });
 });

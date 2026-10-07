@@ -62,6 +62,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   const searchTerm = ref("");
   const appliedSearchTerm = ref("");
   const selectedProjectId = ref("");
+  const selectedAgent = ref("");
   const sessionPage = ref(1);
   const sessionPageSize = ref<ListPageSize>(10);
   const dateFrom = ref("");
@@ -73,7 +74,12 @@ export const useSessionsStore = defineStore("sessions", () => {
   const sessionFilterError = ref("");
   const hasSessionFilters = computed(() =>
     Boolean(
-      searchTerm.value || selectedProjectId.value || dateFrom.value || dateTo.value || voidedFilter.value !== "exclude",
+      searchTerm.value ||
+      selectedProjectId.value ||
+      selectedAgent.value ||
+      dateFrom.value ||
+      dateTo.value ||
+      voidedFilter.value !== "exclude",
     ),
   );
   const dateRangeIsValid = computed(() => !(dateFrom.value && dateTo.value && dateFrom.value > dateTo.value));
@@ -82,6 +88,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     return {
       q: appliedSearchTerm.value.trim() || undefined,
       projectId: selectedProjectId.value || undefined,
+      agent: selectedAgent.value || undefined,
       voided: voidedFilter.value,
       from: dateFrom.value || undefined,
       to: dateTo.value || undefined,
@@ -95,6 +102,12 @@ export const useSessionsStore = defineStore("sessions", () => {
     enabled: computed(() => listActive.value && dateRangeIsValid.value),
     placeholderData: (previousData) => previousData,
     query: ({ signal }) => useApi().client.listSessions(sessionListScope(), signal),
+  });
+  const agentsQuery = useQuery<string[]>({
+    key: () => [...queryKeys.sessions.agents],
+    enabled: listActive,
+    placeholderData: (previousData) => previousData,
+    query: ({ signal }) => useApi().client.listSessionAgents(signal),
   });
   const detailQuery = useQuery({
     key: () => [...queryKeys.sessions.detail, selectedSessionId.value],
@@ -202,6 +215,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       await Promise.all([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.agents, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
         queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
@@ -239,6 +253,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   const sessionsLoading = computed(() => sessionsQuery.isLoading.value);
   const sessionsLoaded = computed(() => sessionsQuery.data.value !== undefined);
   const sessionPageInfo = computed(() => sessionsQuery.data.value?.pageInfo ?? { ...emptyPageInfo, pageSize: 10 });
+  const agentOptions = computed(() => agentsQuery.data.value ?? []);
   const selectedDetail = computed(() => detailQuery.data.value ?? null);
   const linkCandidates = computed(
     () => linkCandidatesQuery.data.value?.items.filter((item) => item.id !== linkCandidateSourceId.value) ?? [],
@@ -284,6 +299,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   function clearSessionFilters(): void {
     searchTerm.value = "";
     selectedProjectId.value = "";
+    selectedAgent.value = "";
     dateFrom.value = "";
     dateTo.value = "";
     voidedFilter.value = "exclude";
@@ -370,6 +386,8 @@ export const useSessionsStore = defineStore("sessions", () => {
     linkCandidatesError,
     searchTerm,
     selectedProjectId,
+    selectedAgent,
+    agentOptions,
     sessionPage,
     sessionPageSize,
     sessionPageInfo,

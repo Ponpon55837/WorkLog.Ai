@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- Each Session records which Agent client wrote it and, optionally, its model. The MCP server takes the client name from the connection handshake, so Agents supply nothing for it; `work_finalize_session` accepts an optional `agentModel` that Agents may omit when unsure. The Session panel shows the Agent, and the Sessions list can be filtered by Agent (`GET /api/sessions?agent=`, `GET /api/sessions/agents`). Existing Sessions stay unreported, and old export bundles still import.
+
 ### Fixed
 
 - Report totals, the previous-period comparison, project shares, verification counts and the period summary were computed from at most 200 Sessions per period, so a busy month, quarter or year showed 200 in both periods and a delta of 0. They are now counted in SQL over the whole period; the 200-Session limit applies only to the listed Sessions, trends, risks, decisions and evidence.

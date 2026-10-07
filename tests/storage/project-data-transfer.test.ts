@@ -1056,6 +1056,42 @@ describe("portable project data transfer", () => {
     expect(olderSession?.redactionCount).toBe(0);
   });
 
+  it("round-trips the Agent source columns and imports exports made before they existed", () => {
+    const source = createSource();
+    const sourceDb = new DatabaseSync(source.store.databasePath);
+    try {
+      sourceDb
+        .prepare("UPDATE sessions SET agent_client = ?, agent_model = ? WHERE id = ?")
+        .run("fiction-client", "fiction-model-1", source.sessionIds[0]);
+    } finally {
+      sourceDb.close();
+    }
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const exported = bundle.tables.sessions.find((session) => session.id === source.sessionIds[0]);
+    expect(exported).toMatchObject({ agent_client: "fiction-client", agent_model: "fiction-model-1" });
+
+    const current = new WorkIntelligenceStore(join(source.root, "agent-current.sqlite"));
+    stores.push(current);
+    current.importProjectData({ bundle, remap: [] });
+    expect(current.getSessionById(source.sessionIds[0])).toMatchObject({
+      agentClient: "fiction-client",
+      agentModel: "fiction-model-1",
+    });
+
+    const legacy = structuredClone(bundle);
+    for (const session of legacy.tables.sessions) {
+      delete session.agent_client;
+      delete session.agent_model;
+    }
+    expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
+    const older = new WorkIntelligenceStore(join(source.root, "agent-legacy.sqlite"));
+    stores.push(older);
+    older.importProjectData({ bundle: legacy, remap: [] });
+    const imported = older.getSessionById(source.sessionIds[0]);
+    expect(imported?.agentClient).toBeUndefined();
+    expect(imported?.agentModel).toBeUndefined();
+  });
+
   it("masks legacy secrets in portable exports and sanitizes secrets before import", () => {
     const source = createSource();
     const exportToken = `gho_${"A".repeat(36)}`;

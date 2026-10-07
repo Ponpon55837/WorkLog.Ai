@@ -663,6 +663,34 @@ describe("Work Intelligence REST API", () => {
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });
 
+  it("filters Sessions by Agent client and lists the available clients", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-agent-source-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Agent source project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const base = { projectRoot: root, summary: "Fictional agent source work.", changedFiles: [] as string[] };
+    store.finalizeSession(
+      { ...base, idempotencyKey: "a1", title: "From fiction client" },
+      { agentClient: "fiction-client" },
+    );
+    store.finalizeSession({ ...base, idempotencyKey: "a2", title: "Unknown client" });
+
+    const agents = await requestJson<{ agents: string[] }>(baseUrl, "/api/sessions/agents");
+    expect(agents).toMatchObject({ status: 200, body: { agents: ["fiction-client"] } });
+
+    const filtered = await requestJson<{ items: Array<{ title: string; agentClient?: string }> }>(
+      baseUrl,
+      "/api/sessions?agent=fiction-client",
+    );
+    expect(filtered.body.items).toEqual([
+      expect.objectContaining({ title: "From fiction client", agentClient: "fiction-client" }),
+    ]);
+    const none = await requestJson<{ items: unknown[] }>(baseUrl, "/api/sessions?agent=missing-client");
+    expect(none.body.items).toEqual([]);
+  });
+
   it("lists, paginates, and updates outstanding items through the Web API", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-outstanding-items-test-"));
     const store = new WorkIntelligenceStore(":memory:");

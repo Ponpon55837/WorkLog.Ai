@@ -270,6 +270,34 @@ describe("Work Intelligence MCP server", () => {
     });
   });
 
+  it("records the connecting client name and the optional model on finalize without Agent input", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-agent-source-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Agent source", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "fiction-agent-cli", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    type Finalized = { session: { agentClient?: string; agentModel?: string } };
+    const withModel = await callJson<Finalized>(client, "work_finalize_session", {
+      ...finalizePayload(root, "agent-source-1", "With model"),
+      agentModel: "fiction-model-1",
+    });
+    expect(withModel.session).toMatchObject({ agentClient: "fiction-agent-cli", agentModel: "fiction-model-1" });
+    const withoutModel = await callJson<Finalized>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "agent-source-2", "Without model"),
+    );
+    expect(withoutModel.session.agentClient).toBe("fiction-agent-cli");
+    expect(withoutModel.session.agentModel).toBeUndefined();
+  });
+
   it("rejects stale writes after another connection migrates the database even when local dist is unchanged", async () => {
     const { client, store, root } = await connect(() => ({ restartRequired: false, monitoringAvailable: true }), true);
     const project = store.addProject("Externally migrated", root);

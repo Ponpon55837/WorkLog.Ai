@@ -80,6 +80,7 @@ export type ApiHealth = {
 export type SessionListRequest = {
   q?: string;
   projectId?: string;
+  agent?: string;
   voided?: SessionVoidedFilter;
   from?: string;
   to?: string;

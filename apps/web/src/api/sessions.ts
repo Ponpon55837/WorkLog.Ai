@@ -21,6 +21,7 @@ import { appendQuery, type ApiTransport } from "./transport";
 
 export interface SessionsApi {
   listSessions(options?: SessionListRequest, signal?: AbortSignal): Promise<SessionListResult>;
+  listSessionAgents(signal?: AbortSignal): Promise<string[]>;
   getSessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail>;
   updateSessionVerification(
     sessionId: string,
@@ -51,6 +52,7 @@ export function createSessionsApi(client: ApiTransport): SessionsApi {
         appendQuery("/api/sessions", {
           q: options.q,
           projectId: options.projectId,
+          agent: options.agent,
           voided: options.voided === "exclude" ? undefined : options.voided,
           from: options.from,
           to: options.to,
@@ -59,6 +61,11 @@ export function createSessionsApi(client: ApiTransport): SessionsApi {
         }),
         { signal },
       );
+    },
+
+    async listSessionAgents(signal?: AbortSignal): Promise<string[]> {
+      const result = await client.request<{ agents: string[] }>("/api/sessions/agents", { signal });
+      return result.agents;
     },
 
     getSessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {

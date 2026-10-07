@@ -28,10 +28,14 @@ export type SessionRow = {
   void_reason: string | null;
   started_at?: string | null;
   updated_at?: string | null;
+  agent_client?: string | null;
+  agent_model?: string | null;
 };
 
 export type SessionListOptions = {
   projectId?: string;
+  /** Exact match on the Agent client that wrote the Session. */
+  agentClient?: string;
   query?: string;
   from?: string;
   to?: string;
@@ -128,6 +132,20 @@ export class SessionRepository {
     };
   }
 
+  /** Distinct Agent clients that wrote non-voided Sessions of tracked projects. */
+  public listAgentClients(): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT s.agent_client AS agent_client
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         WHERE s.agent_client IS NOT NULL AND s.voided_at IS NULL AND p.status = 'tracked'
+         ORDER BY s.agent_client`,
+      )
+      .all() as Array<{ agent_client: string }>;
+    return rows.map((row) => row.agent_client);
+  }
+
   public getByIdempotencyKey(idempotencyKey: string): WorkSessionRecord | undefined {
     const row = this.db
       .prepare(
@@ -162,6 +180,11 @@ export class SessionRepository {
     if (options.projectId) {
       clauses.push("s.project_id = ?");
       parameters.push(options.projectId);
+    }
+
+    if (options.agentClient) {
+      clauses.push("s.agent_client = ?");
+      parameters.push(options.agentClient);
     }
 
     if (options.trackedOnly) {
