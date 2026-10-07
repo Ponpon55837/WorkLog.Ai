@@ -1274,7 +1274,10 @@
     "voided": "{target} voided",
     "voidedLabel": "Voided",
     "writeOnlyKnownLimitsUnfinished": "Write only known limits, unfinished items or unverified scenarios — no suggestions or plans.",
-    "writeOnlyWhatActuallyHappened": "Write only what actually happened. If you did not run tests, choose “Not run”, not “Passed”."
+    "writeOnlyWhatActuallyHappened": "Write only what actually happened. If you did not run tests, choose “Not run”, not “Passed”.",
+    "agentReads": "Agent reads",
+    "agentReadsHint": "When an Agent was given this Session through MCP",
+    "agentReadsRecentOnly": "Showing the latest {count} only"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "Every finished task leaves traceable context.",
@@ -1454,7 +1457,25 @@
     "unavailableValue": "Unavailable",
     "unknown": "Unknown",
     "updateAvailableProcessCount": "{updateAvailableProcesses}",
-    "usesTheMcpHeartbeatTo": "Uses the MCP heartbeat to tell whether a reconnect is needed."
+    "usesTheMcpHeartbeatTo": "Uses the MCP heartbeat to tell whether a reconnect is needed.",
+    "agentReadsTitle": "Agent read log",
+    "agentReadsHint": "Which Sessions and Knowledge items Agents were actually given through MCP reads. Only ids and counts are stored, never queries or content; kept for 30 days, up to 5,000 reads.",
+    "agentReadsProjectFilter": "Filter Agent reads by project",
+    "agentReadsAgentFilter": "Filter reads by Agent",
+    "agentReadsAllProjects": "All projects",
+    "agentReadsAllAgents": "All Agents",
+    "agentReadsLoading": "Loading Agent reads",
+    "agentReadsEmptyTitle": "No Agent reads yet",
+    "agentReadsEmptyHint": "When an Agent reads Work Intelligence through MCP, the read is logged here.",
+    "agentReadsCouldNotLoad": "Could not load Agent reads",
+    "agentReadsCouldNotOpenSession": "Could not open this Session",
+    "agentReadsUnknownAgent": "Unknown client",
+    "agentReadsNoProject": "No project",
+    "agentReadsReturned": "{count} returned",
+    "agentReadsKnowledgeCount": "{count} Knowledge",
+    "agentReadsOmitted": "{count} more not listed",
+    "agentReadsOpenSession": "Open Session {id}",
+    "agentReadsPageSize": "Agent reads per page"
   },
   "ui": {
     "actualCountsPerPeriod": "Actual counts per period",

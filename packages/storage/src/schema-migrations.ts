@@ -727,6 +727,34 @@ const MIGRATIONS: SchemaMigration[] = [
       ALTER TABLE sessions ADD COLUMN agent_model TEXT;
     `,
   },
+  {
+    version: 25,
+    name: "agent-read-audit",
+    sql: `
+      CREATE TABLE agent_read_audit (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        agent_client TEXT,
+        project_id TEXT,
+        outcome TEXT NOT NULL,
+        returned_count INTEGER NOT NULL DEFAULT 0,
+        session_ids_json TEXT NOT NULL DEFAULT '[]',
+        knowledge_ids_json TEXT NOT NULL DEFAULT '[]',
+        omitted_session_count INTEGER NOT NULL DEFAULT 0,
+        omitted_knowledge_count INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX idx_agent_read_audit_created ON agent_read_audit(created_at);
+      CREATE INDEX idx_agent_read_audit_project ON agent_read_audit(project_id, created_at);
+      CREATE TABLE agent_read_audit_records (
+        audit_id TEXT NOT NULL REFERENCES agent_read_audit(id) ON DELETE CASCADE,
+        record_type TEXT NOT NULL CHECK (record_type IN ('session', 'knowledge')),
+        record_id TEXT NOT NULL,
+        PRIMARY KEY (audit_id, record_type, record_id)
+      );
+      CREATE INDEX idx_agent_read_audit_records_record ON agent_read_audit_records(record_type, record_id);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

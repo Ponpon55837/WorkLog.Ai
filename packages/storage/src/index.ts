@@ -31,3 +31,16 @@ export {
   type DatabaseMaintenanceErrorCode,
   type DatabaseMaintenanceResult,
 } from "./database-maintenance.js";
+export {
+  extractAgentReadRecords,
+  AGENT_READ_AUDIT_MAX_AGE_DAYS,
+  AGENT_READ_AUDIT_MAX_IDS,
+  AGENT_READ_AUDIT_MAX_ROWS,
+} from "./agent-read-audit-service.js";
+export type {
+  AgentReadAuditItem,
+  AgentReadAuditPage,
+  AgentReadRecordType,
+  AgentReadReference,
+  AgentReadReferences,
+} from "./agent-read-audit-service.js";

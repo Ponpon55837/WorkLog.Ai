@@ -453,6 +453,39 @@ describe("project deletion", () => {
     }
   });
 
+  it("removes the project's Agent read audit rows and keeps other projects' rows", () => {
+    const { store, directory, databasePath } = createDiskStore();
+    const targetRoot = join(directory, "audit-target");
+    const otherRoot = join(directory, "audit-other");
+    mkdirSync(targetRoot);
+    mkdirSync(otherRoot);
+    const target = store.addProject("Audit Target", targetRoot);
+    const other = store.addProject("Audit Other", otherRoot);
+    store.updateProject(target.id, { status: "tracked" });
+    store.updateProject(other.id, { status: "tracked" });
+    for (const project of [target, other]) {
+      store.recordAgentRead({
+        tool: "work_recall",
+        result: {
+          outcome: "recall",
+          hits: [{ type: "session", id: `session-of-${project.id}`, projectId: project.id }],
+        },
+      });
+    }
+
+    store.deleteProject(target.id, target.name);
+
+    const check = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      expect(check.prepare("SELECT project_id FROM agent_read_audit").all()).toEqual([{ project_id: other.id }]);
+      expect(check.prepare("SELECT record_id FROM agent_read_audit_records").all()).toEqual([
+        { record_id: `session-of-${other.id}` },
+      ]);
+    } finally {
+      check.close();
+    }
+  });
+
   it("refuses deletion when the backup cannot be created and leaves the project intact", () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-delete-memory-"));
     tempDirs.push(root);

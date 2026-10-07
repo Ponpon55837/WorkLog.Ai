@@ -11,6 +11,7 @@ import { error as logError } from "node:console";
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import ts from "typescript";
 
 export const SECTIONS = [
@@ -147,7 +148,7 @@ function vueFiles(directory) {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const fix = process.argv.includes("--fix");
   const targets = process.argv.slice(2).filter((argument) => argument !== "--fix");
   const files = targets.length > 0 ? targets : vueFiles("apps/web/src");

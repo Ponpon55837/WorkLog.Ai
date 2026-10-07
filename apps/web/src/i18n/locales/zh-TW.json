@@ -1274,7 +1274,10 @@
     "voided": "{target} 作廢",
     "voidedLabel": "已作廢",
     "writeOnlyKnownLimitsUnfinished": "只寫已知的限制、未完成項目或未驗證情境，不寫建議或計畫。",
-    "writeOnlyWhatActuallyHappened": "只寫實際結果；沒跑測試請選「未執行」，不要選「通過」。"
+    "writeOnlyWhatActuallyHappened": "只寫實際結果；沒跑測試請選「未執行」，不要選「通過」。",
+    "agentReads": "Agent 讀取",
+    "agentReadsHint": "Agent 曾透過 MCP 被提供這筆 Session",
+    "agentReadsRecentOnly": "僅顯示最近 {count} 筆"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "每一次完成，都留下可追溯的脈絡。",
@@ -1454,7 +1457,25 @@
     "unavailableValue": "無法取得",
     "unknown": "未知",
     "updateAvailableProcessCount": "{updateAvailableProcesses} 個",
-    "usesTheMcpHeartbeatTo": "以 MCP heartbeat 判斷目前是否需要重新連線。"
+    "usesTheMcpHeartbeatTo": "以 MCP heartbeat 判斷目前是否需要重新連線。",
+    "agentReadsTitle": "Agent 讀取紀錄",
+    "agentReadsHint": "Agent 透過 MCP 讀取時，實際被提供了哪些 Session 與 Knowledge。只記錄 id 與數量，不含查詢或內容；保留 30 天、最多 5,000 筆。",
+    "agentReadsProjectFilter": "依專案篩選 Agent 讀取",
+    "agentReadsAgentFilter": "依 Agent 篩選讀取",
+    "agentReadsAllProjects": "全部專案",
+    "agentReadsAllAgents": "全部 Agent",
+    "agentReadsLoading": "正在載入 Agent 讀取紀錄",
+    "agentReadsEmptyTitle": "還沒有 Agent 讀取紀錄",
+    "agentReadsEmptyHint": "Agent 之後透過 MCP 讀取 Work Intelligence 時，會在這裡留下紀錄。",
+    "agentReadsCouldNotLoad": "無法載入 Agent 讀取紀錄",
+    "agentReadsCouldNotOpenSession": "無法開啟這筆 Session",
+    "agentReadsUnknownAgent": "未知用戶端",
+    "agentReadsNoProject": "未指定專案",
+    "agentReadsReturned": "回傳 {count} 筆",
+    "agentReadsKnowledgeCount": "Knowledge {count} 筆",
+    "agentReadsOmitted": "另有 {count} 筆未列出",
+    "agentReadsOpenSession": "開啟 Session {id}",
+    "agentReadsPageSize": "每頁 Agent 讀取筆數"
   },
   "ui": {
     "actualCountsPerPeriod": "每期實際數量",

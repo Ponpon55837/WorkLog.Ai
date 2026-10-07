@@ -16,6 +16,7 @@ import {
   Wifi,
 } from "lucide-vue-next";
 import PageHeader from "../components/layout/PageHeader.vue";
+import AgentReadsBox from "../components/domain/AgentReadsBox.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
@@ -171,6 +172,8 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             </UiBoxRow>
           </template>
         </UiBox>
+
+        <AgentReadsBox />
 
         <UiBox data-testid="preferences">
           <template #header><UiBoxTitle :icon="Settings2" :title="t('systemStatus.personalPreferences')" /></template>

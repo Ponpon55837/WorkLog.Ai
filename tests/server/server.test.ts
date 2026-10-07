@@ -663,6 +663,45 @@ describe("Work Intelligence REST API", () => {
     expect(dashboard.body.recentSessions.map((item) => item.title)).toEqual(["Visible Session"]);
   });
 
+  it("lists Agent reads and per-record read history with ids only", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-agent-reads-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Agent reads project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const hit = { type: "session", id: "fiction-session-1", projectId: project.id, title: "NEVER-RETURNED" };
+    store.recordAgentRead({
+      tool: "work_recall",
+      agentClient: "fiction-client",
+      result: { outcome: "recall", hits: [hit] },
+    });
+    store.recordAgentRead({ tool: "work_search", result: { outcome: "search", hits: [hit] } });
+
+    const page = await requestJson<{ items: Array<Record<string, unknown>>; pageInfo: { total: number } }>(
+      baseUrl,
+      "/api/agent-reads?pageSize=1",
+    );
+    expect(page.status).toBe(200);
+    expect(page.body.pageInfo.total).toBe(2);
+    expect(page.body.items).toHaveLength(1);
+    expect(page.body.items[0]).toMatchObject({ projectName: "Agent reads project", sessionIds: ["fiction-session-1"] });
+    expect(JSON.stringify(page.body)).not.toContain("NEVER-RETURNED");
+
+    const filtered = await requestJson<{ items: unknown[] }>(baseUrl, "/api/agent-reads?agent=fiction-client");
+    expect(filtered.body.items).toHaveLength(1);
+    expect((await requestJson(baseUrl, "/api/agent-reads?pageSize=500")).status).toBe(400);
+
+    const history = await requestJson<{ total: number; items: Array<{ tool: string }> }>(
+      baseUrl,
+      "/api/sessions/fiction-session-1/agent-reads",
+    );
+    expect(history.body.total).toBe(2);
+    expect(history.body.items.map((item) => item.tool).sort()).toEqual(["work_recall", "work_search"]);
+    const none = await requestJson<{ total: number }>(baseUrl, "/api/knowledge/missing/agent-reads");
+    expect(none.body).toEqual({ total: 0, items: [] });
+  });
+
   it("filters Sessions by Agent client and lists the available clients", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-agent-source-test-"));
     const store = new WorkIntelligenceStore(":memory:");

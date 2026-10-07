@@ -67,6 +67,9 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/import`                                     | 將可攜式 JSON 的非衝突資料合併寫入目前資料庫                                           |
 | GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session；`agent` 以完全相符篩選寫入該 Session 的 Agent 用戶端（例如 `claude-code`） |
 | GET      | `/api/sessions/agents`                           | 回傳 `{ agents: string[] }`：tracked 專案未作廢 Session 中出現過的 Agent 用戶端（去重、排序），供 Web 篩選選單使用 |
+| GET      | `/api/agent-reads`                               | 被動稽核：Agent 經 MCP 讀取時回傳過哪些紀錄（只含 tracked 專案與無專案的讀取），新到舊分頁；可用 `projectId`、`agent`、`page`、`pageSize`（1–100）。每筆含 `at`、`tool`、`agentClient`、`projectId`／`projectName`、`returnedCount`、`sessionIds`、`knowledgeIds`（只有 id，每種最多 50 個，超出以 `omitted*Count` 表示）。保留 30 天且最多 5,000 筆 |
+| GET      | `/api/sessions/:id/agent-reads`                  | `{ total, items: [{ at, tool, agentClient? }] }`：這個 Session 被 Agent 讀取回傳過的次數與最近 20 筆 |
+| GET      | `/api/knowledge/:id/agent-reads`                 | 同上，對象為 Knowledge |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
 | PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要（Agent 與 Session 面板「編輯 Session」共用） |

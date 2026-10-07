@@ -580,4 +580,25 @@ describe("outstanding cleanup review migration", () => {
       db.close();
     }
   });
+
+  it("adds the empty Agent read audit tables on upgrade from schema 24", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 24);
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'agent_read_audit%'").all()).toEqual([]);
+
+      db.exec("BEGIN IMMEDIATE");
+      applySchemaMigrations(db);
+      db.exec("COMMIT");
+
+      expect(db.prepare("SELECT COUNT(*) AS count FROM agent_read_audit").get()).toEqual({ count: 0 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM agent_read_audit_records").get()).toEqual({ count: 0 });
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 25").get()).toEqual({
+        name: "agent-read-audit",
+      });
+    } finally {
+      db.close();
+    }
+  });
 });

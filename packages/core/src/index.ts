@@ -366,6 +366,41 @@ export interface RawSnapshotRecord {
   capturedAt: string;
 }
 
+/** One audited MCP read: which Sessions and Knowledge items it returned to an Agent (ids only, never content). */
+export interface AgentReadAuditItem {
+  id: string;
+  at: string;
+  tool: string;
+  agentClient?: string;
+  projectId?: string;
+  projectName?: string;
+  outcome: string;
+  returnedCount: number;
+  sessionIds: string[];
+  knowledgeIds: string[];
+  omittedSessionCount: number;
+  omittedKnowledgeCount: number;
+}
+
+export interface AgentReadAuditPage {
+  items: AgentReadAuditItem[];
+  pageInfo: PageInfo;
+  /** Distinct Agent clients in the audit, for the filter menu. */
+  agents: string[];
+}
+
+export interface AgentReadReference {
+  at: string;
+  tool: string;
+  agentClient?: string;
+}
+
+/** How often a Session or Knowledge item was returned to Agents, with the newest reads. */
+export interface AgentReadReferences {
+  total: number;
+  items: AgentReadReference[];
+}
+
 export interface SessionDetail {
   session: WorkSessionRecord;
   project: ProjectRecord;

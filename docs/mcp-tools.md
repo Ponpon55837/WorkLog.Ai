@@ -219,6 +219,10 @@ Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現�
 
 與 `work_recall` 使用同一個排序引擎，但只查 Session，最多 20 筆，同樣可帶 `from`／`to`。排序優先採用 title、summary、workSummary 等結構化 Session 欄位；同一專案重複引用的 raw handoff 片段依正規化 hash 去重，最早來源保留完整權重，後續引用降為 10%。回傳 `{ outcome: "search", confidence, hits, termHits? }`；confidence 規則與 `work_recall` 相同，`none` 時 `hits` 為空，`low` 的部分命中與同義詞線索須先核對原文。每筆是精簡 hit：`id`、標題、完成日期、最強的 `matchedIn` 欄位、選用的 raw 段落標題、最多 110 字元的 `excerpt`、選用的 `truncated` 與 `verificationStatus`。當標題是最強命中且摘要也包含查詢詞時，`excerpt` 改取摘要片段，以保留回答脈絡。project-scoped 結果省略重複的專案識別欄位。它不再重複回傳整份 Session digest；以 `work_get_session` 讀取完整摘要、未結項及其他欄位。需要 Knowledge 或路徑比對時改用 `work_recall`。結果只來自 tracked projects；project-scoped search 會再次通過 policy gate。
 
+## 讀取稽核（被動）
+
+每個成功的唯讀 operation 會在伺服器端被動記錄一筆：operation 名稱、MCP 用戶端名稱、專案 id、`outcome`，以及回應實際帶回的 Session／Knowledge id 與數量（每種最多 50 個）。不記錄查詢文字、task、路徑、紀錄內容或錯誤訊息；跳過（skipped）的結果只記 operation 與 `skipped`。記錄失敗不影響讀取。資料保留 30 天且最多 5,000 筆，專案永久刪除時一併清除。Agent 不需要也不會被要求做任何事；使用者在系統狀態頁與 Session 面板查看。
+
 ## Tool annotations 與 prompts
 
 四個 dispatcher 都帶有 MCP annotations，讓用戶端能按操作類型設定權限；每個原 operation 的精確 annotations 也保留在工具 contract resource：
