@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Restoring a database on Windows could refuse a different file as "the current database": NTFS file ids are 64-bit and lost precision as plain numbers. The check now compares bigint file ids and the device.
+
 ### Added
 
 - A Knowledge page's version history can be compared: "Compare with previous version" shows, for the version being viewed (or the current page), which sections were added, removed or changed since the version before it, with a line diff of each changed section and the source Sessions added or removed. It is a read-only viewing aid built from the versions the Web already loads; no new endpoint.
