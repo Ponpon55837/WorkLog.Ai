@@ -156,7 +156,12 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+/* Weekday labels stay put while the weeks scroll sideways on narrow screens. */
 .activity__weekdays {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-canvas);
   display: grid;
   grid-column: 1;
   grid-row: 2;
@@ -186,18 +191,18 @@ onMounted(() => {
   cursor: pointer;
 }
 
-/* Shades mix the success colour into the page background, so both themes stay on existing tokens. */
+/* Activity is a neutral amount, not a status: accent, not success (green means passed/tracked in the status mapping). */
 .activity__cell--1 {
-  background: color-mix(in srgb, var(--success-emphasis) 30%, var(--bg-canvas));
+  background: color-mix(in srgb, var(--accent-emphasis) 30%, var(--bg-canvas));
 }
 .activity__cell--2 {
-  background: color-mix(in srgb, var(--success-emphasis) 52%, var(--bg-canvas));
+  background: color-mix(in srgb, var(--accent-emphasis) 52%, var(--bg-canvas));
 }
 .activity__cell--3 {
-  background: color-mix(in srgb, var(--success-emphasis) 76%, var(--bg-canvas));
+  background: color-mix(in srgb, var(--accent-emphasis) 76%, var(--bg-canvas));
 }
 .activity__cell--4 {
-  background: var(--success-emphasis);
+  background: var(--accent-emphasis);
 }
 
 .activity__cell:hover {
