@@ -20,6 +20,7 @@ const report = {
     sessions: 2,
     events: 3,
     changedFiles: 4,
+    changedFilesOversizedSessions: 2,
     verification: { passed: 1, failed: 0, not_run: 1, not_supplied: 0 },
   },
   comparison: {
@@ -185,6 +186,7 @@ describe("reports store", () => {
     await vi.waitFor(() => expect(store.reportSynthesisRequest?.id).toBe("request-1"));
     expect(store.report?.range).toEqual(report.range);
     expect(store.reportComparisons).toHaveLength(3);
+    expect(store.reportComparisons[2]?.foot).toBe(t("common.notTheSameAsGitOversized", { count: 2 }));
     expect(store.reportSessionItems).toHaveLength(1);
     expect(store.reportSynthesisRequest?.id).toBe("request-1");
     expect(store.reportSynthesisCanRetry).toBe(true);

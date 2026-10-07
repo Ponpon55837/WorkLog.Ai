@@ -54,7 +54,10 @@ export class ReportBuilder {
       if (report.sessionTruncation.previousPeriod) {
         lines.push("比較期間符合條件的 Session 超過 200 筆，部分資料未納入比較。", "");
       }
-      lines.push("摘要、趨勢、專案分布與比較數值只依納入報告的 Session 計算。", "");
+      lines.push(
+        "期間摘要、上一期比較、專案分布與 verification 統計涵蓋整個期間；趨勢、完成事項、風險、決策與來源證據只依納入報告的 Session 計算。",
+        "",
+      );
     }
 
     lines.push(
@@ -69,6 +72,8 @@ export class ReportBuilder {
       reportMetricMarkdown("Sessions", report.comparison.sessions),
       reportMetricMarkdown("Events", report.comparison.events),
       reportMetricMarkdown("Changed files", report.comparison.changedFiles),
+      "",
+      "Changed files 不計入列出超過 20 個檔案的 Session，這類 Session 多半混入了無關的未提交變更。",
       "",
       "## 主要完成事項",
       "",

@@ -13,15 +13,16 @@ import type {
   ReportProjectSummary,
   ReportSpanningSession,
   ReportSpanningSessions,
+  ReportVerificationStatus,
   SessionDecisionRecord,
-  SessionListResult,
   WorkReportPeriod,
   WorkSessionRecord,
 } from "@work-intelligence/core";
 import { localDayStartIso, localTimeZone, toLocalCalendarDate } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
 import { ReportBuilder } from "./report-builder.js";
-import type { SessionListOptions } from "./session-repository.js";
+import { CHANGED_FILES_NORMAL } from "./search-repository.js";
+import { nextCalendarDate, type SessionListOptions } from "./session-repository.js";
 import {
   buildReportTrends,
   compareReportMetric,
@@ -36,7 +37,6 @@ import {
 interface ReportStoreReader {
   getProjectById(projectId: string): ProjectRecord | undefined;
   listSessions(options: SessionListOptions): WorkSessionRecord[];
-  listSessionsPage(options: SessionListOptions): SessionListResult;
 }
 
 type ReportAttachedEvidenceRow = {
@@ -58,6 +58,27 @@ interface WorkReportAgentDecisions {
   pending: number;
   pendingItems: SessionDecisionRecord[];
 }
+
+interface ReportPeriodMetrics {
+  sessions: number;
+  events: number;
+  changedFiles: number;
+  changedFilesOversizedSessions: number;
+  verification: Record<ReportVerificationStatus, number>;
+  projects: Array<{ projectId: string; projectName: string; sessionCount: number; eventCount: number }>;
+}
+
+type ReportProjectMetricsRow = {
+  project_id: string;
+  project_name: string;
+  sessions: number;
+  changed_files: number;
+  oversized: number;
+  passed: number;
+  failed: number;
+  not_run: number;
+  not_supplied: number;
+};
 
 const REPORT_SESSION_LIMIT = 200;
 const REPORT_PENDING_DECISION_LIMIT = 20;
@@ -154,32 +175,22 @@ export class ReportReadService {
     const range = customRange ?? getReportRange(options.period, options.date ?? toLocalCalendarDate());
     const agentAutonomousDecisions = this.getAgentAutonomousDecisions(range, project?.id);
     const previousRange = customRange ? getPreviousCustomRange(range) : getPreviousReportRange(options.period, range);
-    const currentSessionScope: SessionListOptions = {
+    const sessions = this.listSessions({
       from: range.from,
       to: range.to,
       projectId: project?.id,
       trackedOnly: true,
-    };
-    const previousSessionScope: SessionListOptions = {
-      from: previousRange.from,
-      to: previousRange.to,
-      projectId: project?.id,
-      trackedOnly: true,
-    };
-    const sessions = this.listSessions({ ...currentSessionScope, limit: REPORT_SESSION_LIMIT });
-    const previousSessions = this.listSessions({ ...previousSessionScope, limit: REPORT_SESSION_LIMIT });
+      limit: REPORT_SESSION_LIMIT,
+    });
+    // Counts cover the whole period; only the listed Sessions and what is derived from them stop at the limit.
+    const currentMetrics = this.getReportPeriodMetrics(range, project?.id);
+    const previousMetrics = this.getReportPeriodMetrics(previousRange, project?.id);
     const sessionTruncation = {
-      currentPeriod:
-        this.store.listSessionsPage({ ...currentSessionScope, page: 1, pageSize: 1 }).pageInfo.total >
-        REPORT_SESSION_LIMIT,
-      previousPeriod:
-        this.store.listSessionsPage({ ...previousSessionScope, page: 1, pageSize: 1 }).pageInfo.total >
-        REPORT_SESSION_LIMIT,
+      currentPeriod: currentMetrics.sessions > REPORT_SESSION_LIMIT,
+      previousPeriod: previousMetrics.sessions > REPORT_SESSION_LIMIT,
     };
     const sessionIds = sessions.map((session) => session.id);
-    const previousSessionIds = previousSessions.map((session) => session.id);
     const eventRows = this.getReportEvents(sessionIds);
-    const previousEventRows = this.getReportEvents(previousSessionIds);
     const snapshotRows = sessionIds.length
       ? (this.db
           .prepare(
@@ -207,55 +218,29 @@ export class ReportReadService {
           .all(...sessionIds) as ReportAttachedEvidenceRow[])
       : [];
 
-    const verification: Record<"passed" | "failed" | "not_run" | "not_supplied", number> = {
-      passed: 0,
-      failed: 0,
-      not_run: 0,
-      not_supplied: 0,
-    };
-    const projectSummaries = new Map<string, ReportProjectSummary>();
+    // Project shares are counted over the whole period; source ids name the listed Sessions behind each share.
+    const sourceIdsByProject = new Map<string, string[]>();
     for (const session of sessions) {
-      const verificationStatus = session.verification?.status ?? "not_supplied";
-      verification[verificationStatus] += 1;
-      const existing = projectSummaries.get(session.projectId);
-      if (existing) {
-        existing.sessionCount += 1;
-        existing.sourceSessionIds.push(session.id);
-      } else {
-        projectSummaries.set(session.projectId, {
-          projectId: session.projectId,
-          projectName: session.projectName ?? session.projectId,
-          sessionCount: 1,
-          eventCount: 0,
-          sourceSessionIds: [session.id],
-        });
-      }
+      const ids = sourceIdsByProject.get(session.projectId) ?? [];
+      ids.push(session.id);
+      sourceIdsByProject.set(session.projectId, ids);
     }
-    for (const event of eventRows) {
-      const summary = projectSummaries.get(event.project_id);
-      if (summary) {
-        summary.eventCount += 1;
-      }
-    }
+    const projectSummaries: ReportProjectSummary[] = currentMetrics.projects.map((summary) => ({
+      ...summary,
+      sourceSessionIds: sourceIdsByProject.get(summary.projectId) ?? [],
+    }));
 
-    const currentMetrics = {
-      sessions: sessions.length,
-      events: eventRows.length,
-      changedFiles: sessions.reduce((total, session) => total + session.changedFiles.length, 0),
-    };
-    const previousMetrics = {
-      sessions: previousSessions.length,
-      events: previousEventRows.length,
-      changedFiles: previousSessions.reduce((total, session) => total + session.changedFiles.length, 0),
-    };
     const comparison = {
       sessions: compareReportMetric(currentMetrics.sessions, previousMetrics.sessions),
       events: compareReportMetric(currentMetrics.events, previousMetrics.events),
       changedFiles: compareReportMetric(currentMetrics.changedFiles, previousMetrics.changedFiles),
     };
-    const periodScope = project ? `專案「${project.name}」` : `${projectSummaries.size} 個記錄中專案`;
-    const periodSummary = sessions.length
-      ? `${range.from} 至 ${range.to}，${periodScope}完成 ${sessions.length} 個 Session，留下 ${eventRows.length} 個事件與 ${currentMetrics.changedFiles} 筆檔案變更 metadata。`
+    const periodScope = project ? `專案「${project.name}」` : `${projectSummaries.length} 個記錄中專案`;
+    const oversizedNote = currentMetrics.changedFilesOversizedSessions
+      ? `（另有 ${currentMetrics.changedFilesOversizedSessions} 個 Session 列出超過 ${CHANGED_FILES_NORMAL} 個檔案，未計入）`
+      : "";
+    const periodSummary = currentMetrics.sessions
+      ? `${range.from} 至 ${range.to}，${periodScope}完成 ${currentMetrics.sessions} 個 Session，留下 ${currentMetrics.events} 個事件與 ${currentMetrics.changedFiles} 筆檔案變更 metadata${oversizedNote}。`
       : `${range.from} 至 ${range.to} 沒有可彙整的完成工作。`;
 
     const sessionById = new Map(sessions.map((session) => [session.id, session]));
@@ -446,7 +431,7 @@ export class ReportReadService {
       sessions,
       sessionTruncation,
       completedWork: sessions.slice(0, 10),
-      projects: [...projectSummaries.values()].sort((left, right) => {
+      projects: projectSummaries.sort((left, right) => {
         if (right.sessionCount !== left.sessionCount) {
           return right.sessionCount - left.sessionCount;
         }
@@ -454,9 +439,10 @@ export class ReportReadService {
       }),
       totals: {
         sessions: currentMetrics.sessions,
-        events: eventRows.length,
+        events: currentMetrics.events,
         changedFiles: currentMetrics.changedFiles,
-        verification,
+        changedFilesOversizedSessions: currentMetrics.changedFilesOversizedSessions,
+        verification: currentMetrics.verification,
       },
       comparison,
       risks,
@@ -468,6 +454,82 @@ export class ReportReadService {
       evidence: pageEvidence,
       evidencePageInfo,
     };
+  }
+
+  /**
+   * Totals for every finalized, non-voided Session in the period, counted in SQL so they are not capped by the
+   * report's Session limit. Sessions listing more than CHANGED_FILES_NORMAL files add nothing to changedFiles and
+   * are counted separately, matching how recall and hotspots treat a polluted worktree.
+   */
+  private getReportPeriodMetrics(range: ReportRange, projectId?: string): ReportPeriodMetrics {
+    const scopeClause = projectId ? "AND s.project_id = ?" : "";
+    const parameters = [
+      localDayStartIso(range.from) ?? range.from,
+      nextCalendarDate(range.to),
+      ...(projectId ? [projectId] : []),
+    ];
+    const sessionFilter = `p.status = 'tracked' AND s.voided_at IS NULL
+           AND s.completed_at >= ? AND s.completed_at < ? ${scopeClause}`;
+    const rows = this.db
+      .prepare(
+        `SELECT project_id, project_name, COUNT(*) AS sessions,
+                SUM(CASE WHEN files <= ${CHANGED_FILES_NORMAL} THEN files ELSE 0 END) AS changed_files,
+                SUM(files > ${CHANGED_FILES_NORMAL}) AS oversized,
+                SUM(status = 'passed') AS passed, SUM(status = 'failed') AS failed,
+                SUM(status = 'not_run') AS not_run, SUM(status = 'not_supplied') AS not_supplied
+         FROM (
+           SELECT s.project_id, p.name AS project_name,
+                  json_array_length(CASE WHEN json_valid(s.changed_files_json) THEN s.changed_files_json ELSE '[]' END)
+                    AS files,
+                  COALESCE(json_extract(s.verification_json, '$.status'), 'not_supplied') AS status
+           FROM sessions s
+           JOIN projects p ON p.id = s.project_id
+           WHERE ${sessionFilter}
+         )
+         GROUP BY project_id`,
+      )
+      .all(...parameters) as unknown as ReportProjectMetricsRow[];
+    const eventCounts = new Map(
+      (
+        this.db
+          .prepare(
+            `SELECT s.project_id, COUNT(*) AS events
+             FROM sessions s
+             JOIN projects p ON p.id = s.project_id
+             JOIN work_events e ON e.session_id = s.id
+             WHERE ${sessionFilter}
+             GROUP BY s.project_id`,
+          )
+          .all(...parameters) as Array<{ project_id: string; events: number }>
+      ).map((row) => [row.project_id, row.events]),
+    );
+
+    const metrics: ReportPeriodMetrics = {
+      sessions: 0,
+      events: 0,
+      changedFiles: 0,
+      changedFilesOversizedSessions: 0,
+      verification: { passed: 0, failed: 0, not_run: 0, not_supplied: 0 },
+      projects: [],
+    };
+    for (const row of rows) {
+      const eventCount = eventCounts.get(row.project_id) ?? 0;
+      metrics.sessions += row.sessions;
+      metrics.events += eventCount;
+      metrics.changedFiles += row.changed_files;
+      metrics.changedFilesOversizedSessions += row.oversized;
+      metrics.verification.passed += row.passed;
+      metrics.verification.failed += row.failed;
+      metrics.verification.not_run += row.not_run;
+      metrics.verification.not_supplied += row.not_supplied;
+      metrics.projects.push({
+        projectId: row.project_id,
+        projectName: row.project_name,
+        sessionCount: row.sessions,
+        eventCount,
+      });
+    }
+    return metrics;
   }
 
   private getAgentAutonomousDecisions(range: ReportRange, projectId?: string): WorkReportAgentDecisions {

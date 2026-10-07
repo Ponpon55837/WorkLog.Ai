@@ -4,7 +4,7 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-10-02
+- 最後更新：2026-10-07
 
 ## 使用者待辦
 
@@ -29,6 +29,8 @@
 
 A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](../.openspec/handoffs/2026-09-30-codex-round9-a3-evidence.md)保留缺漏證據；B3 的[合成準確度評估](../.openspec/handoffs/2026-10-01-codex-round9-b3-accuracy.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。schema 23 與新增 Agent 契約在主安裝更新後須重啟服務並重新連線；上述 PR／CI／Session 證據已核對，完整輪次交接會在 C1 階段收尾時保存於工作區。
 
+2026-10-07 報告統計改為以 SQL 加總整個期間，不再受 200 筆 Session 上限影響；Changed Files 不計入列出超過 20 個檔案的 Session，並回傳略過數量。
+
 2026-10-02 修正 MCP 報告儲存與重試在 schema 保護交易內重複開啟 SQLite 交易的回歸。三個 MCP 回歸案例覆蓋實際 dispatcher 提交、冪等重送、重試與失敗回滾；報告版本與請求狀態維持原子更新。
 
 PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒，等待更新後 CI 驗證。
@@ -40,6 +42,7 @@ PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
 | Graph 總數計算 | 觀察中 | 目前合成效能基準仍在既定門檻內；出現可重現的效能問題時再評估 |
+| KaTeX low 漏洞（GHSA，`>=0.11.0 <0.18.2`） | 等待上游 | 只經 `mermaid` 間接使用，且需先有其他原型污染才能利用；mermaid 以 `securityLevel: "strict"` 渲染。至 2026-10-07 最新 mermaid 12.1.0 仍要求 `katex ^0.16.47`，不以 override 強制升級。升級依賴時檢查 mermaid 是否已支援 KaTeX 0.18.2 以上，支援後一併升級並確認 `pnpm audit --prod` 清空 |
 
 ## 過往輪次（已完成）
 

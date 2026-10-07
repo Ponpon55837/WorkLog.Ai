@@ -303,7 +303,9 @@ export const useReportsStore = defineStore("reports", () => {
         key: "changedFiles",
         label: "Changed Files",
         comparison: report.value.comparison.changedFiles,
-        foot: t("common.notTheSameAsGit"),
+        foot: report.value.totals.changedFilesOversizedSessions
+          ? t("common.notTheSameAsGitOversized", { count: report.value.totals.changedFilesOversizedSessions })
+          : t("common.notTheSameAsGit"),
       },
     ];
   });

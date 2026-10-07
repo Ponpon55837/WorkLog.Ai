@@ -25,14 +25,14 @@ function setup() {
   stores.push(store);
   const project = store.addProject("Apiary", root);
   store.updateProject(project.id, { status: "tracked" });
-  const finalize = (title: string, completedAt: string) =>
+  const finalize = (title: string, completedAt: string, changedFiles: string[] = []) =>
     store.finalizeSession({
       projectRoot: root,
       idempotencyKey: title,
       title,
       summary: "Tended the hives.",
       verification: { status: "passed" },
-      changedFiles: [],
+      changedFiles,
       completedAt,
     });
   return { store, finalize };
@@ -114,6 +114,12 @@ describe("custom-range reports", () => {
     }
     expect(currentReport.sessions).toHaveLength(200);
     expect(currentReport.sessionTruncation).toEqual({ currentPeriod: true, previousPeriod: false });
+    // Counts still cover every Session of both periods, so the comparison is not flattened by the limit.
+    expect(currentReport.totals).toMatchObject({ sessions: 201, verification: { passed: 201 } });
+    expect(currentReport.comparison.sessions).toMatchObject({ current: 201, previous: 200, delta: 1 });
+    expect(currentReport.projects).toMatchObject([{ projectName: "Apiary", sessionCount: 201 }]);
+    expect(currentReport.projects[0]?.sourceSessionIds).toHaveLength(200);
+    expect(currentReport.periodSummary).toContain("完成 201 個 Session");
     const markdown = store.exportReport({
       period: "day",
       from: "2030-01-02",
@@ -126,7 +132,52 @@ describe("custom-range reports", () => {
     expect(followingReport).toMatchObject({
       outcome: "report",
       sessionTruncation: { currentPeriod: false, previousPeriod: true },
+      comparison: { sessions: { current: 0, previous: 201 } },
     });
+  });
+
+  it("leaves Sessions listing more than 20 changed files out of the changed-files count", () => {
+    const { store, finalize } = setup();
+    const files = (count: number, prefix: string) =>
+      Array.from({ length: count }, (_, index) => `${prefix}/${index}.ts`);
+    finalize("previous", "2030-01-01T12:00:00.000Z", files(3, "comb"));
+    finalize("focused", "2030-01-02T10:00:00.000Z", files(20, "hive"));
+    finalize("dirty-worktree", "2030-01-02T11:00:00.000Z", files(21, "frame"));
+    finalize("no-files", "2030-01-02T12:00:00.000Z");
+
+    const report = store.getReport({ period: "day", from: "2030-01-02", to: "2030-01-02" });
+    if (report.outcome !== "report") {
+      throw new Error("Expected a report");
+    }
+    expect(report.totals).toMatchObject({ sessions: 3, changedFiles: 20, changedFilesOversizedSessions: 1 });
+    expect(report.comparison.changedFiles).toMatchObject({ current: 20, previous: 3, delta: 17 });
+    expect(report.periodSummary).toContain("另有 1 個 Session 列出超過 20 個檔案，未計入");
+
+    const markdown = store.exportReport({ period: "day", from: "2030-01-02", to: "2030-01-02", format: "markdown" });
+    expect(markdown.outcome === "report_export" ? markdown.content : "").toContain(
+      "Changed files 不計入列出超過 20 個檔案的 Session",
+    );
+  });
+
+  it("leaves voided Sessions and their events out of the totals", () => {
+    const { store, finalize } = setup();
+    const sessionId = (result: ReturnType<typeof finalize>) => {
+      if (result.outcome !== "finalized") throw new Error("Expected finalize");
+      return result.session.id;
+    };
+    const kept = sessionId(finalize("kept", "2030-01-02T10:00:00.000Z"));
+    const voided = sessionId(finalize("voided", "2030-01-02T11:00:00.000Z"));
+    store.setSessionVoid({ sessionId: voided, voided: true, reason: "Recorded twice." });
+
+    const report = store.getReport({ period: "day", from: "2030-01-02", to: "2030-01-02" });
+    if (report.outcome !== "report") {
+      throw new Error("Expected a report");
+    }
+    expect(report.totals.sessions).toBe(1);
+    expect(report.totals.verification).toEqual({ passed: 1, failed: 0, not_run: 0, not_supplied: 0 });
+    const keptEvents = store.getSessionDetail(kept)?.events.length;
+    expect(keptEvents).toBeGreaterThan(0);
+    expect(report.totals.events).toBe(keptEvents);
   });
 });
 

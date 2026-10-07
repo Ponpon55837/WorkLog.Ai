@@ -42,7 +42,7 @@ const FIELD_WEIGHTS: Record<Exclude<RecallField, "path">, number> = {
 };
 const DUPLICATE_RAW_WEIGHT_FACTOR = 0.1;
 // Sessions listing more changed files than this are likely polluted by unrelated dirty worktrees.
-const CHANGED_FILES_NORMAL = 20;
+export const CHANGED_FILES_NORMAL = 20;
 const PATH_WEIGHT = 4;
 const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
