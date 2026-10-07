@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { AgentReadAuditItem, AgentReadAuditPage, AgentReadReferences } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
+import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 export type {
   AgentReadAuditItem,
@@ -166,38 +167,54 @@ export class AgentReadAuditService {
       const sessionIds = extraction.sessionIds.slice(0, AGENT_READ_AUDIT_MAX_IDS);
       const knowledgeIds = extraction.knowledgeIds.slice(0, AGENT_READ_AUDIT_MAX_IDS);
       const auditId = randomUUID();
-      this.db
-        .prepare(
-          `INSERT INTO agent_read_audit
+      this.withoutLockWait(() =>
+        runImmediateTransaction(this.db, () => {
+          this.db
+            .prepare(
+              `INSERT INTO agent_read_audit
              (id, created_at, tool, agent_client, project_id, outcome, returned_count,
               session_ids_json, knowledge_ids_json, omitted_session_count, omitted_knowledge_count)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          auditId,
-          input.now ?? nowIso(),
-          input.tool.slice(0, 100),
-          input.agentClient ? input.agentClient.slice(0, 100) : null,
-          projectId ?? null,
-          outcome,
-          extraction.sessionIds.length + extraction.knowledgeIds.length,
-          JSON.stringify(sessionIds),
-          JSON.stringify(knowledgeIds),
-          extraction.sessionIds.length - sessionIds.length,
-          extraction.knowledgeIds.length - knowledgeIds.length,
-        );
-      if (sessionIds.length + knowledgeIds.length > 0) {
-        const insertRecord = this.db.prepare(
-          "INSERT OR IGNORE INTO agent_read_audit_records (audit_id, record_type, record_id) VALUES (?, ?, ?)",
-        );
-        for (const id of sessionIds) insertRecord.run(auditId, "session", id);
-        for (const id of knowledgeIds) insertRecord.run(auditId, "knowledge", id);
-      }
-      if (this.insertsSincePrune++ % PRUNE_EVERY_INSERTS === 0) {
-        this.prune(input.now);
-      }
+            )
+            .run(
+              auditId,
+              input.now ?? nowIso(),
+              input.tool.slice(0, 100),
+              input.agentClient ? input.agentClient.slice(0, 100) : null,
+              projectId ?? null,
+              outcome,
+              extraction.sessionIds.length + extraction.knowledgeIds.length,
+              JSON.stringify(sessionIds),
+              JSON.stringify(knowledgeIds),
+              extraction.sessionIds.length - sessionIds.length,
+              extraction.knowledgeIds.length - knowledgeIds.length,
+            );
+          if (sessionIds.length + knowledgeIds.length > 0) {
+            const insertRecord = this.db.prepare(
+              "INSERT OR IGNORE INTO agent_read_audit_records (audit_id, record_type, record_id) VALUES (?, ?, ?)",
+            );
+            for (const id of sessionIds) insertRecord.run(auditId, "session", id);
+            for (const id of knowledgeIds) insertRecord.run(auditId, "knowledge", id);
+          }
+          if (this.insertsSincePrune++ % PRUNE_EVERY_INSERTS === 0) {
+            this.prune(input.now);
+          }
+        }),
+      );
     } catch {
       // Best effort by design: a busy or failing audit table never fails the read.
+    }
+  }
+
+  /** Runs the audit write without waiting on another process's lock: a busy database drops the audit row instead. */
+  private withoutLockWait(operation: () => void): void {
+    if (this.db.isTransaction) return operation();
+    const row = this.db.prepare("PRAGMA busy_timeout").get() as { timeout?: number } | undefined;
+    this.db.exec("PRAGMA busy_timeout = 0");
+    try {
+      operation();
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${Number(row?.timeout ?? 5000)}`);
     }
   }
 

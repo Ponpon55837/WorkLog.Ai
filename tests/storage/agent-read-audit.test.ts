@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   AGENT_READ_AUDIT_MAX_IDS,
@@ -131,6 +132,29 @@ describe("agent read audit", () => {
     const { store } = createFixture();
     (store as unknown as { db: { exec(sql: string): void } }).db.exec("DROP TABLE agent_read_audit_records");
     expect(() => store.recordAgentRead({ tool: "work_recall", result: { outcome: "recall", hits: [] } })).not.toThrow();
+  });
+
+  it("drops the audit row instead of waiting when another connection holds the write lock", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-read-audit-lock-"));
+    tempDirs.push(root);
+    const databasePath = join(root, "audit.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    stores.push(store);
+    const holder = new DatabaseSync(databasePath);
+    holder.exec("BEGIN IMMEDIATE");
+    try {
+      const startedAt = performance.now();
+      store.recordAgentRead({ tool: "work_recall", result: { outcome: "recall", hits: [] } });
+      expect(performance.now() - startedAt).toBeLessThan(1_000);
+    } finally {
+      holder.exec("ROLLBACK");
+      holder.close();
+    }
+    expect(rows(store, "SELECT id FROM agent_read_audit")).toEqual([]);
+    expect(rows(store, "PRAGMA busy_timeout")).toEqual([{ timeout: 5000 }]);
+
+    store.recordAgentRead({ tool: "work_recall", result: { outcome: "recall", hits: [] } });
+    expect(rows(store, "SELECT tool FROM agent_read_audit")).toEqual([{ tool: "work_recall" }]);
   });
 
   it("lists recent reads of tracked projects, filters by agent, and answers forRecord newest first", () => {
