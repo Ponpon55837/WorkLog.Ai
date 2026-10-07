@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ExternalLink, History, Pencil, RefreshCw, X } from "lucide-vue-next";
+import { ExternalLink, GitCompare, History, Pencil, RefreshCw, X } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_INSUFFICIENT, type ProjectRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
@@ -14,6 +14,7 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import KnowledgePageDiff from "./KnowledgePageDiff.vue";
 import KnowledgePageEditorDialog from "./KnowledgePageEditorDialog.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
@@ -31,12 +32,19 @@ const { showToast } = useToast();
 /** The version shown; null shows the current page. */
 const shownVersion = ref<number | null>(null);
 const editorOpen = ref(false);
+const comparing = ref(false);
 const requesting = ref(false);
 
 const project = computed(() => props.projects.find((item) => item.id === openPage.value?.projectId));
 const shown = computed(() => {
   const version = versions.value.find((item) => item.version === shownVersion.value);
   return version ?? openPage.value;
+});
+/** The latest version before the one shown, when the page has one. */
+const previousVersion = computed(() => {
+  const current = shownVersion.value ?? openPage.value?.version ?? 0;
+  const earlier = versions.value.filter((item) => item.version < current);
+  return earlier.sort((a, b) => b.version - a.version)[0];
 });
 const sourceTitles = computed(() => {
   const titles = new Map(sources.value.map((source) => [source.id, source.title]));
@@ -86,6 +94,10 @@ watch(
     shownVersion.value = null;
   },
 );
+
+watch([() => openPage.value?.id, shownVersion], () => {
+  comparing.value = false;
+});
 </script>
 
 <template>
@@ -118,6 +130,14 @@ watch(
         <UiButton size="sm" :icon="Pencil" :disabled="shownVersion !== null" @click="editorOpen = true">{{
           t("knowledge.editedByHand")
         }}</UiButton>
+        <UiButton
+          v-if="previousVersion"
+          size="sm"
+          :icon="GitCompare"
+          :aria-pressed="comparing"
+          @click="comparing = !comparing"
+          >{{ comparing ? t("knowledge.closeComparison") : t("knowledge.compareWithPrevious") }}</UiButton
+        >
       </div>
     </template>
 
@@ -128,8 +148,15 @@ watch(
       >
     </UiFlash>
 
+    <KnowledgePageDiff
+      v-if="comparing && previousVersion && shown"
+      :previous-version="previousVersion.version"
+      :previous="previousVersion.sections"
+      :current="shown.sections"
+    />
+
     <section
-      v-for="(section, index) in shown?.sections ?? []"
+      v-for="(section, index) in comparing && previousVersion ? [] : (shown?.sections ?? [])"
       :key="`${index}-${section.heading}`"
       class="page-panel__section"
     >
