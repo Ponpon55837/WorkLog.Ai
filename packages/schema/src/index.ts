@@ -210,6 +210,15 @@ export const finalizeSessionInputSchema = z.object({
     .describe("One concise, outcome-first executive sentence; detailed facts belong in workSummary."),
   workSummary: workSummaryInputSectionsSchema.optional(),
   externalSessionId: z.string().trim().max(300).optional(),
+  agentModel: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe(
+      "Your exact model id if you know it (for example the id in your system prompt); omit it when unsure, never guess.",
+    ),
   handoffPath: z.string().max(1_000).optional(),
   handoffContent: z.string().max(200_000).optional(),
   events: z.array(eventSchema).max(100).optional(),
@@ -494,6 +503,7 @@ export const sessionsQuerySchema = z
   .object({
     q: z.string().trim().max(500).optional(),
     projectId: z.string().trim().min(1).max(200).optional(),
+    agent: z.string().trim().min(1).max(100).optional(),
     voided: voidedFilterSchema.default("exclude"),
     from: calendarDateSchema.optional(),
     to: calendarDateSchema.optional(),
@@ -1224,6 +1234,8 @@ export const projectDataExportTableColumns = {
     "void_reason",
     "started_at",
     "updated_at",
+    "agent_client",
+    "agent_model",
   ],
   work_events: ["id", "session_id", "type", "summary", "details_json", "occurred_at"],
   raw_snapshots: ["id", "session_id", "project_id", "kind", "source_path", "content", "captured_at"],
@@ -1771,7 +1783,7 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
 export const projectDataColumnDefaults: Partial<
   Record<(typeof PROJECT_DATA_TABLES)[number], Readonly<Record<string, string | number | null>>>
 > = {
-  sessions: { changed_files_confirmed: 0, redaction_count: 0 },
+  sessions: { changed_files_confirmed: 0, redaction_count: 0, agent_client: null, agent_model: null },
   projects: { repository_url: null },
   outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
   knowledge_pages: { checked_through_session_id: null },

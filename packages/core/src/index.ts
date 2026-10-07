@@ -319,6 +319,10 @@ export interface WorkSessionRecord {
   workSummary?: WorkSummarySections;
   /** Number of sensitive values removed from this Session's persisted text. */
   redactionCount?: number;
+  /** Agent client that wrote this Session, recorded by the MCP server from the connection handshake. */
+  agentClient?: string;
+  /** Model id as reported by the Agent when it chose to; never guessed. */
+  agentModel?: string;
   status: "finalized";
   executionStatus: ExecutionStatus;
   /** When the work began, if the Agent reported it or an event predates completion; never guessed. */
@@ -1325,6 +1329,8 @@ export interface FinalizeSessionInput {
   summary: string;
   workSummary?: WorkSummaryInputSections;
   externalSessionId?: string;
+  /** Exact model id when the Agent knows it; omitted otherwise, never guessed. */
+  agentModel?: string;
   handoffPath?: string;
   handoffContent?: string;
   events?: FinalizeEventInput[];

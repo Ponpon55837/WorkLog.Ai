@@ -1,5 +1,5 @@
 export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";
-export type { TrackedScopeInput } from "./store.js";
+export type { FinalizeSessionContext, TrackedScopeInput } from "./store.js";
 export { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 export {
   DatabaseRedactionError,

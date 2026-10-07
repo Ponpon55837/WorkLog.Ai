@@ -70,6 +70,7 @@ const EXPECTED_ROUTES = [
   "GET /api/session-decisions",
   "PATCH /api/session-decisions/:decisionId/review",
   "GET /api/sessions",
+  "GET /api/sessions/agents",
   "GET /api/sessions/:sessionId",
   "POST /api/sessions/:sessionId/evidence",
   "DELETE /api/sessions/:sessionId/links",

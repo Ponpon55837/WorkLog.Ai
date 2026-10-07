@@ -497,6 +497,8 @@ export function toSession(row: SessionRow): WorkSessionRecord {
     changedFilesProvenance: parseJson<ChangedFileProvenance[]>(row.changed_files_provenance_json, []),
     changedFileChanges: parseJson<ChangedFileChange[]>(row.changed_file_changes_json, []),
     verification: parseJson<VerificationSummary | undefined>(row.verification_json, undefined),
+    ...(row.agent_client ? { agentClient: row.agent_client } : {}),
+    ...(row.agent_model ? { agentModel: row.agent_model } : {}),
     ...(row.voided_at ? { voided: { at: row.voided_at, reason: row.void_reason ?? "" } } : {}),
   };
 }

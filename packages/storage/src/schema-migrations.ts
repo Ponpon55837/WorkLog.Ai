@@ -719,6 +719,14 @@ const MIGRATIONS: SchemaMigration[] = [
         END;
     `,
   },
+  {
+    version: 24,
+    name: "session-agent-source",
+    sql: `
+      ALTER TABLE sessions ADD COLUMN agent_client TEXT;
+      ALTER TABLE sessions ADD COLUMN agent_model TEXT;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

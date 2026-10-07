@@ -65,7 +65,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/export`                                    | body `{}` 匯出整份 SQLite 快照；指定 `scope` 時匯出可攜式 JSON（見下方）                 |
 | POST     | `/api/import/preview`                            | 驗證可攜式 JSON 並預覽新增、略過、衝突與路徑轉換，不寫入資料                           |
 | POST     | `/api/import`                                     | 將可攜式 JSON 的非衝突資料合併寫入目前資料庫                                           |
-| GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session |
+| GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session；`agent` 以完全相符篩選寫入該 Session 的 Agent 用戶端（例如 `claude-code`） |
+| GET      | `/api/sessions/agents`                           | 回傳 `{ agents: string[] }`：tracked 專案未作廢 Session 中出現過的 Agent 用戶端（去重、排序），供 Web 篩選選單使用 |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
 | PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要（Agent 與 Session 面板「編輯 Session」共用） |

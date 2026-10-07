@@ -104,7 +104,7 @@ interface StoreToolDefinition<S extends z.ZodTypeAny> {
   sessionResult?: boolean;
   /** Attach the process build status to this operation's result. */
   includeServerStatus?: boolean;
-  run: (input: z.infer<S>) => unknown;
+  run: (input: z.infer<S>, context: { agentClient?: string }) => unknown;
 }
 
 export interface McpStartupFailure {
@@ -481,9 +481,11 @@ export function createWorkIntelligenceMcpServer(
               }),
             };
           }
+          // The client name comes from the MCP initialize handshake, never from the Agent's arguments.
+          const context = { agentClient: server.server.getClientVersion()?.name };
           const result = definition.annotations.readOnlyHint
-            ? await definition.run(parsed.data)
-            : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data));
+            ? await definition.run(parsed.data, context)
+            : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
           const output =
             definition.includeServerStatus || !definition.annotations.readOnlyHint
               ? withServerRestartStatus(result, getRestartStatus)
@@ -543,7 +545,7 @@ export function createWorkIntelligenceMcpServer(
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid finalize payload.",
     sessionResult: true,
-    run: (input) => store.finalizeSession(input),
+    run: (input, context) => store.finalizeSession(input, context),
   });
 
   registerStoreTool("work_get_session", {

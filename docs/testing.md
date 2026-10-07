@@ -51,6 +51,8 @@ A1 新增合成 runtime 的 `getMcpRuntimeStatus (cached identity)` p90 ≤ 50 m
 
 Windows CI 的 coverage 曾讓 recall evaluator 誤判案例與未結項 supersession 稽核案例各耗時約 6 秒，超過 Vitest 預設 5 秒。這兩個包含檔案 SQLite 建置／快照或多次寫入的整合案例各使用 15 秒 timeout；保留所有斷言、其他測試的預設時間與獨立效能門檻。
 
+Server 測試同樣會開啟真實 SQLite 檔案、建立備份並執行 CLI；Windows CI 上新建檔案可能短暫被鎖住，SQLite 會等到 5 秒的 busy_timeout，剛好碰到 Vitest 預設的 5 秒上限（2026-10-07 曾在刪除專案備份、CLI 列出備份等不同案例輪流逾時）。因此 server 的一般與 coverage 設定都比照 storage 使用 20 秒 `testTimeout`，斷言不變。
+
 A2 另以 286 個合成過期 lease／tmp（每次計時前重建，建置資料不計時）量測狀態讀取及 MCP 註冊清理，兩者 p90 上限各為 100 ms。測試涵蓋 TTL＋60 秒邊界、每次 64 次刪除嘗試上限、重複讀取收斂、刪除失敗、非 UUID 檔案、符號連結及 scope 隔離；runtime 單元測試 mock `tmpdir()`，其餘本機驗證使用隔離 HOME／TMPDIR。
 
 ## 檢索品質評估

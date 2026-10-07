@@ -49,6 +49,8 @@ const {
   sessionsLoaded,
   searchTerm,
   selectedProjectId,
+  selectedAgent,
+  agentOptions,
   sessionPage,
   sessionPageSize,
   sessionPageInfo,
@@ -78,6 +80,7 @@ const { reload: reloadOutstandingItems, setListActive: setOutstandingItemsListAc
 
 useRouteQuery("q", searchTerm, stringQuery());
 useRouteQuery("project", selectedProjectId, stringQuery());
+useRouteQuery("agent", selectedAgent, stringQuery());
 useRouteQuery("from", dateFrom, stringQuery());
 useRouteQuery("to", dateTo, stringQuery());
 useRouteQuery(
@@ -118,7 +121,7 @@ useRouteQuery(
 const { reloadNow } = useListReload({
   load: loadSessions,
   page: sessionPage,
-  filters: [selectedProjectId, dateFrom, dateTo, voidedFilter, sessionPageSize],
+  filters: [selectedProjectId, selectedAgent, dateFrom, dateTo, voidedFilter, sessionPageSize],
   search: searchTerm,
 });
 
@@ -143,6 +146,10 @@ const tab = computed<SessionsTab>({
 const projectItems = computed(() => [
   { value: "", label: t("common.allProjects") },
   ...projects.value.map((project) => ({ value: project.id, label: project.name })),
+]);
+const agentItems = computed(() => [
+  { value: "", label: t("common.allAgents") },
+  ...agentOptions.value.map((agent) => ({ value: agent, label: agent })),
 ]);
 const tabs = computed(() => [
   // Counts appear once loaded; "0" before then would read as "nothing here".
@@ -240,6 +247,15 @@ onBeforeUnmount(() => {
             default-value=""
             align="end"
             :items="projectItems"
+          />
+          <UiActionMenu
+            v-if="agentOptions.length > 0"
+            v-model="selectedAgent"
+            :label="t('common.agent')"
+            :header="t('common.filterAgent')"
+            default-value=""
+            align="end"
+            :items="agentItems"
           />
           <UiDateRangeMenu v-model="dateRange" />
           <UiActionMenu

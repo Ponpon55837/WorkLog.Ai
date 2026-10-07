@@ -24,6 +24,8 @@ describe("sessionMarkdown", () => {
       detail({
         verification: { status: "passed", summary: "Unit tests green" },
         gitBranch: "feat/widget",
+        agentClient: "fiction-agent-cli",
+        agentModel: "fiction-model-1",
         commitSha: "abcdef1234567890",
         workSummary: {
           outcomes: ["Widget shipped"],
@@ -44,6 +46,7 @@ describe("sessionMarkdown", () => {
           `- ${t("common.completed")}: ${formatDate(COMPLETED_AT)}`,
           `- ${t("common.verification")}: ${t("common.passed")} — Unit tests green`,
           `- ${t("labels.git")}: feat/widget @ abcdef1`,
+          `- ${t("common.agent")}: fiction-agent-cli · fiction-model-1`,
         ].join("\n"),
         "Built the sample widget.\nIt renders a list.",
         `## ${t("labels.outcomes")}\n- Widget shipped`,
@@ -65,6 +68,7 @@ describe("sessionMarkdown", () => {
     expect(markdown).not.toContain("## ");
     expect(markdown).not.toContain(`${t("labels.git")}:`);
     expect(markdown).not.toContain(t("session.voidedLabel"));
+    expect(markdown).not.toContain(`${t("common.agent")}:`);
   });
 
   it("marks a voided Session", () => {

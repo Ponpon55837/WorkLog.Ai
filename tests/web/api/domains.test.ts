@@ -24,6 +24,16 @@ function recordRequests() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("domain API factories", () => {
+  it("sends the Agent filter and reads the distinct Agent list", async () => {
+    const calls = recordRequests();
+    const api = createApiClient("http://api.test");
+
+    await api.listSessions({ agent: "fiction-client" });
+    await api.listSessionAgents().catch(() => undefined);
+    expect(`${calls[0]?.url.pathname}${calls[0]?.url.search}`).toBe("/api/sessions?agent=fiction-client");
+    expect(calls[1]?.url.pathname).toBe("/api/sessions/agents");
+  });
+
   it("routes each domain method through the shared transport with encoded paths and query options", async () => {
     const calls = recordRequests();
     const api = createApiClient("http://api.test");

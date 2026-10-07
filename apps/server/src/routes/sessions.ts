@@ -36,6 +36,7 @@ export const sessionRoutes: Route[] = [
       ({ url }) => ({
         q: textParam(url, "q"),
         projectId: textParam(url, "projectId"),
+        agent: textParam(url, "agent"),
         voided: url.searchParams.get("voided") || undefined,
         from: url.searchParams.get("from") || undefined,
         to: url.searchParams.get("to") || undefined,
@@ -46,6 +47,7 @@ export const sessionRoutes: Route[] = [
         store.listSessionsPage({
           query: data.q,
           projectId: data.projectId,
+          agentClient: data.agent,
           voided: data.voided,
           from: data.from,
           to: data.to,
@@ -55,6 +57,11 @@ export const sessionRoutes: Route[] = [
           trackedOnly: true,
         }),
     ),
+  },
+  {
+    method: "GET",
+    pattern: "/api/sessions/agents",
+    handler: ({ store, response }) => sendJson(response, 200, { agents: store.listSessionAgentClients() }),
   },
   {
     method: "GET",

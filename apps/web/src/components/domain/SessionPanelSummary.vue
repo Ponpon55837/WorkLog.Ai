@@ -22,6 +22,9 @@ const emit = defineEmits<{ restoreRecord: [target: VoidTarget] }>();
 
 const session = computed(() => props.detail.session);
 const redactionCount = computed(() => session.value.redactionCount ?? 0);
+const agentLabel = computed(() =>
+  [session.value.agentClient, session.value.agentModel].filter((part): part is string => Boolean(part)).join(" · "),
+);
 const verification = computed(() => verificationStatus[verificationOf(session.value)]);
 const sessionTarget = computed<VoidTarget>(() => ({
   type: "session",
@@ -55,6 +58,11 @@ const sessionTarget = computed<VoidTarget>(() => ({
     <dd>
       <span>{{ detail.project.name }}</span>
       <code class="session-panel__path">{{ detail.project.rootPath }}</code>
+    </dd>
+    <dt>{{ t("common.agent") }}</dt>
+    <dd>
+      <span v-if="agentLabel">{{ agentLabel }}</span>
+      <span v-else class="session-panel__muted">{{ t("common.notReported") }}</span>
     </dd>
     <dt>{{ t("session.started") }}</dt>
     <dd>
