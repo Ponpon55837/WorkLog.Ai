@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Ban, ChevronDown, ChevronUp, FileDiff, FolderGit2, Link, Pencil, X } from "lucide-vue-next";
+import { Ban, ChevronDown, ChevronUp, ClipboardCopy, FileDiff, FolderGit2, Link, Pencil, X } from "lucide-vue-next";
 import type { SessionDetail } from "@work-intelligence/core";
 import type { VoidTarget } from "../../composables/useRecordVoid";
 import { verificationOf, verificationStatus } from "../../utils/status";
@@ -20,6 +20,7 @@ const emit = defineEmits<{
   edit: [session: SessionDetail["session"]];
   voidRecord: [target: VoidTarget];
   copyLink: [];
+  copyMarkdown: [];
   close: [];
 }>();
 
@@ -62,6 +63,7 @@ const sessionTarget = computed<VoidTarget>(() => ({
         @click="emit('voidRecord', sessionTarget)"
       />
       <UiIconButton :icon="Link" :label="t('session.copyLink')" size="sm" @click="emit('copyLink')" />
+      <UiIconButton :icon="ClipboardCopy" :label="t('session.copyMarkdown')" size="sm" @click="emit('copyMarkdown')" />
       <UiIconButton :icon="X" :label="t('common.close')" @click="emit('close')" />
     </div>
   </div>

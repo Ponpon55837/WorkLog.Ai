@@ -8,6 +8,7 @@ import { useSessionLinks } from "../../composables/useSessionLinks";
 import { useToast } from "../../composables/useToast";
 import { router } from "../../router";
 import { useSessionsStore } from "../../stores/sessions";
+import { sessionMarkdown } from "../../utils/session-markdown";
 import UiSidePanel from "../ui/UiSidePanel.vue";
 import SessionPanelActivity from "./SessionPanelActivity.vue";
 import SessionPanelHeader from "./SessionPanelHeader.vue";
@@ -32,6 +33,11 @@ const session = computed(() => selectedDetail.value?.session);
 
 function copyLink(): void {
   void useToast().copyWithToast(window.location.href, t("session.sessionLinkCopied"));
+}
+
+function copyMarkdown(): void {
+  if (!selectedDetail.value) return;
+  void useToast().copyWithToast(sessionMarkdown(selectedDetail.value), t("session.markdownCopied"));
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -99,6 +105,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         @edit="openSessionEditor"
         @void-record="openVoidDialog"
         @copy-link="copyLink"
+        @copy-markdown="copyMarkdown"
         @close="closeSessionDetail"
       />
     </template>
