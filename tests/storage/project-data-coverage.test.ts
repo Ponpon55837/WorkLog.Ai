@@ -19,6 +19,8 @@ const NOT_PROJECT_DATA: Record<string, string> = {
   project_deletion_audit: "content-free audit that must outlive the deleted project",
   project_location_audit: "content-free location-change audit that must not retain either path",
   database_maintenance_runs: "per-database maintenance history",
+  agent_read_audit: "content-free passive log of Agent reads (ids and counts only), pruned by age and count",
+  agent_read_audit_records: "id-only index of the Sessions and Knowledge each audited read returned",
 };
 
 /** Project data tables with no free text for db:redact to scan. Adding one here needs a reason. */

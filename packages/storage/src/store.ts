@@ -212,6 +212,14 @@ import { OutstandingItemService } from "./outstanding-item-service.js";
 import { OutstandingCleanupService } from "./outstanding-cleanup-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
+import { AgentReadAuditService } from "./agent-read-audit-service.js";
+import type {
+  AgentReadAuditPage,
+  AgentReadRecordType,
+  AgentReadReferences,
+  ListAgentReadsOptions,
+  RecordAgentReadInput,
+} from "./agent-read-audit-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import type { EvidenceRow, KnowledgeRow } from "./session-record-codecs.js";
@@ -346,6 +354,7 @@ export class WorkIntelligenceStore {
   private readonly hotspots: HotspotRepository;
   private readonly timelines: TimelineRepository;
   private readonly projectDeletionService: ProjectDeletionService;
+  private readonly agentReadAudit: AgentReadAuditService;
   private readonly projectLocationService: ProjectLocationService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
   private readonly policyGate: ProjectPolicyGate;
@@ -445,6 +454,7 @@ export class WorkIntelligenceStore {
       new MetadataBackfillRepository(this.db),
     );
     this.searchIndex = new SearchRepository(this.db);
+    this.agentReadAudit = new AgentReadAuditService(this.db);
     this.hotspots = new HotspotRepository(this.db);
     this.timelines = new TimelineRepository(this.db);
     this.projectDeletionService = new ProjectDeletionService(
@@ -615,6 +625,19 @@ export class WorkIntelligenceStore {
   }
 
   /** Deletes a project and its local data after a checked full-database safety snapshot. */
+  /** Passive audit of an MCP read; ids and counts only, and it never throws. */
+  public recordAgentRead(input: RecordAgentReadInput): void {
+    this.agentReadAudit.record(input);
+  }
+
+  public listAgentReads(options: ListAgentReadsOptions = {}): AgentReadAuditPage {
+    return this.agentReadAudit.listRecent(options);
+  }
+
+  public getAgentReadsForRecord(type: AgentReadRecordType, recordId: string, limit?: number): AgentReadReferences {
+    return this.agentReadAudit.forRecord(type, recordId, limit);
+  }
+
   public deleteProject(projectId: string, confirmationName: string): DeleteProjectResult {
     return this.projectDeletionService.deleteProject(projectId, confirmationName);
   }

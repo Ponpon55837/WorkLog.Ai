@@ -1,3 +1,4 @@
+import { agentReadRoutes } from "./agent-reads.js";
 import { backfillRoutes } from "./backfill.js";
 import { insightRoutes } from "./insights.js";
 import { outstandingCleanupRoutes } from "./outstanding-cleanup.js";
@@ -19,6 +20,7 @@ export const apiRoutes: readonly Route[] = [
   ...knowledgeRoutes,
   ...insightRoutes,
   ...sessionRoutes,
+  ...agentReadRoutes,
   ...outstandingItemRoutes,
   ...outstandingCleanupRoutes,
   ...backfillRoutes,

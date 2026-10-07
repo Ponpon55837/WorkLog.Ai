@@ -486,6 +486,16 @@ export function createWorkIntelligenceMcpServer(
           const result = definition.annotations.readOnlyHint
             ? await definition.run(parsed.data, context)
             : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
+          if (definition.annotations.readOnlyHint) {
+            // Passive audit of what this read returned (ids only); it never affects the response.
+            const inputProjectId = (parsed.data as { projectId?: unknown } | null)?.projectId;
+            store.recordAgentRead({
+              tool: name,
+              agentClient: context.agentClient,
+              result,
+              projectId: typeof inputProjectId === "string" ? inputProjectId : undefined,
+            });
+          }
           const output =
             definition.includeServerStatus || !definition.annotations.readOnlyHint
               ? withServerRestartStatus(result, getRestartStatus)

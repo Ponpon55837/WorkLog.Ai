@@ -3,6 +3,7 @@ import { ApiTransport } from "./transport";
 import { createSystemApi, type SystemApi } from "./system";
 import { createBackupsApi, type BackupsApi } from "./backups";
 import { createProjectsApi, type ProjectsApi } from "./projects";
+import { createAgentReadsApi, type AgentReadsApi } from "./agent-reads";
 import { createSessionsApi, type SessionsApi } from "./sessions";
 import { createKnowledgeApi, type KnowledgeApi } from "./knowledge";
 import { createGraphApi, type GraphApi } from "./graph";
@@ -23,6 +24,7 @@ export interface ApiClient
     BackupsApi,
     ProjectsApi,
     SessionsApi,
+    AgentReadsApi,
     KnowledgeApi,
     GraphApi,
     ReportsApi,
@@ -44,6 +46,7 @@ export class ApiClient extends ApiTransport {
       createBackupsApi(this),
       createProjectsApi(this),
       createSessionsApi(this),
+      createAgentReadsApi(this),
       createKnowledgeApi(this),
       createGraphApi(this),
       createReportsApi(this),

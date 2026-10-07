@@ -10,6 +10,7 @@ import { router } from "../../router";
 import { useSessionsStore } from "../../stores/sessions";
 import { sessionMarkdown } from "../../utils/session-markdown";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import SessionAgentReads from "./SessionAgentReads.vue";
 import SessionPanelActivity from "./SessionPanelActivity.vue";
 import SessionPanelHeader from "./SessionPanelHeader.vue";
 import SessionPanelSummary from "./SessionPanelSummary.vue";
@@ -119,6 +120,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         @add-link="openLinkDialog"
         @remove-link="removeLink"
       />
+      <SessionAgentReads />
     </div>
 
     <template #footer>
