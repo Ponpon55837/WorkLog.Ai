@@ -31,6 +31,11 @@ const { openSessionDetail } = useSessionsStore();
 
 const pageSizes = listPageSizeOptions.map((option) => option.value);
 
+useRouteQuery("readsProject", projectId, stringQuery());
+useRouteQuery("readsAgent", agent, stringQuery());
+useRouteQuery("readsPage", page, pageQuery());
+useRouteQuery("readsSize", pageSize, enumQuery(pageSizes, 10));
+
 const projectOptions = computed(() => [
   { value: "", label: t("systemStatus.agentReadsAllProjects") },
   ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
@@ -39,11 +44,6 @@ const agentFilterOptions = computed(() => [
   { value: "", label: t("systemStatus.agentReadsAllAgents") },
   ...agentOptions.value.map((name) => ({ value: name, label: name })),
 ]);
-
-useRouteQuery("readsProject", projectId, stringQuery());
-useRouteQuery("readsAgent", agent, stringQuery());
-useRouteQuery("readsPage", page, pageQuery());
-useRouteQuery("readsSize", pageSize, enumQuery(pageSizes, 10));
 
 function openSession(sessionId: string): void {
   void openSessionDetail(sessionId, t("systemStatus.agentReadsCouldNotOpenSession"));
