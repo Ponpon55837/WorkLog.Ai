@@ -4,9 +4,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
-### Fixed
-
-- Restoring a database on Windows could refuse a different file as "the current database": NTFS file ids are 64-bit and lost precision as plain numbers. The check now compares bigint file ids and the device.
+## [1.3.0] - 2026-10-07
 
 ### Added
 
@@ -18,8 +16,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Restoring a database on Windows could refuse a different file as "the current database": NTFS file ids are 64-bit and lost precision as plain numbers. The check now compares bigint file ids and the device.
 - Report totals, the previous-period comparison, project shares, verification counts and the period summary were computed from at most 200 Sessions per period, so a busy month, quarter or year showed 200 in both periods and a delta of 0. They are now counted in SQL over the whole period; the 200-Session limit applies only to the listed Sessions, trends, risks, decisions and evidence.
 - Report Changed Files no longer counts Sessions that list more than 20 files, which usually swept in an unrelated dirty worktree; recall and hotspots already treated them this way. `totals.changedFilesOversizedSessions` reports how many were left out, and the summary, Markdown export and the Web card say so.
+- `scripts/sfc-layout.mjs` never ran on Windows (its "run directly" check compared a `file://` URL with a Windows path), so `pnpm lint` passed there without checking the `<script setup>` layout. It now compares with `pathToFileURL`.
 
 ## [1.2.1] - 2026-10-02
 
