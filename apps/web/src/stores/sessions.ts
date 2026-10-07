@@ -205,6 +205,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
         queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.dashboard.activity }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),

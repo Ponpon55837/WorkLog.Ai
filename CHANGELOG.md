@@ -6,6 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- The Dashboard has a work-activity calendar (GitHub contribution-calendar style): one cell per day for the past 53 weeks, shaded in five levels by how many Sessions were completed that day in tracked projects (voided Sessions excluded; days are local calendar days in the server time zone). Click, or press Enter or Space on, a day to open that day's report; arrow keys move between days. It is read-only and deterministic, served by the new `GET /api/insights/activity?from=&to=[&projectId=]` (at most 400 days, `{ days: [{ date, sessions }] }` for days with work only), with a `getActivity (year)` read benchmark (p90 limit 250 ms).
 - The Session panel can copy the Session as Markdown (title, project, completion time, verification, Git, summary, the five workSummary sections and up to 20 changed files, noted as not a Git commit) for pasting into a PR description, standup message or handoff. It leaves out the Session id, local links, events and raw handoff text.
 
 ### Fixed

@@ -8,6 +8,7 @@ export const queryKeys = {
   dashboard: {
     summary: ["dashboard"] as const,
     overview: ["dashboard", "overview"] as const,
+    activity: ["dashboard", "activity"] as const,
   },
   commandPalette: {
     search: ["command-palette", "search"] as const,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
 import {
   ArrowRight,
@@ -13,6 +13,7 @@ import {
 } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import ActivityHeatmap from "../components/domain/ActivityHeatmap.vue";
 import FirstRunChecklist from "../components/domain/FirstRunChecklist.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
@@ -24,10 +25,13 @@ import UiButton from "../components/ui/UiButton.vue";
 import UiCopyButton from "../components/ui/UiCopyButton.vue";
 import UiCounter from "../components/ui/UiCounter.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
+import UiFlash from "../components/ui/UiFlash.vue";
+import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiSparkline from "../components/ui/UiSparkline.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { router } from "../router";
+import { useActivityStore } from "../stores/activity";
 import { useDashboardStore, type InboxItem } from "../stores/dashboard";
 import { metadataBackfillInstruction } from "../stores/metadata-backfill";
 import { useProjectsStore } from "../stores/projects";
@@ -42,6 +46,8 @@ const projectsStore = useProjectsStore();
 const { dashboard, projects, recentSessions, initialDataReady } = storeToRefs(projectsStore);
 const dashboardStore = useDashboardStore();
 const { weekReport, weekVerification, inbox } = storeToRefs(dashboardStore);
+const activityStore = useActivityStore();
+const { days: activityDays, activityLoaded, activityError } = storeToRefs(activityStore);
 const sessionsStore = useSessionsStore();
 const { openSessionDetail, setSessionSequence } = sessionsStore;
 const systemStatusStore = useSystemStatusStore();
@@ -88,6 +94,13 @@ async function openRequest(item: InboxItem): Promise<void> {
   });
 }
 
+/** Opens that day's report, linked the same way the report pages read period and date from the URL. */
+async function openDayReport(date: string): Promise<void> {
+  await router.push({ name: "reports", query: { period: "day", date } });
+}
+
+onMounted(() => activityStore.setActive(true));
+onBeforeUnmount(() => activityStore.setActive(false));
 watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
 watch(showFirstRunChecklist, (visible) => systemStatusStore.setSystemStatusActive(visible), { immediate: true });
 onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
@@ -149,6 +162,20 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 
   <div class="dashboard__grid">
     <div class="dashboard__main">
+      <UiBox>
+        <template #header>
+          <UiBoxTitle eyebrow="Activity" :title="t('dashboard.activityTitle')" />
+        </template>
+        <UiFlash v-if="activityError" tone="danger">
+          {{ activityError }}
+          <template #actions
+            ><UiButton size="sm" @click="activityStore.reloadActivity()">{{ t("common.retry") }}</UiButton></template
+          >
+        </UiFlash>
+        <UiSkeleton v-else-if="!activityLoaded" variant="text" :count="3" :label="t('dashboard.activityLoading')" />
+        <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
+      </UiBox>
+
       <UiBox>
         <template #header>
           <UiBoxTitle eyebrow="Action required" :title="t('dashboard.needsAttention')" />
