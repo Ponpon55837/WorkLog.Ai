@@ -12,10 +12,12 @@ import UiLabel from "../ui/UiLabel.vue";
 import UiPagination from "../ui/UiPagination.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../../composables/useRouteQuery";
 import { useAgentReadsStore } from "../../stores/agent-reads";
 import { useProjectsStore } from "../../stores/projects";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatDate } from "../../utils/format";
+import { listPageSizeOptions } from "../../utils/labels";
 import { t } from "../../i18n";
 
 /**
@@ -27,6 +29,8 @@ const { projectId, agent, page, pageSize, reads, pageInfo, agentOptions, loaded,
 const { trackedProjects } = storeToRefs(useProjectsStore());
 const { openSessionDetail } = useSessionsStore();
 
+const pageSizes = listPageSizeOptions.map((option) => option.value);
+
 const projectOptions = computed(() => [
   { value: "", label: t("systemStatus.agentReadsAllProjects") },
   ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
@@ -35,6 +39,11 @@ const agentFilterOptions = computed(() => [
   { value: "", label: t("systemStatus.agentReadsAllAgents") },
   ...agentOptions.value.map((name) => ({ value: name, label: name })),
 ]);
+
+useRouteQuery("readsProject", projectId, stringQuery());
+useRouteQuery("readsAgent", agent, stringQuery());
+useRouteQuery("readsPage", page, pageQuery());
+useRouteQuery("readsSize", pageSize, enumQuery(pageSizes, 10));
 
 function openSession(sessionId: string): void {
   void openSessionDetail(sessionId, t("systemStatus.agentReadsCouldNotOpenSession"));

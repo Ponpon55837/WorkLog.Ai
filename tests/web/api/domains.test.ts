@@ -34,6 +34,22 @@ describe("domain API factories", () => {
     expect(calls[1]?.url.pathname).toBe("/api/sessions/agents");
   });
 
+  it("reads the Agent read audit with filters and per-record paths", async () => {
+    const calls = recordRequests();
+    const api = createApiClient("http://api.test");
+
+    await api.listAgentReads();
+    await api.listAgentReads({ projectId: "project-1", agent: "fiction-client", page: 2, pageSize: 50 });
+    await api.getSessionAgentReads("session/1");
+    await api.getKnowledgeAgentReads("knowledge/1");
+    expect(calls.map((call) => `${call.url.pathname}${call.url.search}`)).toEqual([
+      "/api/agent-reads",
+      "/api/agent-reads?projectId=project-1&agent=fiction-client&page=2&pageSize=50",
+      "/api/sessions/session%2F1/agent-reads",
+      "/api/knowledge/knowledge%2F1/agent-reads",
+    ]);
+  });
+
   it("routes each domain method through the shared transport with encoded paths and query options", async () => {
     const calls = recordRequests();
     const api = createApiClient("http://api.test");

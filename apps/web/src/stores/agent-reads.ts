@@ -61,8 +61,9 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
   );
   const sessionReads = computed(() => sessionReadsQuery.data.value);
 
-  watch([projectId, agent, pageSize], () => {
-    page.value = 1;
+  // A filter change returns to page 1, unless the page changed with it (a deep link or back/forward restoring the URL).
+  watch([projectId, agent, pageSize, page], ([, , , nextPage], [, , , previousPage]) => {
+    if (nextPage === previousPage) page.value = 1;
   });
 
   function setListActive(active: boolean): void {
