@@ -14,9 +14,15 @@ export const serverAliases = {
   "@work-intelligence/storage": fileURLToPath(new URL("../../packages/storage/src/index.ts", import.meta.url)),
 };
 
+// Server tests also open real SQLite files, back them up and run CLI commands against them. On Windows CI runners
+// a fresh file can be briefly locked and SQLite then waits up to its 5 s busy_timeout, so the default 5 s test
+// timeout fails at exactly that point. Give them the same headroom as the storage tests.
+export const serverTestTimeout = 20_000;
+
 export default defineConfig({
   resolve: { alias: serverAliases },
   test: {
     include: ["tests/server/**/*.test.ts"],
+    testTimeout: serverTestTimeout,
   },
 });

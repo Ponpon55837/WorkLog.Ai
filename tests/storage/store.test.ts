@@ -113,6 +113,50 @@ describe("WorkIntelligenceStore", () => {
     expect(detail?.events.map((event) => event.type)).toEqual(["planning", "verification", "finalized"]);
   });
 
+  it("records the Agent client and optional model, keeps them on retries, and filters by client", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Agent source project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const base = { projectRoot: root, summary: "Fictional agent source work.", changedFiles: [] as string[] };
+
+    const first = store.finalizeSession(
+      { ...base, idempotencyKey: "agent-a", title: "With both", agentModel: "fiction-model-1" },
+      { agentClient: "  fiction-client  " },
+    );
+    const retry = store.finalizeSession(
+      { ...base, idempotencyKey: "agent-a", title: "With both", agentModel: "other-model" },
+      { agentClient: "other-client" },
+    );
+    const bare = store.finalizeSession({ ...base, idempotencyKey: "agent-b", title: "REST style" });
+    const voided = store.finalizeSession(
+      { ...base, idempotencyKey: "agent-c", title: "Voided" },
+      { agentClient: "voided-only-client" },
+    );
+    if (
+      first.outcome !== "finalized" ||
+      retry.outcome !== "finalized" ||
+      bare.outcome !== "finalized" ||
+      voided.outcome !== "finalized"
+    ) {
+      throw new Error("Expected finalized results");
+    }
+
+    expect(first.session).toMatchObject({ agentClient: "fiction-client", agentModel: "fiction-model-1" });
+    expect(retry.duplicate).toBe(true);
+    expect(retry.session).toMatchObject({ agentClient: "fiction-client", agentModel: "fiction-model-1" });
+    expect(bare.session.agentClient).toBeUndefined();
+    expect(bare.session.agentModel).toBeUndefined();
+
+    store.setSessionVoid({ sessionId: voided.session.id, voided: true, reason: "Fictional void" });
+    expect(store.listSessionsPage({ agentClient: "fiction-client" }).items.map((item) => item.title)).toEqual([
+      "With both",
+    ]);
+    expect(store.listSessionAgentClients()).toEqual(["fiction-client"]);
+
+    store.updateProject(project.id, { status: "paused" });
+    expect(store.listSessionAgentClients()).toEqual([]);
+  });
+
   it("redacts finalize and evidence text before persistence and returns counts only", () => {
     const { store, root } = createStore();
     const project = store.addProject("Secret redaction project", root);

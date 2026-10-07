@@ -15,11 +15,13 @@ export function sessionMarkdown(detail: SessionDetail): string {
   const verification = verificationStatus[verificationOf(session)].label;
   const verificationSummary = session.verification?.summary?.trim();
   const git = [session.gitBranch, session.commitSha?.slice(0, SHORT_SHA_LENGTH)].filter(Boolean).join(" @ ");
+  const agent = [session.agentClient, session.agentModel].filter(Boolean).join(" · ");
   const meta = [
     `- ${t("common.project")}: ${project.name}`,
     `- ${t("common.completed")}: ${formatDate(session.completedAt)}`,
     `- ${t("common.verification")}: ${verificationSummary ? `${verification} — ${verificationSummary}` : verification}`,
     ...(git ? [`- ${t("labels.git")}: ${git}`] : []),
+    ...(agent ? [`- ${t("common.agent")}: ${agent}`] : []),
     ...(session.voided ? [`- ${t("session.voidedLabel")}`] : []),
   ];
   blocks.push(meta.join("\n"));

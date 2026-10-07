@@ -236,6 +236,9 @@ import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-de
 
 export type { ContextFocus } from "./context-recall-service.js";
 
+/** Server-side facts about a finalize call that the caller never supplies through the public input. */
+export type FinalizeSessionContext = { agentClient?: string };
+
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
 
@@ -931,6 +934,10 @@ export class WorkIntelligenceStore {
     return this.sessions.listPage(options);
   }
 
+  public listSessionAgentClients(): string[] {
+    return this.sessions.listAgentClients();
+  }
+
   public pendingOutstandingItemsForSessions(sessionIds: readonly string[]): OutstandingItem[] {
     return this.outstandingItems.pendingForSessions(sessionIds);
   }
@@ -1323,7 +1330,7 @@ export class WorkIntelligenceStore {
     });
   }
 
-  public finalizeSession(input: FinalizeSessionInput): FinalizeSessionResult {
+  public finalizeSession(input: FinalizeSessionInput, context: FinalizeSessionContext = {}): FinalizeSessionResult {
     const decision = this.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
       return {
@@ -1439,12 +1446,12 @@ export class WorkIntelligenceStore {
              id, project_id, external_session_id, idempotency_key, title, summary,
              work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
              changed_files_json, changed_files_confirmed, changed_files_provenance_json, changed_file_changes_json, verification_json,
-             started_at, updated_at, redaction_count
+             started_at, updated_at, redaction_count, agent_client, agent_model
            ) VALUES (
              @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
              @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
              @changedFiles, @changedFilesConfirmed, @changedFilesProvenance, @changedFileChanges, @verification,
-             @startedAt, @createdAt, @redactionCount
+             @startedAt, @createdAt, @redactionCount, @agentClient, @agentModel
            )`,
         )
         .run({
@@ -1466,6 +1473,8 @@ export class WorkIntelligenceStore {
           verification: sanitizedVerification ? JSON.stringify(sanitizedVerification.value) : null,
           startedAt: startedAt ?? null,
           redactionCount: redactions.total,
+          agentClient: context.agentClient?.trim().slice(0, 100) || null,
+          agentModel: input.agentModel ?? null,
         });
 
       const sanitizedDecisionTexts = normalizedWorkSummary

@@ -40,6 +40,7 @@ export const queryKeys = {
   },
   sessions: {
     list: ["sessions", "list"] as const,
+    agents: ["sessions", "agents"] as const,
     detail: ["sessions", "detail"] as const,
     linkCandidates: ["sessions", "link-candidates"] as const,
   },
