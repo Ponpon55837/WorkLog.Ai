@@ -42,6 +42,7 @@ PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
 | Graph 總數計算 | 觀察中 | 目前合成效能基準仍在既定門檻內；出現可重現的效能問題時再評估 |
+| KaTeX low 漏洞（GHSA，`>=0.11.0 <0.18.2`） | 等待上游 | 只經 `mermaid` 間接使用，且需先有其他原型污染才能利用；mermaid 以 `securityLevel: "strict"` 渲染。至 2026-10-07 最新 mermaid 12.1.0 仍要求 `katex ^0.16.47`，不以 override 強制升級。升級依賴時檢查 mermaid 是否已支援 KaTeX 0.18.2 以上，支援後一併升級並確認 `pnpm audit --prod` 清空 |
 
 ## 過往輪次（已完成）
 
