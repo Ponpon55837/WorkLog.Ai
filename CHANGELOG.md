@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Restoring a database on Windows could refuse a different file as "the current database": NTFS file ids are 64-bit and lost precision as plain numbers. The check now compares bigint file ids and the device.
+
 ### Added
 
 - The Session panel can copy the Session as Markdown (title, project, completion time, verification, Git, summary, the five workSummary sections and up to 20 changed files, noted as not a Git commit) for pasting into a PR description, standup message or handoff. It leaves out the Session id, local links, events and raw handoff text.

@@ -371,6 +371,16 @@ function inspectSnapshot(source: string): { schemaVersion: number; projects: num
 }
 
 /** Another open connection (the API server or an Agent's MCP server) keeps an exclusive lock from being taken. */
+/**
+ * Whether two paths name the same file. NTFS file ids are 64-bit, so a plain number `ino` loses precision and two
+ * different files can compare equal on Windows; bigint stats keep the full id, and the device must match too.
+ */
+function isSameFile(left: string, right: string): boolean {
+  const leftStats = statSync(left, { bigint: true });
+  const rightStats = statSync(right, { bigint: true });
+  return leftStats.dev === rightStats.dev && leftStats.ino === rightStats.ino;
+}
+
 function isInUse(databasePath: string): boolean {
   const probe = new DatabaseSync(databasePath);
   try {
@@ -399,7 +409,7 @@ export function restoreDatabase(options: {
   if (!existsSync(source)) {
     throw new Error("The file to restore does not exist.");
   }
-  if (existsSync(databasePath) && statSync(source).ino === statSync(databasePath).ino) {
+  if (existsSync(databasePath) && isSameFile(source, databasePath)) {
     throw new Error("The file to restore is the current database.");
   }
   const inspected = inspectSnapshot(source);

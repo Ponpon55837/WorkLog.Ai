@@ -291,6 +291,17 @@ describe("moving the database to another computer", () => {
     ).toEqual(["/Volumes/New/work/apiary", "/Volumes/New/work/apiary-tools"]);
   });
 
+  it("refuses to restore the current database onto itself, but not a different file", () => {
+    const { root, store, databasePath } = setup();
+    const exported = exportFrom(store, root);
+    store.close();
+    stores.splice(stores.indexOf(store), 1);
+
+    expect(() => restoreDatabase({ source: databasePath, databasePath })).toThrow(/is the current database/);
+    // A distinct file is never mistaken for the current database (64-bit NTFS ids lose precision as numbers).
+    expect(restoreDatabase({ source: exported, databasePath })).toMatchObject({ projects: 1 });
+  });
+
   it("includes writes still in the source's WAL file", () => {
     const { root, store, databasePath } = setup();
     // The open store keeps its latest write in the WAL, not yet in the main file.
