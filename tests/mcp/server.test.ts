@@ -777,6 +777,7 @@ describe("Work Intelligence MCP server", () => {
     expect(JSON.stringify(listed)).not.toContain(voidedPendingText);
   });
 
+  // File-backed SQLite store: under coverage on Windows this can exceed the default 5 s.
   it("caps outstanding item text at 4,000 UTF-16 code units without splitting a surrogate pair", async () => {
     const { client, store, root } = await connect(undefined, true);
     const project = store.addProject("Long outstanding text project", root);
@@ -809,7 +810,7 @@ describe("Work Intelligence MCP server", () => {
     expect(listed.items[0]?.text.length).toBeLessThanOrEqual(4_000);
     expect(listed.items[0]?.text).not.toMatch(/[\uD800-\uDBFF]$/u);
     expect(listed.items[0]?.textTruncated).toBe(true);
-  });
+  }, 15_000);
 
   it("routes cleanup reads and idempotent proposal submissions without changing item status", async () => {
     const { client, store, root } = await connect();
