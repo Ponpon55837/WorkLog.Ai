@@ -1765,6 +1765,17 @@ test.describe("Work Intelligence browser regression", () => {
     expect((await request.get(`/api/sessions/${targetId}`)).status()).toBe(404);
     await page.goto("/sessions?voided=only");
     await expect(page.getByTestId("session-row").filter({ hasText: "Deletable fixture session" })).toHaveCount(0);
+
+    // The deletion wrote a pre-deletion snapshot; remove it so later backup tests start from an empty list.
+    const backups = (await (await request.get("/api/backups")).json()) as {
+      backups: Array<{ kind: string; fileName: string }>;
+    };
+    const snapshot = backups.backups.find((backup) => backup.kind === "session_deletion");
+    expect(snapshot).toBeDefined();
+    const removed = await request.delete(`/api/backups/${encodeURIComponent(snapshot?.fileName ?? "")}`, {
+      data: {},
+    });
+    expect(removed.ok()).toBe(true);
   });
 
   test("links two Sessions from the panel and shows the link on both sides", async ({ page, request }) => {
