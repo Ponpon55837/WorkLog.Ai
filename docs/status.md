@@ -4,7 +4,7 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-10-07
+- 最後更新：2026-10-08
 
 ## 使用者待辦
 
@@ -28,6 +28,8 @@
 | C1 | 文件已對齊（本 PR） | 重新連線規則、整理流程、測試基線、狀態與歷史文件收尾 |
 
 A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](../.openspec/handoffs/2026-09-30-codex-round9-a3-evidence.md)保留缺漏證據；B3 的[合成準確度評估](../.openspec/handoffs/2026-10-01-codex-round9-b3-accuracy.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。schema 23 與新增 Agent 契約在主安裝更新後須重啟服務並重新連線；上述 PR／CI／Session 證據已核對，完整輪次交接會在 C1 階段收尾時保存於工作區。
+
+2026-10-08 新增已作廢 Session 的永久刪除（只有 Web／REST，先寫獨立保留 5 份的備份，MCP 不提供）與 Session 標題修正（Web 編輯對話框、REST、MCP `work_update_session_title`）；schema 26，Agent 需重新連線。
 
 2026-10-07 報告統計改為以 SQL 加總整個期間，不再受 200 筆 Session 上限影響；Changed Files 不計入列出超過 20 個檔案的 Session，並回傳略過數量。
 

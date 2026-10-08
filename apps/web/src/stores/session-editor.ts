@@ -6,6 +6,7 @@ import { workSummarySectionLabels } from "../utils/labels";
 type SectionKey = keyof WorkSummarySections;
 
 export type SessionEditorForm = {
+  title: string;
   summary: string;
   sections: Record<SectionKey, string>;
   /** not_supplied means "leave unreported": the API only accepts passed, failed, or not_run. */
@@ -24,6 +25,7 @@ export function toForm(session?: WorkSessionRecord): SessionEditorForm {
     workSummarySectionLabels.map(({ key }) => [key, sectionText(session?.workSummary?.[key])]),
   ) as Record<SectionKey, string>;
   return {
+    title: session?.title ?? "",
     summary: session?.summary ?? "",
     sections,
     verificationStatus: session?.verification?.status ?? "not_supplied",

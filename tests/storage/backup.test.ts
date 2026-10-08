@@ -17,9 +17,11 @@ import {
   backupDatabaseBeforeMaintenance,
   backupDatabaseBeforeMigration,
   backupDatabaseBeforeProjectDeletion,
+  backupDatabaseBeforeSessionDeletion,
   isBackupDue,
   listDatabaseBackups,
   restoreDatabase,
+  SESSION_DELETION_BACKUP_KEEP,
 } from "../../packages/storage/src/backup.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
@@ -197,6 +199,22 @@ describe("database backups", () => {
       manual.created.fileName,
     ]);
     expect(existsSync(join(directory, safety.created.fileName))).toBe(false);
+  });
+
+  it("keeps Session deletion snapshots in their own small group so they never push out manual backups", () => {
+    const { databasePath, directory } = setup({ keep: 2 });
+    const db = new DatabaseSync(databasePath);
+    const manual = backupDatabase(db, databasePath, { kind: "manual", keep: 2 });
+    const sessionDeletions = Array.from({ length: SESSION_DELETION_BACKUP_KEEP + 2 }, () =>
+      backupDatabaseBeforeSessionDeletion(db, databasePath, { keep: 2 }),
+    );
+    db.close();
+
+    const backups = listDatabaseBackups(databasePath, directory);
+    expect(backups.filter((backup) => backup.kind === "session_deletion")).toHaveLength(SESSION_DELETION_BACKUP_KEEP);
+    expect(backups.map((backup) => backup.fileName)).toContain(manual.created.fileName);
+    expect(backups.map((backup) => backup.fileName)).toContain(sessionDeletions.at(-1)?.created.fileName);
+    expect(existsSync(join(directory, sessionDeletions[0]!.created.fileName))).toBe(false);
   });
 
   it("deletes only one recognized backup and rejects traversal names", () => {

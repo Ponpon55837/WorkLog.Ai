@@ -101,6 +101,11 @@ const apiErrorMessages: Record<string, string> = translatedRecord({
   PROJECT_NAME_MISMATCH: "format.theNameDoesNotMatch",
   PROJECT_BACKUP_FAILED: "format.couldNotCreateAndVerify",
   PROJECT_DELETE_FAILED: "format.theDeletionDidNotFinish",
+  SESSION_NOT_FOUND: "format.sessionNotFoundRefresh",
+  SESSION_NOT_VOIDED: "format.onlyVoidedSessionsCanBeDeleted",
+  SESSION_CITED_BY_PENDING_CLEANUP: "format.sessionCitedByPendingCleanup",
+  SESSION_BACKUP_FAILED: "format.couldNotBackUpBeforeSessionDeletion",
+  SESSION_DELETE_FAILED: "format.sessionDeletionDidNotFinish",
   network_error: "common.cannotReachTheLocalApi",
   malformed_response: "common.theApiResponseWasMalformed",
 } satisfies Partial<Record<ApiErrorCode | "network_error" | "malformed_response", MessageKey>>);

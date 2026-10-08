@@ -1,5 +1,6 @@
 import {
   attachEvidenceInputSchema,
+  deleteSessionInputSchema,
   finalizeSessionInputSchema,
   linkSessionsInputSchema,
   sessionsQuerySchema,
@@ -8,11 +9,64 @@ import {
   setSessionVoidInputSchema,
   updateSessionMetadataInputSchema,
   updateSessionSummaryInputSchema,
+  updateSessionTitleInputSchema,
   updateSessionVerificationInputSchema,
   updateSessionWorkSummaryInputSchema,
 } from "@work-intelligence/schema";
+import { SessionDeletionError } from "@work-intelligence/storage";
 import { numberParam, readJsonBody, readJsonObject, sendError, sendJson, textParam } from "../http.js";
 import { validatedRoute, type Route, type RouteContext } from "./router.js";
+
+/** Permanent deletion of a voided Session; the JSON confirmation keeps it out of reach of plain links and forms. */
+async function deleteSession({ store, request, response, params }: RouteContext): Promise<void> {
+  const parsed = deleteSessionInputSchema.safeParse(await readJsonBody(request));
+  if (!parsed.success) {
+    sendError(response, 400, "Invalid session deletion confirmation.", parsed.error.flatten());
+    return;
+  }
+  try {
+    sendJson(response, 200, store.deleteSession(params.sessionId!));
+  } catch (error) {
+    if (!(error instanceof SessionDeletionError)) {
+      throw error;
+    }
+    switch (error.code) {
+      case "SESSION_NOT_FOUND":
+        sendError(response, 404, "Session not found.", undefined, error.code);
+        return;
+      case "SESSION_NOT_VOIDED":
+        sendError(response, 409, "Only a voided Session can be permanently deleted.", undefined, error.code);
+        return;
+      case "SESSION_CITED_BY_PENDING_CLEANUP":
+        sendError(
+          response,
+          409,
+          "A pending outstanding-item cleanup proposal cites this Session; review it first.",
+          undefined,
+          error.code,
+        );
+        return;
+      case "SESSION_BACKUP_FAILED":
+        sendError(
+          response,
+          503,
+          "The required pre-deletion backup could not be created; the Session was not deleted.",
+          undefined,
+          error.code,
+        );
+        return;
+      case "SESSION_DELETE_FAILED":
+        sendError(
+          response,
+          500,
+          "Session deletion failed; the pre-deletion backup is preserved.",
+          undefined,
+          error.code,
+        );
+        return;
+    }
+  }
+}
 
 /** Adding and removing a link share one handler; a DELETE names the other Session in the path. */
 const linkSessions = validatedRoute(
@@ -83,6 +137,17 @@ export const sessionRoutes: Route[] = [
       "Invalid session metadata payload.",
       async ({ request, params }) => ({ ...(await readJsonObject(request)), sessionId: params.sessionId }),
       ({ store }, data) => store.updateSessionMetadata(data),
+    ),
+  },
+  { method: "DELETE", pattern: "/api/sessions/:sessionId", handler: deleteSession },
+  {
+    method: "PATCH",
+    pattern: "/api/sessions/:sessionId/title",
+    handler: validatedRoute(
+      updateSessionTitleInputSchema,
+      "Invalid session title payload.",
+      async ({ request, params }) => ({ ...(await readJsonObject(request)), sessionId: params.sessionId }),
+      ({ store }, data) => store.updateSessionTitle(data),
     ),
   },
   {

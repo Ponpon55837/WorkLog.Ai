@@ -199,7 +199,12 @@
     "theServiceIsTemporarilyUnavailable": "服務暫時無法使用，請稍後再試。",
     "thisProjectWasNotFound": "找不到這個專案；請重新整理專案清單。",
     "under1Minute": "不到 1 分鐘",
-    "yesterday": "昨天 {time}"
+    "yesterday": "昨天 {time}",
+    "sessionNotFoundRefresh": "找不到這個 Session，可能已被刪除；請重新整理。",
+    "onlyVoidedSessionsCanBeDeleted": "只有已作廢的 Session 可以永久刪除。",
+    "sessionCitedByPendingCleanup": "有待審核的未結項清理建議引用了這個 Session；請先接受或拒絕該建議。",
+    "couldNotBackUpBeforeSessionDeletion": "無法建立並檢查刪除前備份，Session 尚未刪除。請確認資料庫可寫入後再試。",
+    "sessionDeletionDidNotFinish": "刪除作業未完成，Session 已保留；刪除前備份仍在。"
   },
   "graph": {
     "allDataInTheCurrent": "目前範圍的資料已完整載入。",
@@ -548,6 +553,7 @@
     "beforeDataMaintenance": "資料維護前",
     "beforeDatabaseMigration": "資料庫遷移前",
     "beforeProjectDeletion": "專案刪除前",
+    "beforeSessionDeletion": "Session 刪除前",
     "captured": "擷取時間",
     "changedFiles": "變更檔案",
     "changedFilesTerm": "Changed files",
@@ -1277,7 +1283,15 @@
     "writeOnlyWhatActuallyHappened": "只寫實際結果；沒跑測試請選「未執行」，不要選「通過」。",
     "agentReads": "Agent 讀取",
     "agentReadsHint": "Agent 曾透過 MCP 被提供這筆 Session",
-    "agentReadsRecentOnly": "僅顯示最近 {count} 筆"
+    "agentReadsRecentOnly": "僅顯示最近 {count} 筆",
+    "title": "標題",
+    "titleEditHint": "簡短說明這個 Session 完成了什麼；原標題會留在活動紀錄。",
+    "theTitleCannotBeEmpty": "標題不能留白。",
+    "deletePermanently": "永久刪除",
+    "deleteSessionPermanently": "永久刪除這個 Session？",
+    "deleteSessionPermanentlyMessage": "「{title}」與它的事件、Evidence、圖表、修改紀錄和未結項都會一起刪除，無法還原。刪除前會先建立資料庫備份。",
+    "sessionDeleted": "已永久刪除 Session；刪除前備份：{backupFileName}",
+    "couldNotDeleteSession": "無法刪除 Session。"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "每一次完成，都留下可追溯的脈絡。",

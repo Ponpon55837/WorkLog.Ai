@@ -60,6 +60,7 @@ const backupKindLabels: Record<DatabaseBackupKind, string> = {
   manual: "手動",
   migration: "資料庫遷移前",
   deletion: "專案刪除前",
+  session_deletion: "Session 刪除前",
   maintenance: "資料維護前",
 };
 

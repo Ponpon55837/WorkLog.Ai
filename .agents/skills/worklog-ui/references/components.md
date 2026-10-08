@@ -72,14 +72,14 @@ All overlays use `useFocusTrap` (focus in, Tab trapped, Esc closes, scroll lock,
 |---|---|
 | `StatusLabel` | `status: StatusVisual` from `utils/status.ts`, `showIcon`, `text`. |
 | `SessionRow` | `session`, `showSummary`; emits `open`. Verification icon, title, Labels, `project · relative time · first outcome`. `data-testid="session-row"`. |
-| `SessionPanel` | Global; read-only except the header 編輯摘要 action, which opens `SessionSummaryEditorDialog` (summary + five workSummary sections, one item per line). `?session=<id>` deep link, J/K via `setSessionSequence`, summary → meta → `WorkSummarySections` → Changed files → Git (only when present) → Evidence → Knowledge → Events → Handoff snapshot. |
+| `SessionPanel` | Global; read-only except the header 編輯摘要 action, which opens `SessionSummaryEditorDialog` (title, summary + five workSummary sections, one item per line), and, on a voided Session, the 還原 / 永久刪除 actions in its voided Flash (permanent delete asks a danger `confirmAction`). `?session=<id>` deep link, J/K via `setSessionSequence`, summary → meta → `WorkSummarySections` → Changed files → Git (only when present) → Evidence → Knowledge → Events → Handoff snapshot. |
 | `WorkSummarySections` | Five sections in fixed order; `nextSteps` shown as 狀態／未結項; legacy note when missing. |
 | `ChangedFileList` | A/M/D/R badges, `new ← old` for renames, provenance or 未提供來源, "changed files 不代表 Git commit". |
 | `VerificationBreakdown` | `counts: { passed, failed, notRun, notSupplied }`. Four-state meter; no single percentage. |
 | `SynthesisCard` / `SynthesisBlock` | ReportSummary order 主題 / 重點成果 / 驗證 / 比較 / 風險與限制 / 決策 / 狀態／未結項, per-block source chips, grain hint, generator meta, version history with delete (confirm). |
 | `KnowledgeRow` | `item`; emits `action: edit \| history \| toggle-status \| source`. |
 | `KnowledgeEditorDialog`, `KnowledgeHistoryPanel` | Global; driven by `useKnowledge`. |
-| `SessionSummaryEditorDialog` | Global; driven by `useSessionEditor`. Summary textarea + one textarea per workSummary section (one item per line, `nextSteps` hint forbids plans). Saves only changed fields: summary via replace, sections via patch, each with a fresh idempotency key; then reloads the Session detail and requests an app refresh. |
+| `SessionSummaryEditorDialog` | Global; driven by `useSessionEditor`. Title input + summary textarea + one textarea per workSummary section (one item per line, `nextSteps` hint forbids plans). Saves only changed fields: title via the title endpoint, summary via replace, sections via patch, each with a fresh idempotency key; then reloads the Session detail and requests an app refresh. |
 | `MetadataBackfillSection` | Scan, gap stats (three gap kinds), gap rows, Agent request card. |
 | `HandoffImportDialog` | Import preview with eligible/excluded reasons; global. |
 | `AddProjectDialog` | `v-model:open`. |

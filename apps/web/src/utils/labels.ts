@@ -43,6 +43,7 @@ export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = tran
   manual: "labels.manual",
   migration: "labels.beforeDatabaseMigration",
   deletion: "labels.beforeProjectDeletion",
+  session_deletion: "labels.beforeSessionDeletion",
   maintenance: "labels.beforeDataMaintenance",
 });
 

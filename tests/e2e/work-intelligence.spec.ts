@@ -1661,6 +1661,7 @@ test.describe("Work Intelligence browser regression", () => {
 
     const editor = page.getByRole("dialog", { name: tt("session.editSession") });
     await expect(editor).toBeVisible();
+    await editor.getByLabel(tt("session.title")).fill("Edited fixture title");
     await editor.getByLabel(tt("session.summary")).fill("Edited summary from the Web UI.");
     await editor.getByLabel(tt("labels.outcomes")).fill("Edited outcome one.\nEdited outcome two.");
     await editor.getByLabel(tt("session.verificationStatus")).selectOption("passed");
@@ -1668,6 +1669,7 @@ test.describe("Work Intelligence browser regression", () => {
     await editor.getByRole("button", { name: tt("common.saveChanges") }).click();
 
     await expect(editor).toBeHidden();
+    await expect(panel.getByRole("heading", { name: "Edited fixture title" })).toBeVisible();
     await expect(panel).toContainText("Edited summary from the Web UI.");
     await expect(panel).toContainText("Edited outcome two.");
     // Untouched sections are patched around, not cleared.
@@ -1676,11 +1678,12 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(panel).toContainText(tt("session.verificationChangeHistory"));
 
     const detail = (await (await request.get(`/api/sessions/${editableId}`)).json()) as {
-      session: { id: string; summary: string; workSummary: { outcomes: string[]; scope: string[] } };
+      session: { id: string; title: string; summary: string; workSummary: { outcomes: string[]; scope: string[] } };
       verificationHistory: Array<{ source: string; previous?: { status: string }; resulting: { status: string } }>;
     };
     expect(detail.session).toMatchObject({
       id: editableId,
+      title: "Edited fixture title",
       summary: "Edited summary from the Web UI.",
       workSummary: { outcomes: ["Edited outcome one.", "Edited outcome two."], scope: ["Original scope."] },
       verification: { status: "passed", summary: "Ran pnpm test after the fix." },
@@ -1732,6 +1735,47 @@ test.describe("Work Intelligence browser regression", () => {
       .click();
     await expect(panel).not.toContainText(tt("session.thisSessionIsVoided"));
     await expect(panel.getByRole("button", { name: tt("session.voidSession") })).toBeVisible();
+  });
+
+  test("permanently deletes a voided Session from the panel after a danger confirmation", async ({ page, request }) => {
+    const target = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-regression-deletable-${process.pid}`,
+      title: "Deletable fixture session",
+      summary: "Recorded as a test.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: ["Fixture item."] },
+      changedFiles: [],
+      verification: { status: "not_run" },
+    });
+    const targetId = target.session.id;
+    const voided = await request.patch(`/api/sessions/${targetId}/void`, {
+      data: { voided: true, reason: "Recorded as a test." },
+    });
+    expect(voided.ok()).toBe(true);
+
+    await page.goto(`/sessions?session=${targetId}`);
+    const panel = page.getByRole("dialog", { name: tt("session.sessionDetails") });
+    await expect(panel).toContainText(tt("session.thisSessionIsVoided"));
+    await panel.getByRole("button", { name: tt("session.deletePermanently") }).click();
+    const confirm = page.getByRole("dialog", { name: tt("session.deleteSessionPermanently") });
+    await expect(confirm).toContainText("Deletable fixture session");
+    await confirm.getByRole("button", { name: tt("session.deletePermanently") }).click();
+
+    await expect(panel).toBeHidden();
+    expect((await request.get(`/api/sessions/${targetId}`)).status()).toBe(404);
+    await page.goto("/sessions?voided=only");
+    await expect(page.getByTestId("session-row").filter({ hasText: "Deletable fixture session" })).toHaveCount(0);
+
+    // The deletion wrote a pre-deletion snapshot; remove it so later backup tests start from an empty list.
+    const backups = (await (await request.get("/api/backups")).json()) as {
+      backups: Array<{ kind: string; fileName: string }>;
+    };
+    const snapshot = backups.backups.find((backup) => backup.kind === "session_deletion");
+    expect(snapshot).toBeDefined();
+    const removed = await request.delete(`/api/backups/${encodeURIComponent(snapshot?.fileName ?? "")}`, {
+      data: {},
+    });
+    expect(removed.ok()).toBe(true);
   });
 
   test("links two Sessions from the panel and shows the link on both sides", async ({ page, request }) => {

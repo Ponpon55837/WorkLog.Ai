@@ -23,6 +23,11 @@ export const API_ERROR_CODES = [
   "PROJECT_NAME_MISMATCH",
   "PROJECT_BACKUP_FAILED",
   "PROJECT_DELETE_FAILED",
+  "SESSION_NOT_FOUND",
+  "SESSION_NOT_VOIDED",
+  "SESSION_CITED_BY_PENDING_CLEANUP",
+  "SESSION_BACKUP_FAILED",
+  "SESSION_DELETE_FAILED",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -156,6 +161,32 @@ export interface DeleteProjectResult {
   deletedAt: string;
   backupFileName: string;
   deletedCounts: ProjectDeletionCounts;
+}
+
+export interface SessionDeletionCounts {
+  sessions: number;
+  workEvents: number;
+  rawSnapshots: number;
+  evidence: number;
+  voidAudit: number;
+  sessionLinks: number;
+  sessionDecisions: number;
+  sessionDiagrams: number;
+  sessionSummaryUpdates: number;
+  sessionWorkSummaryUpdates: number;
+  sessionVerificationUpdates: number;
+  outstandingItems: number;
+  knowledgeFeedback: number;
+  agentReadRecords: number;
+}
+
+export interface DeleteSessionResult {
+  outcome: "session_deleted";
+  sessionId: string;
+  projectId: string;
+  deletedAt: string;
+  backupFileName: string;
+  deletedCounts: SessionDeletionCounts;
 }
 
 export interface ProjectDeletionAuditRecord {
@@ -533,6 +564,23 @@ export interface SetSessionVoidInput {
   /** Required when voiding. */
   reason?: string;
 }
+
+export interface UpdateSessionTitleInput {
+  sessionId: string;
+  title: string;
+}
+
+export type UpdateSessionTitleResult =
+  | {
+      outcome: "title_updated";
+      /** true when the stored title already matched, so nothing changed. */
+      duplicate: boolean;
+      session: WorkSessionRecord;
+      previousTitle: string;
+      redactions?: RedactionSummary;
+    }
+  | { outcome: "not_found"; sessionId: string }
+  | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
 
 export interface SetEvidenceVoidInput {
   evidenceId: string;
@@ -2800,7 +2848,7 @@ export type SessionDetailQueryResult = SessionDetailResult | SessionVerification
 
 export type SessionListQueryResult = SessionListResult | SkippedResult | ProjectIdSkippedResult;
 
-export type DatabaseBackupKind = "automatic" | "manual" | "migration" | "deletion" | "maintenance";
+export type DatabaseBackupKind = "automatic" | "manual" | "migration" | "deletion" | "session_deletion" | "maintenance";
 
 /** One SQLite snapshot written beside the database; `createdAt` comes from its UTC file name. */
 export interface DatabaseBackup {

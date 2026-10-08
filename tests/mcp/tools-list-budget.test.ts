@@ -61,6 +61,7 @@ const EXPECTED_OPERATIONS = {
   work_write_overwrite: [
     "work_update_session_metadata",
     "work_update_session_summary",
+    "work_update_session_title",
     "work_update_session_work_summary",
     "work_void_session",
     "work_link_sessions",
@@ -215,7 +216,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
         (count, name) => count + EXPECTED_OPERATIONS[name as keyof typeof EXPECTED_OPERATIONS].length,
         0,
       ),
-    ).toBe(48);
+    ).toBe(49);
 
     for (const tool of listing.tools) {
       const expected = EXPECTED_DISPATCHER_ANNOTATIONS[tool.name as keyof typeof EXPECTED_DISPATCHER_ANNOTATIONS];
@@ -232,16 +233,16 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     }
   });
 
-  it("publishes each of the 48 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
+  it("publishes each of the 49 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
     const { client } = await connect();
     const document = await readAllOperationContracts(client);
     const sections = resourceOperationSections(document);
     const expectedOperationIds = Object.values(EXPECTED_OPERATIONS).flat();
     const operationHeadingCount = [...document.matchAll(/^## work_/gm)].length;
 
-    expect(operationHeadingCount).toBe(48);
+    expect(operationHeadingCount).toBe(49);
     expect([...sections.keys()].sort()).toEqual([...expectedOperationIds].sort());
-    expect(sections.size).toBe(48);
+    expect(sections.size).toBe(49);
 
     for (const [dispatcher, operationIds] of Object.entries(EXPECTED_OPERATIONS)) {
       for (const operationId of operationIds) {
@@ -455,7 +456,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
       }
     }
 
-    expect(callCount).toBe(48);
+    expect(callCount).toBe(49);
   });
 
   it("routes representative handlers and reports invalid operation arguments as tool errors", async () => {

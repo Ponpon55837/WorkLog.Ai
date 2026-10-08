@@ -304,6 +304,18 @@ Server instructions 只放路由規則；48 項 operation 的長說明與 schema
 }
 ```
 
+## `work_update_session_title`
+
+使用者要求或確認新的措辭時，修正已 finalized Session 的標題（`sessionId`、`title` 1–300 字），使用原本的 Session，不會建立平行 Session：
+
+- 原標題記成 Session 上的一筆 `note` 事件，其他欄位都不變；搜尋索引與 `updatedAt` 隨之更新。
+- 送出與目前相同的標題不會改動任何資料，回傳 `duplicate: true`；因此不需要 `idempotencyKey`。
+- 已作廢的 Session 回傳 `skipped` 與原因，要先在 Web UI 還原。非 tracked 專案安靜略過；標題中的敏感值會先遮蔽，回應只回報各類數量。
+
+```json
+{ "sessionId": "session-id-from-existing-session", "title": "修正知識頁儲存按鈕文案並同步三種語系" }
+```
+
 ## `work_update_session_work_summary`
 
 修正已 finalized Session 的結構化五段工作摘要時，使用原本的 `sessionId`，不會建立平行 Session，也不需要重新 finalize：
@@ -354,6 +366,7 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 
 - 作廢的 Session 不會出現在 Session 列表（`work_list_sessions` 可用 `voided: "include"`／`"only"` 找回）、Dashboard、報告、圖譜、metadata 缺口、`work_get_context` 與 `work_recall`／`work_search`；`work_get_session` 仍可讀取，並帶 `session.voided`（時間與原因）。
 - 標示錯誤的 Evidence 保留在 Session 詳情並附原因，但不再出現在報告與圖譜。正確的 Evidence 請另外用 `work_attach_evidence` 掛上。
+- MCP 沒有永久刪除 Session 的工具。已作廢的 Session 只能由使用者在 Web 的 Session 面板永久刪除（`DELETE /api/sessions/:id`，會先備份）；Agent 不應建議或代為操作。
 
 ```json
 { "sessionId": "session-id", "reason": "測試 MCP 設定時誤記錄" }

@@ -1,4 +1,5 @@
 import type {
+  DeleteSessionResult,
   LinkSessionsResult,
   SessionLinkRelation,
   SessionDetail,
@@ -13,6 +14,8 @@ import type {
   UpdateSessionVerificationResult,
   VerificationSummary,
   UpdateSessionSummaryResult,
+  UpdateSessionTitleInput,
+  UpdateSessionTitleResult,
   UpdateSessionWorkSummaryInput,
   UpdateSessionWorkSummaryResult,
 } from "@work-intelligence/core";
@@ -38,6 +41,8 @@ export interface SessionsApi {
   setSessionVoid(input: SetSessionVoidInput, signal?: AbortSignal): Promise<SetSessionVoidResult>;
   setEvidenceVoid(input: SetEvidenceVoidInput, signal?: AbortSignal): Promise<SetEvidenceVoidResult>;
   setDiagramVoid(input: SetDiagramVoidInput, signal?: AbortSignal): Promise<SetDiagramVoidResult>;
+  deleteSession(sessionId: string, signal?: AbortSignal): Promise<DeleteSessionResult>;
+  updateSessionTitle(input: UpdateSessionTitleInput, signal?: AbortSignal): Promise<UpdateSessionTitleResult>;
   updateSessionSummary(input: UpdateSessionSummaryInput, signal?: AbortSignal): Promise<UpdateSessionSummaryResult>;
   updateSessionWorkSummary(
     input: UpdateSessionWorkSummaryInput,
@@ -132,6 +137,25 @@ export function createSessionsApi(client: ApiTransport): SessionsApi {
       const { evidenceId, ...body } = input;
       return client.write<SetEvidenceVoidResult>(
         `/api/evidence/${encodeURIComponent(evidenceId)}/void`,
+        "PATCH",
+        body,
+        signal,
+      );
+    },
+
+    deleteSession(sessionId: string, signal?: AbortSignal): Promise<DeleteSessionResult> {
+      return client.write<DeleteSessionResult>(
+        `/api/sessions/${encodeURIComponent(sessionId)}`,
+        "DELETE",
+        { confirm: true },
+        signal,
+      );
+    },
+
+    updateSessionTitle(input: UpdateSessionTitleInput, signal?: AbortSignal): Promise<UpdateSessionTitleResult> {
+      const { sessionId, ...body } = input;
+      return client.write<UpdateSessionTitleResult>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/title`,
         "PATCH",
         body,
         signal,

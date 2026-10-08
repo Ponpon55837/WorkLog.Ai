@@ -46,6 +46,11 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `PROJECT_NAME_MISMATCH` | 409 | 專案刪除確認名稱不相符。 |
 | `PROJECT_BACKUP_FAILED` | 503 | 專案刪除前無法建立必要備份。 |
 | `PROJECT_DELETE_FAILED` | 500 | 專案刪除交易失敗，既有備份仍保留。 |
+| `SESSION_NOT_FOUND` | 404 | Session 永久刪除找不到該 Session。 |
+| `SESSION_NOT_VOIDED` | 409 | 只有已作廢的 Session 可以永久刪除。 |
+| `SESSION_CITED_BY_PENDING_CLEANUP` | 409 | 有待審核的未結項清理建議引用這個 Session 作為證據；先接受或拒絕該建議。 |
+| `SESSION_BACKUP_FAILED` | 503 | Session 刪除前無法建立必要備份。 |
+| `SESSION_DELETE_FAILED` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
 
 Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code` 顯示目前介面語言（繁體中文或 English）的訊息；`network_error` 與 `malformed_response` 是 client 本地代碼，不會由 REST API 回傳。
 
@@ -72,6 +77,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/knowledge/:id/agent-reads`                 | 同上，對象為 Knowledge |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
+| DELETE   | `/api/sessions/:id`                              | 永久刪除**已作廢**的 Session（body `{ "confirm": true }`）：先寫入獨立保留 5 份的 `pre-session-delete-` 備份，再在單一交易刪除它的事件、Evidence、圖表、修改紀錄、關聯與未結項；Knowledge 保留但不再指向它，只留不含內容的刪除紀錄。MCP 沒有對應工具 |
+| PATCH    | `/api/sessions/:id/title`                        | 修正 Session 標題（`title`，1–300 字）；原標題記成一筆 `note` 事件，已作廢的 Session 回傳 `skipped` |
 | PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要（Agent 與 Session 面板「編輯 Session」共用） |
 | PATCH    | `/api/sessions/:id/work-summary`                 | 以 replace／patch 更新既有 finalized Session 五段 workSummary（Session 面板只 patch 有改的段落） |
 | POST     | `/api/sessions/:id/evidence`                     | 保存 Agent 提供的 evidence reference                                                   |

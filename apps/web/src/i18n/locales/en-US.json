@@ -199,7 +199,12 @@
     "theServiceIsTemporarilyUnavailable": "The service is temporarily unavailable. Please try again later.",
     "thisProjectWasNotFound": "This project was not found. Refresh the project list.",
     "under1Minute": "Under 1 minute",
-    "yesterday": "Yesterday {time}"
+    "yesterday": "Yesterday {time}",
+    "sessionNotFoundRefresh": "This Session was not found; it may already be deleted. Refresh and try again.",
+    "onlyVoidedSessionsCanBeDeleted": "Only a voided Session can be permanently deleted.",
+    "sessionCitedByPendingCleanup": "A pending outstanding-item cleanup proposal cites this Session; accept or reject that proposal first.",
+    "couldNotBackUpBeforeSessionDeletion": "Could not create and verify the pre-deletion backup, so the Session was not deleted. Make sure the database is writable and try again.",
+    "sessionDeletionDidNotFinish": "The deletion did not finish; the Session is kept and the pre-deletion backup still exists."
   },
   "graph": {
     "allDataInTheCurrent": "All data in the current range is loaded.",
@@ -548,6 +553,7 @@
     "beforeDataMaintenance": "Before data maintenance",
     "beforeDatabaseMigration": "Before database migration",
     "beforeProjectDeletion": "Before project deletion",
+    "beforeSessionDeletion": "Before Session deletion",
     "captured": "Captured",
     "changedFiles": "Changed files",
     "changedFilesTerm": "Changed files",
@@ -1277,7 +1283,15 @@
     "writeOnlyWhatActuallyHappened": "Write only what actually happened. If you did not run tests, choose “Not run”, not “Passed”.",
     "agentReads": "Agent reads",
     "agentReadsHint": "When an Agent was given this Session through MCP",
-    "agentReadsRecentOnly": "Showing the latest {count} only"
+    "agentReadsRecentOnly": "Showing the latest {count} only",
+    "title": "Title",
+    "titleEditHint": "Briefly say what this Session delivered; the previous title stays in the activity log.",
+    "theTitleCannotBeEmpty": "The title cannot be empty.",
+    "deletePermanently": "Delete permanently",
+    "deleteSessionPermanently": "Permanently delete this Session?",
+    "deleteSessionPermanentlyMessage": "“{title}” and its events, Evidence, diagrams, edit history, and outstanding items will be deleted and cannot be restored. A database backup is created first.",
+    "sessionDeleted": "Session permanently deleted; pre-deletion backup: {backupFileName}",
+    "couldNotDeleteSession": "Could not delete the Session."
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "Every finished task leaves traceable context.",

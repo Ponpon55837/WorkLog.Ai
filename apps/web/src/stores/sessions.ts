@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import type {
+  DeleteSessionResult,
   LinkSessionsResult,
   PageInfo,
   SessionLinkRelation,
@@ -38,6 +39,7 @@ export const emptyPageInfo: PageInfo = {
 
 export type SessionEditorSaveInput = {
   sessionId: string;
+  title?: string;
   summary?: { idempotencyKey: string; value: string };
   workSummary?: { idempotencyKey: string; sections: Partial<WorkSummarySections> };
   verification?: VerificationSummary;
@@ -132,6 +134,12 @@ export const useSessionsStore = defineStore("sessions", () => {
   const saveSessionEditsMutation = useMutation({
     mutation: async (input: SessionEditorSaveInput) => {
       const { client } = useApi();
+      if (input.title) {
+        const result = await client.updateSessionTitle({ sessionId: input.sessionId, title: input.title });
+        if (result.outcome !== "title_updated") {
+          throw new Error(updateFailureMessage(result));
+        }
+      }
       if (input.summary) {
         const result = await client.updateSessionSummary({
           sessionId: input.sessionId,
@@ -167,7 +175,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
       ];
-      if (input.summary) {
+      if (input.title || input.summary) {
         invalidations.push(
           queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
           queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
@@ -175,7 +183,7 @@ export const useSessionsStore = defineStore("sessions", () => {
           queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         );
       }
-      if (input.summary || input.workSummary || input.verification) {
+      if (input.title || input.summary || input.workSummary || input.verification) {
         invalidations.push(queryCache.invalidateQueries({ key: queryKeys.views.reports }));
       }
       if (input.workSummary) {
@@ -214,6 +222,33 @@ export const useSessionsStore = defineStore("sessions", () => {
       if (result.outcome !== "session_void_updated") return;
       await Promise.all([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.agents, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
+        queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.dashboard.activity }),
+        queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.views.reports }),
+        queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
+      ]);
+    },
+  });
+  const deleteSessionMutation = useMutation({
+    mutation: (sessionId: string) => useApi().client.deleteSession(sessionId),
+    onSuccess: async (_result, sessionId) => {
+      if (selectedSessionId.value === sessionId) selectedSessionId.value = null;
+      sequence.value = sequence.value.filter((id) => id !== sessionId);
+      // The deleted Session can appear anywhere a voided one could; the new snapshot shows up in backups.
+      await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.projects.backups, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.pages }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReads.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.agents, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
@@ -338,6 +373,11 @@ export const useSessionsStore = defineStore("sessions", () => {
     return await setSessionVoidMutation.mutateAsync(input);
   }
 
+  /** Permanently deletes a voided Session; the caller confirms first and reports the result. */
+  async function deleteSession(sessionId: string): Promise<DeleteSessionResult> {
+    return await deleteSessionMutation.mutateAsync(sessionId);
+  }
+
   async function setDiagramVoid(input: DiagramVoidMutationInput): Promise<SetDiagramVoidResult> {
     return await setDiagramVoidMutation.mutateAsync(input);
   }
@@ -413,6 +453,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     linkSessions,
     unlinkSessions,
     setSessionVoid,
+    deleteSession,
     setEvidenceVoid,
     setDiagramVoid,
   };

@@ -14,7 +14,7 @@ function sectionItems(text: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-/** Opens the in-place editor for a Session's summary and five-section workSummary. */
+/** Opens the in-place editor for a Session's title, summary, and five-section workSummary. */
 function openSessionEditor(session: WorkSessionRecord): void {
   useSessionEditorStore().sessionEditor = session;
   useSessionEditorStore().sessionEditorForm = toForm(session);
@@ -44,6 +44,11 @@ async function saveSessionEditor(): Promise<void> {
     return;
   }
   const form = useSessionEditorStore().sessionEditorForm;
+  const title = form.title.trim();
+  if (!title) {
+    useSessionEditorStore().sessionEditorError = t("session.theTitleCannotBeEmpty");
+    return;
+  }
   const summary = form.summary.trim();
   if (!summary) {
     useSessionEditorStore().sessionEditorError = t("session.theSummaryCannotBeEmpty");
@@ -53,6 +58,7 @@ async function saveSessionEditor(): Promise<void> {
   const changedSections = workSummarySectionLabels
     .map(({ key }) => key)
     .filter((key) => form.sections[key] !== original.sections[key]);
+  const titleChanged = title !== session.title.trim();
   const summaryChanged = summary !== session.summary.trim();
   const verificationStatus = form.verificationStatus;
   const verificationChanged =
@@ -62,7 +68,7 @@ async function saveSessionEditor(): Promise<void> {
     useSessionEditorStore().sessionEditorError = t("session.chooseAVerificationStatusPassed");
     return;
   }
-  if (!summaryChanged && changedSections.length === 0 && !verificationChanged) {
+  if (!titleChanged && !summaryChanged && changedSections.length === 0 && !verificationChanged) {
     closeSessionEditor();
     return;
   }
@@ -71,6 +77,9 @@ async function saveSessionEditor(): Promise<void> {
   useSessionEditorStore().sessionEditorError = "";
   try {
     const edits: SessionEditorSaveInput = { sessionId: session.id };
+    if (titleChanged) {
+      edits.title = title;
+    }
     if (summaryChanged) {
       edits.summary = { idempotencyKey: newIdempotencyKey("summary", session.id), value: summary };
     }

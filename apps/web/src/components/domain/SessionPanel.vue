@@ -25,7 +25,7 @@ const sessionsStore = useSessionsStore();
 const { selectedDetail, position } = storeToRefs(sessionsStore);
 const { openSessionDetail, closeSessionDetail, openAdjacentSession } = sessionsStore;
 const { openSessionEditor } = useSessionEditor();
-const { openVoidDialog, restoreRecord } = useRecordVoid();
+const { openVoidDialog, restoreRecord, deleteVoidedSession } = useRecordVoid();
 const { openLinkDialog, removeLink } = useSessionLinks();
 
 const body = ref<HTMLElement | null>(null);
@@ -112,7 +112,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
     </template>
 
     <div v-if="selectedDetail && session" ref="body" class="session-panel">
-      <SessionPanelSummary :detail="selectedDetail" @restore-record="restoreRecord" />
+      <SessionPanelSummary
+        :detail="selectedDetail"
+        @restore-record="restoreRecord"
+        @delete-record="deleteVoidedSession"
+      />
       <SessionPanelActivity
         :detail="selectedDetail"
         @void-record="openVoidDialog"

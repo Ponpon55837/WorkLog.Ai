@@ -102,6 +102,31 @@ async function restoreRecord(target: VoidTarget): Promise<void> {
   afterChange(restoredMessages[target.type]);
 }
 
+/**
+ * Permanently deletes a voided Session after a danger confirmation. The server refuses Sessions that are
+ * not voided and writes a pre-deletion backup first; Agents have no equivalent.
+ */
+async function deleteVoidedSession(target: VoidTarget): Promise<void> {
+  if (target.type !== "session") {
+    return;
+  }
+  const confirmed = await confirmAction({
+    title: t("session.deleteSessionPermanently"),
+    message: t("session.deleteSessionPermanentlyMessage", { title: target.title }),
+    confirmLabel: t("session.deletePermanently"),
+    danger: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    const result = await useSessionsStore().deleteSession(target.id);
+    useToast().showToast(t("session.sessionDeleted", { backupFileName: result.backupFileName }), "success");
+  } catch (error) {
+    useToast().showToast(errorMessage(error, t("session.couldNotDeleteSession")), "danger");
+  }
+}
+
 export function useRecordVoid() {
   const { voidTarget, voidReason, voidSaving, voidError } = storeToRefs(useRecordVoidStore());
   return {
@@ -113,5 +138,6 @@ export function useRecordVoid() {
     closeVoidDialog,
     submitVoid,
     restoreRecord,
+    deleteVoidedSession,
   };
 }
