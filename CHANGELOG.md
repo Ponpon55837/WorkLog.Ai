@@ -4,6 +4,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-08
+
 ### Added
 
 - A voided Session can be permanently deleted from the Session panel ("Delete permanently", with a danger confirmation). The server refuses Sessions that are not voided, writes a `pre-session-delete-` snapshot first (kept in its own group of 5 so it never pushes out manual backups), and deletes the Session with its events, Evidence, diagrams, edit history, links and outstanding items in one transaction; Knowledge it produced is kept. Only `DELETE /api/sessions/:id` with `{ "confirm": true }` does this: there is no MCP tool, so Agents still can only void and restore. Migration 26 adds the content-free `session_deletion_audit` and lets an outstanding item's history be deleted together with the item.
