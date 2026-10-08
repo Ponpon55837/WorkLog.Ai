@@ -105,6 +105,8 @@ REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Eviden
 
 永久刪除會先用 `VACUUM INTO` 建立並驗證整份資料庫快照，備份建立失敗時拒絕操作；備份列為手動備份，依相同保留額度管理。之後在一個 `BEGIN IMMEDIATE` transaction 中清理 project、Session、衍生資料、跨專案 Session 關聯、引用目標 Session 的全域請求／報告與搜尋索引。刪除失敗會 rollback 並保留備份。migration v11 的 `project_deletion_audit` 僅保存刪除時間、project id 與刪除筆數，不保存名稱、路徑或內容。API 允許使用者在 Web UI 或 REST 以名稱確認，MCP 刻意不提供此破壞性操作；workspace 原始檔案不會被刪除。
 
+單筆 Session 的永久刪除（`session-deletion-service.ts`）只接受已作廢的 Session，且同樣只開放 Web UI 與 REST。刪除前寫入 `pre-session-delete-...` 快照，這類快照獨立保留 5 份，不佔用手動備份的額度。交易內重新確認仍為作廢、且沒有其他 Session 的待審清理建議引用它作為證據，接著先以一般 `UPDATE` 解除 Knowledge、Knowledge 候選與知識頁檢查游標對它的指向（FK 的 `SET NULL` 動作會讓搜尋 trigger 的 `OR IGNORE` 失效），刪除未結項，再刪除 Session 讓事件、Evidence、圖表、修改紀錄、關聯與清理快照依 FK 連帶刪除。migration v26 讓 `outstanding_item_events` 只在所屬未結項仍存在時維持 append-only，所以歷史會隨未結項一起刪除。報告、請求來源清單、Agent 讀取摘要與它解決過的未結項事件只保留 id；知識頁引用它時會標為來源缺失、需要核對。`session_deletion_audit` 只保存時間、Session id、project id 與筆數。
+
 `pnpm db:maintain` 是明確的離線維護操作。執行前以 `BEGIN EXCLUSIVE` 檢查 SQLite 寫入鎖，完整性檢查與資料庫升級成功後先建立 `pre-maintenance-...` 驗證快照，再執行 `VACUUM`、`ANALYZE` 與完整搜尋索引重建。migration v12 的 `database_maintenance_runs` 只保留開始／完成時間、狀態、備份檔名、索引筆數與安全錯誤分類；`pnpm run doctor` 以唯讀方式讀取最近結果。維護失敗時會保留備份，並將執行標為失敗或未完成。
 
 既有 SQLite 檔案若仍有歷史 `commit_required` 欄位，Work Intelligence 啟動時會以 idempotent migration 移除；公開 Session contract 與新寫入流程不使用此欄位。Git commit 仍是可選的獨立流程。
@@ -125,7 +127,7 @@ MCP runtime identity 以根目錄版本與 MCP、core、project-policy、schema�
 
 日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 
-主摘要、五段 workSummary 與 verification 可以由 Agent（MCP）或 Web UI（Session 面板「編輯 Session」）就地更新，都會留下 audit row（verification 的前後值與來源記在 `session_verification_updates`）；Session 與 Evidence 可作廢／還原（`void_audit`）；changed files、events 與 evidence 內容在 UI 維持唯讀。
+標題、主摘要、五段 workSummary 與 verification 可以由 Agent（MCP）或 Web UI（Session 面板「編輯 Session」）就地更新，都會留下紀錄（標題的原值記成 `note` 事件，verification 的前後值與來源記在 `session_verification_updates`）；Session 與 Evidence 可作廢／還原（`void_audit`），已作廢的 Session 可由使用者在 Web 永久刪除；changed files、events 與 evidence 內容在 UI 維持唯讀。
 
 REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdio payload 都限制為 1.5 MB；單次 finalize 或 metadata update 的 changed-files、provenance 與 lifecycle change 陣列最多 200 筆。所有即將讀取的既有 source、handoff 或 Git path 都會在 policy gate 後再次解析 real path，避免透過 symlink 逃離 tracked project root；metadata 中的 deleted／尚未建立路徑仍只做 lexical normalization，不會被當成檔案讀取。
 

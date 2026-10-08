@@ -21,6 +21,8 @@ import type {
   UpdateSessionMetadataResult,
   UpdateSessionSummaryInput,
   UpdateSessionSummaryResult,
+  UpdateSessionTitleInput,
+  UpdateSessionTitleResult,
   UpdateSessionWorkSummaryInput,
   UpdateSessionWorkSummaryResult,
   UpdateSessionVerificationResult,
@@ -584,6 +586,82 @@ export class SessionRecordService {
         previousSummary,
         appliedSummary,
         redactions,
+      };
+    });
+  }
+
+  public updateSessionTitle(input: UpdateSessionTitleInput): UpdateSessionTitleResult {
+    const row = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(input.sessionId) as
+      { project_id: string } | undefined;
+    if (!row) {
+      return { outcome: "not_found", sessionId: input.sessionId };
+    }
+
+    const decision = this.dependencies.checkProjectById(row.project_id);
+    if (!decision?.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        sessionId: input.sessionId,
+        projectStatus: decision?.projectStatus ?? "unregistered",
+        reason: decision?.reason ?? "Project recording is not enabled.",
+      };
+    }
+
+    const project = decision.project;
+    const sanitized = redactText(input.title.trim());
+    const title = sanitized.value;
+    if (!title) {
+      throw new Error("Session title must not be empty.");
+    }
+
+    return runImmediateSqlTransaction(this.db, () => {
+      const current = this.db.prepare("SELECT title, voided_at FROM sessions WHERE id = ?").get(input.sessionId) as
+        { title: string; voided_at: string | null } | undefined;
+      if (!current) {
+        return { outcome: "not_found", sessionId: input.sessionId };
+      }
+      if (current.voided_at) {
+        return {
+          outcome: "skipped",
+          sessionId: input.sessionId,
+          projectStatus: project.status,
+          reason: "已作廢的 Session 不可修改標題；請先還原。",
+        };
+      }
+
+      const duplicate = current.title === title;
+      if (!duplicate) {
+        const updatedAt = nowIso();
+        this.db
+          .prepare("UPDATE sessions SET title = ?, redaction_count = redaction_count + ? WHERE id = ?")
+          .run(title, sanitized.redactions.total, input.sessionId);
+        // Like completedAt corrections, the previous title stays visible as a note instead of a history table.
+        this.db
+          .prepare(
+            `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
+             VALUES (?, ?, 'note', ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            input.sessionId,
+            `標題由「${current.title}」改為「${title}」。`,
+            JSON.stringify({ field: "title", previous: current.title, next: title }),
+            updatedAt,
+          );
+        this.touchSession(input.sessionId, updatedAt);
+        this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
+      }
+
+      const session = this.dependencies.getSessionById(input.sessionId);
+      if (!session) {
+        throw new Error("Session title was updated but the Session could not be loaded.");
+      }
+      return {
+        outcome: "title_updated",
+        duplicate,
+        session,
+        previousTitle: current.title,
+        redactions: sanitized.redactions,
       };
     });
   }

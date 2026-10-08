@@ -60,6 +60,7 @@ import {
   updateKnowledgeInputSchemaBase,
   updateSessionMetadataInputSchema,
   updateSessionSummaryInputSchema,
+  updateSessionTitleInputSchema,
   updateSessionWorkSummaryInputSchema,
   updateSessionWorkSummaryInputSchemaBase,
 } from "@work-intelligence/schema";
@@ -753,6 +754,18 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid session summary payload.",
     sessionResult: true,
     run: (input) => store.updateSessionSummary(input),
+  });
+
+  registerStoreTool("work_update_session_title", {
+    title: "Correct a finalized session title",
+    description:
+      "Correct the title of an existing finalized Session when the user asks or confirms the new wording. The previous title is kept as a note event on the Session; nothing else changes. Setting the same title again is a no-op (duplicate: true). Voided Sessions are skipped with a reason; restore them in the Web UI first. Sensitive values are masked; results report counts by type only. Non-tracked projects are skipped quietly.",
+    inputShape: updateSessionTitleInputSchema.shape,
+    schema: updateSessionTitleInputSchema,
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid session title payload.",
+    sessionResult: true,
+    run: (input) => store.updateSessionTitle(input),
   });
 
   registerStoreTool("work_update_session_work_summary", {

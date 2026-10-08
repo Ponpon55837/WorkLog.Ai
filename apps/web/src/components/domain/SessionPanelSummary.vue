@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { RotateCcw } from "lucide-vue-next";
+import { RotateCcw, Trash2 } from "lucide-vue-next";
 import type { SessionDetail } from "@work-intelligence/core";
 import type { VoidTarget } from "../../composables/useRecordVoid";
 import {
@@ -18,7 +18,7 @@ import WorkSummarySections from "./WorkSummarySections.vue";
 import { t } from "../../i18n";
 
 const props = defineProps<{ detail: SessionDetail }>();
-const emit = defineEmits<{ restoreRecord: [target: VoidTarget] }>();
+const emit = defineEmits<{ restoreRecord: [target: VoidTarget]; deleteRecord: [target: VoidTarget] }>();
 
 const session = computed(() => props.detail.session);
 const redactionCount = computed(() => session.value.redactionCount ?? 0);
@@ -45,6 +45,9 @@ const sessionTarget = computed<VoidTarget>(() => ({
     <template #actions
       ><UiButton size="sm" :icon="RotateCcw" @click="emit('restoreRecord', sessionTarget)">{{
         t("session.restore")
+      }}</UiButton
+      ><UiButton size="sm" variant="danger" :icon="Trash2" @click="emit('deleteRecord', sessionTarget)">{{
+        t("session.deletePermanently")
       }}</UiButton></template
     >
   </UiFlash>

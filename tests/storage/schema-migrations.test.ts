@@ -601,4 +601,35 @@ describe("outstanding cleanup review migration", () => {
       db.close();
     }
   });
+
+  it("adds the Session deletion audit and lets item history cascade only after its item on upgrade from schema 25", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 25);
+      // Rewinding drops the replaced trigger too; restore the schema-25 definition it upgrades from.
+      db.exec(`CREATE TRIGGER trg_outstanding_item_events_no_delete
+        BEFORE DELETE ON outstanding_item_events
+        WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id) BEGIN
+          SELECT RAISE(ABORT, 'outstanding item events are append-only');
+        END`);
+
+      db.exec("BEGIN IMMEDIATE");
+      applySchemaMigrations(db);
+      db.exec("COMMIT");
+
+      expect(db.prepare("SELECT COUNT(*) AS count FROM session_deletion_audit").get()).toEqual({ count: 0 });
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 26").get()).toEqual({
+        name: "session-permanent-deletion",
+      });
+      const trigger = db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_outstanding_item_events_no_delete'",
+        )
+        .get() as { sql: string };
+      expect(trigger.sql).toContain("FROM outstanding_items WHERE id = OLD.item_id");
+    } finally {
+      db.close();
+    }
+  });
 });

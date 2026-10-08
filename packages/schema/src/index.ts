@@ -70,6 +70,11 @@ export const deleteProjectInputSchema = z.object({
   confirmationName: z.string().trim().min(1).max(120),
 });
 
+/** Permanent Session deletion is a Web/REST-only action and needs an explicit JSON confirmation. */
+export const deleteSessionInputSchema = z.object({
+  confirm: z.literal(true),
+});
+
 export const databaseBackupFileNameSchema = z
   .string()
   .min(1)
@@ -758,6 +763,16 @@ function requireReasonWhenVoiding(value: { voided: boolean; reason?: string }, c
   }
 }
 
+export const updateSessionTitleInputSchema = z.object({
+  sessionId: z.string().trim().min(1).max(200),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(300)
+    .describe("The corrected title, a short description of what the Session delivered. Same limits as finalize."),
+});
+
 export const setSessionVoidInputSchemaBase = z.object({
   sessionId: z.string().trim().min(1).max(200),
   voided: z.boolean().default(true),
@@ -1125,6 +1140,8 @@ export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
 export type UpdateProjectLocationInput = z.infer<typeof updateProjectLocationInputSchema>;
 export type DeleteProjectInput = z.infer<typeof deleteProjectInputSchema>;
+export type DeleteSessionInput = z.infer<typeof deleteSessionInputSchema>;
+export type UpdateSessionTitleInput = z.infer<typeof updateSessionTitleInputSchema>;
 export type FinalizeSessionInput = z.infer<typeof finalizeSessionInputSchema>;
 export type McpFinalizeSessionInput = z.infer<typeof mcpFinalizeSessionInputSchema>;
 export type UpdateSessionSummaryInput = z.infer<typeof updateSessionSummaryInputSchema>;

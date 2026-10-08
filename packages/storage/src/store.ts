@@ -109,6 +109,7 @@ import type {
   CreateReportSynthesisRequestInput,
   CreateReportSynthesisRequestResult,
   DeleteProjectResult,
+  DeleteSessionResult,
   ProjectDeletionAuditRecord,
   ReportSynthesisRequestLookupResult,
   SearchQueryResult,
@@ -145,6 +146,8 @@ import type {
   UpdateSessionMetadataResult,
   UpdateSessionSummaryInput,
   UpdateSessionSummaryResult,
+  UpdateSessionTitleInput,
+  UpdateSessionTitleResult,
   UpdateSessionWorkSummaryInput,
   UpdateSessionWorkSummaryResult,
   UpdateSessionVerificationResult,
@@ -224,6 +227,7 @@ import type {
   RecordAgentReadInput,
 } from "./agent-read-audit-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
+import { SessionDeletionService } from "./session-deletion-service.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import type { EvidenceRow, KnowledgeRow } from "./session-record-codecs.js";
 import {
@@ -358,6 +362,7 @@ export class WorkIntelligenceStore {
   private readonly timelines: TimelineRepository;
   private readonly activity: ActivityRepository;
   private readonly projectDeletionService: ProjectDeletionService;
+  private readonly sessionDeletionService: SessionDeletionService;
   private readonly agentReadAudit: AgentReadAuditService;
   private readonly projectLocationService: ProjectLocationService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
@@ -463,6 +468,12 @@ export class WorkIntelligenceStore {
     this.timelines = new TimelineRepository(this.db);
     this.activity = new ActivityRepository(this.db);
     this.projectDeletionService = new ProjectDeletionService(
+      this.db,
+      this.databasePath,
+      this.backupOptions,
+      this.searchIndex,
+    );
+    this.sessionDeletionService = new SessionDeletionService(
       this.db,
       this.databasePath,
       this.backupOptions,
@@ -645,6 +656,11 @@ export class WorkIntelligenceStore {
 
   public deleteProject(projectId: string, confirmationName: string): DeleteProjectResult {
     return this.projectDeletionService.deleteProject(projectId, confirmationName);
+  }
+
+  /** Web/REST only: permanently deletes one voided Session after a checked snapshot. MCP never calls this. */
+  public deleteSession(sessionId: string): DeleteSessionResult {
+    return this.sessionDeletionService.deleteSession(sessionId);
   }
 
   public listProjectDeletionAudits(): ProjectDeletionAuditRecord[] {
@@ -1073,6 +1089,10 @@ export class WorkIntelligenceStore {
 
   public updateSessionSummary(input: UpdateSessionSummaryInput): UpdateSessionSummaryResult {
     return this.sessionRecords.updateSessionSummary(input);
+  }
+
+  public updateSessionTitle(input: UpdateSessionTitleInput): UpdateSessionTitleResult {
+    return this.sessionRecords.updateSessionTitle(input);
   }
 
   public updateSessionWorkSummary(

@@ -4,6 +4,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- A voided Session can be permanently deleted from the Session panel ("Delete permanently", with a danger confirmation). The server refuses Sessions that are not voided, writes a `pre-session-delete-` snapshot first (kept in its own group of 5 so it never pushes out manual backups), and deletes the Session with its events, Evidence, diagrams, edit history, links and outstanding items in one transaction; Knowledge it produced is kept. Only `DELETE /api/sessions/:id` with `{ "confirm": true }` does this: there is no MCP tool, so Agents still can only void and restore. Migration 26 adds the content-free `session_deletion_audit` and lets an outstanding item's history be deleted together with the item.
+- Session titles can be corrected: the Session editor has a Title field, `PATCH /api/sessions/:id/title` and the MCP operation `work_update_session_title` (overwrite dispatcher) rename in place and keep the previous title as a note event. Voided Sessions are skipped. Agents must reconnect to see the new operation.
+
+### Fixed
+
+- Two backups written in the same second after the oldest had been pruned reused the freed file name, so the new copy sorted as the oldest and was pruned at once. The same-second suffix now always goes past the highest existing one.
+
 ### Changed
 
 - `pnpm test:e2e` now runs through `scripts/run-e2e.mjs`. On CI a browser project that fails is run once more from the start with a fresh server and SQLite database, because the browser regression suite shares `beforeAll` fixtures and cannot be retried test by test; a pass on the rerun is reported as a "Flaky E2E" warning and the first attempt's traces are still uploaded.

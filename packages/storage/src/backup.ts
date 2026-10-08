@@ -24,6 +24,10 @@ import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
 export const DEFAULT_BACKUP_KEEP = 14;
 export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 14;
+/** Session deletions keep their own few snapshots so a cleanup spree cannot push out manual backups. */
+export const SESSION_DELETION_BACKUP_KEEP = 5;
+
+type RetentionBucket = "automatic" | "session_deletion" | "manual";
 
 export interface BackupRetentionOptions {
   directory?: string;
@@ -57,6 +61,7 @@ function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string
   const migrationName = /^pre-migration-v(\d+)-(.+)$/.exec(value);
   const maintenanceName = /^pre-maintenance-(.+)$/.exec(value);
   const deletionName = /^pre-delete-(.+)$/.exec(value);
+  const sessionDeletionName = /^pre-session-delete-(.+)$/.exec(value);
   const migrationVersion = migrationName?.[1] ? Number(migrationName[1]) : undefined;
   if (migrationName && (!Number.isSafeInteger(migrationVersion) || (migrationVersion ?? 0) < 1)) {
     return null;
@@ -69,10 +74,18 @@ function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string
       ? "migration"
       : deletionName
         ? "deletion"
-        : maintenanceName
-          ? "maintenance"
-          : "manual";
-  const stamp = standardName?.[2] ?? migrationName?.[2] ?? maintenanceName?.[1] ?? deletionName?.[1] ?? value;
+        : sessionDeletionName
+          ? "session_deletion"
+          : maintenanceName
+            ? "maintenance"
+            : "manual";
+  const stamp =
+    standardName?.[2] ??
+    migrationName?.[2] ??
+    maintenanceName?.[1] ??
+    deletionName?.[1] ??
+    sessionDeletionName?.[1] ??
+    value;
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
   if (!match) {
     return null;
@@ -89,6 +102,10 @@ function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string
     return null;
   }
   return { kind, createdAt, sequence };
+}
+
+function retentionBucket(kind: DatabaseBackupKind): RetentionBucket {
+  return kind === "automatic" || kind === "session_deletion" ? kind : "manual";
 }
 
 /** Accepts only a single, recognized filename for the current database. */
@@ -207,26 +224,33 @@ function writeDatabaseBackup(
   databasePath: string,
   options: BackupWriteOptions = {},
   filePrefix: string,
+  bucket: RetentionBucket = options.kind === "automatic" ? "automatic" : "manual",
 ): DatabaseBackupCreated {
   const directory = options.directory ?? defaultBackupDirectory(databasePath);
   const kind = options.kind ?? "manual";
   const keep = Math.max(1, Math.trunc(options.keep ?? DEFAULT_BACKUP_KEEP));
   const automaticKeep = Math.max(1, Math.trunc(options.automaticKeep ?? DEFAULT_AUTOMATIC_BACKUP_KEEP));
-  const kindKeep = kind === "automatic" ? automaticKeep : keep;
+  const kindKeep =
+    bucket === "automatic" ? automaticKeep : bucket === "session_deletion" ? SESSION_DELETION_BACKUP_KEEP : keep;
   mkdirSync(directory, { recursive: true, mode: 0o700 });
 
   const stamp = timestamp(options.now ?? new Date());
-  let fileName = `${backupPrefix(databasePath)}${filePrefix}${stamp}.sqlite`;
-  for (let suffix = 2; existsSync(join(directory, fileName)); suffix += 1) {
-    fileName = `${backupPrefix(databasePath)}${filePrefix}${stamp}-${suffix}.sqlite`;
+  const base = `${backupPrefix(databasePath)}${filePrefix}${stamp}`;
+  // Number past the highest copy of this second, not the first free name: after pruning, a freed lower
+  // number would sort as the oldest copy and be pruned again right away.
+  let sequence = 1;
+  for (const name of readdirSync(directory)) {
+    const match = name.startsWith(base) ? /^(?:-(\d+))?\.sqlite$/.exec(name.slice(base.length)) : null;
+    if (match) {
+      sequence = Math.max(sequence, Number(match[1] ?? 1) + 1);
+    }
   }
+  const fileName = sequence === 1 ? `${base}.sqlite` : `${base}-${sequence}.sqlite`;
   const target = join(directory, fileName);
   writeSnapshot(db, target);
 
   const backups = listDatabaseBackups(databasePath, directory);
-  for (const stale of backups
-    .filter((backup) => (backup.kind === "automatic") === (kind === "automatic"))
-    .slice(kindKeep)) {
+  for (const stale of backups.filter((backup) => retentionBucket(backup.kind) === bucket).slice(kindKeep)) {
     rmSync(join(directory, stale.fileName), { force: true });
   }
   const kept = listDatabaseBackups(databasePath, directory);
@@ -306,6 +330,21 @@ export function backupDatabaseBeforeProjectDeletion(
   options: BackupRetentionOptions = {},
 ): DatabaseBackupCreated {
   return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, "pre-delete-");
+}
+
+/** Writes a checked snapshot before one voided Session is permanently deleted; it has its own small retention. */
+export function backupDatabaseBeforeSessionDeletion(
+  db: DatabaseSync,
+  databasePath: string,
+  options: BackupRetentionOptions = {},
+): DatabaseBackupCreated {
+  return writeDatabaseBackup(
+    db,
+    databasePath,
+    { ...options, kind: "manual" },
+    "pre-session-delete-",
+    "session_deletion",
+  );
 }
 
 /** Writes a checked, manually retained safety snapshot before database maintenance. */

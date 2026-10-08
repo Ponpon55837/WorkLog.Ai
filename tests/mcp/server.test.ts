@@ -56,7 +56,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 8,
+    operationCount: 9,
   },
 } as const;
 
@@ -1471,6 +1471,36 @@ describe("Work Intelligence MCP server", () => {
     expect(
       await callJson(client, "work_void_evidence", { evidenceId: evidence.evidence.id, reason: "Wrong command." }),
     ).toMatchObject({ outcome: "evidence_void_updated", evidence: { voided: { reason: "Wrong command." } } });
+  });
+
+  it("corrects a Session title through MCP but never offers permanent deletion", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Title project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-title-001", "Misleading title"),
+    );
+    const sessionId = finalized.session.id;
+
+    expect(await operationAnnotations(client, "work_update_session_title")).toMatchObject({
+      destructiveHint: true,
+      idempotentHint: true,
+    });
+    expect(await callJson(client, "work_update_session_title", { sessionId, title: "Accurate title" })).toMatchObject({
+      outcome: "title_updated",
+      duplicate: false,
+      previousTitle: "Misleading title",
+      session: { id: sessionId, title: "Accurate title" },
+    });
+    expect(await callJson(client, "work_update_session_title", { sessionId, title: "Accurate title" })).toMatchObject({
+      outcome: "title_updated",
+      duplicate: true,
+    });
+
+    const { dispatchers } = await getToolContractCatalog(client);
+    expect([...dispatchers.keys()].filter((operation) => /delete/i.test(operation))).toEqual([]);
   });
 
   it("links Sessions at finalize and through work_link_sessions", async () => {

@@ -755,6 +755,30 @@ const MIGRATIONS: SchemaMigration[] = [
       CREATE INDEX idx_agent_read_audit_records_record ON agent_read_audit_records(record_type, record_id);
     `,
   },
+  {
+    version: 26,
+    name: "session-permanent-deletion",
+    sql: `
+      CREATE TABLE session_deletion_audit (
+        id TEXT PRIMARY KEY,
+        deleted_at TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        deleted_counts_json TEXT NOT NULL
+      );
+      CREATE INDEX idx_session_deletion_audit_project ON session_deletion_audit(project_id, deleted_at DESC);
+
+      -- Item events stay append-only while their item exists; deleting the item's source Session
+      -- cascades through the item, and only then may its history go with it.
+      DROP TRIGGER IF EXISTS trg_outstanding_item_events_no_delete;
+      CREATE TRIGGER trg_outstanding_item_events_no_delete
+        BEFORE DELETE ON outstanding_item_events
+        WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+          AND EXISTS (SELECT 1 FROM outstanding_items WHERE id = OLD.item_id) BEGIN
+          SELECT RAISE(ABORT, 'outstanding item events are append-only');
+        END;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

@@ -9,10 +9,11 @@ import UiField from "../ui/UiField.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
+import UiTextInput from "../ui/UiTextInput.vue";
 import { t } from "../../i18n";
 
 /**
- * Edits a Session's summary, five-section workSummary, and verification in place (same Session
+ * Edits a Session's title, summary, five-section workSummary, and verification in place (same Session
  * id). Only changed fields are sent; every update keeps an audit row, as when an Agent corrects it.
  */
 const {
@@ -50,8 +51,11 @@ const verificationOptions = computed(() => [
   >
     <form id="session-editor-form" class="session-editor" @submit.prevent="saveSessionEditor">
       <UiFlash v-if="sessionEditorError" tone="danger">{{ sessionEditorError }}</UiFlash>
+      <UiField :label="t('session.title')" :hint="t('session.titleEditHint')"
+        ><UiTextInput v-model="sessionEditorForm.title" :label="t('session.title')" :maxlength="300" required autofocus
+      /></UiField>
       <UiField :label="t('session.summary')" :hint="t('session.oneSentenceOutcomeFirst')"
-        ><UiTextarea v-model="sessionEditorForm.summary" :rows="3" :maxlength="20000" required autofocus
+        ><UiTextarea v-model="sessionEditorForm.summary" :rows="3" :maxlength="20000" required
       /></UiField>
       <UiField
         v-for="section in workSummarySectionLabels"

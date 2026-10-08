@@ -77,6 +77,8 @@ describe("domain API factories", () => {
     await api.unlinkSession("session/1", "session/2");
     await api.setSessionVoid({ sessionId: "session/1", voided: true, reason: "duplicate" } as never);
     await api.setEvidenceVoid({ evidenceId: "evidence/1", voided: true, reason: "duplicate" } as never);
+    await api.deleteSession("session/1");
+    await api.updateSessionTitle({ sessionId: "session/1", title: "Renamed" });
     await api.updateSessionSummary({
       sessionId: "session/1",
       idempotencyKey: "summary",
@@ -134,7 +136,14 @@ describe("domain API factories", () => {
     await api.getSystemStatus();
     await api.pickFolder();
 
-    expect(calls).toHaveLength(57);
+    expect(calls).toHaveLength(59);
+    expect(
+      calls.find((call) => call.url.pathname === "/api/sessions/session%2F1" && call.method === "DELETE"),
+    ).toMatchObject({ body: { confirm: true } });
+    expect(calls.find((call) => call.url.pathname === "/api/sessions/session%2F1/title")).toMatchObject({
+      method: "PATCH",
+      body: { title: "Renamed" },
+    });
     expect(calls.find((call) => call.url.pathname === "/api/backups/backup%201.sqlite")).toMatchObject({
       method: "DELETE",
       body: {},
