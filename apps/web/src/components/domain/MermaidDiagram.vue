@@ -34,6 +34,12 @@ const autoFit = ref(true);
 
 const zoomLabel = computed(() => t("session.diagramZoom", { percent: Math.round(scale.value * 100) }));
 
+function expand(event: MouseEvent): void {
+  // WebKit does not focus buttons on pointer clicks; retain the reader's return target.
+  if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
+  emit("expand");
+}
+
 function applyScale(value: number): void {
   scale.value = value;
   if (!svgElement) return;
@@ -192,7 +198,7 @@ onBeforeUnmount(() => {
   <figure class="mermaid-diagram" data-testid="session-diagram">
     <figcaption>
       <span>{{ title }}</span>
-      <UiButton v-if="!interactive" size="sm" :icon="Maximize2" @click="emit('expand')">{{
+      <UiButton v-if="!interactive" size="sm" :icon="Maximize2" @click="expand">{{
         t("session.expandDiagram")
       }}</UiButton>
     </figcaption>
