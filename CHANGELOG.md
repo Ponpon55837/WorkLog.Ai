@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Documentation
+
+- Add a five-feature integration study for attention aggregation, related-work suggestions, report section controls, dashboard insights and report copying, with UX wireframes, data/security boundaries, rollout criteria and a synthetic candidate-query probe. These are research specifications; no production feature or API is added.
+
 ## [1.4.0] - 2026-10-09
 
 ### Added

@@ -405,6 +405,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 | [docs/testing.md](docs/testing.md) | 測試指令、覆蓋率、效能、檢索品質與無障礙門檻，以及 E2E 範圍 |
 | [docs/status.md](docs/status.md) | 專案現況、未結項與暫緩項目 |
 | [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Web UI 改版的決策與實作紀錄 |
+| [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | 五項功能整合先行研究：UIUX、演算法、安全與分階段驗收；尚未實作 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本變更紀錄 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 開發流程、健康檢查、PR 與工作記錄規則 |
 | [SECURITY.md](SECURITY.md) | 威脅模型、本機安全邊界與私密漏洞回報方式 |
