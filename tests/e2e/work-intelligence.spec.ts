@@ -1928,6 +1928,7 @@ test.describe("Work Intelligence browser regression", () => {
 
   test("reads, pans and zooms a Mermaid diagram under the strict CSP, falls back to source, and voids it @cross-browser", async ({
     page,
+    browserName,
   }) => {
     test.setTimeout(60_000);
     const cspConsoleMessages: string[] = [];
@@ -2054,7 +2055,10 @@ test.describe("Work Intelligence browser regression", () => {
       await expect(localizedReader.locator("output")).toHaveText(
         textIn(locale, "session.diagramZoom", { percent: 100 }),
       );
-      await page.screenshot({ path: test.info().outputPath(`diagram-reader-${width}-${theme}-${locale}.png`) });
+      // Playwright injects a <style> to sync WebKit screenshots, contaminating the application CSP check.
+      if (browserName !== "webkit") {
+        await page.screenshot({ path: test.info().outputPath(`diagram-reader-${width}-${theme}-${locale}.png`) });
+      }
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(reader).toBeVisible();
