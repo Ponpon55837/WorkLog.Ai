@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { ArrowLeft, X } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
-import MermaidDiagram from "./MermaidDiagram.vue";
+import SessionDiagram from "./SessionDiagram.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
@@ -43,7 +43,7 @@ function close(): void {
         <UiIconButton :icon="X" :label="t('common.close')" @click="close" />
       </div>
     </template>
-    <MermaidDiagram v-if="diagram" :key="diagram.id" :title="diagram.title" :source="diagram.source" interactive />
+    <SessionDiagram v-if="diagram" :key="diagram.id" :diagram="diagram" interactive />
   </UiSidePanel>
 </template>
 

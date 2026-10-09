@@ -1235,6 +1235,51 @@ describe("Work Intelligence REST API", () => {
     expect(tooLong.status).toBe(400);
   });
 
+  it("validates architecture snapshots at REST finalize and keeps project policy", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-architecture-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Architecture fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const payload = {
+      projectRoot: root,
+      idempotencyKey: "architecture",
+      title: "Architecture",
+      summary: "Snapshot saved",
+      changedFiles: [],
+      verification: { status: "passed" },
+      diagrams: [
+        {
+          title: "API",
+          kind: "architecture",
+          formatVersion: 1,
+          source: JSON.stringify({ version: 1, nodes: [{ id: "api", label: "API" }] }),
+        },
+      ],
+    };
+    const invalid = await requestJson(baseUrl, "/api/work/finalize", {
+      method: "POST",
+      body: { ...payload, diagrams: [{ ...payload.diagrams[0], source: "{}" }] },
+    });
+    expect(invalid.status).toBe(400);
+    const saved = await requestJson<{ session: { id: string } }>(baseUrl, "/api/work/finalize", {
+      method: "POST",
+      body: payload,
+    });
+    expect(saved.status).toBe(200);
+    expect(store.getSessionDetail(saved.body.session.id)?.diagrams[0]).toMatchObject({
+      kind: "architecture",
+      formatVersion: 1,
+    });
+    store.updateProject(project.id, { status: "paused" });
+    const skipped = await requestJson(baseUrl, "/api/work/finalize", {
+      method: "POST",
+      body: { ...payload, idempotencyKey: "paused" },
+    });
+    expect(skipped.body).toMatchObject({ outcome: "skipped" });
+  });
+
   it("voids and restores a diagram through the Web API and requires a reason to void", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-diagram-test-"));
     const store = new WorkIntelligenceStore(":memory:");

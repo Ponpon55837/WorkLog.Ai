@@ -315,6 +315,35 @@ try {
   if (benchPath.outcome !== "graph_path" || !benchPath.found) {
     throw new Error("The graph path benchmark must measure a path that exists.");
   }
+  const architectureSession = benchStore.finalizeSession({
+    projectRoot: alphaRoot,
+    idempotencyKey: "bench-architecture",
+    title: "Synthetic architecture",
+    summary: "Bounded diagram snapshot",
+    changedFiles: [],
+    verification: { status: "passed" },
+    diagrams: [
+      {
+        title: "200 synthetic nodes",
+        kind: "architecture",
+        formatVersion: 1,
+        source: JSON.stringify({
+          version: 1,
+          nodes: Array.from({ length: 200 }, (_, index) => ({
+            id: `n${index}`,
+            label: `Node ${index}`,
+            description: "Synthetic architecture source",
+          })),
+          edges: Array.from({ length: 199 }, (_, index) => ({
+            id: `e${index}`,
+            from: `n${index}`,
+            to: `n${index + 1}`,
+          })),
+        }),
+      },
+    ],
+  });
+  if (architectureSession.outcome !== "finalized") throw new Error("Expected the synthetic architecture Session.");
   const evaluationQuestions = parseRecallEvaluationQuestions([
     {
       id: "read-path-benchmark-recall",
@@ -333,6 +362,11 @@ try {
   ]);
 
   const cases = {
+    "getSessionDetail (200 architecture nodes)": () => {
+      const result = benchStore.getSessionDetail(architectureSession.session.id);
+      if (!result?.diagrams.length) throw new Error("Expected a complete architecture snapshot.");
+      return result;
+    },
     "listSessionsPage (default)": () => benchStore.listSessionsPage({ page: 1, pageSize: 20 }),
     "listSessionsPage (page 50)": () => benchStore.listSessionsPage({ page: 50, pageSize: 20 }),
     "listSessionsPage (date range)": () =>
@@ -448,6 +482,7 @@ try {
   };
 
   const limitsMs = {
+    "getSessionDetail (200 architecture nodes)": 250,
     "listSessionsPage (default)": 200,
     "listSessionDigests (page 100 + pending items)": 100,
     getDashboardSummary: 1000,

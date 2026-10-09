@@ -36,6 +36,12 @@ import {
   PROJECT_DATA_TABLES,
 } from "@work-intelligence/core";
 import { z } from "zod";
+import { parseArchitectureDiagram } from "./architecture-diagram.js";
+export {
+  architectureDiagramSchema,
+  parseArchitectureDiagram,
+  type ArchitectureDiagram,
+} from "./architecture-diagram.js";
 
 export const projectStatusSchema = z.enum(PROJECT_STATUSES);
 export const workEventTypeSchema = z.enum(WORK_EVENT_TYPES);
@@ -188,12 +194,30 @@ export const workSummaryInputSectionsSchema = workSummarySectionsSchema.extend({
 });
 
 const diagramTitleSchema = z.string().trim().min(1).max(200);
-const diagramSourceSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(20_000)
-  .describe("Mermaid source (flowchart, sequenceDiagram, …) that explains the work; secrets are masked.");
+export const diagramContentInputSchemaBase = z.object({
+  title: diagramTitleSchema,
+  source: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100_000)
+    .describe("Mermaid or architecture JSON; see architecture-diagram-v1 resource."),
+  kind: z.enum(SESSION_DIAGRAM_KINDS).optional(),
+  formatVersion: z.literal(1).optional(),
+});
+
+function validateDiagramContent(input: z.infer<typeof diagramContentInputSchemaBase>, context: z.RefinementCtx): void {
+  const valid =
+    input.kind === "architecture" ? Boolean(parseArchitectureDiagram(input.source)) : input.source.length <= 20_000;
+  if (!valid)
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["source"],
+      message: "Invalid diagram source or size for its kind/version.",
+    });
+}
+
+export const diagramContentInputSchema = diagramContentInputSchemaBase.superRefine(validateDiagramContent);
 
 const knowledgePageSlugSchema = z
   .string()
@@ -266,12 +290,10 @@ export const finalizeSessionInputSchema = z.object({
     .optional()
     .describe("Knowledge this work found no longer true; it is flagged for review."),
   diagrams: z
-    .array(z.object({ title: diagramTitleSchema, source: diagramSourceSchema }))
+    .array(diagramContentInputSchema)
     .max(5)
     .optional()
-    .describe(
-      "Up to five Mermaid diagrams; add one or two on your own when the work changed a cross-module flow, data path, state machine, architecture, or multi-step process. Skip small fixes, styling, config, and test-only work.",
-    ),
+    .describe("Up to five diagrams; follow the work record contract for when to add them."),
   maintainedKnowledgePages: z
     .array(knowledgePageSlugSchema)
     .max(10)
@@ -789,13 +811,11 @@ export const setEvidenceVoidInputSchemaBase = z.object({
 
 export const setEvidenceVoidInputSchema = setEvidenceVoidInputSchemaBase.superRefine(requireReasonWhenVoiding);
 
-export const attachDiagramInputSchema = z.object({
+export const attachDiagramInputSchemaBase = diagramContentInputSchemaBase.extend({
   sessionId: z.string().trim().min(1).max(200),
   idempotencyKey: z.string().trim().min(1).max(300),
-  title: diagramTitleSchema,
-  source: diagramSourceSchema,
-  kind: z.enum(SESSION_DIAGRAM_KINDS).optional(),
 });
+export const attachDiagramInputSchema = attachDiagramInputSchemaBase.superRefine(validateDiagramContent);
 
 export const setDiagramVoidInputSchemaBase = z.object({
   diagramId: z.string().trim().min(1).max(200),
@@ -1342,6 +1362,7 @@ export const projectDataExportTableColumns = {
     "idempotency_key",
     "title",
     "kind",
+    "format_version",
     "source",
     "created_at",
     "voided_at",
@@ -1659,7 +1680,17 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
   ],
   knowledge_audit: ["id", "knowledge_id", "project_id", "action", "after_json", "changed_fields_json", "occurred_at"],
   knowledge_feedback: ["id", "knowledge_id", "project_id", "kind", "occurred_at"],
-  session_diagrams: ["id", "session_id", "project_id", "idempotency_key", "title", "kind", "source", "created_at"],
+  session_diagrams: [
+    "id",
+    "session_id",
+    "project_id",
+    "idempotency_key",
+    "title",
+    "kind",
+    "format_version",
+    "source",
+    "created_at",
+  ],
   knowledge_candidate_requests: [
     "id",
     "project_id",
@@ -1799,6 +1830,7 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
   outstanding_cleanup_request_items: ["position"],
   knowledge_pages: ["version"],
   knowledge_page_versions: ["version"],
+  session_diagrams: ["format_version"],
 };
 
 /**
@@ -1810,6 +1842,7 @@ export const projectDataColumnDefaults: Partial<
 > = {
   sessions: { changed_files_confirmed: 0, redaction_count: 0, agent_client: null, agent_model: null },
   projects: { repository_url: null },
+  session_diagrams: { format_version: 1 },
   outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
   knowledge_pages: { checked_through_session_id: null },
 };
@@ -1842,6 +1875,17 @@ const projectDataExportObjectSchema = z
       const defaults = projectDataColumnDefaults[table] ?? {};
       const ids = new Set<string>();
       rows.forEach((row, index) => {
+        if (
+          table === "session_diagrams" &&
+          (projectDataColumnValue(table, row, "format_version") !== 1 ||
+            (row.kind === "architecture" && (typeof row.source !== "string" || !parseArchitectureDiagram(row.source))))
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["tables", table, index],
+            message: "Invalid diagram version or architecture source.",
+          });
+        }
         const keys = Object.keys(row);
         const missingRequired = [...expected].some((column) => !Object.hasOwn(row, column) && !(column in defaults));
         if (missingRequired || keys.some((key) => !expected.has(key))) {

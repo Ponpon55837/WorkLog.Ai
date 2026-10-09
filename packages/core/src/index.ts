@@ -450,27 +450,32 @@ export interface SessionDetail {
   diagrams: SessionDiagramRecord[];
 }
 
-export const SESSION_DIAGRAM_KINDS = ["mermaid"] as const;
+export const SESSION_DIAGRAM_KINDS = ["mermaid", "architecture"] as const;
 export type SessionDiagramKind = (typeof SESSION_DIAGRAM_KINDS)[number];
 
-/** A diagram (Mermaid source) attached to a Session; it can be voided but never deleted. */
+/** A versioned diagram attached to a Session; it can be voided but never deleted. */
 export interface SessionDiagramRecord {
   id: string;
   sessionId: string;
   projectId: string;
   title: string;
   kind: SessionDiagramKind;
+  formatVersion: number;
   source: string;
   createdAt: string;
   voided?: VoidState;
 }
 
-export interface AttachDiagramInput {
-  sessionId: string;
-  idempotencyKey: string;
+export interface DiagramContentInput {
   title: string;
   source: string;
   kind?: SessionDiagramKind;
+  formatVersion?: 1;
+}
+
+export interface AttachDiagramInput extends DiagramContentInput {
+  sessionId: string;
+  idempotencyKey: string;
 }
 
 export type AttachDiagramResult =
@@ -1434,8 +1439,8 @@ export interface FinalizeSessionInput {
   appliedKnowledgeIds?: string[];
   /** Knowledge this work found no longer true; they are flagged for review. */
   contradictedKnowledgeIds?: string[];
-  /** Optional Mermaid diagrams that explain the work, masked and stored with the Session. */
-  diagrams?: Array<{ title: string; source: string }>;
+  /** Optional Mermaid or architecture diagrams that explain the work, masked and stored with the Session. */
+  diagrams?: DiagramContentInput[];
   /** Knowledge pages this work saved or checked; this Session does not count as their new data. */
   maintainedKnowledgePages?: string[];
   /** Outstanding items completed in this Session; only pending items in this tracked project are resolved. */

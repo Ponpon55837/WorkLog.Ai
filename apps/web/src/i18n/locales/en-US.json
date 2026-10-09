@@ -1302,7 +1302,8 @@
     "diagramZoom": "Zoom {percent}%",
     "diagramCanvas": "{title} diagram canvas",
     "diagramNavigation": "Drag to pan. Focus the canvas to use arrow keys to pan, + / − to zoom, and 0 to fit.",
-    "actualDiagramSize": "Actual size"
+    "actualDiagramSize": "Actual size",
+    "structuredDiagramSource": "This architecture diagram is currently shown as source data."
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "Every finished task leaves traceable context.",

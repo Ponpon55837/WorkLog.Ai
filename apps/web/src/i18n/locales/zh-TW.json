@@ -1302,7 +1302,8 @@
     "diagramZoom": "縮放 {percent}%",
     "diagramCanvas": "{title} 圖表畫布",
     "diagramNavigation": "拖曳移動畫面；聚焦畫布後以方向鍵移動、+ / − 縮放、0 適合畫面。",
-    "actualDiagramSize": "原始尺寸"
+    "actualDiagramSize": "原始尺寸",
+    "structuredDiagramSource": "此架構圖目前以來源資料顯示。"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "每一次完成，都留下可追溯的脈絡。",

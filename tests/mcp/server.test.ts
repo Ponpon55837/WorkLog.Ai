@@ -432,6 +432,7 @@ describe("Work Intelligence MCP server", () => {
 
     const { resources } = await client.listResources();
     expect(resources.map((resource) => resource.uri).sort()).toEqual([
+      "work-intelligence://agent/architecture-diagram-v1",
       TOOL_CONTRACT_RESOURCE_URI,
       "work-intelligence://agent/work-intelligence/SKILL.md",
       "work-intelligence://agent/work-record-and-report-format.md",
@@ -1685,6 +1686,41 @@ describe("Work Intelligence MCP server", () => {
     expect(await operationAnnotations(client, "work_get_graph_path")).toMatchObject({
       readOnlyHint: true,
     });
+  });
+
+  it("publishes architecture schema and validates architecture writes through the dispatcher", async () => {
+    const { client, store, root } = await connect();
+    const resource = await client.readResource({ uri: "work-intelligence://agent/architecture-diagram-v1" });
+    expect(JSON.stringify(resource)).toContain("Path edgeIds must exist and connect in order");
+    const project = store.addProject("Architecture fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const source = JSON.stringify({ version: 1, nodes: [{ id: "web", label: "Web" }] });
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "architecture", "Architecture"),
+      diagrams: [{ title: "Web", kind: "architecture", formatVersion: 1, source }],
+    });
+    expect(store.getSessionDetail(finalized.session.id)?.diagrams[0]).toMatchObject({
+      kind: "architecture",
+      formatVersion: 1,
+    });
+    expect(
+      await callJson(client, "work_attach_diagram", {
+        sessionId: finalized.session.id,
+        idempotencyKey: "valid",
+        title: "Web",
+        kind: "architecture",
+        source,
+      }),
+    ).toMatchObject({ outcome: "diagram_attached" });
+    const invalid = await callMcpOperation(client, "work_attach_diagram", {
+      sessionId: finalized.session.id,
+      idempotencyKey: "invalid",
+      title: "Web",
+      kind: "architecture",
+      source: "{}",
+    });
+    expect(invalid.isError).toBe(true);
+    expect(store.getSessionDetail(finalized.session.id)?.diagrams).toHaveLength(2);
   });
 
   it("lets an Agent attach a diagram idempotently, without a delete tool", async () => {

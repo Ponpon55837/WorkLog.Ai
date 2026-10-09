@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { applySchemaMigrations } from "../../packages/storage/src/schema-migrations.js";
+import { applySchemaMigrations, schemaMigrationSql } from "../../packages/storage/src/schema-migrations.js";
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
@@ -115,6 +115,12 @@ describe("custom report synthesis migration", () => {
         );
       `);
 
+      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
+      if (
+        db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
+        !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
+      )
+        db.exec(schemaMigrationSql(19)!);
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
       db.exec("COMMIT");
@@ -345,6 +351,12 @@ describe("custom report synthesis migration", () => {
         markApplied.run(version, `legacy-${version}`, "2026-09-27T00:00:00.000Z");
       }
 
+      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
+      if (
+        db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
+        !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
+      )
+        db.exec(schemaMigrationSql(19)!);
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
       db.exec("COMMIT");
@@ -450,6 +462,12 @@ describe("outstanding item migration", () => {
       );
       undoMigrationsAfter(db, 21);
 
+      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
+      if (
+        db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
+        !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
+      )
+        db.exec(schemaMigrationSql(19)!);
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
       db.exec("COMMIT");
@@ -532,6 +550,12 @@ describe("outstanding cleanup review migration", () => {
         );
       `);
 
+      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
+      if (
+        db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
+        !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
+      )
+        db.exec(schemaMigrationSql(19)!);
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
       db.exec("COMMIT");
@@ -565,6 +589,12 @@ describe("outstanding cleanup review migration", () => {
       );
       expect(db.prepare("SELECT name FROM pragma_table_info('sessions') WHERE name LIKE 'agent_%'").all()).toEqual([]);
 
+      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
+      if (
+        db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
+        !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
+      )
+        db.exec(schemaMigrationSql(19)!);
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
       db.exec("COMMIT");
@@ -588,6 +618,12 @@ describe("outstanding cleanup review migration", () => {
       undoMigrationsAfter(db, 24);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'agent_read_audit%'").all()).toEqual([]);
 
+      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
+      if (
+        db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
+        !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
+      )
+        db.exec(schemaMigrationSql(19)!);
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
       db.exec("COMMIT");
@@ -614,6 +650,12 @@ describe("outstanding cleanup review migration", () => {
           SELECT RAISE(ABORT, 'outstanding item events are append-only');
         END`);
 
+      // Partial legacy fixtures marked migration 19 as applied; include its diagram table before the rebuild.
+      if (
+        db.prepare("SELECT 1 FROM schema_migrations WHERE version = 19").get() &&
+        !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_diagrams'").get()
+      )
+        db.exec(schemaMigrationSql(19)!);
       db.exec("BEGIN IMMEDIATE");
       applySchemaMigrations(db);
       db.exec("COMMIT");
@@ -628,6 +670,34 @@ describe("outstanding cleanup review migration", () => {
         )
         .get() as { sql: string };
       expect(trigger.sql).toContain("FROM outstanding_items WHERE id = OLD.item_id");
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("versioned diagrams migration", () => {
+  it("upgrades 26 to 27 preserving Mermaid rows, tie order, void state and constraints", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 26);
+      db.exec("PRAGMA foreign_keys = OFF");
+      db.exec(`INSERT INTO session_diagrams (id, session_id, project_id, idempotency_key, title, kind, source, created_at, voided_at, void_reason)
+        VALUES ('z-first','s','p','one','First','mermaid','flowchart LR; A --> B','2026-10-01T00:00:00Z','2026-10-02T00:00:00Z','Old'),
+        ('a-second','s','p','two','Second','mermaid','flowchart LR; B --> C','2026-10-01T00:00:00Z',NULL,NULL);`);
+      applySchemaMigrations(db);
+      expect(
+        db.prepare("SELECT id, format_version, void_reason FROM session_diagrams ORDER BY created_at, rowid").all(),
+      ).toEqual([
+        { id: "z-first", format_version: 1, void_reason: "Old" },
+        { id: "a-second", format_version: 1, void_reason: null },
+      ]);
+      expect(() => db.exec("UPDATE session_diagrams SET kind = 'html'")).toThrow();
+      expect(() => db.exec("UPDATE session_diagrams SET format_version = 0")).toThrow();
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE name='idx_session_diagrams_session'").get(),
+      ).toBeDefined();
     } finally {
       db.close();
     }

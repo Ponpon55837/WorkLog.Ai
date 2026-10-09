@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import { architectureDiagramSchema } from "@work-intelligence/schema";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 
@@ -94,6 +95,31 @@ function toJsonSchema(schema: z.ZodTypeAny): unknown {
 
 /** Exposes the complete agent contract through standard MCP resources for any connected client. */
 export function registerAgentResources(server: McpServer): void {
+  server.registerResource(
+    "architecture-diagram-v1",
+    "work-intelligence://agent/architecture-diagram-v1",
+    {
+      title: "Architecture diagram version 1",
+      mimeType: "text/markdown",
+      description: "Bounded JSON source format, reference validation, and author-defined paths; no executable HTML.",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/markdown",
+          text: [
+            "# Architecture diagram v1",
+            "Send kind=architecture, formatVersion=1, source=JSON.stringify(data). Mermaid remains the default (20,000 characters); architecture source is limited to 100,000 characters, 200 nodes, 500 edges, 40 flat groups and 20 author-defined paths.",
+            "Ids must be unique per collection and must not use credential prefixes sk- or xox[abprs]-. Every group and endpoint reference must exist. Path edgeIds must exist and connect in order; paths describe authored intent, not observed execution. Source paths are project-relative metadata only and never authorize file access. Unknown fields and unsupported versions are rejected. Labels/descriptions are escaped plain text, not HTML.",
+            "```json",
+            JSON.stringify(toJsonSchema(architectureDiagramSchema)),
+            "```",
+          ].join("\n"),
+        },
+      ],
+    }),
+  );
   for (const resource of AGENT_RESOURCES) {
     server.registerResource(
       resource.name,

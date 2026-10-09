@@ -19,6 +19,54 @@ afterEach(() => {
 });
 
 describe("database redaction", () => {
+  it("masks architecture JSON values during maintenance without corrupting its source", () => {
+    const directory = mkdtempSync(join(tmpdir(), "work-intelligence-architecture-redaction-"));
+    tempDirs.push(directory);
+    const databasePath = join(directory, "test.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const project = store.addProject("Architecture fixture", directory);
+    store.updateProject(project.id, { status: "tracked" });
+    const result = store.finalizeSession({
+      projectRoot: directory,
+      idempotencyKey: "architecture",
+      title: "Architecture",
+      summary: "Saved",
+      diagrams: [
+        {
+          title: "API",
+          kind: "architecture",
+          source: JSON.stringify({ version: 1, nodes: [{ id: "api", label: "API" }] }),
+        },
+      ],
+    });
+    if (result.outcome !== "finalized") throw new Error("Expected session");
+    const token = `ghp_${"D".repeat(36)}`;
+    store.close();
+    const seed = new DatabaseSync(databasePath);
+    seed.prepare("UPDATE session_diagrams SET source = ?").run(
+      JSON.stringify({
+        version: 1,
+        nodes: [{ id: "api", label: "API", description: `quoted "deploy ${token}"` }],
+        edges: [],
+        groups: [],
+        paths: [],
+      }),
+    );
+    seed.close();
+    expect(redactDatabase({ databasePath }).redactions.total).toBe(1);
+    expect(
+      redactDatabase({ databasePath, apply: true, backup: { directory: join(directory, "backups") } }).redactions.total,
+    ).toBe(1);
+    const read = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      const row = read.prepare("SELECT source FROM session_diagrams").get() as { source: string };
+      expect(JSON.parse(row.source).nodes[0].description).not.toContain(token);
+      expect(JSON.parse(row.source).nodes[0].id).toBe("api");
+    } finally {
+      read.close();
+    }
+  });
+
   it("keeps dry-run read-only and backs up before one transactional rewrite", () => {
     const directory = mkdtempSync(join(tmpdir(), "work-intelligence-redaction-"));
     tempDirs.push(directory);

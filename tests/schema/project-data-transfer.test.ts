@@ -196,6 +196,7 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
     }
   }
   Object.assign(row, enumDefaults[table]);
+  if (table === "session_diagrams") row.format_version = 1;
   if (table === "projects") {
     row.root_path = "/original/project";
   }
@@ -247,6 +248,26 @@ function rowAt(bundle: ReturnType<typeof validBundle>, table: ProjectDataTable) 
 }
 
 describe("project data transfer schemas", () => {
+  it("validates architecture import references and versions while preserving legacy Mermaid source limits", () => {
+    const bundle = validBundle();
+    const row = rowAt(bundle, "session_diagrams");
+    row.kind = "architecture";
+    row.source = JSON.stringify({ version: 1, nodes: [{ id: "api", label: "API" }] });
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
+    row.source = JSON.stringify({
+      version: 1,
+      nodes: [{ id: "api", label: "API" }],
+      edges: [{ id: "missing", from: "api", to: "unknown" }],
+    });
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
+    row.kind = "mermaid";
+    row.source = "x".repeat(20_001);
+    delete row.format_version;
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
+    row.format_version = 2;
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
+  });
+
   it("accepts exports that predate optional session counters and page review cursors", () => {
     const legacy = validBundle();
     delete rowAt(legacy, "sessions").changed_files_confirmed;

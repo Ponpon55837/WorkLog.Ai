@@ -236,3 +236,8 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - REST：GET /api/events 回傳 `text/event-stream`。連線時先送出 `: connected`，之後 server 每 2 秒檢查一次 SQLite 的 `PRAGMA data_version`；包括 Agent 的 MCP 在內，任何連線寫入資料後，都會推送 `event: changed`。每 15 秒送一次 `: keep-alive`。
 - 事件不帶任何資料或路徑，只是「有變化」的訊號；Web 收到後重新載入目前頁面，分頁在背景時會關閉串流，回到前景再補抓一次。
 - 與其他端點一樣檢查 `Host` 白名單與 `Origin`；沒有連線時停止輪詢。
+
+
+## 版本化架構圖
+
+`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。Mermaid 仍為預設。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。

@@ -3,6 +3,7 @@ import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/
 import { z } from "zod";
 import {
   attachDiagramInputSchema,
+  attachDiagramInputSchemaBase,
   attachEvidenceInputSchema,
   cancelMetadataBackfillRequestInputSchema,
   cancelReportSynthesisRequestInputSchema,
@@ -835,8 +836,8 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_attach_diagram", {
     title: "Attach a diagram to a Session",
     description:
-      "Attach a Mermaid diagram (flowchart, sequenceDiagram, stateDiagram, erDiagram, …) that explains a tracked Session's work, such as the flow or data path it changed; finalize also accepts up to five diagrams. Use it on your own, without being asked, when the work changed a cross-module flow or data path, a state machine, an architecture, or a multi-step process (at most two per Session); skip small fixes, styling, configuration, and test-only work. Only attach a diagram of what the recorded work actually did. The Web UI renders it in the Session panel and shows the source if it does not render. Sensitive values are masked; the result reports counts by type only. The same idempotencyKey returns the saved diagram; a different diagram under a used key is refused. Diagrams can be voided in the Web UI, never deleted. Non-tracked projects are skipped quietly.",
-    inputShape: attachDiagramInputSchema.shape,
+      "Attach a Mermaid or versioned architecture diagram (flowchart, sequenceDiagram, stateDiagram, erDiagram, …) that explains a tracked Session's work, such as the flow or data path it changed; finalize also accepts up to five diagrams. Use it on your own, without being asked, when the work changed a cross-module flow or data path, a state machine, an architecture, or a multi-step process (at most two per Session); skip small fixes, styling, configuration, and test-only work. Only attach a diagram of what the recorded work actually did. The Web UI renders it in the Session panel and shows the source if it does not render. Sensitive values are masked; the result reports counts by type only. The same idempotencyKey returns the saved diagram; a different diagram under a used key is refused. Diagrams can be voided in the Web UI, never deleted. Non-tracked projects are skipped quietly.",
+    inputShape: attachDiagramInputSchemaBase.shape,
     schema: attachDiagramInputSchema,
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid diagram payload.",
