@@ -1,0 +1,2393 @@
+{
+  "environment": {
+    "testedAt": "2026-10-09T04:34:57.685Z",
+    "upstreamCommit": "bb990b17b886e83d633e273221615eb259a92c78",
+    "node": "v25.7.0",
+    "platform": "darwin",
+    "arch": "x64",
+    "cpu": "Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz",
+    "mermaidVersion": "11.17.2"
+  },
+  "generation": [
+    {
+      "count": 6,
+      "jsonBytes": 840,
+      "generationMs": [
+        365.6629640000001,
+        396.81513400000017,
+        413.233023
+      ],
+      "status": 0,
+      "stderr": "",
+      "htmlBytes": 747540
+    },
+    {
+      "count": 10,
+      "jsonBytes": 1268,
+      "generationMs": [
+        366.10528999999997,
+        454.26516500000025,
+        400.55459599999995
+      ],
+      "status": 0,
+      "stderr": "",
+      "htmlBytes": 753143
+    },
+    {
+      "count": 100,
+      "jsonBytes": 11942,
+      "generationMs": [
+        453.92196200000035,
+        558.4732869999998,
+        543.563647
+      ],
+      "status": 0,
+      "stderr": "",
+      "htmlBytes": 883014
+    },
+    {
+      "count": 500,
+      "jsonBytes": 61585,
+      "generationMs": [
+        944.5631240000002,
+        1224.5736589999997,
+        1244.7606829999995
+      ],
+      "status": 0,
+      "stderr": "",
+      "htmlBytes": 1466662
+    }
+  ],
+  "locale": {
+    "requestedLocale": "zh-TW",
+    "status": 0,
+    "warning": "archify: meta.locale \"zh-TW\" has no built-in catalog and no meta.translations; the Viewer chrome and <html lang> fall back to English.\n"
+  },
+  "browser-results": [
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": false,
+      "loadMs": 210.64862900000116,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 12,
+      "violations": [],
+      "interactionMs": [
+        32.29999999701977,
+        24.30000000447035,
+        26.100000001490116,
+        30.399999998509884,
+        32.80000000447035,
+        31.700000002980232,
+        32.099999994039536,
+        33.30000000447035,
+        31.899999998509884,
+        32.600000001490116
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": true,
+      "loadMs": 57.90052199999991,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 6,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": false,
+      "loadMs": 132.3720940000003,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 20,
+      "violations": [],
+      "interactionMs": [
+        33.70000000298023,
+        28.80000000447035,
+        29.600000001490116,
+        32.79999999701977,
+        30.5,
+        32.20000000298023,
+        27.30000000447035,
+        31.299999997019768,
+        32.399999998509884,
+        31.200000002980232
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": true,
+      "loadMs": 62.632149999999456,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 10,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": false,
+      "loadMs": 222.5903440000002,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 200,
+      "violations": [],
+      "interactionMs": [
+        51.29999999701977,
+        23.799999997019768,
+        20.400000005960464,
+        31.5,
+        32.600000001490116,
+        31.700000002980232,
+        31.899999998509884,
+        32.100000001490116,
+        31.80000000447035,
+        31.80000000447035
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": true,
+      "loadMs": 78.9299579999988,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 100,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": false,
+      "loadMs": 978.5718080000006,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 1000,
+      "violations": [],
+      "interactionMs": [
+        50.80000000447035,
+        108,
+        25.400000005960464,
+        75.20000000298023,
+        18.80000000447035,
+        38.79999999701977,
+        22.19999999552965,
+        49.79999999701977,
+        31.600000001490116,
+        33.100000001490116
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": true,
+      "loadMs": 129.4156129999992,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 500,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": true,
+      "sourceBytes": 156,
+      "renders": [
+        {
+          "ms": 143.30000000447035,
+          "bytes": 17568,
+          "nodes": 6
+        },
+        {
+          "ms": 47.70000000298023,
+          "bytes": 17568,
+          "nodes": 6
+        },
+        {
+          "ms": 52.100000001490116,
+          "bytes": 17568,
+          "nodes": 6
+        }
+      ],
+      "interactionMs": [
+        32,
+        31.19999999552965,
+        32.79999999701977,
+        32.600000001490116,
+        31.100000001490116,
+        32,
+        33,
+        31.80000000447035,
+        31.399999998509884,
+        33.100000001490116
+      ],
+      "violations": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": true,
+      "sourceBytes": 214,
+      "renders": [
+        {
+          "ms": 70.29999999701977,
+          "bytes": 23409,
+          "nodes": 10
+        },
+        {
+          "ms": 66.69999999552965,
+          "bytes": 23409,
+          "nodes": 10
+        },
+        {
+          "ms": 65.70000000298023,
+          "bytes": 23409,
+          "nodes": 10
+        }
+      ],
+      "interactionMs": [
+        20.200000002980232,
+        30.5,
+        27,
+        32.399999998509884,
+        32,
+        31.80000000447035,
+        33.30000000447035,
+        31.5,
+        30.899999998509884,
+        33
+      ],
+      "violations": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": true,
+      "sourceBytes": 2463,
+      "renders": [
+        {
+          "ms": 537,
+          "bytes": 157053,
+          "nodes": 100
+        },
+        {
+          "ms": 518.5,
+          "bytes": 157053,
+          "nodes": 100
+        },
+        {
+          "ms": 534.1999999955297,
+          "bytes": 157053,
+          "nodes": 100
+        }
+      ],
+      "interactionMs": [
+        23.100000001490116,
+        33.100000001490116,
+        31.200000002980232,
+        32.099999994039536,
+        33.30000000447035,
+        31.299999997019768,
+        33.099999994039536,
+        32.20000000298023,
+        31.30000000447035,
+        32.80000000447035
+      ],
+      "violations": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": true,
+      "sourceBytes": 14062,
+      "renders": [
+        {
+          "ms": 2884.39999999851,
+          "bytes": 755531,
+          "nodes": 500
+        },
+        {
+          "ms": 3186.5,
+          "bytes": 755531,
+          "nodes": 500
+        },
+        {
+          "ms": 2809.5,
+          "bytes": 755531,
+          "nodes": 500
+        }
+      ],
+      "interactionMs": [
+        42.399999998509884,
+        41.30000000447035,
+        48.19999999552965,
+        39.599999994039536,
+        51.600000001490116,
+        48,
+        44.70000000298023,
+        45.600000001490116,
+        56.399999998509884,
+        39.899999998509884
+      ],
+      "violations": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "locale",
+      "requestedLocale": "zh-TW",
+      "actualLocale": "en",
+      "zoomLabel": "Zoom in"
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": false,
+      "loadMs": 201.85979899999802,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 12,
+      "violations": [],
+      "interactionMs": [
+        33.099999994039536,
+        27.100000001490116,
+        31.5,
+        32.70000000298023,
+        31.5,
+        30.69999999552965,
+        31.900000005960464,
+        32.19999999552965,
+        32,
+        30.600000001490116
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": true,
+      "loadMs": 53.707351000000926,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 6,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": false,
+      "loadMs": 116.86395300000004,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 20,
+      "violations": [],
+      "interactionMs": [
+        33.100000001490116,
+        27.200000002980232,
+        31,
+        31.700000002980232,
+        31.69999999552965,
+        32,
+        32.20000000298023,
+        33.29999999701977,
+        30.700000002980232,
+        32
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": true,
+      "loadMs": 46.814352999997936,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 10,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": false,
+      "loadMs": 184.69830400000137,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 200,
+      "violations": [],
+      "interactionMs": [
+        35.600000001490116,
+        18,
+        32.5,
+        31.899999998509884,
+        32.79999999701977,
+        32.399999998509884,
+        32.5,
+        31.799999997019768,
+        32.80000000447035,
+        32.79999999701977
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": true,
+      "loadMs": 55.98313400000188,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 100,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": false,
+      "loadMs": 655.148755000002,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 1000,
+      "violations": [],
+      "interactionMs": [
+        69.20000000298023,
+        59.30000000447035,
+        24.899999998509884,
+        22.799999997019768,
+        32.899999998509884,
+        32.600000001490116,
+        31.599999994039536,
+        31.899999998509884,
+        32.100000001490116,
+        32.19999999552965
+      ]
+    },
+    {
+      "browser": "chromium",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": true,
+      "loadMs": 109.61644299999898,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 500,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": true,
+      "sourceBytes": 156,
+      "renders": [
+        {
+          "ms": 128.70000000298023,
+          "bytes": 18111,
+          "nodes": 6
+        },
+        {
+          "ms": 43.29999999701977,
+          "bytes": 18111,
+          "nodes": 6
+        },
+        {
+          "ms": 42.100000001490116,
+          "bytes": 18111,
+          "nodes": 6
+        }
+      ],
+      "interactionMs": [
+        6.200000002980232,
+        31.69999999552965,
+        31.899999998509884,
+        32.100000001490116,
+        32.100000001490116,
+        32,
+        31.600000001490116,
+        32.5,
+        31.200000002980232,
+        32.20000000298023
+      ],
+      "violations": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": true,
+      "sourceBytes": 214,
+      "renders": [
+        {
+          "ms": 63.29999999701977,
+          "bytes": 23952,
+          "nodes": 10
+        },
+        {
+          "ms": 56.19999999552965,
+          "bytes": 23952,
+          "nodes": 10
+        },
+        {
+          "ms": 53.69999999552965,
+          "bytes": 23952,
+          "nodes": 10
+        }
+      ],
+      "interactionMs": [
+        18.69999999552965,
+        28.799999997019768,
+        31.899999998509884,
+        31.299999997019768,
+        33.30000000447035,
+        32,
+        32,
+        32.100000001490116,
+        32.100000001490116,
+        31.400000005960464
+      ],
+      "violations": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": true,
+      "sourceBytes": 2463,
+      "renders": [
+        {
+          "ms": 448.70000000298023,
+          "bytes": 157596,
+          "nodes": 100
+        },
+        {
+          "ms": 448.3999999985099,
+          "bytes": 157596,
+          "nodes": 100
+        },
+        {
+          "ms": 457.1000000014901,
+          "bytes": 157596,
+          "nodes": 100
+        }
+      ],
+      "interactionMs": [
+        32.29999999701977,
+        32,
+        32,
+        32,
+        31.5,
+        32.5,
+        32,
+        31.599999994039536,
+        32.100000001490116,
+        32.399999998509884
+      ],
+      "violations": []
+    },
+    {
+      "browser": "chromium",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": true,
+      "sourceBytes": 14062,
+      "renders": [
+        {
+          "ms": 2487.2999999970198,
+          "bytes": 756080,
+          "nodes": 500
+        },
+        {
+          "ms": 2500,
+          "bytes": 756080,
+          "nodes": 500
+        },
+        {
+          "ms": 2724.2999999970198,
+          "bytes": 756080,
+          "nodes": 500
+        }
+      ],
+      "interactionMs": [
+        24.799999997019768,
+        24.69999999552965,
+        33,
+        30.100000001490116,
+        34.399999998509884,
+        32.79999999701977,
+        30.30000000447035,
+        29.899999998509884,
+        34.099999994039536,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": false,
+      "loadMs": 634.3692719999963,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 12,
+      "violations": [],
+      "interactionMs": [
+        20,
+        100,
+        106,
+        56,
+        63,
+        67,
+        58,
+        53,
+        59,
+        48
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": true,
+      "loadMs": 62.0549100000062,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 6,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": false,
+      "loadMs": 133.08496300000115,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 20,
+      "violations": [],
+      "interactionMs": [
+        29,
+        51,
+        43,
+        49,
+        47,
+        44,
+        46,
+        47,
+        37,
+        45
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": true,
+      "loadMs": 54.05855999999767,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 10,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": false,
+      "loadMs": 247.0132289999965,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 200,
+      "violations": [],
+      "interactionMs": [
+        29,
+        44,
+        33,
+        38,
+        25,
+        22,
+        23,
+        22,
+        24,
+        25
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": true,
+      "loadMs": 59.576325000001816,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 100,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": false,
+      "loadMs": 895.5437230000025,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 1000,
+      "violations": [],
+      "interactionMs": [
+        51,
+        79,
+        82,
+        86,
+        89,
+        79,
+        82,
+        73,
+        80,
+        75
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": true,
+      "loadMs": 295.7868479999961,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 500,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": true,
+      "sourceBytes": 156,
+      "renders": [
+        {
+          "ms": 141,
+          "bytes": 17742,
+          "nodes": 6
+        },
+        {
+          "ms": 48,
+          "bytes": 17742,
+          "nodes": 6
+        },
+        {
+          "ms": 47,
+          "bytes": 17742,
+          "nodes": 6
+        }
+      ],
+      "interactionMs": [
+        25,
+        30,
+        32,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": true,
+      "sourceBytes": 214,
+      "renders": [
+        {
+          "ms": 64,
+          "bytes": 23700,
+          "nodes": 10
+        },
+        {
+          "ms": 58,
+          "bytes": 23700,
+          "nodes": 10
+        },
+        {
+          "ms": 58,
+          "bytes": 23700,
+          "nodes": 10
+        }
+      ],
+      "interactionMs": [
+        18,
+        29,
+        29,
+        22,
+        31,
+        32,
+        31,
+        30,
+        31,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": true,
+      "sourceBytes": 2463,
+      "renders": [
+        {
+          "ms": 492,
+          "bytes": 158445,
+          "nodes": 100
+        },
+        {
+          "ms": 455,
+          "bytes": 158445,
+          "nodes": 100
+        },
+        {
+          "ms": 439,
+          "bytes": 158445,
+          "nodes": 100
+        }
+      ],
+      "interactionMs": [
+        19,
+        10,
+        16,
+        8,
+        15,
+        6,
+        15,
+        6,
+        15,
+        6
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": true,
+      "sourceBytes": 14062,
+      "renders": [
+        {
+          "ms": 2388,
+          "bytes": 764067,
+          "nodes": 500
+        },
+        {
+          "ms": 2454,
+          "bytes": 764067,
+          "nodes": 500
+        },
+        {
+          "ms": 2317,
+          "bytes": 764067,
+          "nodes": 500
+        }
+      ],
+      "interactionMs": [
+        32,
+        39,
+        28,
+        32,
+        29,
+        28,
+        30,
+        27,
+        29,
+        29
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "locale",
+      "requestedLocale": "zh-TW",
+      "actualLocale": "en",
+      "zoomLabel": "Zoom in"
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": false,
+      "loadMs": 244.63948199999868,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 12,
+      "violations": [],
+      "interactionMs": [
+        64,
+        99,
+        111,
+        107,
+        105,
+        87,
+        95,
+        87,
+        102,
+        90
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": true,
+      "loadMs": 62.5275679999977,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 6,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": false,
+      "loadMs": 155.55175299999974,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 20,
+      "violations": [],
+      "interactionMs": [
+        48,
+        67,
+        67,
+        69,
+        71,
+        61,
+        60,
+        60,
+        60,
+        61
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": true,
+      "loadMs": 42.297293000003265,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 10,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": false,
+      "loadMs": 270.75077299999975,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 200,
+      "violations": [],
+      "interactionMs": [
+        31,
+        51,
+        31,
+        39,
+        40,
+        30,
+        38,
+        40,
+        28,
+        38
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": true,
+      "loadMs": 55.288667000000714,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 100,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": false,
+      "loadMs": 927.1320100000012,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 1000,
+      "violations": [],
+      "interactionMs": [
+        142,
+        74,
+        76,
+        86,
+        81,
+        72,
+        76,
+        72,
+        82,
+        82
+      ]
+    },
+    {
+      "browser": "firefox",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": true,
+      "loadMs": 223.63201000000117,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 500,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": true,
+      "sourceBytes": 156,
+      "renders": [
+        {
+          "ms": 108,
+          "bytes": 18285,
+          "nodes": 6
+        },
+        {
+          "ms": 47,
+          "bytes": 18285,
+          "nodes": 6
+        },
+        {
+          "ms": 44,
+          "bytes": 18285,
+          "nodes": 6
+        }
+      ],
+      "interactionMs": [
+        24,
+        29,
+        30,
+        30,
+        31,
+        28,
+        31,
+        31,
+        30,
+        32
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": true,
+      "sourceBytes": 214,
+      "renders": [
+        {
+          "ms": 65,
+          "bytes": 24243,
+          "nodes": 10
+        },
+        {
+          "ms": 62,
+          "bytes": 24243,
+          "nodes": 10
+        },
+        {
+          "ms": 58,
+          "bytes": 24243,
+          "nodes": 10
+        }
+      ],
+      "interactionMs": [
+        15,
+        31,
+        31,
+        30,
+        30,
+        29,
+        30,
+        30,
+        30,
+        29
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": true,
+      "sourceBytes": 2463,
+      "renders": [
+        {
+          "ms": 473,
+          "bytes": 158988,
+          "nodes": 100
+        },
+        {
+          "ms": 439,
+          "bytes": 158988,
+          "nodes": 100
+        },
+        {
+          "ms": 464,
+          "bytes": 158988,
+          "nodes": 100
+        }
+      ],
+      "interactionMs": [
+        11,
+        31,
+        30,
+        32,
+        31,
+        30,
+        30,
+        31,
+        30,
+        30
+      ],
+      "violations": []
+    },
+    {
+      "browser": "firefox",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": true,
+      "sourceBytes": 14062,
+      "renders": [
+        {
+          "ms": 2373,
+          "bytes": 764616,
+          "nodes": 500
+        },
+        {
+          "ms": 2623,
+          "bytes": 764616,
+          "nodes": 500
+        },
+        {
+          "ms": 2295,
+          "bytes": 764616,
+          "nodes": 500
+        }
+      ],
+      "interactionMs": [
+        31,
+        33,
+        26,
+        33,
+        27,
+        31,
+        27,
+        32,
+        28,
+        32
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": false,
+      "loadMs": 452.82638700000825,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 12,
+      "violations": [],
+      "interactionMs": [
+        53,
+        26,
+        25,
+        31,
+        32,
+        31,
+        31,
+        32,
+        32,
+        31
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": true,
+      "loadMs": 48.51356300000043,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 6,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": false,
+      "loadMs": 152.63663500000257,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 20,
+      "violations": [],
+      "interactionMs": [
+        29,
+        36,
+        27,
+        32,
+        32,
+        32,
+        31,
+        31,
+        32,
+        32
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": true,
+      "loadMs": 45.66612000000896,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 10,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": false,
+      "loadMs": 315.2899829999951,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 200,
+      "violations": [],
+      "interactionMs": [
+        32,
+        57,
+        33,
+        28,
+        30,
+        29,
+        36,
+        29,
+        30,
+        28
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": true,
+      "loadMs": 61.54213200000231,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 100,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": false,
+      "loadMs": 1228.645960000009,
+      "view": true,
+      "theme": "light",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 1000,
+      "violations": [],
+      "interactionMs": [
+        173,
+        114,
+        110,
+        113,
+        107,
+        99,
+        104,
+        102,
+        102,
+        100
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": true,
+      "loadMs": 188.33141899999464,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 500,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 6,
+      "csp": true,
+      "sourceBytes": 156,
+      "renders": [
+        {
+          "ms": 157,
+          "bytes": 17953,
+          "nodes": 6
+        },
+        {
+          "ms": 48,
+          "bytes": 17953,
+          "nodes": 6
+        },
+        {
+          "ms": 43,
+          "bytes": 17953,
+          "nodes": 6
+        }
+      ],
+      "interactionMs": [
+        16,
+        32,
+        31,
+        32,
+        31,
+        31,
+        31,
+        30,
+        30,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 10,
+      "csp": true,
+      "sourceBytes": 214,
+      "renders": [
+        {
+          "ms": 62,
+          "bytes": 24019,
+          "nodes": 10
+        },
+        {
+          "ms": 56,
+          "bytes": 24019,
+          "nodes": 10
+        },
+        {
+          "ms": 57,
+          "bytes": 24019,
+          "nodes": 10
+        }
+      ],
+      "interactionMs": [
+        9,
+        32,
+        31,
+        32,
+        31,
+        32,
+        31,
+        32,
+        31,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 100,
+      "csp": true,
+      "sourceBytes": 2463,
+      "renders": [
+        {
+          "ms": 478,
+          "bytes": 162973,
+          "nodes": 100
+        },
+        {
+          "ms": 479,
+          "bytes": 162973,
+          "nodes": 100
+        },
+        {
+          "ms": 452,
+          "bytes": 162973,
+          "nodes": 100
+        }
+      ],
+      "interactionMs": [
+        15,
+        17,
+        12,
+        32,
+        31,
+        30,
+        31,
+        31,
+        31,
+        32
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "light",
+      "count": 500,
+      "csp": true,
+      "sourceBytes": 14062,
+      "renders": [
+        {
+          "ms": 2448,
+          "bytes": 785051,
+          "nodes": 500
+        },
+        {
+          "ms": 2535,
+          "bytes": 785051,
+          "nodes": 500
+        },
+        {
+          "ms": 2450,
+          "bytes": 785051,
+          "nodes": 500
+        }
+      ],
+      "interactionMs": [
+        43,
+        38,
+        40,
+        38,
+        38,
+        38,
+        38,
+        37,
+        37,
+        36
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "locale",
+      "requestedLocale": "zh-TW",
+      "actualLocale": "en",
+      "zoomLabel": "Zoom in"
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": false,
+      "loadMs": 245.0841550000041,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 12,
+      "violations": [],
+      "interactionMs": [
+        29,
+        21,
+        21,
+        28,
+        32,
+        33,
+        30,
+        31,
+        32,
+        31
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": true,
+      "loadMs": 41.0436320000008,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 6,
+      "totalNodeElements": 6,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": false,
+      "loadMs": 176.89142700000957,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 20,
+      "violations": [],
+      "interactionMs": [
+        90,
+        32,
+        20,
+        32,
+        31,
+        32,
+        32,
+        31,
+        31,
+        33
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": true,
+      "loadMs": 44.095653999989736,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 10,
+      "totalNodeElements": 10,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": false,
+      "loadMs": 332.8222969999915,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 200,
+      "violations": [],
+      "interactionMs": [
+        31,
+        51,
+        30,
+        24,
+        33,
+        31,
+        30,
+        31,
+        31,
+        31
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": true,
+      "loadMs": 61.38730000000214,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 100,
+      "totalNodeElements": 100,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": false,
+      "loadMs": 1171.969094999993,
+      "view": true,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 1000,
+      "violations": [],
+      "interactionMs": [
+        139,
+        181,
+        125,
+        99,
+        115,
+        98,
+        105,
+        98,
+        104,
+        98
+      ]
+    },
+    {
+      "browser": "webkit",
+      "kind": "archify",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": true,
+      "loadMs": 185.59727199999907,
+      "view": false,
+      "theme": "dark",
+      "lang": "en",
+      "nodes": 500,
+      "totalNodeElements": 500,
+      "violations": [
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "style-src-elem",
+          "blocked": "inline"
+        },
+        {
+          "directive": "script-src-elem",
+          "blocked": "inline"
+        }
+      ],
+      "interactionMs": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 6,
+      "csp": true,
+      "sourceBytes": 156,
+      "renders": [
+        {
+          "ms": 142,
+          "bytes": 18496,
+          "nodes": 6
+        },
+        {
+          "ms": 48,
+          "bytes": 18496,
+          "nodes": 6
+        },
+        {
+          "ms": 42,
+          "bytes": 18496,
+          "nodes": 6
+        }
+      ],
+      "interactionMs": [
+        16,
+        27,
+        31,
+        30,
+        30,
+        31,
+        32,
+        31,
+        30,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 10,
+      "csp": true,
+      "sourceBytes": 214,
+      "renders": [
+        {
+          "ms": 61,
+          "bytes": 24562,
+          "nodes": 10
+        },
+        {
+          "ms": 58,
+          "bytes": 24562,
+          "nodes": 10
+        },
+        {
+          "ms": 62,
+          "bytes": 24562,
+          "nodes": 10
+        }
+      ],
+      "interactionMs": [
+        6,
+        30,
+        32,
+        33,
+        32,
+        33,
+        32,
+        31,
+        33,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 100,
+      "csp": true,
+      "sourceBytes": 2463,
+      "renders": [
+        {
+          "ms": 482,
+          "bytes": 163516,
+          "nodes": 100
+        },
+        {
+          "ms": 464,
+          "bytes": 163516,
+          "nodes": 100
+        },
+        {
+          "ms": 460,
+          "bytes": 163516,
+          "nodes": 100
+        }
+      ],
+      "interactionMs": [
+        16,
+        16,
+        28,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        31
+      ],
+      "violations": []
+    },
+    {
+      "browser": "webkit",
+      "kind": "mermaid",
+      "requestedTheme": "dark",
+      "count": 500,
+      "csp": true,
+      "sourceBytes": 14062,
+      "renders": [
+        {
+          "ms": 2558,
+          "bytes": 785600,
+          "nodes": 500
+        },
+        {
+          "ms": 2589,
+          "bytes": 785600,
+          "nodes": 500
+        },
+        {
+          "ms": 2473,
+          "bytes": 785600,
+          "nodes": 500
+        }
+      ],
+      "interactionMs": [
+        42,
+        37,
+        40,
+        39,
+        38,
+        37,
+        38,
+        37,
+        37,
+        37
+      ],
+      "violations": []
+    }
+  ]
+}

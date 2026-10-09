@@ -6,6 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- A reproducible, opt-in Archify architecture probe compares a pinned upstream renderer with existing Mermaid across production CSP, themes, locales, three browsers and 6/10/100/500-node synthetic diagrams. The findings retain Mermaid and choose validated JSON plus a project-owned viewer for structured architecture diagrams.
 - Session diagrams have an expanded reader with a resizable wide panel, zoom buttons, actual size, fit to view, mouse/touch drag to pan and keyboard navigation. The selected diagram is kept in the URL so reload reopens it. Mermaid remains under the existing strict CSP; invalid diagrams retain their source and offer retry.
 
 ### Fixed

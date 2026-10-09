@@ -222,3 +222,8 @@ Unit／integration 測試涵蓋：
 B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成／取代與 nextSteps 移除防護，並確認取消後恢復正常收尾、Web 人工更新仍可用。背景刷新遭後續刷新取消時，批次更新／復原與整理審核保留實際寫入結果；同頁未結項與建議刷新保留仍符合條件的勾選，切換範圍仍清空。回歸案例分別以 AbortError 與實際瀏覽器刷新驗證。
 
 整理面板的三個瀏覽器案例涵蓋逐筆與批次接受／拒絕、接受前原狀、來源與證據跳轉、URL 審核狀態與第二頁重載、1440／960／375px 內部滾輪與鍵盤捲動、axe、Esc 與焦點返回，以及過期建議與取消後唯讀／清除選取。兩種清單均驗證同頁刷新保留仍符合條件的勾選；批次復原案例先確認畫面呈現復原後的本頁成員再重新選取。
+
+
+## Archify 技術探測
+
+`pnpm test:archify-probe /path/to/archify-checkout` 是選擇性的隔離探測，需先建置與安裝三個 Playwright 瀏覽器；不使用正式資料庫或全域 skill。固定上游版本、75 組 CSP／主題／語言／規模驗證、原始測量值及邊界見 [Archify 技術驗證](archify-spike.md)。
