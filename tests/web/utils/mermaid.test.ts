@@ -95,6 +95,7 @@ describe("renderMermaid", () => {
     expect(mermaidMock.initialize).toHaveBeenCalledWith(
       expect.objectContaining({
         securityLevel: "strict",
+        htmlLabels: false,
         startOnLoad: false,
         themeVariables: { fontFamily: "Noto Sans TC", fontSize: "14px" },
       }),

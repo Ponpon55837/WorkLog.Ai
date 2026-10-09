@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- Session diagrams have an expanded reader with a resizable wide panel, zoom buttons, actual size, fit to view, mouse/touch drag to pan and keyboard navigation. The selected diagram is kept in the URL so reload reopens it. Mermaid remains under the existing strict CSP; invalid diagrams retain their source and offer retry.
+
+### Fixed
+
+- Mermaid's root-level `htmlLabels: false` now keeps labels in SVG; the diagram-specific setting is deprecated and was ignored by the current renderer, causing excessive spacing in larger flowcharts.
+
 ## [1.3.1] - 2026-10-08
 
 ### Added

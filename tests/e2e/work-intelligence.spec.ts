@@ -1926,9 +1926,11 @@ test.describe("Work Intelligence browser regression", () => {
       .selectOption({ label: tt("labels.none") });
   });
 
-  test("renders an attached Mermaid diagram under the strict CSP, falls back to source, and voids it", async ({
+  test("reads, pans and zooms a Mermaid diagram under the strict CSP, falls back to source, and voids it @cross-browser", async ({
     page,
+    browserName,
   }) => {
+    test.setTimeout(60_000);
     const cspConsoleMessages: string[] = [];
     page.on("console", (message) => {
       if (/content security policy|refused to apply inline style/i.test(message.text())) {
@@ -1945,7 +1947,15 @@ test.describe("Work Intelligence browser regression", () => {
         changedFiles: [],
         verification: { status: "passed" },
         diagrams: [
-          { title: "E2E honey flow", source: "flowchart LR\n  Hive --> Extractor --> Jar" },
+          {
+            title: "E2E honey flow",
+            source:
+              "flowchart LR\n  Hive --> Extractor --> Jar\n  " +
+              Array.from(
+                { length: 18 },
+                (_, index) => `Step${index}[Processing stage ${index}] --> Step${index + 1}`,
+              ).join("\n  "),
+          },
           { title: "E2E broken diagram", source: "flowchart LR\n  A -->" },
         ],
       });
@@ -1959,12 +1969,116 @@ test.describe("Work Intelligence browser regression", () => {
     const flow = panel.getByTestId("session-diagram").filter({ hasText: "E2E honey flow" });
     // Mermaid loads only when a diagram scrolls into view.
     await flow.scrollIntoViewIfNeeded();
-    await expect(flow.locator("svg").first()).toBeVisible();
-    await expect(flow.locator("svg").first()).toContainText("Extractor");
+    await expect(flow.getByRole("img", { name: "E2E honey flow", exact: true }).locator("svg")).toBeVisible();
+    await expect(flow.getByRole("img", { name: "E2E honey flow", exact: true }).locator("svg")).toContainText(
+      "Extractor",
+    );
+    const expand = flow.getByRole("button", { name: tt("session.expandDiagram") });
+    await expand.click();
+    const reader = page.getByRole("dialog", { name: tt("session.diagramReader") });
+    const canvas = reader.getByRole("region", { name: tt("session.diagramCanvas", { title: "E2E honey flow" }) });
+    await expect(canvas.locator("svg")).toBeVisible();
+    await expect(canvas.locator("foreignObject")).toHaveCount(0);
+    expect(
+      await canvas.locator("svg").evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return Array.from(element.querySelectorAll(".node")).every((node) => {
+          const box = node.getBoundingClientRect();
+          return box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+        });
+      }),
+    ).toBe(true);
+
+    await expect(page).toHaveURL(/diagram=/);
+    await reader.getByRole("button", { name: tt("session.zoomIn"), exact: true }).click();
+    await expect.poll(() => canvas.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    const zoomedWidth = await canvas.locator("svg").evaluate((element) => element.getBoundingClientRect().width);
+    await reader.getByRole("button", { name: tt("session.zoomOut"), exact: true }).click();
+    await expect
+      .poll(() => canvas.locator("svg").evaluate((element) => element.getBoundingClientRect().width))
+      .toBeLessThan(zoomedWidth);
+    await canvas.focus();
+    await page.keyboard.press("+");
+    const beforeKey = await canvas.evaluate((element) => element.scrollLeft);
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBeGreaterThan(beforeKey);
+    const bounds = await canvas.boundingBox();
+    if (!bounds) throw new Error("Missing diagram canvas bounds.");
+    const beforeDrag = await canvas.evaluate((element) => element.scrollLeft);
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + bounds.width / 2 + 48, bounds.y + bounds.height / 2);
+    await page.mouse.up();
+    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBeLessThan(beforeDrag);
+    await canvas.focus();
+    await page.keyboard.press("0");
+    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBe(0);
+    await reader.getByRole("button", { name: tt("session.actualDiagramSize") }).click();
+    await expect(reader.locator("output")).toHaveText(tt("session.diagramZoom", { percent: 100 }));
+    await reader.getByRole("button", { name: tt("session.fitDiagram") }).click();
+    await reader.getByText(tt("session.viewSource"), { exact: true }).click();
+    await expect(reader.locator("pre")).toContainText("Step18");
+    await canvas.focus();
+    await page.keyboard.press("k");
+    await expect(reader).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(reader).toBeHidden();
+    await expect(expand).toBeFocused();
+    await expect(panel).toBeVisible();
+    await expand.click();
+    await page.reload();
+    await expect(reader).toBeVisible();
+    await expect(canvas.locator("svg")).toBeVisible();
+    for (const [width, theme, locale] of [
+      [1440, "dark", "zh-TW"],
+      [960, "light", "en-US"],
+      [375, "dark", "en-US"],
+      [375, "light", "zh-TW"],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(
+        ({ theme, locale }) => {
+          localStorage.setItem("work-intelligence:theme", theme);
+          localStorage.setItem("work-intelligence:locale", locale);
+        },
+        { theme, locale },
+      );
+      await page.reload();
+      const localizedReader = page.getByRole("dialog", { name: textIn(locale, "session.diagramReader") });
+      await expect(localizedReader.getByRole("region").locator("svg")).toBeVisible();
+      await expect(localizedReader.getByRole("button", { name: textIn(locale, "session.fitDiagram") })).toBeVisible();
+      expect(await localizedReader.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      if (width < 640)
+        expect(await localizedReader.evaluate((element) => element.getBoundingClientRect().width)).toBe(width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await localizedReader.getByRole("button", { name: textIn(locale, "session.actualDiagramSize") }).click();
+      await expect(localizedReader.locator("output")).toHaveText(
+        textIn(locale, "session.diagramZoom", { percent: 100 }),
+      );
+      // Playwright injects a <style> to sync WebKit screenshots, contaminating the application CSP check.
+      if (browserName !== "webkit") {
+        await page.screenshot({ path: test.info().outputPath(`diagram-reader-${width}-${theme}-${locale}.png`) });
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(reader).toBeVisible();
+    const violations = await new AxeBuilder({ page })
+      .include('[aria-label="' + tt("session.diagramReader") + '"]')
+      .analyze();
+    expect(violations.violations).toEqual([]);
+    await reader.getByRole("button", { name: tt("session.backToSession") }).click();
+    await expect(reader).toBeHidden();
     const broken = panel.getByTestId("session-diagram").filter({ hasText: "E2E broken diagram" });
     await broken.scrollIntoViewIfNeeded();
     await expect(broken).toContainText(ttPattern("session.couldNotDrawThisDiagramHereIsThe"));
     await expect(broken.locator("pre")).toContainText("A -->");
+    await broken.getByRole("button", { name: tt("session.expandDiagram") }).click();
+    await expect(reader.locator("pre")).toContainText("A -->");
+    await expect(reader.getByRole("button", { name: tt("session.zoomIn"), exact: true })).toBeDisabled();
+    await reader.getByRole("button", { name: tt("common.retry") }).click();
+    await expect(reader.locator("pre")).toContainText("A -->");
+    await reader.getByRole("button", { name: tt("session.backToSession") }).click();
+    await expect(reader).toBeHidden();
 
     await panel
       .getByRole("button", { name: tt("session.voidDiagram") })

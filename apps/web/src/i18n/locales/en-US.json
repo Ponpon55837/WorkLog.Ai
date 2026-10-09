@@ -1291,7 +1291,18 @@
     "deleteSessionPermanently": "Permanently delete this Session?",
     "deleteSessionPermanentlyMessage": "“{title}” and its events, Evidence, diagrams, edit history, and outstanding items will be deleted and cannot be restored. A database backup is created first.",
     "sessionDeleted": "Session permanently deleted; pre-deletion backup: {backupFileName}",
-    "couldNotDeleteSession": "Could not delete the Session."
+    "couldNotDeleteSession": "Could not delete the Session.",
+    "expandDiagram": "Expand diagram",
+    "diagramReader": "Diagram reader",
+    "backToSession": "Back to Session",
+    "diagramControls": "Diagram controls",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fitDiagram": "Fit to view",
+    "diagramZoom": "Zoom {percent}%",
+    "diagramCanvas": "{title} diagram canvas",
+    "diagramNavigation": "Drag to pan. Focus the canvas to use arrow keys to pan, + / − to zoom, and 0 to fit.",
+    "actualDiagramSize": "Actual size"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "Every finished task leaves traceable context.",
