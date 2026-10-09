@@ -223,6 +223,8 @@ GitHub（Primer）風格的介面，有深色與淺色兩種主題，介面語�
 | **Session 圖表** | Agent 在工作改到跨模組流程、資料流、狀態機或架構時，會主動為 Session 附上一到兩張 Mermaid 圖表（`work_attach_diagram` 或 finalize 的 `diagrams`；單檔修正、樣式、設定與純測試不附），在 Session 面板延遲載入並渲染；無法解析時顯示原始碼。圖表可作廢、不能刪除，也會隨專案匯出與匯入 |
 | **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果、登入自動啟動服務，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改服務或 Agent 設定。「Agent 讀取紀錄」列出最近的 MCP 讀取（時間、Agent 與工具、專案，以及回傳的 Session id），可依專案與 Agent 篩選。「個人偏好」可選擇外觀主題、介面語言，以及用 VS Code 或 Cursor 開啟 Session 的 changed files（都只存在這個瀏覽器）。完整環境診斷請用 `pnpm run doctor` |
 
+Session 詳情提供最多五筆同專案共同檔案的相關工作提示，排除既有關聯，搜尋截短時明示；開啟提示不會建立關聯。
+
 快捷鍵：`Ctrl`/`⌘` + `K` 搜尋、跳頁，或切換主題與介面語言，`/` 聚焦頁面搜尋，`g` + `d`／`s`／`r`／`k`／`g`／`p` 切換頁面。篩選條件與開啟中的 Session 都會寫進網址，可以直接分享或重新整理。
 
 API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence API」，連線恢復後會自動重新載入目前的資料。

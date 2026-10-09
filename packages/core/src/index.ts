@@ -1,4 +1,5 @@
 export * from "./attention.js";
+export * from "./related-work.js";
 
 export const PROJECT_STATUSES = ["unregistered", "tracked", "paused", "ignored"] as const;
 

@@ -806,6 +806,35 @@ const MIGRATIONS: SchemaMigration[] = [
       CREATE INDEX idx_session_diagrams_session ON session_diagrams(session_id, created_at);
     `,
   },
+  {
+    version: 28,
+    name: "related-work-file-postings",
+    sql: `
+      CREATE TABLE related_work_paths (
+        doc_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        path TEXT NOT NULL,
+        doc_date TEXT NOT NULL,
+        PRIMARY KEY (doc_id,path)
+      ) WITHOUT ROWID;
+      CREATE INDEX idx_related_work_project_path ON related_work_paths(project_id,path,doc_date DESC,doc_id);
+      CREATE TABLE related_work_dirty (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE
+      ) WITHOUT ROWID;
+      CREATE INDEX idx_related_work_dirty_project ON related_work_dirty(project_id,session_id);
+      INSERT INTO related_work_dirty SELECT id,project_id FROM sessions WHERE project_id IS NOT NULL;
+      CREATE TRIGGER trg_related_work_insert AFTER INSERT ON sessions BEGIN
+        INSERT INTO related_work_dirty VALUES (NEW.id,NEW.project_id) ON CONFLICT(session_id) DO UPDATE SET project_id=excluded.project_id;
+      END;
+      CREATE TRIGGER trg_related_work_update AFTER UPDATE ON sessions BEGIN
+        INSERT INTO related_work_dirty VALUES (NEW.id,NEW.project_id) ON CONFLICT(session_id) DO UPDATE SET project_id=excluded.project_id;
+      END;
+      CREATE TRIGGER trg_related_work_project_update AFTER UPDATE OF root_path,name,status ON projects BEGIN
+        INSERT OR IGNORE INTO related_work_dirty SELECT id,project_id FROM sessions WHERE project_id=NEW.id;
+      END;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

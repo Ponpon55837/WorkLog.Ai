@@ -1635,7 +1635,9 @@ test.describe("Work Intelligence browser regression", () => {
 
     await page.goto(`/sessions?session=${result.session.id}`);
     const panel = page.getByRole("dialog", { name: tt("session.sessionDetails") });
-    await expect(panel.getByRole("status")).toHaveText(tt("session.sensitiveValuesRedacted", { redactionCount: 2 }));
+    await expect(
+      panel.getByRole("status").filter({ hasText: tt("session.sensitiveValuesRedacted", { redactionCount: 2 }) }),
+    ).toHaveText(tt("session.sensitiveValuesRedacted", { redactionCount: 2 }));
     await expect(panel).not.toContainText(token);
   });
 

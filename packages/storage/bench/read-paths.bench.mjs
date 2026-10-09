@@ -383,6 +383,11 @@ try {
   ]);
 
   const cases = {
+    "getRelatedWork (file overlap)": () => {
+      const result = benchStore.getRelatedWork(newestAlpha.id);
+      if (result.state !== "ready" || !result.items.length) throw new Error("Expected eligible shared-file candidates");
+      return result;
+    },
     "getAttention (mixed sources)": () => {
       const result = benchStore.getAttention({ page: 1, pageSize: 20 });
       if (
@@ -525,6 +530,7 @@ try {
 
   const limitsMs = {
     "getAttention (mixed sources)": 500,
+    "getRelatedWork (file overlap)": 250,
     "getSessionDetail (200 architecture nodes)": 250,
     "listSessionsPage (default)": 200,
     "listSessionDigests (page 100 + pending items)": 100,

@@ -39,6 +39,7 @@ import {
 import { z } from "zod";
 import { parseArchitectureDiagram } from "./architecture-diagram.js";
 export { attentionQuerySchema } from "./attention.js";
+export { relatedWorkQuerySchema } from "./related-work.js";
 export {
   architectureDiagramSchema,
   parseArchitectureDiagram,

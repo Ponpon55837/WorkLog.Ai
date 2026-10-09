@@ -136,21 +136,18 @@ test("reviews cleanup proposals individually and in a batch, preserves rejected 
     .click();
   await expect(panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true })).toHaveCount(2);
   await panel.getByRole("checkbox", { name: tt("outstanding.selectAllSuggestionsOnThis"), exact: true }).check();
-  await page.route(
-    "**/api/outstanding-cleanup/requests/*/proposals?*",
-    async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as { proposals: Array<{ reason: string }> };
-      for (const proposal of body.proposals) proposal.reason = "Verified background refresh";
-      await route.fulfill({ response, json: body });
-    },
-    { times: 1 },
-  );
+  await page.route("**/api/outstanding-cleanup/requests/*/proposals?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { proposals: Array<{ reason: string }> };
+    for (const proposal of body.proposals) proposal.reason = "Verified background refresh";
+    await route.fulfill({ response, json: body });
+  });
   await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
   await expect(panel.getByText("Verified background refresh", { exact: true }).first()).toBeVisible();
   await expect(
     panel.getByRole("checkbox", { name: tt("outstanding.selectAllSuggestionsOnThis"), exact: true }),
   ).toBeChecked();
+  await page.unroute("**/api/outstanding-cleanup/requests/*/proposals?*");
   await panel.getByRole("button", { name: tt("outstanding.acceptSelected"), exact: true }).click();
   await page
     .getByRole("dialog", { name: tt("outstanding.acceptSuggestions") })

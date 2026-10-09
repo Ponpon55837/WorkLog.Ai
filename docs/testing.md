@@ -244,3 +244,9 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 `tests/storage/attention.test.ts` 使用隔離合成 SQLite 驗證混合來源、原狀態不變、全域請求來源再閘門、paused／unknown／void 排除、最新請求優先、220 個決策與 200 列窗口分開、未知可信度範圍及來源失敗不洩漏正文。REST 測試涵蓋成功、400 參數上限／未知欄位、policy skip、Origin 與固定 500 遮蔽。前端 store 驗證完整 query keys、全域快取共用、報告 server date 及獨立錯誤。
 
 `tests/e2e/attention.spec.ts` 在兩語系、明暗主題及 1440／960／375px 檢查框內鍵盤捲動、URL／reload、axe、無水平溢出，同名 Knowledge 的精確來源歷史與 Esc，以及部分／失敗來源不呈現健康空清單。這些案例標記 cross-browser，三個 Playwright 引擎都執行；不等於 macOS Safari 實機驗收。正式數量及 p90 測量結果待本階段完成後記錄。
+
+## 五項整合 B1 相關工作提示
+
+`tests/storage/related-work.test.ts` 覆蓋同專案／已有雙向關聯、重複與正規化檔名、作廢／停用、未確認／超檔案上限、排序 top-5、dirty 重建、熱門 posting 截短與 FK 永久刪除；派生索引不出現在匯出 bundle。REST 驗證 scope、Origin、嚴格 query 與未知錯誤遮蔽。Web store 驗證晚回應不顯示上筆 Session，錯誤保留重試。E2E 包含 12 種語言／主題／視窗組合、axe、鍵盤切換與不溢出，以及錯誤／部分空結果。
+
+38 項 5,000 Sessions read-path 基準通過；相關工作 p90 2.57ms，gate 250ms。另有 [5k/50k 首次同步、暖讀取、CPU 與 SQL 探測](experiments/related-query-probe.results.json)，明示 50k 初次同步 1.21 秒與 partial，僅使用合成資料庫副本，不接觸正式資料。

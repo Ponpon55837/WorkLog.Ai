@@ -241,4 +241,14 @@ Knowledge 提醒以 ID 開啟變更歷史，知識頁以 ID 開啟原有側面�
 
 總覽本週報告省略 browser date，讓 server 時區決定週範圍。報告與提醒獨立載入，來源回報數量未到達前不顯示 0；API 錯誤不會變成空清單。正式 read path 已新增 5,000 Sessions 合成基準與 p90 500 ms 上限，5,000 筆基準實測 median 58.91 ms、p90 62.73 ms、max 69.53 ms，37 項效能門檻均通過。另以 20 筆 Knowledge／三張知識頁混合探測 21 條 SQL 計畫與 100 次 CPU profile；15 次讀取 p90 55 ms，成本主要在既有 Knowledge 過時判定與路徑正規化，沒有依記憶體實驗宣稱資料庫最佳解。結果見 [提醒 SQL／CPU 探測](experiments/attention-query-probe.results.json)，腳本只複製並修改合成資料庫。
 
-A1 本機驗證：build、完整單元測試 823 通過／1 既有略過、typecheck、coverage、37 項 performance、25 項 retrieval、9 項 response-size、production audit high 通過。最後的儲存刷新修正另通過五項 store 測試；完整瀏覽器回歸 Chromium 78／1 既有略過、Firefox 23、Playwright WebKit 20 通過。12 種 locale／theme／viewport 組合的提醒清單可鍵盤及 wheel 框內捲動、URL 還原、axe 無違規；已人工檢查 375px 英文明亮截圖。首次兩次 Chromium 分別暴露 URL 還原後的舊測試假設、重複 invalidation 使已成功儲存誤報 AbortError，後者已去重並用 allSettled 隔離背景刷新結果，新增儲存回歸。尚未完成最新 head CI、PR 合併或實機 Safari；其餘四項仍未實作。
+A1 本機驗證：build、完整單元測試 823 通過／1 既有略過、typecheck、coverage、37 項 performance、25 項 retrieval、9 項 response-size、production audit high 通過。最後的儲存刷新修正另通過五項 store 測試；完整瀏覽器回歸 Chromium 78／1 既有略過、Firefox 23、Playwright WebKit 20 通過。12 種 locale／theme／viewport 組合的提醒清單可鍵盤及 wheel 框內捲動、URL 還原、axe 無違規；已人工檢查 375px 英文明亮截圖。首次兩次 Chromium 分別暴露 URL 還原後的舊測試假設、重複 invalidation 使已成功儲存誤報 AbortError，後者已去重並用 allSettled 隔離背景刷新結果，新增儲存回歸。最新 8af4832 四項 CI 全數通過，PR #227 已於 2026-10-09T14:57:41Z 合併；main 已快轉至 a4315a5。首次遠端背景刷新 fixture 被 SSE 後續讀取覆蓋，已維持合成回應至選取斷言完成。實機 Safari 尚未驗證。
+
+### B1 相關工作提示
+
+實際端點使用 `GET /api/sessions/:sessionId/related`。Session 詳情提供最多五筆同專案共同檔案的可開啟來源，雙語／主題／375、960、1440px 清單可換行；提示理由為共同檔案，不冒稱依賴或完成證據，不自動連結。無來源、檔案未確認、無檔案、超過 20 檔、錯誤與截短彼此區別。
+
+migration 28 增加可重建的 `related_work_paths`／`related_work_dirty` 派生索引，並非新的使用者資料：不匯出，匯入 Session 後由 trigger 重建；Session／專案永久刪除由 FK cascade 清除。索引僅保存正規化檔案，不處理 handoff 或全文 token；每個最多 20 檔的焦點用 covering index seek 取每檔前 1,000 候選，去重後固定大小 top-5，時間為 O(H+C×(m+5))，H≤20,020（含截短探測列）、m≤20。Jaccard 用整數交叉相乘比較，沒有全候選排序或逐候選 SQL。
+
+SQL EXPLAIN 確認 `idx_related_work_project_path` covering seek，去除不必要 DISTINCT 及其暫存 B-tree。合成資料的最終探測：5,000 筆首次建索引 85.83ms、後續 p90 3.01ms；50,000 筆首次 1208.95ms、後續 p90 30.06ms，熱門路徑明示 partial。首次成本包含同步 dirty 索引，不能用暖查詢毫秒冒稱冷啟動速度。回應各為 1,267／1,332 bytes，完整計畫與 CPU 函數摘要見 [SQLite 探測](experiments/related-query-probe.results.json)。既有完整 FTS 同步方案在 50k 首次約 15.7 秒，已由上述輕量索引取代。
+
+B1 開始時間為 2026-10-09T14:26:47Z（時間工具證據）。本機 build、完整單元 834 通過／1 既有略過、typecheck／coverage、38 項效能、25 retrieval、9 response-budget 已通過；最終完整 UI 回歸 Chromium 91／1 既有略過、Firefox 36、Playwright WebKit 33 通過，375px 英文截圖已人工檢查；CI／合併尚未完成。新增回歸也確認已成功作廢／連結不被背景刷新 AbortError 誤報失敗。

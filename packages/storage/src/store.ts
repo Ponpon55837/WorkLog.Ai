@@ -218,6 +218,8 @@ import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
 import { OutstandingItemService } from "./outstanding-item-service.js";
 import { OutstandingCleanupService } from "./outstanding-cleanup-service.js";
+import { RelatedWorkService } from "./related-work-service.js";
+import type { RelatedWorkResult } from "@work-intelligence/core";
 import { AttentionService } from "./attention-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
@@ -860,6 +862,10 @@ export class WorkIntelligenceStore {
       skipped,
       failures,
     };
+  }
+
+  public getRelatedWork(sessionId: string): RelatedWorkResult {
+    return new RelatedWorkService(this.db).get(sessionId);
   }
 
   public getAttention(query: AttentionQuery = {}): AttentionResult {

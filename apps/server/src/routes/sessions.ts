@@ -1,5 +1,6 @@
 import {
   attachEvidenceInputSchema,
+  relatedWorkQuerySchema,
   deleteSessionInputSchema,
   finalizeSessionInputSchema,
   linkSessionsInputSchema,
@@ -81,6 +82,16 @@ const linkSessions = validatedRoute(
 );
 
 export const sessionRoutes: Route[] = [
+  {
+    method: "GET",
+    pattern: "/api/sessions/:sessionId/related",
+    handler: validatedRoute(
+      relatedWorkQuerySchema,
+      "Invalid related work query.",
+      ({ params, url }) => ({ ...Object.fromEntries(url.searchParams), sessionId: params.sessionId }),
+      ({ store }, data) => store.getRelatedWork(data.sessionId),
+    ),
+  },
   {
     method: "GET",
     pattern: "/api/sessions",

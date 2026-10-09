@@ -14,6 +14,8 @@ const NOT_PROJECT_DATA: Record<string, string> = {
   search_chunks: "search index and derived raw-content hashes, rebuilt from the source rows",
   search_paths: "search index, rebuilt from the source rows",
   search_dirty: "search index queue",
+  related_work_paths: "derived confirmed Session file postings; rebuilt, FK cascades on permanent deletion",
+  related_work_dirty: "id-only file-posting rebuild queue; FK cascades on permanent deletion",
   search_fts: "full-text index, rebuilt from the source rows",
   project_data_import_audits: "content-free audit of imports on this machine",
   project_deletion_audit: "content-free audit that must outlive the deleted project",
