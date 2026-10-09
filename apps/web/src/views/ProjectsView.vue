@@ -31,6 +31,7 @@ import UiFlash from "../components/ui/UiFlash.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
+import { stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { useHandoffImportStore } from "../stores/handoff-import";
 import { useMetadataBackfillStore } from "../stores/metadata-backfill";
@@ -54,6 +55,9 @@ const {
   deleteProject,
 } = projectsStore;
 const metadataBackfillStore = useMetadataBackfillStore();
+const { projectId: backfillProjectId, requestId: backfillRequestId } = storeToRefs(metadataBackfillStore);
+useRouteQuery("project", backfillProjectId, stringQuery());
+useRouteQuery("backfillRequest", backfillRequestId, stringQuery());
 const handoffImportStore = useHandoffImportStore();
 const { handoffImportLoading, handoffImportProjectId } = storeToRefs(handoffImportStore);
 const { previewHandoffs } = handoffImportStore;

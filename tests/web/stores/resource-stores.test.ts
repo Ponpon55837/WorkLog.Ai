@@ -409,6 +409,20 @@ describe("resource stores", () => {
     expect(harness.count("/api/knowledge/candidates/candidate-1/decision", "POST")).toBe(1);
   });
 
+  it("keeps an exact project/request query instead of applying the global-only scope", async () => {
+    const store = useMetadataBackfillStore();
+    store.projectId = "project-1";
+    store.requestId = "exact-request";
+    await store.loadMetadataBackfillRequest();
+    const call = harness.calls.find(({ url }) => url.pathname === "/api/backfill/metadata-requests");
+    expect(Object.fromEntries(call?.url.searchParams ?? [])).toEqual({
+      scopeType: "project",
+      limit: "1",
+      projectId: "project-1",
+      requestId: "exact-request",
+    });
+  });
+
   it("scans metadata gaps, creates and cancels a request, keeping its request state current", async () => {
     const store = useMetadataBackfillStore();
     await store.previewMetadataBackfill();

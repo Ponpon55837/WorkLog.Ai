@@ -38,6 +38,7 @@ import {
 } from "@work-intelligence/core";
 import { z } from "zod";
 import { parseArchitectureDiagram } from "./architecture-diagram.js";
+export { attentionQuerySchema } from "./attention.js";
 export {
   architectureDiagramSchema,
   parseArchitectureDiagram,

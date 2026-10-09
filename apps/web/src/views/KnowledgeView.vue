@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
 import { BookMarked, BookOpen, ListChecks, Search, Sparkles, X } from "lucide-vue-next";
@@ -27,6 +27,9 @@ import { useKnowledgeActions } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
+import { useKnowledgeEditorStore } from "../stores/knowledge-editor";
+import { useProjectsStore } from "../stores/projects";
+import { useToast } from "../composables/useToast";
 import { useKnowledgeStore } from "../stores/knowledge";
 import { useKnowledgePagesStore } from "../stores/knowledge-pages";
 import { useSessionDecisionsStore } from "../stores/session-decisions";
@@ -87,8 +90,20 @@ const route = useRoute();
 const decisionStore = useSessionDecisionsStore();
 const { pendingCount, decisionsLoaded } = storeToRefs(decisionStore);
 const { candidates, candidatesLoaded, knowledgeLoaded } = storeToRefs(knowledgeStore);
+const editorStore = useKnowledgeEditorStore();
+const projectsStore = useProjectsStore();
 const pagesStore = useKnowledgePagesStore();
-const { pages, pagesLoaded } = storeToRefs(pagesStore);
+const { pages, pagesLoaded, openPageId } = storeToRefs(pagesStore);
+useRouteQuery("knowledgePage", openPageId, {
+  defaultValue: null,
+  parse: (raw) => raw || null,
+  serialize: (value) => value ?? "",
+});
+
+const selectedKnowledgeId = ref("");
+const openedKnowledgeId = ref("");
+
+useRouteQuery("knowledge", selectedKnowledgeId, stringQuery());
 
 const hasFilters = computed(() =>
   Boolean(
@@ -157,6 +172,22 @@ const statusItems = (Object.keys(knowledgeStatusLabels) as KnowledgeStatus[]).ma
   label: knowledgeStatusLabels[status],
 }));
 
+async function openSelectedKnowledge(): Promise<void> {
+  const id = selectedKnowledgeId.value;
+  const projectId = knowledgeProjectId.value;
+  if (!id) return;
+  const project = projectsStore.projects.find((item) => item.id === projectId && item.status === "tracked");
+  if (!project) return;
+  const item = await knowledgeStore.loadKnowledgeHistory(id, project.rootPath);
+  if (selectedKnowledgeId.value !== id || knowledgeProjectId.value !== projectId) return;
+  if (item && item.id === id && item.projectId === projectId) {
+    openedKnowledgeId.value = id;
+    editorStore.knowledgeHistoryItem = item;
+  } else {
+    useToast().showToast(knowledgeStore.knowledgeHistoryError || t("knowledge.knowledgeGone"), "danger");
+  }
+}
+
 function clearFilters(): void {
   knowledgeQuery.value = "";
   knowledgeKind.value = "";
@@ -180,6 +211,19 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
   }
 }
 
+watch([selectedKnowledgeId, knowledgeProjectId, () => projectsStore.projects], () => void openSelectedKnowledge(), {
+  immediate: true,
+});
+watch(
+  () => editorStore.knowledgeHistoryItem,
+  (item) => {
+    if (!item && openedKnowledgeId.value === selectedKnowledgeId.value) {
+      selectedKnowledgeId.value = "";
+      openedKnowledgeId.value = "";
+    }
+  },
+);
+
 watch(
   () => selectedProjectRoot.value,
   (root) => {
@@ -191,7 +235,11 @@ watch(
 );
 
 onMounted(() => setKnowledgeListActive(true));
-onBeforeUnmount(() => setKnowledgeListActive(false));
+onBeforeUnmount(() => {
+  setKnowledgeListActive(false);
+  editorStore.knowledgeHistoryItem = null;
+  knowledgeStore.closeKnowledgeHistory();
+});
 onBeforeUnmount(() => decisionStore.setListActive(false));
 onBeforeUnmount(() => {
   pagesStore.setListActive(false);

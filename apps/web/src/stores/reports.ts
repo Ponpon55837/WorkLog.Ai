@@ -173,7 +173,7 @@ export const useReportsStore = defineStore("reports", () => {
       if (result.outcome !== "report_synthesis_request") return;
       await Promise.all([
         queryCache.invalidateQueries({ key: queryKeys.reports.synthesis }),
-        queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
       ]);
     },
   });
@@ -183,7 +183,7 @@ export const useReportsStore = defineStore("reports", () => {
       if (result.outcome !== "report_synthesis_request_retried") return;
       await Promise.all([
         queryCache.invalidateQueries({ key: queryKeys.reports.synthesis }),
-        queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
       ]);
     },
   });
@@ -193,7 +193,7 @@ export const useReportsStore = defineStore("reports", () => {
       if (result.outcome !== "report_synthesis_request_cancelled") return;
       await Promise.all([
         queryCache.invalidateQueries({ key: queryKeys.reports.synthesis }),
-        queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
       ]);
     },
   });

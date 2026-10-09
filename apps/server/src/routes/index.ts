@@ -1,3 +1,4 @@
+import { attentionRoutes } from "./attention.js";
 import { agentReadRoutes } from "./agent-reads.js";
 import { backfillRoutes } from "./backfill.js";
 import { insightRoutes } from "./insights.js";
@@ -15,6 +16,7 @@ export { Router, type Route, type RouteContext, type RouteServices } from "./rou
 /** Every REST route, one table per domain. */
 export const apiRoutes: readonly Route[] = [
   ...systemRoutes,
+  ...attentionRoutes,
   ...reportRoutes,
   ...projectRoutes,
   ...knowledgeRoutes,

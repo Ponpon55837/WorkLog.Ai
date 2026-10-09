@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { ChevronLeft, ChevronRight } from "lucide-vue-next";
 import type { PageInfo } from "@work-intelligence/core";
 import { listPageSizeOptions, type ListPageSize } from "../../utils/labels";
@@ -8,10 +8,18 @@ import UiSelect from "./UiSelect.vue";
 import { t } from "../../i18n";
 
 /** The single pagination control: summary, page-size select (10/20/50/100/All) and prev/next. */
-defineProps<{ pageInfo: PageInfo; sizeLabel: string }>();
+const props = defineProps<{
+  pageInfo: PageInfo;
+  sizeLabel: string;
+  pageSizeOptions?: readonly { value: ListPageSize; label: string }[];
+}>();
 const emit = defineEmits<{ page: [page: number] }>();
 const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const root = ref<HTMLElement | null>(null);
+
+const sizeOptions = computed(
+  () => props.pageSizeOptions ?? listPageSizeOptions.map((option) => ({ value: option.value, label: option.label })),
+);
 
 /** Changing page from the footer brings the top of the list back into view instead of leaving the user at the bottom. */
 function goTo(page: number): void {
@@ -22,8 +30,6 @@ function goTo(page: number): void {
     list.scrollIntoView({ block: "start" });
   }
 }
-
-const sizeOptions = listPageSizeOptions.map((option) => ({ value: option.value, label: option.label }));
 </script>
 
 <template>

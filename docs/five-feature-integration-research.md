@@ -1,6 +1,6 @@
 # 五項功能整合先行研究
 
-日期：2026-10-09（Asia/Taipei）。狀態：**研究完成；五項正式功能尚未實作**。本文件的 API、資料表、上限及畫面文案都是待實作規格，不是已上線契約。
+日期：2026-10-09（Asia/Taipei）。狀態：**研究完成；A1 提醒聚合已實作及本機驗證，其餘階段尚未完成**。下列研究規格保留設計依據；實際已實作範圍、API 與限制以末節、REST 文件及程式碼為準，擬議資料表不可當成已存在。
 
 ## 1. 建議結論與範圍
 
@@ -230,3 +230,15 @@ node docs/experiments/related-work-candidates.mjs --output /tmp/related-work-can
 本輪本機回歸：build、test（811 通過／1 既有略過，含 lint／格式）、typecheck、coverage、performance（36）、retrieval-quality（25）、response-size（9）與 prod audit low 均通過。三瀏覽器完整重跑 Chromium 64 通過／1 既有略過、Firefox 9、Playwright WebKit 6 通過。首次 Chromium 的既有未結項清單測試在 960px wheel 後 scrollTop=0；保留失敗 trace，定向全新 server／SQLite 重測 3/3 和完整重跑通過，未修改 UI 或測試，首次失敗根因尚未確認。這些是既有產品回歸，不是五項擬議功能的驗收。
 
 知識維護：架構與慣例 v12、常見陷阱 v11；新增「完整期間 totals 不可由最多 200 筆來源推算」與「co_changed 不等於人工 Session 關聯」兩筆已核對知識點。研究中的擬議 API 與資料表不寫成現有架構能力；原圖表實機／密集圖等三筆未結項未結案。
+
+## 12. 實作進度
+
+### A1 提醒聚合
+
+獨立 worktree 基線為研究 PR #226 合併後的 `23f0af5d2c03963c89d9d9e170c467bbcb0cc66a`。總覽的待處理聚合八種既有來源，支援專案／類型、10／20／50 筆分頁與框內捲動。來源失敗顯示未知；每類最多檢查 200 筆，Knowledge 與知識頁超出窗口時 matching total 為 null，已找到的數量只是下限。其餘來源以 SQL 完整匹配數量與有界列分開，頁尾列出可查閱窗口，側欄與 KPI 始終使用全域未篩選的下限。
+
+Knowledge 提醒以 ID 開啟變更歷史，知識頁以 ID 開啟原有側面板；補填入口保留專案與請求，未結項整理保留原 request 審閱流程。沒有一般 resolve、桌面通知或背景掃描，來源狀態由原服務決定。metadata 缺口入口按專案計數未確認 changed files 或未提供 verification 的 Sessions，不把明確 not_run 改稱未提供。A1 沒有新資料表、migration 或 MCP 操作；sourceRevision 暫供來源辨識，A2 寫入意圖前須按問題版本加強指紋及生命週期。
+
+總覽本週報告省略 browser date，讓 server 時區決定週範圍。報告與提醒獨立載入，來源回報數量未到達前不顯示 0；API 錯誤不會變成空清單。正式 read path 已新增 5,000 Sessions 合成基準與 p90 500 ms 上限，5,000 筆基準實測 median 58.91 ms、p90 62.73 ms、max 69.53 ms，37 項效能門檻均通過。另以 20 筆 Knowledge／三張知識頁混合探測 21 條 SQL 計畫與 100 次 CPU profile；15 次讀取 p90 55 ms，成本主要在既有 Knowledge 過時判定與路徑正規化，沒有依記憶體實驗宣稱資料庫最佳解。結果見 [提醒 SQL／CPU 探測](experiments/attention-query-probe.results.json)，腳本只複製並修改合成資料庫。
+
+A1 本機驗證：build、完整單元測試 823 通過／1 既有略過、typecheck、coverage、37 項 performance、25 項 retrieval、9 項 response-size、production audit high 通過。最後的儲存刷新修正另通過五項 store 測試；完整瀏覽器回歸 Chromium 78／1 既有略過、Firefox 23、Playwright WebKit 20 通過。12 種 locale／theme／viewport 組合的提醒清單可鍵盤及 wheel 框內捲動、URL 還原、axe 無違規；已人工檢查 375px 英文明亮截圖。首次兩次 Chromium 分別暴露 URL 還原後的舊測試假設、重複 invalidation 使已成功儲存誤報 AbortError，後者已去重並用 allSettled 隔離背景刷新結果，新增儲存回歸。尚未完成最新 head CI、PR 合併或實機 Safari；其餘四項仍未實作。

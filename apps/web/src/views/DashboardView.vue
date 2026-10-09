@@ -1,18 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
-import {
-  ArrowRight,
-  ChartColumn,
-  CircleCheckBig,
-  FolderGit2,
-  Inbox,
-  ListChecks,
-  RotateCcw,
-  ShieldCheck,
-} from "lucide-vue-next";
+import { ArrowRight, ChartColumn, CircleCheckBig, FolderGit2, Inbox, ListChecks, ShieldCheck } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
+import AttentionBox from "../components/domain/AttentionBox.vue";
 import ActivityHeatmap from "../components/domain/ActivityHeatmap.vue";
 import FirstRunChecklist from "../components/domain/FirstRunChecklist.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
@@ -22,9 +14,6 @@ import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
 import UiButton from "../components/ui/UiButton.vue";
-import UiCopyButton from "../components/ui/UiCopyButton.vue";
-import UiCounter from "../components/ui/UiCounter.vue";
-import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiSparkline from "../components/ui/UiSparkline.vue";
@@ -32,20 +21,27 @@ import UiStatCard from "../components/ui/UiStatCard.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { router } from "../router";
 import { useActivityStore } from "../stores/activity";
-import { useDashboardStore, type InboxItem } from "../stores/dashboard";
-import { metadataBackfillInstruction } from "../stores/metadata-backfill";
+import { useDashboardStore } from "../stores/dashboard";
 import { useProjectsStore } from "../stores/projects";
-import { reportSynthesisInstruction } from "../stores/reports";
 import { useSessionsStore } from "../stores/sessions";
 import { useSystemStatusStore } from "../stores/system-status";
 import { formatRelative } from "../utils/format";
-import { requestStatus, trackingStatus } from "../utils/status";
+import { trackingStatus } from "../utils/status";
 import { intlLocale, t } from "../i18n";
 
 const projectsStore = useProjectsStore();
 const { dashboard, projects, recentSessions, initialDataReady } = storeToRefs(projectsStore);
 const dashboardStore = useDashboardStore();
-const { weekReport, weekVerification, inbox } = storeToRefs(dashboardStore);
+const {
+  weekReport,
+  weekReportLoaded,
+  weekReportFailed,
+  weekVerification,
+  attentionCount,
+  attentionComplete,
+  attentionFailed,
+  attentionLoaded,
+} = storeToRefs(dashboardStore);
 const activityStore = useActivityStore();
 const { days: activityDays, activityLoaded, activityError } = storeToRefs(activityStore);
 const sessionsStore = useSessionsStore();
@@ -76,22 +72,6 @@ const showFirstRunChecklist = computed(
 
 function openSession(session: WorkSessionRecord): void {
   void openSessionDetail(session.id);
-}
-
-/** Opens the report scope of a synthesis request so the retry/cancel actions live in one place. */
-async function openRequest(item: InboxItem): Promise<void> {
-  if (item.kind === "backfill") {
-    await router.push({ name: "projects", params: { tab: "backfill" } });
-    return;
-  }
-  await router.push({
-    name: "reports",
-    query: {
-      period: item.request.period,
-      date: item.request.range.from,
-      ...(item.request.projectId ? { project: item.request.projectId } : {}),
-    },
-  });
 }
 
 /** Opens that day's report, linked the same way the report pages read period and date from the URL. */
@@ -138,7 +118,13 @@ onBeforeUnmount(() => {
     <UiStatCard
       :label="t('dashboard.sessionsCompletedThisWeek')"
       :icon="CircleCheckBig"
-      :value="weekReport?.totals.sessions ?? 0"
+      :value="
+        weekReportFailed
+          ? t('attention.unavailable')
+          : weekReportLoaded
+            ? (weekReport?.totals.sessions ?? 0)
+            : t('attention.loadingShort')
+      "
       :delta="weekDelta"
     >
       <UiSparkline v-if="weekTrend.length" :values="weekTrend" :label="t('dashboard.sessionsCompletedPerDayThis')" />
@@ -149,22 +135,35 @@ onBeforeUnmount(() => {
     <UiStatCard
       :label="t('dashboard.verificationThisWeek')"
       :icon="ShieldCheck"
-      :value="weekVerification.passed"
-      :suffix="t('dashboard.passed', { total: weekVerification.total })"
+      :value="
+        weekReportFailed
+          ? t('attention.unavailable')
+          : weekReportLoaded
+            ? weekVerification.passed
+            : t('attention.loadingShort')
+      "
+      :suffix="weekReportLoaded ? t('dashboard.passed', { total: weekVerification.total }) : undefined"
     >
-      <VerificationBreakdown :counts="weekVerification" />
+      <VerificationBreakdown v-if="weekReportLoaded" :counts="weekVerification" />
     </UiStatCard>
     <UiStatCard
       :label="t('common.pending')"
       :icon="Inbox"
-      :value="inbox.length"
-      :value-tone="inbox.length ? 'attention' : undefined"
-      :foot="inbox.length ? t('dashboard.waitingForTheAgentOr') : t('common.allCaughtUp')"
+      :value="
+        attentionFailed
+          ? t('attention.unavailable')
+          : attentionLoaded
+            ? (attentionCount ?? t('attention.unavailable'))
+            : t('attention.loadingShort')
+      "
+      :value-tone="attentionCount ? 'attention' : undefined"
+      :foot="attentionComplete ? t('attention.countDescription') : t('attention.incompleteCount')"
     />
   </div>
 
   <div class="dashboard__grid">
     <div class="dashboard__main">
+      <AttentionBox />
       <UiBox>
         <template #header>
           <UiBoxTitle eyebrow="Activity" :title="t('dashboard.activityTitle')" />
@@ -177,59 +176,6 @@ onBeforeUnmount(() => {
         </UiFlash>
         <UiSkeleton v-else-if="!activityLoaded" variant="text" :count="3" :label="t('dashboard.activityLoading')" />
         <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
-      </UiBox>
-
-      <UiBox>
-        <template #header>
-          <UiBoxTitle eyebrow="Action required" :title="t('dashboard.needsAttention')" />
-          <UiCounter v-if="inbox.length" :count="inbox.length" tone="attention" />
-        </template>
-        <UiEmptyState
-          v-if="inbox.length === 0"
-          compact
-          :icon="CircleCheckBig"
-          :title="t('common.allCaughtUp')"
-          :description="t('dashboard.noReportSynthesisOrMetadata')"
-        />
-        <VirtualList
-          v-else
-          :items="inbox"
-          :enabled="true"
-          :estimate-item-height="104"
-          :label="t('dashboard.pendingRequestsList')"
-        >
-          <template #default="{ item }">
-            <UiBoxRow :title="item.title" :meta="item.meta">
-              <template #leading>
-                <component
-                  :is="requestStatus[item.request.status].icon"
-                  :size="16"
-                  :stroke-width="1.75"
-                  :class="`tone-${requestStatus[item.request.status].tone}`"
-                  aria-hidden="true"
-                />
-              </template>
-              <template #labels
-                ><StatusLabel :status="requestStatus[item.request.status]" :show-icon="false"
-              /></template>
-              <template #trailing>
-                <UiCopyButton
-                  v-if="item.request.status !== 'failed'"
-                  size="sm"
-                  :label="t('common.copyAgentInstruction')"
-                  :text="item.kind === 'synthesis' ? reportSynthesisInstruction() : metadataBackfillInstruction()"
-                  :success-message="t('dashboard.naturalLanguageInstructionCopied')"
-                />
-                <UiButton v-else size="sm" :icon="RotateCcw" @click="openRequest(item)">{{
-                  t("dashboard.goToRetry")
-                }}</UiButton>
-                <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" @click="openRequest(item)">{{
-                  t("common.go")
-                }}</UiButton>
-              </template>
-            </UiBoxRow>
-          </template>
-        </VirtualList>
       </UiBox>
 
       <UiBox>

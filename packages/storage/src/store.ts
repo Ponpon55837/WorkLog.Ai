@@ -45,6 +45,8 @@ import type {
   CancelReportSynthesisRequestResult,
   CreateMetadataBackfillRequestInput,
   CreateMetadataBackfillRequestResult,
+  AttentionQuery,
+  AttentionResult,
   DashboardSummary,
   EvidenceRecord,
   GraphQuery,
@@ -216,6 +218,7 @@ import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
 import { OutstandingItemService } from "./outstanding-item-service.js";
 import { OutstandingCleanupService } from "./outstanding-cleanup-service.js";
+import { AttentionService } from "./attention-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { AgentReadAuditService } from "./agent-read-audit-service.js";
@@ -348,6 +351,7 @@ export class WorkIntelligenceStore {
   private readonly outstandingItems: OutstandingItemService;
   private readonly outstandingCleanup: OutstandingCleanupService;
   private readonly knowledgePages: KnowledgePageService;
+  private readonly attention: AttentionService;
   private readonly knowledge: KnowledgeRepository;
   private readonly knowledgeService: KnowledgeService;
   private readonly graphBuilder: GraphBuilder;
@@ -485,6 +489,15 @@ export class WorkIntelligenceStore {
       recordKnowledge: (input) => this.recordKnowledge(input),
     });
     this.policyGate = new ProjectPolicyGate(this);
+    this.attention = new AttentionService(this.db, {
+      checkProjectById: (id) => this.checkProjectById(id),
+      refreshRequests: (kind) => {
+        if (kind === "synthesis") this.reportSynthesis.listReportSynthesisRequests({ limit: 1 });
+        else this.metadataBackfillService.listMetadataBackfillRequests({ limit: 1 });
+      },
+      knowledge: (projectId) => this.searchKnowledge({ projectId, pageSize: 200 }),
+      pages: (projectId) => this.knowledgePages.attentionPages(projectId),
+    });
     this.contextRecallService = new ContextRecallService(this.db, this.searchIndex, {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       listProjects: () => this.listProjects(),
@@ -847,6 +860,10 @@ export class WorkIntelligenceStore {
       skipped,
       failures,
     };
+  }
+
+  public getAttention(query: AttentionQuery = {}): AttentionResult {
+    return this.attention.list(query);
   }
 
   public getDashboardSummary(): DashboardSummary {

@@ -560,16 +560,13 @@ test.describe("Work Intelligence browser regression", () => {
 
     await selectCurrentPage.check();
     // Same-page background refreshes must not erase selections while a user prepares a batch.
-    await page.route(
-      "**/api/outstanding-items?*",
-      async (route) => {
-        const response = await route.fetch();
-        const body = (await response.json()) as { items: Array<{ sourceSessionTitle: string }> };
-        for (const item of body.items) item.sourceSessionTitle = "Refreshed batch source";
-        await route.fulfill({ response, json: body });
-      },
-      { times: 1 },
-    );
+    // SSE may refresh again after visibilitychange; keep the fixture stable until both assertions finish.
+    await page.route("**/api/outstanding-items?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { items: Array<{ sourceSessionTitle: string }> };
+      for (const item of body.items) item.sourceSessionTitle = "Refreshed batch source";
+      await route.fulfill({ response, json: body });
+    });
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect(
       page
@@ -579,6 +576,7 @@ test.describe("Work Intelligence browser regression", () => {
         .first(),
     ).toBeVisible();
     await expect(selectCurrentPage).toBeChecked();
+    await page.unroute("**/api/outstanding-items?*");
     await notNeededBatch.click();
     const confirmation = page.getByRole("dialog", { name: tt("outstanding.markNotNeeded"), exact: true });
     await expect(confirmation).toBeVisible();
@@ -818,6 +816,11 @@ test.describe("Work Intelligence browser regression", () => {
 
     withAgentStore((store) => store.setSessionVoid({ sessionId: reviewSourceId, voided: false }));
     await page.reload();
+    // Selected sources now survive reload through the URL; close the restored panel before reopening it.
+    await expect(page.getByRole("dialog", { name: tt("common.knowledgePages") })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: tt("common.knowledgePages") })).toBeHidden();
+    await expect(page).not.toHaveURL(/knowledgePage=/);
     const restoredRow = page.getByTestId("knowledge-page-row").filter({ hasText: "常見陷阱" });
     await expect(restoredRow).toContainText(tt("knowledge.sourcesNeedChecking"));
     await restoredRow.getByRole("button", { name: tt("knowledge.view") }).click();

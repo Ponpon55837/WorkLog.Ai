@@ -63,6 +63,7 @@ export const useProjectsStore = defineStore("projects", () => {
     mutation: (input: ProjectInput) => useApi().client.createProject(input),
     onSuccess: async () => {
       await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
       ]);
@@ -73,6 +74,7 @@ export const useProjectsStore = defineStore("projects", () => {
       useApi().client.updateProject(projectId, { status }),
     onSuccess: async () => {
       await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
@@ -86,6 +88,7 @@ export const useProjectsStore = defineStore("projects", () => {
       useApi().client.updateProject(projectId, { repositoryUrl }),
     onSuccess: async () => {
       await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
       ]);
@@ -103,6 +106,7 @@ export const useProjectsStore = defineStore("projects", () => {
     }) => useApi().client.updateProjectLocation(projectId, { rootPath, confirmedTrackedScope }),
     onSuccess: async () => {
       await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
@@ -116,6 +120,7 @@ export const useProjectsStore = defineStore("projects", () => {
       useApi().client.deleteProject(projectId, confirmationName),
     onSuccess: async () => {
       await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.projects.list, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.projects.deletionAudits, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.projects.backups, exact: true }),

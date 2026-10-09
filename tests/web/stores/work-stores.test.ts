@@ -1,3 +1,4 @@
+import { useQueryCache } from "@pinia/colada";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
@@ -124,6 +125,15 @@ describe("work data stores", () => {
     expect(harness.count("/api/sessions/session-1/summary", "PATCH")).toBe(1);
     store.closeSessionDetail();
     expect(store.selectedDetail).toBeNull();
+  });
+
+  it("keeps a successful Session save successful when a background refresh is aborted", async () => {
+    const store = useSessionsStore();
+    vi.spyOn(useQueryCache(), "invalidateQueries").mockRejectedValue(new DOMException("aborted", "AbortError"));
+    await expect(
+      store.saveSessionEdits({ sessionId: "session-1", summary: { idempotencyKey: "edit", value: "Updated" } }),
+    ).resolves.toBeUndefined();
+    expect(harness.count("/api/sessions/session-1/summary", "PATCH")).toBe(1);
   });
 
   it("maps a report API error and blocks incomplete or oversized custom ranges before fetching", async () => {

@@ -58,6 +58,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
 
   async function invalidatePages(): Promise<void> {
     await Promise.all([
+      queryCache.invalidateQueries({ key: queryKeys.attention.list }),
       queryCache.invalidateQueries({ key: queryKeys.knowledge.pages }),
       queryCache.invalidateQueries({ key: queryKeys.knowledge.pageVersions }),
     ]);

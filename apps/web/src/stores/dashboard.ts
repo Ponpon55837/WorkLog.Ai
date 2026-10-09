@@ -1,107 +1,44 @@
 import { useQuery } from "@pinia/colada";
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { MetadataBackfillRequest, ReportSynthesisRequest, WorkReport } from "@work-intelligence/core";
+import type { AttentionResult, WorkReport } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
-import { reportPeriodLabels } from "../utils/labels";
-import { toDateInputValue } from "../utils/format";
 import { queryKeys } from "./query-keys";
-import { t } from "../i18n";
 
-export type InboxItem =
-  | { kind: "synthesis"; request: ReportSynthesisRequest; title: string; meta: string }
-  | { kind: "backfill"; request: MetadataBackfillRequest; title: string; meta: string };
-
-type DashboardOverview = {
-  weekReport: WorkReport | null;
-  synthesisRequests: ReportSynthesisRequest[];
-  backfillRequest: MetadataBackfillRequest | null;
-};
-
-/** Owns the dashboard overview and its app-shell inbox counts. */
+/** Owns full dashboard report totals and the unfiltered app-shell attention count. */
 export const useDashboardStore = defineStore("dashboard", () => {
   const overviewEnabled = ref(false);
   const overviewQuery = useQuery({
     key: queryKeys.dashboard.overview,
     enabled: overviewEnabled,
-    query: async ({ signal }): Promise<DashboardOverview> => {
-      const client = useApi().client;
-      const [reportResult, synthesisResult, backfillResult] = await Promise.all([
-        client
-          .getReport({ period: "week", date: toDateInputValue(new Date()), evidencePageSize: 1 }, signal)
-          .catch((error: unknown) => {
-            if (useApi().isAbortError(error)) throw error;
-            return null;
-          }),
-        client.listReportSynthesisRequests({ limit: 50 }, signal).catch((error: unknown) => {
-          if (useApi().isAbortError(error)) throw error;
-          return null;
-        }),
-        client.listMetadataBackfillRequests(signal).catch((error: unknown) => {
-          if (useApi().isAbortError(error)) throw error;
-          return null;
-        }),
-      ]);
-
-      return {
-        weekReport: reportResult?.outcome === "report" ? reportResult : null,
-        synthesisRequests: synthesisResult?.outcome === "report_synthesis_requests" ? synthesisResult.requests : [],
-        backfillRequest:
-          backfillResult?.outcome === "metadata_backfill_requests" ? (backfillResult.requests[0] ?? null) : null,
-      };
+    query: async ({ signal }): Promise<WorkReport | null> => {
+      const result = await useApi().client.getReport({ period: "week", evidencePageSize: 1 }, signal);
+      return result.outcome === "report" ? result : null;
     },
   });
-
-  const weekReport = computed(() => overviewQuery.data.value?.weekReport ?? null);
-  const synthesisRequests = computed(() => overviewQuery.data.value?.synthesisRequests ?? []);
-  const backfillRequest = computed(() => overviewQuery.data.value?.backfillRequest ?? null);
-  const dashboardLoading = computed(() => overviewQuery.isLoading.value);
-
-  /** Only the newest request per report scope matters; older completed requests are not pending work. */
-  function latestPerScope(requests: readonly ReportSynthesisRequest[]): ReportSynthesisRequest[] {
-    const seen = new Set<string>();
-    return requests.filter((request) => {
-      const key = `${request.period}:${request.range.from}:${request.range.to}:${request.projectId ?? "all"}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
-
-  const inbox = computed<InboxItem[]>(() => {
-    const items: InboxItem[] = latestPerScope(synthesisRequests.value)
-      .filter(
-        (request) => request.status === "pending" || request.status === "processing" || request.status === "failed",
-      )
-      .map((request) => ({
-        kind: "synthesis",
-        request,
-        title:
-          request.status === "failed"
-            ? t("dashboard.reportAiSynthesisDidNot", { period: reportPeriodLabels[request.period] })
-            : t("dashboard.reportAwaitingAgentSynthesis", { period: reportPeriodLabels[request.period] }),
-        meta: t("dashboard.reportSynthesisSourceSessions", {
-          from: request.range.from,
-          to: request.range.to,
-          project: request.projectName ?? t("common.allTrackedProjects"),
-          count: request.sourceSessionIds.length,
-        }),
-      }));
-    const backfill = backfillRequest.value;
-    if (
-      backfill &&
-      (backfill.status === "pending" || backfill.status === "processing" || backfill.status === "failed")
-    ) {
-      items.push({
-        kind: "backfill",
-        request: backfill,
-        title: t("dashboard.sessionMetadataAwaitingAgentBackfill"),
-        meta: t("dashboard.metadataBackfillWritesBackOnly"),
-      });
-    }
-    return items;
+  const attentionQuery = useQuery<AttentionResult>({
+    key: [...queryKeys.attention.list, { projectId: "", kind: "", page: 1, pageSize: 20 }],
+    enabled: overviewEnabled,
+    query: ({ signal }) => useApi().client.getAttention({ page: 1, pageSize: 20 }, signal),
   });
-
+  const weekReport = computed(() => overviewQuery.data.value ?? null);
+  const weekReportLoaded = computed(() => overviewQuery.data.value !== undefined);
+  const weekReportFailed = computed(() => Boolean(overviewQuery.error.value));
+  const inbox = computed(() =>
+    attentionQuery.data.value?.outcome === "attention" ? attentionQuery.data.value.items : [],
+  );
+  const attentionCount = computed(() =>
+    attentionQuery.data.value?.outcome === "attention" ? attentionQuery.data.value.minimumTotal : undefined,
+  );
+  const attentionFailed = computed(() => Boolean(attentionQuery.error.value));
+  const attentionComplete = computed(
+    () =>
+      !attentionFailed.value &&
+      attentionQuery.data.value?.outcome === "attention" &&
+      attentionQuery.data.value.groups.every((group) => group.state === "complete"),
+  );
+  const attentionLoaded = computed(() => attentionQuery.data.value !== undefined);
+  const dashboardLoading = computed(() => overviewQuery.isLoading.value || attentionQuery.isLoading.value);
   const weekVerification = computed(() => {
     const totals = weekReport.value?.totals;
     return {
@@ -113,15 +50,21 @@ export const useDashboardStore = defineStore("dashboard", () => {
       notSupplied: totals?.verification.not_supplied ?? 0,
     };
   });
-
   async function loadDashboardData(): Promise<void> {
     overviewEnabled.value = true;
-    try {
-      await overviewQuery.refetch(true);
-    } catch (error) {
-      if (!useApi().isAbortError(error)) throw error;
-    }
+    await Promise.allSettled([overviewQuery.refetch(true), attentionQuery.refetch(true)]);
   }
-
-  return { weekReport, weekVerification, inbox, dashboardLoading, loadDashboardData };
+  return {
+    weekReport,
+    weekReportLoaded,
+    weekReportFailed,
+    weekVerification,
+    inbox,
+    attentionCount,
+    attentionComplete,
+    attentionFailed,
+    attentionLoaded,
+    dashboardLoading,
+    loadDashboardData,
+  };
 });
