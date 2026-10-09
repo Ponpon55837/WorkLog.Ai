@@ -232,6 +232,25 @@ export class KnowledgePageService {
     private readonly dependencies: KnowledgePageDependencies,
   ) {}
 
+  /** Bounded page window for attention; trust is still derived by this authoritative service. */
+  public attentionPages(projectId?: string): { items: KnowledgePageRecord[]; total: number } {
+    const scope = projectId ? "AND p.id = ?" : "";
+    const args = projectId ? [projectId] : [];
+    const total = (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM knowledge_pages k JOIN projects p ON p.id = k.project_id WHERE p.status = 'tracked' ${scope}`,
+        )
+        .get(...args) as { count: number }
+    ).count;
+    const rows = this.db
+      .prepare(
+        `SELECT k.* FROM knowledge_pages k JOIN projects p ON p.id = k.project_id WHERE p.status = 'tracked' ${scope} ORDER BY k.updated_at DESC, k.id DESC LIMIT 200`,
+      )
+      .all(...args) as PageRow[];
+    return { items: this.toRecords(rows), total };
+  }
+
   public listPages(query: KnowledgePageListQuery = {}): KnowledgePageListResult {
     if (query.projectRoot || query.projectId) {
       const decision = query.projectRoot

@@ -2,6 +2,8 @@
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { CircleCheckBig, RefreshCw, ScanSearch, X } from "lucide-vue-next";
+import UiSelect from "../ui/UiSelect.vue";
+import { useProjectsStore } from "../../stores/projects";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useToast } from "../../composables/useToast";
 import { metadataBackfillInstruction, useMetadataBackfillStore } from "../../stores/metadata-backfill";
@@ -26,6 +28,8 @@ import { t } from "../../i18n";
  */
 const metadataBackfillStore = useMetadataBackfillStore();
 const {
+  projectId,
+  requestId,
   metadataBackfillPreview: preview,
   metadataBackfillLoading,
   metadataBackfillError,
@@ -59,6 +63,11 @@ useActiveRequestWatch({
   },
 });
 
+const projectOptions = computed(() => [
+  { value: "", label: t("common.allTrackedProjects") },
+  ...useProjectsStore().trackedProjects.map((project) => ({ value: project.id, label: project.name })),
+]);
+
 const requestMessage = computed(() => {
   if (!request.value) {
     return "";
@@ -77,6 +86,12 @@ const requestMessage = computed(() => {
 
 <template>
   <div class="backfill">
+    <UiSelect
+      v-model="projectId"
+      :options="projectOptions"
+      :label="t('common.project')"
+      @update:model-value="requestId = ''"
+    />
     <UiFlash v-if="metadataBackfillError" tone="danger">{{ metadataBackfillError }}</UiFlash>
     <UiFlash v-if="metadataBackfillRequestError" tone="danger">{{ metadataBackfillRequestError }}</UiFlash>
 

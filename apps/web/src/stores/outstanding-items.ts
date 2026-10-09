@@ -94,7 +94,10 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     onSuccess: async (result: UpdateOutstandingItemStatusResult) => {
       if (result.outcome !== "outstanding_item_updated") return;
       // A later SSE refresh may cancel this read after the write already succeeded.
-      await Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list })]);
+      await Promise.allSettled([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
+      ]);
     },
   });
 
@@ -107,6 +110,7 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
         queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary }),
       ]);
     },

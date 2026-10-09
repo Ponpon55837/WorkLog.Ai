@@ -383,6 +383,17 @@ try {
   ]);
 
   const cases = {
+    "getAttention (mixed sources)": () => {
+      const result = benchStore.getAttention({ page: 1, pageSize: 20 });
+      if (
+        result.outcome !== "attention" ||
+        !result.items.length ||
+        result.groups.some((group) => group.state === "failed")
+      ) {
+        throw new Error("Attention benchmark must measure available synthetic source groups.");
+      }
+      return result;
+    },
     "getSessionDetail (200 architecture nodes)": () => {
       const result = benchStore.getSessionDetail(architectureSession.session.id);
       if (!result?.diagrams.length) throw new Error("Expected a complete architecture snapshot.");
@@ -513,6 +524,7 @@ try {
   };
 
   const limitsMs = {
+    "getAttention (mixed sources)": 500,
     "getSessionDetail (200 architecture nodes)": 250,
     "listSessionsPage (default)": 200,
     "listSessionDigests (page 100 + pending items)": 100,

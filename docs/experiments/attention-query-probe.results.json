@@ -1,0 +1,326 @@
+{
+  "fixture": {
+    "sessions": 5000,
+    "projects": 2,
+    "knowledge": 20,
+    "pages": 3
+  },
+  "sampleCount": 15,
+  "medianMs": 45.82,
+  "p90Ms": 55,
+  "maxMs": 57.26,
+  "coverage": [
+    {
+      "kind": "synthesis",
+      "state": "complete",
+      "total": 0,
+      "examined": 0,
+      "available": 0
+    },
+    {
+      "kind": "backfill",
+      "state": "complete",
+      "total": 0,
+      "examined": 0,
+      "available": 0
+    },
+    {
+      "kind": "cleanup",
+      "state": "complete",
+      "total": 0,
+      "examined": 0,
+      "available": 0
+    },
+    {
+      "kind": "decision",
+      "state": "partial",
+      "total": 500,
+      "examined": 200,
+      "available": 500
+    },
+    {
+      "kind": "knowledge",
+      "state": "complete",
+      "total": 20,
+      "examined": 20,
+      "available": 20
+    },
+    {
+      "kind": "knowledge_page",
+      "state": "complete",
+      "total": 3,
+      "examined": 3,
+      "available": 3
+    },
+    {
+      "kind": "outstanding",
+      "state": "complete",
+      "total": 0,
+      "examined": 0,
+      "available": 0
+    },
+    {
+      "kind": "metadata",
+      "state": "complete",
+      "total": 0,
+      "examined": 0,
+      "available": 0
+    }
+  ],
+  "plans": [
+    {
+      "sql": "SELECT id, started_at FROM report_synthesis_requests WHERE status = 'processing' AND started_at IS NOT NULL",
+      "plan": [
+        "SEARCH report_synthesis_requests USING INDEX idx_report_synthesis_requests_status (status=?)"
+      ]
+    },
+    {
+      "sql": "SELECT r.*, p.name AS project_name FROM report_synthesis_requests r LEFT JOIN projects p ON p.id = r.project_id WHERE (r.project_id IS NULL OR p.status = 'tracked') ORDER BY r.requested_at DESC, r.id DESC LIMIT ?",
+      "plan": [
+        "SCAN r USING INDEX idx_report_synthesis_requests_scope",
+        "SEARCH p USING INDEX sqlite_autoindex_projects_1 (id=?) LEFT-JOIN",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "WITH ranked AS (SELECT r.*, ROW_NUMBER() OVER (PARTITION BY scope_type, project_id, period, range_from, range_to ORDER BY requested_at DESC, id DESC) AS rank FROM report_synthesis_requests r), eligible AS ( SELECT r.id AS source_id, r.project_id, p.name AS project_name, '' AS title, r.status AS reason, json_array_length(r.source_session_ids_json) AS count, r.requested_at AS updated_at , r.period, r.range_from, r.range_to FROM ranked r LEFT JOIN projects p ON p.id = r.project_id WHERE r.rank = 1 AND r.status IN ('pending','processing','failed') AND (r.project_id IS NULL OR p.status = 'tracked') AND NOT EXISTS (SELECT 1 FROM json_each(r.source_session_ids_json) j LEFT JOIN sessions s ON s.id = j.value LEFT JOIN projects sp ON sp.id = s.project_id WHERE s.id IS NULL OR sp.id IS NULL OR sp.status != 'tracked' OR s.voided_at IS NOT NULL OR (r.project_id IS NOT NULL AND s.project_id != r.project_id)) ) SELECT *, COUNT(*) OVER () AS total FROM eligible ORDER BY updated_at DESC, source_id DESC LIMIT ?",
+      "plan": [
+        "CO-ROUTINE (subquery-5)",
+        "CO-ROUTINE ranked",
+        "CO-ROUTINE (subquery-6)",
+        "SCAN r",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN (subquery-6)",
+        "SCAN r",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SCAN j VIRTUAL TABLE INDEX 1:",
+        "SEARCH s USING INDEX sqlite_autoindex_sessions_1 (id=?) LEFT-JOIN",
+        "SEARCH sp USING INDEX sqlite_autoindex_projects_1 (id=?) LEFT-JOIN",
+        "SEARCH p USING INDEX sqlite_autoindex_projects_1 (id=?) LEFT-JOIN",
+        "SCAN (subquery-5)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT id, started_at FROM metadata_backfill_requests r WHERE r.status = 'processing' AND r.started_at IS NOT NULL AND (r.project_id IS NULL OR EXISTS ( SELECT 1 FROM projects p WHERE p.id = r.project_id AND p.status = 'tracked' ))",
+      "plan": [
+        "SEARCH r USING INDEX idx_metadata_backfill_requests_status (status=?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH p USING INDEX sqlite_autoindex_projects_1 (id=?)"
+      ]
+    },
+    {
+      "sql": "SELECT r.*, p.name AS project_name FROM metadata_backfill_requests r LEFT JOIN projects p ON p.id = r.project_id WHERE (r.project_id IS NULL OR p.status = 'tracked') ORDER BY r.requested_at DESC, r.id DESC LIMIT ?",
+      "plan": [
+        "SCAN r USING INDEX idx_metadata_backfill_requests_scope",
+        "SEARCH p USING INDEX sqlite_autoindex_projects_1 (id=?) LEFT-JOIN",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "WITH ranked AS (SELECT r.*, ROW_NUMBER() OVER (PARTITION BY scope_type, project_id ORDER BY requested_at DESC, id DESC) AS rank FROM metadata_backfill_requests r), eligible AS ( SELECT r.id AS source_id, r.project_id, p.name AS project_name, '' AS title, r.status AS reason, json_array_length(r.source_session_ids_json) AS count, r.requested_at AS updated_at FROM ranked r LEFT JOIN projects p ON p.id = r.project_id WHERE r.rank = 1 AND r.status IN ('pending','processing','failed') AND (r.project_id IS NULL OR p.status = 'tracked') AND NOT EXISTS (SELECT 1 FROM json_each(r.source_session_ids_json) j LEFT JOIN sessions s ON s.id = j.value LEFT JOIN projects sp ON sp.id = s.project_id WHERE s.id IS NULL OR sp.id IS NULL OR sp.status != 'tracked' OR s.voided_at IS NOT NULL OR (r.project_id IS NOT NULL AND s.project_id != r.project_id)) ) SELECT *, COUNT(*) OVER () AS total FROM eligible ORDER BY updated_at DESC, source_id DESC LIMIT ?",
+      "plan": [
+        "CO-ROUTINE (subquery-5)",
+        "CO-ROUTINE ranked",
+        "CO-ROUTINE (subquery-6)",
+        "SCAN r",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN (subquery-6)",
+        "SCAN r",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SCAN j VIRTUAL TABLE INDEX 1:",
+        "SEARCH s USING INDEX sqlite_autoindex_sessions_1 (id=?) LEFT-JOIN",
+        "SEARCH sp USING INDEX sqlite_autoindex_projects_1 (id=?) LEFT-JOIN",
+        "SEARCH p USING INDEX sqlite_autoindex_projects_1 (id=?) LEFT-JOIN",
+        "SCAN (subquery-5)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT r.id AS source_id, r.project_id, p.name AS project_name, '' AS title, 'review' AS reason, COALESCE(proposals.count, 0) AS count, r.requested_at AS updated_at, COUNT(*) OVER () AS total FROM outstanding_cleanup_requests r JOIN projects p ON p.id = r.project_id LEFT JOIN (SELECT request_id, COUNT(*) AS count FROM outstanding_cleanup_proposals WHERE review_status = 'pending' GROUP BY request_id) proposals ON proposals.request_id = r.id WHERE p.status = 'tracked' AND r.status = 'awaiting_review' ORDER BY updated_at DESC, source_id DESC LIMIT ?",
+      "plan": [
+        "CO-ROUTINE (subquery-3)",
+        "MATERIALIZE proposals",
+        "SCAN outstanding_cleanup_proposals USING COVERING INDEX idx_outstanding_cleanup_proposals_review",
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH r USING INDEX idx_outstanding_cleanup_requests_date (project_id=?)",
+        "SEARCH proposals USING AUTOMATIC COVERING INDEX (request_id=?) LEFT-JOIN",
+        "SCAN (subquery-3)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT d.id AS source_id, d.project_id, p.name AS project_name, substr(d.text,1,500) AS title, 'pending' AS reason, 1 AS count, s.completed_at AS updated_at, COUNT(*) OVER () AS total FROM session_decisions d JOIN sessions s ON s.id = d.session_id JOIN projects p ON p.id = d.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL AND d.origin = 'agent_autonomous' AND d.review_status = 'pending' ORDER BY updated_at DESC, source_id DESC LIMIT ?",
+      "plan": [
+        "CO-ROUTINE (subquery-2)",
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH d USING INDEX idx_session_decisions_pending_project (project_id=? AND review_status=?)",
+        "SEARCH s USING INDEX sqlite_autoindex_sessions_1 (id=?)",
+        "SCAN (subquery-2)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT COUNT(*) AS count FROM knowledge k JOIN projects p ON p.id = k.project_id WHERE p.status = 'tracked' AND k.status = ?",
+      "plan": [
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH k USING INDEX idx_knowledge_project_updated (project_id=?)"
+      ]
+    },
+    {
+      "sql": "SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id WHERE p.status = 'tracked' AND k.status = ? ORDER BY k.updated_at DESC, k.id DESC LIMIT ? OFFSET ?",
+      "plan": [
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH k USING INDEX idx_knowledge_project_updated (project_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT * FROM projects ORDER BY updated_at DESC, name ASC",
+      "plan": [
+        "SCAN projects",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT knowledge_id, SUM(kind <> 'contradicted') AS confirmed, SUM(kind = 'contradicted') AS contradicted, MAX(CASE WHEN kind <> 'contradicted' THEN occurred_at END) AS last_confirmed_at, MAX(CASE WHEN kind = 'contradicted' THEN occurred_at END) AS last_contradicted_at FROM knowledge_feedback WHERE knowledge_id IN (SELECT value FROM json_each(?)) GROUP BY knowledge_id",
+      "plan": [
+        "SEARCH knowledge_feedback USING INDEX idx_knowledge_feedback_knowledge (knowledge_id=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER"
+      ]
+    },
+    {
+      "sql": "SELECT * FROM projects WHERE id = ?",
+      "plan": [
+        "SEARCH projects USING INDEX sqlite_autoindex_projects_1 (id=?)"
+      ]
+    },
+    {
+      "sql": "SELECT id, title, completed_at, changed_files_json FROM sessions WHERE project_id = ? AND voided_at IS NULL AND completed_at > ? ORDER BY completed_at ASC, id ASC",
+      "plan": [
+        "SEARCH sessions USING INDEX idx_sessions_project_completed (project_id=? AND completed_at>?)",
+        "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT COUNT(*) AS count FROM knowledge_pages k JOIN projects p ON p.id = k.project_id WHERE p.status = 'tracked'",
+      "plan": [
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH k USING COVERING INDEX idx_knowledge_pages_project_slug (project_id=?)"
+      ]
+    },
+    {
+      "sql": "SELECT k.* FROM knowledge_pages k JOIN projects p ON p.id = k.project_id WHERE p.status = 'tracked' ORDER BY k.updated_at DESC, k.id DESC LIMIT 200",
+      "plan": [
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH k USING INDEX idx_knowledge_pages_project_slug (project_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT id, completed_at FROM sessions WHERE project_id = ? AND voided_at IS NULL AND completed_at > ? ORDER BY completed_at ASC, id ASC",
+      "plan": [
+        "SEARCH sessions USING INDEX idx_sessions_project_completed (project_id=? AND completed_at>?)",
+        "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+      ]
+    },
+    {
+      "sql": "SELECT id, project_id, title, updated_at, voided_at FROM sessions WHERE id IN (SELECT value FROM json_each(?))",
+      "plan": [
+        "SEARCH sessions USING INDEX sqlite_autoindex_sessions_1 (id=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER"
+      ]
+    },
+    {
+      "sql": "SELECT target_id, action, occurred_at FROM void_audit WHERE target_type = 'session' AND target_id IN (SELECT value FROM json_each(?)) ORDER BY occurred_at ASC, rowid ASC",
+      "plan": [
+        "SCAN void_audit",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "WITH counts AS (SELECT p.id AS project_id, p.name AS project_name, COUNT(*) AS count, MAX(s.completed_at) AS updated_at FROM outstanding_items o JOIN sessions s ON s.id = o.source_session_id JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL AND o.status = 'pending' GROUP BY p.id) SELECT project_id AS source_id, *, '' AS title, 'open' AS reason, COUNT(*) OVER () AS total FROM counts ORDER BY updated_at DESC, source_id DESC LIMIT ?",
+      "plan": [
+        "CO-ROUTINE (subquery-3)",
+        "CO-ROUTINE counts",
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH s USING INDEX idx_sessions_project_completed (project_id=?)",
+        "SEARCH o USING INDEX idx_outstanding_items_session (source_session_id=?)",
+        "USE TEMP B-TREE FOR GROUP BY",
+        "SCAN counts",
+        "SCAN (subquery-3)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "sql": "WITH counts AS (SELECT p.id AS project_id, p.name AS project_name, COUNT(*) AS count, MAX(s.completed_at) AS updated_at FROM sessions s JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL AND (s.changed_files_confirmed = 0 OR s.verification_json IS NULL) GROUP BY p.id) SELECT project_id AS source_id, *, '' AS title, 'missing' AS reason, COUNT(*) OVER () AS total FROM counts ORDER BY updated_at DESC, source_id DESC LIMIT ?",
+      "plan": [
+        "CO-ROUTINE (subquery-3)",
+        "CO-ROUTINE counts",
+        "SEARCH p USING INDEX idx_projects_status (status=?)",
+        "SEARCH s USING INDEX idx_sessions_project_completed (project_id=?)",
+        "USE TEMP B-TREE FOR GROUP BY",
+        "SCAN counts",
+        "SCAN (subquery-3)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    }
+  ],
+  "cpuSampledMs": [
+    {
+      "functionName": "all",
+      "ms": 1967.97
+    },
+    {
+      "functionName": "anonymous",
+      "ms": 1054.25
+    },
+    {
+      "functionName": "knowledgeStaleness",
+      "ms": 371.81
+    },
+    {
+      "functionName": "normalizePath",
+      "ms": 298.19
+    },
+    {
+      "functionName": "prepare",
+      "ms": 173.46
+    },
+    {
+      "functionName": "loadLaterSessions",
+      "ms": 153.82
+    },
+    {
+      "functionName": "toRecords",
+      "ms": 122.33
+    },
+    {
+      "functionName": "post",
+      "ms": 89.96
+    },
+    {
+      "functionName": "parseJson",
+      "ms": 89.84
+    },
+    {
+      "functionName": "(garbage collector)",
+      "ms": 88.62
+    },
+    {
+      "functionName": "pointer",
+      "ms": 69.9
+    },
+    {
+      "functionName": "withKnowledgeTrustMany",
+      "ms": 40.48
+    }
+  ]
+}

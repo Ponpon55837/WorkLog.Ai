@@ -109,6 +109,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | --- | ---: |
 | Session 列表（預設第一頁） | 200 ms |
 | Dashboard | 1,000 ms |
+| 提醒聚合（八類混合來源，每類最多 200 筆） | 500 ms |
 | 週報 | 750 ms |
 | 年報 | 1,500 ms |
 | Agent context | 2,500 ms |
@@ -237,3 +238,9 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 原生架構閱讀器的跨瀏覽器案例涵蓋群組、來源、直接關係、作者路徑、面板收合、縮放／背景拖曳、鍵盤／焦點、重載網址、明暗主題／繁中英文、375／960／1440 視窗與桌面側欄縮窄、axe、CSP、HTML 字串逸出與未知版本來源回退。200 節點案例保存選取至兩個繪製幀的五筆樣本及中位數（寬鬆 2,000ms 回歸門檻），不是輸入延遲／FPS／冷啟動網路或實機 Safari／觸控的驗收；密集及巢狀圖不在本輪量測範圍。
 
 進行中驗證回歸：`tests/storage/verification-progress.test.ts` 檢查同筆狀態稽核、補登區別、205 筆進行中超過來源上限的完整統計與匯出匯入；MCP/schema 與三瀏覽器案例驗證 `not_run → in_progress → passed/failed`、雙語明暗主題、1440／960／375px、axe 與不受信任字串逸出。合成 5,000 筆 read-path benchmark 新增 `getReport (in-progress verification)`，15 次的 p90 上限 750ms。
+
+## 五項整合 A1 提醒聚合
+
+`tests/storage/attention.test.ts` 使用隔離合成 SQLite 驗證混合來源、原狀態不變、全域請求來源再閘門、paused／unknown／void 排除、最新請求優先、220 個決策與 200 列窗口分開、未知可信度範圍及來源失敗不洩漏正文。REST 測試涵蓋成功、400 參數上限／未知欄位、policy skip、Origin 與固定 500 遮蔽。前端 store 驗證完整 query keys、全域快取共用、報告 server date 及獨立錯誤。
+
+`tests/e2e/attention.spec.ts` 在兩語系、明暗主題及 1440／960／375px 檢查框內鍵盤捲動、URL／reload、axe、無水平溢出，同名 Knowledge 的精確來源歷史與 Esc，以及部分／失敗來源不呈現健康空清單。這些案例標記 cross-browser，三個 Playwright 引擎都執行；不等於 macOS Safari 實機驗收。正式數量及 p90 測量結果待本階段完成後記錄。

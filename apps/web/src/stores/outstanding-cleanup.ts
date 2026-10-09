@@ -137,7 +137,11 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
 
   const createMutation = useMutation({
     mutation: (input: CreateOutstandingCleanupRequestInput) => useApi().client.createOutstandingCleanupRequest(input),
-    onSuccess: () => Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests })]),
+    onSuccess: () =>
+      Promise.allSettled([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
+      ]),
   });
   const decideMutation = useMutation({
     mutation: (input: DecideOutstandingCleanupProposalsInput) =>
@@ -150,6 +154,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
         queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary }),
       ]);
     },
@@ -159,6 +164,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     mutation: (id: string) => useApi().client.cancelOutstandingCleanupRequest(id),
     onSuccess: async () => {
       await Promise.allSettled([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals }),
       ]);

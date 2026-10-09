@@ -14,6 +14,7 @@ import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
+import { useProjectsStore } from "./projects";
 import { useSessionsStore } from "./sessions";
 import { t } from "../i18n";
 
@@ -26,31 +27,44 @@ export function metadataBackfillInstruction(): string {
 export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
   const queryCache = useQueryCache();
   const metadataBackfillActive = ref(false);
+  const projectId = ref("");
+  const requestId = ref("");
   const requestRefreshQuietly = ref(false);
   const metadataBackfillActionError = ref("");
   const metadataBackfillRequestActionError = ref("");
 
   const previewQuery = useQuery({
-    key: queryKeys.projects.metadataBackfillPreview,
+    key: () => [...queryKeys.projects.metadataBackfillPreview, projectId.value],
     enabled: false,
-    query: ({ signal }): Promise<MetadataBackfillPreviewResult> => useApi().client.previewMetadataBackfill(50, signal),
+    query: ({ signal }): Promise<MetadataBackfillPreviewResult> => {
+      const project = useProjectsStore().projects.find(
+        (item) => item.id === projectId.value && item.status === "tracked",
+      );
+      if (projectId.value && !project) throw new Error(t("knowledge.knowledgeProjectNotFound"));
+      return useApi().client.previewMetadataBackfill(50, signal, project?.rootPath);
+    },
   });
   const requestQuery = useQuery({
-    key: queryKeys.projects.metadataBackfillView,
+    key: () => [...queryKeys.projects.metadataBackfillView, projectId.value, requestId.value],
     enabled: metadataBackfillActive,
     query: ({ signal }): Promise<MetadataBackfillRequestListQueryResult> =>
-      useApi().client.listMetadataBackfillRequests(signal),
+      useApi().client.listMetadataBackfillRequests(signal, {
+        projectId: projectId.value || undefined,
+        requestId: requestId.value || undefined,
+      }),
   });
 
   async function invalidateRequestQueries(): Promise<void> {
     await Promise.all([
-      queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
-      queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
+      queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView }),
+      queryCache.invalidateQueries({ key: queryKeys.attention.list }),
     ]);
   }
 
   function setRequestQueryData(requests: MetadataBackfillRequest[]): void {
-    queryCache.setQueryData(queryKeys.projects.metadataBackfillView, {
+    if (requests.length && (requests[0]!.projectId ?? "") !== projectId.value) return;
+    if (requests.length && requestId.value && requests[0]!.id !== requestId.value) return;
+    queryCache.setQueryData([...queryKeys.projects.metadataBackfillView, projectId.value, requestId.value], {
       outcome: "metadata_backfill_requests",
       requests,
     } satisfies MetadataBackfillRequestListQueryResult);
@@ -120,13 +134,13 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
 
   function setMetadataBackfillActive(active: boolean): void {
     if (active) {
-      void queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }, false);
+      void queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView }, false);
       metadataBackfillActive.value = true;
       return;
     }
 
     metadataBackfillActive.value = false;
-    queryCache.cancelQueries({ key: queryKeys.projects.metadataBackfillView, exact: true });
+    queryCache.cancelQueries({ key: queryKeys.projects.metadataBackfillView });
   }
 
   async function fetchMetadataBackfillRequest(quiet: boolean): Promise<void> {
@@ -154,6 +168,7 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
 
   async function createMetadataBackfillRequest(): Promise<void> {
     const preview = metadataBackfillPreview.value;
+    if (projectId.value && preview?.project?.id !== projectId.value) return;
     if (!preview?.items.length || createRequestMutation.isLoading.value) return;
 
     metadataBackfillRequestActionError.value = "";
@@ -229,6 +244,8 @@ export const useMetadataBackfillStore = defineStore("metadata-backfill", () => {
   }
 
   return {
+    projectId,
+    requestId,
     metadataBackfillPreview,
     metadataBackfillLoading,
     metadataBackfillError,

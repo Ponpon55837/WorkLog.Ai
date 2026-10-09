@@ -173,6 +173,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     onSuccess: async (_sessionId, input) => {
       const invalidations = [
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
       ];
       if (input.title || input.summary) {
@@ -189,7 +190,8 @@ export const useSessionsStore = defineStore("sessions", () => {
       if (input.workSummary) {
         invalidations.push(queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }));
       }
-      await Promise.all(invalidations);
+      // Refresh failures belong to the reading views; the write above has already succeeded.
+      await Promise.allSettled(invalidations);
     },
   });
   const linkSessionsMutation = useMutation({
@@ -225,7 +227,8 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.agents, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
-        queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.activity }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
@@ -252,7 +255,8 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.agents, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
-        queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.activity }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
@@ -277,6 +281,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       if (result.outcome !== "evidence_void_updated") return;
       await Promise.all([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports }),

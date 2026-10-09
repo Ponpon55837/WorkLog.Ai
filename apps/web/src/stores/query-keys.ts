@@ -5,6 +5,7 @@ export const queryKeys = {
   app: {
     health: ["app", "health"] as const,
   },
+  attention: { list: ["attention", "list"] as const },
   dashboard: {
     summary: ["dashboard"] as const,
     overview: ["dashboard", "overview"] as const,

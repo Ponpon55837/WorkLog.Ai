@@ -2,22 +2,37 @@ import type {
   CancelMetadataBackfillRequestResult,
   CreateMetadataBackfillRequestResult,
   MetadataBackfillPreviewResult,
+  MetadataBackfillRequestQuery,
   MetadataBackfillRequestListQueryResult,
 } from "@work-intelligence/core";
 import { appendQuery, type ApiTransport } from "./transport";
 
 export interface MetadataBackfillApi {
-  listMetadataBackfillRequests(signal?: AbortSignal): Promise<MetadataBackfillRequestListQueryResult>;
+  listMetadataBackfillRequests(
+    signal?: AbortSignal,
+    query?: MetadataBackfillRequestQuery,
+  ): Promise<MetadataBackfillRequestListQueryResult>;
   createMetadataBackfillRequest(projectId?: string, signal?: AbortSignal): Promise<CreateMetadataBackfillRequestResult>;
   cancelMetadataBackfillRequest(requestId: string, signal?: AbortSignal): Promise<CancelMetadataBackfillRequestResult>;
-  previewMetadataBackfill(limit?: number, signal?: AbortSignal): Promise<MetadataBackfillPreviewResult>;
+  previewMetadataBackfill(
+    limit?: number,
+    signal?: AbortSignal,
+    projectRoot?: string,
+  ): Promise<MetadataBackfillPreviewResult>;
 }
 
 export function createMetadataBackfillApi(client: ApiTransport): MetadataBackfillApi {
   return {
-    listMetadataBackfillRequests(signal?: AbortSignal): Promise<MetadataBackfillRequestListQueryResult> {
+    listMetadataBackfillRequests(
+      signal?: AbortSignal,
+      query?: MetadataBackfillRequestQuery,
+    ): Promise<MetadataBackfillRequestListQueryResult> {
       return client.request<MetadataBackfillRequestListQueryResult>(
-        "/api/backfill/metadata-requests?scopeType=all&limit=1",
+        appendQuery("/api/backfill/metadata-requests", {
+          scopeType: query?.projectId ? "project" : "all",
+          limit: 1,
+          ...query,
+        }),
         { signal },
       );
     },
@@ -46,10 +61,17 @@ export function createMetadataBackfillApi(client: ApiTransport): MetadataBackfil
       );
     },
 
-    previewMetadataBackfill(limit = 50, signal?: AbortSignal): Promise<MetadataBackfillPreviewResult> {
-      return client.request<MetadataBackfillPreviewResult>(appendQuery("/api/backfill/metadata/preview", { limit }), {
-        signal,
-      });
+    previewMetadataBackfill(
+      limit = 50,
+      signal?: AbortSignal,
+      projectRoot?: string,
+    ): Promise<MetadataBackfillPreviewResult> {
+      return client.request<MetadataBackfillPreviewResult>(
+        appendQuery("/api/backfill/metadata/preview", { limit, projectRoot }),
+        {
+          signal,
+        },
+      );
     },
   };
 }

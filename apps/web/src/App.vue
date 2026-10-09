@@ -30,7 +30,7 @@ const projectsStore = useProjectsStore();
 const { dashboard, trackedProjects } = storeToRefs(projectsStore);
 const { loadDashboard, loadProjects } = projectsStore;
 const dashboardStore = useDashboardStore();
-const { inbox } = storeToRefs(dashboardStore);
+const { attentionCount } = storeToRefs(dashboardStore);
 const { loadDashboardData } = dashboardStore;
 const appStore = useAppStore();
 const { appHealth, appHealthError } = storeToRefs(appStore);
@@ -47,7 +47,7 @@ useHotkeys({ openPalette: () => (paletteOpen.value = true) });
 const stopAppRefreshEvents = startAppRefreshEvents();
 
 const counts = computed(() => ({
-  dashboard: { value: inbox.value.length, tone: "attention" as const },
+  dashboard: { value: attentionCount.value ?? 0, tone: "attention" as const },
   sessions: { value: dashboard.value.finalizedSessions },
   projects: { value: trackedProjects.value.length },
 }));

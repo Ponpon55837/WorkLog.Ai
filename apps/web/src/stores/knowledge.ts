@@ -107,6 +107,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     onSuccess: async (result, input) => {
       if (result.outcome !== "knowledge_updated") return;
       await Promise.all([
+        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
@@ -232,12 +233,15 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     return await recordKnowledgeMutation.mutateAsync(input);
   }
 
-  async function loadKnowledgeHistory(knowledgeId: string, projectRoot: string): Promise<void> {
+  async function loadKnowledgeHistory(knowledgeId: string, projectRoot: string): Promise<KnowledgeRecord | undefined> {
     historyKnowledgeId.value = knowledgeId;
     historyProjectRoot.value = projectRoot;
     historyEnabled.value = true;
     try {
-      await historyQuery.refetch(true);
+      const response = await historyQuery.refetch(true);
+      if (historyKnowledgeId.value !== knowledgeId || historyProjectRoot.value !== projectRoot) return;
+      if (response.status === "success" && response.data.outcome === "knowledge_history")
+        return response.data.knowledge;
     } catch (error) {
       if (!useApi().isAbortError(error)) return;
     }

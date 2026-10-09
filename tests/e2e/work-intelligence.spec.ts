@@ -818,6 +818,11 @@ test.describe("Work Intelligence browser regression", () => {
 
     withAgentStore((store) => store.setSessionVoid({ sessionId: reviewSourceId, voided: false }));
     await page.reload();
+    // Selected sources now survive reload through the URL; close the restored panel before reopening it.
+    await expect(page.getByRole("dialog", { name: tt("common.knowledgePages") })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: tt("common.knowledgePages") })).toBeHidden();
+    await expect(page).not.toHaveURL(/knowledgePage=/);
     const restoredRow = page.getByTestId("knowledge-page-row").filter({ hasText: "常見陷阱" });
     await expect(restoredRow).toContainText(tt("knowledge.sourcesNeedChecking"));
     await restoredRow.getByRole("button", { name: tt("knowledge.view") }).click();

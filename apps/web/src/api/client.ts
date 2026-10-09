@@ -1,3 +1,4 @@
+import { createAttentionApi, type AttentionApi } from "./attention";
 import type { PageInfo } from "./types";
 import { ApiTransport } from "./transport";
 import { createSystemApi, type SystemApi } from "./system";
@@ -20,6 +21,7 @@ export type { ApiHealth, OutstandingItemsRequest, ReportRequest, SessionListRequ
 
 export interface ApiClient
   extends
+    AttentionApi,
     SystemApi,
     BackupsApi,
     ProjectsApi,
@@ -43,6 +45,7 @@ export class ApiClient extends ApiTransport {
     Object.assign(
       this,
       createSystemApi(this),
+      createAttentionApi(this),
       createBackupsApi(this),
       createProjectsApi(this),
       createSessionsApi(this),

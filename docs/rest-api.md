@@ -60,6 +60,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | -------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | GET      | `/api/health`                                    | API/SQLite health                                                                      |
 | GET      | `/api/system/status`                             | 唯讀系統摘要：資料庫與備份資訊、SSE 連線數、Codex／Claude Code Agent 註冊及 skill／hook 狀態 |
+| GET      | `/api/attention`                                 | 聚合既有提醒，回傳各類完整／部分／失敗覆蓋範圍及原領域入口（詳見下節）                 |
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
 | GET/POST | `/api/projects`                                  | 列出/加入 registry project                                                             |
 | PATCH    | `/api/projects/:id`                              | 更新名稱、tracking status 或 `repositoryUrl`（只接受不含帳號／token 的 https 網址；`null` 或空字串移除） |
@@ -241,3 +242,13 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 ## 版本化架構圖
 
 `diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。Mermaid 仍為預設。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
+
+## 提醒聚合
+
+`GET /api/attention` 接受 `projectId`、`kind`、`page`（1–100000）、`pageSize`（1–50，預設 20）；未知參數及無效值回 400 `invalid_input`。kind 為 synthesis、backfill、cleanup、decision、knowledge、knowledge_page、outstanding 或 metadata。省略專案時只聚合 tracked 專案；指定不可見專案回 200 `skipped`。全域請求中有任一來源 Session 不存在、作廢或所屬專案不可見，該請求不列出。
+
+回應 `outcome: attention` 包含 `items`、`groups`、`minimumTotal`、`total` 及 `pageInfo`。item 是有界來源指標：穩定 tuple ID、kind／sourceId／projectId、最多 500 字標題、reason、可用數量、updatedAt、sourceRevision 與固定種類 target；沒有任意 URL、workspace root、來源全文或內部例外。查看或聚合都不結案，原領域依既有契約處理審閱／確認／取消。
+
+每類最多 200 筆來源窗口；`groups` 分別回 state（complete／partial／failed）、examined、available 與精確 matching total（未知時 null）。pending 未結項與 metadata 缺口按專案各提供一個入口，count 為該專案項目／Sessions 數；聚合 total 計提醒與專案入口數，並非全專案問題數。Knowledge／知識頁由原服務計算可信度，窗口外未知時只保留 minimumTotal 下限。某類失敗不回錯誤正文，其他類仍可查閱；所有類精確數量已知時 total 才為數字。pageInfo 是可查閱窗口的分頁，不等於全來源匹配數量。
+
+總覽 URL 使用 attentionProject、attentionKind、attentionPage、attentionSize。Knowledge 的來源深連結為 `/knowledge/list?project=<id>&knowledge=<id>`，知識頁使用 knowledgePage，補填頁 `/projects/backfill?project=<id>&backfillRequest=<id>`；原未結項整理的 cleanupRequest 入口保持不變。尚未加入稍後、不顯示或一般解除提醒的寫入 API。

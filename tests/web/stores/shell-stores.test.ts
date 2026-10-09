@@ -6,7 +6,6 @@ import { useCommandPaletteStore } from "../../../apps/web/src/stores/command-pal
 import { useDashboardStore } from "../../../apps/web/src/stores/dashboard.js";
 import { useSystemStatusStore } from "../../../apps/web/src/stores/system-status.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
-import { reportPeriodLabels } from "../../../apps/web/src/utils/labels.js";
 
 let harness: ReturnType<typeof createStoreHarness>;
 let systemStatusError: boolean;
@@ -26,34 +25,18 @@ function shellResponder({ url }: StoreRequest): unknown {
     return { items: [], pageInfo: { page: 1, pageSize: 5, total: 0, totalPages: 1 } };
   if (url.pathname === "/api/knowledge") return { outcome: "knowledge", items: [], projects: [], pageInfo: {} };
   if (url.pathname === "/api/reports") return { outcome: "skipped", reason: "沒有可顯示的週報" };
-  if (url.pathname === "/api/reports/synthesis-requests") {
+  if (url.pathname === "/api/attention")
     return {
-      outcome: "report_synthesis_requests",
-      requests: [
-        { period: "week", range: { from: "2026-09-21", to: "2026-09-27" }, status: "pending", sourceSessionIds: [] },
-        { period: "week", range: { from: "2026-09-21", to: "2026-09-27" }, status: "failed", sourceSessionIds: [] },
-        {
-          period: "month",
-          range: { from: "2026-09-01", to: "2026-09-30" },
-          projectId: "p2",
-          status: "failed",
-          sourceSessionIds: ["s1"],
-        },
-        {
-          period: "quarter",
-          range: { from: "2026-07-01", to: "2026-09-30" },
-          status: "completed",
-          sourceSessionIds: [],
-        },
+      outcome: "attention",
+      items: [
+        { id: "one", kind: "synthesis" },
+        { id: "two", kind: "decision" },
       ],
+      groups: [{ kind: "decision", state: "complete", total: 7 }],
+      total: 7,
+      minimumTotal: 7,
+      pageInfo: { total: 2 },
     };
-  }
-  if (url.pathname === "/api/backfill/metadata-requests") {
-    return {
-      outcome: "metadata_backfill_requests",
-      requests: [{ id: "backfill-1", status: "processing" }],
-    };
-  }
   if (url.pathname === "/api/system/status") {
     return systemStatusError
       ? jsonResponse({ code: "service_unavailable", error: "English" }, 503)
@@ -162,16 +145,17 @@ describe("shell stores", () => {
     expect(store.knowledge).toEqual([]);
   });
 
-  it("loads the dashboard overview, keeps the newest request per scope, and builds pending inbox items", async () => {
+  it("loads the full report and unfiltered aggregate count independently", async () => {
     const store = useDashboardStore();
-    expect(store.dashboardLoading).toBe(false);
+    expect(store.attentionLoaded).toBe(false);
+    expect(store.attentionCount).toBeUndefined();
     await store.loadDashboardData();
-    expect(harness.calls.map(({ url }) => url.pathname).sort()).toEqual([
-      "/api/backfill/metadata-requests",
-      "/api/reports",
-      "/api/reports/synthesis-requests",
-    ]);
+    expect(harness.calls.map(({ url }) => url.pathname).sort()).toEqual(["/api/attention", "/api/reports"]);
+    expect(harness.calls.find(({ url }) => url.pathname === "/api/reports")?.url.searchParams.has("date")).toBe(false);
     expect(store.weekReport).toBeNull();
+    expect(store.attentionCount).toBe(7);
+    expect(store.inbox).toHaveLength(2);
+    expect(store.attentionComplete).toBe(true);
     expect(store.weekVerification).toEqual({
       total: 0,
       passed: 0,
@@ -180,23 +164,18 @@ describe("shell stores", () => {
       notRun: 0,
       notSupplied: 0,
     });
-    expect(store.inbox.map(({ kind }) => kind)).toEqual(["synthesis", "synthesis", "backfill"]);
-    expect(store.inbox[0]?.title).toContain(t("status.awaitingAgent"));
-    const failed = store.inbox[1];
-    expect(failed?.kind === "synthesis" && failed.title).toBe(
-      failed?.kind === "synthesis" &&
-        t("dashboard.reportAiSynthesisDidNot", { period: reportPeriodLabels[failed.request.period] }),
-    );
-    expect(store.inbox[2]?.title).toContain("metadata");
   });
 
-  it("keeps the dashboard usable when individual overview endpoints fail", async () => {
+  it("does not turn failed overview requests into a healthy empty queue", async () => {
     const store = useDashboardStore();
     harness.setResponder(() => jsonResponse({ code: "service_unavailable", error: "offline" }, 503));
     await store.loadDashboardData();
-    expect(harness.calls).toHaveLength(3);
-    expect(store.weekReport).toBeNull();
-    expect(store.inbox).toEqual([]);
+    expect(harness.calls).toHaveLength(2);
+    expect(store.weekReportFailed).toBe(true);
+    expect(store.attentionCount).toBeUndefined();
+    expect(store.attentionFailed).toBe(true);
+    expect(store.attentionLoaded).toBe(false);
+    expect(store.attentionComplete).toBe(false);
   });
 
   it("maps system diagnostic state and stops its page query when the page closes", async () => {
