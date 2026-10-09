@@ -43,7 +43,13 @@ function close(): void {
         <UiIconButton :icon="X" :label="t('common.close')" @click="close" />
       </div>
     </template>
-    <SessionDiagram v-if="diagram" :key="diagram.id" :diagram="diagram" interactive />
+    <SessionDiagram
+      v-if="diagram"
+      :key="diagram.id"
+      :diagram="diagram"
+      :project-root="selectedDetail?.project.status === 'tracked' ? selectedDetail.project.rootPath : undefined"
+      interactive
+    />
   </UiSidePanel>
 </template>
 

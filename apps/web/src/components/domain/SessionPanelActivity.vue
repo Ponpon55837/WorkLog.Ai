@@ -169,7 +169,12 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
               {{ t("session.reason", { title: item.title, reason: item.voided.reason }) }}
             </p>
           </template>
-          <SessionDiagram v-else :diagram="item" @expand="openDiagram(item.id)" />
+          <SessionDiagram
+            v-else
+            :diagram="item"
+            :project-root="detail.project.status === 'tracked' ? detail.project.rootPath : undefined"
+            @expand="openDiagram(item.id)"
+          />
         </div>
       </div>
     </UiDisclosure>

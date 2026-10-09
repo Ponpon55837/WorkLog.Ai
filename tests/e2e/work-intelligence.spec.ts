@@ -1926,6 +1926,287 @@ test.describe("Work Intelligence browser regression", () => {
       .selectOption({ label: tt("labels.none") });
   });
 
+  test("reads grouped architecture cards, sources, local relations and authored paths under CSP @cross-browser", async ({
+    page,
+    browserName,
+  }) => {
+    test.setTimeout(90_000);
+    const cspMessages: string[] = [];
+    page.on("console", (message) => {
+      if (/content security policy|refused to apply inline style/i.test(message.text()))
+        cspMessages.push(message.text());
+    });
+    const maliciousLabel = "API <img src=x onerror=alert(1)>";
+    const diagramSessionId = withAgentStore((store) => {
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `architecture-${process.pid}`,
+        title: "Architecture reader fixture",
+        summary: "Grouped architecture snapshot",
+        changedFiles: [],
+        verification: { status: "passed" },
+        diagrams: [
+          {
+            title: "WorkLog architecture",
+            kind: "architecture",
+            formatVersion: 1,
+            source: JSON.stringify({
+              version: 1,
+              nodes: [
+                {
+                  id: "web",
+                  label: "Web UI",
+                  groupId: "client",
+                  description: "Displays saved Sessions",
+                  position: { x: 40, y: 80 },
+                  source: { path: "apps/web/src/App.vue", line: 1 },
+                },
+                {
+                  id: "mcp",
+                  label: "MCP",
+                  groupId: "client",
+                  description: "Validates Agent writes",
+                  position: { x: 40, y: 260 },
+                },
+                {
+                  id: "api",
+                  label: maliciousLabel,
+                  groupId: "server",
+                  description: "REST routes and policy",
+                  position: { x: 340, y: 80 },
+                  source: { path: "apps/server/src/server.ts", line: 22 },
+                },
+                { id: "schema", label: "Input schema", groupId: "server", position: { x: 340, y: 260 } },
+                { id: "store", label: "Diagram service", groupId: "storage", position: { x: 640, y: 80 } },
+                { id: "db", label: "SQLite", groupId: "storage", position: { x: 640, y: 260 } },
+              ],
+              groups: [
+                { id: "client", label: "Client" },
+                { id: "server", label: "Server" },
+                { id: "storage", label: "Storage" },
+              ],
+              edges: [
+                { id: "request", from: "web", to: "api", label: "read" },
+                { id: "agent", from: "mcp", to: "schema", label: "validate" },
+                { id: "validate", from: "api", to: "schema", label: "validate" },
+                { id: "save", from: "schema", to: "store", label: "persist" },
+                { id: "write", from: "store", to: "db", label: "transaction" },
+              ],
+              paths: [{ id: "save", label: "Save snapshot", edgeIds: ["agent", "save", "write"] }],
+            }),
+          },
+        ],
+      });
+      if (result.outcome !== "finalized") throw new Error("Expected architecture fixture");
+      return result.session.id;
+    });
+    const response = await page.goto(`/sessions?session=${diagramSessionId}`);
+    expect(response?.headers()["content-security-policy"]).toContain("script-src 'self'");
+    const panel = page.getByRole("dialog", { name: tt("session.sessionDetails") });
+    const embedded = panel.getByTestId("session-diagram").filter({ hasText: "WorkLog architecture" });
+    const expand = embedded.getByRole("button", { name: tt("session.expandDiagram") });
+    await expand.click();
+    const reader = page.getByRole("dialog", { name: tt("session.diagramReader") });
+    const canvas = reader.getByRole("region", { name: tt("session.diagramCanvas", { title: "WorkLog architecture" }) });
+    const inspect = (label: string) =>
+      canvas.getByRole("button", { name: tt("session.inspectArchitectureNode", { label }), exact: true });
+    await expect(canvas.locator(".architecture__node")).toHaveCount(6);
+    await expect(canvas.locator("foreignObject, img, script, style")).toHaveCount(0);
+    await inspect("Web UI").focus();
+    await page.keyboard.press("Enter");
+    const details = reader.getByRole("complementary", { name: tt("session.architectureNodeDetails") });
+    await expect(details).toContainText("apps/web/src/App.vue");
+    await expect(details).toContainText(tt("session.architectureSourceLine", { line: 1 }));
+    await reader.getByRole("combobox", { name: tt("session.architectureGroups") }).selectOption("server");
+    await expect(canvas.locator(".architecture__node")).toHaveCount(2);
+    await inspect(maliciousLabel).click();
+    await expect(details).toContainText("REST routes and policy");
+    await expect(details).toContainText("apps/server/src/server.ts");
+    // Focusing direct relations from a group includes neighbors outside that group.
+    await details.getByRole("button", { name: tt("session.architectureLocalView") }).click();
+    await expect(canvas.locator(".architecture__node")).toHaveCount(3);
+    await expect(inspect("Web UI")).toBeVisible();
+    await reader
+      .getByRole("button", { name: tt("session.architectureOverview"), exact: true })
+      .last()
+      .click();
+    await reader.getByRole("combobox", { name: tt("session.authoredPath") }).selectOption("save");
+    await expect(canvas.locator(".architecture__node")).toHaveCount(6);
+    await expect(reader.locator(".architecture__path li")).toHaveCount(4);
+    await expect(canvas.locator(".architecture__edge.is-on-path")).toHaveCount(3);
+    await expect(reader.locator(".architecture__path")).toContainText(tt("session.authoredPathNote"));
+    await inspect("Diagram service").click();
+    await details.getByRole("button", { name: tt("session.architectureLocalView") }).click();
+    await expect(canvas.locator(".architecture__node")).toHaveCount(3);
+    await expect(reader.locator(".architecture__path")).toHaveCount(0);
+    await reader
+      .getByRole("button", { name: tt("session.architectureOverview"), exact: true })
+      .last()
+      .click();
+    await expect(canvas.locator(".architecture__node")).toHaveCount(6);
+    const beforeClose = await canvas.evaluate((element) => element.clientWidth);
+    await details.getByRole("button", { name: tt("session.closeArchitectureInspector") }).click();
+    await expect(details).toBeHidden();
+    await expect.poll(() => canvas.evaluate((element) => element.clientWidth)).toBeGreaterThan(beforeClose);
+    await reader.getByRole("button", { name: tt("session.architectureNodeDetails"), exact: true }).click();
+    await inspect("Web UI").click();
+    await reader.getByRole("button", { name: tt("session.actualDiagramSize") }).click();
+    await expect(reader.locator("output")).toHaveText(tt("session.diagramZoom", { percent: 100 }));
+    await reader.getByRole("button", { name: tt("session.zoomIn"), exact: true }).click();
+    await canvas.focus();
+    const beforeKey = await canvas.evaluate((element) => element.scrollLeft);
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBeGreaterThan(beforeKey);
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("Missing canvas bounds");
+    const beforeDrag = await canvas.evaluate((element) => element.scrollLeft);
+    await page.mouse.move(box.x + 8, box.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 56, box.y + 8);
+    await page.mouse.up();
+    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBeLessThan(beforeDrag);
+    await canvas.focus();
+    await page.keyboard.press("0");
+    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBe(0);
+    await page.keyboard.press("Escape");
+    await expect(reader).toBeHidden();
+    await expect(expand).toBeFocused();
+    await expand.click();
+    await page.reload();
+    await expect(reader).toBeVisible();
+    // A resizable reader must adapt to its own width even on a wide desktop viewport.
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const resize = reader.getByRole("separator", { name: tt("ui.resize", { label: tt("session.diagramReader") }) });
+    await resize.focus();
+    await page.keyboard.press("Home");
+    await expect(reader.locator(".architecture__groups")).toBeVisible();
+    for (let step = 0; step < 22; step++) await page.keyboard.press("ArrowRight");
+    expect((await reader.boundingBox())?.width).toBeLessThan(640);
+    await expect(reader.locator(".architecture__groups")).toBeHidden();
+    expect(await canvas.evaluate((element) => element.clientWidth)).toBeGreaterThan(300);
+    await expect(canvas.locator(".architecture__node")).toHaveCount(6);
+    await page.keyboard.press("Home");
+    await expect(reader.locator(".architecture__groups")).toBeVisible();
+    for (const [width, theme, locale] of [
+      [1440, "dark", "zh-TW"],
+      [960, "light", "en-US"],
+      [375, "dark", "en-US"],
+      [375, "light", "zh-TW"],
+    ] as const) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(
+        ({ theme, locale }) => {
+          localStorage.setItem("work-intelligence:theme", theme);
+          localStorage.setItem("work-intelligence:locale", locale);
+        },
+        { theme, locale },
+      );
+      await page.reload();
+      const localized = page.getByRole("dialog", { name: textIn(locale, "session.diagramReader") });
+      await expect(localized.getByRole("region").locator(".architecture__node")).toHaveCount(6);
+      await localized
+        .getByRole("region")
+        .getByRole("button", { name: textIn(locale, "session.inspectArchitectureNode", { label: "Web UI" }) })
+        .click();
+      expect(await localized.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const axe = await new AxeBuilder({ page })
+        .include(`[aria-label="${textIn(locale, "session.diagramReader")}"]`)
+        .analyze();
+      expect(axe.violations).toEqual([]);
+      if (browserName !== "webkit")
+        await page.screenshot({ path: test.info().outputPath(`architecture-${width}-${theme}-${locale}.png`) });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    // Future envelopes must stay readable as escaped source rather than going through either renderer.
+    await page.route(`**/api/sessions/${diagramSessionId}`, async (route) => {
+      const fetched = await route.fetch();
+      const body = await fetched.json();
+      body.diagrams[0].formatVersion = 99;
+      body.diagrams[0].source = '<script>alert("untrusted")</script>';
+      await route.fulfill({ response: fetched, json: body });
+    });
+    await page.reload();
+    await expect(reader.locator("pre")).toContainText('<script>alert("untrusted")</script>');
+    await expect(reader.locator("script, .architecture__canvas")).toHaveCount(0);
+    expect(cspMessages).toEqual([]);
+  });
+
+  test("keeps 200 architecture nodes usable with bounded selection cost @cross-browser", async ({
+    page,
+    browserName,
+  }) => {
+    test.setTimeout(60_000);
+    const id = withAgentStore((store) => {
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `architecture-bound-${process.pid}`,
+        title: "Architecture bound fixture",
+        summary: "200 synthetic nodes",
+        changedFiles: [],
+        verification: { status: "passed" },
+        diagrams: [
+          {
+            title: "200 synthetic nodes",
+            kind: "architecture",
+            source: JSON.stringify({
+              version: 1,
+              nodes: Array.from({ length: 200 }, (_, index) => ({ id: `n${index}`, label: `Node ${index}` })),
+              edges: Array.from({ length: 199 }, (_, index) => ({
+                id: `e${index}`,
+                from: `n${index}`,
+                to: `n${index + 1}`,
+              })),
+            }),
+          },
+        ],
+      });
+      if (result.outcome !== "finalized") throw new Error("Expected bound fixture");
+      return result.session.id;
+    });
+    await page.goto(`/sessions?session=${id}`);
+    await page
+      .getByRole("dialog", { name: tt("session.sessionDetails") })
+      .getByRole("button", { name: tt("session.expandDiagram") })
+      .click();
+    const reader = page.getByRole("dialog", { name: tt("session.diagramReader") });
+    await expect(reader.locator(".architecture__node")).toHaveCount(200);
+    const samples = await reader.evaluate(async (element) => {
+      const buttons = [...element.querySelectorAll<HTMLButtonElement>(".architecture__node")];
+      const results: number[] = [];
+      for (const index of [0, 50, 100, 150, 199]) {
+        const start = performance.now();
+        buttons[index]!.click();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        results.push(performance.now() - start);
+      }
+      return results;
+    });
+    const median = [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
+    expect(median).toBeLessThan(2_000);
+    await test.info().attach("architecture-selection-cost", {
+      body: JSON.stringify({
+        browserName,
+        nodes: 200,
+        samples,
+        median,
+        measurement: "programmatic selection to two frames; not input latency or FPS",
+      }),
+      contentType: "application/json",
+    });
+    await reader.getByRole("button", { name: tt("session.actualDiagramSize") }).click();
+    await reader
+      .getByRole("region")
+      .getByRole("button", { name: tt("session.inspectArchitectureNode", { label: "Node 199" }) })
+      .click();
+    await expect(reader.getByRole("complementary")).toContainText("Node 199");
+    await reader
+      .getByRole("complementary")
+      .getByRole("button", { name: tt("session.architectureLocalView") })
+      .click();
+    await expect(reader.locator(".architecture__node")).toHaveCount(2);
+  });
+
   test("reads, pans and zooms a Mermaid diagram under the strict CSP, falls back to source, and voids it @cross-browser", async ({
     page,
     browserName,

@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./architecture-diagram": {
+      "types": "./dist/architecture-diagram.d.ts",
+      "import": "./dist/architecture-diagram.js"
     }
   },
   "dependencies": {
