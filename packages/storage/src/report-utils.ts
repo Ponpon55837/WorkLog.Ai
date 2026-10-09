@@ -20,6 +20,13 @@ export interface ReportEventRow {
   occurred_at: string;
 }
 
+const VERIFICATION_LABELS: Record<VerificationSummary["status"], string> = {
+  passed: "Passed",
+  failed: "Failed",
+  in_progress: "進行中",
+  not_run: "未執行",
+};
+
 function parseUtcCalendarDate(value: string): Date {
   const [year = "0", month = "0", day = "0"] = value.split("-");
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
@@ -183,5 +190,5 @@ export function compareReportMetric(current: number, previous: number): ReportMe
 }
 
 export function verificationStatusLabel(status: VerificationSummary["status"]): string {
-  return status === "passed" ? "Passed" : status === "failed" ? "Failed" : "未執行";
+  return VERIFICATION_LABELS[status];
 }

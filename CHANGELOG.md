@@ -4,7 +4,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-09
+
 ### Added
+
+- Session verification adds `in_progress` (進行中), with an audited edit option, Agent schema/contracts, report and dashboard counts, timeline visuals and portable export/import. It stays distinct from passed, failed, not run and historical missing verification; it does not change the finalized-record lifecycle. Report risk classification collects source ids in one pass.
 
 - Session diagrams accept validated architecture JSON v1 alongside Mermaid, with a bounded node/group/edge/path schema, versioned storage migration, portable import/export, structured secret masking and an MCP schema resource. The Web renders architecture snapshots as grouped cards with sources, direct relations and author-defined paths, with zoom/pan and escaped-source fallback.
 
@@ -12,6 +16,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Session diagrams have an expanded reader with a resizable wide panel, zoom buttons, actual size, fit to view, mouse/touch drag to pan and keyboard navigation. The selected diagram is kept in the URL so reload reopens it. Mermaid remains under the existing strict CSP; invalid diagrams retain their source and offer retry.
 
 ### Fixed
+
+- Cached synthetic performance databases now rebind their project roots to the current run’s temporary directories; deleted roots from an earlier run no longer cause policy-gated fixture setup to skip. The cache file itself is unchanged.
+
+- Pin Mermaid’s transitive KaTeX to the patched 0.18.2 release for GHSA-238p-pmpm-9mq7 (inherited renderer settings could bypass trust restrictions when another component had already polluted Object.prototype). Keep strict Mermaid security/CSP and test normal math plus rejected untrusted links in an isolated process.
 
 - Mermaid's root-level `htmlLabels: false` now keeps labels in SVG; the diagram-specific setting is deprecated and was ignored by the current renderer, causing excessive spacing in larger flowcharts.
 

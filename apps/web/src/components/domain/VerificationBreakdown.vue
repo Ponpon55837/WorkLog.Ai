@@ -1,18 +1,25 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { verificationStatus } from "../../utils/status";
 import UiMeter from "../ui/UiMeter.vue";
+import { verificationStatus } from "../../utils/status";
 import { t } from "../../i18n";
 
 /**
- * Four-state verification distribution. Deliberately no single pass-rate percentage: missing
+ * Five-state verification distribution. Deliberately no single pass-rate percentage: missing
  * verification (未回報) must never be folded into pass or fail.
  */
-const props = defineProps<{ counts: { passed: number; failed: number; notRun: number; notSupplied: number } }>();
+const props = defineProps<{
+  counts: { passed: number; failed: number; inProgress: number; notRun: number; notSupplied: number };
+}>();
 
 const segments = computed(() => [
   { value: props.counts.passed, tone: verificationStatus.passed.tone, label: verificationStatus.passed.label },
   { value: props.counts.failed, tone: verificationStatus.failed.tone, label: verificationStatus.failed.label },
+  {
+    value: props.counts.inProgress,
+    tone: verificationStatus.in_progress.tone,
+    label: verificationStatus.in_progress.label,
+  },
   { value: props.counts.notRun, tone: verificationStatus.not_run.tone, label: verificationStatus.not_run.label },
   {
     value: props.counts.notSupplied,

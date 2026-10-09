@@ -82,7 +82,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要（Agent 與 Session 面板「編輯 Session」共用） |
 | PATCH    | `/api/sessions/:id/work-summary`                 | 以 replace／patch 更新既有 finalized Session 五段 workSummary（Session 面板只 patch 有改的段落） |
 | POST     | `/api/sessions/:id/evidence`                     | 保存 Agent 提供的 evidence reference                                                   |
-| PATCH    | `/api/sessions/:id/verification`                 | 修正 verification（`status`：passed／failed／not_run，選填 `summary`），每次變更寫入修改紀錄 |
+| PATCH    | `/api/sessions/:id/verification`                 | 修正 verification（`status`：passed／failed／in_progress／not_run，選填 `summary`），每次變更寫入修改紀錄 |
 | POST     | `/api/sessions/:id/links`                        | 建立或更新 Session 關聯（`relatedSessionId`、`relation`：continues／related）            |
 | DELETE   | `/api/sessions/:id/links/:relatedId`             | 移除兩筆 Session 之間的關聯                                                           |
 | PATCH    | `/api/sessions/:id/void`                         | 作廢（`voided: true` 與必填 `reason`）或還原（`voided: false`）Session，保留作廢紀錄 |

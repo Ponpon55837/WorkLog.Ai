@@ -97,7 +97,7 @@ describe("report project shares", () => {
       events: 0,
       changedFiles: 0,
       changedFilesOversizedSessions: 0,
-      verification: { passed: 0, failed: 0, not_run: 0, not_supplied: 0 },
+      verification: { passed: 0, failed: 0, in_progress: 0, not_run: 0, not_supplied: 0 },
     });
     const project = (projectId: string, projectName: string, sessionCount: number): WorkReport["projects"][number] => ({
       projectId,

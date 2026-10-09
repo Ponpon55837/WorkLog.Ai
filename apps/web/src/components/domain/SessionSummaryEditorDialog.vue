@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useSessionEditor } from "../../composables/useSessionEditor";
-import { workSummarySectionLabels } from "../../utils/labels";
-import { verificationStatus } from "../../utils/status";
+import { VERIFICATION_STATUSES } from "@work-intelligence/core";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import UiField from "../ui/UiField.vue";
@@ -10,6 +8,9 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
+import { useSessionEditor } from "../../composables/useSessionEditor";
+import { workSummarySectionLabels } from "../../utils/labels";
+import { verificationStatus } from "../../utils/status";
 import { t } from "../../i18n";
 
 /**
@@ -36,7 +37,7 @@ const verificationOptions = computed(() => [
   ...(sessionEditor.value?.verification
     ? []
     : [{ value: "not_supplied" as const, label: t("session.notReportedUnchanged") }]),
-  ...(["passed", "failed", "not_run"] as const).map((value) => ({ value, label: verificationStatus[value].label })),
+  ...VERIFICATION_STATUSES.map((value) => ({ value, label: verificationStatus[value].label })),
 ]);
 </script>
 

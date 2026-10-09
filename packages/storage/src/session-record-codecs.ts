@@ -669,7 +669,11 @@ export function toKnowledgeAudit(row: KnowledgeAuditRow): KnowledgeAuditRecord {
 }
 
 export function getVerificationFollowUp(session: WorkSessionRecord): VerificationFollowUp | undefined {
-  if (session.verification?.status === "passed" || session.verification?.status === "failed") {
+  if (
+    session.verification?.status === "passed" ||
+    session.verification?.status === "failed" ||
+    session.verification?.status === "in_progress"
+  ) {
     return undefined;
   }
   const message =

@@ -54,6 +54,26 @@ const validStructuredWorkSummary = {
 };
 
 describe("schema input boundaries", () => {
+  it("accepts explicit in-progress verification without treating arbitrary states as valid", () => {
+    for (const status of ["passed", "failed", "in_progress", "not_run"]) {
+      expect(
+        finalizeSessionInputSchema.safeParse({
+          ...validFinalizeInput,
+          workSummary: validStructuredWorkSummary,
+          verification: { status },
+        }).success,
+      ).toBe(true);
+    }
+    for (const status of ["not_supplied", "running", "__proto__", "<script>"]) {
+      expect(
+        finalizeSessionInputSchema.safeParse({
+          ...validFinalizeInput,
+          workSummary: validStructuredWorkSummary,
+          verification: { status },
+        }).success,
+      ).toBe(false);
+    }
+  });
   it("validates root-relative static file request paths", () => {
     expect(staticFileRequestPathSchema.safeParse("/assets/app-12345678.js").success).toBe(true);
     expect(staticFileRequestPathSchema.safeParse("assets/app-12345678.js").success).toBe(false);

@@ -61,7 +61,7 @@ Then check in a browser at **1440 / 960 / 375** px widths:
 - [ ] Loading shows Skeleton with its caption (no `0` counts or empty states before the first answer), empty state has a next-step action, errors show a Flash with retry.
 - [ ] All interactive elements reachable by keyboard with visible focus.
 - [ ] Status colors follow the mapping in [references/tokens.md](references/tokens.md#status-mapping).
-- [ ] Domain distinctions in [references/domain-semantics.md](references/domain-semantics.md) are visible (狀態／未結項 label, four verification states, Git separate from changed files, synthesis blocks cite sources).
+- [ ] Domain distinctions in [references/domain-semantics.md](references/domain-semantics.md) are visible (狀態／未結項 label, five verification states, Git separate from changed files, synthesis blocks cite sources).
 - [ ] No raw hex outside `tokens.css`, no Unicode icons, no font size < 12px.
 - [ ] Checked in both themes (header sun/moon button) and both languages (header language menu); new keys exist in both `zh-TW.json` and `en-US.json` (`pnpm --filter @work-intelligence/web test` fails otherwise).
 - [ ] For a migrated page: its old classes are gone from `style.css`, and before/after screenshots are attached to the PR.

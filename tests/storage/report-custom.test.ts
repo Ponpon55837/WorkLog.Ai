@@ -174,7 +174,7 @@ describe("custom-range reports", () => {
       throw new Error("Expected a report");
     }
     expect(report.totals.sessions).toBe(1);
-    expect(report.totals.verification).toEqual({ passed: 1, failed: 0, not_run: 0, not_supplied: 0 });
+    expect(report.totals.verification).toEqual({ passed: 1, failed: 0, in_progress: 0, not_run: 0, not_supplied: 0 });
     const keptEvents = store.getSessionDetail(kept)?.events.length;
     expect(keptEvents).toBeGreaterThan(0);
     expect(report.totals.events).toBe(keptEvents);

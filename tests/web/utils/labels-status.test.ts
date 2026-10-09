@@ -103,6 +103,8 @@ describe("status and label maps", () => {
     expect(databaseMaintenanceStatus.running.label).toBe(t("status.running"));
     expect(databaseMaintenanceStatus.completed.label).toBe(t("status.succeeded"));
     expect(databaseMaintenanceStatus.failed.label).toBe(t("common.failed"));
+    expect(verificationStatus.in_progress).toMatchObject({ tone: "accent", label: t("common.inProgress") });
+    expect(verificationOf({ verification: { status: "in_progress" } })).toBe("in_progress");
     expect(verificationStatus.not_supplied.label).toBe(t("common.notReported"));
     expect(trackingStatus.tracked.label).toBe(t("status.tracked"));
     expect(requestStatus.cancelled.label).toBe(t("common.cancelled"));

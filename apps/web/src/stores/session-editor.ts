@@ -9,7 +9,7 @@ export type SessionEditorForm = {
   title: string;
   summary: string;
   sections: Record<SectionKey, string>;
-  /** not_supplied means "leave unreported": the API only accepts passed, failed, or not_run. */
+  /** not_supplied means "leave unreported": the API only accepts passed, failed, in_progress, or not_run. */
   verificationStatus: ReportVerificationStatus;
   verificationSummary: string;
 };

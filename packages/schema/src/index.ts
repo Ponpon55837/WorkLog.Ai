@@ -31,6 +31,7 @@ import {
   WORK_REPORT_PERIODS,
   WORK_SUMMARY_UPDATE_MODES,
   WORK_EVENT_TYPES,
+  VERIFICATION_STATUSES,
   INSIGHT_AVAILABILITIES,
   INSIGHT_PROVIDER_EXECUTIONS,
   PROJECT_DATA_TABLES,
@@ -91,7 +92,7 @@ export const databaseBackupFileNameSchema = z
 export const deleteDatabaseBackupBodySchema = z.object({}).strict();
 
 export const verificationSchema = z.object({
-  status: z.enum(["passed", "failed", "not_run"]),
+  status: z.enum(VERIFICATION_STATUSES),
   summary: z.string().max(2_000).optional(),
 });
 
@@ -723,7 +724,7 @@ export const saveReportSummaryInputSchema = z.object({
     .max(30)
     .default([])
     .describe(
-      "Exact representative verification evidence; distinguish passed, failed, not_run, not_supplied, partial coverage, and unverified platforms.",
+      "Exact representative verification evidence; distinguish passed, failed, in_progress, not_run, not_supplied, partial coverage, and unverified platforms.",
     ),
   comparison: z
     .array(reportSummaryBlockSchema)

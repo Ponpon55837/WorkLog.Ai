@@ -286,7 +286,10 @@ export class OutstandingCleanupService {
       const shownOutcomes = outcomes.slice(0, 3).map((value) => bounded(value, 240));
       const verification = parseObject(row.verification_json).status;
       const verificationStatus: VerificationStatus | "not_supplied" =
-        verification === "passed" || verification === "failed" || verification === "not_run"
+        verification === "passed" ||
+        verification === "failed" ||
+        verification === "in_progress" ||
+        verification === "not_run"
           ? verification
           : "not_supplied";
       const links = references.get(row.id) ?? { values: [], total: 0 };

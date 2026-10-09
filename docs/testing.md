@@ -235,3 +235,5 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 
 
 原生架構閱讀器的跨瀏覽器案例涵蓋群組、來源、直接關係、作者路徑、面板收合、縮放／背景拖曳、鍵盤／焦點、重載網址、明暗主題／繁中英文、375／960／1440 視窗與桌面側欄縮窄、axe、CSP、HTML 字串逸出與未知版本來源回退。200 節點案例保存選取至兩個繪製幀的五筆樣本及中位數（寬鬆 2,000ms 回歸門檻），不是輸入延遲／FPS／冷啟動網路或實機 Safari／觸控的驗收；密集及巢狀圖不在本輪量測範圍。
+
+進行中驗證回歸：`tests/storage/verification-progress.test.ts` 檢查同筆狀態稽核、補登區別、205 筆進行中超過來源上限的完整統計與匯出匯入；MCP/schema 與三瀏覽器案例驗證 `not_run → in_progress → passed/failed`、雙語明暗主題、1440／960／375px、axe 與不受信任字串逸出。合成 5,000 筆 read-path benchmark 新增 `getReport (in-progress verification)`，15 次的 p90 上限 750ms。

@@ -108,6 +108,7 @@ export const useDashboardStore = defineStore("dashboard", () => {
       total: totals?.sessions ?? 0,
       passed: totals?.verification.passed ?? 0,
       failed: totals?.verification.failed ?? 0,
+      inProgress: totals?.verification.in_progress ?? 0,
       notRun: totals?.verification.not_run ?? 0,
       notSupplied: totals?.verification.not_supplied ?? 0,
     };

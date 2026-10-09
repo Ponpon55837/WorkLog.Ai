@@ -1,6 +1,6 @@
 {
   "name": "work-intelligence",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Local-first work records for coding agents: the Work Intelligence MCP server, its agent skill, and the save reminder hooks, run from your local WorkLog.Ai checkout.",
   "author": { "name": "Ponpon55837", "url": "https://github.com/Ponpon55837" },
   "homepage": "https://github.com/Ponpon55837/WorkLog.Ai",

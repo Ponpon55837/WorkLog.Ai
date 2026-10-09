@@ -158,7 +158,7 @@ export class MetadataBackfillService {
           projectClause,
       )
       .get(...parameters) as { count: number };
-    // SQL pre-filter only drops rows with confirmed changed-files metadata and a passed/failed
+    // SQL pre-filter only drops rows with confirmed changed-files metadata and an explicit passed/failed/in_progress
     // verification; toMetadataBackfillItem still decides the exact gaps.
     const rows = this.db
       .prepare(
@@ -172,7 +172,7 @@ export class MetadataBackfillService {
           "AND COALESCE(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json) = 'array' " +
           "THEN 1 END, 0) = 1 " +
           "AND COALESCE(CASE WHEN json_valid(s.verification_json) " +
-          "THEN json_extract(s.verification_json, '$.status') END, 'not_run') IN ('passed', 'failed')" +
+          "THEN json_extract(s.verification_json, '$.status') END, 'not_run') IN ('passed', 'failed', 'in_progress')" +
           ") " +
           "ORDER BY s.completed_at DESC, s.id DESC",
       )

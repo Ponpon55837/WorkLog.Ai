@@ -196,6 +196,7 @@ export const databaseMaintenanceStatus: Record<DatabaseMaintenanceStatus, Status
 export const verificationStatus: Record<ReportVerificationStatus, StatusVisual> = {
   passed: visual("success", CircleCheck, "common.passed"),
   failed: visual("danger", CircleX, "common.failed"),
+  in_progress: visual("accent", Clock3, "common.inProgress"),
   not_run: visual("neutral", CircleMinus, "common.notRun"),
   not_supplied: visual("attention", CircleDashed, "common.notReported"),
 };

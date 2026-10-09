@@ -305,7 +305,7 @@ function clampDayWidth(width: number): number {
   return Math.min(Math.max(width, MIN_DAY_WIDTH), MAX_DAY_WIDTH);
 }
 
-/** Stacked segments of a day column, bottom to top: passed, other, failed. */
+/** Stacked segments of a day column, bottom to top: passed, other, in progress, failed. */
 function columnSegments(lane: Lane, bucket: DayBucket): Array<{ key: string; y: number; height: number }> {
   const bottom = lane.top + laneHeader + markerRow + columnHeight;
   const scale = columnHeight / busiestDay.value;
@@ -314,6 +314,7 @@ function columnSegments(lane: Lane, bucket: DayBucket): Array<{ key: string; y: 
     [
       ["passed", bucket.passed],
       ["other", bucket.other],
+      ["in_progress", bucket.inProgress],
       ["failed", bucket.failed],
     ] as const
   ).flatMap(([key, count]) => {
@@ -329,6 +330,7 @@ function bucketLabel(lane: Lane, bucket: DayBucket): string {
   const parts = [
     t("graph.passed", { passed: bucket.passed }),
     t("graph.failedCount", { failed: bucket.failed }),
+    t("graph.inProgressCount", { count: bucket.inProgress }),
     t("graph.other", { other: bucket.other }),
   ];
   return t("graph.sessionsZoomInToThis", {
@@ -496,6 +498,7 @@ onBeforeUnmount(() => {
       <p v-if="view === 'chart'" class="timeline__legend" aria-hidden="true">
         <span><i class="timeline__swatch timeline__swatch--passed" />{{ t("graph.verificationPassed") }}</span>
         <span><i class="timeline__swatch timeline__swatch--failed" />{{ t("graph.verificationFailed") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--in_progress" />{{ t("common.inProgress") }}</span>
         <span><i class="timeline__swatch timeline__swatch--other" />{{ t("graph.notRunOrNotProvided") }}</span>
         <span>{{ t("graph.knowledgeEvent") }}</span>
         <span v-if="detailed">{{ t("graph.arcsSessionLinksDashedRelated") }}</span>
@@ -678,6 +681,12 @@ onBeforeUnmount(() => {
   background: var(--danger);
 }
 
+.timeline__swatch--in_progress,
+.timeline__bar--in_progress {
+  color: var(--accent);
+  background: var(--accent);
+}
+
 .timeline__swatch--other,
 .timeline__bar--not_run,
 .timeline__bar--not_supplied {
@@ -762,6 +771,10 @@ onBeforeUnmount(() => {
 
 .timeline__segment--failed {
   fill: var(--danger);
+}
+
+.timeline__segment--in_progress {
+  fill: var(--accent);
 }
 
 .timeline__segment--other {

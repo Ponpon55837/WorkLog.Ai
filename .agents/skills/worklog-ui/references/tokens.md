@@ -39,6 +39,7 @@ Use these everywhere (lists, panels, dashboard, reports). Implement once in `uti
 |---|---|---|---|---|
 | verification | `passed` | success | `circle-check` | 通過 |
 | verification | `failed` | danger | `circle-x` | 失敗 |
+| verification | `in_progress` | accent | `clock-3` | 進行中 |
 | verification | `not_run` | neutral | `circle-minus` | 未執行 |
 | verification | missing / `not_supplied` | attention | `circle-dashed` | 未回報 |
 | execution | `completed` | neutral | — | completed |
