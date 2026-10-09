@@ -11,7 +11,12 @@
 | 項目 | 狀態與範圍 |
 | --- | --- |
 | E3 實機驗收 | 依[發行實機驗收清單](release-checklist.md)執行；原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案流程仍未驗證 |
-| v1.0.0 tag／Release | 發行 workflow 與版本已備妥；是否打 tag 與建立 Release 由使用者決定 |
+
+## 五項功能整合研究
+
+2026-10-09 完成[五項先行研究](five-feature-integration-research.md)：擴充總覽既有待處理、Session 詳情的共同檔案候選、版本獨立的報告段落呈現／改稿、完整期間統計的首頁洞察與預覽後複製。文件包含文字線框、擬議資料/API、安全邊界、刪減取捨及逐階段驗收，正式功能尚未實作。合成演算法探測只驗證記憶體候選查詢，不能視為正式 SQLite／UI 效能。研究在獨立 worktree 進行，原 main 工作區保持原狀。
+
+1.4.0 已於 2026-10-09 正式發布（[Release](https://github.com/Ponpon55837/WorkLog.Ai/releases/tag/v1.4.0)，PR #225）；早期 v1.0.0 tag／Release 待辦不再列為目前待辦，實機驗收限制仍保留。
 
 ## 第九輪交付
 
@@ -37,6 +42,8 @@ A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並
 
 PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒，等待更新後 CI 驗證。
 
+PR #225 已將 `mermaid>katex` 固定至官方修補 0.18.2，保留 Mermaid 11.17.2 與嚴格 CSP；該次 `pnpm audit --prod --audit-level low` 已通過，不再列為等待上游。
+
 ## 工作記錄進行中狀態
 
 1.4.0（2026-10-09）新增 Verification `in_progress`，Web 編輯、Agent 契約、報表／總覽統計、時間軸及匯出匯入一致保留；進行中使用 accent／時鐘，不當作缺漏補登，也不推定通過。沿用既有 JSON 欄位，schema 維持 27，Agent 契約改變後須重新連線。
@@ -52,7 +59,6 @@ PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
 | Graph 總數計算 | 觀察中 | 目前合成效能基準仍在既定門檻內；出現可重現的效能問題時再評估 |
-| KaTeX low 漏洞（GHSA，`>=0.11.0 <0.18.2`） | 等待上游 | 只經 `mermaid` 間接使用，且需先有其他原型污染才能利用；mermaid 以 `securityLevel: "strict"` 渲染。至 2026-10-07 最新 mermaid 12.1.0 仍要求 `katex ^0.16.47`，不以 override 強制升級。升級依賴時檢查 mermaid 是否已支援 KaTeX 0.18.2 以上，支援後一併升級並確認 `pnpm audit --prod` 清空 |
 
 ## 過往輪次（已完成）
 

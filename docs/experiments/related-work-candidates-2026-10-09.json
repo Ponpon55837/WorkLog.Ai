@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-10-09T11:51:43.911Z",
+  "environment": {
+    "node": "v25.7.0",
+    "platform": "darwin",
+    "architecture": "x64"
+  },
+  "scope": "Synthetic in-memory algorithm probe; no SQLite, API, production UI, or retrieval-quality claim.",
+  "correctness": {
+    "oracleQueriesPassed": 66,
+    "boundaryChecksPassed": 10,
+    "cases": [
+      "duplicate paths",
+      "bidirectional links",
+      "same-project only",
+      "voided/paused/unconfirmed/oversized",
+      "empty",
+      "ties",
+      "tuple identity",
+      "partial hot-path coverage"
+    ]
+  },
+  "benchmarks": {
+    "sessions": 5000,
+    "sparseIndexBuild": {
+      "samples": 15,
+      "medianMs": 9.104202999999984,
+      "p90Ms": 12.452605000000005
+    },
+    "sparseScanQuery": {
+      "samples": 15,
+      "medianMs": 1.031158000000005,
+      "p90Ms": 1.2607690000000389
+    },
+    "sparsePrebuiltIndexQuery": {
+      "samples": 15,
+      "medianMs": 0.03245099999998047,
+      "p90Ms": 0.037609000000031756
+    },
+    "denseIndexBuild": {
+      "samples": 15,
+      "medianMs": 2.272973000000036,
+      "p90Ms": 2.792043000000035
+    },
+    "denseScanQuery": {
+      "samples": 15,
+      "medianMs": 1.8356790000000274,
+      "p90Ms": 2.2277469999999653
+    },
+    "densePrebuiltIndexQuery": {
+      "samples": 15,
+      "medianMs": 1.6872690000000148,
+      "p90Ms": 2.1734089999999924
+    },
+    "denseCappedQuery": {
+      "samples": 15,
+      "medianMs": 0.2163929999999823,
+      "p90Ms": 0.2517459999999687
+    }
+  },
+  "cappedCoverage": {
+    "scannedPostings": 1000,
+    "omittedPostings": 4000,
+    "coverage": "partial"
+  },
+  "limitation": "This probe counts omitted postings by scanning the synthetic bucket; production must use bounded indexed SQL and separate count/coverage. Index build includes posting sort. A cap can miss the global best candidates."
+}
