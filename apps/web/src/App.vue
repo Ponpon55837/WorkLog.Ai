@@ -9,6 +9,7 @@ import KnowledgeEditorDialog from "./components/domain/KnowledgeEditorDialog.vue
 import KnowledgeHistoryPanel from "./components/domain/KnowledgeHistoryPanel.vue";
 import RecordVoidDialog from "./components/domain/RecordVoidDialog.vue";
 import SessionLinkDialog from "./components/domain/SessionLinkDialog.vue";
+import SessionDiagramPanel from "./components/domain/SessionDiagramPanel.vue";
 import SessionPanel from "./components/domain/SessionPanel.vue";
 import SessionSummaryEditorDialog from "./components/domain/SessionSummaryEditorDialog.vue";
 import UiButton from "./components/ui/UiButton.vue";
@@ -122,6 +123,7 @@ onBeforeUnmount(() => {
     <template #overlays>
       <!-- Overlay state lives in stores, so remounting them on a language switch keeps what is open. -->
       <SessionPanel :key="`session-panel:${locale}`" />
+      <SessionDiagramPanel :key="`session-diagram:${locale}`" />
       <KnowledgeHistoryPanel :key="`knowledge-history:${locale}`" />
       <KnowledgeEditorDialog :key="`knowledge-editor:${locale}`" />
       <SessionSummaryEditorDialog :key="`session-editor:${locale}`" />

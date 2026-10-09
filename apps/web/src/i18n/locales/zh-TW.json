@@ -1291,7 +1291,18 @@
     "deleteSessionPermanently": "永久刪除這個 Session？",
     "deleteSessionPermanentlyMessage": "「{title}」與它的事件、Evidence、圖表、修改紀錄和未結項都會一起刪除，無法還原。刪除前會先建立資料庫備份。",
     "sessionDeleted": "已永久刪除 Session；刪除前備份：{backupFileName}",
-    "couldNotDeleteSession": "無法刪除 Session。"
+    "couldNotDeleteSession": "無法刪除 Session。",
+    "expandDiagram": "展開閱讀",
+    "diagramReader": "圖表閱讀",
+    "backToSession": "返回工作記錄",
+    "diagramControls": "圖表操作",
+    "zoomIn": "放大",
+    "zoomOut": "縮小",
+    "fitDiagram": "適合畫面",
+    "diagramZoom": "縮放 {percent}%",
+    "diagramCanvas": "{title} 圖表畫布",
+    "diagramNavigation": "拖曳移動畫面；聚焦畫布後以方向鍵移動、+ / − 縮放、0 適合畫面。",
+    "actualDiagramSize": "原始尺寸"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "每一次完成，都留下可追溯的脈絡。",

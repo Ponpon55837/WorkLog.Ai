@@ -69,6 +69,7 @@ function configureMermaid(mermaid: typeof import("mermaid").default): void {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
+    htmlLabels: false,
     theme,
     themeVariables: { fontFamily: pageFont.fontFamily, fontSize: pageFont.fontSize },
     flowchart: { htmlLabels: false },

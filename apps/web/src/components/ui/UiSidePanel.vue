@@ -272,6 +272,10 @@ onBeforeUnmount(stopResize);
 }
 
 @media (max-width: 639px) {
+  .ui-side-panel {
+    width: 100%;
+  }
+
   .ui-side-panel__header,
   .ui-side-panel__body,
   .ui-side-panel__footer {

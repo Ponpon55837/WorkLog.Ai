@@ -31,6 +31,9 @@ const { openLinkDialog, removeLink } = useSessionLinks();
 const body = ref<HTMLElement | null>(null);
 
 const session = computed(() => selectedDetail.value?.session);
+const isDiagramOpen = computed(() =>
+  selectedDetail.value?.diagrams.some((item) => item.id === route.query.diagram && !item.voided),
+);
 
 function copyLink(): void {
   void useToast().copyWithToast(window.location.href, t("session.sessionLinkCopied"));
@@ -42,7 +45,7 @@ function copyMarkdown(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (!session.value || event.metaKey || event.ctrlKey || event.altKey) {
+  if (!session.value || isDiagramOpen.value || event.metaKey || event.ctrlKey || event.altKey) {
     return;
   }
   const target = event.target as HTMLElement | null;

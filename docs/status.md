@@ -37,6 +37,10 @@ A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並
 
 PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒，等待更新後 CI 驗證。
 
+## 大型圖表導入
+
+2026-10-09 第一階段：既有 Session Mermaid 圖表加入展開閱讀、縮放、適合畫面、拖曳／方向鍵移動與來源回退。選取圖表同步網址，重載可恢復。沿用 SessionDetail 與嚴格 CSP，沒有新 API 或資料庫 migration。Archify 的正式相容性驗證與結構化格式尚未導入。
+
 ## 其他暫緩工作
 
 | 項目 | 狀態 | 再次評估條件 |

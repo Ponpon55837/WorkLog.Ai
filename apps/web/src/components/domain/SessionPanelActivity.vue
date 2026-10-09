@@ -29,6 +29,7 @@ import UiLabel from "../ui/UiLabel.vue";
 import VirtualList from "../VirtualList.vue";
 import ChangedFileList from "./ChangedFileList.vue";
 import MermaidDiagram from "./MermaidDiagram.vue";
+import { router } from "../../router";
 import { t } from "../../i18n";
 
 const props = defineProps<{ detail: SessionDetail }>();
@@ -48,6 +49,10 @@ const commitLink = computed(() =>
     : undefined,
 );
 const voidedEvidenceCount = computed(() => props.detail.evidence.filter((item) => item.voided).length);
+
+function openDiagram(id: string): void {
+  void router.replace({ query: { ...route.query, session: session.value.id, diagram: id } });
+}
 
 function diagramTarget(item: SessionDiagramRecord): VoidTarget {
   return { type: "diagram", id: item.id, sessionId: item.sessionId, title: item.title };
@@ -164,7 +169,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
               {{ t("session.reason", { title: item.title, reason: item.voided.reason }) }}
             </p>
           </template>
-          <MermaidDiagram v-else :title="item.title" :source="item.source" />
+          <MermaidDiagram v-else :title="item.title" :source="item.source" @expand="openDiagram(item.id)" />
         </div>
       </div>
     </UiDisclosure>
