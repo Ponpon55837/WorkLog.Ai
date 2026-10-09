@@ -172,7 +172,14 @@ describe("shell stores", () => {
       "/api/reports/synthesis-requests",
     ]);
     expect(store.weekReport).toBeNull();
-    expect(store.weekVerification).toEqual({ total: 0, passed: 0, failed: 0, notRun: 0, notSupplied: 0 });
+    expect(store.weekVerification).toEqual({
+      total: 0,
+      passed: 0,
+      failed: 0,
+      inProgress: 0,
+      notRun: 0,
+      notSupplied: 0,
+    });
     expect(store.inbox.map(({ kind }) => kind)).toEqual(["synthesis", "synthesis", "backfill"]);
     expect(store.inbox[0]?.title).toContain(t("status.awaitingAgent"));
     const failed = store.inbox[1];

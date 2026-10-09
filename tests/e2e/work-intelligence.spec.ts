@@ -3444,4 +3444,92 @@ test.describe("Work Intelligence browser regression", () => {
 
     expect(browserErrors).toEqual([]);
   });
+  test("edits in-progress verification and preserves report/audit distinctions @cross-browser", async ({
+    page,
+    request,
+    browserName,
+  }) => {
+    test.setTimeout(90_000);
+    const fixture = await postJson<{ session: SessionRecord }>(request, "/api/work/finalize", {
+      projectRoot,
+      idempotencyKey: `browser-progress-${process.pid}`,
+      title: "Progress verification fixture",
+      summary: "Synthetic completed checkpoint.",
+      changedFiles: [],
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      verification: { status: "not_run" },
+    });
+    const id = fixture.session.id;
+    for (const status of ["in_progress", "passed", "in_progress", "failed"] as const) {
+      await page.goto(`/sessions?session=${id}`);
+      const panel = page.getByRole("dialog", { name: tt("session.sessionDetails") });
+      await panel.getByRole("button", { name: tt("session.editSession") }).click();
+      const editor = page.getByRole("dialog", { name: tt("session.editSession") });
+      await editor.getByLabel(tt("session.verificationStatus")).selectOption(status);
+      await editor.getByRole("button", { name: tt("common.saveChanges") }).click();
+      await expect(editor).toBeHidden();
+      const detail = await (await request.get(`/api/sessions/${id}`)).json();
+      expect(detail.session.verification.status).toBe(status);
+      expect(detail.session.id).toBe(id);
+    }
+    const invalid = await request.patch(`/api/sessions/${id}/verification`, { data: { status: "__proto__" } });
+    expect(invalid.status()).toBe(400);
+    const restored = await request.patch(`/api/sessions/${id}/verification`, {
+      data: { status: "in_progress", summary: "<script>fixture</script>" },
+    });
+    expect(restored.ok()).toBeTruthy();
+    const detail = await (await request.get(`/api/sessions/${id}`)).json();
+    expect(detail.verificationHistory.map((row: { resulting: { status: string } }) => row.resulting.status)).toEqual([
+      "in_progress",
+      "failed",
+      "in_progress",
+      "passed",
+      "in_progress",
+    ]);
+    const report = await (await request.get("/api/reports?period=day")).json();
+    expect(report.totals.verification.in_progress).toBeGreaterThan(0);
+    expect(
+      report.risks.some(
+        (risk: { kind: string; sourceSessionIds: string[] }) =>
+          risk.kind === "verification" && risk.sourceSessionIds.includes(id),
+      ),
+    ).toBeTruthy();
+    for (const [width, theme, locale] of [
+      [1440, "dark", "zh-TW"],
+      [960, "light", "en-US"],
+      [375, "dark", "en-US"],
+      [375, "light", "zh-TW"],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(
+        ({ theme, locale }) => {
+          localStorage.setItem("work-intelligence:theme", theme);
+          localStorage.setItem("work-intelligence:locale", locale);
+        },
+        { theme, locale },
+      );
+      await page.goto(`/sessions?session=${id}`);
+      const panel = page.getByRole("dialog", { name: textIn(locale, "session.sessionDetails") });
+      await expect(panel).toContainText(textIn(locale, "common.inProgress"));
+      await expect(panel).toContainText("<script>fixture</script>");
+      expect(await panel.locator("script").count()).toBe(0);
+      await expectNoHorizontalOverflow(page);
+      // WebKit mouse clicks do not focus buttons; use keyboard activation to verify focus restoration.
+      const editButton = panel.getByRole("button", { name: textIn(locale, "session.editSession") });
+      await editButton.focus();
+      await editButton.press("Enter");
+      const editor = page.getByRole("dialog", { name: textIn(locale, "session.editSession") });
+      await expect(editor.getByLabel(textIn(locale, "session.verificationStatus"))).toHaveValue("in_progress");
+      await expectNoHorizontalOverflow(page);
+      const axe = await new AxeBuilder({ page }).include('[role="dialog"]').withTags(["wcag2a", "wcag2aa"]).analyze();
+      expect(axe.violations).toEqual([]);
+      if (browserName !== "webkit")
+        await page.screenshot({
+          path: test.info().outputPath(`verification-progress-${width}-${theme}-${locale}.png`),
+        });
+      await editor.press("Escape");
+      await expect(editor).toBeHidden();
+      await expect(panel.getByRole("button", { name: textIn(locale, "session.editSession") })).toBeFocused();
+    }
+  });
 });

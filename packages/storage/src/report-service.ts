@@ -76,6 +76,7 @@ type ReportProjectMetricsRow = {
   oversized: number;
   passed: number;
   failed: number;
+  in_progress: number;
   not_run: number;
   not_supplied: number;
 };
@@ -258,49 +259,65 @@ export class ReportReadService {
     }
 
     const risks: ReportInsight[] = [];
-    const notSuppliedSessions = sessions.filter((session) => !session.verification);
-    if (notSuppliedSessions.length) {
-      risks.push({
-        kind: "verification",
+    const verificationIds = new Map<ReportVerificationStatus, string[]>([
+      ["passed", []],
+      ["failed", []],
+      ["in_progress", []],
+      ["not_run", []],
+      ["not_supplied", []],
+    ]);
+    const missingHandoffIds: string[] = [];
+    const missingChangedFileIds: string[] = [];
+    // Classify bounded report sources once; each risk reuses ids without scanning Sessions again.
+    for (const session of sessions) {
+      const status = session.verification?.status ?? "not_supplied";
+      const ids = verificationIds.get(status) ?? verificationIds.get("not_supplied")!;
+      ids.push(session.id);
+      if (!snapshotsBySession.has(session.id)) missingHandoffIds.push(session.id);
+      if (session.changedFiles.length === 0) missingChangedFileIds.push(session.id);
+    }
+    const verificationRisks = [
+      {
+        status: "not_supplied",
         label: "Verification 尚未回報",
-        detail: `${notSuppliedSessions.length} 個 Session 沒有結構化 verification；不能只根據文件內容推測結果。`,
-        sourceSessionIds: notSuppliedSessions.map((session) => session.id),
-      });
-    }
-    const notRunSessions = sessions.filter((session) => session.verification?.status === "not_run");
-    if (notRunSessions.length) {
-      risks.push({
-        kind: "verification",
+        detail: "沒有結構化 verification；不能只根據文件內容推測結果。",
+      },
+      {
+        status: "not_run",
         label: "Verification 明確標示未執行",
-        detail: `${notRunSessions.length} 個 Session 由 Agent 明確回報 verification 尚未執行；Agent 應再確認是否能補回 passed 或 failed。`,
-        sourceSessionIds: notRunSessions.map((session) => session.id),
-      });
+        detail: "由 Agent 明確回報 verification 尚未執行；Agent 應再確認是否能補回 passed 或 failed。",
+      },
+      {
+        status: "in_progress",
+        label: "Verification 進行中",
+        detail: "回報 verification 正在進行；結果尚未確定，不能視為通過或失敗。",
+      },
+      { status: "failed", label: "Verification 失敗", detail: "回報 failed，請回到來源工作檢查驗證事件。" },
+    ] as const;
+    for (const risk of verificationRisks) {
+      const ids = verificationIds.get(risk.status)!;
+      if (ids.length)
+        risks.push({
+          kind: "verification",
+          label: risk.label,
+          detail: `${ids.length} 個 Session ${risk.detail}`,
+          sourceSessionIds: ids,
+        });
     }
-    const failedSessions = sessions.filter((session) => session.verification?.status === "failed");
-    if (failedSessions.length) {
-      risks.push({
-        kind: "verification",
-        label: "Verification 失敗",
-        detail: `${failedSessions.length} 個 Session 回報 failed，請回到來源工作檢查驗證事件。`,
-        sourceSessionIds: failedSessions.map((session) => session.id),
-      });
-    }
-    const missingHandoffSessions = sessions.filter((session) => !snapshotsBySession.has(session.id));
-    if (missingHandoffSessions.length) {
+    if (missingHandoffIds.length) {
       risks.push({
         kind: "metadata",
         label: "Handoff snapshot 未保存",
-        detail: `${missingHandoffSessions.length} 個 Session 沒有可追溯的 raw handoff snapshot。`,
-        sourceSessionIds: missingHandoffSessions.map((session) => session.id),
+        detail: `${missingHandoffIds.length} 個 Session 沒有可追溯的 raw handoff snapshot。`,
+        sourceSessionIds: missingHandoffIds,
       });
     }
-    const missingChangedFilesSessions = sessions.filter((session) => session.changedFiles.length === 0);
-    if (missingChangedFilesSessions.length) {
+    if (missingChangedFileIds.length) {
       risks.push({
         kind: "metadata",
         label: "變更檔案 metadata 未提供",
-        detail: `${missingChangedFilesSessions.length} 個 Session 沒有 changed files metadata；請由 Agent 檢查工作樹後補回，這不代表工作沒有完成。`,
-        sourceSessionIds: missingChangedFilesSessions.map((session) => session.id),
+        detail: `${missingChangedFileIds.length} 個 Session 沒有 changed files metadata；請由 Agent 檢查工作樹後補回，這不代表工作沒有完成。`,
+        sourceSessionIds: missingChangedFileIds,
       });
     }
 
@@ -476,7 +493,7 @@ export class ReportReadService {
                 SUM(CASE WHEN files <= ${CHANGED_FILES_NORMAL} THEN files ELSE 0 END) AS changed_files,
                 SUM(files > ${CHANGED_FILES_NORMAL}) AS oversized,
                 SUM(status = 'passed') AS passed, SUM(status = 'failed') AS failed,
-                SUM(status = 'not_run') AS not_run, SUM(status = 'not_supplied') AS not_supplied
+                SUM(status = 'in_progress') AS in_progress, SUM(status = 'not_run') AS not_run, SUM(status = 'not_supplied') AS not_supplied
          FROM (
            SELECT s.project_id, p.name AS project_name,
                   json_array_length(CASE WHEN json_valid(s.changed_files_json) THEN s.changed_files_json ELSE '[]' END)
@@ -509,7 +526,7 @@ export class ReportReadService {
       events: 0,
       changedFiles: 0,
       changedFilesOversizedSessions: 0,
-      verification: { passed: 0, failed: 0, not_run: 0, not_supplied: 0 },
+      verification: { passed: 0, failed: 0, in_progress: 0, not_run: 0, not_supplied: 0 },
       projects: [],
     };
     for (const row of rows) {
@@ -520,6 +537,7 @@ export class ReportReadService {
       metrics.changedFilesOversizedSessions += row.oversized;
       metrics.verification.passed += row.passed;
       metrics.verification.failed += row.failed;
+      metrics.verification.in_progress += row.in_progress;
       metrics.verification.not_run += row.not_run;
       metrics.verification.not_supplied += row.not_supplied;
       metrics.projects.push({

@@ -38,7 +38,8 @@ export type PolicyStatus = ProjectStatus | "unregistered";
 export const WORK_EVENT_TYPES = ["planning", "execution", "verification", "closing", "note", "finalized"] as const;
 
 export type WorkEventType = (typeof WORK_EVENT_TYPES)[number];
-export type VerificationStatus = "passed" | "failed" | "not_run";
+export const VERIFICATION_STATUSES = ["passed", "failed", "in_progress", "not_run"] as const;
+export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
 export type ReportVerificationStatus = VerificationStatus | "not_supplied";
 export const CHANGED_FILE_SOURCES = ["agent", "handoff", "git", "worktree"] as const;
 export type ChangedFileSource = (typeof CHANGED_FILE_SOURCES)[number];

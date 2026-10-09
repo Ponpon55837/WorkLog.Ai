@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { WorkReport } from "@work-intelligence/core";
-import type { ReportMetricComparison, WorkSessionRecord } from "@work-intelligence/core";
+import type { ReportMetricComparison, WorkReport, WorkSessionRecord } from "@work-intelligence/core";
 import ReportPeriodBreakdown from "./ReportPeriodBreakdown.vue";
 import SynthesisCard from "./SynthesisCard.vue";
 import VerificationBreakdown from "./VerificationBreakdown.vue";
@@ -23,6 +22,7 @@ const emit = defineEmits<{
 const verificationCounts = computed(() => ({
   passed: report.totals.verification.passed,
   failed: report.totals.verification.failed,
+  inProgress: report.totals.verification.in_progress,
   notRun: report.totals.verification.not_run,
   notSupplied: report.totals.verification.not_supplied,
 }));

@@ -26,6 +26,7 @@ const emit = defineEmits<{
 const verificationCounts = computed(() => ({
   passed: report.totals.verification.passed,
   failed: report.totals.verification.failed,
+  inProgress: report.totals.verification.in_progress,
   notRun: report.totals.verification.not_run,
   notSupplied: report.totals.verification.not_supplied,
 }));

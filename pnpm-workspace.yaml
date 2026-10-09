@@ -4,3 +4,7 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+
+# Mermaid still requests vulnerable KaTeX 0.16; remove this pin when upstream adopts the fix.
+overrides:
+  "mermaid>katex": 0.18.2

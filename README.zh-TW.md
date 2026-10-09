@@ -1,5 +1,7 @@
 # Work Intelligence
 
+**1.4.0** 新增工作記錄「進行中」驗證狀態與原生架構卡片閱讀器。既有 Mermaid 依保存格式顯示；資料庫 schema 維持 27。更新並建置後，重啟執行中的服務及重新連線 Agent MCP，才能載入新版與契約。
+
 [English](README.md) | **繁體中文**
 
 **本機優先的開發工作記憶。** Codex、Claude 等 Agent 完成一段工作後，會把「做了什麼、改了哪些檔案、怎麼驗證」寫進你電腦上的一個 SQLite 檔案。你可以在 Web UI 回顧工作歷程，產生日、週、月、季、年或自訂期間的報告；之後 Agent 開工前或遇到錯誤時，也能從這裡找回過去的工作與 Knowledge。
@@ -302,7 +304,7 @@ pnpm db:maintain
 **幾個容易混淆的區分**
 
 - **Finalize ≠ Git commit**：一次工作可以沒有 commit；changed files 只代表檔案曾經變動。
-- **Verification 有四種狀態**：通過、失敗、明確未執行（`not_run`）、未回報（歷史資料沒有提供）。
+- **Verification 分開呈現五種狀態**：通過、失敗、進行中（`in_progress`）、明確未執行（`not_run`）、未回報（歷史資料沒有提供）。驗證已開始但結果尚未確定時，可在「編輯 Session」選擇「進行中」；確認結果後原地改為通過或失敗。開始工作不等於通過，報表與可攜式匯出會保留這項區別；記錄定稿與驗證狀態各自獨立。
 - **報表數字 ≠ AI 摘要**：統計與趨勢由系統固定規則計算；AI 整理的每段結論都必須引用來源 Session，資料不足時會直接寫「資料不足」。
 - **Knowledge 只收明確提交的內容**：不會從 handoff 或原始碼自動抽取。候選由 Agent 提出，由你接受後才成為 Knowledge。
 - **修正留痕跡，不重寫歷史**：主摘要、五段 workSummary 與 verification 可以由 Agent 或 Session 面板就地修正（同一筆 Session，留下修改紀錄）。記錯的 Session 與錯誤的 Evidence 用作廢處理（需要填原因，可以還原）。changed files、events 與 Evidence 內容維持唯讀。

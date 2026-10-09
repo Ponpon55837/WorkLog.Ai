@@ -21,7 +21,7 @@ Additional rules:
 - `summary` is one concise executive sentence; `workSummary` carries the five distinct detail categories. Do not repeat the same fact in multiple fields.
 - Each array item is one concise, confirmed statement. Use `[]` when a category has no supported content; do not add filler or Markdown headings.
 - Distinguish `完成` (confirmed complete), `實作` (implemented but not necessarily fully verified), `處理` (worked on), `定位` (root cause found, not necessarily fixed), and `未驗證` (not tested). Keep failures, expected failures, and unrun checks explicit.
-- `verification.status` remains the machine-readable status (`passed`, `failed`, or `not_run`) and is not replaced by prose in `workSummary.verification`. Historical missing status remains `not_supplied`; never convert missing information to `not_run` or infer success.
+- `verification.status` remains the machine-readable status (`passed`, `failed`, `in_progress`, or `not_run`) and is not replaced by prose in `workSummary.verification`. `in_progress` means verification has started but has no confirmed result; update the same record after verification finishes. It does not change the finalized-record lifecycle or imply passed. Historical missing status remains `not_supplied`; never convert missing information to `not_run` or infer success.
 - Git remains optional structured metadata (`branch`, `commitSha`, `dirty`) outside `workSummary`. Include only observed values. `changedFiles` describes file-change evidence, not a commit.
 - Events, raw handoff snapshots, evidence, changed-file provenance, and Git metadata remain separate source records. Do not copy them wholesale into `workSummary`.
 - Every statement must be supported by the current Session's available handoff, event, evidence, metadata, or verified worktree information. If unavailable, omit it or state the known gap; never guess.
@@ -53,7 +53,7 @@ The current `ReportSummary` API fields remain unchanged. Use them consistently:
 - `title` and `executiveSummary`: report period/scope and concise outcome-first summary.
 - `themes`: the period-level grouping from the table above (task/workstream/project/initiative/major contribution).
 - `highlights`: supported outcomes and significant delivery details. For a daily report, include an optional block titled `Git` only when source Sessions provide actual Git metadata; do not infer commits from changed files.
-- `verification`: representative exact verification outcomes, preserving `passed`, `failed`, `not_run`, `not_supplied`, partial coverage, and environment limits.
+- `verification`: representative exact verification outcomes, preserving `passed`, `failed`, `in_progress`, `not_run`, `not_supplied`, partial coverage, and environment limits.
 - `comparison`: previous-period comparisons or objective trends only when supplied by deterministic report data; otherwise `[]`.
 - `risks`: risks and current known limitations, with the affected Session sources.
 - `decisions`: only explicit decisions and documented trade-offs.

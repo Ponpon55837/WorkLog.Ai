@@ -105,6 +105,7 @@ export class ReportBuilder {
       "| --- | ---: |",
       "| Passed | " + report.totals.verification.passed + " |",
       "| Failed | " + report.totals.verification.failed + " |",
+      "| In progress | " + report.totals.verification.in_progress + " |",
       "| Not run | " + report.totals.verification.not_run + " |",
       "| Not supplied | " + report.totals.verification.not_supplied + " |",
       "",

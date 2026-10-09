@@ -284,6 +284,18 @@ try {
     }
   };
   const benchStore = cachePath && !cached ? new WorkIntelligenceStore(databasePath) : store;
+  if (cached) {
+    // Only the copied synthetic database is changed; cache roots belonged to a removed previous run.
+    const projects = benchStore.listProjects();
+    for (const [name, projectRoot] of [
+      ["alpha", alphaRoot],
+      ["beta", betaRoot],
+    ]) {
+      const project = projects.find((entry) => entry.name === name);
+      if (!project) throw new Error(`Synthetic cache is missing project ${name}.`);
+      benchStore.updateProjectLocation(project.id, projectRoot, true);
+    }
+  }
   const alpha = benchStore.listProjects().find((project) => project.name === "alpha");
   const beta = benchStore.listProjects().find((project) => project.name === "beta");
   let maintenanceFinalizeIndex = 0;
@@ -315,6 +327,15 @@ try {
   if (benchPath.outcome !== "graph_path" || !benchPath.found) {
     throw new Error("The graph path benchmark must measure a path that exists.");
   }
+  benchStore.finalizeSession({
+    projectRoot: alphaRoot,
+    idempotencyKey: "bench-verification-progress",
+    title: "Synthetic verification progress",
+    summary: "Completed synthetic checkpoint with an unfinished verification.",
+    completedAt: "2026-03-11T12:00:00.000Z",
+    changedFiles: [],
+    verification: { status: "in_progress" },
+  });
   const architectureSession = benchStore.finalizeSession({
     projectRoot: alphaRoot,
     idempotencyKey: "bench-architecture",
@@ -377,6 +398,16 @@ try {
     "listSessionDigests (page 100 + pending items)": () => listSessionDigestPage(benchStore, alpha.id),
     getDashboardSummary: () => benchStore.getDashboardSummary(),
     "getReport week": () => benchStore.getReport({ period: "week", date: "2026-03-11" }),
+    "getReport (in-progress verification)": () => {
+      const result = benchStore.getReport({ period: "week", date: "2026-03-11", projectId: alpha.id });
+      if (
+        result.outcome !== "report" ||
+        result.totals.verification.in_progress !== 1 ||
+        !result.risks.some((risk) => risk.label === "Verification 進行中")
+      )
+        throw new Error("Progress report benchmark must preserve its unconfirmed result.");
+      return result;
+    },
     "getReport month": () => benchStore.getReport({ period: "month", date: "2026-03-11" }),
     "getReport year": () => benchStore.getReport({ period: "year", date: "2026-03-11" }),
     getContext: () => benchStore.getContext(),
@@ -487,6 +518,7 @@ try {
     "listSessionDigests (page 100 + pending items)": 100,
     getDashboardSummary: 1000,
     "getReport week": 750,
+    "getReport (in-progress verification)": 750,
     "getReport year": 1500,
     getContext: 2500,
     "getContext (project with pages)": 500,

@@ -1,5 +1,7 @@
 # Work Intelligence
 
+Version **1.4.0** adds in-progress verification and native architecture diagram cards. Existing Mermaid diagrams retain their saved format; the app stays on database schema 27. After updating and rebuilding, restart the running server and reconnect the Agent MCP to load the new contracts.
+
 **English** | [繁體中文](README.zh-TW.md)
 
 **Local-first work memory for developers.** When an Agent such as Codex or Claude finishes a piece of work, it writes what it did, which files it changed and how it verified the result into a single SQLite file on your computer. You review that history in the Web UI and build daily, weekly, monthly, quarterly, yearly or custom-range reports; before starting new work or when hitting an error, the Agent can look up past work and Knowledge from the same place.
@@ -301,7 +303,7 @@ For any project that is not "Tracked", every Agent request returns `skipped` and
 **Distinctions that are easy to mix up**
 
 - **Finalize ≠ Git commit**: a piece of work may have no commit; changed files only mean files changed.
-- **Verification has four states**: passed, failed, explicitly not run (`not_run`), and not reported (older data without it).
+- **Verification has five distinct states**: passed, failed, in progress (`in_progress`), explicitly not run (`not_run`), and not reported (older data without it). Choose “In progress” in the Session editor when verification has started but its result is not confirmed; update the same record to passed or failed after checking the result. Starting work alone never implies passed. Reports and portable exports preserve this distinction; record finalization remains separate from verification.
 - **Report numbers ≠ AI summary**: statistics and trends are computed by fixed rules; every conclusion in an AI synthesis must cite source Sessions and says "insufficient data" when there is not enough.
 - **Knowledge only takes explicitly submitted content**: nothing is extracted automatically from handoffs or source code. The Agent proposes candidates; they become Knowledge only after you accept them.
 - **Corrections leave a trail instead of rewriting history**: the summary, the five-section workSummary and verification can be corrected in place by the Agent or in the Session panel (same Session, with change history). Wrongly recorded Sessions and wrong Evidence are voided (a reason is required; they can be restored). Changed files, events and Evidence content stay read-only.

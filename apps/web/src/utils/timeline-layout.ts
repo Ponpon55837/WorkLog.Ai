@@ -109,6 +109,7 @@ export interface DayBucket {
   day: number;
   passed: number;
   failed: number;
+  inProgress: number;
   other: number;
   total: number;
 }
@@ -130,11 +131,12 @@ export function dayBuckets(sessions: ReadonlyArray<{ completedAt: string; verifi
     const day = startOfLocalDay(Date.parse(session.completedAt));
     let bucket = byDay.get(day);
     if (!bucket) {
-      bucket = { day, passed: 0, failed: 0, other: 0, total: 0 };
+      bucket = { day, passed: 0, failed: 0, inProgress: 0, other: 0, total: 0 };
       byDay.set(day, bucket);
     }
     if (session.verificationStatus === "passed") bucket.passed += 1;
     else if (session.verificationStatus === "failed") bucket.failed += 1;
+    else if (session.verificationStatus === "in_progress") bucket.inProgress += 1;
     else bucket.other += 1;
     bucket.total += 1;
   }

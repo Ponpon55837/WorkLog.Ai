@@ -270,6 +270,35 @@ describe("Work Intelligence MCP server", () => {
     });
   });
 
+  it("advertises and preserves in-progress verification through MCP updates", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Progress fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{
+      session: { id: string; verification: { status: string } };
+      verificationFollowUp?: unknown;
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "progress-fixture", "Progress fixture"),
+      verification: { status: "in_progress", summary: "Synthetic check is underway." },
+    });
+    expect(finalized.session.verification.status).toBe("in_progress");
+    expect(finalized.verificationFollowUp).toBeUndefined();
+    expect((await getToolContractCatalog(client)).sections.get("work_finalize_session")).toContain("in_progress");
+    const updated = await callJson(client, "work_update_session_metadata", {
+      sessionId: finalized.session.id,
+      changedFiles: [],
+      changedFilesMode: "merge",
+      verification: { status: "passed" },
+    });
+    expect(updated).toMatchObject({
+      outcome: "updated",
+      session: { id: finalized.session.id, verification: { status: "passed" } },
+    });
+    expect(store.getSessionDetail(finalized.session.id)?.verificationHistory).toMatchObject([
+      { source: "agent", previous: { status: "in_progress" }, resulting: { status: "passed" } },
+    ]);
+  });
+
   it("records the connecting client name and the optional model on finalize without Agent input", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-agent-source-"));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));

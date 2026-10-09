@@ -21,7 +21,7 @@ const report = {
     events: 3,
     changedFiles: 4,
     changedFilesOversizedSessions: 2,
-    verification: { passed: 1, failed: 0, not_run: 1, not_supplied: 0 },
+    verification: { passed: 1, failed: 0, in_progress: 0, not_run: 1, not_supplied: 0 },
   },
   comparison: {
     sessions: { current: 2, previous: 1, difference: 1, percent: 100 },

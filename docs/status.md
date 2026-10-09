@@ -37,6 +37,10 @@ A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並
 
 PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒，等待更新後 CI 驗證。
 
+## 工作記錄進行中狀態
+
+1.4.0（2026-10-09）新增 Verification `in_progress`，Web 編輯、Agent 契約、報表／總覽統計、時間軸及匯出匯入一致保留；進行中使用 accent／時鐘，不當作缺漏補登，也不推定通過。沿用既有 JSON 欄位，schema 維持 27，Agent 契約改變後須重新連線。
+
 ## 大型圖表導入
 
 2026-10-09 第一階段：既有 Session Mermaid 圖表加入展開閱讀、縮放、適合畫面、拖曳／方向鍵移動與來源回退。選取圖表同步網址，重載可恢復。沿用 SessionDetail 與嚴格 CSP，沒有新 API 或資料庫 migration。第二階段[Archify 技術驗證](archify-spike.md)已實測原始 HTML 受正式 CSP 拒絕、zh-TW 會回退英文，以及 6／10／100／500 節點的產物與成本；採用版本化 JSON 與專案內 Vue／SVG 閱讀器的方向。第三階段新增[架構 JSON v1](architecture-diagram-format.md)、migration 27、MCP 資源與完整資料生命週期；第四階段導入原生群組／節點卡片／來源／直接關係與作者路徑閱讀，保留縮放、移動、網址及來源回退。既有 Mermaid 不會自動轉換成架構卡片；v1 支援最多 200 節點與平面群組。

@@ -79,10 +79,11 @@ describe("timeline overview helpers", () => {
       { completedAt: at(3, 2, 23), verificationStatus: "failed" },
       { completedAt: at(3, 1, 8), verificationStatus: "not_run" },
       { completedAt: at(3, 2, 10), verificationStatus: "not_supplied" },
+      { completedAt: at(3, 2, 11), verificationStatus: "in_progress" },
     ]);
     expect(buckets).toEqual([
-      { day: startOfLocalDay(day(3, 1)), passed: 0, failed: 0, other: 1, total: 1 },
-      { day: startOfLocalDay(day(3, 2)), passed: 1, failed: 1, other: 1, total: 3 },
+      { day: startOfLocalDay(day(3, 1)), passed: 0, failed: 0, inProgress: 0, other: 1, total: 1 },
+      { day: startOfLocalDay(day(3, 2)), passed: 1, failed: 1, inProgress: 1, other: 1, total: 4 },
     ]);
     expect(dayBuckets([])).toEqual([]);
   });
