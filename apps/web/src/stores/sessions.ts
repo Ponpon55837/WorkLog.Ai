@@ -175,6 +175,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.related }),
       ];
       if (input.title || input.summary) {
         invalidations.push(
@@ -199,10 +200,11 @@ export const useSessionsStore = defineStore("sessions", () => {
       useApi().client.linkSession(input.sessionId, input.relatedSessionId, input.relation),
     onSuccess: async (result, input) => {
       if (result.outcome !== "session_link_updated") return;
-      await Promise.all([
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.relatedSessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.related }),
       ]);
     },
   });
@@ -211,10 +213,11 @@ export const useSessionsStore = defineStore("sessions", () => {
       useApi().client.unlinkSession(input.sessionId, input.relatedSessionId),
     onSuccess: async (result, input) => {
       if (result.outcome !== "session_link_updated") return;
-      await Promise.all([
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.relatedSessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.related }),
       ]);
     },
   });
@@ -222,9 +225,10 @@ export const useSessionsStore = defineStore("sessions", () => {
     mutation: (input: SetSessionVoidInput) => useApi().client.setSessionVoid(input),
     onSuccess: async (result, input) => {
       if (result.outcome !== "session_void_updated") return;
-      await Promise.all([
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.related }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.agents, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
         queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView }),
@@ -245,7 +249,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       if (selectedSessionId.value === sessionId) selectedSessionId.value = null;
       sequence.value = sequence.value.filter((id) => id !== sessionId);
       // The deleted Session can appear anywhere a voided one could; the new snapshot shows up in backups.
-      await Promise.all([
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.projects.backups, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.pages }),
@@ -253,6 +257,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals }),
         queryCache.invalidateQueries({ key: queryKeys.agentReads.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.related }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.agents, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.linkCandidates }),
         queryCache.invalidateQueries({ key: queryKeys.projects.metadataBackfillView }),
@@ -279,13 +284,14 @@ export const useSessionsStore = defineStore("sessions", () => {
       useApi().client.setEvidenceVoid(input),
     onSuccess: async (result, input) => {
       if (result.outcome !== "evidence_void_updated") return;
-      await Promise.all([
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: [...queryKeys.sessions.detail, input.sessionId], exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.summary, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
+        queryCache.invalidateQueries({ key: queryKeys.sessions.related }),
       ]);
     },
   });

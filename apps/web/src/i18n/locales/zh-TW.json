@@ -1582,5 +1582,17 @@
       "open": "未結項入口",
       "missing": "metadata 缺漏"
     }
+  },
+  "related": {
+    "title": "可能相關",
+    "hint": "共同修改檔案的查閱提示，不代表依賴或已建立關聯。",
+    "failed": "無法載入可能相關的工作。",
+    "partial": "熱門檔案只檢查最近候選，結果可能不完整。",
+    "empty": "已檢查範圍內沒有尚未連結的共同檔案候選。",
+    "shared": "共同修改 {count} 個檔案",
+    "sourceUnavailable": "來源不可用。",
+    "filesUnconfirmed": "這筆工作尚未確認修改檔案。",
+    "noFiles": "這筆工作沒有可比對的修改檔案。",
+    "tooManyFiles": "修改檔案超過 20 個，暫不推導相關工作。"
   }
 }

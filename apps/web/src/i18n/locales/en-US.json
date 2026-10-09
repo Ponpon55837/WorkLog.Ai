@@ -1582,5 +1582,17 @@
       "open": "Open-item entry",
       "missing": "metadata missing"
     }
+  },
+  "related": {
+    "title": "Possibly related",
+    "hint": "Shared changed files are a reading hint, not a dependency or an existing relation.",
+    "failed": "Related work could not be loaded.",
+    "partial": "Popular paths use recent candidates; results may be incomplete.",
+    "empty": "No unlinked shared-file candidates in the checked pool.",
+    "shared": "{count} shared changed files",
+    "sourceUnavailable": "The source is unavailable.",
+    "filesUnconfirmed": "Changed files have not been confirmed for this work.",
+    "noFiles": "This work has no changed files to compare.",
+    "tooManyFiles": "More than 20 changed files; no related work is inferred."
   }
 }

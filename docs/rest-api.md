@@ -252,3 +252,9 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 每類最多 200 筆來源窗口；`groups` 分別回 state（complete／partial／failed）、examined、available 與精確 matching total（未知時 null）。pending 未結項與 metadata 缺口按專案各提供一個入口，count 為該專案項目／Sessions 數；聚合 total 計提醒與專案入口數，並非全專案問題數。Knowledge／知識頁由原服務計算可信度，窗口外未知時只保留 minimumTotal 下限。某類失敗不回錯誤正文，其他類仍可查閱；所有類精確數量已知時 total 才為數字。pageInfo 是可查閱窗口的分頁，不等於全來源匹配數量。
 
 總覽 URL 使用 attentionProject、attentionKind、attentionPage、attentionSize。Knowledge 的來源深連結為 `/knowledge/list?project=<id>&knowledge=<id>`，知識頁使用 knowledgePage，補填頁 `/projects/backfill?project=<id>&backfillRequest=<id>`；原未結項整理的 cleanupRequest 入口保持不變。尚未加入稍後、不顯示或一般解除提醒的寫入 API。
+
+### 相關工作提示
+
+`GET /api/sessions/:sessionId/related` 為唯讀端點；未知 query 被拒絕。限記錄中專案、未作廢來源、已確認且 1–20 個檔案。缺失／停用／作廢來源回傳 `state: unavailable` 與 `reason: source_unavailable`，不洩漏標題。其他 reason 為 `files_unconfirmed`／`no_files`／`too_many_files`。
+
+最多五筆，排序為共同檔數、Jaccard、完成時間、ID；每筆最多三個共同路徑。既有雙向 Session 關聯排除，絕不新增關聯。每條檔案 posting 最多查閱 1,000 筆，`coverage.partial` 明示截短，`examined` 是已檢查候選數，並非全專案總數。沒有新增 MCP 操作。

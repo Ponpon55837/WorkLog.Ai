@@ -4,6 +4,33 @@ import { applySchemaMigrations, schemaMigrationSql } from "../../packages/storag
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
+describe("related work file posting migration", () => {
+  it("upgrades 27, schedules existing Sessions and creates a covering seek", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 27);
+      db.exec("PRAGMA foreign_keys=OFF");
+      db.exec(
+        "INSERT INTO sessions (id,project_id,idempotency_key,title,summary,completed_at,status,created_at) VALUES ('s','p','legacy','Legacy','Saved','2026-10-01','finalized','2026-10-01')",
+      );
+      applySchemaMigrations(db);
+      expect(db.prepare("SELECT session_id FROM related_work_dirty").all()).toEqual([{ session_id: "s" }]);
+      expect(
+        JSON.stringify(
+          db
+            .prepare(
+              "EXPLAIN QUERY PLAN SELECT doc_id FROM related_work_paths WHERE project_id='p' AND path='src/a.ts' ORDER BY doc_date DESC,doc_id LIMIT 1001",
+            )
+            .all(),
+        ),
+      ).toContain("idx_related_work_project_path");
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("custom report synthesis migration", () => {
   it("preserves existing requests and summaries while allowing custom periods", () => {
     const db = new DatabaseSync(":memory:");

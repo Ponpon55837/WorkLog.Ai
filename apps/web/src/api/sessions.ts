@@ -1,4 +1,5 @@
 import type {
+  RelatedWorkResult,
   DeleteSessionResult,
   LinkSessionsResult,
   SessionLinkRelation,
@@ -23,6 +24,7 @@ import type { SessionListRequest } from "./types";
 import { appendQuery, type ApiTransport } from "./transport";
 
 export interface SessionsApi {
+  getRelatedWork(sessionId: string, signal?: AbortSignal): Promise<RelatedWorkResult>;
   listSessions(options?: SessionListRequest, signal?: AbortSignal): Promise<SessionListResult>;
   listSessionAgents(signal?: AbortSignal): Promise<string[]>;
   getSessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail>;
@@ -52,6 +54,8 @@ export interface SessionsApi {
 
 export function createSessionsApi(client: ApiTransport): SessionsApi {
   return {
+    getRelatedWork: (sessionId, signal) =>
+      client.request<RelatedWorkResult>(`/api/sessions/${encodeURIComponent(sessionId)}/related`, { signal }),
     listSessions(options: SessionListRequest = {}, signal?: AbortSignal): Promise<SessionListResult> {
       return client.request<SessionListResult>(
         appendQuery("/api/sessions", {

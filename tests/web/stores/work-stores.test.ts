@@ -136,6 +136,19 @@ describe("work data stores", () => {
     expect(harness.count("/api/sessions/session-1/summary", "PATCH")).toBe(1);
   });
 
+  it("keeps successful void and link writes successful when their read refresh is aborted", async () => {
+    const store = useSessionsStore();
+    vi.spyOn(useQueryCache(), "invalidateQueries").mockRejectedValue(new DOMException("aborted", "AbortError"));
+    await expect(store.setSessionVoid({ sessionId: "session-1", voided: true } as never)).resolves.toMatchObject({
+      outcome: "session_void_updated",
+    });
+    await expect(
+      store.linkSessions({ sessionId: "session-1", relatedSessionId: "session-2", relation: "related" }),
+    ).resolves.toMatchObject({ outcome: "session_link_updated" });
+    expect(harness.count("/api/sessions/session-1/void", "PATCH")).toBe(1);
+    expect(harness.count("/api/sessions/session-1/links", "POST")).toBe(1);
+  });
+
   it("maps a report API error and blocks incomplete or oversized custom ranges before fetching", async () => {
     const store = useReportsStore();
     store.reportPeriod = "custom";

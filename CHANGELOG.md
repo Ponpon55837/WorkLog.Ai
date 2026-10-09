@@ -6,6 +6,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Suggest up to five same-project Sessions sharing confirmed files in Session detail. A covering file-posting index bounds hot-path reads, excludes existing links/voided or unavailable sources and reports partial coverage; suggestions never create links.
+
 - Aggregate eight existing reminder sources in the Overview with project/type filters, URL pagination, bounded scrolling, explicit failed/partial coverage and policy-gated domain links. Knowledge links open the exact source history, and metadata backfill retains its project/request scope. Dashboard week dates come from the server clock; source status is changed only in its owning workflow.
 
 ### Documentation

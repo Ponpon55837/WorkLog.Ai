@@ -1,0 +1,226 @@
+{
+  "fixture": "synthetic only; no live database modified",
+  "samples": 15,
+  "results": [
+    {
+      "sessions": 5000,
+      "coldMs": 85.83,
+      "medianMs": 2.61,
+      "p90Ms": 3.01,
+      "maxMs": 3.24,
+      "coverage": {
+        "partial": false,
+        "postingLimit": 1000,
+        "examined": 166
+      },
+      "responseBytes": 1267,
+      "seekBefore": [
+        "SCAN related_work_paths",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "seekAfter": [
+        "SEARCH related_work_paths USING COVERING INDEX idx_related_work_project_path (project_id=? AND path=?)"
+      ],
+      "plans": [
+        {
+          "sql": "SELECT s.id,s.project_id,s.changed_files_json,s.changed_files_confirmed,p.name,p.root_path FROM sessions s JOIN projects p ON p.id=s.project_id WHERE s.id=? AND p.status='tracked' AND s.voided_at IS NULL",
+          "details": [
+            "SEARCH s USING INDEX sqlite_autoindex_sessions_1 (id=?)",
+            "SEARCH p USING INDEX sqlite_autoindex_projects_1 (id=?)"
+          ]
+        },
+        {
+          "sql": "SELECT 1 FROM related_work_dirty WHERE project_id=? LIMIT 1",
+          "details": [
+            "SEARCH related_work_dirty USING COVERING INDEX idx_related_work_dirty_project (project_id=?)"
+          ]
+        },
+        {
+          "sql": "SELECT * FROM (SELECT sp.doc_id, ? AS hit_path FROM related_work_paths sp\n      JOIN sessions s ON s.id=sp.doc_id\n      WHERE sp.project_id=? AND sp.path=? AND sp.doc_id<>?\n        AND s.project_id=? AND s.voided_at IS NULL AND s.changed_files_confirmed=1 AND json_array_length(s.changed_files_json) BETWEEN 1 AND 20\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.session_id=? AND l.related_session_id=s.id)\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.related_session_id=? AND l.session_id=s.id)\n      ORDER BY sp.doc_date DESC, sp.doc_id LIMIT ?) UNION ALL SELECT * FROM (SELECT sp.doc_id, ? AS hit_path FROM related_work_paths sp\n      JOIN sessions s ON s.id=sp.doc_id\n      WHERE sp.project_id=? AND sp.path=? AND sp.doc_id<>?\n        AND s.project_id=? AND s.voided_at IS NULL AND s.changed_files_confirmed=1 AND json_array_length(s.changed_files_json) BETWEEN 1 AND 20\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.session_id=? AND l.related_session_id=s.id)\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.related_session_id=? AND l.session_id=s.id)\n      ORDER BY sp.doc_date DESC, sp.doc_id LIMIT ?)",
+          "details": [
+            "COMPOUND QUERY",
+            "LEFT-MOST SUBQUERY",
+            "CO-ROUTINE (subquery-3)",
+            "SEARCH sp USING COVERING INDEX idx_related_work_project_path (project_id=? AND path=?)",
+            "SEARCH s USING INDEX idx_sessions_id_project (id=? AND project_id=?)",
+            "CORRELATED SCALAR SUBQUERY 1",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "CORRELATED SCALAR SUBQUERY 2",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "SCAN (subquery-3)",
+            "UNION ALL",
+            "CO-ROUTINE (subquery-7)",
+            "SEARCH sp USING COVERING INDEX idx_related_work_project_path (project_id=? AND path=?)",
+            "SEARCH s USING INDEX idx_sessions_id_project (id=? AND project_id=?)",
+            "CORRELATED SCALAR SUBQUERY 5",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "CORRELATED SCALAR SUBQUERY 6",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "SCAN (subquery-7)"
+          ]
+        },
+        {
+          "sql": "SELECT id,title,completed_at,changed_files_json FROM sessions WHERE id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND project_id=? AND voided_at IS NULL",
+          "details": [
+            "SEARCH sessions USING INDEX idx_sessions_id_project (id=? AND project_id=?)"
+          ]
+        }
+      ],
+      "cpuTop": [
+        {
+          "name": "all",
+          "ms": 86.86
+        },
+        {
+          "name": "get",
+          "ms": 38.54
+        },
+        {
+          "name": "prepare",
+          "ms": 38.28
+        },
+        {
+          "name": "post",
+          "ms": 36.74
+        },
+        {
+          "name": "normalizePath",
+          "ms": 25.07
+        },
+        {
+          "name": "(garbage collector)",
+          "ms": 8.24
+        },
+        {
+          "name": "(anonymous)",
+          "ms": 4.56
+        },
+        {
+          "name": "paths",
+          "ms": 2.5
+        },
+        {
+          "name": "syncPaths",
+          "ms": 2.33
+        },
+        {
+          "name": "parseJson",
+          "ms": 1.32
+        }
+      ]
+    },
+    {
+      "sessions": 50000,
+      "coldMs": 1208.95,
+      "medianMs": 27.85,
+      "p90Ms": 30.06,
+      "maxMs": 31.34,
+      "coverage": {
+        "partial": true,
+        "postingLimit": 1000,
+        "examined": 1440
+      },
+      "responseBytes": 1332,
+      "seekBefore": [
+        "SCAN related_work_paths",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "seekAfter": [
+        "SEARCH related_work_paths USING COVERING INDEX idx_related_work_project_path (project_id=? AND path=?)"
+      ],
+      "plans": [
+        {
+          "sql": "SELECT s.id,s.project_id,s.changed_files_json,s.changed_files_confirmed,p.name,p.root_path FROM sessions s JOIN projects p ON p.id=s.project_id WHERE s.id=? AND p.status='tracked' AND s.voided_at IS NULL",
+          "details": [
+            "SEARCH s USING INDEX sqlite_autoindex_sessions_1 (id=?)",
+            "SEARCH p USING INDEX sqlite_autoindex_projects_1 (id=?)"
+          ]
+        },
+        {
+          "sql": "SELECT 1 FROM related_work_dirty WHERE project_id=? LIMIT 1",
+          "details": [
+            "SEARCH related_work_dirty USING COVERING INDEX idx_related_work_dirty_project (project_id=?)"
+          ]
+        },
+        {
+          "sql": "SELECT * FROM (SELECT sp.doc_id, ? AS hit_path FROM related_work_paths sp\n      JOIN sessions s ON s.id=sp.doc_id\n      WHERE sp.project_id=? AND sp.path=? AND sp.doc_id<>?\n        AND s.project_id=? AND s.voided_at IS NULL AND s.changed_files_confirmed=1 AND json_array_length(s.changed_files_json) BETWEEN 1 AND 20\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.session_id=? AND l.related_session_id=s.id)\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.related_session_id=? AND l.session_id=s.id)\n      ORDER BY sp.doc_date DESC, sp.doc_id LIMIT ?) UNION ALL SELECT * FROM (SELECT sp.doc_id, ? AS hit_path FROM related_work_paths sp\n      JOIN sessions s ON s.id=sp.doc_id\n      WHERE sp.project_id=? AND sp.path=? AND sp.doc_id<>?\n        AND s.project_id=? AND s.voided_at IS NULL AND s.changed_files_confirmed=1 AND json_array_length(s.changed_files_json) BETWEEN 1 AND 20\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.session_id=? AND l.related_session_id=s.id)\n        AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.related_session_id=? AND l.session_id=s.id)\n      ORDER BY sp.doc_date DESC, sp.doc_id LIMIT ?)",
+          "details": [
+            "COMPOUND QUERY",
+            "LEFT-MOST SUBQUERY",
+            "CO-ROUTINE (subquery-3)",
+            "SEARCH sp USING COVERING INDEX idx_related_work_project_path (project_id=? AND path=?)",
+            "SEARCH s USING INDEX idx_sessions_id_project (id=? AND project_id=?)",
+            "CORRELATED SCALAR SUBQUERY 1",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "CORRELATED SCALAR SUBQUERY 2",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "SCAN (subquery-3)",
+            "UNION ALL",
+            "CO-ROUTINE (subquery-7)",
+            "SEARCH sp USING COVERING INDEX idx_related_work_project_path (project_id=? AND path=?)",
+            "SEARCH s USING INDEX idx_sessions_id_project (id=? AND project_id=?)",
+            "CORRELATED SCALAR SUBQUERY 5",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "CORRELATED SCALAR SUBQUERY 6",
+            "SEARCH l USING COVERING INDEX sqlite_autoindex_session_links_2 (session_id=? AND related_session_id=?)",
+            "SCAN (subquery-7)"
+          ]
+        },
+        {
+          "sql": "SELECT id,title,completed_at,changed_files_json FROM sessions WHERE id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND project_id=? AND voided_at IS NULL",
+          "details": [
+            "SEARCH sessions USING INDEX idx_sessions_id_project (id=? AND project_id=?)"
+          ]
+        },
+        {
+          "sql": "SELECT id,title,completed_at,changed_files_json FROM sessions WHERE id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AND project_id=? AND voided_at IS NULL",
+          "details": [
+            "SEARCH sessions USING INDEX idx_sessions_id_project (id=? AND project_id=?)"
+          ]
+        }
+      ],
+      "cpuTop": [
+        {
+          "name": "all",
+          "ms": 1985.65
+        },
+        {
+          "name": "get",
+          "ms": 320.31
+        },
+        {
+          "name": "normalizePath",
+          "ms": 184.13
+        },
+        {
+          "name": "prepare",
+          "ms": 111.59
+        },
+        {
+          "name": "parseJson",
+          "ms": 48.84
+        },
+        {
+          "name": "post",
+          "ms": 46.31
+        },
+        {
+          "name": "paths",
+          "ms": 39.4
+        },
+        {
+          "name": "(garbage collector)",
+          "ms": 39.03
+        },
+        {
+          "name": "(anonymous)",
+          "ms": 33.57
+        },
+        {
+          "name": "getRelatedWork",
+          "ms": 29.92
+        }
+      ]
+    }
+  ]
+}

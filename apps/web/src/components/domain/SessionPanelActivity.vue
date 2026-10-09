@@ -27,6 +27,7 @@ import UiDisclosure from "../ui/UiDisclosure.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import VirtualList from "../VirtualList.vue";
+import RelatedWorkBox from "./RelatedWorkBox.vue";
 import ChangedFileList from "./ChangedFileList.vue";
 import SessionDiagram from "./SessionDiagram.vue";
 import { router } from "../../router";
@@ -388,6 +389,11 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         </template>
       </VirtualList>
     </UiDisclosure>
+    <RelatedWorkBox
+      v-if="!session.voided && detail.project.status === 'tracked'"
+      :key="session.id"
+      :session-id="session.id"
+    />
   </div>
 </template>
 
