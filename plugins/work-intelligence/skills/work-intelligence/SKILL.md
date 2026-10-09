@@ -65,10 +65,11 @@ Write:
 - `verification.status`: the machine-readable result (`passed`, `failed`, or `not_run`). Historical `not_supplied` means the original record omitted the status; do not rewrite it as `not_run` or assume success.
 - Git fields: optional separate metadata containing only observed values. Changed files do not prove a commit.
 - Events and evidence: record only supported facts and keep them separate from the five-section summary.
-- `diagrams` — attach one on your own, without being asked, when a picture explains this work better than text. Up to two Mermaid diagrams per Session:
+- `diagrams` — attach one on your own, without being asked, when a picture explains this work better than text. Up to two Mermaid or versioned architecture diagrams per Session:
   - **Attach** when the work changed a flow or data path across modules (for example API → store → database), a state machine, an architecture or component relationship, or a multi-step process.
   - **Skip** single-file fixes, copy or styling changes, configuration tweaks, dependency bumps, and test-only work.
-  - Draw only what this work actually did, with names from the code; no plans or ideas. Keep it small (about 3–12 nodes), prefer `flowchart LR` or `sequenceDiagram`, give it a short title, and never put secrets, tokens, or personal data in it.
+  - For architecture/component/data-path snapshots with groups, source locations, or authored paths, prefer `kind: "architecture"`, `formatVersion: 1`; first read `work-intelligence://agent/architecture-diagram-v1` and serialize validated JSON as `source`. Use Mermaid for sequence/state diagrams or a short flow where those structured details add no value. Omitting kind remains backward-compatible Mermaid; rebuilding never converts historical diagrams.
+  - Draw only what this work actually did, with names and relative source paths from the code; no plans or ideas. Keep it small (about 3–12 nodes), give it a short title, and never put secrets, tokens, or personal data in it. Source locations and author-defined paths describe the snapshot, not a runtime trace.
   - After finalizing, `work_attach_diagram` adds one to an existing Session; use a new idempotency key per diagram.
 
 If this work relied on recalled Knowledge, report it when finalizing: Knowledge that proved still valid as applied, and Knowledge that turned out to be wrong as contradicted (then tell the user which one and why, so it can be updated or archived). Do not report Knowledge you did not actually use. These reports are counted as the Knowledge's evidence (shown to the user and used in ranking), so report them only when the work really relied on the item.

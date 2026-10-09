@@ -1,12 +1,18 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from "vue";
 import { Maximize2 } from "lucide-vue-next";
 import type { SessionDiagramRecord } from "@work-intelligence/core";
 import MermaidDiagram from "./MermaidDiagram.vue";
 import UiButton from "../ui/UiButton.vue";
 import { t } from "../../i18n";
 
-withDefaults(defineProps<{ diagram: SessionDiagramRecord; interactive?: boolean }>(), { interactive: false });
+/** Dispatch a saved snapshot to the renderer for its validated kind and version. */
+withDefaults(defineProps<{ diagram: SessionDiagramRecord; interactive?: boolean; projectRoot?: string }>(), {
+  interactive: false,
+  projectRoot: "",
+});
 const emit = defineEmits<{ expand: [] }>();
+const ArchitectureDiagram = defineAsyncComponent(() => import("./ArchitectureDiagram.vue"));
 
 function expand(event: MouseEvent): void {
   if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
@@ -20,6 +26,14 @@ function expand(event: MouseEvent): void {
     :title="diagram.title"
     :source="diagram.source"
     :interactive="interactive"
+    @expand="emit('expand')"
+  />
+  <ArchitectureDiagram
+    v-else-if="diagram.kind === 'architecture' && diagram.formatVersion === 1"
+    :title="diagram.title"
+    :source="diagram.source"
+    :interactive="interactive"
+    :project-root="projectRoot"
     @expand="emit('expand')"
   />
   <figure v-else class="session-diagram-source" data-testid="session-diagram">

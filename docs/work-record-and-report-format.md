@@ -67,4 +67,4 @@ When normalizing existing records, update the same finalized Session with `work_
 
 ## 版本化架構圖
 
-`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。Mermaid 仍為預設。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
+`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。省略 `kind` 時仍相容為 Mermaid；有群組、來源位置或作者路徑的架構／元件／資料路徑快照優先使用架構圖，時序／狀態圖與不需要這些結構資訊的短流程仍使用 Mermaid。重新 build 不會轉換歷史圖表。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
