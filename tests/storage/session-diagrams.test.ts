@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { DiagramContentInput } from "../../packages/core/src/index.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -23,7 +24,7 @@ function setup(onDisk = false) {
   stores.push(store);
   const project = store.addProject("Apiary", root);
   store.updateProject(project.id, { status: "tracked" });
-  const finalize = (key: string, diagrams?: Array<{ title: string; source: string }>) => {
+  const finalize = (key: string, diagrams?: DiagramContentInput[]) => {
     const result = store.finalizeSession({
       projectRoot: root,
       idempotencyKey: key,
@@ -40,6 +41,93 @@ function setup(onDisk = false) {
 }
 
 describe("Session diagrams", () => {
+  it("saves architecture snapshots, masks JSON values, checks kind identity and transfers/voids/deletes", () => {
+    const { store, project, finalize } = setup(true);
+    const source = JSON.stringify({
+      version: 1,
+      nodes: [
+        {
+          id: "api",
+          label: "API",
+          description: `deploy ${fakeToken}`,
+          source: { path: "apps/server/src/server.ts", line: 1 },
+        },
+      ],
+    });
+    const sessionId = finalize("architecture", [{ title: "API", kind: "architecture", formatVersion: 1, source }])
+      .session.id;
+    const diagram = store.getSessionDetail(sessionId)!.diagrams[0]!;
+    expect(diagram).toMatchObject({ kind: "architecture", formatVersion: 1 });
+    expect(JSON.parse(diagram.source).nodes[0].description).not.toContain(fakeToken);
+    expect(
+      store.attachDiagram({ sessionId, idempotencyKey: "extra", title: "API", kind: "architecture", source }),
+    ).toMatchObject({ outcome: "diagram_attached", duplicate: false });
+    expect(
+      store.attachDiagram({
+        sessionId,
+        idempotencyKey: "extra",
+        title: "API",
+        kind: "architecture",
+        source: JSON.stringify(JSON.parse(source), null, 2),
+      }),
+    ).toMatchObject({ outcome: "diagram_attached", duplicate: true });
+    expect(
+      store.attachDiagram({ sessionId, idempotencyKey: "extra", title: "API", source: diagram.source }),
+    ).toMatchObject({ outcome: "idempotency_conflict" });
+    expect(store.setDiagramVoid({ diagramId: diagram.id, voided: true, reason: "Old snapshot" })).toMatchObject({
+      outcome: "diagram_void_updated",
+    });
+    const bundle = store.exportProjectData({ type: "project", projectId: project.id });
+    expect(bundle.tables.session_diagrams[0]?.format_version).toBe(1);
+    const sourceRow = bundle.tables.session_diagrams[0]!;
+    sourceRow.source = JSON.stringify({
+      ...JSON.parse(String(sourceRow.source)),
+      nodes: [{ id: "api", label: "API", description: `deploy ${fakeToken}` }],
+    });
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    expect(destination.importProjectData({ bundle, remap: [] }).additions.session_diagrams).toBe(2);
+    destination.updateProject(destination.listProjects()[0]!.id, { status: "tracked" });
+    expect(destination.getSessionDetail(sessionId)?.diagrams[0]).toMatchObject({
+      kind: "architecture",
+      formatVersion: 1,
+      voided: { reason: "Old snapshot" },
+    });
+    expect(destination.getSessionDetail(sessionId)?.diagrams[0]?.source).not.toContain(fakeToken);
+    store.setSessionVoid({ sessionId, voided: true, reason: "Old snapshot" });
+    expect(store.deleteSession(sessionId).deletedCounts.sessionDiagrams).toBe(2);
+    expect(store.deleteProject(project.id, "Apiary").deletedCounts).toMatchObject({ sessionDiagrams: 0 });
+  });
+
+  it("omits masked source locations and bounds growing redaction markers", () => {
+    const { store, finalize } = setup();
+    const source = JSON.stringify({
+      version: 1,
+      nodes: [{ id: "api", label: "token=abcdefghi ".repeat(12), source: { path: `src/${fakeToken}.ts` } }],
+    });
+    const id = finalize("locations", [{ title: "API", kind: "architecture", source }]).session.id;
+    const saved = JSON.parse(store.getSessionDetail(id)!.diagrams[0]!.source);
+    expect(saved.nodes[0].source).toBeUndefined();
+    expect(saved.nodes[0].label.length).toBeLessThanOrEqual(200);
+    expect(saved.nodes[0].label).not.toContain("abcdefghi");
+  });
+
+  it("imports older Mermaid bundles without a version column", () => {
+    const { store, project, finalize } = setup();
+    const sessionId = finalize("old", [{ title: "Flow", source: flow }]).session.id;
+    const bundle = store.exportProjectData({ type: "project", projectId: project.id });
+    for (const row of bundle.tables.session_diagrams) {
+      delete row.format_version;
+      // Legacy masking/imports can have produced sources beyond the new-write input limit.
+      row.source = `${flow}\n%% ${"legacy ".repeat(3_000)}`;
+    }
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    expect(destination.importProjectData({ bundle, remap: [] }).additions.session_diagrams).toBe(1);
+    destination.updateProject(destination.listProjects()[0]!.id, { status: "tracked" });
+    expect(destination.getSessionDetail(sessionId)?.diagrams[0]?.formatVersion).toBe(1);
+  });
+
   it("attaches a masked diagram idempotently and refuses a different diagram under the same key", () => {
     const { store, finalize } = setup();
     const sessionId = finalize("one").session.id;

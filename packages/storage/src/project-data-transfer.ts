@@ -22,6 +22,7 @@ import {
   projectDataExportTableColumns,
 } from "@work-intelligence/schema";
 import { nowIso } from "@work-intelligence/shared";
+import { redactDiagramSource } from "./diagram-source-redaction.js";
 import { remapPathPrefix } from "./project-path-remap.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
@@ -149,7 +150,10 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
           if (typeof value !== "string") {
             continue;
           }
-          const result = redactText(value);
+          const result =
+            table === "session_diagrams" && field === "source"
+              ? redactDiagramSource(value, String(output.kind))
+              : redactText(value);
           output[field] = result.value;
           rowCount += result.redactions.total;
           allRedactions.total += result.redactions.total;

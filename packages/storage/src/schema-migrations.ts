@@ -779,6 +779,33 @@ const MIGRATIONS: SchemaMigration[] = [
         END;
     `,
   },
+  {
+    version: 27,
+    name: "versioned-architecture-diagrams",
+    sql: `
+      CREATE TABLE session_diagrams_v27 (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('mermaid', 'architecture')),
+        format_version INTEGER NOT NULL DEFAULT 1 CHECK (format_version >= 1),
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        voided_at TEXT,
+        void_reason TEXT,
+        UNIQUE (session_id, idempotency_key)
+      );
+      INSERT INTO session_diagrams_v27
+        (id, session_id, project_id, idempotency_key, title, kind, source, created_at, voided_at, void_reason)
+        SELECT id, session_id, project_id, idempotency_key, title, kind, source, created_at, voided_at, void_reason
+        FROM session_diagrams ORDER BY rowid;
+      DROP TABLE session_diagrams;
+      ALTER TABLE session_diagrams_v27 RENAME TO session_diagrams;
+      CREATE INDEX idx_session_diagrams_session ON session_diagrams(session_id, created_at);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

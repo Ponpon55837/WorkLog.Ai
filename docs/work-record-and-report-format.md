@@ -63,3 +63,8 @@ The current `ReportSummary` API fields remain unchanged. Use them consistently:
 ## Backfilling existing Sessions
 
 When normalizing existing records, update the same finalized Session with `work_update_session_work_summary` (the Web UI Session editor uses the same in-place update); read the current Session first, because the user may already have edited it; do not create replacement Sessions or alter their primary summary, events, evidence, changed files, verification status, Git metadata, or snapshots. Read all available structured and raw source under the tracked-project policy gate. Preserve confirmed facts, remove unsupported or duplicated claims, and replace future-looking `nextSteps` with objective current-state facts or `[]`. If source data is unavailable or a project is not tracked, do not read it or fabricate a replacement.
+
+
+## 版本化架構圖
+
+`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。Mermaid 仍為預設。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。

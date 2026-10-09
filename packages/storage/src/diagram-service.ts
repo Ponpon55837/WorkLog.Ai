@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   AttachDiagramInput,
   AttachDiagramResult,
+  DiagramContentInput,
   PolicyDecision,
   RedactionSummary,
   SessionDiagramKind,
@@ -12,6 +13,7 @@ import type {
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
+import { redactDiagramSource } from "./diagram-source-redaction.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 export interface DiagramDependencies {
@@ -25,6 +27,7 @@ interface DiagramRow {
   idempotency_key: string;
   title: string;
   kind: SessionDiagramKind;
+  format_version: number;
   source: string;
   created_at: string;
   voided_at: string | null;
@@ -38,6 +41,7 @@ function toDiagram(row: DiagramRow): SessionDiagramRecord {
     projectId: row.project_id,
     title: row.title,
     kind: row.kind,
+    formatVersion: row.format_version,
     source: row.source,
     createdAt: row.created_at,
     ...(row.voided_at ? { voided: { at: row.voided_at, reason: row.void_reason ?? "" } } : {}),
@@ -98,7 +102,7 @@ export class DiagramService {
     sessionId: string,
     projectId: string,
     finalizeKey: string,
-    diagrams: ReadonlyArray<{ title: string; source: string }>,
+    diagrams: ReadonlyArray<DiagramContentInput>,
     createdAt: string,
   ): RedactionSummary | undefined {
     let summary: RedactionSummary | undefined;
@@ -143,15 +147,26 @@ export class DiagramService {
   private write(
     sessionId: string,
     projectId: string,
-    input: { idempotencyKey: string; title: string; source: string; kind?: SessionDiagramKind },
+    input: DiagramContentInput & { idempotencyKey: string },
     createdAt: string,
   ): { diagram: SessionDiagramRecord; duplicate: boolean; redactions: RedactionSummary; conflict: boolean } {
-    const masked = redactValue({ title: input.title.trim(), source: input.source.trim() });
+    const kind = input.kind ?? "mermaid";
+    const formatVersion = input.formatVersion ?? 1;
+    const title = redactValue(input.title.trim());
+    const source = redactDiagramSource(input.source, kind);
+    const masked = {
+      value: { title: title.value, source: source.value },
+      redactions: combineRedactionSummaries(title.redactions, source.redactions),
+    };
     const existing = this.db
       .prepare("SELECT * FROM session_diagrams WHERE session_id = ? AND idempotency_key = ?")
       .get(sessionId, input.idempotencyKey) as DiagramRow | undefined;
     if (existing) {
-      const same = existing.title === masked.value.title && existing.source === masked.value.source;
+      const same =
+        existing.title === masked.value.title &&
+        existing.source === masked.value.source &&
+        existing.kind === kind &&
+        existing.format_version === formatVersion;
       return { diagram: toDiagram(existing), duplicate: true, redactions: masked.redactions, conflict: !same };
     }
     const row: DiagramRow = {
@@ -160,7 +175,8 @@ export class DiagramService {
       project_id: projectId,
       idempotency_key: input.idempotencyKey,
       title: masked.value.title,
-      kind: input.kind ?? "mermaid",
+      kind,
+      format_version: formatVersion,
       source: masked.value.source,
       created_at: createdAt,
       voided_at: null,
@@ -168,10 +184,20 @@ export class DiagramService {
     };
     this.db
       .prepare(
-        `INSERT INTO session_diagrams (id, session_id, project_id, idempotency_key, title, kind, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO session_diagrams (id, session_id, project_id, idempotency_key, title, kind, format_version, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(row.id, sessionId, projectId, row.idempotency_key, row.title, row.kind, row.source, createdAt);
+      .run(
+        row.id,
+        sessionId,
+        projectId,
+        row.idempotency_key,
+        row.title,
+        row.kind,
+        row.format_version,
+        row.source,
+        createdAt,
+      );
     return { diagram: toDiagram(row), duplicate: false, redactions: masked.redactions, conflict: false };
   }
 }

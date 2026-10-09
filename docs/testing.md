@@ -227,3 +227,8 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 ## Archify 技術探測
 
 `pnpm test:archify-probe /path/to/archify-checkout` 是選擇性的隔離探測，需先建置與安裝三個 Playwright 瀏覽器；不使用正式資料庫或全域 skill。固定上游版本、75 組 CSP／主題／語言／規模驗證、原始測量值及邊界見 [Archify 技術驗證](archify-spike.md)。
+
+
+架構圖格式 v1 測試涵蓋界限、未知版本／欄位、引用與作者路徑順序、MCP dispatcher、migration 26→27 保留排序／作廢、結構化遮蔽、舊匯出相容與新格式 round-trip。既有 SessionDetail 讀取路徑與政策不變。
+
+`getSessionDetail (200 architecture nodes)` 增加 200 節點／199 連線合成快照，p90 門檻 250ms，確認圖表隨完整 Session 讀取；不是瀏覽器繪製或實機觸控量測。

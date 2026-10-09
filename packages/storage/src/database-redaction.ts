@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { RedactionSummary, SensitiveDataKind } from "@work-intelligence/core";
 import type { BackupRetentionOptions } from "./backup.js";
 import { backupDatabaseBeforeMaintenance } from "./backup.js";
+import { redactDiagramSource } from "./diagram-source-redaction.js";
 import { redactText } from "./secret-redaction.js";
 
 export type DatabaseRedactionErrorCode =
@@ -127,6 +128,7 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
         : []),
       ...(availableColumns.has("id") ? ["id"] : []),
       ...(availableColumns.has("knowledge_id") ? ["knowledge_id"] : []),
+      ...(table === "session_diagrams" && availableColumns.has("kind") ? ["kind"] : []),
       ...textFields,
     ].join(", ");
     const rows = database.prepare(`SELECT ${selected} FROM ${table}`).all() as Array<Record<string, unknown>>;
@@ -143,7 +145,10 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
           values.push(value == null ? (value as null) : String(value));
           continue;
         }
-        const sanitized = redactText(value);
+        const sanitized =
+          table === "session_diagrams" && field === "source"
+            ? redactDiagramSource(value, String(row.kind))
+            : redactText(value);
         values.push(sanitized.value);
         rowRedactions += sanitized.redactions.total;
         addSummary(redactions, sanitized.redactions);

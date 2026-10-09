@@ -26,6 +26,7 @@ export async function computeMcpCompatibility(
         client.readResource({ uri: `work-intelligence://agent/tool-contracts/${operation}` }),
       ),
     );
+    const architecture = await client.readResource({ uri: "work-intelligence://agent/architecture-diagram-v1" });
     const compatibilityId = createHash("sha256")
       .update(
         JSON.stringify({
@@ -34,6 +35,7 @@ export async function computeMcpCompatibility(
           tools,
           index,
           contracts,
+          architecture,
         }),
       )
       .digest("hex");
