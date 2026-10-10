@@ -42,6 +42,7 @@ export const REDACTED_TEXT_FIELDS = {
   knowledge_candidate_requests: ["failure_reason"],
   knowledge_candidates: ["title", "body", "tags_json", "references_json", "applies_to_json", "rationale"],
   report_synthesis_requests: ["failure_reason"],
+  report_presentations: ["state_json"],
   report_summaries: [
     "title",
     "executive_summary",

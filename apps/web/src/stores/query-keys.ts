@@ -2,6 +2,7 @@
 const reportsViewKey = ["view", "reports"] as const;
 
 export const queryKeys = {
+  reportPresentation: ["report-presentation"] as const,
   app: {
     health: ["app", "health"] as const,
   },

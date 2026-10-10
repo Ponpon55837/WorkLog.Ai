@@ -1,3 +1,4 @@
+export { ReportPresentationError } from "./report-presentation-service.js";
 export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";
 export type { FinalizeSessionContext, TrackedScopeInput } from "./store.js";
 export { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";

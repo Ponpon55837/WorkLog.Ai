@@ -62,6 +62,7 @@ export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, str
   knowledgeCandidates: "common.knowledgeCandidates",
   reportSynthesisRequests: "labels.reportSynthesisRequests",
   reportSummaries: "labels.reportSummaries",
+  reportPresentations: "labels.reportPresentations",
   metadataBackfillRequests: "labels.metadataBackfillRequests",
   sessionSummaryUpdates: "labels.sessionSummaryUpdates",
   sessionWorkSummaryUpdates: "labels.worksummaryUpdates",

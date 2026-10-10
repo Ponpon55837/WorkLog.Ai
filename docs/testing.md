@@ -250,3 +250,8 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 `tests/storage/related-work.test.ts` 覆蓋同專案／已有雙向關聯、重複與正規化檔名、作廢／停用、未確認／超檔案上限、排序 top-5、dirty 重建、熱門 posting 截短與 FK 永久刪除；派生索引不出現在匯出 bundle。REST 驗證 scope、Origin、嚴格 query 與未知錯誤遮蔽。Web store 驗證晚回應不顯示上筆 Session，錯誤保留重試。E2E 包含 12 種語言／主題／視窗組合、axe、鍵盤切換與不溢出，以及錯誤／部分空結果。
 
 38 項 5,000 Sessions read-path 基準通過；相關工作 p90 2.57ms，gate 250ms。另有 [5k/50k 首次同步、暖讀取、CPU 與 SQL 探測](experiments/related-query-probe.results.json)，明示 50k 初次同步 1.21 秒與 partial，僅使用合成資料庫副本，不接觸正式資料。
+
+
+## 報告段落呈現回歸
+
+`report-presentation` 的 core／schema／storage／server／store／E2E 測試涵蓋群組呈現與引用保留、版本 CAS／冪等、來源失效拒讀寫、遮蔽及匯入／刪除生命週期。瀏覽器驗證使用純合成資料，涵蓋 375／960／1440px、繁中／英文、明暗主題，包含隱藏／恢复、改稿、axe、頁面溢出與 409 保留草稿及明確比較。此處描述驗證範圍；本機與 CI 結果另記於整合研究文件。

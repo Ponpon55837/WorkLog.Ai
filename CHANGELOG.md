@@ -6,6 +6,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
+
 - Suggest up to five same-project Sessions sharing confirmed files in Session detail. A covering file-posting index bounds hot-path reads, excludes existing links/voided or unavailable sources and reports partial coverage; suggestions never create links.
 
 - Aggregate eight existing reminder sources in the Overview with project/type filters, URL pagination, bounded scrolling, explicit failed/partial coverage and policy-gated domain links. Knowledge links open the exact source history, and metadata backfill retains its project/request scope. Dashboard week dates come from the server clock; source status is changed only in its owning workflow.
@@ -17,6 +19,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ## [1.4.0] - 2026-10-09
 
 ### Added
+
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
 
 - Session verification adds `in_progress` (進行中), with an audited edit option, Agent schema/contracts, report and dashboard counts, timeline visuals and portable export/import. It stays distinct from passed, failed, not run and historical missing verification; it does not change the finalized-record lifecycle. Report risk classification collects source ids in one pass.
 
@@ -37,6 +41,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
+
 - A voided Session can be permanently deleted from the Session panel ("Delete permanently", with a danger confirmation). The server refuses Sessions that are not voided, writes a `pre-session-delete-` snapshot first (kept in its own group of 5 so it never pushes out manual backups), and deletes the Session with its events, Evidence, diagrams, edit history, links and outstanding items in one transaction; Knowledge it produced is kept. Only `DELETE /api/sessions/:id` with `{ "confirm": true }` does this: there is no MCP tool, so Agents still can only void and restore. Migration 26 adds the content-free `session_deletion_audit` and lets an outstanding item's history be deleted together with the item.
 - Session titles can be corrected: the Session editor has a Title field, `PATCH /api/sessions/:id/title` and the MCP operation `work_update_session_title` (overwrite dispatcher) rename in place and keep the previous title as a note event. Voided Sessions are skipped. Agents must reconnect to see the new operation.
 
@@ -51,6 +57,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ## [1.3.0] - 2026-10-07
 
 ### Added
+
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
 
 - Passive audit of Agent reads: every successful read-only MCP call records which Sessions and Knowledge items it returned (ids and counts only, never query or content; 30 days / 5,000 rows). The system status page lists recent reads, and the Session panel shows when Agents were given that Session. Agents do nothing new.
 - A Knowledge page's version history can be compared: "Compare with previous version" shows, for the version being viewed (or the current page), which sections were added, removed or changed since the version before it, with a line diff of each changed section and the source Sessions added or removed. It is a read-only viewing aid built from the versions the Web already loads; no new endpoint.
@@ -69,11 +77,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
+
 - The plugin has an icon for its Anthropic directory listing: `plugins/work-intelligence/assets/icon.svg`, the Web UI's favicon, set as `icon` in `.claude-plugin/plugin.json`.
 
 ## [1.2.0] - 2026-10-02
 
 ### Added
+
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
 
 - Open the dashboard from the plugin: a `dashboard` skill (`/work-intelligence:dashboard` in Claude Code; ask for it in Codex) and `pnpm dashboard` start the production server from the checkout in the background when it is not running, wait for `/api/health`, print <http://127.0.0.1:3210> and open it. The README now has a full plugin section: marketplace install for Claude Code and Codex, trusting the Codex hooks, the dashboard, updates, switching from manual registration, and the release assets.
 - The Codex plugin now carries the save-reminder hooks (`PostToolUse`, `Stop`, `UserPromptSubmit`) in `plugins/work-intelligence/hooks/codex-hooks.json`, rooted at `${PLUGIN_ROOT}`; trust them under `/hooks`. `pnpm run doctor` warns when `~/.codex/hooks.json` still runs the same reminder, and no longer asks for a manual Codex hook when the plugin is enabled.
@@ -86,6 +98,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ## [1.1.0] - 2026-10-02
 
 ### Added
+
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
 
 - `pnpm run doctor` recognises the Codex plugin (`[plugins."work-intelligence@…"]` in `config.toml`): it no longer asks for a manual Codex MCP or skill, and warns when the plugin and `[mcp_servers.work-intelligence]` are both present.
 - `pnpm build:plugin` packs a self-contained plugin (the MCP server bundled with esbuild) and a Claude Desktop extension (`.mcpb`) into `dist/plugin/`; tagged releases attach both. Without a built checkout, the bundle uses `WORK_INTELLIGENCE_DB`, else the checkout from `WORK_INTELLIGENCE_HOME` or `pnpm plugin:link`, else `~/.work-intelligence/data`. The repository build and `plugins/work-intelligence/` are unchanged.
@@ -139,6 +153,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ## [1.0.0] - 2026-09-30
 
 ### Added
+
+- Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
 
 - A tag-only GitHub Actions release workflow validates the application version and matching changelog section, runs the complete quality and browser checks, then publishes a GitHub Release with ZIP and tar.gz source archives. Pull requests never publish a release.
 - A user-run release acceptance checklist documents native folder selection, Windows backup and Agent setup, macOS Safari, private recall evaluation, and a complete run in another project. Every physical check remains unverified until the user records its result.

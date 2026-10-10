@@ -628,7 +628,8 @@
     "workEvents": "Work events",
     "workSession": "Work Session",
     "worksummaryUpdates": "WorkSummary updates",
-    "worktree": "Worktree"
+    "worktree": "Worktree",
+    "reportPresentations": "Report presentation revisions"
   },
   "layout": {
     "dataStaysInLocalSqlite": "Data stays in local SQLite only",
@@ -1594,5 +1595,42 @@
     "filesUnconfirmed": "Changed files have not been confirmed for this work.",
     "noFiles": "This work has no changed files to compare.",
     "tooManyFiles": "More than 20 changed files; no related work is inferred."
+  },
+  "presentation": {
+    "title": "Report sections",
+    "actions": "Section actions",
+    "pin": "Pin to top",
+    "unpin": "Unpin",
+    "hide": "Hide in this version",
+    "hidden": "{count} sections hidden",
+    "restore": "Restore {title}",
+    "reset": "Reset all sections",
+    "resetConfirm": "Reset section order, hidden sections and manual edits? The original report and sources are preserved.",
+    "edited": "Manually edited",
+    "edit": "Edit {title}",
+    "editTitle": "Edit report block",
+    "original": "Original content",
+    "blockTitle": "Block title",
+    "detail": "Block text",
+    "hint": "Edits affect this report version only. Original citations are kept; they do not verify new manual claims.",
+    "budget": "Title: up to 300 characters; text: up to 4,000; all manual text in this version: up to 8,000.",
+    "failed": "Could not load report presentation.",
+    "saveFailed": "Could not save report block.",
+    "saved": "Presentation saved for this report version.",
+    "conflict": "Another window updated this version. Your draft is kept; load the latest text and compare before saving.",
+    "latest": "Load latest text to compare",
+    "latestContent": "Latest saved text",
+    "applyLatest": "Apply draft to this latest revision",
+    "discard": "Discard unsaved edits?",
+    "discardText": "The unsaved title and text will be discarded.",
+    "discardButton": "Discard edits",
+    "keepEditing": "Keep editing",
+    "restoreBlock": "Restore original block",
+    "history": "Presentation history",
+    "revision": "Presentation revision {revision}",
+    "unknown": "Report presentation has not loaded.",
+    "different": "The displayed report changed. This draft still belongs to the original version shown below.",
+    "loading": "Loading report presentation",
+    "refresh": "Refresh presentation"
   }
 }

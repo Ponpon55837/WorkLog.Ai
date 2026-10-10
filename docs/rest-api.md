@@ -258,3 +258,12 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 `GET /api/sessions/:sessionId/related` 為唯讀端點；未知 query 被拒絕。限記錄中專案、未作廢來源、已確認且 1–20 個檔案。缺失／停用／作廢來源回傳 `state: unavailable` 與 `reason: source_unavailable`，不洩漏標題。其他 reason 為 `files_unconfirmed`／`no_files`／`too_many_files`。
 
 最多五筆，排序為共同檔數、Jaccard、完成時間、ID；每筆最多三個共同路徑。既有雙向 Session 關聯排除，絕不新增關聯。每條檔案 posting 最多查閱 1,000 筆，`coverage.partial` 明示截短，`examined` 是已檢查候選數，並非全專案總數。沒有新增 MCP 操作。
+
+
+## 報告段落呈現
+
+`GET /api/reports/summaries/:id/presentation` 回傳 summaryId、revision、state 與最近 20 筆 revision 的 Web 修改歷程。state 包含 pinned（釘選順序）、hidden（隱藏群組）及 overrides（section、原始 ordinal、title、detail）；七種 section 為 themes、highlights、verification、comparison、risks、decisions、nextSteps。沒有修改時 revision 為 0。
+
+`PATCH /api/reports/summaries/:id/presentation` 接受嚴格的 `{expectedRevision,state}` JSON。未知欄位、重複身份、不存在的段落或空群組操作回 400；每筆 title 最多 300、detail 最多 4000 字元，全部改稿合計最多 8000。相同狀態不建立新 revision。版本不符回 409 `conflict`，客戶端保留草稿並取得最新狀態供明確比較及套用。
+
+原始 ReportSummary 與 sourceSessionIds 不受修改。每次讀寫均檢查基底及全部來源存在、未作廢且所屬專案為 tracked；不可見來源或版本回 404，不返回報告內容。仍遵守 JSON Content-Type、Host／Origin 邊界與未知例外遮蔽。

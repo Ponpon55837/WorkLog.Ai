@@ -628,7 +628,8 @@
     "workEvents": "工作事件",
     "workSession": "工作 Session",
     "worksummaryUpdates": "WorkSummary 更新",
-    "worktree": "工作樹"
+    "worktree": "工作樹",
+    "reportPresentations": "報告呈現版本"
   },
   "layout": {
     "dataStaysInLocalSqlite": "資料只存在本機 SQLite",
@@ -1594,5 +1595,42 @@
     "filesUnconfirmed": "這筆工作尚未確認修改檔案。",
     "noFiles": "這筆工作沒有可比對的修改檔案。",
     "tooManyFiles": "修改檔案超過 20 個，暫不推導相關工作。"
+  },
+  "presentation": {
+    "title": "報告段落",
+    "actions": "段落操作",
+    "pin": "置頂",
+    "unpin": "取消置頂",
+    "hide": "此次隱藏",
+    "hidden": "已隱藏 {count} 個段落",
+    "restore": "還原 {title}",
+    "reset": "還原全部段落",
+    "resetConfirm": "還原段落順序、隱藏與人工改稿？原始報告與來源維持不變。",
+    "edited": "人工改稿",
+    "edit": "編輯 {title}",
+    "editTitle": "編輯報告段落",
+    "original": "原始內容",
+    "blockTitle": "段落標題",
+    "detail": "段落內容",
+    "hint": "僅修改本報告版本的呈現；引用保留原始來源，不代表人工新增內容已獲來源證實。",
+    "budget": "標題最多 300 字、內容最多 4,000 字；本版本人工文字合計最多 8,000 字。",
+    "failed": "無法載入報告呈現。",
+    "saveFailed": "無法保存報告段落。",
+    "saved": "已保存此報告版本的段落呈現。",
+    "conflict": "其他視窗已更新此版本。草稿已保留，請載入最新內容比較後再保存。",
+    "latest": "載入最新內容以比較",
+    "latestContent": "最新保存內容",
+    "applyLatest": "將草稿套用至此最新版本",
+    "discard": "放棄未保存的改稿？",
+    "discardText": "未保存的標題與內容將被捨棄。",
+    "discardButton": "放棄改稿",
+    "keepEditing": "繼續編輯",
+    "restoreBlock": "還原原始段落",
+    "history": "人工呈現紀錄",
+    "revision": "呈現版本 {revision}",
+    "unknown": "報告呈現尚未載入。",
+    "different": "目前顯示的報告已改變；此草稿仍屬於下列原始版本。",
+    "loading": "載入報告呈現中",
+    "refresh": "重新整理呈現"
   }
 }
