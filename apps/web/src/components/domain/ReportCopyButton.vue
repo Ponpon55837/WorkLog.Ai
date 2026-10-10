@@ -18,7 +18,7 @@ import { locale, t } from "../../i18n";
 const props = defineProps<{ summaryId?: string; revision?: number; disabled?: boolean }>();
 const presentation = useReportPresentationStore();
 const reports = useReportsStore();
-const { report, reportLoading, reportPeriod, reportDate, reportRange, reportProjectId } = storeToRefs(reports);
+const { report, reportPeriod, reportDate, reportRange, reportProjectId } = storeToRefs(reports);
 const { copyWithToast } = useToast();
 const open = ref(false);
 const loading = ref(false);
@@ -31,7 +31,7 @@ const copying = ref(false);
 let generation = 0;
 let controller: AbortController | undefined;
 const title = computed(() => t(props.summaryId ? "reportCopy.presentation" : "reportCopy.basic"));
-const unavailable = computed(() => props.disabled || (!props.summaryId && (!report.value || reportLoading.value)));
+const unavailable = computed(() => props.disabled || (!props.summaryId && !report.value));
 
 function close(): void {
   generation += 1;
