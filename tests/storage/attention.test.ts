@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AttentionItem, UpdateAttentionPreference } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
-import { AttentionService } from "../../packages/storage/src/attention-service.js";
+import { AttentionService, AttentionPreferenceError } from "../../packages/storage/src/attention-service.js";
 
 const resources: Array<{ store: WorkIntelligenceStore; root: string }> = [];
 
@@ -57,6 +58,23 @@ function setup() {
     return result.session;
   }
   return { store, projectRoot, otherRoot, project, other, databasePath, finalize };
+}
+
+function firstItem(store: WorkIntelligenceStore, projectId: string, kind: AttentionItem["kind"], view?: "suppressed") {
+  const result = store.getAttention({ projectId, kind, view });
+  if (result.outcome !== "attention" || !result.items[0]) throw new Error("Expected a fictional pointer");
+  return result.items[0];
+}
+function intent(item: AttentionItem, action: UpdateAttentionPreference["action"]): UpdateAttentionPreference {
+  if (!item.projectId || !item.preference) throw new Error("Expected single-project preference");
+  return {
+    projectId: item.projectId,
+    kind: item.kind,
+    sourceId: item.sourceId,
+    sourceRevision: item.sourceRevision,
+    expectedRevision: item.preference.revision,
+    action,
+  };
 }
 
 afterEach(() => {
@@ -214,6 +232,104 @@ describe("attention aggregate", () => {
       expect(JSON.stringify(result)).not.toContain("secret");
     } finally {
       db.close();
+    }
+  });
+});
+
+describe("attention display preferences", () => {
+  it("hides, lists and restores without resolving source state, and rejects another window's stale write", () => {
+    const { store, project, finalize } = setup();
+    finalize("source", { decisions: 1 });
+    const item = firstItem(store, project.id, "decision");
+    expect(store.updateAttentionPreference(intent(item, "hide"))).toMatchObject({
+      preference: { state: "hidden", revision: 1 },
+    });
+    expect(store.getAttention({ projectId: project.id, kind: "decision" })).toMatchObject({
+      items: [],
+      total: 1,
+      minimumTotal: 1,
+      suppressedCount: 1,
+      pageInfo: { total: 0 },
+    });
+    expect(store.listSessionDecisions()).toMatchObject({ pendingCount: 1 });
+    expect(() => store.updateAttentionPreference(intent(item, "snooze"))).toThrow(AttentionPreferenceError);
+    const hidden = firstItem(store, project.id, "decision", "suppressed");
+    expect(hidden.id).toBe(item.id);
+    store.updateAttentionPreference(intent(hidden, "restore"));
+    expect(firstItem(store, project.id, "decision").preference).toEqual({ state: "visible", revision: 2 });
+  });
+  it("uses server time for seven days and resurfaces a new issue even when count and latest source time match", () => {
+    const { store, project, databasePath, finalize } = setup();
+    finalize("source", { openItems: ["Fictional old issue"] });
+    const item = firstItem(store, project.id, "outstanding");
+    const saved = store.updateAttentionPreference(intent(item, "snooze"));
+    expect(saved).toMatchObject({ preference: { snoozedUntil: new Date(Date.now() + 7 * 86400000).toISOString() } });
+    vi.setSystemTime(Date.now() + 7 * 86400000);
+    expect(firstItem(store, project.id, "outstanding").preference?.state).toBe("visible");
+    const current = firstItem(store, project.id, "outstanding");
+    store.updateAttentionPreference(intent(current, "hide"));
+    const db = new DatabaseSync(databasePath);
+    try {
+      db.exec(`INSERT INTO outstanding_items (id,source_session_id,project_id,position,text,status,created_at,updated_at)
+        SELECT 'replacement',source_session_id,project_id,position,'Fictional new issue','pending',created_at,updated_at FROM outstanding_items LIMIT 1;
+        UPDATE outstanding_items SET status='completed' WHERE id!='replacement';`);
+    } finally {
+      db.close();
+    }
+    const changed = firstItem(store, project.id, "outstanding");
+    expect(changed.count).toBe(item.count);
+    expect(changed.updatedAt).toBe(item.updatedAt);
+    expect(changed.sourceRevision).not.toBe(item.sourceRevision);
+    expect(changed.preference).toEqual({ revision: 2, state: "visible" });
+    expect(() =>
+      store.updateAttentionPreference({ ...intent(changed, "hide"), sourceRevision: item.sourceRevision }),
+    ).toThrow(AttentionPreferenceError);
+  });
+  it("rechecks policy, source ownership and void state, and never offers preferences for a global request", () => {
+    const { store, project, other, finalize } = setup();
+    const source = finalize("source", { decisions: 1 });
+    const item = firstItem(store, project.id, "decision");
+    expect(() => store.updateAttentionPreference({ ...intent(item, "hide"), projectId: other.id })).toThrow(
+      AttentionPreferenceError,
+    );
+    store.createReportSynthesisRequest({ period: "day", date: "2026-09-07", idempotencyKey: "global" });
+    const global = store.getAttention({ kind: "synthesis" });
+    if (global.outcome !== "attention") throw new Error("Expected aggregate");
+    expect(global.items[0]?.preference).toBeUndefined();
+    store.updateProject(project.id, { status: "paused" });
+    expect(store.updateAttentionPreference(intent(item, "hide"))).toMatchObject({ outcome: "skipped" });
+    store.updateProject(project.id, { status: "tracked" });
+    store.setSessionVoid({ sessionId: source.id, voided: true, reason: "Fictional void" });
+    expect(() => store.updateAttentionPreference(intent(item, "hide"))).toThrow(AttentionPreferenceError);
+  });
+  it("exports intents, restores display on import, accepts old bundles, and removes preferences on permanent deletion", () => {
+    const { store, project, finalize } = setup();
+    const source = finalize("source", { decisions: 1 });
+    store.updateAttentionPreference(intent(firstItem(store, project.id, "decision"), "hide"));
+    const bundle = store.exportProjectData({ type: "project", projectId: project.id });
+    expect(bundle.tables.attention_preferences).toHaveLength(1);
+    const target = new WorkIntelligenceStore(":memory:");
+    const legacyTarget = new WorkIntelligenceStore(":memory:");
+    try {
+      expect(Object.values(target.importProjectData({ bundle }).conflicts).every((count) => count === 0)).toBe(true);
+      target.updateProject(project.id, { status: "tracked" });
+      expect(firstItem(target, project.id, "decision").preference).toEqual({ state: "visible", revision: 1 });
+      const legacy = structuredClone(bundle);
+      Reflect.deleteProperty(legacy.tables, "attention_preferences");
+      expect(
+        Object.values(legacyTarget.importProjectData({ bundle: legacy }).conflicts).every((count) => count === 0),
+      ).toBe(true);
+      store.setSessionVoid({ sessionId: source.id, voided: true, reason: "Fictional void" });
+      store.deleteSession(source.id);
+      expect(store.exportProjectData({ type: "project", projectId: project.id }).tables.attention_preferences).toEqual(
+        [],
+      );
+      finalize("second", { decisions: 1 });
+      store.updateAttentionPreference(intent(firstItem(store, project.id, "decision"), "hide"));
+      expect(store.deleteProject(project.id, project.name).deletedCounts.attentionPreferences).toBe(1);
+    } finally {
+      target.close();
+      legacyTarget.close();
     }
   });
 });

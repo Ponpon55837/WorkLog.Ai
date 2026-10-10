@@ -629,7 +629,8 @@
     "workSession": "Work Session",
     "worksummaryUpdates": "WorkSummary updates",
     "worktree": "Worktree",
-    "reportPresentations": "Report presentation revisions"
+    "reportPresentations": "Report presentation revisions",
+    "attentionPreferences": "Reminder display preferences"
   },
   "layout": {
     "dataStaysInLocalSqlite": "Data stays in local SQLite only",
@@ -1582,7 +1583,21 @@
       "newData": "New data",
       "open": "Open-item entry",
       "missing": "metadata missing"
-    }
+    },
+    "view": "Reminder view",
+    "visibleView": "Visible",
+    "suppressedView": "Snoozed / hidden",
+    "snooze": "Snooze for seven days",
+    "hide": "Hide this occurrence",
+    "restore": "Restore reminder",
+    "preferenceActions": "Reminder settings",
+    "preferenceSaved": "Reminder display updated. The source still needs attention.",
+    "preferenceFailed": "Could not update the reminder. Refresh and try again.",
+    "suppressedCount": "{count} reminders in the examined window are snoozed or hidden and still count toward unresolved sources.",
+    "allSuppressed": "Reminders in this scope are snoozed or hidden",
+    "noSuppressed": "No snoozed or hidden reminders",
+    "suppressedDescription": "Switch to Snoozed / hidden to restore reminders. New source issues will appear again.",
+    "until": "Snoozed until {date}"
   },
   "related": {
     "title": "Possibly related",

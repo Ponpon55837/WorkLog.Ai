@@ -408,7 +408,26 @@ try {
     state: { pinned: ["highlights"], hidden: [], overrides: [] },
   });
 
+  const reminder = benchStore.getAttention({ projectId: alpha.id, kind: "outstanding" });
+  if (reminder.outcome !== "attention" || !reminder.items.length)
+    throw new Error("Missing preference benchmark source");
+  const pointer = reminder.items[0];
+  benchStore.updateAttentionPreference({
+    projectId: alpha.id,
+    kind: pointer.kind,
+    sourceId: pointer.sourceId,
+    sourceRevision: pointer.sourceRevision,
+    expectedRevision: pointer.preference.revision,
+    action: "hide",
+  });
+
   const cases = {
+    "getAttention (suppressed preferences)": () => {
+      const result = benchStore.getAttention({ projectId: alpha.id, kind: "outstanding", view: "suppressed" });
+      if (result.outcome !== "attention" || !result.suppressedCount || !result.items.length)
+        throw new Error("Suppressed benchmark must read persisted preferences");
+      return result;
+    },
     "exportReportPresentation (snapshot and Markdown)": () =>
       benchStore.exportReportPresentation({ summaryId: presentationBase.summary.id, revision: 1, locale: "zh-TW" }),
     "getReportPresentation (version and source gate)": () =>
@@ -562,6 +581,7 @@ try {
     "getReportPresentation (version and source gate)": 250,
     "exportReportPresentation (snapshot and Markdown)": 250,
     "getAttention (mixed sources)": 500,
+    "getAttention (suppressed preferences)": 500,
     "getRelatedWork (file overlap)": 250,
     "getSessionDetail (200 architecture nodes)": 250,
     "listSessionsPage (default)": 200,

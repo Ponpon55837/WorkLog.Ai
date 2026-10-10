@@ -46,6 +46,7 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "report_synthesis_requests",
   "report_summaries",
   "report_presentations",
+  "attention_preferences",
   "metadata_backfill_requests",
   "session_summary_updates",
   "session_work_summary_updates",
@@ -67,6 +68,7 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   knowledge: [["project_id", "idempotency_key"]],
   report_synthesis_requests: [["idempotency_key"]],
   report_presentations: [["summary_id", "revision"]],
+  attention_preferences: [["project_id", "kind", "source_id"]],
   metadata_backfill_requests: [["idempotency_key"]],
   session_summary_updates: [["idempotency_key"]],
   session_work_summary_updates: [["idempotency_key"]],
@@ -332,6 +334,7 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
     knowledge_candidates: rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
     report_synthesis_requests: reportRequests,
     report_presentations: [],
+    attention_preferences: rowsByIds(db, "attention_preferences", "project_id", projectIds),
     report_summaries:
       scope.type === "all"
         ? sqlRows(db, "report_summaries")
@@ -449,6 +452,10 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
     report_synthesis_requests: reportRequests.filter((row) => projectId === undefined || row.scope_type === "project"),
+    // Portable source identities/revisions cannot prove that a hidden issue is still the same problem.
+    attention_preferences: bundle.tables.attention_preferences
+      .filter((row) => selectedIds.has(String(row.project_id)))
+      .map((row) => ({ ...row, state: "visible", snoozed_until: null })),
     report_presentations: bundle.tables.report_presentations.filter((row) =>
       scopedSummaryIds.has(String(row.summary_id)),
     ),

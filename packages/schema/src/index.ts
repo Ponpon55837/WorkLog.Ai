@@ -35,11 +35,12 @@ import {
   INSIGHT_AVAILABILITIES,
   INSIGHT_PROVIDER_EXECUTIONS,
   PROJECT_DATA_TABLES,
+  ATTENTION_KINDS,
 } from "@work-intelligence/core";
 import { z } from "zod";
 import { parseArchitectureDiagram } from "./architecture-diagram.js";
 import { reportPresentationStateSchema } from "./report-presentation.js";
-export { attentionQuerySchema } from "./attention.js";
+export { attentionQuerySchema, updateAttentionPreferenceSchema } from "./attention.js";
 export { relatedWorkQuerySchema } from "./related-work.js";
 export {
   reportPresentationStateSchema,
@@ -1433,6 +1434,17 @@ export const projectDataExportTableColumns = {
     "source_session_ids_json",
   ],
   report_presentations: ["id", "summary_id", "revision", "state_json", "actor", "created_at"],
+  attention_preferences: [
+    "id",
+    "project_id",
+    "kind",
+    "source_id",
+    "source_revision",
+    "state",
+    "snoozed_until",
+    "revision",
+    "updated_at",
+  ],
   report_summaries: [
     "id",
     "request_id",
@@ -1581,6 +1593,7 @@ const projectDataTablesShape = {
   report_synthesis_requests: projectDataRows,
   report_summaries: projectDataRows,
   report_presentations: projectDataRows.default([]),
+  attention_preferences: projectDataRows.default([]),
   metadata_backfill_requests: projectDataRows,
   session_summary_updates: projectDataRows,
   session_work_summary_updates: projectDataRows,
@@ -1631,6 +1644,7 @@ const projectDataImportStatusValues: Partial<
   },
   report_summaries: { period: WORK_REPORT_PERIODS },
   report_presentations: { actor: ["web"] },
+  attention_preferences: { kind: ATTENTION_KINDS, state: ["visible", "hidden", "snoozed"] },
   metadata_backfill_requests: { scope_type: METADATA_BACKFILL_SCOPE_TYPES, status: METADATA_BACKFILL_REQUEST_STATUSES },
   session_summary_updates: { mode: SESSION_SUMMARY_UPDATE_MODES },
   session_work_summary_updates: { mode: WORK_SUMMARY_UPDATE_MODES },
@@ -1738,6 +1752,16 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
     "source_session_ids_json",
   ],
   report_presentations: ["id", "summary_id", "state_json", "actor", "created_at"],
+  attention_preferences: [
+    "id",
+    "project_id",
+    "kind",
+    "source_id",
+    "source_revision",
+    "state",
+    "revision",
+    "updated_at",
+  ],
   report_summaries: [
     "id",
     "request_id",
@@ -1838,6 +1862,7 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
   knowledge_candidate_requests: ["candidate_count"],
   report_summaries: ["is_current"],
   report_presentations: ["revision"],
+  attention_preferences: ["revision"],
   sessions: ["changed_files_confirmed", "redaction_count"],
   session_decisions: ["position"],
   outstanding_items: ["position"],
@@ -1901,6 +1926,22 @@ const projectDataExportObjectSchema = z
             message: "Invalid diagram version or architecture source.",
           });
         }
+        if (
+          table === "attention_preferences" &&
+          (typeof row.revision !== "number" ||
+            !Number.isSafeInteger(row.revision) ||
+            row.revision < 1 ||
+            typeof row.source_revision !== "string" ||
+            !/^[a-f0-9]{64}$/.test(row.source_revision) ||
+            (row.state === "snoozed"
+              ? typeof row.snoozed_until !== "string" || !Number.isFinite(Date.parse(row.snoozed_until))
+              : row.snoozed_until !== null))
+        )
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["tables", table, index],
+            message: "Invalid attention preference.",
+          });
         if (table === "report_presentations") {
           let valid = false;
           try {

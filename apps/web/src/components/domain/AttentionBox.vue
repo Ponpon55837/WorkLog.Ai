@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useRoute } from "vue-router";
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ArrowRight, CircleCheckBig, Filter, FolderGit2 } from "lucide-vue-next";
-import { ATTENTION_KINDS } from "@work-intelligence/core";
+import { ArrowRight, CircleCheckBig, Filter, FolderGit2, MoreHorizontal } from "lucide-vue-next";
+import { ATTENTION_KINDS, type AttentionItem, type UpdateAttentionPreference } from "@work-intelligence/core";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -16,24 +16,43 @@ import UiLabel from "../ui/UiLabel.vue";
 import UiPagination from "../ui/UiPagination.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
+import { useToast } from "../../composables/useToast";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../../composables/useRouteQuery";
 import { useAttentionStore } from "../../stores/attention";
 import { useProjectsStore } from "../../stores/projects";
 import { attentionKindKeys, attentionReasonKeys, attentionRoute } from "../../utils/attention";
 import type { ListPageSize } from "../../utils/labels";
-import { formatRelative } from "../../utils/format";
+import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { t } from "../../i18n";
 
 /** Dashboard attention pointers with explicit coverage and domain-owned actions. */
 const route = useRoute();
 const store = useAttentionStore();
-const { projectId, kind, page, pageSize, result, items, groups, loaded, loading, error, skipped, hasIncomplete } =
-  storeToRefs(store);
+const {
+  projectId,
+  kind,
+  view,
+  saving,
+  page,
+  pageSize,
+  result,
+  items,
+  groups,
+  loaded,
+  loading,
+  error,
+  skipped,
+  hasIncomplete,
+} = storeToRefs(store);
 const { projects } = storeToRefs(useProjectsStore());
+const { showToast } = useToast();
+useRouteQuery("attentionView", view, enumQuery(["visible", "suppressed"], "visible"));
 useRouteQuery("attentionProject", projectId, stringQuery());
 useRouteQuery("attentionKind", kind, enumQuery(["", ...ATTENTION_KINDS], ""));
 useRouteQuery("attentionPage", page, pageQuery());
 useRouteQuery("attentionSize", pageSize, enumQuery<ListPageSize>([10, 20, 50], 20));
+
+const actionError = ref("");
 
 const projectNames = computed(() => new Map(projects.value.map((project) => [project.id, project.name])));
 const projectItems = computed(() => [
@@ -46,6 +65,15 @@ const kindItems = computed(() => [
   { value: "" as const, label: t("common.allKinds") },
   ...ATTENTION_KINDS.map((value) => ({ value, label: t(attentionKindKeys[value]) })),
 ]);
+const viewItems = computed(() => [
+  { value: "visible" as const, label: t("attention.visibleView") },
+  { value: "suppressed" as const, label: t("attention.suppressedView") },
+]);
+const preferenceActions = computed(() => [
+  { value: "snooze" as const, label: t("attention.snooze") },
+  { value: "hide" as const, label: t("attention.hide") },
+]);
+const suppressedCount = computed(() => result.value?.suppressedCount ?? 0);
 const countLabel = computed(() =>
   result.value?.total === null
     ? t("attention.atLeast", { count: result.value.minimumTotal })
@@ -84,15 +112,35 @@ const sizeOptions: readonly { value: ListPageSize; label: string }[] = [
   { value: 50, label: "50" },
 ];
 
-watch([projectId, kind, pageSize], () => {
+async function changePreference(item: AttentionItem, action: UpdateAttentionPreference["action"]): Promise<void> {
+  if (!item.projectId || !item.preference || saving.value) return;
+  actionError.value = "";
+  try {
+    await store.setPreference({
+      projectId: item.projectId,
+      kind: item.kind,
+      sourceId: item.sourceId,
+      sourceRevision: item.sourceRevision,
+      expectedRevision: item.preference.revision,
+      action,
+    });
+    showToast(t("attention.preferenceSaved"), "success");
+  } catch (error) {
+    actionError.value = errorMessage(error, t("attention.preferenceFailed"));
+  }
+}
+
+watch([projectId, kind, view, pageSize], () => {
   // Back/forward restores the complete URL, while a user filter change starts at page one.
   if (
     (route.query.attentionProject ?? "") !== projectId.value ||
     (route.query.attentionKind ?? "") !== kind.value ||
+    (route.query.attentionView ?? "visible") !== view.value ||
     Number(route.query.attentionSize ?? 20) !== Number(pageSize.value)
   )
     page.value = 1;
 });
+
 onMounted(() => store.setActive(true));
 onBeforeUnmount(() => store.setActive(false));
 </script>
@@ -103,6 +151,14 @@ onBeforeUnmount(() => store.setActive(false));
       <UiBoxTitle eyebrow="Action required" :title="t('dashboard.needsAttention')" />
       <UiCounter v-if="loaded && result?.minimumTotal" :count="countLabel" tone="attention" />
       <div class="attention__filters">
+        <UiActionMenu
+          v-model="view"
+          :label="t('attention.view')"
+          :items="viewItems"
+          :icon="Filter"
+          default-value="visible"
+          size="sm"
+        />
         <UiActionMenu
           v-model="projectId"
           :label="t('common.project')"
@@ -121,6 +177,22 @@ onBeforeUnmount(() => store.setActive(false));
         />
       </div>
     </template>
+    <UiFlash v-if="actionError" tone="danger"
+      >{{ actionError
+      }}<template #actions
+        ><UiButton
+          size="sm"
+          @click="
+            store.reload();
+            actionError = '';
+          "
+          >{{ t("common.refresh") }}</UiButton
+        ></template
+      ></UiFlash
+    >
+    <p v-if="loaded && suppressedCount" class="attention__note">
+      {{ t("attention.suppressedCount", { count: suppressedCount }) }}
+    </p>
     <UiFlash v-if="error" tone="danger"
       >{{ error
       }}<template #actions
@@ -143,9 +215,17 @@ onBeforeUnmount(() => store.setActive(false));
     <UiEmptyState
       v-else-if="loaded && !rows.length"
       compact
-      :icon="hasIncomplete ? undefined : CircleCheckBig"
-      :title="hasIncomplete ? t('attention.unknownEmpty') : t('attention.empty')"
-      :description="t('attention.emptyDescription')"
+      :icon="hasIncomplete || suppressedCount || view === 'suppressed' ? undefined : CircleCheckBig"
+      :title="
+        hasIncomplete
+          ? t('attention.unknownEmpty')
+          : view === 'suppressed'
+            ? t('attention.noSuppressed')
+            : suppressedCount
+              ? t('attention.allSuppressed')
+              : t('attention.empty')
+      "
+      :description="suppressedCount ? t('attention.suppressedDescription') : t('attention.emptyDescription')"
     />
     <VirtualList
       v-else-if="rows.length"
@@ -155,6 +235,7 @@ onBeforeUnmount(() => store.setActive(false));
       max-height="420px"
       :estimate-item-height="96"
       :label="t('attention.list')"
+      :key="`${projectId}:${kind}:${view}:${page}:${pageSize}`"
     >
       <template #default="{ item }">
         <UiBoxRow class="attention__row" :title="item.displayTitle" :meta="item.meta">
@@ -164,8 +245,26 @@ onBeforeUnmount(() => store.setActive(false));
               >{{ item.reasonLabel }}</UiLabel
             ></template
           >
-          <template #trailing
-            ><UiButton size="sm" :to="item.to" :trailing-icon="ArrowRight">{{
+          <template #trailing>
+            <span v-if="item.preference?.snoozedUntil" class="attention__note">{{
+              t("attention.until", { date: formatDate(item.preference.snoozedUntil) })
+            }}</span>
+            <UiButton
+              v-if="view === 'suppressed' && item.preference"
+              size="sm"
+              :disabled="saving"
+              @click="changePreference(item, 'restore')"
+              >{{ t("attention.restore") }}</UiButton
+            >
+            <UiActionMenu
+              v-else-if="item.preference"
+              :label="t('attention.preferenceActions')"
+              :items="preferenceActions"
+              :icon="MoreHorizontal"
+              size="sm"
+              @select="changePreference(item, $event)"
+            />
+            <UiButton size="sm" :to="item.to" :trailing-icon="ArrowRight">{{
               t("attention.openSource")
             }}</UiButton></template
           >
@@ -185,6 +284,16 @@ onBeforeUnmount(() => store.setActive(false));
 </template>
 
 <style scoped>
+.attention__note {
+  padding: var(--space-2) var(--space-4);
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.attention__row :deep(.ui-box-row__trailing) {
+  flex-wrap: wrap;
+}
 .attention__filters {
   display: flex;
   flex-wrap: wrap;

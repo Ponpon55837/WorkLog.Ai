@@ -30,11 +30,18 @@ describe("attention view state", () => {
     expect(store.hasIncomplete).toBe(true);
     store.projectId = "p1";
     store.kind = "knowledge";
+    store.view = "suppressed";
     store.page = 2;
     store.pageSize = 50;
     await store.reload();
     const query = harness.calls.at(-1)?.url.searchParams;
-    expect(Object.fromEntries(query ?? [])).toEqual({ projectId: "p1", kind: "knowledge", page: "2", pageSize: "50" });
+    expect(Object.fromEntries(query ?? [])).toEqual({
+      projectId: "p1",
+      kind: "knowledge",
+      view: "suppressed",
+      page: "2",
+      pageSize: "50",
+    });
     store.setActive(false);
     store.projectId = "p2";
     const count = harness.calls.length;
@@ -77,5 +84,30 @@ describe("attention view state", () => {
         target: { kind: "synthesis", sourceId: "request", period: "custom", from: "2026-09-01", to: "2026-09-03" },
       }),
     ).toMatchObject({ name: "reports", query: { from: "2026-09-01", to: "2026-09-03", period: "custom" } });
+  });
+  it("refreshes display intent without resolving a source and rejects stale writes", async () => {
+    harness.setResponder(({ method }) =>
+      method === "PATCH"
+        ? { outcome: "attention_preference", preference: { revision: 1, state: "hidden" } }
+        : { outcome: "attention", items: [], groups: [], total: 1, minimumTotal: 1, suppressedCount: 1, pageInfo: {} },
+    );
+    const store = useAttentionStore();
+    store.setActive(true);
+    await store.reload();
+    const input = {
+      projectId: "p",
+      kind: "decision" as const,
+      sourceId: "source",
+      sourceRevision: "a".repeat(64),
+      expectedRevision: 0,
+      action: "hide" as const,
+    };
+    await expect(store.setPreference(input)).resolves.toBeUndefined();
+    expect(store.result?.total).toBe(1);
+    expect(harness.calls.find((call) => call.method === "PATCH")?.url.pathname).toBe("/api/attention/preferences");
+    harness.setResponder(() => jsonResponse({ code: "conflict", error: "Changed source" }, 409));
+    await expect(store.setPreference(input)).rejects.toMatchObject({ status: 409 });
+    expect(store.saving).toBe(false);
+    expect(store.result?.total).toBe(1);
   });
 });

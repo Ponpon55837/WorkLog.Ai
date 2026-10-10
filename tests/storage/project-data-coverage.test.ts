@@ -30,6 +30,7 @@ const NOT_PROJECT_DATA: Record<string, string> = {
 const NO_FREE_TEXT: Record<string, string> = {
   projects: "name, root path, and https repository URL (credentials rejected) are chosen by the user in the Web UI",
   session_links: "ids, relation, and source only",
+  attention_preferences: "source ids, fingerprints, display intent, revision and times only; no searchable content",
   knowledge_feedback: "ids, kind, and time only",
   outstanding_item_events: "item/session ids, status transitions, source, and time only",
   outstanding_cleanup_requests: "ids, idempotency key, status, and times only",

@@ -274,3 +274,11 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 `GET /api/reports/summaries/:id/presentation/export?revision=0&locale=zh-TW` 回傳 `outcome`、`summaryId`、`revision`、`filename` 與純文字 `content`。revision 必填且為非負安全整數；locale 為 zh-TW 或 en-US（省略採 zh-TW）；未知欄位回 400。來源核對與呈現讀取使用同一 SQLite read snapshot，避免不同版本混合。來源不存在、作廢或不可見回 404；修訂與請求不同回 409，不偷偷匯出新版。
 
 整理版沿用 UI 的投影，隱藏群組不含正文，改稿標示為使用者改稿；保留每段引用及包含隱藏群組的完整原報告來源。Markdown 語法與 HTML 特別字元以純文字逸出。基本版重用既有 `/api/reports/export`，沒有寫入 Session 或新 MCP 工具。前端先取得預覽，再於獨立點擊中立即呼叫剪貼簿；失敗提供可選取文字與下載。
+
+### 提醒顯示偏好
+
+`GET /api/attention` 可帶 `view=visible|suppressed`（預設 visible）。`total`、`minimumTotal` 與來源 groups 始終代表尚未處理的來源；`pageInfo.total` 只代表本次有界掃描中符合顯示條件的列，`suppressedCount` 是已檢查視窗內的隱藏／稍後筆數，不能視為全域完整計數。
+
+`PATCH /api/attention/preferences` 接受 `projectId`、`kind`、`sourceId`、`sourceRevision`、`expectedRevision` 與 `action=snooze|hide|restore`。七天期限由伺服器時計算。交易內重核 tracked 專案、來源及偏好修訂；過期來源或修訂回 409，無來源回 404，停用專案安靜 skipped。跨專案的全域請求不提供偏好操作。這是 Web 顯示意圖，不會結案、取消或修改來源資料，也沒有對應 MCP 寫入工具。
+
+migration 30 保存每個專案／類型／來源一筆最新偏好；來源 revision 改變或稍後期限到期時查詢重新顯示。來源刪除觸發器與專案 cascade 清除偏好。可攜式匯出保留資料，匯入預設重新顯示，避免把另一個資料庫的來源身分推定為相同事件；舊備份缺表預設空清單。

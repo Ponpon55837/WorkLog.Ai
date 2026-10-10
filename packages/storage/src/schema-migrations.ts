@@ -848,6 +848,41 @@ const MIGRATIONS: SchemaMigration[] = [
       UNIQUE(summary_id,revision)
     );`,
   },
+  {
+    version: 30,
+    name: "attention-display-preferences",
+    sql: `CREATE TABLE attention_preferences (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('synthesis','backfill','cleanup','decision','knowledge','knowledge_page','outstanding','metadata')),
+      source_id TEXT NOT NULL,
+      source_revision TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('visible','hidden','snoozed')),
+      snoozed_until TEXT,
+      revision INTEGER NOT NULL CHECK(revision>0),
+      updated_at TEXT NOT NULL,
+      UNIQUE(project_id,kind,source_id),
+      CHECK((state='snoozed' AND snoozed_until IS NOT NULL) OR (state!='snoozed' AND snoozed_until IS NULL))
+    );
+    CREATE TRIGGER attention_decision_deleted AFTER DELETE ON session_decisions BEGIN
+      DELETE FROM attention_preferences WHERE kind='decision' AND source_id=OLD.id;
+    END;
+    CREATE TRIGGER attention_knowledge_deleted AFTER DELETE ON knowledge BEGIN
+      DELETE FROM attention_preferences WHERE kind='knowledge' AND source_id=OLD.id;
+    END;
+    CREATE TRIGGER attention_page_deleted AFTER DELETE ON knowledge_pages BEGIN
+      DELETE FROM attention_preferences WHERE kind='knowledge_page' AND source_id=OLD.id;
+    END;
+    CREATE TRIGGER attention_synthesis_deleted AFTER DELETE ON report_synthesis_requests BEGIN
+      DELETE FROM attention_preferences WHERE kind='synthesis' AND source_id=OLD.id;
+    END;
+    CREATE TRIGGER attention_backfill_deleted AFTER DELETE ON metadata_backfill_requests BEGIN
+      DELETE FROM attention_preferences WHERE kind='backfill' AND source_id=OLD.id;
+    END;
+    CREATE TRIGGER attention_cleanup_deleted AFTER DELETE ON outstanding_cleanup_requests BEGIN
+      DELETE FROM attention_preferences WHERE kind='cleanup' AND source_id=OLD.id;
+    END;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

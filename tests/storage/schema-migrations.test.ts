@@ -1,8 +1,29 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { applySchemaMigrations, schemaMigrationSql } from "../../packages/storage/src/schema-migrations.js";
+import {
+  applySchemaMigrations as applyRuntimeMigrations,
+  schemaMigrationSql,
+} from "../../packages/storage/src/schema-migrations.js";
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
+
+/** Older focused fixtures omit unrelated tables whose migrations were marked as applied. */
+function applySchemaMigrations(db: DatabaseSync): void {
+  for (const [table, version] of [
+    ["report_synthesis_requests", 8],
+    ["metadata_backfill_requests", 0],
+    ["knowledge", 0],
+    ["session_decisions", 15],
+    ["knowledge_pages", 16],
+  ] as const) {
+    if (
+      (version === 0 || db.prepare("SELECT 1 FROM schema_migrations WHERE version=?").get(version)) &&
+      !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)
+    )
+      db.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
+  }
+  applyRuntimeMigrations(db);
+}
 
 describe("related work file posting migration", () => {
   it("upgrades 27, schedules existing Sessions and creates a covering seek", () => {
@@ -725,6 +746,33 @@ describe("versioned diagrams migration", () => {
       expect(
         db.prepare("SELECT name FROM sqlite_master WHERE name='idx_session_diagrams_session'").get(),
       ).toBeDefined();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("attention display preference migration", () => {
+  it("upgrades schema 29 while preserving original sources and starts with no hidden issues", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 29);
+      db.exec(
+        "INSERT INTO projects (id,name,root_path,status,created_at,updated_at) VALUES ('fictional','Orchard','/fictional/orchard','tracked','2026-09-01','2026-09-01')",
+      );
+      applySchemaMigrations(db);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM attention_preferences").get()).toEqual({ count: 0 });
+      expect(db.prepare("SELECT status FROM projects WHERE id='fictional'").get()).toEqual({ status: "tracked" });
+      expect(
+        JSON.stringify(
+          db
+            .prepare(
+              "EXPLAIN QUERY PLAN SELECT * FROM attention_preferences WHERE project_id='fictional' AND kind='decision' AND source_id='source'",
+            )
+            .all(),
+        ),
+      ).toContain("sqlite_autoindex_attention_preferences");
     } finally {
       db.close();
     }

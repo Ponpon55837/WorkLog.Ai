@@ -180,3 +180,94 @@ test("failed or partial coverage never renders a healthy empty queue @cross-brow
   await expect(box).not.toContainText(tt("attention.empty"));
   await expect(box.getByRole("button", { name: tt("common.retry") })).toHaveCount(2);
 });
+
+for (const locale of ["zh-TW", "en-US"] as const) {
+  for (const theme of ["dark", "light"] as const) {
+    for (const width of [1440, 960, 375]) {
+      test(`reminder display is reversible and never resolves sources ${locale} ${theme} ${width} @cross-browser`, async ({
+        page,
+        request,
+      }, testInfo) => {
+        await page.addInitScript(
+          ({ locale, theme }) => {
+            localStorage.setItem("work-intelligence:locale", locale);
+            localStorage.setItem("work-intelligence:theme", theme);
+          },
+          { locale, theme },
+        );
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/dashboard?attentionProject=${fixture.projectId}&attentionKind=decision&attentionSize=50`);
+        const box = page.getByTestId("attention-box");
+        const list = box.getByRole("list", { name: textIn(locale, "attention.list") });
+        await expect(box).toContainText("40");
+        await list.scrollIntoViewIfNeeded();
+        await box
+          .getByRole("button", { name: textIn(locale, "attention.preferenceActions") })
+          .first()
+          .click();
+        await page.getByRole("menuitem", { name: textIn(locale, "attention.hide"), exact: true }).click();
+        await expect(box).toContainText(textIn(locale, "attention.suppressedCount", { count: 1 }));
+        await page.reload();
+        await expect(box).toContainText(textIn(locale, "attention.suppressedCount", { count: 1 }));
+        const source = (await (
+          await request.get(`/api/attention?projectId=${fixture.projectId}&kind=decision`)
+        ).json()) as AttentionList;
+        expect(source.total).toBe(40);
+        expect(source.items.length).toBe(20);
+        await box.getByRole("button", { name: new RegExp(textIn(locale, "attention.view")) }).click();
+        await page
+          .getByRole("menuitemradio", { name: textIn(locale, "attention.suppressedView"), exact: true })
+          .click();
+        await expect(page).toHaveURL(/attentionView=suppressed/);
+        await expect(box.getByRole("button", { name: textIn(locale, "attention.restore"), exact: true })).toHaveCount(
+          1,
+        );
+        expect((await new AxeBuilder({ page }).include('[data-testid="attention-box"]').analyze()).violations).toEqual(
+          [],
+        );
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await box.scrollIntoViewIfNeeded();
+        await box.screenshot({ path: testInfo.outputPath("preferences.png") });
+        await box.getByRole("button", { name: textIn(locale, "attention.restore"), exact: true }).click();
+        await expect(box).toContainText(textIn(locale, "attention.noSuppressed"));
+        await box.getByRole("button", { name: new RegExp(textIn(locale, "attention.view")) }).click();
+        await page.getByRole("menuitemradio", { name: textIn(locale, "attention.visibleView"), exact: true }).click();
+        await box
+          .getByRole("button", { name: textIn(locale, "attention.preferenceActions") })
+          .first()
+          .click();
+        await page.getByRole("menuitem", { name: textIn(locale, "attention.snooze"), exact: true }).click();
+        await expect(box).toContainText(textIn(locale, "attention.suppressedCount", { count: 1 }));
+        await box.getByRole("button", { name: new RegExp(textIn(locale, "attention.view")) }).click();
+        await page
+          .getByRole("menuitemradio", { name: textIn(locale, "attention.suppressedView"), exact: true })
+          .click();
+        const hidden = (await (
+          await request.get(`/api/attention?projectId=${fixture.projectId}&kind=decision&view=suppressed`)
+        ).json()) as AttentionList;
+        expect(hidden.items[0]?.preference?.state).toBe("snoozed");
+        expect(Date.parse(hidden.items[0]!.preference!.snoozedUntil!) - Date.now()).toBeGreaterThan(6 * 86400000);
+        await box.getByRole("button", { name: textIn(locale, "attention.restore"), exact: true }).click();
+        await expect(box).toContainText(textIn(locale, "attention.noSuppressed"));
+      });
+    }
+  }
+}
+
+test("stale reminder save keeps the row and exposes refresh @cross-browser", async ({ page }) => {
+  await page.route("**/api/attention/preferences", (route) =>
+    route.fulfill({ status: 409, json: { code: "conflict", error: "Source changed. Refresh before saving." } }),
+  );
+  await page.goto(`/dashboard?attentionProject=${fixture.projectId}&attentionKind=decision`);
+  const box = page.getByTestId("attention-box");
+  await box
+    .getByRole("button", { name: tt("attention.preferenceActions") })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: tt("attention.hide"), exact: true }).click();
+  await expect(box.getByRole("alert")).toBeVisible();
+  await expect(box).toContainText(tt("format.theDataChangedRefreshAnd"));
+  await expect(box.getByRole("button", { name: tt("attention.preferenceActions") }).first()).toBeVisible();
+  await expect(box.getByRole("button", { name: tt("common.refresh"), exact: true })).toBeVisible();
+  await page.unrouteAll({ behavior: "wait" });
+});

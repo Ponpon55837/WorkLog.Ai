@@ -140,6 +140,7 @@ export interface ProjectDeletionCounts {
   reportSynthesisRequests: number;
   reportSummaries: number;
   reportPresentations: number;
+  attentionPreferences: number;
   metadataBackfillRequests: number;
   sessionSummaryUpdates: number;
   sessionWorkSummaryUpdates: number;
@@ -3009,6 +3010,7 @@ export const PROJECT_DATA_TABLES = [
   "report_synthesis_requests",
   "report_summaries",
   "report_presentations",
+  "attention_preferences",
   "metadata_backfill_requests",
   "session_summary_updates",
   "session_work_summary_updates",
