@@ -2,6 +2,8 @@ import { useQueryCache } from "@pinia/colada";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
+import { useKnowledgeStore } from "../../../apps/web/src/stores/knowledge.js";
+import { useSessionDecisionsStore } from "../../../apps/web/src/stores/session-decisions.js";
 import { useReportsStore } from "../../../apps/web/src/stores/reports.js";
 import { useSessionsStore } from "../../../apps/web/src/stores/sessions.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
@@ -147,6 +149,40 @@ describe("work data stores", () => {
     ).resolves.toMatchObject({ outcome: "session_link_updated" });
     expect(harness.count("/api/sessions/session-1/void", "PATCH")).toBe(1);
     expect(harness.count("/api/sessions/session-1/links", "POST")).toBe(1);
+  });
+
+  it("preserves a created Knowledge and its promoted source when SSE supersedes their refreshes", async () => {
+    harness.setResponder(({ url, method }) => {
+      if (url.pathname === "/api/knowledge" && method === "POST")
+        return { outcome: "knowledge_recorded", knowledge: { id: "knowledge-1" } };
+      if (url.pathname === "/api/session-decisions/decision-1/review")
+        return { outcome: "session_decision_reviewed", decision: { reviewStatus: "promoted" } };
+      return {};
+    });
+    const refresh = vi
+      .spyOn(useQueryCache(), "invalidateQueries")
+      .mockRejectedValue(new DOMException("Superseded by SSE", "AbortError"));
+    await expect(
+      useKnowledgeStore().recordKnowledge({
+        projectRoot: "/fixture",
+        idempotencyKey: "promotion",
+        sessionId: "session-1",
+        kind: "decision",
+        title: "Decision",
+        body: "Confirmed source.",
+      }),
+    ).resolves.toMatchObject({ outcome: "knowledge_recorded" });
+    await expect(
+      useSessionDecisionsStore().reviewDecision({
+        decisionId: "decision-1",
+        projectRoot: "/fixture",
+        reviewStatus: "promoted",
+        knowledgeId: "knowledge-1",
+      }),
+    ).resolves.toMatchObject({ outcome: "session_decision_reviewed" });
+    expect(harness.count("/api/knowledge", "POST")).toBe(1);
+    expect(harness.count("/api/session-decisions/decision-1/review", "PATCH")).toBe(1);
+    expect(refresh).toHaveBeenCalled();
   });
 
   it("maps a report API error and blocks incomplete or oversized custom ranges before fetching", async () => {

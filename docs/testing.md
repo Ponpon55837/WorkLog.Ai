@@ -274,3 +274,5 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 ## 時間軸自動符合區間（2026-10-10）
 
 `tests/e2e/timeline-fit.spec.ts` 的 36 項三瀏覽器案例覆蓋繁中／英文、明暗與 1440／960／375px：首次掛載、手機清單轉桌面、全年期間、resize、手動縮放保留、清單切回圖表、期間切換及 reload。斷言實際 scrollWidth／clientWidth，不先點顯示整個期間按鈕，並執行 axe。
+
+Agent 決策回歸以模擬 SSE 取代背景刷新驗證 Knowledge 建立與來源提升仍回傳成功，並核對兩個寫入只執行一次。

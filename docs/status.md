@@ -329,3 +329,5 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 ### 更早已完成的工程基礎
 
 UI 改版 P0–P4（六頁、共用 UI、App.vue 拆解、a11y、Ctrl／⌘ K）；集中 API client 與 AbortController；`store.ts` 拆出 repository；ESLint／Prettier；coverage 門檻（schema、storage handoff parser）；Graph server-side cursor 與 viewport culling；列表 virtual list；Provider + No-op；跨行程 idempotency 與 migration 交易保護；Content-Type 與 payload 上限；symlink real-path 二次檢查；`commit_required` 移除；handoff parser 單元測試與輸出邊界。
+
+時間軸回歸另修正 Agent 決策提升為 Knowledge 的刷新競態：讀取取消不改變已提交寫入結果。實機驗收及 1.5.0 發行仍待後續完成。

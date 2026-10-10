@@ -45,7 +45,8 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
           queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         );
       }
-      await Promise.all(invalidations);
+      // Refreshes can be superseded by SSE; their errors do not undo the committed review.
+      await Promise.allSettled(invalidations);
     },
   });
 
