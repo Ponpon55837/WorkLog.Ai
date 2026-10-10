@@ -276,3 +276,7 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 `tests/e2e/timeline-fit.spec.ts` 的 36 項三瀏覽器案例覆蓋繁中／英文、明暗與 1440／960／375px：首次掛載、手機清單轉桌面、全年期間、resize、手動縮放保留、清單切回圖表、期間切換及 reload。斷言實際 scrollWidth／clientWidth，不先點顯示整個期間按鈕，並執行 axe。
 
 Agent 決策回歸以模擬 SSE 取代背景刷新驗證 Knowledge 建立與來源提升仍回傳成功，並核對兩個寫入只執行一次。
+
+工作熱度的 dashboard-layout E2E 同時核對 53 週 grid 初開／resize 的容器滿寬、無橫向溢位、正方形日期格、最末週可見及鍵盤日期移動，涵蓋雙語／明暗／三尺寸／三瀏覽器。
+
+- Session「可能相關」：`related-work.spec.ts` 在中英文、明暗主題與 1440／960／375px 下檢查說明、日期、標題及長路徑距外框至少 12px，並保留五筆來源、鍵盤跳轉與無障礙檢查。

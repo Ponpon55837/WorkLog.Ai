@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { ListChecks } from "lucide-vue-next";
 import type { ActivityDay } from "@work-intelligence/core";
 import { buildActivityCalendar } from "../../utils/activity-calendar";
@@ -10,7 +10,6 @@ import { intlLocale, t } from "../../i18n";
 const props = defineProps<{ days: readonly ActivityDay[] }>();
 const emit = defineEmits<{ select: [date: string] }>();
 
-const scroller = ref<HTMLElement | null>(null);
 const grid = ref<HTMLElement | null>(null);
 /** Roving tabindex: only this day is in the tab order; arrow keys move it. Null until the user moves. */
 const focusedDate = ref<string | null>(null);
@@ -55,13 +54,6 @@ function onKeydown(event: KeyboardEvent, date: string): void {
   focusedDate.value = target;
   void nextTick(() => button.focus());
 }
-
-onMounted(() => {
-  // Show the most recent weeks first; the older ones scroll into view to the left.
-  void nextTick(() => {
-    if (scroller.value) scroller.value.scrollLeft = scroller.value.scrollWidth;
-  });
-});
 </script>
 
 <template>
@@ -76,12 +68,16 @@ onMounted(() => {
     <p class="activity__total" data-testid="activity-total">
       {{ t("dashboard.activityTotal", { count: calendar.total }) }}
     </p>
-    <div ref="scroller" class="activity__scroller">
+    <div class="activity__scroller">
       <div class="activity__chart">
         <div class="activity__months" aria-hidden="true">
-          <span v-for="month in monthLabels" :key="month.week" :style="{ gridColumn: month.week }">{{
-            month.text
-          }}</span>
+          <span
+            v-for="month in monthLabels"
+            :key="month.week"
+            :class="{ 'activity__month--end': month.week > 50 }"
+            :style="{ gridColumn: month.week > 50 ? '50 / -1' : month.week }"
+            >{{ month.text }}</span
+          >
         </div>
         <div class="activity__weekdays" aria-hidden="true">
           <span v-for="label in weekdayLabels" :key="label.row" :style="{ gridRow: label.row }">{{ label.text }}</span>
@@ -117,7 +113,7 @@ onMounted(() => {
 <style scoped>
 .activity {
   --activity-cell: 12px;
-  --activity-gap: 3px;
+  --activity-gap: clamp(1px, 0.3vw, 3px);
   display: grid;
   gap: var(--space-3);
   min-width: 0;
@@ -130,20 +126,20 @@ onMounted(() => {
   font-size: var(--text-md);
 }
 
-/* The calendar scrolls inside its own box so the page never scrolls sideways. */
+/* The full calendar follows its container width, including after sidebar or window changes. */
 .activity__scroller {
   min-width: 0;
-  overflow-x: auto;
+  container-type: inline-size;
   padding-bottom: var(--space-1);
 }
 
 .activity__chart {
   display: grid;
-  grid-template-columns: 32px max-content;
+  grid-template-columns: 32px minmax(0, 1fr);
   grid-template-rows: 16px auto;
   column-gap: var(--space-2);
   row-gap: var(--space-1);
-  width: max-content;
+  width: 100%;
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
@@ -152,20 +148,22 @@ onMounted(() => {
   display: grid;
   grid-column: 2;
   column-gap: var(--activity-gap);
-  grid-template-columns: repeat(53, var(--activity-cell));
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  overflow: hidden;
   white-space: nowrap;
 }
 
-/* Weekday labels stay put while the weeks scroll sideways on narrow screens. */
+.activity__month--end {
+  text-align: right;
+}
+
+/* Match weekday rows to the square cells as the available width changes. */
 .activity__weekdays {
-  position: sticky;
-  left: 0;
-  z-index: 1;
   background: var(--bg-canvas);
   display: grid;
   grid-column: 1;
   grid-row: 2;
-  grid-template-rows: repeat(7, var(--activity-cell));
+  grid-template-rows: repeat(7, 1fr);
   row-gap: var(--activity-gap);
   align-items: center;
   line-height: 1;
@@ -176,14 +174,20 @@ onMounted(() => {
   grid-column: 2;
   grid-row: 2;
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, var(--activity-cell));
-  grid-auto-columns: var(--activity-cell);
+  grid-template-rows: repeat(7, auto);
+  grid-template-columns: repeat(53, minmax(0, 1fr));
   gap: var(--activity-gap);
 }
 
+.activity__spacer {
+  aspect-ratio: 1;
+}
+
 .activity__cell {
-  width: var(--activity-cell);
-  height: var(--activity-cell);
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  aspect-ratio: 1;
   padding: 0;
   border: 1px solid var(--border-muted);
   border-radius: 2px;
@@ -203,6 +207,13 @@ onMounted(() => {
 }
 .activity__cell--4 {
   background: var(--accent-emphasis);
+}
+
+/* Keep month names legible when all 53 weeks share a narrow container. */
+@container (max-width: 480px) {
+  .activity__months span:nth-child(even):not(:last-child) {
+    visibility: hidden;
+  }
 }
 
 .activity__cell:hover {

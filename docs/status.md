@@ -12,9 +12,9 @@
 | --- | --- |
 | E3 實機驗收 | 依[發行實機驗收清單](release-checklist.md)執行；原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案流程仍未驗證 |
 
-## 時間軸修正
+## 時間軸與工作熱度寬度修正
 
-2026-10-10 修正初次載入以預設寬度縮放、掛載後未重新符合區間的問題；期間／專案／清單切回圖表自動符合完整區間，手動縮放後調整視窗保留視角。三尺寸、兩語、明暗與三瀏覽器驗證涵蓋全年期間。
+2026-10-10 修正初次載入以預設寬度縮放、掛載後未重新符合區間的問題；期間／專案／清單切回圖表自動符合完整區間，手動縮放後調整視窗保留視角。時間軸三尺寸、兩語、明暗與三瀏覽器驗證涵蓋全年期間。工作熱度固定寬度亦已回報，改為完整 53 週依容器自動縮放；新增驗證進行中。
 
 ## 五項功能整合研究
 
@@ -331,3 +331,5 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 UI 改版 P0–P4（六頁、共用 UI、App.vue 拆解、a11y、Ctrl／⌘ K）；集中 API client 與 AbortController；`store.ts` 拆出 repository；ESLint／Prettier；coverage 門檻（schema、storage handoff parser）；Graph server-side cursor 與 viewport culling；列表 virtual list；Provider + No-op；跨行程 idempotency 與 migration 交易保護；Content-Type 與 payload 上限；symlink real-path 二次檢查；`commit_required` 移除；handoff parser 單元測試與輸出邊界。
 
 時間軸回歸另修正 Agent 決策提升為 Knowledge 的刷新競態：讀取取消不改變已提交寫入結果。實機驗收及 1.5.0 發行仍待後續完成。
+
+- 使用者截圖所示 Session「可能相關」貼邊已補 12px 內距，統一標題／日期／路徑對齊；雙語、明暗、三尺寸與三瀏覽器的視覺驗證待最新建置確認，沿用 PR #236。

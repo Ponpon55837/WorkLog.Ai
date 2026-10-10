@@ -6,6 +6,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Add 12px content padding to Session related-work hints and align titles, dates and shared paths, with wrapping at narrow widths.
+
+- Scale all 53 activity weeks to the available container width on load and resize, with square cells and responsive month labels; retain keyboard navigation and daily report links.
+
 - Keep committed Knowledge creation and decision promotion successful when SSE supersedes a background refresh.
 
 - Fit the timeline to its measured viewport automatically on first load, period/project changes and returning from list view; keep manual zoom during resize. Full-year ranges fit tablet widths.
