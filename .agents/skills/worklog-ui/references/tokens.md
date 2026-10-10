@@ -21,7 +21,7 @@ Two sets share the same token names: GitHub dark on `:root` (the default) and a 
 | `--accent` | `#4493f8` | `#0754ae` | Links, focus ring, selected state, primary data series |
 | `--accent-emphasis` | `#1f6feb` | `#0969da` | Input focus border |
 | `--success` | `#3fb950` | `#16652a` | Passed, tracked, positive delta |
-| `--success-emphasis` | `#238636` | `#1f883d` | Primary button background (hover `#2ea043` / `#1c8139`) |
+| `--success-emphasis` | `#238636` | `#1f883d` | Primary button background (hover retains dark `#238636` / light `#1c8139`; stronger border marks hover so white text stays AA) |
 | `--attention` | `#d29922` | `#744c00` | Missing / pending / paused |
 | `--danger` | `#f85149` | `#a91b26` | Failed, errors, negative delta, destructive actions |
 | `--done` | `#a371f7` | `#6235b8` | AI synthesis, completed synthesis, Knowledge accents |

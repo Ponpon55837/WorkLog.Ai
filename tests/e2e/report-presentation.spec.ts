@@ -150,6 +150,8 @@ for (const locale of ["zh-TW", "en-US"] as const)
           copyDialog.getByRole("button", { name: textIn(locale, "reportCopy.copied"), exact: true }),
         ).toBeVisible();
         expect(await page.evaluate(() => Reflect.get(window, "fictionalClipboard"))).toBe(await preview.inputValue());
+        // Keep the copied action hovered during axe: moving labels must not hide contrast regressions.
+        await copyDialog.getByRole("button", { name: textIn(locale, "reportCopy.copied"), exact: true }).hover();
         expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
         await page.screenshot({ path: testInfo.outputPath("copy-preview.png") });
         await copyDialog.getByRole("button", { name: textIn(locale, "common.cancel"), exact: true }).click();

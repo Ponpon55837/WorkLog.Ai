@@ -41,6 +41,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Keep dark primary-button hover on the existing AA-safe green fill and strengthen its border. Report-copy axe checks now explicitly hover the copied action to expose contrast regressions.
+
 - Cached synthetic performance databases now rebind their project roots to the current run’s temporary directories; deleted roots from an earlier run no longer cause policy-gated fixture setup to skip. The cache file itself is unchanged.
 
 - Pin Mermaid’s transitive KaTeX to the patched 0.18.2 release for GHSA-238p-pmpm-9mq7 (inherited renderer settings could bypass trust restrictions when another component had already polluted Object.prototype). Keep strict Mermaid security/CSP and test normal math plus rejected untrusted links in an isolated process.
