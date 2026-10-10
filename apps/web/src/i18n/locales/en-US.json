@@ -1641,8 +1641,8 @@
     "down": "{count} fewer than last week",
     "activityProject": "Completed {count} work records this week, {change}, with the largest share in {project} ({share}%).",
     "activity": "Completed {count} work records this week, {change}.",
-    "failed": "{count} verification results failed and need review.",
-    "inProgress": "{count} verification results are still in progress.",
+    "failed": "{count} verification result failed and needs review.|{count} verification results failed and need review.",
+    "inProgress": "{count} verification result is still in progress.|{count} verification results are still in progress.",
     "incomplete": "Verification has {notSupplied} not supplied and {notRun} not run.",
     "passed": "{count} verification results passed this week.",
     "failedToLoad": "Could not load weekly insights.",
@@ -1651,5 +1651,15 @@
     "range": "{from} — {to} · {timezone}",
     "projectReport": "View project report",
     "verificationReport": "View verification"
+  },
+  "reportCopy": {
+    "basic": "Copy basic report",
+    "presentation": "Copy current presentation",
+    "description": "Review the Markdown preview, then copy or download this report snapshot.",
+    "loading": "Preparing report preview",
+    "prepareFailed": "Could not prepare report preview.",
+    "fallback": "Clipboard unavailable. Select the text below to copy manually, or download Markdown.",
+    "preview": "Report Markdown preview",
+    "copied": "Copied"
   }
 }

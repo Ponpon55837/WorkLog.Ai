@@ -1651,5 +1651,15 @@
     "range": "{from} — {to} · {timezone}",
     "projectReport": "檢視專案報告",
     "verificationReport": "檢視驗證結果"
+  },
+  "reportCopy": {
+    "basic": "複製基本報告",
+    "presentation": "複製目前整理版",
+    "description": "先確認 Markdown 預覽，再複製或下載。內容是取得當下的報告快照。",
+    "loading": "準備報告預覽",
+    "prepareFailed": "無法準備報告預覽。",
+    "fallback": "剪貼簿無法使用，請選取下方文字手動複製，或下載 Markdown。",
+    "preview": "報告 Markdown 預覽",
+    "copied": "已複製"
   }
 }

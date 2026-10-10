@@ -72,6 +72,36 @@ describe("report presentation REST boundary", () => {
     expect(unavailable.status).toBe(404);
     expect(JSON.stringify(await unavailable.json())).not.toContain("Fictional outcome");
   });
+  it("validates export snapshots and masks invalid sources or unexpected errors", async () => {
+    const { url, store, sourceId, summary } = await fixture();
+    expect((await fetch(url + "/export")).status).toBe(400);
+    expect((await fetch(url + "/export?revision=-1")).status).toBe(400);
+    expect((await fetch(url + "/export?revision=0&extra=bad")).status).toBe(400);
+    expect((await fetch(url + "/export?revision=0&locale=invalid")).status).toBe(400);
+    const result = await fetch(url + "/export?revision=0&locale=en-US");
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({
+      outcome: "report_presentation_export",
+      summaryId: summary.id,
+      revision: 0,
+    });
+    store.updateReportPresentation({
+      summaryId: summary.id,
+      expectedRevision: 0,
+      state: { pinned: [], hidden: ["risks"], overrides: [] },
+    });
+    expect((await fetch(url + "/export?revision=0")).status).toBe(409);
+    store.setSessionVoid({ sessionId: sourceId, voided: true, reason: "Fictional" });
+    const unavailable = await fetch(url + "/export?revision=1");
+    expect(unavailable.status).toBe(404);
+    expect(JSON.stringify(await unavailable.json())).not.toContain("Fictional outcome");
+    vi.spyOn(store, "exportReportPresentation").mockImplementation(() => {
+      throw new Error("Private fixture");
+    });
+    const failure = await fetch(url + "/export?revision=1");
+    expect(failure.status).toBe(500);
+    expect(await failure.json()).toEqual({ error: "Internal server error.", code: "internal_error" });
+  });
   it("masks unexpected internal errors", async () => {
     const { url, store } = await fixture();
     vi.spyOn(store, "getReportPresentation").mockImplementation(() => {

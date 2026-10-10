@@ -36,3 +36,10 @@ export const updateReportPresentationSchema = reportPresentationQuerySchema
     state: reportPresentationStateSchema,
   })
   .strict();
+
+export const reportPresentationExportQuerySchema = reportPresentationQuerySchema
+  .extend({
+    revision: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    locale: z.enum(["zh-TW", "en-US"]).default("zh-TW"),
+  })
+  .strict();

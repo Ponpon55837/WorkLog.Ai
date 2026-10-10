@@ -118,6 +118,26 @@ for (const locale of ["zh-TW", "en-US"] as const) {
   }
 }
 
+test("keeps the reading position on a background refresh and resets it for a different scope @cross-browser", async ({
+  page,
+}) => {
+  await page.goto(`/dashboard?attentionProject=${fixture.projectId}&attentionKind=decision&attentionSize=50`);
+  const box = page.getByTestId("attention-box");
+  const list = box.getByRole("list", { name: tt("attention.list") });
+  await expect(box).toContainText("40");
+  await list.evaluate((element) => {
+    element.scrollTop = 300;
+  });
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const before = await list.evaluate((element) => element.scrollTop);
+  const refreshed = page.waitForResponse((response) => response.url().includes("/api/attention?") && response.ok());
+  await page.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+  await refreshed;
+  await expect(list).toHaveJSProperty("scrollTop", before);
+  await page.goto(`/dashboard?attentionProject=${fixture.projectId}&attentionKind=knowledge`);
+  await expect(list).toHaveJSProperty("scrollTop", 0);
+});
+
 test("opens the exact Knowledge source despite duplicate titles, then restores navigation @cross-browser", async ({
   page,
 }) => {

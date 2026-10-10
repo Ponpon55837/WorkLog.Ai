@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { emptyReportPresentation, projectReportSummary } from "../../packages/core/src/index.js";
 import { projectDataExportSchema } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
+import {
+  reportMarkdownText,
+  reportPresentationMarkdown,
+} from "../../packages/storage/src/report-presentation-export.js";
 import { ReportPresentationError } from "../../packages/storage/src/report-presentation-service.js";
 import { applySchemaMigrations } from "../../packages/storage/src/schema-migrations.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
@@ -186,6 +190,67 @@ describe("report presentation revisions", () => {
     } finally {
       db.close();
     }
+  });
+  it("exports the same projected revision and denies stale or unavailable sources", () => {
+    const { store, summary, sourceId, project } = fixture();
+    store.updateReportPresentation({
+      summaryId: summary.id,
+      expectedRevision: 0,
+      state: {
+        pinned: ["risks"],
+        hidden: ["themes"],
+        overrides: [{ section: "highlights", ordinal: 0, title: "Manual outcome", detail: "Manual evidence" }],
+      },
+    });
+    const exported = store.exportReportPresentation({ summaryId: summary.id, revision: 1, locale: "en-US" });
+    expect(exported).toMatchObject({ revision: 1, summaryId: summary.id });
+    expect(exported.content).toContain("Presentation revision: 1");
+    expect(exported.content).toContain("Hidden sections (content omitted): Work themes");
+    expect(exported.content).not.toContain("\n## Work themes\n");
+    expect(exported.content.indexOf("## Risks and limits")).toBeLessThan(exported.content.indexOf("## Key outcomes"));
+    expect(exported.content).toContain("Manual outcome (User edited)");
+    expect(exported.content).toContain(sourceId);
+    expect(() => store.exportReportPresentation({ summaryId: summary.id, revision: 0, locale: "en-US" })).toThrowError(
+      ReportPresentationError,
+    );
+    store.updateProject(project.id, { status: "paused" });
+    expect(() => store.exportReportPresentation({ summaryId: summary.id, revision: 1, locale: "zh-TW" })).toThrowError(
+      ReportPresentationError,
+    );
+    store.updateProject(project.id, { status: "tracked" });
+    store.setSessionVoid({ sessionId: sourceId, voided: true, reason: "Fictional invalidation" });
+    expect(() => store.exportReportPresentation({ summaryId: summary.id, revision: 1, locale: "en-US" })).toThrowError(
+      ReportPresentationError,
+    );
+    store.setSessionVoid({ sessionId: sourceId, voided: false });
+    expect(store.getReportPresentation(summary.id).revision).toBe(1);
+  });
+  it("escapes Markdown/HTML, keeps citations and never restores hidden content in either language", () => {
+    const { store, summary, sourceId, project } = fixture();
+    const original = structuredClone(summary);
+    original.title = "<script>unsafe</script> [click](javascript:fixture)";
+    original.risks = [
+      { title: "Private hidden title", detail: "Private hidden content", sourceSessionIds: [sourceId] },
+    ];
+    const presentation = store.updateReportPresentation({
+      summaryId: summary.id,
+      expectedRevision: 0,
+      state: { pinned: [], hidden: ["risks"], overrides: [] },
+    });
+    for (const locale of ["zh-TW", "en-US"] as const) {
+      const content = reportPresentationMarkdown(original, presentation, locale);
+      expect(content).not.toContain("<script>");
+      expect(content).toContain("&lt;script&gt;");
+      expect(content).not.toContain("[click](javascript:");
+      expect(content).not.toContain("Private hidden");
+      expect(content).toContain(sourceId);
+    }
+    expect(reportMarkdownText("a | b\n# heading\n- item")).toContain("a \\| b\n\\# heading\n\\- item");
+    store.updateProject(project.id, { name: "<script>Fictional project</script>" });
+    const basic = store.exportReport({ period: "week", date: "2026-09-10", projectId: project.id, format: "markdown" });
+    expect(basic.outcome).toBe("report_export");
+    if (basic.outcome === "report_export")
+      expect(basic.content).toContain("&lt;script&gt;Fictional project&lt;/script&gt;");
   });
   it("upgrades schema 28 without changing the immutable base", () => {
     const { store, summary } = fixture();

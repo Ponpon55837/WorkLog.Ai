@@ -15,6 +15,7 @@ const EXPECTED_ROUTES = [
   "GET /api/context",
   "GET /api/attention",
   "GET /api/reports/summaries/:summaryId/presentation",
+  "GET /api/reports/summaries/:summaryId/presentation/export",
   "PATCH /api/reports/summaries/:summaryId/presentation",
   "GET /api/sessions/:sessionId/related",
   "GET /api/dashboard",

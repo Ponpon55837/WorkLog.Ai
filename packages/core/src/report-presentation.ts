@@ -23,6 +23,13 @@ export interface ReportPresentation {
   updatedAt?: string;
   history: Array<{ revision: number; createdAt: string; actor: "web" }>;
 }
+export interface ReportPresentationExport {
+  outcome: "report_presentation_export";
+  summaryId: string;
+  revision: number;
+  filename: string;
+  content: string;
+}
 export interface ProjectedReportSection {
   key: ReportSectionKey;
   blocks: Array<ReportSummaryBlock & { ordinal: number; edited: boolean }>;

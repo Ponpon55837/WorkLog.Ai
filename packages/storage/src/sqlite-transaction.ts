@@ -22,3 +22,21 @@ export function runImmediateTransaction<T>(db: DatabaseSync, operation: () => T)
     immediateTransactions.delete(db);
   }
 }
+
+/** Keeps source gates and exported content in one read snapshot without acquiring a write lock. */
+export function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
+  if (immediateTransactions.has(db)) return operation();
+  db.exec("BEGIN");
+  try {
+    const result = operation();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* Keep the original error. */
+    }
+    throw error;
+  }
+}

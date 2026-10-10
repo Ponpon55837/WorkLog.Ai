@@ -42,7 +42,8 @@ function requestClose(): void {
           :aria-label="title"
           tabindex="-1"
         >
-          <header class="ui-dialog__header">
+          <!-- Dialog chrome must not introduce document banner/contentinfo landmarks. -->
+          <div class="ui-dialog__header">
             <div class="ui-dialog__heading">
               <h2>{{ title }}</h2>
               <p v-if="description">{{ description }}</p>
@@ -56,9 +57,9 @@ function requestClose(): void {
             >
               <X :size="16" :stroke-width="1.75" aria-hidden="true" />
             </button>
-          </header>
+          </div>
           <div class="ui-dialog__body"><slot /></div>
-          <footer v-if="$slots.footer" class="ui-dialog__footer"><slot name="footer" /></footer>
+          <div v-if="$slots.footer" class="ui-dialog__footer"><slot name="footer" /></div>
         </section>
       </div>
     </Transition>

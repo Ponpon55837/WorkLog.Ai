@@ -150,6 +150,7 @@ onBeforeUnmount(() => store.setActive(false));
     <VirtualList
       v-else-if="rows.length"
       :items="rows"
+      :item-key="(item) => item.id"
       :enabled="true"
       max-height="420px"
       :estimate-item-height="96"

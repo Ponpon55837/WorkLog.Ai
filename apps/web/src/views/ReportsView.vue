@@ -2,6 +2,7 @@
 import { ChartColumn, Download, FolderGit2, RefreshCw, Search } from "lucide-vue-next";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
+import ReportCopyButton from "../components/domain/ReportCopyButton.vue";
 import ReportEvidencePanel from "../components/domain/ReportEvidencePanel.vue";
 import ReportOverviewPanel from "../components/domain/ReportOverviewPanel.vue";
 import ReportRawRecordsPanel from "../components/domain/ReportRawRecordsPanel.vue";
@@ -86,6 +87,7 @@ const {
         align="end"
         :items="projectItems"
       />
+      <ReportCopyButton />
       <UiActionMenu
         :label="t('common.export')"
         :icon="Download"

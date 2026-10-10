@@ -6,6 +6,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Preview and copy basic or current report-presentation Markdown with source gates, revision checks, escaped text and a download/manual-copy fallback. Clipboard success is shown only after a successful write.
+
 - Dashboard weekly insights use full report totals with verification priority and scoped links.
 
 - Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.

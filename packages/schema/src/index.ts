@@ -44,6 +44,7 @@ export { relatedWorkQuerySchema } from "./related-work.js";
 export {
   reportPresentationStateSchema,
   reportPresentationQuerySchema,
+  reportPresentationExportQuerySchema,
   updateReportPresentationSchema,
 } from "./report-presentation.js";
 export {

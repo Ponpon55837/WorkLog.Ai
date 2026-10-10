@@ -1,5 +1,9 @@
 import { ReportPresentationError } from "@work-intelligence/storage";
-import { reportPresentationQuerySchema, updateReportPresentationSchema } from "@work-intelligence/schema";
+import {
+  reportPresentationExportQuerySchema,
+  reportPresentationQuerySchema,
+  updateReportPresentationSchema,
+} from "@work-intelligence/schema";
 import { readJsonObject, sendError } from "../http.js";
 import { validatedRoute, type Route } from "./router.js";
 
@@ -25,6 +29,18 @@ function guarded(handler: Route["handler"]): Route["handler"] {
   };
 }
 export const reportPresentationRoutes: Route[] = [
+  {
+    method: "GET",
+    pattern: "/api/reports/summaries/:summaryId/presentation/export",
+    handler: guarded(
+      validatedRoute(
+        reportPresentationExportQuerySchema,
+        "Invalid report presentation export query.",
+        ({ params, url }) => ({ ...Object.fromEntries(url.searchParams), summaryId: params.summaryId }),
+        ({ store }, input) => store.exportReportPresentation(input),
+      ),
+    ),
+  },
   {
     method: "GET",
     pattern: "/api/reports/summaries/:summaryId/presentation",

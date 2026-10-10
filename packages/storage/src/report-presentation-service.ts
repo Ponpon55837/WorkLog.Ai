@@ -5,16 +5,19 @@ import {
   REPORT_SECTION_KEYS,
   type ReportPresentation,
   type ReportPresentationState,
+  type ReportPresentationExport,
   type ReportSummary,
 } from "@work-intelligence/core";
 import {
   reportPresentationStateSchema,
+  reportPresentationExportQuerySchema,
   saveReportSummaryInputSchema,
   updateReportPresentationSchema,
 } from "@work-intelligence/schema";
 import { nowIso } from "@work-intelligence/shared";
 import { redactValue } from "./secret-redaction.js";
-import { runImmediateTransaction } from "./sqlite-transaction.js";
+import { reportPresentationMarkdown } from "./report-presentation-export.js";
+import { runReadTransaction, runImmediateTransaction } from "./sqlite-transaction.js";
 
 type Base = { id: string; project_id: string | null; source_session_ids_json: string; request_id: string };
 export class ReportPresentationError extends Error {
@@ -66,8 +69,27 @@ export class ReportPresentationService {
   }
 
   public get(summaryId: string): ReportPresentation {
-    this.base(summaryId);
-    return this.read(summaryId);
+    return runReadTransaction(this.db, () => {
+      this.base(summaryId);
+      return this.read(summaryId);
+    });
+  }
+
+  public export(input: { summaryId: string; revision: number; locale: "zh-TW" | "en-US" }): ReportPresentationExport {
+    const parsed = reportPresentationExportQuerySchema.safeParse(input);
+    if (!parsed.success) throw new ReportPresentationError("invalid_input");
+    return runReadTransaction(this.db, () => {
+      const base = this.base(parsed.data.summaryId);
+      const presentation = this.read(base.id);
+      if (presentation.revision !== parsed.data.revision) throw new ReportPresentationError("conflict");
+      return {
+        outcome: "report_presentation_export",
+        summaryId: base.id,
+        revision: presentation.revision,
+        filename: `report-${base.id.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80)}-r${presentation.revision}.md`,
+        content: reportPresentationMarkdown(base, presentation, parsed.data.locale),
+      };
+    });
   }
 
   public update(input: {
