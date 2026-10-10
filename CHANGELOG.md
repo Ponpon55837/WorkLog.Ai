@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Fit the timeline to its measured viewport automatically on first load, period/project changes and returning from list view; keep manual zoom during resize. Full-year ranges fit tablet widths.
+
 - Move the dashboard activity heatmap directly below the page header into a full-width section, ahead of stats, weekly insights and attention lists.
 
 - Reminder display preferences support hide, snooze for seven days and restore with source/preference CAS. Unresolved totals stay authoritative, changed sources resurface, and migration 30 includes portable transfer and permanent deletion.

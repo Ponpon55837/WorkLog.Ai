@@ -69,7 +69,7 @@ const projectId = defineModel<string>("projectId", { required: true });
 
 const DAY = DAY_MS;
 /** Pixels per day: from a whole year on screen to a few hours. */
-const MIN_DAY_WIDTH = 2;
+const MIN_DAY_WIDTH = 0.5;
 const MAX_DAY_WIDTH = 960;
 const laneHeader = 26;
 /** Height of the day columns in the zoomed-out view. */
@@ -113,6 +113,7 @@ const chosenView = ref<TimelineView>("chart");
 const dayWidth = ref(24);
 const scrollLeft = ref(0);
 const viewportWidth = ref(900);
+const autoFit = ref(true);
 const chart = ref<SVGSVGElement | null>(null);
 let resizeObserver: ResizeObserver | undefined;
 /** A time to center once the chart has been laid out at a new zoom. */
@@ -376,6 +377,7 @@ function onScroll(): void {
 
 /** Sets the zoom and keeps `anchorTime` (default: the center of the viewport) at the same place on screen. */
 function zoomTo(width: number, anchorTime?: number): void {
+  autoFit.value = false;
   pendingAnchor = anchorTime ?? timeAt(scrollLeft.value + viewportWidth.value / 2);
   dayWidth.value = clampDayWidth(width);
   void nextTick(applyPendingScroll);
@@ -412,9 +414,15 @@ function zoomToDay(lane: Lane, day: number): void {
   zoomTo(Math.max(viewportWidth.value / 2, detailMinWidth.value), anchor);
 }
 
-/** Shows the whole range, scrolled to the newest day. */
+/** Fits after the viewport is measurable; hidden/list views must not supply a zero width. */
 function fitRange(): void {
-  zoomTo(fitDayWidth.value, rangeEnd.value);
+  autoFit.value = true;
+  const width = viewport.value?.clientWidth ?? 0;
+  if (width <= 0 || !timeline.value || view.value !== "chart") return;
+  viewportWidth.value = width;
+  dayWidth.value = fitDayWidth.value;
+  pendingAnchor = rangeEnd.value;
+  void nextTick(applyPendingScroll);
 }
 
 // The graph page keeps the project filter in the URL; the store follows it.
@@ -425,7 +433,19 @@ watch(
   },
   { immediate: true },
 );
-watch(() => timeline.value?.from, fitRange);
+watch([() => timeline.value?.from, () => timeline.value?.to, projectId, view], fitRange, { flush: "post" });
+// The viewport is created after loading and may reappear after an empty response.
+watch(
+  viewport,
+  (element, previous) => {
+    if (previous) resizeObserver?.unobserve(previous);
+    if (element) {
+      resizeObserver?.observe(element);
+      fitRange();
+    }
+  },
+  { flush: "post" },
+);
 // The chart mounts once the first response arrives, after the observer exists.
 watch(chart, (element, previous) => {
   if (previous) resizeObserver?.unobserve(previous);
@@ -435,8 +455,11 @@ watch(chart, (element, previous) => {
 onMounted(() => {
   timelineStore.setActive(true);
   resizeObserver = new ResizeObserver(() => {
-    viewportWidth.value = viewport.value?.clientWidth ?? viewportWidth.value;
-    applyPendingScroll();
+    const width = viewport.value?.clientWidth ?? 0;
+    if (width <= 0) return;
+    viewportWidth.value = width;
+    if (autoFit.value) fitRange();
+    else applyPendingScroll();
   });
   if (viewport.value) resizeObserver.observe(viewport.value);
   if (chart.value) resizeObserver.observe(chart.value);
