@@ -391,6 +391,8 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 
 ## 文件索引
 
+- [Mermaid 移除方案（僅規劃；保留歷史來源）](docs/mermaid-removal-plan.md)
+
 | 文件 | 內容 |
 |---|---|
 | [docs/user-guide.md](docs/user-guide.md) | 安裝、正式模式、日常使用、報告、Knowledge、備份、刪除、換電腦與升級 |

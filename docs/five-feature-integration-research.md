@@ -286,3 +286,7 @@ C2 完整單元 851 通過／1 既有略過，web coverage、typecheck、lint／
 Web PATCH 只寫顯示偏好，來源指紋與偏好修訂雙重 CAS 在 immediate transaction 內核對。outstanding 與 metadata 聚合指紋包含來源 ID／更新狀態，知識頁包含有界清單內每頁的最新 Session 身分；同筆數與同最新時間的替換也會重新顯示。多專案全域請求無法證明單一來源歸屬，僅提供原來源入口。
 
 migration 30、可攜式資料欄位／型別、匯入安全復原、永久刪除計數與來源刪除觸發器一併加入。偏好只含 ID／版本與時間，不存來源文字。批次 lookup 只查已檢查的來源 tuples，沒有逐列 SQL；新增 `getAttention (suppressed preferences)` 5,000 Session p90 門檻 500ms，本機 5,000 Session／15 次取樣 p90 為 17.54ms；mixed sources 為 213.73ms，41 組門檻全部通過。
+
+## 後續規劃
+
+總覽活動熱度首屏調整後，移除 Mermaid 的範圍、歷史資料保留與逐階段驗收見 [Mermaid 移除方案](mermaid-removal-plan.md)。此為規劃，不代表已移除執行期或轉換舊圖表。
