@@ -226,7 +226,8 @@ for (const locale of ["zh-TW", "en-US"] as const) {
           [],
         );
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await page.screenshot({ path: testInfo.outputPath("preferences.png"), fullPage: true });
+        await box.scrollIntoViewIfNeeded();
+        await box.screenshot({ path: testInfo.outputPath("preferences.png") });
         await box.getByRole("button", { name: textIn(locale, "attention.restore"), exact: true }).click();
         await expect(box).toContainText(textIn(locale, "attention.noSuppressed"));
         await box.getByRole("button", { name: new RegExp(textIn(locale, "attention.view")) }).click();
@@ -264,7 +265,8 @@ test("stale reminder save keeps the row and exposes refresh @cross-browser", asy
     .first()
     .click();
   await page.getByRole("menuitem", { name: tt("attention.hide"), exact: true }).click();
-  await expect(box).toContainText("Source changed. Refresh before saving.");
+  await expect(box.getByRole("alert")).toBeVisible();
+  await expect(box).toContainText(tt("format.theDataChangedRefreshAnd"));
   await expect(box.getByRole("button", { name: tt("attention.preferenceActions") }).first()).toBeVisible();
   await expect(box.getByRole("button", { name: tt("common.refresh"), exact: true })).toBeVisible();
   await page.unrouteAll({ behavior: "wait" });
