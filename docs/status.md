@@ -14,7 +14,21 @@
 
 ## 五項功能整合研究
 
-2026-10-09 完成[五項先行研究](five-feature-integration-research.md)：擴充總覽既有待處理、Session 詳情的共同檔案候選、版本獨立的報告段落呈現／改稿、完整期間統計的首頁洞察與預覽後複製。文件包含文字線框、擬議資料/API、安全邊界、刪減取捨及逐階段驗收。A1 提醒聚合 PR #227 最新提交四項 CI 通過後已合併，main 已更新；B1 相關工作提示已實作輕量 covering index、同專案 top-5、截短提示及雙語 UI，本機 834 單元與 Chromium 91／Firefox 36／WebKit 33 回歸通過，PR #228 最新提交三平台 Quality 與 E2E 全數通過後已合併，main 為 cbb766d。C1 報告呈現／改稿 PR #229 最新 head 10b688d 四項 CI 通過後已合併，main 為 047c1ee；C2 首頁洞察 PR #230 最新提交四項 CI 全數通過後已合併，main 為 970581c。C3 報告複製已實作並通過三瀏覽器定向驗證，完整回歸與 PR CI 尚待完成；A2 呈現偏好已實作 migration 30、source/preference CAS、隱藏／七天稍後／復原與資料生命週期，完整驗證及 PR CI 尚待完成；全部功能完成後另調整總覽、提高工作熱度可見性並規劃移除 Mermaid。合成演算法探測只驗證記憶體候選查詢，不能視為正式 SQLite／UI 效能。開發在獨立 worktree 進行；main 僅更新已合併成果，本機服務部署另由 health 與 HTTP 核對。
+2026-10-09 完成[五項先行研究](five-feature-integration-research.md)。各階段採獨立 worktree／PR，最新提交四項 CI 全綠後合併並清理分支：
+
+| 階段 | 交付與驗證 |
+| --- | --- |
+| A1 提醒聚合 | PR #227 已合併；聚合既有來源並保留完整／部分／失敗狀態 |
+| B1 相關工作 | PR #228 已合併；同專案共同檔案 top-5，不自動建立關聯 |
+| C1 報告呈現／改稿 | PR #229 已合併；版本獨立投影、來源引用與修改稽核 |
+| C2 首頁洞察 | PR #230 已合併；使用完整期間統計，不從來源上限推定 totals |
+| C3 預覽複製 | PR #231 已合併；一致來源快照、Clipboard 實際成功與文字／下載回退；CI Chromium 120／Firefox 65／WebKit 62 通過 |
+| A2 提醒偏好 | PR #232 已合併；migration 30、來源／偏好 CAS、隱藏／七天稍後／復原與生命週期；39 項定向三瀏覽器案例通過 |
+| 活動熱度首屏 | PR #233：置於頁首之後、統計之前，全寬並保留日期報告入口；36 項繁中／英文、明暗、三尺寸與三瀏覽器定向案例通過 |
+
+C3 與 A2 的最新 head 三平台 Quality 與 E2E 均 SUCCESS。A2 CI 保留 Chromium 批次復原完整重跑及 WebKit 複製 hover 對比的 flaky 證據；對比問題另以 PR #234 固定滑鼠停留狀態驗證並修正，沒有放寬 axe。各 PR 的最終 head／合併及 CI 結果以其檢查紀錄為準。
+
+[Mermaid 移除方案](mermaid-removal-plan.md)已列出寫入契約、歷史原始資料保留、執行期／套件移除與驗收；目前只完成規劃，尚未移除或自動轉換舊圖表。合成查詢探測不能代替真實 SQLite／UI 性能，Playwright WebKit 不能代替實機 Safari／觸控。主安裝部署與 MCP 建置連線須另核對 health／HTTP／schema，不能由合併或 CI 推定。
 
 1.4.0 已於 2026-10-09 正式發布（[Release](https://github.com/Ponpon55837/WorkLog.Ai/releases/tag/v1.4.0)，PR #225）；早期 v1.0.0 tag／Release 待辦不再列為目前待辦，實機驗收限制仍保留。
 

@@ -390,6 +390,8 @@ Development workflow, health checks and PR rules are in [CONTRIBUTING.md](CONTRI
 
 ## Documentation
 
+- [Mermaid removal plan (planning only; preserves historical source)](docs/mermaid-removal-plan.md)
+
 The guides under `docs/` are written in Traditional Chinese.
 
 | Document | Contents |
