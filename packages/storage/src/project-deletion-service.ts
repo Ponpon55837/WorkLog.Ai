@@ -30,6 +30,7 @@ type DeletableTable =
 
 /** Counts that did not exist when older deletion audits were written; those audits read them as 0. */
 const COUNTS_ADDED_LATER = new Set<keyof ProjectDeletionCounts>([
+  "reportPresentations",
   "sessionDecisions",
   "knowledgePages",
   "knowledgePageVersions",
@@ -59,6 +60,7 @@ const projectDeletionCountKeys = [
   "knowledgeCandidates",
   "reportSynthesisRequests",
   "reportSummaries",
+  "reportPresentations",
   "metadataBackfillRequests",
   "sessionSummaryUpdates",
   "sessionWorkSummaryUpdates",
@@ -259,6 +261,13 @@ function makeDeletionCounts(
     knowledgeCandidates: countProjectCandidates(db, projectId, sessionIds, knowledgeIds, candidateRequestIds),
     reportSynthesisRequests: reportRequestIds.length,
     reportSummaries: countProjectReportSummaries(db, projectId, sessionIds, reportRequestIds),
+    reportPresentations: countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM report_presentations rp JOIN report_summaries s ON s.id=rp.summary_id WHERE s.project_id=? OR s.request_id IN (SELECT value FROM json_each(?)) OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(s.source_session_ids_json) THEN s.source_session_ids_json ELSE '[]' END) source WHERE source.value IN (SELECT value FROM json_each(?)))`,
+      projectId,
+      JSON.stringify(reportRequestIds),
+      JSON.stringify(sessionIds),
+    ),
     metadataBackfillRequests: metadataRequestIds.length,
     sessionSummaryUpdates: countRows(
       db,

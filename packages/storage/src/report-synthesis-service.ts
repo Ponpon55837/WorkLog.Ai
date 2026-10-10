@@ -896,6 +896,15 @@ export class ReportSynthesisService {
     return { outcome: "report_summary_saved", duplicate: false, summary, redactions: sanitizedInput.redactions };
   }
 
+  public getReportSummaryById(summaryId: string): ReportSummary | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT s.*,p.name AS project_name FROM report_summaries s LEFT JOIN projects p ON p.id=s.project_id WHERE s.id=? AND (s.project_id IS NULL OR p.status='tracked')`,
+      )
+      .get(summaryId) as ReportSummaryRow | undefined;
+    return row ? toReportSummary(row) : undefined;
+  }
+
   public listReportSummaries(options: ReportSummaryQuery = {}): ReportSummaryQueryResult {
     if (options.projectId) {
       const project = this.store.getProjectById(options.projectId);

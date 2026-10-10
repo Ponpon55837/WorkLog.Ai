@@ -382,7 +382,35 @@ try {
     },
   ]);
 
+  const presentationRequest = benchStore.createReportSynthesisRequest({
+    period: "year",
+    date: "2026-03-11",
+    projectId: alpha.id,
+  });
+  if (presentationRequest.outcome !== "report_synthesis_request") throw new Error("Missing presentation request");
+  benchStore.getReportSynthesisContext({ requestId: presentationRequest.request.id });
+  const presentationBase = benchStore.saveReportSummary({
+    requestId: presentationRequest.request.id,
+    title: "Synthetic presentation",
+    executiveSummary: "Synthetic immutable base.",
+    highlights: [{ title: "Synthetic outcome", detail: "Synthetic evidence.", sourceSessionIds: [newestAlpha.id] }],
+    risks: [],
+    decisions: [],
+    nextSteps: [],
+    sourceSessionIds: [newestAlpha.id],
+    generatedByAgent: "benchmark",
+    promptVersion: "benchmark-v1",
+  });
+  if (presentationBase.outcome !== "report_summary_saved") throw new Error("Missing presentation base");
+  benchStore.updateReportPresentation({
+    summaryId: presentationBase.summary.id,
+    expectedRevision: 0,
+    state: { pinned: ["highlights"], hidden: [], overrides: [] },
+  });
+
   const cases = {
+    "getReportPresentation (version and source gate)": () =>
+      benchStore.getReportPresentation(presentationBase.summary.id),
     "getRelatedWork (file overlap)": () => {
       const result = benchStore.getRelatedWork(newestAlpha.id);
       if (result.state !== "ready" || !result.items.length) throw new Error("Expected eligible shared-file candidates");
@@ -529,6 +557,7 @@ try {
   };
 
   const limitsMs = {
+    "getReportPresentation (version and source gate)": 250,
     "getAttention (mixed sources)": 500,
     "getRelatedWork (file overlap)": 250,
     "getSessionDetail (200 architecture nodes)": 250,

@@ -72,6 +72,7 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
     "requested_at",
     "source_session_ids_json",
   ],
+  report_presentations: ["summary_id", "revision", "state_json", "actor", "created_at"],
   report_summaries: [
     "request_id",
     "period",
@@ -166,6 +167,7 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   knowledge_candidates: { kind: "gotcha", status: "proposed" },
   report_synthesis_requests: { scope_type: "project", period: "month", status: "completed" },
   report_summaries: { period: "month" },
+  report_presentations: { actor: "web" },
   metadata_backfill_requests: { scope_type: "project", status: "completed" },
   session_summary_updates: { mode: "replace" },
   session_work_summary_updates: { mode: "replace" },
@@ -220,6 +222,10 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   if (table === "sessions") {
     row.changed_files_confirmed = 0;
     row.redaction_count = 0;
+  }
+  if (table === "report_presentations") {
+    row.revision = 1;
+    row.state_json = JSON.stringify({ pinned: [], hidden: [], overrides: [] });
   }
   return row;
 }

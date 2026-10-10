@@ -36,7 +36,7 @@ async function seed(request: APIRequestContext) {
     const saved = await request.post("/api/work/finalize", {
       data: {
         projectRoot: root,
-        idempotencyKey: `source-${i}`,
+        idempotencyKey: `source-${root}-${i}`,
         title: `Fictional source ${i}`,
         summary: "Fictional source evidence.",
         changedFiles: ["src/fictional.ts"],

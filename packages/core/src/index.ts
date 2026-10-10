@@ -1,5 +1,6 @@
 export * from "./attention.js";
 export * from "./related-work.js";
+export * from "./report-presentation.js";
 
 export const PROJECT_STATUSES = ["unregistered", "tracked", "paused", "ignored"] as const;
 
@@ -138,6 +139,7 @@ export interface ProjectDeletionCounts {
   knowledgeCandidates: number;
   reportSynthesisRequests: number;
   reportSummaries: number;
+  reportPresentations: number;
   metadataBackfillRequests: number;
   sessionSummaryUpdates: number;
   sessionWorkSummaryUpdates: number;
@@ -3006,6 +3008,7 @@ export const PROJECT_DATA_TABLES = [
   "knowledge_candidates",
   "report_synthesis_requests",
   "report_summaries",
+  "report_presentations",
   "metadata_backfill_requests",
   "session_summary_updates",
   "session_work_summary_updates",

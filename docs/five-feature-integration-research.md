@@ -251,4 +251,17 @@ migration 28 增加可重建的 `related_work_paths`／`related_work_dirty` 派�
 
 SQL EXPLAIN 確認 `idx_related_work_project_path` covering seek，去除不必要 DISTINCT 及其暫存 B-tree。合成資料的最終探測：5,000 筆首次建索引 85.83ms、後續 p90 3.01ms；50,000 筆首次 1208.95ms、後續 p90 30.06ms，熱門路徑明示 partial。首次成本包含同步 dirty 索引，不能用暖查詢毫秒冒稱冷啟動速度。回應各為 1,267／1,332 bytes，完整計畫與 CPU 函數摘要見 [SQLite 探測](experiments/related-query-probe.results.json)。既有完整 FTS 同步方案在 50k 首次約 15.7 秒，已由上述輕量索引取代。
 
-B1 開始時間為 2026-10-09T14:26:47Z（時間工具證據）。本機 build、完整單元 834 通過／1 既有略過、typecheck／coverage、38 項效能、25 retrieval、9 response-budget 已通過；最終完整 UI 回歸 Chromium 91／1 既有略過、Firefox 36、Playwright WebKit 33 通過，375px 英文截圖已人工檢查；CI／合併尚未完成。新增回歸也確認已成功作廢／連結不被背景刷新 AbortError 誤報失敗。
+B1 開始時間為 2026-10-09T14:26:47Z（時間工具證據）。本機 build、完整單元 834 通過／1 既有略過、typecheck／coverage、38 項效能、25 retrieval、9 response-budget 已通過；最終完整 UI 回歸 Chromium 91／1 既有略過、Firefox 36、Playwright WebKit 33 通過，375px 英文截圖已人工檢查；最新 e4af097 的三平台 Quality 與 E2E 全 SUCCESS（run 37949833801），PR #228 已於 2026-10-09T15:23:22Z 合併，遠端／本機 related-work 分支已清除；main 更新至 cbb766d。新增回歸也確認已成功作廢／連結不被背景刷新 AbortError 誤報失敗。
+
+
+### B1 本機服務核對
+
+2026-10-09T15:35:48Z 的 HTTP 回應證據確認，既有 macOS LaunchAgent 已從 schema 27 更新到 28。更新前相關工作端點回傳 404 Route not found；重新建置 main 並重啟既有服務後回傳 200。B1 記錄的 36 個檔案正常回傳 too_many_files，Chrome 畫面顯示「修改檔案超過 20 個，暫不推導相關工作」，無錯誤提示。不存在或不可見的來源回傳 source_unavailable 空 DTO；未將 HTTP 失敗轉成空結果。MCP 在建置期間回報 restartRequired，已停止 MCP 操作；透過最新本機 REST API 補寫原 B1 記錄與相關知識頁，未另建記錄。MCP 本身仍待重連。
+
+### C1 報告段落呈現（本機驗證完成）
+
+原工作於 2026-10-09T15:12:22.033Z 開始；接手訊息時間為 2026-10-09T15:15:57.019Z，均取自聊天工具／transcript，未估計。使用獨立 five-features-takeover worktree 延續原未提交變更。
+
+每份不可變 ReportSummary 的七類群組各自釘選、隱藏及恢復；文字改稿以群組與原始 ordinal 定位，只改 title/detail。migration 29 的 report_presentations 保留 Web revision 歷程，匯出／匯入／遮蔽／專案刪除納入完整生命週期。expectedRevision 在 immediate transaction 中比較，409 保留草稿，載入最新比較後須使用者明確套用。每次讀寫都核對完整來源仍存在、未作廢且 tracked，單專案基底拒絕其他專案來源，全域基底逐一核對全部來源；來源失效時不顯示原文作為成功結果。
+
+完整單元 848 通過／1 既有略過；最後補入來源邊界後 storage 定向 7 通過。build、typecheck、coverage、39 項 p90 效能門檻、25 retrieval、9 response-size、production audit high 均通過；呈現讀取含來源檢查的 5k 合成基準 p90 0.57ms。完整瀏覽器 Chromium 104 通過／1 既有略過、Firefox 49、Playwright WebKit 46 通過；12 組語言／主題／尺寸涵蓋釘選、隱藏、恢復、改稿、axe 與 409 草稿流程。實機 Safari 不在此驗證範圍。遠端 CI／合併另行核對。E2E 先前失敗來自可存取名稱含操作按鈕及 UiField 群組與輸入同名，已用群組身份及 textbox 角色定位；fixture finalize 鍵改為每個合成專案唯一，避免重試引用另一專案的來源。

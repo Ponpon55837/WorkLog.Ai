@@ -3,7 +3,11 @@ import type { ReportSummaryBlock } from "@work-intelligence/core";
 import { t } from "../../i18n";
 
 /** One synthesis section. Every item cites its source Sessions; `資料不足` is shown as-is. */
-defineProps<{ title: string; hint?: string; blocks: readonly ReportSummaryBlock[] }>();
+defineProps<{
+  title: string;
+  hint?: string;
+  blocks: readonly (ReportSummaryBlock & { ordinal?: number; edited?: boolean })[];
+}>();
 const emit = defineEmits<{ openSources: [sessionIds: string[]] }>();
 
 function isInsufficient(detail: string): boolean {
@@ -15,9 +19,10 @@ function isInsufficient(detail: string): boolean {
 <template>
   <section class="synthesis-block">
     <h3>
-      {{ title }} <span v-if="hint" class="synthesis-block__hint">{{ hint }}</span>
+      {{ title }} <span v-if="hint" class="synthesis-block__hint">{{ hint }}</span
+      ><slot name="actions" />
     </h3>
-    <div v-for="(block, index) in blocks" :key="`${block.title}-${index}`" class="synthesis-block__item">
+    <div v-for="(block, index) in blocks" :key="block.ordinal ?? index" class="synthesis-block__item">
       <div class="synthesis-block__copy">
         <strong>{{ block.title }}</strong>
         <p :class="{ 'is-insufficient': isInsufficient(block.detail) }">{{ block.detail }}</p>
@@ -31,7 +36,8 @@ function isInsufficient(detail: string): boolean {
       >
         {{ block.sourceSessionIds.length }} Session{{ block.sourceSessionIds.length > 1 ? "s" : "" }}
       </button>
-      <span v-else class="synthesis-block__no-source">{{ t("common.noSourceProvided") }}</span>
+      <span v-else class="synthesis-block__no-source">{{ t("common.noSourceProvided") }}</span
+      ><slot name="block-actions" :block="block" :ordinal="block.ordinal ?? index" />
     </div>
   </section>
 </template>
@@ -39,7 +45,8 @@ function isInsufficient(detail: string): boolean {
 <style scoped>
 .synthesis-block h3 {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
   margin-bottom: var(--space-1);
   color: var(--fg);
@@ -55,6 +62,7 @@ function isInsufficient(detail: string): boolean {
 
 .synthesis-block__item {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
@@ -63,6 +71,8 @@ function isInsufficient(detail: string): boolean {
 }
 
 .synthesis-block__copy {
+  flex: 1 1 220px;
+  overflow-wrap: anywhere;
   display: grid;
   gap: 2px;
   min-width: 0;

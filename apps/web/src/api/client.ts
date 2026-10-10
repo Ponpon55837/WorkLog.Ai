@@ -1,3 +1,4 @@
+import { createReportPresentationApi, type ReportPresentationApi } from "./report-presentation";
 import { createAttentionApi, type AttentionApi } from "./attention";
 import type { PageInfo } from "./types";
 import { ApiTransport } from "./transport";
@@ -22,6 +23,7 @@ export type { ApiHealth, OutstandingItemsRequest, ReportRequest, SessionListRequ
 export interface ApiClient
   extends
     AttentionApi,
+    ReportPresentationApi,
     SystemApi,
     BackupsApi,
     ProjectsApi,
@@ -46,6 +48,7 @@ export class ApiClient extends ApiTransport {
       this,
       createSystemApi(this),
       createAttentionApi(this),
+      createReportPresentationApi(this),
       createBackupsApi(this),
       createProjectsApi(this),
       createSessionsApi(this),

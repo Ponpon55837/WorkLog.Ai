@@ -45,6 +45,7 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "knowledge_candidates",
   "report_synthesis_requests",
   "report_summaries",
+  "report_presentations",
   "metadata_backfill_requests",
   "session_summary_updates",
   "session_work_summary_updates",
@@ -65,6 +66,7 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   evidence: [["session_id", "kind", "reference"]],
   knowledge: [["project_id", "idempotency_key"]],
   report_synthesis_requests: [["idempotency_key"]],
+  report_presentations: [["summary_id", "revision"]],
   metadata_backfill_requests: [["idempotency_key"]],
   session_summary_updates: [["idempotency_key"]],
   session_work_summary_updates: [["idempotency_key"]],
@@ -109,6 +111,7 @@ const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = 
   knowledge_candidate_requests: ["failure_reason"],
   knowledge_candidates: ["title", "body", "tags_json", "references_json", "applies_to_json", "rationale"],
   report_synthesis_requests: ["failure_reason"],
+  report_presentations: ["state_json"],
   report_summaries: [
     "title",
     "executive_summary",
@@ -328,6 +331,7 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
     report_synthesis_requests: reportRequests,
+    report_presentations: [],
     report_summaries:
       scope.type === "all"
         ? sqlRows(db, "report_summaries")
@@ -362,6 +366,12 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
       candidateIds.has(String(candidate.request_id)),
     );
   }
+  rows.report_presentations = rowsByIds(
+    db,
+    "report_presentations",
+    "summary_id",
+    rows.report_summaries.map((row) => String(row.id)),
+  );
   return rows;
 }
 
@@ -404,6 +414,11 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     }
   }
   const filterSessionChildrenByScope = bundle.scope.type === "all" && projectId !== undefined;
+  const scopedSummaryIds = new Set(
+    bundle.tables.report_summaries
+      .filter((summary) => projectId === undefined || reportRequestIds.has(String(summary.request_id)))
+      .map((summary) => String(summary.id)),
+  );
   const tables: Record<ProjectDataTable, ProjectDataRow[]> = {
     projects: selectedProjects,
     sessions,
@@ -434,6 +449,9 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
     report_synthesis_requests: reportRequests.filter((row) => projectId === undefined || row.scope_type === "project"),
+    report_presentations: bundle.tables.report_presentations.filter((row) =>
+      scopedSummaryIds.has(String(row.summary_id)),
+    ),
     report_summaries:
       projectId === undefined
         ? bundle.tables.report_summaries
@@ -975,6 +993,15 @@ function dependencyIssue(
     if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
       return "關聯的 Knowledge 發生衝突或不存在。";
     }
+  }
+
+  if (table === "report_presentations") {
+    const summaryId = String(row.summary_id);
+    if (
+      !selectedIds.report_summaries.has(summaryId) ||
+      !isAvailable("report_summaries", summaryId, selectedIds.report_summaries, availableIds, conflictIds)
+    )
+      return "報告呈現的原始版本發生衝突或不在匯入範圍。";
   }
 
   const requestId = typeof row.request_id === "string" ? row.request_id : undefined;

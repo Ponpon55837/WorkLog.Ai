@@ -20,7 +20,7 @@ import UiLabel from "../ui/UiLabel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
-import SynthesisBlock from "./SynthesisBlock.vue";
+import SynthesisPresentation from "./SynthesisPresentation.vue";
 import { t } from "../../i18n";
 
 /**
@@ -80,22 +80,6 @@ const grainHints: Record<WorkReportPeriod, string> = {
   year: t("reports.annualReportGroupedByMajor"),
   custom: t("reports.customRangeGroupedByWork"),
 };
-
-const sections = computed(() => {
-  const current = summary.value;
-  if (!current) {
-    return [];
-  }
-  return [
-    { key: "themes", title: t("reports.theme"), hint: grainHints[current.period], blocks: current.themes },
-    { key: "highlights", title: t("reports.keyOutcomes"), blocks: current.highlights },
-    { key: "verification", title: t("common.verification"), blocks: current.verification },
-    { key: "comparison", title: t("reports.compare"), blocks: current.comparison },
-    { key: "risks", title: t("reports.risksAndLimits"), blocks: current.risks },
-    { key: "decisions", title: t("common.decisions"), blocks: current.decisions },
-    { key: "nextSteps", title: t("common.statusOpenItems"), blocks: current.nextSteps },
-  ].filter((section) => section.blocks.length > 0);
-});
 
 const pendingMessage = computed(() => {
   const status = request.value?.status;
@@ -180,13 +164,9 @@ function versionMeta(version: ReportSummary): string {
       </div>
 
       <template v-if="summary">
-        <p class="synthesis__executive">{{ summary.executiveSummary }}</p>
-        <SynthesisBlock
-          v-for="section in sections"
-          :key="section.key"
-          :title="section.title"
-          :hint="section.hint"
-          :blocks="section.blocks"
+        <SynthesisPresentation
+          :summary="summary"
+          :theme-hint="grainHints[summary.period]"
           @open-sources="openSources"
         />
         <div class="synthesis__footer">
@@ -285,12 +265,6 @@ function versionMeta(version: ReportSummary): string {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.synthesis__executive {
-  color: var(--fg);
-  font-size: var(--text-lg);
-  line-height: 1.6;
 }
 
 .synthesis__footer {

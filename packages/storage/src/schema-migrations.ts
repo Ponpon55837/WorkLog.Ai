@@ -835,6 +835,19 @@ const MIGRATIONS: SchemaMigration[] = [
       END;
     `,
   },
+  {
+    version: 29,
+    name: "report-presentation-revisions",
+    sql: `CREATE TABLE report_presentations (
+      id TEXT PRIMARY KEY,
+      summary_id TEXT NOT NULL REFERENCES report_summaries(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL CHECK(revision>0),
+      state_json TEXT NOT NULL,
+      actor TEXT NOT NULL CHECK(actor='web'),
+      created_at TEXT NOT NULL,
+      UNIQUE(summary_id,revision)
+    );`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

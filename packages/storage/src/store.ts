@@ -218,6 +218,8 @@ import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
 import { OutstandingItemService } from "./outstanding-item-service.js";
 import { OutstandingCleanupService } from "./outstanding-cleanup-service.js";
+import { ReportPresentationService } from "./report-presentation-service.js";
+import type { ReportPresentation, ReportPresentationState } from "@work-intelligence/core";
 import { RelatedWorkService } from "./related-work-service.js";
 import type { RelatedWorkResult } from "@work-intelligence/core";
 import { AttentionService } from "./attention-service.js";
@@ -862,6 +864,18 @@ export class WorkIntelligenceStore {
       skipped,
       failures,
     };
+  }
+
+  public getReportPresentation(summaryId: string): ReportPresentation {
+    return new ReportPresentationService(this.db, (id) => this.reportSynthesis.getReportSummaryById(id)).get(summaryId);
+  }
+
+  public updateReportPresentation(input: {
+    summaryId: string;
+    expectedRevision: number;
+    state: ReportPresentationState;
+  }): ReportPresentation {
+    return new ReportPresentationService(this.db, (id) => this.reportSynthesis.getReportSummaryById(id)).update(input);
   }
 
   public getRelatedWork(sessionId: string): RelatedWorkResult {

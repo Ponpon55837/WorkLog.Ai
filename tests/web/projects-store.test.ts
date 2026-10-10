@@ -29,6 +29,7 @@ const deletionCounts: ProjectDeletionCounts = {
   knowledgeCandidates: 0,
   reportSynthesisRequests: 0,
   reportSummaries: 0,
+  reportPresentations: 0,
   metadataBackfillRequests: 0,
   sessionSummaryUpdates: 0,
   sessionWorkSummaryUpdates: 0,
