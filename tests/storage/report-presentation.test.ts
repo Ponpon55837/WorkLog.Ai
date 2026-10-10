@@ -19,10 +19,10 @@ function fixture(global = false) {
   return { root, store, ...seedReportPresentation(store, root, global) };
 }
 afterEach(() => {
-  for (const { root, store } of resources.splice(0)) {
-    store.close();
-    rmSync(root, { recursive: true, force: true });
-  }
+  const current = resources.splice(0);
+  // Close every database before deleting a parent directory on Windows.
+  for (const { store } of current) store.close();
+  for (const { root } of current) rmSync(root, { recursive: true, force: true });
 });
 describe("report presentation revisions", () => {
   it("keeps original content and citations, pins in order, hides and restores, and rejects stale writers", () => {
