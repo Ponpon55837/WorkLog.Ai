@@ -453,6 +453,15 @@ try {
       if (!result?.diagrams.length) throw new Error("Expected a complete architecture snapshot.");
       return result;
     },
+    "getSessionProjection (completion, 200 nodes omitted)": () =>
+      benchStore.getSessionDetailForAgent({ sessionId: architectureSession.session.id, view: "completion" }),
+    "getSessionProjection (handoff, 200 nodes omitted)": () =>
+      benchStore.getSessionDetailForAgent({ sessionId: architectureSession.session.id, view: "handoff" }),
+    "getSessionProjection (selected native source)": () =>
+      benchStore.getSessionDetailForAgent({
+        sessionId: architectureSession.session.id,
+        select: ["session.changedFiles", "diagrams"],
+      }),
     "listSessionsPage (default)": () => benchStore.listSessionsPage({ page: 1, pageSize: 20 }),
     "listSessionsPage (page 50)": () => benchStore.listSessionsPage({ page: 50, pageSize: 20 }),
     "listSessionsPage (date range)": () =>
@@ -584,6 +593,9 @@ try {
     "getAttention (suppressed preferences)": 500,
     "getRelatedWork (file overlap)": 250,
     "getSessionDetail (200 architecture nodes)": 250,
+    "getSessionProjection (completion, 200 nodes omitted)": 250,
+    "getSessionProjection (handoff, 200 nodes omitted)": 250,
+    "getSessionProjection (selected native source)": 250,
     "listSessionsPage (default)": 200,
     "listSessionDigests (page 100 + pending items)": 100,
     getDashboardSummary: 1000,

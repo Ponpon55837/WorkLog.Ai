@@ -2850,6 +2850,70 @@ export interface SessionDetailResult extends Omit<SessionDetail, "rawSnapshots">
   rawSnapshots: Array<RawSnapshotRecord | RawSnapshotSummary>;
 }
 
+/** Fixed Agent read groups. These values never become client-controlled SQL identifiers. */
+export const SESSION_READ_FIELDS = [
+  "session.summary",
+  "session.workSummary.outcomes",
+  "session.workSummary.scope",
+  "session.workSummary.decisions",
+  "session.workSummary.verification",
+  "session.workSummary.nextSteps",
+  "session.verification",
+  "session.changedFiles",
+  "session.git",
+  "decisions",
+  "links",
+  "verificationHistory",
+  "voidHistory",
+  "events",
+  "evidence",
+  "knowledge",
+  "diagrams",
+  "rawSnapshots",
+] as const;
+export type SessionReadField = (typeof SESSION_READ_FIELDS)[number];
+export type SessionReadView = "completion" | "handoff";
+export interface SessionAgentReadQuery {
+  sessionId: string;
+  includeRawSnapshots?: boolean;
+  view?: SessionReadView;
+  select?: SessionReadField[];
+}
+export interface SessionProjectionResult {
+  outcome: "session_detail";
+  projection: {
+    version: 1;
+    view?: SessionReadView;
+    includedFields: SessionReadField[];
+    unavailableFields: SessionReadField[];
+  };
+  session: Pick<WorkSessionRecord, "id" | "projectId" | "title" | "status" | "executionStatus" | "completedAt"> &
+    Partial<
+      Pick<
+        WorkSessionRecord,
+        | "updatedAt"
+        | "voided"
+        | "summary"
+        | "verification"
+        | "changedFiles"
+        | "changedFilesProvenance"
+        | "changedFileChanges"
+        | "commitSha"
+        | "gitBranch"
+      >
+    > & { workSummary?: Partial<WorkSummarySections> };
+  decisions?: SessionDecisionRecord[];
+  links?: SessionLinkRecord[];
+  verificationHistory?: VerificationUpdateRecord[];
+  voidHistory?: VoidAuditRecord[];
+  events?: WorkEventRecord[];
+  evidence?: EvidenceRecord[];
+  knowledge?: KnowledgeRecord[];
+  diagrams?: SessionDiagramRecord[];
+  rawSnapshots?: Array<RawSnapshotRecord | RawSnapshotSummary>;
+}
+export type SessionAgentReadResult = SessionDetailQueryResult | SessionProjectionResult;
+
 export interface SessionNotFoundResult {
   outcome: "not_found";
   sessionId: string;

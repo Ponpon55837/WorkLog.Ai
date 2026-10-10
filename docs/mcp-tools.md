@@ -162,6 +162,17 @@ MCP client 的 stdio 設定可使用：
 
 `work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
 
+可選 `view: "completion" | "handoff"` 或 `select` 固定欄位陣列（兩者互斥；1–18 個、不可重複）。未提供時維持完整回應；精準讀取只查詢指定資料族群，回傳 `projection: {version: 1, view?, includedFields, unavailableFields}`。必要 Session 識別、lifecycle、完成時間及作廢狀態保留；缺少的歷史欄位列入 unavailableFields，未選取欄位不代表空資料。
+
+- `completion`：summary、outcomes、摘要 verification／nextSteps、機器 verification、links、verificationHistory。
+- `handoff`：summary、完整五段 workSummary、decisions、機器 verification、links、verificationHistory。
+- `select`：`session.summary`、五個 `session.workSummary.<section>`、`session.verification`、`session.changedFiles`、`session.git`、`decisions`、`links`、`verificationHistory`、`voidHistory`、`events`、`evidence`、`knowledge`、`diagrams`、`rawSnapshots`。`session.git` 沿用 commitSha／gitBranch；changedFiles 同時保留 provenance／lifecycle changes。
+
+摘要 decisions 自動帶完整決策來源／審查狀態；機器 verification 自動帶修改歷史。欄位順序固定，不受請求順序影響。選取 rawSnapshots 預設只回傳 metadata／JavaScript UTF-16 contentLength；精準模式的 includeRawSnapshots=true 必須明確選取 rawSnapshots，兩種 view 都不含 raw。Knowledge trust、來源作廢與連結作廢旗標均保留。structuredContent 只帶實際識別／狀態及已讀取的 verification／changedFilesCount，不重複完整來源。
+
+部分讀取不能當成已讀完整來源。接手、結案或清理仍須取得所有與判斷相關的原文、限制及補查；現有要求完整來源的流程維持原要求。這是 Agent MCP 功能，REST、Web、報告與資料匯出匯入不變；schema 維持 30，契約 fingerprint 改變，更新後需要重新連線。
+
+
 Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 MCP 的 digest 瘦身。
 
 ```json

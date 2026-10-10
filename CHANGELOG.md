@@ -26,6 +26,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Agent Session reads support optional completion/handoff views and a fixed field whitelist with policy-gated, snapshot-consistent SQL loading. Keep full legacy reads unchanged, retain source safety flags and expose missing historical fields; projected structured metadata avoids duplicating source content.
+
 - Preview and copy basic or current report-presentation Markdown with source gates, revision checks, escaped text and a download/manual-copy fallback. Clipboard success is shown only after a successful write.
 
 - Dashboard weekly insights use full report totals with verification priority and scoped links.
