@@ -6,6 +6,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Dashboard weekly insights use full report totals with verification priority and scoped links.
+
 - Report synthesis versions now have independent section pin/hide/restore controls and manual title/detail edits. The original summary and source references stay intact, edits are audited and portable, and concurrent changes keep the draft for an explicit comparison before applying.
 
 - Suggest up to five same-project Sessions sharing confirmed files in Session detail. A covering file-posting index bounds hot-path reads, excludes existing links/voided or unavailable sources and reports partial coverage; suggestions never create links.
