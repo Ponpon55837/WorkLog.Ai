@@ -264,4 +264,10 @@ B1 開始時間為 2026-10-09T14:26:47Z（時間工具證據）。本機 build�
 
 每份不可變 ReportSummary 的七類群組各自釘選、隱藏及恢復；文字改稿以群組與原始 ordinal 定位，只改 title/detail。migration 29 的 report_presentations 保留 Web revision 歷程，匯出／匯入／遮蔽／專案刪除納入完整生命週期。expectedRevision 在 immediate transaction 中比較，409 保留草稿，載入最新比較後須使用者明確套用。每次讀寫都核對完整來源仍存在、未作廢且 tracked，單專案基底拒絕其他專案來源，全域基底逐一核對全部來源；來源失效時不顯示原文作為成功結果。
 
-完整單元 848 通過／1 既有略過；最後補入來源邊界後 storage 定向 7 通過。build、typecheck、coverage、39 項 p90 效能門檻、25 retrieval、9 response-size、production audit high 均通過；呈現讀取含來源檢查的 5k 合成基準 p90 0.57ms。完整瀏覽器 Chromium 104 通過／1 既有略過、Firefox 49、Playwright WebKit 46 通過；12 組語言／主題／尺寸涵蓋釘選、隱藏、恢復、改稿、axe 與 409 草稿流程。實機 Safari 不在此驗證範圍。遠端 CI／合併另行核對。E2E 先前失敗來自可存取名稱含操作按鈕及 UiField 群組與輸入同名，已用群組身份及 textbox 角色定位；fixture finalize 鍵改為每個合成專案唯一，避免重試引用另一專案的來源。
+完整單元 848 通過／1 既有略過；最後補入來源邊界後 storage 定向 7 通過。build、typecheck、coverage、39 項 p90 效能門檻、25 retrieval、9 response-size、production audit high 均通過；呈現讀取含來源檢查的 5k 合成基準 p90 0.57ms。完整瀏覽器 Chromium 104 通過／1 既有略過、Firefox 49、Playwright WebKit 46 通過；12 組語言／主題／尺寸涵蓋釘選、隱藏、恢復、改稿、axe 與 409 草稿流程。實機 Safari 不在此驗證範圍。首次 Windows CI 暴露測試仍有第二個 DB 開啟時刪除父目錄的 EPERM；改為先關閉全部測試 DB 再刪除。最新 10b688d 四項 CI 全 SUCCESS（run 38013171216），PR #229 於 2026-10-10T01:40:07Z 合併，分支清除並更新 main 至 047c1ee。E2E 先前失敗來自可存取名稱含操作按鈕及 UiField 群組與輸入同名，已用群組身份及 textbox 角色定位；fixture finalize 鍵改為每個合成專案唯一，避免重試引用另一專案的來源。
+
+### C2 首頁洞察（本機驗證完成）
+
+開始時間 2026-10-10T01:22:58Z（時間工具證據），獨立 dashboard-insights 分支，初始 worktree 乾淨。使用完整週報 totals、comparison 與 projects 推導最多兩句洞察；驗證提示依 failed、in_progress、未回報／未執行、passed 優先，沒有把未知算通過。前期為零以文字說明，不計算成長百分比；專案占比以完整總數為分母，O(P) 選最大值，同數量按 ID 決定。日期與時區使用服務回應；連結保留週範圍與專案。載入、空結果與請求錯誤分開呈現。
+
+C2 完整單元 851 通過／1 既有略過，web coverage、typecheck、lint／格式及 build 通過。完整 Chromium 117 通過／1 既有略過、Firefox 62、Playwright WebKit 59 通過；39 項新增定向測試也通過。已檢查 375px 英文明亮洞察截圖，長專案名與文字換行正常、無水平溢出；實機 Safari 未驗證。

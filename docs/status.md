@@ -4,7 +4,7 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-10-09
+- 最後更新：2026-10-10
 
 ## 使用者待辦
 
@@ -14,7 +14,7 @@
 
 ## 五項功能整合研究
 
-2026-10-09 完成[五項先行研究](five-feature-integration-research.md)：擴充總覽既有待處理、Session 詳情的共同檔案候選、版本獨立的報告段落呈現／改稿、完整期間統計的首頁洞察與預覽後複製。文件包含文字線框、擬議資料/API、安全邊界、刪減取捨及逐階段驗收。A1 提醒聚合 PR #227 最新提交四項 CI 通過後已合併，main 已更新；B1 相關工作提示已實作輕量 covering index、同專案 top-5、截短提示及雙語 UI，本機 834 單元與 Chromium 91／Firefox 36／WebKit 33 回歸通過，PR #228 最新提交三平台 Quality 與 E2E 全數通過後已合併，main 為 cbb766d。C1 報告呈現已實作，驗證進行中；C2–C3 與 A2 呈現偏好尚未完成。合成演算法探測只驗證記憶體候選查詢，不能視為正式 SQLite／UI 效能。研究在獨立 worktree 進行，原 main 工作區保持原狀。
+2026-10-09 完成[五項先行研究](five-feature-integration-research.md)：擴充總覽既有待處理、Session 詳情的共同檔案候選、版本獨立的報告段落呈現／改稿、完整期間統計的首頁洞察與預覽後複製。文件包含文字線框、擬議資料/API、安全邊界、刪減取捨及逐階段驗收。A1 提醒聚合 PR #227 最新提交四項 CI 通過後已合併，main 已更新；B1 相關工作提示已實作輕量 covering index、同專案 top-5、截短提示及雙語 UI，本機 834 單元與 Chromium 91／Firefox 36／WebKit 33 回歸通過，PR #228 最新提交三平台 Quality 與 E2E 全數通過後已合併，main 為 cbb766d。C1 報告呈現／改稿 PR #229 最新 head 10b688d 四項 CI 通過後已合併，main 為 047c1ee；C2 首頁洞察已實作，本機 851 單元、Chromium 117／Firefox 62／WebKit 59 回歸通過，尚待 PR 最新提交 CI 與合併。C3 與 A2 呈現偏好尚未完成；全部功能完成後另調整總覽、提高工作熱度可見性並規劃移除 Mermaid。合成演算法探測只驗證記憶體候選查詢，不能視為正式 SQLite／UI 效能。開發在獨立 worktree 進行；main 僅更新已合併成果，本機服務部署另由 health 與 HTTP 核對。
 
 1.4.0 已於 2026-10-09 正式發布（[Release](https://github.com/Ponpon55837/WorkLog.Ai/releases/tag/v1.4.0)，PR #225）；早期 v1.0.0 tag／Release 待辦不再列為目前待辦，實機驗收限制仍保留。
 

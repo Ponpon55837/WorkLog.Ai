@@ -6,6 +6,7 @@ import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import AttentionBox from "../components/domain/AttentionBox.vue";
 import ActivityHeatmap from "../components/domain/ActivityHeatmap.vue";
+import DashboardInsights from "../components/domain/DashboardInsights.vue";
 import FirstRunChecklist from "../components/domain/FirstRunChecklist.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import StatusLabel from "../components/domain/StatusLabel.vue";
@@ -107,6 +108,8 @@ onBeforeUnmount(() => {
     :agent-status-loading="systemStatusLoading"
     :agent-status-error="systemStatusError"
   />
+
+  <DashboardInsights class="dashboard__insights" />
 
   <div class="dashboard__stats">
     <UiStatCard
@@ -251,6 +254,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.dashboard__insights {
+  margin-bottom: var(--space-4);
+}
 .dashboard__stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

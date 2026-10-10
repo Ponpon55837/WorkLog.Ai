@@ -1632,5 +1632,24 @@
     "different": "目前顯示的報告已改變；此草稿仍屬於下列原始版本。",
     "loading": "載入報告呈現中",
     "refresh": "重新整理呈現"
+  },
+  "insights": {
+    "title": "本週洞察",
+    "noPrevious": "上週沒有工作記錄",
+    "flat": "與上週相同",
+    "up": "比上週增加 {count} 筆",
+    "down": "比上週減少 {count} 筆",
+    "activityProject": "本週完成 {count} 筆工作，{change}，最多來自 {project}（{share}%）。",
+    "activity": "本週完成 {count} 筆工作，{change}。",
+    "failed": "其中 {count} 筆 verification 失敗，請先檢查驗證結果。",
+    "inProgress": "其中 {count} 筆 verification 仍在進行中。",
+    "incomplete": "verification 有 {notSupplied} 筆未回報、{notRun} 筆未執行。",
+    "passed": "本週 {count} 筆 verification 通過。",
+    "failedToLoad": "無法載入本週洞察。",
+    "loading": "載入本週洞察",
+    "empty": "本週尚無完成的工作記錄",
+    "range": "{from} — {to} · {timezone}",
+    "projectReport": "檢視專案報告",
+    "verificationReport": "檢視驗證結果"
   }
 }

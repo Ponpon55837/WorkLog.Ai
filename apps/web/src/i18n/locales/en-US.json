@@ -1632,5 +1632,24 @@
     "different": "The displayed report changed. This draft still belongs to the original version shown below.",
     "loading": "Loading report presentation",
     "refresh": "Refresh presentation"
+  },
+  "insights": {
+    "title": "Weekly insights",
+    "noPrevious": "no work records last week",
+    "flat": "unchanged from last week",
+    "up": "{count} more than last week",
+    "down": "{count} fewer than last week",
+    "activityProject": "Completed {count} work records this week, {change}, with the largest share in {project} ({share}%).",
+    "activity": "Completed {count} work records this week, {change}.",
+    "failed": "{count} verification results failed and need review.",
+    "inProgress": "{count} verification results are still in progress.",
+    "incomplete": "Verification has {notSupplied} not supplied and {notRun} not run.",
+    "passed": "{count} verification results passed this week.",
+    "failedToLoad": "Could not load weekly insights.",
+    "loading": "Loading weekly insights",
+    "empty": "No completed work records this week",
+    "range": "{from} — {to} · {timezone}",
+    "projectReport": "View project report",
+    "verificationReport": "View verification"
   }
 }
