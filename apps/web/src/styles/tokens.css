@@ -32,7 +32,7 @@
   --accent-border: rgba(68, 147, 248, 0.4);
   --success: #3fb950;
   --success-emphasis: #238636;
-  --success-emphasis-hover: #2ea043;
+  --success-emphasis-hover: var(--success-emphasis);
   --success-soft: rgba(63, 185, 80, 0.1);
   --success-border: rgba(63, 185, 80, 0.4);
   --attention: #d29922;

@@ -125,7 +125,7 @@ const classes = computed(() => [
 }
 
 .ui-button--primary:hover:not(:disabled) {
-  border-color: var(--border-on-emphasis);
+  border-color: var(--border-strong);
   background: var(--success-emphasis-hover);
 }
 
