@@ -268,7 +268,7 @@
       "schemaVersion": 30
     },
     "after": {
-      "compatibilityId": "e52b78428f38e97d69632fe0f95ae6cc0de11774922aeb4c05bf8b2986eef4ac",
+      "compatibilityId": "346f66237a63706fb0d7a63b935db71b32013a521d6191e0e454f5475e8f8eb6",
       "schemaVersion": 30
     },
     "contractChanged": true,
@@ -288,8 +288,111 @@
     "totalDependencies": 130
   },
   "method": {
-    "dist": "All regular files; gzip level 9 with mtime 0. Same build settings.",
+    "dist": "All regular files; gzip level 9 with mtime 0. Initial dist/cold-open data preceded UI integration; integratedDist compares the latest UI baseline with the rebased native runtime using the same build settings.",
     "coldOpen": "3 fresh Chromium contexts, synthetic 3-node flow, viewport 1440x900, zh-TW/dark. Card timing starts at navigation and ends at SVG ready before / escaped source visible after; expansion measured separately. Source reading is not equivalent to rendering.",
     "limitations": "Local measurements only; no real Safari, touch, Windows, user dataset FPS or universal speed claim."
+  },
+  "integratedDist": {
+    "beforeCommit": "1e16f6047db282b6ee8c6c14d55e4d374c47bc7e",
+    "afterCommit": "b1adf6a",
+    "afterDirtyTestOnly": true,
+    "before": {
+      "files": 115,
+      "rawBytes": 4512610,
+      "gzipBytes": 1302454,
+      "jsBytes": 4380648,
+      "entryBytes": 507061,
+      "largestChunks": [
+        {
+          "name": "mermaid.core-BlEaxrPP.js",
+          "raw": 696789,
+          "gzip": 170486
+        },
+        {
+          "name": "cynefin-OW5HDTMX-cchxep-p.js",
+          "raw": 690856,
+          "gzip": 153774
+        },
+        {
+          "name": "index-DHQzq-bV.js",
+          "raw": 507061,
+          "gzip": 164982
+        },
+        {
+          "name": "cytoscape.esm-Ix0LnXOy.js",
+          "raw": 443834,
+          "gzip": 141410
+        },
+        {
+          "name": "katex-BkKH-RNA.js",
+          "raw": 260996,
+          "gzip": 76867
+        },
+        {
+          "name": "architectureDiagram-5GKGNRK7-Ba3e6HB4.js",
+          "raw": 152014,
+          "gzip": 42741
+        },
+        {
+          "name": "sequenceDiagram-WJ2MYXX4-Ws21m8Oi.js",
+          "raw": 117446,
+          "gzip": 30948
+        },
+        {
+          "name": "swimlanes-42K2YHIH-DQ4OxBJs.js",
+          "raw": 117117,
+          "gzip": 42399
+        }
+      ]
+    },
+    "after": {
+      "files": 55,
+      "rawBytes": 1071327,
+      "gzipBytes": 328330,
+      "jsBytes": 940635,
+      "entryBytes": 501398,
+      "largestChunks": [
+        {
+          "name": "index-VHxqrgej.js",
+          "raw": 501398,
+          "gzip": 162668
+        },
+        {
+          "name": "ProjectsView-B5NyxZwU.js",
+          "raw": 89498,
+          "gzip": 24867
+        },
+        {
+          "name": "ReportsView-BDYHPRtI.js",
+          "raw": 64609,
+          "gzip": 18413
+        },
+        {
+          "name": "architecture-diagram-DTT8FVQQ.js",
+          "raw": 57883,
+          "gzip": 13570
+        },
+        {
+          "name": "KnowledgeView-BceFi-Fk.js",
+          "raw": 52083,
+          "gzip": 14617
+        },
+        {
+          "name": "GraphView-AeYjX7mF.js",
+          "raw": 52000,
+          "gzip": 17545
+        },
+        {
+          "name": "SessionsView-DGurUMqL.js",
+          "raw": 34777,
+          "gzip": 9701
+        },
+        {
+          "name": "DashboardView-541G_5c3.js",
+          "raw": 28964,
+          "gzip": 9341
+        }
+      ]
+    }
   }
 }

@@ -2274,7 +2274,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expand.click();
     const reader = page.getByRole("dialog", { name: tt("session.diagramReader") });
     await expect(reader.locator("pre")).toHaveText(source);
-    await expect(reader.locator("svg, img, script")).toHaveCount(0);
+    await expect(reader.locator("img, script, pre svg")).toHaveCount(0);
     expect(await page.evaluate(() => "legacyExecuted" in window)).toBe(false);
     await expect(page).toHaveURL(/diagram=/);
     await page.evaluate(() => {

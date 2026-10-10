@@ -76,3 +76,5 @@ M1／M2 已完成程式實作：core 與新寫入 schema 要求明確 architectu
 使用相同 Node 25.7.0／macOS x64、build 設定，正式 Web dist 由 4,512,007 bytes（gzip 1,302,348）降至 1,070,673 bytes（gzip 328,184）；JS 合計由 4,380,407 降至 940,343 bytes。主入口僅由 506,975 降至 501,256 bytes，主要減少的是原本延遲載入的圖表套件，不能把整體差額當作首屏節省。
 
 三次全新 Chromium context、同一張 3 節點合成圖，JS 請求為 20 → 11；移除後沒有 Mermaid／KaTeX 圖表資產請求。從導航至內容可讀的本機中位數為 927 → 799 ms，展開中位數 168 → 110 ms。前者等候 SVG、後者等候原始碼，能力不同且包含 UI 與本機排程成本；不宣稱渲染效能等價或通用加速幅度。原始數據及方法見[驗證資料](experiments/mermaid-removal-2026-10-10.json)。production dependency audit：high／critical／moderate／low 均為 0。
+
+最新 UI 提交 `1e16f604` 整合後，重新建置對照：Web dist 4,512,610 → 1,071,327 bytes，gzip 1,302,454 → 328,330 bytes；此組沒有重測冷開時間，不與上方初期冷開資料混用。最新 compiled MCP 契約 fingerprint 已改變，schema 仍為30。
