@@ -241,7 +241,7 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 
 ## 版本化架構圖
 
-`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。Mermaid 仍為預設。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
+`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。新增寫入只接受明確指定的原生格式與版本；歷史 Mermaid 僅讀取／匯入並顯示原始碼。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
 
 ## 提醒聚合
 

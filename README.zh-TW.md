@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.4.0** 新增工作記錄「進行中」驗證狀態與原生架構卡片閱讀器。既有 Mermaid 依保存格式顯示；資料庫 schema 維持 27。更新並建置後，重啟執行中的服務及重新連線 Agent MCP，才能載入新版與契約。
+**1.4.0** 新增工作記錄「進行中」驗證狀態與原生架構卡片閱讀器。目前開發版新增圖表明確要求 architecture v1，歷史 Mermaid 保留為原始碼；資料庫 schema 為 30。更新並建置後，重啟執行中的服務及重新連線 Agent MCP，才能載入新版與契約。
 
 [English](README.md) | **繁體中文**
 
@@ -220,7 +220,7 @@ GitHub（Primer）風格的介面，有深色與淺色兩種主題，介面語�
 | **工作知識** | 分成四個分頁，分頁上顯示各自的數量：**Knowledge**（Agent 明確提交的決策、模式、注意事項、流程與技能；相關檔案被改動時標示「可能過時」，被 Session 推翻時標示「需要檢視」；顯示被幾次 Session 確認、幾次推翻，點開可看到是哪些 Session；可以「確認仍有效」、編輯、封存與查看變更紀錄）、**知識頁**（Agent 依已記錄 Session 撰寫的常駐頁面，每段附來源 Session；新 Session 先標示「有新資料」，累積 3 筆後或來源需要核對時，context 與 finalize 會提示 Agent 檢查；答案不變時可標記已檢查，頁面顯示最後檢查至哪個時間點；只有答案需要改變時才重寫；可要求 Agent 更新、手動編輯、查看版本，並與前一版比較差異）、**候選**（Agent 提出、等你接受或拒絕的 Knowledge）、**待確認決策**（Agent 自主做的決策，可確認、否決或升級為 Knowledge） |
 | **工作圖譜** | 分成三個分頁：**時間軸**（依專案分泳道；拉遠時每天一根依驗證結果分色的長條，點一下放大到那天，拉近後 Session 畫成長條或點、關聯畫成弧線；Knowledge 的建立／確認／推翻／取代畫成標記；可縮放、顯示整個期間與選擇期間，點選開啟 Session；也能切換成依日期分組的清單，手機寬度自動使用清單）、**關係圖**（Project、Session、Knowledge、Evidence、檔案與 Session 關聯；實線是記錄的關係，可開啟以虛線顯示的「一起修改」推導關係；在節點面板可選另一個節點，逐段說明兩者如何關聯）、**熱點**（被最多 Session 修改的檔案或目錄，附驗證失敗與未執行的比例、最近 5 筆 Session；可依專案、期間篩選）。工作報告的「風險」也會列出本期被 2 筆以上 Session 修改的檔案 |
 | **專案** | 專案清單與記錄狀態（加入時可用系統視窗選資料夾；可設定 https 儲存庫網址，Session 的 commit 會連到該儲存庫）、永久刪除專案、Metadata 回補、Handoff 匯入、資料備份（備份、匯出、匯入） |
-| **Session 圖表** | Agent 在工作改到跨模組流程、資料流、狀態機或架構時，會主動為 Session 附上一到兩張 Mermaid 圖表（`work_attach_diagram` 或 finalize 的 `diagrams`；單檔修正、樣式、設定與純測試不附），在 Session 面板延遲載入並渲染；無法解析時顯示原始碼。圖表可作廢、不能刪除，也會隨專案匯出與匯入 |
+| **Session 圖表** | Agent 在工作改到跨模組流程、資料流、狀態機或架構時，會主動為 Session 附上一到兩張原生 architecture v1 圖表（`work_attach_diagram` 或 finalize 的 `diagrams`；單檔修正、樣式、設定與純測試不附），在 Session 面板顯示原生卡片；歷史 Mermaid 保留原始碼並可複製、下載。圖表可作廢、不能刪除，也會隨專案匯出與匯入 |
 | **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果、登入自動啟動服務，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改服務或 Agent 設定。「Agent 讀取紀錄」列出最近的 MCP 讀取（時間、Agent 與工具、專案，以及回傳的 Session id），可依專案與 Agent 篩選。「個人偏好」可選擇外觀主題、介面語言，以及用 VS Code 或 Cursor 開啟 Session 的 changed files（都只存在這個瀏覽器）。完整環境診斷請用 `pnpm run doctor` |
 
 Session 詳情提供最多五筆同專案共同檔案的相關工作提示，排除既有關聯，搜尋截短時明示；開啟提示不會建立關聯。
@@ -391,7 +391,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 
 ## 文件索引
 
-- [Mermaid 移除方案（僅規劃；保留歷史來源）](docs/mermaid-removal-plan.md)
+- [Mermaid 移除方案（保留歷史來源）](docs/mermaid-removal-plan.md)
 
 | 文件 | 內容 |
 |---|---|

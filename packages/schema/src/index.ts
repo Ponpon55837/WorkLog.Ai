@@ -212,14 +212,13 @@ export const diagramContentInputSchemaBase = z.object({
     .trim()
     .min(1)
     .max(100_000)
-    .describe("Mermaid or architecture JSON; see architecture-diagram-v1 resource."),
-  kind: z.enum(SESSION_DIAGRAM_KINDS).optional(),
-  formatVersion: z.literal(1).optional(),
+    .describe("Validated architecture JSON v1; see architecture-diagram-v1 resource."),
+  kind: z.literal("architecture"),
+  formatVersion: z.literal(1),
 });
 
 function validateDiagramContent(input: z.infer<typeof diagramContentInputSchemaBase>, context: z.RefinementCtx): void {
-  const valid =
-    input.kind === "architecture" ? Boolean(parseArchitectureDiagram(input.source)) : input.source.length <= 20_000;
+  const valid = Boolean(parseArchitectureDiagram(input.source));
   if (!valid)
     context.addIssue({
       code: z.ZodIssueCode.custom,

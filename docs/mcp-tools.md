@@ -374,11 +374,11 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 
 ## `work_attach_diagram`
 
-為記錄中專案的 Session 附上一張 Mermaid 圖表（`sessionId`、`idempotencyKey`、`title` 最多 200 字、`source` 最多 20,000 字，`kind` 支援 `mermaid` 與 `architecture`；架構來源上限 100,000 字元，另見下方版本化格式），例如這次改動的流程或資料路徑；只畫這次工作實際做了什麼。finalize 也可以帶 `diagrams`（最多 5 張）。
+為記錄中專案的 Session 附上一張原生架構圖（`sessionId`、`idempotencyKey`、`title` 最多 200 字、明確的 `kind: "architecture"` 和 `formatVersion: 1`、`source` 為上限 100,000 字元的已驗證 JSON，另見下方版本化格式），例如這次改動的流程或資料路徑；只畫這次工作實際做了什麼。finalize 也可以帶 `diagrams`（最多 5 張）。
 
 **Agent 何時主動附圖**（不需使用者要求，寫在 finalize 的記錄規則與 work-intelligence skill）：這次工作改了跨模組的流程或資料流（例如 API → store → 資料庫）、狀態機、架構或元件關係、多步驟的處理流程時，附一到兩張；單檔修正、文案、樣式、設定調整、依賴升級與純測試不附。只畫這次實際做的內容（約 3–12 個節點，偏好 `flowchart LR` 或 `sequenceDiagram`），不放敏感資料。標題與原始碼會先遮蔽敏感資料。同一個 `idempotencyKey` 重試回傳 `duplicate: true`；用已用過的 key 送不同內容會回傳 `idempotency_conflict`。圖表沒有刪除工具，只能在 Web 的 Session 面板作廢（需填原因，可還原）。
 
-Web 在 Session 面板渲染圖表：Mermaid 只在圖表捲入畫面時才延遲載入，使用 `securityLevel: "strict"`；渲染時從連接文件的暫存畫布攔截 Mermaid 產生的 `<style>`，再把樣式以 Constructable Stylesheet 套用到 Shadow DOM 中的 SVG。**主頁 CSP 不需放寬，也不會因 Mermaid 插入 inline style 留下 CSP console error。**原始碼無法解析時顯示錯誤與原始碼。
+Web 在 Session 面板渲染原生架構圖。歷史 Mermaid 與未知格式直接顯示安全文字原始碼，保留展開閱讀、URL 選取、複製及 `.mmd`／`.txt` 下載；剪貼簿失敗仍可選取原始碼。Web 不再載入 Mermaid、KaTeX 或其繪圖套件，CSP 維持原限制。
 
 ## `work_attach_evidence`
 
@@ -554,4 +554,4 @@ REST 對應端點是 `GET /api/imports/handoffs/preview` 與 `POST /api/imports/
 
 ## 版本化架構圖
 
-`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。Mermaid 仍為預設。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
+`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。新增寫入只接受明確指定的原生格式與版本；歷史 Mermaid 僅讀取／匯入並顯示原始碼。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。

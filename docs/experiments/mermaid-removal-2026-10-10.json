@@ -1,0 +1,295 @@
+{
+  "environment": {
+    "node": "v25.7.0",
+    "platform": "darwin",
+    "arch": "x64",
+    "chromium": "153.0.8010.12"
+  },
+  "dist": {
+    "before": {
+      "files": 115,
+      "rawBytes": 4512007,
+      "gzipBytes": 1302348,
+      "jsBytes": 4380407,
+      "entryBytes": 506975,
+      "largestChunks": [
+        {
+          "name": "mermaid.core-D8aQ_tFY.js",
+          "raw": 696789,
+          "gzip": 170489
+        },
+        {
+          "name": "cynefin-OW5HDTMX-BSSSErQS.js",
+          "raw": 690856,
+          "gzip": 153773
+        },
+        {
+          "name": "index-B1Za3VO4.js",
+          "raw": 506975,
+          "gzip": 164946
+        },
+        {
+          "name": "cytoscape.esm-Ix0LnXOy.js",
+          "raw": 443834,
+          "gzip": 141410
+        },
+        {
+          "name": "katex-BkKH-RNA.js",
+          "raw": 260996,
+          "gzip": 76867
+        },
+        {
+          "name": "architectureDiagram-5GKGNRK7-C1Urqu6r.js",
+          "raw": 152014,
+          "gzip": 42742
+        },
+        {
+          "name": "sequenceDiagram-WJ2MYXX4-gS73Ghwy.js",
+          "raw": 117446,
+          "gzip": 30946
+        },
+        {
+          "name": "swimlanes-42K2YHIH-8B8kKKgz.js",
+          "raw": 117117,
+          "gzip": 42400
+        }
+      ]
+    },
+    "after": {
+      "files": 55,
+      "rawBytes": 1070673,
+      "gzipBytes": 328184,
+      "jsBytes": 940343,
+      "entryBytes": 501256,
+      "largestChunks": [
+        {
+          "name": "index-CyZGRolJ.js",
+          "raw": 501256,
+          "gzip": 162633
+        },
+        {
+          "name": "ProjectsView-BTrttzax.js",
+          "raw": 89498,
+          "gzip": 24867
+        },
+        {
+          "name": "ReportsView-CAT4L3jb.js",
+          "raw": 64609,
+          "gzip": 18417
+        },
+        {
+          "name": "architecture-diagram-DTT8FVQQ.js",
+          "raw": 57883,
+          "gzip": 13570
+        },
+        {
+          "name": "KnowledgeView-CudDBtqH.js",
+          "raw": 52083,
+          "gzip": 14617
+        },
+        {
+          "name": "GraphView-CQCvDoN4.js",
+          "raw": 52000,
+          "gzip": 17544
+        },
+        {
+          "name": "SessionsView-COgMCG0y.js",
+          "raw": 34588,
+          "gzip": 9657
+        },
+        {
+          "name": "DashboardView-9aeXJtU4.js",
+          "raw": 29003,
+          "gzip": 9341
+        }
+      ]
+    }
+  },
+  "coldOpen": {
+    "before": {
+      "mode": "before",
+      "node": "v25.7.0",
+      "platform": "darwin",
+      "arch": "x64",
+      "chromium": "153.0.8010.12",
+      "fixtureNodes": 3,
+      "trials": [
+        {
+          "cardMs": 1015,
+          "expandMs": 166,
+          "scriptRequests": 20,
+          "scriptFiles": [
+            "/theme-init.js",
+            "/assets/index-B1Za3VO4.js",
+            "/assets/SessionsView-JyKosvCH.js",
+            "/assets/useRouteQuery-Dm9X8DRc.js",
+            "/assets/UiUnderlineNav-BBcwPm26.js",
+            "/assets/UiBoxRow-bZaM5_rw.js",
+            "/assets/UiPagination-D2Lk7klN.js",
+            "/assets/UiDateRangeMenu-DEEbFbpF.js",
+            "/assets/SessionRow-B01a8uY1.js",
+            "/assets/UiGroupLabel-as5t5NVy.js",
+            "/assets/useListReload-DC3RTt-X.js",
+            "/assets/mermaid.core-D8aQ_tFY.js",
+            "/assets/flowDiagram-HODETNUW-Clkeq8g5.js",
+            "/assets/chunk-5VM5RSS4-CuRpvHoW.js",
+            "/assets/chunk-XXDRQBXY-DtdzX67v.js",
+            "/assets/chunk-POPQ4Y6H-BazR9vwd.js",
+            "/assets/chunk-F27PBJKO-dKRQhlrE.js",
+            "/assets/channel-BW231jnj.js",
+            "/assets/dagre-GXQ25YYZ-CGDt1q9J.js",
+            "/assets/layout-B85N9Gbz.js"
+          ]
+        },
+        {
+          "cardMs": 554,
+          "expandMs": 286,
+          "scriptRequests": 20,
+          "scriptFiles": [
+            "/theme-init.js",
+            "/assets/index-B1Za3VO4.js",
+            "/assets/SessionsView-JyKosvCH.js",
+            "/assets/useRouteQuery-Dm9X8DRc.js",
+            "/assets/UiUnderlineNav-BBcwPm26.js",
+            "/assets/UiBoxRow-bZaM5_rw.js",
+            "/assets/UiPagination-D2Lk7klN.js",
+            "/assets/UiDateRangeMenu-DEEbFbpF.js",
+            "/assets/SessionRow-B01a8uY1.js",
+            "/assets/UiGroupLabel-as5t5NVy.js",
+            "/assets/useListReload-DC3RTt-X.js",
+            "/assets/mermaid.core-D8aQ_tFY.js",
+            "/assets/flowDiagram-HODETNUW-Clkeq8g5.js",
+            "/assets/chunk-5VM5RSS4-CuRpvHoW.js",
+            "/assets/chunk-XXDRQBXY-DtdzX67v.js",
+            "/assets/chunk-POPQ4Y6H-BazR9vwd.js",
+            "/assets/chunk-F27PBJKO-dKRQhlrE.js",
+            "/assets/channel-BW231jnj.js",
+            "/assets/dagre-GXQ25YYZ-CGDt1q9J.js",
+            "/assets/layout-B85N9Gbz.js"
+          ]
+        },
+        {
+          "cardMs": 927,
+          "expandMs": 168,
+          "scriptRequests": 20,
+          "scriptFiles": [
+            "/theme-init.js",
+            "/assets/index-B1Za3VO4.js",
+            "/assets/SessionsView-JyKosvCH.js",
+            "/assets/useRouteQuery-Dm9X8DRc.js",
+            "/assets/UiUnderlineNav-BBcwPm26.js",
+            "/assets/UiBoxRow-bZaM5_rw.js",
+            "/assets/UiPagination-D2Lk7klN.js",
+            "/assets/UiDateRangeMenu-DEEbFbpF.js",
+            "/assets/SessionRow-B01a8uY1.js",
+            "/assets/UiGroupLabel-as5t5NVy.js",
+            "/assets/useListReload-DC3RTt-X.js",
+            "/assets/mermaid.core-D8aQ_tFY.js",
+            "/assets/flowDiagram-HODETNUW-Clkeq8g5.js",
+            "/assets/chunk-5VM5RSS4-CuRpvHoW.js",
+            "/assets/chunk-XXDRQBXY-DtdzX67v.js",
+            "/assets/chunk-POPQ4Y6H-BazR9vwd.js",
+            "/assets/chunk-F27PBJKO-dKRQhlrE.js",
+            "/assets/channel-BW231jnj.js",
+            "/assets/dagre-GXQ25YYZ-CGDt1q9J.js",
+            "/assets/layout-B85N9Gbz.js"
+          ]
+        }
+      ]
+    },
+    "after": {
+      "mode": "after",
+      "node": "v25.7.0",
+      "platform": "darwin",
+      "arch": "x64",
+      "chromium": "153.0.8010.12",
+      "fixtureNodes": 3,
+      "trials": [
+        {
+          "cardMs": 923,
+          "expandMs": 48,
+          "scriptRequests": 11,
+          "scriptFiles": [
+            "/theme-init.js",
+            "/assets/index-CyZGRolJ.js",
+            "/assets/SessionsView-COgMCG0y.js",
+            "/assets/useRouteQuery-CsSmhOGa.js",
+            "/assets/UiUnderlineNav-zbjqSh00.js",
+            "/assets/UiBoxRow-D6PI7htb.js",
+            "/assets/UiPagination-EBgOFOOj.js",
+            "/assets/UiDateRangeMenu-DDMCwx9v.js",
+            "/assets/SessionRow-CEeQtYbh.js",
+            "/assets/UiGroupLabel-CTnoLj9e.js",
+            "/assets/useListReload-Cz0KW2s8.js"
+          ]
+        },
+        {
+          "cardMs": 799,
+          "expandMs": 116,
+          "scriptRequests": 11,
+          "scriptFiles": [
+            "/theme-init.js",
+            "/assets/index-CyZGRolJ.js",
+            "/assets/SessionsView-COgMCG0y.js",
+            "/assets/useRouteQuery-CsSmhOGa.js",
+            "/assets/UiUnderlineNav-zbjqSh00.js",
+            "/assets/UiBoxRow-D6PI7htb.js",
+            "/assets/UiPagination-EBgOFOOj.js",
+            "/assets/UiDateRangeMenu-DDMCwx9v.js",
+            "/assets/SessionRow-CEeQtYbh.js",
+            "/assets/UiGroupLabel-CTnoLj9e.js",
+            "/assets/useListReload-Cz0KW2s8.js"
+          ]
+        },
+        {
+          "cardMs": 758,
+          "expandMs": 110,
+          "scriptRequests": 11,
+          "scriptFiles": [
+            "/theme-init.js",
+            "/assets/index-CyZGRolJ.js",
+            "/assets/SessionsView-COgMCG0y.js",
+            "/assets/useRouteQuery-CsSmhOGa.js",
+            "/assets/UiUnderlineNav-zbjqSh00.js",
+            "/assets/UiBoxRow-D6PI7htb.js",
+            "/assets/UiPagination-EBgOFOOj.js",
+            "/assets/UiDateRangeMenu-DDMCwx9v.js",
+            "/assets/SessionRow-CEeQtYbh.js",
+            "/assets/UiGroupLabel-CTnoLj9e.js",
+            "/assets/useListReload-Cz0KW2s8.js"
+          ]
+        }
+      ]
+    }
+  },
+  "compatibility": {
+    "before": {
+      "compatibilityId": "252c0335c49a74019539d08af638d0c3680a5155b74fa01c44e05844b451ea07",
+      "schemaVersion": 30
+    },
+    "after": {
+      "compatibilityId": "e52b78428f38e97d69632fe0f95ae6cc0de11774922aeb4c05bf8b2986eef4ac",
+      "schemaVersion": 30
+    },
+    "contractChanged": true,
+    "schemaUnchanged": true
+  },
+  "audit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0
+    },
+    "dependencies": 128,
+    "devDependencies": 0,
+    "optionalDependencies": 2,
+    "totalDependencies": 130
+  },
+  "method": {
+    "dist": "All regular files; gzip level 9 with mtime 0. Same build settings.",
+    "coldOpen": "3 fresh Chromium contexts, synthetic 3-node flow, viewport 1440x900, zh-TW/dark. Card timing starts at navigation and ends at SVG ready before / escaped source visible after; expansion measured separately. Source reading is not equivalent to rendering.",
+    "limitations": "Local measurements only; no real Safari, touch, Windows, user dataset FPS or universal speed claim."
+  }
+}

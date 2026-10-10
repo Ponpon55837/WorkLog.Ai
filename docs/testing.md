@@ -227,7 +227,7 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 
 ## Archify 技術探測
 
-`pnpm test:archify-probe /path/to/archify-checkout` 是選擇性的隔離探測，需先建置與安裝三個 Playwright 瀏覽器；不使用正式資料庫或全域 skill。固定上游版本、75 組 CSP／主題／語言／規模驗證、原始測量值及邊界見 [Archify 技術驗證](archify-spike.md)。
+歷史版本的 `pnpm test:archify-probe /path/to/archify-checkout` 是選擇性的隔離探測（2026-10-10 隨 Mermaid runtime 移除而刪除命令），需先建置與安裝三個 Playwright 瀏覽器；不使用正式資料庫或全域 skill。固定上游版本、75 組 CSP／主題／語言／規模驗證、原始測量值及邊界見 [Archify 技術驗證](archify-spike.md)。
 
 
 架構圖格式 v1 測試涵蓋界限、未知版本／欄位、引用與作者路徑順序、MCP dispatcher、migration 26→27 保留排序／作廢、結構化遮蔽、舊匯出相容與新格式 round-trip。既有 SessionDetail 讀取路徑與政策不變。
@@ -282,3 +282,7 @@ Agent 決策回歸以模擬 SSE 取代背景刷新驗證 Knowledge 建立與來�
 - Session「可能相關」：`related-work.spec.ts` 在中英文、明暗主題與 1440／960／375px 下檢查說明、日期、標題及長路徑距外框至少 12px，並保留五筆來源、鍵盤跳轉與無障礙檢查。
 
 - 整理未結項：保留本專案已載入資料時，延遲背景清單刷新不會停用建立請求；第一次載入及跨專案資料未知時仍禁止建立，單元與三瀏覽器延遲回應案例檢查此區別。
+
+### 原生圖表與歷史 Mermaid 保留
+
+Schema／REST／MCP／storage 驗證新增圖表必須明確指定 architecture v1；缺少 kind 或版本、Mermaid 寫入與未知版本拒絕，finalize 失敗不留下部分 Session。歷史匯入走獨立 portable schema，保留 source、kind、id、版本、作廢狀態；round-trip、遮蔽、永久刪除與 schema 升級覆蓋維持。跨瀏覽器 E2E 驗證原生 200 節點、歷史來源不執行 HTML、複製成功／失敗、下載原始內容、URL 重載、焦點、雙語主題與 axe。本次實機 Safari／觸控依使用者指示免驗；三瀏覽器自動化結果與實機結果分開記載。

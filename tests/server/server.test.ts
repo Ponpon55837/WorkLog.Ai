@@ -1263,6 +1263,17 @@ describe("Work Intelligence REST API", () => {
       body: { ...payload, diagrams: [{ ...payload.diagrams[0], source: "{}" }] },
     });
     expect(invalid.status).toBe(400);
+    for (const diagram of [
+      { title: "Implicit", source: payload.diagrams[0]!.source },
+      { title: "Missing version", kind: "architecture", source: payload.diagrams[0]!.source },
+      { title: "Legacy", kind: "mermaid", formatVersion: 1, source: "flowchart LR\n A --> B" },
+    ]) {
+      const rejected = await requestJson(baseUrl, "/api/work/finalize", {
+        method: "POST",
+        body: { ...payload, diagrams: [diagram] },
+      });
+      expect(rejected.status).toBe(400);
+    }
     const saved = await requestJson<{ session: { id: string } }>(baseUrl, "/api/work/finalize", {
       method: "POST",
       body: payload,
@@ -1293,7 +1304,14 @@ describe("Work Intelligence REST API", () => {
       title: "Diagram fixture",
       summary: "Has a diagram.",
       verification: { status: "passed" },
-      diagrams: [{ title: "Flow", source: "flowchart LR\n  A --> B" }],
+      diagrams: [
+        {
+          title: "Flow",
+          kind: "architecture",
+          formatVersion: 1,
+          source: JSON.stringify({ version: 1, nodes: [{ id: "api", label: "API" }] }),
+        },
+      ],
     });
     if (finalized.outcome !== "finalized") throw new Error("Expected finalize");
     const [diagram] = store.getSessionDetail(finalized.session.id)!.diagrams;

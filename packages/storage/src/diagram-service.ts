@@ -11,6 +11,7 @@ import type {
   SetDiagramVoidInput,
   SetDiagramVoidResult,
 } from "@work-intelligence/core";
+import { diagramContentInputSchema } from "@work-intelligence/schema";
 import { nowIso } from "@work-intelligence/shared";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 import { redactDiagramSource } from "./diagram-source-redaction.js";
@@ -150,8 +151,8 @@ export class DiagramService {
     input: DiagramContentInput & { idempotencyKey: string },
     createdAt: string,
   ): { diagram: SessionDiagramRecord; duplicate: boolean; redactions: RedactionSummary; conflict: boolean } {
-    const kind = input.kind ?? "mermaid";
-    const formatVersion = input.formatVersion ?? 1;
+    // Validate direct storage callers too; portable imports use the separate historical schema.
+    const { kind, formatVersion } = diagramContentInputSchema.parse(input);
     const title = redactValue(input.title.trim());
     const source = redactDiagramSource(input.source, kind);
     const masked = {

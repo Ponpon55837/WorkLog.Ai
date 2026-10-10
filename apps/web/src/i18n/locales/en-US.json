@@ -1160,8 +1160,6 @@
     "copyLink": "Copy link",
     "copyMarkdown": "Copy as Markdown",
     "couldNotCreateTheLink": "Could not create the link.",
-    "couldNotDrawThisDiagram": "Could not draw this diagram.",
-    "couldNotDrawThisDiagramHereIsThe": "Could not draw this diagram ({failure}). Here is the source:",
     "couldNotLoadSessionDetails": "Could not load Session details.",
     "couldNotRemoveTheLink": "Could not remove the link.",
     "couldNotRestore": "Could not restore.",
@@ -1186,8 +1184,6 @@
     "linkedSessions": "Linked Sessions",
     "linkedSessionsList": "Linked Sessions list",
     "list": "{label} list",
-    "loadingDiagram": "Loading diagram",
-    "loadingDiagramText": "Loading diagram…",
     "markAsWrong": "Mark as wrong",
     "markEvidenceAsWrong": "Mark Evidence as wrong",
     "markedAsWrong": "{voidedEvidenceCount} marked as wrong",
@@ -1313,7 +1309,12 @@
     "selectArchitectureNode": "Select a node to inspect its description, source and direct connections.",
     "inspectArchitectureNode": "Inspect {label}",
     "authoredPathNote": "Author-defined connection order; this is not an execution trace.",
-    "unsupportedArchitectureDiagram": "This diagram format cannot be displayed. View the source."
+    "unsupportedArchitectureDiagram": "This diagram format cannot be displayed. View the source.",
+    "legacyMermaidSource": "This historical Mermaid diagram is preserved as source text and is no longer rendered.",
+    "copyDiagramSource": "Copy source",
+    "downloadDiagramSource": "Download source",
+    "diagramSourceCopied": "Diagram source copied.",
+    "diagramSource": "{title} source"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "Every finished task leaves traceable context.",
