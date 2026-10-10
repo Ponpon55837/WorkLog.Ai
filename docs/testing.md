@@ -260,3 +260,5 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 
 
 報告複製測試涵蓋來源拒讀、修訂 409、strict query、SQLite snapshot rollback、投影與引用一致、HTML／Markdown 逸出及基本報告安全輸出。新增 `exportReportPresentation (snapshot and Markdown)` 合成 read benchmark（p90 ≤ 250 ms）。瀏覽器測試在 12 組語言／主題／尺寸中模擬剪貼簿成功與拒絕、檢查預覽／複製一致、手動選取與下載、axe 對話框及來源失效。剪貼簿 stub 不代表 OS 剪貼簿或實機 Safari 已驗證。
+
+報告複製收尾同時補上完整匯入只使用指定 fixture 專案、移除 route 前等待已送出請求、來源批次 undo 後重新載入已恢復清單，以及知識頁成功寫入不受背景刷新 AbortError 影響的回歸。完整 E2E 保留三瀏覽器與所有案例；本機以單一 worker 排除跨測試背景寫入競態。

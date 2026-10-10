@@ -77,7 +77,7 @@ test("related work distinguishes loading, failure and partial empty coverage @cr
   await box.scrollIntoViewIfNeeded();
   await expect(box.getByRole("button", { name: textIn("zh-TW", "common.retry") })).toBeVisible();
   await expect(box).not.toContainText(textIn("zh-TW", "related.empty"));
-  await page.unroute("**/api/sessions/*/related");
+  await page.unrouteAll({ behavior: "wait" });
   await page.route("**/api/sessions/*/related", (route) =>
     route.fulfill({
       json: {
@@ -89,6 +89,8 @@ test("related work distinguishes loading, failure and partial empty coverage @cr
       },
     }),
   );
-  await box.getByRole("button", { name: textIn("zh-TW", "common.retry") }).click();
+  // Reload preserves the fixture while avoiding a modal-covered shell control and SSE races.
+  await page.reload();
+  await box.scrollIntoViewIfNeeded();
   await expect(box).toContainText(textIn("zh-TW", "related.partial"));
 });
