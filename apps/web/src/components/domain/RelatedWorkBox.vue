@@ -2,14 +2,14 @@
 import { computed, onBeforeUnmount, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { Link2 } from "lucide-vue-next";
+import UiButton from "../ui/UiButton.vue";
+import UiDisclosure from "../ui/UiDisclosure.vue";
+import UiFlash from "../ui/UiFlash.vue";
+import UiSkeleton from "../ui/UiSkeleton.vue";
 import { useRelatedWorkStore } from "../../stores/related-work";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatDate } from "../../utils/format";
 import { t } from "../../i18n";
-import UiDisclosure from "../ui/UiDisclosure.vue";
-import UiButton from "../ui/UiButton.vue";
-import UiFlash from "../ui/UiFlash.vue";
-import UiSkeleton from "../ui/UiSkeleton.vue";
 
 const props = defineProps<{ sessionId: string }>();
 const sessions = useSessionsStore();
