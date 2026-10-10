@@ -48,6 +48,7 @@ import {
   searchQuerySchema,
   searchQuerySchemaBase,
   sessionDetailQuerySchema,
+  sessionDetailQuerySchemaBase,
   setEvidenceVoidInputSchema,
   setEvidenceVoidInputSchemaBase,
   setSessionVoidInputSchema,
@@ -563,10 +564,15 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_session", {
     title: "Get one work session",
     description:
-      "Return one tracked Session with its five-section workSummary, decision provenance and review state, changed files, verification, events, evidence, and linked Knowledge. Raw handoff snapshot content is omitted (only its length is returned) unless includeRawSnapshots is true. Sessions of non-tracked projects are skipped quietly.",
-    inputShape: sessionDetailQuerySchema.shape,
+      "Return one tracked Session with its five-section workSummary, decision provenance and review state, changed files, verification, events, evidence, and linked Knowledge. Raw handoff snapshot content is omitted (only its length is returned) unless includeRawSnapshots is true. Optional view=completion or handoff, or fixed select fields, loads only requested families. Projection v1 identifies included and unavailable fields; lifecycle and void state always remain. Without view/select the full legacy result is unchanged. Partial reads never replace complete relevant source evidence. Sessions of non-tracked projects are skipped quietly.",
+    inputShape: sessionDetailQuerySchemaBase.shape,
     schema: sessionDetailQuerySchema,
     annotations: READ_ONLY,
+    validationNotes: [
+      "view and select are mutually exclusive. select contains 1–18 distinct fixed fields; unknown fields and parent paths are rejected.",
+      "workSummary.decisions includes decisions provenance; session.verification includes verificationHistory. includedFields uses canonical order. Selected missing historical values are unavailableFields, never assumed passed or empty.",
+      "includeRawSnapshots=true in projection requires select to include rawSnapshots. Presets omit raw. Omitted fields were not read; obtain all relevant evidence before acting on a source.",
+    ],
     invalidMessage: "Invalid session query.",
     run: (input) => store.getSessionDetailForAgent(input),
   });

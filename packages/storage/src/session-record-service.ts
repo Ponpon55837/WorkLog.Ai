@@ -70,7 +70,7 @@ import type { SessionRow } from "./session-repository.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
 
-type SessionDecisionDbRow = {
+export type SessionDecisionDbRow = {
   id: string;
   session_id: string;
   project_id: string;
@@ -82,7 +82,7 @@ type SessionDecisionDbRow = {
   knowledge_id: string | null;
 };
 
-function toSessionDecision(row: SessionDecisionDbRow): SessionDecisionRecord {
+export function toSessionDecision(row: SessionDecisionDbRow): SessionDecisionRecord {
   return {
     id: row.id,
     sessionId: row.session_id,

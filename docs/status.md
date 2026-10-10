@@ -4,17 +4,21 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-10-10
+- 最後更新：2026-10-11
 
 ## 使用者待辦
 
 | 項目 | 狀態與範圍 |
 | --- | --- |
-| E3 實機驗收 | 依[發行實機驗收清單](release-checklist.md)執行；原生資料夾選擇、Windows 備份／hook／服務、macOS Safari、私有檢索題及另一個真實專案流程仍未驗證 |
+| E3 實機驗收 | 本次依使用者指示取消／免驗，不阻擋 1.5.0；[清單](release-checklist.md)保留未實測範圍，未把免驗寫成實測通過 |
 
 ## 時間軸與工作熱度寬度修正
 
-2026-10-10 修正初次載入以預設寬度縮放、掛載後未重新符合區間的問題；期間／專案／清單切回圖表自動符合完整區間，手動縮放後調整視窗保留視角。時間軸三尺寸、兩語、明暗與三瀏覽器驗證涵蓋全年期間。工作熱度固定寬度亦已回報，改為完整 53 週依容器自動縮放；新增驗證進行中。
+2026-10-10 修正初次載入以預設寬度縮放、掛載後未重新符合區間的問題；期間／專案／清單切回圖表自動符合完整區間，手動縮放後調整視窗保留視角。時間軸三尺寸、兩語、明暗與三瀏覽器驗證涵蓋全年期間。工作熱度固定寬度亦已回報，改為完整 53 週依容器自動縮放；PR #236 最新四項 CI 通過並合併；正式原生整合 runner Chromium 158／Firefox 103／WebKit 100 通過，主安裝結果以部署工作記錄為準。
+
+## MCP 精準欄位讀取
+
+2026-10-10 使用者納入 1.5.0；[方案](mcp-read-projection-plan.md) P0 合成基線、P1 Session 欄位／用途投影與 P2 按需 SQL 已實作，前置品質檢查與三組成本門檻通過；單元測試 880 通過、1 略過。完整任務參考文字 token 降幅的三組中位數為 30.39%–30.77%，小型 handoff 參考 token 增加 4.16%–4.49%（均為實際參考 token 數，非 billing）。整合 runner Chromium 158／Firefox 103 通過，WebKit 背景攔截收尾修正後定向六次及完整 100 項通過；隔離建置的新 stdio client 已核對真實 payload。最新 PR CI 與主安裝 health／重連結果另依 PR 檢查及部署工作記錄核對。Context／知識頁投影與批次 API 僅在後續量測有需要時再評估。
 
 ## 五項功能整合研究
 
@@ -32,7 +36,7 @@
 
 C3 與 A2 的最新 head 三平台 Quality 與 E2E 均 SUCCESS。A2 CI 保留 Chromium 批次復原完整重跑及 WebKit 複製 hover 對比的 flaky 證據；對比問題另以 PR #234 固定滑鼠停留狀態驗證並修正，沒有放寬 axe。各 PR 的最終 head／合併及 CI 結果以其檢查紀錄為準。
 
-[Mermaid 移除方案](mermaid-removal-plan.md)已列出寫入契約、歷史原始資料保留、執行期／套件移除與驗收；M1／M2 已完成程式修改，完整驗證與合併仍待確認；尚未部署移除或自動轉換舊圖表。合成查詢探測不能代替真實 SQLite／UI 性能，Playwright WebKit 不能代替實機 Safari／觸控。主安裝部署與 MCP 建置連線須另核對 health／HTTP／schema，不能由合併或 CI 推定。
+[Mermaid 移除方案](mermaid-removal-plan.md)已列出寫入契約、歷史原始資料保留、執行期／套件移除與驗收；M1／M2 程式、本機八項檢查及 Chromium／Firefox／WebKit 三瀏覽器回歸均已通過。平台 CI／部署實際結果依各 PR 及部署工作記錄核對，不在此推定為已部署。合成查詢探測不能代替真實 SQLite／UI 性能，Playwright WebKit 不能代替實機 Safari／觸控；主安裝 health／HTTP／schema 仍須依部署工作記錄核對。
 
 1.4.0 已於 2026-10-09 正式發布（[Release](https://github.com/Ponpon55837/WorkLog.Ai/releases/tag/v1.4.0)，PR #225）；早期 v1.0.0 tag／Release 待辦不再列為目前待辦，實機驗收限制仍保留。
 

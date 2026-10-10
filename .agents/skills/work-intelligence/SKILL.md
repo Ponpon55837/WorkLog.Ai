@@ -9,6 +9,10 @@ description: Use the Work Intelligence MCP to finalize or repair tracked-project
 
 Use this skill whenever a user asks to save or correct a Work Intelligence work record, retrieve its context, repair metadata, or prepare a Work Intelligence report. The user-facing interaction stays natural-language only: do not ask the user to name MCP tools, provide request IDs or JSON, or direct the user through an internal tool sequence.
 
+### Optional Session field reads
+
+`work_get_session` accepts optional `view` (completion/handoff) or fixed `select` groups from its operation contract; the default stays full. Projection includedFields/unavailableFields distinguish unread, historical unknown and selected empty data. Partial reads never satisfy full-source requirements: obtain all relevant evidence and inspect review, correction, void/trust and truncation state before relying on it. Keep full reads for small handoffs when an extra lookup costs more. Projected raw content requires selecting rawSnapshots and includeRawSnapshots=true. Reconnect for updated contracts; schema is unchanged.
+
 ## MCP dispatcher calls
 
 - `tools/list` exposes four dispatchers: `work_read`, `work_write_idempotent`, `work_write_additive`, and `work_write_overwrite`. Names such as `work_get_context` below are operation ids, not MCP tool names. Call the matching dispatcher with `{ operation: "<operation id>", arguments: { ... } }`.

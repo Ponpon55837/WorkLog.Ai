@@ -286,3 +286,15 @@ Agent 決策回歸以模擬 SSE 取代背景刷新驗證 Knowledge 建立與來�
 ### 原生圖表與歷史 Mermaid 保留
 
 Schema／REST／MCP／storage 驗證新增圖表必須明確指定 architecture v1；缺少 kind 或版本、Mermaid 寫入與未知版本拒絕，finalize 失敗不留下部分 Session。歷史匯入走獨立 portable schema，保留 source、kind、id、版本、作廢狀態；round-trip、遮蔽、永久刪除與 schema 升級覆蓋維持。跨瀏覽器 E2E 驗證原生 200 節點、歷史來源不執行 HTML、複製成功／失敗、下載原始內容、URL 重載、焦點、雙語主題與 axe。本次實機 Safari／觸控依使用者指示免驗；三瀏覽器自動化結果與實機結果分開記載。
+
+## Session 精準讀取驗證
+
+`session-agent-read.test.ts` 與 MCP dispatcher 測試核對完整模式相容、固定欄位／依賴、歷史缺漏、作廢／拒絕決策／更正驗證、UTF-16 snapshot 長度、實際讀取稽核，以及 WAL 並行寫入下的一致讀取快照。未選資料族群的 SQL 必須為零；無任意欄名或 post-trim full detail。
+
+5,000-Session 效能 gate 加入 completion、handoff 與指定 native source 三例，各 p90 ≤250 ms（寬鬆 CI 門檻）。`node apps/mcp/bench/session-projection.bench.mjs [--projected]` 使用純合成小型／大量附件資料，計入 initialize instructions、tools/list、操作索引、完整 skill、初次操作契約、輸入、所有補查、JSON 文字、SDK envelope、SQL prepare、延遲與獨立程序 peak RSS。handoff 另讀 changed files／Evidence，不能隱藏補查成本。每組工作流先暖機 3 次，再量 15 次；JSON-RPC frames 是 in-memory 訊息的序列化 bytes，並非實體網路流量。`WI_PROJECTION_SOURCE_ROOT` 可指向已建置舊版；`WI_PROJECTION_OUTPUT` 保存 JSON。
+
+可選固定參考 tokenizer：在開發環境安裝 `tiktoken==0.12.0`，設定 `WI_PROJECTION_TOKENIZER_PYTHON`，使用 `scripts/measure-reference-tokens.py` 的 `o200k_base`。這不增加執行期依賴；參考 token／SDK envelope 不是 Codex 實際模型注入量或計費 token。原始快照 metadata 的 UTF-16 長度透過 SQLite scalar function 計算，保持 emoji 語意；讀取指定 raw metadata 時仍必須掃描來源文字，未選 raw 時則完全不查詢它。
+
+MCP 精準讀取前後成本：三組獨立程序的全部任務參考文字 token 中位降幅 30.45%–30.95%，相對 p90、一次補查上限與 peak RSS 110% 門檻均通過。小型 handoff 仍增 4.21%–4.55%，保留完整讀取建議；大型任務下降 60.68%–84.20%。含全部啟動 resource 的原始結果、限制與契約 fingerprint 見 [實驗資料](experiments/session-read-projection-2026-10-10.json)。
+
+架構圖未支援格式的攔截回歸在所有斷言後以 `page.unrouteAll({ behavior: "wait" })` 等待背景 handler，避免 WebKit teardown 先銷毀 `route.fetch()` 回應而誤報 `Response has been disposed`；原 timeout 與 UI／CSP 斷言保留。

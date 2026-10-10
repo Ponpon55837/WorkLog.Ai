@@ -173,6 +173,8 @@ import type {
   ProjectDataImportResult,
   ProjectStatusResult,
   SessionDetailQueryResult,
+  SessionAgentReadQuery,
+  SessionAgentReadResult,
   SessionListQueryResult,
   SessionNotFoundResult,
 } from "@work-intelligence/core";
@@ -219,6 +221,7 @@ import { TimelineRepository } from "./timeline-repository.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 import { ProjectDataTransferService } from "./project-data-transfer.js";
+import { SessionAgentReadService } from "./session-agent-read-service.js";
 import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
 import { OutstandingItemService } from "./outstanding-item-service.js";
@@ -354,6 +357,7 @@ export class WorkIntelligenceStore {
   private readonly projects: ProjectRepository;
   private readonly sessions: SessionRepository;
   private readonly sessionRecords: SessionRecordService;
+  private readonly sessionAgentReads: SessionAgentReadService;
   private readonly diagrams: DiagramService;
   private readonly sessionDecisions: SessionDecisionService;
   private readonly outstandingItems: OutstandingItemService;
@@ -427,6 +431,12 @@ export class WorkIntelligenceStore {
           actorSessionId,
           updatedAt,
         ),
+    });
+    this.sessionAgentReads = new SessionAgentReadService(this.db, {
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
+      withKnowledgeTrustMany: (knowledge) => this.knowledgeService.withKnowledgeTrustMany(knowledge),
+      listDiagrams: (sessionId) => this.diagrams.listForSession(sessionId),
+      getSessionLinks: (sessionId) => this.sessionRecords.getSessionLinks(sessionId),
     });
     this.reportReader = new ReportReadService(this.db, this);
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
@@ -1789,7 +1799,12 @@ export class WorkIntelligenceStore {
   public getSessionDetailForAgent(query: {
     sessionId: string;
     includeRawSnapshots?: boolean;
-  }): SessionDetailQueryResult {
+    view?: never;
+    select?: never;
+  }): SessionDetailQueryResult;
+  public getSessionDetailForAgent(query: SessionAgentReadQuery): SessionAgentReadResult;
+  public getSessionDetailForAgent(query: SessionAgentReadQuery): SessionAgentReadResult {
+    if (query.view !== undefined || query.select !== undefined) return this.sessionAgentReads.read(query);
     const notFound: SessionNotFoundResult = {
       outcome: "not_found",
       sessionId: query.sessionId,

@@ -1,6 +1,7 @@
 import {
   isSafeRepositoryUrl,
   SESSION_DIAGRAM_KINDS,
+  SESSION_READ_FIELDS,
   CHANGED_FILE_SOURCES,
   CHANGED_FILE_CHANGE_STATUSES,
   CHANGED_FILES_MODES,
@@ -571,9 +572,31 @@ export const agentReadsQuerySchema = z.object({
   pageSize: z.number().int().min(1).max(100).default(20),
 });
 
-export const sessionDetailQuerySchema = z.object({
+export const sessionDetailQuerySchemaBase = z.object({
   sessionId: z.string().trim().min(1).max(200),
   includeRawSnapshots: z.boolean().default(false),
+  view: z.enum(["completion", "handoff"]).optional(),
+  select: z.array(z.enum(SESSION_READ_FIELDS)).min(1).max(SESSION_READ_FIELDS.length).optional(),
+});
+export const sessionDetailQuerySchema = sessionDetailQuerySchemaBase.superRefine((input, context) => {
+  if (input.view && input.select)
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["select"],
+      message: "view and select are mutually exclusive.",
+    });
+  if (input.select && new Set(input.select).size !== input.select.length)
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["select"],
+      message: "Duplicate select fields are not allowed.",
+    });
+  if (input.includeRawSnapshots && (input.view || input.select) && !input.select?.includes("rawSnapshots"))
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["includeRawSnapshots"],
+      message: "Projected raw content requires selecting rawSnapshots explicitly.",
+    });
 });
 
 /** MCP list: scoped by projectRoot or projectId; no "all" page size so Agent payloads stay bounded. */

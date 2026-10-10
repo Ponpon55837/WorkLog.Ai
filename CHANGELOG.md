@@ -4,6 +4,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-11
+
 ### Changed
 
 - New diagrams require explicit architecture JSON v1. Historical Mermaid stays readable as escaped, copyable, downloadable source; remove Mermaid, KaTeX and their renderer dependencies without rewriting stored diagrams.
@@ -26,6 +28,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Added
 
+- Agent Session reads support optional completion/handoff views and a fixed field whitelist with policy-gated, snapshot-consistent SQL loading. Keep full legacy reads unchanged, retain source safety flags and expose missing historical fields; projected structured metadata avoids duplicating source content.
+
 - Preview and copy basic or current report-presentation Markdown with source gates, revision checks, escaped text and a download/manual-copy fallback. Clipboard success is shown only after a successful write.
 
 - Dashboard weekly insights use full report totals with verification priority and scoped links.
@@ -38,9 +42,9 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Documentation
 
-- Add a staged Mermaid removal plan covering native-format write contracts, safe historical-source reading, dependencies, data lifecycle and verification. No runtime or stored diagram is changed.
+- Document the staged Mermaid removal plan and the M1/M2 implementation completed for this release, covering native-format writes, safe historical-source reading, dependencies, data lifecycle and verification. Historical stored diagrams were not batch-rewritten.
 
-- Add a five-feature integration study for attention aggregation, related-work suggestions, report section controls, dashboard insights and report copying, with UX wireframes, data/security boundaries, rollout criteria and a synthetic candidate-query probe. These are research specifications; no production feature or API is added.
+- Document the five-feature integration study for attention aggregation, related-work suggestions, report section controls, dashboard insights and report copying, with UX wireframes, data/security boundaries, rollout criteria and a synthetic candidate-query probe. The study records staged research; completed production implementations for this release are listed above.
 
 ## [1.4.0] - 2026-10-09
 
