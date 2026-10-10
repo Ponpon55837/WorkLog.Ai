@@ -153,6 +153,7 @@ for (const locale of ["zh-TW", "en-US"] as const)
         expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
         await page.screenshot({ path: testInfo.outputPath("copy-preview.png") });
         await copyDialog.getByRole("button", { name: textIn(locale, "common.cancel"), exact: true }).click();
+        await expect(copyDialog).toBeHidden();
         await page.getByRole("button", { name: textIn(locale, "reportCopy.basic"), exact: true }).click();
         const basicDialog = page.getByRole("dialog", { name: textIn(locale, "reportCopy.basic"), exact: true });
         await expect(
@@ -219,4 +220,24 @@ test("copy preview keeps source failures distinct from empty content @cross-brow
   await expect(dialog.getByRole("alert")).toBeVisible();
   await expect(dialog.getByRole("textbox")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: textIn("zh-TW", "ui.copy"), exact: true })).toHaveCount(0);
+});
+
+test("basic copy stays available while the loaded report refreshes @cross-browser", async ({ page }) => {
+  await page.goto(`/reports?period=week&date=2026-09-07&project=${projectId}`);
+  const basic = page.getByRole("button", { name: textIn("zh-TW", "reportCopy.basic"), exact: true });
+  await expect(basic).toBeEnabled();
+  await page.route("**/api/reports?**", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.continue();
+  });
+  const pending = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/reports");
+  await page.getByRole("button", { name: textIn("zh-TW", "reports.refreshReport"), exact: true }).click();
+  await pending;
+  await expect(basic).toBeEnabled();
+  await basic.click();
+  const preview = page.getByRole("dialog", { name: textIn("zh-TW", "reportCopy.basic"), exact: true });
+  await expect(preview.getByRole("textbox", { name: textIn("zh-TW", "reportCopy.preview"), exact: true })).toHaveValue(
+    /2026-09/,
+  );
+  await page.unrouteAll({ behavior: "wait" });
 });

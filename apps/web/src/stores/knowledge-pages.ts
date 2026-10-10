@@ -57,7 +57,8 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   );
 
   async function invalidatePages(): Promise<void> {
-    await Promise.all([
+    // A superseded background refresh must not report a committed save as failed.
+    await Promise.allSettled([
       queryCache.invalidateQueries({ key: queryKeys.attention.list }),
       queryCache.invalidateQueries({ key: queryKeys.knowledge.pages }),
       queryCache.invalidateQueries({ key: queryKeys.knowledge.pageVersions }),

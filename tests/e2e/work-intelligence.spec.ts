@@ -555,7 +555,8 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(undoBatch).toBeHidden();
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
-    // The restored rows change page membership; wait for the UI to show them before selecting.
+    // A fresh read after undo avoids selecting from a cached pre-undo page during SSE reconciliation.
+    await page.reload();
     await expect(page.getByText(ttPattern("ui.showingOf", { total: 120 }))).toBeVisible();
 
     await selectCurrentPage.check();

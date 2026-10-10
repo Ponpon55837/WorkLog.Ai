@@ -2,6 +2,10 @@ import { expect, test } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { textIn } from "./helpers/i18n.js";
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 for (const locale of ["zh-TW", "en-US"] as const)
   for (const theme of ["dark", "light"] as const)
     for (const width of [1440, 960, 375]) {

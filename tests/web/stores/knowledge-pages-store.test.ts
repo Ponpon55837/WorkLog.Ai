@@ -1,3 +1,4 @@
+import { useQueryCache } from "@pinia/colada";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness } from "../helpers/store-harness.js";
@@ -81,5 +82,17 @@ describe("Knowledge pages store", () => {
 
     store.closePage();
     expect(store.openPage).toBeNull();
+  });
+  it("keeps a committed edit successful when a background refresh is superseded", async () => {
+    const store = useKnowledgePagesStore();
+    const refresh = vi
+      .spyOn(useQueryCache(), "invalidateQueries")
+      .mockRejectedValue(new DOMException("Superseded refresh", "AbortError"));
+    await expect(store.updatePage({ pageId: "page-1", sections: page.sections })).resolves.toMatchObject({
+      outcome: "knowledge_page_updated",
+    });
+    expect(harness.count("/api/knowledge-pages/page-1", "PATCH")).toBe(1);
+    expect(refresh).toHaveBeenCalled();
+    refresh.mockRestore();
   });
 });

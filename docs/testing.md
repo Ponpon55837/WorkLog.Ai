@@ -264,3 +264,5 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 ### 提醒顯示偏好 A2
 
 儲存層回歸覆蓋隱藏／restore、七天稍後期限與到期、來源同計數／同最新時間替換、source/preference CAS、停用／跨專案／全域來源、可攜式 roundtrip 與舊備份、來源及專案永久刪除、29→30 migration 與 tuple 唯一索引。REST 覆蓋 strict schema、origin、404／409、遮罩內部錯誤與 policy skip。瀏覽器涵蓋雙語／明暗／1440、960、375px 的隱藏、reload、restore、snooze、URL、總數不結案、axe 與 409；Playwright WebKit 不代表實機 Safari。5,000 Session 新增 suppressed preferences 的 p90 上限 500ms，偏好為已檢查來源的批次 lookup。
+
+報告複製收尾同時補上完整匯入只使用指定 fixture 專案、移除 route 前等待已送出請求、來源批次 undo 後重新載入已恢復清單，以及知識頁成功寫入不受背景刷新 AbortError 影響的回歸。完整 E2E 保留三瀏覽器與所有案例；本機以單一 worker 排除跨測試背景寫入競態。
