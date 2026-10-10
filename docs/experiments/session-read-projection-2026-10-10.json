@@ -1268,5 +1268,1252 @@
       "textResult": 39
     },
     "limits": "Local baseline samples identify candidates, not percentages of total CPU or proof of after speed."
+  },
+  "integratedReleaseTrials": {
+    "date": "2026-10-11",
+    "baseline": "Native diagram build based on cba32b1; application 1.4.0, schema 30.",
+    "after": "Projection source 2317931 plus both plugin manifests/application 1.5.0; schema 30. Version edits uncommitted during build, runtime source identical.",
+    "method": "Three sequential independent before/after pairs, 3 warmups and 15 samples each workflow; no simultaneous browser/build/test process. Original pre-integration trials retained above.",
+    "compatibility": {
+      "before": "346f66237a63706fb0d7a63b935db71b32013a521d6191e0e454f5475e8f8eb6",
+      "after": "7eb77d9637f9d5993ca15fd7c84dd75dca3af416ee5da4cd97494577bfca21a6",
+      "schemaVersion": 30
+    },
+    "trials": [
+      {
+        "trial": 1,
+        "before": {
+          "version": 1,
+          "mode": "full",
+          "node": "v25.7.0",
+          "platform": "darwin",
+          "arch": "x64",
+          "repeats": 15,
+          "warmupPerWorkflow": 3,
+          "fixture": "fictional small/heavy Sessions; never private data",
+          "tokenizer": "tiktoken 0.12.0 / o200k_base reference encoding; not an actual Codex billing measurement",
+          "clientInjection": "SDK in-memory response; actual Codex model injection is not observable here",
+          "maxRssKiB": 182928,
+          "rows": [
+            {
+              "fixture": "small",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.4391200000000026,
+                "p90": 1.7729439999999386
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44769,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8734,
+                "envelope": 9459
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "handoff",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.4761309999998957,
+                "p90": 1.779978999999912
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44771,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8734,
+                "envelope": 9459
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.2679869999997209,
+                "p90": 1.448533999999654
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44771,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8734,
+                "envelope": 9459
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.450554000000011,
+                "p90": 3.8235829999998714
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55089,
+                "envelope": 102604
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "handoff",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.7002260000003844,
+                "p90": 4.112677000000076
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55089,
+                "envelope": 102604
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.467117000000144,
+                "p90": 3.653701000000183
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55089,
+                "envelope": 102604
+              }
+            }
+          ]
+        },
+        "after": {
+          "version": 1,
+          "mode": "projected",
+          "node": "v25.7.0",
+          "platform": "darwin",
+          "arch": "x64",
+          "repeats": 15,
+          "warmupPerWorkflow": 3,
+          "fixture": "fictional small/heavy Sessions; never private data",
+          "tokenizer": "tiktoken 0.12.0 / o200k_base reference encoding; not an actual Codex billing measurement",
+          "clientInjection": "SDK in-memory response; actual Codex model injection is not observable here",
+          "maxRssKiB": 118612,
+          "rows": [
+            {
+              "fixture": "small",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.0600180000000137,
+                "p90": 1.2007259999999746
+              },
+              "sqlPreparations": {
+                "median": 9,
+                "p90": 9
+              },
+              "textUtf16": 932,
+              "textUtf8": 932,
+              "resultEnvelopeUtf8": 1345,
+              "taskEnvelopeUtf8": 43147,
+              "jsonRpcFramesUtf8": 44107,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42672,
+              "structuredContentUtf8": 259,
+              "tokenCount": {
+                "text": 8758,
+                "envelope": 8869
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "handoff",
+              "toolCalls": 2,
+              "latencyMs": {
+                "median": 1.892607999999882,
+                "p90": 2.136970999999903
+              },
+              "sqlPreparations": {
+                "median": 18,
+                "p90": 18
+              },
+              "textUtf16": 1863,
+              "textUtf8": 1863,
+              "resultEnvelopeUtf8": 2619,
+              "taskEnvelopeUtf8": 44594,
+              "jsonRpcFramesUtf8": 45648,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 43776,
+              "structuredContentUtf8": 435,
+              "tokenCount": {
+                "text": 9112,
+                "envelope": 9310
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.769371000000092,
+                "p90": 0.8423019999997905
+              },
+              "sqlPreparations": {
+                "median": 8,
+                "p90": 8
+              },
+              "textUtf16": 548,
+              "textUtf8": 548,
+              "resultEnvelopeUtf8": 853,
+              "taskEnvelopeUtf8": 42680,
+              "jsonRpcFramesUtf8": 43642,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42313,
+              "structuredContentUtf8": 179,
+              "tokenCount": {
+                "text": 8710,
+                "envelope": 8802
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.7402509999997164,
+                "p90": 0.8687220000001616
+              },
+              "sqlPreparations": {
+                "median": 9,
+                "p90": 9
+              },
+              "textUtf16": 932,
+              "textUtf8": 932,
+              "resultEnvelopeUtf8": 1345,
+              "taskEnvelopeUtf8": 43147,
+              "jsonRpcFramesUtf8": 44109,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42672,
+              "structuredContentUtf8": 259,
+              "tokenCount": {
+                "text": 8754,
+                "envelope": 8863
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "handoff",
+              "toolCalls": 2,
+              "latencyMs": {
+                "median": 2.017598999999791,
+                "p90": 2.3079469999997855
+              },
+              "sqlPreparations": {
+                "median": 18,
+                "p90": 18
+              },
+              "textUtf16": 94582,
+              "textUtf8": 94582,
+              "resultEnvelopeUtf8": 96178,
+              "taskEnvelopeUtf8": 138153,
+              "jsonRpcFramesUtf8": 139211,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 136495,
+              "structuredContentUtf8": 435,
+              "tokenCount": {
+                "text": 21340,
+                "envelope": 21594
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.0668329999998605,
+                "p90": 1.2287679999999455
+              },
+              "sqlPreparations": {
+                "median": 8,
+                "p90": 8
+              },
+              "textUtf16": 93267,
+              "textUtf8": 93267,
+              "resultEnvelopeUtf8": 94412,
+              "taskEnvelopeUtf8": 136239,
+              "jsonRpcFramesUtf8": 137203,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 135032,
+              "structuredContentUtf8": 179,
+              "tokenCount": {
+                "text": 20944,
+                "envelope": 21094
+              }
+            }
+          ]
+        },
+        "comparison": [
+          {
+            "fixture": "small",
+            "task": "completion",
+            "referenceTextTokenReduction": -0.002747881841080879,
+            "referenceEnvelopeTokenReduction": 0.06237445818796916,
+            "p90ThresholdMs": 3.7729439999999386,
+            "p90Passed": true
+          },
+          {
+            "fixture": "small",
+            "task": "handoff",
+            "referenceTextTokenReduction": -0.04327913899702307,
+            "referenceEnvelopeTokenReduction": 0.015752193677978643,
+            "p90ThresholdMs": 3.779978999999912,
+            "p90Passed": true
+          },
+          {
+            "fixture": "small",
+            "task": "changed-files",
+            "referenceTextTokenReduction": 0.002747881841080879,
+            "referenceEnvelopeTokenReduction": 0.06945765937202664,
+            "p90ThresholdMs": 3.448533999999654,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "completion",
+            "referenceTextTokenReduction": 0.8410935032402113,
+            "referenceEnvelopeTokenReduction": 0.9136193520720439,
+            "p90ThresholdMs": 5.823582999999871,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "handoff",
+            "referenceTextTokenReduction": 0.6126268402040335,
+            "referenceEnvelopeTokenReduction": 0.7895403687965381,
+            "p90ThresholdMs": 6.112677000000076,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "changed-files",
+            "referenceTextTokenReduction": 0.619815208117773,
+            "referenceEnvelopeTokenReduction": 0.7944134731589412,
+            "p90ThresholdMs": 5.653701000000183,
+            "p90Passed": true
+          }
+        ],
+        "medianReferenceTextTokenReduction": 0.30768736102255717,
+        "rssRatio": 0.6484081168547188
+      },
+      {
+        "trial": 2,
+        "before": {
+          "version": 1,
+          "mode": "full",
+          "node": "v25.7.0",
+          "platform": "darwin",
+          "arch": "x64",
+          "repeats": 15,
+          "warmupPerWorkflow": 3,
+          "fixture": "fictional small/heavy Sessions; never private data",
+          "tokenizer": "tiktoken 0.12.0 / o200k_base reference encoding; not an actual Codex billing measurement",
+          "clientInjection": "SDK in-memory response; actual Codex model injection is not observable here",
+          "maxRssKiB": 183164,
+          "rows": [
+            {
+              "fixture": "small",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.4970280000000002,
+                "p90": 1.8015500000000202
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44769,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8737,
+                "envelope": 9465
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "handoff",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.5210389999999734,
+                "p90": 2.50104599999986
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44771,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8737,
+                "envelope": 9465
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.2366400000000795,
+                "p90": 1.3194549999998344
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44771,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8737,
+                "envelope": 9465
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.3728320000000167,
+                "p90": 4.0229989999998
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55229,
+                "envelope": 102884
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "handoff",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.595456000000013,
+                "p90": 4.5167780000001585
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55229,
+                "envelope": 102884
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.396748000000116,
+                "p90": 3.704663000000437
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55229,
+                "envelope": 102884
+              }
+            }
+          ]
+        },
+        "after": {
+          "version": 1,
+          "mode": "projected",
+          "node": "v25.7.0",
+          "platform": "darwin",
+          "arch": "x64",
+          "repeats": 15,
+          "warmupPerWorkflow": 3,
+          "fixture": "fictional small/heavy Sessions; never private data",
+          "tokenizer": "tiktoken 0.12.0 / o200k_base reference encoding; not an actual Codex billing measurement",
+          "clientInjection": "SDK in-memory response; actual Codex model injection is not observable here",
+          "maxRssKiB": 118328,
+          "rows": [
+            {
+              "fixture": "small",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.9067569999999705,
+                "p90": 1.188844999999958
+              },
+              "sqlPreparations": {
+                "median": 9,
+                "p90": 9
+              },
+              "textUtf16": 932,
+              "textUtf8": 932,
+              "resultEnvelopeUtf8": 1345,
+              "taskEnvelopeUtf8": 43147,
+              "jsonRpcFramesUtf8": 44107,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42672,
+              "structuredContentUtf8": 259,
+              "tokenCount": {
+                "text": 8764,
+                "envelope": 8876
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "handoff",
+              "toolCalls": 2,
+              "latencyMs": {
+                "median": 1.9567339999998694,
+                "p90": 2.259800000000041
+              },
+              "sqlPreparations": {
+                "median": 18,
+                "p90": 18
+              },
+              "textUtf16": 1863,
+              "textUtf8": 1863,
+              "resultEnvelopeUtf8": 2619,
+              "taskEnvelopeUtf8": 44594,
+              "jsonRpcFramesUtf8": 45648,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 43776,
+              "structuredContentUtf8": 435,
+              "tokenCount": {
+                "text": 9129,
+                "envelope": 9329
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.7404140000001007,
+                "p90": 0.8236019999999371
+              },
+              "sqlPreparations": {
+                "median": 8,
+                "p90": 8
+              },
+              "textUtf16": 548,
+              "textUtf8": 548,
+              "resultEnvelopeUtf8": 853,
+              "taskEnvelopeUtf8": 42680,
+              "jsonRpcFramesUtf8": 43642,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42313,
+              "structuredContentUtf8": 179,
+              "tokenCount": {
+                "text": 8716,
+                "envelope": 8809
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.7374330000002374,
+                "p90": 0.8105040000000372
+              },
+              "sqlPreparations": {
+                "median": 9,
+                "p90": 9
+              },
+              "textUtf16": 932,
+              "textUtf8": 932,
+              "resultEnvelopeUtf8": 1345,
+              "taskEnvelopeUtf8": 43147,
+              "jsonRpcFramesUtf8": 44109,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42672,
+              "structuredContentUtf8": 259,
+              "tokenCount": {
+                "text": 8776,
+                "envelope": 8894
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "handoff",
+              "toolCalls": 2,
+              "latencyMs": {
+                "median": 2.1885919999999714,
+                "p90": 2.3962510000001203
+              },
+              "sqlPreparations": {
+                "median": 18,
+                "p90": 18
+              },
+              "textUtf16": 94582,
+              "textUtf8": 94582,
+              "resultEnvelopeUtf8": 96178,
+              "taskEnvelopeUtf8": 138153,
+              "jsonRpcFramesUtf8": 139211,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 136495,
+              "structuredContentUtf8": 435,
+              "tokenCount": {
+                "text": 21789,
+                "envelope": 22061
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.929587999999967,
+                "p90": 1.1735490000000937
+              },
+              "sqlPreparations": {
+                "median": 8,
+                "p90": 8
+              },
+              "textUtf16": 93267,
+              "textUtf8": 93267,
+              "resultEnvelopeUtf8": 94412,
+              "taskEnvelopeUtf8": 136239,
+              "jsonRpcFramesUtf8": 137203,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 135032,
+              "structuredContentUtf8": 179,
+              "tokenCount": {
+                "text": 21356,
+                "envelope": 21515
+              }
+            }
+          ]
+        },
+        "comparison": [
+          {
+            "fixture": "small",
+            "task": "completion",
+            "referenceTextTokenReduction": -0.003090305596886722,
+            "referenceEnvelopeTokenReduction": 0.06222926571579501,
+            "p90ThresholdMs": 3.80155000000002,
+            "p90Passed": true
+          },
+          {
+            "fixture": "small",
+            "task": "handoff",
+            "referenceTextTokenReduction": -0.04486665903628251,
+            "referenceEnvelopeTokenReduction": 0.014368726888536743,
+            "p90ThresholdMs": 4.50104599999986,
+            "p90Passed": true
+          },
+          {
+            "fixture": "small",
+            "task": "changed-files",
+            "referenceTextTokenReduction": 0.002403571019800821,
+            "referenceEnvelopeTokenReduction": 0.06930797675647116,
+            "p90ThresholdMs": 3.3194549999998344,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "completion",
+            "referenceTextTokenReduction": 0.8410979738905285,
+            "referenceEnvelopeTokenReduction": 0.9135531277944092,
+            "p90ThresholdMs": 6.0229989999998,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "handoff",
+            "referenceTextTokenReduction": 0.6054790055948868,
+            "referenceEnvelopeTokenReduction": 0.7855740445550329,
+            "p90ThresholdMs": 6.5167780000001585,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "changed-files",
+            "referenceTextTokenReduction": 0.6133190896087201,
+            "referenceEnvelopeTokenReduction": 0.7908809921853739,
+            "p90ThresholdMs": 5.704663000000437,
+            "p90Passed": true
+          }
+        ],
+        "medianReferenceTextTokenReduction": 0.3039412883073438,
+        "rssRatio": 0.6460221440894499
+      },
+      {
+        "trial": 3,
+        "before": {
+          "version": 1,
+          "mode": "full",
+          "node": "v25.7.0",
+          "platform": "darwin",
+          "arch": "x64",
+          "repeats": 15,
+          "warmupPerWorkflow": 3,
+          "fixture": "fictional small/heavy Sessions; never private data",
+          "tokenizer": "tiktoken 0.12.0 / o200k_base reference encoding; not an actual Codex billing measurement",
+          "clientInjection": "SDK in-memory response; actual Codex model injection is not observable here",
+          "maxRssKiB": 183892,
+          "rows": [
+            {
+              "fixture": "small",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.460395999999946,
+                "p90": 1.6739919999999984
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44769,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8745,
+                "envelope": 9481
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "handoff",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.508237999999892,
+                "p90": 1.7921539999999823
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44771,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8745,
+                "envelope": 9481
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.401489999999967,
+                "p90": 1.8121060000000853
+              },
+              "sqlPreparations": {
+                "median": 17,
+                "p90": 17
+              },
+              "textUtf16": 1867,
+              "textUtf8": 1867,
+              "resultEnvelopeUtf8": 4175,
+              "taskEnvelopeUtf8": 43809,
+              "jsonRpcFramesUtf8": 44771,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 41439,
+              "structuredContentUtf8": 2052,
+              "tokenCount": {
+                "text": 8745,
+                "envelope": 9481
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.5092349999999897,
+                "p90": 3.911102000000028
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55200,
+                "envelope": 102826
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "handoff",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.893575999999939,
+                "p90": 4.132054000000153
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55200,
+                "envelope": 102826
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 3.6641749999998865,
+                "p90": 3.823662000000695
+              },
+              "sqlPreparations": {
+                "median": 20,
+                "p90": 20
+              },
+              "textUtf16": 317409,
+              "textUtf8": 317409,
+              "resultEnvelopeUtf8": 639307,
+              "taskEnvelopeUtf8": 678941,
+              "jsonRpcFramesUtf8": 679903,
+              "firstContractAndStartupUtf8": 39481,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 356981,
+              "structuredContentUtf8": 317594,
+              "tokenCount": {
+                "text": 55200,
+                "envelope": 102826
+              }
+            }
+          ]
+        },
+        "after": {
+          "version": 1,
+          "mode": "projected",
+          "node": "v25.7.0",
+          "platform": "darwin",
+          "arch": "x64",
+          "repeats": 15,
+          "warmupPerWorkflow": 3,
+          "fixture": "fictional small/heavy Sessions; never private data",
+          "tokenizer": "tiktoken 0.12.0 / o200k_base reference encoding; not an actual Codex billing measurement",
+          "clientInjection": "SDK in-memory response; actual Codex model injection is not observable here",
+          "maxRssKiB": 118540,
+          "rows": [
+            {
+              "fixture": "small",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.9541140000000041,
+                "p90": 1.0621489999999767
+              },
+              "sqlPreparations": {
+                "median": 9,
+                "p90": 9
+              },
+              "textUtf16": 932,
+              "textUtf8": 932,
+              "resultEnvelopeUtf8": 1345,
+              "taskEnvelopeUtf8": 43147,
+              "jsonRpcFramesUtf8": 44107,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42672,
+              "structuredContentUtf8": 259,
+              "tokenCount": {
+                "text": 8757,
+                "envelope": 8866
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "handoff",
+              "toolCalls": 2,
+              "latencyMs": {
+                "median": 1.72859799999992,
+                "p90": 1.93707100000006
+              },
+              "sqlPreparations": {
+                "median": 18,
+                "p90": 18
+              },
+              "textUtf16": 1863,
+              "textUtf8": 1863,
+              "resultEnvelopeUtf8": 2619,
+              "taskEnvelopeUtf8": 44594,
+              "jsonRpcFramesUtf8": 45648,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 43776,
+              "structuredContentUtf8": 435,
+              "tokenCount": {
+                "text": 9109,
+                "envelope": 9303
+              }
+            },
+            {
+              "fixture": "small",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.7498069999999188,
+                "p90": 0.9128109999999197
+              },
+              "sqlPreparations": {
+                "median": 8,
+                "p90": 8
+              },
+              "textUtf16": 548,
+              "textUtf8": 548,
+              "resultEnvelopeUtf8": 853,
+              "taskEnvelopeUtf8": 42680,
+              "jsonRpcFramesUtf8": 43642,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42313,
+              "structuredContentUtf8": 179,
+              "tokenCount": {
+                "text": 8709,
+                "envelope": 8799
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "completion",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 0.7607530000000224,
+                "p90": 0.9989959999998064
+              },
+              "sqlPreparations": {
+                "median": 9,
+                "p90": 9
+              },
+              "textUtf16": 932,
+              "textUtf8": 932,
+              "resultEnvelopeUtf8": 1345,
+              "taskEnvelopeUtf8": 43147,
+              "jsonRpcFramesUtf8": 44109,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 42672,
+              "structuredContentUtf8": 259,
+              "tokenCount": {
+                "text": 8765,
+                "envelope": 8878
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "handoff",
+              "toolCalls": 2,
+              "latencyMs": {
+                "median": 2.0641640000003463,
+                "p90": 2.199039999999968
+              },
+              "sqlPreparations": {
+                "median": 18,
+                "p90": 18
+              },
+              "textUtf16": 94582,
+              "textUtf8": 94582,
+              "resultEnvelopeUtf8": 96178,
+              "taskEnvelopeUtf8": 138153,
+              "jsonRpcFramesUtf8": 139211,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 136495,
+              "structuredContentUtf8": 435,
+              "tokenCount": {
+                "text": 21585,
+                "envelope": 21847
+              }
+            },
+            {
+              "fixture": "heavy",
+              "task": "changed-files",
+              "toolCalls": 1,
+              "latencyMs": {
+                "median": 1.0257109999997738,
+                "p90": 1.116595999999845
+              },
+              "sqlPreparations": {
+                "median": 8,
+                "p90": 8
+              },
+              "textUtf16": 93267,
+              "textUtf8": 93267,
+              "resultEnvelopeUtf8": 94412,
+              "taskEnvelopeUtf8": 136239,
+              "jsonRpcFramesUtf8": 137203,
+              "firstContractAndStartupUtf8": 41629,
+              "resourceReads": 3,
+              "instructionMode": "independent task includes initialize instructions, tools/list, operation index, full skill and operation contract once",
+              "modelTextUtf8": 135032,
+              "structuredContentUtf8": 179,
+              "tokenCount": {
+                "text": 21171,
+                "envelope": 21325
+              }
+            }
+          ]
+        },
+        "comparison": [
+          {
+            "fixture": "small",
+            "task": "completion",
+            "referenceTextTokenReduction": -0.0013722126929673895,
+            "referenceEnvelopeTokenReduction": 0.06486657525577466,
+            "p90ThresholdMs": 3.6739919999999984,
+            "p90Passed": true
+          },
+          {
+            "fixture": "small",
+            "task": "handoff",
+            "referenceTextTokenReduction": -0.041623785020011406,
+            "referenceEnvelopeTokenReduction": 0.01877439088703725,
+            "p90ThresholdMs": 3.7921539999999823,
+            "p90Passed": true
+          },
+          {
+            "fixture": "small",
+            "task": "changed-files",
+            "referenceTextTokenReduction": 0.004116638078902279,
+            "referenceEnvelopeTokenReduction": 0.07193334036494037,
+            "p90ThresholdMs": 3.8121060000000853,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "completion",
+            "referenceTextTokenReduction": 0.8412137681159421,
+            "referenceEnvelopeTokenReduction": 0.9136599692684729,
+            "p90ThresholdMs": 5.911102000000028,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "handoff",
+            "referenceTextTokenReduction": 0.6089673913043478,
+            "referenceEnvelopeTokenReduction": 0.7875342812129228,
+            "p90ThresholdMs": 6.132054000000153,
+            "p90Passed": true
+          },
+          {
+            "fixture": "heavy",
+            "task": "changed-files",
+            "referenceTextTokenReduction": 0.6164673913043478,
+            "referenceEnvelopeTokenReduction": 0.7926108182755334,
+            "p90ThresholdMs": 5.823662000000695,
+            "p90Passed": true
+          }
+        ],
+        "medianReferenceTextTokenReduction": 0.30654201469162506,
+        "rssRatio": 0.6446174928762535
+      }
+    ],
+    "gates": {
+      "medianReferenceTextTokenReductionAtLeast25Percent": true,
+      "defaultWorkflowIncreaseNoMoreThan5Percent": true,
+      "extraLookupsNoMoreThanOne": true,
+      "relativeP90": true,
+      "peakRssNoMoreThan110Percent": true
+    }
   }
 }

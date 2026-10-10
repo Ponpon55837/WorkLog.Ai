@@ -296,3 +296,5 @@ Schema／REST／MCP／storage 驗證新增圖表必須明確指定 architecture 
 可選固定參考 tokenizer：在開發環境安裝 `tiktoken==0.12.0`，設定 `WI_PROJECTION_TOKENIZER_PYTHON`，使用 `scripts/measure-reference-tokens.py` 的 `o200k_base`。這不增加執行期依賴；參考 token／SDK envelope 不是 Codex 實際模型注入量或計費 token。原始快照 metadata 的 UTF-16 長度透過 SQLite scalar function 計算，保持 emoji 語意；讀取指定 raw metadata 時仍必須掃描來源文字，未選 raw 時則完全不查詢它。
 
 MCP 精準讀取前後成本：三組獨立程序的全部任務參考文字 token 中位降幅 30.45%–30.95%，相對 p90、一次補查上限與 peak RSS 110% 門檻均通過。小型 handoff 仍增 4.21%–4.55%，保留完整讀取建議；大型任務下降 60.68%–84.20%。含全部啟動 resource 的原始結果、限制與契約 fingerprint 見 [實驗資料](experiments/session-read-projection-2026-10-10.json)。
+
+架構圖未支援格式的攔截回歸在所有斷言後以 `page.unrouteAll({ behavior: "wait" })` 等待背景 handler，避免 WebKit teardown 先銷毀 `route.fetch()` 回應而誤報 `Response has been disposed`；原 timeout 與 UI／CSP 斷言保留。

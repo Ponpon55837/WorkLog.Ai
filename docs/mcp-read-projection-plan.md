@@ -1,6 +1,6 @@
 # MCP 精準讀取與任務成本最佳化方案
 
-規劃日期：2026-10-10（Asia/Taipei）。狀態：使用者已納入 1.5.0，P0 基線與 P1／P2 程式修改已完成；本機八項前置檢查通過，三組成本重複程序門檻通過，整合 E2E／平台 CI、部署與 client 重連驗證待確認。檢視基準：`d1fa66092aac53db383b0b08653db5671744708c`，應用程式 1.4.0、SQLite schema 30。時間軸與 Mermaid 維持各自 PR／驗證；本文件只記載 MCP 精準讀取的證據。
+規劃日期：2026-10-10（Asia/Taipei）。狀態：使用者已納入 1.5.0，P0 基線與 P1／P2 程式修改已完成；本機八項前置檢查通過，三組成本重複程序門檻通過，整合 Chromium158／Firefox103／WebKit100 通過，新 SDK stdio client 的實際 payload 核對通過；最新 PR CI 及主安裝部署／重連結果另依檢查及部署工作記錄核對。檢視基準：`d1fa66092aac53db383b0b08653db5671744708c`，應用程式 1.4.0、SQLite schema 30。時間軸與 Mermaid 維持各自 PR／驗證；本文件只記載 MCP 精準讀取的證據。
 
 ## 1. 要解決的問題與成功定義
 
@@ -226,7 +226,7 @@ Context 的 O(r·B) 預算最佳化與批次讀取都作為獨立、量測驅動
 
 先在隔離 worktree 實作與驗證，基於當時已穩定主線重跑基線，不直接覆寫正在發布的工作。使用者已明確將第一版精準讀取納入 1.5.0；完成必要驗證後隨本次版本交付。
 
-開 PR 前依序：`pnpm build`、`pnpm test`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm test:performance`、`pnpm test:retrieval-quality`、`pnpm test:response-size`、`pnpm test:e2e`。建置、coverage、E2E 不在同一 worktree 同時執行，避免 dist 清理競態。每階段保存工作記錄，文件與知识頁依已確認成果更新，規劃不得標為功能交付。
+開 PR 前依序：`pnpm build`、`pnpm test`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm test:performance`、`pnpm test:retrieval-quality`、`pnpm test:response-size`、`pnpm test:e2e`。建置、coverage、E2E 不在同一 worktree 同時執行，避免 dist 清理競態。每階段保存工作記錄，文件與知識頁依已確認成果更新，規劃不得標為功能交付。
 
 每個 PR 以最新 head 的四項既有 CI 成功為合併條件。契約 fingerprint 更新後執行一次重連與舊 client smoke；不繞過 restartRequired。第一版 opt-in；需完整來源時省略新參數即回舊路徑。
 
@@ -236,7 +236,7 @@ Context 的 O(r·B) 預算最佳化與批次讀取都作為獨立、量測驅動
 
 ## 12. 本次規劃的驗證與限制
 
-已檢視現行 MCP、storage、schema、result helper、來源核對與現有回應大小／性能測試設計，並核對上述三筆歷史 Session。重跑的現有合成測試結果记錄在規劃工作 Session。
+已檢視現行 MCP、storage、schema、result helper、來源核對與現有回應大小／性能測試設計，並核對上述三筆歷史 Session。重跑的現有合成測試結果記錄在規劃工作 Session。
 
 原規劃保存時沒有新增 view／select 的實作，也沒有其效能改善、token 下降比例或 client 模型注入方式的實測；本次實作狀態及證據另記於下一節。P0 必須補齊完整 envelope、tokenizer／client、Session-heavy fixture、SQL 及任務級成本基線；驗收門檻均為本方案的設計要求，不是對改善成效的承諾。
 
@@ -245,6 +245,14 @@ Context 的 O(r·B) 預算最佳化與批次讀取都作為獨立、量測驅動
 
 P0 的舊完整路徑基線已先量測；P1／P2 已在 `codex/session-read-projection` 實作 opt-in 投影、按需 SQL、一致讀取交易、專用 serializer、被動來源稽核與文件。未選欄位不讀取；未確認的歷史空 changed files 列入 unavailableFields，明確確認的空清單維持 `[]`。Raw 長度保留 UTF-16 語意。沒有 migration，schema 30 保持。
 
-本機 build、完整單元測試、typecheck、coverage、44 項效能、25 項檢索與 9 項 response-size 已通過；大型投影真實 SDK 回應與安全旗標、WAL 並行讀取一致性皆有回歸。完整 E2E、最新提交平台 CI、部署及舊 client 重連仍待完成。Context、知識頁與批次 P3 沒有足夠的額外收益證據，維持原模式。
+本機 build、完整單元測試、typecheck、coverage、44 項效能、25 項檢索與 9 項 response-size 已通過；大型投影真實 SDK 回應與安全旗標、WAL 並行讀取一致性皆有回歸。整合 E2E 結果與新 client 核對見下方 2026-10-11 註記；最新提交 CI／主安裝部署與重連結果另以 PR 及工作記錄確認。Context、知識頁與批次 P3 沒有足夠的額外收益證據，維持原模式。
 
-成本以每個獨立任務計入 initialize instructions、tools/list、operation index、完整 skill、操作契約和全部補查；JSON-RPC frames 為 in-memory transport 捕捉後的序列化大小，不是網路封包或計費量。`o200k_base` 只作固定參考 tokenizer，不能代表 Codex 實際注入／帳戶扣款。小型交接在不計启动指引的文字 payload 會增加成本，故 skill 建議小型 handoff 保留完整讀取；大型來源才適合投影加一次補查。三組獨立程序的參考文字 token 降幅中位數為 30.45%–30.95%，相對 p90 與 peak RSS 門檻均通過。小型 handoff 的含啟動參考文字 token 增加 4.21%–4.55%，沒有普遍節省；大型三種任務下降 60.68%–84.20%。原始結果與門檻判斷保存於 `docs/experiments/session-read-projection-2026-10-10.json`，不以單次 timing 宣稱普遍收益。
+成本以每個獨立任務計入 initialize instructions、tools/list、operation index、完整 skill、操作契約和全部補查；JSON-RPC frames 為 in-memory transport 捕捉後的序列化大小，不是網路封包或計費量。`o200k_base` 只作固定參考 tokenizer，不能代表 Codex 實際注入／帳戶扣款。小型交接在不計啟動指引的文字 payload 會增加成本，故 skill 建議小型 handoff 保留完整讀取；大型來源才適合投影加一次補查。三組獨立程序的參考文字 token 降幅中位數為 30.45%–30.95%，相對 p90 與 peak RSS 門檻均通過。小型 handoff 的含啟動參考文字 token 增加 4.21%–4.55%，沒有普遍節省；大型三種任務下降 60.68%–84.20%。原始結果與門檻判斷保存於 `docs/experiments/session-read-projection-2026-10-10.json`，不以單次 timing 宣稱普遍收益。
+
+### 2026-10-11 整合驗證
+
+整合 UI、原生圖表與 1.5.0 版號後，build、完整單元 880 通過／1 既有略過、typecheck、coverage、效能44／檢索25／response-size9通過。正式 runner Chromium158／Firefox103通過；WebKit首輪96通過、1背景攔截 teardown失敗、3未跑，保留原紀錄。等待 route handler 收尾後，同案例三瀏覽器各兩次全通過，完整WebKit重跑100通過，沒有放寬timeout或刪除斷言。
+
+三組整合前後獨立程序的完整任務參考文字token降幅中位數30.39%–30.77%，小型handoff增加4.16%–4.49%，大型來源三任務下降60.55%–84.12%；相對p90、補查及peak RSS門檻全部通過。原先三組與整合三組數據分開保存在實驗JSON，未拿tokenizer參考值冒充帳戶計費。
+
+隔離1.5.0建置透過新SDK stdio連線讀取已tracked資料庫，核對完整／completion／select的值、驗證修改歷史及明確選取的voidHistory、固定生命週期旗標、structured metadata與非法raw組合拒絕。這驗證真實SDK回應；不宣稱Codex host的注入方式或扣款相同。主安裝重連的實際結果以部署記錄核對。

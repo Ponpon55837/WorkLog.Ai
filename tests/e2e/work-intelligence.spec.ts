@@ -2136,6 +2136,8 @@ test.describe("Work Intelligence browser regression", () => {
     await page.reload();
     await expect(reader.locator("pre")).toContainText('<script>alert("untrusted")</script>');
     await expect(reader.locator("script, .architecture__canvas")).toHaveCount(0);
+    // Drain background route handlers before Playwright disposes their fetched responses.
+    await page.unrouteAll({ behavior: "wait" });
     expect(cspMessages).toEqual([]);
   });
 
