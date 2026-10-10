@@ -576,7 +576,8 @@ test.describe("Work Intelligence browser regression", () => {
         .first(),
     ).toBeVisible();
     await expect(selectCurrentPage).toBeChecked();
-    await page.unroute("**/api/outstanding-items?*");
+    // Drain in-flight fixture fetches before removing their handlers.
+    await page.unrouteAll({ behavior: "wait" });
     await notNeededBatch.click();
     const confirmation = page.getByRole("dialog", { name: tt("outstanding.markNotNeeded"), exact: true });
     await expect(confirmation).toBeVisible();
@@ -2506,7 +2507,11 @@ test.describe("Work Intelligence browser regression", () => {
     const created = withAgentStore((store) => {
       const alpha = store.addProject("Round 6 Alpha Fixture", alphaSource);
       const beta = store.addProject("Round 6 Beta Fixture", betaSource);
-      return { bundle: store.exportProjectData({ type: "all" }), ids: [alpha.id, beta.id] as const };
+      const bundle = store.exportProjectData({ type: "project", projectId: alpha.id });
+      const second = store.exportProjectData({ type: "project", projectId: beta.id });
+      bundle.tables.projects.push(...second.tables.projects);
+      bundle.scope = { type: "all" };
+      return { bundle, ids: [alpha.id, beta.id] as const };
     });
     const exported: ProjectDataExport = structuredClone(created.bundle);
     const db = new DatabaseSync(databasePath);

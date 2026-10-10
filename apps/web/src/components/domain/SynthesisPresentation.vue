@@ -21,6 +21,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import ReportCopyButton from "./ReportCopyButton.vue";
 import ReportBlockEditor from "./ReportBlockEditor.vue";
 import SynthesisBlock from "./SynthesisBlock.vue";
 import { t } from "../../i18n";
@@ -124,6 +125,7 @@ onBeforeUnmount(() => presentation.setSummary(""));
     <p v-else-if="!data && !error">{{ t("presentation.unknown") }}</p>
     <p v-if="data" class="synthesis-presentation__executive">{{ summary.executiveSummary }}</p>
     <div v-if="data" ref="controls" class="synthesis-presentation__controls">
+      <ReportCopyButton :summary-id="summary.id" :revision="data.revision" :disabled="saving" />
       <UiLabel>{{ t("presentation.revision", { revision: data.revision }) }}</UiLabel
       ><UiButton size="sm" :disabled="saving" @click="reload">{{ t("presentation.refresh") }}</UiButton>
       <UiButton v-if="modified" size="sm" :disabled="saving" @click="reset">{{ t("presentation.reset") }}</UiButton>

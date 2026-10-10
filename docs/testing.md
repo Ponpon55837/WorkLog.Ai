@@ -254,6 +254,9 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 
 ## 報告段落呈現回歸
 
-`report-presentation` 的 core／schema／storage／server／store／E2E 測試涵蓋群組呈現與引用保留、版本 CAS／冪等、來源失效拒讀寫、遮蔽及匯入／刪除生命週期。瀏覽器驗證使用純合成資料，涵蓋 375／960／1440px、繁中／英文、明暗主題，包含隱藏／恢复、改稿、axe、頁面溢出與 409 保留草稿及明確比較。此處描述驗證範圍；本機與 CI 結果另記於整合研究文件。
+`report-presentation` 的 core／schema／storage／server／store／E2E 測試涵蓋群組呈現與引用保留、版本 CAS／冪等、來源失效拒讀寫、遮蔽及匯入／刪除生命週期。瀏覽器驗證使用純合成資料，涵蓋 375／960／1440px、繁中／英文、明暗主題，包含隱藏／恢復、改稿、axe、頁面溢出與 409 保留草稿及明確比較。此處描述驗證範圍；本機與 CI 結果另記於整合研究文件。
 
 首頁洞察回歸使用超過 200 筆的完整 totals、空前期、同筆數專案及五種 verification 狀態驗證推導；UI 涵蓋雙語、明暗、1440／960／375px、axe、範圍／專案 URL 及載入／錯誤／空結果。沒有新增 API 或 SQL read path。
+
+
+報告複製測試涵蓋來源拒讀、修訂 409、strict query、SQLite snapshot rollback、投影與引用一致、HTML／Markdown 逸出及基本報告安全輸出。新增 `exportReportPresentation (snapshot and Markdown)` 合成 read benchmark（p90 ≤ 250 ms）。瀏覽器測試在 12 組語言／主題／尺寸中模擬剪貼簿成功與拒絕、檢查預覽／複製一致、手動選取與下載、axe 對話框及來源失效。剪貼簿 stub 不代表 OS 剪貼簿或實機 Safari 已驗證。

@@ -416,3 +416,5 @@ The guides under `docs/` are written in Traditional Chinese.
 ## License
 
 [MIT](LICENSE)
+
+Reports can preview and copy basic Markdown or the current synthesis presentation. The presentation copy keeps pin/hide/edit choices and source references; it checks the source and revision again. Review the snapshot, then click Copy. If clipboard access fails, select the preview text or download Markdown.

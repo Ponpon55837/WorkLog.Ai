@@ -409,6 +409,8 @@ try {
   });
 
   const cases = {
+    "exportReportPresentation (snapshot and Markdown)": () =>
+      benchStore.exportReportPresentation({ summaryId: presentationBase.summary.id, revision: 1, locale: "zh-TW" }),
     "getReportPresentation (version and source gate)": () =>
       benchStore.getReportPresentation(presentationBase.summary.id),
     "getRelatedWork (file overlap)": () => {
@@ -558,6 +560,7 @@ try {
 
   const limitsMs = {
     "getReportPresentation (version and source gate)": 250,
+    "exportReportPresentation (snapshot and Markdown)": 250,
     "getAttention (mixed sources)": 500,
     "getRelatedWork (file overlap)": 250,
     "getSessionDetail (200 architecture nodes)": 250,

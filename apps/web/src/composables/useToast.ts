@@ -5,13 +5,15 @@ import { t } from "../i18n";
 
 export type { Toast, ToastTone } from "../stores/toasts";
 
-async function copyWithToast(text: string, successMessage: string): Promise<void> {
+async function copyWithToast(text: string, successMessage: string): Promise<boolean> {
   const { showToast } = useToastsStore();
   try {
     await useClipboard().copyText(text);
     showToast(successMessage, "success");
+    return true;
   } catch (error) {
     showToast(error instanceof Error ? error.message : t("ui.clipboardIsUnavailableCopyThe"), "danger");
+    return false;
   }
 }
 

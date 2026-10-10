@@ -1,11 +1,14 @@
 import type { ReportMetricComparison, WorkReport } from "@work-intelligence/core";
 import { toLocalCalendarDate } from "@work-intelligence/shared";
 
+import { reportMarkdownText } from "./report-presentation-export.js";
+
 function markdownInline(value: string | number | undefined): string {
-  return String(value ?? "—")
-    .replace(/\r?\n/g, " ")
-    .replaceAll("|", "\\|")
-    .trim();
+  return reportMarkdownText(
+    String(value ?? "—")
+      .replace(/\r?\n/g, " ")
+      .trim(),
+  );
 }
 
 function reportMetricMarkdown(label: string, metric: ReportMetricComparison): string {

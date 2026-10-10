@@ -14,6 +14,8 @@ import { t } from "../i18n";
 const props = withDefaults(
   defineProps<{
     items: readonly T[];
+    /** With stable identities in the same order, background refreshes preserve the reading position. */
+    itemKey?: (item: T) => string | number;
     enabled?: boolean;
     estimateItemHeight?: number;
     overscan?: number;
@@ -381,7 +383,15 @@ function resetLayout(): void {
   });
 }
 
-watch(() => props.items, resetLayout);
+watch(
+  () => props.items,
+  (items, previous) => {
+    const key = props.itemKey;
+    if (key && items.length === previous.length && items.every((item, index) => key(item) === key(previous[index]!)))
+      return;
+    resetLayout();
+  },
+);
 watch(
   () => props.enabled,
   () => {

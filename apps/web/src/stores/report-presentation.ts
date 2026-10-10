@@ -55,5 +55,8 @@ export const useReportPresentationStore = defineStore("report-presentation", () 
   }): Promise<ReportPresentation> {
     return mutation.mutateAsync(input);
   }
-  return { data, state, loading, saving, error, setSummary, reload, read, save };
+  function exportMarkdown(id: string, revision: number, locale: "zh-TW" | "en-US", signal?: AbortSignal) {
+    return useApi().client.exportReportPresentation({ summaryId: id, revision, locale }, signal);
+  }
+  return { exportMarkdown, data, state, loading, saving, error, setSummary, reload, read, save };
 });

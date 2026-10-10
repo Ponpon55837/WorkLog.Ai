@@ -1,6 +1,10 @@
-import type { ReportPresentation, ReportPresentationState } from "@work-intelligence/core";
-import type { ApiTransport } from "./transport";
+import type { ReportPresentation, ReportPresentationExport, ReportPresentationState } from "@work-intelligence/core";
+import { appendQuery, type ApiTransport } from "./transport";
 export interface ReportPresentationApi {
+  exportReportPresentation(
+    input: { summaryId: string; revision: number; locale: "zh-TW" | "en-US" },
+    signal?: AbortSignal,
+  ): Promise<ReportPresentationExport>;
   getReportPresentation(summaryId: string, signal?: AbortSignal): Promise<ReportPresentation>;
   updateReportPresentation(input: {
     summaryId: string;
@@ -10,6 +14,14 @@ export interface ReportPresentationApi {
 }
 export function createReportPresentationApi(client: ApiTransport): ReportPresentationApi {
   return {
+    exportReportPresentation: ({ summaryId, revision, locale }, signal) =>
+      client.request(
+        appendQuery(`/api/reports/summaries/${encodeURIComponent(summaryId)}/presentation/export`, {
+          revision,
+          locale,
+        }),
+        { signal },
+      ),
     getReportPresentation: (id, signal) =>
       client.request(`/api/reports/summaries/${encodeURIComponent(id)}/presentation`, { signal }),
     updateReportPresentation: ({ summaryId, ...input }) =>

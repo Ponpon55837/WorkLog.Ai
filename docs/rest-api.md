@@ -188,7 +188,7 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - MCP：透過 `work_read` 執行 `work_export_report` operation，format 可填 markdown 或 json
 - markdown 會包含期間摘要、上一期比較、主要完成事項、Verification、風險、決策、趨勢、專案分布與來源證據。
 - json 會保留完整的 WorkReport 結構，適合後續自動化或外部保存。
-- `sessionTruncation.currentPeriod` 與 `sessionTruncation.previousPeriod` 分別標示本期及上一期是否超過 200 個 Session；若為 `true`，摘要、趨勢、專案分布與比較數值只依納入的 200 筆計算。Markdown 匯出會附上相同提醒。
+- `sessionTruncation.currentPeriod` 與 `sessionTruncation.previousPeriod` 分別標示本期及上一期是否超過 200 個 Session；若為 `true`，來源明細、趨勢、風險與決策清單為有界樣本；totals、verification 數量、專案分布與期間比較仍以完整期間計算。Markdown 匯出會附上來源截短提醒。
 - 專案範圍仍遵守 tracked-only policy；unregistered、paused、ignored 會安靜回傳 skipped。
 
 ## 備份與匯出
@@ -267,3 +267,10 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 `PATCH /api/reports/summaries/:id/presentation` 接受嚴格的 `{expectedRevision,state}` JSON。未知欄位、重複身份、不存在的段落或空群組操作回 400；每筆 title 最多 300、detail 最多 4000 字元，全部改稿合計最多 8000。相同狀態不建立新 revision。版本不符回 409 `conflict`，客戶端保留草稿並取得最新狀態供明確比較及套用。
 
 原始 ReportSummary 與 sourceSessionIds 不受修改。每次讀寫均檢查基底及全部來源存在、未作廢且所屬專案為 tracked；不可見來源或版本回 404，不返回報告內容。仍遵守 JSON Content-Type、Host／Origin 邊界與未知例外遮蔽。
+
+
+## 報告呈現 Markdown 預覽
+
+`GET /api/reports/summaries/:id/presentation/export?revision=0&locale=zh-TW` 回傳 `outcome`、`summaryId`、`revision`、`filename` 與純文字 `content`。revision 必填且為非負安全整數；locale 為 zh-TW 或 en-US（省略採 zh-TW）；未知欄位回 400。來源核對與呈現讀取使用同一 SQLite read snapshot，避免不同版本混合。來源不存在、作廢或不可見回 404；修訂與請求不同回 409，不偷偷匯出新版。
+
+整理版沿用 UI 的投影，隱藏群組不含正文，改稿標示為使用者改稿；保留每段引用及包含隱藏群組的完整原報告來源。Markdown 語法與 HTML 特別字元以純文字逸出。基本版重用既有 `/api/reports/export`，沒有寫入 Session 或新 MCP 工具。前端先取得預覽，再於獨立點擊中立即呼叫剪貼簿；失敗提供可選取文字與下載。

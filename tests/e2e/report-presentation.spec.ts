@@ -118,6 +118,52 @@ for (const locale of ["zh-TW", "en-US"] as const)
         await expect(dialog).toBeHidden();
         await expect(highlights).toContainText("Manually revised fictional outcome");
         await expect(highlights).toContainText(textIn(locale, "presentation.edited"));
+        await page.evaluate(() =>
+          Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: { writeText: () => Promise.reject(new Error("Fictional clipboard denial")) },
+          }),
+        );
+        await box.getByRole("button", { name: textIn(locale, "reportCopy.presentation"), exact: true }).click();
+        const copyDialog = page.getByRole("dialog", { name: textIn(locale, "reportCopy.presentation"), exact: true });
+        const preview = copyDialog.getByRole("textbox", { name: textIn(locale, "reportCopy.preview"), exact: true });
+        await expect(preview).toHaveValue(/Manually revised fictional outcome/);
+        await expect(preview).toHaveAttribute("readonly", "");
+        await copyDialog.getByRole("button", { name: textIn(locale, "ui.copy"), exact: true }).click();
+        await expect(copyDialog).toContainText(textIn(locale, "reportCopy.fallback"));
+        await expect(
+          copyDialog.getByRole("button", { name: textIn(locale, "reportCopy.copied"), exact: true }),
+        ).toHaveCount(0);
+        await page.evaluate(() =>
+          Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: {
+              writeText: (text: string) => {
+                Reflect.set(window, "fictionalClipboard", text);
+                return Promise.resolve();
+              },
+            },
+          }),
+        );
+        await copyDialog.getByRole("button", { name: textIn(locale, "ui.copy"), exact: true }).click();
+        await expect(
+          copyDialog.getByRole("button", { name: textIn(locale, "reportCopy.copied"), exact: true }),
+        ).toBeVisible();
+        expect(await page.evaluate(() => Reflect.get(window, "fictionalClipboard"))).toBe(await preview.inputValue());
+        expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
+        await page.screenshot({ path: testInfo.outputPath("copy-preview.png") });
+        await copyDialog.getByRole("button", { name: textIn(locale, "common.cancel"), exact: true }).click();
+        await page.getByRole("button", { name: textIn(locale, "reportCopy.basic"), exact: true }).click();
+        const basicDialog = page.getByRole("dialog", { name: textIn(locale, "reportCopy.basic"), exact: true });
+        await expect(
+          basicDialog.getByRole("textbox", { name: textIn(locale, "reportCopy.preview"), exact: true }),
+        ).toHaveValue(/2026-09/);
+        const downloadEvent = page.waitForEvent("download");
+        await basicDialog
+          .getByRole("button", { name: textIn(locale, "reports.downloadMarkdown"), exact: true })
+          .click();
+        expect((await downloadEvent).suggestedFilename()).toMatch(/\.md$/);
+        await basicDialog.getByRole("button", { name: textIn(locale, "common.cancel"), exact: true }).click();
         expect(
           (await new AxeBuilder({ page }).include('[data-testid="synthesis-presentation"]').analyze()).violations,
         ).toEqual([]);
@@ -157,4 +203,20 @@ test("keeps draft on 409 and requires an explicit comparison before applying @cr
   await dialog.getByRole("button", { name: textIn("zh-TW", "presentation.applyLatest"), exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(box).toContainText("Preserved draft");
+});
+
+test("copy preview keeps source failures distinct from empty content @cross-browser", async ({ page }) => {
+  await page.goto(`/reports?period=week&date=2026-09-10&project=${projectId}`);
+  const box = page.getByTestId("synthesis-presentation");
+  await expect(
+    box.getByRole("button", { name: textIn("zh-TW", "reportCopy.presentation"), exact: true }),
+  ).toBeVisible();
+  await page.route("**/presentation/export?**", (route) =>
+    route.fulfill({ status: 404, json: { code: "not_found", error: "Fictional source unavailable" } }),
+  );
+  await box.getByRole("button", { name: textIn("zh-TW", "reportCopy.presentation"), exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: textIn("zh-TW", "reportCopy.presentation"), exact: true });
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: textIn("zh-TW", "ui.copy"), exact: true })).toHaveCount(0);
 });

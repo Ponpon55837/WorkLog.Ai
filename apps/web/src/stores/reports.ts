@@ -488,6 +488,21 @@ export const useReportsStore = defineStore("reports", () => {
     }
   }
 
+  async function prepareMarkdown(signal?: AbortSignal) {
+    if (!report.value) throw new Error(t("reports.loadAReportBeforeExporting"));
+    const result = await useApi().client.exportReport(
+      {
+        ...reportScope(),
+        format: "markdown",
+        evidenceKind: reportEvidenceKind.value || undefined,
+        evidenceQuery: reportEvidenceQuery.value.trim() || undefined,
+      },
+      signal,
+    );
+    if (result.outcome !== "report_export") throw new Error(result.reason);
+    return { content: result.content, filename: result.filename };
+  }
+
   async function exportReport(format: ReportExportFormat): Promise<void> {
     const { showToast } = useToast();
     if (!report.value) {
@@ -566,5 +581,6 @@ export const useReportsStore = defineStore("reports", () => {
     cancelReportSynthesisRequest,
     deleteReportSynthesisVersion,
     exportReport,
+    prepareMarkdown,
   };
 });
