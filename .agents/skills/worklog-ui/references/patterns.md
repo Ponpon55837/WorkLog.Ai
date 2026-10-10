@@ -52,7 +52,7 @@ Open records are addressable: `?session=<id>` (and equivalents) so a refresh or 
 
 StatCards: 記錄中專案 · 本週完成 Sessions (foot: 不等同 Git commit) · Verification (`VerificationBreakdown`: "21 / 24 通過" + four-state meter — no bare percentage, so missing verification is never folded into pass/fail) · 待處理.
 
-Order is fixed: StatCards → **ACTION REQUIRED** (pending/failed report synthesis, active metadata backfill request, metadata gaps; each with one direct action) → 最近完成的工作 → right column 專案狀態. When nothing needs action show "全部處理完畢" with a success check. Dashboard only reads existing request state; it must not trigger a metadata scan.
+Order is fixed: full-width **ACTIVITY** heatmap (directly after PageHeader / first-run guidance) → StatCards → weekly insights → **ACTION REQUIRED** (pending/failed report synthesis, active metadata backfill request, metadata gaps; each with one direct action) → 最近完成的工作 → right column 專案狀態. Keep healthy empty and all-suppressed reminder states distinct. When no unresolved source exists, show the healthy empty state with a success check. Dashboard only reads existing request state; it must not trigger a metadata scan.
 
 ## Filters and URL
 

@@ -109,7 +109,19 @@ onBeforeUnmount(() => {
     :agent-status-error="systemStatusError"
   />
 
-  <DashboardInsights class="dashboard__insights" />
+  <UiBox class="dashboard__activity" data-testid="dashboard-activity">
+    <template #header>
+      <UiBoxTitle eyebrow="Activity" :title="t('dashboard.activityTitle')" />
+    </template>
+    <UiFlash v-if="activityError" tone="danger">
+      {{ activityError }}
+      <template #actions
+        ><UiButton size="sm" @click="activityStore.reloadActivity()">{{ t("common.retry") }}</UiButton></template
+      >
+    </UiFlash>
+    <UiSkeleton v-else-if="!activityLoaded" variant="text" :count="3" :label="t('dashboard.activityLoading')" />
+    <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
+  </UiBox>
 
   <div class="dashboard__stats">
     <UiStatCard
@@ -164,22 +176,11 @@ onBeforeUnmount(() => {
     />
   </div>
 
+  <DashboardInsights class="dashboard__insights" />
+
   <div class="dashboard__grid">
     <div class="dashboard__main">
       <AttentionBox />
-      <UiBox>
-        <template #header>
-          <UiBoxTitle eyebrow="Activity" :title="t('dashboard.activityTitle')" />
-        </template>
-        <UiFlash v-if="activityError" tone="danger">
-          {{ activityError }}
-          <template #actions
-            ><UiButton size="sm" @click="activityStore.reloadActivity()">{{ t("common.retry") }}</UiButton></template
-          >
-        </UiFlash>
-        <UiSkeleton v-else-if="!activityLoaded" variant="text" :count="3" :label="t('dashboard.activityLoading')" />
-        <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
-      </UiBox>
 
       <UiBox>
         <template #header>
@@ -254,6 +255,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.dashboard__activity,
 .dashboard__insights {
   margin-bottom: var(--space-4);
 }
