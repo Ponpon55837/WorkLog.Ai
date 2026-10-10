@@ -66,6 +66,55 @@ for (const locale of ["zh-TW", "en-US"] as const) {
             bounds.x >= 0 &&
             bounds.x + bounds.width <= width + 1,
         ).toBe(true);
+        const metrics = () =>
+          calendar.evaluate((element) => {
+            const chart = element.closest(".activity__chart")!;
+            const container = chart.parentElement!;
+            const cells = element.querySelectorAll<HTMLElement>("button, .activity__spacer");
+            const first = cells[0]!.getBoundingClientRect();
+            const last = cells[cells.length - 1]!.getBoundingClientRect();
+            return {
+              containerWidth: container.clientWidth,
+              chartWidth: chart.getBoundingClientRect().width,
+              scrollWidth: container.scrollWidth,
+              gridWidth: element.getBoundingClientRect().width,
+              cellWidth: first.width,
+              cellHeight: first.height,
+              firstLeft: first.left,
+              lastRight: last.right,
+              gridRight: element.getBoundingClientRect().right,
+            };
+          });
+        const initial = await metrics();
+        expect(Math.abs(initial.chartWidth - initial.containerWidth)).toBeLessThanOrEqual(1);
+        expect(initial.scrollWidth).toBeLessThanOrEqual(initial.containerWidth + 1);
+        expect(Math.abs(initial.cellWidth - initial.cellHeight)).toBeLessThanOrEqual(1);
+        expect(Math.abs(initial.lastRight - initial.gridRight)).toBeLessThanOrEqual(1);
+        const resizedWidth = width === 375 ? 960 : 375;
+        await page.setViewportSize({ width: resizedWidth, height: 900 });
+        await expect
+          .poll(async () => {
+            const value = await metrics();
+            return Math.abs(value.chartWidth - value.containerWidth);
+          })
+          .toBeLessThanOrEqual(1);
+        const resized = await metrics();
+        expect(resized.scrollWidth).toBeLessThanOrEqual(resized.containerWidth + 1);
+        expect(Math.abs(resized.cellWidth - initial.cellWidth)).toBeGreaterThan(1);
+        expect(Math.abs(resized.lastRight - resized.gridRight)).toBeLessThanOrEqual(1);
+        await page.setViewportSize({ width, height: 900 });
+        await dayKeyboardCheck();
+        async function dayKeyboardCheck() {
+          const current = calendar.locator('button[tabindex="0"]');
+          await current.focus();
+          const date = await current.getAttribute("data-date");
+          await page.keyboard.press("ArrowLeft");
+          const moved = calendar.locator('button[tabindex="0"]');
+          await expect(moved).toBeFocused();
+          expect(await moved.getAttribute("data-date")).not.toBe(date);
+          await page.keyboard.press("ArrowRight");
+          await expect(calendar.locator('button[tabindex="0"]')).toHaveAttribute("data-date", date!);
+        }
         const content = await page
           .locator("#main")
           .evaluate((el) => ({ width: el.clientWidth, scrollWidth: el.scrollWidth }));

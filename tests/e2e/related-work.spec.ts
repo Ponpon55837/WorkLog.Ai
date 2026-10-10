@@ -54,6 +54,20 @@ for (const locale of ["zh-TW", "en-US"] as const)
         await expect(box.locator("li")).toHaveCount(5);
         await expect(box).toContainText(textIn(locale, "related.shared", { count: 2 }));
         await expect(box).toContainText("src/very-long-directory/one.ts");
+        const insets = await box.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const content = element.querySelector('[data-testid="related-work-content"]')!;
+          const children = [...content.querySelectorAll("p, time, button")];
+          return children.map((child) => {
+            const rect = child.getBoundingClientRect();
+            return { left: rect.left - bounds.left, right: bounds.right - rect.right };
+          });
+        });
+        expect(insets.length).toBeGreaterThan(5);
+        for (const inset of insets) {
+          expect(inset.left).toBeGreaterThanOrEqual(12);
+          expect(inset.right).toBeGreaterThanOrEqual(12);
+        }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         expect((await new AxeBuilder({ page }).include('[data-testid="related-work"]').analyze()).violations).toEqual(
           [],

@@ -106,7 +106,8 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     mutation: (input: UpdateKnowledgeInput) => useApi().client.updateKnowledge(input.knowledgeId, input),
     onSuccess: async (result, input) => {
       if (result.outcome !== "knowledge_updated") return;
-      await Promise.all([
+      // A read refresh must not turn a committed write into an editor failure.
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
@@ -119,7 +120,8 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     mutation: (input: RecordKnowledgeInput) => useApi().client.recordKnowledge(input),
     onSuccess: async (result) => {
       if (result.outcome !== "knowledge_recorded") return;
-      await Promise.all([
+      // A read refresh must not turn a committed write into an editor failure.
+      await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
@@ -129,7 +131,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const requestKnowledgeCandidatesMutation = useMutation({
     mutation: (input: KnowledgeCandidateRequestInput) => useApi().client.requestKnowledgeCandidates(input.projectRoot),
     onSuccess: async (_result, _input) => {
-      await queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates });
+      await Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates })]);
     },
   });
   const decideKnowledgeCandidateMutation = useMutation({
@@ -146,7 +148,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
           queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         );
       }
-      await Promise.all(invalidations);
+      await Promise.allSettled(invalidations);
     },
   });
 

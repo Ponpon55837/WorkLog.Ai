@@ -87,3 +87,7 @@ Order is fixed: full-width **ACTIVITY** heatmap (directly after PageHeader / fir
 - ≥ 960: full sidebar, 4-column stats, right column visible.
 - 640–959: 56px icon-rail sidebar with tooltips, 2-column stats, single content column.
 - < 640: sidebar becomes a drawer behind a menu button, search trigger becomes an icon, 16px page gutter, filter menu triggers show icon + chevron only, SidePanel full screen.
+
+## Timeline viewport
+
+Measure the mounted chart viewport before fitting the period. Fit on first load, period/project changes and returning from list view; while fitted, resize with the container. Preserve manual zoom on resize. Hidden/list views have zero width and must not set the fit scale. Full-year ranges fit tablet widths.
