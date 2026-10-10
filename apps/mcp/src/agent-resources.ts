@@ -110,7 +110,7 @@ export function registerAgentResources(server: McpServer): void {
           mimeType: "text/markdown",
           text: [
             "# Architecture diagram v1",
-            "Send kind=architecture, formatVersion=1, source=JSON.stringify(data). Mermaid remains the default (20,000 characters); architecture source is limited to 100,000 characters, 200 nodes, 500 edges, 40 flat groups and 20 author-defined paths.",
+            "Send kind=architecture, formatVersion=1, source=JSON.stringify(data). New writes require explicit kind and version; historical Mermaid is read/import-only. Architecture source is limited to 100,000 characters, 200 nodes, 500 edges, 40 flat groups and 20 author-defined paths.",
             "Ids must be unique per collection and must not use credential prefixes sk- or xox[abprs]-. Every group and endpoint reference must exist. Path edgeIds must exist and connect in order; paths describe authored intent, not observed execution. Source paths are project-relative metadata only and never authorize file access. Unknown fields and unsupported versions are rejected. Labels/descriptions are escaped plain text, not HTML.",
             "```json",
             JSON.stringify(toJsonSchema(architectureDiagramSchema)),

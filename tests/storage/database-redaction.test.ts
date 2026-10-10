@@ -35,6 +35,7 @@ describe("database redaction", () => {
         {
           title: "API",
           kind: "architecture",
+          formatVersion: 1,
           source: JSON.stringify({ version: 1, nodes: [{ id: "api", label: "API" }] }),
         },
       ],

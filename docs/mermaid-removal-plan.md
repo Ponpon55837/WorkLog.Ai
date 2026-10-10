@@ -1,6 +1,6 @@
 # Mermaid 移除方案
 
-日期：2026-10-10。狀態：**規劃已完成，尚未實作移除**。後續由五項功能與總覽活動熱度首屏均合併後的 main 開始，每階段獨立 worktree／PR；最新 head 三平台 Quality 與三瀏覽器 E2E 全綠後才合併。
+日期：2026-10-10。狀態：**M1／M2 實作及本機八項檢查已完成；三瀏覽器 E2E 為 Chromium 158／Firefox 103／WebKit 100 通過，1 個既有截圖案例略過；M4 平台 CI 與部署尚未完成，實機依使用者決定免驗**。基於五項整合主線在隔離 worktree 執行；最新 head 三平台 Quality 與三瀏覽器 E2E 全綠後才合併。
 
 ## 目標與歷史資料
 
@@ -39,7 +39,7 @@ architecture v1 支援卡片、平面群組、來源、直接關係與作者路�
 1. 先補 legacy source 的繁中／英文、明暗、展開閱讀、可選文字、複製／下載與返回來源；保留網址中圖表選取及作廢操作。
 2. source 以 Vue 純文字綁定呈現，不用 v-html，不執行圖表語法或任意 HTML；維持嚴格 CSP、同來源 API 與 project policy。
 3. 刪除 MermaidDiagram、loader、renderer util、套件與無其他消費者的 KaTeX override／專用測試／probe 命令。
-4. 以相同 Node／build 設定記錄移除前後 dist 原始／gzip 大小、延遲 chunk、首次開圖耗時與網路請求。尚無移除後數據，不先宣稱節省幅度。
+4. 以相同 Node／build 設定記錄移除前後 dist 原始／gzip 大小、延遲 chunk、首次開圖耗時與網路請求。前後量測已記錄於下方實作證據，方法與限制隨數據保存。
 
 驗收：依賴圖與 production build 無 Mermaid 執行依賴，實際頁面不下載 Mermaid／KaTeX 圖表資產；歷史來源保留，architecture 卡片與 strict CSP 正常。
 
@@ -61,6 +61,20 @@ architecture v1 支援卡片、平面群組、來源、直接關係與作者路�
 
 ## 開始與完成條件
 
-本文件只交付規劃，後續需新的實作指示才執行移除。完成代表新寫入只接受經驗證的原生格式、Web 無 Mermaid runtime／相依、歷史來源和生命週期不丟失、文件契約一致，且最新 head 四項 CI 通過、部署與剩餘證據缺口如實記錄。
+原規劃於 2026-10-10 已由使用者授權執行 M1、M2、M4；M3 只在選定歷史圖表後另行整理，不是此次移除的前置條件。完成代表新寫入只接受經驗證的原生格式、Web 無 Mermaid runtime／相依、歷史來源和生命週期不丟失、文件契約一致，且最新 head 四項 CI 通過、部署與剩餘證據缺口如實記錄。
 
 實機 Safari／觸控及大量歷史資料性能須另驗收；Playwright WebKit 不能替代實機證據。
+
+## 2026-10-10 實作驗證
+
+M1／M2 已完成程式實作：core 與新寫入 schema 要求明確 architecture v1，REST／MCP／直接 storage 驗證一致；歷史 record／portable schema 保留 Mermaid。資料結構未變，維持 schema 30；契約 fingerprint 更新保護舊 MCP 連線。Web 只以文字插值閱讀歷史來源，支援展開、URL 恢復、複製與下載；移除 Mermaid renderer／loader／專用 KaTeX override、probe 命令與相依。舊研究原始測量保留。
+
+精確 round-trip 測試另修正歷史來源遮蔽時不應移除首尾空白；原始來源、ID、版本及作廢狀態仍保留，敏感值依原規則遮蔽。M4 的完整回歸、最新 CI、部署與實機證據尚在進行。
+
+### 本機量測
+
+使用相同 Node 25.7.0／macOS x64、build 設定，正式 Web dist 由 4,512,007 bytes（gzip 1,302,348）降至 1,070,673 bytes（gzip 328,184）；JS 合計由 4,380,407 降至 940,343 bytes。主入口僅由 506,975 降至 501,256 bytes，主要減少的是原本延遲載入的圖表套件，不能把整體差額當作首屏節省。
+
+三次全新 Chromium context、同一張 3 節點合成圖，JS 請求為 20 → 11；移除後沒有 Mermaid／KaTeX 圖表資產請求。從導航至內容可讀的本機中位數為 927 → 799 ms，展開中位數 168 → 110 ms。前者等候 SVG、後者等候原始碼，能力不同且包含 UI 與本機排程成本；不宣稱渲染效能等價或通用加速幅度。原始數據及方法見[驗證資料](experiments/mermaid-removal-2026-10-10.json)。production dependency audit：high／critical／moderate／low 均為 0。
+
+最新 UI 提交 `1e16f604` 整合後，重新建置對照：Web dist 4,512,610 → 1,071,327 bytes，gzip 1,302,454 → 328,330 bytes；此組沒有重測冷開時間，不與上方初期冷開資料混用。最新 compiled MCP 契約 fingerprint 已改變，schema 仍為30。

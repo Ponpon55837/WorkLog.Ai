@@ -1738,6 +1738,7 @@ describe("Work Intelligence MCP server", () => {
         idempotencyKey: "valid",
         title: "Web",
         kind: "architecture",
+        formatVersion: 1,
         source,
       }),
     ).toMatchObject({ outcome: "diagram_attached" });
@@ -1746,9 +1747,33 @@ describe("Work Intelligence MCP server", () => {
       idempotencyKey: "invalid",
       title: "Web",
       kind: "architecture",
+      formatVersion: 1,
       source: "{}",
     });
     expect(invalid.isError).toBe(true);
+    for (const content of [
+      { title: "Implicit", source },
+      { title: "Legacy", kind: "mermaid", formatVersion: 1, source: "flowchart LR\n A --> B" },
+      { title: "Missing version", kind: "architecture", source },
+    ]) {
+      expect(
+        (
+          await callMcpOperation(client, "work_attach_diagram", {
+            sessionId: finalized.session.id,
+            idempotencyKey: "rejected",
+            ...content,
+          })
+        ).isError,
+      ).toBe(true);
+      expect(
+        (
+          await callMcpOperation(client, "work_finalize_session", {
+            ...finalizePayload(root, "rejected", "Rejected"),
+            diagrams: [content],
+          })
+        ).isError,
+      ).toBe(true);
+    }
     expect(store.getSessionDetail(finalized.session.id)?.diagrams).toHaveLength(2);
   });
 
@@ -1758,13 +1783,22 @@ describe("Work Intelligence MCP server", () => {
     store.updateProject(project.id, { status: "tracked" });
     const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
       ...finalizePayload(root, "mcp-diagram-001", "Diagrammed"),
-      diagrams: [{ title: "At finalize", source: "flowchart LR\n  A --> B" }],
+      diagrams: [
+        {
+          title: "At finalize",
+          kind: "architecture",
+          formatVersion: 1,
+          source: JSON.stringify({ version: 1, nodes: [{ id: "api", label: "API" }] }),
+        },
+      ],
     });
     const payload = {
       sessionId: finalized.session.id,
       idempotencyKey: "diagram-1",
       title: "Later",
-      source: "sequenceDiagram\n  A->>B: hi",
+      kind: "architecture",
+      formatVersion: 1,
+      source: JSON.stringify({ version: 1, nodes: [{ id: "web", label: "Web" }] }),
     };
     expect(await callJson(client, "work_attach_diagram", payload)).toMatchObject({
       outcome: "diagram_attached",

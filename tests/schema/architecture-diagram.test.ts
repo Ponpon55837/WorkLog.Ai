@@ -19,12 +19,18 @@ const data = {
 const base = { sessionId: "session", idempotencyKey: "diagram", title: "Flow" };
 
 describe("architecture diagram input", () => {
-  it("accepts bounded versioned data and retains Mermaid defaults and size limits", () => {
+  it("accepts bounded versioned data and rejects legacy or implicit new writes", () => {
     expect(
       attachDiagramInputSchema.parse({ ...base, kind: "architecture", formatVersion: 1, source: JSON.stringify(data) })
         .kind,
     ).toBe("architecture");
-    expect(attachDiagramInputSchema.safeParse({ ...base, source: "flowchart LR; A --> B" }).success).toBe(true);
+    for (const input of [
+      { ...base, source: "flowchart LR; A --> B" },
+      { ...base, kind: "mermaid", formatVersion: 1, source: "flowchart LR; A --> B" },
+      { ...base, kind: "architecture", source: JSON.stringify(data) },
+      { ...base, formatVersion: 1, source: JSON.stringify(data) },
+    ])
+      expect(attachDiagramInputSchema.safeParse(input).success).toBe(false);
     expect(attachDiagramInputSchema.safeParse({ ...base, source: "x".repeat(20_001) }).success).toBe(false);
     expect(parseArchitectureDiagram(JSON.stringify({ version: 1, nodes: [{ id: "a", label: "A" }] }))?.edges).toEqual(
       [],

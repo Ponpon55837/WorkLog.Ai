@@ -32,7 +32,7 @@
 
 C3 與 A2 的最新 head 三平台 Quality 與 E2E 均 SUCCESS。A2 CI 保留 Chromium 批次復原完整重跑及 WebKit 複製 hover 對比的 flaky 證據；對比問題另以 PR #234 固定滑鼠停留狀態驗證並修正，沒有放寬 axe。各 PR 的最終 head／合併及 CI 結果以其檢查紀錄為準。
 
-[Mermaid 移除方案](mermaid-removal-plan.md)已列出寫入契約、歷史原始資料保留、執行期／套件移除與驗收；目前只完成規劃，尚未移除或自動轉換舊圖表。合成查詢探測不能代替真實 SQLite／UI 性能，Playwright WebKit 不能代替實機 Safari／觸控。主安裝部署與 MCP 建置連線須另核對 health／HTTP／schema，不能由合併或 CI 推定。
+[Mermaid 移除方案](mermaid-removal-plan.md)已列出寫入契約、歷史原始資料保留、執行期／套件移除與驗收；M1／M2 已完成程式修改，完整驗證與合併仍待確認；尚未部署移除或自動轉換舊圖表。合成查詢探測不能代替真實 SQLite／UI 性能，Playwright WebKit 不能代替實機 Safari／觸控。主安裝部署與 MCP 建置連線須另核對 health／HTTP／schema，不能由合併或 CI 推定。
 
 1.4.0 已於 2026-10-09 正式發布（[Release](https://github.com/Ponpon55837/WorkLog.Ai/releases/tag/v1.4.0)，PR #225）；早期 v1.0.0 tag／Release 待辦不再列為目前待辦，實機驗收限制仍保留。
 
@@ -330,6 +330,10 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 
 UI 改版 P0–P4（六頁、共用 UI、App.vue 拆解、a11y、Ctrl／⌘ K）；集中 API client 與 AbortController；`store.ts` 拆出 repository；ESLint／Prettier；coverage 門檻（schema、storage handoff parser）；Graph server-side cursor 與 viewport culling；列表 virtual list；Provider + No-op；跨行程 idempotency 與 migration 交易保護；Content-Type 與 payload 上限；symlink real-path 二次檢查；`commit_required` 移除；handoff parser 單元測試與輸出邊界。
 
-時間軸回歸另修正 Agent 決策提升為 Knowledge 的刷新競態：讀取取消不改變已提交寫入結果。實機驗收及 1.5.0 發行仍待後續完成。
+時間軸回歸另修正 Agent 決策提升為 Knowledge 的刷新競態：讀取取消不改變已提交寫入結果。實機驗收依使用者指示免驗；1.5.0 發行仍在收尾。
 
 - 使用者截圖所示 Session「可能相關」貼邊已補 12px 內距，統一標題／日期／路徑對齊；雙語、明暗、三尺寸與三瀏覽器的視覺驗證待最新建置確認，沿用 PR #236。
+
+## 1.5.0 接手收尾
+
+Mermaid M1/M2 已實作：新增寫入明確要求 architecture v1，保留歷史圖表完整資料生命週期並提供安全原始碼閱讀。schema 維持 30，沒有資料表變更；新 MCP 契約需重新連接。自動化整合驗證與發行尚在進行；Safari／觸控、Windows 實機依使用者指示免驗，沒有實測通過的證據。

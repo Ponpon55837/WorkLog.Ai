@@ -1160,8 +1160,6 @@
     "copyLink": "複製連結",
     "copyMarkdown": "複製為 Markdown",
     "couldNotCreateTheLink": "無法建立關聯。",
-    "couldNotDrawThisDiagram": "無法繪製這張圖表。",
-    "couldNotDrawThisDiagramHereIsThe": "無法繪製這張圖表（{failure}），以下是原始碼：",
     "couldNotLoadSessionDetails": "無法載入 Session detail。",
     "couldNotRemoveTheLink": "無法移除關聯。",
     "couldNotRestore": "無法還原。",
@@ -1186,8 +1184,6 @@
     "linkedSessions": "關聯 Session",
     "linkedSessionsList": "關聯 Session 清單",
     "list": "{label}清單",
-    "loadingDiagram": "載入圖表",
-    "loadingDiagramText": "載入圖表…",
     "markAsWrong": "標示為錯誤",
     "markEvidenceAsWrong": "標示 Evidence 為錯誤",
     "markedAsWrong": "{voidedEvidenceCount} 筆已標示錯誤",
@@ -1313,7 +1309,12 @@
     "selectArchitectureNode": "選取節點查看說明、來源與直接關係。",
     "inspectArchitectureNode": "查看 {label} 節點資訊",
     "authoredPathNote": "作者定義的連線順序，並非執行追蹤。",
-    "unsupportedArchitectureDiagram": "此圖表格式無法顯示，請檢視來源。"
+    "unsupportedArchitectureDiagram": "此圖表格式無法顯示，請檢視來源。",
+    "legacyMermaidSource": "歷史 Mermaid 圖表保留原始碼供閱讀，不再繪製。",
+    "copyDiagramSource": "複製原始碼",
+    "downloadDiagramSource": "下載原始碼",
+    "diagramSourceCopied": "已複製圖表原始碼。",
+    "diagramSource": "{title} 原始碼"
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "每一次完成，都留下可追溯的脈絡。",

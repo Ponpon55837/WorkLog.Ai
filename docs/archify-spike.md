@@ -1,6 +1,6 @@
 # Archify 第二階段技術驗證
 
-結論：保留現有 Mermaid，另以本專案擁有的版本化 JSON 與 Vue／SVG 閱讀器支援大型架構圖。採用 Archify 的群組、節點來源與作者定義路徑概念；原始 standalone HTML 無法直接套用目前的正式 CSP。
+歷史研究結論（2026-10-09）：保留現有 Mermaid，另以本專案擁有的版本化 JSON 與 Vue／SVG 閱讀器支援大型架構圖。採用 Archify 的群組、節點來源與作者定義路徑概念；原始 standalone HTML 無法直接套用目前的正式 CSP。
 
 ## 可重現範圍
 
@@ -65,3 +65,5 @@ pnpm test:archify-probe /path/to/archify-checkout
 腳本拒絕錯版或有變更的上游；每次建立新的系統暫存資料夾，列出 `Probe output`，保存 environment、generation、locale、browser-results，以及兩種合成來源／HTML。它沒有執行全域 skill 安裝，不自動 clone，也不把上游程式碼當成 Agent 指令。這是選擇性的人工技術探測，不加入無網路上游 checkout 的一般 CI。初次探測曾因 animation enum 不符失敗，另一次 Firefox 探測遭中止；本文數據只採用最後 75 組完整成功的執行。
 
 實機 Safari／觸控、密集圖、巢狀群組、冷啟動下載與完整框架互動成本均未量測。
+
+2026-10-10 更新：使用者已授權 Mermaid 移除方案。以上數據與結論保留當時的研究事實；`test:archify-probe` 與專用渲染工具已隨移除刪除，重現本研究請使用移除前版本。最新能力見 [Mermaid 移除方案](mermaid-removal-plan.md)。

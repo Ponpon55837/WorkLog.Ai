@@ -2156,6 +2156,7 @@ test.describe("Work Intelligence browser regression", () => {
           {
             title: "200 synthetic nodes",
             kind: "architecture",
+            formatVersion: 1,
             source: JSON.stringify({
               version: 1,
               nodes: Array.from({ length: 200 }, (_, index) => ({ id: `n${index}`, label: `Node ${index}` })),
@@ -2214,109 +2215,107 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(reader.locator(".architecture__node")).toHaveCount(2);
   });
 
-  test("reads, pans and zooms a Mermaid diagram under the strict CSP, falls back to source, and voids it @cross-browser", async ({
+  test("reads historical Mermaid as escaped source, copies/downloads it and preserves lifecycle under CSP @cross-browser", async ({
     page,
     browserName,
   }) => {
     test.setTimeout(60_000);
-    const cspConsoleMessages: string[] = [];
+    const cspMessages: string[] = [];
+    const scriptRequests: string[] = [];
     page.on("console", (message) => {
-      if (/content security policy|refused to apply inline style/i.test(message.text())) {
-        cspConsoleMessages.push(message.text());
+      if (/content security policy|refused to apply inline style/i.test(message.text()))
+        cspMessages.push(message.text());
+    });
+    page.on("request", (request) => {
+      if (request.resourceType() === "script") scriptRequests.push(request.url());
+    });
+    const source = 'flowchart LR\n Hive --> Jar\n %% <img src=x onerror="window.legacyExecuted=true">';
+    const id = withAgentStore((store) => {
+      // Import a historical bundle: the current writer only accepts native architecture snapshots.
+      const fixture = new WorkIntelligenceStore(":memory:");
+      try {
+        const project = fixture.addProject("Legacy diagram fixture", projectRoot);
+        fixture.updateProject(project.id, { status: "tracked" });
+        const saved = fixture.finalizeSession({
+          projectRoot,
+          idempotencyKey: `legacy-source-${process.pid}`,
+          title: "Legacy source fixture",
+          summary: "Historical diagram imported without conversion.",
+          changedFiles: [],
+          verification: { status: "passed" },
+          diagrams: [
+            {
+              title: "E2E historical flow",
+              kind: "architecture",
+              formatVersion: 1,
+              source: JSON.stringify({ version: 1, nodes: [{ id: "hive", label: "Hive" }] }),
+            },
+          ],
+        });
+        if (saved.outcome !== "finalized") throw new Error("Expected fixture Session");
+        const bundle = fixture.exportProjectData({ type: "project", projectId: project.id });
+        for (const row of bundle.tables.session_diagrams) {
+          row.kind = "mermaid";
+          row.source = source;
+          delete row.format_version;
+        }
+        store.importProjectData({ bundle, remap: [] });
+        return saved.session.id;
+      } finally {
+        fixture.close();
       }
     });
-
-    const diagramSessionId = withAgentStore((store) => {
-      const finalized = store.finalizeSession({
-        projectRoot,
-        idempotencyKey: `e2e-diagram-${process.pid}`,
-        title: `E2E diagram Session ${process.pid}`,
-        summary: "Carries one valid and one broken diagram.",
-        changedFiles: [],
-        verification: { status: "passed" },
-        diagrams: [
-          {
-            title: "E2E honey flow",
-            source:
-              "flowchart LR\n  Hive --> Extractor --> Jar\n  " +
-              Array.from(
-                { length: 18 },
-                (_, index) => `Step${index}[Processing stage ${index}] --> Step${index + 1}`,
-              ).join("\n  "),
-          },
-          { title: "E2E broken diagram", source: "flowchart LR\n  A -->" },
-        ],
-      });
-      if (finalized.outcome !== "finalized") throw new Error("Expected the diagram fixture Session.");
-      return finalized.session.id;
-    });
-
-    const response = await page.goto(`/sessions?session=${diagramSessionId}`);
+    const response = await page.goto(`/sessions?session=${id}`);
     expect(response?.headers()["content-security-policy"]).toContain("style-src-elem 'self'");
     const panel = page.getByRole("dialog", { name: tt("session.sessionDetails") });
-    const flow = panel.getByTestId("session-diagram").filter({ hasText: "E2E honey flow" });
-    // Mermaid loads only when a diagram scrolls into view.
-    await flow.scrollIntoViewIfNeeded();
-    await expect(flow.getByRole("img", { name: "E2E honey flow", exact: true }).locator("svg")).toBeVisible();
-    await expect(flow.getByRole("img", { name: "E2E honey flow", exact: true }).locator("svg")).toContainText(
-      "Extractor",
-    );
+    const flow = panel.getByTestId("session-diagram").filter({ hasText: "E2E historical flow" });
+    await expect(flow).toContainText(tt("session.legacyMermaidSource"));
     const expand = flow.getByRole("button", { name: tt("session.expandDiagram") });
     await expand.click();
     const reader = page.getByRole("dialog", { name: tt("session.diagramReader") });
-    const canvas = reader.getByRole("region", { name: tt("session.diagramCanvas", { title: "E2E honey flow" }) });
-    await expect(canvas.locator("svg")).toBeVisible();
-    await expect(canvas.locator("foreignObject")).toHaveCount(0);
-    expect(
-      await canvas.locator("svg").evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
-        return Array.from(element.querySelectorAll(".node")).every((node) => {
-          const box = node.getBoundingClientRect();
-          return box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
-        });
-      }),
-    ).toBe(true);
-
+    await expect(reader.locator("pre")).toHaveText(source);
+    await expect(reader.locator("img, script, pre svg")).toHaveCount(0);
+    expect(await page.evaluate(() => "legacyExecuted" in window)).toBe(false);
     await expect(page).toHaveURL(/diagram=/);
-    await reader.getByRole("button", { name: tt("session.zoomIn"), exact: true }).click();
-    await expect.poll(() => canvas.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-    const zoomedWidth = await canvas.locator("svg").evaluate((element) => element.getBoundingClientRect().width);
-    await reader.getByRole("button", { name: tt("session.zoomOut"), exact: true }).click();
-    await expect
-      .poll(() => canvas.locator("svg").evaluate((element) => element.getBoundingClientRect().width))
-      .toBeLessThan(zoomedWidth);
-    await canvas.focus();
-    await page.keyboard.press("+");
-    const beforeKey = await canvas.evaluate((element) => element.scrollLeft);
-    await page.keyboard.press("ArrowRight");
-    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBeGreaterThan(beforeKey);
-    const bounds = await canvas.boundingBox();
-    if (!bounds) throw new Error("Missing diagram canvas bounds.");
-    const beforeDrag = await canvas.evaluate((element) => element.scrollLeft);
-    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(bounds.x + bounds.width / 2 + 48, bounds.y + bounds.height / 2);
-    await page.mouse.up();
-    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBeLessThan(beforeDrag);
-    await canvas.focus();
-    await page.keyboard.press("0");
-    await expect.poll(() => canvas.evaluate((element) => element.scrollLeft)).toBe(0);
-    await reader.getByRole("button", { name: tt("session.actualDiagramSize") }).click();
-    await expect(reader.locator("output")).toHaveText(tt("session.diagramZoom", { percent: 100 }));
-    await reader.getByRole("button", { name: tt("session.fitDiagram") }).click();
-    await reader.getByText(tt("session.viewSource"), { exact: true }).click();
-    await expect(reader.locator("pre")).toContainText("Step18");
-    await canvas.focus();
-    await page.keyboard.press("k");
-    await expect(reader).toBeVisible();
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            document.documentElement.dataset.copiedSource = text;
+          },
+        },
+      });
+    });
+    await reader.getByRole("button", { name: tt("session.copyDiagramSource") }).click();
+    await expect.poll(() => page.locator("html").getAttribute("data-copied-source")).toBe(source);
+    await expect(page.getByText(tt("session.diagramSourceCopied"), { exact: true })).toBeVisible();
+    await page.evaluate(() =>
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async () => {
+            throw new Error("Fixture clipboard denied");
+          },
+        },
+      }),
+    );
+    await reader.getByRole("button", { name: tt("session.copyDiagramSource") }).click();
+    await expect(page.getByText("Fixture clipboard denied", { exact: true })).toBeVisible();
+    await expect(reader.locator("pre")).toHaveText(source);
+    const downloadPromise = page.waitForEvent("download");
+    await reader.getByRole("button", { name: tt("session.downloadDiagramSource") }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.mmd$/);
+    const downloaded = await download.path();
+    if (!downloaded) throw new Error("Missing source download");
+    expect(readFileSync(downloaded, "utf8")).toBe(source);
     await page.keyboard.press("Escape");
     await expect(reader).toBeHidden();
     await expect(expand).toBeFocused();
-    await expect(panel).toBeVisible();
     await expand.click();
     await page.reload();
-    await expect(reader).toBeVisible();
-    await expect(canvas.locator("svg")).toBeVisible();
+    await expect(reader.locator("pre")).toHaveText(source);
     for (const [width, theme, locale] of [
       [1440, "dark", "zh-TW"],
       [960, "light", "en-US"],
@@ -2332,52 +2331,36 @@ test.describe("Work Intelligence browser regression", () => {
         { theme, locale },
       );
       await page.reload();
-      const localizedReader = page.getByRole("dialog", { name: textIn(locale, "session.diagramReader") });
-      await expect(localizedReader.getByRole("region").locator("svg")).toBeVisible();
-      await expect(localizedReader.getByRole("button", { name: textIn(locale, "session.fitDiagram") })).toBeVisible();
-      expect(await localizedReader.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-      if (width < 640)
-        expect(await localizedReader.evaluate((element) => element.getBoundingClientRect().width)).toBe(width);
+      const localized = page.getByRole("dialog", { name: textIn(locale, "session.diagramReader") });
+      await expect(localized.locator("pre")).toHaveText(source);
+      await expect(localized.getByRole("button", { name: textIn(locale, "session.copyDiagramSource") })).toBeVisible();
+      expect(await localized.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      await localizedReader.getByRole("button", { name: textIn(locale, "session.actualDiagramSize") }).click();
-      await expect(localizedReader.locator("output")).toHaveText(
-        textIn(locale, "session.diagramZoom", { percent: 100 }),
-      );
-      // Playwright injects a <style> to sync WebKit screenshots, contaminating the application CSP check.
-      if (browserName !== "webkit") {
-        await page.screenshot({ path: test.info().outputPath(`diagram-reader-${width}-${theme}-${locale}.png`) });
-      }
+      if (browserName !== "webkit")
+        await page.screenshot({ path: test.info().outputPath(`legacy-source-${width}-${theme}-${locale}.png`) });
     }
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(reader).toBeVisible();
     const violations = await new AxeBuilder({ page })
       .include('[aria-label="' + tt("session.diagramReader") + '"]')
       .analyze();
     expect(violations.violations).toEqual([]);
     await reader.getByRole("button", { name: tt("session.backToSession") }).click();
     await expect(reader).toBeHidden();
-    const broken = panel.getByTestId("session-diagram").filter({ hasText: "E2E broken diagram" });
-    await broken.scrollIntoViewIfNeeded();
-    await expect(broken).toContainText(ttPattern("session.couldNotDrawThisDiagramHereIsThe"));
-    await expect(broken.locator("pre")).toContainText("A -->");
-    await broken.getByRole("button", { name: tt("session.expandDiagram") }).click();
-    await expect(reader.locator("pre")).toContainText("A -->");
-    await expect(reader.getByRole("button", { name: tt("session.zoomIn"), exact: true })).toBeDisabled();
-    await reader.getByRole("button", { name: tt("common.retry") }).click();
-    await expect(reader.locator("pre")).toContainText("A -->");
-    await reader.getByRole("button", { name: tt("session.backToSession") }).click();
-    await expect(reader).toBeHidden();
-
-    await panel
-      .getByRole("button", { name: tt("session.voidDiagram") })
-      .first()
-      .click();
+    await panel.getByRole("button", { name: tt("session.voidDiagram") }).click();
     const dialog = page.getByRole("dialog", { name: tt("session.voidDiagram") });
-    await dialog.getByLabel(tt("session.reasonLabel")).fill("E2E: wrong flow.");
+    await dialog.getByLabel(tt("session.reasonLabel")).fill("E2E: historic snapshot.");
     await dialog.getByRole("button", { name: tt("common.void") }).click();
     await expect(dialog).toBeHidden();
-    await expect(panel).toContainText(tt("session.reasonValue", { reason: "E2E: wrong flow." }));
-    expect(cspConsoleMessages).toEqual([]);
+    await expect(panel).toContainText(tt("session.reasonValue", { reason: "E2E: historic snapshot." }));
+    await panel.getByRole("button", { name: tt("session.restoreDiagram") }).click();
+    const restore = page.getByRole("dialog", { name: tt("session.restoreThisDiagram") });
+    await restore.getByRole("button", { name: tt("session.restore"), exact: true }).click();
+    await expect(restore).toBeHidden();
+    await expect(flow).toContainText(tt("session.legacyMermaidSource"));
+    const saved = withAgentStore((store) => store.getSessionDetail(id)?.diagrams[0]);
+    expect(saved).toMatchObject({ kind: "mermaid", formatVersion: 1, source });
+    expect(saved?.voided).toBeUndefined();
+    expect(scriptRequests.some((url) => /mermaid|katex|cytoscape|flowDiagram|sequenceDiagram/i.test(url))).toBe(false);
+    expect(cspMessages).toEqual([]);
   });
 
   test("confirms backup deletion using only keyboard navigation @keyboard", async ({ page, request }) => {

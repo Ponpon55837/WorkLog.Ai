@@ -476,8 +476,8 @@ export interface SessionDiagramRecord {
 export interface DiagramContentInput {
   title: string;
   source: string;
-  kind?: SessionDiagramKind;
-  formatVersion?: 1;
+  kind: "architecture";
+  formatVersion: 1;
 }
 
 export interface AttachDiagramInput extends DiagramContentInput {

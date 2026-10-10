@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- New diagrams require explicit architecture JSON v1. Historical Mermaid stays readable as escaped, copyable, downloadable source; remove Mermaid, KaTeX and their renderer dependencies without rewriting stored diagrams.
+
 ### Fixed
 
 - Keep cleanup request creation available during background list refreshes after the current project data has loaded; retain first-load and active-request guards.
@@ -75,6 +79,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Two backups written in the same second after the oldest had been pruned reused the freed file name, so the new copy sorted as the oldest and was pruned at once. The same-second suffix now always goes past the highest existing one.
 
 ### Changed
+
+- Require explicit architecture v1 for new diagrams; keep historical Mermaid as escaped source with copy/download and remove the Mermaid/KaTeX runtime.
 
 - `pnpm test:e2e` now runs through `scripts/run-e2e.mjs`. On CI a browser project that fails is run once more from the start with a fresh server and SQLite database, because the browser regression suite shares `beforeAll` fixtures and cannot be retried test by test; a pass on the rerun is reported as a "Flaky E2E" warning and the first attempt's traces are still uploaded.
 

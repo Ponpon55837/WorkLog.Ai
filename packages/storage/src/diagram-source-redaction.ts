@@ -3,7 +3,7 @@ import { redactText, redactValue } from "./secret-redaction.js";
 
 /** Mask string values before serializing structured data, preserving JSON syntax and references. */
 export function redactDiagramSource(source: string, kind: string) {
-  if (kind !== "architecture") return redactText(source.trim());
+  if (kind !== "architecture") return redactText(source);
   const diagram = parseArchitectureDiagram(source);
   if (!diagram) throw new Error("Invalid architecture diagram.");
   const masked = redactValue(diagram);
