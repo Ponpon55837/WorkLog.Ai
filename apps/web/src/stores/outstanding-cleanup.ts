@@ -82,6 +82,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
       ),
   });
 
+  const requestsLoaded = computed(() => requestsQuery.data.value?.outcome === "outstanding_cleanup_requests");
   const requests = computed(() =>
     requestsQuery.data.value?.outcome === "outstanding_cleanup_requests" ? requestsQuery.data.value.requests : [],
   );
@@ -224,6 +225,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     proposalPage,
     proposalPageSize,
     projectId,
+    requestsLoaded,
     requests,
     requestPageInfo,
     proposals,

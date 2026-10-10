@@ -266,3 +266,42 @@ test("disables stale acceptance and keeps cancelled proposals as read-only histo
   expect(await countStatus(request, fixture.projectId, "not_needed")).toBe(1);
   await expect(panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true })).toBeEnabled();
 });
+
+test("keeps request creation usable during a background list refresh @cross-browser", async ({ page, request }) => {
+  const fixture = await seed(request, 1);
+  await page.goto(`/sessions/outstanding?itemProject=${fixture.projectId}`);
+  await page.getByRole("button", { name: tt("outstanding.tidyOpenItems"), exact: true }).click();
+  const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
+  const create = panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true });
+  await expect(panel.getByText(tt("outstanding.noRequestsYet"), { exact: true })).toBeVisible();
+  await expect(create).toBeEnabled();
+  let held = true;
+  const releaseReads: Array<() => void> = [];
+  let notifyRead: () => void = () => undefined;
+  const readStarted = new Promise<void>((resolve) => {
+    notifyRead = resolve;
+  });
+  await page.route("**/api/outstanding-cleanup/requests?*", async (route) => {
+    if (held) {
+      notifyRead();
+      await new Promise<void>((resolve) => {
+        releaseReads.push(resolve);
+      });
+    }
+    await route.continue();
+  });
+  try {
+    await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+    await readStarted;
+    await expect(create).toBeEnabled();
+    await create.click();
+    const confirmation = page.getByRole("dialog", { name: tt("outstanding.createARequestToTidy") });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: tt("common.cancel"), exact: true }).click();
+    await expect(confirmation).toBeHidden();
+  } finally {
+    held = false;
+    for (const release of releaseReads) release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});

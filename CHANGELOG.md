@@ -6,6 +6,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Keep cleanup request creation available during background list refreshes after the current project data has loaded; retain first-load and active-request guards.
+
 - Add 12px content padding to Session related-work hints and align titles, dates and shared paths, with wrapping at narrow widths.
 
 - Scale all 53 activity weeks to the available container width on load and resize, with square cells and responsive month labels; retain keyboard navigation and daily report links.

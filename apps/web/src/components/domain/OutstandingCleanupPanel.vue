@@ -47,6 +47,7 @@ const {
   reviewStatus,
   proposalPage,
   proposalPageSize,
+  requestsLoaded,
   requests,
   requestPageInfo,
   proposals,
@@ -241,16 +242,21 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
         {{ t("outstanding.askTheAgentToTidy") }}
       </p>
       <div class="outstanding-cleanup__actions">
-        <UiButton variant="primary" :disabled="busy || loading || skipped || hasActiveRequest" @click="createRequest">{{
-          t("outstanding.createRequest")
-        }}</UiButton>
+        <UiButton
+          variant="primary"
+          :disabled="busy || !requestsLoaded || skipped || hasActiveRequest"
+          @click="createRequest"
+          >{{ t("outstanding.createRequest") }}</UiButton
+        >
         <UiButton :icon="RefreshCw" :disabled="busy" @click="cleanupStore.reload">{{ t("common.refresh") }}</UiButton>
       </div>
       <UiFlash v-if="skipped" tone="accent">{{ t("outstanding.trackingIsNotEnabledFor") }}</UiFlash>
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
       <UiBox>
-        <template #header><UiBoxTitle :title="t('common.cleanupRequests')" :count="requestPageInfo.total" /></template>
-        <UiSkeleton v-if="loading && !requests.length" :count="2" />
+        <template #header
+          ><UiBoxTitle :title="t('common.cleanupRequests')" :count="requestsLoaded ? requestPageInfo.total : undefined"
+        /></template>
+        <UiSkeleton v-if="loading && !requestsLoaded" :count="2" />
         <UiEmptyState
           v-else-if="!error && !requests.length"
           :title="t('outstanding.noRequestsYet')"
@@ -282,7 +288,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
             </UiBoxRow>
           </template>
         </VirtualList>
-        <template #footer
+        <template v-if="requestsLoaded" #footer
           ><UiPagination
             v-model:page-size="requestPageSize"
             :page-info="requestPageInfo"

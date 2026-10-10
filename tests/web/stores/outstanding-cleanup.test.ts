@@ -53,6 +53,33 @@ beforeEach(() => {
 afterEach(async () => harness.cleanup());
 
 describe("outstanding cleanup store", () => {
+  it("keeps loaded request evidence during refresh and resets readiness for a different project", async () => {
+    const items = useOutstandingItemsStore();
+    items.projectId = "project-1";
+    const store = useOutstandingCleanupStore();
+    expect(store.requestsLoaded).toBe(false);
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.requestsLoaded).toBe(true));
+    let releaseRead: (value: unknown) => void = () => undefined;
+    harness.setResponder((input) =>
+      input.url.pathname === "/api/outstanding-cleanup/requests"
+        ? new Promise((resolve) => {
+            releaseRead = resolve;
+          })
+        : responder(input),
+    );
+    const refresh = store.reload();
+    await vi.waitFor(() => expect(store.loading).toBe(true));
+    expect(store.requestsLoaded).toBe(true);
+    expect(store.requests[0]?.id).toBe("cleanup-1");
+    releaseRead(responder(harness.calls.at(-1)!));
+    await refresh;
+    items.projectId = "project-2";
+    await vi.waitFor(() => expect(store.requestsLoaded).toBe(false));
+    releaseRead({ outcome: "outstanding_cleanup_requests", requests: [], pageInfo });
+    await vi.waitFor(() => expect(store.requestsLoaded).toBe(true));
+    expect(store.requests).toEqual([]);
+  });
   it("requires one project, keys review filters, caps All at 100, and invalidates outstanding items on acceptance", async () => {
     const store = useOutstandingCleanupStore();
     const items = useOutstandingItemsStore();
