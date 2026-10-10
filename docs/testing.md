@@ -260,3 +260,7 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 
 
 報告複製測試涵蓋來源拒讀、修訂 409、strict query、SQLite snapshot rollback、投影與引用一致、HTML／Markdown 逸出及基本報告安全輸出。新增 `exportReportPresentation (snapshot and Markdown)` 合成 read benchmark（p90 ≤ 250 ms）。瀏覽器測試在 12 組語言／主題／尺寸中模擬剪貼簿成功與拒絕、檢查預覽／複製一致、手動選取與下載、axe 對話框及來源失效。剪貼簿 stub 不代表 OS 剪貼簿或實機 Safari 已驗證。
+
+### 提醒顯示偏好 A2
+
+儲存層回歸覆蓋隱藏／restore、七天稍後期限與到期、來源同計數／同最新時間替換、source/preference CAS、停用／跨專案／全域來源、可攜式 roundtrip 與舊備份、來源及專案永久刪除、29→30 migration 與 tuple 唯一索引。REST 覆蓋 strict schema、origin、404／409、遮罩內部錯誤與 policy skip。瀏覽器涵蓋雙語／明暗／1440、960、375px 的隱藏、reload、restore、snooze、URL、總數不結案、axe 與 409；Playwright WebKit 不代表實機 Safari。5,000 Session 新增 suppressed preferences 的 p90 上限 500ms，偏好為已檢查來源的批次 lookup。

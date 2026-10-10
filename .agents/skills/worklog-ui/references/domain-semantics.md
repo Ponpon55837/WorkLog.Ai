@@ -47,3 +47,7 @@ The Work Intelligence data contract is defined in [`docs/work-record-and-report-
 
 - Users only need natural language. Copyable instructions contain a plain-language sentence, never MCP tool names, request IDs or JSON.
 - IDs (Session ID, request ID) may appear only as de-emphasized mono metadata for copy-link purposes, never as something the user must type.
+
+### Reminder display preferences
+
+Attention `total`/`minimumTotal` and source groups count unresolved sources even when rows are hidden or snoozed. `suppressedCount` describes only the examined window. Keep the neutral "all hidden/snoozed" empty state distinct from a healthy empty queue; provide a suppressed view with restore. Display preferences never resolve/cancel source work. Single-project pointers require current source/preference CAS; global multi-project requests have no preference controls. A changed source or expired server-timed snooze resurfaces automatically.

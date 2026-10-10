@@ -48,6 +48,8 @@ import type {
   CancelReportSynthesisRequestResult,
   CreateMetadataBackfillRequestInput,
   CreateMetadataBackfillRequestResult,
+  UpdateAttentionPreference,
+  AttentionPreferenceResult,
   AttentionQuery,
   AttentionResult,
   DashboardSummary,
@@ -890,6 +892,10 @@ export class WorkIntelligenceStore {
 
   public getRelatedWork(sessionId: string): RelatedWorkResult {
     return new RelatedWorkService(this.db).get(sessionId);
+  }
+
+  public updateAttentionPreference(input: UpdateAttentionPreference): AttentionPreferenceResult {
+    return this.attention.updatePreference(input);
   }
 
   public getAttention(query: AttentionQuery = {}): AttentionResult {

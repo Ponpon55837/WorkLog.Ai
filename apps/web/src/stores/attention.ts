@@ -1,7 +1,7 @@
-import { useQuery } from "@pinia/colada";
+import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { AttentionKind, AttentionResult } from "@work-intelligence/core";
+import type { AttentionKind, AttentionResult, UpdateAttentionPreference } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import type { ListPageSize } from "../utils/labels";
@@ -10,15 +10,23 @@ import { t } from "../i18n";
 
 /** Owns scoped attention reads; all source actions remain in their domain workflows. */
 export const useAttentionStore = defineStore("attention", () => {
+  const cache = useQueryCache();
   const active = ref(false);
   const projectId = ref("");
   const kind = ref<AttentionKind | "">("");
+  const view = ref<"visible" | "suppressed">("visible");
   const page = ref(1);
   const pageSize = ref<ListPageSize>(20);
   const query = useQuery<AttentionResult>({
     key: () => [
       ...queryKeys.attention.list,
-      { projectId: projectId.value, kind: kind.value, page: page.value, pageSize: pageSize.value },
+      {
+        projectId: projectId.value,
+        kind: kind.value,
+        page: page.value,
+        pageSize: pageSize.value,
+        ...(view.value === "suppressed" ? { view: view.value } : {}),
+      },
     ],
     enabled: active,
     query: ({ signal }) =>
@@ -26,6 +34,7 @@ export const useAttentionStore = defineStore("attention", () => {
         {
           projectId: projectId.value || undefined,
           kind: kind.value || undefined,
+          view: view.value === "suppressed" ? view.value : undefined,
           page: page.value,
           pageSize: Number(pageSize.value),
         },
@@ -43,6 +52,21 @@ export const useAttentionStore = defineStore("attention", () => {
     () => Boolean(error.value) || groups.value.some((group) => group.state !== "complete"),
   );
 
+  const preferenceMutation = useMutation({
+    mutation: async (input: UpdateAttentionPreference) => {
+      const result = await useApi().client.updateAttentionPreference(input);
+      if (result.outcome === "skipped") throw new Error(t("attention.scopeSkipped"));
+      return result;
+    },
+    onSuccess: async () => {
+      await Promise.allSettled([cache.invalidateQueries({ key: queryKeys.attention.list })]);
+    },
+  });
+  const saving = computed(() => preferenceMutation.isLoading.value);
+
+  async function setPreference(input: UpdateAttentionPreference): Promise<void> {
+    await preferenceMutation.mutateAsync(input);
+  }
   function setActive(value: boolean): void {
     active.value = value;
   }
@@ -56,6 +80,9 @@ export const useAttentionStore = defineStore("attention", () => {
   return {
     projectId,
     kind,
+    view,
+    saving,
+    setPreference,
     page,
     pageSize,
     result,

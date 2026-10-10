@@ -14,6 +14,7 @@ const EXPECTED_ROUTES = [
   "DELETE /api/backups/:fileName*",
   "GET /api/context",
   "GET /api/attention",
+  "PATCH /api/attention/preferences",
   "GET /api/reports/summaries/:summaryId/presentation",
   "GET /api/reports/summaries/:summaryId/presentation/export",
   "PATCH /api/reports/summaries/:summaryId/presentation",

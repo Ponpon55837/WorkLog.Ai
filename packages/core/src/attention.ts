@@ -17,6 +17,7 @@ export type AttentionReason =
 export interface AttentionQuery {
   projectId?: string;
   kind?: AttentionKind;
+  view?: "visible" | "suppressed";
   page?: number;
   pageSize?: number;
 }
@@ -33,6 +34,7 @@ export interface AttentionItem {
   count?: number;
   updatedAt: string;
   sourceRevision: string;
+  preference?: AttentionPreference;
   target: {
     kind: AttentionKind;
     sourceId: string;
@@ -61,6 +63,24 @@ export interface AttentionList {
   minimumTotal: number;
   total: number | null;
   pageInfo: PageInfo;
+  /** Suppressed pointers in the examined window; source totals remain unchanged. */
+  suppressedCount: number;
 }
 
 export type AttentionResult = AttentionList | ProjectIdSkippedResult;
+
+export interface AttentionPreference {
+  revision: number;
+  state: "visible" | "hidden" | "snoozed";
+  snoozedUntil?: string;
+}
+export interface UpdateAttentionPreference {
+  projectId: string;
+  kind: AttentionKind;
+  sourceId: string;
+  sourceRevision: string;
+  expectedRevision: number;
+  action: "snooze" | "hide" | "restore";
+}
+export type AttentionPreferenceResult =
+  { outcome: "attention_preference"; preference: AttentionPreference } | ProjectIdSkippedResult;

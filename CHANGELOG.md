@@ -4,6 +4,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+- Reminder display preferences support hide, snooze for seven days and restore with source/preference CAS. Unresolved totals stay authoritative, changed sources resurface, and migration 30 includes portable transfer and permanent deletion.
+
 ### Added
 
 - Preview and copy basic or current report-presentation Markdown with source gates, revision checks, escaped text and a download/manual-copy fallback. Clipboard success is shown only after a successful write.

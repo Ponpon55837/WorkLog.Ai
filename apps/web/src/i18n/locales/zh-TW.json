@@ -629,7 +629,8 @@
     "workSession": "工作 Session",
     "worksummaryUpdates": "WorkSummary 更新",
     "worktree": "工作樹",
-    "reportPresentations": "報告呈現版本"
+    "reportPresentations": "報告呈現版本",
+    "attentionPreferences": "提醒顯示偏好"
   },
   "layout": {
     "dataStaysInLocalSqlite": "資料只存在本機 SQLite",
@@ -1582,7 +1583,21 @@
       "newData": "有新資料",
       "open": "未結項入口",
       "missing": "metadata 缺漏"
-    }
+    },
+    "view": "提醒顯示",
+    "visibleView": "目前顯示",
+    "suppressedView": "已延後／隱藏",
+    "snooze": "延後七天",
+    "hide": "此次不顯示",
+    "restore": "恢復提醒",
+    "preferenceActions": "提醒設定",
+    "preferenceSaved": "已更新提醒顯示，來源仍待處理。",
+    "preferenceFailed": "無法更新提醒設定，請重新整理後再試。",
+    "suppressedCount": "目前查閱範圍有 {count} 筆提醒已延後或隱藏，仍計入來源待處理總數。",
+    "allSuppressed": "目前範圍的提醒已延後或隱藏",
+    "noSuppressed": "目前沒有已延後或隱藏的提醒",
+    "suppressedDescription": "切換至「已延後／隱藏」可恢復提醒；來源有新問題時會重新顯示。",
+    "until": "延後至 {date}"
   },
   "related": {
     "title": "可能相關",

@@ -417,3 +417,5 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 [MIT](LICENSE)
 
 報告可預覽並複製基本版 Markdown 或目前整理版；整理版保留釘選、隱藏、改稿及來源引用，重新核對來源與修訂版本。先預覽，再點複製；剪貼簿存取失敗時可選取預覽文字或下載 Markdown。
+
+提醒列可隱藏此次、七天後再提醒，或由隱藏／稍後清單重新顯示；待處理總數仍依原來源計算。

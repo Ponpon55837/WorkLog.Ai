@@ -12,6 +12,7 @@ import {
 type ProjectDataTables = Record<ProjectDataTable, Array<Record<string, string | number | null>>>;
 
 const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
+  attention_preferences: ["project_id", "kind", "source_id", "source_revision", "state", "revision", "updated_at"],
   projects: ["name", "root_path", "status", "created_at", "updated_at"],
   sessions: [
     "project_id",
@@ -153,6 +154,7 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
 };
 
 const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = {
+  attention_preferences: { kind: "decision", state: "visible" },
   projects: { status: "tracked" },
   sessions: { status: "finalized", execution_status: "completed" },
   work_events: { type: "execution" },
@@ -198,6 +200,10 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
     }
   }
   Object.assign(row, enumDefaults[table]);
+  if (table === "attention_preferences") {
+    row.revision = 1;
+    row.source_revision = "a".repeat(64);
+  }
   if (table === "session_diagrams") row.format_version = 1;
   if (table === "projects") {
     row.root_path = "/original/project";
@@ -388,5 +394,22 @@ describe("project data transfer schemas", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+  it("rejects malformed display intent revisions and snooze states in portable data", () => {
+    const bundle = validBundle();
+    const row = rowAt(bundle, "attention_preferences");
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
+    row.revision = 0;
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
+    row.revision = 1;
+    row.source_revision = "unverified";
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
+    row.source_revision = "a".repeat(64);
+    row.state = "snoozed";
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
+    row.snoozed_until = "2026-10-17T00:00:00.000Z";
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
+    row.state = "visible";
+    expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
   });
 });
