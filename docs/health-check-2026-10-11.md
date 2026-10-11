@@ -229,10 +229,12 @@ Agent 使用的基礎契約清楚，主要落差在「有界」報告讀取沒�
 
 實際瀏覽器回歸發現即時更新後清單捲動歸零：項目 ID 相同但列表重建會重設位置。先以真實 SSE 更新重現 240px → 0px，再為未結項與清理列表指定穩定 ID。最終定向六項測試全部通過，包含更新來源標題後保留 240px 位置；375px 畫面人工檢視確認成果區可在首屏讀到，長摘要展開按鈕可用。
 
-本機 build、單元測試（887 通過、1 原有略過）、typecheck、八套件 coverage、47 路效能、25 項檢索品質、12 項 MCP 回應大小及 recall smoke 通過。效能合成資料為 5,000 筆 Session、15 次量測；大量 pending context 的 p90 為 87.68ms，固定來源 context 74ms，Agent budget context 76.16ms。這些是合成門檻，不能推定真實資料庫或帳戶 token 成本。新增 skill 通過官方結構驗證，plugin 資源與 canonical 指南一致。
+本機 build、單元測試（888 通過、1 原有略過）、typecheck、八套件 coverage、47 路效能、25 項檢索品質、12 項 MCP 回應大小及 recall smoke 通過。效能合成資料為 5,000 筆 Session、15 次量測；大量 pending context 的 p90 為 87.68ms，固定來源 context 74ms，Agent budget context 76.16ms。這些是合成門檻，不能推定真實資料庫或帳戶 token 成本。新增 skill 通過官方結構驗證，plugin 資源與 canonical 指南一致。
 
 中途 Chromium 回歸有失敗與中斷：錯誤訊息測試先使用錯誤翻譯 namespace，已改為既有格式訊息；原生 PageDown 與即時更新導致的捲動問題保留失敗證據後修正。首輪 128 通過、2 失敗、1 中斷、47 未跑；下一輪完整回歸 120 通過、1 失敗、57 未跑；修正後重新執行完整三瀏覽器回歸，未放寬原有 timeout 或 axe 門檻。
 
 歷史週報文字未批次改寫，因此初始的歷史重複文字項目仍保留。先前 coverage／axe timeout 的根因未經這次證明，仍保留原檢查限制；這次通過也不代表正式 STE 合規或讀者研究成效。主 bundle 約 502KB 的建置警告仍存在。PR、完整瀏覽器與發布結果以最終工作記錄、PR 檢查及 v1.5.1 發行頁核對。
 
 實際 stdio MCP Agent 流程以隔離合成資料驗證兩頁來源預覽、完整補讀、附引用報告保存與冪等重送，原來源保持不變。另以合法較長的相容更新訊息重現服務狀態在預覽後附加、使最終 JSON 超出上限的邊界；修正為同一服務狀態快照參與整體預算並保留完整狀態訊息。這個案例先失敗再修正，不以一般短回應通過取代邊界檢查。
+
+PR #240 最新提交的四項 CI 首輪通過並於 2026-10-11 13:19:24（Asia/Taipei）合併，合併樹與已測樹相同。主線 macOS Quality 隨後在自訂報告歷史排序失敗：兩版 createdAt 同為同一毫秒，UUID 倒序把舊版放在目前版前。新增固定時間、反向 UUID 的測試穩定重現；相同時間時改以 is_current 優先，再保留 ID 穩定排序，涵蓋完整歷史及 limit: 1。此補修維持 1.5.1／schema 30，另開 PR 驗證；初次主線失敗保留於 [CI run](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/38114410196)，沒有用單純重跑替代修正。

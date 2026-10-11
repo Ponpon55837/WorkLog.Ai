@@ -14,6 +14,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Separate first-load, failure and empty synthesis states; guard creation while source status is unknown. Display saved citations separately from current-period totals and let readers expand long executive summaries.
 - Preserve outstanding-item and cleanup-list reading positions during live updates by keeping stable item IDs.
 - Bound pending report source pointers in general Agent context without discarding stored request sources.
+- Keep the current report version before history when creation timestamps match, including bounded history pages.
 - Omit reconnect recommendations when the MCP runtime is healthy.
 
 ### Added
