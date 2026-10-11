@@ -6,7 +6,10 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import type { OutstandingCleanupContextResult } from "../../packages/core/src/index.js";
 import { tt } from "./helpers/i18n.js";
 
-async function seed(request: APIRequestContext, count = 12): Promise<{ projectId: string; evidenceId: string }> {
+async function seed(
+  request: APIRequestContext,
+  count = 12,
+): Promise<{ projectId: string; evidenceId: string; sourceId: string }> {
   const root = mkdtempSync(join(tmpdir(), "cleanup-browser-fictional-"));
   const projectResponse = await request.post("/api/projects", {
     data: { name: "Cleanup Browser Fixture", rootPath: root },
@@ -56,7 +59,11 @@ async function seed(request: APIRequestContext, count = 12): Promise<{ projectId
     },
   });
   expect(evidence.ok()).toBeTruthy();
-  return { projectId: project.id, evidenceId: ((await evidence.json()) as { session: { id: string } }).session.id };
+  return {
+    projectId: project.id,
+    sourceId: ((await source.json()) as { session: { id: string } }).session.id,
+    evidenceId: ((await evidence.json()) as { session: { id: string } }).session.id,
+  };
 }
 async function createViaWeb(page: Page, projectId: string): Promise<string> {
   await page.goto(`/sessions/outstanding?itemProject=${projectId}`);
@@ -202,7 +209,7 @@ test("bounds cleanup review lists and keeps focus, accessibility, and mobile ove
     expect(await page.evaluate(() => window.scrollY)).toBe(pageScroll);
     await list.evaluate((element) => (element.scrollTop = 0));
     await list.focus();
-    await page.keyboard.press("PageDown");
+    await list.press("PageDown");
     await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     expect(await page.evaluate(() => window.scrollY)).toBe(pageScroll);
     await list.evaluate((element) => (element.scrollTop = 0));
@@ -304,4 +311,35 @@ test("keeps request creation usable during a background list refresh @cross-brow
     for (const release of releaseReads) release();
     await page.unrouteAll({ behavior: "wait" });
   }
+});
+
+test("preserves outstanding reading position when SSE refreshes the same item IDs @cross-browser", async ({
+  page,
+  request,
+}) => {
+  const fixture = await seed(request, 20);
+  await page.goto(`/sessions/outstanding?itemProject=${fixture.projectId}&itemSize=100`);
+  const list = page.getByRole("list", { name: tt("outstanding.openItemsList") });
+  await expect(list.getByRole("listitem").first()).toBeVisible();
+  await list.evaluate((element) => {
+    element.scrollTop = 240;
+  });
+  await expect(list).toHaveJSProperty("scrollTop", 240);
+  const refreshed = page.waitForResponse(
+    (response) => response.url().includes("/api/outstanding-items?") && response.request().method() === "GET",
+  );
+  const response = await request.patch(`/api/sessions/${fixture.sourceId}/title`, {
+    data: { idempotencyKey: `refresh-title-${fixture.projectId}`, title: "Updated source" },
+  });
+  expect(response.ok()).toBe(true);
+  await refreshed;
+  await expect(
+    list
+      .getByRole("button", {
+        name: tt("outstanding.openSourceSession", { sourceSessionTitle: "Updated source" }),
+        exact: true,
+      })
+      .first(),
+  ).toBeVisible();
+  await expect(list).toHaveJSProperty("scrollTop", 240);
 });

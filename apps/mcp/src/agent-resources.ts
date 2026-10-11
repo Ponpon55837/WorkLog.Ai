@@ -42,6 +42,27 @@ const AGENT_RESOURCES = [
       "Canonical field definitions, evidence rules, reporting granularity, and examples referenced by the Work Intelligence skill.",
     path: "docs/work-record-and-report-format.md",
   },
+  {
+    name: "worklog-report-writing",
+    uri: "work-intelligence://agent/worklog-report-writing/SKILL.md",
+    title: "Work report writing",
+    description: "Outcome-first bilingual writing with source and status fidelity.",
+    path: ".agents/skills/worklog-report-writing/SKILL.md",
+  },
+  {
+    name: "worklog-report-writing-en",
+    uri: "work-intelligence://agent/worklog-report-writing/references/en.md",
+    title: "Clear English work reports",
+    description: "STE-inspired English writing, without a compliance claim.",
+    path: ".agents/skills/worklog-report-writing/references/en.md",
+  },
+  {
+    name: "worklog-report-writing-zh",
+    uri: "work-intelligence://agent/worklog-report-writing/references/zh-TW.md",
+    title: "Clear Traditional Chinese work reports",
+    description: "Plain Traditional Chinese with stable technical terms.",
+    path: ".agents/skills/worklog-report-writing/references/zh-TW.md",
+  },
 ] as const;
 
 function buildToolContractIndex(operations: readonly AgentToolContractOperation[]): string {

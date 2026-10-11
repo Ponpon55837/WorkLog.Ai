@@ -1,3 +1,4 @@
+export { toAgentReport, toAgentReportContext } from "./report-agent-view.js";
 export { AttentionPreferenceError } from "./attention-service.js";
 export { ReportPresentationError } from "./report-presentation-service.js";
 export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";

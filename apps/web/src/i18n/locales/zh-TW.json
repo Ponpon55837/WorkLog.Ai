@@ -1145,7 +1145,12 @@
     "workCompletedThatDayList": "當日完成工作清單",
     "workReportTabs": "工作報告內容分頁",
     "workRhythm": "工作節奏",
-    "year": "年"
+    "year": "年",
+    "loadingSynthesis": "正在確認 AI 報告整理狀態",
+    "sourceCoverage": "來源涵蓋範圍",
+    "sourceCoverageDetail": "整理於 {date}，引用 {used} 個 Session；目前期間有 {total} 個 Session。兩者代表不同範圍。",
+    "expandSummary": "閱讀完整摘要",
+    "collapseSummary": "收合摘要"
   },
   "session": {
     "addLink": "新增關聯",

@@ -116,6 +116,8 @@ export const reportRoutes: Route[] = [
       ({ url, params }) => ({
         requestId: params.requestId,
         maxSessions: numberParam(url, "maxSessions"),
+        sessionPage: numberParam(url, "sessionPage"),
+        evidencePage: numberParam(url, "evidencePage"),
         maxEvidence: numberParam(url, "maxEvidence"),
         maxHandoffCharacters: numberParam(url, "maxHandoffCharacters"),
       }),

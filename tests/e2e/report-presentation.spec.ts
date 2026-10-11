@@ -243,3 +243,72 @@ test("basic copy stays available while the loaded report refreshes @cross-browse
   );
   await page.unrouteAll({ behavior: "wait" });
 });
+
+test("synthesis first load and read error never expose an empty creation state @cross-browser", async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/reports/synthesis-requests?**", async (route) => {
+    await gate;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Fictional status unavailable" }),
+    });
+  });
+  await page.addInitScript(() => localStorage.setItem("work-intelligence:locale", "en-US"));
+  await page.goto(`/reports?period=week&date=2026-09-10&project=${projectId}`);
+  const card = page.getByTestId("report-synthesis");
+  try {
+    await expect(
+      card.getByRole("status").filter({ hasText: textIn("en-US", "reports.loadingSynthesis") }),
+    ).toBeVisible();
+    await expect(card.locator(".synthesis__pending")).toHaveCount(0);
+    await expect(
+      card.getByRole("button", { name: textIn("en-US", "reports.askAgentToSynthesizeThis"), exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    release();
+  }
+  await expect(card).toContainText(textIn("en-US", "format.theServiceIsTemporarilyUnavailable"));
+  await expect(card.locator(".synthesis__pending")).toHaveCount(0);
+});
+
+for (const locale of ["zh-TW", "en-US"] as const) {
+  test(`long summary preserves original text and explicit saved coverage ${locale} @cross-browser`, async ({
+    page,
+  }) => {
+    const original = "Fictional original evidence, preserved with its qualifications. ".repeat(30);
+    await page.route("**/api/reports/summaries?**", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const summary of body.summaries) summary.executiveSummary = original;
+      await route.fulfill({ response, json: body });
+    });
+    await page.addInitScript((locale) => localStorage.setItem("work-intelligence:locale", locale), locale);
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/reports?period=week&date=2026-09-10&project=${projectId}`);
+    const card = page.getByTestId("report-synthesis");
+    await expect(card.getByTestId("report-source-coverage")).toContainText(textIn(locale, "reports.sourceCoverage"));
+    const executive = card.locator(".synthesis-presentation__executive");
+    await expect(executive).toHaveClass(/is-collapsed/);
+    await expect(executive).toHaveText(original.trim());
+    const collapsedHeight = (await executive.boundingBox())!.height;
+    expect(
+      await card.evaluate((element) => {
+        const presentation = element.querySelector('[data-testid="synthesis-presentation"]')!;
+        const coverage = element.querySelector('[data-testid="report-source-coverage"]')!;
+        return Boolean(presentation.compareDocumentPosition(coverage) & Node.DOCUMENT_POSITION_FOLLOWING);
+      }),
+    ).toBe(true);
+    await card.getByRole("button", { name: textIn(locale, "reports.expandSummary"), exact: true }).click();
+    await expect(executive).not.toHaveClass(/is-collapsed/);
+    expect((await executive.boundingBox())!.height).toBeGreaterThan(collapsedHeight);
+    await expect(executive).toHaveText(original.trim());
+    await expect(
+      card.getByRole("button", { name: textIn(locale, "reports.collapseSummary"), exact: true }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+}

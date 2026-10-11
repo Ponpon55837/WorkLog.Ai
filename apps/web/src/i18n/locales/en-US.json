@@ -1145,7 +1145,12 @@
     "workCompletedThatDayList": "Work completed that day list",
     "workReportTabs": "Work report tabs",
     "workRhythm": "Work rhythm",
-    "year": "Year"
+    "year": "Year",
+    "loadingSynthesis": "Checking AI report synthesis status",
+    "sourceCoverage": "Source coverage",
+    "sourceCoverageDetail": "Prepared {date}: {used} cited Sessions. Current period: {total} Sessions. These counts describe different scopes.",
+    "expandSummary": "Read full summary",
+    "collapseSummary": "Collapse summary"
   },
   "session": {
     "addLink": "Add link",

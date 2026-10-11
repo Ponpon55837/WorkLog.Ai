@@ -132,6 +132,39 @@ export class SessionRepository {
     };
   }
 
+  /** Captures every eligible id in a period, without the UI's latest-200 window. */
+  public listReportIds(options: Pick<SessionListOptions, "from" | "to" | "projectId">): string[] {
+    const { clauses, parameters } = this.buildFilter({ ...options, trackedOnly: true });
+    const rows = this.db
+      .prepare(
+        `SELECT s.id FROM sessions s JOIN projects p ON p.id = s.project_id
+       WHERE ${clauses.join(" AND ")} ORDER BY s.completed_at DESC, s.id DESC`,
+      )
+      .all(...parameters) as Array<{ id: string }>;
+    return rows.map((row) => row.id);
+  }
+
+  /** Pages a fixed request's ids; later work cannot displace them. Policy is rechecked in SQL. */
+  public listReportSources(
+    ids: readonly string[],
+    options: { page?: number; pageSize?: number; projectId?: string },
+  ): SessionListResult {
+    const sourceJson = JSON.stringify([...new Set(ids)]);
+    const scope = options.projectId ?? null;
+    const from = `FROM json_each(?) source
+      CROSS JOIN sessions s ON s.id = source.value
+      CROSS JOIN projects p ON p.id = s.project_id
+      WHERE p.status = 'tracked' AND s.voided_at IS NULL AND (? IS NULL OR s.project_id = ?)`;
+    const total = this.db.prepare(`SELECT COUNT(*) AS count ${from}`).get(sourceJson, scope, scope) as {
+      count: number;
+    };
+    const pageInfo = this.buildPageInfo(options.page, options.pageSize, total.count, 100);
+    const rows = this.db
+      .prepare(`SELECT s.*, p.name AS project_name ${from} ORDER BY CAST(source.key AS INTEGER) LIMIT ? OFFSET ?`)
+      .all(sourceJson, scope, scope, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as SessionRow[];
+    return { outcome: "sessions", items: rows.map(this.mapSession), pageInfo };
+  }
+
   /** Distinct Agent clients that wrote non-voided Sessions of tracked projects. */
   public listAgentClients(): string[] {
     const rows = this.db

@@ -1,6 +1,6 @@
 # Work Intelligence
 
-Version **1.5.0** brings work reminders and display preferences, related-work hints, report section editing and preview/copy, and weekly insights. It adds opt-in MCP field selection and fixes automatic timeline fitting, activity sizing and consistent page widths. New diagrams require explicit architecture v1; historical Mermaid remains readable as source text. Database schema is 30. See the [release notes](CHANGELOG.md#150---2026-10-11) and [Traditional Chinese update guide](docs/releases/1.5.0.md). After updating and rebuilding, restart the running server and reconnect the Agent MCP to load the new contracts.
+Version **1.5.1** keeps report synthesis sources stable after newer records arrive, adds a bounded MCP report preview and source pagination, and separates loading, error and empty synthesis states. Reports display saved source coverage and expandable summaries. Live updates preserve reading positions in outstanding-item lists. English and Traditional Chinese writing guides preserve facts and reduce repetition. Database schema remains 30. See the [release notes](CHANGELOG.md#151---2026-10-11) and [Traditional Chinese update guide](docs/releases/1.5.1.md). After rebuilding, restart the server and reconnect the Agent MCP for the updated contracts.
 
 **English** | [繁體中文](README.zh-TW.md)
 

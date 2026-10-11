@@ -37,6 +37,7 @@ const {
   reportSynthesisRequest: request,
   reportSynthesisSummary: summary,
   reportSynthesisHistory: history,
+  reportSynthesisLoaded,
   reportSynthesisLoading,
   reportSynthesisCreating,
   reportSynthesisRetrying,
@@ -122,9 +123,17 @@ function versionMeta(version: ReportSummary): string {
 
     <div class="synthesis">
       <UiFlash v-if="reportSynthesisError" tone="danger">{{ reportSynthesisError }}</UiFlash>
-      <UiSkeleton v-if="reportSynthesisLoading && !summary && !request" variant="text" :count="3" />
+      <UiSkeleton
+        v-if="!reportSynthesisLoaded && !reportSynthesisError"
+        variant="text"
+        :count="3"
+        :label="t('reports.loadingSynthesis')"
+      />
 
-      <div v-if="!summary || isActive || canRetry" class="synthesis__pending">
+      <div
+        v-if="reportSynthesisLoaded && !reportSynthesisError && (!summary || isActive || canRetry)"
+        class="synthesis__pending"
+      >
         <p>{{ pendingMessage }}</p>
         <p v-if="request?.failureReason" class="synthesis__failure">{{ request.failureReason }}</p>
         <p v-if="summary && isActive" class="synthesis__note">{{ t("reports.thePreviousSynthesisIsKept") }}</p>
@@ -139,6 +148,7 @@ function versionMeta(version: ReportSummary): string {
             variant="primary"
             :icon="RotateCcw"
             :loading="reportSynthesisRetrying"
+            :disabled="reportSynthesisLoading || !reportSynthesisLoaded || !!reportSynthesisError"
             @click="retryReportSynthesisRequest"
             >{{ t("reports.retryThisCleanup") }}</UiButton
           >
@@ -147,7 +157,7 @@ function versionMeta(version: ReportSummary): string {
             variant="primary"
             :icon="Sparkles"
             :loading="reportSynthesisCreating"
-            :disabled="!report"
+            :disabled="!report || reportSynthesisLoading || !reportSynthesisLoaded || !!reportSynthesisError"
             @click="createReportSynthesisRequest"
           >
             {{ summary ? t("reports.reSynthesizeThisReport") : t("reports.askAgentToSynthesizeThis") }}
@@ -169,6 +179,15 @@ function versionMeta(version: ReportSummary): string {
           :theme-hint="grainHints[summary.period]"
           @open-sources="openSources"
         />
+        <UiFlash v-if="report" :title="t('reports.sourceCoverage')" data-testid="report-source-coverage">
+          {{
+            t("reports.sourceCoverageDetail", {
+              date: formatDate(summary.createdAt),
+              used: summary.sourceSessionIds.length,
+              total: report.totals.sessions,
+            })
+          }}
+        </UiFlash>
         <div class="synthesis__footer">
           <UiLabel>{{ t("reports.sourceSessions", { length: summary.sourceSessionIds.length }) }}</UiLabel>
           <UiLabel
@@ -182,6 +201,7 @@ function versionMeta(version: ReportSummary): string {
           <UiButton
             v-if="!isActive && !canRetry"
             class="synthesis__rerun"
+            :disabled="!report || reportSynthesisLoading || !reportSynthesisLoaded || !!reportSynthesisError"
             size="sm"
             :icon="Sparkles"
             :loading="reportSynthesisCreating"

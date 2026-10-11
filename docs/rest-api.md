@@ -282,3 +282,8 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 `PATCH /api/attention/preferences` 接受 `projectId`、`kind`、`sourceId`、`sourceRevision`、`expectedRevision` 與 `action=snooze|hide|restore`。七天期限由伺服器時計算。交易內重核 tracked 專案、來源及偏好修訂；過期來源或修訂回 409，無來源回 404，停用專案安靜 skipped。跨專案的全域請求不提供偏好操作。這是 Web 顯示意圖，不會結案、取消或修改來源資料，也沒有對應 MCP 寫入工具。
 
 migration 30 保存每個專案／類型／來源一筆最新偏好；來源 revision 改變或稍後期限到期時查詢重新顯示。來源刪除觸發器與專案 cascade 清除偏好。可攜式匯出保留資料，匯入預設重新顯示，避免把另一個資料庫的來源身分推定為相同事件；舊備份缺表預設空清單。
+
+
+## 1.5.1 固定來源分頁
+
+GET /api/reports/synthesis-requests/:requestId/context 支援 sessionPage、evidencePage（預設 1），maxSessions 為來源頁大小，maxEvidence 為該來源頁的證據頁大小。coverage 分開回傳建立請求時的來源數、目前可用／不可用數、本頁來源數與即時整期統計。REST 保留完整回應，MCP agent 字元預算不套用 REST。

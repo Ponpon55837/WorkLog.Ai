@@ -115,3 +115,8 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 - 上架 Anthropic 目錄或 OpenAI plugin 目錄時，應提交這個自帶 server 的版本；目錄的審核規則以各平台說明為準。
 
 claude.ai 與 ChatGPT 網頁版只能連遠端 HTTPS MCP，與「資料只留在本機」的設計衝突，目前不提供。
+
+
+## 1.5.1 寫作指南資源
+
+發行 plugin 同時包含 worklog-report-writing skill 及英文／繁體中文參考頁；MCP 也提供三個固定 resource URI。單獨安裝 work-intelligence skill 的 client 由其 MCP 指引按需讀取，不必另複製全域詞典。打包後需在沒有原始 checkout 的位置核對資源可讀與內容一致。

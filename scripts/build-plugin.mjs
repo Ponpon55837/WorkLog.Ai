@@ -23,7 +23,14 @@ import { build } from "esbuild";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRY_POINTS = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** Copied beside the bundle at the paths apps/mcp/src/agent-resources.ts reads. */
-const AGENT_RESOURCES = [".agents/skills/work-intelligence/SKILL.md", "docs/work-record-and-report-format.md"];
+const AGENT_RESOURCES = [
+  ".agents/skills/work-intelligence/SKILL.md",
+  "docs/work-record-and-report-format.md",
+  ".agents/skills/worklog-report-writing/SKILL.md",
+  ".agents/skills/worklog-report-writing/references/en.md",
+  ".agents/skills/worklog-report-writing/references/zh-TW.md",
+];
+
 /** node:sqlite without a flag. */
 export const MINIMUM_NODE = "22.13.0";
 

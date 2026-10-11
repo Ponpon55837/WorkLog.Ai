@@ -263,6 +263,7 @@ export const useReportsStore = defineStore("reports", () => {
       null
     );
   });
+  const reportSynthesisLoaded = computed(() => synthesisQuery.data.value !== undefined);
   const reportSynthesisLoading = computed(() => reportSynthesisLoadingState.value || synthesisQuery.isLoading.value);
   const reportSynthesisError = computed(() => {
     if (reportSynthesisActionError.value) return reportSynthesisActionError.value;
@@ -395,6 +396,10 @@ export const useReportsStore = defineStore("reports", () => {
   async function createReportSynthesisRequest(): Promise<void> {
     if (
       !report.value ||
+      !reportSynthesisLoaded.value ||
+      reportSynthesisLoading.value ||
+      !!reportSynthesisError.value ||
+      reportSynthesisIsActive.value ||
       createSynthesisMutation.isLoading.value ||
       (reportPeriod.value === "custom" && customRangeProblem().length > 0)
     )
@@ -561,6 +566,7 @@ export const useReportsStore = defineStore("reports", () => {
     reportSynthesisRequest,
     reportSynthesisSummary,
     reportSynthesisHistory,
+    reportSynthesisLoaded,
     reportSynthesisLoading,
     reportSynthesisCreating: computed(() => createSynthesisMutation.isLoading.value),
     reportSynthesisRetrying: computed(() => retrySynthesisMutation.isLoading.value),

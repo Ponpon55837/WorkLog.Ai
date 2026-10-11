@@ -68,3 +68,12 @@ When normalizing existing records, update the same finalized Session with `work_
 ## 版本化架構圖
 
 `diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。新增圖表必須明確指定以上 kind 和版本；省略欄位或送 Mermaid 會被拒絕。歷史 Mermaid 保留讀取、原始碼複製／下載、匯出／匯入及作廢／還原；不自動轉換時序／狀態圖。重新 build 不會轉換歷史圖表。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
+
+
+## 1.5.1 雙語寫作與涵蓋範圍
+
+生成或修訂工作摘要／報告時，先讀 work-intelligence://agent/worklog-report-writing/SKILL.md，再按語言讀英文或繁中參考頁。查詢、metadata 回補與知識頁維護不載入此指南。英文採 STE-inspired 清楚表達，不宣稱正式 ASD-STE100 合規；繁中以穩定用語及具體動詞改善閱讀。
+
+報告摘要先交代成果；來源涵蓋範圍集中於一個 risks block，分開標示請求保存範圍、可用／實際完整閱讀來源、目前整期統計及缺口。不要在 executiveSummary、verification、comparison、risks 重複同一段診斷。保留所有影響結論的限制及引用，不能為縮短文字刪除關鍵證據。MCP preview 不能代替完整來源閱讀。
+
+使用者明確要求任務開始即記錄時，可先保存 verification.in_progress，startedAt 必須來自可查證的對話／hook 時間。收尾更新同一記錄的實際結果、完成時間與 Git metadata；不要猜測時間或另建替代記錄。
