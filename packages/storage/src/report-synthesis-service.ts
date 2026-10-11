@@ -974,7 +974,7 @@ export class ReportSynthesisService {
          FROM report_summaries s
          LEFT JOIN projects p ON p.id = s.project_id
          WHERE ${clauses.join(" AND ")}
-         ORDER BY s.created_at DESC, s.id DESC
+         ORDER BY s.created_at DESC, s.is_current DESC, s.id DESC
          LIMIT ?`,
       )
       .all(...parameters, limit) as ReportSummaryRow[];

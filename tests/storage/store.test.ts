@@ -2541,6 +2541,47 @@ Result: PASSED
     });
   });
 
+  it("keeps the current summary first when timestamps tie and UUID order favors history", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Same-time summary fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-11T03:00:00.000Z"));
+    const query = { period: "custom" as const, from: "2026-09-17", to: "2026-09-18", projectId: project.id };
+    const db = (store as unknown as { db: DatabaseSync }).db;
+    for (const [key, title, id] of [
+      ["old", "Historical version", "ffffffff-ffff-4fff-bfff-ffffffffffff"],
+      ["new", "Current version", "00000000-0000-4000-8000-000000000000"],
+    ] as const) {
+      const request = store.createReportSynthesisRequest({ ...query, idempotencyKey: `same-time-${key}` });
+      if (request.outcome !== "report_synthesis_request") throw new Error("Missing fixture request");
+      const saved = store.saveReportSummary({
+        requestId: request.request.id,
+        title,
+        executiveSummary: "Synthetic ordering fixture.",
+        highlights: [],
+        risks: [],
+        decisions: [],
+        nextSteps: [],
+        sourceSessionIds: [],
+        generatedByAgent: "test",
+        promptVersion: "test",
+      });
+      if (saved.outcome !== "report_summary_saved") throw new Error("Missing fixture summary");
+      // Control valid UUIDs in this isolated fixture so the old ID sort deterministically favors history.
+      db.prepare("UPDATE report_summaries SET id = ? WHERE id = ?").run(id, saved.summary.id);
+    }
+    expect(store.listReportSummaries({ ...query, currentOnly: false })).toMatchObject({
+      summaries: [
+        { title: "Current version", isCurrent: true, createdAt: "2026-10-11T03:00:00.000Z" },
+        { title: "Historical version", isCurrent: false, createdAt: "2026-10-11T03:00:00.000Z" },
+      ],
+    });
+    expect(store.listReportSummaries({ ...query, currentOnly: false, limit: 1 })).toMatchObject({
+      summaries: [{ title: "Current version", isCurrent: true }],
+    });
+  });
+
   it("keeps custom synthesis requests and current summaries isolated by both range bounds", () => {
     const { store, root } = createStore();
     const project = store.addProject("Custom synthesis project", root);
