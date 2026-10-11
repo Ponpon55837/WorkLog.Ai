@@ -1,6 +1,6 @@
 # 專案現況與未結項
 
-本頁先列目前仍開放或暫緩的工作；已完成階段移到下方歷史段落。實作細節與逐項複檢結果另見 PR、CHANGELOG 與交接文件。
+本頁先列目前仍開放或暫緩的工作；已完成階段移到下方歷史段落。實作細節與逐項複檢結果另見 PR、CHANGELOG、正式驗證文件與工作記錄。
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
@@ -52,7 +52,7 @@ C3 與 A2 的最新 head 三平台 Quality 與 E2E 均 SUCCESS。A2 CI 保留 Ch
 | B1 | 已完成（PR #186） | Web 本頁多選、最多 100 筆原子批次、逐筆稽核、整批復原與來源 Session 日期篩選 |
 | B2 | 已完成（PR #187） | 收尾取得相關未結項，明確完成或由新待辦取代時同交易留下稽核 |
 | B3 | 已完成（PR #188） | Agent 提出附證據的待審建議；Web 人工審核、來源版本重核，活躍快照防止 Agent 繞過審核 |
-| C1 | 文件已對齊（本 PR） | 重新連線規則、整理流程、測試基線、狀態與歷史文件收尾 |
+| C1 | 文件已對齊 | 重新連線規則、整理流程、測試基線、狀態與歷史文件收尾 |
 
 A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](experiments/agent-data-source-audit-2026-09-30.md)保留缺漏證據；B3 的[合成準確度評估](experiments/outstanding-cleanup-accuracy-2026-10-01.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。當時 schema 23／新增 Agent 契約的升級要求已由後續正式版本取代；1.5.0 主線為 schema 30。主安裝重啟、MCP 新連線、知識頁及未結項最終狀態，依本次部署與發版工作記錄核對。
 
@@ -62,9 +62,9 @@ A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並
 
 2026-10-02 修正 MCP 報告儲存與重試在 schema 保護交易內重複開啟 SQLite 交易的回歸。三個 MCP 回歸案例覆蓋實際 dispatcher 提交、冪等重送、重試與失敗回滾；報告版本與請求狀態維持原子更新。
 
-PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒，等待更新後 CI 驗證。
+PR #197 首輪 Ubuntu／macOS Quality 通過；Windows MCP coverage 的兩個既有檔案 SQLite 整合案例超過預設 5 秒，已個別調整為 15 秒；後續已於 2026-10-02 合併（a6d8eb3），不再列為等待中的工作。
 
-PR #225 已將 `mermaid>katex` 固定至官方修補 0.18.2，保留 Mermaid 11.17.2 與嚴格 CSP；該次 `pnpm audit --prod --audit-level low` 已通過，不再列為等待上游。
+PR #225 當時將 `mermaid>katex` 固定至官方修補 0.18.2，保留 Mermaid 11.17.2 與嚴格 CSP；該次 `pnpm audit --prod --audit-level low` 已通過，不再列為等待上游。
 
 ## 工作記錄進行中狀態
 
