@@ -274,6 +274,7 @@ watch(
     <VirtualList
       v-else-if="!error && items.length > 0"
       :items="items"
+      :item-key="(item) => item.id"
       :enabled="true"
       fit-viewport
       fit-viewport-to-panel

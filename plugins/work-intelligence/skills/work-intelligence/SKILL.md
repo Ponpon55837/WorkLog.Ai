@@ -13,6 +13,14 @@ Use this skill whenever a user asks to save or correct a Work Intelligence work 
 
 `work_get_session` accepts optional `view` (completion/handoff) or fixed `select` groups from its operation contract; the default stays full. Projection includedFields/unavailableFields distinguish unread, historical unknown and selected empty data. Partial reads never satisfy full-source requirements: obtain all relevant evidence and inspect review, correction, void/trust and truncation state before relying on it. Keep full reads for small handoffs when an extra lookup costs more. Projected raw content requires selecting rawSnapshots and includeRawSnapshots=true. Reconnect for updated contracts; schema is unchanged.
 
+## Report writing and source pages
+
+When generating or revising Session summaries or reports, read `work-intelligence://agent/worklog-report-writing/SKILL.md`, then only the guide for the output language. Skip these writing resources for retrieval, metadata backfill, and Knowledge maintenance.
+
+MCP report reads default to an Agent preview with a 24,000-character whole-response budget (12,000–60,000 configurable). Read projection omission counts and full source Sessions before relying on previews. `view: full` explicitly restores full legacy fields without this budget. A synthesis request saves all eligible source IDs at creation; use sessionPage to read that fixed set, rather than the current period's latest 200 records. evidencePage pages evidence within the selected source page. Coverage distinguishes saved, currently eligible, unavailable, selected and current-period counts. Budget omissions are separate from source/evidence pagination.
+
+If the user explicitly asks for a record at task start, save the same task as verification.in_progress with a verifiable startedAt from the conversation or hook. Update that record at closing with the actual verification, completion time, outcomes, and observed Git metadata. Do not guess timestamps or create a replacement record merely to change its status.
+
 ## MCP dispatcher calls
 
 - `tools/list` exposes four dispatchers: `work_read`, `work_write_idempotent`, `work_write_additive`, and `work_write_overwrite`. Names such as `work_get_context` below are operation ids, not MCP tool names. Call the matching dispatcher with `{ operation: "<operation id>", arguments: { ... } }`.

@@ -95,6 +95,31 @@ describe("pnpm doctor read-only checks", () => {
     });
   });
 
+  it("does not recommend reconnecting a healthy registered MCP runtime", async () => {
+    const directory = temporaryDirectory();
+    const repositoryRoot = createMcpRuntimeFixture(join(directory, "repository"));
+    const identity = readMcpBuildIdentity(repositoryRoot);
+    if (!identity) throw new Error("Missing fixture identity");
+    const stop = registerMcpProcess(repositoryRoot, identity);
+    try {
+      const findings = await collectDoctorFindings({
+        repositoryRoot,
+        homeDirectory: join(directory, "home"),
+        environment: {
+          HOME: join(directory, "home"),
+          WORK_INTELLIGENCE_DB: join(directory, "fixture.sqlite"),
+          WORK_INTELLIGENCE_PORT: "65533",
+        },
+      });
+      expect(findings.find((item) => item.title === "MCP runtime")).toMatchObject({
+        severity: "ok",
+        recommendation: undefined,
+      });
+    } finally {
+      stop();
+    }
+  });
+
   it("reports the shared stale MCP lease and an outdated skill from isolated fixtures", async () => {
     const directory = temporaryDirectory();
     const homeDirectory = join(directory, "home");

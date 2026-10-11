@@ -470,6 +470,8 @@ export class WorkIntelligenceStore {
         getProjectById: (projectId) => this.getProjectById(projectId),
         checkProjectById: (projectId) => this.checkProjectById(projectId),
         getReport: (options) => this.getReport(options),
+        listReportIds: (options) => this.sessions.listReportIds(options),
+        listReportSources: (ids, options) => this.sessions.listReportSources(ids, options),
       },
       new ReportSynthesisRequestRepository(this.db),
     );

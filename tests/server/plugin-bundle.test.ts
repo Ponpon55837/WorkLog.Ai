@@ -33,7 +33,7 @@ function environmentFor(home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.Pro
 /** Runs the copied plugin's MCP server through its launcher and returns the JSON-RPC responses by id. */
 function talkToPlugin(pluginRoot: string, home: string, extra: NodeJS.ProcessEnv = {}) {
   const result = spawnSync(process.execPath, [join(pluginRoot, "scripts/launch.mjs"), "mcp"], {
-    input: `${INITIALIZE}\n${SKILL}\n`,
+    input: `${INITIALIZE}\n${SKILL}\n${["SKILL.md", "references/en.md", "references/zh-TW.md"].map((path, index) => JSON.stringify({ jsonrpc: "2.0", id: index + 3, method: "resources/read", params: { uri: `work-intelligence://agent/worklog-report-writing/${path}` } })).join("\n")}\n`,
     encoding: "utf8",
     env: environmentFor(home, extra),
     cwd: home,
@@ -91,6 +91,10 @@ describe("pnpm build:plugin", () => {
       expect(responses.get(1)?.result?.serverInfo).toEqual({ name: "work-intelligence", version });
       const skill = (responses.get(2)?.result?.contents as Array<{ text: string }> | undefined)?.[0]?.text;
       expect(skill).toContain("name: work-intelligence");
+      for (const [index, path] of ["SKILL.md", "references/en.md", "references/zh-TW.md"].entries()) {
+        const text = (responses.get(index + 3)?.result?.contents as Array<{ text: string }> | undefined)?.[0]?.text;
+        expect(text).toBe(readFileSync(join(repositoryRoot, ".agents/skills/worklog-report-writing", path), "utf8"));
+      }
       expect(stderr).toContain(join(home, ".work-intelligence", "data", "work-intelligence.sqlite"));
       expect(existsSync(join(home, ".work-intelligence", "data", "work-intelligence.sqlite"))).toBe(true);
     } finally {

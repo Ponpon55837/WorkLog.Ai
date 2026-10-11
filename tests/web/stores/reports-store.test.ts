@@ -120,6 +120,41 @@ afterEach(async () => {
 });
 
 describe("reports store", () => {
+  it("blocks creation before synthesis status loads and after a read failure", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    harness.setResponder(async (request) => {
+      if (
+        ["/api/reports/summaries", "/api/reports/synthesis-requests"].includes(request.url.pathname) &&
+        request.method === "GET"
+      )
+        await gate;
+      return reportResponder(request);
+    });
+    const store = useReportsStore();
+    store.loadReport();
+    await vi.waitFor(() => expect(store.report).not.toBeNull());
+    expect(store.reportSynthesisLoaded).toBe(false);
+    await store.createReportSynthesisRequest();
+    expect(harness.count("/api/reports/synthesis-requests", "POST")).toBe(0);
+    release();
+    await vi.waitFor(() => expect(store.reportSynthesisLoaded).toBe(true));
+    harness.setResponder((request) =>
+      request.url.pathname === "/api/reports/synthesis-requests" && request.method === "GET"
+        ? new Response(JSON.stringify({ error: "Fictional unavailable status" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          })
+        : reportResponder(request),
+    );
+    await store.loadReportSynthesis();
+    expect(store.reportSynthesisError).not.toBe("");
+    await store.createReportSynthesisRequest();
+    expect(harness.count("/api/reports/synthesis-requests", "POST")).toBe(0);
+  });
+
   it("keys report, evidence, and source Session queries by their complete scopes", async () => {
     const store = useReportsStore();
     store.reportDate = "2026-09-24";

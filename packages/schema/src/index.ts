@@ -655,6 +655,16 @@ export const reportQueryObjectSchema = z.object({
 });
 
 export const reportQuerySchema = reportQueryObjectSchema.superRefine(checkCustomReportRange);
+const agentReportViewShape = {
+  view: z.enum(["agent", "full"]).default("agent"),
+  maxCharacters: z.number().int().min(12_000).max(60_000).default(24_000),
+};
+export const mcpReportQueryObjectSchema = reportQueryObjectSchema.extend({
+  ...agentReportViewShape,
+  sessionPage: z.number().int().min(1).max(100_000).default(1),
+  maxSessions: z.number().int().min(1).max(100).default(24),
+});
+export const mcpReportQuerySchema = mcpReportQueryObjectSchema.superRefine(checkCustomReportRange);
 
 export const reportExportQueryObjectSchema = reportQueryObjectSchema.extend({
   format: z.enum(REPORT_EXPORT_FORMATS).default("markdown"),
@@ -716,9 +726,13 @@ export const reportSynthesisRequestQuerySchema =
 export const reportSynthesisContextQuerySchema = z.object({
   requestId: z.string().trim().min(1).max(200),
   maxSessions: z.number().int().min(1).max(100).default(24),
+  sessionPage: z.number().int().min(1).max(100_000).default(1),
+  evidencePage: z.number().int().min(1).max(100_000).default(1),
   maxEvidence: z.number().int().min(1).max(100).default(40),
   maxHandoffCharacters: z.number().int().min(1_000).max(200_000).default(40_000),
 });
+
+export const mcpReportSynthesisContextQuerySchema = reportSynthesisContextQuerySchema.extend(agentReportViewShape);
 
 export const retryReportSynthesisRequestInputSchema = z.object({
   requestId: z.string().trim().min(1).max(200),
@@ -781,7 +795,7 @@ export const saveReportSummaryInputSchema = z.object({
     .describe(
       "Compatibility field for confirmed current status/open items/limitations only. Do not add plans, recommendations, or future outlook; use an empty array when none.",
     ),
-  sourceSessionIds: z.array(z.string().trim().min(1).max(200)).max(200),
+  sourceSessionIds: z.array(z.string().trim().min(1).max(200)).max(10_000),
   generatedByAgent: z.string().trim().min(1).max(120),
   generatedByModel: z.string().trim().max(200).optional(),
   promptVersion: z.string().trim().min(1).max(120),

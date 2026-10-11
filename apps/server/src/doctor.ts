@@ -690,13 +690,15 @@ export async function collectDoctorFindings(
     mcpRuntimeHealthy ? "ok" : "warning",
     "MCP runtime",
     mcpRuntimeDetail,
-    mcpRuntime.restartRequired
-      ? "請在 Agent 用戶端重新連線 Work Intelligence MCP。"
-      : mcpRuntime.updateAvailable
-        ? "目前契約相容，可照常讀寫；收尾後重新連線即可載入新版。"
-        : mcpRuntime.monitoringAvailable
-          ? "尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置。"
-          : "請確認建置完成後重新執行 doctor。",
+    mcpRuntimeHealthy
+      ? undefined
+      : mcpRuntime.restartRequired
+        ? "請在 Agent 用戶端重新連線 Work Intelligence MCP。"
+        : mcpRuntime.updateAvailable
+          ? "目前契約相容，可照常讀寫；收尾後重新連線即可載入新版。"
+          : mcpRuntime.monitoringAvailable
+            ? "尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置。"
+            : "請確認建置完成後重新執行 doctor。",
   );
 
   const userService = options.userServiceStatus ?? getUserServiceStatus({ homeDirectory, repositoryRoot, environment });

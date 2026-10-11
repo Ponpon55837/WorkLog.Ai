@@ -37,9 +37,9 @@ import {
   requestKnowledgePageUpdateInputSchema,
   reportExportQueryObjectSchema,
   reportExportQuerySchema,
-  reportQueryObjectSchema,
-  reportQuerySchema,
-  reportSynthesisContextQuerySchema,
+  mcpReportQueryObjectSchema,
+  mcpReportQuerySchema,
+  mcpReportSynthesisContextQuerySchema,
   reportSynthesisRequestQuerySchema,
   reportSynthesisRequestQueryObjectSchema,
   retryReportSynthesisRequestInputSchema,
@@ -72,6 +72,8 @@ import {
   DATABASE_BUSY_MESSAGE,
   isDatabaseBusyError,
   toSessionDigests,
+  toAgentReport,
+  toAgentReportContext,
   type WorkIntelligenceStore,
 } from "@work-intelligence/storage";
 import {
@@ -107,7 +109,7 @@ interface StoreToolDefinition<S extends z.ZodTypeAny> {
   sessionResult?: boolean;
   /** Attach the process build status to this operation's result. */
   includeServerStatus?: boolean;
-  run: (input: z.infer<S>, context: { agentClient?: string }) => unknown;
+  run: (input: z.infer<S>, context: { agentClient?: string; serverStatus: McpRestartStatus }) => unknown;
 }
 
 export interface McpStartupFailure {
@@ -485,7 +487,7 @@ export function createWorkIntelligenceMcpServer(
             };
           }
           // The client name comes from the MCP initialize handshake, never from the Agent's arguments.
-          const context = { agentClient: server.server.getClientVersion()?.name };
+          const context = { agentClient: server.server.getClientVersion()?.name, serverStatus: restartStatus };
           const result = definition.annotations.readOnlyHint
             ? await definition.run(parsed.data, context)
             : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
@@ -501,7 +503,7 @@ export function createWorkIntelligenceMcpServer(
           }
           const output =
             definition.includeServerStatus || !definition.annotations.readOnlyHint
-              ? withServerRestartStatus(result, getRestartStatus)
+              ? withServerRestartStatus(result, () => restartStatus)
               : result;
           return definition.sessionResult ? sessionTextResult(output) : textResult(output);
         } catch (error) {
@@ -1011,13 +1013,16 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_report", {
     title: "Get a work report",
     description:
-      'Build a deterministic day, week, month, quarter, or year report from finalized tracked-project sessions, or pass from and to (YYYY-MM-DD, up to 366 days) for a custom range such as a sprint (period is then "custom" and the comparison is the same number of days before): period summary, previous-period comparison, completed work, verification, risks, decisions, trends (monthly for quarter/year and custom ranges over 92 days), spanning (work that started before, finished after, or was corrected during the period; not counted in the totals), source evidence, and source Session IDs. Calendar dates use the server\'s local time zone, returned as timezone. A non-tracked project scope is skipped quietly.',
-    inputShape: reportQueryObjectSchema.shape,
-    schema: reportQuerySchema,
+      'Build a deterministic day, week, month, quarter, or year report from finalized tracked-project sessions, or pass from and to (YYYY-MM-DD, up to 366 days) for a custom range such as a sprint (period is then "custom" and the comparison is the same number of days before): period summary, previous-period comparison, completed work, verification, risks, decisions, trends (monthly for quarter/year and custom ranges over 92 days), spanning (work that started before, finished after, or was corrected during the period; not counted in the totals), source evidence, and source Session IDs. Calendar dates use the server\'s local time zone, returned as timezone. A non-tracked project scope is skipped quietly. Default view=agent returns source previews and fits the entire compact JSON into maxCharacters (24000 by default). Read full Session sources before synthesis; projection lists unread fields and budget omissions. sessionPage/maxSessions page the latest-200 listing; sessionTruncation still describes the full period. Explicit view=full retains the legacy response and bypasses this budget.',
+    inputShape: mcpReportQueryObjectSchema.shape,
+    schema: mcpReportQuerySchema,
     validationNotes: ["Custom from/to dates must be supplied together, in order, and span no more than 366 days."],
     annotations: READ_ONLY,
     invalidMessage: "Invalid report query.",
-    run: (input) => store.getReport(input),
+    run: (input) => {
+      const report = store.getReport(input);
+      return input.view === "full" ? report : toAgentReport(report, input);
+    },
   });
 
   registerStoreTool("work_export_report", {
@@ -1068,15 +1073,19 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_report_context", {
     title: "Get a bounded report context",
     description:
-      "Obtain the deterministic report, bounded source evidence, tracked sessions, and necessary handoff summaries for a report synthesis request. This advances a pending request to processing. Treat the returned report and Session IDs as the only factual source. " +
+      "Obtain a fixed request source page and selected-source evidence; sessionPage/maxSessions and evidencePage/maxEvidence paginate independently. coverage distinguishes requested, eligible, unavailable, selected and current-period counts. Default view=agent provides previews under a complete maxCharacters JSON budget, without duplicate Sessions or raw handoffs; read full sources before relying on them. Budget omissions are distinct from source-page omissions; lower maxSessions or raise maxCharacters to examine omitted previews. Explicit view=full preserves full source details without the JSON budget. This advances a pending request to processing. Treat the returned report and Session IDs as the only factual source. " +
       implementationDetail +
       " " +
       reportSynthesisContract,
-    inputShape: reportSynthesisContextQuerySchema.shape,
-    schema: reportSynthesisContextQuerySchema,
+    inputShape: mcpReportSynthesisContextQuerySchema.shape,
+    schema: mcpReportSynthesisContextQuerySchema,
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid report synthesis context query.",
-    run: (input) => store.getReportSynthesisContext(input),
+    run: (input, caller) => {
+      // Count the same runtime status that the dispatcher appends in the complete JSON budget.
+      const context = { ...store.getReportSynthesisContext(input), server: caller.serverStatus };
+      return input.view === "full" ? context : toAgentReportContext(context, input.maxCharacters);
+    },
   });
 
   registerStoreTool("work_save_report_summary", {

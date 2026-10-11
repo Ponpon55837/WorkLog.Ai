@@ -261,6 +261,8 @@ Server instructions 只放路由規則；48 項 operation 的長說明與 schema
 }
 ```
 
+下列完整欄位由 `view: "full"` 提供；預設 Agent 預覽省略 `completedWork` 與完整 Session，保留分頁來源指標及省略資訊（參見本頁 1.5.1 說明）。
+
 回傳會包含：
 
 - `periodSummary`：該期間的 deterministic 摘要
@@ -533,7 +535,7 @@ Agent 會自行完成以下 implementation detail，使用者不需要知道工�
 
 1. 找到最新的 pending report synthesis request。
 2. 取得該期間與專案範圍的 deterministic report context。
-3. 依 `report-synthesis-v3` contract 直接從來源 Session 產生符合日／週／月／季／年或自訂區間長度的繁體中文報告。
+3. 依 `report-synthesis-v4` contract 直接從來源 Session 產生符合日／週／月／季／年或自訂區間長度的繁體中文報告。
 4. 將摘要、Agent／model／prompt metadata 與每個結論的 `sourceSessionIds` 回寫。
 
 摘要至少要包含：
@@ -566,3 +568,20 @@ REST 對應端點是 `GET /api/imports/handoffs/preview` 與 `POST /api/imports/
 ## 版本化架構圖
 
 `diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。新增寫入只接受明確指定的原生格式與版本；歷史 Mermaid 僅讀取／匯入並顯示原始碼。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
+
+
+## 1.5.1 報告讀取
+
+work_get_report 新增 view（agent／full，預設 agent）、maxCharacters（12,000–60,000，預設 24,000）、sessionPage（預設 1）、maxSessions（1–100，預設 24）。基本報告來源仍為目前期間最新 200 筆，其截斷旗標與整期 totals 保留。
+
+work_get_report_context 新增同樣 view／maxCharacters 與 sessionPage／evidencePage（皆預設 1）；maxSessions 控制固定來源頁大小。coverage 的 requestSnapshotAt／requestedSessions 是建立請求時的範圍，eligibleSessions／unavailableSessions 是目前政策檢查結果，selectedSessions／sessionPageInfo 是選取來源頁，currentPeriodAsOf／currentPeriodSessions 是本次即時期間統計；evidence.total／returned 只計 selected_sessions。
+
+agent 模式刪除重複完整資料，Session 只含 ID、標題／摘要預覽、完成時間、驗證狀態與截字欄位提示。projection.budgetOmitted 記錄因整體大小預算移除的完整項目，與頁碼及源資料截斷不同；sourceSessionIdsOmitted 最多列五個 ID，moreSourceSessionIdsOmitted 計其餘數量。省略項目需以分頁、較小 maxSessions 或完整讀取補查，不可當成已驗證。view: full 明確退出此預算，保留原完整欄位；REST 基本報告不使用此預覽。
+
+寫作指南 URI 為 work-intelligence://agent/worklog-report-writing/SKILL.md，按語言讀 references/en.md 或 references/zh-TW.md；只在生成／修訂報告或摘要時載入。報告整理使用 report-synthesis-v4。
+
+固定來源整理版的頂層 sourceSessionIds 可引用最多 10,000 筆；每個 block 維持最多 100 筆引用。超過上限需分開報告並揭露範圍，不能宣稱完整覆蓋。保存時重新檢查來源仍為 tracked 且未作廢。
+
+一般 context 的 pendingRequests.reportSynthesis 每個請求最多提供 5 個 sourceSessionIds，並以 sourceSessionIdsOmittedCount 表示額外數量；完整固定來源由報告 context 分頁取得，保存的請求不受這個預覽上限影響。
+
+報告 context 的 report 保留目前期間的統計及診斷；其中 sessions、completedWork、sourceSessionIds 與 evidence 改為選取的固定來源頁。其他欄位不能當作固定請求的完整來源證據，整理的實質主張只能引用已完整讀取且屬於該請求的來源 Session。

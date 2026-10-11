@@ -947,6 +947,13 @@ export class ContextRecallService {
               .filter((request) => active.has(request.status) && inScope(request))
               .sort(byNewest)
               .slice(0, 5)
+              .map((request) => ({
+                ...request,
+                sourceSessionIds: request.sourceSessionIds.slice(0, 5),
+                ...(request.sourceSessionIds.length > 5
+                  ? { sourceSessionIdsOmittedCount: request.sourceSessionIds.length - 5 }
+                  : {}),
+              }))
           : [],
       metadataBackfill:
         backfills.outcome === "metadata_backfill_requests"

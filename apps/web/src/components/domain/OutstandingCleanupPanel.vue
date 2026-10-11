@@ -265,6 +265,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
         <VirtualList
           v-else-if="!error"
           :items="requests"
+          :item-key="(item) => item.id"
           :enabled="requests.length > 3"
           max-height="240px"
           :label="t('outstanding.requestList')"
@@ -356,6 +357,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
         <VirtualList
           v-else-if="!proposalError"
           :items="proposals"
+          :item-key="(item) => item.id"
           :enabled="proposals.length > 3"
           max-height="440px"
           :estimate-item-height="240"

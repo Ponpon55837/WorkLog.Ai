@@ -33,6 +33,7 @@ const { data, state, error, saving, loading } = storeToRefs(presentation);
 const reports = useReportsStore();
 const editor = ref<InstanceType<typeof ReportBlockEditor> | null>(null);
 const actionError = ref("");
+const executiveExpanded = ref(false);
 const controls = ref<HTMLElement | null>(null);
 const keys: Record<ReportSectionKey, MessageKey> = {
   themes: "reports.theme",
@@ -43,6 +44,7 @@ const keys: Record<ReportSectionKey, MessageKey> = {
   decisions: "common.decisions",
   nextSteps: "common.statusOpenItems",
 };
+const executiveIsLong = computed(() => props.summary.executiveSummary.length > 320);
 const sections = computed(() => projectReportSummary(props.summary, state.value));
 const modified = computed(
   () => state.value.pinned.length + state.value.hidden.length + state.value.overrides.length > 0,
@@ -106,6 +108,7 @@ watch(
   (id) => {
     presentation.setSummary(id);
     actionError.value = "";
+    executiveExpanded.value = false;
   },
   { immediate: true },
 );
@@ -123,7 +126,24 @@ onBeforeUnmount(() => presentation.setSummary(""));
     >
     <UiSkeleton v-if="loading && !data" variant="text" :count="3" :label="t('presentation.loading')" />
     <p v-else-if="!data && !error">{{ t("presentation.unknown") }}</p>
-    <p v-if="data" class="synthesis-presentation__executive">{{ summary.executiveSummary }}</p>
+    <div v-if="data">
+      <p
+        :id="`executive-${summary.id}`"
+        class="synthesis-presentation__executive"
+        :class="{ 'is-collapsed': executiveIsLong && !executiveExpanded }"
+      >
+        {{ summary.executiveSummary }}
+      </p>
+      <UiButton
+        v-if="executiveIsLong"
+        size="sm"
+        :aria-expanded="executiveExpanded"
+        :aria-controls="`executive-${summary.id}`"
+        @click="executiveExpanded = !executiveExpanded"
+      >
+        {{ t(executiveExpanded ? "reports.collapseSummary" : "reports.expandSummary") }}
+      </UiButton>
+    </div>
     <div v-if="data" ref="controls" class="synthesis-presentation__controls">
       <ReportCopyButton :summary-id="summary.id" :revision="data.revision" :disabled="saving" />
       <UiLabel>{{ t("presentation.revision", { revision: data.revision }) }}</UiLabel
@@ -192,6 +212,12 @@ onBeforeUnmount(() => presentation.setSummary(""));
   font-size: var(--text-lg);
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+.synthesis-presentation__executive.is-collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
 }
 .synthesis-presentation__controls {
   display: flex;

@@ -1311,6 +1311,17 @@ export interface ReportSynthesisContextResult {
   sessions: WorkSessionRecord[];
   handoffSummaries: ReportSynthesisContextHandoff[];
   sourceSessionIds: string[];
+  coverage: {
+    requestSnapshotAt: string;
+    requestedSessions: number;
+    eligibleSessions: number;
+    unavailableSessions: number;
+    selectedSessions: number;
+    currentPeriodAsOf: string;
+    currentPeriodSessions: number;
+    sessionPageInfo: PageInfo;
+    evidence: { scope: "selected_sessions"; total: number; returned: number };
+  };
   truncation: {
     sessions: boolean;
     evidence: boolean;
@@ -1327,7 +1338,9 @@ export interface ReportSynthesisRequestNotReadyResult {
 export interface ReportSynthesisContextQuery {
   requestId: string;
   maxSessions?: number;
+  sessionPage?: number;
   maxEvidence?: number;
+  evidencePage?: number;
   maxHandoffCharacters?: number;
 }
 
@@ -2315,7 +2328,7 @@ export interface ContextResult {
   metadataFollowUps: MetadataBackfillPreview["totals"];
   /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
   pendingRequests: {
-    reportSynthesis: ReportSynthesisRequest[];
+    reportSynthesis: Array<ReportSynthesisRequest & { sourceSessionIdsOmittedCount?: number }>;
     metadataBackfill: MetadataBackfillRequest[];
     /** Active project cleanup requests for Agents; proposals require Web review. */
     outstandingCleanup?: OutstandingCleanupRequest[];

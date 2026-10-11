@@ -7,7 +7,6 @@ import type {
   ReportPeriod,
   ReportQueryResult,
   ReportRange,
-  ReportEvidence,
   ReportDecision,
   ReportInsight,
   ReportProjectSummary,
@@ -20,6 +19,7 @@ import type {
 } from "@work-intelligence/core";
 import { localDayStartIso, localTimeZone, toLocalCalendarDate } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
+import { buildSourceReportEvidence } from "./report-source-evidence.js";
 import { ReportBuilder } from "./report-builder.js";
 import { CHANGED_FILES_NORMAL } from "./search-repository.js";
 import { nextCalendarDate, type SessionListOptions } from "./session-repository.js";
@@ -30,7 +30,6 @@ import {
   getPreviousReportRange,
   getReportRange,
   getReportTrendGranularity,
-  verificationStatusLabel,
   type ReportEventRow,
 } from "./report-utils.js";
 
@@ -349,67 +348,7 @@ export class ReportReadService {
     const trendGranularity = getReportTrendGranularity(period, range);
     const trends = buildReportTrends(trendGranularity, range, sessions, eventsBySession);
 
-    const evidence: ReportEvidence[] = [];
-    for (const session of sessions) {
-      const snapshot = snapshotsBySession.get(session.id);
-      if (snapshot) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "handoff",
-          label: "Handoff snapshot",
-          detail: "Closing handoff 已保存為 raw snapshot。",
-          reference: snapshot.source_path ?? "captured handoff",
-        });
-      }
-      if (session.verification) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "verification",
-          label: `Verification ${verificationStatusLabel(session.verification.status)}`,
-          detail: session.verification.summary ?? "Agent 提供了 verification 狀態。",
-        });
-      }
-      if (session.changedFiles.length) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "changed-files",
-          label: "Changed files metadata",
-          detail: `記錄 ${session.changedFiles.length} 個檔案變更；不等同 Git commit。`,
-          reference: session.changedFiles.slice(0, 3).join(", "),
-        });
-      }
-      const primaryEvent = (eventsBySession.get(session.id) ?? []).find(
-        (event) => event.type === "verification" || event.type === "note" || event.type === "closing",
-      );
-      if (primaryEvent) {
-        evidence.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          projectName: session.projectName,
-          kind: "event",
-          label: `${primaryEvent.type} event`,
-          detail: primaryEvent.summary,
-          reference: primaryEvent.id,
-        });
-      }
-    }
-    for (const item of attachedEvidenceRows) {
-      evidence.push({
-        sessionId: item.session_id,
-        sessionTitle: item.session_title,
-        projectName: item.project_name ?? undefined,
-        kind: "attached",
-        label: `Evidence · ${item.kind}`,
-        detail: item.summary ?? item.reference,
-        reference: item.reference,
-      });
-    }
+    const evidence = buildSourceReportEvidence(sessions, snapshotsBySession, eventsBySession, attachedEvidenceRows);
 
     const filteredEvidence = evidence.filter((item) => {
       if (options.evidenceKind && item.kind !== options.evidenceKind) {

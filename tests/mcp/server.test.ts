@@ -452,7 +452,7 @@ describe("Work Intelligence MCP server", () => {
     // Contracts are attached only to the tools that write the governed data.
     const catalog = await getToolContractCatalog(client);
     const withReportContract = [...catalog.sections.entries()]
-      .filter(([, section]) => section.includes("Report synthesis contract v3"))
+      .filter(([, section]) => section.includes("Report synthesis contract v4"))
       .map(([operation]) => operation);
     expect(withReportContract.sort()).toEqual(["work_get_report_context", "work_save_report_summary"]);
 
@@ -465,6 +465,9 @@ describe("Work Intelligence MCP server", () => {
       TOOL_CONTRACT_RESOURCE_URI,
       "work-intelligence://agent/work-intelligence/SKILL.md",
       "work-intelligence://agent/work-record-and-report-format.md",
+      "work-intelligence://agent/worklog-report-writing/SKILL.md",
+      "work-intelligence://agent/worklog-report-writing/references/en.md",
+      "work-intelligence://agent/worklog-report-writing/references/zh-TW.md",
     ]);
     expect(client.getInstructions()).toContain("work-intelligence://agent/work-intelligence/SKILL.md");
   });

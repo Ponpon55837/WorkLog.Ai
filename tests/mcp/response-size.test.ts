@@ -59,7 +59,9 @@ afterEach(async () => {
   }
 });
 
-async function connectWithSyntheticHistory(): Promise<ConnectedFixture> {
+async function connectWithSyntheticHistory(
+  getRestartStatus?: Parameters<typeof createWorkIntelligenceMcpServer>[4],
+): Promise<ConnectedFixture> {
   const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-response-size-"));
   const store = new WorkIntelligenceStore(":memory:");
   const project = store.addProject("Synthetic Cedar", projectRoot);
@@ -140,7 +142,13 @@ async function connectWithSyntheticHistory(): Promise<ConnectedFixture> {
     }
   }
 
-  const server = createWorkIntelligenceMcpServer(store, "0.1.0-test", LATEST_SCHEMA_VERSION);
+  const server = createWorkIntelligenceMcpServer(
+    store,
+    "0.1.0-test",
+    LATEST_SCHEMA_VERSION,
+    undefined,
+    getRestartStatus,
+  );
   const client = new Client({ name: "response-size-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -1137,5 +1145,133 @@ describe("synthetic MCP response-size baseline", () => {
       expect.objectContaining({ id: staleKnowledge.knowledge.id, possiblyStale: true }),
     );
     expect(context.omitted?.some((section) => section.readWith === "work_search_knowledge")).toBe(true);
+  });
+});
+
+describe("Agent report response budgets", () => {
+  it("includes runtime status in the complete context response budget", async () => {
+    const status = {
+      restartRequired: false,
+      monitoringAvailable: true,
+      updateAvailable: true,
+      message: "Synthetic compatible runtime update. ".repeat(100),
+    };
+    const { client, store, projectId } = await connectWithSyntheticHistory(() => status);
+    const request = store.createReportSynthesisRequest({ period: "week", date: "2026-09-01", projectId });
+    if (request.outcome !== "report_synthesis_request") throw new Error("Missing request");
+    const response = await client.callTool({
+      name: "work_write_idempotent",
+      arguments: {
+        operation: "work_get_report_context",
+        arguments: { requestId: request.request.id, maxCharacters: 12_000 },
+      },
+    });
+    expect(response.isError).not.toBe(true);
+    const raw = (response.content as Array<{ type: string; text: string }>)[0]!.text;
+    expect(raw.length).toBeLessThanOrEqual(12_000);
+    const result = JSON.parse(raw);
+    expect(result.server).toEqual(status);
+    expect(result.projection.maxCharacters).toBe(12_000);
+    expect(result.report.totals.sessions).toBe(20);
+    expect(result.coverage.requestedSessions).toBe(20);
+  });
+
+  it("bounds report and fixed-source context, preserves totals, exposes omissions, and retains explicit full reads", async () => {
+    const { client, store, projectId, projectRoot } = await connectWithSyntheticHistory();
+    const source = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "long-report-source",
+      title: "Long synthetic source",
+      summary: "Long fixture evidence. ".repeat(200),
+      completedAt: "2026-09-01T12:00:00Z",
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    if (source.outcome !== "finalized") throw new Error("Missing long source");
+    store.attachEvidence({
+      sessionId: source.session.id,
+      kind: "test",
+      reference: "synthetic-reference",
+      summary: "Long fixture evidence. ".repeat(200),
+    });
+    const query = { period: "week", date: "2026-09-01", projectId };
+    const full = await serializedMcpPayload(client, "work_get_report", { ...query, view: "full" });
+    for (const maxCharacters of [12_000, 24_000, 60_000]) {
+      const compact = await serializedMcpPayload(client, "work_get_report", { ...query, maxCharacters });
+      expect(compact.length).toBeLessThanOrEqual(maxCharacters);
+      const result = compact.value as {
+        totals: unknown;
+        sessions: unknown[];
+        completedWork?: unknown;
+        projection: { previewOnly: boolean };
+      };
+      expect(result.totals).toEqual((full.value as { totals: unknown }).totals);
+      expect(result.completedWork).toBeUndefined();
+      expect(result.projection.previewOnly).toBe(true);
+    }
+    expect(full.length).toBeGreaterThan(24_000);
+    const requested = store.createReportSynthesisRequest(query as never);
+    if (requested.outcome !== "report_synthesis_request") throw new Error("Missing request");
+    const requestId = requested.request.id;
+    async function context(view: "agent" | "full", maxCharacters = 12_000) {
+      const response = await client.callTool({
+        name: "work_write_idempotent",
+        arguments: {
+          operation: "work_get_report_context",
+          arguments: { requestId, view, maxCharacters },
+        },
+      });
+      expect(response.isError).not.toBe(true);
+      const raw = (response.content as Array<{ type: string; text: string }>)[0]!.text;
+      return { raw, value: JSON.parse(raw) };
+    }
+    const compact = await context("agent");
+    expect(compact.raw.length).toBeLessThanOrEqual(12_000);
+    expect(compact.value.report.sessions).toBeUndefined();
+    expect(compact.value.report.completedWork).toBeUndefined();
+    expect(compact.value.handoffSummaries).toBeUndefined();
+    expect(compact.value.coverage.requestedSessions).toBe(21);
+    expect(compact.value.projection.budgetOmitted.evidence).toBeGreaterThan(0);
+    const original = await context("full");
+    expect(original.value.report.sessions).toHaveLength(21);
+    expect(original.value.handoffSummaries.length).toBeGreaterThan(0);
+    expect(store.getSessionDetail(source.session.id)?.session.summary).toBe("Long fixture evidence. ".repeat(200));
+    const defaultView = await serializedMcpPayload(client, "work_get_report", query);
+    expect(defaultView.length).toBeLessThanOrEqual(24_000);
+    expect((defaultView.value as { projection: { view: string } }).projection.view).toBe("agent");
+    store.cancelReportSynthesisRequest(requestId);
+    const cancelled = await context("agent");
+    expect(cancelled.value.outcome).toBe("report_synthesis_request_not_ready");
+    expect(cancelled.value.sourceSessionCount).toBe(21);
+    expect(cancelled.value.request.sourceSessionIds).toBeUndefined();
+    expect(cancelled.raw.length).toBeLessThanOrEqual(12_000);
+  });
+});
+
+describe("Pending report source pointers", () => {
+  it("keeps the context budget when a request imported a large source-id list", async () => {
+    const { client, store, projectId, projectRoot } = await connectWithSyntheticHistory();
+    const request = store.createReportSynthesisRequest({ period: "week", date: "2026-09-01", projectId });
+    if (request.outcome !== "report_synthesis_request") throw new Error("Missing request");
+    const ids = Array.from({ length: 5_000 }, (_, i) => `fictional-import-source-${i.toString().padStart(5, "0")}`);
+    // Imported snapshots can contain unavailable IDs. Only pointers are exposed here; source policy is checked in context/full reads.
+    (store as unknown as { db: DatabaseSync }).db
+      .prepare("UPDATE report_synthesis_requests SET source_session_ids_json=? WHERE id=?")
+      .run(JSON.stringify(ids), request.request.id);
+    const payload = await serializedMcpPayload(client, "work_get_context", {
+      projectRoot,
+      task: "agent context retrieval budget",
+    });
+    expect(payload.length).toBeLessThanOrEqual(10_000);
+    const pending = (
+      payload.value as {
+        pendingRequests: {
+          reportSynthesis: Array<{ sourceSessionIds: string[]; sourceSessionIdsOmittedCount: number }>;
+        };
+      }
+    ).pendingRequests.reportSynthesis[0]!;
+    expect(pending.sourceSessionIds).toEqual(ids.slice(0, 5));
+    expect(pending.sourceSessionIdsOmittedCount).toBe(4_995);
+    expect(store.getReportSynthesisRequest(request.request.id)).toMatchObject({ request: { sourceSessionIds: ids } });
   });
 });

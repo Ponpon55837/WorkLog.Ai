@@ -15,7 +15,7 @@ import { fileURLToPath, URL } from "node:url";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
-import { LATEST_SCHEMA_VERSION, toSessionDigests, WorkIntelligenceStore } from "../dist/index.js";
+import { LATEST_SCHEMA_VERSION, toAgentReportContext, toSessionDigests, WorkIntelligenceStore } from "../dist/index.js";
 import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "../../../apps/mcp/dist/recall-evaluation.js";
 
 import {
@@ -421,7 +421,37 @@ try {
     action: "hide",
   });
 
+  const pendingLargeReport = benchStore.createReportSynthesisRequest({
+    period: "year",
+    date: "2026-03-11",
+    projectId: alpha.id,
+  });
+  if (pendingLargeReport.outcome !== "report_synthesis_request") throw new Error("Missing pending source request");
   const cases = {
+    "getContext (large report source request)": () => {
+      const result = benchStore.getContext(alphaRoot);
+      if (result.outcome !== "context" || JSON.stringify(result).length > 16_000)
+        throw new Error("Pending sources exceeded the context budget");
+      if (result.pendingRequests.reportSynthesis[0].sourceSessionIds.length > 5)
+        throw new Error("Pending source pointers must be bounded");
+      return result;
+    },
+    "report fixed-source context page": () => {
+      const result = benchStore.getReportSynthesisContext({
+        requestId: presentationRequest.request.id,
+        sessionPage: 2,
+        maxSessions: 24,
+      });
+      if (result.outcome !== "report_context" || !result.sessions.length) throw new Error("Missing fixed sources");
+      return result;
+    },
+    "report Agent context budget": () => {
+      const result = toAgentReportContext(
+        benchStore.getReportSynthesisContext({ requestId: presentationRequest.request.id }),
+      );
+      if (JSON.stringify(result).length > 24_000) throw new Error("Agent budget exceeded");
+      return result;
+    },
     "getAttention (suppressed preferences)": () => {
       const result = benchStore.getAttention({ projectId: alpha.id, kind: "outstanding", view: "suppressed" });
       if (result.outcome !== "attention" || !result.suppressedCount || !result.items.length)
@@ -587,6 +617,9 @@ try {
   };
 
   const limitsMs = {
+    "getContext (large report source request)": 500,
+    "report fixed-source context page": 1500,
+    "report Agent context budget": 1500,
     "getReportPresentation (version and source gate)": 250,
     "exportReportPresentation (snapshot and Markdown)": 250,
     "getAttention (mixed sources)": 500,

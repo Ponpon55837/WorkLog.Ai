@@ -4,6 +4,25 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-11
+
+[繁體中文更新說明](docs/releases/1.5.1.md).
+
+### Fixed
+
+- Save all eligible report synthesis sources and read their fixed IDs in pages, even after newer records push them outside the current-period 200-Session window. Report unavailable sources explicitly and scope evidence pagination to selected sources.
+- Separate first-load, failure and empty synthesis states; guard creation while source status is unknown. Display saved citations separately from current-period totals and let readers expand long executive summaries.
+- Preserve outstanding-item and cleanup-list reading positions during live updates by keeping stable item IDs.
+- Bound pending report source pointers in general Agent context without discarding stored request sources.
+- Omit reconnect recommendations when the MCP runtime is healthy.
+
+### Added
+
+- Default MCP Agent report previews with a configurable 24,000-character response budget, explicit omission metadata and full-source lookup instructions. `view: full` preserves the complete legacy response; REST report fields remain full.
+- On-demand English STE-inspired and plain Traditional Chinese writing guides in the checkout, MCP resources and distributable plugin. Synthesis contract v4 keeps coverage diagnostics in one section and preserves factual and verification distinctions.
+
+Database schema remains 30; no migration or historical content rewrite is required.
+
 ## [1.5.0] - 2026-10-11
 
 [繁體中文更新說明](https://github.com/Ponpon55837/WorkLog.Ai/blob/v1.5.0/docs/releases/1.5.0.md).

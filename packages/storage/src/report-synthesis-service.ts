@@ -30,8 +30,10 @@ import type {
   SaveReportSummaryResult,
   WorkReport,
   WorkReportPeriod,
+  SessionListResult,
 } from "@work-intelligence/core";
 import { nowIso, toLocalCalendarDate } from "@work-intelligence/shared";
+import { getSourceReportEvidence } from "./report-source-evidence.js";
 import { createPageInfo } from "./pagination.js";
 import { getReportRange } from "./report-utils.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
@@ -53,6 +55,11 @@ interface ReportSynthesisStoreReader {
   getProjectById(projectId: string): ProjectRecord | undefined;
   checkProjectById(projectId: string): PolicyDecision;
   getReport(options: ReportReaderOptions): ReportQueryResult;
+  listReportIds(options: { from: string; to: string; projectId?: string }): string[];
+  listReportSources(
+    ids: readonly string[],
+    options: { page?: number; pageSize?: number; projectId?: string },
+  ): SessionListResult;
 }
 
 type ReportSynthesisRequestRow = {
@@ -250,19 +257,6 @@ export class ReportSynthesisService {
     const { period, range } = resolveSynthesisRange(input);
     const idempotencyKey = input.idempotencyKey?.trim() || randomUUID();
 
-    const report = this.store.getReport({
-      period: period === "custom" ? "week" : period,
-      date: input.date,
-      ...(period === "custom" ? { from: range.from, to: range.to } : {}),
-      projectId: project?.id,
-      evidencePage: 1,
-      evidencePageSize: 100,
-      includeAllEvidence: true,
-    });
-    if (report.outcome !== "report") {
-      return report;
-    }
-
     const requestedAt = nowIso();
     const id = randomUUID();
     return runImmediateSqlTransaction(this.db, () => {
@@ -299,7 +293,7 @@ export class ReportSynthesisService {
           rangeFrom: range.from,
           rangeTo: range.to,
           requestedAt,
-          sourceSessionIds: JSON.stringify(report.sourceSessionIds),
+          sourceSessionIds: JSON.stringify(this.store.listReportIds({ ...range, projectId: project?.id })),
         });
 
       const row = this.db
@@ -582,139 +576,167 @@ export class ReportSynthesisService {
   }
 
   public getReportSynthesisContext(options: ReportSynthesisContextQuery): ReportSynthesisContextQueryResult {
-    this.recoverStaleReportSynthesisRequests();
-    const row = this.db
-      .prepare(
-        `SELECT r.*, p.name AS project_name
+    return runImmediateSqlTransaction(this.db, () => {
+      this.recoverStaleReportSynthesisRequests();
+      const row = this.db
+        .prepare(
+          `SELECT r.*, p.name AS project_name
          FROM report_synthesis_requests r
          LEFT JOIN projects p ON p.id = r.project_id
          WHERE r.id = ?`,
-      )
-      .get(options.requestId) as ReportSynthesisRequestRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", requestId: options.requestId };
-    }
+        )
+        .get(options.requestId) as ReportSynthesisRequestRow | undefined;
+      if (!row) {
+        return { outcome: "not_found", requestId: options.requestId };
+      }
 
-    if (row.project_id) {
-      const decision = this.store.checkProjectById(row.project_id);
-      if (!decision?.allowed || !decision.project) {
+      if (row.project_id) {
+        const decision = this.store.checkProjectById(row.project_id);
+        if (!decision?.allowed || !decision.project) {
+          return {
+            outcome: "skipped",
+            projectId: row.project_id,
+            projectStatus: decision?.projectStatus ?? "unregistered",
+            reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
+          };
+        }
+      }
+
+      const request = toReportSynthesisRequest(row);
+      if (request.status === "cancelled") {
         return {
-          outcome: "skipped",
-          projectId: row.project_id,
-          projectStatus: decision?.projectStatus ?? "unregistered",
-          reason: decision?.reason ?? "Project reporting is not enabled for this tracking state.",
+          outcome: "report_synthesis_request_not_ready",
+          request,
+          reason: "這次報告提煉已取消；請建立新的提煉請求後再取得報告 Context。",
         };
       }
-    }
-
-    const request = toReportSynthesisRequest(row);
-    if (request.status === "cancelled") {
-      return {
-        outcome: "report_synthesis_request_not_ready",
-        request,
-        reason: "這次報告提煉已取消；請建立新的提煉請求後再取得報告 Context。",
-      };
-    }
-    if (request.status === "pending") {
-      const startedAt = nowIso();
-      this.db
-        .prepare(
-          "UPDATE report_synthesis_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'",
-        )
-        .run(startedAt, request.id);
-      request.status = "processing";
-      request.startedAt = startedAt;
-    }
-
-    const maxEvidence = Math.min(Math.max(Math.trunc(options.maxEvidence ?? 40), 1), 100);
-    const reportResult = this.store.getReport({
-      period: request.period === "custom" ? "week" : request.period,
-      ...(request.period === "custom"
-        ? { from: request.range.from, to: request.range.to }
-        : { date: request.range.from }),
-      projectId: request.projectId,
-      evidencePage: 1,
-      evidencePageSize: maxEvidence,
-    });
-    if (reportResult.outcome !== "report") {
-      return reportResult;
-    }
-
-    const maxSessions = Math.min(Math.max(Math.trunc(options.maxSessions ?? 24), 1), 100);
-    const sourceSessionSet = new Set(request.sourceSessionIds);
-    const availableSessions = reportResult.sessions.filter((session) => sourceSessionSet.has(session.id));
-    const sessions = availableSessions.slice(0, maxSessions);
-    const selectedSessionIds = new Set(sessions.map((session) => session.id));
-    const handoffRows = selectedSessionIds.size
-      ? (this.db
+      if (request.status === "pending") {
+        const startedAt = nowIso();
+        this.db
           .prepare(
-            `SELECT rs.*, s.title AS session_title, p.name AS project_name
+            "UPDATE report_synthesis_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'",
+          )
+          .run(startedAt, request.id);
+        request.status = "processing";
+        request.startedAt = startedAt;
+      }
+
+      const maxEvidence = Math.min(Math.max(Math.trunc(options.maxEvidence ?? 40), 1), 100);
+      const reportResult = this.store.getReport({
+        period: request.period === "custom" ? "week" : request.period,
+        ...(request.period === "custom"
+          ? { from: request.range.from, to: request.range.to }
+          : { date: request.range.from }),
+        projectId: request.projectId,
+        evidencePage: 1,
+        evidencePageSize: maxEvidence,
+      });
+      if (reportResult.outcome !== "report") {
+        return reportResult;
+      }
+
+      const maxSessions = Math.min(Math.max(Math.trunc(options.maxSessions ?? 24), 1), 100);
+      const sourcePage = this.store.listReportSources(request.sourceSessionIds, {
+        page: options.sessionPage,
+        pageSize: maxSessions,
+        projectId: request.projectId,
+      });
+      const sessions = sourcePage.items;
+      const selectedSessionIds = new Set(sessions.map((session) => session.id));
+      const handoffRows = selectedSessionIds.size
+        ? (this.db
+            .prepare(
+              `SELECT rs.*, s.title AS session_title, p.name AS project_name
              FROM raw_snapshots rs
              CROSS JOIN sessions s ON s.id = rs.session_id
              CROSS JOIN projects p ON p.id = rs.project_id
              WHERE p.status = 'tracked'
                AND rs.session_id IN (${[...selectedSessionIds].map(() => "?").join(", ")})
              ORDER BY rs.captured_at ASC, rs.id ASC`,
-          )
-          .all(...selectedSessionIds) as Array<SynthesisSnapshotRow & { session_title: string; project_name: string }>)
-      : [];
-    const maxHandoffCharacters = Math.min(Math.max(Math.trunc(options.maxHandoffCharacters ?? 40_000), 1_000), 200_000);
-    let remainingCharacters = maxHandoffCharacters;
-    const handoffSummaries = handoffRows.flatMap((snapshot) => {
-      if (remainingCharacters <= 0) {
-        return [];
-      }
-      const content = snapshot.content.slice(0, remainingCharacters);
-      remainingCharacters -= content.length;
-      return [
-        {
-          sessionId: snapshot.session_id,
-          sessionTitle: snapshot.session_title,
-          projectName: snapshot.project_name,
-          ...(snapshot.source_path ? { sourcePath: snapshot.source_path } : {}),
-          content,
-        },
-      ];
-    });
-    const totalHandoffCharacters = selectedSessionIds.size
-      ? Number(
-          (
-            this.db
-              .prepare(
-                `SELECT COALESCE(SUM(LENGTH(rs.content)), 0) AS total
+            )
+            .all(...selectedSessionIds) as Array<
+            SynthesisSnapshotRow & { session_title: string; project_name: string }
+          >)
+        : [];
+      const maxHandoffCharacters = Math.min(
+        Math.max(Math.trunc(options.maxHandoffCharacters ?? 40_000), 1_000),
+        200_000,
+      );
+      let remainingCharacters = maxHandoffCharacters;
+      const handoffSummaries = handoffRows.flatMap((snapshot) => {
+        if (remainingCharacters <= 0) {
+          return [];
+        }
+        const content = snapshot.content.slice(0, remainingCharacters);
+        remainingCharacters -= content.length;
+        return [
+          {
+            sessionId: snapshot.session_id,
+            sessionTitle: snapshot.session_title,
+            projectName: snapshot.project_name,
+            ...(snapshot.source_path ? { sourcePath: snapshot.source_path } : {}),
+            content,
+          },
+        ];
+      });
+      const totalHandoffCharacters = selectedSessionIds.size
+        ? Number(
+            (
+              this.db
+                .prepare(
+                  `SELECT COALESCE(SUM(LENGTH(rs.content)), 0) AS total
                FROM raw_snapshots rs
                CROSS JOIN projects p ON p.id = rs.project_id
                WHERE p.status = 'tracked'
                  AND rs.session_id IN (${[...selectedSessionIds].map(() => "?").join(", ")})`,
-              )
-              .get(...selectedSessionIds) as { total: number }
-          ).total,
-        )
-      : 0;
-    const contextEvidence = reportResult.evidence.filter((item) => selectedSessionIds.has(item.sessionId));
-    const contextSourceSessionIds = request.sourceSessionIds.filter((sessionId) => selectedSessionIds.has(sessionId));
-    const contextReport: WorkReport = {
-      ...reportResult,
-      sourceSessionIds: contextSourceSessionIds,
-      sessions,
-      completedWork: sessions.slice(0, 10),
-      evidence: contextEvidence,
-      evidencePageInfo: createPageInfo(1, Math.max(contextEvidence.length, 1), contextEvidence.length, 100),
-    };
-    const context: ReportSynthesisContextResult = {
-      outcome: "report_context",
-      request,
-      report: contextReport,
-      sessions,
-      handoffSummaries,
-      sourceSessionIds: contextSourceSessionIds,
-      truncation: {
-        sessions: availableSessions.length > sessions.length,
-        evidence: reportResult.evidencePageInfo.total > contextEvidence.length,
-        handoffCharacters: totalHandoffCharacters > maxHandoffCharacters,
-      },
-    };
-    return context;
+                )
+                .get(...selectedSessionIds) as { total: number }
+            ).total,
+          )
+        : 0;
+      const sourceEvidence = getSourceReportEvidence(this.db, sessions);
+      const evidencePageInfo = createPageInfo(options.evidencePage, maxEvidence, sourceEvidence.length, 100);
+      const contextEvidence = sourceEvidence.slice(
+        (evidencePageInfo.page - 1) * evidencePageInfo.pageSize,
+        evidencePageInfo.page * evidencePageInfo.pageSize,
+      );
+      const contextSourceSessionIds = request.sourceSessionIds.filter((sessionId) => selectedSessionIds.has(sessionId));
+      const contextReport: WorkReport = {
+        ...reportResult,
+        sourceSessionIds: contextSourceSessionIds,
+        sessions,
+        completedWork: sessions.slice(0, 10),
+        evidence: contextEvidence,
+        evidencePageInfo,
+      };
+      const context: ReportSynthesisContextResult = {
+        outcome: "report_context",
+        request,
+        report: contextReport,
+        sessions,
+        handoffSummaries,
+        sourceSessionIds: contextSourceSessionIds,
+        coverage: {
+          requestSnapshotAt: request.requestedAt,
+          requestedSessions: new Set(request.sourceSessionIds).size,
+          eligibleSessions: sourcePage.pageInfo.total,
+          unavailableSessions: new Set(request.sourceSessionIds).size - sourcePage.pageInfo.total,
+          selectedSessions: sessions.length,
+          currentPeriodAsOf: nowIso(),
+          currentPeriodSessions: reportResult.totals.sessions,
+          sessionPageInfo: sourcePage.pageInfo,
+          evidence: { scope: "selected_sessions", total: sourceEvidence.length, returned: contextEvidence.length },
+        },
+        truncation: {
+          sessions:
+            sourcePage.pageInfo.total > sessions.length ||
+            new Set(request.sourceSessionIds).size > sourcePage.pageInfo.total,
+          evidence: sourceEvidence.length > contextEvidence.length,
+          handoffCharacters: totalHandoffCharacters > maxHandoffCharacters,
+        },
+      };
+      return context;
+    });
   }
 
   public saveReportSummary(input: SaveReportSummaryInput): SaveReportSummaryResult {
@@ -803,12 +825,12 @@ export class ReportSynthesisService {
           `SELECT COUNT(*) AS count
            FROM sessions s
            CROSS JOIN projects p ON p.id = s.project_id
-           WHERE p.status = 'tracked'
-             AND s.id IN (${sourceSessionIds.map(() => "?").join(", ")})`,
+           WHERE p.status = 'tracked' AND s.voided_at IS NULL
+             AND s.id IN (SELECT value FROM json_each(?))`,
         )
-        .get(...sourceSessionIds) as { count: number };
+        .get(JSON.stringify(sourceSessionIds)) as { count: number };
       if (trackedCount.count !== sourceSessionIds.length) {
-        throw new Error("Summary sourceSessionIds must reference tracked projects only.");
+        throw new Error("Summary sourceSessionIds must reference nonvoided Sessions of tracked projects only.");
       }
     }
 
