@@ -2084,15 +2084,15 @@ test.describe("Work Intelligence browser regression", () => {
     // A resizable reader must adapt to its own width even on a wide desktop viewport.
     await page.setViewportSize({ width: 1440, height: 1000 });
     const resize = reader.getByRole("separator", { name: tt("ui.resize", { label: tt("session.diagramReader") }) });
-    await resize.focus();
-    await page.keyboard.press("Home");
+    await resize.press("Home");
     await expect(reader.locator(".architecture__groups")).toBeVisible();
-    for (let step = 0; step < 22; step++) await page.keyboard.press("ArrowRight");
+    // Modal activation can move focus after reload; target the resize control for every key.
+    for (let step = 0; step < 22; step++) await resize.press("ArrowRight");
     expect((await reader.boundingBox())?.width).toBeLessThan(640);
     await expect(reader.locator(".architecture__groups")).toBeHidden();
     expect(await canvas.evaluate((element) => element.clientWidth)).toBeGreaterThan(300);
     await expect(canvas.locator(".architecture__node")).toHaveCount(6);
-    await page.keyboard.press("Home");
+    await resize.press("Home");
     await expect(reader.locator(".architecture__groups")).toBeVisible();
     for (const [width, theme, locale] of [
       [1440, "dark", "zh-TW"],

@@ -12,6 +12,8 @@ Route meta: `{ title, eyebrow, group, icon }`. The sidebar, breadcrumb and `Page
 
 ## Page anatomy
 
+All pages share the full available main width and responsive gutters. Graph and other routes must keep the same left and right content edges during navigation; the main scroll container reserves stable scrollbar space.
+
 1. `PageHeader`: one compact row (about 32px) — inline eyebrow (12px) → title (16px) → description (13px, one line, ellipsis with the full text on hover); actions on the right. No bottom border, 12px gap below. The app bar breadcrumb already names the page, so never grow the header back into a stacked title block; below 640px the eyebrow hides and the description moves to its own line, still one line, so its length never shifts the controls below.
 2. Optional `UiUnderlineNav` directly under the header (full-bleed to the page gutter).
 3. Content: `StatCard` grid (4 columns ≥ 960, 2 columns below) and/or `UiBox` lists. Secondary info goes in a 340px right column at ≥ 960.

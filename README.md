@@ -1,6 +1,6 @@
 # Work Intelligence
 
-Version **1.4.0** adds in-progress verification and native architecture diagram cards. Current development requires explicit architecture v1 for new diagrams and preserves historical Mermaid as source text; database schema is 30. After updating and rebuilding, restart the running server and reconnect the Agent MCP to load the new contracts.
+Version **1.5.0** brings work reminders and display preferences, related-work hints, report section editing and preview/copy, and weekly insights. It adds opt-in MCP field selection and fixes automatic timeline fitting, activity sizing and consistent page widths. New diagrams require explicit architecture v1; historical Mermaid remains readable as source text. Database schema is 30. See the [release notes](CHANGELOG.md#150---2026-10-11) and [Traditional Chinese update guide](docs/releases/1.5.0.md). After updating and rebuilding, restart the running server and reconnect the Agent MCP to load the new contracts.
 
 **English** | [繁體中文](README.zh-TW.md)
 
@@ -410,7 +410,7 @@ The guides under `docs/` are written in Traditional Chinese.
 | [docs/testing.md](docs/testing.md) | Test commands, coverage, performance, retrieval-quality and accessibility thresholds, and E2E scope |
 | [docs/status.md](docs/status.md) | Current status, open items and deferred work |
 | [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Decisions and implementation notes for the Web UI redesign |
-| [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | Five-feature integration research: UX, algorithms, security and staged acceptance; not implemented |
+| [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | Historical five-feature integration research: UX, algorithms, security and staged acceptance; implementation delivered in 1.5.0 |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow, health checks, PR and work-record rules |
 | [SECURITY.md](SECURITY.md) | Threat model, local security boundaries and private vulnerability reporting |

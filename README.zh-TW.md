@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.4.0** 新增工作記錄「進行中」驗證狀態與原生架構卡片閱讀器。目前開發版新增圖表明確要求 architecture v1，歷史 Mermaid 保留為原始碼；資料庫 schema 為 30。更新並建置後，重啟執行中的服務及重新連線 Agent MCP，才能載入新版與契約。
+**1.5.0** 整合工作提醒與呈現偏好、相關工作提示、報告段落改稿／預覽複製及每週洞察；加入 MCP 精準欄位讀取，並修正時間軸、活動熱度及各頁寬度自動適應。新圖表明確要求 architecture v1，歷史 Mermaid 保留為原始碼；資料庫 schema 為 30。[完整更新說明](docs/releases/1.5.0.md)。更新並建置後，重啟執行中的服務及重新連線 Agent MCP，才能載入新版與契約。
 
 [English](README.md) | **繁體中文**
 
@@ -409,7 +409,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 | [docs/testing.md](docs/testing.md) | 測試指令、覆蓋率、效能、檢索品質與無障礙門檻，以及 E2E 範圍 |
 | [docs/status.md](docs/status.md) | 專案現況、未結項與暫緩項目 |
 | [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Web UI 改版的決策與實作紀錄 |
-| [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | 五項功能整合先行研究：UIUX、演算法、安全與分階段驗收；尚未實作 |
+| [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | 五項功能整合先行研究：UIUX、演算法、安全與分階段驗收；實作已納入 1.5.0 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本變更紀錄 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 開發流程、健康檢查、PR 與工作記錄規則 |
 | [SECURITY.md](SECURITY.md) | 威脅模型、本機安全邊界與私密漏洞回報方式 |
