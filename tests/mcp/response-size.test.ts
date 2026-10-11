@@ -59,7 +59,9 @@ afterEach(async () => {
   }
 });
 
-async function connectWithSyntheticHistory(): Promise<ConnectedFixture> {
+async function connectWithSyntheticHistory(
+  getRestartStatus?: Parameters<typeof createWorkIntelligenceMcpServer>[4],
+): Promise<ConnectedFixture> {
   const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-response-size-"));
   const store = new WorkIntelligenceStore(":memory:");
   const project = store.addProject("Synthetic Cedar", projectRoot);
@@ -140,7 +142,13 @@ async function connectWithSyntheticHistory(): Promise<ConnectedFixture> {
     }
   }
 
-  const server = createWorkIntelligenceMcpServer(store, "0.1.0-test", LATEST_SCHEMA_VERSION);
+  const server = createWorkIntelligenceMcpServer(
+    store,
+    "0.1.0-test",
+    LATEST_SCHEMA_VERSION,
+    undefined,
+    getRestartStatus,
+  );
   const client = new Client({ name: "response-size-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -1141,6 +1149,33 @@ describe("synthetic MCP response-size baseline", () => {
 });
 
 describe("Agent report response budgets", () => {
+  it("includes runtime status in the complete context response budget", async () => {
+    const status = {
+      restartRequired: false,
+      monitoringAvailable: true,
+      updateAvailable: true,
+      message: "Synthetic compatible runtime update. ".repeat(100),
+    };
+    const { client, store, projectId } = await connectWithSyntheticHistory(() => status);
+    const request = store.createReportSynthesisRequest({ period: "week", date: "2026-09-01", projectId });
+    if (request.outcome !== "report_synthesis_request") throw new Error("Missing request");
+    const response = await client.callTool({
+      name: "work_write_idempotent",
+      arguments: {
+        operation: "work_get_report_context",
+        arguments: { requestId: request.request.id, maxCharacters: 12_000 },
+      },
+    });
+    expect(response.isError).not.toBe(true);
+    const raw = (response.content as Array<{ type: string; text: string }>)[0]!.text;
+    expect(raw.length).toBeLessThanOrEqual(12_000);
+    const result = JSON.parse(raw);
+    expect(result.server).toEqual(status);
+    expect(result.projection.maxCharacters).toBe(12_000);
+    expect(result.report.totals.sessions).toBe(20);
+    expect(result.coverage.requestedSessions).toBe(20);
+  });
+
   it("bounds report and fixed-source context, preserves totals, exposes omissions, and retains explicit full reads", async () => {
     const { client, store, projectId, projectRoot } = await connectWithSyntheticHistory();
     const source = store.finalizeSession({
