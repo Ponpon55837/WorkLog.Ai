@@ -13,8 +13,6 @@ defineProps<{
   refreshing?: boolean;
   appHealth?: ApiHealth | null;
   counts?: Partial<Record<string, { value: number; tone?: "default" | "attention" }>>;
-  /** Removes the max-width content column (Graph canvas). */
-  fullWidth?: boolean;
 }>();
 const emit = defineEmits<{ refresh: []; search: [] }>();
 
@@ -54,7 +52,7 @@ watch(
     <div class="app-shell__body">
       <AppSidebar :open="menuOpen" :counts="counts" :app-health="appHealth" @close="menuOpen = false" />
       <main id="main" ref="main" class="app-shell__main" tabindex="-1">
-        <div :class="['app-shell__content', { 'app-shell__content--full': fullWidth }]">
+        <div class="app-shell__content">
           <slot />
         </div>
       </main>
@@ -108,16 +106,11 @@ watch(
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .app-shell__content {
-  max-width: var(--content-max-width);
-  margin: 0 auto;
   padding: var(--space-6) var(--space-8) var(--space-16);
-}
-
-.app-shell__content--full {
-  max-width: none;
 }
 
 @media (max-width: 959px) {

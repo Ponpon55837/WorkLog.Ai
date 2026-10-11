@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useRoute } from "vue-router";
 import AppShell from "./components/layout/AppShell.vue";
 import CommandPalette from "./components/domain/CommandPalette.vue";
 import HandoffImportDialog from "./components/domain/HandoffImportDialog.vue";
@@ -25,7 +24,6 @@ import { useProjectsStore } from "./stores/projects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 import { locale, t } from "./i18n";
 
-const route = useRoute();
 const projectsStore = useProjectsStore();
 const { dashboard, trackedProjects } = storeToRefs(projectsStore);
 const { loadDashboard, loadProjects } = projectsStore;
@@ -96,7 +94,6 @@ onBeforeUnmount(() => {
     :refreshing="refreshing"
     :counts="counts"
     :app-health="appHealth"
-    :full-width="route.name === 'graph'"
     @refresh="refresh"
     @search="paletteOpen = true"
   >
@@ -116,7 +113,14 @@ onBeforeUnmount(() => {
       <!-- Keyed by route name: switching tabs inside a page keeps the page and only fades its panel.
            The locale is part of the key so a language switch re-runs setup code that translated once. -->
       <Transition name="page" mode="out-in">
-        <div :key="`${String(current.name)}:${locale}`" class="page-view"><component :is="Component" /></div>
+        <div
+          :key="`${String(current.name)}:${locale}`"
+          class="page-view"
+          data-testid="page-view"
+          :data-page="String(current.name)"
+        >
+          <component :is="Component" />
+        </div>
       </Transition>
     </RouterView>
 

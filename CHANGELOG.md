@@ -6,11 +6,17 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [1.5.0] - 2026-10-11
 
+[繁體中文更新說明](https://github.com/Ponpon55837/WorkLog.Ai/blob/v1.5.0/docs/releases/1.5.0.md).
+
 ### Changed
+
+- Refresh both READMEs and the Traditional Chinese 1.5.0 release guide; retire 17 historical OpenSpec handoffs, preserving two unique audits under `docs/experiments/`.
 
 - New diagrams require explicit architecture JSON v1. Historical Mermaid stays readable as escaped, copyable, downloadable source; remove Mermaid, KaTeX and their renderer dependencies without rewriting stored diagrams.
 
 ### Fixed
+
+- Use the full available content width on every page and reserve stable scrollbar space, preventing width jumps when navigating to or from the graph.
 
 - Keep cleanup request creation available during background list refreshes after the current project data has loaded; retain first-load and active-request guards.
 

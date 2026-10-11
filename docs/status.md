@@ -42,7 +42,7 @@ C3 與 A2 的最新 head 三平台 Quality 與 E2E 均 SUCCESS。A2 CI 保留 Ch
 
 ## 第九輪交付
 
-依[第九輪交接文件](../.openspec/handoffs/2026-09-30-claude-to-codex-round9.md)的順序進行，每項獨立 PR。
+第九輪各項已依序獨立交付；歷史交接已於 1.5.0 收尾清理，完成狀態與核對證據保留於本頁及正式實驗文件。
 
 | 階段 | 狀態 | 項目 |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ C3 與 A2 的最新 head 三平台 Quality 與 E2E 均 SUCCESS。A2 CI 保留 Ch
 | B3 | 已完成（PR #188） | Agent 提出附證據的待審建議；Web 人工審核、來源版本重核，活躍快照防止 Agent 繞過審核 |
 | C1 | 文件已對齊（本 PR） | 重新連線規則、整理流程、測試基線、狀態與歷史文件收尾 |
 
-A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](../.openspec/handoffs/2026-09-30-codex-round9-a3-evidence.md)保留缺漏證據；B3 的[合成準確度評估](../.openspec/handoffs/2026-10-01-codex-round9-b3-accuracy.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。schema 23 與新增 Agent 契約在主安裝更新後須重啟服務並重新連線；上述 PR／CI／Session 證據已核對，完整輪次交接會在 C1 階段收尾時保存於工作區。
+A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](experiments/agent-data-source-audit-2026-09-30.md)保留缺漏證據；B3 的[合成準確度評估](experiments/outstanding-cleanup-accuracy-2026-10-01.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。當時 schema 23／新增 Agent 契約的升級要求已由後續正式版本取代；1.5.0 主線為 schema 30。主安裝重啟、MCP 新連線、知識頁及未結項最終狀態，依本次部署與發版工作記錄核對。
 
 2026-10-08 新增已作廢 Session 的永久刪除（只有 Web／REST，先寫獨立保留 5 份的備份，MCP 不提供）與 Session 標題修正（Web 編輯對話框、REST、MCP `work_update_session_title`）；schema 26，Agent 需重新連線。
 
@@ -116,7 +116,7 @@ PR #147–#156 的 head、merge SHA、CI run（四項皆 success）與 Work Inte
 
 ## 第七輪：Agent 脈絡的用量與準確度（已完成）
 
-原始交接文件：[`.openspec/handoffs/2026-09-28-claude-to-codex-round7.md`](../.openspec/handoffs/2026-09-28-claude-to-codex-round7.md)；複檢交接文件：[`.openspec/handoffs/2026-09-28-codex-round7-review.md`](../.openspec/handoffs/2026-09-28-codex-round7-review.md)。依據是使用者請 Codex 以實際資料做的兩次使用測試。A1–D2 各階段均各自開 PR，四項 CI 成功後以 merge commit 合併；詳見複檢交接文件的 SHA／CI／工作記錄對照表。
+歷史交接與複檢已完成並清理，PR／CI 與工作記錄保留其交付證據。依據是使用者請 Codex 以實際資料做的兩次使用測試。A1–D2 各階段均各自開 PR，四項 CI 成功後以 merge commit 合併；歷史 SHA／CI／工作記錄可由相應 PR 與 Git 歷史核對。
 
 | 階段 | 項目 |
 | --- | --- |
@@ -135,11 +135,11 @@ PR #147–#156 的 head、merge SHA、CI run（四項皆 success）與 Work Inte
 - 每次繪圖使用獨立且連接至文件的暫存 render surface，在 Mermaid 將 `<style>` 插入 SVG 前收集 CSS 並略過該節點；樣式仍由圖表 Shadow DOM 的 Constructable Stylesheet 套用。主頁 CSP 不變。
 - Mermaid E2E 保留 `style-src-elem 'self'` 檢查，並斷言整個繪圖、原始碼 fallback 與作廢流程沒有 CSP console 錯誤。
 
-- PR #155 已合併；A1 基準與本輪最終回應大小、每階段 PR／SHA／CI／Work Intelligence Session 對照及複檢重點見第七輪複檢交接文件。
+- PR #155 已合併；A1 基準與本輪最終回應大小、每階段 PR／SHA／CI／Work Intelligence Session 對照保留於相應 PR 與歷史工作記錄。
 
 ## 第六輪：可信度、洞察與好用度（已完成）
 
-交接文件：[`.openspec/handoffs/2026-09-27-claude-to-codex-round6.md`](../.openspec/handoffs/2026-09-27-claude-to-codex-round6.md)。全部項目已合併：A1–B1、E1、C1 由 Codex 完成；C2–C4、D1–D5、E2、E3 由 Claude 接手完成（PR #133–#142），每項各自一個 PR，CI 全綠後以 merge commit 合併。開機自動啟動、發行、版本升到 1.0.0 與實機驗證仍維持暫緩。
+歷史交接已完成並清理。全部項目已合併：A1–B1、E1、C1 由 Codex 完成；C2–C4、D1–D5、E2、E3 由 Claude 接手完成（PR #133–#142），每項各自一個 PR，CI 全綠後以 merge commit 合併。當時暫緩的發行已由後續正式版本取代；本次 1.5.0 已獲發版授權，實機驗收依使用者決定取消、免驗，沒有宣稱實測通過。
 
 | 階段 | 項目 |
 | --- | --- |
@@ -334,10 +334,16 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 
 UI 改版 P0–P4（六頁、共用 UI、App.vue 拆解、a11y、Ctrl／⌘ K）；集中 API client 與 AbortController；`store.ts` 拆出 repository；ESLint／Prettier；coverage 門檻（schema、storage handoff parser）；Graph server-side cursor 與 viewport culling；列表 virtual list；Provider + No-op；跨行程 idempotency 與 migration 交易保護；Content-Type 與 payload 上限；symlink real-path 二次檢查；`commit_required` 移除；handoff parser 單元測試與輸出邊界。
 
-時間軸回歸另修正 Agent 決策提升為 Knowledge 的刷新競態：讀取取消不改變已提交寫入結果。實機驗收依使用者指示免驗；1.5.0 發行仍在收尾。
+時間軸回歸另修正 Agent 決策提升為 Knowledge 的刷新競態：讀取取消不改變已提交寫入結果。實機驗收依使用者指示免驗；發行證據以 tag、Release 與部署工作記錄核對。
 
-- 使用者截圖所示 Session「可能相關」貼邊已補 12px 內距，統一標題／日期／路徑對齊；雙語、明暗、三尺寸與三瀏覽器的視覺驗證待最新建置確認，沿用 PR #236。
+- 使用者截圖所示 Session「可能相關」貼邊已補 12px 內距，統一標題／日期／路徑對齊；雙語、明暗、三尺寸與三瀏覽器的本機回歸已通過，PR #236 四項 CI 成功後合併。
 
-## 1.5.0 接手收尾
+## 1.5.0 交付範圍
 
-Mermaid M1/M2 已實作：新增寫入明確要求 architecture v1，保留歷史圖表完整資料生命週期並提供安全原始碼閱讀。schema 維持 30，沒有資料表變更；新 MCP 契約需重新連接。自動化整合驗證與發行尚在進行；Safari／觸控、Windows 實機依使用者指示免驗，沒有實測通過的證據。
+Mermaid M1/M2 已實作：新增寫入明確要求 architecture v1，保留歷史圖表完整資料生命週期並提供安全原始碼閱讀。schema 維持 30，沒有資料表變更；新 MCP 契約需重新連接。本機自動化整合驗證已完成；最新平台 CI、部署與發行結果以各 PR 及工作記錄核對。Safari／觸控、Windows 實機依使用者指示免驗，沒有實測通過的證據。
+
+所有頁面統一使用側欄旁的完整可用寬度與相同響應內距，移除圖譜專屬的寬版切換及其他頁面的 1280px 上限；主捲動容器保留捲軸空間，避免切頁左右邊界跳動。
+
+## 歷史 OpenSpec 清理（1.5.0）
+
+已清除 15 份完成或過期的 handoff／review，另將 2 份獨特來源核對及合成評估證據移至 `docs/experiments/`；`.openspec/handoffs/` 不再保留這 17 份歷史文件。舊文件的知識頁更新提示，以目前 MCP 頁面版本與本次最終維護工作記錄為準；不把歷史待辦或合成案例重新當成現行未結項。

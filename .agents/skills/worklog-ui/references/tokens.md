@@ -100,4 +100,4 @@ Keyframes: `wi-fade-in`, `wi-fade-up` (6px), `wi-pop-in` (scale 0.96), `wi-drop-
 
 ## Breakpoints
 
-`sm 640` · `md 960` · `lg 1280`. Do not introduce others. Content max width 1280px (Graph page is full width).
+`sm 640` · `md 960` · `lg 1280`. Do not introduce others. All routes use the full available main width with the same responsive gutters; do not add route-specific width limits. Reserve stable scrollbar space on the main scroll container.

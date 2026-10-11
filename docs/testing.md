@@ -218,7 +218,7 @@ Unit／integration 測試涵蓋：
 
 新增整理 request list／5-item＋10-Session context／100-proposal page 的 5,000 Session 基準，各 p90 上限 250 ms；最新完整檢查的 15 次取樣分別為 0.47／3.32／3.86 ms。回應大小測試保護 24,000 字元整理 context、固定 item／Session ID 與截短旗標，以及一般 context 的 pending 整理請求。儲存層／MCP／REST 測試確認提案不改狀態、重試、同專案與時間範圍、source/evidence 更新／作廢、整批回滾、policy skip、錯誤遮罩、migration 22→23、轉移／遮蔽及永久刪除。
 
-建議準確度採獨立 Agent 真正閱讀合成 context 與完整來源，沒有以 hardcoded classifier 測自己。20 個預先建立答案的項目中，12 個確認完成／取代、8 個失敗／部分／回退／草稿或缺證據；Agent 未讀答案，核對 8 頁後提交 12 項正確建議，精確率 12/12、確認案例覆蓋 12/12、證據不足保留 8/8。公開 schema 與實際 storage submit 驗證後 pending 仍 20→20，重試未新增提案。小樣本只是這組合成案例，不代表實際資料的整體準確度；詳細資料見 [B3 合成評估](../.openspec/handoffs/2026-10-01-codex-round9-b3-accuracy.md)。
+建議準確度採獨立 Agent 真正閱讀合成 context 與完整來源，沒有以 hardcoded classifier 測自己。20 個預先建立答案的項目中，12 個確認完成／取代、8 個失敗／部分／回退／草稿或缺證據；Agent 未讀答案，核對 8 頁後提交 12 項正確建議，精確率 12/12、確認案例覆蓋 12/12、證據不足保留 8/8。公開 schema 與實際 storage submit 驗證後 pending 仍 20→20，重試未新增提案。小樣本只是這組合成案例，不代表實際資料的整體準確度；詳細資料見 [B3 合成評估](experiments/outstanding-cleanup-accuracy-2026-10-01.md)。
 
 B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成／取代與 nextSteps 移除防護，並確認取消後恢復正常收尾、Web 人工更新仍可用。背景刷新遭後續刷新取消時，批次更新／復原與整理審核保留實際寫入結果；同頁未結項與建議刷新保留仍符合條件的勾選，切換範圍仍清空。回歸案例分別以 AbortError 與實際瀏覽器刷新驗證。
 
@@ -298,3 +298,7 @@ Schema／REST／MCP／storage 驗證新增圖表必須明確指定 architecture 
 MCP 精準讀取前後成本：三組獨立程序的全部任務參考文字 token 中位降幅 30.45%–30.95%，相對 p90、一次補查上限與 peak RSS 110% 門檻均通過。小型 handoff 仍增 4.21%–4.55%，保留完整讀取建議；大型任務下降 60.68%–84.20%。含全部啟動 resource 的原始結果、限制與契約 fingerprint 見 [實驗資料](experiments/session-read-projection-2026-10-10.json)。
 
 架構圖未支援格式的攔截回歸在所有斷言後以 `page.unrouteAll({ behavior: "wait" })` 等待背景 handler，避免 WebKit teardown 先銷毀 `route.fetch()` 回應而誤報 `Response has been disposed`；原 timeout 與 UI／CSP 斷言保留。
+
+`tests/e2e/page-width.spec.ts` 使用側欄實際切換圖譜與其他六個主要頁面，對繁中／英文、明暗及 1920／1440／960／375px 比較內容左右邊界、可用寬度與水平溢位；三瀏覽器各執行16種組合。1920px 舊版可重現切出圖譜後縮窄400px；修正保留響應內距及穩定捲軸預留，不改頁面高度。
+
+架構圖閱讀器在 reload 後的鍵盤 resize 回歸改由 separator locator 發送 Home／ArrowRight，防止面板啟用時的焦點移動讓全域鍵盤輸入落到其他控制項；保留640px響應斷言、22次方向鍵與原timeout。PR #238 CI首輪Chromium此處失敗後完整重跑成功，證據保留，不稱首輪全綠。
