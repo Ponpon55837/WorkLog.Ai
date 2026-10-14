@@ -34,21 +34,14 @@
 需求：**Node.js 22.13 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 11.16 以上**（見 `package.json` 的 `engines.pnpm`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
 
 ```bash
-cd /path/to/WorkLog.Ai
-pnpm install
-pnpm build
-pnpm setup:agents
-```
-
-`pnpm setup:agents` 會先列出預計安裝的 MCP、user-level skills 與保存提醒 hook。預覽預設不會寫入；確認內容後，在互動提示輸入 `yes`，installer 會先備份再套用。若不想變更全域 Agent 設定，輸入其他內容或離開即可。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
-
-接著啟動本機 Dashboard 與 REST API：
-
-```bash
+git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
+pnpm bootstrap
 pnpm start
 ```
 
-終端機保持執行，按 `Ctrl+C` 停止。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
+`pnpm bootstrap` 是唯一的安裝主線，會先檢查 Node.js 與 pnpm 版本並列出計畫，確認一次後依序執行：安裝依賴、建置、連接 Agent（`pnpm setup:agents`）、詢問是否設定登入自動啟動，最後用 `pnpm run doctor` 診斷並印出下一步。前兩步只寫入這個 repo；**連接 Agent 與登入自動啟動這兩步會寫入你的全域設定，各自另外顯示預覽並要求確認**（Agent 設定要輸入 `yes`），不確認就不會變更。非互動終端只顯示計畫，加上 `--yes` 才會執行；`--skip-agents` 略過連接 Agent，`--service` 直接進入登入自動啟動設定。可重複執行，`git pull` 後再跑一次就是更新後同步。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
+
+`pnpm start` 啟動本機 Dashboard 與 REST API。終端機保持執行，按 `Ctrl+C` 停止。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
 
 如果希望在登入電腦後自動啟動，可先執行 `pnpm build`，再執行 `pnpm service:install`。安裝前會列出即將寫入的服務檔案與完整內容；確認後才會設定目前使用者的服務，無須管理員權限。`pnpm service:status` 查看狀態，`pnpm service:uninstall` 停止並移除服務設定，保留資料庫、備份與日誌。各平台位置與排除問題方式見[登入自動啟動](docs/service.md)。
 
@@ -66,11 +59,11 @@ pnpm run doctor
 
 請用 `pnpm run doctor`，不要用 `pnpm doctor`：pnpm 11 把 `doctor` 保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 註冊、skill 複本與全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
 
-在 Codex 或 Claude Code 中重新連線 Work Intelligence MCP；Codex 使用保存提醒 hook 時，請在 `/hooks` 檢查並信任它。接著在 Dashboard：
+接著三步：
 
-1. 開啟「專案」→「加入專案」，選擇要記錄的專案資料夾。
+1. 開啟 <http://127.0.0.1:3210>，進入「專案」→「加入專案」，選擇要記錄的專案資料夾。
 2. 將專案狀態切換成「記錄中」，並確認允許讀取的範圍。
-3. 在 Agent 對話中確認連線，之後照常工作；完成時請 Agent 保存這次工作。
+3. 在 Codex 或 Claude Code 重新連線 Work Intelligence MCP（Codex 使用保存提醒 hook 時，請在 `/hooks` 檢查並信任它），之後照常工作；完成時請 Agent 保存這次工作。
 
 如果還沒有記錄中專案或尚無 Session，總覽會顯示「加入專案 → 設為記錄中 → 連接 Agent → 第一筆工作記錄」四步清單，並連到相關頁面或提供安裝命令。
 
@@ -78,11 +71,11 @@ pnpm run doctor
 
 ## 連接 Codex／Claude
 
-Work Intelligence 的 MCP 是**本機 stdio server**，由 Agent 自己啟動，不使用 Web 的 HTTP port。先執行一次 `pnpm build`，再依你的 Agent 註冊。請用絕對路徑，讓 API、MCP 與 CLI 使用同一個資料庫。
+Work Intelligence 的 MCP 是**本機 stdio server**，由 Agent 自己啟動，不使用 Web 的 HTTP port。**`pnpm bootstrap` 已經透過 `pnpm setup:agents` 完成連接**，一般情況不需要再做以下步驟。以下是「其他安裝方式」，與 bootstrap **二選一**，不要同時使用；請用絕對路徑，讓 API、MCP 與 CLI 使用同一個資料庫。
 
-### 以 plugin 安裝（Claude Code／Codex）
+### 其他安裝方式一：plugin（Claude Code／Codex，與 bootstrap 二選一）
 
-這是連接 Agent 最簡單的方式。Claude Code 與 Codex 都從這個 repo 的 marketplace 安裝 Work Intelligence；plugin 執行的是你本機的 checkout，所以先 build 一次並連結：
+Claude Code 與 Codex 都從這個 repo 的 marketplace 安裝 Work Intelligence；plugin 執行的是你本機的 checkout，所以先 build 一次並連結：
 
 ```bash
 git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
@@ -123,9 +116,9 @@ codex plugin marketplace add Ponpon55837/WorkLog.Ai
 
 遇到問題先執行 `pnpm run doctor`，再看 [plugin 指南](docs/plugins.md) 的排錯表。
 
-### 手動註冊
+### 其他安裝方式二：手動註冊（與 bootstrap 二選一）
 
-想讓 Work Intelligence MCP 與 user-level skill 一次完成設定，可執行 `pnpm setup:agents` 預覽安裝計畫；預設不會寫入。操作方式、備份與解除安裝見 [Agent 設定指南](docs/agent-setup.md)。MCP 也會用標準 `resources/list`／`resources/read` 提供完整 skill 與記錄格式，任何支援 MCP resources 的 client 都能讀取：`work-intelligence://agent/work-intelligence/SKILL.md`、`work-intelligence://agent/work-record-and-report-format.md`。
+`pnpm setup:agents` 可單獨執行，預覽並安裝 Work Intelligence MCP 與 user-level skill；預設不會寫入。操作方式、備份與解除安裝見 [Agent 設定指南](docs/agent-setup.md)。MCP 也會用標準 `resources/list`／`resources/read` 提供完整 skill 與記錄格式，任何支援 MCP resources 的 client 都能讀取：`work-intelligence://agent/work-intelligence/SKILL.md`、`work-intelligence://agent/work-record-and-report-format.md`。
 
 macOS／Linux：
 
@@ -148,8 +141,6 @@ claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTE
 過期 MCP lease 與遺留暫存檔會在 MCP 註冊及系統狀態讀取時分批清理，預設門檻為 90 秒、每次最多 64 次刪除嘗試；詳見[疑難排解](docs/troubleshooting.md)。
 
 Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-work` 與 `/mcp__work-intelligence__synthesize-report`。Claude Desktop 的設定、驗證方式與常見問題見 **[docs/agent-setup.md](docs/agent-setup.md)**。更新 Work Intelligence 後，請重新 `pnpm build`。只有 schema／Agent 契約改變或無法確認相容性時才必須重新連線；僅實作更新會顯示「有新版可用」，原連線仍可照常讀寫，收尾再提醒重連。
-
-第九輪的未結項整理新增 schema 與 Agent 契約。更新主安裝前先保存工作記錄，再依[升級說明](docs/user-guide.md#更新-work-intelligence)重新建置、重啟服務並重新連線 Agent；之後可在 Web 發起整理，由 Agent 提交建議，再由使用者接受或拒絕。
 
 ### 保存提醒 hook（選用）
 
@@ -274,7 +265,7 @@ API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence 
 
 ## 升級與維護
 
-**升級**：更新程式碼後執行 `pnpm install`、`pnpm build`，再重新啟動 `pnpm start` 與 Agent 對話。
+**升級**：`git pull`，再執行 `pnpm bootstrap`（會重新安裝、建置並同步 Agent 設定、最後跑診斷），依提示重新連線 Agent，並重新啟動 `pnpm start`。
 
 - 新版本需要升級資料庫時，第一次開啟前會自動建立一份 migration 前備份（`pre-migration-v<版本>-…`），再在單一交易內套用 migration；備份失敗時不會升級。
 - 如果資料庫的 schema 比目前的程式新（例如在另一台電腦用過新版本），API、MCP 與 CLI 都會拒絕開啟，並提示你先更新 Work Intelligence，不會崩潰或只做一部分。

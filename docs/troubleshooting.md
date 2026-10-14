@@ -50,6 +50,18 @@ Work Intelligence hook 只使用使用者的全域設定，不使用單一專案
 
 hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態時會放行。`pnpm run doctor` 只讀取全域 Claude／Codex 設定檔與 hook dist 檔案，不會讀取 repo 內的 `.codex/hooks.json`，也不會修改任何 Agent 設定。
 
+## 資料庫路徑錯誤（Windows 反斜線）
+
+**症狀**：資料看起來「不見了」，或 repo 根目錄、其他目錄多出一個名稱像 `UsersyouDesktop…work-intelligence.sqlite` 的檔案；`pnpm run doctor` 的「資料庫路徑」顯示錯誤，或「repo 根目錄的資料庫檔」顯示警告。
+
+**原因**：在 Git Bash 之類的 shell 設定 `WORK_INTELLIGENCE_DB=C:Usersmedata.sqlite` 時，反斜線被當成跳脫字元吃掉，變成 `C:Usersmedata.sqlite`。Windows 把它當成「磁碟相對路徑」（C 槽目前目錄底下的檔案），於是資料默默寫到錯的地方。
+
+**修正**：
+
+1. 改用正斜線：`WORK_INTELLIGENCE_DB=C:/Users/me/data.sqlite`；或在 PowerShell 用單引號包住完整路徑：`$env:WORK_INTELLIGENCE_DB = 'C:Usersmedata.sqlite'`。
+2. 現在的版本遇到磁碟相對路徑會直接拒絕啟動並說明原因，不再悄悄建立新檔。相對路徑則一律以 repo 根目錄為基準解析（與從哪個目錄執行無關）。
+3. `pnpm run doctor` 會列出 repo 根目錄頂層的 `*.sqlite` 檔名（唯讀，不讀內容也不刪除）。確認內容後，若裡面有想保留的記錄，請自行用 `pnpm db:export`／`pnpm db:import` 合併，其餘由你自行搬移或刪除。
+
 ## 工作記錄的時間不對
 
 常見原因是 Agent 自己估計時間，或把本地時間加上 `Z` 當成 UTC（台北時間會差 8 小時）。

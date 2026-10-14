@@ -4,6 +4,16 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- `pnpm bootstrap` as the single install path: checks Node.js and pnpm, then installs, builds, connects Agents (`pnpm setup:agents`), optionally sets up start-at-login and runs the doctor. Global Agent and service settings keep their own preview and confirmation. Flags: `--yes`, `--skip-agents`, `--service`, `--help`.
+- Doctor lists top-level `*.sqlite` files in the repository root (read-only) and reports a Windows drive-relative `WORK_INTELLIGENCE_DB` as an error.
+
+### Changed
+
+- `WORK_INTELLIGENCE_DB` is resolved the same way by the server, MCP, doctor and login service: relative paths resolve from the repository root, and a drive-relative path such as `C:Users...` (backslashes eaten by a shell) is rejected instead of silently creating a database in the working directory.
+- The minimum Node.js version is 22.13 everywhere (`node:sqlite` needs no flag from 22.13); `engines.node` is declared in the root `package.json`.
+
 ## [1.5.1] - 2026-10-11
 
 [繁體中文更新說明](docs/releases/1.5.1.md).
