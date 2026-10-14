@@ -62,7 +62,7 @@ Run `pnpm check`; `pnpm run doctor` still works as an alias. Do not use plain `p
 Then three steps:
 
 1. Open <http://127.0.0.1:3210>, go to **Projects** → **Add project** and choose the project folder to record.
-2. Switch the project's status to **Tracked** and confirm the scope that may be read.
+2. Switch the project's status to **Tracked** and confirm the scope that may be read. Alternatively, skip steps 1 and 2 by running `pnpm track <folder>` from a terminal: it shows a preview (name, path, status change) and asks `[y/N]` before it adds the project and sets it to Tracked. Only you can do this; Agents cannot track a project.
 3. Reconnect the Work Intelligence MCP in Codex or Claude Code (if Codex uses the save-reminder hook, review and trust it under `/hooks`), then work as usual; when you finish, ask the Agent to save the work.
 
 Until there is a tracked project or a Session, the overview shows a four-step checklist — add a project → set it to Tracked → connect an Agent → first work record — with links to the right pages and the install command.
@@ -344,6 +344,7 @@ pnpm build:plugin             # self-contained plugin zip and Claude Desktop .mc
 pnpm start:server             # API only
 pnpm start:mcp                # MCP stdio server only
 pnpm check                    # read-only diagnostics
+pnpm track <folder>           # preview, confirm, then add the folder and set it to Tracked
 pnpm db:backup                # back up now (db:export, db:import, db:restore above)
 pnpm db:backups               # list backups; add --delete <file name> to delete after confirming
 pnpm db:maintain              # offline maintenance (stop the server and MCP first)

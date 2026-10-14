@@ -28,6 +28,7 @@ import {
   isDatabaseInUseError,
   type DatabaseBusyDiagnosisDependencies,
 } from "./database-busy-diagnosis.js";
+import { runTrackCommand, type TrackCliDependencies } from "./track-cli.js";
 
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -44,6 +45,7 @@ const usage = `用法：
   pnpm db:export --project <名稱或 id> [選項]  匯出單一專案為可攜式 JSON
   pnpm db:import <檔案> [選項]         預覽後合併匯入可攜式 JSON
   pnpm db:restore <檔案> [選項]       用匯出或備份的檔案取代目前的資料
+  pnpm track <資料夾> [--name <名稱>] [--yes]  預覽後把專案加入並設為記錄中
 
 export 選項：
   --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑
@@ -240,6 +242,8 @@ export interface DatabaseCliDependencies {
   confirmBackupDeletion?: (backup: DatabaseBackup, isLastBackup: boolean) => Promise<boolean>;
   /** Probes used to explain a DATABASE_IN_USE failure; injectable so tests never touch real processes. */
   busyDiagnosis?: DatabaseBusyDiagnosisDependencies;
+  /** Prompt and terminal probes for `pnpm track`; injectable so tests never read the real terminal. */
+  track?: Pick<TrackCliDependencies, "isInteractive" | "confirm" | "port">;
 }
 
 export async function runDatabaseCli(
@@ -261,6 +265,15 @@ export async function runDatabaseCli(
   const chooseImportProjectLocation = dependencies.chooseImportProjectLocation ?? promptImportProjectLocation;
   const confirmDeleteBackup = dependencies.confirmBackupDeletion ?? confirmBackupDeletion;
   const [command, ...args] = argv;
+  if (command === "track") {
+    return runTrackCommand(args, {
+      withStore: runWithStore,
+      invocationDirectory,
+      log: print,
+      error: printError,
+      ...dependencies.track,
+    });
+  }
   try {
     if (command === "maintain") {
       if (!NO_MAINTENANCE_ARGS_SCHEMA.safeParse(args).success) {

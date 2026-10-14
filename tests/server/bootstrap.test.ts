@@ -52,6 +52,7 @@ describe("pnpm bootstrap", () => {
     expect(harness.steps).toEqual(["install", "build", "setup:agents", "check"]);
     expect(harness.questions).toHaveLength(2);
     expect(harness.output.join("\n")).toContain("pnpm start");
+    expect(harness.output.join("\n")).toContain("或執行 pnpm track <資料夾>");
   });
 
   it("stops before running anything when Node.js is too old", async () => {

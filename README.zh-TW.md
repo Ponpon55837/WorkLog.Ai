@@ -62,7 +62,7 @@ pnpm check
 接著三步：
 
 1. 開啟 <http://127.0.0.1:3210>，進入「專案」→「加入專案」，選擇要記錄的專案資料夾。
-2. 將專案狀態切換成「記錄中」，並確認允許讀取的範圍。
+2. 將專案狀態切換成「記錄中」，並確認允許讀取的範圍。也可以改在終端機執行 `pnpm track <資料夾>` 一次完成第 1、2 步：它會先預覽專案名稱、路徑與狀態變化，輸入 `y` 確認後才加入並設為「記錄中」。只有你能這樣做，Agent 不能替你開始記錄。
 3. 在 Codex 或 Claude Code 重新連線 Work Intelligence MCP（Codex 使用保存提醒 hook 時，請在 `/hooks` 檢查並信任它），之後照常工作；完成時請 Agent 保存這次工作。
 
 如果還沒有記錄中專案或尚無 Session，總覽會顯示「加入專案 → 設為記錄中 → 連接 Agent → 第一筆工作記錄」四步清單，並連到相關頁面或提供安裝命令。
@@ -345,6 +345,7 @@ pnpm build:plugin             # 在 dist/plugin/ 產生自帶 MCP 的 plugin zip
 pnpm start:server             # 只啟動 API
 pnpm start:mcp                # 只啟動 MCP stdio server
 pnpm check                    # 唯讀診斷
+pnpm track <資料夾>            # 預覽並確認後，加入資料夾並設為記錄中
 pnpm db:backup                # 立即備份（db:export、db:import、db:restore 見上方）
 pnpm db:backups               # 列出備份；加 --delete <檔名> 可互動確認刪除
 pnpm db:maintain              # 離線維護（需先停止 server 與 MCP）
