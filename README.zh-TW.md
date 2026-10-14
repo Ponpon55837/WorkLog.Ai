@@ -41,7 +41,7 @@ pnpm start
 
 `pnpm bootstrap` 是唯一的安裝主線，會先檢查 Node.js 與 pnpm 版本並列出計畫，確認一次後依序執行：安裝依賴、建置、連接 Agent（`pnpm setup:agents`）、詢問是否設定登入自動啟動，最後用 `pnpm check` 診斷並印出下一步。前兩步只寫入這個 repo；**連接 Agent 與登入自動啟動這兩步會寫入你的全域設定，各自另外顯示預覽並要求確認**（Agent 設定要輸入 `yes`），不確認就不會變更。非互動終端只顯示計畫，加上 `--yes` 才會執行；`--skip-agents` 略過連接 Agent，`--service` 直接進入登入自動啟動設定。如果某個 Agent 已經啟用 Work Intelligence plugin，bootstrap 會自動略過該 Agent 的手動註冊（plugin 已提供 MCP、skill 與 hook），避免重複。若已安裝登入自動啟動服務，bootstrap 不會再詢問，只提醒你重新執行 `pnpm service:install` 重啟服務。可重複執行，`git pull` 後再跑一次就是更新後同步。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
 
-`pnpm start` 啟動本機 Dashboard 與 REST API。終端機保持執行，按 `Ctrl+C` 停止。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
+`pnpm start` 啟動本機 Dashboard 與 REST API。終端機保持執行，按 `Ctrl+C` 停止。啟動時若偵測到 Agent 設定過期，會印出一行提醒（沒有問題時不輸出，也不會拖慢啟動）。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
 
 如果希望在登入電腦後自動啟動，可先執行 `pnpm build`，再執行 `pnpm service:install`。安裝前會列出即將寫入的服務檔案與完整內容；確認後才會設定目前使用者的服務，無須管理員權限。`pnpm service:status` 查看狀態，`pnpm service:uninstall` 停止並移除服務設定，保留資料庫、備份與日誌。各平台位置與排除問題方式見[登入自動啟動](docs/service.md)。
 

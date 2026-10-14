@@ -7,6 +7,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Added
 
 - `pnpm track <folder> [--name <name>] [--yes]`: a terminal-only way for the user to add a project and set it to Tracked. It resolves relative paths from where the command was run, previews the name, path and status change (with a warning when roots overlap other projects), and asks `[y/N]` before writing; without a terminal and without `--yes` it only previews. Agents (MCP) cannot track a project.
+- `pnpm start` now prints a short reminder when an installed Agent skill copy or the Codex save-reminder hook is out of date, and points to `pnpm bootstrap` and `pnpm check`. The check only compares local files, prints nothing when everything is current or not installed, swallows every error, and never delays or blocks startup.
 - `pnpm check` as the main name for the read-only diagnostics; `pnpm run doctor` keeps working. `pnpm bootstrap` step 5 and the docs now use the new name.
 - When `pnpm db:maintain` or `pnpm db:redact --apply` cannot lock the database, the CLI now says why: whether the Work Intelligence server is running (and how to stop it), how many Agent MCP connections are active, or that another program may have the file open. The checks are read-only and never replace the original error.
 - A bootstrap section in the release checklist for the Windows interactive install and update flow.
