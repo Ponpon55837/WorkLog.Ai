@@ -69,7 +69,7 @@ describe("pnpm track", () => {
     expect(output).toContain("預覽");
     expect(output).toContain("記錄中");
     expect(output).toContain("http://127.0.0.1:3210");
-    expect(output).toContain("重新連線 MCP");
+    expect(output).toContain("不需要重新連線 MCP");
   });
 
   it("does not write when the user declines", async () => {
@@ -95,12 +95,14 @@ describe("pnpm track", () => {
 
   it("applies without a prompt when --yes is given", async () => {
     const folder = createFolder(createTemp(), "demo-app");
-    const { store, dependencies, prompts } = setup({ interactive: false });
+    const { store, dependencies, messages, prompts } = setup({ interactive: false });
 
     expect(await runDatabaseCli(["track", folder, "--yes"], dependencies)).toBe(0);
 
     expect(prompts()).toBe(0);
     expect(store.listProjects()[0]?.status).toBe("tracked");
+    expect(messages.log.join("\n")).toContain("即將套用");
+    expect(messages.log.join("\n")).not.toContain("尚未寫入");
   });
 
   it("leaves an already tracked project untouched", async () => {

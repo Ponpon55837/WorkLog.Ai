@@ -3,7 +3,7 @@ import { createInterface } from "node:readline/promises";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import { canonicalizeProjectRoot, isPathWithinProject, type WorkIntelligenceStore } from "@work-intelligence/storage";
 import { inspectProjectFolder } from "./http.js";
-import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import { resolveServerPort } from "./server-port.js";
 
 export interface TrackCliDependencies {
   withStore: <T>(task: (store: WorkIntelligenceStore) => T) => T;
@@ -88,8 +88,12 @@ function planTrack(store: WorkIntelligenceStore, rootPath: string, options: Trac
   };
 }
 
-function printPreview(plan: Extract<TrackPlan, { kind: "apply" }>, print: (message: string) => void): void {
-  print("預覽（尚未寫入任何資料）：");
+function printPreview(
+  plan: Extract<TrackPlan, { kind: "apply" }>,
+  applying: boolean,
+  print: (message: string) => void,
+): void {
+  print(applying ? "即將套用（--yes）：" : "預覽（尚未寫入任何資料）：");
   print(`  專案名稱：${plan.name}`);
   print(`  路徑：${plan.rootPath}`);
   print(
@@ -131,7 +135,7 @@ export async function runTrackCommand(args: readonly string[], dependencies: Tra
       dependencies.log(`「${plan.project.name}」已在記錄中，資料沒有變更。`);
       return 0;
     }
-    printPreview(plan, dependencies.log);
+    printPreview(plan, parsed.yes, dependencies.log);
     const interactive = dependencies.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY));
     if (!parsed.yes) {
       if (!interactive()) {
@@ -155,10 +159,10 @@ export async function runTrackCommand(args: readonly string[], dependencies: Tra
       dependencies.error("錯誤：專案加入後找不到記錄，資料沒有完成變更。");
       return 1;
     }
-    const port = dependencies.port ?? Number(process.env.WORK_INTELLIGENCE_PORT ?? DEFAULT_SERVER_PORT);
+    const port = dependencies.port ?? resolveServerPort();
     dependencies.log(`已開始記錄「${project.name}」（${project.rootPath}）。`);
     dependencies.log(`Dashboard：http://127.0.0.1:${port}`);
-    dependencies.log("在 Agent 重新連線 MCP 後即可開始；完成時請 Agent 保存這次工作。");
+    dependencies.log("已連線的 Agent 下次讀取時就會生效，不需要重新連線 MCP；完成工作時請 Agent 保存這次工作。");
     return 0;
   } catch (error) {
     dependencies.error(`錯誤：${error instanceof Error ? error.message : String(error)}`);
