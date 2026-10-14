@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-10-14
+
+[繁體中文更新說明](docs/releases/1.5.3.md).
+
 ### Added
 
 - `pnpm track <folder> [--name <name>] [--yes]`: a terminal-only way for the user to add a project and set it to Tracked. It resolves relative paths from where the command was run, previews the name, path and status change (with a warning when roots overlap other projects), and asks `[y/N]` before writing; without a terminal and without `--yes` it only previews. Agents (MCP) cannot track a project.
@@ -15,10 +19,13 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Changed
 
 - `scripts/run-pnpm.mjs` no longer passes an argument array together with `shell: true` on Windows, which removes the Node.js DEP0190 warning when scripts are run directly with `node`; arguments are quoted for cmd.exe and unsafe characters are rejected.
+- MCP tests get the same 20 s timeout as the storage and server tests (30 s for the recall-evaluation tests), so Windows coverage runs no longer time out while SQLite waits on a briefly locked file.
+
+Database schema remains 30; no migration is required.
 
 ## [1.5.2] - 2026-10-14
 
-[繁體中文更新說明](docs/releases/1.5.2.md).
+[繁體中文更新說明](https://github.com/Ponpon55837/WorkLog.Ai/blob/v1.5.2/docs/releases/1.5.2.md).
 
 ### Added
 
