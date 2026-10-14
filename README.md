@@ -1,6 +1,6 @@
 # Work Intelligence
 
-Version **1.5.2** makes `pnpm bootstrap` the single install and update command: it checks Node.js and pnpm, installs, builds, connects Agents and runs the doctor, while global Agent and service settings keep their own preview and confirmation. `pnpm setup:agents` skips Agents that already use the Work Intelligence plugin. `WORK_INTELLIGENCE_DB` now resolves the same way everywhere, and on Windows a path whose backslashes a shell removed is rejected instead of creating an empty database. The minimum Node.js version is 22.13. Database schema remains 30. See the [release notes](CHANGELOG.md#152---2026-10-14) and [Traditional Chinese update guide](docs/releases/1.5.2.md). After updating, restart the login service if you use it and reconnect the Agent MCP.
+Version **1.5.3** adds `pnpm track <folder>`, which adds a project from the terminal and sets it to Tracked after a preview and your confirmation. Agents still cannot track projects. The diagnostics are now `pnpm check`; `pnpm run doctor` still works. When `pnpm db:maintain` cannot lock the database, it reports whether the server, the login service or Agent MCP connections hold it and how to stop them. `pnpm start` prints a one-line reminder when an installed Agent skill or hook is out of date. Database schema remains 30. See the [release notes](CHANGELOG.md#153---2026-10-14) and [Traditional Chinese update guide](docs/releases/1.5.3.md). After updating, restart the login service if you use it and reconnect the Agent MCP.
 
 **English** | [繁體中文](README.zh-TW.md)
 

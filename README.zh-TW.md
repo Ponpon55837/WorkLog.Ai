@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.5.2** 以 `pnpm bootstrap` 作為唯一的安裝與更新指令：檢查 Node.js 與 pnpm 後，依序安裝、建置、連接 Agent 並執行診斷；寫入全域 Agent 與服務設定的步驟仍各自預覽並要求確認。已使用 Work Intelligence plugin 的 Agent，`pnpm setup:agents` 會略過手動註冊。`WORK_INTELLIGENCE_DB` 各處解析規則一致；在 Windows 上，反斜線被 shell 吃掉的路徑會直接拒絕，不再建立空資料庫。Node.js 最低需求為 22.13。資料庫 schema 維持 30。[完整更新說明](docs/releases/1.5.2.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
+**1.5.3** 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。資料庫 schema 維持 30。[完整更新說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
 
 [English](README.md) | **繁體中文**
 
