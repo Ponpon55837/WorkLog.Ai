@@ -47,9 +47,9 @@ git push origin v1.0.0
 
 ## 從舊版本升級
 
-1. 在舊版專案執行 `pnpm run doctor`，記下它顯示的資料庫位置；可先執行 `pnpm db:backup` 建立額外備份。
+1. 在舊版專案執行 `pnpm check`，記下它顯示的資料庫位置；可先執行 `pnpm db:backup` 建立額外備份。
 2. 從 GitHub Release 下載對應版本的 source archive，或取得該版本的原始碼。若安裝了登入自動啟動服務，先在舊版專案目錄執行 `pnpm service:uninstall`，並關閉 Work Intelligence server 與會啟動 MCP 的 Codex／Claude 工作階段。
-3. 在新版專案目錄執行 `pnpm install --frozen-lockfile`、`pnpm build` 與 `pnpm run doctor`。保留既有資料庫檔案及 `WORK_INTELLIGENCE_DB` 設定，並確認新版指向同一個資料庫絕對路徑；使用新的解壓目錄時，不要讓預設相對路徑意外建立空白資料庫。
+3. 在新版專案目錄執行 `pnpm install --frozen-lockfile`、`pnpm build` 與 `pnpm check`。保留既有資料庫檔案及 `WORK_INTELLIGENCE_DB` 設定，並確認新版指向同一個資料庫絕對路徑；使用新的解壓目錄時，不要讓預設相對路徑意外建立空白資料庫。
 4. 執行 `pnpm start`。首次以新程式開啟較舊 schema 的資料庫時，Work Intelligence 會先建立 migration 前備份，再自動套用所需 migrations；若備份失敗，升級會停止，不會套用 migration。
 5. 確認 Dashboard 與 `/api/health` 正常後，重新連線 Codex／Claude，讓 MCP 載入新版；需要時再依[登入自動啟動指南](service.md)安裝服務。
 

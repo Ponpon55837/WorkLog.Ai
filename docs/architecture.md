@@ -107,7 +107,7 @@ REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Eviden
 
 單筆 Session 的永久刪除（`session-deletion-service.ts`）只接受已作廢的 Session，且同樣只開放 Web UI 與 REST。刪除前寫入 `pre-session-delete-...` 快照，這類快照獨立保留 5 份，不佔用手動備份的額度。交易內重新確認仍為作廢、且沒有其他 Session 的待審清理建議引用它作為證據，接著先以一般 `UPDATE` 解除 Knowledge、Knowledge 候選與知識頁檢查游標對它的指向（FK 的 `SET NULL` 動作會讓搜尋 trigger 的 `OR IGNORE` 失效），刪除未結項，再刪除 Session 讓事件、Evidence、圖表、修改紀錄、關聯與清理快照依 FK 連帶刪除。migration v26 讓 `outstanding_item_events` 只在所屬未結項仍存在時維持 append-only，所以歷史會隨未結項一起刪除。報告、請求來源清單、Agent 讀取摘要與它解決過的未結項事件只保留 id；知識頁引用它時會標為來源缺失、需要核對。`session_deletion_audit` 只保存時間、Session id、project id 與筆數。
 
-`pnpm db:maintain` 是明確的離線維護操作。執行前以 `BEGIN EXCLUSIVE` 檢查 SQLite 寫入鎖，完整性檢查與資料庫升級成功後先建立 `pre-maintenance-...` 驗證快照，再執行 `VACUUM`、`ANALYZE` 與完整搜尋索引重建。migration v12 的 `database_maintenance_runs` 只保留開始／完成時間、狀態、備份檔名、索引筆數與安全錯誤分類；`pnpm run doctor` 以唯讀方式讀取最近結果。維護失敗時會保留備份，並將執行標為失敗或未完成。
+`pnpm db:maintain` 是明確的離線維護操作。執行前以 `BEGIN EXCLUSIVE` 檢查 SQLite 寫入鎖，完整性檢查與資料庫升級成功後先建立 `pre-maintenance-...` 驗證快照，再執行 `VACUUM`、`ANALYZE` 與完整搜尋索引重建。migration v12 的 `database_maintenance_runs` 只保留開始／完成時間、狀態、備份檔名、索引筆數與安全錯誤分類；`pnpm check` 以唯讀方式讀取最近結果。維護失敗時會保留備份，並將執行標為失敗或未完成。
 
 既有 SQLite 檔案若仍有歷史 `commit_required` 欄位，Work Intelligence 啟動時會以 idempotent migration 移除；公開 Session contract 與新寫入流程不使用此欄位。Git commit 仍是可選的獨立流程。
 
@@ -119,11 +119,11 @@ REST 路由依領域分成 `apps/server/src/routes/` 下的路由表（system、
 
 正式模式由 `pnpm start` 啟動單一 API server，預設綁定 `127.0.0.1:3210`，同時提供 `apps/web/dist` 與 `/api/*`。SPA 路由 fallback 回 `index.html`；HTML 不快取、Vite 雜湊 assets 長期快取。靜態請求先用 Zod 驗證路徑，再拒絕 dot-segment、百分比解碼後 traversal、反斜線與控制字元；解析 symlink 後還會再次確認真實路徑仍位於 Web 根目錄內。正式 Web 回應附 CSP（script 只允許同源，style attribute 依 Vue 版面需求允許 inline）、`X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。開發模式 `pnpm dev` 維持 Vite 與 API 分開。
 
-應用程式 semver 取自根目錄 `package.json`；`/api/health` 回傳 `version` 與 `schemaVersion`，MCP server metadata/instructions 與 UI 側欄使用相同版本來源。`pnpm run doctor` 以只讀方式檢查環境與資料庫 metadata，並顯示最近一次維護結果；hook 診斷只檢查全域 `~/.claude/settings.json` 與 `~/.codex/hooks.json`、以及目前 repo 的 hook dist 檔，不讀取或修改 repo 內的 Agent 設定。診斷命令刻意以 `pnpm run doctor` 執行，因為 pnpm 11 的 `pnpm doctor` 是套件管理器自身命令。
+應用程式 semver 取自根目錄 `package.json`；`/api/health` 回傳 `version` 與 `schemaVersion`，MCP server metadata/instructions 與 UI 側欄使用相同版本來源。`pnpm check` 以只讀方式檢查環境與資料庫 metadata，並顯示最近一次維護結果；hook 診斷只檢查全域 `~/.claude/settings.json` 與 `~/.codex/hooks.json`、以及目前 repo 的 hook dist 檔，不讀取或修改 repo 內的 Agent 設定。診斷命令是 `pnpm check`（舊名稱 `pnpm run doctor` 仍可使用）；不要用 `pnpm doctor`，pnpm 11 的它是套件管理器自身命令。
 
 MCP runtime identity 以根目錄版本與 MCP、core、project-policy、schema、shared、storage 的 JavaScript dist 雜湊組成；MCP entry 在載入時已帶有 build finalizer 注入的 fingerprint，不會在 static imports 載入後才推測啟動版本。根目錄 `.work-intelligence-build-in-progress` 在整個 workspace build 期間存在；缺檔、更新標記或讀取不穩定時，MCP、doctor 與 API 都回報未知。直接重建 runtime package 也會在清理 dist 前建立同一標記，完成 fingerprint 注入才移除。若 build 中斷，確認標記所記 PID 已退出後，只移除 `.work-intelligence-build-in-progress` 再重跑完整 `pnpm build`。
 
-每個 MCP process 在 OS 暫存目錄以安裝根目錄雜湊作 scope，原子更新一份獨立 heartbeat lease；正常退出刪除自己的 lease，崩潰或強制終止的 lease 由 TTL 忽略。MCP read operations 直接比較該程序的 startup fingerprint 與磁碟建置；`pnpm run doctor` 與 `/api/system/status` 則掃描並彙總同一組 leases，再與磁碟建置比對。registry 不可讀寫或建置身份未知時都回報未知；任一活躍舊 lease 都要求重新連線。projectRoot 只用於查詢專案 policy，不用來定位 MCP 安裝。
+每個 MCP process 在 OS 暫存目錄以安裝根目錄雜湊作 scope，原子更新一份獨立 heartbeat lease；正常退出刪除自己的 lease，崩潰或強制終止的 lease 由 TTL 忽略。MCP read operations 直接比較該程序的 startup fingerprint 與磁碟建置；`pnpm check` 與 `/api/system/status` 則掃描並彙總同一組 leases，再與磁碟建置比對。registry 不可讀寫或建置身份未知時都回報未知；任一活躍舊 lease 都要求重新連線。projectRoot 只用於查詢專案 policy，不用來定位 MCP 安裝。
 
 日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 

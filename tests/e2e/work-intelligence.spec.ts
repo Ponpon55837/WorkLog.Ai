@@ -1341,7 +1341,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByText(tt("systemStatus.sseConnection"))).toBeVisible();
     await expect(page.getByText(tt("systemStatus.latestAutomaticBackup"), { exact: true })).toBeVisible();
     await expect(page.getByText(tt("systemStatus.latestDataMaintenance"), { exact: true })).toBeVisible();
-    await expect(page.getByText("pnpm run doctor").first()).toBeVisible();
+    await expect(page.getByText("pnpm check").first()).toBeVisible();
     const userService = page.getByTestId("user-service");
     await expect(userService).toBeVisible();
     await expect(userService.getByText(tt("systemStatus.startAtLogin"), { exact: true })).toBeVisible();

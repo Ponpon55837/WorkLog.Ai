@@ -4,6 +4,16 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- `pnpm check` as the main name for the read-only diagnostics; `pnpm run doctor` keeps working. `pnpm bootstrap` step 5 and the docs now use the new name.
+- When `pnpm db:maintain` or `pnpm db:redact --apply` cannot lock the database, the CLI now says why: whether the Work Intelligence server is running (and how to stop it), how many Agent MCP connections are active, or that another program may have the file open. The checks are read-only and never replace the original error.
+- A bootstrap section in the release checklist for the Windows interactive install and update flow.
+
+### Changed
+
+- `scripts/run-pnpm.mjs` no longer passes an argument array together with `shell: true` on Windows, which removes the Node.js DEP0190 warning when scripts are run directly with `node`; arguments are quoted for cmd.exe and unsafe characters are rejected.
+
 ## [1.5.2] - 2026-10-14
 
 [繁體中文更新說明](docs/releases/1.5.2.md).

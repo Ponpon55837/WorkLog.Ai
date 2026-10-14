@@ -58,7 +58,7 @@ export async function inspectDatabaseReadOnlyMetadata(
 
   let database: ReadOnlySqliteDatabase | undefined;
   try {
-    // Keep this dynamic import so `pnpm run doctor` can report the missing runtime on older Node versions.
+    // Keep this dynamic import so `pnpm check` can report the missing runtime on older Node versions.
     const sqlite = await import("node:sqlite");
     database = new sqlite.DatabaseSync(databasePath, { readOnly: true }) as unknown as ReadOnlySqliteDatabase;
     const bytes = statSync(databasePath).size;

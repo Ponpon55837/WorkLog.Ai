@@ -1463,7 +1463,7 @@
     "light": "Light",
     "liveUpdateConnectionsCurrentlyOpen": "Live update connections currently open",
     "loadingSystemStatus": "Loading system status…",
-    "localServiceDatabaseBackupMaintenance": "Local service, database, backup, maintenance and connection status. For a full environment check, run pnpm run doctor in the project folder.",
+    "localServiceDatabaseBackupMaintenance": "Local service, database, backup, maintenance and connection status. For a full environment check, run pnpm check in the project folder.",
     "location": "Location",
     "maintenanceResult": "Maintenance result",
     "mcpConnection": "MCP connection",

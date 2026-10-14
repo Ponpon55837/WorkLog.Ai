@@ -11,7 +11,7 @@
 - ✅ **未結項可核對**：Agent 收尾前取得與任務及檔案相關的項目，確認完成才結案；本次新項目取代舊工作時保留 Session 稽核，證據不足就維持未處理。Web 也支援每批最多 100 項的批次處理與復原；可發起整理請求，核對 Agent 附證據的建議後才接受。
 - 🧾 **可追溯**：每筆摘要與報告結論都能回到來源 Session、檔案與證據。changed files 不等於 Git commit，也不會替 Agent 猜測驗證結果；修正與作廢都會留下紀錄。
 - 💾 **帶得走、刪得掉**：每日自動備份、整份 SQLite 快照、單一或全部專案的 JSON 匯出與合併匯入，也可以永久刪除單一專案的資料並查看不含內容的刪除紀錄。
-- 🩺 **能自己排除問題**：`pnpm run doctor` 唯讀檢查整個環境；API 斷線時畫面上方會顯示提示，恢復後自動重新載入。
+- 🩺 **能自己排除問題**：`pnpm check` 唯讀檢查整個環境；API 斷線時畫面上方會顯示提示，恢復後自動重新載入。
 
 ---
 
@@ -39,7 +39,7 @@ pnpm bootstrap
 pnpm start
 ```
 
-`pnpm bootstrap` 是唯一的安裝主線，會先檢查 Node.js 與 pnpm 版本並列出計畫，確認一次後依序執行：安裝依賴、建置、連接 Agent（`pnpm setup:agents`）、詢問是否設定登入自動啟動，最後用 `pnpm run doctor` 診斷並印出下一步。前兩步只寫入這個 repo；**連接 Agent 與登入自動啟動這兩步會寫入你的全域設定，各自另外顯示預覽並要求確認**（Agent 設定要輸入 `yes`），不確認就不會變更。非互動終端只顯示計畫，加上 `--yes` 才會執行；`--skip-agents` 略過連接 Agent，`--service` 直接進入登入自動啟動設定。如果某個 Agent 已經啟用 Work Intelligence plugin，bootstrap 會自動略過該 Agent 的手動註冊（plugin 已提供 MCP、skill 與 hook），避免重複。若已安裝登入自動啟動服務，bootstrap 不會再詢問，只提醒你重新執行 `pnpm service:install` 重啟服務。可重複執行，`git pull` 後再跑一次就是更新後同步。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
+`pnpm bootstrap` 是唯一的安裝主線，會先檢查 Node.js 與 pnpm 版本並列出計畫，確認一次後依序執行：安裝依賴、建置、連接 Agent（`pnpm setup:agents`）、詢問是否設定登入自動啟動，最後用 `pnpm check` 診斷並印出下一步。前兩步只寫入這個 repo；**連接 Agent 與登入自動啟動這兩步會寫入你的全域設定，各自另外顯示預覽並要求確認**（Agent 設定要輸入 `yes`），不確認就不會變更。非互動終端只顯示計畫，加上 `--yes` 才會執行；`--skip-agents` 略過連接 Agent，`--service` 直接進入登入自動啟動設定。如果某個 Agent 已經啟用 Work Intelligence plugin，bootstrap 會自動略過該 Agent 的手動註冊（plugin 已提供 MCP、skill 與 hook），避免重複。若已安裝登入自動啟動服務，bootstrap 不會再詢問，只提醒你重新執行 `pnpm service:install` 重啟服務。可重複執行，`git pull` 後再跑一次就是更新後同步。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
 
 `pnpm start` 啟動本機 Dashboard 與 REST API。終端機保持執行，按 `Ctrl+C` 停止。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
 
@@ -54,10 +54,10 @@ pnpm start
 第一次使用前，建議先執行診斷：
 
 ```bash
-pnpm run doctor
+pnpm check
 ```
 
-請用 `pnpm run doctor`，不要用 `pnpm doctor`：pnpm 11 把 `doctor` 保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 註冊、skill 複本與全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
+請執行 `pnpm check`；舊的 `pnpm run doctor` 仍可使用。不要直接用 `pnpm doctor`：pnpm 11 把它保留給自己的命令，不會執行 Work Intelligence 的診斷。它會唯讀檢查 Node.js、pnpm、build 檔案、資料庫健康與 schema 版本、最近的備份與維護、API 是否可連線、MCP 註冊、skill 複本與全域保存提醒 hook，並用繁體中文列出修正建議。輸出不含任何工作記錄內容。
 
 接著三步：
 
@@ -110,11 +110,11 @@ codex plugin marketplace add Ponpon55837/WorkLog.Ai
 
 **更新**：在 checkout 執行 `git pull && pnpm install && pnpm build`，再執行 `claude plugin update work-intelligence@worklog-ai`；Codex 執行 `codex plugin marketplace remove worklog-ai` 後重新加入。Agent 提示重新連線時照做即可。
 
-**之前手動註冊過？** plugin 與下方的手動註冊擇一即可，兩者並存時 Agent 會看到兩份相同的工具與提醒。移除手動註冊：`claude mcp remove work-intelligence --scope user`／`codex mcp remove work-intelligence`，並刪除 Claude `settings.json` 與 Codex `hooks.json` 裡 Work Intelligence 的 hook；`pnpm run doctor` 會指出重複的項目。
+**之前手動註冊過？** plugin 與下方的手動註冊擇一即可，兩者並存時 Agent 會看到兩份相同的工具與提醒。移除手動註冊：`claude mcp remove work-intelligence --scope user`／`codex mcp remove work-intelligence`，並刪除 Claude `settings.json` 與 Codex `hooks.json` 裡 Work Intelligence 的 hook；`pnpm check` 會指出重複的項目。
 
 **沒有 checkout？** 每個 [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) 都附上 `work-intelligence-plugin-<版本>.zip`（內含 MCP server 的 plugin）與 `work-intelligence-<版本>.mcpb`（Claude Desktop 擴充）。需要 Node.js 22.13 以上，資料存在 `~/.work-intelligence/data`，但不含 Web UI。
 
-遇到問題先執行 `pnpm run doctor`，再看 [plugin 指南](docs/plugins.md) 的排錯表。
+遇到問題先執行 `pnpm check`，再看 [plugin 指南](docs/plugins.md) 的排錯表。
 
 ### 其他安裝方式二：手動註冊（與 bootstrap 二選一）
 
@@ -154,7 +154,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 - 設定時請使用 repo 的絕對路徑，並先執行 `pnpm build`。
 - Codex 需要在 `/hooks` 中檢查並信任這個 hook。
 - repo 不附專案層級的 `.codex/hooks.json`。
-- 設定是否正確，可以用 `pnpm run doctor` 檢查。
+- 設定是否正確，可以用 `pnpm check` 檢查。
 
 完整設定範例見 [保存提醒 hook](docs/agent-setup.md#保存提醒選用)。
 
@@ -212,7 +212,7 @@ GitHub（Primer）風格的介面，有深色與淺色兩種主題，介面語�
 | **工作圖譜** | 分成三個分頁：**時間軸**（依專案分泳道；拉遠時每天一根依驗證結果分色的長條，點一下放大到那天，拉近後 Session 畫成長條或點、關聯畫成弧線；Knowledge 的建立／確認／推翻／取代畫成標記；可縮放、顯示整個期間與選擇期間，點選開啟 Session；也能切換成依日期分組的清單，手機寬度自動使用清單）、**關係圖**（Project、Session、Knowledge、Evidence、檔案與 Session 關聯；實線是記錄的關係，可開啟以虛線顯示的「一起修改」推導關係；在節點面板可選另一個節點，逐段說明兩者如何關聯）、**熱點**（被最多 Session 修改的檔案或目錄，附驗證失敗與未執行的比例、最近 5 筆 Session；可依專案、期間篩選）。工作報告的「風險」也會列出本期被 2 筆以上 Session 修改的檔案 |
 | **專案** | 專案清單與記錄狀態（加入時可用系統視窗選資料夾；可設定 https 儲存庫網址，Session 的 commit 會連到該儲存庫）、永久刪除專案、Metadata 回補、Handoff 匯入、資料備份（備份、匯出、匯入） |
 | **Session 圖表** | Agent 在工作改到跨模組流程、資料流、狀態機或架構時，會主動為 Session 附上一到兩張原生 architecture v1 圖表（`work_attach_diagram` 或 finalize 的 `diagrams`；單檔修正、樣式、設定與純測試不附），在 Session 面板顯示原生卡片；歷史 Mermaid 保留原始碼並可複製、下載。圖表可作廢、不能刪除，也會隨專案匯出與匯入 |
-| **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果、登入自動啟動服務，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改服務或 Agent 設定。「Agent 讀取紀錄」列出最近的 MCP 讀取（時間、Agent 與工具、專案，以及回傳的 Session id），可依專案與 Agent 篩選。「個人偏好」可選擇外觀主題、介面語言，以及用 VS Code 或 Cursor 開啟 Session 的 changed files（都只存在這個瀏覽器）。完整環境診斷請用 `pnpm run doctor` |
+| **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果、登入自動啟動服務，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改服務或 Agent 設定。「Agent 讀取紀錄」列出最近的 MCP 讀取（時間、Agent 與工具、專案，以及回傳的 Session id），可依專案與 Agent 篩選。「個人偏好」可選擇外觀主題、介面語言，以及用 VS Code 或 Cursor 開啟 Session 的 changed files（都只存在這個瀏覽器）。完整環境診斷請用 `pnpm check` |
 
 Session 詳情提供最多五筆同專案共同檔案的相關工作提示，排除既有關聯，搜尋截短時明示；開啟提示不會建立關聯。
 
@@ -277,9 +277,9 @@ API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence 
 pnpm db:maintain
 ```
 
-它會先建立維護前備份，再執行 `integrity_check`、`VACUUM`、`ANALYZE` 與搜尋索引重建，結果會記錄下來供 `pnpm run doctor` 顯示。它需要獨占資料庫，所以執行前請先停止 `pnpm start`，並關閉會啟動 MCP 的 Agent 對話；資料庫仍被開著時，它會停止並提示你。
+它會先建立維護前備份，再執行 `integrity_check`、`VACUUM`、`ANALYZE` 與搜尋索引重建，結果會記錄下來供 `pnpm check` 顯示。它需要獨占資料庫，所以執行前請先停止 `pnpm start`，並關閉會啟動 MCP 的 Agent 對話；資料庫仍被開著時，它會停止並提示你，同時列出 server 是否在執行與有幾個 Agent MCP 連線在使用（唯讀偵測）。
 
-遇到問題時，先執行 `pnpm run doctor`，再看 **[疑難排解](docs/troubleshooting.md)**。
+遇到問題時，先執行 `pnpm check`，再看 **[疑難排解](docs/troubleshooting.md)**。
 
 ## 核心概念
 
@@ -344,7 +344,7 @@ pnpm plugin:link              # 讓 Claude Code／Codex plugin 找到這個 chec
 pnpm build:plugin             # 在 dist/plugin/ 產生自帶 MCP 的 plugin zip 與 Claude Desktop .mcpb
 pnpm start:server             # 只啟動 API
 pnpm start:mcp                # 只啟動 MCP stdio server
-pnpm run doctor               # 唯讀診斷
+pnpm check                    # 唯讀診斷
 pnpm db:backup                # 立即備份（db:export、db:import、db:restore 見上方）
 pnpm db:backups               # 列出備份；加 --delete <檔名> 可互動確認刪除
 pnpm db:maintain              # 離線維護（需先停止 server 與 MCP）
