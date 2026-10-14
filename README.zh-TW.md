@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.5.1** 修正報告整理來源被新記錄擠出、限制 MCP 報告預覽大小並加入來源分頁。整理卡片區分載入、錯誤與空狀態，顯示保存時引用範圍，長摘要可展開閱讀；即時更新保留未結項清單的閱讀位置。英文及繁體中文寫作指南協助保留事實並減少重複。資料庫 schema 維持 30。[完整更新說明](docs/releases/1.5.1.md)。更新並建置後，重啟服務及重新連線 Agent MCP 以載入新版契約。
+**1.5.2** 以 `pnpm bootstrap` 作為唯一的安裝與更新指令：檢查 Node.js 與 pnpm 後，依序安裝、建置、連接 Agent 並執行診斷；寫入全域 Agent 與服務設定的步驟仍各自預覽並要求確認。已使用 Work Intelligence plugin 的 Agent，`pnpm setup:agents` 會略過手動註冊。`WORK_INTELLIGENCE_DB` 各處解析規則一致；在 Windows 上，反斜線被 shell 吃掉的路徑會直接拒絕，不再建立空資料庫。Node.js 最低需求為 22.13。資料庫 schema 維持 30。[完整更新說明](docs/releases/1.5.2.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
 
 [English](README.md) | **繁體中文**
 

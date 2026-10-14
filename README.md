@@ -1,6 +1,6 @@
 # Work Intelligence
 
-Version **1.5.1** keeps report synthesis sources stable after newer records arrive, adds a bounded MCP report preview and source pagination, and separates loading, error and empty synthesis states. Reports display saved source coverage and expandable summaries. Live updates preserve reading positions in outstanding-item lists. English and Traditional Chinese writing guides preserve facts and reduce repetition. Database schema remains 30. See the [release notes](CHANGELOG.md#151---2026-10-11) and [Traditional Chinese update guide](docs/releases/1.5.1.md). After rebuilding, restart the server and reconnect the Agent MCP for the updated contracts.
+Version **1.5.2** makes `pnpm bootstrap` the single install and update command: it checks Node.js and pnpm, installs, builds, connects Agents and runs the doctor, while global Agent and service settings keep their own preview and confirmation. `pnpm setup:agents` skips Agents that already use the Work Intelligence plugin. `WORK_INTELLIGENCE_DB` now resolves the same way everywhere, and on Windows a path whose backslashes a shell removed is rejected instead of creating an empty database. The minimum Node.js version is 22.13. Database schema remains 30. See the [release notes](CHANGELOG.md#152---2026-10-14) and [Traditional Chinese update guide](docs/releases/1.5.2.md). After updating, restart the login service if you use it and reconnect the Agent MCP.
 
 **English** | [繁體中文](README.zh-TW.md)
 
