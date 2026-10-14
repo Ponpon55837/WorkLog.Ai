@@ -44,9 +44,15 @@ export const mcpAliases = [
   },
 ];
 
+// MCP tests open file-backed SQLite databases and spawn the compiled server. On Windows CI runners, and slower still
+// under coverage instrumentation, a fresh file can be briefly locked and SQLite waits up to its 5 s busy_timeout, so
+// the default 5 s test timeout fails at exactly that point. Give them the same headroom as the storage and server tests.
+export const mcpTestTimeout = 20_000;
+
 export default defineConfig({
   resolve: { alias: mcpAliases },
   test: {
     include: ["tests/mcp/**/*.test.ts"],
+    testTimeout: mcpTestTimeout,
   },
 });
