@@ -52,13 +52,18 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 
 ## 資料庫路徑錯誤（Windows 反斜線）
 
+這個問題只發生在 Windows；macOS 與 Linux 不受影響（程式的磁碟相對路徑檢查也只在 Windows 生效）。
+
 **症狀**：資料看起來「不見了」，或 repo 根目錄、其他目錄多出一個名稱像 `UsersyouDesktop…work-intelligence.sqlite` 的檔案；`pnpm run doctor` 的「資料庫路徑」顯示錯誤，或「repo 根目錄的資料庫檔」顯示警告。
 
-**原因**：在 Git Bash 之類的 shell 設定 `WORK_INTELLIGENCE_DB=C:Usersmedata.sqlite` 時，反斜線被當成跳脫字元吃掉，變成 `C:Usersmedata.sqlite`。Windows 把它當成「磁碟相對路徑」（C 槽目前目錄底下的檔案），於是資料默默寫到錯的地方。
+**原因**：在 Git Bash 之類的 shell 設定 `WORK_INTELLIGENCE_DB=C:\Users\me\data.sqlite` 時，反斜線被當成跳脫字元吃掉，變成 `C:Usersmedata.sqlite`。Windows 把它當成「磁碟相對路徑」（C 槽目前目錄底下的檔案），於是資料默默寫到錯的地方。
 
 **修正**：
 
-1. 改用正斜線：`WORK_INTELLIGENCE_DB=C:/Users/me/data.sqlite`；或在 PowerShell 用單引號包住完整路徑：`$env:WORK_INTELLIGENCE_DB = 'C:Usersmedata.sqlite'`。
+1. 用下列任一種寫法（Windows 上最常出事的是 Git Bash）：
+   - Git Bash，單引號包住完整路徑，反斜線就不會被吃掉：`WORK_INTELLIGENCE_DB='C:\Users\me\data.sqlite'`
+   - Git Bash，改用正斜線：`WORK_INTELLIGENCE_DB=C:/Users/me/data.sqlite`
+   - PowerShell，單引號包住完整路徑：`$env:WORK_INTELLIGENCE_DB = 'C:\Users\me\data.sqlite'`
 2. 現在的版本遇到磁碟相對路徑會直接拒絕啟動並說明原因，不再悄悄建立新檔。相對路徑則一律以 repo 根目錄為基準解析（與從哪個目錄執行無關）。
 3. `pnpm run doctor` 會列出 repo 根目錄頂層的 `*.sqlite` 檔名（唯讀，不讀內容也不刪除）。確認內容後，若裡面有想保留的記錄，請自行用 `pnpm db:export`／`pnpm db:import` 合併，其餘由你自行搬移或刪除。
 

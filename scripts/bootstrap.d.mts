@@ -4,6 +4,7 @@ export interface BootstrapDependencies {
   pnpmVersion: () => string | undefined;
   requiredPnpm: string | undefined;
   interactive: boolean;
+  serviceInstalled: () => Promise<boolean>;
   log: (message: string) => void;
   error: (message: string) => void;
   ask: (question: string) => Promise<string>;

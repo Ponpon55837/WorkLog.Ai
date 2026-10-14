@@ -16,6 +16,8 @@ export const MINIMUM_NODE = "22.13.0";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+const SERVICE_RESTART_REMINDER = "更新後請重新執行 pnpm service:install 重啟服務（會顯示預覽並要求確認），讓新版生效。";
+
 const FLAGS = new Set(["--yes", "--skip-agents", "--service", "--help"]);
 
 const USAGE = [
@@ -31,7 +33,7 @@ const USAGE = [
 
 const NEXT_STEPS = [
   "完成。接下來：",
-  "  1. 啟動：pnpm start（若已安裝登入自動啟動服務，Dashboard 網址為 http://127.0.0.1:3210）",
+  "  1. 啟動：pnpm start（若已安裝登入自動啟動服務，Dashboard 網址為 http://127.0.0.1:3210；更新後請重新執行 pnpm service:install 重啟服務，讓新版生效）",
   "  2. 開啟 http://127.0.0.1:3210 →「專案」→「加入專案」→ 設為「記錄中」",
   "  3. 在 Agent 重新連線 MCP；Codex 需在 /hooks 信任 hook",
 ].join("\n");
@@ -78,6 +80,20 @@ export function parseBootstrapArguments(argv) {
   };
 }
 
+/**
+ * Whether the login service is already installed, read from the freshly built user-service module (a read-only OS
+ * query). Any failure counts as "not installed", which falls back to asking.
+ */
+async function readServiceInstalled() {
+  try {
+    const module = await import(pathToFileURL(resolve(repositoryRoot, "apps/server/dist/user-service.js")).href);
+    const state = module.getUserServiceStatus({ repositoryRoot }).state;
+    return state === "running" || state === "stopped";
+  } catch {
+    return false;
+  }
+}
+
 export function defaultBootstrapDependencies() {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   return {
@@ -85,6 +101,7 @@ export function defaultBootstrapDependencies() {
     pnpmVersion: readPnpmVersion,
     requiredPnpm: readRequiredPnpm(),
     interactive,
+    serviceInstalled: readServiceInstalled,
     log: (message) => consoleLog(message),
     error: (message) => consoleError(message),
     async ask(question) {
@@ -173,9 +190,15 @@ export async function runBootstrap(argv, dependencies = defaultBootstrapDependen
     }
   }
 
-  if (!runService && dependencies.interactive) {
-    const answer = await dependencies.ask("要設定登入自動啟動嗎？[y/N] ");
-    runService = answer === "y" || answer === "yes";
+  if (!runService) {
+    if (await dependencies.serviceInstalled()) {
+      // Re-running service:install stops, rewrites and starts the service; it keeps its own preview and confirmation.
+      log("\n登入自動啟動服務已安裝，不再詢問是否設定。");
+      log(SERVICE_RESTART_REMINDER);
+    } else if (dependencies.interactive) {
+      const answer = await dependencies.ask("要設定登入自動啟動嗎？[y/N] ");
+      runService = answer === "y" || answer === "yes";
+    }
   }
   if (runService) {
     log("\n== ④ 登入自動啟動（pnpm service:install）==");

@@ -16,7 +16,7 @@ pnpm service:install
 
 服務使用目前工作目錄中的專案與 production build。預設共用 `data/work-intelligence.sqlite`，備份放在同一資料夾下的 `backups/`。如果安裝時設定 `WORK_INTELLIGENCE_DB` 或 `WORK_INTELLIGENCE_BACKUP_DIR`，預覽會顯示解析後的完整路徑，服務會沿用該資料庫與備份位置。Web、MCP、CLI 與自動啟動服務因此可共用同一份記錄。
 
-安裝時會保存當下找到的 Node.js 與 pnpm 絕對路徑。若搬移 repo、更新 Node.js／pnpm 安裝位置，或更改資料庫環境變數，請重新執行 `pnpm service:install` 並確認新的預覽。
+安裝時會保存當下找到的 Node.js 與 pnpm 絕對路徑。若搬移 repo、更新 Node.js／pnpm 安裝位置，或更改資料庫環境變數，請重新執行 `pnpm service:install` 並確認新的預覽。更新程式碼後也要重新執行它：安裝流程會先停止既有服務、寫入設定再啟動，等於重啟，新版才會生效（`pnpm bootstrap` 偵測到服務已安裝時只會提醒，不會自動重啟）。
 
 ## 查看狀態
 

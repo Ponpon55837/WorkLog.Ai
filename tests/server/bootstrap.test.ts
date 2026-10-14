@@ -24,6 +24,7 @@ function createHarness(
     pnpmVersion: () => "11.16.0",
     requiredPnpm: "11.16.0",
     interactive: true,
+    serviceInstalled: async () => false,
     log: (message) => output.push(message),
     error: (message) => errors.push(message),
     ask: async (question) => {
@@ -113,6 +114,25 @@ describe("pnpm bootstrap", () => {
     await runBootstrap(["--yes", "--service"], flagged.dependencies);
     expect(flagged.steps).toEqual(["install", "build", "setup:agents", "service:install", "run doctor"]);
     expect(flagged.questions).toEqual([]);
+  });
+
+  it("does not ask about the login service when it is already installed and reminds to restart it", async () => {
+    const harness = createHarness({ serviceInstalled: async () => true }, { answers: [""] });
+    expect(await runBootstrap([], harness.dependencies)).toBe(0);
+    expect(harness.steps).toEqual(["install", "build", "setup:agents", "run doctor"]);
+    expect(harness.questions).toHaveLength(1);
+    expect(harness.output.join(" ")).toContain("pnpm service:install 重啟服務");
+
+    const quiet = createHarness({ interactive: false, serviceInstalled: async () => true });
+    await runBootstrap(["--yes"], quiet.dependencies);
+    expect(quiet.steps).not.toContain("service:install");
+    expect(quiet.output.join(" ")).toContain("pnpm service:install 重啟服務");
+  });
+
+  it("still runs the service step with --service even when it is already installed", async () => {
+    const harness = createHarness({ interactive: false, serviceInstalled: async () => true });
+    await runBootstrap(["--yes", "--service"], harness.dependencies);
+    expect(harness.steps).toContain("service:install");
   });
 
   it("does not fail when doctor reports a problem", async () => {

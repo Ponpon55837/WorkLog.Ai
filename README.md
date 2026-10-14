@@ -39,7 +39,7 @@ pnpm bootstrap
 pnpm start
 ```
 
-`pnpm bootstrap` is the single install path. It checks your Node.js and pnpm versions, prints its plan, and after one confirmation runs: install dependencies, build, connect your Agents (`pnpm setup:agents`), ask whether to set up start-at-login, then run `pnpm run doctor` and print the next steps. The first two steps only write inside this repository. **Connecting Agents and start-at-login write to your global settings; each shows its own preview and asks for its own confirmation** (type `yes` for the Agent settings), and nothing changes without it. In a non-interactive terminal it only prints the plan unless you pass `--yes`; `--skip-agents` skips connecting Agents and `--service` goes straight to the start-at-login setup. It is safe to repeat: after a `git pull`, run it again to sync. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
+`pnpm bootstrap` is the single install path. It checks your Node.js and pnpm versions, prints its plan, and after one confirmation runs: install dependencies, build, connect your Agents (`pnpm setup:agents`), ask whether to set up start-at-login, then run `pnpm run doctor` and print the next steps. The first two steps only write inside this repository. **Connecting Agents and start-at-login write to your global settings; each shows its own preview and asks for its own confirmation** (type `yes` for the Agent settings), and nothing changes without it. In a non-interactive terminal it only prints the plan unless you pass `--yes`; `--skip-agents` skips connecting Agents and `--service` goes straight to the start-at-login setup. If an Agent already has the Work Intelligence plugin enabled, bootstrap skips that Agent's manual registration (the plugin already provides the MCP server, skill and hooks), so nothing is registered twice. If the start-at-login service is already installed, bootstrap does not ask about it again and only reminds you to re-run `pnpm service:install` to restart it. It is safe to repeat: after a `git pull`, run it again to sync. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
 
 `pnpm start` starts the local Dashboard and REST API. Keep the terminal open; press `Ctrl+C` to stop. In production mode one process serves the Web UI and the REST API on the same port.
 
@@ -264,7 +264,7 @@ Backup environment variables:
 
 ## Upgrades and maintenance
 
-**Upgrading**: run `git pull`, then `pnpm bootstrap` (it reinstalls, rebuilds, syncs the Agent setup and runs the doctor), reconnect your Agents when prompted, and restart `pnpm start`.
+**Upgrading**: run `git pull`, then `pnpm bootstrap` (it reinstalls, rebuilds, syncs the Agent setup and runs the doctor), reconnect your Agents when prompted. If you run `pnpm start`, restart it; if the start-at-login service is installed, re-run `pnpm service:install` (it shows a preview and asks for confirmation) to restart the service so the new version takes effect.
 
 - When a new version needs a database upgrade, a pre-migration backup (`pre-migration-v<version>-…`) is created on first open and the migration runs in a single transaction; if the backup fails, nothing is upgraded.
 - If the database schema is newer than the program (for example, a newer version was used on another computer), the API, MCP and CLI refuse to open it and ask you to update Work Intelligence first instead of crashing or half-applying anything.
