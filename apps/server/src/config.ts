@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveDatabasePath } from "@work-intelligence/shared";
+import { resolveDatabasePath } from "@work-intelligence/shared/database-path";
 import { backupOptionsFromEnvironment, type WorkIntelligenceStoreOptions } from "@work-intelligence/storage";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");

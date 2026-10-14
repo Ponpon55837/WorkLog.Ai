@@ -2,6 +2,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export const serverAliases = {
+  "@work-intelligence/shared/database-path": fileURLToPath(
+    new URL("../../packages/shared/src/database-path.ts", import.meta.url),
+  ),
   "@work-intelligence/shared/app-version": fileURLToPath(
     new URL("../../packages/shared/src/app-version.ts", import.meta.url),
   ),

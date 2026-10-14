@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { delimiter, posix, resolve, win32 } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { resolveDatabasePath } from "@work-intelligence/shared";
+import { resolveDatabasePath } from "@work-intelligence/shared/database-path";
 import type { UserServiceManager, UserServiceState, UserServiceStatus } from "@work-intelligence/core";
 
 export type UserServicePlatform = "darwin" | "linux" | "win32" | "unsupported";

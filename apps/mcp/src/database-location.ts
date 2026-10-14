@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { assertNotDriveRelativePath, resolveDatabasePath } from "@work-intelligence/shared";
+import { assertNotDriveRelativePath, resolveDatabasePath } from "@work-intelligence/shared/database-path";
 
 /**
  * True only inside the self-contained plugin bundle (scripts/build-plugin.mjs defines it); the repository build
