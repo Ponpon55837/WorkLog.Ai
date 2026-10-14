@@ -194,6 +194,73 @@ describe("Agent setup", () => {
     expect(existsSync(join(homeDirectory, ".agents"))).toBe(false);
   });
 
+  it("skips the Claude Code manual registration when its plugin is enabled", () => {
+    const fixture = createFixture();
+    writeJson(fixture.paths.claudeSettings, { enabledPlugins: { "work-intelligence@synthetic-market": true } });
+    const plan = createAgentSetupPlan(fixture.options);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.actions.join("\n")).toContain("Claude Code 已啟用 work-intelligence plugin，略過手動註冊");
+    expect(plan.actions.join("\n")).not.toContain("Codex 已啟用");
+    const touched = plan.mutations.map((mutation) => mutation.path);
+    expect(touched).not.toContain(fixture.paths.claudeSkill);
+    expect(touched).not.toContain(fixture.paths.claudeJson);
+    expect(touched).not.toContain(fixture.paths.claudeSettings);
+    expect(touched).toContain(fixture.paths.codexSkill);
+    expect(touched).toContain(fixture.paths.codexConfig);
+    expect(touched).toContain(fixture.paths.codexHooks);
+  });
+
+  it("skips the Codex manual registration when its plugin is enabled", () => {
+    const fixture = createFixture();
+    mkdirSync(fixture.paths.codexHome, { recursive: true });
+    writeFileSync(fixture.paths.codexConfig, '[plugins."work-intelligence@synthetic-market"]\nenabled = true\n');
+    const plan = createAgentSetupPlan(fixture.options);
+
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.actions.join("\n")).toContain("Codex 已啟用 work-intelligence plugin，略過手動註冊");
+    expect(plan.actions.join("\n")).not.toContain("Claude Code 已啟用");
+    const touched = plan.mutations.map((mutation) => mutation.path);
+    expect(touched).not.toContain(fixture.paths.codexSkill);
+    expect(touched).not.toContain(fixture.paths.codexLegacySkill);
+    expect(touched).not.toContain(fixture.paths.codexConfig);
+    expect(touched).not.toContain(fixture.paths.codexHooks);
+    expect(touched).toContain(fixture.paths.claudeSkill);
+    expect(touched).toContain(fixture.paths.claudeJson);
+    expect(touched).toContain(fixture.paths.claudeSettings);
+  });
+
+  it("registers both Agents when no plugin is enabled or the plugin entry is disabled", () => {
+    const fixture = createFixture();
+    writeJson(fixture.paths.claudeSettings, { enabledPlugins: { "work-intelligence@synthetic-market": false } });
+    const plan = createAgentSetupPlan(fixture.options);
+
+    expect(plan.actions.join("\n")).not.toContain("已啟用 work-intelligence plugin");
+    const touched = plan.mutations.map((mutation) => mutation.path);
+    for (const path of [
+      fixture.paths.claudeSkill,
+      fixture.paths.claudeJson,
+      fixture.paths.codexSkill,
+      fixture.paths.codexConfig,
+      fixture.paths.codexHooks,
+    ]) {
+      expect(touched).toContain(path);
+    }
+  });
+
+  it("keeps uninstall independent of an enabled plugin", () => {
+    const fixture = createFixture();
+    const install = createAgentSetupPlan(fixture.options);
+    expect(applyAgentSetupPlan(install).applied).toBe(true);
+    writeJson(fixture.paths.claudeSettings, {
+      ...readJson(fixture.paths.claudeSettings),
+      enabledPlugins: { "work-intelligence@synthetic-market": true },
+    });
+    const uninstall = createAgentSetupPlan(fixture.options, "uninstall");
+    expect(uninstall.actions.join("\n")).not.toContain("已啟用 work-intelligence plugin");
+    expect(uninstall.mutations.map((mutation) => mutation.path)).toContain(fixture.paths.claudeSkill);
+  });
+
   it("backs up exact originals, preserves unrelated client settings, and becomes idempotent", () => {
     const fixture = createFixture();
     const originalFiles = fixture.seedUserConfig();

@@ -9,7 +9,10 @@ import { isDriveRelativePath, MINIMUM_NODE_VERSION, resolveDatabasePath } from "
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import type { AgentMcpRegistrationState, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import { claudePluginEnabled, codexPluginEnabled } from "./agent-plugins.js";
 import { getUserServiceStatus } from "./user-service.js";
+
+export { claudePluginEnabled, codexPluginEnabled };
 import {
   findLatestAutomaticBackup,
   inspectDatabaseReadOnlyMetadata,
@@ -352,25 +355,6 @@ export function inspectGlobalHooks(
     claudeConfigDirectory,
     codexHooksFeature,
   ).inspection;
-}
-
-/**
- * Whether settings.json enables the Work Intelligence plugin (`enabledPlugins["work-intelligence@<marketplace>"]`).
- * The plugin brings its own MCP server, skill, and Stop hook, so it replaces the manual registration.
- */
-export function claudePluginEnabled(settings: Record<string, unknown> | undefined): boolean {
-  const enabled = record(settings?.enabledPlugins);
-  return Object.entries(enabled ?? {}).some(([key, value]) => key.startsWith("work-intelligence@") && value === true);
-}
-
-/**
- * Whether config.toml enables the Work Intelligence plugin (`[plugins."work-intelligence@<marketplace>"]` with
- * `enabled = true`). It brings the MCP server and the skill; the Codex save-reminder hooks stay in hooks.json.
- */
-export function codexPluginEnabled(config: Record<string, unknown> | undefined): boolean {
-  return Object.entries(record(config?.plugins) ?? {}).some(
-    ([key, value]) => key.startsWith("work-intelligence@") && record(value)?.enabled === true,
-  );
 }
 
 function inspectClaudeMcpState(homeDirectory: string): AgentMcpRegistrationState {
