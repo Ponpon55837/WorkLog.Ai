@@ -31,7 +31,7 @@ Version **1.5.1** keeps report synthesis sources stable after newer records arri
 
 ## Quick start
 
-Requirements: **Node.js 22.5 or later** (24 recommended; the built-in `node:sqlite` is used) and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
+Requirements: **Node.js 22.13 or later** (24 recommended; the built-in `node:sqlite` is used) and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
 
 ```bash
 cd /path/to/WorkLog.Ai
@@ -198,7 +198,7 @@ You can rerun recall and context with your own private questions to check that t
 pnpm eval:recall ./recall-questions.json --db ./data/work-intelligence.sqlite --out ./recall-report.json
 ```
 
-Run `pnpm build` first (this CLI needs Node.js 22.5+, like the rest of the repo). Each question sets `mode: "recall"` or `"context"`, a `query`, and one or more expected ids or `expectedNoHit: true`; a project path and recall date range are optional. The report lists hit@1, hit@5 and MRR per mode, each question's rank, confidence, MCP response size and call time. The database is snapshotted to an OS temp file over a read-only SQLite connection, and retrieval and index sync only touch the snapshot; results go to the terminal or to a new file given by `--out`, are never uploaded, and never overwrite an existing file. See [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json) for the format and [Testing](docs/testing.md#檢索品質評估) for limits and metric definitions.
+Run `pnpm build` first (this CLI needs Node.js 22.13+, like the rest of the repo). Each question sets `mode: "recall"` or `"context"`, a `query`, and one or more expected ids or `expectedNoHit: true`; a project path and recall date range are optional. The report lists hit@1, hit@5 and MRR per mode, each question's rank, confidence, MCP response size and call time. The database is snapshotted to an OS temp file over a read-only SQLite connection, and retrieval and index sync only touch the snapshot; results go to the terminal or to a new file given by `--out`, are never uploaded, and never overwrite an existing file. See [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json) for the format and [Testing](docs/testing.md#檢索品質評估) for limits and metric definitions.
 
 More detail is in the **[User guide](docs/user-guide.md)**.
 

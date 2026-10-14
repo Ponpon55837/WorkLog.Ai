@@ -4,7 +4,7 @@
 
 ## 開發環境
 
-需求：Node.js 22.5 以上（建議 24）及 `package.json` 指定版本的 pnpm。
+需求：Node.js 22.13 以上（建議 24）及 `package.json` 指定版本的 pnpm。
 
 ```sh
 pnpm install
