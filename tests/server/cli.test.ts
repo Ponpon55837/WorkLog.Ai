@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
-import { DatabaseInitializationError, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import {
+  DatabaseInitializationError,
+  DatabaseMaintenanceError,
+  DatabaseRedactionError,
+  WorkIntelligenceStore,
+} from "../../packages/storage/src/index.js";
 
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
@@ -281,5 +286,86 @@ describe("database maintenance CLI", () => {
     expect(await runDatabaseCli(["backup"], deps)).toBe(1);
     expect(messages.error.join("\n")).toContain("請更新 Work Intelligence");
     expect(messages.error.join("\n")).not.toContain("SQLITE");
+  });
+});
+
+describe("database in-use diagnosis", () => {
+  const busyMessage = "資料庫目前無法取得獨佔鎖。";
+
+  async function runBusy(
+    command: "maintain" | "redact",
+    busyDiagnosis: NonNullable<DatabaseCliDependencies["busyDiagnosis"]>,
+  ): Promise<{ exitCode: number; error: string }> {
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps: DatabaseCliDependencies = {
+      runMaintenance: () => {
+        throw new DatabaseMaintenanceError("DATABASE_IN_USE", busyMessage);
+      },
+      runRedaction: () => {
+        throw new DatabaseRedactionError("DATABASE_IN_USE", busyMessage);
+      },
+      busyDiagnosis,
+      log: (message) => messages.log.push(message),
+      error: (message) => messages.error.push(message),
+    };
+    const exitCode = await runDatabaseCli(command === "maintain" ? ["maintain"] : ["redact", "--apply"], deps);
+    return { exitCode, error: messages.error.join("\n") };
+  }
+
+  it("lists the running server and the Agent MCP connection count", async () => {
+    const result = await runBusy("maintain", {
+      port: 3999,
+      probeServer: async () => true,
+      getMcpStatus: () => ({ activeProcesses: 3, monitoringAvailable: true }),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain(busyMessage);
+    expect(result.error).toContain("http://127.0.0.1:3999 執行");
+    expect(result.error).toContain("pnpm service:uninstall");
+    expect(result.error).toContain("有 3 個 Agent MCP 連線");
+    expect(result.error).not.toContain("其他程式開著");
+  });
+
+  it("reports only the MCP connections when the server is stopped (redact --apply)", async () => {
+    const result = await runBusy("redact", {
+      probeServer: async () => false,
+      getMcpStatus: () => ({ activeProcesses: 1, monitoringAvailable: true }),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("有 1 個 Agent MCP 連線");
+    expect(result.error).not.toContain("server 正在");
+    expect(result.error).not.toContain("其他程式開著");
+  });
+
+  it("suggests other programs when nothing is detected", async () => {
+    const result = await runBusy("maintain", {
+      probeServer: async () => false,
+      getMcpStatus: () => ({ activeProcesses: 0, monitoringAvailable: true }),
+    });
+    expect(result.error).toContain("可能是其他程式開著這個資料庫檔");
+    expect(result.error).not.toContain("無法判斷");
+  });
+
+  it("says the MCP count is unknown when monitoring is unavailable", async () => {
+    const result = await runBusy("maintain", {
+      probeServer: async () => false,
+      getMcpStatus: () => ({ activeProcesses: 0, monitoringAvailable: false }),
+    });
+    expect(result.error).toContain("無法判斷 MCP 連線數");
+  });
+
+  it("keeps the original error and exit code when the probes themselves throw", async () => {
+    const result = await runBusy("maintain", {
+      probeServer: async () => {
+        throw new Error("probe failed");
+      },
+      getMcpStatus: () => {
+        throw new Error("status failed");
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain(busyMessage);
+    expect(result.error).not.toContain("probe failed");
+    expect(result.error).not.toContain("status failed");
   });
 });
