@@ -316,14 +316,65 @@ describe("database in-use diagnosis", () => {
     const result = await runBusy("maintain", {
       port: 3999,
       probeServer: async () => true,
+      getServiceStatus: () => ({ state: "unavailable" }),
       getMcpStatus: () => ({ activeProcesses: 3, monitoringAvailable: true }),
     });
     expect(result.exitCode).toBe(1);
     expect(result.error).toContain(busyMessage);
     expect(result.error).toContain("http://127.0.0.1:3999 執行");
-    expect(result.error).toContain("pnpm service:uninstall");
+    expect(result.error).toContain("按 Ctrl+C");
     expect(result.error).toContain("有 3 個 Agent MCP 連線");
+    expect(result.error).toContain("依此 checkout 的 MCP 連線計算");
     expect(result.error).not.toContain("其他程式開著");
+  });
+
+  it("describes the login service stop and restore steps when the service is running", async () => {
+    const result = await runBusy("maintain", {
+      platform: "win32",
+      probeServer: async () => true,
+      getServiceStatus: () => ({ state: "running" }),
+      getMcpStatus: () => ({ activeProcesses: 0, monitoringAvailable: true }),
+    });
+    expect(result.error).toContain("登入自動啟動服務");
+    expect(result.error).toContain("pnpm service:uninstall");
+    expect(result.error).toContain("pnpm service:install");
+    expect(result.error).toContain("工作排程器「結束」名為「Work Intelligence」");
+    expect(result.error).not.toContain("Ctrl+C");
+  });
+
+  it("does not suggest Ctrl+C for a running macOS or Linux service", async () => {
+    const result = await runBusy("maintain", {
+      platform: "linux",
+      probeServer: async () => true,
+      getServiceStatus: () => ({ state: "running" }),
+      getMcpStatus: () => ({ activeProcesses: 0, monitoringAvailable: true }),
+    });
+    expect(result.error).toContain("pnpm service:install");
+    expect(result.error).not.toContain("工作排程器");
+    expect(result.error).not.toContain("按 Ctrl+C");
+  });
+
+  it("suggests Ctrl+C when the server is not the login service", async () => {
+    const result = await runBusy("maintain", {
+      probeServer: async () => true,
+      getServiceStatus: () => ({ state: "not_installed" }),
+      getMcpStatus: () => ({ activeProcesses: 0, monitoringAvailable: true }),
+    });
+    expect(result.error).toContain("按 Ctrl+C");
+    expect(result.error).not.toContain("pnpm service:uninstall");
+  });
+
+  it("lists both stop methods when the service status query throws", async () => {
+    const result = await runBusy("maintain", {
+      probeServer: async () => true,
+      getServiceStatus: () => {
+        throw new Error("query failed");
+      },
+      getMcpStatus: () => ({ activeProcesses: 0, monitoringAvailable: true }),
+    });
+    expect(result.error).toContain("按 Ctrl+C");
+    expect(result.error).toContain("pnpm service:uninstall");
+    expect(result.error).not.toContain("query failed");
   });
 
   it("reports only the MCP connections when the server is stopped (redact --apply)", async () => {

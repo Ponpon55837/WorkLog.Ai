@@ -1,12 +1,16 @@
 import { z } from "zod";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import { getUserServiceStatus, WINDOWS_TASK_NAME } from "./user-service.js";
 
 export interface DatabaseBusyDiagnosisDependencies {
   /** Resolves true when a Work Intelligence server answers /api/health on this port. */
   probeServer?: (port: number) => Promise<boolean>;
   /** Fresh Agent MCP process leases; `monitoringAvailable: false` means the count is unknown. */
   getMcpStatus?: () => { activeProcesses: number; monitoringAvailable: boolean };
+  /** Read-only login-service state; `running` means the server was started by the login service. */
+  getServiceStatus?: () => { state: string };
+  platform?: NodeJS.Platform;
   port?: number;
 }
 
@@ -46,6 +50,8 @@ export async function diagnoseDatabaseInUse(
   const port = dependencies.port ?? resolveServerPort();
   const probeServer = dependencies.probeServer ?? probeServerHealth;
   const getMcpStatus = dependencies.getMcpStatus ?? (() => getMcpRuntimeStatus(repositoryRoot));
+  const getServiceStatus = dependencies.getServiceStatus ?? (() => getUserServiceStatus({ repositoryRoot }));
+  const platform = dependencies.platform ?? process.platform;
   const lines: string[] = [];
   let serverRunning: boolean;
   let mcpCount = 0;
@@ -66,12 +72,33 @@ export async function diagnoseDatabaseInUse(
     mcpUnknown = true;
   }
   if (serverRunning) {
-    lines.push(
-      `Work Intelligence server 正在 http://127.0.0.1:${port} 執行：請在執行 pnpm start 的終端機按 Ctrl+C；若是登入自動啟動服務，請執行 pnpm service:uninstall（Windows 也可在工作排程器停止「Work Intelligence」）。`,
-    );
+    const where = `Work Intelligence server 正在 http://127.0.0.1:${port} 執行：`;
+    const terminalHint = "若是用 pnpm start 啟動，請在該終端機按 Ctrl+C。";
+    const serviceHint = `若是登入自動啟動服務，請執行 pnpm service:uninstall 停止，維護完成後執行 pnpm service:install 恢復${
+      platform === "win32"
+        ? `；也可以在工作排程器「結束」名為「${WINDOWS_TASK_NAME}」的工作，維護後執行 pnpm service:install 重新啟動`
+        : ""
+    }。`;
+    let serviceState: string | undefined;
+    try {
+      serviceState = getServiceStatus().state;
+    } catch {
+      serviceState = undefined;
+    }
+    if (serviceState === "running") {
+      lines.push(
+        `${where}這是登入自動啟動服務${platform === "win32" ? "" : "，服務管理器會自動重啟它，Ctrl+C 沒有用"}。${serviceHint}`,
+      );
+    } else if (serviceState === undefined) {
+      lines.push(`${where}${terminalHint}${serviceHint}`);
+    } else {
+      lines.push(`${where}請在執行 pnpm start 的終端機按 Ctrl+C。`);
+    }
   }
   if (mcpCount > 0) {
-    lines.push(`有 ${mcpCount} 個 Agent MCP 連線（Claude Code／Codex 對話）正在使用：請結束這些對話後重試。`);
+    lines.push(
+      `有 ${mcpCount} 個 Agent MCP 連線（Claude Code／Codex 對話）正在使用（依此 checkout 的 MCP 連線計算）：請結束這些對話後重試。`,
+    );
   } else if (mcpUnknown) {
     lines.push("無法判斷 MCP 連線數。");
   }
