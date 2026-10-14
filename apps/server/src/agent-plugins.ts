@@ -21,7 +21,7 @@ export function claudePluginEnabled(settings: Record<string, unknown> | undefine
 
 /**
  * Whether config.toml enables the Work Intelligence plugin (`[plugins."work-intelligence@<marketplace>"]` with
- * `enabled = true`). It brings the MCP server and the skill; the Codex save-reminder hooks stay in hooks.json.
+ * `enabled = true`). It brings the MCP server, the skill, and the save-reminder hooks (once trusted in `/hooks`).
  */
 export function codexPluginEnabled(config: Record<string, unknown> | undefined): boolean {
   return Object.entries(record(config?.plugins) ?? {}).some(
