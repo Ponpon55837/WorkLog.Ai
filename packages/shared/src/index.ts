@@ -1,3 +1,7 @@
+export * from "./database-path.js";
+
+/** node:sqlite needs no --experimental-sqlite flag from this Node.js version on; `pnpm start` passes none. */
+export const MINIMUM_NODE_VERSION = "22.13.0";
 export const APP_NAME = "Work Intelligence";
 export const API_PREFIX = "/api";
 export const DEFAULT_WEB_PORT = 5966;

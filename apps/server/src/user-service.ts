@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { delimiter, posix, resolve, win32 } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { resolveDatabasePath } from "@work-intelligence/shared";
 import type { UserServiceManager, UserServiceState, UserServiceStatus } from "@work-intelligence/core";
 
 export type UserServicePlatform = "darwin" | "linux" | "win32" | "unsupported";
@@ -101,13 +102,11 @@ function configuredStoragePaths(
   environment: NodeJS.ProcessEnv,
 ): StoragePaths {
   const path = pathApi(platform);
-  const configuredDatabase = environment.WORK_INTELLIGENCE_DB?.trim();
-  const databasePath =
-    configuredDatabase === ":memory:"
-      ? configuredDatabase
-      : configuredDatabase
-        ? path.resolve(repositoryRoot, configuredDatabase)
-        : path.resolve(repositoryRoot, "data", "work-intelligence.sqlite");
+  const databasePath = resolveDatabasePath(environment.WORK_INTELLIGENCE_DB, {
+    baseDirectory: repositoryRoot,
+    fallback: path.resolve(repositoryRoot, "data", "work-intelligence.sqlite"),
+    platform: platform === "win32" ? "win32" : "linux",
+  });
   const configuredBackupDirectory = environment.WORK_INTELLIGENCE_BACKUP_DIR?.trim();
   const backupDirectory = configuredBackupDirectory
     ? path.resolve(path.dirname(databasePath), configuredBackupDirectory)

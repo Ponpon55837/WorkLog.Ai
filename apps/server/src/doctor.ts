@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createServer } from "node:net";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
+import { isDriveRelativePath, MINIMUM_NODE_VERSION, resolveDatabasePath } from "@work-intelligence/shared";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import type { AgentMcpRegistrationState, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
@@ -603,7 +604,8 @@ function nodeSupportsSqlite(version: string): boolean {
   }
   const major = Number(match[1]);
   const minor = Number(match[2]);
-  return major > 22 || (major === 22 && minor >= 5);
+  const [minimumMajor, minimumMinor] = MINIMUM_NODE_VERSION.split(".").map(Number) as [number, number];
+  return major > minimumMajor || (major === minimumMajor && minor >= minimumMinor);
 }
 
 function envFailure(): DoctorFinding {
@@ -613,6 +615,27 @@ function envFailure(): DoctorFinding {
     detail: "WORK_INTELLIGENCE_DB、WORK_INTELLIGENCE_PORT 或 WORK_INTELLIGENCE_BACKUP_DIR 格式無效。",
     recommendation: "請確認資料庫路徑非空，並讓 port 為 1 到 65535 的整數。",
   };
+}
+
+/** Read-only: lists top-level *.sqlite files in the repository root, which usually come from a mistyped database path. */
+function addRootSqliteFinding(findings: DoctorFinding[], repositoryRoot: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(repositoryRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.sqlite(?:-(?:wal|shm|journal))?$/i.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return;
+  }
+  if (names.length === 0) return;
+  addFinding(
+    findings,
+    "warning",
+    "repo 根目錄的資料庫檔",
+    `repo 根目錄有 ${names.length} 個 SQLite 檔案：${names.join("、")}。`,
+    "這可能是路徑設定錯誤產生的資料庫；確認內容後自行搬移或刪除（診斷程序不會讀取或刪除它們）。",
+  );
 }
 
 export async function collectDoctorFindings(
@@ -640,8 +663,8 @@ export async function collectDoctorFindings(
       nodeVersion +
       "，node:sqlite " +
       (sqliteAvailable ? "可用" : "無法使用") +
-      "；最低需求為 Node.js 22.5。",
-    nodeSupported ? undefined : "請使用支援 node:sqlite 的 Node.js 22.5 以上版本。",
+      `；最低需求為 Node.js ${MINIMUM_NODE_VERSION}。`,
+    nodeSupported ? undefined : `請使用支援 node:sqlite 的 Node.js ${MINIMUM_NODE_VERSION} 以上版本。`,
   );
 
   const packageManager = readPackageManagerVersion();
@@ -701,7 +724,16 @@ export async function collectDoctorFindings(
             : "請確認建置完成後重新執行 doctor。",
   );
 
-  const userService = options.userServiceStatus ?? getUserServiceStatus({ homeDirectory, repositoryRoot, environment });
+  // A drive-relative database path is reported as its own error below; keep the service probe from throwing on it.
+  const databaseSetting = parsedEnvironment.success ? parsedEnvironment.data.WORK_INTELLIGENCE_DB : undefined;
+  const databaseDriveRelative = databaseSetting !== undefined && isDriveRelativePath(databaseSetting);
+  const userService =
+    options.userServiceStatus ??
+    getUserServiceStatus({
+      homeDirectory,
+      repositoryRoot,
+      environment: databaseDriveRelative ? { ...environment, WORK_INTELLIGENCE_DB: undefined } : environment,
+    });
   const userServiceLabel = {
     running: "正在執行",
     stopped: "已安裝但目前未執行",
@@ -730,9 +762,25 @@ export async function collectDoctorFindings(
     return findings;
   }
 
-  const dbPath = parsedEnvironment.data.WORK_INTELLIGENCE_DB
-    ? resolve(process.cwd(), parsedEnvironment.data.WORK_INTELLIGENCE_DB)
-    : resolve(repositoryRoot, "data", "work-intelligence.sqlite");
+  if (databaseDriveRelative) {
+    addFinding(
+      findings,
+      "error",
+      "資料庫路徑",
+      `WORK_INTELLIGENCE_DB 的值「${databaseSetting}」是磁碟相對路徑，反斜線可能被 shell 吃掉了。`,
+      "請改用正斜線，或以引號包住完整絕對路徑（PowerShell 中用單引號）。",
+    );
+    addRootSqliteFinding(findings, repositoryRoot);
+    return findings;
+  }
+  const dbPath = resolveDatabasePath(parsedEnvironment.data.WORK_INTELLIGENCE_DB, {
+    baseDirectory: repositoryRoot,
+    fallback: resolve(repositoryRoot, "data", "work-intelligence.sqlite"),
+  });
+  if (databaseSetting && !isAbsolute(databaseSetting) && databaseSetting !== ":memory:") {
+    addFinding(findings, "ok", "資料庫路徑", `WORK_INTELLIGENCE_DB 是相對路徑，已以 repo 根目錄解析為 ${dbPath}。`);
+  }
+  addRootSqliteFinding(findings, repositoryRoot);
   const database = await inspectDatabaseReadOnly(dbPath);
   // Keep the database, doctor, and server on the same relative backup-directory rule.
   const backupDirectory = resolveBackupDirectory(dbPath, parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR);
