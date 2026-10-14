@@ -37,6 +37,7 @@
     "db:restore": "node apps/server/dist/cli.js restore",
     "db:maintain": "node apps/server/dist/cli.js maintain",
     "db:redact": "node apps/server/dist/cli.js redact",
+    "track": "node apps/server/dist/cli.js track",
     "test": "pnpm lint && pnpm format:check && pnpm --filter @work-intelligence/core test && pnpm --filter @work-intelligence/project-policy test && pnpm --filter @work-intelligence/shared test && pnpm --filter @work-intelligence/schema test && pnpm --filter @work-intelligence/storage test && pnpm --filter @work-intelligence/server test && pnpm --filter @work-intelligence/mcp test && pnpm --filter @work-intelligence/web test",
     "test:coverage": "pnpm --filter @work-intelligence/core test:coverage && pnpm --filter @work-intelligence/project-policy test:coverage && pnpm --filter @work-intelligence/shared test:coverage && pnpm --filter @work-intelligence/schema test:coverage && pnpm --filter @work-intelligence/storage test:coverage && pnpm --filter @work-intelligence/server test:coverage && pnpm --filter @work-intelligence/mcp test:coverage && pnpm --filter @work-intelligence/web test:coverage",
     "test:e2e": "pnpm build && node scripts/run-e2e.mjs",

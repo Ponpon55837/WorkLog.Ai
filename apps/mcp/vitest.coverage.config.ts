@@ -1,10 +1,11 @@
 import { defineConfig } from "vitest/config";
-import { mcpAliases } from "./vitest.config";
+import { mcpAliases, mcpTestTimeout } from "./vitest.config";
 
 export default defineConfig({
   resolve: { alias: mcpAliases },
   test: {
     include: ["tests/mcp/**/*.test.ts"],
+    testTimeout: mcpTestTimeout,
     coverage: {
       enabled: true,
       provider: "v8",

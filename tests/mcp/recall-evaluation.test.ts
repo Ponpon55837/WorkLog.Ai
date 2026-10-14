@@ -170,7 +170,7 @@ describe("recall evaluator", () => {
     expect(readDatabaseState(databasePath)).toEqual(beforeState);
     expect(readFileSync(databasePath)).toEqual(beforeDatabase);
     expect(readFileSync(walPath)).toEqual(beforeWal);
-  }, 15_000);
+  }, 30_000);
 
   // File-backed snapshot setup can exceed Vitest's default 5 seconds under Windows coverage.
   it("fails a no-hit question when a strong MCP match exists and reports the false positive", async () => {
@@ -201,7 +201,7 @@ describe("recall evaluator", () => {
     expect(report.expectedNoHitWithHits).toEqual([
       expect.objectContaining({ id: "false-positive", mode: "recall", returnedHitCount: expect.any(Number) }),
     ]);
-  }, 15_000);
+  }, 30_000);
 
   it("does not count a skipped untracked project as an expected no-hit", async () => {
     const { databasePath, temporaryRoot, store } = setupFileStore();
@@ -244,7 +244,7 @@ describe("recall evaluator", () => {
     expect(snapshotState.knowledge).toContainEqual(expect.objectContaining({ id: knowledgeId }));
     expect(snapshotState.searchDirty).toEqual(beforeState.searchDirty);
     if (process.platform !== "win32") expect(statSync(scratchPath).mode & 0o077).toBe(0);
-  }, 15_000);
+  }, 30_000);
 
   it("rejects invalid dates, context date filters, duplicate ids, and oversized question sets", () => {
     expect(() =>

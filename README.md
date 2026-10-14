@@ -41,7 +41,7 @@ pnpm start
 
 `pnpm bootstrap` is the single install path. It checks your Node.js and pnpm versions, prints its plan, and after one confirmation runs: install dependencies, build, connect your Agents (`pnpm setup:agents`), ask whether to set up start-at-login, then run `pnpm check` and print the next steps. The first two steps only write inside this repository. **Connecting Agents and start-at-login write to your global settings; each shows its own preview and asks for its own confirmation** (type `yes` for the Agent settings), and nothing changes without it. In a non-interactive terminal it only prints the plan unless you pass `--yes`; `--skip-agents` skips connecting Agents and `--service` goes straight to the start-at-login setup. If an Agent already has the Work Intelligence plugin enabled, bootstrap skips that Agent's manual registration (the plugin already provides the MCP server, skill and hooks), so nothing is registered twice. If the start-at-login service is already installed, bootstrap does not ask about it again and only reminds you to re-run `pnpm service:install` to restart it. It is safe to repeat: after a `git pull`, run it again to sync. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
 
-`pnpm start` starts the local Dashboard and REST API. Keep the terminal open; press `Ctrl+C` to stop. In production mode one process serves the Web UI and the REST API on the same port.
+`pnpm start` starts the local Dashboard and REST API. Keep the terminal open; press `Ctrl+C` to stop. On startup it prints a one-line reminder if an installed Agent skill or hook is out of date (it stays silent otherwise and never delays startup). In production mode one process serves the Web UI and the REST API on the same port.
 
 To start automatically when you log in, run `pnpm build` and then `pnpm service:install`. It shows the service file it will write, with its full content, and configures a service for the current user only after you confirm; no administrator rights are needed. `pnpm service:status` shows the state and `pnpm service:uninstall` stops and removes the service while keeping the database, backups and logs. Per-platform locations and troubleshooting are in [Start at login](docs/service.md).
 
@@ -62,7 +62,7 @@ Run `pnpm check`; `pnpm run doctor` still works as an alias. Do not use plain `p
 Then three steps:
 
 1. Open <http://127.0.0.1:3210>, go to **Projects** → **Add project** and choose the project folder to record.
-2. Switch the project's status to **Tracked** and confirm the scope that may be read.
+2. Switch the project's status to **Tracked** and confirm the scope that may be read. Alternatively, skip steps 1 and 2 by running `pnpm track <folder>` from a terminal: it shows a preview (name, path, status change) and asks `[y/N]` before it adds the project and sets it to Tracked. Only you can do this; Agents cannot track a project.
 3. Reconnect the Work Intelligence MCP in Codex or Claude Code (if Codex uses the save-reminder hook, review and trust it under `/hooks`), then work as usual; when you finish, ask the Agent to save the work.
 
 Until there is a tracked project or a Session, the overview shows a four-step checklist — add a project → set it to Tracked → connect an Agent → first work record — with links to the right pages and the install command.
@@ -344,6 +344,7 @@ pnpm build:plugin             # self-contained plugin zip and Claude Desktop .mc
 pnpm start:server             # API only
 pnpm start:mcp                # MCP stdio server only
 pnpm check                    # read-only diagnostics
+pnpm track <folder>           # preview, confirm, then add the folder and set it to Tracked
 pnpm db:backup                # back up now (db:export, db:import, db:restore above)
 pnpm db:backups               # list backups; add --delete <file name> to delete after confirming
 pnpm db:maintain              # offline maintenance (stop the server and MCP first)

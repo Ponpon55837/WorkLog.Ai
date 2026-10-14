@@ -34,7 +34,7 @@ const USAGE = [
 const NEXT_STEPS = [
   "完成。接下來：",
   "  1. 啟動：pnpm start（若已安裝登入自動啟動服務，Dashboard 網址為 http://127.0.0.1:3210；更新後請重新執行 pnpm service:install 重啟服務，讓新版生效）",
-  "  2. 開啟 http://127.0.0.1:3210 →「專案」→「加入專案」→ 設為「記錄中」",
+  "  2. 開啟 http://127.0.0.1:3210 →「專案」→「加入專案」→ 設為「記錄中」（或執行 pnpm track <資料夾>）",
   "  3. 在 Agent 重新連線 MCP；Codex 需在 /hooks 信任 hook",
 ].join("\n");
 

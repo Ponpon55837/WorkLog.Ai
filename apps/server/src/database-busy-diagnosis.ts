@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
-import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import { resolveServerPort } from "./server-port.js";
 import { getUserServiceStatus, WINDOWS_TASK_NAME } from "./user-service.js";
 
 export interface DatabaseBusyDiagnosisDependencies {
@@ -20,11 +20,6 @@ const HEALTH_SCHEMA = z.object({ ok: z.boolean(), app: z.literal("Work Intellige
 /** True for the typed storage errors that mean another process holds the database file. */
 export function isDatabaseInUseError(error: unknown): boolean {
   return error instanceof Error && (error as { code?: unknown }).code === "DATABASE_IN_USE";
-}
-
-function resolveServerPort(): number {
-  const port = Number(process.env.WORK_INTELLIGENCE_PORT ?? DEFAULT_SERVER_PORT);
-  return Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_SERVER_PORT;
 }
 
 async function probeServerHealth(port: number): Promise<boolean> {
