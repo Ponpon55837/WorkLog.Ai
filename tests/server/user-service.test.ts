@@ -138,6 +138,27 @@ describe("user-level login service definitions", () => {
     expect(plan.backupDirectory).toBe("/workspace/WorkLog.Ai/data/snapshots");
   });
 
+  it("resolves a relative database setting from the repository root and rejects a drive-relative one", () => {
+    const base = {
+      platform: "win32" as const,
+      homeDirectory: "C:\\fixture\\home",
+      repositoryRoot: "C:\\fixture\\repo",
+      configFileExists: () => false,
+      runCommand: () => JSON.stringify({ state: "Missing" }),
+    };
+    const status = getUserServiceStatus({
+      ...base,
+      environment: { USERPROFILE: base.homeDirectory, WORK_INTELLIGENCE_DB: "custom\\synthetic.sqlite" },
+    });
+    expect(status.databasePath).toBe("C:\\fixture\\repo\\custom\\synthetic.sqlite");
+    expect(() =>
+      getUserServiceStatus({
+        ...base,
+        environment: { USERPROFILE: base.homeDirectory, WORK_INTELLIGENCE_DB: "C:fixture\\synthetic.sqlite" },
+      }),
+    ).toThrow("磁碟相對路徑");
+  });
+
   it("escapes XML paths and describes every file before asking for confirmation", async () => {
     const root = temporaryDirectory();
     const targetRoot = temporaryRootForPlatform("darwin", root);

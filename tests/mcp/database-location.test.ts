@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   configDirectory,
@@ -47,7 +47,25 @@ describe("database location", () => {
     );
     expect(
       databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "/custom.sqlite" }, home }),
-    ).toBe("/custom.sqlite");
+    ).toBe(resolve("/custom.sqlite"));
+  });
+
+  it("resolves a relative database setting from the repository root, not the working directory", () => {
+    expect(databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "data/other.sqlite" } })).toBe(
+      resolve("/repo", "data/other.sqlite"),
+    );
+    expect(databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "  " } })).toBe(
+      "/repo/data/x.sqlite",
+    );
+  });
+
+  it.skipIf(process.platform !== "win32")("rejects a drive-relative database setting", () => {
+    expect(() =>
+      databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "C:Users\\fixture\\x.sqlite" } }),
+    ).toThrow("磁碟相對路徑");
+    expect(() =>
+      standaloneDatabasePath({ environment: { WORK_INTELLIGENCE_DB: "C:fixture.sqlite" }, home: "/fixture-home" }),
+    ).toThrow("磁碟相對路徑");
   });
 
   it("opens the user's data directory when the bundle has no checkout", () => {

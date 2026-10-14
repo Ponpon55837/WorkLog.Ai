@@ -4,9 +4,27 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-14
+
+[繁體中文更新說明](docs/releases/1.5.2.md).
+
+### Added
+
+- `pnpm bootstrap` as the single install path: checks Node.js and pnpm, then installs, builds, connects Agents (`pnpm setup:agents`), optionally sets up start-at-login and runs the doctor. Global Agent and service settings keep their own preview and confirmation. Flags: `--yes`, `--skip-agents`, `--service`, `--help`. Re-running it after `git pull` updates the checkout; when the login service is already installed it reminds you to restart it with `pnpm service:install` instead of asking again.
+- Doctor lists top-level `*.sqlite` files in the repository root (read-only) and reports a Windows drive-relative `WORK_INTELLIGENCE_DB` as an error.
+
+### Changed
+
+- `pnpm setup:agents` skips the manual MCP, skill and hook registration for an Agent whose Work Intelligence plugin is enabled, so plugin users do not get duplicate tools and reminders.
+- `WORK_INTELLIGENCE_DB` is resolved the same way by the server, MCP, doctor and login service: relative paths resolve from the repository root, and a drive-relative path such as `C:Users...` (backslashes eaten by a shell) is rejected instead of silently creating a database in the working directory.
+- The minimum Node.js version is 22.13 everywhere (`node:sqlite` needs no flag from 22.13); `engines.node` is declared in the root `package.json`.
+- The README quick start is `git clone` → `pnpm bootstrap` → `pnpm start`; plugin and manual registration are listed as alternatives.
+
+Database schema remains 30; no migration is required.
+
 ## [1.5.1] - 2026-10-11
 
-[繁體中文更新說明](docs/releases/1.5.1.md).
+[繁體中文更新說明](https://github.com/Ponpon55837/WorkLog.Ai/blob/v1.5.1/docs/releases/1.5.1.md).
 
 ### Fixed
 

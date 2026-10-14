@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
+import { readClaudePluginEnabled, readCodexPluginEnabled } from "./agent-plugins.js";
 
 export type AgentSetupComponentId =
   | "codexSkill"
@@ -1011,6 +1012,17 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     );
   }
   const components = parsedManifest.manifest.components;
+  // An enabled plugin already provides MCP, skill and hooks for that Agent; registering them again would duplicate them.
+  const claudePlugin = readClaudePluginEnabled(options.claudeConfigDirectory!);
+  const codexPlugin = readCodexPluginEnabled(options.codexHomeDirectory!);
+  if (claudePlugin) {
+    plan.actions.push(
+      "Claude Code 已啟用 work-intelligence plugin，略過手動註冊（plugin 已提供 MCP、skill 與 hook）。",
+    );
+  }
+  if (codexPlugin) {
+    plan.actions.push("Codex 已啟用 work-intelligence plugin，略過手動註冊（plugin 已提供 MCP、skill 與 hook）。");
+  }
   const sourcePath = join(repositoryRoot, SKILL_SOURCE_RELATIVE_PATH);
   const sourceFile = readRegularFile(sourcePath);
   if (sourceFile.conflict || !sourceFile.bytes) {
@@ -1023,6 +1035,7 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     (publishedHashes ??= publishedSkillHashes(repositoryRoot)).has(lineEndingNeutralSha256(bytes));
 
   for (const id of ["codexSkill", "codexLegacySkill", "claudeSkill"] as const) {
+    if (id === "claudeSkill" ? claudePlugin : codexPlugin) continue;
     const path = targetPath(id, options);
     const current = readRegularFile(path);
     if (current.conflict) addConflict(plan, current.conflict);
@@ -1051,7 +1064,9 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const tomlEntryIndex = entryIndex(components, "codexMcp");
   const tomlOwned = tomlEntryIndex >= 0 ? components[tomlEntryIndex] : undefined;
   const tomlOwnedExpected = tomlOwned?.kind === "toml-block" ? tomlOwned.expected : undefined;
-  if (tomlText.includes(desiredBlock)) {
+  if (codexPlugin) {
+    // The plugin registers the MCP server; leave config.toml alone.
+  } else if (tomlText.includes(desiredBlock)) {
     if (tomlOwned?.kind === "toml-block")
       setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
   } else if (tomlOwnedExpected && tomlText.includes(tomlOwnedExpected)) {
@@ -1094,7 +1109,7 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
   }
 
-  const codexFeature = codexHooksFeatureFromToml(tomlText);
+  const codexFeature = codexPlugin ? "enabled" : codexHooksFeatureFromToml(tomlText);
   if (codexFeature === "disabled") {
     plan.actions.push("保留 ~/.codex/config.toml 的 [features].hooks=false；略過 Codex hooks 設定。");
   } else if (codexFeature === "unknown") {
@@ -1114,9 +1129,11 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   };
 
   const platform = options.platform ?? process.platform;
-  mutateJson(targetPath("claudeMcp", options), [getClaudeMcpSpec(repositoryRoot)]);
-  mutateJson(targetPath("claudeStopHook", options), [getClaudeStopSpec(repositoryRoot, platform)]);
-  if (codexFeature !== "disabled" && codexFeature !== "unknown") {
+  if (!claudePlugin) {
+    mutateJson(targetPath("claudeMcp", options), [getClaudeMcpSpec(repositoryRoot)]);
+    mutateJson(targetPath("claudeStopHook", options), [getClaudeStopSpec(repositoryRoot, platform)]);
+  }
+  if (!codexPlugin && codexFeature !== "disabled" && codexFeature !== "unknown") {
     mutateJson(targetPath("codexStopHook", options), getCodexHookSpecs(repositoryRoot, platform));
   }
 

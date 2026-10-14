@@ -70,6 +70,74 @@ afterEach(() => {
 });
 
 describe("pnpm doctor read-only checks", () => {
+  it("warns about top-level SQLite files in the repository root without reading or removing them", async () => {
+    const directory = temporaryDirectory();
+    const repositoryRoot = join(directory, "repository");
+    mkdirSync(repositoryRoot, { recursive: true });
+    writeFileSync(join(repositoryRoot, "stray-synthetic.sqlite"), "not a database");
+    writeFileSync(join(repositoryRoot, "stray-synthetic.sqlite-wal"), "");
+    mkdirSync(join(repositoryRoot, "nested"));
+    writeFileSync(join(repositoryRoot, "nested", "ignored.sqlite"), "");
+
+    const findings = await collectDoctorFindings({
+      repositoryRoot,
+      homeDirectory: join(directory, "home"),
+      environment: { HOME: join(directory, "home"), WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite") },
+    });
+
+    const finding = findings.find((item) => item.title === "repo 根目錄的資料庫檔");
+    expect(finding).toMatchObject({ severity: "warning", recommendation: expect.stringContaining("自行搬移或刪除") });
+    expect(finding?.detail).toContain("stray-synthetic.sqlite");
+    expect(finding?.detail).toContain("stray-synthetic.sqlite-wal");
+    expect(finding?.detail).not.toContain("ignored.sqlite");
+    expect(readFileSync(join(repositoryRoot, "stray-synthetic.sqlite"), "utf8")).toBe("not a database");
+  });
+
+  it("stays quiet about the repository root when it holds no SQLite files", async () => {
+    const directory = temporaryDirectory();
+    const repositoryRoot = join(directory, "repository");
+    mkdirSync(repositoryRoot, { recursive: true });
+    const findings = await collectDoctorFindings({
+      repositoryRoot,
+      homeDirectory: join(directory, "home"),
+      environment: { HOME: join(directory, "home"), WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite") },
+    });
+    expect(findings.some((item) => item.title === "repo 根目錄的資料庫檔")).toBe(false);
+  });
+
+  it("reports a relative database path as ok with the absolute path resolved from the repository root", async () => {
+    const directory = temporaryDirectory();
+    const repositoryRoot = join(directory, "repository");
+    mkdirSync(repositoryRoot, { recursive: true });
+    const findings = await collectDoctorFindings({
+      repositoryRoot,
+      homeDirectory: join(directory, "home"),
+      environment: { HOME: join(directory, "home"), WORK_INTELLIGENCE_DB: "relative/synthetic.sqlite" },
+    });
+    expect(findings.find((item) => item.title === "資料庫路徑")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining(resolve(repositoryRoot, "relative", "synthetic.sqlite")),
+    });
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "reports a drive-relative database path as an error instead of aborting",
+    async () => {
+      const directory = temporaryDirectory();
+      const repositoryRoot = join(directory, "repository");
+      mkdirSync(repositoryRoot, { recursive: true });
+      const findings = await collectDoctorFindings({
+        repositoryRoot,
+        homeDirectory: join(directory, "home"),
+        environment: { HOME: join(directory, "home"), WORK_INTELLIGENCE_DB: "C:fixture\\synthetic.sqlite" },
+      });
+      expect(findings.find((item) => item.title === "資料庫路徑")).toMatchObject({
+        severity: "error",
+        recommendation: expect.stringContaining("正斜線"),
+      });
+    },
+  );
+
   it("warns when the login service is running but disabled for future logins", async () => {
     const directory = temporaryDirectory();
     const status = isolatedUserServiceStatus(directory);

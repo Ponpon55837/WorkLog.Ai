@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { assertNotDriveRelativePath, resolveDatabasePath } from "@work-intelligence/shared/database-path";
 
 /**
  * True only inside the self-contained plugin bundle (scripts/build-plugin.mjs defines it); the repository build
@@ -49,17 +50,27 @@ export function linkedRepositoryRoot(options: LocationOptions = {}): string | un
  */
 export function standaloneDatabasePath(options: LocationOptions = {}): string {
   const fromEnvironment = (options.environment ?? process.env).WORK_INTELLIGENCE_DB?.trim();
-  if (fromEnvironment) return fromEnvironment;
+  if (fromEnvironment) {
+    // Relative values keep their historical meaning in the bundle; only the shell-mangled drive form is rejected.
+    assertNotDriveRelativePath(fromEnvironment);
+    return fromEnvironment;
+  }
   const linked = linkedRepositoryRoot(options);
   if (linked) return join(linked, "data", "work-intelligence.sqlite");
   return join(configDirectory(options), "data", "work-intelligence.sqlite");
 }
 
-/** The repository build keeps `WORK_INTELLIGENCE_DB ?? <repo>/data`; only the standalone bundle looks further. */
+/**
+ * The repository build uses `WORK_INTELLIGENCE_DB` (relative paths resolve from the repository root) or
+ * `<repo>/data`; only the standalone bundle looks further.
+ */
 export function databasePathFor(
   repositoryDataPath: string,
   { standalone = STANDALONE, ...options }: LocationOptions & { standalone?: boolean } = {},
 ): string {
   if (standalone) return standaloneDatabasePath(options);
-  return (options.environment ?? process.env).WORK_INTELLIGENCE_DB ?? repositoryDataPath;
+  return resolveDatabasePath((options.environment ?? process.env).WORK_INTELLIGENCE_DB, {
+    baseDirectory: dirname(dirname(repositoryDataPath)),
+    fallback: repositoryDataPath,
+  });
 }

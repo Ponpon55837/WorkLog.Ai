@@ -1,14 +1,16 @@
 {
   "name": "work-intelligence",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "license": "MIT",
   "private": true,
   "description": "Local-first developer work intelligence MVP",
   "type": "module",
   "engines": {
+    "node": ">=22.13.0",
     "pnpm": ">=11.16.0"
   },
   "scripts": {
+    "bootstrap": "node scripts/bootstrap.mjs",
     "build": "node scripts/build.mjs",
     "dev": "pnpm --parallel --filter @work-intelligence/server --filter @work-intelligence/web dev",
     "lint": "eslint . --max-warnings 0 && node scripts/sfc-layout.mjs",

@@ -1,6 +1,6 @@
 # Work Intelligence
 
-Version **1.5.1** keeps report synthesis sources stable after newer records arrive, adds a bounded MCP report preview and source pagination, and separates loading, error and empty synthesis states. Reports display saved source coverage and expandable summaries. Live updates preserve reading positions in outstanding-item lists. English and Traditional Chinese writing guides preserve facts and reduce repetition. Database schema remains 30. See the [release notes](CHANGELOG.md#151---2026-10-11) and [Traditional Chinese update guide](docs/releases/1.5.1.md). After rebuilding, restart the server and reconnect the Agent MCP for the updated contracts.
+Version **1.5.2** makes `pnpm bootstrap` the single install and update command: it checks Node.js and pnpm, installs, builds, connects Agents and runs the doctor, while global Agent and service settings keep their own preview and confirmation. `pnpm setup:agents` skips Agents that already use the Work Intelligence plugin. `WORK_INTELLIGENCE_DB` now resolves the same way everywhere, and on Windows a path whose backslashes a shell removed is rejected instead of creating an empty database. The minimum Node.js version is 22.13. Database schema remains 30. See the [release notes](CHANGELOG.md#152---2026-10-14) and [Traditional Chinese update guide](docs/releases/1.5.2.md). After updating, restart the login service if you use it and reconnect the Agent MCP.
 
 **English** | [繁體中文](README.zh-TW.md)
 
@@ -31,24 +31,17 @@ Version **1.5.1** keeps report synthesis sources stable after newer records arri
 
 ## Quick start
 
-Requirements: **Node.js 22.5 or later** (24 recommended; the built-in `node:sqlite` is used) and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
+Requirements: **Node.js 22.13 or later** (24 recommended; the built-in `node:sqlite` is used) and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
 
 ```bash
-cd /path/to/WorkLog.Ai
-pnpm install
-pnpm build
-pnpm setup:agents
-```
-
-`pnpm setup:agents` first lists the MCP server, user-level skills and save-reminder hook it would install. The preview writes nothing; after checking it, type `yes` at the prompt and the installer backs up your settings before applying them. Type anything else or exit to leave your global Agent settings untouched. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
-
-Then start the local Dashboard and REST API:
-
-```bash
+git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
+pnpm bootstrap
 pnpm start
 ```
 
-Keep the terminal open; press `Ctrl+C` to stop. In production mode one process serves the Web UI and the REST API on the same port.
+`pnpm bootstrap` is the single install path. It checks your Node.js and pnpm versions, prints its plan, and after one confirmation runs: install dependencies, build, connect your Agents (`pnpm setup:agents`), ask whether to set up start-at-login, then run `pnpm run doctor` and print the next steps. The first two steps only write inside this repository. **Connecting Agents and start-at-login write to your global settings; each shows its own preview and asks for its own confirmation** (type `yes` for the Agent settings), and nothing changes without it. In a non-interactive terminal it only prints the plan unless you pass `--yes`; `--skip-agents` skips connecting Agents and `--service` goes straight to the start-at-login setup. If an Agent already has the Work Intelligence plugin enabled, bootstrap skips that Agent's manual registration (the plugin already provides the MCP server, skill and hooks), so nothing is registered twice. If the start-at-login service is already installed, bootstrap does not ask about it again and only reminds you to re-run `pnpm service:install` to restart it. It is safe to repeat: after a `git pull`, run it again to sync. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
+
+`pnpm start` starts the local Dashboard and REST API. Keep the terminal open; press `Ctrl+C` to stop. In production mode one process serves the Web UI and the REST API on the same port.
 
 To start automatically when you log in, run `pnpm build` and then `pnpm service:install`. It shows the service file it will write, with its full content, and configures a service for the current user only after you confirm; no administrator rights are needed. `pnpm service:status` shows the state and `pnpm service:uninstall` stops and removes the service while keeping the database, backups and logs. Per-platform locations and troubleshooting are in [Start at login](docs/service.md).
 
@@ -66,11 +59,11 @@ pnpm run doctor
 
 Use `pnpm run doctor`, not `pnpm doctor`: pnpm 11 reserves `doctor` for its own command, which does not run the Work Intelligence diagnostics. The doctor checks Node.js, pnpm, the build output, database health and schema version, recent backups and maintenance, API reachability, MCP registration, skill copies and the global save-reminder hook — all read-only — and lists fixes in Traditional Chinese. Its output contains no work-record content.
 
-Reconnect the Work Intelligence MCP in Codex or Claude Code; if Codex uses the save-reminder hook, review and trust it under `/hooks`. Then in the Dashboard:
+Then three steps:
 
-1. Open **Projects** → **Add project** and choose the project folder to record.
+1. Open <http://127.0.0.1:3210>, go to **Projects** → **Add project** and choose the project folder to record.
 2. Switch the project's status to **Tracked** and confirm the scope that may be read.
-3. Confirm the connection in your Agent conversation and work as usual; when you finish, ask the Agent to save the work.
+3. Reconnect the Work Intelligence MCP in Codex or Claude Code (if Codex uses the save-reminder hook, review and trust it under `/hooks`), then work as usual; when you finish, ask the Agent to save the work.
 
 Until there is a tracked project or a Session, the overview shows a four-step checklist — add a project → set it to Tracked → connect an Agent → first work record — with links to the right pages and the install command.
 
@@ -78,11 +71,11 @@ The bottom of the sidebar shows the current app version and schema version.
 
 ## Connect Codex / Claude
 
-The Work Intelligence MCP is a **local stdio server** started by the Agent itself; it does not use the Web UI's HTTP port. Run `pnpm build` once, then register it with your Agent. Use absolute paths so the API, MCP and CLI share one database.
+The Work Intelligence MCP is a **local stdio server** started by the Agent itself; it does not use the Web UI's HTTP port. **`pnpm bootstrap` already connects your Agents through `pnpm setup:agents`**, so you normally need nothing below. The following are alternative install methods and are an **either-or** with bootstrap; do not use both. Use absolute paths so the API, MCP and CLI share one database.
 
-### Install as a plugin (Claude Code / Codex)
+### Alternative 1: plugin (Claude Code / Codex; either-or with bootstrap)
 
-The simplest way to connect an Agent. Claude Code and Codex install Work Intelligence from this repository's marketplace; the plugin runs your local checkout, so build it once and link it:
+Claude Code and Codex install Work Intelligence from this repository's marketplace; the plugin runs your local checkout, so build it once and link it:
 
 ```bash
 git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
@@ -123,7 +116,7 @@ In Codex, open `/plugins` and install `work-intelligence`, then open `/hooks`, r
 
 Something wrong? Run `pnpm run doctor`, and see the [plugin guide](docs/plugins.md) for its troubleshooting table.
 
-### Register manually
+### Alternative 2: register manually (either-or with bootstrap)
 
 To set up the MCP server and the user-level skill in one go, run `pnpm setup:agents` to preview the install plan; nothing is written by default. Usage, backups and uninstalling are in the [Agent setup guide](docs/agent-setup.md). The MCP server also serves the full skill and record format through standard `resources/list` / `resources/read`, so any client that supports MCP resources can read `work-intelligence://agent/work-intelligence/SKILL.md` and `work-intelligence://agent/work-record-and-report-format.md`.
 
@@ -148,8 +141,6 @@ claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTE
 Expired MCP leases and leftover temporary files are cleaned up in batches during MCP registration and System Status reads (90-second threshold by default, at most 64 deletion attempts per pass); see [Troubleshooting](docs/troubleshooting.md).
 
 Claude Code also gets two MCP prompts: `/mcp__work-intelligence__finalize-work` and `/mcp__work-intelligence__synthesize-report`. Claude Desktop setup, verification and common questions are in **[docs/agent-setup.md](docs/agent-setup.md)**. After updating Work Intelligence, run `pnpm build` again. You only have to reconnect when the schema or Agent contract changed or compatibility cannot be confirmed; an implementation-only update shows "Update available", the existing connection keeps reading and writing, and you are reminded to reconnect when wrapping up.
-
-The round-nine open-item cleanup adds schema and Agent-contract changes. Before updating your main install, save your work records, then follow the [upgrade notes](docs/user-guide.md#更新-work-intelligence) to rebuild, restart the service and reconnect your Agents. Afterwards you can start a cleanup from the Web UI; the Agent submits suggestions and you accept or reject them.
 
 ### Save-reminder hook (optional)
 
@@ -198,7 +189,7 @@ You can rerun recall and context with your own private questions to check that t
 pnpm eval:recall ./recall-questions.json --db ./data/work-intelligence.sqlite --out ./recall-report.json
 ```
 
-Run `pnpm build` first (this CLI needs Node.js 22.5+, like the rest of the repo). Each question sets `mode: "recall"` or `"context"`, a `query`, and one or more expected ids or `expectedNoHit: true`; a project path and recall date range are optional. The report lists hit@1, hit@5 and MRR per mode, each question's rank, confidence, MCP response size and call time. The database is snapshotted to an OS temp file over a read-only SQLite connection, and retrieval and index sync only touch the snapshot; results go to the terminal or to a new file given by `--out`, are never uploaded, and never overwrite an existing file. See [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json) for the format and [Testing](docs/testing.md#檢索品質評估) for limits and metric definitions.
+Run `pnpm build` first (this CLI needs Node.js 22.13+, like the rest of the repo). Each question sets `mode: "recall"` or `"context"`, a `query`, and one or more expected ids or `expectedNoHit: true`; a project path and recall date range are optional. The report lists hit@1, hit@5 and MRR per mode, each question's rank, confidence, MCP response size and call time. The database is snapshotted to an OS temp file over a read-only SQLite connection, and retrieval and index sync only touch the snapshot; results go to the terminal or to a new file given by `--out`, are never uploaded, and never overwrite an existing file. See [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json) for the format and [Testing](docs/testing.md#檢索品質評估) for limits and metric definitions.
 
 More detail is in the **[User guide](docs/user-guide.md)**.
 
@@ -273,7 +264,7 @@ Backup environment variables:
 
 ## Upgrades and maintenance
 
-**Upgrading**: after updating the code, run `pnpm install` and `pnpm build`, then restart `pnpm start` and your Agent conversations.
+**Upgrading**: run `git pull`, then `pnpm bootstrap` (it reinstalls, rebuilds, syncs the Agent setup and runs the doctor), reconnect your Agents when prompted. If you run `pnpm start`, restart it; if the start-at-login service is installed, re-run `pnpm service:install` (it shows a preview and asks for confirmation) to restart the service so the new version takes effect.
 
 - When a new version needs a database upgrade, a pre-migration backup (`pre-migration-v<version>-…`) is created on first open and the migration runs in a single transaction; if the backup fails, nothing is upgraded.
 - If the database schema is newer than the program (for example, a newer version was used on another computer), the API, MCP and CLI refuse to open it and ask you to update Work Intelligence first instead of crashing or half-applying anything.

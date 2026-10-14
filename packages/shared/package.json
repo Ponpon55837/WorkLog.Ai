@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./database-path": {
+      "types": "./dist/database-path.d.ts",
+      "import": "./dist/database-path.js"
+    },
     "./app-version": {
       "types": "./dist/app-version.d.ts",
       "import": "./dist/app-version.js"
