@@ -1,13 +1,13 @@
 # 疑難排解
 
-> 執行只讀環境檢查：`pnpm run doctor`。不要使用 `pnpm doctor`；pnpm 11 會執行套件管理器自己的 doctor，而不是 Work Intelligence 診斷。
+> 執行只讀環境檢查：`pnpm check`（舊名稱 `pnpm run doctor` 仍可使用）。不要使用 `pnpm doctor`；pnpm 11 會執行套件管理器自己的 doctor，而不是 Work Intelligence 診斷。
 
 ## Web 顯示無法連線到 API
 
 正式模式的 Web 與 API 共用 `127.0.0.1:3210`。API 離線時頁面會顯示「無法連線到 Work Intelligence API」；連線恢復後，頁面會自動重新載入目前資料。
 
 1. 確認啟動 server 的終端機仍在執行，並查看是否顯示 `Work Intelligence API listening`。
-2. 在另一個終端機執行 `pnpm run doctor`，查看 API 狀態、連接埠與 build 檔案檢查結果。
+2. 在另一個終端機執行 `pnpm check`，查看 API 狀態、連接埠與 build 檔案檢查結果。
 3. 確認正式模式已先執行 `pnpm build`，再執行 `pnpm start`。
 4. 若預設連接埠已被其他程式占用，停止該程式，或設定 `WORK_INTELLIGENCE_PORT` 並重新啟動 Work Intelligence；不需要重新 build，Web 與 API 會一起改用新連接埠。
 5. 開發模式請執行 `pnpm dev`。Web 使用 5966，API 使用 3210；不要同時啟動兩份指向同一個 port 的 server。
@@ -16,7 +16,7 @@
 
 `pnpm start` 遇到 port 被占用時會顯示「127.0.0.1:<port> 已被占用，Work Intelligence 沒有啟動」並結束。最常見的原因是另一個終端機已經在執行 Work Intelligence：先開啟 <http://127.0.0.1:3210> 確認。
 
-`pnpm run doctor` 會區分可用、Work Intelligence 正常回應、以及被其他程式占用的 port。若不是 Work Intelligence，請停止占用程式，或設定 `WORK_INTELLIGENCE_PORT` 為未使用的連接埠再啟動。正式模式的 Web 與 API 使用同一個設定值。
+`pnpm check` 會區分可用、Work Intelligence 正常回應、以及被其他程式占用的 port。若不是 Work Intelligence，請停止占用程式，或設定 `WORK_INTELLIGENCE_PORT` 為未使用的連接埠再啟動。正式模式的 Web 與 API 使用同一個設定值。
 
 ## MCP 需要重新連線，或建置狀態未知
 
@@ -48,13 +48,13 @@ Work Intelligence hook 只使用使用者的全域設定，不使用單一專案
 5. 出現 `hook timed out after 3s` 之類的逾時：hook 本身幾乎不花時間，時間主要花在啟動 `node`。Windows 上防毒或端點防護掃描可能讓每次啟動 node 超過 1 秒，再加上 `cmd.exe` 與同時執行的其他 hook，很容易超過 3 秒。請把 Work Intelligence hook 的 `timeout` 調成 `10`（與 Claude Code 範例相同），Codex 需要在 `/hooks` 重新信任修改後的 hook。
 6. Codex 的提醒依 `apply_patch` 與 `work_write_idempotent`（operation `work_finalize_session`）標記未保存工作；舊的直接工具名稱仍相容。只用 Bash 編輯檔案不會觸發 Codex 的改檔標記。若全域設定仍有只匹配舊工具名稱的 PostToolUse matcher，請在檢查更新內容後依[Agent 設定說明](agent-setup.md)執行專案更新流程，讓 installer 更新由它管理的 matcher；Doctor 會將舊 matcher 顯示為未完整設定。
 
-hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態時會放行。`pnpm run doctor` 只讀取全域 Claude／Codex 設定檔與 hook dist 檔案，不會讀取 repo 內的 `.codex/hooks.json`，也不會修改任何 Agent 設定。
+hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態時會放行。`pnpm check` 只讀取全域 Claude／Codex 設定檔與 hook dist 檔案，不會讀取 repo 內的 `.codex/hooks.json`，也不會修改任何 Agent 設定。
 
 ## 資料庫路徑錯誤（Windows 反斜線）
 
 這個問題只發生在 Windows；macOS 與 Linux 不受影響（程式的磁碟相對路徑檢查也只在 Windows 生效）。
 
-**症狀**：資料看起來「不見了」，或 repo 根目錄、其他目錄多出一個名稱像 `UsersyouDesktop…work-intelligence.sqlite` 的檔案；`pnpm run doctor` 的「資料庫路徑」顯示錯誤，或「repo 根目錄的資料庫檔」顯示警告。
+**症狀**：資料看起來「不見了」，或 repo 根目錄、其他目錄多出一個名稱像 `UsersyouDesktop…work-intelligence.sqlite` 的檔案；`pnpm check` 的「資料庫路徑」顯示錯誤，或「repo 根目錄的資料庫檔」顯示警告。
 
 **原因**：在 Git Bash 之類的 shell 設定 `WORK_INTELLIGENCE_DB=C:\Users\me\data.sqlite` 時，反斜線被當成跳脫字元吃掉，變成 `C:Usersmedata.sqlite`。Windows 把它當成「磁碟相對路徑」（C 槽目前目錄底下的檔案），於是資料默默寫到錯的地方。
 
@@ -65,7 +65,7 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
    - Git Bash，改用正斜線：`WORK_INTELLIGENCE_DB=C:/Users/me/data.sqlite`
    - PowerShell，單引號包住完整路徑：`$env:WORK_INTELLIGENCE_DB = 'C:\Users\me\data.sqlite'`
 2. 現在的版本遇到磁碟相對路徑會直接拒絕啟動並說明原因，不再悄悄建立新檔。相對路徑則一律以 repo 根目錄為基準解析（與從哪個目錄執行無關）。
-3. `pnpm run doctor` 會列出 repo 根目錄頂層的 `*.sqlite` 檔名（唯讀，不讀內容也不刪除）。確認內容後，若裡面有想保留的記錄，請自行用 `pnpm db:export`／`pnpm db:import` 合併，其餘由你自行搬移或刪除。
+3. `pnpm check` 會列出 repo 根目錄頂層的 `*.sqlite` 檔名（唯讀，不讀內容也不刪除）。確認內容後，若裡面有想保留的記錄，請自行用 `pnpm db:export`／`pnpm db:import` 合併，其餘由你自行搬移或刪除。
 
 ## 工作記錄的時間不對
 
@@ -91,7 +91,7 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 
 1. 停止 `pnpm start` 或 `pnpm dev`。
 2. 關閉會啟動 `work-intelligence` MCP 的 Codex／Claude 對話。
-3. 重新執行 `pnpm db:maintain`，完成後用 `pnpm run doctor` 確認最近一次維護結果。
+3. 重新執行 `pnpm db:maintain`，完成後用 `pnpm check` 確認最近一次維護結果。
 
 維護失敗時，維護前備份（`pre-maintenance-…`）會保留在備份目錄，doctor 會顯示失敗代碼。
 

@@ -22,7 +22,12 @@ import {
   type DatabaseRedactionResult,
   type RestorePathRemap,
 } from "@work-intelligence/storage";
-import { databasePath, storeOptions } from "./config.js";
+import { databasePath, repositoryRoot, storeOptions } from "./config.js";
+import {
+  diagnoseDatabaseInUse,
+  isDatabaseInUseError,
+  type DatabaseBusyDiagnosisDependencies,
+} from "./database-busy-diagnosis.js";
 
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -233,6 +238,8 @@ export interface DatabaseCliDependencies {
   confirmPortableImport?: () => Promise<boolean>;
   chooseImportProjectLocation?: (project: ProjectDataImportPreview["selectedProjects"][number]) => Promise<string>;
   confirmBackupDeletion?: (backup: DatabaseBackup, isLastBackup: boolean) => Promise<boolean>;
+  /** Probes used to explain a DATABASE_IN_USE failure; injectable so tests never touch real processes. */
+  busyDiagnosis?: DatabaseBusyDiagnosisDependencies;
 }
 
 export async function runDatabaseCli(
@@ -513,7 +520,16 @@ export async function runDatabaseCli(
     }
     return 0;
   } catch (error) {
-    printError(`錯誤：${error instanceof Error ? error.message : String(error)}\n\n${usage}`);
+    const message = error instanceof Error ? error.message : String(error);
+    let diagnosis: string[] = [];
+    if ((command === "maintain" || command === "redact") && isDatabaseInUseError(error)) {
+      try {
+        diagnosis = await diagnoseDatabaseInUse(repositoryRoot, dependencies.busyDiagnosis);
+      } catch {
+        // The diagnosis is advisory; never hide the original error.
+      }
+    }
+    printError(`錯誤：${message}${diagnosis.length > 0 ? `\n${diagnosis.join("\n")}` : ""}\n\n${usage}`);
     return 1;
   }
 }

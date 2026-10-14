@@ -22,7 +22,7 @@ pnpm service:install
 
 ```sh
 pnpm service:status
-pnpm run doctor
+pnpm check
 ```
 
 `service:status` 唯讀顯示服務管理器、安裝／執行／登入啟用狀態、設定檔、資料庫、備份目錄與日誌路徑。Web「系統狀態」也顯示相同資訊。這些檢查只讀服務設定並查詢作業系統，不會啟動、停止或修改服務。
@@ -47,7 +47,7 @@ pnpm service:uninstall
 
 ## 疑難排解
 
-- **狀態是「無法判定」**：確認目前使用者的服務管理器可用，再執行 `pnpm service:status` 和 `pnpm run doctor`。Linux 請在已登入的使用者 session 中執行 `systemctl --user status work-intelligence.service`；macOS 可用 `launchctl print gui/$(id -u)/ai.workintelligence.server`；Windows 可在工作排程器查看 `Work Intelligence`。
+- **狀態是「無法判定」**：確認目前使用者的服務管理器可用，再執行 `pnpm service:status` 和 `pnpm check`。Linux 請在已登入的使用者 session 中執行 `systemctl --user status work-intelligence.service`；macOS 可用 `launchctl print gui/$(id -u)/ai.workintelligence.server`；Windows 可在工作排程器查看 `Work Intelligence`。
 - **已安裝但沒有執行**：查看上表的服務日誌。也可檢查預設連接埠 `3210` 是否被另一個 Work Intelligence 或其他程式占用；先停止衝突的程序，再執行 `pnpm service:install` 重新載入服務設定。
 - **找不到 pnpm 或執行檔**：在安裝 pnpm 的終端機重新執行 `pnpm build` 與 `pnpm service:install`，並確認預覽列出的 Node.js、pnpm 與 repo 路徑存在。
 - **不支援的作業系統**：登入自動啟動目前支援 macOS、Windows 與 Linux；其他平台仍可從終端機執行 `pnpm start`。

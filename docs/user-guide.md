@@ -17,10 +17,10 @@ pnpm start
 第一次檢查環境可執行：
 
 ```sh
-pnpm run doctor
+pnpm check
 ```
 
-請使用 `pnpm run doctor`，不要使用 `pnpm doctor`：pnpm 11 將 `doctor` 保留為套件管理器自己的命令，`pnpm doctor` 不會執行 Work Intelligence 診斷。
+請使用 `pnpm check`（舊名稱 `pnpm run doctor` 仍可使用），不要使用 `pnpm doctor`：pnpm 11 將 `doctor` 保留為套件管理器自己的命令，`pnpm doctor` 不會執行 Work Intelligence 診斷。
 
 資料預設放在 `data/work-intelligence.sqlite`，也可設定 `WORK_INTELLIGENCE_DB` 指定位置。常用設定如下：
 
@@ -136,7 +136,7 @@ pnpm run doctor
 - 手動備份可在「專案 → 資料備份」選「立即備份」，或執行 `pnpm db:backup`。
 - 「專案 → 資料備份」會列出備份種類、時間、大小與總大小；刪除前會顯示檔名與種類並要求確認，刪除唯一一份列出的備份時會額外警告。CLI 可用 `pnpm db:backups` 列出，或在互動終端執行 `pnpm db:backups --delete <檔名>` 確認刪除。
 - 專案刪除後，刪除前備份和其他較早的備份仍可能包含該專案資料；可從「專案 → 資料備份」檢視並刪除不再需要的備份。
-- 資料庫維護會在執行 `VACUUM` 與重建搜尋索引前建立並驗證一份備份。請先停止 `pnpm start`，並關閉會啟動 MCP 的 Codex／Claude 對話，再執行 `pnpm db:maintain`。命令會先檢查資料庫完整性及獨佔鎖，之後整理 SQLite、更新統計資訊、重建搜尋索引；若無法取得鎖或備份失敗，會停止維護。完成或未完成的結果可由 `pnpm run doctor` 唯讀查看。
+- 資料庫維護會在執行 `VACUUM` 與重建搜尋索引前建立並驗證一份備份。請先停止 `pnpm start`，並關閉會啟動 MCP 的 Codex／Claude 對話，再執行 `pnpm db:maintain`。命令會先檢查資料庫完整性及獨佔鎖，之後整理 SQLite、更新統計資訊、重建搜尋索引；若無法取得鎖或備份失敗，會停止維護；被占用時會列出 server 與 MCP 連線狀態。完成或未完成的結果可由 `pnpm check` 唯讀查看。
 - `pnpm db:redact` 只讀掃描並顯示各類型遮蔽數量與受影響 Session 數；確認後先停止 server、關閉 MCP Agent，再用 `pnpm db:redact --apply` 遮蔽目前資料庫。命令會先建立一份包含原始內容的備份。既有備份與先前匯出檔不會被改寫；請在「專案 → 資料備份」檢視並處理不再需要的檔案，必要時重新匯出可攜式 JSON。
 - 完整 SQLite 快照可在 Web 介面匯出，或使用 `pnpm db:export <檔案.sqlite>`。快照包含所有專案與工作記錄。
 - 可攜式 JSON 支援單一或全部專案：`pnpm db:export --project <專案名稱或 id>`、`pnpm db:export --all`。在 Web 匯入或執行 `pnpm db:import <檔案.json> --dry-run`，先查看新增、略過、衝突及路徑轉換，再確認匯入。匯入不會覆寫既有資料；新專案會以暫停狀態加入。
@@ -161,7 +161,7 @@ pnpm start
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
-pnpm run doctor
+pnpm check
 pnpm start
 ```
 

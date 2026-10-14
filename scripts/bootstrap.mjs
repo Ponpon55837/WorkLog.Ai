@@ -159,7 +159,7 @@ export async function runBootstrap(argv, dependencies = defaultBootstrapDependen
       options.service
         ? "  ④ 登入自動啟動（pnpm service:install）— 會寫入服務設定，另外顯示預覽並要求確認"
         : "  ④ 登入自動啟動（pnpm service:install，選用）— 會寫入服務設定，另外顯示預覽並要求確認",
-      "  ⑤ 診斷（pnpm run doctor）— 唯讀",
+      "  ⑤ 診斷（pnpm check）— 唯讀",
     ].join("\n"),
   );
 
@@ -208,8 +208,8 @@ export async function runBootstrap(argv, dependencies = defaultBootstrapDependen
     }
   }
 
-  log("\n== ⑤ 診斷（pnpm run doctor）==");
-  if (dependencies.runStep(["run", "doctor"]) !== 0) {
+  log("\n== ⑤ 診斷（pnpm check）==");
+  if (dependencies.runStep(["check"]) !== 0) {
     log("診斷回報了需要處理的項目（不影響 bootstrap 結果）；請依上方建議修正。");
   }
 

@@ -18,7 +18,7 @@
 
 Codex 官方文件指定的 user skill 位置是 `$HOME/.agents/skills/`，不受 `CODEX_HOME` 影響。為相容本機既有 runtime，setup 也會在 `${CODEX_HOME:-~/.codex}/skills/` 安裝一份 legacy compatibility skill；這是相容複本，不是官方 canonical 路徑，兩份都以內容 hash 檢查並由 installer 管理。Codex 全域 MCP 設定位於 `${CODEX_HOME:-~/.codex}/config.toml`；hook handlers 位於 `${CODEX_HOME:-~/.codex}/hooks.json`，而 `features.hooks` 開關仍由 `config.toml` 控制。Claude Code 的 user skills 位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/`，user MCP 設定由 `claude mcp add --scope user` 管理並存於 `~/.claude.json`，hook 設定位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`。`CODEX_HOME` 會移動 Codex 的設定根目錄（MCP、hooks 與 legacy skill 複本）；`CLAUDE_CONFIG_DIR` 會移動 Claude 的 `.claude` 目錄設定（skills/hooks），而 user MCP 設定仍在 home 下的 `.claude.json`。`pnpm setup:agents` 會遵循這些環境變數。官方說明：[Codex MCP](https://developers.openai.com/learn/docs-mcp)、[Codex skills](https://developers.openai.com/codex/skills)、[Codex hooks](https://developers.openai.com/codex/hooks)、[Codex configuration reference](https://developers.openai.com/codex/config-reference)、[Claude Code MCP](https://code.claude.com/docs/en/mcp)、[Claude Code skills](https://code.claude.com/docs/en/skills)、[Claude Code hooks](https://code.claude.com/docs/en/hooks)、[Claude Code directory and configuration overrides](https://code.claude.com/docs/en/claude-directory)。
 
-安裝後若更新 Work Intelligence，請重新執行設定命令同步 skill；`pnpm run doctor` 會以內容 hash 分別檢查 Codex canonical skill、Codex legacy compatibility 複本與 Claude Code user skill 是否缺少或過期；仍使用 MCP dispatcher 之前舊 matcher 的 Codex PostToolUse hook 會標示為「需要更新」（不是「未安裝」），重新執行設定命令即可升級。Web「系統狀態」頁依 Agent 分組列出每一項及其設定位置，有需要處理的項目時會顯示可複製的 `pnpm setup:agents`。若 Codex hooks 明確停用或無法判定，設定命令會略過 Codex hook、不會自行啟用 hooks。Codex 會略過尚未信任的 hook；連線與信任提醒見下方 Codex hook 說明。
+安裝後若更新 Work Intelligence，請重新執行設定命令同步 skill；`pnpm check` 會以內容 hash 分別檢查 Codex canonical skill、Codex legacy compatibility 複本與 Claude Code user skill 是否缺少或過期；仍使用 MCP dispatcher 之前舊 matcher 的 Codex PostToolUse hook 會標示為「需要更新」（不是「未安裝」），重新執行設定命令即可升級。Web「系統狀態」頁依 Agent 分組列出每一項及其設定位置，有需要處理的項目時會顯示可複製的 `pnpm setup:agents`。若 Codex hooks 明確停用或無法判定，設定命令會略過 Codex hook、不會自行啟用 hooks。Codex 會略過尚未信任的 hook；連線與信任提醒見下方 Codex hook 說明。
 
 ## 共用準備
 
@@ -180,9 +180,9 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 }
 ```
 
-既有安裝若仍使用只匹配 `work_finalize_session` 的舊 matcher，該 matcher 不會收到新 dispatcher 的成功保存事件。下次使用者依專案更新流程執行 `pnpm setup:agents` 並確認套用時，installer 會更新它管理的 matcher；`pnpm run doctor` 在更新前會將舊 matcher 顯示為未完整設定。此文件更新不會自行修改使用者的全域設定。
+既有安裝若仍使用只匹配 `work_finalize_session` 的舊 matcher，該 matcher 不會收到新 dispatcher 的成功保存事件。下次使用者依專案更新流程執行 `pnpm setup:agents` 並確認套用時，installer 會更新它管理的 matcher；`pnpm check` 在更新前會將舊 matcher 顯示為未完整設定。此文件更新不會自行修改使用者的全域設定。
 
-`UserPromptSubmit` 是選用的：沒有設定時提醒照常運作，只是不會附上開始時間；`pnpm run doctor` 會指出這件事。
+`UserPromptSubmit` 是選用的：沒有設定時提醒照常運作，只是不會附上開始時間；`pnpm check` 會指出這件事。
 
 確認 `~/.codex/config.toml` 已啟用 hooks，然後在 Codex 輸入 `/hooks`，檢查並信任 Work Intelligence 保存提醒 hook。Codex 會略過尚未信任的 hook。
 

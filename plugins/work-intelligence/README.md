@@ -32,7 +32,7 @@ It uses the first one that is built. The database is the checkout's `data/work-i
 
 ## Troubleshooting
 
-Run `pnpm run doctor` in the checkout. It reports whether the plugin is enabled and warns if a manual MCP registration duplicates it. More help: [docs/plugins.md](https://github.com/Ponpon55837/WorkLog.Ai/blob/main/docs/plugins.md).
+Run `pnpm check` in the checkout. It reports whether the plugin is enabled and warns if a manual MCP registration duplicates it. More help: [docs/plugins.md](https://github.com/Ponpon55837/WorkLog.Ai/blob/main/docs/plugins.md).
 
 ## License
 

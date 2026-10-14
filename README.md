@@ -11,7 +11,7 @@ Version **1.5.2** makes `pnpm bootstrap` the single install and update command: 
 - ✅ **Open items you can check off**: before wrapping up, the Agent fetches the items related to the task and its files and closes them only when they are done. When new work replaces an old item the Session audit is kept, and items without enough evidence stay open. The Web UI handles batches of up to 100 items with undo, and you can request a cleanup where the Agent proposes changes with evidence that you accept or reject.
 - 🧾 **Traceable**: every summary and report conclusion links back to its source Sessions, files and evidence. Changed files are not Git commits, verification results are never guessed for the Agent, and corrections and voids leave an audit trail.
 - 💾 **Portable and deletable**: daily automatic backups, whole-database SQLite snapshots, JSON export of one or all projects with merge import, and permanent per-project deletion with a content-free deletion record.
-- 🩺 **Self-diagnosing**: `pnpm run doctor` checks the whole environment read-only; when the API drops, a banner appears and the page reloads its data once the API is back.
+- 🩺 **Self-diagnosing**: `pnpm check` checks the whole environment read-only; when the API drops, a banner appears and the page reloads its data once the API is back.
 
 ---
 
@@ -39,7 +39,7 @@ pnpm bootstrap
 pnpm start
 ```
 
-`pnpm bootstrap` is the single install path. It checks your Node.js and pnpm versions, prints its plan, and after one confirmation runs: install dependencies, build, connect your Agents (`pnpm setup:agents`), ask whether to set up start-at-login, then run `pnpm run doctor` and print the next steps. The first two steps only write inside this repository. **Connecting Agents and start-at-login write to your global settings; each shows its own preview and asks for its own confirmation** (type `yes` for the Agent settings), and nothing changes without it. In a non-interactive terminal it only prints the plan unless you pass `--yes`; `--skip-agents` skips connecting Agents and `--service` goes straight to the start-at-login setup. If an Agent already has the Work Intelligence plugin enabled, bootstrap skips that Agent's manual registration (the plugin already provides the MCP server, skill and hooks), so nothing is registered twice. If the start-at-login service is already installed, bootstrap does not ask about it again and only reminds you to re-run `pnpm service:install` to restart it. It is safe to repeat: after a `git pull`, run it again to sync. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
+`pnpm bootstrap` is the single install path. It checks your Node.js and pnpm versions, prints its plan, and after one confirmation runs: install dependencies, build, connect your Agents (`pnpm setup:agents`), ask whether to set up start-at-login, then run `pnpm check` and print the next steps. The first two steps only write inside this repository. **Connecting Agents and start-at-login write to your global settings; each shows its own preview and asks for its own confirmation** (type `yes` for the Agent settings), and nothing changes without it. In a non-interactive terminal it only prints the plan unless you pass `--yes`; `--skip-agents` skips connecting Agents and `--service` goes straight to the start-at-login setup. If an Agent already has the Work Intelligence plugin enabled, bootstrap skips that Agent's manual registration (the plugin already provides the MCP server, skill and hooks), so nothing is registered twice. If the start-at-login service is already installed, bootstrap does not ask about it again and only reminds you to re-run `pnpm service:install` to restart it. It is safe to repeat: after a `git pull`, run it again to sync. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
 
 `pnpm start` starts the local Dashboard and REST API. Keep the terminal open; press `Ctrl+C` to stop. In production mode one process serves the Web UI and the REST API on the same port.
 
@@ -54,10 +54,10 @@ To start automatically when you log in, run `pnpm build` and then `pnpm service:
 Before first use, run the diagnostics:
 
 ```bash
-pnpm run doctor
+pnpm check
 ```
 
-Use `pnpm run doctor`, not `pnpm doctor`: pnpm 11 reserves `doctor` for its own command, which does not run the Work Intelligence diagnostics. The doctor checks Node.js, pnpm, the build output, database health and schema version, recent backups and maintenance, API reachability, MCP registration, skill copies and the global save-reminder hook — all read-only — and lists fixes in Traditional Chinese. Its output contains no work-record content.
+Run `pnpm check`; `pnpm run doctor` still works as an alias. Do not use plain `pnpm doctor`: pnpm 11 reserves it for its own command, which does not run the Work Intelligence diagnostics. The doctor checks Node.js, pnpm, the build output, database health and schema version, recent backups and maintenance, API reachability, MCP registration, skill copies and the global save-reminder hook — all read-only — and lists fixes in Traditional Chinese. Its output contains no work-record content.
 
 Then three steps:
 
@@ -110,11 +110,11 @@ In Codex, open `/plugins` and install `work-intelligence`, then open `/hooks`, r
 
 **Update**: in the checkout run `git pull && pnpm install && pnpm build`, then `claude plugin update work-intelligence@worklog-ai`; for Codex run `codex plugin marketplace remove worklog-ai` and add it again. Reconnect the Agent when it says so.
 
-**Already registered by hand?** Use either the plugin or the manual registration below, not both, or the Agent sees every tool and reminder twice. Remove the manual one with `claude mcp remove work-intelligence --scope user` / `codex mcp remove work-intelligence` and delete the Work Intelligence entries from the Claude `settings.json` and Codex `hooks.json` hooks; `pnpm run doctor` reports any duplicate.
+**Already registered by hand?** Use either the plugin or the manual registration below, not both, or the Agent sees every tool and reminder twice. Remove the manual one with `claude mcp remove work-intelligence --scope user` / `codex mcp remove work-intelligence` and delete the Work Intelligence entries from the Claude `settings.json` and Codex `hooks.json` hooks; `pnpm check` reports any duplicate.
 
 **No checkout?** Each [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) attaches `work-intelligence-plugin-<version>.zip` (the plugin with a bundled MCP server) and `work-intelligence-<version>.mcpb` (a Claude Desktop extension). They need Node.js 22.13+ and keep data in `~/.work-intelligence/data`, but carry no Web UI.
 
-Something wrong? Run `pnpm run doctor`, and see the [plugin guide](docs/plugins.md) for its troubleshooting table.
+Something wrong? Run `pnpm check`, and see the [plugin guide](docs/plugins.md) for its troubleshooting table.
 
 ### Alternative 2: register manually (either-or with bootstrap)
 
@@ -154,7 +154,7 @@ To have the Agent reminded once when it forgets to save, add the save-reminder h
 - Use the repo's absolute path and run `pnpm build` first.
 - Codex requires you to review and trust the hook under `/hooks`.
 - The repo does not ship a project-level `.codex/hooks.json`.
-- `pnpm run doctor` checks whether the setup is correct.
+- `pnpm check` checks whether the setup is correct.
 
 Full examples are in [Save-reminder hook](docs/agent-setup.md#保存提醒選用).
 
@@ -211,7 +211,7 @@ A GitHub (Primer) style interface with dark and light themes, available in Engli
 | **Work graph** | Three tabs: **Timeline** (one swimlane per project; zoomed out, one bar per day coloured by verification result, click to zoom into that day; zoomed in, Sessions are drawn as bars or dots and links as arcs; Knowledge created / confirmed / contradicted / superseded events are markers; zoom, show the whole period, choose a range and click to open a Session; also available as a list grouped by date, used automatically at phone width), **Graph** (projects, Sessions, Knowledge, Evidence, files and Session links; solid lines are recorded relationships, and the derived "changed together" relationship can be shown dashed; from a node's panel you can choose another node and see step by step how they are connected) and **Hotspots** (files or folders changed by the most Sessions, with their failed and not-run verification share and the latest 5 Sessions; filter by project and period). The Risks tab of Work reports also lists files changed by 2 or more Sessions in the period |
 | **Projects** | The project list and tracking status (pick a folder with the system dialog when adding; set an https repository URL so Session commits link to it), permanent project deletion, Metadata backfill, Handoff import and Data backup (backup, export, import) |
 | **Session diagrams** | When work changes cross-module flows, data flows, state machines or architecture, the Agent attaches one or two native architecture v1 diagrams to the Session (`work_attach_diagram` or finalize's `diagrams`; not for single-file fixes, styling, configuration or test-only work). Native cards render in the Session panel; historical Mermaid is preserved as source text with copy and download. Diagrams can be voided but not deleted, and travel with project export and import |
-| **System status** | App and schema version, database location and size, latest automatic backup, backup count and total size, the last database maintenance result, the start-at-login service, and the read-only state of Codex / Claude Code MCP registration, skill copies and global hooks; it never changes service or Agent settings. **Agent read log** lists recent MCP reads (when, which Agent and tool, which project, and the returned Session ids), filterable by project and Agent. **Personal preferences** sets the theme, interface language and whether to open a Session's changed files in VS Code or Cursor (all stored in this browser only). For a full environment check, use `pnpm run doctor` |
+| **System status** | App and schema version, database location and size, latest automatic backup, backup count and total size, the last database maintenance result, the start-at-login service, and the read-only state of Codex / Claude Code MCP registration, skill copies and global hooks; it never changes service or Agent settings. **Agent read log** lists recent MCP reads (when, which Agent and tool, which project, and the returned Session ids), filterable by project and Agent. **Personal preferences** sets the theme, interface language and whether to open a Session's changed files in VS Code or Cursor (all stored in this browser only). For a full environment check, use `pnpm check` |
 
 Session detail also offers up to five related-work suggestions based on shared confirmed files in the same tracked project. Existing links are excluded, and a partial search is marked; opening a suggestion creates no relationship.
 
@@ -276,9 +276,9 @@ Backup environment variables:
 pnpm db:maintain
 ```
 
-It creates a pre-maintenance backup, then runs `integrity_check`, `VACUUM`, `ANALYZE` and a search-index rebuild, and records the result for `pnpm run doctor` to show. It needs the database to itself, so stop `pnpm start` and close any Agent conversation that starts MCP first; if the database is still open, it stops and tells you.
+It creates a pre-maintenance backup, then runs `integrity_check`, `VACUUM`, `ANALYZE` and a search-index rebuild, and records the result for `pnpm check` to show. It needs the database to itself, so stop `pnpm start` and close any Agent conversation that starts MCP first; if the database is still open, it stops, tells you, and lists whether the server is running and how many Agent MCP connections are in use (read-only checks).
 
-When something goes wrong, run `pnpm run doctor` first, then see **[Troubleshooting](docs/troubleshooting.md)**.
+When something goes wrong, run `pnpm check` first, then see **[Troubleshooting](docs/troubleshooting.md)**.
 
 ## Core concepts
 
@@ -343,7 +343,7 @@ pnpm plugin:link              # let the Claude Code / Codex plugin find this che
 pnpm build:plugin             # self-contained plugin zip and Claude Desktop .mcpb in dist/plugin/
 pnpm start:server             # API only
 pnpm start:mcp                # MCP stdio server only
-pnpm run doctor               # read-only diagnostics
+pnpm check                    # read-only diagnostics
 pnpm db:backup                # back up now (db:export, db:import, db:restore above)
 pnpm db:backups               # list backups; add --delete <file name> to delete after confirming
 pnpm db:maintain              # offline maintenance (stop the server and MCP first)

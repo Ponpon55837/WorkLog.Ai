@@ -69,7 +69,7 @@ interface StoragePaths {
 const SERVICE_NAME = "Work Intelligence";
 const LAUNCHD_LABEL = "ai.workintelligence.server";
 const LINUX_UNIT_NAME = "work-intelligence.service";
-const WINDOWS_TASK_NAME = "Work Intelligence";
+export const WINDOWS_TASK_NAME = "Work Intelligence";
 const WINDOWS_TASK_PATH = "\\";
 const ROOT_DIRECTORY = fileURLToPath(new URL("../../../", import.meta.url));
 const RUNNER_RELATIVE_PATH = "scripts/service-runner.mjs";

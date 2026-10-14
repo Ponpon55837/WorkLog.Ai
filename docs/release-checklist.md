@@ -14,13 +14,14 @@
 | Windows 備份還原與可攜式匯入 | 未執行 | Windows：＿＿ | ＿＿ | ＿＿ |
 | Windows Codex hook 載入 | 未執行 | Windows：＿＿；Codex：＿＿ | ＿＿ | ＿＿ |
 | Windows 登入自動啟動服務 | 未執行 | Windows：＿＿ | ＿＿ | ＿＿ |
+| Windows pnpm bootstrap 互動安裝與更新 | 未執行 | Windows：＿＿ | ＿＿ | ＿＿ |
 | macOS Safari 主要頁面、圖表與時間軸 | 未執行 | macOS：＿＿；Safari：＿＿ | ＿＿ | ＿＿ |
 | 私有 36 題檢索評估 | 未執行 | Work Intelligence：＿＿ | ＿＿ | ＿＿ |
 | 另一個真實專案的完整記錄流程 | 未執行 | 專案／Agent：＿＿ | ＿＿ | ＿＿ |
 
 ## 驗收前準備
 
-1. 在目標電腦取得已合併的版本，確認 UI 側欄與 `pnpm run doctor` 顯示預期版本；記下版本及 commit。
+1. 在目標電腦取得已合併的版本，確認 UI 側欄與 `pnpm check` 顯示預期版本；記下版本及 commit。
 2. 建立只供驗收使用的資料庫、備份目錄與測試專案。還原測試會取代目前設定的整份資料庫，請勿以唯一的正式資料庫作為還原目標。
 3. 需要設定 Agent 或登入服務時，先閱讀預覽的完整路徑與設定內容；只有本人確認後才套用。完成後記下保留或移除的選擇。
 
@@ -89,6 +90,24 @@ $env:WORK_INTELLIGENCE_BACKUP_DIR = "C:\wi-e3-validation\backups"
 - 服務最後狀態（保留／已移除）：＿＿＿＿
 - 問題或備註：＿＿＿＿
 
+## Windows：pnpm bootstrap 互動安裝與更新
+
+1. 在乾淨的 clone（或另一個使用者帳號）執行 `pnpm bootstrap`。確認 Node.js／pnpm 版本預檢通過，並印出 ①～⑤ 的計畫；確認後依序完成 ① 安裝依賴與 ② 建置，且這兩步只寫入此 repo。
+2. 在 ③ 閱讀 `pnpm setup:agents` 的預覽，由使用者本人決定是否輸入 `yes`。已啟用 Work Intelligence plugin 的 Agent 應顯示「略過手動註冊」，不會寫入重複的 MCP、skill 或 hook。
+3. ④ 登入自動啟動：尚未安裝服務時會詢問是否設定；已安裝時不再詢問，只提醒重新執行 `pnpm service:install` 重啟。
+4. ⑤ 執行 `pnpm check` 並顯示下一步；診斷有警告時不影響 bootstrap 結果。
+5. `git pull` 取得新版後重跑 `pnpm bootstrap`，確認行為等同更新：重新安裝、建置、同步 Agent 設定，且不會要求重新做已完成的選擇。
+
+**預期結果：** 版本預檢與計畫內容正確；全域 Agent 與服務設定只在使用者本人確認後變更；plugin 已啟用的 Agent 不會重複註冊；已安裝的服務只提醒重啟；`pnpm check` 與下一步訊息正常；更新後重跑與首次安裝行為一致。
+
+- Windows／日期：＿＿＿＿
+- ①②（版本預檢、安裝與建置）：＿＿＿＿
+- ③ Agent 預覽與略過手動註冊：＿＿＿＿
+- ④ 服務詢問或重啟提醒：＿＿＿＿
+- ⑤ `pnpm check` 與下一步：＿＿＿＿
+- `git pull` 後重跑：＿＿＿＿
+- 問題或備註：＿＿＿＿
+
 ## macOS Safari：主要頁面、圖表與時間軸
 
 1. 使用支援版本的 macOS Safari 開啟 Work Intelligence，逐一檢查 Dashboard、專案、工作歷程／Session、報告、Knowledge 與工作圖譜頁。
@@ -145,7 +164,7 @@ $env:WORK_INTELLIGENCE_BACKUP_DIR = "C:\wi-e3-validation\backups"
 1. 在 WorkLog.Ai 根目錄執行 `pnpm build` 與 `pnpm plugin:link`，確認只多出 `~/.work-intelligence/plugin-link.json`。
 2. Claude Code：`claude plugin marketplace add <repo>`、`claude plugin install work-intelligence@worklog-ai`，重新開啟工作階段；在 `/mcp` 確認 server 已連線，並在另一個追蹤中的專案改檔後結束一輪，確認保存提醒出現一次。
 3. Codex：從 `/plugins` 安裝 `work-intelligence`，重新開啟工作階段，確認 MCP 已連線且 skill 可用。
-4. 執行 `pnpm run doctor`，確認 Claude Code plugin 顯示正常、沒有要求手動註冊；Web UI、CLI 與既有資料庫照常可用。
+4. 執行 `pnpm check`，確認 Claude Code plugin 顯示正常、沒有要求手動註冊；Web UI、CLI 與既有資料庫照常可用。
 
 **預期結果：** 兩個 Agent 透過 plugin 讀寫同一個 `data/work-intelligence.sqlite`，原有使用方式不受影響。
 

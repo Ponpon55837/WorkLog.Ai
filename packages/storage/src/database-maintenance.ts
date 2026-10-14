@@ -163,7 +163,7 @@ export function maintainDatabase(options: {
       }
       throw new DatabaseMaintenanceError(
         "DATABASE_MAINTENANCE_FAILED",
-        "資料庫維護未完成；維護前備份已保留，請執行 pnpm run doctor 檢查結果。",
+        "資料庫維護未完成；維護前備份已保留，請執行 pnpm check 檢查結果。",
         { cause: error },
       );
     }
@@ -176,7 +176,7 @@ export function maintainDatabase(options: {
     }
     throw new DatabaseMaintenanceError(
       "DATABASE_MAINTENANCE_FAILED",
-      "資料庫維護未完成；若已建立維護前備份，請保留該檔案並執行 pnpm run doctor 檢查結果。",
+      "資料庫維護未完成；若已建立維護前備份，請保留該檔案並執行 pnpm check 檢查結果。",
       { cause: error },
     );
   } finally {

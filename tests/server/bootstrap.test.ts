@@ -49,7 +49,7 @@ describe("pnpm bootstrap", () => {
   it("runs install, build, setup:agents and doctor in order after one confirmation", async () => {
     const harness = createHarness({}, { answers: ["", "n"] });
     expect(await runBootstrap([], harness.dependencies)).toBe(0);
-    expect(harness.steps).toEqual(["install", "build", "setup:agents", "run doctor"]);
+    expect(harness.steps).toEqual(["install", "build", "setup:agents", "check"]);
     expect(harness.questions).toHaveLength(2);
     expect(harness.output.join("\n")).toContain("pnpm start");
   });
@@ -84,14 +84,14 @@ describe("pnpm bootstrap", () => {
   it("runs non-interactively with --yes and skips the service without asking", async () => {
     const harness = createHarness({ interactive: false });
     expect(await runBootstrap(["--yes"], harness.dependencies)).toBe(0);
-    expect(harness.steps).toEqual(["install", "build", "setup:agents", "run doctor"]);
+    expect(harness.steps).toEqual(["install", "build", "setup:agents", "check"]);
     expect(harness.questions).toEqual([]);
   });
 
   it("skips connecting Agents with --skip-agents", async () => {
     const harness = createHarness({}, { answers: ["", "n"] });
     expect(await runBootstrap(["--skip-agents"], harness.dependencies)).toBe(0);
-    expect(harness.steps).toEqual(["install", "build", "run doctor"]);
+    expect(harness.steps).toEqual(["install", "build", "check"]);
   });
 
   it("stops at a failed build and runs nothing after it", async () => {
@@ -108,18 +108,18 @@ describe("pnpm bootstrap", () => {
 
     const accepted = createHarness({}, { answers: ["", "y"] });
     await runBootstrap([], accepted.dependencies);
-    expect(accepted.steps).toEqual(["install", "build", "setup:agents", "service:install", "run doctor"]);
+    expect(accepted.steps).toEqual(["install", "build", "setup:agents", "service:install", "check"]);
 
     const flagged = createHarness({ interactive: false });
     await runBootstrap(["--yes", "--service"], flagged.dependencies);
-    expect(flagged.steps).toEqual(["install", "build", "setup:agents", "service:install", "run doctor"]);
+    expect(flagged.steps).toEqual(["install", "build", "setup:agents", "service:install", "check"]);
     expect(flagged.questions).toEqual([]);
   });
 
   it("does not ask about the login service when it is already installed and reminds to restart it", async () => {
     const harness = createHarness({ serviceInstalled: async () => true }, { answers: [""] });
     expect(await runBootstrap([], harness.dependencies)).toBe(0);
-    expect(harness.steps).toEqual(["install", "build", "setup:agents", "run doctor"]);
+    expect(harness.steps).toEqual(["install", "build", "setup:agents", "check"]);
     expect(harness.questions).toHaveLength(1);
     expect(harness.output.join(" ")).toContain("pnpm service:install 重啟服務");
 
@@ -136,9 +136,9 @@ describe("pnpm bootstrap", () => {
   });
 
   it("does not fail when doctor reports a problem", async () => {
-    const harness = createHarness({ interactive: false }, { failing: ["run doctor"] });
+    const harness = createHarness({ interactive: false }, { failing: ["check"] });
     expect(await runBootstrap(["--yes"], harness.dependencies)).toBe(0);
-    expect(harness.steps.at(-1)).toBe("run doctor");
+    expect(harness.steps.at(-1)).toBe("check");
   });
 
   it("rejects unknown flags with usage and exit code 2", async () => {

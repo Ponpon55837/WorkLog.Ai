@@ -1463,7 +1463,7 @@
     "light": "淺色",
     "liveUpdateConnectionsCurrentlyOpen": "目前開啟的即時更新連線",
     "loadingSystemStatus": "正在載入系統狀態…",
-    "localServiceDatabaseBackupMaintenance": "查看本機服務、資料庫、備份、維護與連線狀態。完整環境診斷請在專案目錄執行 pnpm run doctor。",
+    "localServiceDatabaseBackupMaintenance": "查看本機服務、資料庫、備份、維護與連線狀態。完整環境診斷請在專案目錄執行 pnpm check。",
     "location": "位置",
     "maintenanceResult": "維護結果",
     "mcpConnection": "MCP 連線",
