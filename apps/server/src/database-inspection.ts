@@ -42,6 +42,8 @@ export interface ReadOnlyDatabaseInspection {
   integrity?: "ok" | "failed";
   schemaVersion?: number;
   maintenance?: DatabaseMaintenanceInspection | null;
+  /** Free pages SQLite keeps inside the file; only VACUUM (pnpm db:maintain) gives them back to the disk. */
+  reclaimableBytes?: number;
 }
 
 /**
@@ -111,6 +113,11 @@ export async function inspectDatabaseReadOnlyMetadata(
       }
     }
 
+    const pageSize = (database.prepare("PRAGMA page_size").get() as { page_size?: number } | undefined)?.page_size;
+    const freePages = (database.prepare("PRAGMA freelist_count").get() as { freelist_count?: number } | undefined)
+      ?.freelist_count;
+    const reclaimableBytes = Number(pageSize ?? 0) * Number(freePages ?? 0);
+
     let integrity: ReadOnlyDatabaseInspection["integrity"];
     if (options.checkIntegrity) {
       const checks = database.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check?: unknown }>;
@@ -123,6 +130,7 @@ export async function inspectDatabaseReadOnlyMetadata(
       ...(integrity ? { integrity } : {}),
       schemaVersion,
       ...(maintenanceTable ? { maintenance: maintenance ?? null } : {}),
+      ...(Number.isSafeInteger(reclaimableBytes) && reclaimableBytes >= 0 ? { reclaimableBytes } : {}),
     };
   } catch {
     return { state: "unreadable" };

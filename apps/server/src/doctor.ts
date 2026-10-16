@@ -64,6 +64,10 @@ const REQUIRED_DIST_FILES = [
   "packages/shared/dist/index.js",
   "packages/storage/dist/index.js",
 ] as const;
+/** Suggest pnpm db:maintain when free pages reach either limit; below 1 MiB it is never worth stopping the server. */
+const RECLAIMABLE_SPACE_MIN_BYTES = 1024 * 1024;
+const RECLAIMABLE_SPACE_SUGGEST_BYTES = 5 * 1024 * 1024;
+const RECLAIMABLE_SPACE_SUGGEST_RATIO = 0.2;
 const BUILD_SOURCE_DIRECTORIES = [
   "apps/server/src",
   "apps/mcp/src",
@@ -464,6 +468,15 @@ function formatBytes(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + " MiB";
 }
 
+/** True when the free space inside the database file is large enough to be worth a VACUUM. */
+export function shouldSuggestReclaim(reclaimableBytes: number, databaseBytes: number): boolean {
+  if (reclaimableBytes < RECLAIMABLE_SPACE_MIN_BYTES) return false;
+  return (
+    reclaimableBytes >= RECLAIMABLE_SPACE_SUGGEST_BYTES ||
+    (databaseBytes > 0 && reclaimableBytes / databaseBytes >= RECLAIMABLE_SPACE_SUGGEST_RATIO)
+  );
+}
+
 function expectedDistFiles(repositoryRoot: string): string[] {
   const expected = new Set<string>(REQUIRED_DIST_FILES);
   for (const sourceDirectory of BUILD_SOURCE_DIRECTORIES) {
@@ -816,6 +829,21 @@ export async function collectDoctorFindings(
         "；最近自動備份：" +
         backupDetail +
         "。",
+    );
+  }
+
+  if (
+    database.state === "ok" &&
+    database.reclaimableBytes !== undefined &&
+    shouldSuggestReclaim(database.reclaimableBytes, database.bytes ?? 0)
+  ) {
+    const share = Math.round((database.reclaimableBytes / Math.max(database.bytes ?? 0, 1)) * 100);
+    addFinding(
+      findings,
+      "warning",
+      "可回收空間",
+      `資料庫檔案內有 ${formatBytes(database.reclaimableBytes)} 未使用空間（約占 ${share}%）；SQLite 會留給之後的資料重複使用，不影響運作。`,
+      "如要縮小檔案，先停止 server 與 Agent，再執行 pnpm db:maintain（會先備份）；診斷程序不會自動執行。",
     );
   }
 
