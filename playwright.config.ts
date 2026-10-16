@@ -73,6 +73,8 @@ export default defineConfig({
         WORK_INTELLIGENCE_PORT: String(webPort),
         WORK_INTELLIGENCE_DB: databasePath,
         WORK_INTELLIGENCE_BACKUP: "off",
+        // The long-list layout test needs more manual backups than the default retention keeps.
+        WORK_INTELLIGENCE_BACKUP_KEEP: "20",
         WORK_INTELLIGENCE_BACKUP_DIR: path.join(os.tmpdir(), `work-intelligence-e2e-${process.pid}-backups`),
         WORK_INTELLIGENCE_ALLOWED_ORIGINS: "",
         HOME: agentHomeDirectory,
