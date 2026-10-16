@@ -13,6 +13,7 @@ import {
   inspectDatabaseReadOnly,
   inspectGlobalHooks,
   pnpmRequirementSatisfied,
+  shouldSuggestReclaim,
 } from "../../apps/server/src/doctor.js";
 import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
 import {
@@ -329,6 +330,43 @@ describe("pnpm doctor read-only checks", () => {
 
     const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     expect(after).toBe(before);
+  });
+
+  it("reports free pages as reclaimable space without changing the database", async () => {
+    const directory = temporaryDirectory();
+    const databasePath = join(directory, "reclaimable.sqlite");
+    const database = new DatabaseSync(databasePath);
+    database.exec(
+      "CREATE TABLE schema_migrations (version INTEGER NOT NULL, name TEXT NOT NULL, applied_at TEXT NOT NULL);" +
+        "INSERT INTO schema_migrations VALUES (30, 'synthetic', '2026-10-16T00:00:00.000Z');" +
+        "CREATE TABLE filler (body BLOB);",
+    );
+    const insert = database.prepare("INSERT INTO filler VALUES (zeroblob(65536))");
+    for (let index = 0; index < 40; index += 1) insert.run();
+    database.exec("DROP TABLE filler;");
+    database.close();
+    const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+
+    const inspection = await inspectDatabaseReadOnlyMetadata(databasePath);
+    expect(inspection.state).toBe("ok");
+    expect(inspection.reclaimableBytes).toBeGreaterThanOrEqual(40 * 65536);
+    expect(shouldSuggestReclaim(inspection.reclaimableBytes ?? 0, inspection.bytes ?? 0)).toBe(true);
+
+    const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+    expect(after).toBe(before);
+  });
+
+  it("suggests db:maintain only above the reclaimable-space thresholds", () => {
+    const mebibyte = 1024 * 1024;
+    expect(shouldSuggestReclaim(0, 20 * mebibyte)).toBe(false);
+    // Under 1 MiB is never worth it, whatever the share.
+    expect(shouldSuggestReclaim(mebibyte - 1, 2 * mebibyte)).toBe(false);
+    // 5 MiB is enough on its own.
+    expect(shouldSuggestReclaim(5 * mebibyte, 500 * mebibyte)).toBe(true);
+    expect(shouldSuggestReclaim(4 * mebibyte, 100 * mebibyte)).toBe(false);
+    // 20% of the file is enough once past 1 MiB.
+    expect(shouldSuggestReclaim(2 * mebibyte, 10 * mebibyte)).toBe(true);
+    expect(shouldSuggestReclaim(2 * mebibyte, 11 * mebibyte)).toBe(false);
   });
 
   it("checks only global hook configuration and requires both Codex events", () => {

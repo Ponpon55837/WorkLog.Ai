@@ -279,6 +279,8 @@ pnpm db:maintain
 
 它會先建立維護前備份，再執行 `integrity_check`、`VACUUM`、`ANALYZE` 與搜尋索引重建，結果會記錄下來供 `pnpm check` 顯示。它需要獨占資料庫，所以執行前請先停止 `pnpm start`，並關閉會啟動 MCP 的 Agent 對話；資料庫仍被開著時，它會停止並提示你，同時列出 server 是否在執行與有幾個 Agent MCP 連線在使用（唯讀偵測）。
 
+`pnpm check`（`pnpm bootstrap` 最後也會執行）在資料庫檔內未使用空間至少 1 MiB，且達 5 MiB 或檔案的 20% 時，會提示可執行 `pnpm db:maintain`；它只提示，不會自動執行。
+
 遇到問題時，先執行 `pnpm check`，再看 **[疑難排解](docs/troubleshooting.md)**。
 
 ## 核心概念

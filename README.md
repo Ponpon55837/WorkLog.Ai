@@ -278,6 +278,8 @@ pnpm db:maintain
 
 It creates a pre-maintenance backup, then runs `integrity_check`, `VACUUM`, `ANALYZE` and a search-index rebuild, and records the result for `pnpm check` to show. It needs the database to itself, so stop `pnpm start` and close any Agent conversation that starts MCP first; if the database is still open, it stops, tells you, and lists whether the server is running and how many Agent MCP connections are in use (read-only checks).
 
+`pnpm check` (also run at the end of `pnpm bootstrap`) shows a reminder when the database file holds at least 1 MiB of free pages and either 5 MiB or 20% of the file. It only suggests `pnpm db:maintain`; it never runs it.
+
 When something goes wrong, run `pnpm check` first, then see **[Troubleshooting](docs/troubleshooting.md)**.
 
 ## Core concepts

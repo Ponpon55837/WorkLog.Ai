@@ -8,6 +8,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 [繁體中文更新說明](docs/releases/1.6.0.md).
 
+### Added
+
+- `pnpm check` (and therefore the last step of `pnpm bootstrap`) reports the free pages inside the database file as reclaimable space. With at least 1 MiB free and either 5 MiB or 20% of the file, it warns and suggests stopping the server and Agents and running `pnpm db:maintain`. The check is read-only and never runs VACUUM itself.
+
 ### Changed
 
 - Backup retention is now 3 for manual backups, 3 for automatic daily backups and 3 for the Session-deletion snapshots (was 14 / 14 / 5). `WORK_INTELLIGENCE_BACKUP_KEEP` still overrides the manual count. Older backup files beyond the new limit are removed the next time a backup is written.
