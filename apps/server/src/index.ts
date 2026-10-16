@@ -35,6 +35,24 @@ function startApi(): void {
     }
   }
 
+  function pruneHistory(): void {
+    try {
+      const pruned = store.pruneWorkSummaryUpdateHistory();
+      if (pruned > 0) {
+        console.error(`Work summary update history pruned: ${pruned} rows`);
+      }
+    } catch (error) {
+      console.error(`History prune failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  function runMaintenance(): void {
+    if (process.env.WORK_INTELLIGENCE_BACKUP !== "off") {
+      backupIfDue();
+    }
+    pruneHistory();
+  }
+
   function onListenError(error: Error): void {
     console.error(describeListenError(error, port));
     store.close();
@@ -46,11 +64,9 @@ function startApi(): void {
     server.off("error", onListenError);
     console.error(`Work Intelligence API listening on http://127.0.0.1:${port}`);
     console.error(`SQLite database: ${databasePath}`);
-    if (process.env.WORK_INTELLIGENCE_BACKUP !== "off") {
-      backupTimer = setInterval(backupIfDue, backupCheckMs);
-      backupTimer.unref();
-      backupIfDue();
-    }
+    backupTimer = setInterval(runMaintenance, backupCheckMs);
+    backupTimer.unref();
+    runMaintenance();
   });
 
   registerGracefulShutdown(

@@ -112,6 +112,9 @@ export interface SessionRecordDependencies {
   ): void;
 }
 
+/** Replay payloads (previous/resulting summary) are kept this long; afterwards replay uses the current summary. */
+export const WORK_SUMMARY_UPDATE_REPLAY_RETENTION_DAYS = 7;
+
 export class SessionRecordService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -766,7 +769,9 @@ export class SessionRecordService {
         }
 
         const session = this.dependencies.getSessionById(input.sessionId);
-        const appliedWorkSummary = parseWorkSummarySections(existingUpdate.resulting_work_summary_json);
+        // Old rows have their stored response pruned; replay from the Session's current work summary instead.
+        const appliedWorkSummary =
+          parseWorkSummarySections(existingUpdate.resulting_work_summary_json) ?? session?.workSummary;
         if (!session || !appliedWorkSummary) {
           return { outcome: "not_found", sessionId: input.sessionId };
         }
@@ -852,6 +857,23 @@ export class SessionRecordService {
         redactions,
       };
     });
+  }
+
+  /** Empties the replay payload of work-summary updates older than the retention window; keeps rows and requests. */
+  public pruneWorkSummaryUpdateHistory(
+    now = new Date(),
+    retentionDays = WORK_SUMMARY_UPDATE_REPLAY_RETENTION_DAYS,
+  ): number {
+    const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const result = this.db
+      .prepare(
+        `UPDATE session_work_summary_updates
+         SET previous_work_summary_json = '{}', resulting_work_summary_json = '{}'
+         WHERE created_at < ?
+           AND (previous_work_summary_json != '{}' OR resulting_work_summary_json != '{}')`,
+      )
+      .run(cutoff);
+    return Number(result.changes);
   }
 
   public getSessionDetail(sessionId: string): SessionDetail | undefined {

@@ -105,7 +105,7 @@ REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Eviden
 
 永久刪除會先用 `VACUUM INTO` 建立並驗證整份資料庫快照，備份建立失敗時拒絕操作；備份列為手動備份，依相同保留額度管理。之後在一個 `BEGIN IMMEDIATE` transaction 中清理 project、Session、衍生資料、跨專案 Session 關聯、引用目標 Session 的全域請求／報告與搜尋索引。刪除失敗會 rollback 並保留備份。migration v11 的 `project_deletion_audit` 僅保存刪除時間、project id 與刪除筆數，不保存名稱、路徑或內容。API 允許使用者在 Web UI 或 REST 以名稱確認，MCP 刻意不提供此破壞性操作；workspace 原始檔案不會被刪除。
 
-單筆 Session 的永久刪除（`session-deletion-service.ts`）只接受已作廢的 Session，且同樣只開放 Web UI 與 REST。刪除前寫入 `pre-session-delete-...` 快照，這類快照獨立保留 5 份，不佔用手動備份的額度。交易內重新確認仍為作廢、且沒有其他 Session 的待審清理建議引用它作為證據，接著先以一般 `UPDATE` 解除 Knowledge、Knowledge 候選與知識頁檢查游標對它的指向（FK 的 `SET NULL` 動作會讓搜尋 trigger 的 `OR IGNORE` 失效），刪除未結項，再刪除 Session 讓事件、Evidence、圖表、修改紀錄、關聯與清理快照依 FK 連帶刪除。migration v26 讓 `outstanding_item_events` 只在所屬未結項仍存在時維持 append-only，所以歷史會隨未結項一起刪除。報告、請求來源清單、Agent 讀取摘要與它解決過的未結項事件只保留 id；知識頁引用它時會標為來源缺失、需要核對。`session_deletion_audit` 只保存時間、Session id、project id 與筆數。
+單筆 Session 的永久刪除（`session-deletion-service.ts`）只接受已作廢的 Session，且同樣只開放 Web UI 與 REST。刪除前寫入 `pre-session-delete-...` 快照，這類快照獨立保留 3 份，不佔用手動備份的額度。交易內重新確認仍為作廢、且沒有其他 Session 的待審清理建議引用它作為證據，接著先以一般 `UPDATE` 解除 Knowledge、Knowledge 候選與知識頁檢查游標對它的指向（FK 的 `SET NULL` 動作會讓搜尋 trigger 的 `OR IGNORE` 失效），刪除未結項，再刪除 Session 讓事件、Evidence、圖表、修改紀錄、關聯與清理快照依 FK 連帶刪除。migration v26 讓 `outstanding_item_events` 只在所屬未結項仍存在時維持 append-only，所以歷史會隨未結項一起刪除。報告、請求來源清單、Agent 讀取摘要與它解決過的未結項事件只保留 id；知識頁引用它時會標為來源缺失、需要核對。`session_deletion_audit` 只保存時間、Session id、project id 與筆數。
 
 `pnpm db:maintain` 是明確的離線維護操作。執行前以 `BEGIN EXCLUSIVE` 檢查 SQLite 寫入鎖，完整性檢查與資料庫升級成功後先建立 `pre-maintenance-...` 驗證快照，再執行 `VACUUM`、`ANALYZE` 與完整搜尋索引重建。migration v12 的 `database_maintenance_runs` 只保留開始／完成時間、狀態、備份檔名、索引筆數與安全錯誤分類；`pnpm check` 以唯讀方式讀取最近結果。維護失敗時會保留備份，並將執行標為失敗或未完成。
 

@@ -60,7 +60,7 @@ C3 與 A2 的最新 head 三平台 Quality 與 E2E 均 SUCCESS。A2 CI 保留 Ch
 
 A1–B3 各 PR 最新 head 的三平台 Quality 與 E2E 均成功，已合併並保存階段記錄。A2 主安裝 scope lease 實測 102 → 38 → 4，存活程序均保留。A3 的[核對文件](experiments/agent-data-source-audit-2026-09-30.md)保留缺漏證據；B3 的[合成準確度評估](experiments/outstanding-cleanup-accuracy-2026-10-01.md)記載 12 項正確建議、8 項證據不足保留，沒有直接更改真實未結項。當時 schema 23／新增 Agent 契約的升級要求已由後續正式版本取代；1.5.0 主線為 schema 30。主安裝重啟、MCP 新連線、知識頁及未結項最終狀態，依本次部署與發版工作記錄核對。
 
-2026-10-08 新增已作廢 Session 的永久刪除（只有 Web／REST，先寫獨立保留 5 份的備份，MCP 不提供）與 Session 標題修正（Web 編輯對話框、REST、MCP `work_update_session_title`）；schema 26，Agent 需重新連線。
+2026-10-08 新增已作廢 Session 的永久刪除（只有 Web／REST，先寫獨立保留 3 份的備份，MCP 不提供）與 Session 標題修正（Web 編輯對話框、REST、MCP `work_update_session_title`）；schema 26，Agent 需重新連線。
 
 2026-10-07 報告統計改為以 SQL 加總整個期間，不再受 200 筆 Session 上限影響；Changed Files 不計入列出超過 20 個檔案的 Session，並回傳略過數量。
 
@@ -300,7 +300,7 @@ repo 內的合成回歸評估涵蓋 K／S／R／N／P 五類，設定整體與�
 - **changedFiles 開工基準排除**：`work_finalize_session` 可傳入工作開始時擷取的 `baselineChangedFiles`，系統會從該 Session 的 changed files、來源與變更事件排除開工前已變更的路徑；從基準路徑改名時只記新路徑為新增檔案。相同基準檔案後續又修改也會保守排除，避免把先前工作錯算成本次成果。
 - **Storage 報告讀取服務拆分**：將報告產生、跨期 Session、證據整理與 Markdown／JSON 匯出搬至 `report-service.ts`，期間計算與趨勢函式移至 `report-utils.ts`；`WorkIntelligenceStore` 對外方法維持原樣並轉呼叫新服務，未改變報告行為。
 - **加入專案改為選擇資料夾**（使用者提出）：「加入專案」對話框新增「選擇資料夾」，由本機 API server 叫出作業系統的選擇資料夾視窗（macOS `osascript`、Windows PowerShell、Linux `zenity`／`kdialog`），選完自動填入路徑，名稱空白時以資料夾名稱帶入；仍可手動輸入。新增 `POST /api/system/pick-folder`，指令固定、不經過 shell，區分「取消」與「無法開啟」，同時只開一個視窗。
-- **資料庫備份與換電腦**（使用者提出）：API server 每個本機日曆日自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700）；自動與手動備份分開保留，預設各 14 份，手動備份不會擠掉每日自動備份。專案頁可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。
+- **資料庫備份與換電腦**（使用者提出）：API server 每個本機日曆日自動備份一次到資料庫旁的 `backups/`（`VACUUM INTO` 一致快照、`quick_check` 驗證、檔案 0600／目錄 0700）；自動與手動備份分開保留，預設各 3 份，手動備份不會擠掉每日自動備份。專案頁可立即備份、列出備份、匯出整份資料。`pnpm db:backup`／`db:export`／`db:restore` 提供 CLI，還原會檢查完整性與 schema 版本、先備份原本的資料、以 `--remap-root` 換掉專案與 handoff 路徑前綴，並以取得獨佔鎖判斷資料庫是否仍被 server 或 Agent 開著。API 只回檔名、不回傳路徑，POST 要求 JSON body。
 - **依專案匯出與合併匯入**：Web 與 CLI 支援單一／全部專案的 JSON 可攜式資料包；所有匯入欄位經 schema 驗證並限制檔案大小、筆數與字串長度。匯入先顯示新增、略過、衝突與路徑轉換預覽，再由使用者確認，在單一 SQLite 交易內合併；相同資料可重複匯入，既有資料不覆寫，新專案先暫停，且以計數與檔案摘要寫入匯入稽核。`--remap-root` 使用完整路徑片段比對並支援跨平台分隔符號。
 - **Build 清除舊產物**：所有工作區在 build 前用共用 Node.js 腳本清理各自的 `dist`，避免 TypeScript 將搬入 `tests/` 前的舊測試輸出留在建置目錄。以 `pnpm build` 驗證所有八個工作區建置成功，並確認預先放入 `apps/server/dist` 的舊檔已清除。
 - **Agent 完成請求後頁面自動更新**（使用者提出）：報告整理、Knowledge 候選、metadata 回補的請求在待處理或處理中時，頁面每 5 秒安靜地重新檢查（不顯示載入動畫，分頁不在前景時暫停、回到前景立即檢查），請求結束就停止；Agent 完成時自動載入結果並提示，失敗時也會提示。切換報告區間或專案時會重設追蹤，不會誤報完成。只改前端，API 不變；E2E 以 API 模擬 Agent 存入整理結果驗證。

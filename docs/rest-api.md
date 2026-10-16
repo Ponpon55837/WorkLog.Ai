@@ -78,7 +78,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/knowledge/:id/agent-reads`                 | 同上，對象為 Knowledge |
 | GET      | `/api/sessions/:id`                              | Session detail、events、raw handoff                                                    |
 | PATCH    | `/api/sessions/:id/metadata`                     | Agent 回填 changed files、verification、Git metadata                                   |
-| DELETE   | `/api/sessions/:id`                              | 永久刪除**已作廢**的 Session（body `{ "confirm": true }`）：先寫入獨立保留 5 份的 `pre-session-delete-` 備份，再在單一交易刪除它的事件、Evidence、圖表、修改紀錄、關聯與未結項；Knowledge 保留但不再指向它，只留不含內容的刪除紀錄。MCP 沒有對應工具 |
+| DELETE   | `/api/sessions/:id`                              | 永久刪除**已作廢**的 Session（body `{ "confirm": true }`）：先寫入獨立保留 3 份的 `pre-session-delete-` 備份，再在單一交易刪除它的事件、Evidence、圖表、修改紀錄、關聯與未結項；Knowledge 保留但不再指向它，只留不含內容的刪除紀錄。MCP 沒有對應工具 |
 | PATCH    | `/api/sessions/:id/title`                        | 修正 Session 標題（`title`，1–300 字）；原標題記成一筆 `note` 事件，已作廢的 Session 回傳 `skipped` |
 | PATCH    | `/api/sessions/:id/summary`                      | 以 replace／append 更新既有 finalized Session 主摘要（Agent 與 Session 面板「編輯 Session」共用） |
 | PATCH    | `/api/sessions/:id/work-summary`                 | 以 replace／patch 更新既有 finalized Session 五段 workSummary（Session 面板只 patch 有改的段落） |
@@ -194,7 +194,7 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 ## 備份與匯出
 
 - REST：GET /api/backups 列出備份（檔名、種類、時間、大小，及手動／自動各自的保留份數）；POST /api/backups（body `{}`）建立手動備份。
-- 自動備份以 server 的本機日曆日為單位每天最多建立一份，預設保留最近 14 份；手動備份另有獨立的 14 份保留額度，不會影響自動備份排程或刪除自動備份。
+- 自動備份以 server 的本機日曆日為單位每天最多建立一份，預設保留最近 3 份；手動備份另有獨立的 3 份保留額度，不會影響自動備份排程或刪除自動備份。
 - REST：POST /api/export（body `{}`）即時產生整份資料的 SQLite 快照，以 `application/vnd.sqlite3` 下載，暫存檔在傳送後刪除。可攜式 JSON 則使用 `{"scope":"all"}`，或 `{"scope":"project","projectId":"<id>"}`；檔案上限為 50 MiB，超過回 413。
 - REST：POST /api/import/preview 與 POST /api/import 都接受 `{ "bundle": <可攜式匯出>, "projectId"?: "<id>", "remap"?: [{"from":"<舊路徑>","to":"<新路徑>"}] }`。`projectId` 可從全專案匯出檔挑選單一專案；`remap` 可重複多筆，以完整路徑片段比對、Windows 路徑不分大小寫，並依新路徑轉換分隔符號。只有匯入兩個端點把 request body 上限提高至 50 MiB；超過回 413，格式錯誤回 400。
 - Preview 只讀取並回傳各資料表新增／略過／衝突筆數及最多 100 筆衝突明細，不回傳專案路徑。正式匯入會在一個 SQLite 交易中重新計算預覽並合併非衝突資料；不覆寫或刪除既有資料，且重複匯入可冪等略過。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
