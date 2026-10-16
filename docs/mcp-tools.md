@@ -335,7 +335,7 @@ Server instructions 只放路由規則；48 項 operation 的長說明與 schema
 
 - `mode: "replace"` 必須提供完整的 `outcomes`、`scope`、`decisions`、`verification`、`nextSteps` 五個陣列，取代整份 workSummary。
 - `mode: "patch"` 可只提供一個或多個已確認的 section；未提供的 section 保留原值，明確傳入 `[]` 代表清空該 section。legacy Session 沒有 workSummary 時，patch 會從五個空陣列開始合併。
-- 必須使用獨立的 workSummary 更新 `idempotencyKey`。相同 key、相同 Session／模式／內容重試會回傳 `duplicate: true`，不會重複追加或建立新 Session；不同內容會回傳 conflict。
+- 必須使用獨立的 workSummary 更新 `idempotencyKey`。相同 key、相同 Session／模式／內容重試會回傳 `duplicate: true`，不會重複追加或建立新 Session；不同內容會回傳 conflict。超過 7 天的更新紀錄會清空當時保存的前後 workSummary（僅用於重試重播）但保留請求內容；重試這類舊 key 仍回 `duplicate: true`，回傳 Session 目前的 workSummary 且不含 `previousWorkSummary`，內容不同仍回 conflict。
 - 只更新 `sessions.work_summary_json` 與 audit row，保留 Session id、原 idempotencyKey、summary、changedFiles、verification、Git metadata、events、raw handoff snapshot、evidence 與 Knowledge。
 - 仍先通過 tracked project policy；`unregistered`、`paused`、`ignored` 會安靜回傳 `outcome: "skipped"`，不讀取或寫入受保護的專案資料。
 

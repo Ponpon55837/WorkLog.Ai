@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.5.3** 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。資料庫 schema 維持 30。[完整更新說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
+**1.6.0** 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
 
 [English](README.md) | **繁體中文**
 
@@ -224,7 +224,7 @@ API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence 
 
 所有記錄都在一個 SQLite 檔案裡。
 
-- **自動備份**：API server 每個本機日曆日自動備份一次，存到資料庫旁的 `backups/`。自動備份與手動備份分開保留，預設各保留最近 14 份，手動備份不會擠掉每日自動備份。備份檔只有目前的使用者可以讀寫。
+- **自動備份**：API server 每個本機日曆日自動備份一次，存到資料庫旁的 `backups/`。自動備份與手動備份分開保留，預設各保留最近 3 份，手動備份不會擠掉每日自動備份。備份檔只有目前的使用者可以讀寫。
 - **手動備份**：Web UI 的「專案 → 資料備份 → 立即備份」，或執行 `pnpm db:backup`。
 - **管理備份**：「專案 → 資料備份」會列出備份種類、時間、大小與總大小；刪除前會顯示檔名與種類並要求確認，刪除唯一一份列出的備份時會額外警告。CLI 可用 `pnpm db:backups` 列出，或在互動終端執行 `pnpm db:backups --delete <檔名>` 確認刪除。刪除專案後，刪除前備份與其他舊備份仍可能包含該專案資料，可從資料備份頁管理。
 - **依專案攜帶資料**：在「專案 → 資料備份」可以匯出全部專案或單一專案的 JSON。CLI 用 `pnpm db:export --all` 或 `pnpm db:export --project <專案名稱或 id>`，加上 `--out <檔案.json>` 可以指定輸出位置。JSON 沒有加密，請妥善保管。
@@ -260,7 +260,7 @@ API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence 
 | 環境變數 | 用途 |
 |---|---|
 | `WORK_INTELLIGENCE_BACKUP_DIR` | 備份目錄，預設是資料庫旁的 `backups/`。相對路徑以資料庫所在資料夾為基準，API、MCP、CLI 與 doctor 都會指向同一個位置 |
-| `WORK_INTELLIGENCE_BACKUP_KEEP` | 手動備份保留份數，預設 14；自動備份另外保留 14 份 |
+| `WORK_INTELLIGENCE_BACKUP_KEEP` | 手動備份保留份數，預設 3；自動備份另外保留 3 份 |
 | `WORK_INTELLIGENCE_BACKUP=off` | 關閉每日自動備份 |
 
 ## 升級與維護

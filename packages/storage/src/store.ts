@@ -649,6 +649,11 @@ export class WorkIntelligenceStore {
     return backupDatabase(this.db, this.databasePath, { ...this.backupOptions, kind: "automatic", now });
   }
 
+  /** Periodic maintenance: empties old work-summary replay payloads. Never runs VACUUM. Returns rows pruned. */
+  public pruneWorkSummaryUpdateHistory(now = new Date()): number {
+    return this.sessionRecords.pruneWorkSummaryUpdateHistory(now);
+  }
+
   public getProjectByRootPath(rootPath: string): ProjectRecord | undefined {
     return this.projects.getByRootPath(rootPath);
   }

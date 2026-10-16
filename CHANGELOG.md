@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-16
+
+[繁體中文更新說明](docs/releases/1.6.0.md).
+
+### Changed
+
+- Backup retention is now 3 for manual backups, 3 for automatic daily backups and 3 for the Session-deletion snapshots (was 14 / 14 / 5). `WORK_INTELLIGENCE_BACKUP_KEEP` still overrides the manual count. Older backup files beyond the new limit are removed the next time a backup is written.
+- Work-summary update history is pruned: for `session_work_summary_updates` rows older than 7 days, the stored previous/resulting work summary (only used to replay a retried `idempotencyKey`) is emptied. The request itself and the row stay, so the same key with different content still returns a conflict. The prune runs when the API server starts and then hourly with the backup check, needs no migration and never runs VACUUM; reclaim file space with `pnpm db:maintain` if wanted.
+- Retrying an old `work_update_session_work_summary` key whose stored response was pruned returns `work_summary_updated` with `duplicate: true` and the Session's current work summary (without `previousWorkSummary`) instead of `not_found`.
+
+Database schema remains 30; no migration is required.
+
 ## [1.5.3] - 2026-10-14
 
 [繁體中文更新說明](docs/releases/1.5.3.md).

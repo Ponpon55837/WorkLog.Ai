@@ -1,6 +1,6 @@
 # Work Intelligence
 
-Version **1.5.3** adds `pnpm track <folder>`, which adds a project from the terminal and sets it to Tracked after a preview and your confirmation. Agents still cannot track projects. The diagnostics are now `pnpm check`; `pnpm run doctor` still works. When `pnpm db:maintain` cannot lock the database, it reports whether the server, the login service or Agent MCP connections hold it and how to stop them. `pnpm start` prints a one-line reminder when an installed Agent skill or hook is out of date. Database schema remains 30. See the [release notes](CHANGELOG.md#153---2026-10-14) and [Traditional Chinese update guide](docs/releases/1.5.3.md). After updating, restart the login service if you use it and reconnect the Agent MCP.
+Version **1.6.0** keeps only 3 backups per kind by default and empties the replay payloads of work-summary updates older than 7 days, so the database grows more slowly; no migration, schema remains 30. See the [release notes](CHANGELOG.md#160---2026-10-16) and [Traditional Chinese update guide](docs/releases/1.6.0.md). Version 1.5.3 added `pnpm track <folder>`, which adds a project from the terminal and sets it to Tracked after a preview and your confirmation. Agents still cannot track projects. The diagnostics are now `pnpm check`; `pnpm run doctor` still works. When `pnpm db:maintain` cannot lock the database, it reports whether the server, the login service or Agent MCP connections hold it and how to stop them. `pnpm start` prints a one-line reminder when an installed Agent skill or hook is out of date. See the [1.5.3 notes](CHANGELOG.md#153---2026-10-14). After updating, restart the login service if you use it and reconnect the Agent MCP.
 
 **English** | [繁體中文](README.zh-TW.md)
 
@@ -223,7 +223,7 @@ When the API is unreachable, a "Cannot reach the Work Intelligence API" banner a
 
 All records live in one SQLite file.
 
-- **Automatic backups**: the API server backs up once per local calendar day into `backups/` next to the database. Automatic and manual backups are kept separately, the latest 14 of each by default, so manual backups never push out daily ones. Backup files are readable and writable only by the current user.
+- **Automatic backups**: the API server backs up once per local calendar day into `backups/` next to the database. Automatic and manual backups are kept separately, the latest 3 of each by default, so manual backups never push out daily ones. Backup files are readable and writable only by the current user.
 - **Manual backups**: Web UI → Projects → Data backup → **Back up now**, or `pnpm db:backup`.
 - **Managing backups**: Projects → Data backup lists each backup's kind, time and size plus the total; deleting shows the file name and kind and asks for confirmation, with an extra warning for the only listed backup. On the CLI, `pnpm db:backups` lists them and `pnpm db:backups --delete <file name>` deletes one after confirming in an interactive terminal. After a project is deleted, its pre-deletion backup and older backups may still contain its data; manage them from the Data backup page.
 - **Taking data per project**: Projects → Data backup exports all projects or a single project as JSON. On the CLI use `pnpm db:export --all` or `pnpm db:export --project <project name or id>`, with `--out <file.json>` for the output location. JSON exports are not encrypted; keep them safe.
@@ -259,7 +259,7 @@ Backup environment variables:
 | Variable | Purpose |
 |---|---|
 | `WORK_INTELLIGENCE_BACKUP_DIR` | Backup folder, `backups/` next to the database by default. Relative paths resolve from the database folder, so the API, MCP, CLI and doctor all point to the same place |
-| `WORK_INTELLIGENCE_BACKUP_KEEP` | Number of manual backups kept, 14 by default; 14 automatic backups are kept separately |
+| `WORK_INTELLIGENCE_BACKUP_KEEP` | Number of manual backups kept, 3 by default; 3 automatic backups are kept separately |
 | `WORK_INTELLIGENCE_BACKUP=off` | Turns off the daily automatic backup |
 
 ## Upgrades and maintenance

@@ -29,7 +29,7 @@ pnpm check
 | `WORK_INTELLIGENCE_DB` | 共用 SQLite 檔案位置，API、MCP 與 CLI 應使用同一個檔案 |
 | `WORK_INTELLIGENCE_PORT` | Web 與 API 共用的本機連接埠，預設 `3210` |
 | `WORK_INTELLIGENCE_BACKUP_DIR` | 備份目錄，預設為資料庫旁的 `backups/`；相對路徑以資料庫所在資料夾為基準，API、MCP、CLI 與 doctor 會指向同一個位置 |
-| `WORK_INTELLIGENCE_BACKUP_KEEP` | 手動備份保留份數，預設 14；自動備份另行保留 14 份 |
+| `WORK_INTELLIGENCE_BACKUP_KEEP` | 手動備份保留份數，預設 3；自動備份另行保留 3 份 |
 | `WORK_INTELLIGENCE_BACKUP=off` | 停用每日自動備份 |
 
 設定 MCP 與全域保存提醒 hook 的方式見[連接 Agent](agent-setup.md)。MCP 使用 stdio，由 Codex／Claude 分別啟動；它不使用 Dashboard 的 HTTP 連接埠。
@@ -146,7 +146,7 @@ pnpm track <資料夾> [--name <名稱>] [--yes]
 
 ## 備份、匯出與匯入
 
-- API 啟動時會檢查每日自動備份，之後每小時檢查一次；依 server 本機日曆日每天最多一份，預設保留最近 14 份。資料庫有待套用 migration 時，程式會先額外建立標有目標 schema 版本的備份。
+- API 啟動時會檢查每日自動備份，之後每小時檢查一次；依 server 本機日曆日每天最多一份，預設保留最近 3 份。資料庫有待套用 migration 時，程式會先額外建立標有目標 schema 版本的備份。
 - 手動備份可在「專案 → 資料備份」選「立即備份」，或執行 `pnpm db:backup`。
 - 「專案 → 資料備份」會列出備份種類、時間、大小與總大小；刪除前會顯示檔名與種類並要求確認，刪除唯一一份列出的備份時會額外警告。CLI 可用 `pnpm db:backups` 列出，或在互動終端執行 `pnpm db:backups --delete <檔名>` 確認刪除。
 - 專案刪除後，刪除前備份和其他較早的備份仍可能包含該專案資料；可從「專案 → 資料備份」檢視並刪除不再需要的備份。

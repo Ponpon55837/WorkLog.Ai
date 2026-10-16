@@ -22,10 +22,10 @@ import { toLocalCalendarDate } from "@work-intelligence/shared";
 import { remapPathPrefix } from "./project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
-export const DEFAULT_BACKUP_KEEP = 14;
-export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 14;
+export const DEFAULT_BACKUP_KEEP = 3;
+export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 3;
 /** Session deletions keep their own few snapshots so a cleanup spree cannot push out manual backups. */
-export const SESSION_DELETION_BACKUP_KEEP = 5;
+export const SESSION_DELETION_BACKUP_KEEP = 3;
 
 type RetentionBucket = "automatic" | "session_deletion" | "manual";
 
