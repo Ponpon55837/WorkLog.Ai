@@ -733,47 +733,21 @@ function removeJsonSpec(
   return false;
 }
 
+/** A real TOML parse; Codex writes array tables and quoted headers (`hooks[0]`) a line scanner misreads. */
 function codexHooksFeatureFromToml(text: string | undefined): CodexHooksFeature {
   if (text === undefined) return "enabled";
-  let section: string[] = [];
-  let foundFeatures = 0;
-  const configuredValues = new Map<string, string>();
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const header = /^\[([^\]]+)\]\s*(?:#.*)?$/.exec(trimmed);
-    if (header) {
-      const parsed = parseTomlKeyPath(header[1] ?? "");
-      if (!parsed) return "unknown";
-      section = parsed;
-      if (section.length === 1 && section[0] === "features") foundFeatures += 1;
-      continue;
-    }
-    const equalIndex = trimmed.indexOf("=");
-    if (equalIndex < 0) {
-      if (section[0] === "features" || /features|codex_hooks|hooks/.test(trimmed)) return "unknown";
-      continue;
-    }
-    const keyPath = parseTomlKeyPath(trimmed.slice(0, equalIndex));
-    if (!keyPath) {
-      if (section[0] === "features" || /features|codex_hooks|hooks/.test(trimmed.slice(0, equalIndex)))
-        return "unknown";
-      continue;
-    }
-    const fullPath = section.length ? [...section, ...keyPath] : keyPath;
-    if (fullPath.length === 1 && fullPath[0] === "features") return "unknown";
-    if (
-      fullPath.length === 2 &&
-      fullPath[0] === "features" &&
-      (fullPath[1] === "hooks" || fullPath[1] === "codex_hooks")
-    ) {
-      const value = /^(true|false)\s*(?:#.*)?$/.exec(trimmed.slice(equalIndex + 1).trim());
-      if (!value || configuredValues.has(fullPath[1])) return "unknown";
-      configuredValues.set(fullPath[1], value[1] ?? "");
-    }
+  let config: Record<string, unknown>;
+  try {
+    config = parseToml(text, { maxDepth: 128, unsafeKeyBehaviour: "throw" }) as Record<string, unknown>;
+  } catch {
+    return "unknown";
   }
-  if (foundFeatures > 1) return "unknown";
-  return [...configuredValues.values()].includes("false") ? "disabled" : "enabled";
+  const features = config.features;
+  if (features === undefined) return "enabled";
+  if (!JSON_OBJECT(features)) return "unknown";
+  const values = [features.hooks, features.codex_hooks].filter((value) => value !== undefined);
+  if (values.some((value) => typeof value !== "boolean")) return "unknown";
+  return values.includes(false) ? "disabled" : "enabled";
 }
 
 function codexTomlBlock(repositoryRoot: string, newline: string): string {
@@ -786,6 +760,40 @@ function codexTomlBlock(repositoryRoot: string, newline: string): string {
     TOML_BLOCK_END,
     "",
   ].join(newline);
+}
+
+/**
+ * Codex appends per-tool approvals (`[mcp_servers.work-intelligence.tools.<tool>]`) after the last table,
+ * which lands inside our block when it ends the file. Returns the text with the block rewritten to
+ * `desiredBlock` and those tables moved after it, or undefined when anything else differs from `ownedBlock`.
+ */
+function moveCodexToolTablesOutOfBlock(
+  text: string,
+  ownedBlock: string,
+  desiredBlock: string,
+  newline: string,
+): string | undefined {
+  const start = text.indexOf(TOML_BLOCK_START);
+  const endMarker = start < 0 ? -1 : text.indexOf(TOML_BLOCK_END, start);
+  if (endMarker < 0) return undefined;
+  let end = endMarker + TOML_BLOCK_END.length;
+  if (text.startsWith(newline, end)) end += newline.length;
+  const blockLines: string[] = [];
+  const toolLines: string[] = [];
+  let inToolTable = false;
+  for (const line of text.slice(start, end).split(newline)) {
+    const header = /^\[([^[].*)\]\s*(?:#.*)?$/.exec(line.trim());
+    if (header) {
+      const path = parseTomlKeyPath(header[1] ?? "");
+      inToolTable = path?.[0] === "mcp_servers" && path[1] === "work-intelligence" && path[2] === "tools";
+    } else if (line.trim() === TOML_BLOCK_END) {
+      inToolTable = false;
+    }
+    (inToolTable ? toolLines : blockLines).push(line);
+  }
+  const meaningful = (lines: string[]) => lines.filter((line) => line.trim() !== "").join("\n");
+  if (!toolLines.length || meaningful(blockLines) !== meaningful(ownedBlock.split(newline))) return undefined;
+  return text.slice(0, start) + desiredBlock + toolLines.join(newline) + newline + text.slice(end);
 }
 
 function parseTomlKeyPath(source: string): string[] | undefined {
@@ -1076,7 +1084,19 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   } else if (!tomlOwned && launchesRepositoryMcp(codexWorkIntelligenceServer(tomlText), repositoryRoot)) {
     plan.actions.push("保留既有 Codex MCP 註冊：已指向這個 Work Intelligence，不修改。");
   } else if (tomlOwned && !tomlText.includes(tomlOwnedExpected ?? "")) {
-    if (tomlText.includes(TOML_BLOCK_START) || tomlText.includes(TOML_BLOCK_END)) {
+    const moved = moveCodexToolTablesOutOfBlock(tomlText, tomlOwnedExpected ?? "", desiredBlock, tomlNewline);
+    if (moved) {
+      stageMutation(
+        plan,
+        options,
+        tomlPath,
+        "Codex MCP 註冊",
+        tomlFile.bytes,
+        Buffer.from(moved, "utf8"),
+        tomlFile.mode,
+      );
+      setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
+    } else if (tomlText.includes(TOML_BLOCK_START) || tomlText.includes(TOML_BLOCK_END)) {
       addConflict(plan, "Codex MCP 的安裝區塊已被修改；保留且拒絕覆寫。");
     } else if (!tomlHasUnsupportedMcpEntry(tomlText)) {
       const prefix = tomlText && !tomlText.endsWith("\n") ? tomlText + tomlNewline : tomlText;
