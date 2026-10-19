@@ -8,6 +8,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 - `pnpm setup:agents` no longer refuses the Codex MCP block after Codex saves a per-tool approval (`[mcp_servers.work-intelligence.tools.<tool>]`) inside it. The approval tables are moved below the block and kept; any other edit inside the block is still refused.
 - Codex hooks detection reads `~/.codex/config.toml` with a real TOML parser, so array tables (`[[skills.config]]`) and quoted headers containing brackets no longer make `setup:agents` and `pnpm check` report that it cannot tell whether hooks are disabled.
+- `GET /api/health` now answers `ok: false` with its 503 when the database query fails; it used to say `ok: true`. An invalid `WORK_INTELLIGENCE_PORT` (anything but an integer from 1 to 65535) makes the API listen on the default port 3210, as `pnpm track` and the database-busy hint already assumed, instead of crashing at startup or, for `0`, listening on a random port.
 
 ## [1.6.1] - 2026-10-19
 
