@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChartColumn, Download, FolderGit2, RefreshCw, Search } from "lucide-vue-next";
+import { ChartColumn, Download, FolderGit2, Search } from "lucide-vue-next";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import ReportCopyButton from "../components/domain/ReportCopyButton.vue";
@@ -13,7 +13,6 @@ import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiDateRangeMenu from "../components/ui/UiDateRangeMenu.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
-import UiIconButton from "../components/ui/UiIconButton.vue";
 import UiSegmentedControl from "../components/ui/UiSegmentedControl.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
@@ -33,7 +32,6 @@ const {
   exportItems,
   reportLoading,
   reportExportLoading,
-  refreshReport,
   exportReport,
   reportError,
   report,
@@ -94,14 +92,8 @@ const {
         variant="button"
         align="end"
         :items="exportItems"
+        :loading="Boolean(reportExportLoading)"
         @select="exportReport"
-      />
-      <UiIconButton
-        :icon="RefreshCw"
-        :label="t('reports.refreshReport')"
-        variant="default"
-        :loading="reportLoading || Boolean(reportExportLoading)"
-        @click="refreshReport(true)"
       />
     </template>
   </PageHeader>

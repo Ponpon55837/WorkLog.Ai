@@ -13,8 +13,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The architecture diagram reader lays out cards without authored positions along their connections: groups become blocks placed left to right by the links between them, blocks in the same column stack and center, and cards inside a group form sub-columns by their own links. Cycles turn back at the node declared first. Authored `position` values never move, and automatic cards are placed clear of them.
 - Connections use orthogonal routes with rounded corners between the facing sides of two cards. Links that share a side get spread ports, routes go around cards in the way, parallel runs keep separate lanes, and among clear routes the one with the fewest crossings and bends wins.
 - Edge labels are shown on the line in a pill (long labels are shortened; the full text stays in the tooltip). Each group gets one of six theme tones for its frame, its cards and its outgoing connections; hovering, focusing or selecting a card highlights its connections and dims the rest.
+- Removed per-section refresh buttons whose data already updates on its own through the SQLite change stream and Agent request polling: Agent reads, open-item cleanup, metadata backfill status, AI report synthesis status, report presentation and the work report page. The header refresh, error retries, System status refresh and the backup list refresh (service and backup files live outside SQLite) stay.
+- AI synthesis re-run buttons no longer read 重新整理: the small one says 重新產生／Regenerate and the main one 重新產生這份報告的整理. Knowledge page update/creation requests use the sparkles icon instead of the refresh icon.
 
-Frontend only: the architecture JSON format, the database schema (30) and the MCP contracts are unchanged.
+The architecture reader is frontend only: the architecture JSON format, the database schema (30) and the MCP contracts are unchanged.
 
 ## [1.6.0] - 2026-10-16
 

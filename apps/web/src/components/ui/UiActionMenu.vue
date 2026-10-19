@@ -3,6 +3,7 @@ import { computed, nextTick, watch } from "vue";
 import { Check, ChevronDown } from "lucide-vue-next";
 import { usePopover } from "../../composables/usePopover";
 import type { IconComponent, SelectOption } from "./types";
+import UiSpinner from "./UiSpinner.vue";
 
 /**
  * Dropdown menu. With `v-model` it is a single-select filter (check marks, "applied" trigger state);
@@ -20,6 +21,8 @@ const props = withDefaults(
     variant?: "filter" | "button";
     size?: "md" | "sm";
     hideLabelOnMobile?: boolean;
+    /** Shows a spinner in place of the icon and blocks opening while the chosen action runs. */
+    loading?: boolean;
   }>(),
   { align: "start", variant: "filter", size: "md" },
 );
@@ -81,9 +84,12 @@ watch(open, async (value) => {
     ]"
     aria-haspopup="menu"
     :aria-expanded="open"
+    :aria-busy="loading || undefined"
+    :disabled="loading"
     @click="toggle"
   >
-    <component :is="icon" v-if="icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+    <UiSpinner v-if="loading" :size="14" />
+    <component :is="icon" v-else-if="icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
     <span :class="{ 'ui-action-menu__label--hide-sm': hideLabelOnMobile }">{{ label }}</span>
     <ChevronDown :size="14" :stroke-width="1.75" aria-hidden="true" />
   </button>

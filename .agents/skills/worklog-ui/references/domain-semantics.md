@@ -21,7 +21,7 @@ The Work Intelligence data contract is defined in [`docs/work-record-and-report-
 ## Metadata backfill
 
 - Keep three gaps visually distinct: **changed-files metadata 缺漏**, **verification 尚未回報**, **verification 明確 not_run** (README requirement 8).
-- The UI only scans stored metadata and creates requests; it never writes guessed metadata. Actions shown are 掃描、複製 Agent 指令、取消、重新整理.
+- The UI only scans stored metadata and creates requests; it never writes guessed metadata. Actions shown are 掃描、複製 Agent 指令、取消; request status updates on its own (polling while active plus the SSE change stream), so there is no per-section refresh button.
 
 ## Reports and AI synthesis
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
-import { BookMarked, Eye, FilePlus2, RefreshCw } from "lucide-vue-next";
+import { BookMarked, Eye, FilePlus2, Sparkles } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_DEFAULTS, type KnowledgePageRecord, type ProjectRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
@@ -228,7 +228,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
               <UiButton
                 size="sm"
                 :variant="!row.page ? 'primary' : 'default'"
-                :icon="RefreshCw"
+                :icon="Sparkles"
                 :loading="requesting === row.key"
                 @click="requestUpdate(row)"
                 >{{ row.page ? t("knowledge.requestUpdate") : t("knowledge.requestCreation") }}</UiButton

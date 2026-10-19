@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
-import { CircleCheckBig, RefreshCw, ScanSearch, X } from "lucide-vue-next";
+import { CircleCheckBig, ScanSearch, X } from "lucide-vue-next";
 import UiSelect from "../ui/UiSelect.vue";
 import { useProjectsStore } from "../../stores/projects";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
@@ -16,7 +16,6 @@ import UiButton from "../ui/UiButton.vue";
 import UiCommandBlock from "../ui/UiCommandBlock.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
-import UiIconButton from "../ui/UiIconButton.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
 import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
@@ -40,7 +39,6 @@ const {
   metadataBackfillRequestError,
 } = storeToRefs(metadataBackfillStore);
 const {
-  loadMetadataBackfillRequest,
   refreshMetadataBackfillRequest,
   createMetadataBackfillRequest,
   cancelMetadataBackfillRequest,
@@ -100,13 +98,6 @@ const requestMessage = computed(() => {
         <UiBoxTitle eyebrow="Agent request" :title="t('projects.askAgentToBackfillMetadata')" />
         <div class="backfill__request-actions">
           <StatusLabel :status="requestStatus[request.status]" />
-          <UiIconButton
-            :icon="RefreshCw"
-            :label="t('projects.refreshBackfillStatus')"
-            size="sm"
-            :loading="metadataBackfillRequestLoading"
-            @click="loadMetadataBackfillRequest"
-          />
         </div>
       </template>
       <p class="backfill__message">{{ requestMessage }}</p>
