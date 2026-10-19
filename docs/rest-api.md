@@ -57,17 +57,12 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 ## 結果語意：HTTP 錯誤與 `outcome`
 
-API 依失敗發生在哪一層，分三種方式回報「沒有做成」：
+先看 HTTP 狀態，再看 body：
 
-- **請求無法處理：HTTP 4xx 加 `code`。** 找不到路由、Host／Origin 不允許、body 格式或大小錯誤、輸入驗證失敗（400），以及自訂 handler 找不到 URL 上指名的資源。例如 `GET /api/sessions/:id` 找不到 Session 回 404 `not_found`；`DELETE /api/projects/:id` 找不到專案回 404 `project_not_found`；`DELETE /api/sessions/:id` 找不到 Session 回 404 `session_not_found`，Session 尚未作廢回 409 `session_not_voided`。
-- **通過驗證後的領域衝突或狀態不合：HTTP 409／400 加 `code`。** 下列路由在輸入驗證通過後，仍會把資料已變更或狀態不合轉成 HTTP 錯誤：
-  - 報告呈現的三條路由（`GET /api/reports/summaries/:summaryId/presentation`、`GET` 同路徑加 `/export`，以及 `PATCH /api/reports/summaries/:summaryId/presentation`）：資料已變更回 409 `conflict`，內容無效回 400 `invalid_input`，報告來源不存在回 404 `not_found`。
-  - `PATCH /api/attention/preferences`：來源或偏好已變更回 409 `conflict`，提醒來源不存在回 404 `not_found`。
-  - 未結項清理路由（`/api/outstanding-cleanup/requests` 及其子路徑）：store 回 `outcome: "rejected"` 時，過期建議、已審核、已決定、冪等鍵衝突、請求已關閉或已有進行中的請求回 409 `conflict`，其他原因回 400 `invalid_input`；`details` 附上 `reason`。
-  - `PATCH /api/outstanding-items/batch`：狀態已變更（`status_conflict`）回 409 `conflict`，其他拒絕原因回 400 `invalid_input`；`details` 附上 `reason` 與 `invalidItemIds`。
-- **其他情況：HTTP 200 或 201 加 `outcome`。** 其餘交給 store 的業務操作回 200（建立類操作為 201），結果放在 body 的 `outcome`。成功是各自的 outcome（例如 `session_void_updated`）；目標不存在是 `outcome: "not_found"` 並附上該 id；Project Policy 擋下的寫入是 `outcome: "skipped"` 並附上 `projectStatus`。`not_found` 與 `skipped` 是 outcome，不是 HTTP 錯誤。例如 `PATCH /api/sessions/:id/void` 對不存在的 Session 回 200 與 `{ "outcome": "not_found", "sessionId": "<id>" }`；未結項清理路由的 `not_found`、`skipped` 與 `not_needed` 也回 200。
+- **非 2xx：錯誤回應。** body 含 `error` 與 `code`，有驗證細節時另附 `details`（`apps/server/src/http.ts` 的 `sendError`）。`code` 一定是 `packages/core/src/index.ts` 中 `API_ERROR_CODES` 的值，常見代碼見上方兩張表。各路由在哪些情況回哪個狀態碼以該路由為準，這裡不逐一列出。例如未結項清理路由在 store 回 `outcome: "rejected"` 時改回 409 `conflict` 或 400 `invalid_input`，`details` 附上 `reason`。
+- **2xx：結果物件。** 回 200 或 201，body 是該操作的結果。許多寫入操作把結果放在 `outcome`；對這些操作，目標不存在（`outcome: "not_found"`）與被 Project Policy 擋下的寫入（`outcome: "skipped"`，附上 `projectStatus`）都是 2xx 的 outcome，不是 HTTP 錯誤。例如 `PATCH /api/sessions/:id/void` 對不存在的 Session 回 200 與 `{ "outcome": "not_found", "sessionId": "<id>" }`。
 
-這是 client 依賴的契約。Web 的作廢、Session 連結、Knowledge、未結項清理與 Session 更新流程都先讀 `outcome` 判斷結果，所以這些 `not_found` 與 `skipped` outcome 不會改成 HTTP 404 或 4xx；未結項清理只有 `rejected` 會轉成 409 或 400。
+這是 client 依賴的契約：Web 先依 HTTP 狀態判斷是否出錯，2xx 時再讀 `outcome`，例如作廢流程會分別處理 `not_found` 與 `skipped`。
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
