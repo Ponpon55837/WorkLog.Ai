@@ -59,7 +59,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 先看 HTTP 狀態，再看 body：
 
-- **非 2xx：錯誤回應。** 錯誤回應由 `apps/server/src/http.ts` 的 `sendError` 送出，body 含 `error` 與 `code`，有驗證細節時另附 `details`。`code` 取自 `packages/core/src/index.ts` 中的 `API_ERROR_CODES`，常見代碼見上方兩張表。各路由在哪些情況回哪個狀態碼以該路由為準，這裡不逐一列出。例如未結項清理路由在 store 回 `outcome: "rejected"` 時改回 409 `conflict` 或 400 `invalid_input`，`details` 附上 `reason`。
+- **非 2xx：錯誤回應。** 常見代碼見上方兩張表。各路由在哪些情況回哪個狀態碼以該路由為準，這裡不逐一列出。例如未結項清理路由在 store 回 `outcome: "rejected"` 時改回 409 `conflict` 或 400 `invalid_input`，`details` 附上 `reason`。
 - **2xx：結果物件。** 回 200 或 201，body 是該操作的結果。許多寫入操作把結果放在 `outcome`；對這些操作，目標不存在（`outcome: "not_found"`）與被 Project Policy 擋下的寫入（`outcome: "skipped"`，附上 `projectStatus`）都是 2xx 的 outcome，不是 HTTP 錯誤。例如 `PATCH /api/sessions/:id/void` 對不存在的 Session 回 200 與 `{ "outcome": "not_found", "sessionId": "<id>" }`。
 
 這是 client 依賴的契約：Web 先依 HTTP 狀態判斷是否出錯，2xx 時再讀 `outcome`，例如作廢流程會分別處理 `not_found` 與 `skipped`。
