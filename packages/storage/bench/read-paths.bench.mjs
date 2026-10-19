@@ -616,6 +616,45 @@ try {
       benchStore.getHotspots({ groupBy: "directory", from: "2026-03-01", to: "2026-03-31", limit: 20 }),
   };
 
+  const projectDataBundle = benchStore.exportProjectData({ type: "all" });
+  const exportDirectory = join(root, "export");
+  const resetHeavyOutputs = () => {
+    rmSync(join(root, "backups"), { recursive: true, force: true });
+    rmSync(exportDirectory, { recursive: true, force: true });
+    mkdirSync(exportDirectory);
+  };
+  // Each call holds the event loop for its whole duration, so this is how long the API and SSE stop answering.
+  const heavyCases = {
+    createBackup: () => {
+      const result = benchStore.createBackup();
+      if (result.outcome !== "database_backups" || !result.created.bytes) throw new Error("Expected a written backup.");
+      return result;
+    },
+    "exportTo (whole database)": () => {
+      const result = benchStore.exportTo(join(exportDirectory, "export.sqlite"));
+      if (!result.bytes) throw new Error("Expected a written export.");
+      return result;
+    },
+    "exportProjectData (all projects)": () => {
+      const result = benchStore.exportProjectData({ type: "all" });
+      if (result.tables.sessions.length < sessionCount) throw new Error("Expected every synthetic Session exported.");
+      return result;
+    },
+    "previewProjectDataImport (all projects)": () => {
+      const result = benchStore.previewProjectDataImport({ bundle: projectDataBundle });
+      if (result.outcome !== "project_data_import_preview" || (result.skipped.sessions ?? 0) < sessionCount)
+        throw new Error("Expected every synthetic Session previewed as already present.");
+      return result;
+    },
+  };
+  const heavyRuns = 5;
+  const beforeEachRun = {
+    "getMcpRuntimeStatus (286 expired leases)": seedExpiredLeases,
+    "registerMcpProcess (286 expired leases)": seedExpiredLeases,
+    createBackup: resetHeavyOutputs,
+    "exportTo (whole database)": resetHeavyOutputs,
+  };
+
   const limitsMs = {
     "getContext (large report source request)": 500,
     "report fixed-source context page": 1500,
@@ -664,27 +703,33 @@ try {
     "getHotspots (files)": 500,
     "getHotspots (directories, month)": 500,
     "searchKnowledge (staleness)": 500,
+    createBackup: 9400,
+    "exportTo (whole database)": 8300,
+    "exportProjectData (all projects)": 10600,
+    "previewProjectDataImport (all projects)": 19500,
   };
 
   const results = [];
-  const selectedCases = Object.entries(cases).filter(([name]) => !checkMode || name in limitsMs);
+  const selectedCases = Object.entries({ ...cases, ...heavyCases }).filter(([name]) => !checkMode || name in limitsMs);
   for (const [name, run] of selectedCases) {
-    if (name.includes("286 expired leases")) seedExpiredLeases();
+    const caseRuns = name in heavyCases ? heavyRuns : runs;
+    beforeEachRun[name]?.();
     await run();
     const samples = [];
-    for (let index = 0; index < runs; index += 1) {
-      if (name.includes("286 expired leases")) seedExpiredLeases();
+    for (let index = 0; index < caseRuns; index += 1) {
+      beforeEachRun[name]?.();
       const started = performance.now();
       await run();
       samples.push(performance.now() - started);
     }
     samples.sort((a, b) => a - b);
-    const p90Ms = Number(samples[Math.ceil(runs * 0.9) - 1].toFixed(2));
+    const p90Ms = Number(samples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
     results.push({
       case: name,
-      medianMs: Number(samples[Math.floor(runs / 2)].toFixed(2)),
+      runs: caseRuns,
+      medianMs: Number(samples[Math.floor(caseRuns / 2)].toFixed(2)),
       p90Ms,
-      maxMs: Number(samples[runs - 1].toFixed(2)),
+      maxMs: Number(samples[caseRuns - 1].toFixed(2)),
       limitMs: limitsMs[name] ?? null,
       passed: checkMode ? p90Ms <= limitsMs[name] : undefined,
     });
@@ -698,7 +743,9 @@ try {
       );
       process.exitCode = 1;
     } else {
-      console.log(`Performance regression gate passed (${sessionCount} synthetic sessions, p90 of ${runs} runs).`);
+      console.log(
+        `Performance regression gate passed (${sessionCount} synthetic sessions, p90 of ${runs} runs, ${heavyRuns} for backup, export and import preview).`,
+      );
     }
   }
   benchStore.close();

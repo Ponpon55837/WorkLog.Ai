@@ -129,6 +129,12 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |
 | 工作熱度日曆（一整年，每日 Session 計數，本地日於記憶體分桶） | 250 ms |
 | Knowledge 列表含過時判斷（20 筆 Knowledge × 一年的 Session） | 500 ms |
+| 手動備份（`createBackup`，整個資料庫快照） | 9,400 ms |
+| 整庫匯出（`exportTo`，`VACUUM INTO`） | 8,300 ms |
+| 專案資料匯出（`exportProjectData`，全部專案） | 10,600 ms |
+| 匯入預覽（`previewProjectDataImport`，全部專案） | 19,500 ms |
+
+備份、整庫匯出、專案資料匯出與匯入預覽四個案例量的是同步阻塞時間。這些呼叫在 server 的同一條 event loop 上執行，執行期間 REST API 與 SSE 都不會回應。每次是秒級，所以只跑 5 次，p90 即 5 次中的最大值；它們沿用同一個 5,000 Sessions 的合成 store，不另開 bench 檔，以免重新播種。`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入同一根目錄下的 `export/`，兩者在每次計時前清空（不計入時間），結束後隨暫存根目錄一併移除。匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。目前的上限是暫定值，約為本機 p90 的 3 倍。
 
 搜尋的上限原本是 10,000 ms。修正全文搜尋的 join 順序後（見 `search-repository.ts` 的 `CROSS JOIN` 註解），中位數從約 2,000 ms 降到約 13 ms，因此收緊到 500 ms，讓同樣數量級的退化會直接失敗。新增讀取路徑時，請在 `read-paths.bench.mjs` 加上對應情境與上限。
 

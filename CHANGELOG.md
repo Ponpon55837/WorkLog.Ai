@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- `pnpm test:performance` now gates how long a manual backup, a whole-database export, a project-data export and an import preview block the server on 5,000 synthetic Sessions. Each runs 5 times and fails when its p90 exceeds its budget.
+
 ### Fixed
 
 - `pnpm setup:agents` no longer refuses the Codex MCP block after Codex saves a per-tool approval (`[mcp_servers.work-intelligence.tools.<tool>]`) inside it. The approval tables are moved below the block and kept; any other edit inside the block is still refused.
