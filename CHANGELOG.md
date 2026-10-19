@@ -4,6 +4,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- `pnpm setup:agents` no longer refuses the Codex MCP block after Codex saves a per-tool approval (`[mcp_servers.work-intelligence.tools.<tool>]`) inside it. The approval tables are moved below the block and kept; any other edit inside the block is still refused.
+- Codex hooks detection reads `~/.codex/config.toml` with a real TOML parser, so array tables (`[[skills.config]]`) and quoted headers containing brackets no longer make `setup:agents` and `pnpm check` report that it cannot tell whether hooks are disabled.
+
 ## [1.6.1] - 2026-10-19
 
 [繁體中文更新說明](docs/releases/1.6.1.md).

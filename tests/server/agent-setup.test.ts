@@ -617,6 +617,59 @@ describe("Agent setup", () => {
     expect(componentIds).not.toContain("codexUserPromptSubmitHook");
   });
 
+  it.each([
+    ["true", "enabled"],
+    ["false", "disabled"],
+  ])("reads [features].hooks = %s past array tables and quoted headers containing brackets", (value, expected) => {
+    const fixture = createFixture();
+    mkdirSync(dirname(fixture.paths.codexConfig), { recursive: true });
+    writeFileSync(
+      fixture.paths.codexConfig,
+      [
+        "[features]",
+        `hooks = ${value}`,
+        '[hooks.state."fixture@bundled:plugin.json#hooks[0]:stop:0:0"]',
+        'trusted_hash = "sha256:fixture"',
+        "[[skills.config]]",
+        "path = 'C:\\fixture\\SKILL.md'",
+        "enabled = false",
+        "",
+      ].join("\n"),
+    );
+
+    expect(inspectCodexHooksFeature(fixture.options.homeDirectory, fixture.paths.codexHome)).toBe(expected);
+    expect(createAgentSetupPlan(fixture.options).actions.some((action) => action.includes("無法安全判斷"))).toBe(false);
+  });
+
+  it("moves Codex tool approval tables out of the owned block instead of refusing it", () => {
+    const fixture = createFixture();
+    expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options)).applied).toBe(true);
+    const approval = '[mcp_servers.work-intelligence.tools.work_write_overwrite]\napproval_mode = "approve"\n';
+    const installed = readFileSync(fixture.paths.codexConfig, "utf8");
+    const blockEnd = "# <<< Work Intelligence setup:agents <<<\n";
+    // Codex appends per-tool approvals after the last table, which is inside the block when it ends the file.
+    writeFileSync(fixture.paths.codexConfig, installed.replace(blockEnd, `\n${approval}${blockEnd}`));
+
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(installed + approval);
+
+    const rerun = createAgentSetupPlan(fixture.options);
+    expect(rerun.conflicts).toEqual([]);
+    expect(rerun.mutations.some((mutation) => mutation.path === fixture.paths.codexConfig)).toBe(false);
+  });
+
+  it("still refuses an owned Codex block whose own registration was edited", () => {
+    const fixture = createFixture();
+    expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options)).applied).toBe(true);
+    const installed = readFileSync(fixture.paths.codexConfig, "utf8");
+    writeFileSync(fixture.paths.codexConfig, installed.replace('command = "node"', 'command = "fixture-node"'));
+
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts.some((conflict) => conflict.includes("安裝區塊已被修改"))).toBe(true);
+  });
+
   it("keeps canonical Codex skill in home with custom legacy Codex and Claude config roots", () => {
     const fixture = createFixture();
     const codexHomeDirectory = join(fixture.temporaryRoot, "custom-codex-root");
