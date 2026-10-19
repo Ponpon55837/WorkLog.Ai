@@ -7,7 +7,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import { usePreferencesStore } from "../../stores/preferences";
-import { layoutArchitecture } from "../../utils/architecture-diagram";
+import { ARCHITECTURE_TONE_COUNT, layoutArchitecture } from "../../utils/architecture-diagram";
 import { editorFileUrl } from "../../utils/code-links";
 import { t } from "../../i18n";
 
@@ -17,12 +17,24 @@ const props = withDefaults(
   { interactive: false, projectRoot: "" },
 );
 const emit = defineEmits<{ expand: [] }>();
+const tones = Array.from({ length: ARCHITECTURE_TONE_COUNT }, (_, index) => index);
+// Fixed-size arrows: markers would otherwise scale with the emphasized stroke width.
+const markerShape = {
+  viewBox: "0 0 10 10",
+  refX: 9,
+  refY: 5,
+  markerWidth: 9,
+  markerHeight: 9,
+  markerUnits: "userSpaceOnUse",
+  orient: "auto-start-reverse",
+};
 
 const { editor } = storeToRefs(usePreferencesStore());
 const markerId = `architecture-${useId().replace(/:/g, "")}`;
 const host = ref<HTMLElement | null>(null);
 const groupId = ref("");
 const selectedId = ref("");
+const hoveredId = ref("");
 const inspectorOpen = ref(true);
 const focusId = ref("");
 const pathId = ref("");
@@ -62,6 +74,27 @@ const pathNodes = computed(() => {
   return ids.map((id) => nodes.get(id)!);
 });
 const onPath = computed(() => new Set(pathNodes.value.map((node) => node.id)));
+const nodeTones = computed(() => new Map(layout.value?.nodes.map((item) => [item.node.id, item.tone]) ?? []));
+const activeId = computed(() => hoveredId.value || selectedId.value);
+const relatedNodes = computed(() => {
+  const ids = new Set<string>();
+  for (const edge of layout.value?.edges ?? []) {
+    if (edge.from === activeId.value) ids.add(edge.to);
+    if (edge.to === activeId.value) ids.add(edge.from);
+  }
+  return ids;
+});
+// Emphasized connections draw last so they stay on top where routes cross.
+const drawnEdges = computed(() =>
+  (layout.value?.edges ?? [])
+    .map((edge) => {
+      const related = !!activeId.value && (edge.from === activeId.value || edge.to === activeId.value);
+      const emphasized = related || pathEdges.value.has(edge.id);
+      const dimmed = !emphasized && (!!activeId.value || pathEdges.value.size > 0);
+      return { ...edge, tone: nodeTones.value.get(edge.from), emphasized, dimmed };
+    })
+    .sort((a, b) => Number(a.emphasized) - Number(b.emphasized)),
+);
 const neighbors = computed(() => {
   if (!diagram.value || !selected.value) return [];
   const ids = new Set<string>();
@@ -85,6 +118,15 @@ const sourceLink = computed(() =>
     : undefined,
 );
 const zoomLabel = computed(() => t("session.diagramZoom", { percent: Math.round(scale.value * 100) }));
+
+function toneStyle(tone: number | undefined): Record<string, string> {
+  return tone === undefined ? {} : { "--tone": `var(--diagram-tone-${tone + 1})` };
+}
+
+function markerFor(edge: { tone?: number; emphasized: boolean }): string {
+  if (edge.emphasized) return `url(#${markerId}-active)`;
+  return edge.tone === undefined ? `url(#${markerId}-neutral)` : `url(#${markerId}-${edge.tone})`;
+}
 
 function expand(event: MouseEvent): void {
   if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
@@ -305,42 +347,96 @@ onBeforeUnmount(() => {
                 <svg class="architecture__edges" :width="layout.width" :height="layout.height" aria-hidden="true">
                   <defs>
                     <marker
-                      :id="markerId"
-                      viewBox="0 0 10 10"
-                      refX="9"
-                      refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
-                      orient="auto-start-reverse"
+                      v-for="tone in tones"
+                      :id="`${markerId}-${tone}`"
+                      :key="tone"
+                      class="architecture__marker"
+                      :style="toneStyle(tone)"
+                      v-bind="markerShape"
+                    >
+                      <path d="M 0 0 L 10 5 L 0 10 z" />
+                    </marker>
+                    <marker :id="`${markerId}-neutral`" class="architecture__marker" v-bind="markerShape">
+                      <path d="M 0 0 L 10 5 L 0 10 z" />
+                    </marker>
+                    <marker
+                      :id="`${markerId}-active`"
+                      class="architecture__marker architecture__marker--active"
+                      v-bind="markerShape"
                     >
                       <path d="M 0 0 L 10 5 L 0 10 z" />
                     </marker>
                   </defs>
-                  <g v-for="group in layout.groups" :key="group.id" class="architecture__boundary">
-                    <rect :x="group.x" :y="group.y" :width="group.width" :height="group.height" rx="6" />
+                  <g
+                    v-for="group in layout.groups"
+                    :key="group.id"
+                    class="architecture__boundary"
+                    :style="toneStyle(group.tone)"
+                  >
+                    <rect :x="group.x" :y="group.y" :width="group.width" :height="group.height" rx="8" />
                     <text :x="group.x + 12" :y="group.y + 22">{{ group.label }}</text>
                   </g>
                   <path
-                    v-for="edge in layout.edges"
+                    v-for="edge in drawnEdges"
                     :key="edge.id"
                     :d="edge.d"
-                    :class="['architecture__edge', { 'is-on-path': pathEdges.has(edge.id) }]"
-                    :marker-end="`url(#${markerId})`"
+                    :class="[
+                      'architecture__edge',
+                      {
+                        'is-on-path': pathEdges.has(edge.id),
+                        'is-emphasized': edge.emphasized,
+                        'is-dimmed': edge.dimmed,
+                      },
+                    ]"
+                    :style="toneStyle(edge.tone)"
+                    :marker-end="markerFor(edge)"
                   >
                     <title>{{ edge.label }}</title>
                   </path>
+                  <template v-for="edge in drawnEdges" :key="`label-${edge.id}`">
+                    <g
+                      v-if="edge.labelBox"
+                      :class="[
+                        'architecture__edge-label',
+                        { 'is-emphasized': edge.emphasized, 'is-dimmed': edge.dimmed },
+                      ]"
+                    >
+                      <rect
+                        :x="edge.labelBox.x - edge.labelBox.width / 2"
+                        :y="edge.labelBox.y - 10"
+                        :width="edge.labelBox.width"
+                        height="20"
+                        rx="10"
+                      />
+                      <text :x="edge.labelBox.x" :y="edge.labelBox.y + 4" text-anchor="middle">
+                        {{ edge.labelBox.text }}
+                        <title>{{ edge.label }}</title>
+                      </text>
+                    </g>
+                  </template>
                 </svg>
                 <button
                   v-for="item in layout.nodes"
                   :key="item.node.id"
                   type="button"
-                  :class="['architecture__node', { 'is-on-path': onPath.has(item.node.id) }]"
-                  :style="{ left: `${item.x}px`, top: `${item.y}px` }"
+                  :class="[
+                    'architecture__node',
+                    {
+                      'is-on-path': onPath.has(item.node.id),
+                      'is-related': relatedNodes.has(item.node.id),
+                      'is-grouped': item.tone !== undefined,
+                    },
+                  ]"
+                  :style="{ left: `${item.x}px`, top: `${item.y}px`, ...toneStyle(item.tone) }"
                   :aria-pressed="selectedId === item.node.id"
                   :aria-label="t('session.inspectArchitectureNode', { label: item.node.label })"
                   :tabindex="interactive ? 0 : -1"
                   :title="item.node.label"
                   @click="interactive ? selectNode(item.node.id) : expand($event)"
+                  @mouseenter="hoveredId = item.node.id"
+                  @mouseleave="hoveredId = ''"
+                  @focus="hoveredId = item.node.id"
+                  @blur="hoveredId = ''"
                 >
                   <strong>{{ item.node.label }}</strong
                   ><span>{{ item.node.description || groupLabels.get(item.node.groupId ?? "") }}</span
@@ -533,6 +629,7 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .architecture__graph {
+  --tone: var(--fg-muted);
   position: absolute;
   top: 0;
   left: 0;
@@ -542,33 +639,60 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
 }
-.architecture__edges marker path {
-  fill: var(--fg-muted);
+.architecture__marker path {
+  fill: var(--tone);
+}
+.architecture__marker--active path {
+  fill: var(--accent);
 }
 .architecture__boundary rect {
-  fill: var(--bg-subtle);
-  stroke: var(--border);
-  stroke-dasharray: 4 4;
+  fill: color-mix(in srgb, var(--tone) 8%, var(--bg-inset));
+  stroke: color-mix(in srgb, var(--tone) 45%, transparent);
 }
 .architecture__boundary text {
-  fill: var(--fg-muted);
+  fill: var(--tone);
   font-size: 12px;
   font-weight: 600;
 }
 .architecture__edge {
   fill: none;
-  stroke: var(--fg-muted);
-  stroke-width: 1.5;
+  stroke: var(--tone);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  transition:
+    opacity var(--duration-instant) var(--ease-standard),
+    stroke-width var(--duration-instant) var(--ease-standard);
+}
+.architecture__edge.is-emphasized {
+  stroke: var(--accent);
+  stroke-width: 2.5;
 }
 .architecture__edge.is-on-path {
-  stroke: var(--accent);
   stroke-width: 3;
+}
+.architecture__edge.is-dimmed,
+.architecture__edge-label.is-dimmed {
+  opacity: 0.25;
+}
+.architecture__edge-label rect {
+  fill: var(--bg-canvas);
+  stroke: var(--border);
+}
+.architecture__edge-label text {
+  fill: var(--fg-muted);
+  font-size: 12px;
+}
+.architecture__edge-label.is-emphasized rect {
+  stroke: var(--accent);
+}
+.architecture__edge-label.is-emphasized text {
+  fill: var(--fg);
 }
 .architecture__node {
   position: absolute;
   width: 200px;
   height: 86px;
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) calc(var(--space-3) + 3px);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -579,6 +703,12 @@ onBeforeUnmount(() => {
   border-radius: var(--radius);
   background: var(--bg-canvas);
   cursor: pointer;
+}
+/* A group's tone marks its cards with a tinted edge and a leading stripe. */
+.architecture__node.is-grouped {
+  border-color: color-mix(in srgb, var(--tone) 55%, var(--border));
+  background: color-mix(in srgb, var(--tone) 6%, var(--bg-canvas));
+  box-shadow: inset 3px 0 0 var(--tone);
 }
 .architecture__node strong,
 .architecture__node span,
@@ -602,7 +732,8 @@ onBeforeUnmount(() => {
   gap: var(--space-1);
   align-items: center;
 }
-.architecture__node:hover {
+.architecture__node:hover,
+.architecture__node.is-related {
   border-color: var(--accent);
 }
 .architecture__node[aria-pressed="true"],

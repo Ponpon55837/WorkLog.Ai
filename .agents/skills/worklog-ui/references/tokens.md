@@ -27,6 +27,8 @@ Two sets share the same token names: GitHub dark on `:root` (the default) and a 
 | `--done` | `#a371f7` | `#6235b8` | AI synthesis, completed synthesis, Knowledge accents |
 | UnderlineNav active bar | `#f78166` | `#fd8c73` | Only for the selected UnderlineNav tab |
 
+Diagram tones `--diagram-tone-1` … `--diagram-tone-6` (dark: blue `#4493f8`, purple `#ab7df8`, green `#3fb950`, orange `#f0883e`, pink `#f778ba`, cyan `#39c5cf`; light: `#0754ae`, `#6235b8`, `#16652a`, `#8f3c00`, `#99195f`, `#0a5f6b`) are categorical colors for architecture-diagram groups only, never status. Each reaches 4.5:1 as 12px text on its own 8% tint over `--bg-inset`; tint surfaces with `color-mix(in srgb, var(--diagram-tone-N) 6–8%, <surface>)`.
+
 Label recipe (GitHub style): text = color token, border = color at 40% alpha, background = color at 10% alpha. Neutral Label: `--fg-muted` text, `--border` border, transparent background.
 
 Counter: `rgba(110,118,129,.4)` background, 12px, pill; attention variant `rgba(187,128,9,.4)`.
