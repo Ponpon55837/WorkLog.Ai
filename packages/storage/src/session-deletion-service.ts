@@ -8,11 +8,11 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 import type { SearchRepository } from "./search-repository.js";
 
 export type SessionDeletionErrorCode =
-  | "SESSION_NOT_FOUND"
-  | "SESSION_NOT_VOIDED"
-  | "SESSION_CITED_BY_PENDING_CLEANUP"
-  | "SESSION_BACKUP_FAILED"
-  | "SESSION_DELETE_FAILED";
+  | "session_not_found"
+  | "session_not_voided"
+  | "session_cited_by_pending_cleanup"
+  | "session_backup_failed"
+  | "session_delete_failed";
 
 export class SessionDeletionError extends Error {
   public constructor(public readonly code: SessionDeletionErrorCode) {
@@ -86,7 +86,7 @@ export class SessionDeletionService {
   public deleteSession(sessionId: string): DeleteSessionResult {
     this.assertDeletable(sessionId);
     if (this.databasePath === ":memory:") {
-      throw new SessionDeletionError("SESSION_BACKUP_FAILED");
+      throw new SessionDeletionError("session_backup_failed");
     }
 
     let backupFileName: string;
@@ -97,7 +97,7 @@ export class SessionDeletionService {
       if (isDatabaseBusyError(error)) {
         throw error;
       }
-      throw new SessionDeletionError("SESSION_BACKUP_FAILED");
+      throw new SessionDeletionError("session_backup_failed");
     }
 
     let result: DeleteSessionResult;
@@ -147,7 +147,7 @@ export class SessionDeletionService {
       if (error instanceof SessionDeletionError || isDatabaseBusyError(error)) {
         throw error;
       }
-      throw new SessionDeletionError("SESSION_DELETE_FAILED");
+      throw new SessionDeletionError("session_delete_failed");
     }
 
     // The delete triggers marked the Session dirty; syncing now drops it from search right away.
@@ -160,10 +160,10 @@ export class SessionDeletionService {
     const session = this.db.prepare("SELECT id, project_id, voided_at FROM sessions WHERE id = ?").get(sessionId) as
       SessionStateRow | undefined;
     if (!session) {
-      throw new SessionDeletionError("SESSION_NOT_FOUND");
+      throw new SessionDeletionError("session_not_found");
     }
     if (!session.voided_at) {
-      throw new SessionDeletionError("SESSION_NOT_VOIDED");
+      throw new SessionDeletionError("session_not_voided");
     }
     // A pending cleanup proposal for another Session's item would silently lose part of its evidence.
     const cited = this.db
@@ -181,7 +181,7 @@ export class SessionDeletionService {
       )
       .get(sessionId);
     if (cited) {
-      throw new SessionDeletionError("SESSION_CITED_BY_PENDING_CLEANUP");
+      throw new SessionDeletionError("session_cited_by_pending_cleanup");
     }
     return session;
   }

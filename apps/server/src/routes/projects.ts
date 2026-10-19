@@ -27,13 +27,13 @@ async function deleteProject({ store, request, response, params }: RouteContext)
       throw error;
     }
     switch (error.code) {
-      case "PROJECT_NOT_FOUND":
+      case "project_not_found":
         sendError(response, 404, "Project not found.", undefined, error.code);
         return;
-      case "PROJECT_NAME_MISMATCH":
+      case "project_name_mismatch":
         sendError(response, 409, "The confirmation name does not match the project name.", undefined, error.code);
         return;
-      case "PROJECT_BACKUP_FAILED":
+      case "project_backup_failed":
         sendError(
           response,
           503,
@@ -42,7 +42,7 @@ async function deleteProject({ store, request, response, params }: RouteContext)
           error.code,
         );
         return;
-      case "PROJECT_DELETE_FAILED":
+      case "project_delete_failed":
         sendError(
           response,
           500,

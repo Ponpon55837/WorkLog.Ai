@@ -6,7 +6,12 @@ import { tmpdir } from "node:os";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import type { SystemAgentConnections, UserServiceManager, UserServiceStatus } from "../../packages/core/src/index.js";
+import {
+  API_ERROR_CODES,
+  type SystemAgentConnections,
+  type UserServiceManager,
+  type UserServiceStatus,
+} from "../../packages/core/src/index.js";
 import { APP_VERSION } from "../../packages/shared/src/app-version.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
@@ -120,6 +125,10 @@ async function requestJson<T>(
 }
 
 describe("Work Intelligence REST API", () => {
+  it("names every API error code in lowercase snake_case", () => {
+    expect(API_ERROR_CODES.filter((code) => !/^[a-z_]+$/.test(code))).toEqual([]);
+  });
+
   it("rejects untrusted browser origins and does not expose the database path", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-security-test-"));
     const store = new WorkIntelligenceStore(":memory:");
@@ -1355,13 +1364,20 @@ describe("Work Intelligence REST API", () => {
     expect(invalid.body.error).toBe("Invalid project deletion confirmation.");
     expect(invalid.body.code).toBe("invalid_project_deletion_confirmation");
 
+    const missing = await requestJson<{ error: string; code: string }>(baseUrl, "/api/projects/missing-project", {
+      method: "DELETE",
+      body: { confirmationName: project.name },
+    });
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe("project_not_found");
+
     const mismatch = await requestJson<{ error: string; code: string }>(baseUrl, `/api/projects/${project.id}`, {
       method: "DELETE",
       body: { confirmationName: "Wrong name" },
     });
     expect(mismatch.status).toBe(409);
     expect(mismatch.body.error).toBe("The confirmation name does not match the project name.");
-    expect(mismatch.body.code).toBe("PROJECT_NAME_MISMATCH");
+    expect(mismatch.body.code).toBe("project_name_mismatch");
     expect(store.getProjectById(project.id)).toBeDefined();
 
     const deleted = await requestJson<{
@@ -1418,7 +1434,7 @@ describe("Work Intelligence REST API", () => {
     expect(result.body.error).toBe(
       "The required pre-deletion backup could not be created; the project was not deleted.",
     );
-    expect(result.body.code).toBe("PROJECT_BACKUP_FAILED");
+    expect(result.body.code).toBe("project_backup_failed");
     expect(store.getProjectById(project.id)).toBeDefined();
   });
 
@@ -1446,7 +1462,7 @@ describe("Work Intelligence REST API", () => {
     });
     expect(result.status).toBe(500);
     expect(result.body.error).toBe("Project deletion failed; the pre-deletion backup is preserved.");
-    expect(result.body.code).toBe("PROJECT_DELETE_FAILED");
+    expect(result.body.code).toBe("project_delete_failed");
     expect(result.body.error).not.toContain("private SQLite detail");
     expect(store.getProjectById(project.id)).toBeDefined();
   });

@@ -188,7 +188,6 @@
     "theRequestOriginIsNot": "The request origin is not allowed.",
     "theRequestedDataWasNot": "The requested data was not found. Refresh and try again.",
     "theServiceIsTemporarilyUnavailable": "The service is temporarily unavailable. Please try again later.",
-    "thisProjectWasNotFound": "This project was not found. Refresh the project list.",
     "under1Minute": "Under 1 minute",
     "yesterday": "Yesterday {time}",
     "sessionNotFoundRefresh": "This Session was not found; it may already be deleted. Refresh and try again.",

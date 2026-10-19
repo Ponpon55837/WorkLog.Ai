@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- REST API error codes are all lowercase snake_case. The project and Session deletion codes were renamed and the old spellings are no longer sent: `PROJECT_NOT_FOUND` → `project_not_found` (the code the other project routes already used), `PROJECT_NAME_MISMATCH` → `project_name_mismatch`, `PROJECT_BACKUP_FAILED` → `project_backup_failed`, `PROJECT_DELETE_FAILED` → `project_delete_failed`, `SESSION_NOT_FOUND` → `session_not_found`, `SESSION_NOT_VOIDED` → `session_not_voided`, `SESSION_CITED_BY_PENDING_CLEANUP` → `session_cited_by_pending_cleanup`, `SESSION_BACKUP_FAILED` → `session_backup_failed`, `SESSION_DELETE_FAILED` → `session_delete_failed`. Scripts that match the old codes need the new ones. `docs/rest-api.md` now also documents when the API answers with an HTTP error and when with `200` plus `outcome` (`not_found`, `skipped`).
+
 ### Fixed
 
 - `pnpm setup:agents` no longer refuses the Codex MCP block after Codex saves a per-tool approval (`[mcp_servers.work-intelligence.tools.<tool>]`) inside it. The approval tables are moved below the block and kept; any other edit inside the block is still refused.

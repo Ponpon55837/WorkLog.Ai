@@ -106,7 +106,7 @@ describe("Session title and permanent deletion API", () => {
       method: "DELETE",
       body: { confirm: true },
     });
-    expect(active).toMatchObject({ status: 409, body: { code: "SESSION_NOT_VOIDED" } });
+    expect(active).toMatchObject({ status: 409, body: { code: "session_not_voided" } });
 
     store.setSessionVoid({ sessionId, voided: true, reason: "Recorded as a test." });
     const deleted = await requestJson<{ outcome: string; backupFileName: string }>(
@@ -122,6 +122,6 @@ describe("Session title and permanent deletion API", () => {
       method: "DELETE",
       body: { confirm: true },
     });
-    expect(again).toMatchObject({ status: 404, body: { code: "SESSION_NOT_FOUND" } });
+    expect(again).toMatchObject({ status: 404, body: { code: "session_not_found" } });
   });
 });

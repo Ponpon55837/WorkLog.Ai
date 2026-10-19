@@ -23,15 +23,14 @@ export const API_ERROR_CODES = [
   "project_location_invalid",
   "backup_unavailable",
   "database_busy",
-  "PROJECT_NOT_FOUND",
-  "PROJECT_NAME_MISMATCH",
-  "PROJECT_BACKUP_FAILED",
-  "PROJECT_DELETE_FAILED",
-  "SESSION_NOT_FOUND",
-  "SESSION_NOT_VOIDED",
-  "SESSION_CITED_BY_PENDING_CLEANUP",
-  "SESSION_BACKUP_FAILED",
-  "SESSION_DELETE_FAILED",
+  "project_name_mismatch",
+  "project_backup_failed",
+  "project_delete_failed",
+  "session_not_found",
+  "session_not_voided",
+  "session_cited_by_pending_cleanup",
+  "session_backup_failed",
+  "session_delete_failed",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

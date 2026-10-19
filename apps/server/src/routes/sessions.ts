@@ -32,13 +32,13 @@ async function deleteSession({ store, request, response, params }: RouteContext)
       throw error;
     }
     switch (error.code) {
-      case "SESSION_NOT_FOUND":
+      case "session_not_found":
         sendError(response, 404, "Session not found.", undefined, error.code);
         return;
-      case "SESSION_NOT_VOIDED":
+      case "session_not_voided":
         sendError(response, 409, "Only a voided Session can be permanently deleted.", undefined, error.code);
         return;
-      case "SESSION_CITED_BY_PENDING_CLEANUP":
+      case "session_cited_by_pending_cleanup":
         sendError(
           response,
           409,
@@ -47,7 +47,7 @@ async function deleteSession({ store, request, response, params }: RouteContext)
           error.code,
         );
         return;
-      case "SESSION_BACKUP_FAILED":
+      case "session_backup_failed":
         sendError(
           response,
           503,
@@ -56,7 +56,7 @@ async function deleteSession({ store, request, response, params }: RouteContext)
           error.code,
         );
         return;
-      case "SESSION_DELETE_FAILED":
+      case "session_delete_failed":
         sendError(
           response,
           500,

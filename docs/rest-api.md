@@ -38,21 +38,31 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | --- | --- | --- |
 | `database_busy` | 503 | SQLite 回報 `SQLITE_BUSY` 或 `SQLITE_LOCKED`；使用安全的資料庫忙碌訊息。 |
 | `backup_unavailable` | 409 | 備份功能或備份檔案目前不可用。備份清單／建立回應仍保留 `outcome` 與 `reason`，並附加 `code` 和相容用的 `error` 欄位。 |
-| `project_not_found` | 404 | 專案資料轉移操作找不到指定專案。 |
+| `project_not_found` | 404 | 專案資料轉移、重新指定位置或刪除操作找不到 URL 或輸入指定的專案。 |
 | `invalid_bundle` | 400 | 可攜式匯入檔與所選匯入範圍不相符或無效。 |
 | `unsupported_schema` | 400 | 可攜式匯入檔的 schema 版本不受支援。 |
 | `invalid_project_deletion_confirmation` | 400 | 專案刪除確認內容未通過驗證。 |
-| `PROJECT_NOT_FOUND` | 404 | 專案刪除操作找不到專案。 |
-| `PROJECT_NAME_MISMATCH` | 409 | 專案刪除確認名稱不相符。 |
-| `PROJECT_BACKUP_FAILED` | 503 | 專案刪除前無法建立必要備份。 |
-| `PROJECT_DELETE_FAILED` | 500 | 專案刪除交易失敗，既有備份仍保留。 |
-| `SESSION_NOT_FOUND` | 404 | Session 永久刪除找不到該 Session。 |
-| `SESSION_NOT_VOIDED` | 409 | 只有已作廢的 Session 可以永久刪除。 |
-| `SESSION_CITED_BY_PENDING_CLEANUP` | 409 | 有待審核的未結項清理建議引用這個 Session 作為證據；先接受或拒絕該建議。 |
-| `SESSION_BACKUP_FAILED` | 503 | Session 刪除前無法建立必要備份。 |
-| `SESSION_DELETE_FAILED` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
+| `project_name_mismatch` | 409 | 專案刪除確認名稱不相符。 |
+| `project_backup_failed` | 503 | 專案刪除前無法建立必要備份。 |
+| `project_delete_failed` | 500 | 專案刪除交易失敗，既有備份仍保留。 |
+| `session_not_found` | 404 | Session 永久刪除找不到該 Session。 |
+| `session_not_voided` | 409 | 只有已作廢的 Session 可以永久刪除。 |
+| `session_cited_by_pending_cleanup` | 409 | 有待審核的未結項清理建議引用這個 Session 作為證據；先接受或拒絕該建議。 |
+| `session_backup_failed` | 503 | Session 刪除前無法建立必要備份。 |
+| `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
 
 Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code` 顯示目前介面語言（繁體中文或 English）的訊息；`network_error` 與 `malformed_response` 是 client 本地代碼，不會由 REST API 回傳。
+
+所有 `code` 都是小寫 snake_case。專案與 Session 刪除代碼在 1.6.1 以前是大寫，新舊對照見 [CHANGELOG](../CHANGELOG.md)。
+
+## 結果語意：HTTP 錯誤與 `outcome`
+
+API 用兩種方式回報「沒有做成」，依失敗發生在哪一層決定：
+
+- **HTTP 4xx 加 `code`。** 請求本身無法處理時使用：找不到路由、Host／Origin 不允許、body 格式或大小錯誤、輸入驗證失敗（400），以及自訂 handler 找不到 URL 上指名的資源。例如 `GET /api/sessions/:id` 找不到 Session 回 404 `not_found`；`DELETE /api/projects/:id` 找不到專案回 404 `project_not_found`；`DELETE /api/sessions/:id` 找不到 Session 回 404 `session_not_found`，Session 尚未作廢回 409 `session_not_voided`。
+- **HTTP 200 或 201 加 `outcome`。** 請求通過驗證、交給 store 的業務操作（伺服器內以 `validatedRoute` 實作的路由）一律回 200（建立類操作為 201），操作結果放在 body 的 `outcome`。成功是各自的 outcome（例如 `session_void_updated`）；目標不存在是 `outcome: "not_found"` 並附上該 id；Project Policy 擋下的寫入是 `outcome: "skipped"` 並附上 `projectStatus`。例如 `PATCH /api/sessions/:id/void` 對不存在的 Session 回 200 與 `{ "outcome": "not_found", "sessionId": "<id>" }`。
+
+這是 client 依賴的契約。Web 的作廢、Session 連結、Knowledge、未結項清理與 Session 更新流程都先讀 `outcome` 判斷結果，所以業務操作的 `not_found` 與 `skipped` 不會改成 HTTP 404 或 4xx。
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
