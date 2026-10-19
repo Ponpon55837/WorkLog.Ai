@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
-import { History, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-vue-next";
+import { History, RotateCcw, Sparkles, Trash2, X } from "lucide-vue-next";
 import type { WorkReportPeriod, ReportSummary } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useToast } from "../../composables/useToast";
@@ -47,7 +47,6 @@ const {
   reportSynthesisCanRetry: canRetry,
 } = storeToRefs(reportsStore);
 const {
-  loadReportSynthesis,
   refreshReportSynthesis,
   selectReportSynthesisVersion,
   createReportSynthesisRequest,
@@ -112,13 +111,6 @@ function versionMeta(version: ReportSummary): string {
       <UiBoxTitle :icon="Sparkles" eyebrow="AI synthesis" :title="summary?.title ?? t('reports.aiReportSynthesis')">
         <StatusLabel v-if="request" :status="requestStatus[request.status]" />
       </UiBoxTitle>
-      <UiIconButton
-        :icon="RefreshCw"
-        :label="t('reports.refreshCleanupStatus')"
-        size="sm"
-        :loading="reportSynthesisLoading"
-        @click="loadReportSynthesis"
-      />
     </template>
 
     <div class="synthesis">
@@ -206,7 +198,7 @@ function versionMeta(version: ReportSummary): string {
             :icon="Sparkles"
             :loading="reportSynthesisCreating"
             @click="createReportSynthesisRequest"
-            >{{ t("common.refresh") }}</UiButton
+            >{{ t("reports.regenerateSynthesis") }}</UiButton
           >
         </div>
         <UiDisclosure

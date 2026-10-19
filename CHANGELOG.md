@@ -4,6 +4,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- Removed per-section refresh buttons whose data already updates on its own through the SQLite change stream and Agent request polling: Agent reads, open-item cleanup, metadata backfill status, AI report synthesis status, report presentation and the work report page. The header refresh, error retries, System status refresh and the backup list refresh (service and backup files live outside SQLite) stay.
+- AI synthesis re-run buttons no longer read 重新整理: the small one says 重新產生／Regenerate and the main one 重新產生這份報告的整理. Knowledge page update/creation requests use the sparkles icon instead of the refresh icon.
+
 ## [1.6.0] - 2026-10-16
 
 [繁體中文更新說明](docs/releases/1.6.0.md).

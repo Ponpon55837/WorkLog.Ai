@@ -930,7 +930,6 @@
     "readFailed": "Read failed",
     "recorded": "Recorded {recordedDate} ·",
     "recordsWillBeAddedAnd": "{additions} records will be added and {skipped} skipped; {conflicts} conflicting records keep their existing data. Newly imported projects start paused.",
-    "refreshBackfillStatus": "Refresh backfill status",
     "refreshBackupList": "Refresh backup list",
     "relocate": "Relocate {name}",
     "relocateAction": "Relocate",
@@ -1073,9 +1072,8 @@
     "rawReportRecordsPerPage": "Raw report records per page",
     "reSynthesisRequestedThePrevious": "Re-synthesis requested. The previous summary stays until the new Agent summary is ready.",
     "reSynthesizeThisReport": "Re-synthesize this report",
+    "regenerateSynthesis": "Regenerate",
     "records": "{count} record|{count} records",
-    "refreshCleanupStatus": "Refresh cleanup status",
-    "refreshReport": "Refresh report",
     "removeVersion": "Remove version {title}",
     "removeVersionConfirm": "Remove version",
     "reportDecisionsList": "Report decisions list",
@@ -1651,8 +1649,7 @@
     "revision": "Presentation revision {revision}",
     "unknown": "Report presentation has not loaded.",
     "different": "The displayed report changed. This draft still belongs to the original version shown below.",
-    "loading": "Loading report presentation",
-    "refresh": "Refresh presentation"
+    "loading": "Loading report presentation"
   },
   "insights": {
     "title": "Weekly insights",

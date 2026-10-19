@@ -930,7 +930,6 @@
     "readFailed": "讀取失敗",
     "recorded": "記錄日期 {recordedDate} ·",
     "recordsWillBeAddedAnd": "即將新增 {additions} 筆、略過 {skipped} 筆、保留衝突 {conflicts} 筆既有資料不變。新匯入的專案會先暫停記錄。",
-    "refreshBackfillStatus": "重新整理回補狀態",
     "refreshBackupList": "重新整理備份清單",
     "relocate": "重新指定 {name} 的位置",
     "relocateAction": "重新指定位置",
@@ -1072,10 +1071,9 @@
     "rawReportRecordsList": "報告原始工作紀錄清單",
     "rawReportRecordsPerPage": "報告原始工作紀錄每頁筆數",
     "reSynthesisRequestedThePrevious": "已建立重新提煉請求。上一版摘要會先保留，新的 Agent 摘要完成後才會替換。",
-    "reSynthesizeThisReport": "重新整理這份報告",
+    "reSynthesizeThisReport": "重新產生這份報告的整理",
+    "regenerateSynthesis": "重新產生",
     "records": "{count} 筆",
-    "refreshCleanupStatus": "重新整理整理狀態",
-    "refreshReport": "重新整理報告",
     "removeVersion": "移除歷史版本 {title}",
     "removeVersionConfirm": "移除版本",
     "reportDecisionsList": "報表決策清單",
@@ -1651,8 +1649,7 @@
     "revision": "呈現版本 {revision}",
     "unknown": "報告呈現尚未載入。",
     "different": "目前顯示的報告已改變；此草稿仍屬於下列原始版本。",
-    "loading": "載入報告呈現中",
-    "refresh": "重新整理呈現"
+    "loading": "載入報告呈現中"
   },
   "insights": {
     "title": "本週洞察",

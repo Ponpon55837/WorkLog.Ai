@@ -42,7 +42,7 @@ function createReportsViewModel() {
     reportComparisons,
   } = storeToRefs(reportsStore);
 
-  const { loadReport, refreshReport, loadReportEvidence, exportReport } = reportsStore;
+  const { loadReport, loadReportEvidence, exportReport } = reportsStore;
 
   const sessionsStore = useSessionsStore();
   const { openSessionDetail, setSessionSequence } = sessionsStore;
@@ -243,7 +243,6 @@ function createReportsViewModel() {
     reportLoading,
     reportExportLoading,
     loadReport,
-    refreshReport,
     exportReport,
     reportError,
     tab,
