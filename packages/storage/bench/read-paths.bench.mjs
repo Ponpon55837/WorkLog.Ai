@@ -703,10 +703,10 @@ try {
     "getHotspots (files)": 500,
     "getHotspots (directories, month)": 500,
     "searchKnowledge (staleness)": 500,
-    createBackup: 9400,
-    "exportTo (whole database)": 8300,
-    "exportProjectData (all projects)": 10600,
-    "previewProjectDataImport (all projects)": 19500,
+    createBackup: 300,
+    "exportTo (whole database)": 300,
+    "exportProjectData (all projects)": 400,
+    "previewProjectDataImport (all projects)": 1500,
   };
 
   const results = [];
