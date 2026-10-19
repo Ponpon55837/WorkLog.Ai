@@ -48,6 +48,13 @@
   --neutral-soft: rgba(110, 118, 129, 0.4);
   --attention-counter: rgba(187, 128, 9, 0.4);
   --underline-active: #f78166;
+  /* Categorical diagram tones (architecture groups); AA as 12px text on their 8% tint over --bg-inset. */
+  --diagram-tone-1: #4493f8;
+  --diagram-tone-2: #ab7df8;
+  --diagram-tone-3: #3fb950;
+  --diagram-tone-4: #f0883e;
+  --diagram-tone-5: #f778ba;
+  --diagram-tone-6: #39c5cf;
 
   /* Typography */
   --font-sans:
@@ -144,6 +151,12 @@
   --neutral-soft: rgba(101, 110, 122, 0.2);
   --attention-counter: rgba(212, 167, 44, 0.3);
   --underline-active: #fd8c73;
+  --diagram-tone-1: #0754ae;
+  --diagram-tone-2: #6235b8;
+  --diagram-tone-3: #16652a;
+  --diagram-tone-4: #8f3c00;
+  --diagram-tone-5: #99195f;
+  --diagram-tone-6: #0a5f6b;
 
   /* Elevation: light surfaces need softer, cooler shadows */
   --shadow-popover: 0 8px 24px rgba(66, 74, 83, 0.16), 0 1px 3px rgba(31, 35, 40, 0.08);

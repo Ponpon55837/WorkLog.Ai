@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-19
+
+[繁體中文更新說明](docs/releases/1.6.1.md).
+
+### Changed
+
+- The architecture diagram reader lays out cards without authored positions along their connections: groups become blocks placed left to right by the links between them, blocks in the same column stack and center, and cards inside a group form sub-columns by their own links. Cycles turn back at the node declared first. Authored `position` values never move, and automatic cards are placed clear of them.
+- Connections use orthogonal routes with rounded corners between the facing sides of two cards. Links that share a side get spread ports, routes go around cards in the way, parallel runs keep separate lanes, and among clear routes the one with the fewest crossings and bends wins.
+- Edge labels are shown on the line in a pill (long labels are shortened; the full text stays in the tooltip). Each group gets one of six theme tones for its frame, its cards and its outgoing connections; hovering, focusing or selecting a card highlights its connections and dims the rest.
+
+Frontend only: the architecture JSON format, the database schema (30) and the MCP contracts are unchanged.
+
 ## [1.6.0] - 2026-10-16
 
 [繁體中文更新說明](docs/releases/1.6.0.md).
