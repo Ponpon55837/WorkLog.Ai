@@ -6,6 +6,11 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import type { OutstandingCleanupContextResult } from "../../packages/core/src/index.js";
 import { tt } from "./helpers/i18n.js";
 
+/** The panel has no refresh button; returning to the tab invalidates active queries like an SSE change. */
+async function refreshInBackground(page: Page): Promise<void> {
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+}
+
 async function seed(
   request: APIRequestContext,
   count = 12,
@@ -120,7 +125,7 @@ test("reviews cleanup proposals individually and in a batch, preserves rejected 
   const requestId = await createViaWeb(page, fixture.projectId);
   await submit(request, requestId, fixture.evidenceId);
   const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
-  await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+  await refreshInBackground(page);
   await expect(panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true })).toHaveCount(4);
   expect(await countStatus(request, fixture.projectId, "pending")).toBe(4);
   await panel
@@ -149,7 +154,7 @@ test("reviews cleanup proposals individually and in a batch, preserves rejected 
     for (const proposal of body.proposals) proposal.reason = "Verified background refresh";
     await route.fulfill({ response, json: body });
   });
-  await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+  await refreshInBackground(page);
   await expect(panel.getByText("Verified background refresh", { exact: true }).first()).toBeVisible();
   await expect(
     panel.getByRole("checkbox", { name: tt("outstanding.selectAllSuggestionsOnThis"), exact: true }),
@@ -188,7 +193,7 @@ test("bounds cleanup review lists and keeps focus, accessibility, and mobile ove
   const requestId = await createViaWeb(page, fixture.projectId);
   await submit(request, requestId, fixture.evidenceId);
   const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
-  await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+  await refreshInBackground(page);
   await panel.getByRole("button", { name: tt("ui.nextPage"), exact: true }).click();
   await expect(page).toHaveURL(/cleanupPage=2/);
   await page.reload();
@@ -224,7 +229,7 @@ test("bounds cleanup review lists and keeps focus, accessibility, and mobile ove
   await expect(panel).toBeHidden();
   await page.getByRole("button", { name: tt("outstanding.tidyOpenItems"), exact: true }).click();
   await expect(panel).toBeVisible();
-  await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).focus();
+  await panel.getByRole("button", { name: tt("outstanding.closeOpenItemCleanup"), exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();
   await expect(page.getByRole("button", { name: tt("outstanding.tidyOpenItems"), exact: true })).toBeFocused();
@@ -242,7 +247,7 @@ test("disables stale acceptance and keeps cancelled proposals as read-only histo
     (await request.patch(`/api/outstanding-items/${first.itemId}`, { data: { status: "not_needed" } })).ok(),
   ).toBeTruthy();
   const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
-  await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+  await refreshInBackground(page);
   await expect(panel.getByText(tt("outstanding.itemsSourcesOrEvidenceChanged"), { exact: true })).toBeVisible();
   await expect(
     panel.getByRole("button", { name: tt("outstanding.acceptSuggestion"), exact: true }).first(),
@@ -298,7 +303,7 @@ test("keeps request creation usable during a background list refresh @cross-brow
     await route.continue();
   });
   try {
-    await panel.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+    await refreshInBackground(page);
     await readStarted;
     await expect(create).toBeEnabled();
     await create.click();

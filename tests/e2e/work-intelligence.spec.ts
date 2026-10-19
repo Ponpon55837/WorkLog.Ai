@@ -1073,7 +1073,7 @@ test.describe("Work Intelligence browser regression", () => {
     await periods.getByRole("radio", { name: tt("common.week") }).click();
     await expect(breakdown).toContainText(tt("reports.byDay"));
 
-    await synthesis.getByRole("button", { name: tt("common.refresh"), exact: true }).click();
+    await synthesis.getByRole("button", { name: tt("reports.regenerateSynthesis"), exact: true }).click();
     await expect(synthesis).toContainText(tt("common.pending"));
     await expect(synthesis.getByRole("button", { name: tt("reports.cancelThisCleanup") })).toBeVisible();
     await expect(synthesis.getByRole("button", { name: tt("common.copyAgentInstruction") })).toBeVisible();

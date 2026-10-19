@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { ListChecks, RefreshCw, X } from "lucide-vue-next";
+import { ListChecks, X } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { OutstandingCleanupProposalStatus } from "@work-intelligence/core";
 import StatusLabel from "./StatusLabel.vue";
@@ -248,7 +248,6 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
           @click="createRequest"
           >{{ t("outstanding.createRequest") }}</UiButton
         >
-        <UiButton :icon="RefreshCw" :disabled="busy" @click="cleanupStore.reload">{{ t("common.refresh") }}</UiButton>
       </div>
       <UiFlash v-if="skipped" tone="accent">{{ t("outstanding.trackingIsNotEnabledFor") }}</UiFlash>
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>

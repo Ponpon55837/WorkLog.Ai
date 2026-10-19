@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ExternalLink, GitCompare, History, Pencil, RefreshCw, X } from "lucide-vue-next";
+import { ExternalLink, GitCompare, History, Pencil, Sparkles, X } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_INSUFFICIENT, type ProjectRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
@@ -124,7 +124,7 @@ watch([() => openPage.value?.id, shownVersion], () => {
         <UiLabel v-if="openPage.updateRequestedAt" tone="accent">{{ t("knowledge.updateRequested") }}</UiLabel>
       </div>
       <div class="page-panel__actions">
-        <UiButton size="sm" :icon="RefreshCw" :loading="requesting" @click="requestUpdate">{{
+        <UiButton size="sm" :icon="Sparkles" :loading="requesting" @click="requestUpdate">{{
           t("knowledge.askAgentToUpdate")
         }}</UiButton>
         <UiButton size="sm" :icon="Pencil" :disabled="shownVersion !== null" @click="editorOpen = true">{{

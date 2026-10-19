@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from "vue";
 import { storeToRefs } from "pinia";
-import { Eye, RefreshCw } from "lucide-vue-next";
+import { Eye } from "lucide-vue-next";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
@@ -73,7 +73,6 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
         :label="t('systemStatus.agentReadsAgentFilter')"
         size="sm"
       />
-      <UiButton size="sm" :icon="RefreshCw" @click="agentReadsStore.reload">{{ t("common.refresh") }}</UiButton>
     </template>
 
     <p class="agent-reads__hint">{{ t("systemStatus.agentReadsHint") }}</p>

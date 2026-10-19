@@ -349,12 +349,6 @@ export const useReportsStore = defineStore("reports", () => {
     reportsActive.value = true;
   }
 
-  async function refreshReport(resetPages = false): Promise<void> {
-    loadReport(resetPages);
-    if (reportBlocked.value) return;
-    await queryCache.invalidateQueries({ key: queryKeys.views.reports });
-  }
-
   function loadReportEvidence(): void {
     if (!report.value) return;
     reportEvidenceActive.value = true;
@@ -577,7 +571,6 @@ export const useReportsStore = defineStore("reports", () => {
     reportComparisons,
     setReportsActive,
     loadReport,
-    refreshReport,
     loadReportEvidence,
     loadReportSynthesis,
     refreshReportSynthesis,

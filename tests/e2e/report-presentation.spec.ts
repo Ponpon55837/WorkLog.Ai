@@ -233,7 +233,7 @@ test("basic copy stays available while the loaded report refreshes @cross-browse
     await route.continue();
   });
   const pending = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/reports");
-  await page.getByRole("button", { name: textIn("zh-TW", "reports.refreshReport"), exact: true }).click();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await pending;
   await expect(basic).toBeEnabled();
   await basic.click();
