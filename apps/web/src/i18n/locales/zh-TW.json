@@ -188,7 +188,6 @@
     "theRequestOriginIsNot": "請求來源不受允許。",
     "theRequestedDataWasNot": "找不到請求的資料，請重新整理後再試。",
     "theServiceIsTemporarilyUnavailable": "服務暫時無法使用，請稍後再試。",
-    "thisProjectWasNotFound": "找不到這個專案；請重新整理專案清單。",
     "under1Minute": "不到 1 分鐘",
     "yesterday": "昨天 {time}",
     "sessionNotFoundRefresh": "找不到這個 Session，可能已被刪除；請重新整理。",

@@ -52,7 +52,7 @@ describe("formatDuration", () => {
 
 describe("errorMessage", () => {
   it("localizes API errors by machine-readable code", () => {
-    expect(errorMessage(new ApiError("PROJECT_NAME_MISMATCH", 409, "English message"), "fallback")).toBe(
+    expect(errorMessage(new ApiError("project_name_mismatch", 409, "English message"), "fallback")).toBe(
       t("format.theNameDoesNotMatch"),
     );
     expect(errorMessage(new ApiError("database_busy", 503, "English message"), "fallback")).toBe(

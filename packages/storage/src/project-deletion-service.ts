@@ -8,7 +8,7 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { SearchRepository } from "./search-repository.js";
 
 export type ProjectDeletionErrorCode =
-  "PROJECT_NOT_FOUND" | "PROJECT_NAME_MISMATCH" | "PROJECT_BACKUP_FAILED" | "PROJECT_DELETE_FAILED";
+  "project_not_found" | "project_name_mismatch" | "project_backup_failed" | "project_delete_failed";
 
 export class ProjectDeletionError extends Error {
   public constructor(public readonly code: ProjectDeletionErrorCode) {
@@ -392,13 +392,13 @@ export class ProjectDeletionService {
   public deleteProject(projectId: string, confirmationName: string): DeleteProjectResult {
     const project = this.findProject(projectId);
     if (!project) {
-      throw new ProjectDeletionError("PROJECT_NOT_FOUND");
+      throw new ProjectDeletionError("project_not_found");
     }
     if (confirmationName !== project.name) {
-      throw new ProjectDeletionError("PROJECT_NAME_MISMATCH");
+      throw new ProjectDeletionError("project_name_mismatch");
     }
     if (this.databasePath === ":memory:") {
-      throw new ProjectDeletionError("PROJECT_BACKUP_FAILED");
+      throw new ProjectDeletionError("project_backup_failed");
     }
 
     let backupFileName: string;
@@ -409,17 +409,17 @@ export class ProjectDeletionService {
       if (isDatabaseBusyError(error)) {
         throw error;
       }
-      throw new ProjectDeletionError("PROJECT_BACKUP_FAILED");
+      throw new ProjectDeletionError("project_backup_failed");
     }
 
     try {
       return runImmediateTransaction(this.db, () => {
         const currentProject = this.findProject(projectId);
         if (!currentProject) {
-          throw new ProjectDeletionError("PROJECT_NOT_FOUND");
+          throw new ProjectDeletionError("project_not_found");
         }
         if (currentProject.name !== confirmationName) {
-          throw new ProjectDeletionError("PROJECT_NAME_MISMATCH");
+          throw new ProjectDeletionError("project_name_mismatch");
         }
 
         const sessionIds = ids(this.db, "SELECT id FROM sessions WHERE project_id = ?", projectId);
@@ -556,7 +556,7 @@ export class ProjectDeletionService {
       if (isDatabaseBusyError(error)) {
         throw error;
       }
-      throw new ProjectDeletionError("PROJECT_DELETE_FAILED");
+      throw new ProjectDeletionError("project_delete_failed");
     }
   }
 
