@@ -212,7 +212,7 @@ export const systemRoutes: Route[] = [
         databaseHealthy = false;
       }
       sendJson(response, databaseHealthy ? 200 : 503, {
-        ok: true,
+        ok: databaseHealthy,
         app: "Work Intelligence",
         version: APP_VERSION,
         schemaVersion: LATEST_SCHEMA_VERSION,

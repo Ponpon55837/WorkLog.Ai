@@ -36,9 +36,9 @@ describe("ApiClient.request", () => {
   });
 
   it("uses the machine-readable code supplied by the API", async () => {
-    respond(409, JSON.stringify({ error: "English server message", code: "PROJECT_NAME_MISMATCH" }));
+    respond(409, JSON.stringify({ error: "English server message", code: "project_name_mismatch" }));
     await expect(new ApiClient().request("/api/projects/project-1")).rejects.toMatchObject({
-      code: "PROJECT_NAME_MISMATCH",
+      code: "project_name_mismatch",
       status: 409,
     });
   });

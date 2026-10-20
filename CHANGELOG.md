@@ -8,10 +8,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 - `pnpm test:performance` now gates how long a manual backup, a whole-database export, a project-data export and an import preview block the server on 5,000 synthetic Sessions. Each runs 5 times and fails when its p90 exceeds its budget.
 
+### Changed
+
+- REST API error codes are all lowercase snake_case. The project and Session deletion codes were renamed and the old spellings are no longer sent: `PROJECT_NOT_FOUND` → `project_not_found` (the code the other project routes already used), `PROJECT_NAME_MISMATCH` → `project_name_mismatch`, `PROJECT_BACKUP_FAILED` → `project_backup_failed`, `PROJECT_DELETE_FAILED` → `project_delete_failed`, `SESSION_NOT_FOUND` → `session_not_found`, `SESSION_NOT_VOIDED` → `session_not_voided`, `SESSION_CITED_BY_PENDING_CLEANUP` → `session_cited_by_pending_cleanup`, `SESSION_BACKUP_FAILED` → `session_backup_failed`, `SESSION_DELETE_FAILED` → `session_delete_failed`. Scripts that match the old codes need the new ones. `docs/rest-api.md` now also documents when the API answers with an HTTP error and when with `200` plus `outcome` (`not_found`, `skipped`).
+
 ### Fixed
 
 - `pnpm setup:agents` no longer refuses the Codex MCP block after Codex saves a per-tool approval (`[mcp_servers.work-intelligence.tools.<tool>]`) inside it. The approval tables are moved below the block and kept; any other edit inside the block is still refused.
 - Codex hooks detection reads `~/.codex/config.toml` with a real TOML parser, so array tables (`[[skills.config]]`) and quoted headers containing brackets no longer make `setup:agents` and `pnpm check` report that it cannot tell whether hooks are disabled.
+- `GET /api/health` now answers `ok: false` with its 503 when the database query fails; it used to say `ok: true`. An invalid `WORK_INTELLIGENCE_PORT` (anything but an integer from 1 to 65535) makes the API listen on the default port 3210, as `pnpm track` and the database-busy hint already assumed, instead of crashing at startup or, for `0`, listening on a random port.
 
 ## [1.6.1] - 2026-10-19
 

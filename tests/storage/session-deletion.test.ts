@@ -77,13 +77,13 @@ describe("Session permanent deletion", () => {
     const { store, root } = createTrackedDiskStore();
     const sessionId = finalize(store, root, "session-delete-active");
 
-    expect(deletionCode(() => store.deleteSession("missing-session"))).toBe("SESSION_NOT_FOUND");
-    expect(deletionCode(() => store.deleteSession(sessionId))).toBe("SESSION_NOT_VOIDED");
+    expect(deletionCode(() => store.deleteSession("missing-session"))).toBe("session_not_found");
+    expect(deletionCode(() => store.deleteSession(sessionId))).toBe("session_not_voided");
     expect(store.getSessionById(sessionId)).toBeDefined();
 
     const memory = new WorkIntelligenceStore(":memory:");
     stores.push(memory);
-    expect(deletionCode(() => memory.deleteSession("missing-session"))).toBe("SESSION_NOT_FOUND");
+    expect(deletionCode(() => memory.deleteSession("missing-session"))).toBe("session_not_found");
   });
 
   it("backs up, deletes the Session with its records, keeps Knowledge, and leaves an id-only audit", () => {
@@ -219,7 +219,7 @@ describe("Session permanent deletion", () => {
     }
     voidSession(store, evidenceId);
 
-    expect(deletionCode(() => store.deleteSession(evidenceId))).toBe("SESSION_CITED_BY_PENDING_CLEANUP");
+    expect(deletionCode(() => store.deleteSession(evidenceId))).toBe("session_cited_by_pending_cleanup");
     expect(store.getSessionById(evidenceId)).toBeDefined();
   });
 });

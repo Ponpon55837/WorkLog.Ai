@@ -3,7 +3,7 @@ import { DatabaseInitializationError, WorkIntelligenceStore } from "@work-intell
 import { databasePath, storeOptions } from "./config.js";
 import { describeListenError } from "./listen-error.js";
 import { createApiHandler } from "./server.js";
-import { DEFAULT_SERVER_PORT } from "./server-port.js";
+import { resolveServerPort } from "./server-port.js";
 import { registerGracefulShutdown } from "./shutdown.js";
 
 function startApi(): void {
@@ -16,7 +16,7 @@ function startApi(): void {
     return;
   }
 
-  const port = Number(process.env.WORK_INTELLIGENCE_PORT ?? DEFAULT_SERVER_PORT);
+  const port = resolveServerPort();
   const webDirectory = process.env.WORK_INTELLIGENCE_WEB_DIST;
   const apiHandler = createApiHandler(store, webDirectory ? { webDirectory } : {});
   const server = createServer(apiHandler);

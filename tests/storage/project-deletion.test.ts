@@ -550,7 +550,7 @@ describe("project deletion", () => {
       deletionError = error;
     }
     expect(deletionError).toBeInstanceOf(ProjectDeletionError);
-    expect(deletionError).toMatchObject({ code: "PROJECT_DELETE_FAILED", message: "PROJECT_DELETE_FAILED" });
+    expect(deletionError).toMatchObject({ code: "project_delete_failed", message: "project_delete_failed" });
     expect((deletionError as Error).message).not.toContain("private SQLite detail");
     expect(store.getProjectById(targetProject.id)).toBeDefined();
     expect(store.getSessionById(targetSession.session.id)).toBeDefined();
