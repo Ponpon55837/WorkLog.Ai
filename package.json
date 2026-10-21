@@ -1,6 +1,6 @@
 {
   "name": "work-intelligence",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "license": "MIT",
   "private": true,
   "description": "Local-first developer work intelligence MVP",

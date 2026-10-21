@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-10-21
+
+[繁體中文更新說明](docs/releases/1.6.2.md).
+
 ### Added
 
 - `pnpm test:performance` now gates how long a manual backup, a whole-database export, a project-data export and an import preview block the server on 5,000 synthetic Sessions. Each runs 5 times and fails when its p90 exceeds its budget.

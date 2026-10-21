@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.6.1** 重畫架構圖閱讀器：卡片依連線方向以群組區塊排列，連線改為避開卡片、互不重疊的直角路徑，連線標籤直接顯示在線上，每個群組有自己的顏色；只改前端，不需 migration。[完整更新說明](docs/releases/1.6.1.md)。1.6.0 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
+**1.6.2** 修正 Codex 設定與 hooks 偵測、API 健康狀態與連接埠處理，並新增備份、匯出與匯入預覽的同步阻塞門檻。REST 錯誤碼統一為小寫 snake_case，比對舊專案或 Session 刪除錯誤碼的腳本需要更新。不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.2.md)。1.6.0 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
 
 [English](README.md) | **繁體中文**
 
