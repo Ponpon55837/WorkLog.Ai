@@ -16,6 +16,7 @@ pnpm test:performance # 合成資料的匯入與關鍵讀取路徑效能門檻�
 pnpm test:retrieval-quality # 只執行合成資料的 work_recall 檢索品質評估
 pnpm eval:recall <題目.json> # 在指定資料庫唯讀評估 recall/context
 pnpm run test:recall-eval:example # 以暫存合成資料庫跑 CLI 範例與排名 smoke gate
+pnpm bench:recall-scale [規模] # 在逐級增加的合成干擾資料中量測 recall/context 排序（需先 build，只在本機手動執行）
 pnpm typecheck    # 套件、Vue 樣板、單元測試與 E2E 設定型別
 pnpm build        # 工作區套件、server／MCP 與 Vite 正式版
 pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
@@ -219,6 +220,16 @@ Unit／integration 測試涵蓋：
 模擬 Agent 的 E2E 會直接開啟 server 使用的暫存 SQLite（`WORK_INTELLIGENCE_E2E_DB`，由 `playwright.config.ts` 設定並傳給 worker），因為候選回寫只有 MCP 工具、沒有 REST。這些測試需要先 `pnpm build`（`pnpm test:e2e` 會自動執行）。
 
 第九輪 B2 先以同一合成資料量測，完整 recall 加上相關未結項的 finalize 提示 p90 為 175.48 ms，原知識頁提示由 B1 的 12.92 ms 增至 139.06 ms。CPU profile 與 SQL plan 顯示完整文字檢索和重複 correlated scans 的成本；改成在收尾以 pending 項目、來源標題／摘要及路徑直接排名，並材料化查詢條件與每筆分數後，相關提示降為 22.59 ms、原提示 18.58 ms；task context 為 155.86 ms，30 組門檻全通過。關鍵字使用既有中英 tokenizer，單次最多 24 個不同詞，路徑最多 20 個；來源摘要評分讀前 2,000 字，task context 額外使用既有前 20 筆 Session 檢索順序，較新的無關項目不會遮掉直接文字／路徑命中的舊項目。所有值均來自隔離合成資料。後續完整檢查的 task context／finalize 相關提示 p90 分別為 128.53／22.73 ms。相關未結項的 SQL 比對涵蓋一般英文大小寫與中文詞；SQLite 內建 lower 不提供完整 Unicode case folding，全形 Latin 或非 ASCII 大寫文字可能漏掉直接命中，排名只作核對指引。
+
+## 資料規模下的排序量測
+
+`pnpm bench:recall-scale [規模] [--json <新檔案>]`（先 `pnpm build`）在 OS 暫存資料夾建立合成資料庫，量測 roadmap Phase 0 第 3 步：正確答案放進大量相似資料後是否還排得到前面。規模是以逗號分隔、遞增的 Session 數，預設 `1000,5000,10000`；同一個資料庫逐級長大，每一級保留前一級的資料。排名與信心由 `pnpm eval:recall` 同一個評估器計算，所以數字可以和私有真實資料基線比較。只寫合成資料，結束時刪除暫存資料夾；`--json` 拒絕覆寫既有檔案。
+
+題目有 12 個正例（K Knowledge、S 結構化 Session、R 答案只在 raw handoff、N 自然語句問句、P 路徑，中英文都有）、2 個未結項題（O，看 `work_get_context` 的 `relevant.outstandingItems`）和 4 個無答案題（X，每個查詢詞都出現在干擾資料中，但沒有一筆回答它）。目標日期最舊，干擾資料較新，因此新舊加權不利於目標。
+
+干擾資料用固定亂數種子產生，每筆都模仿一個目標，但在所有欄位都固定拿掉該目標的一個內容詞，所以沒有一筆真的能回答那題；另外只加入一個來自其他目標的詞，避免拼出第二個答案。每 10 筆有 1 筆是困難近似項，標題含有其餘全部內容詞。資料裡有未結項（約 30% 的 Session）、raw handoff（約 20%）、Evidence（約 20%）和 Knowledge（每 10 筆 Session 約 1 筆，困難近似項會帶一筆同樣用詞的 Gotcha）。Knowledge 的建立與更新時間會改到和 Session 相同的時間軸，否則每筆 Knowledge 都會拿到完整的新近加分。
+
+輸出每一級的 recall／context hit@1、hit@5、MRR、各類別排名與信心分布、無答案題中 `high` 的題目、未結項排名，以及目標沒有排第一時搶到第一名的紀錄（合成標題與命中欄位），方便分辨是候選召回還是排序問題。延遲每題只量一次，而且包含快照與 MCP 往返，同一規模在不同次執行間可以差一倍，只能看趨勢；效能門檻仍以 `pnpm test:performance` 為準。寫入時間會隨資料量增加，在本機 Windows 上 10,000 筆約需 15 分鐘，所以這項量測不放進 CI。
 
 ## 第九輪 B3 整理建議驗證
 

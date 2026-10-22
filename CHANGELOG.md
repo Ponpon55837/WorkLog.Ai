@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- `pnpm bench:recall-scale` measures recall and context ranking as synthetic distractor data grows (1,000, 5,000 and 10,000 Sessions by default), with near misses, outstanding items, Knowledge and Evidence, using the same evaluator as `pnpm eval:recall`. It runs locally only and writes nothing outside an OS temp folder. The first results are in `docs/knowledge-quality-roadmap.md`: answers that exist only in raw handoff text drop out of the top 30 by 1,000 Sessions, while Knowledge, structured Session, question, path and outstanding-item targets stay at rank 1–2.
+
 ### Changed
 
 - The `work_recall`, `work_search` and `work_get_context` contracts, the work-intelligence skill and `docs/mcp-tools.md` now say that `confidence` `high` and `low` only measure how much of the query's wording a hit matches, not whether it answers the question, so an Agent reads the full record before citing any hit. A private retrieval evaluation found unanswered questions that still came back `high` and correct answers that came back `low`; the calculation itself is unchanged. The findings are recorded in `docs/knowledge-quality-roadmap.md`.

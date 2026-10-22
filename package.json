@@ -30,6 +30,7 @@
     "setup:agents": "pnpm --filter @work-intelligence/server exec tsx src/setup-agents.ts",
     "eval:recall": "node --experimental-sqlite apps/mcp/dist/eval-recall.js",
     "test:recall-eval:example": "node scripts/run-recall-eval-example.mjs",
+    "bench:recall-scale": "node --experimental-sqlite packages/storage/bench/recall-scale.bench.mjs",
     "db:backup": "node apps/server/dist/cli.js backup",
     "db:backups": "node apps/server/dist/cli.js backups",
     "db:export": "node apps/server/dist/cli.js export",
