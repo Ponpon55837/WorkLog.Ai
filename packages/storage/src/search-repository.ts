@@ -60,6 +60,12 @@ const HIGH_CONFIDENCE_QUERY_COVERAGE = 0.5;
 const CONFIRMATION_BONUS = 0.04;
 const CONFIRMATION_CAP = 5;
 const CONTRADICTED_FACTOR = 0.7;
+// A later Session that continues an earlier hit records the more current state of the same work. When it scores at
+// least this share of the earlier hit, it moves directly above it, so a chain shows its latest state first and the
+// earlier record stays right after it.
+const CONTINUATION_SCORE_SHARE = 0.3;
+// Only the leading ranked entries are reordered; continuations further down cannot reach the returned hits anyway.
+const CONTINUATION_WINDOW = 100;
 const SOFTWARE_TERM_GROUPS = [
   ["endpoint", "API", "路由", "route"],
   ["慣例", "convention"],
@@ -332,7 +338,7 @@ export class SearchRepository {
       .map((term, index) => ({ term, idf: idf[index] ?? 0 }))
       .sort((left, right) => right.idf - left.idf)
       .map((entry) => entry.term);
-    const selected = ranked.slice(0, options.limit);
+    const selected = this.preferContinuations(ranked).slice(0, options.limit);
     const hits = selected.flatMap(({ doc, score }) => {
       const hit = this.toHit(doc, score, excerptTerms);
       return hit ? [hit] : [];
@@ -434,6 +440,53 @@ export class SearchRepository {
   }
 
   /** Ranking multipliers for Knowledge with recorded feedback (one grouped query); others keep 1. */
+  /** Moves each qualifying continuation directly above the earlier Session it continues; see CONTINUATION_SCORE_SHARE. */
+  private preferContinuations<T extends { doc: { type: DocType; id: string }; score: number }>(ranked: T[]): T[] {
+    const window = ranked.slice(0, CONTINUATION_WINDOW);
+    const sessionIds = JSON.stringify(
+      window.filter((entry) => entry.doc.type === "session").map((entry) => entry.doc.id),
+    );
+    const links = this.db
+      .prepare(
+        `SELECT session_id AS later, related_session_id AS earlier FROM session_links
+         WHERE relation = 'continues'
+           AND session_id IN (SELECT value FROM json_each(?))
+           AND related_session_id IN (SELECT value FROM json_each(?))`,
+      )
+      .all(sessionIds, sessionIds) as Array<{ later: string; earlier: string }>;
+    if (links.length === 0) {
+      return ranked;
+    }
+    const continuations = new Map<string, Set<string>>();
+    for (const link of links) {
+      const laters = continuations.get(link.earlier) ?? new Set<string>();
+      laters.add(link.later);
+      continuations.set(link.earlier, laters);
+    }
+    const order = [...window];
+    const moved = new Set<string>();
+    for (let index = 0; index < order.length; index += 1) {
+      const earlier = order[index]!;
+      const laters = earlier.doc.type === "session" ? continuations.get(earlier.doc.id) : undefined;
+      if (!laters) continue;
+      const position = order.findIndex(
+        (entry, candidate) =>
+          candidate > index &&
+          entry.doc.type === "session" &&
+          laters.has(entry.doc.id) &&
+          !moved.has(entry.doc.id) &&
+          entry.score >= earlier.score * CONTINUATION_SCORE_SHARE,
+      );
+      if (position < 0) continue;
+      const [later] = order.splice(position, 1);
+      order.splice(index, 0, later!);
+      moved.add(later!.doc.id);
+      // Revisit this slot so a continuation of the moved Session can move above it in turn.
+      index -= 1;
+    }
+    return [...order, ...ranked.slice(CONTINUATION_WINDOW)];
+  }
+
   private evidenceFactors(knowledgeIds: string[]): Map<string, number> {
     const factors = new Map<string, number>();
     if (knowledgeIds.length === 0) {

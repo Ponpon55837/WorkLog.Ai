@@ -10,6 +10,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- Recall ranking now shows the latest state of a chain of work first. Among the top 100 ranked hits, a Session that continues an earlier hit (a `continues` link) and scores at least 30% of it is placed directly above that hit; the earlier record stays right after it and nothing is dropped. On the private evaluation, recall hit@1 rose from 0.861 to 0.884 and hit@5 from 0.977 to 1.000, and context hit@5 from 0.875 to 1.000. The `work_recall` contract, the work-intelligence skill and `docs/mcp-tools.md` describe the rule.
 - The `work_recall`, `work_search` and `work_get_context` contracts, the work-intelligence skill and `docs/mcp-tools.md` now say that `confidence` `high` and `low` only measure how much of the query's wording a hit matches, not whether it answers the question, so an Agent reads the full record before citing any hit. A private retrieval evaluation found unanswered questions that still came back `high` and correct answers that came back `low`; the calculation itself is unchanged. The findings are recorded in `docs/knowledge-quality-roadmap.md`.
 
 ### Fixed

@@ -274,6 +274,45 @@ describe("recall", () => {
     expect(store.recall({ q: "grafting", projectRoot: root })).toMatchObject({ outcome: "skipped" });
   });
 
+  it("puts a Session that continues an earlier hit directly above it when it scores close enough", () => {
+    const { store, root } = trackedStore();
+    // Unrelated history gives the query words a meaningful document frequency.
+    for (let index = 0; index < 10; index += 1) {
+      finalize(store, root, `vent-filler-${index}`, {
+        title: `Compost turning ${index}`,
+        summary: "Turned the compost.",
+      });
+    }
+    const plan = finalize(store, root, "vent-plan", {
+      title: "Greenhouse vent motor calibration plan",
+      summary: "Plan to calibrate the greenhouse vent motor before winter.",
+      completedAt: "2026-01-05T08:00:00.000Z",
+    });
+    const done = finalize(store, root, "vent-done", {
+      title: "Vent motor calibration verified",
+      summary: "The calibration held after a strong wind test.",
+      parentSessionId: plan,
+      completedAt: "2026-01-12T08:00:00.000Z",
+    });
+    const weak = finalize(store, root, "vent-weak", {
+      title: "Door hinge oiled",
+      summary: "Oiled the greenhouse door hinge.",
+      parentSessionId: plan,
+      completedAt: "2026-01-13T08:00:00.000Z",
+    });
+    const unlinked = finalize(store, root, "vent-unlinked", {
+      title: "Vent motor calibration notes",
+      summary: "Notes about vent motor calibration for another greenhouse.",
+      completedAt: "2026-01-14T08:00:00.000Z",
+    });
+
+    const ids = recall(store, { q: "greenhouse vent motor calibration" }).hits.map((hit) => hit.id);
+    expect(ids.indexOf(done)).toBe(ids.indexOf(plan) - 1);
+    // A continuation that barely matches keeps its own place below the earlier Session.
+    expect(ids.indexOf(weak)).toBeGreaterThan(ids.indexOf(plan));
+    expect(ids).toContain(unlinked);
+  });
+
   it("reports per-word hit counts when a word matches nothing", () => {
     const { store, root } = trackedStore();
     finalize(store, root, "words", { title: "Irrigation timer" });
