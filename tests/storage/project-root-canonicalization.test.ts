@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { canonicalizeProjectRoot } from "@work-intelligence/project-policy";
+import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { listDatabaseBackups } from "../../packages/storage/src/backup.js";
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 import { ProjectRepository } from "../../packages/storage/src/project-repository.js";
