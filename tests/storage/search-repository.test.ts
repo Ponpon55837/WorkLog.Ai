@@ -313,6 +313,34 @@ describe("recall", () => {
     expect(ids).toContain(unlinked);
   });
 
+  it("ranks a record that answers in structured fields above a long handoff that only mentions the words in raw text", () => {
+    const { store, root } = trackedStore();
+    // Unrelated history gives the query words a meaningful document frequency.
+    for (let index = 0; index < 10; index += 1) {
+      finalize(store, root, `raw-filler-${index}`, {
+        title: `Compost turning ${index}`,
+        summary: "Turned the compost.",
+      });
+    }
+    const answer = finalize(store, root, "raw-answer", {
+      title: "Sprinkler valve schedule",
+      summary: "The sprinkler valve schedule now opens before sunrise.",
+      completedAt: "2026-02-01T08:00:00.000Z",
+    });
+    // Two query words in the title, the other two only in raw text: full coverage before raw-only words counted half.
+    const handoff = finalize(store, root, "raw-handoff", {
+      title: "Orchard sprinkler notes",
+      summary: "Imported historical handoff notes.",
+      handoffContent: "# Notes\n## Season\nThe crew asked about the valve and its schedule during the walk.",
+      completedAt: "2026-02-01T08:00:00.000Z",
+    });
+
+    const ids = recall(store, { q: "orchard sprinkler valve schedule" }).hits.map((hit) => hit.id);
+    expect(ids.indexOf(answer)).toBeLessThan(ids.indexOf(handoff));
+    // The raw-only record is ranked lower but still returned.
+    expect(ids).toContain(handoff);
+  });
+
   it("reports per-word hit counts when a word matches nothing", () => {
     const { store, root } = trackedStore();
     finalize(store, root, "words", { title: "Irrigation timer" });
