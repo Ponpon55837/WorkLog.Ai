@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- The `work_recall`, `work_search` and `work_get_context` contracts, the work-intelligence skill and `docs/mcp-tools.md` now say that `confidence` `high` and `low` only measure how much of the query's wording a hit matches, not whether it answers the question, so an Agent reads the full record before citing any hit. A private retrieval evaluation found unanswered questions that still came back `high` and correct answers that came back `low`; the calculation itself is unchanged. The findings are recorded in `docs/knowledge-quality-roadmap.md`.
+
 ### Fixed
 
 - A project registered before project roots were canonicalized could keep its original spelling (on Windows, mixed case such as `C:\Users\...`). Lookups by folder use the canonical spelling, so such a tracked project read as unregistered and the MCP tools quietly skipped it. Opening the database now rewrites those roots to their canonical spelling, after the usual pre-migration backup. Only case and a trailing separator are changed: a root from another computer is left for the project location move, and a root whose canonical spelling already belongs to another project is left untouched.

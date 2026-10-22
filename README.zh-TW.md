@@ -169,7 +169,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 | 整理既有未結項 | 「請整理這個專案的未結項。」 | 工作歷程 → 未結項：選擇專案並建立整理請求，查看來源、理由與證據後逐筆或批次接受／拒絕 |
 | 接續前次未結項 | 「這次處理了哪些先前列出的未結項？」 | 工作歷程 →「未結項」可依專案與狀態篩選，標記完成、不再需要或重新開啟 |
 | 取回專案脈絡 | 「先看一下 Work Intelligence 裡這個專案最近做了什麼。」 | 工作歷程、工作知識 |
-| 查過去的工作或錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge；結構化工作欄位優先，重複的舊 handoff 計分會降低，固定軟體詞表可跨中英文找低信心線索。`work_search` 回傳帶 confidence 的精簡 Session 命中；`none` 代表沒有可引用依據，完整記錄可再讀取） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
+| 查過去的工作或錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge；結構化工作欄位優先，重複的舊 handoff 計分會降低，固定軟體詞表可跨中英文找低信心線索。`work_search` 回傳帶 confidence 的精簡 Session 命中；`none` 代表沒有可引用依據，`high` 與 `low` 只代表字面相符，Agent 引用前會先讀完整記錄） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
 | 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立；自訂期間也可以） | 工作報告 →「請 Agent 整理這份報告」，Agent 完成後頁面會自動更新 |
 | 整理 Knowledge 候選 | 「幫我整理 Work Intelligence 的 Knowledge 候選。」 | 工作知識 →「整理候選」，接受（可先修改）或拒絕後才會成為 Knowledge |
 | 更新常駐知識頁 | 「幫我更新這個專案的知識頁。」 | 工作知識 →「知識頁」：架構與慣例、進行中的工作與未結項、常見陷阱，每段附來源 Session；來源需核對或新資料累積 3 筆時，Agent 會收到維護提示；頁面顯示最後檢查到的時間，可手動編輯與查看版本 |

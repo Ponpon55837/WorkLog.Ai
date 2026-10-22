@@ -1,6 +1,6 @@
 # 知識品質與檢索效率發展計畫
 
-規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫，Phase 0 進行中；其餘階段尚未執行。檢視基準：應用程式 1.6.2、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
+規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫，Phase 0 進行中（第 1、2 步完成）；其餘階段尚未執行。檢視基準：應用程式 1.6.2、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
 
 ## 1. 目標
 
@@ -40,7 +40,7 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 | 能力 | 現況 | 缺口 |
 | --- | --- | --- |
 | 合成檢索品質門檻 | `tests/storage/retrieval-quality.test.ts`：20 題虛構查詢分 K／S／R／N／P 五類，整體 hit@5 ≥ 0.95、MRR ≥ 0.90，另有詞彙擴展、證據強度、日期範圍、重複規劃片段等定向案例 | 只在小型合成資料上量測 |
-| 個人資料檢索評估 | `pnpm eval:recall`：以唯讀快照評估 `work_recall` 與 `work_get_context`，輸出 hit@1、hit@5、MRR、no-hit 誤判、回應大小與延遲 | 沒有使用者自己的題庫，從未在真實資料上產生基線 |
+| 個人資料檢索評估 | `pnpm eval:recall`：以唯讀快照評估 `work_recall` 與 `work_get_context`，輸出 hit@1、hit@5、MRR、no-hit 誤判、回應大小與延遲；2026-10-22 起有使用者私有題庫與真實資料基線（見 Phase 0） | 無答案題目的判斷（見 Phase 0 發現） |
 | 效能門檻 | `pnpm test:performance`：5,000 筆合成 Session 的各讀取路徑 p90 門檻 | 合成資料單薄（Session 沒有未結項、Knowledge 只有少量、沒有 Evidence）；沒有更大規模 |
 | 資料規模下的排序 | 無 | 沒有量測「加入大量不相關資料後，正確答案是否仍排在前面」 |
 | Context 預算 | `work_get_context` 有焦點 10,000、無焦點 16,000 字元上限，跨區去重，省略項目附 `omitted` 與 `readWith` | 尚未依查詢類型區分預算 |
@@ -104,6 +104,20 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 4. 把每個失敗歸類為保存、候選召回、排序、知識有效性或 context 輸出問題，依影響程度決定 Phase 1 與 Phase 2 的 PR。
 
 完成條件：能重複量測資料品質、檢索準確度、延遲與回應成本。
+
+#### Phase 0 進度與發現（2026-10-22）
+
+- 第 1 步：合成檢索品質 25/25、回應大小 12/12 通過，數字與 `docs/testing.md` 記錄的基線一致。`pnpm test:performance` 在本機 Windows 有多項超過預算（例如有相關未結項的 `getContext` p90 約 700 ms，預算 500 ms），程式碼與 `main` 相同；CI 只在 Ubuntu 執行這組門檻，Windows 的實際速度另行追蹤。
+- 第 2 步：建立 71 題私有題庫（51 題有答案、20 題無答案，涵蓋第 5 節 E1 的類別），由 Agent 擬題、另一個 Agent 複核。真實資料基線：recall hit@1 0.86、hit@5 0.98、MRR 0.91；context hit@5 1.00、MRR 0.94；recall 延遲中位數約 40 ms。較弱的類別是描述症狀的自然語句、過時或被推翻的知識、跨多個 Session 延續的工作。
+- 第 3 步：尚未開始。
+
+**confidence 只代表字面相符，不代表有答案。** 現行規則下，`high` 有 14／17 題第一名就是正確答案，但 20 題無答案題中有 3 題也是 `high`；`low` 同時包含正確答案、排名較後的答案與無答案題，沒有一題無答案題回傳 `none`。原因：
+
+1. 中文查詢以兩字切詞，問句會產生跨詞片段。這些片段在整個資料庫都不存在，依 IDF 公式反而拿到最高權重，在各題平均佔查詢權重約一半，把所有紀錄的覆蓋率一起壓低，讓正確答案也落在 `high` 門檻以下。
+2. 計算覆蓋率時排除這些片段，正確答案會升為 `high`，但無答案題也一起升為 `high`。
+3. 再加上「至少命中幾個查詢詞」的條件也無法區分：難的無答案題，最接近的紀錄在結構化欄位可命中 5～14 個查詢詞。模擬中這個規則讓 `high` 涵蓋的正確答案從 14 題增為 32 題，無答案題誤判為 `high` 也從 3 題增為 6 題。
+
+只靠字面比對無法判斷問題是否有答案。決定：不改計算，在工具契約、Agent skill 與 `docs/mcp-tools.md` 說明 `high` 與 `low` 都只是字面相符的訊號，引用前必須讀完整紀錄。之後若要改善，需要能理解語意的判斷，依第 2 節原則，先以題庫證明效益再評估。
 
 ### Phase 1：儲存品質（A1–A3）
 
