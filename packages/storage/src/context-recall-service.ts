@@ -81,7 +81,7 @@ interface ContextRecallStoreReader {
   getSessionById(sessionId: string): WorkSessionRecord | undefined;
   getProjectById(projectId: string): ProjectRecord | undefined;
   getSessionLinks(sessionId: string): SessionLinkRecord[];
-  getKnowledgeWithTrust(knowledgeId: string): KnowledgeRecord | undefined;
+  getKnowledgeWithTrustMany(knowledgeIds: string[]): Map<string, KnowledgeRecord>;
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
   listReportSynthesisRequests(options: ReportSynthesisRequestQuery): ReportSynthesisRequestListQueryResult;
   listMetadataBackfillRequests(options: MetadataBackfillRequestQuery): MetadataBackfillRequestListQueryResult;
@@ -267,7 +267,7 @@ export class ContextRecallService {
       outcome: "recall",
       ...(project ? { project } : {}),
       ...result,
-      hits: result.hits.map((hit) => this.compactRecallHit(this.withRelatedSessions(hit))),
+      hits: this.withRelatedSessions(result.hits).map((hit) => this.compactRecallHit(hit)),
     };
   }
 
@@ -295,9 +295,17 @@ export class ContextRecallService {
     return bounded.truncated ? { ...hit, excerpt: bounded.text, truncated: true } : hit;
   }
 
-  private withRelatedSessions(hit: RecallHit): RecallHit {
+  /** Trust for every Knowledge hit is read in one batch; per-hit lookups rescanned later Sessions once per hit. */
+  private withRelatedSessions(hits: RecallHit[]): RecallHit[] {
+    const trusted = this.store.getKnowledgeWithTrustMany(
+      hits.filter((hit) => hit.type === "knowledge").map((hit) => hit.id),
+    );
+    return hits.map((hit) => this.withRelatedSessionsFor(hit, trusted));
+  }
+
+  private withRelatedSessionsFor(hit: RecallHit, trusted: Map<string, KnowledgeRecord>): RecallHit {
     if (hit.type === "knowledge") {
-      const knowledge = this.store.getKnowledgeWithTrust(hit.id);
+      const knowledge = trusted.get(hit.id);
       return {
         ...hit,
         ...(knowledge?.possiblyStale ? { possiblyStale: true } : {}),
@@ -780,7 +788,7 @@ export class ContextRecallService {
     }
     const recalled = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
     const termHits = recalled.termHits;
-    const hits = recalled.hits.map((hit) => this.contextHit(this.withRelatedSessions(hit)));
+    const hits = this.withRelatedSessions(recalled.hits).map((hit) => this.contextHit(hit));
     const knowledge = hits.filter((hit) => hit.type === "knowledge").slice(0, RELEVANT_LIMIT);
     const sessions = hits
       .filter((hit) => hit.type === "session")

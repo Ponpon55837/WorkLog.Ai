@@ -600,6 +600,9 @@ try {
     "recall (month range)": () =>
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
     "recall (synonym expansion)": () => benchStore.recall({ q: "endpoint performance", limit: 8 }),
+    // Twenty stale-checked Knowledge hits; trust must be read in one batch, not once per hit.
+    "recall (20 Knowledge hits with staleness)": () =>
+      benchStore.recall({ q: "synthetic knowledge staleness", projectRoot: alphaRoot, limit: 30 }),
     "recall evaluator (snapshot + MCP recall/context)": () =>
       evaluateRecallQuestions(databasePath, evaluationQuestions),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
@@ -694,6 +697,7 @@ try {
     search: 500,
     "recall (month range)": 500,
     "recall (synonym expansion)": 500,
+    "recall (20 Knowledge hits with staleness)": 250,
     "recall evaluator (snapshot + MCP recall/context)": 1000,
     "getGraph (with derived)": 750,
     "getGraphPath (500 nodes)": 750,
