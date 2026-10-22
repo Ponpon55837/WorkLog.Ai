@@ -80,7 +80,6 @@ import type {
   KnowledgeHistoryResult,
   KnowledgeQuery,
   KnowledgeQueryResult,
-  KnowledgeRecord,
   KnowledgeSkippedResult,
   MetadataBackfillApplyInput,
   MetadataBackfillBatchResult,
@@ -525,11 +524,13 @@ export class WorkIntelligenceStore {
       getSessionById: (sessionId) => this.getSessionById(sessionId),
       getProjectById: (projectId) => this.getProjectById(projectId),
       getSessionLinks: (sessionId) => this.getSessionLinks(sessionId),
-      getKnowledgeWithTrust: (knowledgeId) => {
-        const row = this.db
-          .prepare("SELECT k.*, NULL AS project_name FROM knowledge k WHERE k.id = ?")
-          .get(knowledgeId) as KnowledgeRow | undefined;
-        return row ? this.withKnowledgeTrust(toKnowledge(row)) : undefined;
+      getKnowledgeWithTrustMany: (knowledgeIds) => {
+        if (knowledgeIds.length === 0) return new Map();
+        const rows = this.db
+          .prepare("SELECT k.*, NULL AS project_name FROM knowledge k WHERE k.id IN (SELECT value FROM json_each(?))")
+          .all(JSON.stringify([...new Set(knowledgeIds)])) as unknown as KnowledgeRow[];
+        const trusted = this.knowledgeService.withKnowledgeTrustMany(rows.map(toKnowledge));
+        return new Map(trusted.map((knowledge) => [knowledge.id, knowledge]));
       },
       searchKnowledge: (query) => this.searchKnowledge(query),
       listReportSynthesisRequests: (query) => this.listReportSynthesisRequests(query),
@@ -1087,10 +1088,6 @@ export class WorkIntelligenceStore {
   }
 
   /** Adds the computed possiblyStale marker (see KnowledgeRecord.possiblyStale). */
-  private withKnowledgeTrust(knowledge: KnowledgeRecord): KnowledgeRecord {
-    return this.knowledgeService.withKnowledgeTrust(knowledge);
-  }
-
   /** Opens a request for an Agent to propose Knowledge from the project's not-yet-reviewed Sessions. */
   public requestKnowledgeCandidates(projectRoot: string): RequestKnowledgeCandidatesResult {
     return this.knowledgeCandidates.request(projectRoot);

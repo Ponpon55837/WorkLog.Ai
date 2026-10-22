@@ -14,6 +14,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- `work_recall` and `work_get_context` read the stale and evidence state of all Knowledge hits in one batch. They used to look up each Knowledge hit on its own, rescanning the project's later Sessions every time, so a recall with many Knowledge hits slowed down as history grew: with 20 Knowledge hits over 5,000 Sessions, p90 went from 1,414 ms to 113 ms locally. Ranking and response content are unchanged. A new `pnpm test:performance` case keeps this under 250 ms.
 - A project registered before project roots were canonicalized could keep its original spelling (on Windows, mixed case such as `C:\Users\...`). Lookups by folder use the canonical spelling, so such a tracked project read as unregistered and the MCP tools quietly skipped it. Opening the database now rewrites those roots to their canonical spelling, after the usual pre-migration backup. Only case and a trailing separator are changed: a root from another computer is left for the project location move, and a root whose canonical spelling already belongs to another project is left untouched.
 
 ## [1.6.2] - 2026-10-21
