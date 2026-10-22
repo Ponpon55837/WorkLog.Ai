@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { canonicalizeProjectRoot } from "@work-intelligence/project-policy";
 import type { BackupRetentionOptions } from "./backup.js";
 import { backupDatabaseBeforeMigration } from "./backup.js";
 import { DATABASE_SCHEMA } from "./database-schema.js";
@@ -136,6 +137,43 @@ function migrateLegacySchema(db: DatabaseSync): void {
   }
 }
 
+/*
+ * Projects saved before root paths were canonicalized keep their original spelling (on Windows, mixed case), so
+ * lookups by the canonical root miss them and a tracked project reads as unregistered. Only case and a trailing
+ * separator are repaired: a root from another platform (a restored backup) would resolve to a different path, and
+ * moving it is the location service's job. A row whose canonical root already belongs to another project is left as
+ * it is: merging two projects is not a safe automatic repair.
+ */
+function nonCanonicalProjectRoots(db: DatabaseSync): Array<{ id: string; rootPath: string }> {
+  if (!tableExists(db, "projects")) {
+    return [];
+  }
+  const rows = db.prepare("SELECT id, root_path AS rootPath FROM projects").all() as Array<{
+    id: string;
+    rootPath: string;
+  }>;
+  const taken = new Set(rows.map((row) => row.rootPath));
+  const repairs: Array<{ id: string; rootPath: string }> = [];
+  for (const row of rows) {
+    const rootPath = canonicalizeProjectRoot(row.rootPath);
+    const spelledAlike = [row.rootPath, row.rootPath.replace(/[\\/]$/, "")].some(
+      (candidate) => candidate.toLowerCase() === rootPath.toLowerCase(),
+    );
+    if (rootPath !== row.rootPath && spelledAlike && !taken.has(rootPath)) {
+      taken.add(rootPath);
+      repairs.push({ id: row.id, rootPath });
+    }
+  }
+  return repairs;
+}
+
+function canonicalizeProjectRoots(db: DatabaseSync): void {
+  const update = db.prepare("UPDATE projects SET root_path = ? WHERE id = ?");
+  for (const repair of nonCanonicalProjectRoots(db)) {
+    update.run(repair.rootPath, repair.id);
+  }
+}
+
 function assertSchemaVersionSupported(db: DatabaseSync): void {
   if (!tableExists(db, "schema_migrations")) {
     return;
@@ -166,7 +204,7 @@ export function initializeWorkIntelligenceDatabase(
 
   const isFreshDatabase = !hasUserTables(db);
   const nextMigrationVersion = getNextPendingSchemaMigrationVersion(db);
-  const legacyMigrationPending = hasPendingLegacyMigration(db);
+  const legacyMigrationPending = hasPendingLegacyMigration(db) || nonCanonicalProjectRoots(db).length > 0;
   const migrationPending = nextMigrationVersion !== undefined || legacyMigrationPending;
 
   if (!isFreshDatabase && migrationPending && databasePath !== ":memory:") {
@@ -188,6 +226,7 @@ export function initializeWorkIntelligenceDatabase(
       db.exec(DATABASE_SCHEMA);
       migrateLegacySchema(db);
       applySchemaMigrations(db);
+      canonicalizeProjectRoots(db);
     });
   } catch (error) {
     if (error instanceof DatabaseInitializationError) {
