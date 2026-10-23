@@ -25,8 +25,9 @@ type DocType = "session" | "knowledge";
  * handoff section counted. Fixed synonym expansions use a separate 0.2-weight score; only the best synonym chunk
  * or raw section counts, and its contribution is capped at 25% of an existing original-term score. Synonym-only
  * candidates use that single best piece as a low-confidence lead. Original-term IDF coverage controls ranking
- * coverage and confidence. Structured fields outweigh raw planning text, duplicate raw sections are downweighted,
- * path matches add a fixed score, recency is mild, and Knowledge evidence adjusts its score.
+ * coverage (words matched only in raw text count half there) and confidence. Structured fields outweigh raw planning
+ * text, duplicate raw sections are downweighted, path matches add a fixed score, recency is mild, and Knowledge
+ * evidence adjusts its score.
  */
 const FIELD_WEIGHTS: Record<Exclude<RecallField, "path">, number> = {
   title: 3,
@@ -55,6 +56,10 @@ const MIN_QUERY_COVERAGE = 0.1;
 // "high" needs half the query's IDF weight in structured fields (title, summary, workSummary, Knowledge) or a
 // path match; matches only inside raw handoff text, such as a quoted query in old planning notes, stay "low".
 const HIGH_CONFIDENCE_QUERY_COVERAGE = 0.5;
+// For ranking only, query words matched solely in raw handoff text count half. Long imported handoffs mention many
+// words in passing, so full credit let them outrank shorter records that answer the query in structured fields.
+// The coverage floor and confidence still use full coverage, so raw-only answers stay findable.
+const RAW_ONLY_COVERAGE_SHARE = 0.5;
 // Evidence strength for Knowledge: each confirmation (up to 5) adds 4%, and a contradiction newer than the
 // latest confirmation lowers the score, so a disputed item ranks below an equally matching trusted one.
 const CONFIRMATION_BONUS = 0.04;
@@ -313,11 +318,15 @@ export class SearchRepository {
         }
         const coverage = totalIdf > 0 ? matchedIdf / totalIdf : 0;
         const structuredCoverage = totalIdf > 0 ? structuredIdf / totalIdf : 0;
+        const rankingCoverage =
+          totalIdf > 0 ? (structuredIdf + (matchedIdf - structuredIdf) * RAW_ONLY_COVERAGE_SHARE) / totalIdf : 0;
         const originalScore = doc.fieldScore + (doc.bestRaw?.score ?? 0);
         const synonymScore = Math.max(doc.bestSynonymChunk?.score ?? 0, doc.bestSynonymRaw?.score ?? 0);
         const textScore =
           originalScore > 0
-            ? (originalScore + Math.min(synonymScore, originalScore * MAX_SYNONYM_SCORE_SHARE)) * coverage * coverage
+            ? (originalScore + Math.min(synonymScore, originalScore * MAX_SYNONYM_SCORE_SHARE)) *
+              rankingCoverage *
+              rankingCoverage
             : synonymScore;
         const ageDays = Math.max(0, (now - Date.parse(doc.date)) / 86_400_000) || 0;
         const recency = 0.75 + 0.25 * Math.exp(-ageDays / RECENCY_DAYS);
