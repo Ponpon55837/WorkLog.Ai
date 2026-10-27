@@ -57,8 +57,7 @@ export const architectureDiagramSchema = z
   })
   .strict()
   .superRefine((diagram, context) => {
-    const fail = (path: (string | number)[], message: string) =>
-      context.addIssue({ code: z.ZodIssueCode.custom, path, message });
+    const fail = (path: (string | number)[], message: string) => context.addIssue({ code: "custom", path, message });
     for (const key of ["nodes", "edges", "groups", "paths"] as const) {
       const ids = new Set<string>();
       diagram[key].forEach((item, index) => {

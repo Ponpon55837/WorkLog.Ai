@@ -126,7 +126,7 @@ export const changedFileChangeSchema = z
   .superRefine((value, context) => {
     if (value.status === "renamed" && !value.previousPath) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["previousPath"],
         message: "A renamed file must include previousPath.",
       });
@@ -157,7 +157,7 @@ export function workTimestampSchema(field: string) {
       if (time > now + WORK_TIMESTAMP_FUTURE_TOLERANCE_MS) {
         const hoursAhead = ((time - now) / 3_600_000).toFixed(1);
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           message:
             `${field} ${new Date(time).toISOString()} is ${hoursAhead} h after the server time ` +
             `${new Date(now).toISOString()}. Omit ${field} for work that just finished; otherwise use a time ` +
@@ -172,7 +172,7 @@ export function workTimestampSchema(field: string) {
 const eventSchema = z.object({
   type: workEventTypeSchema,
   summary: z.string().trim().min(1).max(4_000),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
   occurredAt: workTimestampSchema("occurredAt").optional(),
 });
 
@@ -222,7 +222,7 @@ function validateDiagramContent(input: z.infer<typeof diagramContentInputSchemaB
   const valid = Boolean(parseArchitectureDiagram(input.source));
   if (!valid)
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["source"],
       message: "Invalid diagram source or size for its kind/version.",
     });
@@ -357,7 +357,7 @@ export const updateSessionWorkSummaryInputSchema = updateSessionWorkSummaryInput
   (value, context) => {
     if (value.mode === "replace" && !workSummaryInputSectionsSchema.safeParse(value.workSummary).success) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["workSummary"],
         message: "replace mode requires all five workSummary sections.",
       });
@@ -551,7 +551,7 @@ export const sessionsQuerySchema = z
   .superRefine((value, context) => {
     if (value.from && value.to && value.from > value.to) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["to"],
         message: "The end date must be on or after the start date.",
       });
@@ -581,19 +581,19 @@ export const sessionDetailQuerySchemaBase = z.object({
 export const sessionDetailQuerySchema = sessionDetailQuerySchemaBase.superRefine((input, context) => {
   if (input.view && input.select)
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["select"],
       message: "view and select are mutually exclusive.",
     });
   if (input.select && new Set(input.select).size !== input.select.length)
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["select"],
       message: "Duplicate select fields are not allowed.",
     });
   if (input.includeRawSnapshots && (input.view || input.select) && !input.select?.includes("rawSnapshots"))
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["includeRawSnapshots"],
       message: "Projected raw content requires selecting rawSnapshots explicitly.",
     });
@@ -614,7 +614,7 @@ export const mcpListSessionsInputSchemaBase = z.object({
 export const mcpListSessionsInputSchema = mcpListSessionsInputSchemaBase.superRefine((value, context) => {
   if (value.from && value.to && value.from > value.to) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["to"],
       message: "The end date must be on or after the start date.",
     });
@@ -624,16 +624,16 @@ export const mcpListSessionsInputSchema = mcpListSessionsInputSchemaBase.superRe
 /** from/to come together, in order, and span at most MAX_CUSTOM_REPORT_DAYS. */
 function checkCustomReportRange(value: { from?: string; to?: string }, context: z.RefinementCtx): void {
   if ((value.from === undefined) !== (value.to === undefined)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "from and to must be given together." });
+    context.addIssue({ code: "custom", path: ["to"], message: "from and to must be given together." });
     return;
   }
   if (value.from && value.to) {
     const days = (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 + 1;
     if (!(days >= 1)) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "to must not be before from." });
+      context.addIssue({ code: "custom", path: ["to"], message: "to must not be before from." });
     } else if (days > MAX_CUSTOM_REPORT_DAYS) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["to"],
         message: `A custom report covers at most ${MAX_CUSTOM_REPORT_DAYS} days.`,
       });
@@ -691,7 +691,7 @@ function checkCreateReportSynthesisRange(
   checkCustomReportRange(value, context);
   if (value.period === "custom" && (!value.from || !value.to)) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: [value.from ? "to" : "from"],
       message: "A custom report synthesis request needs both from and to.",
     });
@@ -828,7 +828,7 @@ const voidReasonSchema = z.string().trim().min(1).max(1_000);
 
 function requireReasonWhenVoiding(value: { voided: boolean; reason?: string }, context: z.RefinementCtx): void {
   if (value.voided && !value.reason) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "A reason is required to void." });
+    context.addIssue({ code: "custom", path: ["reason"], message: "A reason is required to void." });
   }
 }
 
@@ -1046,7 +1046,7 @@ export const updateKnowledgeInputSchema = updateKnowledgeInputSchemaBase.superRe
     value.confirm === undefined
   ) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["knowledgeId"],
       message: "At least one Knowledge field must be updated.",
     });
@@ -1152,7 +1152,7 @@ export const handoffImportApplyInputSchema = handoffImportOptionsSchema.extend({
 const insightChoiceQuestionSchema = z.object({
   type: z.literal("choice"),
   instructions: z.string(),
-  criteria: z.record(z.string()),
+  criteria: z.record(z.string(), z.string()),
 });
 
 const insightScoreQuestionSchema = z.object({
@@ -1178,17 +1178,17 @@ export const insightQuestionSchema = z.discriminatedUnion("type", [
   insightScoreQuestionSchema,
   insightNoulQuestionSchema,
 ]);
-export const insightQuestionsSchema = z.record(insightQuestionSchema);
+export const insightQuestionsSchema = z.record(z.string(), insightQuestionSchema);
 export const insightSignalSchema = z.object({
   value: z.unknown(),
   confidence: z.number().optional(),
   probability: z.number().optional(),
-  distribution: z.record(z.number()).optional(),
+  distribution: z.record(z.string(), z.number()).optional(),
 });
 export const insightEvaluationSchema = z.object({
   provider: z.string(),
   model: z.string(),
-  results: z.record(insightSignalSchema),
+  results: z.record(z.string(), insightSignalSchema),
   usage: z
     .object({
       inputTokens: z.number().optional(),
@@ -1957,7 +1957,7 @@ const projectDataExportObjectSchema = z
             (row.kind === "architecture" && (typeof row.source !== "string" || !parseArchitectureDiagram(row.source))))
         ) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["tables", table, index],
             message: "Invalid diagram version or architecture source.",
           });
@@ -1974,7 +1974,7 @@ const projectDataExportObjectSchema = z
               : row.snoozed_until !== null))
         )
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["tables", table, index],
             message: "Invalid attention preference.",
           });
@@ -1992,7 +1992,7 @@ const projectDataExportObjectSchema = z
           }
           if (!valid)
             context.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               path: ["tables", table, index],
               message: "Invalid report presentation state or revision.",
             });
@@ -2001,14 +2001,14 @@ const projectDataExportObjectSchema = z
         const missingRequired = [...expected].some((column) => !Object.hasOwn(row, column) && !(column in defaults));
         if (missingRequired || keys.some((key) => !expected.has(key))) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["tables", table, index],
             message: `Each ${table} row must contain exactly the supported columns.`,
           });
         }
         if (typeof row.id !== "string" || row.id.length === 0 || ids.has(row.id)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["tables", table, index, "id"],
             message: "Each row id must be unique and non-empty.",
           });
@@ -2027,14 +2027,14 @@ const projectDataExportObjectSchema = z
               ((column === "is_current" || column === "changed_files_confirmed") && value > 1)
             ) {
               context.addIssue({
-                code: z.ZodIssueCode.custom,
+                code: "custom",
                 path: ["tables", table, index, column],
                 message: `${table}.${column} 必須是有效的整數。`,
               });
             }
           } else if (required.has(column) ? typeof value !== "string" : value !== null && typeof value !== "string") {
             context.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               path: ["tables", table, index, column],
               message: `${table}.${column} 必須是文字或允許的空值。`,
             });
@@ -2044,7 +2044,7 @@ const projectDataExportObjectSchema = z
               JSON.parse(value);
             } catch {
               context.addIssue({
-                code: z.ZodIssueCode.custom,
+                code: "custom",
                 path: ["tables", table, index, column],
                 message: `${table}.${column} 必須包含有效的 JSON。`,
               });
@@ -2057,7 +2057,7 @@ const projectDataExportObjectSchema = z
           !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(row.root_path)
         ) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["tables", table, index, "root_path"],
             message: "專案根路徑必須是絕對路徑。",
           });
@@ -2066,7 +2066,7 @@ const projectDataExportObjectSchema = z
           if (column === "from_status" && row[column] === null) continue;
           if (typeof row[column] !== "string" || !allowed.includes(row[column])) {
             context.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               path: ["tables", table, index, column],
               message: `The ${column} value is not supported for ${table}.`,
             });
@@ -2076,7 +2076,7 @@ const projectDataExportObjectSchema = z
     }
     if (totalRows > 200_000) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["tables"],
         message: "The export contains too many records.",
       });
@@ -2085,7 +2085,7 @@ const projectDataExportObjectSchema = z
       const projectId = bundle.scope.projectId;
       if (!bundle.tables.projects.some((project) => project.id === projectId)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["scope", "projectId"],
           message: "The selected project is missing from the export.",
         });
@@ -2133,14 +2133,14 @@ export const projectDataExportRequestSchema = z
   .superRefine((value, context) => {
     if (value.scope === "project" && !value.projectId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["projectId"],
         message: "projectId is required for a project export.",
       });
     }
     if (value.scope === "all" && value.projectId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["projectId"],
         message: "projectId is not allowed for an all-project export.",
       });
@@ -2169,7 +2169,7 @@ export const projectDataImportInputSchema = z
       const key = entry.from.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
       if (seen.has(key)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["remap", index, "from"],
           message: "Each source path prefix can only be mapped once.",
         });

@@ -94,11 +94,11 @@ import {
 import { parseMcpInput } from "./input.js";
 import { sessionTextResult, textResult } from "./result.js";
 
-interface StoreToolDefinition<S extends z.ZodTypeAny> {
+interface StoreToolDefinition<S extends z.ZodType> {
   title: string;
   description: string;
   /** Advertised input shape; may be the unrefined base object of `schema`. */
-  inputShape: z.ZodRawShape;
+  inputShape: z.ZodObject["shape"];
   /** Full validation schema, including cross-field refinements. */
   schema: S;
   annotations: ToolAnnotations;
@@ -355,7 +355,7 @@ function createDispatcherSchema(operations: readonly RegisteredStoreTool[]) {
   return z
     .object({
       operation: z.enum([first, ...rest] as [string, ...string[]]),
-      arguments: z.record(z.unknown()).optional(),
+      arguments: z.record(z.string(), z.unknown()).optional(),
     })
     .strict();
 }
@@ -447,7 +447,7 @@ export function createWorkIntelligenceMcpServer(
   registerAgentResources(server);
   const registeredStoreTools = new Map<string, RegisteredStoreTool>();
 
-  function registerStoreTool<S extends z.ZodTypeAny>(name: string, definition: StoreToolDefinition<S>): void {
+  function registerStoreTool<S extends z.ZodType>(name: string, definition: StoreToolDefinition<S>): void {
     if (registeredStoreTools.has(name)) throw new Error(`Duplicate MCP operation: ${name}`);
     const dispatcher = dispatcherForAnnotations(definition.annotations);
     registeredStoreTools.set(name, {

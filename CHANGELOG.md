@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Security
+
+- Upgraded Zod to 4.6.7 to fix GHSA-mrhx-c7xc-m3w5, which has no patched Zod 3 release, and overrode body-parser@^2 to 2.4.0 to fix GHSA-27r3-jxmh-p828.
+
 ### Added
 
 - `pnpm bench:recall-scale` measures recall and context ranking as synthetic distractor data grows (1,000, 5,000 and 10,000 Sessions by default), with near misses, outstanding items, Knowledge and Evidence, using the same evaluator as `pnpm eval:recall`. It runs locally only and writes nothing outside an OS temp folder. The first results are in `docs/knowledge-quality-roadmap.md`: answers that exist only in raw handoff text drop out of the top 30 by 1,000 Sessions, while Knowledge, structured Session, question, path and outstanding-item targets stay at rank 1–2.

@@ -100,28 +100,28 @@ const questionSchema = z
   .superRefine((question, context) => {
     if (question.expectedNoHit && question.expectedIds.length > 0) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["expectedIds"],
         message: "No-hit questions cannot list expectedIds.",
       });
     }
     if (!question.expectedNoHit && question.expectedIds.length === 0) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["expectedIds"],
         message: "Positive questions require at least one expected id.",
       });
     }
     if (question.from && question.to && question.to < question.from) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["to"],
         message: "The end date must be on or after the start date.",
       });
     }
     if (question.mode === "context" && (question.from || question.to)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["mode"],
         message: "Context questions do not support date filters; use recall mode.",
       });
