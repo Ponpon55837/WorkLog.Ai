@@ -53,7 +53,7 @@ describe("MCP input boundary", () => {
     const open = z.object({
       loose: z.object({ a: z.string() }).passthrough(),
       extra: z.object({ a: z.string() }).catchall(z.number()),
-      details: z.record(z.unknown()),
+      details: z.record(z.string(), z.unknown()),
     });
     expect(
       parseMcpInput(open, {
@@ -78,7 +78,7 @@ describe("MCP input boundary", () => {
       expect(invalidCatchall.error.issues[0]?.message).toContain("in custom: typo");
     }
 
-    const recordValues = z.record(z.object({ id: z.string() }));
+    const recordValues = z.record(z.string(), z.object({ id: z.string() }));
     expect(parseMcpInput(recordValues, { arbitraryKey: { id: "one" } }).success).toBe(true);
     const invalidRecord = parseMcpInput(recordValues, { arbitraryKey: { id: "one", typo: true } });
     expect(invalidRecord.success).toBe(false);
@@ -115,6 +115,29 @@ describe("MCP input boundary", () => {
     expect(wrongDiscriminatorField.success).toBe(false);
     if (!wrongDiscriminatorField.success) {
       expect(wrongDiscriminatorField.error.issues[0]?.message).toContain("Unknown argument(s): two");
+    }
+  });
+
+  it("checks unknown keys through Zod 4 object wrappers in their input direction", () => {
+    const objectSchema = z.object({ name: z.string() });
+    const wrappedSchemas: Record<string, z.ZodType> = {
+      strict: objectSchema.strict(),
+      optional: objectSchema.optional(),
+      default: objectSchema.default({ name: "default" }),
+      readonly: objectSchema.readonly(),
+      lazy: z.lazy(() => objectSchema),
+      transform: objectSchema.transform((value) => ({ name: value.name })),
+      preprocess: z.preprocess((value) => value, objectSchema),
+    };
+
+    for (const [wrapper, wrappedSchema] of Object.entries(wrappedSchemas)) {
+      expect(parseMcpInput(wrappedSchema, { name: "valid" }).success, wrapper).toBe(true);
+      const rejected = parseMcpInput(wrappedSchema, { name: "valid", typo: true });
+      expect(rejected.success, wrapper).toBe(false);
+      if (!rejected.success) {
+        expect(rejected.error.issues[0]?.code, wrapper).toBe("unrecognized_keys");
+        expect(rejected.error.issues[0]?.message, wrapper).toContain("typo");
+      }
     }
   });
 });

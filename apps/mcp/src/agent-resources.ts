@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { architectureDiagramSchema } from "@work-intelligence/schema";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 
 export interface AgentToolContractOperation {
@@ -12,9 +11,9 @@ export interface AgentToolContractOperation {
   dispatcherName: string;
   title: string;
   description: string;
-  inputShape: z.ZodRawShape;
+  inputShape: z.ZodObject["shape"];
   /** Original full runtime schema, including refinements and transforms not expressible in JSON Schema. */
-  schema: z.ZodTypeAny;
+  schema: z.ZodType;
   /** Human-readable rules which JSON Schema cannot express, or runtime rules beyond field shape. */
   validationNotes?: readonly string[];
   annotations: ToolAnnotations;
@@ -100,16 +99,24 @@ function buildOperationContract(operation: AgentToolContractOperation): string {
   ].join("\n");
 }
 
-/** Keep zod-to-json-schema's generic type instantiation behind a deliberately broad boundary. */
-function toJsonSchema(schema: z.ZodTypeAny): unknown {
-  const convert = zodToJsonSchema as unknown as (
-    input: z.ZodTypeAny,
-    options: { target: "jsonSchema7"; strictUnions: boolean; pipeStrategy: "input" },
-  ) => unknown;
-  const { $schema: _dialect, ...jsonSchema } = convert(schema, {
-    target: "jsonSchema7",
-    strictUnions: true,
-    pipeStrategy: "input",
+/** Keep the advertised contract aligned with the schema's accepted input in Zod 4. */
+function toJsonSchema(schema: z.ZodType): unknown {
+  const { $schema: _dialect, ...jsonSchema } = z.toJSONSchema(schema, {
+    target: "draft-7",
+    io: "input",
+    unrepresentable: "any",
+    override: ({ zodSchema, jsonSchema }) => {
+      if (zodSchema instanceof z.ZodObject) {
+        const catchall = zodSchema._zod.def.catchall;
+        if (catchall === undefined || catchall instanceof z.ZodNever) jsonSchema.additionalProperties = false;
+      }
+      if (
+        zodSchema instanceof z.ZodString &&
+        zodSchema._zod.def.checks?.some((check) => (check._zod.def as { format?: string }).format === "datetime")
+      ) {
+        delete jsonSchema.pattern;
+      }
+    },
   }) as Record<string, unknown>;
   return jsonSchema;
 }
