@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-10-27
+
+[繁體中文更新說明](docs/releases/1.6.3.md).
+
 ### Security
 
 - Upgraded Zod to 4.6.7 to fix GHSA-mrhx-c7xc-m3w5, which has no patched Zod 3 release, and overrode body-parser@^2 to 2.4.0 to fix GHSA-27r3-jxmh-p828.
