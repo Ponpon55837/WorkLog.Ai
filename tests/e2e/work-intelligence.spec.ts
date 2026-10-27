@@ -2454,7 +2454,8 @@ test.describe("Work Intelligence browser regression", () => {
     const preview = backups.getByTestId("project-import-preview");
     await expect(preview).toBeVisible();
     await expect(preview).toContainText("Browser Regression Fixture");
-    await expect(preview.getByTestId("project-import-selected-projects")).toContainText(projectRoot);
+    const expectedProjectRoot = process.platform === "win32" ? projectRoot.toLowerCase() : projectRoot;
+    await expect(preview.getByTestId("project-import-selected-projects")).toContainText(expectedProjectRoot);
     await expect(preview.getByTestId("project-import-selected-projects")).toContainText(
       tt("projects.matchedAnExistingProject"),
     );
