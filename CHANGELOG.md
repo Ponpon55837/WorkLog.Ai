@@ -4,6 +4,19 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-10-28
+
+[繁體中文更新說明](docs/releases/1.6.4.md).
+
+### Changed
+
+- The `work_recall`, `work_search` and `work_get_context` tool descriptions, their contracts, the work-intelligence skill and `docs/mcp-tools.md` now tell an Agent what to do after reading the source: cite a record only when it directly supports the answer, and otherwise answer `資料不足` instead of inferring from wording overlap, `confidence`, rank or recency. Earlier wording only required reading the full record before citing. Ranking, `confidence`, responses and schema are unchanged; on the private evaluation all recall and context metrics stayed the same.
+
+### Added
+
+- `pnpm bench:recall-scale` also reports where answers found only in raw handoff text would land in a separate raw-only candidate list, to measure that idea without changing recall output. On the private evaluation the candidates added no missing answers and raised latency, so recall does not use them.
+- Retrieval tests cover answerability: answered and unanswered questions with close wording, partially related hits, contradicting records, archived Knowledge and voided or restored Sessions, plus a deterministic MCP flow that reads the full source from each hit's id and checks the tool descriptions direct unsupported answers to `資料不足`. A known limitation is recorded as an expected-failure test: a later Session with no link to an older one does not outrank it.
+
 ## [1.6.3] - 2026-10-27
 
 [繁體中文更新說明](docs/releases/1.6.3.md).
