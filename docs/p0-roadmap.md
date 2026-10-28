@@ -2,7 +2,7 @@
 
 - **產品定位：** Local-first Developer Work Intelligence
 - **規劃基準：** WorkLog.Ai v1.6.3（2026-10-28），PR 3 起始基準 main `1748ced`，schema 30
-- **文件狀態：** 執行計畫。PR 1（#268）與 PR 2（#269）已合併，兩者依停止條件只保留測試／benchmark 與結論；P0-3 的合成題庫、Agent 行為驗證與彙總評估已完成，PR／CI 待處理；沒有改檢索排序、confidence 計算、回應欄位或 schema；P0-4 未觸發。證據與數字記在上位路線圖的 Phase 2 進度段落。
+- **文件狀態：** 執行計畫。PR 1（#268）與 PR 2（#269）已合併，兩者依停止條件只保留測試／benchmark 與結論；P0-3 的合成題庫、Agent 行為驗證與彙總評估已完成，結果記錄於 PR #271；沒有改檢索排序、confidence 計算、回應欄位或 schema；P0-4 未觸發。證據與數字記在上位路線圖的 Phase 2 進度段落。
 - **修訂：** 2026-10-28 依 repo 現況核對修正並完成 P0-3 評估（P0-1 對象改為 Session；補入既有機制、停止條件與 PR 1／2 結論）
 - **核心原則：** Save What Matters · Retrieve What Matters · Learn What Works
 - **使用者體驗原則：** Intelligence without maintenance burden（不把知識維護轉嫁給使用者）
