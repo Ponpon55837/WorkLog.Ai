@@ -274,7 +274,7 @@ describe("recall", () => {
     expect(store.recall({ q: "grafting", projectRoot: root })).toMatchObject({ outcome: "skipped" });
   });
 
-  it.fails("KNOWN LIMITATION: a later unlinked Session does not supersede a close lexical match", () => {
+  function seedUnlinkedGuidelines() {
     const { store, root } = trackedStore();
     for (let index = 0; index < 10; index += 1) {
       finalize(store, root, `cache-filler-${index}`, {
@@ -306,12 +306,23 @@ describe("recall", () => {
       },
       completedAt: "2026-01-19T08:00:00.000Z",
     });
-
-    // The sessions have no parentSessionId or relatedSessionIds; current ranking returns the newer correction second.
+    // The sessions have no parentSessionId or relatedSessionIds.
     const ids = recall(store, { q: "orchard cache fixed timeout guideline" }).hits.map((hit) => hit.id);
+    return { ids, oldGuideline, revisedGuideline };
+  }
+
+  it("returns both unlinked guideline Sessions, with the newer correction ranked below the older one", () => {
+    const { ids, oldGuideline, revisedGuideline } = seedUnlinkedGuidelines();
 
     expect(ids).toContain(oldGuideline);
     expect(ids).toContain(revisedGuideline);
+    expect(ids.indexOf(revisedGuideline)).toBeGreaterThan(ids.indexOf(oldGuideline));
+  });
+
+  // Only the ordering is expected to fail, so a missing hit cannot make this known limitation pass.
+  it.fails("KNOWN LIMITATION: a later unlinked Session does not supersede a close lexical match", () => {
+    const { ids, oldGuideline, revisedGuideline } = seedUnlinkedGuidelines();
+
     expect(ids.indexOf(revisedGuideline)).toBeLessThan(ids.indexOf(oldGuideline));
   });
 
