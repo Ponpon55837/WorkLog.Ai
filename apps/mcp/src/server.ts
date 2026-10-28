@@ -161,6 +161,9 @@ type OutstandingItemsResponse = Omit<OutstandingItemListPage, "items"> & {
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
 const OUTSTANDING_ITEM_TEXT_LENGTH = 4_000;
 const OUTSTANDING_ITEM_RESPONSE_LIMIT = 30_000;
+const SOURCE_SUPPORT_TOOLS = new Set(["work_recall", "work_search", "work_get_context"]);
+const SOURCE_SUPPORT_GUIDANCE =
+  "After reading the full source, cite it only if it directly supports the answer; otherwise say 資料不足 and do not infer from wording, confidence, rank, or recency.";
 const OUTSTANDING_ITEM_DISPLAY_FIELDS: readonly OutstandingItemDisplayField[] = [
   { key: "projectName", marker: "projectNameTruncated" },
   { key: "sourceSessionTitle", marker: "sourceSessionTitleTruncated" },
@@ -454,7 +457,9 @@ export function createWorkIntelligenceMcpServer(
       name,
       dispatcherName: dispatcher.name,
       title: definition.title,
-      description: definition.description,
+      description: SOURCE_SUPPORT_TOOLS.has(name)
+        ? `${definition.description} ${SOURCE_SUPPORT_GUIDANCE}`
+        : definition.description,
       inputShape: definition.inputShape,
       schema: definition.schema,
       validationNotes: definition.validationNotes,

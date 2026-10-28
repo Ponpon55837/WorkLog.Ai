@@ -1468,6 +1468,64 @@ describe("Work Intelligence MCP server", () => {
     expect(contextMiss.relevant).toMatchObject({ confidence: "none", knowledge: [], sessions: [] });
   });
 
+  it("uses search hit ids to read full sources and directs unsupported answers to 資料不足", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Fictional Source Desk", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const unsupported = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-answerability-unsupported", "Amber battery shutdown check"),
+      summary: "The amber battery was checked before scheduled shutdown, but no threshold value was captured.",
+    });
+    const supported = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-answerability-supported", "Bracken valve timing note"),
+      summary: "After priming the fictional valve, wait twelve minutes before opening the outlet.",
+    });
+
+    const unsupportedRecall = await callJson<{
+      confidence: string;
+      hits: Array<{ id: string; type: string; excerpt: string }>;
+    }>(client, "work_recall", {
+      q: "amber battery temperature shutdown threshold",
+      projectRoot: root,
+    });
+    expect(unsupportedRecall.confidence).toBe("high");
+    expect(unsupportedRecall.hits[0]).toMatchObject({ id: unsupported.session.id, type: "session" });
+
+    const unsupportedSource = await callJson<{ session: { id: string; summary: string } }>(client, "work_get_session", {
+      sessionId: unsupportedRecall.hits[0]!.id,
+    });
+    expect(unsupportedSource.session).toMatchObject({ id: unsupported.session.id });
+    expect(unsupportedSource.session.summary).toContain("no threshold value was captured");
+    expect(unsupportedSource.session.summary).not.toMatch(/\d+\s*(?:°?C|degrees)/u);
+
+    const lowConfidenceSearch = await callJson<{ confidence: string; hits: Array<{ id: string }> }>(
+      client,
+      "work_search",
+      { q: "bracken cadence", projectRoot: root },
+    );
+    expect(lowConfidenceSearch.confidence).toBe("low");
+    expect(lowConfidenceSearch.hits[0]?.id).toBe(supported.session.id);
+    const supportedSource = await callJson<{ session: { id: string; summary: string } }>(client, "work_get_session", {
+      sessionId: lowConfidenceSearch.hits[0]!.id,
+    });
+    expect(supportedSource.session.summary).toContain("wait twelve minutes");
+
+    const context = await callJson<{
+      relevant?: { confidence: string; sessions: Array<{ id: string }> };
+      omitted?: Array<{ readWith: string }>;
+    }>(client, "work_get_context", { projectRoot: root, task: "bracken cadence" });
+    expect(context.relevant?.confidence).toBe("low");
+    expect(context.relevant?.sessions[0]?.id).toBe(supported.session.id);
+
+    const contracts = await getToolContractCatalog(client);
+    for (const operation of ["work_recall", "work_search", "work_get_context"]) {
+      const contract = contracts.sections.get(operation);
+      expect(contract).toContain("work_get_session");
+      expect(contract).toContain("資料不足");
+    }
+    expect(contracts.sections.get("work_get_context")).toContain("readWith");
+  });
+
   it("voids and restores a Session and evidence through MCP", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Void project", root);

@@ -1,6 +1,6 @@
 # 知識品質與檢索效率發展計畫
 
-規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫，Phase 0 完成；Phase 2 第一輪完成（PR #261～#263）；P0 執行計畫（`docs/p0-roadmap.md`）的 PR 1（#268）與 PR 2（#269）依停止條件完成，只保留測試、benchmark 與結論，P0-3 尚未執行；Phase 1 依第 4 步結果暫不開 PR；其餘階段尚未執行。檢視基準：應用程式 1.6.2、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
+規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫，Phase 0 完成；Phase 2 第一輪完成（PR #261～#263）；P0 執行計畫（`docs/p0-roadmap.md`）的 PR 1（#268）與 PR 2（#269）依停止條件完成，只保留測試、benchmark 與結論；P0-3 的合成題庫、Agent 行為驗證與彙總評估已完成，PR／CI 待處理；Phase 1 依第 4 步結果暫不開 PR；其餘階段尚未執行。檢視基準：應用程式 1.6.3、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
 
 ## 1. 目標
 
@@ -174,6 +174,9 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 - 移除原型後以同快照重跑最終分支：排序指標與上述基線一致；Recall P95 約 49 ms、Context P95 約 80 ms，回應大小亦相同。評估仍因既有 20 題無答案中的 3 題 `high` 而未通過，非本 PR 引入。
 - P0-2 決策：不合併產品候選欄位；私有資料沒有正向覆蓋收益，且候選查詢增加延遲。PR 2 僅保留合成補充區基準與本結論，不改 Recall／Context 輸出、主排序、confidence 或 schema；PR #262 延續重排與 PR #263 raw 半權重不變。
 - Raw-only 答案排得比 #263 前更後面的代價仍存在。B1（依問題類型檢索）與 B4（context 預算）目前沒有對應的失敗案例，先不做。
+- P0-3／PR 3（2026-10-28）：7 個合成答案性案例記錄預期答案性與現行 confidence／排名，基線測試 7/7 通過。契約與兩份 Agent skill 原先要求先讀完整來源，但未明確要求來源不支持時回答「資料不足」；已補上相同規則，沒有新增 operation、回應欄位或評分器。決定性 MCP 流程 31/31 通過；兩次本機模型 smoke run 共手動檢視 4 個合成情境，未觀察到 unsupported citation 或過度拒答。
+- P0-3 私有題庫同快照前後比較（71 題）：Recall Hit@1／Hit@5／MRR 0.884／1.000／0.938 → 0.884／1.000／0.938；Context 0.875／1.000／0.938 → 0.875／1.000／0.938；20 題無答案 Recall 中 3 題回傳 `high`，前後不變。題庫與唯讀快照均未改變；評估報告前後都因這 3 題未通過。無系統性錯誤引用證據，不提出獨立 answer sufficiency 訊號評估，也不改 confidence、排序、回應或 schema；#262 與 #263 行為保持不變。沒有保存類失敗，P0-4 不觸發。
+- P0-3 驗證摘要：`pnpm test:retrieval-quality` 25/25、MCP 全套 99/99、`pnpm test:response-size` 12/12、Web 187/187、`pnpm typecheck` 通過。完整 `pnpm test` 有 354 項通過及 1 項預期失敗，另 1 項受本機 Windows symlink EPERM 影響；獨立 server 套件 234 項通過、1 項略過、4 項受 Windows plugin 路徑環境影響失敗。檢索路徑未變更，因此未跑效能／規模 benchmark；PR／CI 尚待處理。
 
 ### Phase 3：知識生命週期（C1–C4）
 

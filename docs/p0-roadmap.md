@@ -1,9 +1,9 @@
 # WorkLog.Ai — 高優先級改善計畫（P0 Roadmap）
 
 - **產品定位：** Local-first Developer Work Intelligence
-- **規劃基準：** WorkLog.Ai v1.6.3（2026-10-27），main `402d214`，schema 30
-- **文件狀態：** 執行計畫。PR 1（#268）與 PR 2（#269）已合併，兩者都依停止條件只保留測試／benchmark 與結論，沒有改排序、回應或 schema；P0-3 尚未執行；P0-4 未觸發。證據與數字記在上位路線圖的 Phase 2 進度段落。
-- **修訂：** 2026-10-28 依 repo 現況核對修正（P0-1 對象改為 Session；補入既有機制與既有結論；加入停止條件）
+- **規劃基準：** WorkLog.Ai v1.6.3（2026-10-28），PR 3 起始基準 main `1748ced`，schema 30
+- **文件狀態：** 執行計畫。PR 1（#268）與 PR 2（#269）已合併，兩者依停止條件只保留測試／benchmark 與結論；P0-3 的合成題庫、Agent 行為驗證與彙總評估已完成，PR／CI 待處理；沒有改檢索排序、confidence 計算、回應欄位或 schema；P0-4 未觸發。證據與數字記在上位路線圖的 Phase 2 進度段落。
+- **修訂：** 2026-10-28 依 repo 現況核對修正並完成 P0-3 評估（P0-1 對象改為 Session；補入既有機制、停止條件與 PR 1／2 結論）
 - **核心原則：** Save What Matters · Retrieve What Matters · Learn What Works
 - **使用者體驗原則：** Intelligence without maintenance burden（不把知識維護轉嫁給使用者）
 - **上位文件：** [`docs/knowledge-quality-roadmap.md`](knowledge-quality-roadmap.md)。本計畫是其 Phase 2 收尾與 Phase 3 C1 的具體執行版；兩者衝突時以較新的實測結果為準，並回寫該文件的進度段落。
@@ -179,6 +179,15 @@ PR #263 刻意把「只在 raw 命中的詞」降為半權重：提升了 MRR（
 3. 無來源支持時，結果能表達未知與待核對。
 4. 不因嚴格過濾而丟棄真正的低字面相似答案。
 5. 不增加沒有收益的模型呼叫。
+
+### 本輪執行結果（2026-10-28）
+
+- 合成題庫涵蓋 7 種有答案／無答案與來源狀態情境；每題明列預期答案性，並鎖定目前的 confidence 與排名，7/7 基線測試通過。
+- 工具契約與兩份 Agent skill 原本要求先讀完整來源，但沒有明確規定來源不支持答案時應回覆「資料不足」。已補上相同規則；沒有新增 operation、回應欄位或模型評分器。
+- 決定性 MCP 流程測試通過 31/31。兩次本機模型 smoke run 共檢視 4 個合成情境：有答案時先讀來源並引用，無答案或來源矛盾時沒有選擇 unsupported conclusion；未觀察到系統性的錯誤引用。
+- 私有題庫使用同一份 repo 外唯讀快照做基準／本分支比較，題庫與快照前後均未改變。71 題結果不變：Recall Hit@1／Hit@5／MRR 為 0.884／1.000／0.938；Context 為 0.875／1.000／0.938；20 題無答案 Recall 中仍有 3 題回傳 `high`。兩次評估報告都因這 3 題未通過。
+- 沒有證據顯示系統性錯誤引用，因此不提出獨立 answer sufficiency 訊號評估；confidence 維持字面相符語義，排序、#262 延續重排、#263 raw 半權重、回應格式與 schema 均未改變。沒有保存類失敗，P0-4 不觸發。
+- 驗證：`pnpm test:retrieval-quality` 25/25、合成 answerability 7/7、MCP 全套 99/99、`pnpm test:response-size` 12/12、Web 187/187、`pnpm typecheck` 通過。完整 `pnpm test` 有 354 項通過及 1 項預期失敗；另有 1 項 Windows symlink EPERM。獨立 server 套件 234 項通過、1 項略過、4 項受 Windows plugin 路徑環境影響失敗。未改檢索路徑，因此未跑效能／規模 benchmark。
 
 ---
 
