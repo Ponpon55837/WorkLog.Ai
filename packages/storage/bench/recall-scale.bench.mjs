@@ -17,6 +17,7 @@ import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { WorkIntelligenceStore } from "../dist/index.js";
+import { ftsTermExpression, parseQueryWords } from "../dist/search-text.js";
 import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "../../../apps/mcp/dist/recall-evaluation.js";
 
 const args = process.argv.slice(2);
@@ -291,6 +292,9 @@ const distractorStart = Date.parse("2025-03-01T00:00:00.000Z");
 const distractorSpan = 540 * 24 * 3600 * 1000;
 const expectedIds = new Map();
 const outstandingTargets = new Map();
+const RAW_CANDIDATE_SCAN_LIMIT = 200;
+const RAW_CANDIDATE_LIMIT = 3;
+const DUPLICATE_RAW_WEIGHT_FACTOR = 0.1;
 
 function finalize(key, fields, completedAt) {
   const result = store.finalizeSession({
@@ -453,6 +457,64 @@ function outstandingRanks() {
     });
 }
 
+function rawSupplementRanks() {
+  return cases
+    .filter((entry) => entry.category === "R")
+    .map((entry) => {
+      const result = store.recall({ q: entry.query, projectRoot, limit: 5 });
+      const targetId = expectedIds.get(entry.key);
+      const mainRank = result.hits.findIndex((hit) => hit.id === targetId) + 1;
+      const sessionIds = result.hits.filter((hit) => hit.type === "session").map((hit) => hit.id);
+      const terms = [...new Set(parseQueryWords(entry.query).flatMap((word) => word.terms))].slice(0, 32);
+      const started = performance.now();
+      const candidates = rawCandidateIds(terms, sessionIds);
+      const elapsedMs = Number((performance.now() - started).toFixed(2));
+      const candidateRank = candidates.indexOf(targetId) + 1;
+      return {
+        key: entry.key,
+        mainRank: mainRank || null,
+        candidateRank: candidateRank || null,
+        zone: mainRank > 0 && mainRank <= 5 ? "main_top5" : candidateRank > 0 ? "raw_supplement" : "miss",
+        elapsedMs,
+      };
+    });
+}
+
+function rawCandidateIds(terms, excludedSessionIds) {
+  if (terms.length === 0) return [];
+  const excludedClause =
+    excludedSessionIds.length > 0 ? `AND c.doc_id NOT IN (${excludedSessionIds.map(() => "?").join(", ")})` : "";
+  const rows = dating
+    .prepare(
+      `WITH raw_matches AS (
+         SELECT c.id, c.doc_id, c.doc_date,
+                -bm25(search_fts) * c.weight * CASE WHEN c.content_hash IS NULL OR c.id = (
+                  SELECT primary_chunk.id FROM search_chunks primary_chunk
+                  WHERE primary_chunk.project_id = c.project_id AND primary_chunk.content_hash = c.content_hash
+                    AND primary_chunk.field = 'raw'
+                  ORDER BY primary_chunk.doc_date ASC, primary_chunk.doc_id ASC, primary_chunk.id ASC LIMIT 1
+                ) THEN 1 ELSE ${DUPLICATE_RAW_WEIGHT_FACTOR} END AS score
+         FROM search_fts
+         CROSS JOIN search_chunks c ON c.id = search_fts.rowid
+         JOIN projects p ON p.id = c.project_id
+         WHERE search_fts MATCH ? AND p.status = 'tracked' AND c.project_id = ?
+           AND c.doc_type = 'session' AND c.field = 'raw' ${excludedClause}
+         ORDER BY score DESC, c.doc_date DESC, c.doc_id ASC
+         LIMIT ${RAW_CANDIDATE_SCAN_LIMIT}
+       ), ranked_sessions AS (
+         SELECT doc_id, doc_date, score,
+                ROW_NUMBER() OVER (PARTITION BY doc_id ORDER BY score DESC, doc_date DESC, id DESC) AS session_rank
+         FROM raw_matches
+       )
+       SELECT doc_id FROM ranked_sessions
+       WHERE session_rank = 1
+       ORDER BY score DESC, doc_date DESC, doc_id ASC
+       LIMIT ?`,
+    )
+    .all(terms.map(ftsTermExpression).join(" OR "), project.id, ...excludedSessionIds, RAW_CANDIDATE_LIMIT);
+  return rows.map((row) => row.doc_id);
+}
+
 // For each recall question whose target is not first, the record that took first place, so a failure can be
 // classified as candidate recall (target missing) or ranking (target present but outranked).
 function recallLosses(report) {
@@ -523,6 +585,7 @@ try {
       seedMs: Math.round(seedMs),
       metrics: report.metrics,
       categories: summarizeStage(report),
+      rawSupplement: rawSupplementRanks(),
       noHitWithHighConfidence: report.expectedNoHitWithHighConfidence.map((entry) => entry.id),
       outstanding: outstandingRanks(),
       recallLosses: recallLosses(report),
@@ -552,6 +615,13 @@ try {
         `  ${key.padEnd(10)} ranks [${bucket.ranks.map((rank) => rank ?? "miss").join(", ")}] ${confidences}`,
       );
     }
+    console.log(
+      `  raw supplement: ${stage.rawSupplement.map((entry) => `${entry.key}=${entry.zone}`).join(", ")}` +
+        ` | candidate-search p95 ${percentile(
+          stage.rawSupplement.map((entry) => entry.elapsedMs),
+          0.95,
+        )} ms`,
+    );
     for (const entry of stage.outstanding) {
       console.log(`  context:O  ${entry.key} rank ${entry.rank ?? "miss"} (shown ${entry.shown} of ${entry.total})`);
     }
