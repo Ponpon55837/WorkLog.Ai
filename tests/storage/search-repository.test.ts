@@ -274,6 +274,136 @@ describe("recall", () => {
     expect(store.recall({ q: "grafting", projectRoot: root })).toMatchObject({ outcome: "skipped" });
   });
 
+  it.fails("KNOWN LIMITATION: a later unlinked Session does not supersede a close lexical match", () => {
+    const { store, root } = trackedStore();
+    for (let index = 0; index < 10; index += 1) {
+      finalize(store, root, `cache-filler-${index}`, {
+        title: `Compost turning ${index}`,
+        summary: "Turned the compost.",
+      });
+    }
+    const oldGuideline = finalize(store, root, "cache-old-guideline", {
+      title: "Orchard cache fixed timeout guideline",
+      summary: "The orchard cache must always use a fixed timeout; do not expire entries by events.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: ["Always require a fixed timeout for orchard cache entries."],
+        verification: [],
+        nextSteps: [],
+      },
+      completedAt: "2026-01-05T08:00:00.000Z",
+    });
+    const revisedGuideline = finalize(store, root, "cache-revised-guideline", {
+      title: "Revised orchard cache fixed timeout guideline",
+      summary: "The fixed timeout guideline was replaced with event-based expiration.",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: ["Replace the timeout guideline with expiration on cache invalidation."],
+        verification: [],
+        nextSteps: [],
+      },
+      completedAt: "2026-01-19T08:00:00.000Z",
+    });
+
+    // The sessions have no parentSessionId or relatedSessionIds; current ranking returns the newer correction second.
+    const ids = recall(store, { q: "orchard cache fixed timeout guideline" }).hits.map((hit) => hit.id);
+
+    expect(ids).toContain(oldGuideline);
+    expect(ids).toContain(revisedGuideline);
+    expect(ids.indexOf(revisedGuideline)).toBeLessThan(ids.indexOf(oldGuideline));
+  });
+
+  it("can trace the four candidate supersession clues through existing synthetic records", () => {
+    const { store, root } = trackedStore();
+    const earlier = finalize(store, root, "signal-earlier", {
+      title: "Orchard cache timeout guideline",
+    });
+    const contradictedKnowledge = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "signal-contradicted-knowledge",
+      kind: "pattern",
+      title: "Synthetic fixed timeout rule",
+      body: "Keep the synthetic orchard cache timeout fixed.",
+      sessionId: earlier,
+    });
+    const supersededKnowledge = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "signal-superseded-knowledge",
+      kind: "pattern",
+      title: "Synthetic expiry rule",
+      body: "Keep the synthetic orchard cache timeout fixed.",
+      sessionId: earlier,
+    });
+    if (contradictedKnowledge.outcome !== "knowledge_recorded") throw new Error("Expected synthetic Knowledge");
+    if (supersededKnowledge.outcome !== "knowledge_recorded") throw new Error("Expected synthetic Knowledge");
+
+    const middle = finalize(store, root, "signal-middle", {
+      title: "Orchard cache timeout guideline review",
+      parentSessionId: earlier,
+    });
+    const later = finalize(store, root, "signal-later", {
+      title: "Revised orchard cache timeout guideline",
+      summary: "Replace fixed timeouts with invalidation-driven expiration.",
+      parentSessionId: middle,
+      contradictedKnowledgeIds: [contradictedKnowledge.knowledge.id],
+    });
+    const replacement = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "signal-replacement-knowledge",
+      kind: "pattern",
+      title: "Synthetic event expiry rule",
+      body: "Expire the synthetic orchard cache when invalidation arrives.",
+      sessionId: later,
+      supersedesId: supersededKnowledge.knowledge.id,
+    });
+    if (replacement.outcome !== "knowledge_recorded") throw new Error("Expected replacement Knowledge");
+
+    const contradictionHistory = store.getKnowledgeHistory({
+      projectRoot: root,
+      knowledgeId: contradictedKnowledge.knowledge.id,
+    });
+    const replacementHistory = store.getKnowledgeHistory({ projectRoot: root, knowledgeId: replacement.knowledge.id });
+    expect(contradictionHistory.outcome === "knowledge_history" && contradictionHistory.feedback).toContainEqual(
+      expect.objectContaining({ kind: "contradicted", sessionId: later }),
+    );
+    expect(
+      contradictionHistory.outcome === "knowledge_history" && contradictionHistory.history[0]?.after,
+    ).toMatchObject({ sessionId: earlier, review: { sessionId: later, reason: "contradicted" } });
+    expect(replacementHistory.outcome === "knowledge_history" && replacementHistory.history[0]?.after).toMatchObject({
+      sessionId: later,
+      supersedesId: supersededKnowledge.knowledge.id,
+    });
+
+    const database = (store as unknown as { db: DatabaseSync }).db;
+    expect(
+      database
+        .prepare(
+          `SELECT 1 FROM session_links
+           WHERE relation = 'continues' AND session_id = ? AND related_session_id = ?`,
+        )
+        .get(later, earlier),
+    ).toBeUndefined();
+    expect(
+      database
+        .prepare(
+          `WITH RECURSIVE continuation_paths(later, earlier) AS (
+             SELECT session_id, related_session_id FROM session_links WHERE relation = 'continues'
+             UNION
+             SELECT paths.later, links.related_session_id
+             FROM continuation_paths paths
+             JOIN session_links links ON links.session_id = paths.earlier AND links.relation = 'continues'
+           )
+           SELECT 1 FROM continuation_paths WHERE later = ? AND earlier = ?`,
+        )
+        .get(later, earlier),
+    ).toEqual({ 1: 1 });
+
+    const rankedIds = recall(store, { q: "orchard cache timeout guideline" }).hits.map((hit) => hit.id);
+    expect(rankedIds.indexOf(later)).toBeLessThan(rankedIds.indexOf(earlier));
+  });
+
   it("puts a Session that continues an earlier hit directly above it when it scores close enough", () => {
     const { store, root } = trackedStore();
     // Unrelated history gives the query words a meaningful document frequency.
