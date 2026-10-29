@@ -596,6 +596,52 @@ describe("context focus and search", () => {
     expect(plain).not.toHaveProperty("relevant");
   });
 
+  it("includes a parent Session and applied Knowledge in task context", () => {
+    const { store, root } = trackedStore();
+    const parentSessionId = finalize(store, root, "graft-parent", {
+      title: "Cedar graft field notes",
+      summary: "Recorded the initial cedar graft observations.",
+    });
+    const recorded = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "cedar-graft-guidance",
+      kind: "pattern",
+      title: "Cedar graft recovery guidance",
+      body: "Keep the graft wrap dry during recovery.",
+    });
+    if (recorded.outcome !== "knowledge_recorded") {
+      throw new Error("Expected Knowledge to be recorded");
+    }
+    const childSessionId = finalize(store, root, "graft-follow-up", {
+      title: "Cedar graft recovery task",
+      summary: "Applied the established cedar graft recovery guidance.",
+      parentSessionId,
+      appliedKnowledgeIds: [recorded.knowledge.id],
+    });
+
+    const context = store.getContext(root, { task: "cedar graft recovery" });
+    if (context.outcome !== "context") {
+      throw new Error("Expected context");
+    }
+
+    expect(context.relevant?.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: childSessionId,
+          related: expect.arrayContaining([expect.objectContaining({ id: parentSessionId, relation: "continues" })]),
+        }),
+      ]),
+    );
+    expect(context.relevant?.knowledge).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: recorded.knowledge.id,
+          evidence: expect.objectContaining({ confirmed: 1 }),
+        }),
+      ]),
+    );
+  });
+
   it("work_search ranks Sessions with the recall engine and returns digests", () => {
     const { store, root } = trackedStore();
     const sessionId = finalize(store, root, "search", {
