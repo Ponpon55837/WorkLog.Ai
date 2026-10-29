@@ -1,6 +1,6 @@
 # 知識品質與檢索效率發展計畫
 
-規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫；Phase 0 完成；Phase 2 第一輪（PR #261～#263）與 P0 PR #268～#271 完成；Phase 1 依 Phase 0 第 4 步結果暫不開 PR；Phase 3 第一輪（C1–C4 盤點與量測）完成，結果見「Phase 3 進度」；其餘階段尚未執行。檢視基準：WorkLog.Ai v1.6.4（main `7dd4141`）、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
+規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫；Phase 0 完成；Phase 2 第一輪（PR #261～#263）與 P0 PR #268～#271 完成；Phase 1 依 Phase 0 第 4 步結果暫不開 PR；Phase 3 第一輪（C1–C4 盤點與量測）完成，結果見「Phase 3 進度」；Phase 4 第一輪（D1–D3 盤點與量測）完成，結果見「Phase 4 進度」；其餘階段尚未執行。檢視基準：WorkLog.Ai v1.6.4（main `f8653ed`）、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
 
 ## 1. 目標
 
@@ -200,6 +200,22 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 ### Phase 4：Task-aware intelligence（D1–D3）
 
 完成條件：Agent 在任務前有效使用歷史，任務後產生更有價值的紀錄。
+
+#### Phase 4 進度（第一輪：盤點與量測，2026-10-29）
+
+- 本輪只新增合成回歸測試與本節結論，沒有改產品行為、排序、confidence、回應格式、MCP 契約、UI 或 schema；PR #262 延續重排與 PR #263 raw 半權重行為保持不變。真實資料只從 repo 外的一致快照唯讀量測，回放使用隔離暫存副本；一次性腳本與中間資料均未放入 repo。以下只列彙總數字，不含查詢文字、內容、識別碼、檔名或專案名稱。
+- D1 回放 356 個符合條件的 Session，以標題及既有變更路徑呼叫 `getContext`；評分時排除該 Session 本身。快照仍含任務開始後新增或更新的資料，後續資料可能影響排名與狀態，這是本次回放的時間洩漏限制，不代表歷史當下的精確重現。
+- 808 個 parent／related Session 關聯中，排除目標 Session 後有 229 個（28.3%）出現在 relevant：144 個直接命中、85 個以其他命中 Session 的 related 參照出現；可見結果平均排名 1.38。至少 163 個關聯有明確的預算省略識別；省略清單每節有數量上限，其他未命中的關聯無法逐筆區分是預算省略或未進入前五名。
+- 59 個「Session 實際套用 Knowledge」關聯中，54 個對應 Knowledge 目前 active、5 個 archived。active 關聯只有 4／54（7.4%）進入原始 recall，也只有 4／54 出現在 relevant，且這 4 個均列第 1；沒有證據顯示其餘 active 關聯是被回應預算移除。以全部 59 個關聯計，relevant 命中率為 6.8%。16 筆帶有 `possiblyStale` 的 Knowledge 命中全部有標示；本次未命中帶 `needsReview` 的 Knowledge，因此無法評估該標示在 Knowledge 命中時的表現。
+- focused context 的平均序列化大小為 9,533 字元、P95 為 9,786 字元；356 次中有 7 次（2.0%）超過 9,800 字元預算，最大 18,211 字元。
+- D2 共 15 個知識頁，其中 11 個（73.3%）needsReview，17 個來源受影響；原因均為來源 Session 在頁面保存後更新。新 Session 累積共 37 筆，中位數每頁 3 筆；12／15 頁有新 Session。頁面內文共 43,531 字元，平均 2,902、中位數 3,025、最大 5,744。以每頁既有問題回放 `getContext`，15／15 頁均帶出匹配內容，平均每次 467 字元；11／11 個 needsReview 頁在該 context 中保留 review 標示。
+- D3 有 11 份 Agent 摘要，6 份為目前摘要。255／255 個來源 Session 引用存在且未作廢；275／275 個摘要區塊均有來源引用，來源也存在且未作廢。沒有明確以另一份摘要作來源的引用；現有引用只記錄 Session，因此無法判斷未引用但沿用前摘要文字的情況。6 個驗證區塊、跨 4 份摘要的定向人工抽查中，5 個與來源狀態計數一致；1 個摘要的兩個狀態計數各差 1。另有 2／6 份目前摘要在保存後，其來源 Session verification 狀態發生變更；這使摘要可在來源更新後仍保持目前狀態。
+
+| 主軸 | 有沒有實際失敗、證據 | 結論 |
+| --- | --- | --- |
+| D1 Task-aware context | **有。** 排除目標 Session 後，只有 28.3% 的 parent／related 關聯出現在 relevant；至少 163 個有明確預算省略，其他未命中無法逐筆歸因。實際套用的 active Knowledge 只有 4／54 進入原始 recall，且 7／356 次 context 超出預算。時間洩漏與省略識別上限限制精確歸因。 | **建議後續小幅改進，不在本 PR 實作。** 在現有 relevant 組裝中，對最相關的歷史 Session 有界補入其直接關聯 Session 與曾套用的 active Knowledge，保留現有上限與信任標示。用低詞彙重疊的合成案例確認補入；對照本輪 7.4% active Knowledge 命中率、2.0% 預算超出率及 retrieval／response-size 門檻。若命中未提升或超出率、信任標示遺漏增加，停止，不新增 schema。 |
+| D2 Project Brief | **沒有目前功能的實際失敗。** Project Brief 尚不存在；11／15 頁待核對，但現有 task context 15／15 帶出匹配頁面內容，並在 11／11 個待核對頁保留標示。單純合併頁面而移除標示會有把舊內容當成現況的風險，這是未來設計風險，不是既有 Brief 的失敗。 | **不做 Brief。** 現有 context 已能按任務提供頁面片段與 review 訊號，沒有證據顯示另做 Brief 會補足實際缺口。若未來重啟，需保留來源及 needsReview 標示，並用待核對頁面的合成案例驗證；任何待核對內容被呈現成無條件現況時即停止。 |
+| D3 報告價值 | **有，但樣本有限。** 來源存在性與作廢狀態可由現有資料核對；定向抽查有 1／6 個驗證區塊的兩個計數各差 1。2／6 份目前摘要的來源 verification 在摘要保存後改變，因此可計算、且可能影響目前摘要的解讀。 | **建議只增加衍生狀態，不重寫摘要；不在本 PR 實作。** 讀取摘要時，以既有來源與 verification 歷史計算來源狀態是否在保存後變更，並並列 deterministic verification 計數。用合成資料驗證來源變更可被標示、摘要文字維持原樣、未變更來源不誤標；若無法做到零誤標或來源不完整，停止，不新增永久事件或 schema。 |
 
 ### Phase 5：長期規模與穩定性（持續）
 
