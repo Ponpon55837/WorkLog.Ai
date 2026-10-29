@@ -167,7 +167,7 @@ describe("Knowledge trust", () => {
   });
 
   it("confirms applied Knowledge and flags contradicted Knowledge from finalize", () => {
-    const { store, finalize, record, knowledgeById } = setup();
+    const { store, root, finalize, record, knowledgeById } = setup();
     const applied = record("applied", { appliesTo: ["src/hive/**"] });
     const contradicted = record("contradicted");
 
@@ -192,6 +192,10 @@ describe("Knowledge trust", () => {
     expect(recall.outcome === "recall" && recall.hits.find((hit) => hit.id === contradicted.id)).toMatchObject({
       needsReview: true,
     });
+    const context = store.getContext(root, { task: "hive contradicted" });
+    expect(
+      context.outcome === "context" && context.relevant?.knowledge.find((hit) => hit.id === contradicted.id),
+    ).toMatchObject({ needsReview: true, evidence: { confirmed: 0, contradicted: 1 } });
 
     const history = store.getKnowledgeHistory({
       projectRoot: store.getProjectById(contradicted.projectId)!.rootPath,
@@ -212,6 +216,14 @@ describe("Knowledge trust", () => {
     const replacement = record("new", { supersedesId: old.id });
     expect(replacement.supersedesId).toBe(old.id);
     expect(knowledgeById(old.id)?.status).toBe("archived");
+
+    const activeSearch = store.searchKnowledge({ projectRoot: root, q: "queen excluder checked", limit: 50 });
+    expect(activeSearch.outcome === "knowledge" && activeSearch.items.map((item) => item.id)).toEqual([replacement.id]);
+    const history = store.getKnowledgeHistory({ projectRoot: root, knowledgeId: old.id });
+    expect(history.outcome === "knowledge_history" && history.knowledge.status).toBe("archived");
+    expect(history.outcome === "knowledge_history" && history.history).toContainEqual(
+      expect.objectContaining({ action: "archived", changedFields: ["status"] }),
+    );
 
     const orphan = store.recordKnowledge({
       projectRoot: root,

@@ -66,6 +66,19 @@ describe("Knowledge evidence strength", () => {
     const first = finalize("first", { appliedKnowledgeIds: [knowledgeId] });
     const second = finalize("second", { appliedKnowledgeIds: [knowledgeId] });
     const third = finalize("third", { contradictedKnowledgeIds: [knowledgeId] });
+    const afterContradiction = store.searchKnowledge({
+      projectRoot: root,
+      q: "smoke hive brood box",
+      status: "active",
+      limit: 10,
+    });
+    expect(afterContradiction.outcome === "knowledge" && afterContradiction.items[0]).toMatchObject({
+      id: knowledgeId,
+      status: "active",
+      title: "Smoke the hive first",
+      body: "Smoke the hive before opening the brood box.",
+      review: { reason: "contradicted", sessionId: third },
+    });
     confirm(knowledgeId);
 
     const listed = store.searchKnowledge({ projectRoot: root });
@@ -115,7 +128,7 @@ describe("Knowledge evidence strength", () => {
     });
   });
 
-  it("ranks well-confirmed Knowledge above equal matches and disputed Knowledge below them", () => {
+  it("keeps identical active Knowledge separately searchable while ranking it by feedback", () => {
     const { store, root, finalize, record } = setup();
     const neutral = record("neutral", "Varroa mite count procedure");
     const trusted = record("trusted", "Varroa mite count procedure");

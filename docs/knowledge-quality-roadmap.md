@@ -1,6 +1,6 @@
 # 知識品質與檢索效率發展計畫
 
-規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫，Phase 0 完成；Phase 2 第一輪完成（PR #261～#263）；P0 執行計畫（`docs/p0-roadmap.md`）的 PR 1（#268）與 PR 2（#269）依停止條件完成，只保留測試、benchmark 與結論；P0-3 的合成題庫、Agent 行為驗證與彙總評估已完成，結果記錄於 PR #271；Phase 1 依第 4 步結果暫不開 PR；其餘階段尚未執行。檢視基準：應用程式 1.6.3、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
+規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫；Phase 0 完成；Phase 2 第一輪（PR #261～#263）與 P0 PR #268～#271 完成；Phase 1 依 Phase 0 第 4 步結果暫不開 PR；Phase 3 第一輪（C1–C4 盤點與量測）完成，結果見「Phase 3 進度」；其餘階段尚未執行。檢視基準：WorkLog.Ai v1.6.4（main `7dd4141`）、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
 
 ## 1. 目標
 
@@ -181,6 +181,21 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 ### Phase 3：知識生命週期（C1–C4）
 
 完成條件：長期累積的知識不會因數量增加而降低可信度。
+
+#### Phase 3 進度（第一輪：盤點與量測，2026-10-29）
+
+- 本輪只新增合成回歸測試與本節結論，沒有改產品行為、排序、confidence、回應格式或 schema；PR #262 延續重排與 PR #263 raw 半權重行為保持不變。真實資料只從 repo 外的一致快照唯讀量測；以下只記彙總數字，不含資料內容、識別碼或專案名稱。
+- 共有 5 個 tracked 專案、81 筆 Knowledge：41 筆 active、40 筆 archived。匿名的專案級聯合分布（`active／archived／取代鏈數`）為 `(0／0／0)×1`、`(7／4／2)×1`、`(8／0／0)×1`、`(13／3／1)×1`、`(13／33／0)×1`。取代關係共 3 條鏈、3 條邊；每條鏈皆含 2 筆 Knowledge，沒有分支。
+- 曾被推翻但仍 active 的 Knowledge 為 0 筆，其中後來未再確認的也為 0 筆。Active Knowledge 的 `possiblyStale` 為 6／41（14.6%）；若計入 archived，則為 40／81（49.4%）。15 個知識頁中 11 個帶有 `needsReview`。
+- 相似度方法：同專案 active Knowledge 的標題與內文串接後，以 Unicode NFKC 正規化、轉小寫、保留字母與數字，轉成字元三元組集合，再計算 Jaccard；門檻為 0.85。達門檻的配對為 0。人工抽查最接近門檻的 6 對，確認重複 0 對、不同內容 6 對（部分主題相關）。沒有符合門檻的配對可佔據前 5 名，因此未另跑前五名重複佔位查詢。
+- 從未被確認、推翻或 Agent 讀取的 Knowledge 為 0／81。Agent Read Audit 讀過的 81 筆 Knowledge 中，5／81（6.2%）在之後有 Session 回饋；5 筆全為確認，推翻為 0。此為時間先後關聯，不能單獨證明讀取帶來實際效益。
+
+| 主軸 | 有沒有實際失敗、證據 | 結論 |
+| --- | --- | --- |
+| C1 狀態 | 未觀察到狀態混淆的實際失敗。取代鏈可由既有關係辨識；路徑變更與頁面來源變更各有 `possiblyStale`／`needsReview` 訊號。 | **不做**：現有狀態與推導訊號已有資料支持，無證據需要新增狀態或欄位。 |
+| C2 衝突 | 實際資料中 active 且曾被推翻的 Knowledge 為 0。合成回歸確認推翻後 Knowledge 仍 active、內容不變，且 recall／context 帶有 `needsReview` 與證據計數。 | **不做**：沒有實際衝突誤用；既有標記足以提示需讀取來源，無證據支持更改格式或狀態。 |
+| C3 膨脹 | 門檻內相似配對為 0；人工抽查的 6 對都不是重複內容，沒有配對可重複佔據前 5 名。 | **不做**：沒有實際膨脹或檢索擠占證據，不新增相似度檢查。 |
+| C4 使用價值 | 後續回饋比例可由 Agent Read Audit 與 Knowledge 回饋計算，但只有 5／81（6.2%）讀取項目後續有確認，且沒有推翻；這只能表示時間關聯，不能證明使用效益。 | **不做**：現有資料可計算，但不足以支持使用價值或因果結論；不新增事件收集。 |
 
 ### Phase 4：Task-aware intelligence（D1–D3）
 
