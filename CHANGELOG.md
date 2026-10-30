@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-10-30
+
+[繁體中文更新說明](docs/releases/1.6.5.md).
+
 ### Changed
 
 - Focused `work_get_context` may return a separate, optional `relevant.supplements` list of compact one-hop parent/related Session and active applied Knowledge pointers from the three highest-ranked Sessions retained after normal budget trimming. The list is capped at four pointers and two per source; its entries identify the source relationship and Knowledge trust flags, and are described as possibly related indicators rather than literal-match evidence. Supplements are trimmed before existing context and recorded separately in `omitted`; the existing `relevant.sessions` and `relevant.knowledge` lists, recall ranking, confidence, database schema and input rules remain unchanged. `docs/mcp-tools.md` and the work-intelligence skill describe the response field.

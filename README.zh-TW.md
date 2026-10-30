@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.6.4** 要求 Agent 只在來源直接支持答案時才引用搜尋到的紀錄，否則回答「資料不足」；排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#164---2026-10-28)與[繁體中文更新指南](docs/releases/1.6.4.md)。**1.6.3** 升級 Zod 至 4.6.7，並將 body-parser 2.x override 至 2.4.0，以修補兩項 high 等級安全公告；改進 recall 排序與 Knowledge 查詢效能，並修正 Windows migration 後的專案根路徑大小寫。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#163---2026-10-27)與[繁體中文更新指南](docs/releases/1.6.3.md)。**1.6.2** 修正 Codex 設定與 hooks 偵測、API 健康狀態與連接埠處理，並新增備份、匯出與匯入預覽的同步阻塞門檻。REST 錯誤碼統一為小寫 snake_case，比對舊專案或 Session 刪除錯誤碼的腳本需要更新。不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.2.md)。1.6.0 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
+**1.6.5** 讓帶任務的 `work_get_context` 從排名最前的 Session 補上最多 4 筆相關 Session 與曾套用的 active Knowledge 精簡指標，放在獨立的 `relevant.supplements`；原本的結果、排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#165---2026-10-30)與[繁體中文更新指南](docs/releases/1.6.5.md)。**1.6.4** 要求 Agent 只在來源直接支持答案時才引用搜尋到的紀錄，否則回答「資料不足」；排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#164---2026-10-28)與[繁體中文更新指南](docs/releases/1.6.4.md)。**1.6.3** 升級 Zod 至 4.6.7，並將 body-parser 2.x override 至 2.4.0，以修補兩項 high 等級安全公告；改進 recall 排序與 Knowledge 查詢效能，並修正 Windows migration 後的專案根路徑大小寫。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#163---2026-10-27)與[繁體中文更新指南](docs/releases/1.6.3.md)。**1.6.2** 修正 Codex 設定與 hooks 偵測、API 健康狀態與連接埠處理，並新增備份、匯出與匯入預覽的同步阻塞門檻。REST 錯誤碼統一為小寫 snake_case，比對舊專案或 Session 刪除錯誤碼的腳本需要更新。不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.2.md)。1.6.0 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
 
 [English](README.md) | **繁體中文**
 
@@ -403,7 +403,6 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 | [docs/testing.md](docs/testing.md) | 測試指令、覆蓋率、效能、檢索品質與無障礙門檻，以及 E2E 範圍 |
 | [docs/status.md](docs/status.md) | 專案現況、未結項與暫緩項目 |
 | [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Web UI 改版的決策與實作紀錄 |
-| [docs/knowledge-quality-roadmap.md](docs/knowledge-quality-roadmap.md) | 紀錄品質、檢索準確度與 Knowledge 生命週期的發展計畫，先量測基線再改善 |
 | [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | 五項功能整合先行研究：UIUX、演算法、安全與分階段驗收；實作已納入 1.5.0 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本變更紀錄 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 開發流程、健康檢查、PR 與工作記錄規則 |
