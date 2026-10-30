@@ -16,7 +16,17 @@ pnpm service:install
 
 服務使用目前工作目錄中的專案與 production build。預設共用 `data/work-intelligence.sqlite`，備份放在同一資料夾下的 `backups/`。如果安裝時設定 `WORK_INTELLIGENCE_DB` 或 `WORK_INTELLIGENCE_BACKUP_DIR`，預覽會顯示解析後的完整路徑，服務會沿用該資料庫與備份位置。Web、MCP、CLI 與自動啟動服務因此可共用同一份記錄。
 
-安裝時會保存當下找到的 Node.js 與 pnpm 絕對路徑。若搬移 repo、更新 Node.js／pnpm 安裝位置，或更改資料庫環境變數，請重新執行 `pnpm service:install` 並確認新的預覽。更新程式碼後也要重新執行它：安裝流程會先停止既有服務、寫入設定再啟動，等於重啟，新版才會生效（`pnpm bootstrap` 偵測到服務已安裝時只會提醒，不會自動重啟）。
+安裝時會保存當下找到的 Node.js 與 pnpm 絕對路徑。若搬移 repo、更新 Node.js／pnpm 安裝位置，或更改資料庫環境變數，請重新執行 `pnpm service:install` 並確認新的預覽。
+
+## 更新後重啟
+
+```sh
+pnpm service:restart
+```
+
+`git pull` 並執行 `pnpm bootstrap`（或 `pnpm build`）之後，用 `service:restart` 讓新版生效。它不改寫服務設定，只停止舊的 server 再啟動，並等待 `/api/health` 回報這個 checkout 的版本；30 秒內沒有回應、或回報的版本不同時會以錯誤結束並指出日誌位置。`pnpm bootstrap` 偵測到服務已安裝時只會提醒，不會自動重啟。
+
+Windows 的工作排程器「結束」只會停止工作本身的 conhost，底下的 service runner、pnpm 與 server 仍會占用連接埠，新版因此無法啟動、舊版繼續服務。`service:restart`、`service:install` 與 `service:uninstall` 停止工作後，會另外結束這個 repo 的 `scripts/service-runner.mjs` 程序樹，只比對這個 repo 的 runner 路徑，不會動到手動執行的 `pnpm start`。
 
 ## 查看狀態
 
@@ -48,7 +58,7 @@ pnpm service:uninstall
 ## 疑難排解
 
 - **狀態是「無法判定」**：確認目前使用者的服務管理器可用，再執行 `pnpm service:status` 和 `pnpm check`。Linux 請在已登入的使用者 session 中執行 `systemctl --user status work-intelligence.service`；macOS 可用 `launchctl print gui/$(id -u)/ai.workintelligence.server`；Windows 可在工作排程器查看 `Work Intelligence`。
-- **已安裝但沒有執行**：查看上表的服務日誌。也可檢查預設連接埠 `3210` 是否被另一個 Work Intelligence 或其他程式占用；先停止衝突的程序，再執行 `pnpm service:install` 重新載入服務設定。
+- **已安裝但沒有執行**：查看上表的服務日誌。也可檢查預設連接埠 `3210` 是否被另一個 Work Intelligence 或其他程式占用；先停止衝突的程序，再執行 `pnpm service:restart`。
 - **找不到 pnpm 或執行檔**：在安裝 pnpm 的終端機重新執行 `pnpm build` 與 `pnpm service:install`，並確認預覽列出的 Node.js、pnpm 與 repo 路徑存在。
 - **不支援的作業系統**：登入自動啟動目前支援 macOS、Windows 與 Linux；其他平台仍可從終端機執行 `pnpm start`。
 

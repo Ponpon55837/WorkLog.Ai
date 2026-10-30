@@ -122,12 +122,12 @@ describe("pnpm bootstrap", () => {
     expect(await runBootstrap([], harness.dependencies)).toBe(0);
     expect(harness.steps).toEqual(["install", "build", "setup:agents", "check"]);
     expect(harness.questions).toHaveLength(1);
-    expect(harness.output.join(" ")).toContain("pnpm service:install 重啟服務");
+    expect(harness.output.join(" ")).toContain("pnpm service:restart 重啟服務");
 
     const quiet = createHarness({ interactive: false, serviceInstalled: async () => true });
     await runBootstrap(["--yes"], quiet.dependencies);
     expect(quiet.steps).not.toContain("service:install");
-    expect(quiet.output.join(" ")).toContain("pnpm service:install 重啟服務");
+    expect(quiet.output.join(" ")).toContain("pnpm service:restart 重啟服務");
   });
 
   it("still runs the service step with --service even when it is already installed", async () => {

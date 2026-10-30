@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-10-30
+
+[繁體中文更新說明](docs/releases/1.6.6.md).
+
+### Added
+
+- `pnpm service:restart` restarts an installed start-at-login service without rewriting its configuration, then waits up to 30 seconds for `/api/health` to report this checkout's version and fails with the log path otherwise. `pnpm bootstrap` now points to it after an update.
+
+### Fixed
+
+- On Windows, `pnpm service:install`, `service:restart` and `service:uninstall` now also stop the service runner process tree left behind by `schtasks /End`, which only ends the task's own conhost. Previously the old server kept port 3210 after an update, so the new version failed to start and the old one kept serving. Only runners whose command line contains this repository's `scripts/service-runner.mjs` are stopped.
+
 ## [1.6.5] - 2026-10-30
 
 [繁體中文更新說明](docs/releases/1.6.5.md).

@@ -16,7 +16,7 @@ export const MINIMUM_NODE = "22.13.0";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const SERVICE_RESTART_REMINDER = "更新後請重新執行 pnpm service:install 重啟服務（會顯示預覽並要求確認），讓新版生效。";
+const SERVICE_RESTART_REMINDER = "更新後請執行 pnpm service:restart 重啟服務，讓新版生效。";
 
 const FLAGS = new Set(["--yes", "--skip-agents", "--service", "--help"]);
 
@@ -33,7 +33,7 @@ const USAGE = [
 
 const NEXT_STEPS = [
   "完成。接下來：",
-  "  1. 啟動：pnpm start（若已安裝登入自動啟動服務，Dashboard 網址為 http://127.0.0.1:3210；更新後請重新執行 pnpm service:install 重啟服務，讓新版生效）",
+  "  1. 啟動：pnpm start（若已安裝登入自動啟動服務，Dashboard 網址為 http://127.0.0.1:3210；更新後請執行 pnpm service:restart 重啟服務，讓新版生效）",
   "  2. 開啟 http://127.0.0.1:3210 →「專案」→「加入專案」→ 設為「記錄中」（或執行 pnpm track <資料夾>）",
   "  3. 在 Agent 重新連線 MCP；Codex 需在 /hooks 信任 hook",
 ].join("\n");
@@ -192,7 +192,7 @@ export async function runBootstrap(argv, dependencies = defaultBootstrapDependen
 
   if (!runService) {
     if (await dependencies.serviceInstalled()) {
-      // Re-running service:install stops, rewrites and starts the service; it keeps its own preview and confirmation.
+      // service:restart stops the old server (on Windows its whole runner tree) and starts the rebuilt one.
       log("\n登入自動啟動服務已安裝，不再詢問是否設定。");
       log(SERVICE_RESTART_REMINDER);
     } else if (dependencies.interactive) {

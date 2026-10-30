@@ -8,6 +8,7 @@ import {
   formatUserServicePreview,
   getUserServiceStatus,
   installUserServiceWithConfirmation,
+  restartUserService,
   uninstallUserService,
   type UserServicePlatform,
 } from "../../apps/server/src/user-service.js";
@@ -231,6 +232,56 @@ describe("user-level login service definitions", () => {
     expect(readFileSync(plan.databasePath, "utf8")).toBe("synthetic database");
     expect(readFileSync(join(plan.backupDirectory, "backup.sqlite"), "utf8")).toBe("synthetic backup");
     expect(readFileSync(plan.logPath, "utf8")).toBe("synthetic log");
+  });
+});
+
+describe("login service restart", () => {
+  it.each([
+    ["darwin", ["launchctl kickstart -k"]],
+    ["linux", ["systemctl --user restart work-intelligence.service"]],
+  ] as const)("restarts the %s service in place", (platform, expected) => {
+    const plan = createPlan(platform, temporaryDirectory());
+    const commands: string[] = [];
+    restartUserService(plan, (command, args) => {
+      commands.push(`${command} ${args.join(" ")}`);
+      return "";
+    });
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toContain(expected[0]);
+  });
+
+  it("ends the Windows task, kills the runner trees it leaves behind and starts the task again", () => {
+    const plan = createPlan("win32", temporaryDirectory());
+    const commands: Array<{ command: string; args: string[] }> = [];
+    restartUserService(plan, (command, args) => {
+      commands.push({ command, args });
+      return command === "powershell.exe" ? "14744\r\n\r\n61324\r\n" : "";
+    });
+
+    expect(commands.map(({ command, args }) => `${command} ${args.slice(0, 2).join(" ")}`)).toEqual([
+      "schtasks.exe /End /TN",
+      "powershell.exe -NoProfile -NonInteractive",
+      "taskkill.exe /PID 14744",
+      "taskkill.exe /PID 61324",
+      "schtasks.exe /Run /TN",
+    ]);
+    expect(commands[1]?.args.at(-1)).toContain(
+      win32.join(plan.repositoryRoot, "scripts", "service-runner.mjs").toLowerCase(),
+    );
+    expect(commands[2]?.args).toEqual(["/PID", "14744", "/T", "/F"]);
+  });
+
+  it("still starts the Windows task when the task or a runner is already gone", () => {
+    const plan = createPlan("win32", temporaryDirectory());
+    const commands: string[] = [];
+    restartUserService(plan, (command, args) => {
+      commands.push(`${command} ${args[0]}`);
+      if (command !== "schtasks.exe" || args[0] !== "/Run") throw new Error("not running");
+      return "";
+    });
+
+    expect(commands).toEqual(["schtasks.exe /End", "powershell.exe -NoProfile", "schtasks.exe /Run"]);
   });
 });
 
