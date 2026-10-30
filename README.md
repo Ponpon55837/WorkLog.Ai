@@ -404,7 +404,6 @@ The guides under `docs/` are written in Traditional Chinese.
 | [docs/testing.md](docs/testing.md) | Test commands, coverage, performance, retrieval-quality and accessibility thresholds, and E2E scope |
 | [docs/status.md](docs/status.md) | Current status, open items and deferred work |
 | [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Decisions and implementation notes for the Web UI redesign |
-| [docs/knowledge-quality-roadmap.md](docs/knowledge-quality-roadmap.md) | Plan for record quality, retrieval accuracy and Knowledge lifecycle, measured against a baseline first |
 | [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | Historical five-feature integration research: UX, algorithms, security and staged acceptance; implementation delivered in 1.5.0 |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow, health checks, PR and work-record rules |
