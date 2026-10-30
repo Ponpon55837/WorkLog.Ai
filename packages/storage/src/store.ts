@@ -524,6 +524,7 @@ export class WorkIntelligenceStore {
       getSessionById: (sessionId) => this.getSessionById(sessionId),
       getProjectById: (projectId) => this.getProjectById(projectId),
       getSessionLinks: (sessionId) => this.getSessionLinks(sessionId),
+      appliedKnowledgeIdsBySessions: (sessionIds) => this.knowledgeService.appliedKnowledgeIdsBySessions(sessionIds),
       getKnowledgeWithTrustMany: (knowledgeIds) => {
         if (knowledgeIds.length === 0) return new Map();
         const rows = this.db

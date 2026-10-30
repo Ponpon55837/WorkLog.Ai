@@ -49,6 +49,11 @@ interface EvidenceRow {
   last_contradicted_at: string | null;
 }
 
+interface AppliedKnowledgeRow {
+  session_id: string;
+  knowledge_id: string;
+}
+
 const FEEDBACK_HISTORY_LIMIT = 100;
 
 /** Knowledge goes possibly stale when a Session after its last confirmation (or creation) touches appliesTo. */
@@ -170,6 +175,36 @@ export class KnowledgeService {
       this.insertFeedback(auditId, after, applied ? "applied" : "contradicted", completedAt, sessionId);
     }
     return warnings;
+  }
+
+  /** Active Knowledge applied by the requested non-voided Sessions, grouped in one bounded read. */
+  public appliedKnowledgeIdsBySessions(sessionIds: readonly string[]): Map<string, string[]> {
+    const uniqueSessionIds = [...new Set(sessionIds)];
+    if (uniqueSessionIds.length === 0) return new Map();
+
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT f.session_id, f.knowledge_id
+         FROM knowledge_feedback f
+         JOIN sessions s ON s.id = f.session_id AND s.project_id = f.project_id
+         JOIN projects p ON p.id = f.project_id AND p.status = 'tracked'
+         JOIN knowledge k ON k.id = f.knowledge_id AND k.project_id = f.project_id
+         WHERE f.kind = 'applied' AND s.voided_at IS NULL AND k.status = 'active'
+           AND f.session_id IN (SELECT value FROM json_each(?))
+           AND NOT EXISTS (
+             SELECT 1 FROM knowledge successor
+             WHERE successor.supersedes_id = k.id AND successor.status = 'active'
+           )
+         ORDER BY f.session_id, f.occurred_at DESC, f.knowledge_id ASC`,
+      )
+      .all(JSON.stringify(uniqueSessionIds)) as unknown as AppliedKnowledgeRow[];
+    const knowledgeBySession = new Map<string, string[]>();
+    for (const row of rows) {
+      const knowledgeIds = knowledgeBySession.get(row.session_id);
+      if (knowledgeIds) knowledgeIds.push(row.knowledge_id);
+      else knowledgeBySession.set(row.session_id, [row.knowledge_id]);
+    }
+    return knowledgeBySession;
   }
 
   public withKnowledgeTrust(knowledge: KnowledgeRecord): KnowledgeRecord {
