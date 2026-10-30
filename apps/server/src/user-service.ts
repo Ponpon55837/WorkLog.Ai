@@ -209,7 +209,8 @@ function findPackageManagerExecutable(platform: SupportedPlatform, environment: 
 /** Git for Windows puts coreutils (e.g. GNU whoami.exe) ahead of System32 in PATH, so pin Windows tools. */
 function resolveWindowsSystemCommand(command: string): string {
   const systemRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
-  if (command === "whoami.exe" || command === "schtasks.exe") return win32.join(systemRoot, "System32", command);
+  if (command === "whoami.exe" || command === "schtasks.exe" || command === "taskkill.exe")
+    return win32.join(systemRoot, "System32", command);
   if (command === "powershell.exe") {
     return win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", command);
   }
@@ -412,6 +413,49 @@ function buildPlan(options: UserServiceOptions = {}): UserServicePlan {
   return { ...basePlan, directories, files: [{ path: paths.configPath, contents }] };
 }
 
+/** PIDs of service runners started from this repository, found by the runner path on their command line. */
+function findWindowsRunnerProcesses(
+  plan: UserServicePlan,
+  runCommand: (command: string, args: string[]) => string,
+): string[] {
+  const runnerPath = win32.join(plan.repositoryRoot, RUNNER_RELATIVE_PATH).toLowerCase().replaceAll("'", "''");
+  const output = runCommand("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains('${runnerPath}') } | ForEach-Object { $_.ProcessId }`,
+  ]);
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^\d+$/.test(line));
+}
+
+/**
+ * Ends the scheduled task, then the runner trees it leaves behind: schtasks /End only stops the task's own conhost,
+ * so the runner, pnpm and the old server keep the port and the next start fails while the old version keeps serving.
+ */
+function stopWindowsTask(plan: UserServicePlan, runCommand: (command: string, args: string[]) => string): void {
+  try {
+    runCommand("schtasks.exe", ["/End", "/TN", plan.serviceTarget]);
+  } catch {
+    // A first installation has no scheduled task to stop.
+  }
+  let processIds: string[] = [];
+  try {
+    processIds = findWindowsRunnerProcesses(plan, runCommand);
+  } catch {
+    // Without the process list there is nothing more to stop; a busy port is then reported in the service log.
+  }
+  for (const processId of processIds) {
+    try {
+      runCommand("taskkill.exe", ["/PID", processId, "/T", "/F"]);
+    } catch {
+      // The runner may have exited on its own after the task ended.
+    }
+  }
+}
+
 function managerCommand(plan: UserServicePlan, runCommand: (command: string, args: string[]) => string): void {
   if (plan.platform === "darwin") {
     try {
@@ -435,11 +479,7 @@ function managerCommand(plan: UserServicePlan, runCommand: (command: string, arg
     return;
   }
 
-  try {
-    runCommand("schtasks.exe", ["/End", "/TN", plan.serviceTarget]);
-  } catch {
-    // A first installation has no scheduled task to stop.
-  }
+  stopWindowsTask(plan, runCommand);
   runCommand("schtasks.exe", ["/Create", "/TN", plan.serviceTarget, "/XML", plan.configPath, "/F"]);
   runCommand("schtasks.exe", ["/Run", "/TN", plan.serviceTarget]);
 }
@@ -528,6 +568,20 @@ export function installUserService(plan: UserServicePlan, runCommand = runSystem
   managerCommand(plan, runCommand);
 }
 
+/** Restarts an installed service so a rebuilt checkout takes effect, without rewriting its configuration. */
+export function restartUserService(plan: UserServicePlan, runCommand = runSystemCommand): void {
+  if (plan.platform === "darwin") {
+    runCommand("launchctl", ["kickstart", "-k", plan.serviceTarget]);
+    return;
+  }
+  if (plan.platform === "linux") {
+    runCommand("systemctl", ["--user", "restart", plan.serviceName]);
+    return;
+  }
+  stopWindowsTask(plan, runCommand);
+  runCommand("schtasks.exe", ["/Run", "/TN", plan.serviceTarget]);
+}
+
 export function uninstallUserService(plan: UserServicePlan, runCommand = runSystemCommand): void {
   if (plan.platform === "darwin") {
     try {
@@ -542,11 +596,7 @@ export function uninstallUserService(plan: UserServicePlan, runCommand = runSyst
       // The systemd unit may already be stopped.
     }
   } else {
-    try {
-      runCommand("schtasks.exe", ["/End", "/TN", plan.serviceTarget]);
-    } catch {
-      // The task may already be stopped.
-    }
+    stopWindowsTask(plan, runCommand);
     runCommand("schtasks.exe", ["/Delete", "/TN", plan.serviceTarget, "/F"]);
   }
   for (const file of plan.files) rmSync(file.path, { force: true });

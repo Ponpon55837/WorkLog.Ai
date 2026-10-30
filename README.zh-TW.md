@@ -1,6 +1,6 @@
 # Work Intelligence
 
-**1.6.5** 讓帶任務的 `work_get_context` 從排名最前的 Session 補上最多 4 筆相關 Session 與曾套用的 active Knowledge 精簡指標，放在獨立的 `relevant.supplements`；原本的結果、排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#165---2026-10-30)與[繁體中文更新指南](docs/releases/1.6.5.md)。**1.6.4** 要求 Agent 只在來源直接支持答案時才引用搜尋到的紀錄，否則回答「資料不足」；排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#164---2026-10-28)與[繁體中文更新指南](docs/releases/1.6.4.md)。**1.6.3** 升級 Zod 至 4.6.7，並將 body-parser 2.x override 至 2.4.0，以修補兩項 high 等級安全公告；改進 recall 排序與 Knowledge 查詢效能，並修正 Windows migration 後的專案根路徑大小寫。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#163---2026-10-27)與[繁體中文更新指南](docs/releases/1.6.3.md)。**1.6.2** 修正 Codex 設定與 hooks 偵測、API 健康狀態與連接埠處理，並新增備份、匯出與匯入預覽的同步阻塞門檻。REST 錯誤碼統一為小寫 snake_case，比對舊專案或 Session 刪除錯誤碼的腳本需要更新。不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.2.md)。1.6.0 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
+**1.6.6** 新增 `pnpm service:restart`：更新後重啟登入自動啟動服務，並等到 server 回報新版本才結束。Windows 上重啟、重新安裝或移除服務時，也會一併停止工作排程器留下的舊 server；先前它會在更新後繼續以舊版服務。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#166---2026-10-30)與[繁體中文更新指南](docs/releases/1.6.6.md)。**1.6.5** 讓帶任務的 `work_get_context` 從排名最前的 Session 補上最多 4 筆相關 Session 與曾套用的 active Knowledge 精簡指標，放在獨立的 `relevant.supplements`；原本的結果、排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#165---2026-10-30)與[繁體中文更新指南](docs/releases/1.6.5.md)。**1.6.4** 要求 Agent 只在來源直接支持答案時才引用搜尋到的紀錄，否則回答「資料不足」；排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#164---2026-10-28)與[繁體中文更新指南](docs/releases/1.6.4.md)。**1.6.3** 升級 Zod 至 4.6.7，並將 body-parser 2.x override 至 2.4.0，以修補兩項 high 等級安全公告；改進 recall 排序與 Knowledge 查詢效能，並修正 Windows migration 後的專案根路徑大小寫。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#163---2026-10-27)與[繁體中文更新指南](docs/releases/1.6.3.md)。**1.6.2** 修正 Codex 設定與 hooks 偵測、API 健康狀態與連接埠處理，並新增備份、匯出與匯入預覽的同步阻塞門檻。REST 錯誤碼統一為小寫 snake_case，比對舊專案或 Session 刪除錯誤碼的腳本需要更新。不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.2.md)。1.6.0 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
 
 [English](README.md) | **繁體中文**
 
@@ -39,11 +39,11 @@ pnpm bootstrap
 pnpm start
 ```
 
-`pnpm bootstrap` 是唯一的安裝主線，會先檢查 Node.js 與 pnpm 版本並列出計畫，確認一次後依序執行：安裝依賴、建置、連接 Agent（`pnpm setup:agents`）、詢問是否設定登入自動啟動，最後用 `pnpm check` 診斷並印出下一步。前兩步只寫入這個 repo；**連接 Agent 與登入自動啟動這兩步會寫入你的全域設定，各自另外顯示預覽並要求確認**（Agent 設定要輸入 `yes`），不確認就不會變更。非互動終端只顯示計畫，加上 `--yes` 才會執行；`--skip-agents` 略過連接 Agent，`--service` 直接進入登入自動啟動設定。如果某個 Agent 已經啟用 Work Intelligence plugin，bootstrap 會自動略過該 Agent 的手動註冊（plugin 已提供 MCP、skill 與 hook），避免重複。若已安裝登入自動啟動服務，bootstrap 不會再詢問，只提醒你重新執行 `pnpm service:install` 重啟服務。可重複執行，`git pull` 後再跑一次就是更新後同步。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
+`pnpm bootstrap` 是唯一的安裝主線，會先檢查 Node.js 與 pnpm 版本並列出計畫，確認一次後依序執行：安裝依賴、建置、連接 Agent（`pnpm setup:agents`）、詢問是否設定登入自動啟動，最後用 `pnpm check` 診斷並印出下一步。前兩步只寫入這個 repo；**連接 Agent 與登入自動啟動這兩步會寫入你的全域設定，各自另外顯示預覽並要求確認**（Agent 設定要輸入 `yes`），不確認就不會變更。非互動終端只顯示計畫，加上 `--yes` 才會執行；`--skip-agents` 略過連接 Agent，`--service` 直接進入登入自動啟動設定。如果某個 Agent 已經啟用 Work Intelligence plugin，bootstrap 會自動略過該 Agent 的手動註冊（plugin 已提供 MCP、skill 與 hook），避免重複。若已安裝登入自動啟動服務，bootstrap 不會再詢問，只提醒你執行 `pnpm service:restart` 重啟服務。可重複執行，`git pull` 後再跑一次就是更新後同步。完整範圍、備份方式與解除安裝步驟見[Agent 設定指南](docs/agent-setup.md)。
 
 `pnpm start` 啟動本機 Dashboard 與 REST API。終端機保持執行，按 `Ctrl+C` 停止。啟動時若偵測到 Agent 設定過期，會印出一行提醒（沒有問題時不輸出，也不會拖慢啟動）。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
 
-如果希望在登入電腦後自動啟動，可先執行 `pnpm build`，再執行 `pnpm service:install`。安裝前會列出即將寫入的服務檔案與完整內容；確認後才會設定目前使用者的服務，無須管理員權限。`pnpm service:status` 查看狀態，`pnpm service:uninstall` 停止並移除服務設定，保留資料庫、備份與日誌。各平台位置與排除問題方式見[登入自動啟動](docs/service.md)。
+如果希望在登入電腦後自動啟動，可先執行 `pnpm build`，再執行 `pnpm service:install`。安裝前會列出即將寫入的服務檔案與完整內容；確認後才會設定目前使用者的服務，無須管理員權限。`pnpm service:status` 查看狀態，`pnpm service:restart` 在更新後重啟，`pnpm service:uninstall` 停止並移除服務設定，保留資料庫、備份與日誌。各平台位置與排除問題方式見[登入自動啟動](docs/service.md)。
 
 | 項目 | 位置 |
 |---|---|
@@ -265,7 +265,7 @@ API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence 
 
 ## 升級與維護
 
-**升級**：`git pull`，再執行 `pnpm bootstrap`（會重新安裝、建置並同步 Agent 設定、最後跑診斷），依提示重新連線 Agent。若用 `pnpm start` 執行，請重新啟動它；若已安裝登入自動啟動服務，請重新執行 `pnpm service:install` 重啟服務（會顯示預覽並要求確認），新版才會生效。
+**升級**：`git pull`，再執行 `pnpm bootstrap`（會重新安裝、建置並同步 Agent 設定、最後跑診斷），依提示重新連線 Agent。若用 `pnpm start` 執行，請重新啟動它；若已安裝登入自動啟動服務，請執行 `pnpm service:restart` 重啟服務，它會等到 server 回報新版本才結束。
 
 - 新版本需要升級資料庫時，第一次開啟前會自動建立一份 migration 前備份（`pre-migration-v<版本>-…`），再在單一交易內套用 migration；備份失敗時不會升級。
 - 如果資料庫的 schema 比目前的程式新（例如在另一台電腦用過新版本），API、MCP 與 CLI 都會拒絕開啟，並提示你先更新 Work Intelligence，不會崩潰或只做一部分。

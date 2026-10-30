@@ -1,6 +1,6 @@
 {
   "name": "work-intelligence",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "license": "MIT",
   "private": true,
   "description": "Local-first developer work intelligence MVP",
@@ -22,6 +22,7 @@
     "doctor": "pnpm --filter @work-intelligence/server exec tsx src/doctor.ts",
     "check": "pnpm --filter @work-intelligence/server exec tsx src/doctor.ts",
     "service:install": "node apps/server/dist/service-cli.js install",
+    "service:restart": "node apps/server/dist/service-cli.js restart",
     "service:uninstall": "node apps/server/dist/service-cli.js uninstall",
     "service:status": "node apps/server/dist/service-cli.js status",
     "plugin:link": "node scripts/plugin-link.mjs",
