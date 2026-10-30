@@ -4,6 +4,8 @@ import type {
   ContextOutstandingItem,
   ContextQueryResult,
   ContextResult,
+  ContextSupplementIndicator,
+  ContextSupplementReason,
   DecisionDigest,
   HotspotHint,
   KnowledgeCandidateRequest,
@@ -54,6 +56,12 @@ import { limitKnowledgePageReviewSections } from "./knowledge-page-service.js";
 
 const RECENT_DECISION_LIMIT = 12;
 const RELEVANT_LIMIT = 5;
+/** Only the three highest-ranked Session hits can seed one-hop context supplements. */
+const CONTEXT_SUPPLEMENT_SOURCE_LIMIT = 3;
+/** Keep one source from filling the optional indicator list with its own related records. */
+const CONTEXT_SUPPLEMENT_ITEMS_PER_SOURCE = 2;
+/** Bound response overhead while allowing more than one retained source to contribute. */
+const CONTEXT_SUPPLEMENT_LIMIT = 4;
 const RECALL_DEFAULT_LIMIT = 8;
 const RECALL_MAX_LIMIT = 30;
 const SEARCH_LIMIT = 20;
@@ -81,6 +89,7 @@ interface ContextRecallStoreReader {
   getSessionById(sessionId: string): WorkSessionRecord | undefined;
   getProjectById(projectId: string): ProjectRecord | undefined;
   getSessionLinks(sessionId: string): SessionLinkRecord[];
+  appliedKnowledgeIdsBySessions(sessionIds: readonly string[]): Map<string, string[]>;
   getKnowledgeWithTrustMany(knowledgeIds: string[]): Map<string, KnowledgeRecord>;
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
   listReportSynthesisRequests(options: ReportSynthesisRequestQuery): ReportSynthesisRequestListQueryResult;
@@ -175,6 +184,18 @@ function addOmission(
   if (ids.includes(entry.id)) return;
   if (ids.length < CONTEXT_OMITTED_ID_LIMIT) ids.push(entry.id);
   else omission.moreIds = (omission.moreIds ?? 0) + 1;
+}
+
+function contextSupplementOmission(supplements: ContextSupplementIndicator[], includeIds = true): ContextOmission {
+  const ids = includeIds ? supplements.map(({ id }) => id).slice(0, CONTEXT_OMITTED_ID_LIMIT) : [];
+  return {
+    section: "relevant.supplements",
+    count: supplements.length,
+    ...(ids.length > 0 ? { ids } : {}),
+    ...(includeIds && supplements.length > ids.length ? { moreIds: supplements.length - ids.length } : {}),
+    reasons: ["預算"],
+    readWith: "work_get_session/work_search_knowledge",
+  };
 }
 
 export class ContextRecallService {
@@ -766,6 +787,39 @@ export class ContextRecallService {
     while (responseLength() > limit && (trimNext() || shortenNext() || trimRelevant())) {
       trimmed = true;
     }
+
+    // Fit the unmodified main response first; optional indicators cannot change any existing content selection.
+    if (responseLength() <= limit && context.relevant) {
+      const supplements = this.contextSupplementsFor(context);
+      if (supplements.length > 0) {
+        const originalOmissions = [...(context.omitted ?? [])];
+        const selectedSupplements = [...supplements];
+        const removedSupplements: ContextSupplementIndicator[] = [];
+        const applySupplements = (): void => {
+          if (selectedSupplements.length > 0) context.relevant!.supplements = [...selectedSupplements];
+          else delete context.relevant!.supplements;
+          context.omitted = [...originalOmissions];
+          if (removedSupplements.length > 0) context.omitted.push(contextSupplementOmission(removedSupplements));
+          if (context.omitted.length === 0) delete context.omitted;
+        };
+
+        applySupplements();
+        while (responseLength() > limit && selectedSupplements.length > 0) {
+          removedSupplements.push(selectedSupplements.pop()!);
+          applySupplements();
+        }
+        if (responseLength() > limit) {
+          context.omitted = [...originalOmissions, contextSupplementOmission(removedSupplements, false)];
+        }
+        if (responseLength() > limit) {
+          // When even the omission pointer cannot fit, keep the baseline response byte-for-byte intact.
+          delete context.relevant.supplements;
+          if (originalOmissions.length > 0) context.omitted = originalOmissions;
+          else delete context.omitted;
+        }
+      }
+    }
+
     if (responseLength() > limit) {
       addOmission(
         context,
@@ -844,6 +898,89 @@ export class ContextRecallService {
   private contextHit(hit: RecallHit): RecallHit {
     const bounded = truncateAtSentenceBoundary(hit.excerpt, CONTEXT_EXCERPT_CHARS);
     return bounded.truncated ? { ...hit, excerpt: bounded.text, truncated: true } : hit;
+  }
+
+  private contextSupplementsFor(context: ContextResult): ContextSupplementIndicator[] {
+    const relevant = context.relevant;
+    if (!relevant) return [];
+
+    const sources = relevant.sessions.slice(0, CONTEXT_SUPPLEMENT_SOURCE_LIMIT).flatMap((hit) => {
+      const record = this.store.getSessionById(hit.id);
+      return record && !record.voided ? [{ hit, record }] : [];
+    });
+    if (sources.length === 0) return [];
+
+    const excludedIds = new Set([
+      ...relevant.sessions.map((session) => session.id),
+      ...relevant.knowledge.map((knowledge) => knowledge.id),
+    ]);
+    for (const omission of context.omitted ?? []) {
+      for (const id of omission.ids ?? []) excludedIds.add(id);
+      for (const entry of omission.entries ?? []) excludedIds.add(entry.id);
+    }
+
+    const appliedBySession = this.store.appliedKnowledgeIdsBySessions(sources.map(({ record }) => record.id));
+    const appliedKnowledgeIds = [...new Set([...appliedBySession.values()].flat())];
+    const appliedKnowledge = this.store.getKnowledgeWithTrustMany(appliedKnowledgeIds);
+    const supplements: ContextSupplementIndicator[] = [];
+
+    for (const source of sources) {
+      if (supplements.length >= CONTEXT_SUPPLEMENT_LIMIT) break;
+
+      const linkedSessions = (source.hit.related ?? [])
+        .filter((link) => link.relation === "continues" || link.relation === "related")
+        .sort((left, right) => Number(left.relation !== "continues") - Number(right.relation !== "continues"));
+      const relatedCandidates: ContextSupplementIndicator[] = linkedSessions.map((link) => {
+        const includedBecause: ContextSupplementReason = {
+          kind: "related_session",
+          sourceSessionId: source.record.id,
+          relation: link.relation === "continues" ? "parent" : "related",
+        };
+        return { type: "session", id: link.id, title: link.title, includedBecause };
+      });
+      const knowledgeCandidates: ContextSupplementIndicator[] = (appliedBySession.get(source.record.id) ?? []).flatMap(
+        (id) => {
+          const knowledge = appliedKnowledge.get(id);
+          if (!knowledge || knowledge.status !== "active" || knowledge.projectId !== source.record.projectId) return [];
+          const includedBecause: ContextSupplementReason = {
+            kind: "applied_knowledge",
+            sourceSessionId: source.record.id,
+          };
+          return [
+            {
+              type: "knowledge" as const,
+              id: knowledge.id,
+              title: knowledge.title,
+              includedBecause,
+              ...(knowledge.possiblyStale ? { possiblyStale: true } : {}),
+              ...(knowledge.review ? { needsReview: true } : {}),
+            },
+          ];
+        },
+      );
+      const orderedCandidates = [
+        ...relatedCandidates.filter(
+          (candidate) => candidate.type === "session" && candidate.includedBecause.relation === "parent",
+        ),
+        ...knowledgeCandidates.slice(0, 1),
+        ...relatedCandidates.filter(
+          (candidate) => candidate.type === "session" && candidate.includedBecause.relation === "related",
+        ),
+        ...knowledgeCandidates.slice(1),
+      ];
+      let sourceCount = 0;
+      for (const candidate of orderedCandidates) {
+        if (sourceCount >= CONTEXT_SUPPLEMENT_ITEMS_PER_SOURCE || supplements.length >= CONTEXT_SUPPLEMENT_LIMIT) {
+          break;
+        }
+        if (excludedIds.has(candidate.id)) continue;
+        excludedIds.add(candidate.id);
+        supplements.push(candidate);
+        sourceCount += 1;
+      }
+    }
+
+    return supplements;
   }
 
   private getRelevantKnowledgePages(focus: ContextFocus, projectId?: string): RelevantKnowledgePageDigest[] {

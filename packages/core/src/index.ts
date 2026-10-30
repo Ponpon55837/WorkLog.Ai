@@ -2440,6 +2440,28 @@ export interface RecallHit {
   related?: Array<{ id: string; title: string; relation: SessionLinkDirection }>;
 }
 
+/** Why a compact context supplement may be related to the task; it is not a literal match or evidence. */
+export type ContextSupplementReason =
+  | { kind: "related_session"; sourceSessionId: string; relation: "parent" | "related" }
+  | { kind: "applied_knowledge"; sourceSessionId: string };
+
+/** A compact pointer to possibly related context; read the source record before relying on it. */
+export type ContextSupplementIndicator =
+  | {
+      type: "session";
+      id: string;
+      title: string;
+      includedBecause: Extract<ContextSupplementReason, { kind: "related_session" }>;
+    }
+  | {
+      type: "knowledge";
+      id: string;
+      title: string;
+      includedBecause: Extract<ContextSupplementReason, { kind: "applied_knowledge" }>;
+      possiblyStale?: boolean;
+      needsReview?: boolean;
+    };
+
 /** Per query word: how many in-scope records contain all of its terms. */
 export interface RecallTermHits {
   term: string;
@@ -2684,6 +2706,8 @@ export interface RelevantContext {
   outstandingItems?: RelatedOutstandingItems;
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<RecallHit & { openItems: string[] }>;
+  /** Optional compact pointers to possibly related Sessions or applied Knowledge; never literal-match evidence. */
+  supplements?: ContextSupplementIndicator[];
   /** Sections of standing Knowledge pages whose headings or content match this task. */
   knowledgePages?: RelevantKnowledgePageDigest[];
   termHits?: RecallTermHits[];

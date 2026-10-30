@@ -121,11 +121,14 @@ MCP client 的 stdio 設定可使用：
 
 開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是：
 
+有焦點時，可能另外出現精簡的 `relevant.supplements` 指標。它只從完成一般去重與預算裁切後留下的前三筆 Session hit 取得直接 parent／related Session 與該 Session 曾套用、目前仍 active 且未被取代的 Knowledge；只走一層，每個來源最多 2 筆、總共最多 4 筆。每個指標只有 `type`、`id`、`title`、`includedBecause`，Knowledge 另可能有 `possiblyStale`／`needsReview`。它不含摘要、excerpt、score、openItems 或證據計數。`includedBecause` 說明可能關聯的來源與關係；這是方便後續讀取的指標，不是字面命中或答案證據。Agent 應依類型用 `work_get_session` 或 `work_search_knowledge` 讀取來源後再判斷。既有 `relevant.sessions`／`relevant.knowledge` 的內容、順序、五筆上限和預算裁切都不受 supplements 影響；預算不足時先移除 supplements，並在 `omitted` 的 `relevant.supplements` 區段記錄。已在 relevant 或 omitted 的 id、作廢 Session、archived 或已被取代的 Knowledge 不會重複補入。沒有 `task`／`paths` 時不會輸出 supplements。
+
 | 欄位 | 內容 |
 | --- | --- |
 | `relevant.outstandingItems` | 依項目關鍵字、來源 changed-file 路徑與來源 Session 檢索順序排序的 pending 指標；直接文字／路徑命中可找出來源不在前 20 筆 Session 的舊項目。最多 5 項、文字 400 字、來源標題 160 字，附截短旗標、total／omitted 與證據提示；預算省略在 omitted 指向完整清單。先讀來源 Session，排名不代表已完成。 |
 | `relevant.confidence` | 規則同 `work_recall`：`none` 時沒有可引用依據；`high` 與 `low` 都只代表字面相符，依賴前都要讀原文。來源讀完仍不支持答案時，明確回覆「資料不足」，不可依字面、confidence 或排名推論 |
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
+| `relevant.supplements` | 選填的可能相關指標；最多 4 筆，限最終保留的前三筆 Session 的一層 parent／related 與 active applied Knowledge。它們不是字面命中或答案證據，需讀取完整來源；Knowledge 可附 `possiblyStale`／`needsReview` |
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
 | `relevant.knowledgePages` | 符合 task／paths 的知識頁段落與需核對段落；每段附 `sourceSessionIds`、`truncated`，來源變動時另附 `reviewSources`（有上限時含 `reviewOmittedSourceCount`／`reviewReasons`），頁面附 `needsReview` |
