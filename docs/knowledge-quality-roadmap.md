@@ -1,6 +1,6 @@
 # 知識品質與檢索效率發展計畫
 
-規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫；Phase 0 完成；Phase 2 第一輪（PR #261～#263）與 P0 PR #268～#271 完成；Phase 1 依 Phase 0 第 4 步結果暫不開 PR；Phase 3 第一輪（C1–C4 盤點與量測）完成，結果見「Phase 3 進度」；Phase 4 第一輪（D1–D3 盤點與量測）完成，結果見「Phase 4 進度」；其餘階段尚未執行。檢視基準：WorkLog.Ai v1.6.4（main `f8653ed`）、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
+規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫；Phase 0 完成；Phase 2 第一輪（PR #261～#263）與 P0 PR #268～#271 完成；Phase 1 依 Phase 0 第 4 步結果暫不開 PR；Phase 3 第一輪（C1–C4 盤點與量測）完成，結果見「Phase 3 進度」；Phase 4 第一輪（D1–D3 盤點與量測）完成；D1 第二輪最小方案已交付 PR #275，結果見「Phase 4 進度」；D2 不做，D3 經使用者決定不做；其餘階段尚未執行。檢視基準：WorkLog.Ai v1.6.4（main `f8653ed`）、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
 
 ## 1. 目標
 
@@ -217,7 +217,7 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 | D2 Project Brief | **沒有目前功能的實際失敗。** Project Brief 尚不存在；11／15 頁待核對，但現有 task context 15／15 帶出匹配頁面內容，並在 11／11 個待核對頁保留標示。單純合併頁面而移除標示會有把舊內容當成現況的風險，這是未來設計風險，不是既有 Brief 的失敗。 | **不做 Brief。** 現有 context 已能按任務提供頁面片段與 review 訊號，沒有證據顯示另做 Brief 會補足實際缺口。若未來重啟，需保留來源及 needsReview 標示，並用待核對頁面的合成案例驗證；任何待核對內容被呈現成無條件現況時即停止。 |
 | D3 報告價值 | **有，但樣本有限。** 來源存在性與作廢狀態可由現有資料核對；定向抽查有 1／6 個驗證區塊的兩個計數各差 1。2／6 份目前摘要的來源 verification 在摘要保存後改變，因此可計算、且可能影響目前摘要的解讀。 | **建議只增加衍生狀態，不重寫摘要；不在本 PR 實作。** 讀取摘要時，以既有來源與 verification 歷史計算來源狀態是否在保存後變更，並並列 deterministic verification 計數。用合成資料驗證來源變更可被標示、摘要文字維持原樣、未變更來源不誤標；若無法做到零誤標或來源不完整，停止，不新增永久事件或 schema。 |
 
-#### Phase 4 進度（第二輪：D1 最小方案，2026-10-29）
+#### Phase 4 進度（第二輪：D1 最小方案，PR #275，2026-10-29）
 
 - 第一版曾把補入項排在直接命中之前；私有題庫 71 題中有 1 題原本排名第 2 的直接命中 Session 因 9,800 字元預算被移入 omitted，context hit@5 由 1 降至 0.875、MRR 由 0.9375 降至 0.875，因此依停止條件停止第一版。
 - 第二版保留 `relevant.sessions` 與 `relevant.knowledge` 的內容、順序與原有預算裁切；補入項改放獨立 `relevant.supplements`，只提供精簡指標，且在預算不足時先移除。最多取前三個保留下來的直接命中 Session，每個來源最多 2 筆、合計最多 4 筆、只走一層；此上限將額外回應維持在小而固定的範圍，同時提供多個來源的關聯線索。
@@ -225,7 +225,7 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 - 71 題私有題庫的 main 與第二版各項指標完全相同：recall hit@1／hit@5／MRR 為 0.8837／1.000／0.938；context hit@1／hit@5／MRR 為 0.875／1.000／0.9375。回放使用的快照含任務開始後的資料，排名及狀態可能受後續資料影響，並非歷史當下的精確重建。
 - **D1 判斷：有實際失敗；第二版未觸發停止條件並通過量測門檻。** 關聯觸及率增加 9.3 個百分點、active applied Knowledge 觸及率超過基線兩倍、私有題庫與 main 相同、超預算率未上升，故保留這個有界指標補入方案。補入項是可能相關的線索，不是字面命中或答案證據；讀取來源後再使用。
 - **D2 不做**：維持第一輪結論，現有 context 已提供相關頁面內容與 needsReview 訊號，沒有 Brief 的實際失敗證據。**D3 經使用者決定不做。** PR #262 延續重排及 PR #263 raw 半權重行為維持不變。
-- 本機驗證：`pnpm test:retrieval-quality`、`pnpm test:response-size`、`pnpm typecheck` 通過；`pnpm test` 有 360 項通過、1 項預期失敗，另有 Windows symlink EPERM 與一個 storage 測試逾時。`pnpm test:performance` 有 51／52 案例通過，唯一超出門檻為 Windows 本機既有性能限制；Ubuntu CI 為性能結果依據。額外 `pnpm test:coverage` 有 358 項通過、1 項預期失敗，另有相同 symlink 限制及三個 storage 測試逾時。CI 結果以 PR 最新 head 為準。
+- 本機驗證：`pnpm test:retrieval-quality`、`pnpm test:response-size`、`pnpm typecheck` 通過；`pnpm test` 有 360 項通過、1 項預期失敗，另有 Windows symlink EPERM 與一個 storage 測試逾時。`pnpm test:performance` 有 51／52 案例通過，唯一超出門檻為 Windows 本機既有性能限制；Ubuntu CI 為性能結果依據。額外 `pnpm test:coverage` 有 358 項通過、1 項預期失敗，另有相同 symlink 限制及三個 storage 測試逾時。本機 Windows `pnpm test:e2e` 多 worker 出現 page-width timeout 與 worker teardown；降低併行度後仍未可靠完成，Ubuntu CI 為 E2E 最終依據。CI 結果以 PR 最新 head 為準。
 
 ### Phase 5：長期規模與穩定性（持續）
 
