@@ -4,11 +4,11 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-10-29
+- 最後更新：2026-10-30
 
 ## 知識品質 Roadmap Phase 4
 
-2026-10-29 完成 D1 第二輪最小方案與同快照回放：parent／related 觸及率 28.3% → 37.6%，active applied Knowledge 7.4% → 18.5%，超預算率維持 2.0%，私有題庫指標與 main 相同。D2 維持不做，D3 經使用者決定不做；詳細設計、限制、驗證與合併狀態見 [知識品質 Roadmap](knowledge-quality-roadmap.md)。
+2026-10-29 完成 D1 第二輪最小方案與同快照回放：parent／related 觸及率 28.3% → 37.6%，active applied Knowledge 7.4% → 18.5%，超預算率維持 2.0%，私有題庫指標與 main 相同。2026-10-30 合併後複檢指標一致，並完成未命中歸因；剩餘未命中主要來自回應預算與來源排名，Phase 4 結束、不再調整 D1。D2 維持不做，D3 經使用者決定不做；詳細設計、限制、驗證與合併狀態見 [知識品質 Roadmap](knowledge-quality-roadmap.md)。
 
 ## 1.5.1 健康檢查修正
 

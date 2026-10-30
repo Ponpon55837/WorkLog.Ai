@@ -1,6 +1,6 @@
 # 知識品質與檢索效率發展計畫
 
-規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫；Phase 0 完成；Phase 2 第一輪（PR #261～#263）與 P0 PR #268～#271 完成；Phase 1 依 Phase 0 第 4 步結果暫不開 PR；Phase 3 第一輪（C1–C4 盤點與量測）完成，結果見「Phase 3 進度」；Phase 4 第一輪（D1–D3 盤點與量測）完成；D1 第二輪最小方案已交付 PR #275，結果見「Phase 4 進度」；D2 不做，D3 經使用者決定不做；其餘階段尚未執行。檢視基準：WorkLog.Ai v1.6.4（main `f8653ed`）、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
+規劃日期：2026-10-22（Asia/Taipei）。狀態：使用者已同意以本文件作為正式計畫；Phase 0 完成；Phase 2 第一輪（PR #261～#263）與 P0 PR #268～#271 完成；Phase 1 依 Phase 0 第 4 步結果暫不開 PR；Phase 3 第一輪（C1–C4 盤點與量測）完成，結果見「Phase 3 進度」；Phase 4 第一輪（D1–D3 盤點與量測）完成；D1 第二輪最小方案已交付 PR #275，合併後複檢與未命中歸因完成，Phase 4 結束，結果見「Phase 4 進度」；D2 不做，D3 經使用者決定不做；Phase 5 依實測需要再執行。檢視基準：WorkLog.Ai v1.6.4（main `f8653ed`）、SQLite schema 30。核心方向：Save What Matters · Retrieve What Matters · Learn What Works。
 
 ## 1. 目標
 
@@ -226,6 +226,14 @@ WorkLog.Ai 的目標不是累積最多工作紀錄，而是把開發者與 Agent
 - **D1 判斷：有實際失敗；第二版未觸發停止條件並通過量測門檻。** 關聯觸及率增加 9.3 個百分點、active applied Knowledge 觸及率超過基線兩倍、私有題庫與 main 相同、超預算率未上升，故保留這個有界指標補入方案。補入項是可能相關的線索，不是字面命中或答案證據；讀取來源後再使用。
 - **D2 不做**：維持第一輪結論，現有 context 已提供相關頁面內容與 needsReview 訊號，沒有 Brief 的實際失敗證據。**D3 經使用者決定不做。** PR #262 延續重排及 PR #263 raw 半權重行為維持不變。
 - 本機驗證：`pnpm test:retrieval-quality`、`pnpm test:response-size`、`pnpm typecheck` 通過；`pnpm test` 有 360 項通過、1 項預期失敗，另有 Windows symlink EPERM 與一個 storage 測試逾時。`pnpm test:performance` 有 51／52 案例通過，唯一超出門檻為 Windows 本機既有性能限制；Ubuntu CI 為性能結果依據。額外 `pnpm test:coverage` 有 358 項通過、1 項預期失敗，另有相同 symlink 限制及三個 storage 測試逾時。本機 Windows `pnpm test:e2e` 多 worker 出現 page-width timeout 與 worker teardown；降低併行度後仍未可靠完成，Ubuntu CI 為 E2E 最終依據。CI 結果以 PR 最新 head 為準。
+
+#### Phase 4 進度（第三輪：合併後複檢與未命中歸因，2026-10-30）
+
+- 以合併前（`8b63d00`）與合併後（`37a4397`）兩份建置，在第二輪同一份唯讀快照重跑 71 題私有題庫：各項指標與逐題排名完全相同。另以獨立回放腳本重算 356 次回放，只記彙總數字。
+- 觸及率依計算方式不同：把直接命中 Session 附帶的 related 參照也算觸及時，main 為 229／808，與第二輪相同，第二版為 299／808（第二輪記為 304，計算細節有小差）；只算回應中列出的 Session、Knowledge 與 supplements 時，為 144／808（17.8%）→ 228／808（28.2%）。active applied Knowledge 為 4／54 → 12／54（第二輪記為 10）；超預算均為 7／356。兩種計算方式都未觸發第二輪的停止條件。
+- 54 個 active applied Knowledge 關聯在第二版的歸因：12 個觸及（4 個直接命中、8 個由 supplements 補入）；4 個沒有其他 Session 套用過，這類關聯在回放中無法經由補入量到；0 個在目標 Session 開始後才建立。其餘未命中中，14 個的套用 Session 是直接命中但因 9,800 字元預算移入 omitted；14 個的套用 Session 只出現在 recentSessions 的預算省略；7 個的套用 Session 未被檢索到；3 個受每來源或總數上限限制。
+- 只用標題、不帶變更路徑重跑：active applied Knowledge 8／54、超預算 0／356，表示帶入事後才知道的路徑沒有讓基線偏高。
+- **Phase 4 結論：完成。** 剩餘未命中主要來自回應預算與來源 Session 的排名，不是補入方式本身；54 個關聯的樣本小，再調整上限或來源範圍的差異難以和雜訊區分，因此不再調整 D1。無答案題的 `high` 判斷沿用 Phase 0 與 P0-3 的結論（20 題中 3 題，本次不變），不另開項目。
 
 ### Phase 5：長期規模與穩定性（持續）
 
