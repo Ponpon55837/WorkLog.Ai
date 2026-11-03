@@ -7,6 +7,7 @@ import {
   createUserServicePlan,
   formatUserServicePreview,
   getUserServiceStatus,
+  getUserServiceStatusAsync,
   installUserServiceWithConfirmation,
   restartUserService,
   uninstallUserService,
@@ -286,6 +287,29 @@ describe("login service restart", () => {
 });
 
 describe("read-only login service status", () => {
+  it.each(supportedPlatforms)("uses the asynchronous injected %s runner and shared parsing", async (platform) => {
+    const options = makeStatusOptions(platform, temporaryDirectory());
+    const output =
+      platform === "darwin"
+        ? "state = running"
+        : platform === "linux"
+          ? "LoadState=loaded\nActiveState=active\nUnitFileState=enabled\n"
+          : JSON.stringify({ state: "Running", enabled: true });
+    const status = await getUserServiceStatusAsync({
+      ...options,
+      configFileExists: () => true,
+      runCommand: async () => output,
+    });
+    expect(status).toMatchObject({ state: "running", enabled: true, running: true });
+    const failed = await getUserServiceStatusAsync({
+      ...options,
+      configFileExists: () => true,
+      runCommand: async () => {
+        throw new Error("unavailable");
+      },
+    });
+    expect(failed.state).toBe("unavailable");
+  });
   it.each(supportedPlatforms)("reports the %s manager state without installing a service", (platform) => {
     const root = temporaryDirectory();
     const options = makeStatusOptions(platform, root);
