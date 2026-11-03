@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { PROJECT_DATA_TABLES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 
 /*
@@ -9,6 +10,58 @@ interface SchemaMigration {
   version: number;
   name: string;
   sql: string;
+  apply?: (db: DatabaseSync) => void;
+}
+
+const changeRevisionsTableSql = `
+  CREATE TABLE change_revisions (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    database_id TEXT NOT NULL,
+    data_revision INTEGER NOT NULL CHECK (data_revision >= 0),
+    audit_revision INTEGER NOT NULL CHECK (audit_revision >= 0)
+  );
+  INSERT INTO change_revisions (singleton, database_id, data_revision, audit_revision)
+    VALUES (1, lower(hex(randomblob(16))), 0, 0);
+`;
+
+const agentReadRevisionTriggersSql = `
+  CREATE TRIGGER trg_agent_read_revision_insert AFTER INSERT ON agent_read_audit BEGIN
+    UPDATE change_revisions SET audit_revision = audit_revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER trg_agent_read_revision_update AFTER UPDATE ON agent_read_audit BEGIN
+    UPDATE change_revisions SET audit_revision = audit_revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER trg_agent_read_revision_delete AFTER DELETE ON agent_read_audit BEGIN
+    UPDATE change_revisions SET audit_revision = audit_revision + 1 WHERE singleton = 1;
+  END;
+`;
+
+function projectDataRevisionTriggersSql(tables: readonly string[]): string {
+  return tables
+    .flatMap((table) =>
+      (["INSERT", "UPDATE", "DELETE"] as const).map(
+        (operation) => `CREATE TRIGGER trg_data_revision_${table}_${operation.toLowerCase()}
+      AFTER ${operation} ON ${table} BEGIN
+        UPDATE change_revisions SET data_revision = data_revision + 1 WHERE singleton = 1;
+      END;`,
+      ),
+    )
+    .join("\n");
+}
+
+function applyDatabaseChangeRevisionMigration(db: DatabaseSync): void {
+  db.exec(changeRevisionsTableSql);
+  const existingTables = new Set(
+    (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  // Normal database initialization runs DATABASE_SCHEMA first; focused legacy migration fixtures may omit
+  // unrelated tables, so install only their existing-table triggers there.
+  db.exec(projectDataRevisionTriggersSql(PROJECT_DATA_TABLES.filter((table) => existingTables.has(table))));
+  if (existingTables.has("agent_read_audit")) {
+    db.exec(agentReadRevisionTriggersSql);
+  }
 }
 
 const MIGRATIONS: SchemaMigration[] = [
@@ -883,6 +936,12 @@ const MIGRATIONS: SchemaMigration[] = [
       DELETE FROM attention_preferences WHERE kind='cleanup' AND source_id=OLD.id;
     END;`,
   },
+  {
+    version: 31,
+    name: "database-change-revisions",
+    sql: `${changeRevisionsTableSql}\n${projectDataRevisionTriggersSql(PROJECT_DATA_TABLES)}\n${agentReadRevisionTriggersSql}`,
+    apply: applyDatabaseChangeRevisionMigration,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
@@ -922,7 +981,11 @@ export function applySchemaMigrations(db: DatabaseSync): void {
     if (applied.has(migration.version)) {
       continue;
     }
-    db.exec(migration.sql);
+    if (migration.apply) {
+      migration.apply(db);
+    } else {
+      db.exec(migration.sql);
+    }
     record.run(migration.version, migration.name, nowIso());
   }
 }

@@ -45,6 +45,7 @@ afterEach(() => {
 describe("database maintenance", () => {
   it("backs up, rebuilds search rows, and records a result that doctor reads without writing", async () => {
     const { directory, databasePath, store } = setup();
+    const beforeMaintenance = store.getChangeToken();
     store.close();
 
     const damagedIndex = new DatabaseSync(databasePath);
@@ -61,6 +62,7 @@ describe("database maintenance", () => {
     expect(result.indexedPaths).toBe(1);
 
     const reopened = new WorkIntelligenceStore(databasePath);
+    expect(reopened.getChangeToken().dataRevision).toBe(beforeMaintenance.dataRevision);
     const search = reopened.search("orchard cache");
     expect(Array.isArray(search) ? search[0]?.session.title : undefined).toBe("Rebuild the orchard search cache");
     reopened.close();

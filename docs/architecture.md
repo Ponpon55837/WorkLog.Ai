@@ -44,7 +44,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - **query key**：前綴集中在 `stores/query-keys.ts`。key 包含查詢讀取的所有參數（見 `worklog-web-code-style` skill §4），參數改變就是新的查詢，不手動 `refetch`。
 - **對話框與表單狀態**：編輯器、作廢、確認框與 Toast 等狀態也放在 Pinia store，並提供 `$reset`；模組層級的 ref 只保留 `worklog-code-layout` skill 列出的例外。離開頁面時以 Pinia Colada 的 `cancelQueries()` 取消進行中的查詢。
 - **寫入後的失效**：每個 mutation 宣告會影響哪些 key 前綴，成功後讓它們失效。Pinia Colada 只會重新載入目前有畫面在使用的 query。
-- **即時更新**：server 的 `/api/events`（SSE）只送不帶資料的 `changed` 事件。Web 收到後呼叫 `invalidateActiveQueries()`；分頁回到前景、或 API 恢復連線時也會做同樣的事。不會讓所有畫面重新載入全部資料。
+- **即時更新**：schema 31 的 `change_revisions` 保存資料庫識別、專案資料 revision 與 Agent 讀取稽核 revision。`/api/events` 的 `changed` 與 `agent-reads-changed` 都不帶資料；前者讓使用中的查詢更新，後者只讓 `queryKeys.agentReads` 更新。分頁回到前景或 API 從離線恢復時，Web 會讓使用中的查詢更新，涵蓋資料庫維護、遮蔽及還原後的重新啟動。
 - **網址是篩選條件的唯一來源**：`useRouteQuery` 讓網址與篩選 ref 雙向同步；`useListReload` 處理「篩選改變回到第 1 頁、搜尋 debounce」。
 - **API 呼叫**：只有 `api/transport.ts` 會呼叫 `fetch()`；各領域的 API 模組（`api/projects.ts`、`api/sessions.ts`…）由 `api/client.ts` 組合。錯誤帶有機器可讀的 `code`，前端依 `code` 顯示目前介面語言的訊息。
 - **離線判斷**：只有網路錯誤或不是 API 自己回的 5xx（例如開發模式的 proxy）才顯示「無法連線」；API 回傳的 JSON 5xx（包含 `database_busy`）不算離線。
@@ -102,6 +102,8 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 REST Server 與 MCP stdio 會共用中央 SQLite。Finalize、Knowledge、Evidence、Report synthesis、Metadata backfill 與 Session summary update 的查重及寫入會在 `BEGIN IMMEDIATE` transaction 內完成；跨程序同時重試時會等待既有寫入，再回傳 `duplicate: true`，不會把 SQLite UNIQUE constraint 例外當成一般 500 錯誤。Metadata backfill 的 schema rebuild migration 也在 transaction 內執行。
 
 新的 schema 變更改用版本化 migration（`packages/storage/src/schema-migrations.ts`）：套用過的版本記在 `schema_migrations`，每個 migration 只在啟動時的 transaction 內執行一次。若既有檔案資料庫有待套用的 migration，初始化程序會先寫一份帶目標版本標記的 `pre-migration-vN-...` 快照，然後才在 transaction 內升級；新資料庫與記憶體資料庫不需要這份升級前快照。若資料庫 schema 版本比目前程式支援的新，初始化會拒絕開啟並要求更新 Work Intelligence，不會嘗試降級或部分啟動。若 migration 前備份失敗，初始化也會停止，以免沒有安全備份仍繼續升級。檢索索引由 `search_chunks`、FTS5 `search_fts`、`search_paths`、`search_dirty` 與 trigger 維護；schema 20 新增的 `content_hash` 是衍生索引資料，既有 Session 會惰性重建。檢索邏輯在 `search-repository.ts`，tokenizer 與路徑正規化在 `search-text.ts`，詳見 [MCP tools 的 `work_recall`](mcp-tools.md#work_recall)。
+
+Schema 31 的 `change_revisions` 保存隨機資料庫識別與 `data_revision`／`audit_revision`。`PROJECT_DATA_TABLES` 的 insert、update、delete triggers 只遞增資料 revision；`agent_read_audit` 的三種 trigger 只遞增稽核 revision；`search_*` 不加 revision trigger。兩種 revision 即使下降也視為變動，讓從較舊快照替換資料庫時能發出更新。`db:restore` 會拒絕正在使用中的資料庫，先把 staging snapshot 升級到目前 schema，再設定新的資料庫識別，並將兩個 revision 設為高於舊資料庫與快照的值；CLI 先備份被替換資料，完成後要求重新啟動 API server 與 Agent。舊版 MCP 的相容性識別包含 schema 版本，因此升級後會回報 `restartRequired`，使用者需要重新連線。
 
 永久刪除會先用 `VACUUM INTO` 建立並驗證整份資料庫快照，備份建立失敗時拒絕操作；備份列為手動備份，依相同保留額度管理。之後在一個 `BEGIN IMMEDIATE` transaction 中清理 project、Session、衍生資料、跨專案 Session 關聯、引用目標 Session 的全域請求／報告與搜尋索引。刪除失敗會 rollback 並保留備份。migration v11 的 `project_deletion_audit` 僅保存刪除時間、project id 與刪除筆數，不保存名稱、路徑或內容。API 允許使用者在 Web UI 或 REST 以名稱確認，MCP 刻意不提供此破壞性操作；workspace 原始檔案不會被刪除。
 

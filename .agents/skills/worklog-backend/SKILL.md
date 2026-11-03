@@ -62,6 +62,7 @@ tests/<package>/   all tests live here, never beside src
 `tests/storage/project-data-coverage.test.ts` fails until you decide:
 
 - **New table holding project data** → add it to `PROJECT_DATA_TABLES` (core), `projectDataExportTableColumns` and required/numeric/status rules (schema), `TABLE_ORDER` and unique-field rules in `project-data-transfer.ts`, and delete its rows in `project-deletion-service.ts` inside the deletion transaction (including rows in other projects that point at the deleted one). Extend `tests/storage/project-deletion.test.ts` and the transfer round-trip test.
+- Every table in `PROJECT_DATA_TABLES` also needs INSERT, UPDATE, and DELETE triggers that increment `change_revisions.data_revision` in the migration that introduces it. `tests/storage/project-data-coverage.test.ts` checks all three operations for every listed table so a future table cannot silently miss notifications. `search_*` is derived index state and must not get these triggers.
 - **New table that is not project data** (index, audit, bookkeeping) → add it to `NOT_PROJECT_DATA` in that test with a reason.
 - **New column on an exported table** → add it to `projectDataExportTableColumns`. If older export files will not have it, add a default to `projectDataColumnDefaults` so they stay importable, and test both formats (see the `changed_files_confirmed` test).
 - If the data is searchable, mark the document dirty (`search_dirty`) on every write so the index stays in sync, and make sure deletion removes its search rows.
@@ -86,7 +87,9 @@ The API runs on one thread and `node:sqlite` is synchronous, so anything slow in
 
 ### Change notifications wake the UI
 
-Each SSE `changed` makes the Web refetch every active query, so an unnecessary event costs a full page of reads. Before adding a write on a read path or a bookkeeping table, check whether it changes `getChangeToken()`. Test this across two store connections, because the token must also see other processes.
+Schema 31 stores `database_id`, `data_revision`, and `audit_revision` in the single-row `change_revisions` table. `getChangeToken()` reads those counters, which are visible across SQLite connections. Any different database id or data revision (including a lower revision after a database file is replaced) sends the data-free `changed` event and invalidates active Web queries. A changed audit revision sends only the data-free `agent-reads-changed` event; Web invalidates only the `queryKeys.agentReads` prefix. Both events may be sent when both counters change. Agent audit writes must not change `data_revision`, and writes to `search_*` must not send either event.
+
+Before adding a write on a read path or bookkeeping table, check which revision it changes. Test the behavior across two store connections, including read plus audit, finalize, `syncIndex`, and rollback. `db:restore` must refuse an in-use database, migrate the staging snapshot, assign a fresh database id, and set both revisions above the maximum of the replaced and restored values. `db:maintain`, `db:redact`, and `db:restore` run while the API is stopped; on API recovery, the Web invalidates active queries. Online project imports rely on project-data triggers to send `changed`.
 
 ### How to measure
 

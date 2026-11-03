@@ -24,6 +24,7 @@ export {
 } from "./backup.js";
 export { ProjectDataTransferError, type ProjectDataTransferErrorCode } from "./project-data-transfer.js";
 export { DatabaseInitializationError, type DatabaseInitializationErrorCode } from "./database-initialization.js";
+export { initializeWorkIntelligenceDatabase } from "./database-initialization.js";
 export { DATABASE_BUSY_MESSAGE, isDatabaseBusyError } from "./sqlite-errors.js";
 export { canonicalizeProjectRoot, isPathWithinProject } from "@work-intelligence/project-policy";
 export { ProjectDeletionError, type ProjectDeletionErrorCode } from "./project-deletion-service.js";

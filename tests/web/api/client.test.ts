@@ -163,15 +163,19 @@ describe("ApiClient.request", () => {
     vi.stubGlobal("EventSource", EventSourceMock as unknown as typeof EventSource);
     const changed = vi.fn();
     const reconnected = vi.fn();
+    const agentReadsChanged = vi.fn();
     const source = new ApiClient("http://localhost:5966/").openChangeStream(
       changed,
       reconnected,
+      agentReadsChanged,
     ) as unknown as EventSourceMock;
     expect(source.url).toBe("http://localhost:5966/api/events");
     source.emit("changed");
     source.emit("open");
+    source.emit("agent-reads-changed");
     expect(changed).toHaveBeenCalledOnce();
     expect(reconnected).toHaveBeenCalledOnce();
+    expect(agentReadsChanged).toHaveBeenCalledOnce();
     new ApiClient().openChangeStream(changed);
   });
 });

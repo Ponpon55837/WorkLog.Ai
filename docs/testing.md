@@ -57,6 +57,19 @@ Server 測試同樣會開啟真實 SQLite 檔案、建立備份並執行 CLI；W
 
 A2 另以 286 個合成過期 lease／tmp（每次計時前重建，建置資料不計時）量測狀態讀取及 MCP 註冊清理，兩者 p90 上限各為 100 ms。測試涵蓋 TTL＋60 秒邊界、每次 64 次刪除嘗試上限、重複讀取收斂、刪除失敗、非 UUID 檔案、符號連結及 scope 隔離；runtime 單元測試 mock `tmpdir()`，其餘本機驗證使用隔離 HOME／TMPDIR。
 
+### Schema 31 revision 通知量測（2026-11-03，Windows）
+
+依 backend skill 第 5 節，以獨立 Node 行程、同一份 5,000 Sessions 合成基準資料的全新 SQLite 副本，比較基準與 revision-trigger 分支；順序輪替三輪，每個 `read-paths.bench.mjs` 行程對 finalize 案例跑 15 次並取 p90，再取三個行程 p90 的中位數：
+
+| `finalizeSession (related pending reminder)` | 三個行程 p90 | 中位數 |
+| --- | --- | ---: |
+| 基準 `c041388` | 122.48、78.55、87.27 ms | 87.27 ms |
+| schema 31 分支 | 89.99、30.83、166.94 ms | 89.99 ms |
+
+中位數差為 +2.72 ms（+3.1%）；兩者低於既有 250 ms p90 上限。大量匯入則以同一個合成 fixture（5,000 Sessions、50,000 events）比較 revision triggers 關閉與開啟；每輪是獨立測試行程與新資料庫，輪替順序五輪。trigger 關閉／開啟時間依序為：3,135.5／1,826.0 ms、4,358.1／8,982.1 ms、4,631.8／5,084.0 ms、5,375.4／5,026.1 ms、4,344.5／4,649.2 ms。配對增量中位數為 +304.7 ms；各組中位數為 4,344.5／5,026.1 ms，差 +681.6 ms（+15.7%）。每次都通過既有 20 秒斷言，門檻未調整。
+
+這是單機診斷量測，兩組耗時分布重疊，須把增量視為粗略估計。機器為 Windows 11 build 26200、Node 24.16.0、Intel Core 5 120U、12 邏輯核心、31.6 GiB RAM；量測前可用 RAM 約 7.9 GiB。CPU 計數器在此執行環境不可讀，程序快照只顯示目前 shell、conhost 與 Idle，無法完整判定背景負載。完整 PR gates 仍以原有門檻執行。
+
 ## 檢索品質評估
 
 先執行 `pnpm build`，再用 `pnpm eval:recall <題目.json> [--db <資料庫.sqlite>] [--out <結果.json>]`。此 script 固定傳入 `--experimental-sqlite`：Node.js 22.5–22.12 需要此旗標，22.13 以上可接受這個冗餘旗標。未指定 `--db` 時使用 `WORK_INTELLIGENCE_DB`，否則使用 repo 的 `data/work-intelligence.sqlite`。題庫支援 JSON 陣列或 `{ "version": 1, "questions": [...] }`；最多 200 題、輸入檔最多 1 MB。每題必填 `mode`（`recall`／`context`）、`query` 和一項預期：`expectedIds`（最多 20 個 Session／Knowledge id）或 `expectedNoHit: true`。可選 `id`、`projectRoot`、最多 20 個 `paths`、`expectedConfidence`（`none`／`low`／`high`）；只有 recall 可用 `from`／`to`，兩端皆為有效的 `YYYY-MM-DD`，且日期端點包含在範圍內。Recall 固定取 MCP 回傳前 30 名；正例 hit@1／hit@5／MRR 的分母只算已評估的正例，負例另計，MRR 定義為 MRR@30。`expectedConfidence` 未指定時，報告會留空符合狀態，不從預期 id 推定 confidence。

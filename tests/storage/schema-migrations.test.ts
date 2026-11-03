@@ -778,3 +778,49 @@ describe("attention display preference migration", () => {
     }
   });
 });
+
+describe("database change revision migration", () => {
+  it("upgrades schema 30 with one database identity and revision counters", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 30);
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='change_revisions'").get()).toBe(
+        undefined,
+      );
+
+      applySchemaMigrations(db);
+
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 31 });
+      expect(
+        db.prepare("SELECT singleton, database_id, data_revision, audit_revision FROM change_revisions").get(),
+      ).toMatchObject({
+        singleton: 1,
+        data_revision: 0,
+        audit_revision: 0,
+      });
+      expect(db.prepare("SELECT database_id FROM change_revisions").get()).toMatchObject({
+        database_id: expect.any(String),
+      });
+      expect(
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='trg_data_revision_sessions_insert'")
+          .get(),
+      ).toBeDefined();
+      expect(
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='trg_agent_read_revision_insert'")
+          .get(),
+      ).toBeDefined();
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name='trg_data_revision_search_chunks_insert'",
+          )
+          .get(),
+      ).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+});

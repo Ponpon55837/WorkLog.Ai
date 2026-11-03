@@ -565,12 +565,22 @@ export class WorkIntelligenceStore {
     return checkTrackedProjectById(this.policyGate, this, projectId);
   }
 
-  /** Returns a lightweight token for writes made by this connection and other SQLite connections. */
-  public getChangeToken(): string {
-    const dataVersion = this.db.prepare("PRAGMA data_version").get() as { data_version?: number } | undefined;
-    const localChanges = this.db.prepare("SELECT total_changes() AS total_changes").get() as
-      { total_changes?: number } | undefined;
-    return `${dataVersion?.data_version ?? 0}:${localChanges?.total_changes ?? 0}`;
+  /** Returns content-free revisions for project data and Agent read audits across SQLite connections. */
+  public getChangeToken(): { databaseId: string; dataRevision: number; auditRevision: number } {
+    const row = this.db
+      .prepare(
+        `SELECT database_id AS databaseId, data_revision AS dataRevision, audit_revision AS auditRevision
+         FROM change_revisions WHERE singleton = 1`,
+      )
+      .get() as { databaseId?: string; dataRevision?: number; auditRevision?: number } | undefined;
+    if (!row?.databaseId) {
+      throw new Error("The database change revision row is missing.");
+    }
+    return {
+      databaseId: row.databaseId,
+      dataRevision: Number(row.dataRevision ?? 0),
+      auditRevision: Number(row.auditRevision ?? 0),
+    };
   }
 
   /** Prevents a stale MCP writer from using an externally migrated database, within the same write lock. */

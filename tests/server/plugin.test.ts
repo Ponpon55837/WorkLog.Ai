@@ -15,7 +15,8 @@ const linkScript = join(repositoryRoot, "scripts/plugin-link.mjs");
 const temporaryDirectories: string[] = [];
 
 function temporaryDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "work-intelligence-plugin-"));
+  const root = process.env.WORK_INTELLIGENCE_TEST_TMP?.trim() || tmpdir();
+  const directory = mkdtempSync(join(root, "work-intelligence-plugin-"));
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -50,17 +51,35 @@ function fakeRepository(root: string, built = true): string {
 /** The test runner's environment (Windows needs SystemRoot and friends) without any Work Intelligence location. */
 function inheritedEnvironment(): NodeJS.ProcessEnv {
   const inherited = { ...process.env };
-  for (const name of ["WORK_INTELLIGENCE_HOME", "WORK_INTELLIGENCE_CONFIG_DIR", "WORK_INTELLIGENCE_DB"]) {
-    delete inherited[name];
+  const isolatedNames = new Set([
+    "HOME",
+    "USERPROFILE",
+    "WORK_INTELLIGENCE_HOME",
+    "WORK_INTELLIGENCE_CONFIG_DIR",
+    "WORK_INTELLIGENCE_DB",
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+  ]);
+  for (const name of Object.keys(inherited)) {
+    if (isolatedNames.has(name.toUpperCase())) delete inherited[name];
   }
   return inherited;
 }
 
 function run(script: string, args: string[], environment: NodeJS.ProcessEnv, input = "") {
+  const home = environment.HOME ?? environment.USERPROFILE ?? tmpdir();
   return spawnSync(process.execPath, [script, ...args], {
     input,
     encoding: "utf8",
-    env: { ...inheritedEnvironment(), USERPROFILE: environment.HOME, ...environment },
+    env: {
+      ...inheritedEnvironment(),
+      HOME: home,
+      USERPROFILE: home,
+      WORK_INTELLIGENCE_CONFIG_DIR: join(home, ".work-intelligence"),
+      CODEX_HOME: join(home, ".codex"),
+      CLAUDE_CONFIG_DIR: join(home, ".claude"),
+      ...environment,
+    },
   });
 }
 

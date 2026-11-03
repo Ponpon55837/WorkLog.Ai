@@ -140,15 +140,15 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     }
   }
 
-  function publishChanged(): void {
+  function publishEvent(event: "changed" | "agent-reads-changed"): void {
     for (const client of eventClients) {
       if (client.destroyed || client.writableEnded) {
         eventClients.delete(client);
         continue;
       }
       try {
-        // This event is deliberately data-free; the browser must refetch through the normal API.
-        client.write("event: changed\ndata:\n\n");
+        // Both event types are deliberately data-free; the browser refetches through the normal API.
+        client.write(`event: ${event}\ndata:\n\n`);
       } catch {
         eventClients.delete(client);
       }
@@ -159,9 +159,14 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   function pollDatabaseChanges(): void {
     try {
       const changeToken = store.getChangeToken();
-      if (changeToken !== lastChangeToken) {
+      const databaseChanged =
+        changeToken.databaseId !== lastChangeToken.databaseId ||
+        changeToken.dataRevision !== lastChangeToken.dataRevision;
+      const agentReadsChanged = changeToken.auditRevision !== lastChangeToken.auditRevision;
+      if (databaseChanged || agentReadsChanged) {
         lastChangeToken = changeToken;
-        publishChanged();
+        if (databaseChanged) publishEvent("changed");
+        if (agentReadsChanged) publishEvent("agent-reads-changed");
         return;
       }
     } catch {

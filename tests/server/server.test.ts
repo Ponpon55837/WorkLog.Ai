@@ -111,6 +111,15 @@ async function readSseUntil(
   }
 }
 
+async function expectNoSseEvent(reader: ReadableStreamDefaultReader<Uint8Array>, timeoutMs = 80): Promise<void> {
+  const timeout = Symbol("timeout");
+  const result = await Promise.race([
+    reader.read().then((value) => ({ kind: "read" as const, value })),
+    new Promise<typeof timeout>((resolve) => setTimeout(() => resolve(timeout), timeoutMs)),
+  ]);
+  expect(result).toBe(timeout);
+}
+
 async function requestJson<T>(
   baseUrl: string,
   path: string,
@@ -344,10 +353,11 @@ describe("Work Intelligence REST API", () => {
     expect(await statusForHost("localhost:5966")).toBe(200);
   });
 
-  it("streams a data-free changed event after another SQLite connection writes", async () => {
+  it("sends only agent-reads-changed when another connection records an Agent read", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-events-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");
     const store = new WorkIntelligenceStore(databasePath);
+    const project = store.addProject("Synthetic event project", join(root, "event-project"));
     const { server, baseUrl } = await startApi(store, { eventPollIntervalMs: 10 });
     resources.push({ server, store, root });
 
@@ -361,16 +371,176 @@ describe("Work Intelligence REST API", () => {
 
     try {
       expect(await readSseUntil(reader, ": connected")).toContain(": connected");
+      const before = store.getChangeToken();
       const agentStore = new WorkIntelligenceStore(databasePath);
       try {
-        agentStore.addProject("External SQLite writer", join(root, "external-project"));
-        const event = await readSseUntil(reader, "event: changed");
-        expect(event).toContain("event: changed\ndata:\n\n");
-        expect(event).not.toContain("External SQLite writer");
+        agentStore.recordAgentRead({
+          tool: "work_recall",
+          agentClient: "synthetic-test-agent",
+          projectId: project.id,
+          result: { outcome: "recall", hits: [] },
+        });
+        const event = await readSseUntil(reader, "event: agent-reads-changed");
+        expect(event).toContain("event: agent-reads-changed\ndata:\n\n");
+        expect(event).not.toContain("event: changed\n");
+        expect(event).not.toContain("synthetic-test-agent");
         expect(event).not.toContain(databasePath);
+        expect(store.getChangeToken()).toMatchObject({
+          databaseId: before.databaseId,
+          dataRevision: before.dataRevision,
+        });
+        expect(store.getChangeToken().auditRevision).toBeGreaterThan(before.auditRevision);
       } finally {
         agentStore.close();
       }
+    } finally {
+      await reader.cancel();
+    }
+  });
+
+  it("sends changed after another connection finalizes a Session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-finalize-events-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const projectRoot = join(root, "finalize-project");
+    const project = store.addProject("Synthetic finalize project", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    const { server, baseUrl } = await startApi(store, { eventPollIntervalMs: 10 });
+    resources.push({ server, store, root });
+
+    const response = await fetch(`${baseUrl}/api/events`);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("The SSE response did not expose a readable stream.");
+    try {
+      await readSseUntil(reader, ": connected");
+      const before = store.getChangeToken();
+      const writer = new WorkIntelligenceStore(databasePath);
+      const result = writer.finalizeSession({
+        projectRoot,
+        idempotencyKey: "external-finalize-event",
+        title: "Synthetic finalize event",
+        summary: "A second connection finalized this synthetic Session.",
+        completedAt: "2026-11-03T12:00:00.000Z",
+      });
+      writer.close();
+      expect(result.outcome).toBe("finalized");
+
+      const event = await readSseUntil(reader, "event: changed");
+      expect(event).toContain("event: changed\ndata:\n\n");
+      expect(event).not.toContain("Synthetic finalize event");
+      expect(store.getChangeToken().dataRevision).toBeGreaterThan(before.dataRevision);
+    } finally {
+      await reader.cancel();
+    }
+  });
+
+  it("sends changed after another connection imports project data", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-import-events-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const { server, baseUrl } = await startApi(store, { eventPollIntervalMs: 10 });
+    resources.push({ server, store, root });
+
+    const response = await fetch(`${baseUrl}/api/events`);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("The SSE response did not expose a readable stream.");
+    const source = new WorkIntelligenceStore(":memory:");
+    try {
+      await readSseUntil(reader, ": connected");
+      const sourceProject = source.addProject("Synthetic imported project", join(root, "imported-project"));
+      const bundle = source.exportProjectData({ type: "project", projectId: sourceProject.id });
+      const before = store.getChangeToken();
+      const writer = new WorkIntelligenceStore(databasePath);
+      try {
+        const result = writer.importProjectData({ bundle });
+        expect(result.additions.projects).toBe(1);
+      } finally {
+        writer.close();
+      }
+
+      const event = await readSseUntil(reader, "event: changed");
+      expect(event).toContain("event: changed\ndata:\n\n");
+      expect(event).not.toContain("Synthetic imported project");
+      expect(store.getChangeToken().dataRevision).toBeGreaterThan(before.dataRevision);
+    } finally {
+      source.close();
+      await reader.cancel();
+    }
+  });
+
+  it("does not send changed for syncIndex writes and rolls back data revisions with the transaction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-index-events-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const projectRoot = join(root, "index-project");
+    const project = store.addProject("Synthetic index project", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "index-event-session",
+      title: "Synthetic index event",
+      summary: "A fictional session used to dirty the search index.",
+      completedAt: "2026-11-03T12:00:00.000Z",
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected a synthetic finalized Session.");
+    const { server, baseUrl } = await startApi(store, { eventPollIntervalMs: 10 });
+    resources.push({ server, store, root });
+
+    const response = await fetch(`${baseUrl}/api/events`);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("The SSE response did not expose a readable stream.");
+    try {
+      await readSseUntil(reader, ": connected");
+      const before = store.getChangeToken();
+      const otherStore = new WorkIntelligenceStore(databasePath);
+      otherStore.recall({ projectRoot, q: "fictional index" });
+      expect(store.getChangeToken()).toEqual(before);
+
+      const otherConnection = (otherStore as unknown as { db: DatabaseSync }).db;
+      otherConnection.exec("BEGIN IMMEDIATE");
+      otherConnection
+        .prepare("UPDATE sessions SET summary = summary || ' rolled back' WHERE id = ?")
+        .run(finalized.session.id);
+      expect(store.getChangeToken()).toEqual(before);
+      otherConnection.exec("ROLLBACK");
+      expect(store.getChangeToken()).toEqual(before);
+      otherStore.close();
+
+      await expectNoSseEvent(reader);
+    } finally {
+      await reader.cancel();
+    }
+  });
+
+  it("sends changed when a replaced database has a new id and lower data revision", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-revision-regression-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    store.addProject("Synthetic revision regression", join(root, "revision-regression"));
+    const { server, baseUrl } = await startApi(store, { eventPollIntervalMs: 10 });
+    resources.push({ server, store, root });
+
+    const response = await fetch(`${baseUrl}/api/events`);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("The SSE response did not expose a readable stream.");
+    try {
+      await readSseUntil(reader, ": connected");
+      const before = store.getChangeToken();
+      expect(before.dataRevision).toBeGreaterThan(0);
+      const replacement = new DatabaseSync(databasePath);
+      replacement
+        .prepare(
+          "UPDATE change_revisions SET database_id = lower(hex(randomblob(16))), data_revision = ? WHERE singleton = 1",
+        )
+        .run(before.dataRevision - 1);
+      replacement.close();
+
+      const event = await readSseUntil(reader, "event: changed");
+      expect(event).toContain("event: changed\ndata:\n\n");
+      expect(store.getChangeToken()).toMatchObject({
+        databaseId: expect.not.stringMatching(before.databaseId),
+        dataRevision: before.dataRevision - 1,
+      });
     } finally {
       await reader.cancel();
     }

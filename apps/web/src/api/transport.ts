@@ -71,9 +71,12 @@ export class ApiTransport {
     private readonly onConnectionChange?: (isOnline: boolean) => void,
   ) {}
 
-  openChangeStream(onChanged: () => void, onReconnected?: () => void): EventSource {
+  openChangeStream(onChanged: () => void, onReconnected?: () => void, onAgentReadsChanged?: () => void): EventSource {
     const source = new EventSource(`${this.baseUrl.replace(/\/$/, "")}/api/events`);
     source.addEventListener("changed", onChanged);
+    if (onAgentReadsChanged) {
+      source.addEventListener("agent-reads-changed", onAgentReadsChanged);
+    }
     if (onReconnected) {
       source.addEventListener("open", onReconnected);
     }
