@@ -196,14 +196,24 @@ describe("attention aggregate", () => {
 
   it("reports unknown Knowledge coverage instead of asserting a healthy empty queue", () => {
     const { store, projectRoot } = setup();
-    for (let i = 0; i < 201; i++)
-      store.recordKnowledge({
-        projectRoot,
-        idempotencyKey: `rule-${i}`,
-        kind: "pattern",
-        title: `Rule ${i}`,
-        body: "Fictional source.",
-      });
+    store.recordKnowledge({
+      projectRoot,
+      idempotencyKey: "rule-0",
+      kind: "pattern",
+      title: "Rule 0",
+      body: "Fictional source.",
+    });
+    // One commit for the other 200 rows: a commit per row timed out on slow Windows CI runners.
+    (store as unknown as { db: DatabaseSync }).db.exec(`
+      WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200)
+      INSERT INTO knowledge (
+        id, project_id, idempotency_key, kind, title, body,
+        tags_json, references_json, status, created_at, updated_at, applies_to_json
+      )
+      SELECT 'rule-' || i, k.project_id, 'rule-' || i, k.kind, 'Rule ' || i, k.body,
+        k.tags_json, k.references_json, k.status, k.created_at, k.updated_at, k.applies_to_json
+      FROM knowledge k CROSS JOIN n
+    `);
     expect(store.getAttention({ kind: "knowledge" })).toMatchObject({
       items: [],
       total: null,
