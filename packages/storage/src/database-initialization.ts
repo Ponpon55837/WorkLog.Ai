@@ -221,7 +221,9 @@ export function initializeWorkIntelligenceDatabase(
   }
 
   try {
-    db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+    db.exec(
+      "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -16000;",
+    );
     runImmediateTransaction(db, () => {
       db.exec(DATABASE_SCHEMA);
       migrateLegacySchema(db);
