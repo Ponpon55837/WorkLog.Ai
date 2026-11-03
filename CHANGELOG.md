@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- SQLite connections use a 16,000 KiB page cache for server and MCP read paths.
+
 ### Fixed
 
 - System status checks the login service asynchronously, shares concurrent probes and caches successful results for 30 seconds, keeping the API responsive while the service manager is slow.

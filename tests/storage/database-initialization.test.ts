@@ -40,6 +40,16 @@ function hasSessionColumn(db: DatabaseSync, name: string): boolean {
 }
 
 describe("database initialization", () => {
+  it("configures the cache size on a newly opened store connection", () => {
+    const store = new WorkIntelligenceStore(":memory:");
+    try {
+      const db = (store as unknown as { db: DatabaseSync }).db;
+      expect(db.prepare("PRAGMA cache_size").get()).toEqual({ cache_size: -16000 });
+    } finally {
+      store.close();
+    }
+  });
+
   it("backs up a file database with the pending version tag before applying its migration", () => {
     const paths = createDatabasePaths();
     const initialStore = new WorkIntelligenceStore(paths.databasePath, {
