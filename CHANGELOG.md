@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- System status checks the login service asynchronously, shares concurrent probes and caches successful results for 30 seconds, keeping the API responsive while the service manager is slow.
+
 ## [1.6.6] - 2026-10-30
 
 [繁體中文更新說明](docs/releases/1.6.6.md).

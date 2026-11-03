@@ -75,6 +75,27 @@ tests/<package>/   all tests live here, never beside src
 - **Every new read path gets a benchmark case and a p90 limit** in `read-paths.bench.mjs` (`pnpm test:performance`, runs in CI). Limits are loose enough for slow CI machines but must fail an order-of-magnitude regression. Document them in `docs/testing.md`.
 - Changes to recall ranking must keep `pnpm test:retrieval-quality` (synthetic hit@5 / MRR gates) passing; add synthetic cases for new behavior, never real user data.
 
+### The event loop is shared
+
+The API runs on one thread and `node:sqlite` is synchronous, so anything slow in a request freezes every other request and the SSE stream.
+
+- **Never spawn synchronously on a request path.** `execFileSync` is for the CLI and doctor only. One `execFileSync` of PowerShell blocked `/api/system/status` and `/api/health` for 6 seconds. Host probes in the API use async `execFile` with a timeout and `windowsHide: true`, a short TTL cache, one query in flight, and no caching of failures. Keep the runner injectable so tests never query the real service manager.
+- **Do not parse localized command output.** `schtasks` and `tasklist` output changes with the system language; use a structured form such as `ConvertTo-Json`.
+- **Treat long synchronous work as blocking.** Backup (`VACUUM INTO` plus `quick_check`), export, and import preview take seconds. Do not start them on a timer right after the server starts listening, and do not add more of them to the main thread.
+- **Keep write transactions short.** MCP writes run inside `withCompatibleSchema`, which holds the `IMMEDIATE` lock for the whole operation. Read-only work such as reminders and hints belongs after the commit: other processes wait on this lock, and audit writes are dropped while it is held.
+
+### Change notifications wake the UI
+
+Each SSE `changed` makes the Web refetch every active query, so an unnecessary event costs a full page of reads. Before adding a write on a read path or a bookkeeping table, check whether it changes `getChangeToken()`. Test this across two store connections, because the token must also see other processes.
+
+### How to measure
+
+- Compare variants in separate processes on fresh copies of the same synthetic database, rotate their order across at least 3 rounds, and report the median. Running every variant in one process made the first one look several times worse than it really was.
+- Note what else the machine is running. Do not change a p90 limit because of a run on a busy machine.
+- To find where a path spends its time, wrap `store.db.prepare` in a local probe (never committed) that records time, calls, and rows per SQL text, plus prepare time. Separate SQL, prepare, JS, and `JSON.stringify` before choosing a fix.
+- A per-connection setting multiplies by the number of processes: every Agent session has its own MCP process and connection. Report RSS next to latency for anything that trades memory for speed.
+- Measure settings before adopting them. On the synthetic database, `cache_size` helped most paths 2–6x, `ANALYZE` made the year report and `getContext` slower, a statement cache would save about 5%, and `NODE_COMPILE_CACHE` showed no gain.
+
 ## 6. REST routes
 
 - JSON bodies only for writes (`readJsonBody` requires `application/json`, which keeps cross-site forms out); destructive requests also require a JSON confirmation body.

@@ -19,7 +19,6 @@ const chromeCandidates = [
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
 ];
 const browserExecutablePath = chromeCandidates.find((candidate) => fs.existsSync(candidate));
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -64,7 +63,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `${pnpm} start`,
+      command: "node tests/e2e/server.mjs",
       url: `http://127.0.0.1:${webPort}/api/health`,
       timeout: 120_000,
       reuseExistingServer: false,

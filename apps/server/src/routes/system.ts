@@ -113,7 +113,7 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
       totalBytes: backupSnapshot.backups.reduce((total, backup) => total + backup.bytes, 0),
     },
     maintenance: database.maintenance ?? null,
-    userService: services.userServiceStatus(),
+    userService: await services.userServiceStatus(),
     mcp: services.mcpRuntimeStatus(),
     agents: services.agentConnections(),
     sseConnections: services.eventClientCount(),

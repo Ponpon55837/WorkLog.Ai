@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, posix, resolve, win32 } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { resolveDatabasePath } from "@work-intelligence/shared/database-path";
 import type { UserServiceManager, UserServiceState, UserServiceStatus } from "@work-intelligence/core";
 
@@ -73,6 +74,7 @@ export const WINDOWS_TASK_NAME = "Work Intelligence";
 const WINDOWS_TASK_PATH = "\\";
 const ROOT_DIRECTORY = fileURLToPath(new URL("../../../", import.meta.url));
 const RUNNER_RELATIVE_PATH = "scripts/service-runner.mjs";
+const execFileAsync = promisify(execFile);
 
 function pathApi(platform: UserServicePlatform): PathApi {
   return platform === "win32" ? win32 : posix;
@@ -220,6 +222,12 @@ function resolveWindowsSystemCommand(command: string): string {
 function runSystemCommand(command: string, args: string[]): string {
   const executable = process.platform === "win32" ? resolveWindowsSystemCommand(command) : command;
   return execFileSync(executable, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+async function runSystemCommandAsync(command: string, args: string[]): Promise<string> {
+  const executable = process.platform === "win32" ? resolveWindowsSystemCommand(command) : command;
+  const { stdout } = await execFileAsync(executable, args, { encoding: "utf8", windowsHide: true, timeout: 10_000 });
+  return stdout;
 }
 
 function escapeXml(value: string): string {
@@ -603,10 +611,11 @@ export function uninstallUserService(plan: UserServicePlan, runCommand = runSyst
   if (plan.platform === "linux") runCommand("systemctl", ["--user", "daemon-reload"]);
 }
 
-export function getUserServiceStatus(options: UserServiceOptions = {}): UserServiceStatus {
+function* inspectUserServiceStatus(
+  options: UserServiceOptions,
+): Generator<[string, string[]], UserServiceStatus, string> {
   const paths = resolveServicePaths(options);
   const supported = paths.platform !== "unsupported";
-  const runCommand = options.runCommand ?? runSystemCommand;
   const installedFromFile = paths.configPath ? (options.configFileExists ?? existsSync)(paths.configPath) : false;
   let installed = installedFromFile;
   let enabled: boolean | null = installedFromFile ? true : false;
@@ -629,19 +638,22 @@ export function getUserServiceStatus(options: UserServiceOptions = {}): UserServ
 
   try {
     if (paths.platform === "darwin") {
-      const output = runCommand("launchctl", ["print", paths.serviceTarget]);
+      const output = yield ["launchctl", ["print", paths.serviceTarget]];
       installed = true;
       enabled = true;
       running = /\bstate = running\b|\bpid = \d+/i.test(output);
     } else if (paths.platform === "linux") {
-      const output = runCommand("systemctl", [
-        "--user",
-        "show",
-        paths.serviceName,
-        "--property=LoadState",
-        "--property=ActiveState",
-        "--property=UnitFileState",
-      ]);
+      const output = yield [
+        "systemctl",
+        [
+          "--user",
+          "show",
+          paths.serviceName,
+          "--property=LoadState",
+          "--property=ActiveState",
+          "--property=UnitFileState",
+        ],
+      ];
       const values = parseKeyValues(output);
       if (values.LoadState !== "not-found") installed = true;
       enabled = values.UnitFileState
@@ -649,12 +661,15 @@ export function getUserServiceStatus(options: UserServiceOptions = {}): UserServ
         : null;
       running = values.ActiveState ? values.ActiveState === "active" : false;
     } else if (paths.platform === "win32") {
-      const output = runCommand("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "$task = Get-ScheduledTask -TaskName 'Work Intelligence' -TaskPath '\\' -ErrorAction SilentlyContinue; if ($null -eq $task) { '{}' } else { [ordered]@{ state = [string]$task.State; enabled = [bool]$task.Settings.Enabled } | ConvertTo-Json -Compress }",
-      ]);
+      const output = yield [
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "$task = Get-ScheduledTask -TaskName 'Work Intelligence' -TaskPath '\\' -ErrorAction SilentlyContinue; if ($null -eq $task) { '{}' } else { [ordered]@{ state = [string]$task.State; enabled = [bool]$task.Settings.Enabled } | ConvertTo-Json -Compress }",
+        ],
+      ];
       const task = JSON.parse(output.trim() || "{}") as { state?: string; enabled?: boolean };
       installed = typeof task.state === "string";
       enabled = typeof task.enabled === "boolean" ? task.enabled : installed ? null : false;
@@ -681,4 +696,31 @@ export function getUserServiceStatus(options: UserServiceOptions = {}): UserServ
     backupDirectory: paths.backupDirectory,
     logPath: paths.logPath,
   };
+}
+
+export function getUserServiceStatus(options: UserServiceOptions = {}): UserServiceStatus {
+  const inspection = inspectUserServiceStatus({ ...options, runCommand: undefined });
+  const command = inspection.next();
+  if (command.done) return command.value;
+  try {
+    return inspection.next((options.runCommand ?? runSystemCommand)(...command.value)).value as UserServiceStatus;
+  } catch (error) {
+    return inspection.throw(error).value as UserServiceStatus;
+  }
+}
+
+export async function getUserServiceStatusAsync(
+  options: Omit<UserServiceOptions, "runCommand"> & {
+    runCommand?: (command: string, args: string[]) => Promise<string>;
+  } = {},
+): Promise<UserServiceStatus> {
+  const inspection = inspectUserServiceStatus({ ...options, runCommand: undefined });
+  const command = inspection.next();
+  if (command.done) return command.value;
+  try {
+    return inspection.next(await (options.runCommand ?? runSystemCommandAsync)(...command.value))
+      .value as UserServiceStatus;
+  } catch (error) {
+    return inspection.throw(error).value as UserServiceStatus;
+  }
 }

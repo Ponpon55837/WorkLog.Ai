@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   API_ERROR_CODES,
   type SystemAgentConnections,
@@ -125,6 +125,47 @@ async function requestJson<T>(
 }
 
 describe("Work Intelligence REST API", () => {
+  it("keeps health responsive while deduplicating service checks, expiring successes and retrying failures", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-status-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const status = isolatedUserServiceStatus(root);
+    const agents: SystemAgentConnections = {
+      codex: { mcpRegistered: "missing", canonicalSkill: "missing", legacySkill: "missing", hook: "missing" },
+      claudeCode: { mcpRegistered: "missing", skill: "missing", hook: "missing" },
+    };
+    let complete!: (value: UserServiceStatus) => void;
+    let calls = 0;
+    const query = () => {
+      calls++;
+      if (calls === 1)
+        return new Promise<UserServiceStatus>((resolve) => {
+          complete = resolve;
+        });
+      if (calls === 2) return Promise.resolve({ ...status, state: "unavailable" as const });
+      return Promise.resolve(status);
+    };
+    const { server, baseUrl } = await startApi(store, { userServiceStatus: query, agentConnections: () => agents });
+    resources.push({ server, store, root });
+    const first = fetch(`${baseUrl}/api/system/status`);
+    while (!complete) await new Promise((resolve) => setTimeout(resolve, 1));
+    const second = fetch(`${baseUrl}/api/system/status`);
+    expect((await fetch(`${baseUrl}/api/health`)).status).toBe(200);
+    expect(calls).toBe(1);
+    complete(status);
+    expect((await first).status).toBe(200);
+    expect((await second).status).toBe(200);
+    expect(calls).toBe(1);
+    expect((await fetch(`${baseUrl}/api/system/status`)).status).toBe(200);
+    expect(calls).toBe(1);
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 30_001);
+    try {
+      expect((await fetch(`${baseUrl}/api/system/status`)).status).toBe(200);
+      expect((await fetch(`${baseUrl}/api/system/status`)).status).toBe(200);
+      expect(calls).toBe(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
   it("names every API error code in lowercase snake_case", () => {
     expect(API_ERROR_CODES.filter((code) => !/^[a-z_]+$/.test(code))).toEqual([]);
   });

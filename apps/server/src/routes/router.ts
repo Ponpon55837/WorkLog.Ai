@@ -13,7 +13,7 @@ export interface RouteServices {
   eventClientCount(): number;
   mcpRuntimeStatus(): McpRuntimeStatus;
   agentConnections(): SystemAgentConnections;
-  userServiceStatus(): UserServiceStatus;
+  userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
 }
 
 export interface RouteContext {
