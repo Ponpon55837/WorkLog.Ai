@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { PROJECT_DATA_TABLES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 
 /*
@@ -10,8 +9,42 @@ interface SchemaMigration {
   version: number;
   name: string;
   sql: string;
-  apply?: (db: DatabaseSync) => void;
 }
+
+// Migration 31 is a historical snapshot. New project-data tables need triggers in their own migration.
+const MIGRATION_31_PROJECT_DATA_TABLES = [
+  "projects",
+  "sessions",
+  "work_events",
+  "raw_snapshots",
+  "evidence",
+  "void_audit",
+  "session_verification_updates",
+  "session_links",
+  "knowledge",
+  "session_decisions",
+  "knowledge_pages",
+  "knowledge_page_versions",
+  "session_diagrams",
+  "knowledge_audit",
+  "knowledge_feedback",
+  "knowledge_candidate_requests",
+  "knowledge_candidates",
+  "report_synthesis_requests",
+  "report_summaries",
+  "report_presentations",
+  "attention_preferences",
+  "metadata_backfill_requests",
+  "session_summary_updates",
+  "session_work_summary_updates",
+  "outstanding_items",
+  "outstanding_item_events",
+  "outstanding_cleanup_requests",
+  "outstanding_cleanup_submissions",
+  "outstanding_cleanup_request_items",
+  "outstanding_cleanup_proposals",
+  "outstanding_cleanup_proposal_evidence",
+] as const;
 
 const changeRevisionsTableSql = `
   CREATE TABLE change_revisions (
@@ -47,21 +80,6 @@ function projectDataRevisionTriggersSql(tables: readonly string[]): string {
       ),
     )
     .join("\n");
-}
-
-function applyDatabaseChangeRevisionMigration(db: DatabaseSync): void {
-  db.exec(changeRevisionsTableSql);
-  const existingTables = new Set(
-    (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
-      (row) => row.name,
-    ),
-  );
-  // Normal database initialization runs DATABASE_SCHEMA first; focused legacy migration fixtures may omit
-  // unrelated tables, so install only their existing-table triggers there.
-  db.exec(projectDataRevisionTriggersSql(PROJECT_DATA_TABLES.filter((table) => existingTables.has(table))));
-  if (existingTables.has("agent_read_audit")) {
-    db.exec(agentReadRevisionTriggersSql);
-  }
 }
 
 const MIGRATIONS: SchemaMigration[] = [
@@ -939,8 +957,7 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 31,
     name: "database-change-revisions",
-    sql: `${changeRevisionsTableSql}\n${projectDataRevisionTriggersSql(PROJECT_DATA_TABLES)}\n${agentReadRevisionTriggersSql}`,
-    apply: applyDatabaseChangeRevisionMigration,
+    sql: `${changeRevisionsTableSql}\n${projectDataRevisionTriggersSql(MIGRATION_31_PROJECT_DATA_TABLES)}\n${agentReadRevisionTriggersSql}`,
   },
 ];
 
@@ -981,11 +998,7 @@ export function applySchemaMigrations(db: DatabaseSync): void {
     if (applied.has(migration.version)) {
       continue;
     }
-    if (migration.apply) {
-      migration.apply(db);
-    } else {
-      db.exec(migration.sql);
-    }
+    db.exec(migration.sql);
     record.run(migration.version, migration.name, nowIso());
   }
 }

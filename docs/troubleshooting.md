@@ -83,7 +83,7 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 2. 關閉會啟動 `work-intelligence` MCP 的 Codex／Claude 對話，或先在用戶端中斷 MCP 連線。
 3. 等待相關 Node 程序完全退出，再重試 `pnpm db:restore <檔案>`。
 
-只有在你已確認沒有程式仍使用資料庫時，才使用 CLI 的 `--force` 略過使用中檢查。不要在 API 或 MCP 仍開啟資料庫時手動覆蓋 SQLite 檔案。
+CLI 的 `db:restore` 不再提供 `--force` 略過使用中檢查；資料庫被占用時，還原會停止。請先關閉所有 server 與 MCP 連線並等待 Node 程序退出，再重試。不要在 API 或 MCP 仍開啟資料庫時手動覆蓋 SQLite 檔案。
 
 ## `pnpm db:maintain` 顯示資料庫使用中
 
