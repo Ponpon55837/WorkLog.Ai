@@ -18,7 +18,14 @@ import {
 } from "@work-intelligence/schema";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { inspectDatabaseReadOnlyMetadata } from "../database-inspection.js";
-import { MAX_PROJECT_IMPORT_BYTES, readJsonBody, sendError, sendJson, sendProjectDataTransferError } from "../http.js";
+import {
+  MAX_PROJECT_IMPORT_BYTES,
+  readJsonBody,
+  readJsonBytesBody,
+  sendError,
+  sendJson,
+  sendProjectDataTransferError,
+} from "../http.js";
 import type { Route, RouteContext } from "./router.js";
 
 /** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
@@ -169,9 +176,8 @@ async function exportData({ request, response, services }: RouteContext): Promis
 }
 
 async function previewImport(context: RouteContext): Promise<void> {
-  const input = await readImportInput(context);
-  if (!input) return;
   try {
+    const input = await readJsonBytesBody(context.request, MAX_PROJECT_IMPORT_BYTES);
     const preview = await context.services.backgroundStore.previewProjectDataImport(input);
     sendJson(context.response, 200, preview);
   } catch (error) {

@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -18,10 +19,12 @@ import {
   backupDatabaseBeforeMigration,
   backupDatabaseBeforeProjectDeletion,
   backupDatabaseBeforeSessionDeletion,
+  cleanupOrphanedBackupStagingDirectories,
   isBackupDue,
   listDatabaseBackups,
   restoreDatabase,
   SESSION_DELETION_BACKUP_KEEP,
+  writeSnapshot,
 } from "../../packages/storage/src/backup.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
@@ -72,6 +75,61 @@ describe("database backups", () => {
     const copy = new DatabaseSync(path, { readOnly: true });
     expect(copy.prepare("SELECT name FROM projects").all()).toEqual([{ name: "Apiary" }]);
     copy.close();
+  });
+
+  it("does not publish a partial snapshot when quick_check fails", () => {
+    const { databasePath, root, store } = setup();
+    const database = new DatabaseSync(databasePath);
+    const target = join(root, "failed-snapshot.sqlite");
+
+    try {
+      expect(() =>
+        writeSnapshot(database, target, () => {
+          throw new Error("Injected quick_check failure.");
+        }),
+      ).toThrow("Injected quick_check failure.");
+      expect(existsSync(target)).toBe(false);
+      expect(readdirSync(root).filter((name) => /^\.wi-\d+-[0-9a-f-]+\.tmp$/i.test(name))).toEqual([]);
+    } finally {
+      database.close();
+      store.close();
+      stores.splice(stores.indexOf(store), 1);
+    }
+  });
+
+  it("publishes a complete snapshot without replacing a target created during verification", () => {
+    const { databasePath, root, store } = setup();
+    const database = new DatabaseSync(databasePath);
+    const target = join(root, "already-created.sqlite");
+
+    try {
+      expect(() =>
+        writeSnapshot(database, target, () => {
+          writeFileSync(target, "existing target");
+        }),
+      ).toThrow("The snapshot target already exists.");
+      expect(readFileSync(target, "utf8")).toBe("existing target");
+      expect(readdirSync(root).filter((name) => /^\.wi-\d+-[0-9a-f-]+\.tmp$/i.test(name))).toEqual([]);
+    } finally {
+      database.close();
+      store.close();
+      stores.splice(stores.indexOf(store), 1);
+    }
+  });
+
+  it("cleans only staging directories owned by a process that is no longer running", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-orphaned-backup-staging-"));
+    tempDirs.push(root);
+    const activeName = `.wi-${process.pid}-11111111-1111-1111-1111-111111111111.tmp`;
+    const orphanName = ".wi-2147483647-22222222-2222-2222-2222-222222222222.tmp";
+    const unrelatedName = ".wi-2147483647-not-a-uuid.tmp";
+    for (const name of [activeName, orphanName, unrelatedName]) mkdirSync(join(root, name));
+
+    cleanupOrphanedBackupStagingDirectories(root, (processId) => processId === process.pid);
+
+    expect(existsSync(join(root, activeName))).toBe(true);
+    expect(existsSync(join(root, orphanName))).toBe(false);
+    expect(existsSync(join(root, unrelatedName))).toBe(true);
   });
 
   it("keeps only the newest copies", () => {

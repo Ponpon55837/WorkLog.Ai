@@ -1,11 +1,18 @@
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectDataExport, ProjectDataImportInput } from "@work-intelligence/core";
-import { ProjectDataTransferError, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import {
+  isDatabaseBusyError,
+  LATEST_SCHEMA_VERSION,
+  ProjectDataTransferError,
+  WorkIntelligenceStore,
+} from "../../packages/storage/src/index.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
+import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
 const roots: string[] = [];
 
@@ -35,6 +42,93 @@ function assertHealthy(path: string): void {
 }
 
 describe("backup worker", () => {
+  it("refuses an older schema without changing the database or backup directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-old-schema-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const initialStore = new WorkIntelligenceStore(databasePath);
+    initialStore.close();
+    const oldDatabase = new DatabaseSync(databasePath);
+    undoMigrationsAfter(oldDatabase, LATEST_SCHEMA_VERSION - 1);
+    oldDatabase.close();
+
+    const backupDirectory = join(root, "backups");
+    const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION);
+
+    await expect(worker.createBackup()).rejects.toThrow(/資料庫 schema 版本 .* 與背景工作要求的版本 .* 不符/i);
+    await worker.close();
+
+    const current = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      expect(current.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 30 });
+    } finally {
+      current.close();
+    }
+    expect(createHash("sha256").update(readFileSync(databasePath)).digest("hex")).toBe(before);
+    expect(existsSync(backupDirectory)).toBe(false);
+  });
+
+  it("backs up and exports while another connection holds a write reservation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-write-lock-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const projectRoot = join(root, "project");
+    const store = new WorkIntelligenceStore(databasePath);
+    syntheticProject(store, projectRoot);
+    const lock = new DatabaseSync(databasePath);
+    lock.exec("BEGIN IMMEDIATE");
+    const worker = new BackupWorkerClient(databasePath);
+
+    try {
+      const backup = await worker.createBackup();
+      expect(backup.outcome).toBe("database_backups");
+      const exportedDatabase = await worker.exportTo(join(root, "export.sqlite"));
+      expect(exportedDatabase.bytes).toBeGreaterThan(0);
+      const exportedData = await worker.exportProjectData({ type: "all" });
+      expect((JSON.parse(exportedData.content) as ProjectDataExport).tables.sessions).toHaveLength(1);
+    } finally {
+      await worker.close();
+      lock.exec("ROLLBACK");
+      lock.close();
+      store.close();
+    }
+  });
+
+  it("preserves SQLite busy identity when a worker read meets an exclusive lock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-busy-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const projectRoot = join(root, "project");
+    const store = new WorkIntelligenceStore(databasePath);
+    syntheticProject(store, projectRoot);
+    store.close();
+    const configureJournal = new DatabaseSync(databasePath);
+    configureJournal.exec("PRAGMA journal_mode = DELETE");
+    configureJournal.close();
+
+    const worker = new BackupWorkerClient(databasePath);
+    const lock = new DatabaseSync(databasePath);
+    try {
+      await worker.exportProjectData({ type: "all" });
+      lock.exec("BEGIN EXCLUSIVE");
+      const failure = await worker.exportProjectData({ type: "all" }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(isDatabaseBusyError(failure)).toBe(true);
+    } finally {
+      try {
+        lock.exec("ROLLBACK");
+      } catch {
+        // The lock may not have been acquired when setup fails.
+      }
+      lock.close();
+      await worker.close();
+    }
+  });
+
   it("runs snapshots and portable project operations on a separate connection", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-test-"));
     roots.push(root);
@@ -61,6 +155,17 @@ describe("backup worker", () => {
       expect(preview.skipped.sessions).toBe(1);
       expect(preview.selectedProjects[0]?.folderStatus).toBe("found");
 
+      const transferredPreview = await worker.previewProjectDataImport(
+        new TextEncoder().encode(JSON.stringify({ bundle })),
+      );
+      expect(transferredPreview.outcome).toBe("project_data_import_preview");
+      expect(transferredPreview.skipped.sessions).toBe(1);
+      await expect(worker.previewProjectDataImport(new TextEncoder().encode("{"))).rejects.toMatchObject({
+        name: "RequestBodyError",
+        statusCode: 400,
+        message: "Invalid JSON request body.",
+      });
+
       const invalidInput = { bundle: {} as ProjectDataExport } as ProjectDataImportInput;
       await expect(worker.previewProjectDataImport(invalidInput)).rejects.toBeInstanceOf(ProjectDataTransferError);
 
@@ -80,6 +185,29 @@ describe("backup worker", () => {
     }
 
     assertHealthy(databasePath);
+  });
+
+  it("stops an idle worker and starts a fresh one for the next operation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-idle-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: 25 });
+    const workerState = worker as unknown as { lifetime?: { worker: { threadId: number } } };
+
+    try {
+      await worker.exportProjectData({ type: "all" });
+      const firstThreadId = workerState.lifetime?.worker.threadId;
+      expect(firstThreadId).toBeDefined();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(workerState.lifetime).toBeUndefined();
+
+      await worker.exportProjectData({ type: "all" });
+      expect(workerState.lifetime?.worker.threadId).not.toBe(firstThreadId);
+    } finally {
+      await worker.close();
+      store.close();
+    }
   });
 
   it("does not leave a partial snapshot under a recognized backup filename", async () => {

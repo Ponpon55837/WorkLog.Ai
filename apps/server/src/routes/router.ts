@@ -31,7 +31,9 @@ export interface BackgroundStoreOperations {
   backupIfDue(): Promise<DatabaseBackupCreated | null>;
   exportTo(target: string): Promise<{ bytes: number }>;
   exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExportDocument>;
-  previewProjectDataImport(input: ProjectDataImportInput): Promise<ProjectDataImportPreviewWithFolderStatus>;
+  previewProjectDataImport(
+    input: ProjectDataImportInput | Uint8Array,
+  ): Promise<ProjectDataImportPreviewWithFolderStatus>;
   close(): Promise<void>;
 }
 

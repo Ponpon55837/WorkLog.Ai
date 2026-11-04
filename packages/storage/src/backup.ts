@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -192,24 +193,116 @@ function assertHealthy(path: string, label: string): void {
   }
 }
 
+function processIsAlive(processId: number): boolean {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    return code !== "ESRCH";
+  }
+}
+
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    return code !== "ENOENT" && code !== "ENOTDIR";
+  }
+}
+
+function acquireSnapshotPublicationLock(target: string): () => void {
+  const digest = createHash("sha256").update(target).digest("hex");
+  const lockDatabase = new DatabaseSync(join(dirname(target), `.wi-publish-${digest}.sqlite`));
+  try {
+    // SQLite releases this OS lock if a publisher crashes, without a stale-lock deletion race.
+    lockDatabase.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE");
+  } catch (error) {
+    lockDatabase.close();
+    throw new Error("Another process is publishing this snapshot.", { cause: error });
+  }
+  return () => {
+    try {
+      lockDatabase.exec("ROLLBACK");
+    } catch {
+      // The connection may already be closed after a failed publication.
+    } finally {
+      lockDatabase.close();
+    }
+  };
+}
+
+function publishSnapshotNoClobber(staging: string, target: string): void {
+  const release = acquireSnapshotPublicationLock(target);
+  try {
+    if (pathExists(target)) throw new Error("The snapshot target already exists.");
+    try {
+      linkSync(staging, target);
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+      if (code === "EEXIST") throw new Error("The snapshot target already exists.", { cause: error });
+      if (!(["EPERM", "EACCES", "ENOTSUP", "ENOSYS"] as unknown[]).includes(code)) throw error;
+      if (pathExists(target)) throw new Error("The snapshot target already exists.", { cause: error });
+      // Some Windows filesystems forbid hard links; same-target publishers still serialize on the private lock.
+      renameSync(staging, target);
+    }
+  } finally {
+    release();
+  }
+}
+
+/** Removes only private staging directories whose recorded owner process is no longer running. */
+export function cleanupOrphanedBackupStagingDirectories(
+  directory: string,
+  isProcessAlive: (processId: number) => boolean = processIsAlive,
+): void {
+  let entries;
+  try {
+    entries = readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const match = /^\.wi-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/i.exec(entry.name);
+    if (!match) continue;
+    const ownerProcessId = Number(match[1]);
+    if (!Number.isSafeInteger(ownerProcessId) || ownerProcessId < 1 || isProcessAlive(ownerProcessId)) continue;
+
+    const stagingDirectory = join(directory, entry.name);
+    try {
+      const stats = lstatSync(stagingDirectory);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) continue;
+      rmSync(stagingDirectory, { recursive: true, force: true });
+    } catch {
+      // A staging directory can disappear between listing it and checking its owner.
+    }
+  }
+}
+
 /** VACUUM INTO gives a consistent copy even while other connections write through WAL. */
-function writeSnapshot(db: DatabaseSync, target: string): void {
-  if (existsSync(target)) {
+export function writeSnapshot(
+  db: DatabaseSync,
+  target: string,
+  verifySnapshot: (path: string, label: string) => void = assertHealthy,
+): void {
+  if (pathExists(target)) {
     throw new Error("The snapshot target already exists.");
   }
-  const stagingDirectory = join(dirname(target), `.wi-${randomUUID()}.tmp`);
+  const targetDirectory = dirname(target);
+  cleanupOrphanedBackupStagingDirectories(targetDirectory);
+  const stagingDirectory = join(targetDirectory, `.wi-${process.pid}-${randomUUID()}.tmp`);
   mkdirSync(stagingDirectory, { mode: 0o700 });
   const staging = join(stagingDirectory, "snapshot.sqlite");
   try {
     db.prepare("VACUUM INTO ?").run(staging);
     // The private staging directory protects the file while it is created; chmod it before publication.
     chmodSync(staging, 0o600);
-    assertHealthy(staging, "The snapshot");
-    // Publishing the checked staging file by same-volume rename keeps partial snapshots off the final name.
-    if (existsSync(target)) {
-      throw new Error("The snapshot target already exists.");
-    }
-    renameSync(staging, target);
+    verifySnapshot(staging, "The snapshot");
+    // Prefer atomic no-clobber linking; serialize the rename fallback where the filesystem forbids hard links.
+    publishSnapshotNoClobber(staging, target);
   } finally {
     try {
       rmSync(stagingDirectory, { recursive: true, force: true });

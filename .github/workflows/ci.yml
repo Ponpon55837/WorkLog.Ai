@@ -48,6 +48,9 @@ jobs:
       # Workspace packages resolve each other through dist/, so build before testing.
       - run: pnpm build
 
+      - name: Verify production backup worker build
+        run: pnpm run verify:backup-worker-build
+
       # lint + format:check + unit/integration tests for every package
       - run: pnpm test
 

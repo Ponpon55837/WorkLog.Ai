@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { DatabaseInitializationError, WorkIntelligenceStore } from "@work-intelligence/storage";
+import { DatabaseInitializationError, LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { databasePath, storeOptions } from "./config.js";
 import { BackupWorkerClient } from "./backup-worker-client.js";
 import { describeListenError } from "./listen-error.js";
@@ -20,7 +20,9 @@ function startApi(): void {
   const port = resolveServerPort();
   const webDirectory = process.env.WORK_INTELLIGENCE_WEB_DIST;
   const backupWorker =
-    databasePath === ":memory:" ? undefined : new BackupWorkerClient(databasePath, storeOptions.backup);
+    databasePath === ":memory:"
+      ? undefined
+      : new BackupWorkerClient(databasePath, storeOptions.backup, LATEST_SCHEMA_VERSION);
   const apiHandler = createApiHandler(store, {
     ...(webDirectory ? { webDirectory } : {}),
     ...(backupWorker ? { backgroundStore: backupWorker } : {}),

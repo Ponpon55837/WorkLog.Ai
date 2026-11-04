@@ -16,7 +16,8 @@ import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL, URL } from "node:url";
-import { performance } from "node:perf_hooks";
+import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import { clearInterval, setInterval, setTimeout } from "node:timers";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 
@@ -48,6 +49,7 @@ const [
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
 const runs = 15;
+const backupWorkerBenchIdleTimeoutMs = 15_000;
 const root = mkdtempSync(join(tmpdir(), "wi-bench-"));
 const alphaRoot = join(root, "alpha");
 const betaRoot = join(root, "beta");
@@ -73,12 +75,6 @@ const bodyChunks = [];
 for await (const chunk of process.stdin) bodyChunks.push(Buffer.from(chunk));
 const body = Buffer.concat(bodyChunks);
 const operationStarted = performance.now();
-let resolveRequestSent;
-let rejectRequestSent;
-const requestSent = new Promise((resolve, reject) => {
-  resolveRequestSent = resolve;
-  rejectRequestSent = reject;
-});
 const operationPromise = new Promise((resolve, reject) => {
   const operation = request(new URL(path, baseUrl), {
     method: "POST",
@@ -119,22 +115,37 @@ const operationPromise = new Promise((resolve, reject) => {
     });
   });
   operation.once("error", (error) => {
-    rejectRequestSent(error);
     reject(error);
   });
-  operation.once("finish", resolveRequestSent);
   operation.end(body);
 });
-await requestSent;
-await new Promise((resolve) => setTimeout(resolve, 50));
-const healthStarted = performance.now();
-const healthPromise = fetch(new URL("/api/health", baseUrl)).then(async (response) => {
-  await response.arrayBuffer();
-  if (!response.ok) throw new Error("Health request failed: " + response.status);
-  return performance.now() - healthStarted;
-});
-const [operation, healthMs] = await Promise.all([operationPromise, healthPromise]);
-process.stdout.write(JSON.stringify({ healthMs, operationMs: performance.now() - operationStarted, ...operation }));
+const healthSamples = [];
+let operationComplete = false;
+let nextProbeAt = performance.now();
+const healthMonitor = (async () => {
+  while (!operationComplete) {
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, nextProbeAt - performance.now())));
+    if (operationComplete) break;
+    const scheduledAt = nextProbeAt;
+    const response = await fetch(new URL("/api/health", baseUrl));
+    await response.arrayBuffer();
+    if (!response.ok) throw new Error("Health request failed: " + response.status);
+    healthSamples.push(performance.now() - scheduledAt);
+    nextProbeAt = Math.max(scheduledAt + 10, performance.now() + 10);
+  }
+})();
+const [operationResult] = await Promise.allSettled([operationPromise]);
+operationComplete = true;
+const [healthResult] = await Promise.allSettled([healthMonitor]);
+if (healthResult.status === "rejected") throw healthResult.reason;
+if (operationResult.status === "rejected") throw operationResult.reason;
+const operation = operationResult.value;
+healthSamples.sort((left, right) => left - right);
+const healthP90Ms = healthSamples[Math.ceil(healthSamples.length * 0.9) - 1] ?? 0;
+const healthMaxMs = healthSamples.at(-1) ?? 0;
+process.stdout.write(
+  JSON.stringify({ healthP90Ms, healthMaxMs, healthProbeCount: healthSamples.length, operationMs: performance.now() - operationStarted, ...operation }),
+);
 `;
 
 function runHeavyApiClient(baseUrl, path, body, targetSessionCount) {
@@ -169,6 +180,35 @@ function runHeavyApiClient(baseUrl, path, body, targetSessionCount) {
     });
     child.stdin.end(body);
   });
+}
+
+async function measureProcessResources(run) {
+  const eventLoop = monitorEventLoopDelay({ resolution: 10 });
+  const rssBefore = process.memoryUsage.rss();
+  let rssPeak = rssBefore;
+  const rssTimer = setInterval(() => {
+    rssPeak = Math.max(rssPeak, process.memoryUsage.rss());
+  }, 10);
+  eventLoop.enable();
+  let value;
+  try {
+    value = await run();
+  } finally {
+    clearInterval(rssTimer);
+    eventLoop.disable();
+  }
+  const rssAfter = process.memoryUsage.rss();
+  rssPeak = Math.max(rssPeak, rssAfter);
+  const toMs = (nanoseconds) => (Number.isFinite(nanoseconds) ? Number((nanoseconds / 1e6).toFixed(2)) : 0);
+  const toMb = (bytes) => Number((bytes / 1024 / 1024).toFixed(1));
+  return {
+    value,
+    eventLoopP90Ms: toMs(eventLoop.percentile(90)),
+    eventLoopMaxMs: toMs(eventLoop.max),
+    rssBeforeMb: toMb(rssBefore),
+    rssPeakMb: toMb(rssPeak),
+    rssAfterMb: toMb(rssAfter),
+  };
 }
 
 function seed() {
@@ -756,7 +796,7 @@ try {
     backupWorkerMode === "worker"
       ? new (
           await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "backup-worker-client.js")).href)
-        ).BackupWorkerClient(databasePath)
+        ).BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: backupWorkerBenchIdleTimeoutMs })
       : undefined;
   const benchmarkServer = createServer(
     createApiHandler(benchStore, {
@@ -870,12 +910,20 @@ try {
     await run();
     const samples = [];
     const operationSamples = [];
+    const eventLoopP90Samples = [];
+    const eventLoopMaxSamples = [];
+    const rssPeakSamples = [];
+    const healthProbeSamples = [];
     for (let index = 0; index < caseRuns; index += 1) {
       beforeEachRun[name]?.();
       if (isHeavyCase) {
-        const result = await run();
-        samples.push(result.healthMs);
-        operationSamples.push(result.operationMs);
+        const measured = await measureProcessResources(run);
+        samples.push(measured.value.healthP90Ms);
+        operationSamples.push(measured.value.operationMs);
+        eventLoopP90Samples.push(measured.eventLoopP90Ms);
+        eventLoopMaxSamples.push(measured.eventLoopMaxMs);
+        rssPeakSamples.push(measured.rssPeakMb);
+        healthProbeSamples.push(measured.value.healthProbeCount);
       } else {
         const started = performance.now();
         await run();
@@ -895,26 +943,67 @@ try {
     };
     if (isHeavyCase) {
       operationSamples.sort((a, b) => a - b);
+      eventLoopP90Samples.sort((a, b) => a - b);
+      eventLoopMaxSamples.sort((a, b) => a - b);
+      rssPeakSamples.sort((a, b) => a - b);
+      const operationP90Ms = Number(operationSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
+      const eventLoopBlockP90Ms = Number(eventLoopMaxSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
+      const eventLoopBlockMaxMs = Number(eventLoopMaxSamples.at(-1).toFixed(2));
+      const eventLoopDelayP90Ms = Number(
+        eventLoopP90Samples.sort((a, b) => a - b)[Math.ceil(caseRuns * 0.9) - 1].toFixed(2),
+      );
+      const operationLimitMs = limitsMs[name];
+      const eventLoopLimitMs = limitsMs[name];
+      const passed =
+        p90Ms <= limitsMs[name] && operationP90Ms <= operationLimitMs && eventLoopBlockP90Ms <= eventLoopLimitMs;
       Object.assign(result, {
         operationMedianMs: Number(operationSamples[Math.floor(caseRuns / 2)].toFixed(2)),
-        operationP90Ms: Number(operationSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2)),
+        operationP90Ms,
+        operationLimitMs,
+        eventLoopDelayP90Ms,
+        eventLoopBlockP90Ms,
+        eventLoopBlockMaxMs,
+        eventLoopLimitMs,
+        healthProbeCountMedian: Number(healthProbeSamples.sort((a, b) => a - b)[Math.floor(caseRuns / 2)]),
+        rssPeakMaxMb: rssPeakSamples.at(-1),
+        passed: checkMode ? passed : undefined,
       });
     }
     results.push(result);
+  }
+  if (backgroundStore) {
+    const processRssBeforeAutoBackupMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
+    const automaticBackup = await measureProcessResources(() => backgroundStore.backupIfDue());
+    await new Promise((resolve) => setTimeout(resolve, backupWorkerBenchIdleTimeoutMs + 250));
+    const workerIdleRssMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
+    console.log("Backup worker RSS (synthetic automatic backup):", {
+      processRssBeforeAutoBackupMb,
+      autoBackupRssBeforeMb: automaticBackup.rssBeforeMb,
+      automaticBackupPeakRssMb: automaticBackup.rssPeakMb,
+      afterWorkerIdleRssMb: workerIdleRssMb,
+      idleDeltaMb: Number((workerIdleRssMb - processRssBeforeAutoBackupMb).toFixed(1)),
+      workerIdleTimeoutMs: backupWorkerBenchIdleTimeoutMs,
+    });
   }
   console.table(results);
   if (checkMode) {
     const failures = results.filter((result) => !result.passed);
     if (failures.length > 0) {
       console.error(
-        `Performance regression gate failed: ${failures.map((result) => `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`).join("; ")}`,
+        `Performance regression gate failed: ${failures
+          .map((result) =>
+            result.operationP90Ms === undefined
+              ? `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`
+              : `${result.case} health p90 ${result.p90Ms}/${result.limitMs} ms, operation p90 ${result.operationP90Ms}/${result.operationLimitMs} ms, event-loop blocking p90 ${result.eventLoopBlockP90Ms}/${result.eventLoopLimitMs} ms`,
+          )
+          .join("; ")}`,
       );
       process.exitCode = 1;
     } else {
       console.log(
         backupWorkerOnly
-          ? `Backup worker gate passed (${backupWorkerMode}, ${sessionCount} synthetic sessions, p90 of ${heavyRuns} API health responses; total operation p90 is reported separately).`
-          : `Performance regression gate passed (${sessionCount} synthetic sessions, p90 of ${runs} runs, ${heavyRuns} API health responses during backup, export and import preview).`,
+          ? `Backup worker gate passed (${backupWorkerMode}, ${sessionCount} synthetic sessions, health probes throughout each operation, and p90 gates for health, operation total and main-thread event-loop blocking).`
+          : `Performance regression gate passed (${sessionCount} synthetic sessions; health probes throughout each heavy operation; health, operation-total and main-thread event-loop blocking p90 gates).`,
       );
     }
   }

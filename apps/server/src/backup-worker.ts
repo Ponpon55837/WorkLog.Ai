@@ -1,34 +1,39 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { WorkIntelligenceStore, type BackupRetentionOptions } from "@work-intelligence/storage";
-import { inspectProjectFolder } from "./http.js";
+import { inspectProjectFolder, parseProjectDataImportBytes } from "./http.js";
 import type {
   BackupWorkerCloseRequest,
   BackupWorkerOperation,
   BackupWorkerReply,
   BackupWorkerRequest,
+  SerializedWorkerError,
 } from "./backup-worker-client.js";
 
 interface BackupWorkerData {
   databasePath: string;
   backup: BackupRetentionOptions;
+  expectedSchemaVersion: number;
+}
+
+function serializeError(error: unknown, depth = 0): SerializedWorkerError {
+  if (error instanceof Error) {
+    const candidate = error as Error & { code?: unknown; errcode?: unknown; errstr?: unknown; statusCode?: unknown };
+    const cause = error.cause !== undefined && depth < 5 ? serializeError(error.cause, depth + 1) : undefined;
+    return {
+      name: error.name,
+      message: error.message,
+      ...(candidate.code === undefined ? {} : { code: candidate.code }),
+      ...(candidate.errcode === undefined ? {} : { errcode: candidate.errcode }),
+      ...(candidate.errstr === undefined ? {} : { errstr: candidate.errstr }),
+      ...(candidate.statusCode === undefined ? {} : { statusCode: candidate.statusCode }),
+      ...(cause ? { cause } : {}),
+    };
+  }
+  return { name: "Error", message: String(error) };
 }
 
 function errorResponse(id: number, error: unknown): BackupWorkerReply {
-  if (error instanceof Error) {
-    const candidate = error as Error & { code?: unknown; errcode?: unknown; errstr?: unknown };
-    return {
-      id,
-      ok: false,
-      error: {
-        name: error.name,
-        message: error.message,
-        ...(candidate.code === undefined ? {} : { code: candidate.code }),
-        ...(candidate.errcode === undefined ? {} : { errcode: candidate.errcode }),
-        ...(candidate.errstr === undefined ? {} : { errstr: candidate.errstr }),
-      },
-    };
-  }
-  return { id, ok: false, error: { name: "Error", message: String(error) } };
+  return { id, ok: false, error: serializeError(error) };
 }
 
 function executeOperation(store: WorkIntelligenceStore, operation: BackupWorkerOperation): unknown {
@@ -44,7 +49,9 @@ function executeOperation(store: WorkIntelligenceStore, operation: BackupWorkerO
       return { content, bytes: Buffer.byteLength(content) };
     }
     case "previewProjectDataImport": {
-      const preview = store.previewProjectDataImport(operation.input);
+      const input =
+        operation.input instanceof Uint8Array ? parseProjectDataImportBytes(operation.input) : operation.input;
+      const preview = store.previewProjectDataImport(input);
       return {
         ...preview,
         selectedProjects: preview.selectedProjects.map((project) => ({
@@ -68,7 +75,11 @@ function handleClose(store: WorkIntelligenceStore, request: BackupWorkerCloseReq
 }
 
 const workerContext = workerData as BackupWorkerData;
-const store = new WorkIntelligenceStore(workerContext.databasePath, { backup: workerContext.backup });
+const store = new WorkIntelligenceStore(workerContext.databasePath, {
+  backup: workerContext.backup,
+  mode: "read-only",
+  expectedSchemaVersion: workerContext.expectedSchemaVersion,
+});
 const port = parentPort;
 
 if (!port) {

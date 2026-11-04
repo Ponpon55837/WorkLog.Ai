@@ -7,6 +7,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Changed
 
 - The API runs database backups, whole-database exports, and project-data export/import previews on a dedicated worker thread. Startup automatic backup is delayed by 60 seconds; shutdown drains the worker before closing SQLite.
+- The backup worker opens the current schema read-only, refuses a version mismatch without changing the database, keeps nested SQLite busy errors classifiable, and exits after 15 seconds idle. Import preview JSON is parsed in the worker from transferred request bytes.
+- Snapshot publication cleans only abandoned private staging directories, checks the finished snapshot before publishing, and refuses to replace an existing target. The built worker entry is verified by the package script and all three CI platforms.
 - SQLite connections use a 16,000 KiB page cache for server and MCP read paths.
 - The `--force` bypass was removed from `pnpm db:restore`; an in-use database always blocks restoration.
 - Schema 31 tracks project-data and Agent-read audit revisions separately. Project changes send the existing data-free `changed` event; Agent read audits send `agent-reads-changed`, which refreshes only Agent read history. Older MCP connections report `restartRequired` after the schema upgrade; reconnect Work Intelligence MCP.

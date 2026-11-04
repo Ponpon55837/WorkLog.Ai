@@ -13,7 +13,13 @@ import { DATABASE_BUSY_MESSAGE, WorkIntelligenceStore, isDatabaseBusyError } fro
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { inspectAgentConnections } from "./doctor.js";
-import { inspectProjectFolder, JSON_HEADERS, RequestBodyError, sendError } from "./http.js";
+import {
+  inspectProjectFolder,
+  JSON_HEADERS,
+  parseProjectDataImportBytes,
+  RequestBodyError,
+  sendError,
+} from "./http.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
@@ -125,8 +131,9 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
       const content = JSON.stringify(store.exportProjectData(scope));
       return { content, bytes: Buffer.byteLength(content) };
     },
-    async previewProjectDataImport(input: ProjectDataImportInput) {
-      const preview: ProjectDataImportPreview = store.previewProjectDataImport(input);
+    async previewProjectDataImport(input: ProjectDataImportInput | Uint8Array) {
+      const data = input instanceof Uint8Array ? parseProjectDataImportBytes(input) : input;
+      const preview: ProjectDataImportPreview = store.previewProjectDataImport(data);
       return {
         ...preview,
         selectedProjects: preview.selectedProjects.map((project) => ({
