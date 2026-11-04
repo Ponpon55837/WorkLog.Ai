@@ -12,7 +12,8 @@ const dashboardScript = join(repositoryRoot, "scripts/dashboard.mjs");
 const cleanups: Array<() => unknown> = [];
 
 function temporaryDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "work-intelligence-dashboard-"));
+  const root = process.env.WORK_INTELLIGENCE_TEST_TMP?.trim() || tmpdir();
+  const directory = mkdtempSync(join(root, "work-intelligence-dashboard-"));
   // Windows keeps a folder locked briefly after a process that used it exits.
   cleanups.push(() => rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return directory;
@@ -21,14 +22,36 @@ function temporaryDirectory(): string {
 /** Runs a script without blocking this process, so servers started by the test keep answering. */
 function run(script: string, args: string[], environment: NodeJS.ProcessEnv) {
   const inherited = { ...process.env };
-  for (const name of ["WORK_INTELLIGENCE_HOME", "WORK_INTELLIGENCE_CONFIG_DIR", "WORK_INTELLIGENCE_PORT"]) {
-    delete inherited[name];
+  const isolatedNames = new Set([
+    "HOME",
+    "USERPROFILE",
+    "WORK_INTELLIGENCE_HOME",
+    "WORK_INTELLIGENCE_CONFIG_DIR",
+    "WORK_INTELLIGENCE_DB",
+    "WORK_INTELLIGENCE_PORT",
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+  ]);
+  for (const name of Object.keys(inherited)) {
+    if (isolatedNames.has(name.toUpperCase())) delete inherited[name];
   }
+  const home = environment.HOME ?? environment.USERPROFILE ?? temporaryDirectory();
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolveRun) => {
     execFile(
       process.execPath,
       [script, ...args],
-      { env: { ...inherited, USERPROFILE: environment.HOME, ...environment }, timeout: 30_000 },
+      {
+        env: {
+          ...inherited,
+          HOME: home,
+          USERPROFILE: home,
+          WORK_INTELLIGENCE_CONFIG_DIR: join(home, ".work-intelligence"),
+          CODEX_HOME: join(home, ".codex"),
+          CLAUDE_CONFIG_DIR: join(home, ".claude"),
+          ...environment,
+        },
+        timeout: 30_000,
+      },
       (error, stdout, stderr) => resolveRun({ code: error ? Number(error.code ?? 1) : 0, stdout, stderr }),
     );
   });

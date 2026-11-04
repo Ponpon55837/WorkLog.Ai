@@ -7,7 +7,90 @@ import {
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
-/** Older focused fixtures omit unrelated tables whose migrations were marked as applied. */
+const migration31ProjectDataTables = [
+  "projects",
+  "sessions",
+  "work_events",
+  "raw_snapshots",
+  "evidence",
+  "void_audit",
+  "session_verification_updates",
+  "session_links",
+  "knowledge",
+  "session_decisions",
+  "knowledge_pages",
+  "knowledge_page_versions",
+  "session_diagrams",
+  "knowledge_audit",
+  "knowledge_feedback",
+  "knowledge_candidate_requests",
+  "knowledge_candidates",
+  "report_synthesis_requests",
+  "report_summaries",
+  "report_presentations",
+  "attention_preferences",
+  "metadata_backfill_requests",
+  "session_summary_updates",
+  "session_work_summary_updates",
+  "outstanding_items",
+  "outstanding_item_events",
+  "outstanding_cleanup_requests",
+  "outstanding_cleanup_submissions",
+  "outstanding_cleanup_request_items",
+  "outstanding_cleanup_proposals",
+  "outstanding_cleanup_proposal_evidence",
+] as const;
+
+const migration31Operations = ["INSERT", "UPDATE", "DELETE"] as const;
+
+function normalizeSql(sql: string | undefined): string {
+  return (sql ?? "").replace(/\s+/g, " ").trim().replace(/;$/, "");
+}
+
+function migration31DataRevisionTriggerSql(
+  table: (typeof migration31ProjectDataTables)[number],
+  operation: (typeof migration31Operations)[number],
+): string {
+  return (
+    "CREATE TRIGGER trg_data_revision_" +
+    table +
+    "_" +
+    operation.toLowerCase() +
+    " AFTER " +
+    operation +
+    " ON " +
+    table +
+    " BEGIN UPDATE change_revisions SET data_revision = data_revision + 1 WHERE singleton = 1; END;"
+  );
+}
+
+function migration31AgentReadRevisionTriggerSql(operation: (typeof migration31Operations)[number]): string {
+  return (
+    "CREATE TRIGGER trg_agent_read_revision_" +
+    operation.toLowerCase() +
+    " AFTER " +
+    operation +
+    " ON agent_read_audit BEGIN UPDATE change_revisions SET audit_revision = audit_revision + 1 WHERE singleton = 1; END;"
+  );
+}
+
+function expectedMigration31RevisionTriggers(): Array<{ name: string; sql: string }> {
+  const dataTriggers = migration31ProjectDataTables.flatMap((table) =>
+    migration31Operations.map((operation) => ({
+      name: "trg_data_revision_" + table + "_" + operation.toLowerCase(),
+      sql: migration31DataRevisionTriggerSql(table, operation),
+    })),
+  );
+  const agentReadTriggers = migration31Operations.map((operation) => ({
+    name: "trg_agent_read_revision_" + operation.toLowerCase(),
+    sql: migration31AgentReadRevisionTriggerSql(operation),
+  }));
+  return [...dataTriggers, ...agentReadTriggers].sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+  );
+}
+
+/** Focused legacy fixtures omit unrelated tables and leave migration 31 to its full-schema test. */
 function applySchemaMigrations(db: DatabaseSync): void {
   for (const [table, version] of [
     ["report_synthesis_requests", 8],
@@ -22,6 +105,9 @@ function applySchemaMigrations(db: DatabaseSync): void {
     )
       db.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
   }
+  db.prepare(
+    "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (31, 'database-change-revisions', 'fixture')",
+  ).run();
   applyRuntimeMigrations(db);
 }
 
@@ -773,6 +859,79 @@ describe("attention display preference migration", () => {
             .all(),
         ),
       ).toContain("sqlite_autoindex_attention_preferences");
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("database change revision migration", () => {
+  it("upgrades schema 30 with one database identity and revision counters", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 30);
+      const futureTable = "future_project_data";
+      db.exec("CREATE TABLE " + futureTable + " (id TEXT PRIMARY KEY)");
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='change_revisions'").get()).toBe(
+        undefined,
+      );
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 31 });
+      expect(
+        db.prepare("SELECT singleton, database_id, data_revision, audit_revision FROM change_revisions").get(),
+      ).toMatchObject({
+        singleton: 1,
+        data_revision: 0,
+        audit_revision: 0,
+      });
+      expect(db.prepare("SELECT database_id FROM change_revisions").get()).toMatchObject({
+        database_id: expect.any(String),
+      });
+      expect(
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='trg_data_revision_sessions_insert'")
+          .get(),
+      ).toBeDefined();
+      expect(
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='trg_agent_read_revision_insert'")
+          .get(),
+      ).toBeDefined();
+      const changeRevisionsSql = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='change_revisions'")
+        .get() as { sql: string } | undefined;
+      expect(normalizeSql(changeRevisionsSql?.sql)).toBe(
+        "CREATE TABLE change_revisions ( singleton INTEGER PRIMARY KEY CHECK (singleton = 1), database_id TEXT NOT NULL, data_revision INTEGER NOT NULL CHECK (data_revision >= 0), audit_revision INTEGER NOT NULL CHECK (audit_revision >= 0) )",
+      );
+      const actualRevisionTriggers = db
+        .prepare(
+          "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND (name GLOB 'trg_data_revision_*' OR name GLOB 'trg_agent_read_revision_*') ORDER BY name",
+        )
+        .all() as Array<{ name: string; sql: string }>;
+      const expectedRevisionTriggers = expectedMigration31RevisionTriggers();
+      expect(actualRevisionTriggers.map(({ name }) => name)).toEqual(expectedRevisionTriggers.map(({ name }) => name));
+      const actualTriggerSql = new Map(actualRevisionTriggers.map(({ name, sql }) => [name, sql]));
+      for (const expected of expectedRevisionTriggers) {
+        expect(normalizeSql(actualTriggerSql.get(expected.name))).toBe(normalizeSql(expected.sql));
+      }
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name GLOB 'trg_data_revision_future_project_data_*'",
+          )
+          .all(),
+      ).toEqual([]);
+      expect(schemaMigrationSql(31) ?? "").not.toContain(futureTable);
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name='trg_data_revision_search_chunks_insert'",
+          )
+          .get(),
+      ).toBeUndefined();
     } finally {
       db.close();
     }

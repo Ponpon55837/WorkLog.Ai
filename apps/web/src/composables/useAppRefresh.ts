@@ -1,6 +1,7 @@
 import { useQueryCache } from "@pinia/colada";
 import { getActivePinia } from "pinia";
 import { watch } from "vue";
+import { queryKeys } from "../stores/query-keys";
 import { useApi } from "./useApi";
 import { updateApiConnection, useApiConnection } from "./useApiConnection";
 
@@ -10,7 +11,17 @@ export function invalidateActiveQueries(): Promise<unknown> {
   return pinia ? useQueryCache(pinia).invalidateQueries() : Promise.resolve();
 }
 
-/** Connects the data-free SQLite change stream and connection recovery to active queries. */
+/** Invalidates only Agent read audit queries after their dedicated SSE event. */
+export function invalidateAgentReadQueries(): void {
+  const pinia = getActivePinia();
+  if (pinia) {
+    void useQueryCache(pinia)
+      .invalidateQueries({ key: queryKeys.agentReads.all })
+      .catch(() => undefined);
+  }
+}
+
+/** Connects data changes, Agent read audits, and API recovery to the relevant active queries. */
 export function startAppRefreshEvents(): () => void {
   let source: EventSource | undefined;
   let stopped = false;
@@ -38,6 +49,7 @@ export function startAppRefreshEvents(): () => void {
         }
       },
       () => updateApiConnection(true),
+      () => document.visibilityState === "visible" && invalidateAgentReadQueries(),
     );
     source.addEventListener("error", () => updateApiConnection(false));
   }

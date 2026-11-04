@@ -122,6 +122,7 @@ describe("database redaction", () => {
       seed.close();
     }
     store.recall({ q: token, projectRoot });
+    const beforeRedaction = store.getChangeToken();
     store.close();
     stores.splice(stores.indexOf(store), 1);
 
@@ -151,6 +152,9 @@ describe("database redaction", () => {
     expect(applied).toMatchObject({ mode: "applied", affectedSessions: 1, redactions: { total: 6 } });
     expect(applied.backupFileName).toBeTruthy();
     expect(existsSync(join(backupDirectory, applied.backupFileName ?? ""))).toBe(true);
+    const redactedStore = new WorkIntelligenceStore(databasePath);
+    stores.push(redactedStore);
+    expect(redactedStore.getChangeToken().dataRevision).toBeGreaterThan(beforeRedaction.dataRevision);
 
     const verify = new DatabaseSync(databasePath);
     try {

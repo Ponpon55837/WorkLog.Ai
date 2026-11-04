@@ -529,6 +529,7 @@ describe("portable project data transfer", () => {
     const largeBundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
     const destination = new WorkIntelligenceStore(":memory:");
     stores.push(destination);
+    const beforeImport = destination.getChangeToken();
     const startedAt = performance.now();
     const result = destination.importProjectData({ bundle: largeBundle });
     const elapsedMs = performance.now() - startedAt;
@@ -536,6 +537,7 @@ describe("portable project data transfer", () => {
     expect(result.additions.sessions).toBe(5_000);
     expect(result.additions.work_events).toBe(50_000);
     expect(total(result.conflicts)).toBe(0);
+    expect(destination.getChangeToken().dataRevision).toBeGreaterThan(beforeImport.dataRevision);
     expect(elapsedMs).toBeLessThanOrEqual(20_000);
     console.info(
       `Synthetic portable import: 5,000 sessions + 50,000 events in ${elapsedMs.toFixed(1)} ms (Node ${process.version}).`,

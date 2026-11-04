@@ -25,6 +25,8 @@ import {
 } from "../../packages/storage/src/backup.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
+import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
+import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
 // Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
@@ -47,6 +49,10 @@ function setup(backup?: { keep?: number; automaticKeep?: number }) {
   stores.push(store);
   store.addProject("Apiary", join(root, "apiary"));
   return { root, databasePath, store, directory: join(root, "backups") };
+}
+
+function initializeRestoredDatabase(database: DatabaseSync): void {
+  initializeWorkIntelligenceDatabase(database, ":memory:");
 }
 
 describe("database backups", () => {
@@ -294,6 +300,7 @@ describe("moving the database to another computer", () => {
       source: exported,
       databasePath: target,
       remap: [{ from: `${storedParent}/`, to: "/Volumes/New/work" }],
+      initializeStaging: initializeRestoredDatabase,
     });
     expect(result).toMatchObject({ schemaVersion: LATEST_SCHEMA_VERSION, projects: 2, sessions: 0 });
     expect(result.remapped.projects).toBe(2);
@@ -315,9 +322,13 @@ describe("moving the database to another computer", () => {
     store.close();
     stores.splice(stores.indexOf(store), 1);
 
-    expect(() => restoreDatabase({ source: databasePath, databasePath })).toThrow(/is the current database/);
+    expect(() =>
+      restoreDatabase({ source: databasePath, databasePath, initializeStaging: initializeRestoredDatabase }),
+    ).toThrow(/is the current database/);
     // A distinct file is never mistaken for the current database (64-bit NTFS ids lose precision as numbers).
-    expect(restoreDatabase({ source: exported, databasePath })).toMatchObject({ projects: 1 });
+    expect(
+      restoreDatabase({ source: exported, databasePath, initializeStaging: initializeRestoredDatabase }),
+    ).toMatchObject({ projects: 1 });
   });
 
   it("includes writes still in the source's WAL file", () => {
@@ -326,10 +337,46 @@ describe("moving the database to another computer", () => {
     store.addProject("Late Project", join(root, "late"));
     const target = join(mkdtempSync(join(tmpdir(), "work-intelligence-restore-")), "work-intelligence.sqlite");
     tempDirs.push(join(target, ".."));
-    expect(restoreDatabase({ source: databasePath, databasePath: target })).toMatchObject({ projects: 2 });
+    expect(
+      restoreDatabase({ source: databasePath, databasePath: target, initializeStaging: initializeRestoredDatabase }),
+    ).toMatchObject({ projects: 2 });
     const restored = new WorkIntelligenceStore(target);
     stores.push(restored);
     expect(restored.listProjects().map((project) => project.name)).toContain("Late Project");
+  });
+
+  it("migrates a schema 30 snapshot and advances revisions beyond the replaced database", () => {
+    const { root, store } = setup();
+    const exported = exportFrom(store, root);
+    const source = new DatabaseSync(exported);
+    undoMigrationsAfter(source, 30);
+    source.close();
+
+    const target = join(mkdtempSync(join(tmpdir(), "work-intelligence-restore-revision-")), "work-intelligence.sqlite");
+    tempDirs.push(join(target, ".."));
+    const replacedStore = new WorkIntelligenceStore(target);
+    stores.push(replacedStore);
+    const before = replacedStore.getChangeToken();
+    replacedStore.close();
+    stores.splice(stores.indexOf(replacedStore), 1);
+    const replaced = new DatabaseSync(target);
+    replaced.prepare("UPDATE change_revisions SET data_revision = 100, audit_revision = 200 WHERE singleton = 1").run();
+    replaced.close();
+
+    const result = restoreDatabase({
+      source: exported,
+      databasePath: target,
+      initializeStaging: initializeRestoredDatabase,
+    });
+    const restored = new WorkIntelligenceStore(target);
+    stores.push(restored);
+
+    expect(result.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
+    expect(restored.getChangeToken()).toMatchObject({
+      databaseId: expect.not.stringMatching(before.databaseId),
+      dataRevision: 101,
+      auditRevision: 201,
+    });
   });
 
   it("only moves whole path segments", () => {
@@ -341,6 +388,7 @@ describe("moving the database to another computer", () => {
     const result = restoreDatabase({
       source: exported,
       databasePath: target,
+      initializeStaging: initializeRestoredDatabase,
       remap: [
         {
           from: store.listProjects().find((project) => project.name === "Apiary")?.rootPath ?? "",
@@ -356,7 +404,9 @@ describe("moving the database to another computer", () => {
     const { root, store, databasePath } = setup();
     const exported = exportFrom(store, root);
     // The open store holds the database, so it cannot be replaced underneath it.
-    expect(() => restoreDatabase({ source: exported, databasePath })).toThrow(/in use/);
+    expect(() =>
+      restoreDatabase({ source: exported, databasePath, initializeStaging: initializeRestoredDatabase }),
+    ).toThrow(/in use/);
 
     const newer = join(root, "newer.sqlite");
     store.exportTo(newer);
@@ -366,16 +416,24 @@ describe("moving the database to another computer", () => {
     );
     db.close();
     const elsewhere = join(root, "elsewhere.sqlite");
-    expect(() => restoreDatabase({ source: newer, databasePath: elsewhere })).toThrow(/newer than this version/);
+    expect(() =>
+      restoreDatabase({ source: newer, databasePath: elsewhere, initializeStaging: initializeRestoredDatabase }),
+    ).toThrow(/newer than this version/);
 
     const other = join(root, "other.sqlite");
     const foreign = new DatabaseSync(other);
     foreign.exec("CREATE TABLE notes (body TEXT)");
     foreign.close();
-    expect(() => restoreDatabase({ source: other, databasePath: elsewhere })).toThrow(/not a Work Intelligence/);
-    expect(() => restoreDatabase({ source: join(root, "missing.sqlite"), databasePath: elsewhere })).toThrow(
-      /does not exist/,
-    );
+    expect(() =>
+      restoreDatabase({ source: other, databasePath: elsewhere, initializeStaging: initializeRestoredDatabase }),
+    ).toThrow(/not a Work Intelligence/);
+    expect(() =>
+      restoreDatabase({
+        source: join(root, "missing.sqlite"),
+        databasePath: elsewhere,
+        initializeStaging: initializeRestoredDatabase,
+      }),
+    ).toThrow(/does not exist/);
   });
 
   it("matches Windows paths case-insensitively and switches separators for the new machine", () => {
@@ -389,6 +447,7 @@ describe("moving the database to another computer", () => {
     const result = restoreDatabase({
       source: exported,
       databasePath: target,
+      initializeStaging: initializeRestoredDatabase,
       remap: [{ from: "c:\\users\\me\\code", to: "/Users/me/code" }],
     });
     expect(result.remapped.projects).toBe(1);

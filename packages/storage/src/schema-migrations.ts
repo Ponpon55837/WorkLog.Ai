@@ -11,6 +11,77 @@ interface SchemaMigration {
   sql: string;
 }
 
+// Migration 31 is a historical snapshot. New project-data tables need triggers in their own migration.
+const MIGRATION_31_PROJECT_DATA_TABLES = [
+  "projects",
+  "sessions",
+  "work_events",
+  "raw_snapshots",
+  "evidence",
+  "void_audit",
+  "session_verification_updates",
+  "session_links",
+  "knowledge",
+  "session_decisions",
+  "knowledge_pages",
+  "knowledge_page_versions",
+  "session_diagrams",
+  "knowledge_audit",
+  "knowledge_feedback",
+  "knowledge_candidate_requests",
+  "knowledge_candidates",
+  "report_synthesis_requests",
+  "report_summaries",
+  "report_presentations",
+  "attention_preferences",
+  "metadata_backfill_requests",
+  "session_summary_updates",
+  "session_work_summary_updates",
+  "outstanding_items",
+  "outstanding_item_events",
+  "outstanding_cleanup_requests",
+  "outstanding_cleanup_submissions",
+  "outstanding_cleanup_request_items",
+  "outstanding_cleanup_proposals",
+  "outstanding_cleanup_proposal_evidence",
+] as const;
+
+const changeRevisionsTableSql = `
+  CREATE TABLE change_revisions (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    database_id TEXT NOT NULL,
+    data_revision INTEGER NOT NULL CHECK (data_revision >= 0),
+    audit_revision INTEGER NOT NULL CHECK (audit_revision >= 0)
+  );
+  INSERT INTO change_revisions (singleton, database_id, data_revision, audit_revision)
+    VALUES (1, lower(hex(randomblob(16))), 0, 0);
+`;
+
+const agentReadRevisionTriggersSql = `
+  CREATE TRIGGER trg_agent_read_revision_insert AFTER INSERT ON agent_read_audit BEGIN
+    UPDATE change_revisions SET audit_revision = audit_revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER trg_agent_read_revision_update AFTER UPDATE ON agent_read_audit BEGIN
+    UPDATE change_revisions SET audit_revision = audit_revision + 1 WHERE singleton = 1;
+  END;
+  CREATE TRIGGER trg_agent_read_revision_delete AFTER DELETE ON agent_read_audit BEGIN
+    UPDATE change_revisions SET audit_revision = audit_revision + 1 WHERE singleton = 1;
+  END;
+`;
+
+function projectDataRevisionTriggersSql(tables: readonly string[]): string {
+  return tables
+    .flatMap((table) =>
+      (["INSERT", "UPDATE", "DELETE"] as const).map(
+        (operation) => `CREATE TRIGGER trg_data_revision_${table}_${operation.toLowerCase()}
+      AFTER ${operation} ON ${table} BEGIN
+        UPDATE change_revisions SET data_revision = data_revision + 1 WHERE singleton = 1;
+      END;`,
+      ),
+    )
+    .join("\n");
+}
+
 const MIGRATIONS: SchemaMigration[] = [
   {
     version: 1,
@@ -882,6 +953,11 @@ const MIGRATIONS: SchemaMigration[] = [
     CREATE TRIGGER attention_cleanup_deleted AFTER DELETE ON outstanding_cleanup_requests BEGIN
       DELETE FROM attention_preferences WHERE kind='cleanup' AND source_id=OLD.id;
     END;`,
+  },
+  {
+    version: 31,
+    name: "database-change-revisions",
+    sql: `${changeRevisionsTableSql}\n${projectDataRevisionTriggersSql(MIGRATION_31_PROJECT_DATA_TABLES)}\n${agentReadRevisionTriggersSql}`,
   },
 ];
 

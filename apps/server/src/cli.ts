@@ -16,6 +16,7 @@ import {
   maintainDatabase,
   redactDatabase,
   canonicalizeProjectRoot,
+  initializeWorkIntelligenceDatabase,
   restoreDatabase,
   WorkIntelligenceStore,
   type DatabaseMaintenanceResult,
@@ -57,10 +58,9 @@ import 選項：
 
 restore 選項：
   --remap-root <舊路徑>=<新路徑>     專案在新電腦的位置不同時，把路徑前綴換掉（可重複）
-  --force                           略過「資料庫使用中」的檢查（只在確定沒有程式開著時使用）
 
 還原前請先停止 API server（pnpm dev／pnpm start:server），並關閉會啟動 MCP 的 Codex／Claude 對話。
-還原會先自動備份目前的資料。`;
+還原會先取得獨佔鎖、自動備份目前的資料，並將資料庫升級至本版 schema；回傳新的 revision，重新啟動 server 後前端會重新讀取資料。`;
 
 const backupKindLabels: Record<DatabaseBackupKind, string> = {
   automatic: "每日自動",
@@ -491,7 +491,6 @@ export async function runDatabaseCli(
     } else if (command === "restore") {
       const remap: RestorePathRemap[] = [];
       let source: string | undefined;
-      let force = false;
       for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
         if (arg === "--remap-root") {
@@ -499,8 +498,6 @@ export async function runDatabaseCli(
           remap.push(parseRemap(args[index]));
         } else if (arg?.startsWith("--remap-root=")) {
           remap.push(parseRemap(arg.slice("--remap-root=".length)));
-        } else if (arg === "--force") {
-          force = true;
         } else if (arg && !arg.startsWith("--") && !source) {
           source = fromInvocation(arg);
         } else {
@@ -514,7 +511,7 @@ export async function runDatabaseCli(
         source,
         databasePath,
         remap,
-        force,
+        initializeStaging: (database) => initializeWorkIntelligenceDatabase(database, ":memory:"),
         backupDirectory: storeOptions.backup?.directory,
       });
       if (result.safetyBackup) {

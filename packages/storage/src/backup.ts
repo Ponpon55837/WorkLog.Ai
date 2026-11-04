@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -432,16 +433,29 @@ function isInUse(databasePath: string): boolean {
   }
 }
 
+function readChangeRevisions(database: DatabaseSync): { dataRevision: number; auditRevision: number } {
+  const exists = database
+    .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'change_revisions'")
+    .get();
+  if (!exists) return { dataRevision: 0, auditRevision: 0 };
+  const row = database
+    .prepare(
+      "SELECT data_revision AS dataRevision, audit_revision AS auditRevision FROM change_revisions WHERE singleton = 1",
+    )
+    .get() as { dataRevision?: number; auditRevision?: number } | undefined;
+  return { dataRevision: Number(row?.dataRevision ?? 0), auditRevision: Number(row?.auditRevision ?? 0) };
+}
+
 /**
  * Replaces the database with a snapshot, e.g. one exported on another computer. The snapshot is checked
  * first, the current database is backed up, and project roots / handoff paths can be moved to the new
- * machine's locations. Nothing else may have the database open; the restore stops unless `force` is set.
+ * machine's locations. Nothing else may have the database open; restore always requires an exclusive lock.
  */
 export function restoreDatabase(options: {
   source: string;
   databasePath: string;
   remap?: readonly RestorePathRemap[];
-  force?: boolean;
+  initializeStaging: (database: DatabaseSync) => void;
   backupDirectory?: string;
 }): RestoreDatabaseResult {
   const { source, databasePath } = options;
@@ -457,14 +471,16 @@ export function restoreDatabase(options: {
       `The file uses schema version ${inspected.schemaVersion}, newer than this version supports (${LATEST_SCHEMA_VERSION}); update Work Intelligence first.`,
     );
   }
-  if (existsSync(databasePath) && !options.force && isInUse(databasePath)) {
+  if (existsSync(databasePath) && isInUse(databasePath)) {
     throw new Error("The database is in use. Stop the API server and close Agents first.");
   }
 
   let safetyBackup: string | undefined;
+  let previousRevisions = { dataRevision: 0, auditRevision: 0 };
   if (existsSync(databasePath)) {
     const current = new DatabaseSync(databasePath);
     try {
+      previousRevisions = readChangeRevisions(current);
       safetyBackup = backupDatabase(current, databasePath, { directory: options.backupDirectory }).created.fileName;
     } finally {
       current.close();
@@ -473,6 +489,8 @@ export function restoreDatabase(options: {
 
   const staging = `${databasePath}.restoring`;
   rmSync(staging, { force: true });
+  rmSync(`${staging}-wal`, { force: true });
+  rmSync(`${staging}-shm`, { force: true });
   // Copying through SQLite (not the file system) includes writes still in a WAL file beside the source.
   const reader = new DatabaseSync(source, { readOnly: true });
   try {
@@ -482,7 +500,10 @@ export function restoreDatabase(options: {
   }
   const remapped = { projects: 0, handoffSnapshots: 0 };
   const db = new DatabaseSync(staging);
+  let restoreFailed = false;
+  let restoreError: unknown;
   try {
+    options.initializeStaging(db);
     db.exec("BEGIN IMMEDIATE");
     for (const entry of options.remap ?? []) {
       const move = (table: string, column: string): number => {
@@ -502,19 +523,37 @@ export function restoreDatabase(options: {
       remapped.projects += move("projects", "root_path");
       remapped.handoffSnapshots += move("raw_snapshots", "source_path");
     }
+    const restoredRevisions = readChangeRevisions(db);
+    db.prepare(
+      `UPDATE change_revisions
+       SET database_id = ?, data_revision = ?, audit_revision = ?
+       WHERE singleton = 1`,
+    ).run(
+      randomUUID(),
+      Math.max(previousRevisions.dataRevision, restoredRevisions.dataRevision) + 1,
+      Math.max(previousRevisions.auditRevision, restoredRevisions.auditRevision) + 1,
+    );
     db.exec("COMMIT");
   } catch (error) {
     if (db.isTransaction) {
       db.exec("ROLLBACK");
     }
+    restoreFailed = true;
+    restoreError = error;
+  } finally {
     db.close();
-    rmSync(staging, { force: true });
-    throw error;
   }
-  db.close();
+  if (restoreFailed) {
+    rmSync(staging, { force: true });
+    rmSync(`${staging}-wal`, { force: true });
+    rmSync(`${staging}-shm`, { force: true });
+    throw restoreError;
+  }
 
+  rmSync(`${staging}-wal`, { force: true });
+  rmSync(`${staging}-shm`, { force: true });
   rmSync(`${databasePath}-wal`, { force: true });
   rmSync(`${databasePath}-shm`, { force: true });
   renameSync(staging, databasePath);
-  return { ...inspected, remapped, safetyBackup };
+  return { ...inspected, schemaVersion: LATEST_SCHEMA_VERSION, remapped, safetyBackup };
 }

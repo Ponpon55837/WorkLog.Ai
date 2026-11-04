@@ -21,13 +21,34 @@ const SKILL = JSON.stringify({
 });
 let output: string;
 
+function testTemporaryRoot(): string {
+  return process.env.WORK_INTELLIGENCE_TEST_TMP?.trim() || tmpdir();
+}
+
 /** The test runner's environment (Windows needs SystemRoot and friends) without any Work Intelligence location. */
 function environmentFor(home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const inherited = { ...process.env };
-  for (const name of ["WORK_INTELLIGENCE_HOME", "WORK_INTELLIGENCE_CONFIG_DIR", "WORK_INTELLIGENCE_DB"]) {
-    delete inherited[name];
+  const isolatedNames = new Set([
+    "HOME",
+    "USERPROFILE",
+    "WORK_INTELLIGENCE_HOME",
+    "WORK_INTELLIGENCE_CONFIG_DIR",
+    "WORK_INTELLIGENCE_DB",
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+  ]);
+  for (const name of Object.keys(inherited)) {
+    if (isolatedNames.has(name.toUpperCase())) delete inherited[name];
   }
-  return { ...inherited, HOME: home, USERPROFILE: home, ...extra };
+  return {
+    ...inherited,
+    HOME: home,
+    USERPROFILE: home,
+    WORK_INTELLIGENCE_CONFIG_DIR: join(home, ".work-intelligence"),
+    CODEX_HOME: join(home, ".codex"),
+    CLAUDE_CONFIG_DIR: join(home, ".claude"),
+    ...extra,
+  };
 }
 
 /** Runs the copied plugin's MCP server through its launcher and returns the JSON-RPC responses by id. */
@@ -85,7 +106,7 @@ describe("pnpm build:plugin", () => {
   });
 
   it("bundles a server that runs with no checkout and keeps its database in the user's directory", () => {
-    const home = mkdtempSync(join(tmpdir(), "work-intelligence-plugin-home-"));
+    const home = mkdtempSync(join(testTemporaryRoot(), "work-intelligence-plugin-home-"));
     try {
       const { responses, stderr } = talkToPlugin(copyPlugin(home), home);
       expect(responses.get(1)?.result?.serverInfo).toEqual({ name: "work-intelligence", version });
@@ -103,7 +124,7 @@ describe("pnpm build:plugin", () => {
   }, 60_000);
 
   it("opens the linked checkout's database when that checkout is not built", () => {
-    const home = mkdtempSync(join(tmpdir(), "work-intelligence-plugin-home-"));
+    const home = mkdtempSync(join(testTemporaryRoot(), "work-intelligence-plugin-home-"));
     try {
       const checkout = join(home, "checkout");
       mkdirSync(join(checkout, "apps/mcp"), { recursive: true });

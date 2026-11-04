@@ -24,6 +24,7 @@ const NOT_PROJECT_DATA: Record<string, string> = {
   database_maintenance_runs: "per-database maintenance history",
   agent_read_audit: "content-free passive log of Agent reads (ids and counts only), pruned by age and count",
   agent_read_audit_records: "id-only index of the Sessions and Knowledge each audited read returned",
+  change_revisions: "single-row internal database and notification revision bookkeeping, not project data",
 };
 
 /** Project data tables with no free text for db:redact to scan. Adding one here needs a reason. */
@@ -87,5 +88,22 @@ describe("project data coverage", () => {
   it("keeps raw handoff hashes on the rebuildable search index", () => {
     expect(columns(db, "search_chunks")).toContain("content_hash");
     expect(NOT_PROJECT_DATA.search_chunks).toContain("derived raw-content hashes");
+  });
+
+  it("creates insert, update, and delete revision triggers for every project data table only", () => {
+    const triggerNames = new Set(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    const missing = PROJECT_DATA_TABLES.flatMap((table) =>
+      (["insert", "update", "delete"] as const).flatMap((operation) => {
+        const name = `trg_data_revision_${table}_${operation}`;
+        return triggerNames.has(name) ? [] : [`${table}:${operation}`];
+      }),
+    );
+
+    expect(missing).toEqual([]);
+    expect([...triggerNames].filter((name) => name.startsWith("trg_data_revision_search_")).sort()).toEqual([]);
   });
 });
