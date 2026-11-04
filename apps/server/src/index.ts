@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { DatabaseInitializationError, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { databasePath, storeOptions } from "./config.js";
+import { BackupWorkerClient } from "./backup-worker-client.js";
 import { describeListenError } from "./listen-error.js";
 import { createApiHandler } from "./server.js";
 import { resolveServerPort } from "./server-port.js";
@@ -18,21 +19,30 @@ function startApi(): void {
 
   const port = resolveServerPort();
   const webDirectory = process.env.WORK_INTELLIGENCE_WEB_DIST;
-  const apiHandler = createApiHandler(store, webDirectory ? { webDirectory } : {});
+  const backupWorker =
+    databasePath === ":memory:" ? undefined : new BackupWorkerClient(databasePath, storeOptions.backup);
+  const apiHandler = createApiHandler(store, {
+    ...(webDirectory ? { webDirectory } : {}),
+    ...(backupWorker ? { backgroundStore: backupWorker } : {}),
+  });
   const server = createServer(apiHandler);
 
   // Daily automatic backup: checked once listening and hourly; a backup is written once the newest is a day old.
   const backupCheckMs = 60 * 60 * 1000;
+  const initialBackupDelayMs = 60 * 1000;
   let backupTimer: NodeJS.Timeout | undefined;
+  let initialBackupTimer: NodeJS.Timeout | undefined;
   function backupIfDue(): void {
-    try {
-      const created = store.backupIfDue();
-      if (created) {
-        console.error(`Database backup written: ${created.created.fileName}`);
-      }
-    } catch (error) {
-      console.error(`Database backup failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const backup = backupWorker ? backupWorker.backupIfDue() : Promise.resolve(store.backupIfDue());
+    void backup
+      .then((created) => {
+        if (created) {
+          console.error(`Database backup written: ${created.created.fileName}`);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error(`Database backup failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
   }
 
   function pruneHistory(): void {
@@ -66,15 +76,32 @@ function startApi(): void {
     console.error(`SQLite database: ${databasePath}`);
     backupTimer = setInterval(runMaintenance, backupCheckMs);
     backupTimer.unref();
-    runMaintenance();
+    pruneHistory();
+    if (process.env.WORK_INTELLIGENCE_BACKUP !== "off") {
+      initialBackupTimer = setTimeout(() => {
+        initialBackupTimer = undefined;
+        backupIfDue();
+      }, initialBackupDelayMs);
+      initialBackupTimer.unref();
+    }
   });
 
   registerGracefulShutdown(
     {
       server,
-      stopBackgroundWork: () => clearInterval(backupTimer),
+      stopBackgroundWork: () => {
+        clearInterval(backupTimer);
+        clearTimeout(initialBackupTimer);
+      },
       closeEventStreams: () => apiHandler.closeEventStreams(),
+      closeBackgroundWork: () => backupWorker?.close() ?? Promise.resolve(),
       closeDatabase: () => store.close(),
+      onBackgroundWorkCloseError: (error) => {
+        console.error(
+          `Work Intelligence background worker could not close cleanly: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exitCode = 1;
+      },
       onDatabaseCloseError: () => {
         console.error("Work Intelligence API could not close the database cleanly.");
         process.exitCode = 1;

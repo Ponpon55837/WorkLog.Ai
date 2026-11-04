@@ -197,19 +197,25 @@ function writeSnapshot(db: DatabaseSync, target: string): void {
   if (existsSync(target)) {
     throw new Error("The snapshot target already exists.");
   }
-  // Create the file owner-only from the start; chmod alone would leave it readable until it runs.
-  const previousUmask = process.umask(0o077);
+  const stagingDirectory = join(dirname(target), `.wi-${randomUUID()}.tmp`);
+  mkdirSync(stagingDirectory, { mode: 0o700 });
+  const staging = join(stagingDirectory, "snapshot.sqlite");
   try {
-    db.prepare("VACUUM INTO ?").run(target);
+    db.prepare("VACUUM INTO ?").run(staging);
+    // The private staging directory protects the file while it is created; chmod it before publication.
+    chmodSync(staging, 0o600);
+    assertHealthy(staging, "The snapshot");
+    // Publishing the checked staging file by same-volume rename keeps partial snapshots off the final name.
+    if (existsSync(target)) {
+      throw new Error("The snapshot target already exists.");
+    }
+    renameSync(staging, target);
   } finally {
-    process.umask(previousUmask);
-  }
-  chmodSync(target, 0o600);
-  try {
-    assertHealthy(target, "The snapshot");
-  } catch (error) {
-    rmSync(target, { force: true });
-    throw error;
+    try {
+      rmSync(stagingDirectory, { recursive: true, force: true });
+    } catch {
+      // An orphaned private staging directory is not a valid backup name.
+    }
   }
 }
 

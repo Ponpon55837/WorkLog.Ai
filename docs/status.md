@@ -8,7 +8,18 @@
 
 ## 後端效能改善
 
-System Status 的登入服務查詢已改為非同步，成功結果快取 30 秒並共用進行中的查詢；SQLite 連線的頁面快取設定為 16,000 KiB。P0 PR 3 的 schema 31 revision 通知與 Web Agent 讀取局部失效已提交至 PR #282；設計、驗證與複檢紀錄見該 PR 與工作記錄。其餘效能工作仍待後續分階段處理與複檢。
+System Status 的登入服務查詢已改為非同步，成功結果快取 30 秒並共用進行中的查詢；SQLite 連線的頁面快取設定為 16,000 KiB。P0 PR 3 的 schema 31 revision 通知與 Web Agent 讀取局部失效已提交至 PR #282；設計、驗證與複檢紀錄見該 PR 與工作記錄。
+
+P1 5.1 在獨立 worktree 實作：備份、整庫匯出、專案資料匯出與匯入預覽使用專用 worker connection；自動備份延至 server 啟動 60 秒後，shutdown 會先等 HTTP 請求與 worker 排空，再關閉 SQLite。以 5,000 Sessions 合成資料、三輪交錯 control／worker、每輪 5 次取 p90，再取三輪 p90 的中位數量測。門檻量的是重工作期間另一個 process 收到 `/api/health` 的延遲；總操作 p90 另外列出並包含 worker 字串複製成本。Windows 11／12 邏輯處理器，當時同時執行其他開發工具；絕對時間有負載雜訊。
+
+| 路徑 | health p90：control → worker | 操作總 p90：control → worker | health 門檻 |
+| --- | ---: | ---: | ---: |
+| 手動備份 | 385 → 29 ms | 443 → 501 ms | 300 ms |
+| 整庫匯出 | 450 → 31 ms | 685 → 947 ms | 300 ms |
+| 專案資料匯出 | 447 → 21 ms | 512 → 625 ms | 400 ms |
+| 匯入預覽 | 1,800 → 345 ms | 1,859 → 1,544 ms | 1,500 ms |
+
+四項 health p90 均改善並通過既有門檻；操作總時間有增有減，尤其整庫與 JSON 匯出較慢，PR 會保留這項代價並交由 Claude 複檢。PR 尚未合併；其餘 P1 項目要等本 PR 合併後才從最新 `main` 開始。
 
 ## 知識品質 Roadmap（已完成）
 

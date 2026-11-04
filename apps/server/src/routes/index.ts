@@ -12,7 +12,15 @@ import type { Route } from "./router.js";
 import { sessionRoutes } from "./sessions.js";
 import { systemRoutes } from "./system.js";
 
-export { Router, type Route, type RouteContext, type RouteServices } from "./router.js";
+export {
+  Router,
+  type BackgroundStoreOperations,
+  type ProjectDataExportDocument,
+  type ProjectDataImportPreviewWithFolderStatus,
+  type Route,
+  type RouteContext,
+  type RouteServices,
+} from "./router.js";
 
 /** Every REST route, one table per domain. */
 export const apiRoutes: readonly Route[] = [

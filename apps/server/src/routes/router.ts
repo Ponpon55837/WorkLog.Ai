@@ -1,10 +1,39 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { FolderPickResult, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
+import type {
+  DatabaseBackupCreated,
+  DatabaseBackupUnavailable,
+  FolderPickResult,
+  ProjectDataExportScope,
+  ProjectDataImportInput,
+  ProjectDataImportPreview,
+  ProjectFolderStatus,
+  SystemAgentConnections,
+  UserServiceStatus,
+} from "@work-intelligence/core";
 import type { WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
 
 export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+export interface ProjectDataExportDocument {
+  content: string;
+  bytes: number;
+}
+
+export type ProjectDataImportPreviewWithFolderStatus = Omit<ProjectDataImportPreview, "selectedProjects"> & {
+  selectedProjects: Array<ProjectDataImportPreview["selectedProjects"][number] & { folderStatus: ProjectFolderStatus }>;
+};
+
+/** Store work that the production server runs away from its request and maintenance event loop. */
+export interface BackgroundStoreOperations {
+  createBackup(): Promise<DatabaseBackupCreated | DatabaseBackupUnavailable>;
+  backupIfDue(): Promise<DatabaseBackupCreated | null>;
+  exportTo(target: string): Promise<{ bytes: number }>;
+  exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExportDocument>;
+  previewProjectDataImport(input: ProjectDataImportInput): Promise<ProjectDataImportPreviewWithFolderStatus>;
+  close(): Promise<void>;
+}
 
 /** What the shared server flow hands a route after Host, Origin, and CORS checks have passed. */
 export interface RouteServices {
@@ -14,6 +43,7 @@ export interface RouteServices {
   mcpRuntimeStatus(): McpRuntimeStatus;
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
+  backgroundStore: BackgroundStoreOperations;
 }
 
 export interface RouteContext {

@@ -1,14 +1,21 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
-import type { FolderPickResult, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
+import type {
+  FolderPickResult,
+  ProjectDataExportScope,
+  ProjectDataImportInput,
+  ProjectDataImportPreview,
+  SystemAgentConnections,
+  UserServiceStatus,
+} from "@work-intelligence/core";
 import { DATABASE_BUSY_MESSAGE, WorkIntelligenceStore, isDatabaseBusyError } from "@work-intelligence/storage";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { inspectAgentConnections } from "./doctor.js";
-import { JSON_HEADERS, RequestBodyError, sendError } from "./http.js";
+import { inspectProjectFolder, JSON_HEADERS, RequestBodyError, sendError } from "./http.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
-import { Router, apiRoutes, type RouteServices } from "./routes/index.js";
+import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
@@ -95,11 +102,42 @@ export interface ApiHandlerOptions {
   agentConnections?: () => SystemAgentConnections;
   /** Read-only login-service status; injectable so API tests never query the host service manager. */
   userServiceStatus?: () => UserServiceStatus | Promise<UserServiceStatus>;
+  /** Offloads disk snapshots and large project-data preparation from the API event loop. */
+  backgroundStore?: BackgroundStoreOperations;
 }
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
   closeEventStreams: () => void;
 };
+
+function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundStoreOperations {
+  return {
+    async createBackup() {
+      return store.createBackup();
+    },
+    async backupIfDue() {
+      return store.backupIfDue();
+    },
+    async exportTo(target) {
+      return store.exportTo(target);
+    },
+    async exportProjectData(scope: ProjectDataExportScope) {
+      const content = JSON.stringify(store.exportProjectData(scope));
+      return { content, bytes: Buffer.byteLength(content) };
+    },
+    async previewProjectDataImport(input: ProjectDataImportInput) {
+      const preview: ProjectDataImportPreview = store.previewProjectDataImport(input);
+      return {
+        ...preview,
+        selectedProjects: preview.selectedProjects.map((project) => ({
+          ...project,
+          folderStatus: inspectProjectFolder(project.rootPath),
+        })),
+      };
+    },
+    async close() {},
+  };
+}
 
 export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandlerOptions = {}): ApiHandler {
   const pickFolder = options.pickFolder ?? createFolderPicker();
@@ -107,6 +145,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const repositoryRoot = options.repositoryRoot ?? DEFAULT_REPOSITORY_ROOT;
   const inspectConnections = options.agentConnections ?? (() => inspectAgentConnections({ repositoryRoot }));
   const queryUserService = options.userServiceStatus ?? (() => getUserServiceStatusAsync({ repositoryRoot }));
+  const backgroundStore = options.backgroundStore ?? createInlineBackgroundStore(store);
   let cachedUserService: { status: UserServiceStatus; expiresAt: number } | undefined;
   let pendingUserService: Promise<UserServiceStatus> | undefined;
   function inspectUserService(): Promise<UserServiceStatus> {
@@ -222,6 +261,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
+    backgroundStore,
   };
 
   const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

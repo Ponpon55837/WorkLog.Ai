@@ -16,26 +16,22 @@ import {
   projectDataExportRequestSchema,
   projectDataImportInputSchema,
 } from "@work-intelligence/schema";
-import { LATEST_SCHEMA_VERSION, type WorkIntelligenceStore } from "@work-intelligence/storage";
+import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { inspectDatabaseReadOnlyMetadata } from "../database-inspection.js";
-import {
-  MAX_PROJECT_IMPORT_BYTES,
-  inspectProjectFolder,
-  readJsonBody,
-  sendError,
-  sendJson,
-  sendProjectDataTransferError,
-} from "../http.js";
+import { MAX_PROJECT_IMPORT_BYTES, readJsonBody, sendError, sendJson, sendProjectDataTransferError } from "../http.js";
 import type { Route, RouteContext } from "./router.js";
 
 /** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
-async function sendDatabaseExport(store: WorkIntelligenceStore, response: ServerResponse): Promise<void> {
+async function sendDatabaseExport(
+  backgroundStore: RouteContext["services"]["backgroundStore"],
+  response: ServerResponse,
+): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), "work-intelligence-export-"));
   try {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "");
     const fileName = `work-intelligence-export-${stamp}.sqlite`;
     const target = join(directory, fileName);
-    const { bytes } = store.exportTo(target);
+    const { bytes } = await backgroundStore.exportTo(target);
     response.writeHead(200, {
       "Content-Type": "application/vnd.sqlite3",
       "Content-Length": String(bytes),
@@ -49,13 +45,12 @@ async function sendDatabaseExport(store: WorkIntelligenceStore, response: Server
   }
 }
 
-function sendProjectDataExport(
-  store: WorkIntelligenceStore,
+async function sendProjectDataExport(
+  backgroundStore: RouteContext["services"]["backgroundStore"],
   scope: ProjectDataExportScope,
   response: ServerResponse,
-): void {
-  const content = JSON.stringify(store.exportProjectData(scope));
-  const bytes = Buffer.byteLength(content);
+): Promise<void> {
+  const { content, bytes } = await backgroundStore.exportProjectData(scope);
   if (bytes > MAX_PROJECT_IMPORT_BYTES) {
     sendError(response, 413, "這份專案匯出檔超過 50 MiB，請改用整份 SQLite 快照。");
     return;
@@ -153,10 +148,10 @@ async function deleteBackup({ store, request, response, params }: RouteContext):
   }
 }
 
-async function exportData({ store, request, response }: RouteContext): Promise<void> {
+async function exportData({ request, response, services }: RouteContext): Promise<void> {
   const body = await readJsonBody(request);
   if (typeof body === "object" && body !== null && Object.keys(body).length === 0) {
-    await sendDatabaseExport(store, response);
+    await sendDatabaseExport(services.backgroundStore, response);
     return;
   }
   const parsed = projectDataExportRequestSchema.safeParse(body);
@@ -167,7 +162,7 @@ async function exportData({ store, request, response }: RouteContext): Promise<v
   const scope: ProjectDataExportScope =
     parsed.data.scope === "all" ? { type: "all" } : { type: "project", projectId: parsed.data.projectId ?? "" };
   try {
-    sendProjectDataExport(store, scope, response);
+    await sendProjectDataExport(services.backgroundStore, scope, response);
   } catch (error) {
     if (!sendProjectDataTransferError(response, error)) throw error;
   }
@@ -177,14 +172,8 @@ async function previewImport(context: RouteContext): Promise<void> {
   const input = await readImportInput(context);
   if (!input) return;
   try {
-    const preview = context.store.previewProjectDataImport(input);
-    sendJson(context.response, 200, {
-      ...preview,
-      selectedProjects: preview.selectedProjects.map((project) => ({
-        ...project,
-        folderStatus: inspectProjectFolder(project.rootPath),
-      })),
-    });
+    const preview = await context.services.backgroundStore.previewProjectDataImport(input);
+    sendJson(context.response, 200, preview);
   } catch (error) {
     if (!sendProjectDataTransferError(context.response, error)) throw error;
   }
@@ -247,10 +236,10 @@ export const systemRoutes: Route[] = [
   {
     method: "POST",
     pattern: "/api/backups",
-    handler: async ({ store, request, response }) => {
+    handler: async ({ request, response, services }) => {
       // Requiring a JSON body keeps cross-site form posts from triggering backups.
       await readJsonBody(request);
-      const result = store.createBackup();
+      const result = await services.backgroundStore.createBackup();
       if (result.outcome === "backup_unavailable") {
         sendJson(response, 409, { ...result, error: result.reason, code: "backup_unavailable" });
       } else {
