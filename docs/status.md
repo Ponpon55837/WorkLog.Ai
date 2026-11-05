@@ -4,22 +4,26 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-04
+- 最後更新：2026-11-05
 
 ## 後端效能改善
 
 System Status 的登入服務查詢已改為非同步，成功結果快取 30 秒並共用進行中的查詢；SQLite 連線的頁面快取設定為 16,000 KiB。P0 PR 3 的 schema 31 revision 通知與 Web Agent 讀取局部失效已提交至 PR #282；設計、驗證與複檢紀錄見該 PR 與工作記錄。
 
-P1 5.1 在獨立 worktree 實作：備份、整庫匯出、專案資料匯出與匯入預覽使用專用 worker connection；自動備份延至 server 啟動 60 秒後，shutdown 會先等 HTTP 請求與 worker 排空，再關閉 SQLite。以 5,000 Sessions 合成資料、三輪交錯 control／worker、每輪 5 次取 p90，再取三輪 p90 的中位數量測。門檻量的是重工作期間另一個 process 收到 `/api/health` 的延遲；總操作 p90 另外列出並包含 worker 字串複製成本。Windows 11／12 邏輯處理器，當時同時執行其他開發工具；絕對時間有負載雜訊。
+P1 5.1 在獨立 worktree 實作：備份、整庫匯出、專案資料匯出與匯入預覽使用專用 worker connection；自動備份延至 server 啟動 60 秒後，shutdown 會先等 HTTP 請求與 worker 排空，再關閉 SQLite。worker 使用唯讀連線並核對主程序傳入的 schema 版本；備份與匯出只靠原子 hard link 發布，完成後目標目錄沒有額外檔案。若檔案系統不支援 hard link，操作會明確失敗；不以可能覆蓋既有目標或留下半成品的 rename／copy 降級。
 
-| 路徑 | health p90：control → worker | 操作總 p90：control → worker | health 門檻 |
-| --- | ---: | ---: | ---: |
-| 手動備份 | 385 → 29 ms | 443 → 501 ms | 300 ms |
-| 整庫匯出 | 450 → 31 ms | 685 → 947 ms | 300 ms |
-| 專案資料匯出 | 447 → 21 ms | 512 → 625 ms | 400 ms |
-| 匯入預覽 | 1,800 → 345 ms | 1,859 → 1,544 ms | 1,500 ms |
+2026-11-05 本機以 5,000 Sessions、11.2 MiB 合成快取資料庫量測；同一資料庫跑三輪，每輪交錯 control／worker，各案例 5 次取 p90，再取三輪 p90 的中位數。操作總時間與 `/api/health` 分開量測；health pass 在重工作期間每 10 ms 探測，事件迴圈以 10 ms `monitorEventLoopDelay` 連續量測。主機為 Windows／Node 24.16／12 個邏輯處理器；命令序列執行，沒有同時跑其他測試，受限執行環境無法讀取整台主機的 CPU 負載，因此絕對值仍可能有背景負載雜訊。下表的操作與 health 門檻均維持原值；事件迴圈阻塞上限依 Ubuntu CI p90 11.26–44.83 ms 的兩倍 89.66 ms 進位為 100 ms。
 
-四項 health p90 均改善並通過既有門檻；操作總時間有增有減，尤其整庫與 JSON 匯出較慢，已在 [PR #283](https://github.com/Ponpon55837/WorkLog.Ai/pull/283) 保留這項代價交由 Claude 複檢。PR 尚未合併；其餘 P1 項目要等本 PR 合併後才從最新 `main` 開始。
+| HTTP 路徑 | 操作總 p90：control → worker | health p90：control → worker | 事件迴圈阻塞 p90：control → worker | 門檻（操作／health／阻塞） |
+| --- | ---: | ---: | ---: | ---: |
+| 手動備份 | 768 → 742 ms | 701 → 11 ms | 762 → 24 ms | 300／300／100 ms |
+| 整庫匯出 | 1,037 → 1,086 ms | 6 → 7 ms | 864 → 25 ms | 300／300／100 ms |
+| 專案資料匯出 | 969 → 968 ms | 900 → 16 ms | 891 → 119 ms | 400／400／100 ms |
+| 匯入預覽 | 2,486 → 2,381 ms | 2,593 → 7 ms | 2,481 → 63 ms | 1,500／1,500／100 ms |
+
+worker 的 health 四項通過；操作總時間四項仍超過原門檻，專案匯出的阻塞 p90 也超過 100 ms。冷啟動操作 p90（只回報、不設門檻）依序為備份 1,559、整庫匯出 1,813、專案資料匯出 1,694、匯入預覽 3,258 ms。三輪中 worker 操作尖峰 RSS 中位數依序為 314、224、626、511 MiB；合成自動備份尖峰 RSS 中位數 486 MiB，15 秒 idle close 後程序 RSS 中位數 152 MiB。完整 `pnpm test:performance` 本機未通過：四項 worker 操作 p90 分別為 343、898、613、1,627 ms；既有 `registerMcpProcess` 為 105.87/100 ms、recall evaluator 為 1,201.11/1,000 ms 也超標。`pnpm test:e2e` 本機為 127 passed、6 failed；五項超過 30 秒測試 timeout，一項自訂日期報告在 8 秒內未出現預期文字，取消請求時 server 記錄 `ERR_STREAM_UNABLE_TO_PIPE`。完整測試與 benchmark 原始 log 保留於本次工作暫存目錄；Ubuntu 新 head CI 結果仍以 PR checks 為準。詳細測法見 [testing.md](testing.md)。
+
+[PR #283](https://github.com/Ponpon55837/WorkLog.Ai/pull/283) 維持開啟並等待 Claude 複檢；操作時間超標與本機 E2E 逾時都會照實交接，不放寬門檻。其餘 P1 項目要等本 PR 合併後才從最新 `main` 開始。
 
 ## 知識品質 Roadmap（已完成）
 

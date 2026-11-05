@@ -17,6 +17,7 @@ import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
+import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
 import {
   getMcpRuntimeDirectory,
   getMcpRuntimeStatus,
@@ -595,6 +596,38 @@ describe("Work Intelligence REST API", () => {
       lockConnection.close();
     }
   });
+
+  it("returns database_busy for consecutive cold-worker requests blocked by an exclusive lock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-worker-busy-test-"));
+    const workerDatabasePath = join(root, "worker.sqlite");
+    const initialized = new WorkIntelligenceStore(workerDatabasePath);
+    initialized.close();
+    const configureJournal = new DatabaseSync(workerDatabasePath);
+    configureJournal.exec("PRAGMA journal_mode = DELETE");
+    configureJournal.close();
+
+    const lockConnection = new DatabaseSync(workerDatabasePath);
+    lockConnection.exec("BEGIN EXCLUSIVE");
+    const store = new WorkIntelligenceStore(":memory:");
+    const backgroundStore = new BackupWorkerClient(workerDatabasePath);
+    const { server, baseUrl } = await startApi(store, { backgroundStore });
+    resources.push({ server, store, root });
+
+    try {
+      for (let index = 0; index < 2; index += 1) {
+        const response = await requestJson<{ error: string; code: string }>(baseUrl, "/api/backups", {
+          method: "POST",
+          body: {},
+        });
+        expect(response.status).toBe(503);
+        expect(response.body).toEqual({ error: "資料庫暫時忙碌，請稍後再試", code: "database_busy" });
+      }
+    } finally {
+      lockConnection.exec("ROLLBACK");
+      lockConnection.close();
+      await backgroundStore.close();
+    }
+  }, 30_000);
 
   it("returns the shared safe 503 when project deletion hits a SQLite write lock", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-delete-busy-test-"));

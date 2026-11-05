@@ -62,6 +62,7 @@ export interface SerializedWorkerError {
 }
 
 interface PendingRequest {
+  lifetime: WorkerLifetime;
   resolve(value: unknown): void;
   reject(error: unknown): void;
 }
@@ -70,6 +71,7 @@ interface WorkerLifetime {
   worker: Worker;
   exited: Promise<void>;
   retiring: boolean;
+  failure?: unknown;
   closePromise?: Promise<void>;
 }
 
@@ -203,9 +205,10 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
 
   private async send<T>(operation: BackupWorkerOperation): Promise<T> {
     const lifetime = await this.startWorker();
+    if (lifetime.failure !== undefined) throw lifetime.failure;
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: (value) => resolve(value as T), reject });
+      this.pending.set(id, { lifetime, resolve: (value) => resolve(value as T), reject });
       try {
         const request = { id, operation } satisfies BackupWorkerRequest;
         const transferBuffer =
@@ -243,24 +246,26 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
 
     worker.on("message", (message: BackupWorkerReply) => {
       const request = this.pending.get(message.id);
-      if (!request) return;
+      if (!request || request.lifetime !== lifetime) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
       else request.reject(restoredError(message.error));
     });
     worker.once("error", (error) => {
       if (this.lifetime === lifetime) this.lifetime = undefined;
-      this.rejectPending(error);
+      lifetime.failure = error;
+      this.rejectPending(error, lifetime);
       rejectExit(error);
     });
     worker.once("exit", (code) => {
       if (this.lifetime === lifetime) this.lifetime = undefined;
-      if (code === 0 && lifetime.retiring && this.pending.size === 0) {
+      if (code === 0 && lifetime.retiring && !this.hasPendingRequests(lifetime)) {
         resolveExit();
         return;
       }
       const error = new Error(`The backup worker exited unexpectedly with code ${code}.`);
-      this.rejectPending(error);
+      lifetime.failure = error;
+      this.rejectPending(error, lifetime);
       if (code === 0 && lifetime.retiring) resolveExit();
       else rejectExit(error);
     });
@@ -308,7 +313,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
   private async sendCloseRequest(lifetime: WorkerLifetime): Promise<void> {
     const id = this.nextId++;
     const acknowledgement = new Promise<void>((resolve, reject) => {
-      this.pending.set(id, { resolve: () => resolve(), reject });
+      this.pending.set(id, { lifetime, resolve: () => resolve(), reject });
       try {
         lifetime.worker.postMessage({ id, close: true } satisfies BackupWorkerCloseRequest);
       } catch (error) {
@@ -321,8 +326,15 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     if (exitResult.status === "rejected") throw exitResult.reason;
   }
 
-  private rejectPending(error: unknown): void {
-    for (const request of this.pending.values()) request.reject(error);
-    this.pending.clear();
+  private hasPendingRequests(lifetime: WorkerLifetime): boolean {
+    return [...this.pending.values()].some((request) => request.lifetime === lifetime);
+  }
+
+  private rejectPending(error: unknown, lifetime: WorkerLifetime): void {
+    for (const [id, request] of this.pending) {
+      if (request.lifetime !== lifetime) continue;
+      this.pending.delete(id);
+      request.reject(error);
+    }
   }
 }

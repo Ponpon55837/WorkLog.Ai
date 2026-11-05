@@ -20,6 +20,7 @@ import {
   backupDatabaseBeforeProjectDeletion,
   backupDatabaseBeforeSessionDeletion,
   cleanupOrphanedBackupStagingDirectories,
+  exportDatabase,
   isBackupDue,
   listDatabaseBackups,
   restoreDatabase,
@@ -69,12 +70,32 @@ describe("database backups", () => {
     expect(result.created).toMatchObject({ kind: "manual" });
     expect(result.created.fileName).toMatch(/^work-intelligence-manual-\d{8}T\d{6}Z\.sqlite$/);
     const path = join(directory, result.created.fileName);
+    expect(readdirSync(directory)).toEqual([result.created.fileName]);
     if (process.platform !== "win32") {
       expect(statSync(path).mode & 0o777).toBe(0o600);
     }
     const copy = new DatabaseSync(path, { readOnly: true });
     expect(copy.prepare("SELECT name FROM projects").all()).toEqual([{ name: "Apiary" }]);
     copy.close();
+  });
+
+  it("leaves only the requested snapshot files in backup and export directories", () => {
+    const { root, databasePath, store, directory } = setup();
+    const backup = store.createBackup();
+    if (backup.outcome !== "database_backups") throw new Error("Expected a backup");
+    expect(readdirSync(directory)).toEqual([backup.created.fileName]);
+
+    const exportDirectory = join(root, "user-selected-export");
+    mkdirSync(exportDirectory);
+    const exportPath = join(exportDirectory, "work-intelligence.sqlite");
+    const database = new DatabaseSync(databasePath);
+    try {
+      exportDatabase(database, exportPath);
+    } finally {
+      database.close();
+    }
+
+    expect(readdirSync(exportDirectory)).toEqual(["work-intelligence.sqlite"]);
   });
 
   it("does not publish a partial snapshot when quick_check fails", () => {

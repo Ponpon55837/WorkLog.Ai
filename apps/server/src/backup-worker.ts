@@ -63,9 +63,9 @@ function executeOperation(store: WorkIntelligenceStore, operation: BackupWorkerO
   }
 }
 
-function handleClose(store: WorkIntelligenceStore, request: BackupWorkerCloseRequest): void {
+function handleClose(store: WorkIntelligenceStore | undefined, request: BackupWorkerCloseRequest): void {
   try {
-    store.close();
+    store?.close();
     parentPort?.postMessage({ id: request.id, ok: true, value: null } satisfies BackupWorkerReply);
   } catch (error) {
     parentPort?.postMessage(errorResponse(request.id, error));
@@ -75,15 +75,10 @@ function handleClose(store: WorkIntelligenceStore, request: BackupWorkerCloseReq
 }
 
 const workerContext = workerData as BackupWorkerData;
-const store = new WorkIntelligenceStore(workerContext.databasePath, {
-  backup: workerContext.backup,
-  mode: "read-only",
-  expectedSchemaVersion: workerContext.expectedSchemaVersion,
-});
 const port = parentPort;
+let store: WorkIntelligenceStore | undefined;
 
 if (!port) {
-  store.close();
   throw new Error("The backup worker requires a parent thread.");
 }
 
@@ -94,6 +89,11 @@ port.on("message", (message: BackupWorkerRequest | BackupWorkerCloseRequest) => 
   }
 
   try {
+    store ??= new WorkIntelligenceStore(workerContext.databasePath, {
+      backup: workerContext.backup,
+      mode: "read-only",
+      expectedSchemaVersion: workerContext.expectedSchemaVersion,
+    });
     const value = executeOperation(store, message.operation);
     port.postMessage({ id: message.id, ok: true, value } satisfies BackupWorkerReply);
   } catch (error) {

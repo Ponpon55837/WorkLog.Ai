@@ -30,6 +30,11 @@ export class DatabaseInitializationError extends Error {
   }
 }
 
+/** Applies connection-local settings shared by writable stores and read-only workers. */
+export function configureWorkIntelligenceDatabaseConnection(db: DatabaseSync): void {
+  db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -16000;");
+}
+
 /** Verifies an existing schema without changing it; background readers use this instead of initialization. */
 export function assertDatabaseSchemaVersion(db: DatabaseSync, expectedSchemaVersion: number): void {
   const appliedVersions = getAppliedSchemaVersions(db);
@@ -213,6 +218,7 @@ export function initializeWorkIntelligenceDatabase(
   databasePath: string,
   backupOptions: BackupRetentionOptions = {},
 ): void {
+  configureWorkIntelligenceDatabaseConnection(db);
   assertSchemaVersionSupported(db);
 
   const isFreshDatabase = !hasUserTables(db);
@@ -234,9 +240,7 @@ export function initializeWorkIntelligenceDatabase(
   }
 
   try {
-    db.exec(
-      "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -16000;",
-    );
+    db.exec("PRAGMA journal_mode = WAL;");
     runImmediateTransaction(db, () => {
       db.exec(DATABASE_SCHEMA);
       migrateLegacySchema(db);

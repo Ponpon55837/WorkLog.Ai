@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -213,43 +213,17 @@ function pathExists(path: string): boolean {
   }
 }
 
-function acquireSnapshotPublicationLock(target: string): () => void {
-  const digest = createHash("sha256").update(target).digest("hex");
-  const lockDatabase = new DatabaseSync(join(dirname(target), `.wi-publish-${digest}.sqlite`));
-  try {
-    // SQLite releases this OS lock if a publisher crashes, without a stale-lock deletion race.
-    lockDatabase.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE");
-  } catch (error) {
-    lockDatabase.close();
-    throw new Error("Another process is publishing this snapshot.", { cause: error });
-  }
-  return () => {
-    try {
-      lockDatabase.exec("ROLLBACK");
-    } catch {
-      // The connection may already be closed after a failed publication.
-    } finally {
-      lockDatabase.close();
-    }
-  };
-}
-
 function publishSnapshotNoClobber(staging: string, target: string): void {
-  const release = acquireSnapshotPublicationLock(target);
+  if (pathExists(target)) throw new Error("The snapshot target already exists.");
   try {
-    if (pathExists(target)) throw new Error("The snapshot target already exists.");
-    try {
-      linkSync(staging, target);
-    } catch (error) {
-      const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
-      if (code === "EEXIST") throw new Error("The snapshot target already exists.", { cause: error });
-      if (!(["EPERM", "EACCES", "ENOTSUP", "ENOSYS"] as unknown[]).includes(code)) throw error;
-      if (pathExists(target)) throw new Error("The snapshot target already exists.", { cause: error });
-      // Some Windows filesystems forbid hard links; same-target publishers still serialize on the private lock.
-      renameSync(staging, target);
-    }
-  } finally {
-    release();
+    // linkSync atomically publishes without replacing a target created by another process.
+    linkSync(staging, target);
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "EEXIST") throw new Error("The snapshot target already exists.", { cause: error });
+    if (!(["EPERM", "EACCES", "ENOTSUP", "ENOSYS"] as unknown[]).includes(code)) throw error;
+    if (pathExists(target)) throw new Error("The snapshot target already exists.", { cause: error });
+    throw new Error("The snapshot filesystem does not allow atomic hard-link publication.", { cause: error });
   }
 }
 
@@ -301,7 +275,7 @@ export function writeSnapshot(
     // The private staging directory protects the file while it is created; chmod it before publication.
     chmodSync(staging, 0o600);
     verifySnapshot(staging, "The snapshot");
-    // Prefer atomic no-clobber linking; serialize the rename fallback where the filesystem forbids hard links.
+    // Filesystems without hard-link support fail safely instead of using a rename that could replace a target.
     publishSnapshotNoClobber(staging, target);
   } finally {
     try {

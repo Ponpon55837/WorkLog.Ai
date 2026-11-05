@@ -57,6 +57,7 @@ describe("backup worker", () => {
     const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION);
 
     await expect(worker.createBackup()).rejects.toThrow(/資料庫 schema 版本 .* 與背景工作要求的版本 .* 不符/i);
+    await expect(worker.createBackup()).rejects.toThrow(/資料庫 schema 版本 .* 與背景工作要求的版本 .* 不符/i);
     await worker.close();
 
     const current = new DatabaseSync(databasePath, { readOnly: true });
@@ -169,10 +170,13 @@ describe("backup worker", () => {
       const invalidInput = { bundle: {} as ProjectDataExport } as ProjectDataImportInput;
       await expect(worker.previewProjectDataImport(invalidInput)).rejects.toBeInstanceOf(ProjectDataTransferError);
 
-      const exportPath = join(root, "whole-database.sqlite");
-      const wholeDatabase = await worker.exportTo(exportPath);
-      expect(wholeDatabase.bytes).toBe(statSync(exportPath).size);
-      assertHealthy(exportPath);
+      const exportDirectory = join(root, "user-selected-export");
+      mkdirSync(exportDirectory);
+      const wholeDatabasePath = join(exportDirectory, "whole-database.sqlite");
+      const wholeDatabase = await worker.exportTo(wholeDatabasePath);
+      expect(wholeDatabase.bytes).toBe(statSync(wholeDatabasePath).size);
+      expect(readdirSync(exportDirectory)).toEqual(["whole-database.sqlite"]);
+      assertHealthy(wholeDatabasePath);
 
       const activePreview = worker.previewProjectDataImport({ bundle });
       const workerClosing = worker.close();
@@ -185,6 +189,44 @@ describe("backup worker", () => {
     }
 
     assertHealthy(databasePath);
+  });
+
+  it("does not reject a replacement worker's requests when an older lifetime exits", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-lifetime-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const worker = new BackupWorkerClient(databasePath);
+    const workerState = worker as unknown as {
+      lifetime?: object;
+      pending: Map<number, { lifetime: object; resolve(value: unknown): void; reject(error: unknown): void }>;
+      rejectPending(error: unknown, lifetime: object): void;
+    };
+
+    try {
+      await worker.exportProjectData({ type: "all" });
+      const previousLifetime = workerState.lifetime;
+      if (!previousLifetime) throw new Error("Expected a live backup worker lifetime.");
+
+      const replacementLifetime = {};
+      let replacementFailure: unknown;
+      workerState.pending.set(-1, {
+        lifetime: replacementLifetime,
+        resolve() {},
+        reject(error) {
+          replacementFailure = error;
+        },
+      });
+
+      workerState.rejectPending(new Error("The previous worker exited."), previousLifetime);
+
+      expect(workerState.pending.has(-1)).toBe(true);
+      expect(replacementFailure).toBeUndefined();
+      workerState.pending.delete(-1);
+    } finally {
+      await worker.close();
+      store.close();
+    }
   });
 
   it("stops an idle worker and starts a fresh one for the next operation", async () => {

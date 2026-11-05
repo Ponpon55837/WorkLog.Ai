@@ -210,7 +210,11 @@ import { ReportReadService } from "./report-service.js";
 import { ReportSynthesisService } from "./report-synthesis-service.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
-import { assertDatabaseSchemaVersion, initializeWorkIntelligenceDatabase } from "./database-initialization.js";
+import {
+  assertDatabaseSchemaVersion,
+  configureWorkIntelligenceDatabaseConnection,
+  initializeWorkIntelligenceDatabase,
+} from "./database-initialization.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { DiagramService } from "./diagram-service.js";
@@ -411,6 +415,7 @@ export class WorkIntelligenceStore {
     this.db = new DatabaseSync(databasePath, readOnly ? { readOnly: true } : {});
     try {
       if (readOnly) {
+        configureWorkIntelligenceDatabaseConnection(this.db);
         assertDatabaseSchemaVersion(this.db, options.expectedSchemaVersion!);
       } else {
         initializeWorkIntelligenceDatabase(this.db, databasePath, this.backupOptions);

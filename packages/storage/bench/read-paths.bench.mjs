@@ -69,8 +69,9 @@ let benchmarkApiClosed = false;
 const heavyApiClientScript = `
 import { request } from "node:http";
 import { performance } from "node:perf_hooks";
-const [baseUrl, path, sessionCountArgument] = process.argv.slice(1);
+const [baseUrl, path, sessionCountArgument, healthArgument] = process.argv.slice(1);
 const sessionCount = Number(sessionCountArgument);
+const collectHealth = healthArgument === "health";
 const bodyChunks = [];
 for await (const chunk of process.stdin) bodyChunks.push(Buffer.from(chunk));
 const body = Buffer.concat(bodyChunks);
@@ -121,19 +122,22 @@ const operationPromise = new Promise((resolve, reject) => {
 });
 const healthSamples = [];
 let operationComplete = false;
-let nextProbeAt = performance.now();
-const healthMonitor = (async () => {
-  while (!operationComplete) {
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, nextProbeAt - performance.now())));
-    if (operationComplete) break;
-    const scheduledAt = nextProbeAt;
-    const response = await fetch(new URL("/api/health", baseUrl));
-    await response.arrayBuffer();
-    if (!response.ok) throw new Error("Health request failed: " + response.status);
-    healthSamples.push(performance.now() - scheduledAt);
-    nextProbeAt = Math.max(scheduledAt + 10, performance.now() + 10);
-  }
-})();
+let healthMonitor = Promise.resolve();
+if (collectHealth) {
+  let nextProbeAt = performance.now();
+  healthMonitor = (async () => {
+    while (!operationComplete) {
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, nextProbeAt - performance.now())));
+      if (operationComplete) break;
+      const scheduledAt = nextProbeAt;
+      const response = await fetch(new URL("/api/health", baseUrl));
+      await response.arrayBuffer();
+      if (!response.ok) throw new Error("Health request failed: " + response.status);
+      healthSamples.push(performance.now() - scheduledAt);
+      nextProbeAt = Math.max(scheduledAt + 10, performance.now() + 10);
+    }
+  })();
+}
 const [operationResult] = await Promise.allSettled([operationPromise]);
 operationComplete = true;
 const [healthResult] = await Promise.allSettled([healthMonitor]);
@@ -143,16 +147,26 @@ const operation = operationResult.value;
 healthSamples.sort((left, right) => left - right);
 const healthP90Ms = healthSamples[Math.ceil(healthSamples.length * 0.9) - 1] ?? 0;
 const healthMaxMs = healthSamples.at(-1) ?? 0;
-process.stdout.write(
-  JSON.stringify({ healthP90Ms, healthMaxMs, healthProbeCount: healthSamples.length, operationMs: performance.now() - operationStarted, ...operation }),
-);
+process.stdout.write(JSON.stringify({
+  ...(collectHealth ? { healthP90Ms, healthMaxMs, healthProbeCount: healthSamples.length } : {}),
+  operationMs: performance.now() - operationStarted,
+  ...operation,
+}));
 `;
 
-function runHeavyApiClient(baseUrl, path, body, targetSessionCount) {
+function runHeavyApiClient(baseUrl, path, body, targetSessionCount, probeHealth = false) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      ["--input-type=module", "-e", heavyApiClientScript, baseUrl, path, String(targetSessionCount)],
+      [
+        "--input-type=module",
+        "-e",
+        heavyApiClientScript,
+        baseUrl,
+        path,
+        String(targetSessionCount),
+        probeHealth ? "health" : "operation",
+      ],
       {
         env: process.env,
         stdio: ["pipe", "pipe", "pipe"],
@@ -792,12 +806,49 @@ try {
   const { createApiHandler } = await import(
     pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "server.js")).href
   );
-  const backgroundStore =
+  const workerClientModule =
     backupWorkerMode === "worker"
-      ? new (
-          await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "backup-worker-client.js")).href)
-        ).BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: backupWorkerBenchIdleTimeoutMs })
+      ? await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "backup-worker-client.js")).href)
       : undefined;
+  const BackupWorkerClient = workerClientModule?.BackupWorkerClient;
+  const backgroundStore = BackupWorkerClient
+    ? new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: backupWorkerBenchIdleTimeoutMs })
+    : undefined;
+  const coldStartWorkers = new Set();
+  const coldStartWorkerClosures = new Set();
+  function runColdStartWorker(operation) {
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: 0 });
+    coldStartWorkers.add(worker);
+    const result = operation(worker);
+    const closeWorker = () => {
+      const closing = worker.close().finally(() => coldStartWorkers.delete(worker));
+      coldStartWorkerClosures.add(closing);
+      void closing.then(
+        () => coldStartWorkerClosures.delete(closing),
+        () => coldStartWorkerClosures.delete(closing),
+      );
+    };
+    void result.then(closeWorker, closeWorker);
+    return result;
+  }
+  async function waitForColdStartWorkersClosed() {
+    while (coldStartWorkerClosures.size > 0) {
+      await Promise.allSettled([...coldStartWorkerClosures]);
+    }
+  }
+  const coldStartBackgroundStore = BackupWorkerClient
+    ? {
+        createBackup: () => runColdStartWorker((worker) => worker.createBackup()),
+        backupIfDue: () => runColdStartWorker((worker) => worker.backupIfDue()),
+        exportTo: (target) => runColdStartWorker((worker) => worker.exportTo(target)),
+        exportProjectData: (scope) => runColdStartWorker((worker) => worker.exportProjectData(scope)),
+        previewProjectDataImport: (input) => runColdStartWorker((worker) => worker.previewProjectDataImport(input)),
+        async close() {
+          await Promise.all([...coldStartWorkers].map((worker) => worker.close()));
+          await waitForColdStartWorkersClosed();
+        },
+      }
+    : undefined;
   const benchmarkServer = createServer(
     createApiHandler(benchStore, {
       ...(backgroundStore ? { backgroundStore } : {}),
@@ -812,29 +863,50 @@ try {
     throw new Error("The synthetic benchmark API did not expose a TCP address.");
   }
   const benchmarkBaseUrl = `http://127.0.0.1:${benchmarkAddress.port}`;
+  let coldStartServer;
+  let coldStartBaseUrl;
+  if (coldStartBackgroundStore) {
+    coldStartServer = createServer(createApiHandler(benchStore, { backgroundStore: coldStartBackgroundStore }));
+    await new Promise((resolve, reject) => {
+      coldStartServer.once("error", reject);
+      coldStartServer.listen(0, "127.0.0.1", resolve);
+    });
+    const coldStartAddress = coldStartServer.address();
+    if (!coldStartAddress || typeof coldStartAddress === "string") {
+      throw new Error("The cold-start synthetic benchmark API did not expose a TCP address.");
+    }
+    coldStartBaseUrl = `http://127.0.0.1:${coldStartAddress.port}`;
+  }
   closeBenchmarkApi = async () => {
     if (benchmarkApiClosed) return;
     benchmarkApiClosed = true;
-    await new Promise((resolve, reject) => {
-      benchmarkServer.close((error) => (error ? reject(error) : resolve()));
-    });
+    const closeServer = (server) =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    await closeServer(benchmarkServer);
+    if (coldStartServer) await closeServer(coldStartServer);
     await backgroundStore?.close();
+    await coldStartBackgroundStore?.close();
   };
 
-  // A separate client process measures a real health response while each heavy API request runs.
-  const heavyCases = {
-    createBackup: () => runHeavyApiClient(benchmarkBaseUrl, "/api/backups", "{}", sessionCount),
-    "exportTo (whole database)": () => runHeavyApiClient(benchmarkBaseUrl, "/api/export", "{}", sessionCount),
+  const makeHeavyCases = (baseUrl, probeHealth) => ({
+    createBackup: () => runHeavyApiClient(baseUrl, "/api/backups", "{}", sessionCount, probeHealth),
+    "exportTo (whole database)": () => runHeavyApiClient(baseUrl, "/api/export", "{}", sessionCount, probeHealth),
     "exportProjectData (all projects)": () =>
-      runHeavyApiClient(benchmarkBaseUrl, "/api/export", JSON.stringify({ scope: "all" }), sessionCount),
+      runHeavyApiClient(baseUrl, "/api/export", JSON.stringify({ scope: "all" }), sessionCount, probeHealth),
     "previewProjectDataImport (all projects)": () =>
       runHeavyApiClient(
-        benchmarkBaseUrl,
+        baseUrl,
         "/api/import/preview",
         JSON.stringify({ bundle: projectDataBundle }),
         sessionCount,
+        probeHealth,
       ),
-  };
+  });
+  const heavyCases = makeHeavyCases(benchmarkBaseUrl, false);
+  const heavyHealthCases = makeHeavyCases(benchmarkBaseUrl, true);
+  const coldStartHeavyCases = coldStartBaseUrl ? makeHeavyCases(coldStartBaseUrl, false) : {};
   const heavyRuns = 5;
   const beforeEachRun = {
     "getMcpRuntimeStatus (286 expired leases)": seedExpiredLeases,
@@ -897,6 +969,8 @@ try {
     "exportProjectData (all projects)": 400,
     "previewProjectDataImport (all projects)": 1500,
   };
+  // Ubuntu CI observed 11.26–44.83 ms event-loop block p90; twice the 44.83 ms maximum rounds up to 100 ms.
+  const eventLoopBlockLimitMs = 100;
 
   const results = [];
   const benchmarkCases = backupWorkerOnly ? heavyCases : { ...cases, ...heavyCases };
@@ -913,17 +987,21 @@ try {
     const eventLoopP90Samples = [];
     const eventLoopMaxSamples = [];
     const rssPeakSamples = [];
+    const healthP90Samples = [];
     const healthProbeSamples = [];
     for (let index = 0; index < caseRuns; index += 1) {
       beforeEachRun[name]?.();
       if (isHeavyCase) {
         const measured = await measureProcessResources(run);
-        samples.push(measured.value.healthP90Ms);
+        samples.push(measured.value.operationMs);
         operationSamples.push(measured.value.operationMs);
         eventLoopP90Samples.push(measured.eventLoopP90Ms);
         eventLoopMaxSamples.push(measured.eventLoopMaxMs);
         rssPeakSamples.push(measured.rssPeakMb);
-        healthProbeSamples.push(measured.value.healthProbeCount);
+        beforeEachRun[name]?.();
+        const healthRun = await heavyHealthCases[name]();
+        healthP90Samples.push(healthRun.healthP90Ms);
+        healthProbeSamples.push(healthRun.healthProbeCount);
       } else {
         const started = performance.now();
         await run();
@@ -946,20 +1024,26 @@ try {
       eventLoopP90Samples.sort((a, b) => a - b);
       eventLoopMaxSamples.sort((a, b) => a - b);
       rssPeakSamples.sort((a, b) => a - b);
+      healthP90Samples.sort((a, b) => a - b);
       const operationP90Ms = Number(operationSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
+      const healthP90Ms = Number(healthP90Samples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
       const eventLoopBlockP90Ms = Number(eventLoopMaxSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
       const eventLoopBlockMaxMs = Number(eventLoopMaxSamples.at(-1).toFixed(2));
       const eventLoopDelayP90Ms = Number(
         eventLoopP90Samples.sort((a, b) => a - b)[Math.ceil(caseRuns * 0.9) - 1].toFixed(2),
       );
       const operationLimitMs = limitsMs[name];
-      const eventLoopLimitMs = limitsMs[name];
+      const eventLoopLimitMs = eventLoopBlockLimitMs;
       const passed =
-        p90Ms <= limitsMs[name] && operationP90Ms <= operationLimitMs && eventLoopBlockP90Ms <= eventLoopLimitMs;
+        healthP90Ms <= operationLimitMs &&
+        operationP90Ms <= operationLimitMs &&
+        eventLoopBlockP90Ms <= eventLoopLimitMs;
       Object.assign(result, {
         operationMedianMs: Number(operationSamples[Math.floor(caseRuns / 2)].toFixed(2)),
         operationP90Ms,
         operationLimitMs,
+        healthP90Ms,
+        healthLimitMs: operationLimitMs,
         eventLoopDelayP90Ms,
         eventLoopBlockP90Ms,
         eventLoopBlockMaxMs,
@@ -968,6 +1052,22 @@ try {
         rssPeakMaxMb: rssPeakSamples.at(-1),
         passed: checkMode ? passed : undefined,
       });
+
+      if (coldStartHeavyCases[name]) {
+        const coldStartOperationSamples = [];
+        for (let index = 0; index < caseRuns; index += 1) {
+          beforeEachRun[name]?.();
+          const coldStartRun = await coldStartHeavyCases[name]();
+          coldStartOperationSamples.push(coldStartRun.operationMs);
+          await waitForColdStartWorkersClosed();
+        }
+        coldStartOperationSamples.sort((a, b) => a - b);
+        Object.assign(result, {
+          coldStartOperationMedianMs: Number(coldStartOperationSamples[Math.floor(caseRuns / 2)].toFixed(2)),
+          coldStartOperationP90Ms: Number(coldStartOperationSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2)),
+          coldStartOperationMaxMs: Number(coldStartOperationSamples.at(-1).toFixed(2)),
+        });
+      }
     }
     results.push(result);
   }
@@ -994,7 +1094,7 @@ try {
           .map((result) =>
             result.operationP90Ms === undefined
               ? `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`
-              : `${result.case} health p90 ${result.p90Ms}/${result.limitMs} ms, operation p90 ${result.operationP90Ms}/${result.operationLimitMs} ms, event-loop blocking p90 ${result.eventLoopBlockP90Ms}/${result.eventLoopLimitMs} ms`,
+              : `${result.case} health p90 ${result.healthP90Ms}/${result.healthLimitMs} ms, operation p90 ${result.operationP90Ms}/${result.operationLimitMs} ms, event-loop blocking p90 ${result.eventLoopBlockP90Ms}/${result.eventLoopLimitMs} ms`,
           )
           .join("; ")}`,
       );
@@ -1002,8 +1102,8 @@ try {
     } else {
       console.log(
         backupWorkerOnly
-          ? `Backup worker gate passed (${backupWorkerMode}, ${sessionCount} synthetic sessions, health probes throughout each operation, and p90 gates for health, operation total and main-thread event-loop blocking).`
-          : `Performance regression gate passed (${sessionCount} synthetic sessions; health probes throughout each heavy operation; health, operation-total and main-thread event-loop blocking p90 gates).`,
+          ? `Backup worker gate passed (${backupWorkerMode}, ${sessionCount} synthetic sessions; operation totals were timed without probes, while health was probed every 10 ms in a separate pass; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`
+          : `Performance regression gate passed (${sessionCount} synthetic sessions; operation totals and continuous health probes used separate passes; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`,
       );
     }
   }

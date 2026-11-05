@@ -150,9 +150,11 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 專案資料匯出（`exportProjectData`，全部專案） | 400 ms |
 | 匯入預覽（`previewProjectDataImport`，全部專案） | 1,500 ms |
 
-備份、整庫匯出、專案資料匯出與匯入預覽四個案例會在整個操作期間每 10 ms 持續送出另一行程的 `/api/health` 請求，不再等待固定延遲後只探測一次。API 程序同時以 `monitorEventLoopDelay`（10 ms resolution）連續量測主執行緒延遲。每個案例各跑 5 次，p90 是 5 次中的最大值；原本的 300／300／400／1,500 ms 數字原封不動，分別套用到 health p90、操作總時間 p90 和每次操作 event-loop 最大延遲的 p90。任一項超過原數值都會令 gate 失敗。
+備份、整庫匯出、專案資料匯出與匯入預覽各跑 5 次。操作總時間單獨量測，不同時送出 health 請求；health p90 另以另一個 client pass 量測，在整個重操作期間每 10 ms 持續呼叫 `/api/health`。API 程序在操作 pass 期間用 `monitorEventLoopDelay`（10 ms resolution）連續量測主執行緒延遲。每個案例 p90 是 5 次中的最大值。原有 300／300／400／1,500 ms 門檻不變，分別同時套用到 health p90 與 HTTP 操作總時間 p90。事件迴圈阻塞另設 100 ms p90 上限：既有 Ubuntu CI 四項 p90 約 11.26、13.30、44.83、13.66 ms，兩倍最高值為 89.66 ms，依既有規則進位到百毫秒為 100 ms。任一門檻超出都會令 gate 失敗。
 
-`operationP90Ms` 從 client 開始送出重工作請求，到完整讀完 API 回應，包含 worker `postMessage`、structured-clone、JSON 輸出和傳輸成本。匯入預覽會在 API 收到原始 bytes 後把 ArrayBuffer 轉移給 worker，由 worker 解析與驗證大型 JSON，避免主執行緒同步解析。bench 另以 10 ms 取樣列出各操作的程序 RSS 峰值，並在一次合成自動備份後等待 worker idle close 再列閒置 RSS；bench 與正式 server 都使用 15 秒 idle timeout，避免每次 client 請求之間的程序啟動時間污染穩態量測。案例沿用同一個 5,000 Sessions 合成 store；`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入 `export/`，兩者在每次計時前清空（不計入時間）；匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。
+`operationP90Ms` 從 client 開始送出重工作請求，到完整讀完 API 回應，包含 worker `postMessage`、structured-clone、JSON 輸出和傳輸成本。匯入預覽會在 API 收到原始 bytes 後把 ArrayBuffer 轉移給 worker，由 worker 解析與驗證大型 JSON，避免主執行緒同步解析。worker 模式另列冷啟動操作時間：每筆請求建立新的 worker client，HTTP 計時包含 worker 啟動，回應後的 worker 關閉不計入；此欄只回報，不設門檻。bench 另以 10 ms 取樣列出各操作的程序 RSS 峰值，並在一次合成自動備份後等待 worker idle close 再列閒置 RSS；穩態 bench 與正式 server 都使用 15 秒 idle timeout。案例沿用同一個 5,000 Sessions 合成 store；`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入 `export/`，兩者在每次計時前清空（不計入時間）；匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。
+
+經驗證的快照先寫進同一目錄內的私有 staging directory，quick check 成功後以 `linkSync` 原子建立正式目標；成功的備份或匯出只留下正式輸出檔。目標已存在時原子 hard link 會拒絕覆蓋。若檔案系統不支援 hard link，備份／匯出會明確失敗並清除 staging；不改用 rename 或直接複製，因為 Node 的 rename 可能替換並行程序剛建立的目標，而直接複製會讓尚未完整的正式檔名可見。
 
 修改前後比對使用獨立行程、相同 5,000 Sessions 快取資料庫，各跑 3 輪並交錯 control／worker 順序，最後取每輪 p90 的中位數。只量這四項可執行：
 

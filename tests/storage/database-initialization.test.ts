@@ -45,6 +45,25 @@ describe("database initialization", () => {
     try {
       const db = (store as unknown as { db: DatabaseSync }).db;
       expect(db.prepare("PRAGMA cache_size").get()).toEqual({ cache_size: -16000 });
+      expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 5000 });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("configures the shared cache and busy timeout on a read-only store connection", () => {
+    const paths = createDatabasePaths();
+    const initialized = new WorkIntelligenceStore(paths.databasePath);
+    initialized.close();
+
+    const store = new WorkIntelligenceStore(paths.databasePath, {
+      mode: "read-only",
+      expectedSchemaVersion: LATEST_SCHEMA_VERSION,
+    });
+    try {
+      const db = (store as unknown as { db: DatabaseSync }).db;
+      expect(db.prepare("PRAGMA cache_size").get()).toEqual({ cache_size: -16000 });
+      expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 5000 });
     } finally {
       store.close();
     }
