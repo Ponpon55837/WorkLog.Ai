@@ -82,6 +82,8 @@ const RECALL_EXCERPT_CHARS = 110;
 /** What an Agent is about to work on; ranks relevant records into the context result. */
 export type ContextFocus = { task?: string; paths?: string[] };
 
+type MetadataBackfillTotals = Extract<MetadataBackfillPreviewResult, { outcome: "backfill_preview" }>["totals"];
+
 interface ContextRecallStoreReader {
   checkProjectRoot(projectRoot: string): PolicyDecision;
   listProjects(): ProjectRecord[];
@@ -96,6 +98,7 @@ interface ContextRecallStoreReader {
   listMetadataBackfillRequests(options: MetadataBackfillRequestQuery): MetadataBackfillRequestListQueryResult;
   listOutstandingCleanupRequests(options: OutstandingCleanupRequestQuery): OutstandingCleanupRequestListResult;
   previewMetadataBackfill(options: { projectRoot?: string; limit?: number }): MetadataBackfillPreviewResult;
+  countMetadataBackfillFollowUps(options: { projectRoot?: string }): MetadataBackfillTotals | undefined;
   openKnowledgeCandidateRequests(projectId?: string): KnowledgeCandidateRequest[];
   countPendingAgentDecisions(projectId?: string): number;
   knowledgePageDigests(projectId: string): KnowledgePageDigest[];
@@ -1118,10 +1121,14 @@ export class ContextRecallService {
 
   private getMetadataFollowUps(projectId?: string): ContextResult["metadataFollowUps"] {
     const projectRoot = projectId ? this.store.getProjectById(projectId)?.rootPath : undefined;
-    const preview = this.store.previewMetadataBackfill({ projectRoot, limit: 1 });
-    return preview.outcome === "backfill_preview"
-      ? preview.totals
-      : { needsBackfill: 0, changedFilesMissing: 0, verificationMissing: 0, verificationNotRun: 0 };
+    return (
+      this.store.countMetadataBackfillFollowUps({ projectRoot }) ?? {
+        needsBackfill: 0,
+        changedFilesMissing: 0,
+        verificationMissing: 0,
+        verificationNotRun: 0,
+      }
+    );
   }
 
   private getRecentKnowledge(projectId?: string): KnowledgeDigest[] {

@@ -1,4 +1,5 @@
 import {
+  closeSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -43,6 +44,7 @@ vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
     ...actual,
+    closeSync: vi.fn((...args: Parameters<typeof actual.closeSync>) => actual.closeSync(...args)),
     linkSync: vi.fn((...args: Parameters<typeof actual.linkSync>) => {
       const failure = fileSystemFailures.link;
       fileSystemFailures.link = undefined;
@@ -65,6 +67,7 @@ const tempDirs: string[] = [];
 afterEach(() => {
   fileSystemFailures.link = undefined;
   fileSystemFailures.rename = undefined;
+  vi.mocked(closeSync).mockClear();
   vi.mocked(linkSync).mockClear();
   vi.mocked(renameSync).mockClear();
   for (const store of stores.splice(0)) {
@@ -222,6 +225,7 @@ describe("database backups", () => {
 
     try {
       expect(() => writeSnapshot(database, target)).toThrow("Injected rename failure.");
+      expect(closeSync).toHaveBeenCalledTimes(1);
       expect(existsSync(target)).toBe(false);
       expect(readdirSync(root).filter((name) => /^\.wi-\d+-[0-9a-f-]+\.tmp$/i.test(name))).toEqual([]);
     } finally {

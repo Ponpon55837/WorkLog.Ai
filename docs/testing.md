@@ -130,6 +130,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 年報 | 1,500 ms |
 | Agent context | 2,500 ms |
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
+| metadata follow-up count（5,000 個 tracked Sessions；計數需與完整預覽總數一致） | 100 ms |
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
 | finalize 知識頁維護提示（3 頁 × 5,000 個新 Session） | 250 ms |
 | task context 相關未結項（5,000 Sessions／1,000 項，含文字與路徑排名） | 500 ms |
@@ -166,6 +167,8 @@ node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-on
 使用基準 checkout 的建置產物時，將 `WI_BACKUP_BENCH_BUILD_ROOT` 指向該獨立 checkout；`WI_BENCH_CACHE`、`WORK_INTELLIGENCE_DB`、`TEMP` 與 `HOME` 應全部指向暫存位置。沒有 `--backup-worker-only` 時，`pnpm test:performance` 仍會執行完整讀取路徑套件。
 
 搜尋的上限原本是 10,000 ms。修正全文搜尋的 join 順序後（見 `search-repository.ts` 的 `CROSS JOIN` 註解），中位數從約 2,000 ms 降到約 13 ms，因此收緊到 500 ms，讓同樣數量級的退化會直接失敗。新增讀取路徑時，請在 `read-paths.bench.mjs` 加上對應情境與上限。
+
+`metadata follow-up count` 獨立量測 `work_get_context` 使用的 SQL 聚合，不建立完整預覽 DTO；bench 在計時前用 JavaScript 預覽 totals 驗證 SQL 結果完全相同。5,000 筆完整預覽的既有本機 p90 約 58 ms，因此 count-only 路徑設 100 ms 上限；完整明細預覽仍保留原本路徑與回傳內容。
 
 第九輪 B1 在相同 5,000 Sessions／1,000 合成未結項中新增來源完成日期的月份篩選，p90 為 1.62 ms（上限 250 ms）；既有未結項列表 p90 為 7.89 ms。28 組讀取門檻全部通過。批次測試涵蓋 100／101 項、重複／無效 ID、作廢來源、停用專案、狀態衝突、無變更不追加稽核與稽核失敗整批回滾；瀏覽器測試涵蓋跨頁復原、日期 URL／reload，以及 1440／960／375px 的區塊內捲動。
 

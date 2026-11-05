@@ -560,6 +560,7 @@ export class WorkIntelligenceStore {
       listReportSynthesisRequests: (query) => this.listReportSynthesisRequests(query),
       listMetadataBackfillRequests: (query) => this.listMetadataBackfillRequests(query),
       previewMetadataBackfill: (previewOptions) => this.previewMetadataBackfill(previewOptions),
+      countMetadataBackfillFollowUps: (countOptions) => this.countMetadataBackfillFollowUps(countOptions),
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
       listOutstandingItems: (input) => this.outstandingItems.list(input),
@@ -747,6 +748,12 @@ export class WorkIntelligenceStore {
     } = {},
   ): MetadataBackfillPreviewResult {
     return this.metadataBackfillService.previewMetadataBackfill(options);
+  }
+
+  public countMetadataBackfillFollowUps(
+    options: { projectRoot?: string } = {},
+  ): ReturnType<MetadataBackfillService["countMetadataBackfillFollowUps"]> {
+    return this.metadataBackfillService.countMetadataBackfillFollowUps(options);
   }
 
   public createMetadataBackfillRequest(input: CreateMetadataBackfillRequestInput): CreateMetadataBackfillRequestResult {
