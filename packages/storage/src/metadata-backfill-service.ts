@@ -80,7 +80,7 @@ function changedFilesMetadataMissingSql(alias: string): string {
 function verificationValueFalsySql(alias: string): string {
   const json = `${alias}.verification_json`;
   return (
-    `CASE WHEN NOT json_valid(${json}) THEN 1 ` +
+    `CASE WHEN ${json} IS NULL OR NOT json_valid(${json}) THEN 1 ` +
     `WHEN json_type(${json}) IN ('null', 'false') THEN 1 ` +
     `WHEN json_type(${json}) IN ('integer', 'real') AND json_extract(${json}, '$') = 0 THEN 1 ` +
     `WHEN json_type(${json}) = 'text' AND json_extract(${json}, '$') = '' THEN 1 ELSE 0 END`
