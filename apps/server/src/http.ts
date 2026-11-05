@@ -1,8 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { Buffer } from "node:buffer";
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import type { ApiErrorCode, ProjectFolderStatus, ProjectListRecord } from "@work-intelligence/core";
+import type {
+  ApiErrorCode,
+  ProjectDataImportInput,
+  ProjectFolderStatus,
+  ProjectListRecord,
+} from "@work-intelligence/core";
 import { ProjectDataTransferError, canonicalizeProjectRoot } from "@work-intelligence/storage";
+import { projectDataImportInputSchema } from "@work-intelligence/schema";
 
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 export const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -17,6 +24,7 @@ export class RequestBodyError extends Error {
     message: string,
   ) {
     super(message);
+    this.name = "RequestBodyError";
   }
 }
 
@@ -70,6 +78,53 @@ export async function readJsonBody(request: IncomingMessage, maxBytes = MAX_INPU
   } catch {
     throw new RequestBodyError(400, "Invalid JSON request body.");
   }
+}
+
+/** Reads bounded JSON bytes without parsing them on the request event loop. */
+export async function readJsonBytesBody(
+  request: IncomingMessage,
+  maxBytes = MAX_INPUT_PAYLOAD_BYTES,
+): Promise<Uint8Array> {
+  const contentType = request.headers["content-type"];
+  if (typeof contentType !== "string" || !contentType.toLowerCase().startsWith("application/json")) {
+    throw new RequestBodyError(415, "Content-Type must be application/json.");
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > maxBytes) {
+      throw new RequestBodyError(413, "Request body is too large.");
+    }
+    chunks.push(buffer);
+  }
+
+  if (total === 0) return Uint8Array.from([0x7b, 0x7d]);
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+
+/** Parses and validates an import payload after it reaches the worker or inline fallback. */
+export function parseProjectDataImportBytes(bytes: Uint8Array): ProjectDataImportInput {
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch {
+    throw new RequestBodyError(400, "Invalid JSON request body.");
+  }
+
+  const parsed = projectDataImportInputSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new RequestBodyError(400, `匯入檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+  }
+  return parsed.data;
 }
 
 /** The JSON body as an object, so a route can merge path parameters into it before validation. */

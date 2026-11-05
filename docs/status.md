@@ -4,11 +4,32 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-04
+- 最後更新：2026-11-05
 
 ## 後端效能改善
 
-System Status 的登入服務查詢已改為非同步，成功結果快取 30 秒並共用進行中的查詢；SQLite 連線的頁面快取設定為 16,000 KiB。P0 PR 3 的 schema 31 revision 通知與 Web Agent 讀取局部失效已提交至 PR #282；設計、驗證與複檢紀錄見該 PR 與工作記錄。其餘效能工作仍待後續分階段處理與複檢。
+System Status 的登入服務查詢已改為非同步，成功結果快取 30 秒並共用進行中的查詢；SQLite 連線的頁面快取設定為 16,000 KiB。P0 PR 3 的 schema 31 revision 通知與 Web Agent 讀取局部失效已提交至 PR #282；設計、驗證與複檢紀錄見該 PR 與工作記錄。
+
+P1 5.1 在獨立 worktree 實作：備份、整庫匯出、專案資料匯出與匯入預覽使用專用 worker connection；自動備份延至 server 啟動 60 秒後，shutdown 會先等 HTTP 請求與 worker 排空，再關閉 SQLite。worker 使用唯讀連線並核對主程序傳入的 schema 版本；專案資料匯出以 transfer UTF-8 bytes 回傳。快照發布優先使用原子 hard link；不支援 hard link 時用 `openSync(target, "wx")` 專有佔位再 rename，rename 失敗會刪除佔位。完成後目標目錄不留 `.wi-publish-*` 鎖檔或 staging。
+
+340ff3e（加入 transfer bytes 前）本機以 5,000 Sessions、11.2 MiB 合成快取資料庫量測；同一資料庫跑三輪，每輪交錯 control／worker，各案例 5 次取 p90，再取三輪 p90 的中位數。操作總時間與 `/api/health` 分開量測；health pass 在重工作期間每 10 ms 探測，事件迴圈以 10 ms `monitorEventLoopDelay` 連續量測。主機為 Windows／Node 24.16／12 個邏輯處理器；命令序列執行，沒有同時跑其他測試，受限執行環境無法讀取整台主機的 CPU 負載，因此絕對值仍可能有背景負載雜訊。下表的操作與 health 門檻均維持原值；事件迴圈阻塞上限依 Ubuntu CI p90 11.26–44.83 ms 的兩倍 89.66 ms 進位為 100 ms。
+
+| HTTP 路徑 | 操作總 p90：control → worker | health p90：control → worker | 事件迴圈阻塞 p90：control → worker | 門檻（操作／health／阻塞） |
+| --- | ---: | ---: | ---: | ---: |
+| 手動備份 | 834.87 → 763.89 ms | 832.89 → 13.43 ms | 824.18 → 25.79 ms | 300／300／100 ms |
+| 整庫匯出 | 1,044.40 → 1,044.73 ms | 39.09 → 9.61 ms | 773.32 → 48.96 ms | 300／300／100 ms |
+| 專案資料匯出 | 914.41 → 1,029.37 ms | 868.50 → 12.29 ms | 791.67 → 106.30 ms | 400／400／100 ms |
+| 匯入預覽 | 2,556.72 → 2,729.26 ms | 2,554.20 → 12.83 ms | 2,539.65 → 106.69 ms | 1,500／1,500／100 ms |
+
+該 340ff3e A/B 的 worker health 四項通過；操作總時間四項仍超過原門檻，專案匯出與匯入預覽的阻塞 p90 也超過 100 ms。其冷啟動操作 p90（只回報、不設門檻）為 314.64、410.65、633.93、1,302.25 ms；操作 process RSS peak 範圍為備份 279.3–283.6、整庫匯出 193.6–333.5、專案匯出 420.2–537.7、匯入預覽 494.7–512.1 MiB。合成自動備份前 process RSS 為 402.1／428.4／454.9 MiB，尖峰為 405.0／430.9／454.9 MiB，15 秒 idle close 後為 143.2／144.8／144.4 MiB。
+
+加入 UTF-8 bytes transfer 後，完整 `pnpm test:performance` 本機單輪仍未通過：worker 操作總 p90／health p90／event-loop blocking p90 分別為備份 508.47／14.42／27.53 ms、整庫匯出 549.06／10.04／24.74 ms、專案匯出 628.08／14.05／26.02 ms、匯入預覽 2,120.60／10.78／39.78 ms；操作門檻仍為 300／300／400／1,500 ms，blocking 門檻為 100 ms。冷啟動操作 p90（只回報、不設門檻）為 1,370.49、1,609.46、1,975.55、3,988.70 ms。每項操作 process RSS peak 為 509.8、518.2、520.9、554.5 MiB；合成自動備份前 process RSS 為 504.2 MiB、尖峰 524.6 MiB，worker 閒置 15 秒關閉後為 314.7 MiB。此輪在 Windows／Node 24.16／12 個邏輯處理器執行，沒有與其他測試並行；當時 process RSS 已是 504.2 MiB，且系統整體 CPU 負載無法讀取。完整效能 gate 另有 13 個既有 read-path／MCP 案例超標，原始結果保留於暫存 log。
+
+`pnpm test:e2e` 在 340ff3e 本機實跑為 117 passed、15 failed，包含測試／截圖 30 秒 timeout 與一項 visibility assertion；Chromium 執行失敗後 Firefox／WebKit 未執行。此結果不宣稱 E2E 通過；新 head 的 E2E 必須待 CI 實際執行並通過。完整測試與 benchmark 原始 log 保留於本次工作暫存目錄；詳細測法見 [testing.md](testing.md)。
+
+本次 bytes-transfer 修正的新 head 本機 `pnpm test:e2e` 也未取得完整摘要：Chromium 輸出至少 125 個成功與 16 個失敗結果後，連續超過 6 分鐘沒有新 log，確認測試 Node runner 已結束後中止外層命令。此為不完整的本機執行，不當作 E2E 通過或最終測試計數；log 與 Playwright artifacts 保留於隔離 worktree／暫存目錄。新 head 的 CI E2E 仍須實際跑完並通過。
+
+[PR #283](https://github.com/Ponpon55837/WorkLog.Ai/pull/283) 維持開啟並等待 Claude 複檢；操作時間超標與本機 E2E 逾時都會照實交接，不放寬門檻。其餘 P1 項目要等本 PR 合併後才從最新 `main` 開始。
 
 ## 知識品質 Roadmap（已完成）
 

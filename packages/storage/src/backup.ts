@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -192,24 +195,120 @@ function assertHealthy(path: string, label: string): void {
   }
 }
 
+function processIsAlive(processId: number): boolean {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    return code !== "ESRCH";
+  }
+}
+
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    return code !== "ENOENT" && code !== "ENOTDIR";
+  }
+}
+
+function publishSnapshotNoClobber(staging: string, target: string): void {
+  try {
+    // linkSync atomically publishes without replacing a target created by another process.
+    linkSync(staging, target);
+    return;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "EEXIST") throw new Error("The snapshot target already exists.", { cause: error });
+  }
+
+  // Reserve the destination exclusively before rename so unsupported hard links have a safe fallback.
+  let reservation: number;
+  try {
+    reservation = openSync(target, "wx", 0o600);
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "EEXIST") throw new Error("The snapshot target already exists.", { cause: error });
+    throw error;
+  }
+
+  try {
+    closeSync(reservation);
+    renameSync(staging, target);
+  } catch (error) {
+    try {
+      closeSync(reservation);
+    } catch {
+      // The reservation may already be closed.
+    }
+    try {
+      unlinkSync(target);
+    } catch {
+      // Preserve the publication error if the reservation disappeared or could not be removed.
+    }
+    throw error;
+  }
+}
+
+/** Removes only private staging directories whose recorded owner process is no longer running. */
+export function cleanupOrphanedBackupStagingDirectories(
+  directory: string,
+  isProcessAlive: (processId: number) => boolean = processIsAlive,
+): void {
+  let entries;
+  try {
+    entries = readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const match = /^\.wi-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/i.exec(entry.name);
+    if (!match) continue;
+    const ownerProcessId = Number(match[1]);
+    if (!Number.isSafeInteger(ownerProcessId) || ownerProcessId < 1 || isProcessAlive(ownerProcessId)) continue;
+
+    const stagingDirectory = join(directory, entry.name);
+    try {
+      const stats = lstatSync(stagingDirectory);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) continue;
+      rmSync(stagingDirectory, { recursive: true, force: true });
+    } catch {
+      // A staging directory can disappear between listing it and checking its owner.
+    }
+  }
+}
+
 /** VACUUM INTO gives a consistent copy even while other connections write through WAL. */
-function writeSnapshot(db: DatabaseSync, target: string): void {
-  if (existsSync(target)) {
+export function writeSnapshot(
+  db: DatabaseSync,
+  target: string,
+  verifySnapshot: (path: string, label: string) => void = assertHealthy,
+): void {
+  if (pathExists(target)) {
     throw new Error("The snapshot target already exists.");
   }
-  // Create the file owner-only from the start; chmod alone would leave it readable until it runs.
-  const previousUmask = process.umask(0o077);
+  const targetDirectory = dirname(target);
+  cleanupOrphanedBackupStagingDirectories(targetDirectory);
+  const stagingDirectory = join(targetDirectory, `.wi-${process.pid}-${randomUUID()}.tmp`);
+  mkdirSync(stagingDirectory, { mode: 0o700 });
+  const staging = join(stagingDirectory, "snapshot.sqlite");
   try {
-    db.prepare("VACUUM INTO ?").run(target);
+    db.prepare("VACUUM INTO ?").run(staging);
+    // The private staging directory protects the file while it is created; chmod it before publication.
+    chmodSync(staging, 0o600);
+    verifySnapshot(staging, "The snapshot");
+    // Prefer a hard link; an exclusive target reservation makes the rename fallback no-clobber.
+    publishSnapshotNoClobber(staging, target);
   } finally {
-    process.umask(previousUmask);
-  }
-  chmodSync(target, 0o600);
-  try {
-    assertHealthy(target, "The snapshot");
-  } catch (error) {
-    rmSync(target, { force: true });
-    throw error;
+    try {
+      rmSync(stagingDirectory, { recursive: true, force: true });
+    } catch {
+      // An orphaned private staging directory is not a valid backup name.
+    }
   }
 }
 

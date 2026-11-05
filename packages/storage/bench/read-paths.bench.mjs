@@ -3,36 +3,53 @@
 // Usage:
 //   pnpm --filter @work-intelligence/storage build
 //   node packages/storage/bench/read-paths.bench.mjs [sessionCount]
+//   node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-only --backup-worker-mode=sync|worker
 //
 // Seeding thousands of Sessions is slow, so set WI_BENCH_CACHE=<path prefix> to keep the
 // seeded SQLite file and reuse it on the next run (for before/after comparisons).
 import console from "node:console";
+import { Buffer } from "node:buffer";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createServer } from "node:http";
 import { join, resolve } from "node:path";
-import { fileURLToPath, URL } from "node:url";
-import { performance } from "node:perf_hooks";
+import { fileURLToPath, pathToFileURL, URL } from "node:url";
+import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import { clearInterval, setInterval, setTimeout } from "node:timers";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
-import { LATEST_SCHEMA_VERSION, toAgentReportContext, toSessionDigests, WorkIntelligenceStore } from "../dist/index.js";
-import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "../../../apps/mcp/dist/recall-evaluation.js";
-
-import {
-  getMcpRuntimeDirectory,
-  getMcpRuntimeStatus,
-  readMcpBuildIdentity,
-  registerMcpProcess,
-} from "../../shared/dist/mcp-runtime.js";
 
 const args = process.argv.slice(2);
 const sessionCountArgument = args.find((argument) => !argument.startsWith("--"));
 const sessionCount = Number(sessionCountArgument ?? 5000);
 const checkMode = args.includes("--check");
+const backupWorkerOnly = args.includes("--backup-worker-only");
+const backupWorkerModeArgument = args.find((argument) => argument.startsWith("--backup-worker-mode="));
+const backupWorkerMode = backupWorkerModeArgument?.slice("--backup-worker-mode=".length) ?? "worker";
 if (!Number.isSafeInteger(sessionCount) || sessionCount < 1) {
   throw new Error("Session count must be a positive safe integer.");
 }
+if (backupWorkerMode !== "worker" && backupWorkerMode !== "sync") {
+  throw new Error("Backup worker benchmark mode must be 'worker' or 'sync'.");
+}
+const repositoryRoot = resolve(
+  process.env.WI_BACKUP_BENCH_BUILD_ROOT ?? fileURLToPath(new URL("../../..", import.meta.url)),
+);
+const [
+  { LATEST_SCHEMA_VERSION, toAgentReportContext, toSessionDigests, WorkIntelligenceStore },
+  recallEvaluation,
+  mcpRuntime,
+] = await Promise.all([
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "apps", "mcp", "dist", "recall-evaluation.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "shared", "dist", "mcp-runtime.js")).href),
+]);
+const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
+const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
 const runs = 15;
+const backupWorkerBenchIdleTimeoutMs = 15_000;
 const root = mkdtempSync(join(tmpdir(), "wi-bench-"));
 const alphaRoot = join(root, "alpha");
 const betaRoot = join(root, "beta");
@@ -46,6 +63,167 @@ if (cached) {
   copyFileSync(cachePath, databasePath);
 }
 const store = new WorkIntelligenceStore(databasePath);
+let closeBenchmarkApi = async () => {};
+let benchmarkApiClosed = false;
+
+const heavyApiClientScript = `
+import { request } from "node:http";
+import { performance } from "node:perf_hooks";
+const [baseUrl, path, sessionCountArgument, healthArgument] = process.argv.slice(1);
+const sessionCount = Number(sessionCountArgument);
+const collectHealth = healthArgument === "health";
+const bodyChunks = [];
+for await (const chunk of process.stdin) bodyChunks.push(Buffer.from(chunk));
+const body = Buffer.concat(bodyChunks);
+const operationStarted = performance.now();
+const operationPromise = new Promise((resolve, reject) => {
+  const operation = request(new URL(path, baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json", "content-length": String(body.length) },
+  }, (response) => {
+    const chunks = [];
+    response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    response.once("error", reject);
+    response.once("end", () => {
+      const content = Buffer.concat(chunks);
+      if ((response.statusCode ?? 500) < 200 || (response.statusCode ?? 500) >= 300) {
+        reject(new Error("Heavy API request failed: " + response.statusCode + " " + content.toString("utf8")));
+        return;
+      }
+      if (path === "/api/backups") {
+        const result = JSON.parse(content.toString("utf8"));
+        if (result.outcome !== "database_backups" || !result.created?.bytes) {
+          reject(new Error("Expected a written backup."));
+          return;
+        }
+      } else if (path === "/api/export" && body.toString("utf8").includes("scope")) {
+        const result = JSON.parse(content.toString("utf8"));
+        if (!Array.isArray(result.tables?.sessions) || result.tables.sessions.length < sessionCount) {
+          reject(new Error("Expected every synthetic Session exported."));
+          return;
+        }
+      } else if (path === "/api/import/preview") {
+        const result = JSON.parse(content.toString("utf8"));
+        if (result.outcome !== "project_data_import_preview" || (result.skipped?.sessions ?? 0) < sessionCount) {
+          reject(new Error("Expected every synthetic Session previewed as already present."));
+          return;
+        }
+      } else if (path === "/api/export" && content.byteLength === 0) {
+        reject(new Error("Expected a written database export."));
+        return;
+      }
+      resolve({ status: response.statusCode, bytes: content.byteLength });
+    });
+  });
+  operation.once("error", (error) => {
+    reject(error);
+  });
+  operation.end(body);
+});
+const healthSamples = [];
+let operationComplete = false;
+let healthMonitor = Promise.resolve();
+if (collectHealth) {
+  let nextProbeAt = performance.now();
+  healthMonitor = (async () => {
+    while (!operationComplete) {
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, nextProbeAt - performance.now())));
+      if (operationComplete) break;
+      const scheduledAt = nextProbeAt;
+      const response = await fetch(new URL("/api/health", baseUrl));
+      await response.arrayBuffer();
+      if (!response.ok) throw new Error("Health request failed: " + response.status);
+      healthSamples.push(performance.now() - scheduledAt);
+      nextProbeAt = Math.max(scheduledAt + 10, performance.now() + 10);
+    }
+  })();
+}
+const [operationResult] = await Promise.allSettled([operationPromise]);
+operationComplete = true;
+const [healthResult] = await Promise.allSettled([healthMonitor]);
+if (healthResult.status === "rejected") throw healthResult.reason;
+if (operationResult.status === "rejected") throw operationResult.reason;
+const operation = operationResult.value;
+healthSamples.sort((left, right) => left - right);
+const healthP90Ms = healthSamples[Math.ceil(healthSamples.length * 0.9) - 1] ?? 0;
+const healthMaxMs = healthSamples.at(-1) ?? 0;
+process.stdout.write(JSON.stringify({
+  ...(collectHealth ? { healthP90Ms, healthMaxMs, healthProbeCount: healthSamples.length } : {}),
+  operationMs: performance.now() - operationStarted,
+  ...operation,
+}));
+`;
+
+function runHeavyApiClient(baseUrl, path, body, targetSessionCount, probeHealth = false) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        heavyApiClientScript,
+        baseUrl,
+        path,
+        String(targetSessionCount),
+        probeHealth ? "health" : "operation",
+      ],
+      {
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+    child.once("error", reject);
+    child.once("close", (code) => {
+      const output = Buffer.concat(stdout).toString("utf8");
+      if (code !== 0) {
+        reject(new Error(`Heavy API client failed (${code}): ${Buffer.concat(stderr).toString("utf8")}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(output));
+      } catch (error) {
+        reject(new Error(`Heavy API client returned invalid output: ${output}`, { cause: error }));
+      }
+    });
+    child.stdin.once("error", (error) => {
+      if (error.code !== "EPIPE") reject(error);
+    });
+    child.stdin.end(body);
+  });
+}
+
+async function measureProcessResources(run) {
+  const eventLoop = monitorEventLoopDelay({ resolution: 10 });
+  const rssBefore = process.memoryUsage.rss();
+  let rssPeak = rssBefore;
+  const rssTimer = setInterval(() => {
+    rssPeak = Math.max(rssPeak, process.memoryUsage.rss());
+  }, 10);
+  eventLoop.enable();
+  let value;
+  try {
+    value = await run();
+  } finally {
+    clearInterval(rssTimer);
+    eventLoop.disable();
+  }
+  const rssAfter = process.memoryUsage.rss();
+  rssPeak = Math.max(rssPeak, rssAfter);
+  const toMs = (nanoseconds) => (Number.isFinite(nanoseconds) ? Number((nanoseconds / 1e6).toFixed(2)) : 0);
+  const toMb = (bytes) => Number((bytes / 1024 / 1024).toFixed(1));
+  return {
+    value,
+    eventLoopP90Ms: toMs(eventLoop.percentile(90)),
+    eventLoopMaxMs: toMs(eventLoop.max),
+    rssBeforeMb: toMb(rssBefore),
+    rssPeakMb: toMb(rssPeak),
+    rssAfterMb: toMb(rssAfter),
+  };
+}
 
 function seed() {
   const roots = [alphaRoot, betaRoot];
@@ -256,7 +434,6 @@ try {
     }
   }
   const mcpRuntimeRoot = join(root, "synthetic-runtime");
-  const repositoryRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
   mkdirSync(mcpRuntimeRoot);
   copyFileSync(join(repositoryRoot, "package.json"), join(mcpRuntimeRoot, "package.json"));
   for (const directory of [
@@ -626,30 +803,110 @@ try {
     rmSync(exportDirectory, { recursive: true, force: true });
     mkdirSync(exportDirectory);
   };
-  // Each call holds the event loop for its whole duration, so this is how long the API and SSE stop answering.
-  const heavyCases = {
-    createBackup: () => {
-      const result = benchStore.createBackup();
-      if (result.outcome !== "database_backups" || !result.created.bytes) throw new Error("Expected a written backup.");
-      return result;
-    },
-    "exportTo (whole database)": () => {
-      const result = benchStore.exportTo(join(exportDirectory, "export.sqlite"));
-      if (!result.bytes) throw new Error("Expected a written export.");
-      return result;
-    },
-    "exportProjectData (all projects)": () => {
-      const result = benchStore.exportProjectData({ type: "all" });
-      if (result.tables.sessions.length < sessionCount) throw new Error("Expected every synthetic Session exported.");
-      return result;
-    },
-    "previewProjectDataImport (all projects)": () => {
-      const result = benchStore.previewProjectDataImport({ bundle: projectDataBundle });
-      if (result.outcome !== "project_data_import_preview" || (result.skipped.sessions ?? 0) < sessionCount)
-        throw new Error("Expected every synthetic Session previewed as already present.");
-      return result;
-    },
+  const { createApiHandler } = await import(
+    pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "server.js")).href
+  );
+  const workerClientModule =
+    backupWorkerMode === "worker"
+      ? await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "backup-worker-client.js")).href)
+      : undefined;
+  const BackupWorkerClient = workerClientModule?.BackupWorkerClient;
+  const backgroundStore = BackupWorkerClient
+    ? new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: backupWorkerBenchIdleTimeoutMs })
+    : undefined;
+  const coldStartWorkers = new Set();
+  const coldStartWorkerClosures = new Set();
+  function runColdStartWorker(operation) {
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: 0 });
+    coldStartWorkers.add(worker);
+    const result = operation(worker);
+    const closeWorker = () => {
+      const closing = worker.close().finally(() => coldStartWorkers.delete(worker));
+      coldStartWorkerClosures.add(closing);
+      void closing.then(
+        () => coldStartWorkerClosures.delete(closing),
+        () => coldStartWorkerClosures.delete(closing),
+      );
+    };
+    void result.then(closeWorker, closeWorker);
+    return result;
+  }
+  async function waitForColdStartWorkersClosed() {
+    while (coldStartWorkerClosures.size > 0) {
+      await Promise.allSettled([...coldStartWorkerClosures]);
+    }
+  }
+  const coldStartBackgroundStore = BackupWorkerClient
+    ? {
+        createBackup: () => runColdStartWorker((worker) => worker.createBackup()),
+        backupIfDue: () => runColdStartWorker((worker) => worker.backupIfDue()),
+        exportTo: (target) => runColdStartWorker((worker) => worker.exportTo(target)),
+        exportProjectData: (scope) => runColdStartWorker((worker) => worker.exportProjectData(scope)),
+        previewProjectDataImport: (input) => runColdStartWorker((worker) => worker.previewProjectDataImport(input)),
+        async close() {
+          await Promise.all([...coldStartWorkers].map((worker) => worker.close()));
+          await waitForColdStartWorkersClosed();
+        },
+      }
+    : undefined;
+  const benchmarkServer = createServer(
+    createApiHandler(benchStore, {
+      ...(backgroundStore ? { backgroundStore } : {}),
+    }),
+  );
+  await new Promise((resolve, reject) => {
+    benchmarkServer.once("error", reject);
+    benchmarkServer.listen(0, "127.0.0.1", resolve);
+  });
+  const benchmarkAddress = benchmarkServer.address();
+  if (!benchmarkAddress || typeof benchmarkAddress === "string") {
+    throw new Error("The synthetic benchmark API did not expose a TCP address.");
+  }
+  const benchmarkBaseUrl = `http://127.0.0.1:${benchmarkAddress.port}`;
+  let coldStartServer;
+  let coldStartBaseUrl;
+  if (coldStartBackgroundStore) {
+    coldStartServer = createServer(createApiHandler(benchStore, { backgroundStore: coldStartBackgroundStore }));
+    await new Promise((resolve, reject) => {
+      coldStartServer.once("error", reject);
+      coldStartServer.listen(0, "127.0.0.1", resolve);
+    });
+    const coldStartAddress = coldStartServer.address();
+    if (!coldStartAddress || typeof coldStartAddress === "string") {
+      throw new Error("The cold-start synthetic benchmark API did not expose a TCP address.");
+    }
+    coldStartBaseUrl = `http://127.0.0.1:${coldStartAddress.port}`;
+  }
+  closeBenchmarkApi = async () => {
+    if (benchmarkApiClosed) return;
+    benchmarkApiClosed = true;
+    const closeServer = (server) =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    await closeServer(benchmarkServer);
+    if (coldStartServer) await closeServer(coldStartServer);
+    await backgroundStore?.close();
+    await coldStartBackgroundStore?.close();
   };
+
+  const makeHeavyCases = (baseUrl, probeHealth) => ({
+    createBackup: () => runHeavyApiClient(baseUrl, "/api/backups", "{}", sessionCount, probeHealth),
+    "exportTo (whole database)": () => runHeavyApiClient(baseUrl, "/api/export", "{}", sessionCount, probeHealth),
+    "exportProjectData (all projects)": () =>
+      runHeavyApiClient(baseUrl, "/api/export", JSON.stringify({ scope: "all" }), sessionCount, probeHealth),
+    "previewProjectDataImport (all projects)": () =>
+      runHeavyApiClient(
+        baseUrl,
+        "/api/import/preview",
+        JSON.stringify({ bundle: projectDataBundle }),
+        sessionCount,
+        probeHealth,
+      ),
+  });
+  const heavyCases = makeHeavyCases(benchmarkBaseUrl, false);
+  const heavyHealthCases = makeHeavyCases(benchmarkBaseUrl, true);
+  const coldStartHeavyCases = coldStartBaseUrl ? makeHeavyCases(coldStartBaseUrl, false) : {};
   const heavyRuns = 5;
   const beforeEachRun = {
     "getMcpRuntimeStatus (286 expired leases)": seedExpiredLeases,
@@ -712,23 +969,48 @@ try {
     "exportProjectData (all projects)": 400,
     "previewProjectDataImport (all projects)": 1500,
   };
+  // Ubuntu CI observed 11.26–44.83 ms event-loop block p90; twice the 44.83 ms maximum rounds up to 100 ms.
+  const eventLoopBlockLimitMs = 100;
 
   const results = [];
-  const selectedCases = Object.entries({ ...cases, ...heavyCases }).filter(([name]) => !checkMode || name in limitsMs);
+  const benchmarkCases = backupWorkerOnly ? heavyCases : { ...cases, ...heavyCases };
+  const selectedCases = Object.entries(benchmarkCases).filter(
+    ([name]) => backupWorkerOnly || !checkMode || name in limitsMs,
+  );
   for (const [name, run] of selectedCases) {
-    const caseRuns = name in heavyCases ? heavyRuns : runs;
+    const isHeavyCase = name in heavyCases;
+    const caseRuns = isHeavyCase ? heavyRuns : runs;
     beforeEachRun[name]?.();
     await run();
     const samples = [];
+    const operationSamples = [];
+    const eventLoopP90Samples = [];
+    const eventLoopMaxSamples = [];
+    const rssPeakSamples = [];
+    const healthP90Samples = [];
+    const healthProbeSamples = [];
     for (let index = 0; index < caseRuns; index += 1) {
       beforeEachRun[name]?.();
-      const started = performance.now();
-      await run();
-      samples.push(performance.now() - started);
+      if (isHeavyCase) {
+        const measured = await measureProcessResources(run);
+        samples.push(measured.value.operationMs);
+        operationSamples.push(measured.value.operationMs);
+        eventLoopP90Samples.push(measured.eventLoopP90Ms);
+        eventLoopMaxSamples.push(measured.eventLoopMaxMs);
+        rssPeakSamples.push(measured.rssPeakMb);
+        beforeEachRun[name]?.();
+        const healthRun = await heavyHealthCases[name]();
+        healthP90Samples.push(healthRun.healthP90Ms);
+        healthProbeSamples.push(healthRun.healthProbeCount);
+      } else {
+        const started = performance.now();
+        await run();
+        samples.push(performance.now() - started);
+      }
     }
     samples.sort((a, b) => a - b);
     const p90Ms = Number(samples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
-    results.push({
+    const result = {
       case: name,
       runs: caseRuns,
       medianMs: Number(samples[Math.floor(caseRuns / 2)].toFixed(2)),
@@ -736,6 +1018,71 @@ try {
       maxMs: Number(samples[caseRuns - 1].toFixed(2)),
       limitMs: limitsMs[name] ?? null,
       passed: checkMode ? p90Ms <= limitsMs[name] : undefined,
+    };
+    if (isHeavyCase) {
+      operationSamples.sort((a, b) => a - b);
+      eventLoopP90Samples.sort((a, b) => a - b);
+      eventLoopMaxSamples.sort((a, b) => a - b);
+      rssPeakSamples.sort((a, b) => a - b);
+      healthP90Samples.sort((a, b) => a - b);
+      const operationP90Ms = Number(operationSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
+      const healthP90Ms = Number(healthP90Samples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
+      const eventLoopBlockP90Ms = Number(eventLoopMaxSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
+      const eventLoopBlockMaxMs = Number(eventLoopMaxSamples.at(-1).toFixed(2));
+      const eventLoopDelayP90Ms = Number(
+        eventLoopP90Samples.sort((a, b) => a - b)[Math.ceil(caseRuns * 0.9) - 1].toFixed(2),
+      );
+      const operationLimitMs = limitsMs[name];
+      const eventLoopLimitMs = eventLoopBlockLimitMs;
+      const passed =
+        healthP90Ms <= operationLimitMs &&
+        operationP90Ms <= operationLimitMs &&
+        eventLoopBlockP90Ms <= eventLoopLimitMs;
+      Object.assign(result, {
+        operationMedianMs: Number(operationSamples[Math.floor(caseRuns / 2)].toFixed(2)),
+        operationP90Ms,
+        operationLimitMs,
+        healthP90Ms,
+        healthLimitMs: operationLimitMs,
+        eventLoopDelayP90Ms,
+        eventLoopBlockP90Ms,
+        eventLoopBlockMaxMs,
+        eventLoopLimitMs,
+        healthProbeCountMedian: Number(healthProbeSamples.sort((a, b) => a - b)[Math.floor(caseRuns / 2)]),
+        rssPeakMaxMb: rssPeakSamples.at(-1),
+        passed: checkMode ? passed : undefined,
+      });
+
+      if (coldStartHeavyCases[name]) {
+        const coldStartOperationSamples = [];
+        for (let index = 0; index < caseRuns; index += 1) {
+          beforeEachRun[name]?.();
+          const coldStartRun = await coldStartHeavyCases[name]();
+          coldStartOperationSamples.push(coldStartRun.operationMs);
+          await waitForColdStartWorkersClosed();
+        }
+        coldStartOperationSamples.sort((a, b) => a - b);
+        Object.assign(result, {
+          coldStartOperationMedianMs: Number(coldStartOperationSamples[Math.floor(caseRuns / 2)].toFixed(2)),
+          coldStartOperationP90Ms: Number(coldStartOperationSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2)),
+          coldStartOperationMaxMs: Number(coldStartOperationSamples.at(-1).toFixed(2)),
+        });
+      }
+    }
+    results.push(result);
+  }
+  if (backgroundStore) {
+    const processRssBeforeAutoBackupMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
+    const automaticBackup = await measureProcessResources(() => backgroundStore.backupIfDue());
+    await new Promise((resolve) => setTimeout(resolve, backupWorkerBenchIdleTimeoutMs + 250));
+    const workerIdleRssMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
+    console.log("Backup worker RSS (synthetic automatic backup):", {
+      processRssBeforeAutoBackupMb,
+      autoBackupRssBeforeMb: automaticBackup.rssBeforeMb,
+      automaticBackupPeakRssMb: automaticBackup.rssPeakMb,
+      afterWorkerIdleRssMb: workerIdleRssMb,
+      idleDeltaMb: Number((workerIdleRssMb - processRssBeforeAutoBackupMb).toFixed(1)),
+      workerIdleTimeoutMs: backupWorkerBenchIdleTimeoutMs,
     });
   }
   console.table(results);
@@ -743,17 +1090,32 @@ try {
     const failures = results.filter((result) => !result.passed);
     if (failures.length > 0) {
       console.error(
-        `Performance regression gate failed: ${failures.map((result) => `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`).join("; ")}`,
+        `Performance regression gate failed: ${failures
+          .map((result) =>
+            result.operationP90Ms === undefined
+              ? `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`
+              : `${result.case} health p90 ${result.healthP90Ms}/${result.healthLimitMs} ms, operation p90 ${result.operationP90Ms}/${result.operationLimitMs} ms, event-loop blocking p90 ${result.eventLoopBlockP90Ms}/${result.eventLoopLimitMs} ms`,
+          )
+          .join("; ")}`,
       );
       process.exitCode = 1;
     } else {
       console.log(
-        `Performance regression gate passed (${sessionCount} synthetic sessions, p90 of ${runs} runs, ${heavyRuns} for backup, export and import preview).`,
+        backupWorkerOnly
+          ? `Backup worker gate passed (${backupWorkerMode}, ${sessionCount} synthetic sessions; operation totals were timed without probes, while health was probed every 10 ms in a separate pass; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`
+          : `Performance regression gate passed (${sessionCount} synthetic sessions; operation totals and continuous health probes used separate passes; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`,
       );
     }
   }
+  await closeBenchmarkApi();
   benchStore.close();
 } finally {
+  try {
+    await closeBenchmarkApi();
+  } catch (error) {
+    console.error(`Synthetic benchmark API cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
   try {
     store.close();
   } catch {

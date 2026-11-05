@@ -210,7 +210,11 @@ import { ReportReadService } from "./report-service.js";
 import { ReportSynthesisService } from "./report-synthesis-service.js";
 import { ReportSynthesisRequestRepository } from "./report-synthesis-request-repository.js";
 import { SessionRepository, type SessionListOptions, type SessionRow } from "./session-repository.js";
-import { initializeWorkIntelligenceDatabase } from "./database-initialization.js";
+import {
+  assertDatabaseSchemaVersion,
+  configureWorkIntelligenceDatabaseConnection,
+  initializeWorkIntelligenceDatabase,
+} from "./database-initialization.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { DiagramService } from "./diagram-service.js";
@@ -343,6 +347,10 @@ export interface WorkIntelligenceStoreOptions {
   insightProvider?: InsightProvider;
   /** Where backups go and how many manual and automatic copies to retain independently. */
   backup?: BackupRetentionOptions;
+  /** Opens only an already initialized database and refuses to write any schema changes. */
+  mode?: "initialize" | "read-only";
+  /** Required with read-only mode; the database must already have this exact schema version. */
+  expectedSchemaVersion?: number;
 }
 
 /** A report lists at most five changed-often files with its risks, each changed by at least two Sessions. */
@@ -390,13 +398,28 @@ export class WorkIntelligenceStore {
   ) {
     this.insightProvider = options.insightProvider ?? new NoopInsightProvider();
     this.backupOptions = options.backup ?? {};
-    if (databasePath !== ":memory:") {
+    const readOnly = options.mode === "read-only";
+    if (
+      readOnly &&
+      (!Number.isSafeInteger(options.expectedSchemaVersion) || (options.expectedSchemaVersion ?? 0) < 1)
+    ) {
+      throw new Error("A read-only WorkIntelligenceStore requires an expected schema version.");
+    }
+    if (readOnly && databasePath === ":memory:") {
+      throw new Error("A read-only WorkIntelligenceStore requires an existing database file.");
+    }
+    if (!readOnly && databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
 
-    this.db = new DatabaseSync(databasePath);
+    this.db = new DatabaseSync(databasePath, readOnly ? { readOnly: true } : {});
     try {
-      initializeWorkIntelligenceDatabase(this.db, databasePath, this.backupOptions);
+      if (readOnly) {
+        configureWorkIntelligenceDatabaseConnection(this.db);
+        assertDatabaseSchemaVersion(this.db, options.expectedSchemaVersion!);
+      } else {
+        initializeWorkIntelligenceDatabase(this.db, databasePath, this.backupOptions);
+      }
     } catch (error) {
       this.db.close();
       throw error;

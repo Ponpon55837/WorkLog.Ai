@@ -1,9 +1,12 @@
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  renameSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -11,28 +14,59 @@ import {
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   backupDatabase,
   backupDatabaseBeforeMaintenance,
   backupDatabaseBeforeMigration,
   backupDatabaseBeforeProjectDeletion,
   backupDatabaseBeforeSessionDeletion,
+  cleanupOrphanedBackupStagingDirectories,
+  exportDatabase,
   isBackupDue,
   listDatabaseBackups,
   restoreDatabase,
   SESSION_DELETION_BACKUP_KEEP,
+  writeSnapshot,
 } from "../../packages/storage/src/backup.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
+const fileSystemFailures = vi.hoisted(() => ({
+  link: undefined as { code: string; message: string } | undefined,
+  rename: undefined as { code: string; message: string } | undefined,
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    linkSync: vi.fn((...args: Parameters<typeof actual.linkSync>) => {
+      const failure = fileSystemFailures.link;
+      fileSystemFailures.link = undefined;
+      if (failure) throw Object.assign(new Error(failure.message), { code: failure.code });
+      return actual.linkSync(...args);
+    }),
+    renameSync: vi.fn((...args: Parameters<typeof actual.renameSync>) => {
+      const failure = fileSystemFailures.rename;
+      fileSystemFailures.rename = undefined;
+      if (failure) throw Object.assign(new Error(failure.message), { code: failure.code });
+      return actual.renameSync(...args);
+    }),
+  };
+});
+
 // Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  fileSystemFailures.link = undefined;
+  fileSystemFailures.rename = undefined;
+  vi.mocked(linkSync).mockClear();
+  vi.mocked(renameSync).mockClear();
   for (const store of stores.splice(0)) {
     store.close();
   }
@@ -66,12 +100,190 @@ describe("database backups", () => {
     expect(result.created).toMatchObject({ kind: "manual" });
     expect(result.created.fileName).toMatch(/^work-intelligence-manual-\d{8}T\d{6}Z\.sqlite$/);
     const path = join(directory, result.created.fileName);
+    expect(readdirSync(directory)).toEqual([result.created.fileName]);
     if (process.platform !== "win32") {
       expect(statSync(path).mode & 0o777).toBe(0o600);
     }
     const copy = new DatabaseSync(path, { readOnly: true });
     expect(copy.prepare("SELECT name FROM projects").all()).toEqual([{ name: "Apiary" }]);
     copy.close();
+  });
+
+  it("leaves only the requested snapshot files in backup and export directories", () => {
+    const { root, databasePath, store, directory } = setup();
+    const backup = store.createBackup();
+    if (backup.outcome !== "database_backups") throw new Error("Expected a backup");
+    expect(readdirSync(directory)).toEqual([backup.created.fileName]);
+
+    const exportDirectory = join(root, "user-selected-export");
+    mkdirSync(exportDirectory);
+    const exportPath = join(exportDirectory, "work-intelligence.sqlite");
+    const database = new DatabaseSync(databasePath);
+    try {
+      exportDatabase(database, exportPath);
+    } finally {
+      database.close();
+    }
+
+    expect(readdirSync(exportDirectory)).toEqual(["work-intelligence.sqlite"]);
+  });
+
+  it("uses the exclusive rename fallback for backup and export when hard links fail", () => {
+    const { root, databasePath, store, directory } = setup();
+    fileSystemFailures.link = { code: "EPERM", message: "Injected unsupported hard-link error." };
+    const backup = store.createBackup();
+    if (backup.outcome !== "database_backups") throw new Error("Expected a backup using rename fallback.");
+    expect(readdirSync(directory)).toEqual([backup.created.fileName]);
+
+    const exportDirectory = join(root, "fallback-export");
+    mkdirSync(exportDirectory);
+    const target = join(exportDirectory, "work-intelligence.sqlite");
+    fileSystemFailures.link = { code: "ENOTSUP", message: "Injected unsupported hard-link error." };
+    const database = new DatabaseSync(databasePath);
+    try {
+      expect(exportDatabase(database, target).bytes).toBe(statSync(target).size);
+    } finally {
+      database.close();
+    }
+
+    expect(readdirSync(exportDirectory)).toEqual(["work-intelligence.sqlite"]);
+    expect(readdirSync(root).some((name) => name.startsWith(".wi-publish-"))).toBe(false);
+  });
+
+  it("uses the rename fallback for a pre-migration safety snapshot", () => {
+    const { databasePath, store, directory } = setup({ keep: 10 });
+    store.close();
+    stores.splice(stores.indexOf(store), 1);
+
+    const oldDatabase = new DatabaseSync(databasePath);
+    undoMigrationsAfter(oldDatabase, LATEST_SCHEMA_VERSION - 1);
+    oldDatabase.close();
+
+    fileSystemFailures.link = { code: "EPERM", message: "Injected unsupported hard-link error." };
+    const upgradedStore = new WorkIntelligenceStore(databasePath, { backup: { directory, keep: 10 } });
+    stores.push(upgradedStore);
+
+    const backups = upgradedStore.listBackups();
+    expect(backups.outcome).toBe("database_backups");
+    if (backups.outcome !== "database_backups") throw new Error("Expected the migration backup to be available.");
+    expect(backups.backups).toHaveLength(1);
+    expect(backups.backups[0]?.fileName).toContain("pre-migration-v" + LATEST_SCHEMA_VERSION + "-");
+    expect(readdirSync(directory)).toEqual([backups.backups[0]!.fileName]);
+  });
+
+  it("preserves a target created during verification when hard-link publication fails", () => {
+    const { databasePath, root, store } = setup();
+    const database = new DatabaseSync(databasePath);
+    const target = join(root, "already-created-during-publication.sqlite");
+    fileSystemFailures.link = { code: "EPERM", message: "Injected unsupported hard-link error." };
+
+    try {
+      expect(() =>
+        writeSnapshot(database, target, () => {
+          writeFileSync(target, "keep this file");
+        }),
+      ).toThrow("The snapshot target already exists.");
+      expect(readFileSync(target, "utf8")).toBe("keep this file");
+      expect(readdirSync(root).filter((name) => /^\.wi-\d+-[0-9a-f-]+\.tmp$/i.test(name))).toEqual([]);
+    } finally {
+      database.close();
+      store.close();
+      stores.splice(stores.indexOf(store), 1);
+    }
+  });
+
+  it("does not use the fallback when hard-link publication reports EEXIST", () => {
+    const { databasePath, root, store } = setup();
+    const database = new DatabaseSync(databasePath);
+    const target = join(root, "link-already-exists.sqlite");
+    fileSystemFailures.link = { code: "EEXIST", message: "Injected target collision." };
+
+    try {
+      expect(() =>
+        writeSnapshot(database, target, () => {
+          writeFileSync(target, "keep this file");
+        }),
+      ).toThrow("The snapshot target already exists.");
+      expect(readFileSync(target, "utf8")).toBe("keep this file");
+      expect(renameSync).not.toHaveBeenCalled();
+    } finally {
+      database.close();
+      store.close();
+      stores.splice(stores.indexOf(store), 1);
+    }
+  });
+
+  it("removes the exclusive target reservation when fallback rename fails", () => {
+    const { databasePath, root, store } = setup();
+    const database = new DatabaseSync(databasePath);
+    const target = join(root, "rename-failure.sqlite");
+    fileSystemFailures.link = { code: "EPERM", message: "Injected unsupported hard-link error." };
+    fileSystemFailures.rename = { code: "EIO", message: "Injected rename failure." };
+
+    try {
+      expect(() => writeSnapshot(database, target)).toThrow("Injected rename failure.");
+      expect(existsSync(target)).toBe(false);
+      expect(readdirSync(root).filter((name) => /^\.wi-\d+-[0-9a-f-]+\.tmp$/i.test(name))).toEqual([]);
+    } finally {
+      database.close();
+      store.close();
+      stores.splice(stores.indexOf(store), 1);
+    }
+  });
+
+  it("does not publish a partial snapshot when quick_check fails", () => {
+    const { databasePath, root, store } = setup();
+    const database = new DatabaseSync(databasePath);
+    const target = join(root, "failed-snapshot.sqlite");
+
+    try {
+      expect(() =>
+        writeSnapshot(database, target, () => {
+          throw new Error("Injected quick_check failure.");
+        }),
+      ).toThrow("Injected quick_check failure.");
+      expect(existsSync(target)).toBe(false);
+      expect(readdirSync(root).filter((name) => /^\.wi-\d+-[0-9a-f-]+\.tmp$/i.test(name))).toEqual([]);
+    } finally {
+      database.close();
+      store.close();
+      stores.splice(stores.indexOf(store), 1);
+    }
+  });
+
+  it("publishes a complete snapshot without replacing a target created during verification", () => {
+    const { databasePath, root, store } = setup();
+    const database = new DatabaseSync(databasePath);
+    const target = join(root, "already-created.sqlite");
+
+    try {
+      expect(() =>
+        writeSnapshot(database, target, () => {
+          writeFileSync(target, "existing target");
+        }),
+      ).toThrow("The snapshot target already exists.");
+      expect(readFileSync(target, "utf8")).toBe("existing target");
+      expect(readdirSync(root).filter((name) => /^\.wi-\d+-[0-9a-f-]+\.tmp$/i.test(name))).toEqual([]);
+    } finally {
+      database.close();
+      store.close();
+      stores.splice(stores.indexOf(store), 1);
+    }
+  });
+
+  it("cleans only staging directories owned by a process that is no longer running", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-orphaned-backup-staging-"));
+    tempDirs.push(root);
+    const activeName = `.wi-${process.pid}-11111111-1111-1111-1111-111111111111.tmp`;
+    const orphanName = ".wi-2147483647-22222222-2222-2222-2222-222222222222.tmp";
+    const unrelatedName = ".wi-2147483647-not-a-uuid.tmp";
+    for (const name of [activeName, orphanName, unrelatedName]) mkdirSync(join(root, name));
+
+    cleanupOrphanedBackupStagingDirectories(root, (processId) => processId === process.pid);
+
+    expect(existsSync(join(root, activeName))).toBe(true);
+    expect(existsSync(join(root, orphanName))).toBe(false);
+    expect(existsSync(join(root, unrelatedName))).toBe(true);
   });
 
   it("keeps only the newest copies", () => {

@@ -14,6 +14,7 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 export type DatabaseInitializationErrorCode =
   | "DATABASE_SCHEMA_VERSION_TOO_NEW"
   | "DATABASE_SCHEMA_VERSION_INVALID"
+  | "DATABASE_SCHEMA_VERSION_MISMATCH"
   | "DATABASE_MIGRATION_BACKUP_FAILED"
   | "DATABASE_MIGRATION_FAILED";
 
@@ -26,6 +27,23 @@ export class DatabaseInitializationError extends Error {
   ) {
     super(message, options);
     this.name = "DatabaseInitializationError";
+  }
+}
+
+/** Applies connection-local settings shared by writable stores and read-only workers. */
+export function configureWorkIntelligenceDatabaseConnection(db: DatabaseSync): void {
+  db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -16000;");
+}
+
+/** Verifies an existing schema without changing it; background readers use this instead of initialization. */
+export function assertDatabaseSchemaVersion(db: DatabaseSync, expectedSchemaVersion: number): void {
+  const appliedVersions = getAppliedSchemaVersions(db);
+  const actualSchemaVersion = Math.max(0, ...appliedVersions);
+  if (actualSchemaVersion !== expectedSchemaVersion) {
+    throw new DatabaseInitializationError(
+      "DATABASE_SCHEMA_VERSION_MISMATCH",
+      `資料庫 schema 版本 ${actualSchemaVersion} 與背景工作要求的版本 ${expectedSchemaVersion} 不符；背景工作未修改資料庫。`,
+    );
   }
 }
 
@@ -200,6 +218,7 @@ export function initializeWorkIntelligenceDatabase(
   databasePath: string,
   backupOptions: BackupRetentionOptions = {},
 ): void {
+  configureWorkIntelligenceDatabaseConnection(db);
   assertSchemaVersionSupported(db);
 
   const isFreshDatabase = !hasUserTables(db);
@@ -221,9 +240,7 @@ export function initializeWorkIntelligenceDatabase(
   }
 
   try {
-    db.exec(
-      "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -16000;",
-    );
+    db.exec("PRAGMA journal_mode = WAL;");
     runImmediateTransaction(db, () => {
       db.exec(DATABASE_SCHEMA);
       migrateLegacySchema(db);

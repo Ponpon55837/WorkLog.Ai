@@ -8,11 +8,13 @@ export interface GracefulShutdownOptions {
   server: Server;
   stopBackgroundWork: () => void;
   closeEventStreams: () => void;
+  closeBackgroundWork: () => Promise<void>;
   closeDatabase: () => void;
+  onBackgroundWorkCloseError: (error: unknown) => void;
   onDatabaseCloseError: (error: unknown) => void;
 }
 
-/** Stops new work, ends long-lived streams, then closes SQLite after active HTTP requests drain. */
+/** Stops new scheduled work, drains HTTP requests and the worker, then closes SQLite. */
 export function registerGracefulShutdown(
   options: GracefulShutdownOptions,
   signals: ShutdownSignalSource = process,
@@ -28,11 +30,18 @@ export function registerGracefulShutdown(
     options.stopBackgroundWork();
     options.closeEventStreams();
     options.server.close(() => {
-      try {
-        options.closeDatabase();
-      } catch (error) {
-        options.onDatabaseCloseError(error);
-      }
+      void (async () => {
+        try {
+          await options.closeBackgroundWork();
+        } catch (error) {
+          options.onBackgroundWorkCloseError(error);
+        }
+        try {
+          options.closeDatabase();
+        } catch (error) {
+          options.onDatabaseCloseError(error);
+        }
+      })();
     });
   };
 

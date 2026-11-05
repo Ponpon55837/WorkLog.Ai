@@ -13,6 +13,7 @@ pnpm test         # ESLint、全專案格式檢查，以及 core、政策、shar
 pnpm format       # 格式化全專案（文件與 Agent 技能除外）
 pnpm test:coverage # core、政策、shared、schema、storage、server、MCP、Web 覆蓋率與最低門檻
 pnpm test:performance # 合成資料的匯入與關鍵讀取路徑效能門檻（需先 build）
+pnpm run verify:backup-worker-build # 檢查 production build 的 worker entry（CI 三平台皆執行）
 pnpm test:retrieval-quality # 只執行合成資料的 work_recall 檢索品質評估
 pnpm eval:recall <題目.json> # 在指定資料庫唯讀評估 recall/context
 pnpm run test:recall-eval:example # 以暫存合成資料庫跑 CLI 範例與排名 smoke gate
@@ -35,7 +36,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 `.github/workflows/ci.yml` 在每個 PR 與 `main` push 執行：
 
-- **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。維護者主要使用 macOS；Windows 與 Linux 守住不同的路徑處理（大小寫、分隔符號、8.3 短檔名）與 shell 行為。
+- **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm run verify:backup-worker-build`（用 production build 和合成資料啟動 worker）→ `pnpm test`（含 ESLint 與全 repo Prettier check）→ `pnpm typecheck` → `pnpm test:coverage`。維護者主要使用 macOS；Windows 與 Linux 守住不同的路徑處理（大小寫、分隔符號、8.3 短檔名）與 shell 行為。
 - **生產依賴安全稽核**：Ubuntu Quality job 執行 `pnpm audit --prod --audit-level high`；生產依賴出現 high 或 critical 級別漏洞時，檢查會失敗。
 - **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。最近一次本機量測中，5,000 Sessions／1,000 個合成未結項的清單 p90 為 2.09 ms（上限 250 ms）；100 筆 Session digest 的 pending-items 批次查詢 p90 為 4.61 ms（上限 100 ms，先前量測為 8.11 ms）。
 - **Recall evaluator 效能門檻**：同一個 `pnpm test:performance` 另以 5,000 筆合成 Sessions、MCP in-memory transport 與真實 snapshot 流程量測 recall/context evaluator，15 次執行的 p90 上限為 1,000 ms。此數字涵蓋唯讀來源備份、scratch store 啟動、必要的 scratch 索引同步與兩個 MCP 呼叫；不使用使用者資料庫。最近一次本機量測 p90 為 259.19 ms（median 250.06 ms、max 263.91 ms），整體讀取效能 gate 23/23 通過。
@@ -149,7 +150,20 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 專案資料匯出（`exportProjectData`，全部專案） | 400 ms |
 | 匯入預覽（`previewProjectDataImport`，全部專案） | 1,500 ms |
 
-備份、整庫匯出、專案資料匯出與匯入預覽四個案例量的是同步阻塞時間。這些呼叫在 server 的同一條 event loop 上執行，執行期間 REST API 與 SSE 都不會回應。每次是秒級，所以只跑 5 次，p90 即 5 次中的最大值；它們沿用同一個 5,000 Sessions 的合成 store，不另開 bench 檔，以免重新播種。`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入同一根目錄下的 `export/`，兩者在每次計時前清空（不計入時間），結束後隨暫存根目錄一併移除。匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。上限是 CI Ubuntu runner 實測 p90 的 2 倍並進位到百毫秒。首次量測（PR #254）的 p90 為備份 142.54 ms、整庫匯出 146.37 ms、專案資料匯出 155.99 ms、匯入預覽 717.4 ms。
+備份、整庫匯出、專案資料匯出與匯入預覽各跑 5 次。操作總時間單獨量測，不同時送出 health 請求；health p90 另以另一個 client pass 量測，在整個重操作期間每 10 ms 持續呼叫 `/api/health`。API 程序在操作 pass 期間用 `monitorEventLoopDelay`（10 ms resolution）連續量測主執行緒延遲。每個案例 p90 是 5 次中的最大值。原有 300／300／400／1,500 ms 門檻不變，分別同時套用到 health p90 與 HTTP 操作總時間 p90。事件迴圈阻塞另設 100 ms p90 上限：既有 Ubuntu CI 四項 p90 約 11.26、13.30、44.83、13.66 ms，兩倍最高值為 89.66 ms，依既有規則進位到百毫秒為 100 ms。任一門檻超出都會令 gate 失敗。
+
+`operationP90Ms` 從 client 開始送出重工作請求，到完整讀完 API 回應，包含 worker `postMessage`、結構化複製的請求／回應資料、JSON 輸出和傳輸成本。專案匯出在 worker 將 JSON 編碼為 UTF-8 bytes，轉移 ArrayBuffer 回主執行緒，避免 structured-clone 複製大型字串；HTTP body 仍是相同 JSON bytes。匯入預覽會在 API 收到原始 bytes 後把 ArrayBuffer 轉移給 worker，由 worker 解析與驗證大型 JSON，避免主執行緒同步解析。worker 模式另列冷啟動操作時間：每筆請求建立新的 worker client，HTTP 計時包含 worker 啟動，回應後的 worker 關閉不計入；此欄只回報，不設門檻。bench 另以 10 ms 取樣列出各操作的程序 RSS 峰值，並在一次合成自動備份後等待 worker idle close 再列閒置 RSS；穩態 bench 與正式 server 都使用 15 秒 idle timeout。案例沿用同一個 5,000 Sessions 合成 store；`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入 `export/`，兩者在每次計時前清空（不計入時間）；匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。
+
+經驗證的快照先寫進同一目錄內的私有 staging directory，quick check 成功後優先以 `linkSync` 原子建立正式目標。若 hard link 失敗且錯誤不是 `EEXIST`，程式以 `openSync(target, "wx")` 專有地建立目的檔佔位，再將 staging 檔 `renameSync` 到目的路徑；佔位會阻止另一個遵循相同 no-clobber 流程的程序發布同名檔。若佔位建立遇到 `EEXIST`，保留既有目標；若 rename 失敗，刪除本次佔位並回報原始 rename 錯誤。備份、匯出或 migration 前備份完成後，目標目錄只留下正式輸出，沒有 `.wi-publish-*` 鎖檔或 staging 目錄。
+
+修改前後比對使用獨立行程、相同 5,000 Sessions 快取資料庫，各跑 3 輪並交錯 control／worker 順序，最後取每輪 p90 的中位數。只量這四項可執行：
+
+```powershell
+node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-only --backup-worker-mode=sync
+node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-only --backup-worker-mode=worker
+```
+
+使用基準 checkout 的建置產物時，將 `WI_BACKUP_BENCH_BUILD_ROOT` 指向該獨立 checkout；`WI_BENCH_CACHE`、`WORK_INTELLIGENCE_DB`、`TEMP` 與 `HOME` 應全部指向暫存位置。沒有 `--backup-worker-only` 時，`pnpm test:performance` 仍會執行完整讀取路徑套件。
 
 搜尋的上限原本是 10,000 ms。修正全文搜尋的 join 順序後（見 `search-repository.ts` 的 `CROSS JOIN` 註解），中位數從約 2,000 ms 降到約 13 ms，因此收緊到 500 ms，讓同樣數量級的退化會直接失敗。新增讀取路徑時，請在 `read-paths.bench.mjs` 加上對應情境與上限。
 

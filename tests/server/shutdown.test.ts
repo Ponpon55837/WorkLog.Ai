@@ -54,18 +54,38 @@ describe("graceful API shutdown", () => {
       const signalSource = new EventEmitter();
       const stopBackgroundWork = vi.fn();
       const closeEventStreams = vi.fn(() => apiHandler.closeEventStreams());
+      let releaseBackgroundWork!: () => void;
+      const backgroundWorkGate = new Promise<void>((resolve) => {
+        releaseBackgroundWork = resolve;
+      });
+      let backgroundWorkCloseStarted!: () => void;
+      const backgroundWorkStarted = new Promise<void>((resolve) => {
+        backgroundWorkCloseStarted = resolve;
+      });
+      const closeBackgroundWork = vi.fn(() => {
+        backgroundWorkCloseStarted();
+        return backgroundWorkGate;
+      });
       let databaseClosed = false;
+      let databaseCloseCompleted!: () => void;
+      const databaseCloseComplete = new Promise<void>((resolve) => {
+        databaseCloseCompleted = resolve;
+      });
       const closeDatabase = vi.fn(() => {
         store.close();
         databaseClosed = true;
+        databaseCloseCompleted();
       });
+      const onBackgroundWorkCloseError = vi.fn();
       const onDatabaseCloseError = vi.fn();
       const shutdown = registerGracefulShutdown(
         {
           server,
           stopBackgroundWork,
           closeEventStreams,
+          closeBackgroundWork,
           closeDatabase,
+          onBackgroundWorkCloseError,
           onDatabaseCloseError,
         },
         signalSource as ShutdownSignalSource,
@@ -146,8 +166,14 @@ describe("graceful API shutdown", () => {
         });
 
         await serverClosed;
+        await backgroundWorkStarted;
+        expect(closeBackgroundWork).toHaveBeenCalledTimes(1);
+        expect(closeDatabase).not.toHaveBeenCalled();
+        releaseBackgroundWork();
+        await databaseCloseComplete;
         expect(closeDatabase).toHaveBeenCalledTimes(1);
         expect(databaseClosed).toBe(true);
+        expect(onBackgroundWorkCloseError).not.toHaveBeenCalled();
         expect(onDatabaseCloseError).not.toHaveBeenCalled();
         expect(existsSync(`${databasePath}-wal`)).toBe(false);
 
@@ -174,8 +200,10 @@ describe("graceful API shutdown", () => {
         if (reader) {
           await reader.cancel().catch(() => undefined);
         }
+        releaseBackgroundWork();
         if (!databaseClosed) {
           await serverClosed;
+          await databaseCloseComplete;
         }
       }
     },

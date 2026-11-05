@@ -12,6 +12,7 @@
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
     "build": "node scripts/build.mjs",
+    "verify:backup-worker-build": "node scripts/verify-backup-worker-build.mjs",
     "dev": "pnpm --parallel --filter @work-intelligence/server --filter @work-intelligence/web dev",
     "lint": "eslint . --max-warnings 0 && node scripts/sfc-layout.mjs",
     "format": "prettier --write .",
