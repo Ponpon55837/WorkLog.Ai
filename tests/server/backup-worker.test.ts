@@ -41,6 +41,10 @@ function assertHealthy(path: string): void {
   }
 }
 
+function decodeProjectDataExport(content: string | Uint8Array): string {
+  return typeof content === "string" ? content : new TextDecoder().decode(content);
+}
+
 describe("backup worker", () => {
   it("refuses an older schema without changing the database or backup directory", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-old-schema-"));
@@ -87,7 +91,11 @@ describe("backup worker", () => {
       const exportedDatabase = await worker.exportTo(join(root, "export.sqlite"));
       expect(exportedDatabase.bytes).toBeGreaterThan(0);
       const exportedData = await worker.exportProjectData({ type: "all" });
-      expect((JSON.parse(exportedData.content) as ProjectDataExport).tables.sessions).toHaveLength(1);
+      if (!(exportedData.content instanceof Uint8Array)) throw new Error("Expected transferred UTF-8 export bytes.");
+      expect(exportedData.bytes).toBe(exportedData.content.byteLength);
+      expect(
+        (JSON.parse(decodeProjectDataExport(exportedData.content)) as ProjectDataExport).tables.sessions,
+      ).toHaveLength(1);
     } finally {
       await worker.close();
       lock.exec("ROLLBACK");
@@ -147,8 +155,10 @@ describe("backup worker", () => {
       expect(existsSync(join(root, "backups", backup.created.fileName))).toBe(true);
 
       const exported = await worker.exportProjectData({ type: "all" });
-      expect(exported.bytes).toBe(Buffer.byteLength(exported.content));
-      const bundle = JSON.parse(exported.content) as ProjectDataExport;
+      const exportedContent = decodeProjectDataExport(exported.content);
+      expect(exported.content).toBeInstanceOf(Uint8Array);
+      expect(exported.bytes).toBe(Buffer.byteLength(exportedContent));
+      const bundle = JSON.parse(exportedContent) as ProjectDataExport;
       expect(bundle.tables.sessions).toHaveLength(1);
 
       const preview = await worker.previewProjectDataImport({ bundle });

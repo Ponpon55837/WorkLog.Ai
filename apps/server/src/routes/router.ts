@@ -17,7 +17,7 @@ import { sendError, sendJson } from "../http.js";
 export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 export interface ProjectDataExportDocument {
-  content: string;
+  content: string | Uint8Array;
   bytes: number;
 }
 

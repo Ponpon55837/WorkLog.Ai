@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   existsSync,
   linkSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -214,16 +216,40 @@ function pathExists(path: string): boolean {
 }
 
 function publishSnapshotNoClobber(staging: string, target: string): void {
-  if (pathExists(target)) throw new Error("The snapshot target already exists.");
   try {
     // linkSync atomically publishes without replacing a target created by another process.
     linkSync(staging, target);
+    return;
   } catch (error) {
     const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
     if (code === "EEXIST") throw new Error("The snapshot target already exists.", { cause: error });
-    if (!(["EPERM", "EACCES", "ENOTSUP", "ENOSYS"] as unknown[]).includes(code)) throw error;
-    if (pathExists(target)) throw new Error("The snapshot target already exists.", { cause: error });
-    throw new Error("The snapshot filesystem does not allow atomic hard-link publication.", { cause: error });
+  }
+
+  // Reserve the destination exclusively before rename so unsupported hard links have a safe fallback.
+  let reservation: number;
+  try {
+    reservation = openSync(target, "wx", 0o600);
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "EEXIST") throw new Error("The snapshot target already exists.", { cause: error });
+    throw error;
+  }
+
+  try {
+    closeSync(reservation);
+    renameSync(staging, target);
+  } catch (error) {
+    try {
+      closeSync(reservation);
+    } catch {
+      // The reservation may already be closed.
+    }
+    try {
+      unlinkSync(target);
+    } catch {
+      // Preserve the publication error if the reservation disappeared or could not be removed.
+    }
+    throw error;
   }
 }
 
@@ -275,7 +301,7 @@ export function writeSnapshot(
     // The private staging directory protects the file while it is created; chmod it before publication.
     chmodSync(staging, 0o600);
     verifySnapshot(staging, "The snapshot");
-    // Filesystems without hard-link support fail safely instead of using a rename that could replace a target.
+    // Prefer a hard link; an exclusive target reservation makes the rename fallback no-clobber.
     publishSnapshotNoClobber(staging, target);
   } finally {
     try {

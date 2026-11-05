@@ -1812,6 +1812,45 @@ describe("Work Intelligence REST API", () => {
     expect(missingProject.body.code).toBe("project_not_found");
   });
 
+  it("returns unchanged project export content from a worker as transferred UTF-8 bytes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-worker-export-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const source = new WorkIntelligenceStore(databasePath);
+    source.addProject("Worker export fixture", join(root, "project"));
+    const expectedContent = JSON.stringify(source.exportProjectData({ type: "all" }));
+    const store = new WorkIntelligenceStore(":memory:");
+    const backgroundStore = new BackupWorkerClient(databasePath);
+    const { server, baseUrl } = await startApi(store, { backgroundStore });
+    resources.push({ server, store, root });
+
+    try {
+      const response = await fetch(`${baseUrl}/api/export`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope: "all" }),
+      });
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const content = new TextDecoder().decode(bytes);
+      const bundle = JSON.parse(content) as ReturnType<typeof source.exportProjectData>;
+      const expectedBundle = JSON.parse(expectedContent) as ReturnType<typeof source.exportProjectData>;
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+      expect(response.headers.get("content-length")).toBe(String(bytes.byteLength));
+      expect(bundle).toMatchObject({
+        format: expectedBundle.format,
+        formatVersion: expectedBundle.formatVersion,
+        schemaVersion: expectedBundle.schemaVersion,
+        scope: expectedBundle.scope,
+      });
+      expect(bundle.tables).toEqual(expectedBundle.tables);
+      expect(content).toBe(JSON.stringify(bundle));
+    } finally {
+      await backgroundStore.close();
+      source.close();
+    }
+  });
+
   it("previews and merges portable project data while the server is running", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-transfer-"));
     const projectRoot = join(root, "path-must-not-be-created");

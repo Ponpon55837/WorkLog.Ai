@@ -15,6 +15,11 @@ interface BackupWorkerData {
   expectedSchemaVersion: number;
 }
 
+interface WorkerOperationResult {
+  value: unknown;
+  transferList?: ArrayBuffer[];
+}
+
 function serializeError(error: unknown, depth = 0): SerializedWorkerError {
   if (error instanceof Error) {
     const candidate = error as Error & { code?: unknown; errcode?: unknown; errstr?: unknown; statusCode?: unknown };
@@ -36,28 +41,33 @@ function errorResponse(id: number, error: unknown): BackupWorkerReply {
   return { id, ok: false, error: serializeError(error) };
 }
 
-function executeOperation(store: WorkIntelligenceStore, operation: BackupWorkerOperation): unknown {
+function executeOperation(store: WorkIntelligenceStore, operation: BackupWorkerOperation): WorkerOperationResult {
   switch (operation.type) {
     case "createBackup":
-      return store.createBackup();
+      return { value: store.createBackup() };
     case "backupIfDue":
-      return store.backupIfDue();
+      return { value: store.backupIfDue() };
     case "exportTo":
-      return store.exportTo(operation.target);
+      return { value: store.exportTo(operation.target) };
     case "exportProjectData": {
-      const content = JSON.stringify(store.exportProjectData(operation.scope));
-      return { content, bytes: Buffer.byteLength(content) };
+      const content = new TextEncoder().encode(JSON.stringify(store.exportProjectData(operation.scope)));
+      return {
+        value: { content, bytes: content.byteLength },
+        transferList: [content.buffer],
+      };
     }
     case "previewProjectDataImport": {
       const input =
         operation.input instanceof Uint8Array ? parseProjectDataImportBytes(operation.input) : operation.input;
       const preview = store.previewProjectDataImport(input);
       return {
-        ...preview,
-        selectedProjects: preview.selectedProjects.map((project) => ({
-          ...project,
-          folderStatus: inspectProjectFolder(project.rootPath),
-        })),
+        value: {
+          ...preview,
+          selectedProjects: preview.selectedProjects.map((project) => ({
+            ...project,
+            folderStatus: inspectProjectFolder(project.rootPath),
+          })),
+        },
       };
     }
   }
@@ -94,8 +104,11 @@ port.on("message", (message: BackupWorkerRequest | BackupWorkerCloseRequest) => 
       mode: "read-only",
       expectedSchemaVersion: workerContext.expectedSchemaVersion,
     });
-    const value = executeOperation(store, message.operation);
-    port.postMessage({ id: message.id, ok: true, value } satisfies BackupWorkerReply);
+    const result = executeOperation(store, message.operation);
+    port.postMessage(
+      { id: message.id, ok: true, value: result.value } satisfies BackupWorkerReply,
+      result.transferList,
+    );
   } catch (error) {
     port.postMessage(errorResponse(message.id, error));
   }

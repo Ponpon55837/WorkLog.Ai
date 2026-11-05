@@ -41,8 +41,12 @@ try {
   const backup = await worker.createBackup();
   if (backup.outcome !== "database_backups") throw new Error("The synthetic database was not backed up.");
   const exported = await worker.exportProjectData({ type: "all" });
-  const bundle = JSON.parse(exported.content);
-  if (bundle.tables.sessions.length !== 1 || exported.bytes !== Buffer.byteLength(exported.content)) {
+  if (!(exported.content instanceof Uint8Array)) {
+    throw new Error("The built worker did not transfer project-data export bytes.");
+  }
+  const exportContent = Buffer.from(exported.content);
+  const bundle = JSON.parse(exportContent.toString("utf8"));
+  if (bundle.tables.sessions.length !== 1 || exported.bytes !== exportContent.byteLength) {
     throw new Error("The built worker returned an incomplete project-data export.");
   }
   const preview = await worker.previewProjectDataImport({ bundle });
