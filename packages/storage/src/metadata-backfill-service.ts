@@ -55,6 +55,63 @@ type MetadataBackfillRow = SessionRow & {
   raw_snapshot_count: number;
 };
 
+type MetadataBackfillTotals = Extract<MetadataBackfillPreviewResult, { outcome: "backfill_preview" }>["totals"];
+
+type MetadataBackfillCountRow = {
+  needs_backfill: number;
+  changed_files_missing: number;
+  verification_missing: number;
+  verification_not_run: number;
+};
+
+function changedFilesMetadataMissingSql(alias: string): string {
+  const json = `${alias}.changed_files_json`;
+  const validJsonArray =
+    `CASE WHEN json_valid(${json}) THEN CASE WHEN json_type(${json}) = 'array' ` +
+    `THEN ${json} ELSE '[]' END ELSE '[]' END`;
+  return (
+    `CASE WHEN json_valid(${json}) THEN CASE WHEN json_type(${json}) = 'array' ` +
+    `AND NOT EXISTS (SELECT 1 FROM json_each(${validJsonArray}) AS changed_file WHERE changed_file.type <> 'text') ` +
+    `AND (json_array_length(${json}) > 0 OR ${alias}.changed_files_confirmed = 1) ` +
+    `THEN 0 ELSE 1 END ELSE 1 END`
+  );
+}
+
+function verificationValueFalsySql(alias: string): string {
+  const json = `${alias}.verification_json`;
+  return (
+    `CASE WHEN ${json} IS NULL OR NOT json_valid(${json}) THEN 1 ` +
+    `WHEN json_type(${json}) IN ('null', 'false') THEN 1 ` +
+    `WHEN json_type(${json}) IN ('integer', 'real') AND json_extract(${json}, '$') = 0 THEN 1 ` +
+    `WHEN json_type(${json}) = 'text' AND json_extract(${json}, '$') = '' THEN 1 ELSE 0 END`
+  );
+}
+
+function verificationStatusNotSuppliedSql(alias: string): string {
+  const json = `${alias}.verification_json`;
+  const falsy = verificationValueFalsySql(alias);
+  return (
+    `CASE WHEN ${falsy} = 1 THEN 1 ` +
+    `WHEN json_type(${json}, '$.status') IS NULL OR json_type(${json}, '$.status') = 'null' ` +
+    `THEN 1 ELSE 0 END`
+  );
+}
+
+function verificationStatusNotRunSql(alias: string): string {
+  const json = `${alias}.verification_json`;
+  return (
+    `CASE WHEN json_valid(${json}) AND json_type(${json}, '$.status') = 'text' ` +
+    `AND json_extract(${json}, '$.status') = 'not_run' THEN 1 ELSE 0 END`
+  );
+}
+
+function metadataBackfillCandidateSql(alias: string): string {
+  const changedFilesMissing = changedFilesMetadataMissingSql(alias);
+  const verificationFalsy = verificationValueFalsySql(alias);
+  const verificationNotRun = verificationStatusNotRunSql(alias);
+  return `(${changedFilesMissing} = 1 OR ${verificationFalsy} = 1 OR ${verificationNotRun} = 1)`;
+}
+
 function parseJson<T>(value: string | null, fallback: T): T {
   if (!value) {
     return fallback;
@@ -158,8 +215,9 @@ export class MetadataBackfillService {
           projectClause,
       )
       .get(...parameters) as { count: number };
-    // SQL pre-filter only drops rows with confirmed changed-files metadata and an explicit passed/failed/in_progress
-    // verification; toMetadataBackfillItem still decides the exact gaps.
+    // Keep the SQL candidate predicate equivalent to toMetadataBackfillItem so legacy or malformed JSON rows
+    // cannot be dropped before the JavaScript DTO mapper decides the exact preview items.
+    const candidate = metadataBackfillCandidateSql("s");
     const rows = this.db
       .prepare(
         "SELECT s.*, p.name AS project_name, p.root_path AS project_root, " +
@@ -167,13 +225,7 @@ export class MetadataBackfillService {
           "FROM sessions s JOIN projects p ON p.id = s.project_id " +
           "WHERE p.status = 'tracked' AND s.voided_at IS NULL" +
           projectClause +
-          " AND NOT (" +
-          "COALESCE(s.changed_files_confirmed, 0) = 1 " +
-          "AND COALESCE(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json) = 'array' " +
-          "THEN 1 END, 0) = 1 " +
-          "AND COALESCE(CASE WHEN json_valid(s.verification_json) " +
-          "THEN json_extract(s.verification_json, '$.status') END, 'not_run') IN ('passed', 'failed', 'in_progress')" +
-          ") " +
+          ` AND ${candidate} ` +
           "ORDER BY s.completed_at DESC, s.id DESC",
       )
       .all(...parameters) as MetadataBackfillRow[];
@@ -193,6 +245,46 @@ export class MetadataBackfillService {
         verificationMissing: allItems.filter((item) => item.verificationStatus === "not_supplied").length,
         verificationNotRun: allItems.filter((item) => item.verificationStatus === "not_run").length,
       },
+    };
+  }
+
+  public countMetadataBackfillFollowUps(options: { projectRoot?: string } = {}): MetadataBackfillTotals | undefined {
+    let projectId: string | undefined;
+    if (options.projectRoot) {
+      const decision = this.store.checkProjectRoot(options.projectRoot);
+      if (!decision.allowed || !decision.project) {
+        return undefined;
+      }
+      projectId = decision.project.id;
+    }
+
+    const parameters: string[] = [];
+    const projectClause = projectId ? " AND s.project_id = ?" : "";
+    if (projectId) {
+      parameters.push(projectId);
+    }
+    const changedFilesMissing = changedFilesMetadataMissingSql("s");
+    const verificationFalsy = verificationValueFalsySql("s");
+    const verificationMissing = verificationStatusNotSuppliedSql("s");
+    const verificationNotRun = verificationStatusNotRunSql("s");
+    const needsBackfill = `(${changedFilesMissing} = 1 OR ${verificationFalsy} = 1 OR ${verificationNotRun} = 1)`;
+    const row = this.db
+      .prepare(
+        "SELECT " +
+          `COALESCE(SUM(CASE WHEN ${needsBackfill} THEN 1 ELSE 0 END), 0) AS needs_backfill, ` +
+          `COALESCE(SUM(CASE WHEN ${changedFilesMissing} = 1 THEN 1 ELSE 0 END), 0) AS changed_files_missing, ` +
+          `COALESCE(SUM(CASE WHEN ${needsBackfill} AND ${verificationMissing} = 1 THEN 1 ELSE 0 END), 0) AS verification_missing, ` +
+          `COALESCE(SUM(CASE WHEN ${needsBackfill} AND ${verificationNotRun} = 1 THEN 1 ELSE 0 END), 0) AS verification_not_run ` +
+          "FROM sessions s JOIN projects p ON p.id = s.project_id " +
+          "WHERE p.status = 'tracked' AND s.voided_at IS NULL" +
+          projectClause,
+      )
+      .get(...parameters) as MetadataBackfillCountRow;
+    return {
+      needsBackfill: row.needs_backfill,
+      changedFilesMissing: row.changed_files_missing,
+      verificationMissing: row.verification_missing,
+      verificationNotRun: row.verification_not_run,
     };
   }
 

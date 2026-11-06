@@ -29,7 +29,15 @@ P1 5.1 在獨立 worktree 實作：備份、整庫匯出、專案資料匯出與
 
 本次 bytes-transfer 修正的新 head 本機 `pnpm test:e2e` 也未取得完整摘要：Chromium 輸出至少 125 個成功與 16 個失敗結果後，連續超過 6 分鐘沒有新 log，確認測試 Node runner 已結束後中止外層命令。此為不完整的本機執行，不當作 E2E 通過或最終測試計數；log 與 Playwright artifacts 保留於隔離 worktree／暫存目錄。新 head 的 CI E2E 仍須實際跑完並通過。
 
-[PR #283](https://github.com/Ponpon55837/WorkLog.Ai/pull/283) 維持開啟並等待 Claude 複檢；操作時間超標與本機 E2E 逾時都會照實交接，不放寬門檻。其餘 P1 項目要等本 PR 合併後才從最新 `main` 開始。
+[PR #283](https://github.com/Ponpon55837/WorkLog.Ai/pull/283) 已於 `e888dd8` 合併。Main workflow run `41984113718` 第 2 次執行的 Quality 三平台與 CI E2E 全綠。各瀏覽器結果：Chromium 178 passed／1 skipped，Firefox 123 passed，WebKit 119 passed／1 flaky（重試後通過）。5.6 從這個最新 main 開始，延續原效能門檻；操作與 health 分開量測，事件迴圈阻塞門檻維持 100 ms。
+
+P1 5.6 將 `work_get_context` 的 metadata follow-up totals 改由 SQLite 聚合計算，避免為了筆數載入並映射所有預覽項目；完整 metadata preview 與既有回傳形狀不變。`read-paths.bench.mjs` 新增 5,000 Sessions count-only 案例，要求 totals 與完整 JavaScript preview 一致並設 100 ms 門檻。`publishSnapshotNoClobber` 的 hard-link 備援路徑也確保 reservation fd 只關閉一次。
+
+5.6 合成基準在相同 5,000 Sessions 資料上交錯比較完整 JavaScript preview 與 SQL totals，三輪合併 p90 為 111.99 → 95.45 ms（下降 14.8%）；完整 read-path bench 的 count-only p90 為 66.52 ms，低於 100 ms 門檻。`getContext (project with pages)` p90 為 232.76 → 202.49 ms；`getContext (related pending items)` 則為 541.65 → 566.53 ms，沒有改善。完整 `pnpm test:performance` 未通過：這個 count case 通過，但 related-pending、MCP runtime／recall 及四項 worker 操作總時間超標；worker health 與 event-loop blocking 均在門檻內，門檻未放寬。機器為 Windows／Node 24.16／12 個邏輯處理器，使用暫存目錄與合成資料，量測依序執行；當時程序 RSS 高且系統 CPU 狀態無法讀取，數據有背景負載變異，完整 log 保留於暫存目錄。
+
+第 8 節其餘本機結果：`pnpm build`、`pnpm typecheck`、`pnpm test:retrieval-quality`（25/25）通過；`pnpm test` 與 `pnpm test:coverage` 各為 370 passed、6 failed、1 expected fail，storage 的 5 項大資料案例逾時、1 項 Windows symlink 建立回 `EPERM`。storage 失敗後分開跑的 Server 為 243 passed、16 failed、1 skipped（setup hardlink 與 junction 回 `EPERM`）；MCP 99/99、Web 189/189 通過。`pnpm test:e2e` 本機 run 因 Chromium／UI cases 逾時而在部分 cases 後中止；留下 Playwright artifacts 與 log，不當作通過，Firefox／WebKit 本機沒有執行。最新 PR #284 head `430d6003` 的 CI run `42016889108` 四項檢查全綠。E2E：Chromium 178 passed／1 skipped／0 flaky、Firefox 123／0／0、WebKit 120／0／0；`report-presentation.spec.ts:227` 三瀏覽器均通過，本輪未出現 `Route is already handled` 或重試。
+
+Ubuntu 效能 gate 使用 5,000 筆合成 Sessions，操作時間與 health 探測分開量測。操作／health／event-loop blocking p90：備份 125.87／4.06／10.73 ms、整庫匯出 225.27／25.47／13.47 ms、專案匯出 390.01／15.40／11.99 ms、匯入預覽 959.68／1.26／24.71 ms；RSS peak 537.7／598.3／664.3／744.3 MB。操作門檻仍為 300／300／400／1,500 ms，blocking 門檻 100 ms。冷啟動操作 p90 308／380.9／571.89／1,297.15 ms（只回報）；metadata follow-up counts p90 16.57 ms／100 ms 門檻。
 
 ## 知識品質 Roadmap（已完成）
 

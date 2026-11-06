@@ -706,22 +706,45 @@ describe("WorkIntelligenceStore", () => {
       verification: { status: "passed" },
     });
     const corrupted = finalize("corrupted-json", { changedFiles: ["src/c.ts"], verification: { status: "passed" } });
+    const nonStringChangedFile = finalize("non-string-changed-file", {
+      changedFiles: ["src/d.ts"],
+      verification: { status: "passed" },
+    });
+    const falsyVerification = finalize("falsy-verification", {
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    const missingVerification = finalize("missing-verification", {
+      changedFiles: ["src/f.ts"],
+      verification: { status: "passed" },
+    });
+    finalize("not-run-verification", { changedFiles: ["src/e.ts"], verification: { status: "not_run" } });
     const database = (store as unknown as { db: DatabaseSync }).db;
     database.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run('{"summary":"legacy"}', statusless);
     database
       .prepare("UPDATE sessions SET changed_files_json = ?, verification_json = ? WHERE id = ?")
       .run("not-json", "{broken", corrupted);
+    database.prepare("UPDATE sessions SET changed_files_json = ? WHERE id = ?").run("[17]", nonStringChangedFile);
+    database.prepare("UPDATE sessions SET verification_json = ? WHERE id = ?").run("false", falsyVerification);
+    database.prepare("UPDATE sessions SET verification_json = NULL WHERE id = ?").run(missingVerification);
 
     const preview = store.previewMetadataBackfill({ limit: 10 });
     if (preview.outcome !== "backfill_preview") {
       throw new Error("Expected a metadata backfill preview");
     }
-    expect(preview.scannedSessions).toBe(5);
+    expect(preview.scannedSessions).toBe(9);
     expect(Object.fromEntries(preview.items.map((item) => [item.title, item.gaps]))).toEqual({
       "unspecified-files": ["changed_files"],
       "corrupted-json": ["changed_files", "verification"],
+      "non-string-changed-file": ["changed_files"],
+      "falsy-verification": ["verification"],
+      "missing-verification": ["verification"],
+      "not-run-verification": ["verification"],
     });
     expect(preview.items.some((item) => item.sessionId === passedWithoutFiles)).toBe(false);
+    expect(store.countMetadataBackfillFollowUps()).toEqual(preview.totals);
+    expect(store.countMetadataBackfillFollowUps({ projectRoot: root })).toEqual(preview.totals);
+    expect(store.countMetadataBackfillFollowUps({ projectRoot: join(root, "unregistered") })).toBeUndefined();
   });
 
   it("builds tracked-only reports with a deterministic UTC range and provenance", () => {

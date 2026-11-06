@@ -11,12 +11,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Snapshot publication cleans only abandoned private staging directories, checks the finished snapshot before publishing, refuses to replace an existing target, and leaves no publication-lock artifacts. It prefers an atomic hard link and falls back to an exclusive openSync(..., "wx") target reservation followed by rename; failed renames remove the reservation.
 - Writable and read-only SQLite connections share the 5,000 ms busy timeout and 16,000 KiB page-cache configuration.
 - Backup worker failures are scoped to their worker lifetime; startup busy errors remain classifiable by the HTTP layer.
+- `work_get_context` calculates metadata follow-up totals with a SQLite aggregate instead of materializing every metadata preview item. Its SQL candidate logic matches the JavaScript preview semantics, including malformed legacy metadata.
 - The `--force` bypass was removed from `pnpm db:restore`; an in-use database always blocks restoration.
 - Schema 31 tracks project-data and Agent-read audit revisions separately. Project changes send the existing data-free `changed` event; Agent read audits send `agent-reads-changed`, which refreshes only Agent read history. Older MCP connections report `restartRequired` after the schema upgrade; reconnect Work Intelligence MCP.
 
 ### Fixed
 
 - System status checks the login service asynchronously, shares concurrent probes and caches successful results for 30 seconds, keeping the API responsive while the service manager is slow.
+- Snapshot publication closes its exclusive fallback reservation once, including when the subsequent rename fails.
 
 ## [1.6.6] - 2026-10-30
 

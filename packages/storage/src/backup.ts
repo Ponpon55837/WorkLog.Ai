@@ -235,14 +235,18 @@ function publishSnapshotNoClobber(staging: string, target: string): void {
     throw error;
   }
 
+  let reservationOpen = true;
   try {
     closeSync(reservation);
+    reservationOpen = false;
     renameSync(staging, target);
   } catch (error) {
-    try {
-      closeSync(reservation);
-    } catch {
-      // The reservation may already be closed.
+    if (reservationOpen) {
+      try {
+        closeSync(reservation);
+      } catch {
+        // Preserve the publication error if closing the reservation also fails.
+      }
     }
     try {
       unlinkSync(target);

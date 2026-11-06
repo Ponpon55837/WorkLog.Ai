@@ -604,6 +604,10 @@ try {
     projectId: alpha.id,
   });
   if (pendingLargeReport.outcome !== "report_synthesis_request") throw new Error("Missing pending source request");
+  const metadataFollowUpPreview = benchStore.previewMetadataBackfill({ limit: 1 });
+  if (metadataFollowUpPreview.outcome !== "backfill_preview")
+    throw new Error("Missing metadata follow-up benchmark source");
+  const expectedMetadataFollowUpTotals = metadataFollowUpPreview.totals;
   const cases = {
     "getContext (large report source request)": () => {
       const result = benchStore.getContext(alphaRoot);
@@ -692,6 +696,13 @@ try {
     "getReport month": () => benchStore.getReport({ period: "month", date: "2026-03-11" }),
     "getReport year": () => benchStore.getReport({ period: "year", date: "2026-03-11" }),
     getContext: () => benchStore.getContext(),
+    "metadata follow-up counts": () => {
+      const result = benchStore.countMetadataBackfillFollowUps();
+      if (!result || JSON.stringify(result) !== JSON.stringify(expectedMetadataFollowUpTotals)) {
+        throw new Error("Metadata follow-up count query must match the complete preview totals.");
+      }
+      return result;
+    },
     "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
     "getContext (related pending items)": () => {
       const result = benchStore.getContext(alphaRoot, {
@@ -935,6 +946,7 @@ try {
     "getReport (in-progress verification)": 750,
     "getReport year": 1500,
     getContext: 2500,
+    "metadata follow-up counts": 100,
     "getContext (project with pages)": 500,
     "getContext (related pending items)": 500,
     "finalizeSession (related pending reminder)": 250,
