@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 const stores: WorkIntelligenceStore[] = [];
@@ -87,6 +88,34 @@ afterEach(() => {
 });
 
 describe("outstanding items", () => {
+  it("adds related reminders after the compatible-schema commit for new and duplicate finalizations", () => {
+    const { store, root, projectId } = createTrackedProject("Outstanding post-commit reminder fixture");
+    const source = finalize(store, root, "outstanding-post-commit-source", ["Review Orbit cache lock behavior"]);
+    if (source.outcome !== "finalized") throw new Error("Expected reminder source Session.");
+    const reminder = findOutstandingItem(store, projectId, "Review Orbit cache lock behavior");
+    const input = {
+      projectRoot: root,
+      idempotencyKey: "outstanding-post-commit-finalize",
+      title: "Orbit cache closure",
+      summary: "Verify Orbit cache closure.",
+      changedFiles: [],
+      verification: { status: "passed" as const },
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+    };
+
+    const first = store.withCompatibleSchema(LATEST_SCHEMA_VERSION, () => store.finalizeSession(input));
+    if (first.outcome !== "finalized") throw new Error("Expected first finalize result.");
+    expect(first).toMatchObject({
+      outcome: "finalized",
+      duplicate: false,
+      relatedOutstandingItems: { items: [expect.objectContaining({ id: reminder.id })], total: 1 },
+    });
+    const duplicate = store.withCompatibleSchema(LATEST_SCHEMA_VERSION, () => store.finalizeSession(input));
+    expect(duplicate).toMatchObject({ outcome: "finalized", duplicate: true });
+    if (duplicate.outcome !== "finalized") throw new Error("Expected idempotent finalize result.");
+    expect(duplicate.relatedOutstandingItems).toEqual(first.relatedOutstandingItems);
+  });
+
   it("keeps exact-text identities and terminal history when workSummary nextSteps changes", () => {
     const { store, root } = createTrackedProject("Outstanding sync fixture");
     const created = finalize(store, root, "outstanding-sync-source", ["Keep this id", "Remove this", "Looks complete"]);

@@ -1,8 +1,40 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { runImmediateTransaction } from "../../packages/storage/src/sqlite-transaction.js";
+import {
+  runAfterImmediateTransaction,
+  runImmediateTransaction,
+} from "../../packages/storage/src/sqlite-transaction.js";
 
 describe("immediate transaction nesting", () => {
+  it("runs deferred work after the outer commit and discards it on rollback", () => {
+    const db = new DatabaseSync(":memory:");
+    const callbacks: string[] = [];
+    try {
+      runImmediateTransaction(db, () => {
+        runImmediateTransaction(db, () => {
+          runAfterImmediateTransaction(db, () => {
+            db.exec("BEGIN IMMEDIATE");
+            db.exec("ROLLBACK");
+            callbacks.push("committed");
+          });
+          expect(callbacks).toEqual([]);
+        });
+        expect(callbacks).toEqual([]);
+      });
+      expect(callbacks).toEqual(["committed"]);
+
+      expect(() =>
+        runImmediateTransaction(db, () => {
+          runAfterImmediateTransaction(db, () => callbacks.push("rolled back"));
+          throw new Error("synthetic rollback");
+        }),
+      ).toThrow("synthetic rollback");
+      expect(callbacks).toEqual(["committed"]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("shares one atomic write lock without relying on the Node 22.16 transaction getter", () => {
     const db = new DatabaseSync(":memory:");
     const legacyConnection = new Proxy(db, {

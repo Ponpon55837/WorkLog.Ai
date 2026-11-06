@@ -134,7 +134,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
 | finalize 知識頁維護提示（3 頁 × 5,000 個新 Session） | 250 ms |
 | task context 相關未結項（5,000 Sessions／1,000 項，含文字與路徑排名） | 500 ms |
-| finalize 相關未結項提示（同一合成歷史，排除本次新項目） | 250 ms |
+| finalize 相關未結項提示（5,000 Sessions／1,000 項；目標專案 500 項，唯一匹配加 23 個干擾詞） | 操作 p90 250 ms；交易 p90 50 ms |
 | 知識頁 review context（涵蓋範圍後的一年 Session，最多 60 筆） | 250 ms |
 | 未結項清單（5,000 個 Session 中的 1,000 筆合成項目） | 250 ms |
 | 未結項清單（來源 Session 完成日期區間） | 250 ms |
@@ -152,6 +152,10 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 匯入預覽（`previewProjectDataImport`，全部專案） | 1,500 ms |
 
 備份、整庫匯出、專案資料匯出與匯入預覽各跑 5 次。操作總時間單獨量測，不同時送出 health 請求；health p90 另以另一個 client pass 量測，在整個重操作期間每 10 ms 持續呼叫 `/api/health`。API 程序在操作 pass 期間用 `monitorEventLoopDelay`（10 ms resolution）連續量測主執行緒延遲。每個案例 p90 是 5 次中的最大值。原有 300／300／400／1,500 ms 門檻不變，分別同時套用到 health p90 與 HTTP 操作總時間 p90。事件迴圈阻塞另設 100 ms p90 上限：既有 Ubuntu CI 四項 p90 約 11.26、13.30、44.83、13.66 ms，兩倍最高值為 89.66 ms，依既有規則進位到百毫秒為 100 ms。任一門檻超出都會令 gate 失敗。
+
+5.3 的 focused case 可用 `--case=finalize-related-reminder` 單獨執行。Bench 以唯一合成候選項和 23 個不匹配詞確認提醒內容只回傳該候選，並另外量測最外層 `BEGIN IMMEDIATE` 到 `COMMIT` 的 p90。操作總時間維持原有 250 ms 上限；寫入交易另設 50 ms 上限，低於 main 的三次交易 p90（54.67、75.40、126.44 ms），並高於 branch 的三次交易 p90（23.14、31.06、46.88 ms）。交易量只含寫入鎖持有時間，不含 commit 後的提醒查詢。
+
+2026-11-06 在 Windows／Node 24.16.0 使用同一份 5,000 Sessions 合成快取，兩個專案共 1,000 個待辦（目標專案 500 個）；每個獨立 bench 行程跑 15 次，三組都依序 main → branch。每組操作 p90／交易 p90 為：main 89.77／54.67 → branch 83.79／23.14 ms；main 114.06／75.40 → branch 112.98／31.06 ms；main 146.99／126.44 → branch 146.95／46.88 ms。所有操作 p90 都在原有 250 ms 上限內；三組交易 p90 分別降低 57.7%、58.8%、62.9%。最後一組以含 50 ms 交易門檻的 bench 執行，main 如預期因交易 p90 超標失敗，branch 通過。
 
 `operationP90Ms` 從 client 開始送出重工作請求，到完整讀完 API 回應，包含 worker `postMessage`、結構化複製的請求／回應資料、JSON 輸出和傳輸成本。專案匯出在 worker 將 JSON 編碼為 UTF-8 bytes，轉移 ArrayBuffer 回主執行緒，避免 structured-clone 複製大型字串；HTTP body 仍是相同 JSON bytes。匯入預覽會在 API 收到原始 bytes 後把 ArrayBuffer 轉移給 worker，由 worker 解析與驗證大型 JSON，避免主執行緒同步解析。worker 模式另列冷啟動操作時間：每筆請求建立新的 worker client，HTTP 計時包含 worker 啟動，回應後的 worker 關閉不計入；此欄只回報，不設門檻。bench 另以 10 ms 取樣列出各操作的程序 RSS 峰值，並在一次合成自動備份後等待 worker idle close 再列閒置 RSS；穩態 bench 與正式 server 都使用 15 秒 idle timeout。案例沿用同一個 5,000 Sessions 合成 store；`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入 `export/`，兩者在每次計時前清空（不計入時間）；匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。
 
