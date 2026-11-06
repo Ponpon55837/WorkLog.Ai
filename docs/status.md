@@ -10,7 +10,7 @@
 
 System Status 的登入服務查詢已改為非同步，成功結果快取 30 秒並共用進行中的查詢；SQLite 連線的頁面快取設定為 16,000 KiB。P0 PR #282 的 schema 31 revision 通知、P1 5.1 PR #283 與 5.6 PR #284 已合併。PR #284 合併後 main 為 `8bdd045`，main run `42138658788` 全綠；逐瀏覽器 E2E 結果見下方 PR #284 驗證段落。
 
-P1 5.3 在分支 `perf/finalize-related-items` 實作：新建 finalize 與冪等重送的提醒查詢都在最外層 IMMEDIATE commit 後執行，包含 MCP 的 `withCompatibleSchema` 外層交易；候選篩選保留原本關鍵字、來源 Session、路徑條件與排序。三組 5,000 Sessions 合成基準中，操作 p90 為 89.77 → 83.79、114.06 → 112.98、146.99 → 146.95 ms，交易 p90 為 54.67 → 23.14、75.40 → 31.06、126.44 → 46.88 ms。操作門檻仍為 250 ms，交易新增 50 ms 上限；最新 focused head 通過兩項門檻，完整檢查與 CI 結果待執行。
+P1 5.3 在分支 `perf/finalize-related-items` 實作：新建 finalize 與冪等重送的提醒查詢都在最外層 IMMEDIATE commit 後執行，包含 MCP 的 `withCompatibleSchema` 外層交易；候選篩選保留原本關鍵字、來源 Session、路徑條件與排序。三組 5,000 Sessions 合成基準中，操作 p90 為 89.77 → 83.79、114.06 → 112.98、146.99 → 146.95 ms，交易 p90 為 54.67 → 23.14、75.40 → 31.06、126.44 → 46.88 ms。操作門檻仍為 250 ms，交易新增 50 ms 上限；focused bench 通過兩項門檻。PR #285 的程式碼 head `8fa4329` 在 CI run `42180612043` 的 Quality 三平台與 E2E 均通過：Chromium 177 passed、1 skipped、1 flaky（`report-presentation.spec.ts:227` 首次 `route.continue: Route is already handled!`，重試通過），Firefox 123 passed，WebKit 120 passed。PR 未合併且未設 auto-merge，等待 Claude 複檢。
 
 P1 5.1 在獨立 worktree 實作：備份、整庫匯出、專案資料匯出與匯入預覽使用專用 worker connection；自動備份延至 server 啟動 60 秒後，shutdown 會先等 HTTP 請求與 worker 排空，再關閉 SQLite。worker 使用唯讀連線並核對主程序傳入的 schema 版本；專案資料匯出以 transfer UTF-8 bytes 回傳。快照發布優先使用原子 hard link；不支援 hard link 時用 `openSync(target, "wx")` 專有佔位再 rename，rename 失敗會刪除佔位。完成後目標目錄不留 `.wi-publish-*` 鎖檔或 staging。
 
