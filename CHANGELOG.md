@@ -20,6 +20,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The `--force` bypass was removed from `pnpm db:restore`; an in-use database always blocks restoration.
 - Schema 31 tracks project-data and Agent-read audit revisions separately. Project changes send the existing data-free `changed` event; Agent read audits send `agent-reads-changed`, which refreshes only Agent read history. Older MCP connections report `restartRequired` after the schema upgrade; reconnect Work Intelligence MCP.
 
+- Storage coverage now measures all of `packages/storage/src` and enforces per-file thresholds on 27 high-risk services (policy helpers, redaction, reports, attention, related work, outstanding items, knowledge, data transfer, deletion, transactions) plus a looser floor for the rest. Added storage unit tests for `policy-helper` and the Agent report projection (`report-agent-view`).
+
 ### Fixed
 
 - Metadata backfill previews no longer throw when a session's `changed_files_json` (or related metadata column) is stored as JSON `null`; non-array values are treated as empty, matching the SQL follow-up counts.
