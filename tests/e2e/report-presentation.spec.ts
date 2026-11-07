@@ -228,20 +228,38 @@ test("basic copy stays available while the loaded report refreshes @cross-browse
   await page.goto(`/reports?period=week&date=2026-09-07&project=${projectId}`);
   const basic = page.getByRole("button", { name: textIn("zh-TW", "reportCopy.basic"), exact: true });
   await expect(basic).toBeEnabled();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // Several invalidations (visibility catch-up, change stream, request watch) can overlap, and the app cancels the
+  // superseded fetch while its route is still held. Continuing a cancelled request throws "Route is already handled!",
+  // so only a request the browser already failed is allowed to skip the continue.
   await page.route("**/api/reports?**", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    await route.continue();
+    await gate;
+    try {
+      await route.continue();
+    } catch (error) {
+      if (!route.request().failure()) {
+        throw error;
+      }
+    }
   });
   const pending = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/reports");
-  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-  await pending;
-  await expect(basic).toBeEnabled();
-  await basic.click();
-  const preview = page.getByRole("dialog", { name: textIn("zh-TW", "reportCopy.basic"), exact: true });
-  await expect(preview.getByRole("textbox", { name: textIn("zh-TW", "reportCopy.preview"), exact: true })).toHaveValue(
-    /2026-09/,
-  );
-  await page.unrouteAll({ behavior: "wait" });
+  try {
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await pending;
+    await expect(basic).toBeEnabled();
+    await basic.click();
+    const preview = page.getByRole("dialog", { name: textIn("zh-TW", "reportCopy.basic"), exact: true });
+    await expect(
+      preview.getByRole("textbox", { name: textIn("zh-TW", "reportCopy.preview"), exact: true }),
+    ).toHaveValue(/2026-09/);
+  } finally {
+    release();
+    // The held handler already tolerates a cancelled request; waiting for it can hang once the page is torn down.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
 });
 
 test("synthesis first load and read error never expose an empty creation state @cross-browser", async ({ page }) => {
