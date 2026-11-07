@@ -216,6 +216,7 @@ export class ContextRecallService {
           outcome: "skipped",
           projectRoot: decision.canonicalRoot,
           projectStatus: decision.projectStatus,
+          tracked: false,
           reason: decision.reason ?? "Project recording is not enabled.",
         };
       }
@@ -414,8 +415,11 @@ export class ContextRecallService {
     const pendingOutstandingItems = outstandingResult.outcome === "outstanding_items" ? outstandingResult.items : [];
     const pendingOutstandingItemsTotal =
       outstandingResult.outcome === "outstanding_items" ? outstandingResult.pageInfo.total : 0;
+    // The policy decision that admitted this call doubles as the tracking check, so no status call is needed.
     const context: ContextResult = {
       outcome: "context",
+      projectStatus: "tracked",
+      tracked: true,
       clock: serverClock(),
       project,
       projects: hasFocus(focus) ? [] : [project],

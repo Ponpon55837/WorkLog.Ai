@@ -162,3 +162,59 @@ describe("cross-project context and recall", () => {
     expectProjectAbsent(crossProjectRecall, hidden);
   });
 });
+
+describe("project-scoped context as the tracking check", () => {
+  it("carries the tracked policy decision only on project-scoped context", () => {
+    const store = createStore();
+    const tracked = createProjectSession(store, "Tracked Cobalt", "cobalt fixture signal.");
+
+    expect(store.getContext(tracked.root)).toMatchObject({
+      outcome: "context",
+      projectStatus: "tracked",
+      tracked: true,
+      project: { id: tracked.projectId },
+    });
+    expect(store.getContext(tracked.root, { task: "cobalt fixture", paths: ["src/a.ts"] })).toMatchObject({
+      projectStatus: "tracked",
+      tracked: true,
+    });
+    const unscoped = store.getContext();
+    expect(unscoped).not.toHaveProperty("projectStatus");
+    expect(unscoped).not.toHaveProperty("tracked");
+  });
+
+  it.each(["paused", "ignored"] as const)("returns only tracking status for a %s project", (status) => {
+    const store = createStore();
+    const hidden = createProjectSession(store, `Hidden ${status}`, `${status} hidden fixture signal.`);
+    store.updateProject(hidden.projectId, { status });
+
+    const result = store.getContext(hidden.root, { task: "hidden fixture signal" });
+    expect(result).toEqual({
+      outcome: "skipped",
+      projectRoot: expect.any(String),
+      projectStatus: status,
+      tracked: false,
+      reason: expect.any(String),
+    });
+    expectProjectAbsent(result, hidden);
+  });
+
+  it("returns only tracking status for unregistered and missing roots", () => {
+    const store = createStore();
+    const tracked = createProjectSession(store, "Tracked Neighbour", "neighbour fixture signal.");
+    const unregistered = mkdtempSync(join(tmpdir(), "work-intelligence-unregistered-"));
+    roots.push(unregistered);
+
+    for (const root of [unregistered, join(unregistered, "missing-folder")]) {
+      const result = store.getContext(root);
+      expect(result).toEqual({
+        outcome: "skipped",
+        projectRoot: expect.any(String),
+        projectStatus: "unregistered",
+        tracked: false,
+        reason: expect.any(String),
+      });
+      expectProjectAbsent(result, tracked);
+    }
+  });
+});

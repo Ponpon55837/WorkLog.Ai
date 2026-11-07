@@ -756,6 +756,44 @@ describe("Work Intelligence MCP server", () => {
     });
   });
 
+  it("confirms tracking with one project-scoped context call and leaks nothing when skipped", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Context status project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "context-status-001", "Context status secret"),
+    );
+
+    const tracked = await callJson(client, "work_get_context", { projectRoot: root, task: "status secret" });
+    expect(tracked).toMatchObject({
+      outcome: "context",
+      projectStatus: "tracked",
+      tracked: true,
+      project: { id: project.id },
+      clock: { serverTime: expect.any(String) },
+      server: { restartRequired: false },
+    });
+    expect(JSON.stringify(tracked)).toContain(finalized.session.id);
+
+    const skippedKeys = ["outcome", "projectRoot", "projectStatus", "reason", "server", "tracked"];
+    for (const status of ["paused", "ignored"] as const) {
+      store.updateProject(project.id, { status });
+      const skipped = await callJson(client, "work_get_context", { projectRoot: root, task: "status secret" });
+      expect(skipped).toMatchObject({ outcome: "skipped", projectStatus: status, tracked: false });
+      expect(Object.keys(skipped).sort()).toEqual(skippedKeys);
+      for (const leaked of [project.id, project.name, finalized.session.id, "Context status secret"]) {
+        expect(JSON.stringify(skipped)).not.toContain(leaked);
+      }
+    }
+    for (const missing of [join(root, "unregistered"), join(root, "missing", "folder")]) {
+      const skipped = await callJson(client, "work_get_context", { projectRoot: missing });
+      expect(skipped).toMatchObject({ outcome: "skipped", projectStatus: "unregistered", tracked: false });
+      expect(Object.keys(skipped).sort()).toEqual(skippedKeys);
+    }
+  });
+
   it("uses pending outstanding item state for paged Session digest open items", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Digest status project", root);
