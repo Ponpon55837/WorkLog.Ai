@@ -47,6 +47,8 @@ git push origin v1.0.0
 
 另外，workflow 一開始的 `Detect verified commit` job（只有 `actions: read` 權限）會查詢 tag 指向的 commit 是否已在 `main` 有成功的 CI run：必須是同一個 commit SHA、`ci.yml` 的 push 事件、分支為 `main`、run conclusion 為 success，且 Quality 三個 OS、三個瀏覽器 E2E 與彙總 E2E 共七個 job 都是 success。符合時略過重複的 Quality 與 E2E，只重跑生產依賴稽核（`pnpm audit --prod --audit-level high`，因為安全公告會在 CI 之後更新），再執行發行步驟；tag、版本與 CHANGELOG 一致性、封存檔與 plugin 打包仍照常在 Publish job 執行。查不到 run、job 缺少或非 success、API 查詢失敗或任何不確定時，一律回到完整檢查。這個機制只對「先合併到 `main`、再對該合併 commit 推 tag」的標準流程生效；若在尚未通過 `main` CI 的 commit 上推 tag，會跑完整檢查。E2E 失敗時以 `release-playwright-results-<瀏覽器>` 上傳 `test-results/`。若 workflow 失敗，先修正問題、合併修正，再依修正後的 `main` 建立新的版本 tag；不要把既有 tag 移到不同 commit。
 
+發佈步驟一律打包觸發 workflow 的那個 commit（`GITHUB_SHA`），也就是各項檢查實際驗證過的 commit：Publish job 以 `github.sha` checkout，先確認 tag 仍指向這個 commit，若 tag 在檢查期間被移到別的 commit 就停止，不建立 Release；原始碼封存檔也由 `GITHUB_SHA` 產生。checkout 不保留寫入權限的 token（`persist-credentials: false`），安裝依賴與 build 期間讀不到它。建議在 GitHub 的 repository rules 禁止更新或刪除 `v*` tag。
+
 ## 從舊版本升級
 
 1. 在舊版專案執行 `pnpm check`，記下它顯示的資料庫位置；可先執行 `pnpm db:backup` 建立額外備份。

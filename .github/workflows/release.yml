@@ -158,10 +158,22 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Check out the exact commit the verify / quality / E2E jobs checked, not whatever the tag points at now, and keep
+      # the write-scoped token out of .git/config while dependencies install and build scripts run.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm the tag still points at the verified commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          tagged="$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"
+          if [ "$tagged" != "$GITHUB_SHA" ]; then
+            echo "Tag $GITHUB_REF_NAME now points at $tagged, not the verified commit $GITHUB_SHA; refusing to publish." >&2
+            exit 1
+          fi
       - name: Prepare matching release notes
         id: release
         run: node scripts/prepare-release.mjs
@@ -172,8 +184,8 @@ jobs:
         run: |
           set -euo pipefail
           archive_root="work-intelligence-${GITHUB_REF_NAME}/"
-          git archive --format=tar --prefix="$archive_root" "$GITHUB_REF_NAME" | gzip -n > "$RUNNER_TEMP/${GITHUB_REF_NAME}.tar.gz"
-          git archive --format=zip --prefix="$archive_root" --output="$RUNNER_TEMP/${GITHUB_REF_NAME}.zip" "$GITHUB_REF_NAME"
+          git archive --format=tar --prefix="$archive_root" "$GITHUB_SHA" | gzip -n > "$RUNNER_TEMP/${GITHUB_REF_NAME}.tar.gz"
+          git archive --format=zip --prefix="$archive_root" --output="$RUNNER_TEMP/${GITHUB_REF_NAME}.zip" "$GITHUB_SHA"
       - uses: pnpm/action-setup@v6
         with:
           version: 11.16.0

@@ -40,10 +40,10 @@ MCP 寫入會在同一個 SQLite write transaction 核對 schema。報告儲存�
 `pnpm setup:agents`、plugin 與 `pnpm start:mcp` 都會透過穩定的 MCP launcher（`apps/mcp/dist/launcher.js`）啟動 server。launcher 以子行程執行 `apps/mcp/dist/index.js`，在 Agent 與子行程之間逐行轉送 JSON-RPC；`pnpm build` 寫出新建置後，同一個 MCP 連線會自動改用新版，Agent 不必重新連線：
 
 1. launcher 在每個請求前與閒置時（約每秒一次）比對磁碟上的建置識別（`<版本>:<dist 雜湊>`，與 `restartRequired` 判斷相同；建置進行中不切換）。
-2. 偵測到新建置時，新請求先排隊，等進行中的請求全部回覆。
+2. 偵測到新建置時，新請求先排隊，等進行中的請求全部回覆；Agent 取消的請求（`notifications/cancelled`）不會有回應，會直接從進行中移除。若 30 秒內仍有請求沒回覆，這次先不切換，之後的請求照常交給舊版，不再重新等待；進行中的請求都結束後再切換。
 3. 啟動新子行程，重播 Agent 原本的 `initialize` 與 `notifications/initialized`；新子行程的 initialize 回應由 launcher 吞掉，Agent 不會看到第二次握手。
 4. 新子行程初始化成功才切換並結束舊子行程（Windows 以 TerminateProcess 確實結束），再依序送出排隊的請求。新版的 tools 或 resources 清單和舊版不同時，送出 `notifications/tools/list_changed`／`notifications/resources/list_changed`。
-5. 新子行程啟動失敗或逾時（15 秒）時保留舊版繼續服務，下一個請求收到 JSON-RPC 錯誤（`-32603`）說明新版無法啟動；同一建置不再重試，下一次建置會再試。子行程意外結束時，進行中的請求收到錯誤，launcher 以同樣的握手重播重新啟動它（60 秒內超過 3 次就停止）。stderr 原樣轉送。
+5. 新子行程啟動失敗或逾時（15 秒）時保留舊版繼續服務，下一個請求收到 JSON-RPC 錯誤（`-32603`）說明新版無法啟動；同一建置不再重試，下一次建置會再試。子行程意外結束時，進行中的請求收到錯誤，launcher 以同樣的握手重播重新啟動它（60 秒內超過 3 次就停止）。第一次啟動時若建置標記檔（`.work-intelligence-build-in-progress`）仍在，最多等 15 秒就以目前的 dist 啟動並在 stderr 提示。launcher 自己送給子行程的請求使用帶隨機 nonce 的私有 id，回應一律不會轉給 Agent。stderr 原樣轉送。
 
 在 launcher 下，`server` 狀態另帶 `launcher: { version, restartRequired }`。新的 server 建置不會讓 `restartRequired` 變成 `true`（launcher 會在下一個請求前切換，`message` 會說明）；只有 `launcher.js` 本身的內容改變時，`restartRequired` 與 `launcher.restartRequired` 才是 `true`，需要重新連線一次。launcher 只依賴 Node 內建模組並以檔案內容雜湊識別，重新 build 但內容不變時不會要求重連。
 
