@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- The Web entry bundle shrank from 514.38 kB (gzip 168.29 kB) to 316.04 kB (gzip 112.43 kB), below Vite's 500 kB warning. The English catalog is a separate chunk fetched only when English is the saved or chosen language (the boot splash waits for it, and switching language keeps the current language until it has loaded), and the global panels and dialogs load as separate chunks after the first paint. Screens, copy and behavior are unchanged.
+
 ## [1.6.7] - 2026-11-07
 
 [繁體中文更新說明](docs/releases/1.6.7.md).
