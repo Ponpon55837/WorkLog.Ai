@@ -31,8 +31,8 @@ const AGENT_RESOURCES = [
   ".agents/skills/worklog-report-writing/references/zh-TW.md",
 ];
 
-/** node:sqlite without a flag. */
-export const MINIMUM_NODE = "22.13.0";
+/** The shared SUPPORTED_NODE_RANGE: node:sqlite with FTS5 (22.16+ on the 22 line, then 24+; 23.x lacks FTS5). */
+export const SUPPORTED_NODE_RANGE = ">=22.16.0 <23 || >=24.0.0";
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -113,7 +113,7 @@ function mcpbManifest(plugin, version) {
         default: "",
       },
     },
-    compatibility: { platforms: ["darwin", "win32", "linux"], runtimes: { node: `>=${MINIMUM_NODE}` } },
+    compatibility: { platforms: ["darwin", "win32", "linux"], runtimes: { node: SUPPORTED_NODE_RANGE } },
   };
 }
 

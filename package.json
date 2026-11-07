@@ -6,7 +6,7 @@
   "description": "Local-first developer work intelligence MVP",
   "type": "module",
   "engines": {
-    "node": ">=22.13.0",
+    "node": ">=22.16.0 <23 || >=24.0.0",
     "pnpm": ">=11.16.0"
   },
   "scripts": {

@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
-import { MINIMUM_NODE_VERSION } from "@work-intelligence/shared";
+import { isSupportedNodeVersion, MINIMUM_NODE_VERSION } from "@work-intelligence/shared";
 import { configDirectory, databasePathFor, STANDALONE } from "@work-intelligence/shared/database-location";
 import { isDriveRelativePath } from "@work-intelligence/shared/database-path";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
@@ -596,15 +596,22 @@ export function pnpmRequirementSatisfied(installed: string | undefined, required
   return true;
 }
 
-function nodeSupportsSqlite(version: string): boolean {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version);
-  if (!match) {
-    return false;
+/** Whether node:sqlite loads and its bundled SQLite can create the FTS5 table the search index needs. */
+async function probeSqlite(): Promise<{ sqlite: boolean; fts5: boolean }> {
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec("CREATE VIRTUAL TABLE fts5_probe USING fts5(tokens, content = '', contentless_delete = 1)");
+      return { sqlite: true, fts5: true };
+    } catch {
+      return { sqlite: true, fts5: false };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return { sqlite: false, fts5: false };
   }
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const [minimumMajor, minimumMinor] = MINIMUM_NODE_VERSION.split(".").map(Number) as [number, number];
-  return major > minimumMajor || (major === minimumMajor && minor >= minimumMinor);
 }
 
 function envFailure(): DoctorFinding {
@@ -651,9 +658,9 @@ export async function collectDoctorFindings(
   const parsedEnvironment = ENVIRONMENT_SCHEMA.safeParse(environment);
   const findings: DoctorFinding[] = [];
 
-  const sqliteAvailable = await import("node:sqlite").then(() => true).catch(() => false);
+  const sqlite = await probeSqlite();
   const nodeVersion = process.versions.node;
-  const nodeSupported = nodeSupportsSqlite(nodeVersion) && sqliteAvailable;
+  const nodeSupported = isSupportedNodeVersion(nodeVersion) && sqlite.sqlite && sqlite.fts5;
   addFinding(
     findings,
     nodeSupported ? "ok" : "error",
@@ -661,9 +668,13 @@ export async function collectDoctorFindings(
     "目前版本 " +
       nodeVersion +
       "，node:sqlite " +
-      (sqliteAvailable ? "可用" : "無法使用") +
-      `；最低需求為 Node.js ${MINIMUM_NODE_VERSION}。`,
-    nodeSupported ? undefined : `請使用支援 node:sqlite 的 Node.js ${MINIMUM_NODE_VERSION} 以上版本。`,
+      (sqlite.sqlite ? "可用" : "無法使用") +
+      "，FTS5 " +
+      (sqlite.fts5 ? "可用" : "無法使用") +
+      `；需要 Node.js ${MINIMUM_NODE_VERSION} 以上的 22.x，或 24 以上（23.x 沒有 FTS5）。`,
+    nodeSupported
+      ? undefined
+      : `請改用 Node.js ${MINIMUM_NODE_VERSION} 以上的 22.x，或 Node.js 24 以上；搜尋索引需要內建 SQLite 的 FTS5。`,
   );
 
   const packageManager = readPackageManagerVersion();

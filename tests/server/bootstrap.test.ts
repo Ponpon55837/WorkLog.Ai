@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MINIMUM_NODE_VERSION } from "../../packages/shared/src/index.js";
-import { MINIMUM_NODE, runBootstrap, type BootstrapDependencies } from "../../scripts/bootstrap.mjs";
+import { isSupportedNodeVersion, MINIMUM_NODE_VERSION } from "../../packages/shared/src/index.js";
+import { isSupportedNode, MINIMUM_NODE, runBootstrap, type BootstrapDependencies } from "../../scripts/bootstrap.mjs";
 
 interface Harness {
   dependencies: BootstrapDependencies;
@@ -46,6 +46,25 @@ describe("pnpm bootstrap", () => {
     expect(MINIMUM_NODE).toBe(MINIMUM_NODE_VERSION);
   });
 
+  it("accepts only Node.js releases whose built-in SQLite has FTS5, matching the shared rule", () => {
+    // Probed on GitHub Actions: 22.13.1, 22.14.0, 22.15.0 and 23.11.0 report "no such module: fts5".
+    const versions = [
+      "22.12.0",
+      "22.13.1",
+      "22.15.0",
+      "22.16.0",
+      "v22.22.0",
+      "23.0.0",
+      "23.11.0",
+      "24.0.0",
+      "26.13.0",
+      "x",
+    ];
+    const expected = [false, false, false, true, true, false, false, true, true, false];
+    expect(versions.map(isSupportedNode)).toEqual(expected);
+    expect(versions.map(isSupportedNodeVersion)).toEqual(expected);
+  });
+
   it("runs install, build, setup:agents and doctor in order after one confirmation", async () => {
     const harness = createHarness({}, { answers: ["", "n"] });
     expect(await runBootstrap([], harness.dependencies)).toBe(0);
@@ -55,12 +74,16 @@ describe("pnpm bootstrap", () => {
     expect(harness.output.join("\n")).toContain("或執行 pnpm track <資料夾>");
   });
 
-  it("stops before running anything when Node.js is too old", async () => {
-    const harness = createHarness({ nodeVersion: "22.12.0" });
-    expect(await runBootstrap(["--yes"], harness.dependencies)).toBe(1);
-    expect(harness.steps).toEqual([]);
-    expect(harness.errors.join("\n")).toContain(MINIMUM_NODE);
-  });
+  it.each(["22.15.0", "23.11.0"])(
+    "stops before running anything on Node.js %s, which lacks FTS5",
+    async (nodeVersion) => {
+      const harness = createHarness({ nodeVersion });
+      expect(await runBootstrap(["--yes"], harness.dependencies)).toBe(1);
+      expect(harness.steps).toEqual([]);
+      expect(harness.errors.join("\n")).toContain(MINIMUM_NODE);
+      expect(harness.errors.join("\n")).toContain("FTS5");
+    },
+  );
 
   it("stops when pnpm is older than the repository requires", async () => {
     const harness = createHarness({ pnpmVersion: () => "10.0.0" });

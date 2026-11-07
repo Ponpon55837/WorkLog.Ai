@@ -1,5 +1,19 @@
-/** node:sqlite needs no --experimental-sqlite flag from this Node.js version on; `pnpm start` passes none. */
-export const MINIMUM_NODE_VERSION = "22.13.0";
+/**
+ * The oldest Node.js whose built-in SQLite includes FTS5 (the search index). node:sqlite itself needs no flag from
+ * 22.13, but 22.13–22.15 and every 23.x release ship SQLite without FTS5, so the migrations cannot create the index.
+ */
+export const MINIMUM_NODE_VERSION = "22.16.0";
+/** The same requirement as an engines range: 22.16+ on the 22 line, then 24 and later; 23.x has no FTS5. */
+export const SUPPORTED_NODE_RANGE = ">=22.16.0 <23 || >=24.0.0";
+
+/** True for a Node.js version inside SUPPORTED_NODE_RANGE; false for anything unparsable. */
+export function isSupportedNodeVersion(version: string): boolean {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major >= 24 || (major === 22 && minor >= 16);
+}
 export const APP_NAME = "Work Intelligence";
 export const API_PREFIX = "/api";
 export const DEFAULT_WEB_PORT = 5966;
