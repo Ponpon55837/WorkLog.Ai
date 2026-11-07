@@ -43,7 +43,7 @@ git tag -a v1.0.0 -m "Work Intelligence 1.0.0"
 git push origin v1.0.0
 ```
 
-推送 tag 後，GitHub Actions 會跑完整發行檢查；全部通過後才建立 GitHub Release。若 workflow 失敗，先修正問題、合併修正，再依修正後的 `main` 建立新的版本 tag；不要把既有 tag 移到不同 commit。
+推送 tag 後，GitHub Actions 會跑完整發行檢查；全部通過後才建立 GitHub Release。發行 workflow（`.github/workflows/release.yml`）的結構比照 CI：Quality（Ubuntu、Windows、macOS）與 E2E（Chromium、Firefox、WebKit 各一個 job，只安裝該瀏覽器）同時開始，每個 OS 的單元與整合測試只跑一次（Ubuntu 為 lint＋format:check＋coverage，Windows 與 macOS 為 `pnpm test`），檢查項目與門檻不變；`Publish GitHub Release` 要等 Quality 三個 OS 與三個瀏覽器 job 全部成功才會開始。E2E 失敗時以 `release-playwright-results-<瀏覽器>` 上傳 `test-results/`。若 workflow 失敗，先修正問題、合併修正，再依修正後的 `main` 建立新的版本 tag；不要把既有 tag 移到不同 commit。
 
 ## 從舊版本升級
 
