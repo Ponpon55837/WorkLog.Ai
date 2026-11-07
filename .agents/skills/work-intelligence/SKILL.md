@@ -13,6 +13,8 @@ Use this skill whenever a user asks to save or correct a Work Intelligence work 
 
 `work_get_session` accepts optional `view` (completion/handoff) or fixed `select` groups from its operation contract; the default stays full. Projection includedFields/unavailableFields distinguish unread, historical unknown and selected empty data. Partial reads never satisfy full-source requirements: obtain all relevant evidence and inspect review, correction, void/trust and truncation state before relying on it. Keep full reads for small handoffs when an extra lookup costs more. Projected raw content requires selecting rawSnapshots and includeRawSnapshots=true. Reconnect for updated contracts; schema is unchanged.
 
+When re-reading a Session whose body is still in your current context, pass the `session.revision` you hold as `knownRevision`; on `session_unchanged` reuse what you hold. Never pass it for content you no longer hold (new conversation, after compaction, or a subagent).
+
 ## Report writing and source pages
 
 When generating or revising Session summaries or reports, read `work-intelligence://agent/worklog-report-writing/SKILL.md`, then only the guide for the output language. Skip these writing resources for retrieval, metadata backfill, and Knowledge maintenance.

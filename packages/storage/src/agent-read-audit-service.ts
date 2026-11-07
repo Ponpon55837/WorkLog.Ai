@@ -140,8 +140,14 @@ export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
       if (typeof child === "object" && child !== null) walk(child, depth + 1);
     }
   };
-  // A projected Session may intentionally omit summary; its mandatory identity was still returned.
-  if (isObject(result) && isObject(result.projection) && isObject(result.session) && idOf(result.session)) {
+  // A projected Session may intentionally omit summary, and session_unchanged carries identity only; either way
+  // the Session was read.
+  if (
+    isObject(result) &&
+    (isObject(result.projection) || result.outcome === "session_unchanged") &&
+    isObject(result.session) &&
+    idOf(result.session)
+  ) {
     sessions.add(idOf(result.session)!);
     if (typeof result.session.projectId === "string") projects.add(result.session.projectId);
   }

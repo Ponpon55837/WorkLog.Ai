@@ -2904,8 +2904,9 @@ export interface ProjectStatusResult {
 /** Raw handoff snapshot metadata without its content, for bounded Agent payloads. */
 export type RawSnapshotSummary = Omit<RawSnapshotRecord, "content"> & { contentLength: number };
 
-export interface SessionDetailResult extends Omit<SessionDetail, "rawSnapshots"> {
+export interface SessionDetailResult extends Omit<SessionDetail, "session" | "rawSnapshots"> {
   outcome: "session_detail";
+  session: WorkSessionRecord & AgentSessionRevision;
   rawSnapshots: Array<RawSnapshotRecord | RawSnapshotSummary>;
 }
 
@@ -2937,6 +2938,15 @@ export interface SessionAgentReadQuery {
   includeRawSnapshots?: boolean;
   view?: SessionReadView;
   select?: SessionReadField[];
+  /** The revision of a body the Agent still holds in full; a match returns SessionUnchangedResult. */
+  knownRevision?: string;
+}
+/**
+ * Content hash of the Session's full Agent detail (without raw snapshot content or the project record), the same
+ * for full and projected reads of one Session state.
+ */
+export interface AgentSessionRevision {
+  revision: string;
 }
 export interface SessionProjectionResult {
   outcome: "session_detail";
@@ -2947,6 +2957,7 @@ export interface SessionProjectionResult {
     unavailableFields: SessionReadField[];
   };
   session: Pick<WorkSessionRecord, "id" | "projectId" | "title" | "status" | "executionStatus" | "completedAt"> &
+    AgentSessionRevision &
     Partial<
       Pick<
         WorkSessionRecord,
@@ -2971,7 +2982,12 @@ export interface SessionProjectionResult {
   diagrams?: SessionDiagramRecord[];
   rawSnapshots?: Array<RawSnapshotRecord | RawSnapshotSummary>;
 }
-export type SessionAgentReadResult = SessionDetailQueryResult | SessionProjectionResult;
+/** work_get_session with a knownRevision that still matches: the Agent reuses the body it already holds. */
+export interface SessionUnchangedResult {
+  outcome: "session_unchanged";
+  session: Pick<WorkSessionRecord, "id" | "projectId" | "title" | "voided"> & AgentSessionRevision;
+}
+export type SessionAgentReadResult = SessionDetailQueryResult | SessionProjectionResult | SessionUnchangedResult;
 
 export interface SessionNotFoundResult {
   outcome: "not_found";

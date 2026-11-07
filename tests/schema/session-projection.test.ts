@@ -26,6 +26,13 @@ describe("Session Agent field read input boundary", () => {
         .includeRawSnapshots,
     ).toBe(true);
   });
+  it("accepts only a 16-character base64url knownRevision", () => {
+    expect(
+      sessionDetailQuerySchema.parse({ sessionId: "synthetic", knownRevision: "Ab0_-cD1eF2gH3iJ" }).knownRevision,
+    ).toBe("Ab0_-cD1eF2gH3iJ");
+    for (const knownRevision of ["A".repeat(15), "A".repeat(17), "Ab0+/cD1eF2gH3iJ", "Ab0_-cD1eF2gH3i="])
+      expect(sessionDetailQuerySchema.safeParse({ sessionId: "synthetic", knownRevision }).success).toBe(false);
+  });
   it("rejects contradictory modes, duplicates and implicit raw content", () => {
     for (const input of [
       { view: "completion", select: ["events"] },

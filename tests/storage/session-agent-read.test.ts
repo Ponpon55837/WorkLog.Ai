@@ -124,15 +124,17 @@ describe("Agent Session projection", () => {
     expect(result).not.toHaveProperty("events");
     expect(result.session).not.toHaveProperty("changedFiles");
   });
-  it("performs zero queries and JSON parsing for unselected heavy families", () => {
+  it("returns no unselected family; the revision alone reads the full detail, once", () => {
     const { store, id, db } = setup();
     const prepared = vi.spyOn(db, "prepare");
-    projectRead(store, id, ["session.summary"]);
-    const sql = prepared.mock.calls.map(([text]) => text).join("\n");
-    expect(sql).not.toMatch(
-      /work_events|raw_snapshots|evidence|session_diagrams|session_decisions|session_links|verification_updates|void_audit|FROM knowledge/i,
-    );
-    expect(sql).not.toMatch(/work_summary_json|changed_files_json|verification_json|SELECT s\.\*/);
+    const result = projectRead(store, id, ["session.summary"]);
+    for (const family of ["events", "evidence", "diagrams", "decisions", "links", "knowledge", "rawSnapshots"])
+      expect(result).not.toHaveProperty(family);
+    expect(result.session).not.toHaveProperty("workSummary");
+    // The revision hashes the full detail (one revision per Session state); each heavy family is read once for it.
+    const sql = prepared.mock.calls.map(([text]) => text);
+    for (const table of ["work_events", "raw_snapshots", "FROM session_diagrams", "FROM void_audit"])
+      expect(sql.filter((text) => text.includes(table))).toHaveLength(1);
   });
   it("gates project policy before reading content or any heavy family", () => {
     const { store, id, db, project } = setup();

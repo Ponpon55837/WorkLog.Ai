@@ -577,6 +577,9 @@ try {
     ],
   });
   if (architectureSession.outcome !== "finalized") throw new Error("Expected the synthetic architecture Session.");
+  const architectureDetail = benchStore.getSessionDetailForAgent({ sessionId: architectureSession.session.id });
+  if (architectureDetail.outcome !== "session_detail") throw new Error("Expected the architecture Session detail.");
+  const architectureRevision = architectureDetail.session.revision;
   const evaluationQuestions = parseRecallEvaluationQuestions([
     {
       id: "read-path-benchmark-recall",
@@ -734,6 +737,19 @@ try {
     "getSessionDetail (200 architecture nodes)": () => {
       const result = benchStore.getSessionDetail(architectureSession.session.id);
       if (!result?.diagrams.length) throw new Error("Expected a complete architecture snapshot.");
+      return result;
+    },
+    "getSessionDetailForAgent (full + revision, 200 nodes)": () => {
+      const result = benchStore.getSessionDetailForAgent({ sessionId: architectureSession.session.id });
+      if (result.outcome !== "session_detail" || !result.session.revision) throw new Error("Expected a revision.");
+      return result;
+    },
+    "getSessionDetailForAgent (unchanged knownRevision, 200 nodes)": () => {
+      const result = benchStore.getSessionDetailForAgent({
+        sessionId: architectureSession.session.id,
+        knownRevision: architectureRevision,
+      });
+      if (result.outcome !== "session_unchanged") throw new Error("Expected an unchanged revision.");
       return result;
     },
     "getSessionProjection (completion, 200 nodes omitted)": () =>
@@ -1040,6 +1056,8 @@ try {
     "getAttention (suppressed preferences)": 500,
     "getRelatedWork (file overlap)": 250,
     "getSessionDetail (200 architecture nodes)": 250,
+    "getSessionDetailForAgent (full + revision, 200 nodes)": 250,
+    "getSessionDetailForAgent (unchanged knownRevision, 200 nodes)": 250,
     "getSessionProjection (completion, 200 nodes omitted)": 250,
     "getSessionProjection (handoff, 200 nodes omitted)": 250,
     "getSessionProjection (selected native source)": 250,
