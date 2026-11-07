@@ -1,16 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import AppShell from "./components/layout/AppShell.vue";
-import CommandPalette from "./components/domain/CommandPalette.vue";
-import HandoffImportDialog from "./components/domain/HandoffImportDialog.vue";
-import KnowledgeEditorDialog from "./components/domain/KnowledgeEditorDialog.vue";
-import KnowledgeHistoryPanel from "./components/domain/KnowledgeHistoryPanel.vue";
-import RecordVoidDialog from "./components/domain/RecordVoidDialog.vue";
-import SessionLinkDialog from "./components/domain/SessionLinkDialog.vue";
-import SessionDiagramPanel from "./components/domain/SessionDiagramPanel.vue";
-import SessionPanel from "./components/domain/SessionPanel.vue";
-import SessionSummaryEditorDialog from "./components/domain/SessionSummaryEditorDialog.vue";
 import UiButton from "./components/ui/UiButton.vue";
 import UiFlash from "./components/ui/UiFlash.vue";
 import UiSkeleton from "./components/ui/UiSkeleton.vue";
@@ -23,6 +14,10 @@ import { useDashboardStore } from "./stores/dashboard";
 import { useProjectsStore } from "./stores/projects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 import { locale, t } from "./i18n";
+
+// The global panels and dialogs render nothing until a store opens them, so their code loads as one separate chunk
+// after the first paint instead of weighing down the entry bundle.
+const AppOverlays = defineAsyncComponent(() => import("./components/layout/AppOverlays.vue"));
 
 const projectsStore = useProjectsStore();
 const { dashboard, trackedProjects } = storeToRefs(projectsStore);
@@ -40,6 +35,7 @@ const loading = ref(true);
 const refreshing = ref(false);
 const errorMessage = ref("");
 const paletteOpen = ref(false);
+const overlaysReady = ref(false);
 
 useHotkeys({ openPalette: () => (paletteOpen.value = true) });
 const stopAppRefreshEvents = startAppRefreshEvents();
@@ -81,7 +77,12 @@ watch(appHealthError, (message) => {
   }
 });
 
-onMounted(() => void loadRootData());
+onMounted(() => {
+  void loadRootData();
+  // Chunks are fetched once the browser is idle; a panel opened sooner mounts as soon as its chunk arrives.
+  if (typeof requestIdleCallback === "function") requestIdleCallback(() => (overlaysReady.value = true));
+  else setTimeout(() => (overlaysReady.value = true), 0);
+});
 
 onBeforeUnmount(() => {
   stopAppRefreshEvents();
@@ -124,17 +125,8 @@ onBeforeUnmount(() => {
       </Transition>
     </RouterView>
 
-    <template #overlays>
-      <!-- Overlay state lives in stores, so remounting them on a language switch keeps what is open. -->
-      <SessionPanel :key="`session-panel:${locale}`" />
-      <SessionDiagramPanel :key="`session-diagram:${locale}`" />
-      <KnowledgeHistoryPanel :key="`knowledge-history:${locale}`" />
-      <KnowledgeEditorDialog :key="`knowledge-editor:${locale}`" />
-      <SessionSummaryEditorDialog :key="`session-editor:${locale}`" />
-      <RecordVoidDialog :key="`record-void:${locale}`" />
-      <SessionLinkDialog :key="`session-link:${locale}`" />
-      <HandoffImportDialog :key="`handoff-import:${locale}`" />
-      <CommandPalette :key="`palette:${locale}`" v-model:open="paletteOpen" />
+    <template v-if="overlaysReady" #overlays>
+      <AppOverlays v-model:palette-open="paletteOpen" />
     </template>
   </AppShell>
 </template>
