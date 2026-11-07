@@ -138,7 +138,7 @@ claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTE
 
 過期 MCP lease 與遺留暫存檔會在 MCP 註冊及系統狀態讀取時分批清理，預設門檻為 90 秒、每次最多 64 次刪除嘗試；詳見[疑難排解](docs/troubleshooting.md)。
 
-Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-work` 與 `/mcp__work-intelligence__synthesize-report`。Claude Desktop 的設定、驗證方式與常見問題見 **[docs/agent-setup.md](docs/agent-setup.md)**。更新 Work Intelligence 後，請重新 `pnpm build`。只有 schema／Agent 契約改變或無法確認相容性時才必須重新連線；僅實作更新會顯示「有新版可用」，原連線仍可照常讀寫，收尾再提醒重連。
+Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-work` 與 `/mcp__work-intelligence__synthesize-report`。Claude Desktop 的設定、驗證方式與常見問題見 **[docs/agent-setup.md](docs/agent-setup.md)**。更新 Work Intelligence 後，請重新 `pnpm build`。Agent 透過穩定的 MCP launcher（`apps/mcp/dist/launcher.js`，由 `pnpm setup:agents`、plugin 與 `pnpm start:mcp` 使用）連線：新建置出現時，它會等進行中的請求回覆、啟動新版 server 並重播握手，同一個連線就改用新版，不必重新連線；只有 launcher 本身更新時才需要重連一次。仍直接執行 `apps/mcp/dist/index.js` 的註冊維持舊規則（schema／Agent 契約改變時需重連），重新執行 `pnpm setup:agents` 即可改用 launcher。
 
 ### 保存提醒 hook（選用）
 

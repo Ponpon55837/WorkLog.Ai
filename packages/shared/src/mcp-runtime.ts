@@ -30,6 +30,8 @@ export interface McpRestartStatus {
   monitoringAvailable: boolean;
   updateAvailable?: boolean;
   message?: string;
+  /** Present when the server runs under the stable launcher: only a launcher update requires reconnecting. */
+  launcher?: { version: number; restartRequired: boolean };
 }
 
 export interface McpRuntimeStatus extends McpRestartStatus {
