@@ -384,7 +384,6 @@ Development workflow, health checks and PR rules are in [CONTRIBUTING.md](CONTRI
 
 ## Documentation
 
-- [Mermaid removal plan (preserves historical source)](docs/mermaid-removal-plan.md)
 
 The guides under `docs/` are written in Traditional Chinese.
 
@@ -403,8 +402,6 @@ The guides under `docs/` are written in Traditional Chinese.
 | [docs/architecture.md](docs/architecture.md) | Data contracts, consistency and input boundaries, the recording policy, design principles |
 | [docs/testing.md](docs/testing.md) | Test commands, coverage, performance, retrieval-quality and accessibility thresholds, and E2E scope |
 | [docs/status.md](docs/status.md) | Current status, open items and deferred work |
-| [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) | Decisions and implementation notes for the Web UI redesign |
-| [docs/five-feature-integration-research.md](docs/five-feature-integration-research.md) | Historical five-feature integration research: UX, algorithms, security and staged acceptance; implementation delivered in 1.5.0 |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow, health checks, PR and work-record rules |
 | [SECURITY.md](SECURITY.md) | Threat model, local security boundaries and private vulnerability reporting |

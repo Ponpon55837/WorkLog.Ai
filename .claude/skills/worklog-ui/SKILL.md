@@ -12,7 +12,6 @@ The canonical skill is shared between Codex and Claude and lives at `.agents/ski
 3. `.agents/skills/worklog-ui/references/components.md` — component catalog and APIs
 4. `.agents/skills/worklog-ui/references/patterns.md` — layout, lists, detail views, states, keyboard, copy, responsive
 5. `.agents/skills/worklog-ui/references/domain-semantics.md` — Session / verification / report / policy rules the UI must respect
-6. `.agents/skills/worklog-ui/references/migration.md` — P0–P4 steps and old → new mapping
-7. `.agents/skills/worklog-ui/assets/preview.html` — approved visual reference
+6. `.agents/skills/worklog-ui/assets/preview.html` — approved visual reference
 
 Do not duplicate content here; edit the files under `.agents/skills/worklog-ui/` instead, and keep this `description` in sync with it.
