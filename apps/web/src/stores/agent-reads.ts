@@ -1,7 +1,7 @@
 import { computed, ref, watch } from "vue";
 import { useQuery } from "@pinia/colada";
 import { defineStore, storeToRefs } from "pinia";
-import type { AgentReadAuditPage, AgentReadReferences } from "@work-intelligence/core";
+import type { AgentReadAuditPage, AgentReadReferences, AgentReadStats } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import type { ListPageSize } from "../utils/labels";
@@ -41,6 +41,17 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
         signal,
       ),
   });
+  // Per-tool latency follows the same project and Agent filters; it is not paginated.
+  const statsQuery = useQuery<AgentReadStats>({
+    key: () => [...queryKeys.agentReads.stats, { projectId: projectId.value, agent: agent.value }],
+    enabled: listActive,
+    placeholderData: (previousData) => previousData,
+    query: ({ signal }) =>
+      useApi().client.getAgentReadStats(
+        { projectId: projectId.value || undefined, agentClient: agent.value || undefined },
+        signal,
+      ),
+  });
   const selectedSessionId = computed(() => selectedDetail.value?.session.id);
   const sessionReadsQuery = useQuery<AgentReadReferences>({
     key: () => [...queryKeys.agentReads.session, selectedSessionId.value ?? null],
@@ -60,6 +71,11 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
     listQuery.error.value ? errorMessage(listQuery.error.value, t("systemStatus.agentReadsCouldNotLoad")) : "",
   );
   const sessionReads = computed(() => sessionReadsQuery.data.value);
+  const toolStats = computed(() => statsQuery.data.value?.tools ?? []);
+  const statsLoaded = computed(() => statsQuery.data.value !== undefined);
+  const statsError = computed(() =>
+    statsQuery.error.value ? errorMessage(statsQuery.error.value, t("systemStatus.agentReadStatsCouldNotLoad")) : "",
+  );
 
   // A filter change returns to page 1, unless the page changed with it (a deep link or back/forward restoring the URL).
   watch([projectId, agent, pageSize, page], ([, , , nextPage], [, , , previousPage]) => {
@@ -78,6 +94,14 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
     }
   }
 
+  async function reloadStats(): Promise<void> {
+    try {
+      await statsQuery.refetch(true);
+    } catch {
+      // Query errors are exposed through `statsError` for the box to render.
+    }
+  }
+
   return {
     projectId,
     agent,
@@ -89,7 +113,11 @@ export const useAgentReadsStore = defineStore("agent-reads", () => {
     loaded,
     error,
     sessionReads,
+    toolStats,
+    statsLoaded,
+    statsError,
     setListActive,
     reload,
+    reloadStats,
   };
 });

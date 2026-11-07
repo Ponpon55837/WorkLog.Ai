@@ -42,11 +42,15 @@ describe("domain API factories", () => {
     await api.listAgentReads({ projectId: "project-1", agent: "fiction-client", page: 2, pageSize: 50 });
     await api.getSessionAgentReads("session/1");
     await api.getKnowledgeAgentReads("knowledge/1");
+    await api.getAgentReadStats();
+    await api.getAgentReadStats({ projectId: "project 1", agentClient: "fiction-client" });
     expect(calls.map((call) => `${call.url.pathname}${call.url.search}`)).toEqual([
       "/api/agent-reads",
       "/api/agent-reads?projectId=project-1&agent=fiction-client&page=2&pageSize=50",
       "/api/sessions/session%2F1/agent-reads",
       "/api/knowledge/knowledge%2F1/agent-reads",
+      "/api/agent-reads/stats",
+      "/api/agent-reads/stats?projectId=project+1&agentClient=fiction-client",
     ]);
   });
 

@@ -243,8 +243,10 @@ import type {
   AgentReadAuditPage,
   AgentReadRecordType,
   AgentReadReferences,
+  AgentReadStats,
   ListAgentReadsOptions,
   RecordAgentReadInput,
+  SummarizeAgentReadsOptions,
 } from "./agent-read-audit-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
 import { SessionDeletionService } from "./session-deletion-service.js";
@@ -724,6 +726,10 @@ export class WorkIntelligenceStore {
 
   public listAgentReads(options: ListAgentReadsOptions = {}): AgentReadAuditPage {
     return this.agentReadAudit.listRecent(options);
+  }
+
+  public summarizeAgentReads(options: SummarizeAgentReadsOptions = {}): AgentReadStats {
+    return this.agentReadAudit.summarize(options);
   }
 
   public getAgentReadsForRecord(type: AgentReadRecordType, recordId: string, limit?: number): AgentReadReferences {

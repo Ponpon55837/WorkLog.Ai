@@ -4,6 +4,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- The Agent read audit records how long each MCP read took and why a read failed (schema 32 adds nullable `duration_ms` and `error_code` to `agent_read_audit`; older rows stay unknown). Failed reads are now audited too, with `outcome: "error"` and a fixed code only — `invalid_input`, `database_busy`, `restart_required` or `internal_error` — and never their ids, response or error message. Tool responses and error handling are unchanged, and audit writes still change only the audit revision.
+- `GET /api/agent-reads/stats` (filters `projectId`, `agentClient`) summarizes the retained audit per tool: count, failures by code, and nearest-rank p50 / p95 / max latency, slowest p95 first. System Status → Agent read log shows each read's duration and failure label plus a per-tool latency table that refreshes with the read log.
+
+### Changed
+
+- The database upgrades to schema 32 on first start (with the usual pre-migration backup). Older MCP connections report `restartRequired` after the upgrade; reconnect Work Intelligence MCP.
+
 ## [1.6.8] - 2026-11-07
 
 [繁體中文更新說明](docs/releases/1.6.8.md).

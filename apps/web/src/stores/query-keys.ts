@@ -52,6 +52,7 @@ export const queryKeys = {
     all: ["agent-reads"] as const,
     list: ["agent-reads", "list"] as const,
     session: ["agent-reads", "session"] as const,
+    stats: ["agent-reads", "stats"] as const,
   },
   reports: {
     report: [...reportsViewKey, "report"] as const,

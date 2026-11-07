@@ -959,6 +959,13 @@ const MIGRATIONS: SchemaMigration[] = [
     name: "database-change-revisions",
     sql: `${changeRevisionsTableSql}\n${projectDataRevisionTriggersSql(MIGRATION_31_PROJECT_DATA_TABLES)}\n${agentReadRevisionTriggersSql}`,
   },
+  {
+    version: 32,
+    name: "agent-read-audit-timing",
+    // Older rows keep NULL: their duration and failure code are unknown, not zero or ok.
+    sql: `ALTER TABLE agent_read_audit ADD COLUMN duration_ms INTEGER;
+    ALTER TABLE agent_read_audit ADD COLUMN error_code TEXT;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

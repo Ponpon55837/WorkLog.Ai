@@ -572,6 +572,11 @@ export const agentReadsQuerySchema = z.object({
   pageSize: z.number().int().min(1).max(100).default(20),
 });
 
+export const agentReadStatsQuerySchema = z.object({
+  projectId: z.string().trim().min(1).max(200).optional(),
+  agentClient: z.string().trim().min(1).max(100).optional(),
+});
+
 export const sessionDetailQuerySchemaBase = z.object({
   sessionId: z.string().trim().min(1).max(200),
   includeRawSnapshots: z.boolean().default(false),
@@ -1219,6 +1224,7 @@ export type OutstandingItemListQuery = z.infer<typeof outstandingItemListQuerySc
 export type UpdateOutstandingItemStatusInput = z.infer<typeof updateOutstandingItemStatusInputSchema>;
 export type SessionsQuery = z.infer<typeof sessionsQuerySchema>;
 export type AgentReadsQuery = z.infer<typeof agentReadsQuerySchema>;
+export type AgentReadStatsQuery = z.infer<typeof agentReadStatsQuerySchema>;
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
 export type ReportExportQuery = z.infer<typeof reportExportQuerySchema>;
 export type CreateReportSynthesisRequestInput = z.infer<typeof createReportSynthesisRequestInputSchema>;

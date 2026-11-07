@@ -6,6 +6,7 @@ import {
   formatDate,
   formatDayGroup,
   formatDuration,
+  formatMilliseconds,
   formatReadableSummary,
   formatRelative,
   formatReportTrendLabel,
@@ -25,6 +26,13 @@ describe("formatBytes", () => {
     expect(formatBytes(1024)).toBe("1.0 KB");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(1024 ** 3)).toBe("1.0 GB");
+  });
+});
+
+describe("formatMilliseconds", () => {
+  it("formats whole milliseconds with locale digit grouping", () => {
+    expect(formatMilliseconds(0)).toBe(t("format.milliseconds", { value: "0" }));
+    expect(formatMilliseconds(1234)).toBe(t("format.milliseconds", { value: "1,234" }));
   });
 });
 

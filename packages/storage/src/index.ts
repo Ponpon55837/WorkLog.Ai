@@ -46,6 +46,7 @@ export {
   AGENT_READ_AUDIT_MAX_AGE_DAYS,
   AGENT_READ_AUDIT_MAX_IDS,
   AGENT_READ_AUDIT_MAX_ROWS,
+  AGENT_READ_FALLBACK_ERROR_CODE,
 } from "./agent-read-audit-service.js";
 export type {
   AgentReadAuditItem,
@@ -53,4 +54,7 @@ export type {
   AgentReadRecordType,
   AgentReadReference,
   AgentReadReferences,
+  AgentReadStats,
+  AgentReadToolStats,
+  SummarizeAgentReadsOptions,
 } from "./agent-read-audit-service.js";

@@ -430,6 +430,26 @@ function withServerRestartStatus(result: unknown, getRestartStatus: () => McpRes
   return { result, server: getRestartStatus() };
 }
 
+function isRestartRequiredError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "MCP_RESTART_REQUIRED");
+}
+
+/** A fixed audit code for a failed read; the error's message is never stored. */
+function readErrorCode(error: unknown): string {
+  if (isRestartRequiredError(error)) return "restart_required";
+  if (isDatabaseBusyError(error)) return "database_busy";
+  return "internal_error";
+}
+
+/** Best-effort read audit: whatever happens here, the tool response stays unchanged. */
+function auditRead(store: WorkIntelligenceStore, input: Parameters<WorkIntelligenceStore["recordAgentRead"]>[0]): void {
+  try {
+    store.recordAgentRead(input);
+  } catch {
+    // The audit never fails a read.
+  }
+}
+
 export function createWorkIntelligenceMcpServer(
   storeOrUnavailable: WorkIntelligenceStore | null,
   version: string,
@@ -472,13 +492,21 @@ export function createWorkIntelligenceMcpServer(
           };
         }
 
+        const readOnly = definition.annotations.readOnlyHint === true;
+        // The client name comes from the MCP initialize handshake, never from the Agent's arguments.
+        const agentClient = server.server.getClientVersion()?.name;
         const parsed = parseMcpInput(definition.schema, input);
         if (!parsed.success) {
+          if (readOnly) auditRead(store, { tool: name, agentClient, errorCode: "invalid_input" });
           return {
             isError: true,
             ...textResult({ error: definition.invalidMessage, details: parsed.error.flatten() }),
           };
         }
+        const inputProjectId = (parsed.data as { projectId?: unknown } | null)?.projectId;
+        const projectId = typeof inputProjectId === "string" ? inputProjectId : undefined;
+        const startedAt = performance.now();
+        let audited = false;
         try {
           const restartStatus = getRestartStatus();
           if (!definition.annotations.readOnlyHint && restartStatus.restartRequired) {
@@ -491,20 +519,14 @@ export function createWorkIntelligenceMcpServer(
               }),
             };
           }
-          // The client name comes from the MCP initialize handshake, never from the Agent's arguments.
-          const context = { agentClient: server.server.getClientVersion()?.name, serverStatus: restartStatus };
-          const result = definition.annotations.readOnlyHint
+          const context = { agentClient, serverStatus: restartStatus };
+          const result = readOnly
             ? await definition.run(parsed.data, context)
             : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
-          if (definition.annotations.readOnlyHint) {
-            // Passive audit of what this read returned (ids only); it never affects the response.
-            const inputProjectId = (parsed.data as { projectId?: unknown } | null)?.projectId;
-            store.recordAgentRead({
-              tool: name,
-              agentClient: context.agentClient,
-              result,
-              projectId: typeof inputProjectId === "string" ? inputProjectId : undefined,
-            });
+          if (readOnly) {
+            // Passive audit of what this read returned (ids only) and how long it took; never affects the response.
+            auditRead(store, { tool: name, agentClient, result, projectId, durationMs: performance.now() - startedAt });
+            audited = true;
           }
           const output =
             definition.includeServerStatus || !definition.annotations.readOnlyHint
@@ -512,7 +534,17 @@ export function createWorkIntelligenceMcpServer(
               : result;
           return definition.sessionResult ? sessionTextResult(output) : textResult(output);
         } catch (error) {
-          if (error && typeof error === "object" && "code" in error && error.code === "MCP_RESTART_REQUIRED") {
+          // A failure after the read was audited (formatting the response) must not add a second row.
+          if (readOnly && !audited) {
+            auditRead(store, {
+              tool: name,
+              agentClient,
+              projectId,
+              durationMs: performance.now() - startedAt,
+              errorCode: readErrorCode(error),
+            });
+          }
+          if (isRestartRequiredError(error)) {
             return {
               isError: true,
               ...textResult({

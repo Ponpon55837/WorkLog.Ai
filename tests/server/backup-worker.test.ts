@@ -66,7 +66,9 @@ describe("backup worker", () => {
 
     const current = new DatabaseSync(databasePath, { readOnly: true });
     try {
-      expect(current.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 30 });
+      expect(current.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
+        version: LATEST_SCHEMA_VERSION - 1,
+      });
     } finally {
       current.close();
     }

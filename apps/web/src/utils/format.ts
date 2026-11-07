@@ -187,6 +187,11 @@ export function formatDuration(from: string, to: string): string {
   return parts.filter(Boolean).join(" ");
 }
 
+/** A whole-millisecond duration with locale digit grouping, e.g. 「1,234 ms」. */
+export function formatMilliseconds(value: number): string {
+  return t("format.milliseconds", { value: new Intl.NumberFormat(intlLocale()).format(value) });
+}
+
 /** A Session counts as updated when it changed more than a minute after it was finalized. */
 export function wasUpdatedAfterFinalize(session: { createdAt: string; updatedAt: string }): boolean {
   return Date.parse(session.updatedAt) - Date.parse(session.createdAt) > 60_000;
