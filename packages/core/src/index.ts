@@ -2335,6 +2335,9 @@ export type DecideKnowledgeCandidateResult =
 
 export interface ContextResult {
   outcome: "context";
+  /** Present only for a projectRoot-scoped call: the policy decision that admitted it, same as work_get_project_status. */
+  projectStatus?: "tracked";
+  tracked?: true;
   clock: ServerClock;
   project?: ProjectRecord;
   projects: ProjectRecord[];
@@ -2872,7 +2875,12 @@ export interface SkippedContextResult {
   reason: string;
 }
 
-export type ContextQueryResult = ContextResult | SkippedContextResult;
+/** A projectRoot-scoped context call that the policy gate skipped: tracking status only, never project data. */
+export interface SkippedProjectContextResult extends SkippedContextResult {
+  tracked: false;
+}
+
+export type ContextQueryResult = ContextResult | SkippedProjectContextResult;
 
 export interface ProjectReader {
   getProjectByRootPath(rootPath: string): ProjectRecord | undefined;

@@ -228,7 +228,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 ```markdown
 ## Work Intelligence
 
-- 在已由使用者明確設為「記錄中」的專案，開始工作前透過 `work_read` 執行 `work_get_project_status`，再以 `work_read` 執行 `work_get_context`，並提供任務與已知路徑。
+- 在已由使用者明確設為「記錄中」的專案，開始工作前透過 `work_read` 執行一次 `work_get_context`，提供 `projectRoot`、任務與已知路徑；它同時回傳 `tracked` 與 `projectStatus`，不必另外呼叫 `work_get_project_status`。結果為 `skipped` 時不要讀取該專案的任何資料。
 - 工作完成後，在完成驗證與交接後透過 `work_write_idempotent` 執行 `work_finalize_session`；只回報實際確認的成果、變更檔案與驗證結果。若專案不是 tracked，或無法確認狀態，不要建立 Work Intelligence 記錄。
 - 第一次呼叫某個 operation 前，讀取 `work-intelligence://agent/tool-contracts/<operation>` 取得該操作的完整契約（索引在 `work-intelligence://agent/tool-contracts`）；需要完整隱私規則與操作流程時，讀取 `work-intelligence://agent/work-intelligence/SKILL.md`；準備或修正記錄與報告時，再讀 `work-intelligence://agent/work-record-and-report-format.md`。
 ```
@@ -258,7 +258,7 @@ pnpm start
 這個專案有在 Work Intelligence 記錄嗎？順便看一下最近做了什麼。
 ```
 
-Agent 會透過 `work_read` 執行 operation `work_get_project_status`，再執行 `work_get_context`。完成工作時：
+Agent 會透過 `work_read` 執行一次帶 `projectRoot` 的 operation `work_get_context`，同時確認記錄狀態並取得脈絡。完成工作時：
 
 ```text
 完成了，請把這次工作記錄到 Work Intelligence。

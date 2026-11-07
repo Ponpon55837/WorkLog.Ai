@@ -186,7 +186,8 @@ describe("Agent setup", () => {
     expect(confirmationCount).toBe(1);
     expect(printed.some((message) => message.includes("已取消"))).toBe(true);
     const projectInstruction = printed.find((message) => message.includes("## Work Intelligence")) ?? "";
-    expect(projectInstruction).toContain("透過 `work_read` 執行 `work_get_project_status`");
+    expect(projectInstruction).toContain("透過 `work_read` 執行一次 `work_get_context`");
+    expect(projectInstruction).not.toContain("執行 `work_get_project_status`");
     expect(projectInstruction).toContain("透過 `work_write_idempotent` 執行 operation `work_finalize_session`");
     expect(projectInstruction).toContain("work-intelligence://agent/tool-contracts/<operation>");
     expect(readdirSync(homeDirectory)).toEqual([]);
