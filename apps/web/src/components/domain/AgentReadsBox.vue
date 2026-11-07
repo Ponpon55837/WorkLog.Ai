@@ -16,20 +16,41 @@ import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../../composab
 import { useAgentReadsStore } from "../../stores/agent-reads";
 import { useProjectsStore } from "../../stores/projects";
 import { useSessionsStore } from "../../stores/sessions";
-import { formatDate } from "../../utils/format";
+import { formatDate, formatMilliseconds } from "../../utils/format";
 import { listPageSizeOptions } from "../../utils/labels";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 
 /**
  * Passive audit of what Agents were given through MCP reads: when, which tool and client, which project, and the
- * returned Session ids (ids only; no query or content is stored). Session ids open the Session panel.
+ * returned Session ids (ids only; no query or content is stored), plus each read's duration and failure code and a
+ * per-tool latency summary. Session ids open the Session panel.
  */
 const agentReadsStore = useAgentReadsStore();
-const { projectId, agent, page, pageSize, reads, pageInfo, agentOptions, loaded, error } = storeToRefs(agentReadsStore);
+const {
+  projectId,
+  agent,
+  page,
+  pageSize,
+  reads,
+  pageInfo,
+  agentOptions,
+  loaded,
+  error,
+  toolStats,
+  statsLoaded,
+  statsError,
+} = storeToRefs(agentReadsStore);
 const { trackedProjects } = storeToRefs(useProjectsStore());
 const { openSessionDetail } = useSessionsStore();
 
 const pageSizes = listPageSizeOptions.map((option) => option.value);
+// Codes come from the MCP read wrapper; an unknown code is shown as stored.
+const errorLabelKeys: Readonly<Record<string, MessageKey>> = {
+  invalid_input: "systemStatus.agentReadsErrorInvalidInput",
+  database_busy: "systemStatus.agentReadsErrorDatabaseBusy",
+  restart_required: "systemStatus.agentReadsErrorRestartRequired",
+  internal_error: "systemStatus.agentReadsErrorInternal",
+};
 
 useRouteQuery("readsProject", projectId, stringQuery());
 useRouteQuery("readsAgent", agent, stringQuery());
@@ -44,6 +65,15 @@ const agentFilterOptions = computed(() => [
   { value: "", label: t("systemStatus.agentReadsAllAgents") },
   ...agentOptions.value.map((name) => ({ value: name, label: name })),
 ]);
+
+function errorLabel(code: string): string {
+  const key = errorLabelKeys[code];
+  return key ? t(key) : t("systemStatus.agentReadsErrorOther", { code });
+}
+
+function milliseconds(value: number | null): string {
+  return value === null ? "—" : formatMilliseconds(value);
+}
 
 function openSession(sessionId: string): void {
   void openSessionDetail(sessionId, t("systemStatus.agentReadsCouldNotOpenSession"));
@@ -77,6 +107,50 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
 
     <p class="agent-reads__hint">{{ t("systemStatus.agentReadsHint") }}</p>
 
+    <!-- No reads yet: the list's empty state already says so, so the stats section stays hidden. -->
+    <section
+      v-if="statsError || !statsLoaded || toolStats.length > 0"
+      class="agent-reads__stats"
+      data-testid="agent-read-stats"
+      :aria-label="t('systemStatus.agentReadStatsTitle')"
+    >
+      <h3 class="agent-reads__stats-title">{{ t("systemStatus.agentReadStatsTitle") }}</h3>
+      <UiFlash v-if="statsError" tone="danger" :title="t('systemStatus.agentReadStatsCouldNotLoad')">
+        {{ statsError }}
+        <template #actions
+          ><UiButton size="sm" @click="agentReadsStore.reloadStats">{{ t("common.retry") }}</UiButton></template
+        >
+      </UiFlash>
+      <UiSkeleton v-else-if="!statsLoaded" :count="2" :label="t('systemStatus.agentReadStatsLoading')" />
+      <template v-else>
+        <p class="agent-reads__stats-hint">{{ t("systemStatus.agentReadStatsHint") }}</p>
+        <div class="agent-reads__stats-scroll">
+          <table class="agent-reads__stats-table">
+            <thead>
+              <tr>
+                <th scope="col">{{ t("systemStatus.agentReadStatsTool") }}</th>
+                <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsCount") }}</th>
+                <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsP50") }}</th>
+                <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsP95") }}</th>
+                <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsErrors") }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="stat in toolStats" :key="stat.tool">
+                <th scope="row">
+                  <code>{{ stat.tool }}</code>
+                </th>
+                <td class="is-numeric">{{ stat.count }}</td>
+                <td class="is-numeric">{{ milliseconds(stat.p50Ms) }}</td>
+                <td class="is-numeric">{{ milliseconds(stat.p95Ms) }}</td>
+                <td :class="['is-numeric', { 'is-danger': stat.errorCount > 0 }]">{{ stat.errorCount }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+    </section>
+
     <UiFlash v-if="error" tone="danger" :title="t('systemStatus.agentReadsCouldNotLoad')">
       {{ error }}
       <template #actions
@@ -105,10 +179,14 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
         <template #labels>
           <UiLabel tone="accent">{{ read.agentClient ?? t("systemStatus.agentReadsUnknownAgent") }}</UiLabel>
           <UiLabel>{{ read.projectName ?? t("systemStatus.agentReadsNoProject") }}</UiLabel>
+          <UiLabel v-if="read.errorCode" tone="danger">{{ errorLabel(read.errorCode) }}</UiLabel>
         </template>
         <template #meta>
           <time :datetime="read.at">{{ formatDate(read.at) }}</time>
           <span>{{ t("systemStatus.agentReadsReturned", { count: read.returnedCount }) }}</span>
+          <span v-if="read.durationMs !== undefined">{{
+            t("systemStatus.agentReadsDuration", { value: formatMilliseconds(read.durationMs) })
+          }}</span>
         </template>
         <div v-if="read.sessionIds.length > 0 || read.knowledgeIds.length > 0" class="agent-reads__ids">
           <button
@@ -148,6 +226,61 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
   padding: var(--space-2) var(--space-4);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.agent-reads__stats {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.agent-reads__stats-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.agent-reads__stats-hint {
+  margin: 0 0 var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.agent-reads__stats-scroll {
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.agent-reads__stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.agent-reads__stats-table th,
+.agent-reads__stats-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.agent-reads__stats-table thead th {
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.agent-reads__stats-table tbody th {
+  font-weight: 400;
+}
+
+.agent-reads__stats-table .is-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-reads__stats-table .is-danger {
+  color: var(--danger);
 }
 
 .agent-reads__list {

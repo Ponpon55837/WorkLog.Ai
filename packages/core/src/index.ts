@@ -417,6 +417,10 @@ export interface AgentReadAuditItem {
   knowledgeIds: string[];
   omittedSessionCount: number;
   omittedKnowledgeCount: number;
+  /** Wall time of the read in whole milliseconds; absent for rows recorded before timing existed. */
+  durationMs?: number;
+  /** Machine-readable failure code when the read failed; never an error message. */
+  errorCode?: string;
 }
 
 export interface AgentReadAuditPage {
@@ -430,6 +434,25 @@ export interface AgentReadReference {
   at: string;
   tool: string;
   agentClient?: string;
+}
+
+/** Latency and failure counts for one MCP read tool over the retained audit window. */
+export interface AgentReadToolStats {
+  tool: string;
+  count: number;
+  errorCount: number;
+  /** Rows that carry a duration; rows recorded before timing existed are excluded from percentiles. */
+  timedCount: number;
+  /** Nearest-rank percentiles and maximum in milliseconds; null when no row has a duration. */
+  p50Ms: number | null;
+  p95Ms: number | null;
+  maxMs: number | null;
+  errorCodes: Record<string, number>;
+}
+
+/** Per-tool read statistics, slowest p95 first. */
+export interface AgentReadStats {
+  tools: AgentReadToolStats[];
 }
 
 /** How often a Session or Knowledge item was returned to Agents, with the newest reads. */

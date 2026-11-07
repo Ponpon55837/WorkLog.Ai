@@ -156,6 +156,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 圖譜含推導關係、兩節點路徑（500 節點內 BFS） | 各 750 ms |
 | 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |
 | 工作熱度日曆（一整年，每日 Session 計數，本地日於記憶體分桶） | 250 ms |
+| Agent 讀取各工具耗時統計（`summarizeAgentReads`，5,000 筆稽核、12 個工具，含失敗與無耗時舊紀錄） | 100 ms |
 | Knowledge 列表含過時判斷（20 筆 Knowledge × 一年的 Session） | 500 ms |
 | 手動備份（`createBackup`，整個資料庫快照） | 300 ms |
 | 整庫匯出（`exportTo`，`VACUUM INTO`） | 300 ms |
@@ -186,6 +187,8 @@ node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-on
 `getGraph (default 180 nodes)` 量測預設 Graph（最多 180 個節點）：只讀取必要欄位並只解碼可顯示的 Session 候選範圍，總數由 SQL 聚合；bench 在計時前驗證結果被截斷在 180 個節點。上限 250 ms 為寬鬆 CI 門檻。可用 `--case=<完整案例名稱>` 只跑該案例，例如 `node packages/storage/bench/read-paths.bench.mjs 5000 --check --case="getGraph (default 180 nodes)"`。`tests/storage/graph-candidates.test.ts` 以固定預期檔 `tests/storage/fixtures/graph-candidates.golden.json`（由舊的全量載入實作產生）比對節點、邊、總數、截斷旗標與排序，涵蓋 limit／maxNodes／maxEdges、單一專案、cursor 逐頁、作廢 Session、暫停專案、壞掉的舊 changed-files JSON 與 Session 連結。
 
 `getReport year (after ANALYZE)` 以 `VACUUM INTO` 複製 bench 資料庫、在副本執行 `ANALYZE`（等同 `db:maintain`）後量年報，並要求輸出與未 ANALYZE 的年報完全相同；p90 上限沿用年報的 1,500 ms。這個門檻很寬、只擋數量級退化，精確防線是 `tests/storage/report-decision-plan.test.ts`：ANALYZE 後以 `EXPLAIN QUERY PLAN` 斷言決策總數與待處理決策兩條查詢仍以 `session_decisions` 為外層（不是 `sessions` 的 `completed_at` 範圍掃描）。`tests/storage/attention.test.ts` 的 fingerprint 案例涵蓋 outstanding 與 Knowledge page 來源的新增、更新、刪除、作廢，以及無變動時 `sourceRevision` 不變。
+
+`summarizeAgentReads (5,000 rows)` 在 bench 資料庫寫入一個完整保留窗（5,000 筆合成 Agent 讀取稽核，12 個工具、3 個 Agent，每 50 筆一筆 `database_busy`、每 20 筆一筆沒有耗時），以一次 SELECT 讀出 tool／耗時／錯誤代碼，在記憶體依工具分組並各排序一次求 nearest-rank p50／p95。計時前檢查 12 個工具都有 p95。2026-11-07 macOS 本機量測 p90 13.99 ms（median 12.7 ms），上限 100 ms 只擋數量級退化。
 
 `metadata follow-up count` 獨立量測 `work_get_context` 使用的 SQL 聚合，不建立完整預覽 DTO；bench 在計時前用 JavaScript 預覽 totals 驗證 SQL 結果完全相同。5,000 筆完整預覽的既有本機 p90 約 58 ms，因此 count-only 路徑設 100 ms 上限；完整明細預覽仍保留原本路徑與回傳內容。
 

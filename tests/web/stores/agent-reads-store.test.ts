@@ -1,12 +1,30 @@
+import { useQueryCache } from "@pinia/colada";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness } from "../helpers/store-harness.js";
 import { useAgentReadsStore } from "../../../apps/web/src/stores/agent-reads.js";
+import { queryKeys } from "../../../apps/web/src/stores/query-keys.js";
 
 let harness: ReturnType<typeof createStoreHarness>;
 
+const stats = {
+  tools: [
+    {
+      tool: "work_recall",
+      count: 3,
+      errorCount: 1,
+      timedCount: 3,
+      p50Ms: 12,
+      p95Ms: 40,
+      maxMs: 40,
+      errorCodes: { database_busy: 1 },
+    },
+  ],
+};
+
 function responder({ url }: StoreRequest): unknown {
+  if (url.pathname === "/api/agent-reads/stats") return stats;
   return url.pathname === "/api/agent-reads"
     ? {
         items: [],
@@ -35,11 +53,34 @@ describe("agent reads store", () => {
 
     store.setListActive(true);
     await vi.waitFor(() => expect(store.loaded).toBe(true));
-    const params = harness.calls.at(-1)!.url.searchParams;
+    const params = harness.calls.filter((call) => call.url.pathname === "/api/agent-reads").at(-1)!.url.searchParams;
     expect(params.get("projectId")).toBe("project-1");
     expect(params.get("agent")).toBe("fiction-client");
     expect(params.get("pageSize")).toBe("100");
     expect(store.agentOptions).toEqual(["fiction-client"]);
+  });
+
+  it("loads per-tool stats with the same filters under the agent reads key prefix", async () => {
+    const store = useAgentReadsStore();
+    store.projectId = "project-1";
+    store.agent = "fiction-client";
+    await nextTick();
+    expect(harness.count("/api/agent-reads/stats")).toBe(0);
+    expect(store.statsLoaded).toBe(false);
+
+    store.setListActive(true);
+    await vi.waitFor(() => expect(store.statsLoaded).toBe(true));
+    const params = harness.calls.filter((call) => call.url.pathname === "/api/agent-reads/stats").at(-1)!.url
+      .searchParams;
+    expect(params.get("projectId")).toBe("project-1");
+    expect(params.get("agent")).toBe("fiction-client");
+    expect(params.has("page")).toBe(false);
+    expect(store.toolStats).toEqual(stats.tools);
+    expect(store.statsError).toBe("");
+
+    const before = harness.count("/api/agent-reads/stats");
+    await useQueryCache().invalidateQueries({ key: queryKeys.agentReads.all });
+    await vi.waitFor(() => expect(harness.count("/api/agent-reads/stats")).toBeGreaterThan(before));
   });
 
   it("returns to page 1 on a filter change but keeps a page restored together with the filters", async () => {

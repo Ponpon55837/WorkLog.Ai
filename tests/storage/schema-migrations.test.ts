@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   applySchemaMigrations as applyRuntimeMigrations,
+  LATEST_SCHEMA_VERSION,
   schemaMigrationSql,
 } from "../../packages/storage/src/schema-migrations.js";
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
@@ -879,7 +880,9 @@ describe("database change revision migration", () => {
 
       applyRuntimeMigrations(db);
 
-      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 31 });
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
+        version: LATEST_SCHEMA_VERSION,
+      });
       expect(
         db.prepare("SELECT singleton, database_id, data_revision, audit_revision FROM change_revisions").get(),
       ).toMatchObject({
@@ -932,6 +935,42 @@ describe("database change revision migration", () => {
           )
           .get(),
       ).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("agent read audit timing migration", () => {
+  it("upgrades schema 31 leaving old audit rows with unknown duration and error code", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 31);
+      db.exec(`INSERT INTO agent_read_audit
+        (id, created_at, tool, agent_client, project_id, outcome, returned_count, session_ids_json, knowledge_ids_json,
+         omitted_session_count, omitted_knowledge_count)
+        VALUES ('old-read', '2026-11-01T00:00:00.000Z', 'work_search', 'Fictional Agent', NULL, 'ok', 0, '[]', '[]', 0, 0)`);
+      const before = db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get() as {
+        data_revision: number;
+        audit_revision: number;
+      };
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 32 });
+      expect(db.prepare("SELECT id, duration_ms, error_code FROM agent_read_audit").all()).toEqual([
+        { id: "old-read", duration_ms: null, error_code: null },
+      ]);
+      db.exec(`INSERT INTO agent_read_audit
+        (id, created_at, tool, outcome, returned_count, session_ids_json, knowledge_ids_json,
+         omitted_session_count, omitted_knowledge_count, duration_ms, error_code)
+        VALUES ('new-read', '2026-11-02T00:00:00.000Z', 'work_search', 'error', 0, '[]', '[]', 0, 0, 12, 'database_busy')`);
+      // The audit revision triggers from migration 31 still fire on the altered table; project data stays unchanged.
+      expect(db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get()).toEqual({
+        data_revision: before.data_revision,
+        audit_revision: before.audit_revision + 1,
+      });
     } finally {
       db.close();
     }

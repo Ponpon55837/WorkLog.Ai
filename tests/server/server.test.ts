@@ -955,6 +955,59 @@ describe("Work Intelligence REST API", () => {
     expect(none.body).toEqual({ total: 0, items: [] });
   });
 
+  it("summarizes Agent read latency and failure codes per tool and masks internal errors", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-agent-read-stats-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Agent read stats project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    store.recordAgentRead({
+      tool: "work_recall",
+      agentClient: "fiction-client",
+      projectId: project.id,
+      result: { outcome: "recall", hits: [] },
+      durationMs: 40,
+    });
+    store.recordAgentRead({ tool: "work_recall", projectId: project.id, errorCode: "database_busy", durationMs: 10 });
+    store.recordAgentRead({ tool: "work_search", result: { outcome: "search", hits: [] } });
+
+    const stats = await requestJson<{ tools: Array<Record<string, unknown>> }>(baseUrl, "/api/agent-reads/stats");
+    expect(stats.status).toBe(200);
+    expect(stats.body.tools).toEqual([
+      {
+        tool: "work_recall",
+        count: 2,
+        errorCount: 1,
+        timedCount: 2,
+        p50Ms: 10,
+        p95Ms: 40,
+        maxMs: 40,
+        errorCodes: { database_busy: 1 },
+      },
+      expect.objectContaining({ tool: "work_search", count: 1, timedCount: 0, p95Ms: null }),
+    ]);
+    const filtered = await requestJson<{ tools: Array<{ tool: string; count: number }> }>(
+      baseUrl,
+      `/api/agent-reads/stats?projectId=${encodeURIComponent(project.id)}&agent=fiction-client`,
+    );
+    expect(filtered.body.tools.map(({ tool, count }) => ({ tool, count }))).toEqual([
+      { tool: "work_recall", count: 1 },
+    ]);
+
+    const invalid = await requestJson<{ code: string }>(baseUrl, `/api/agent-reads/stats?agent=${"x".repeat(101)}`);
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.code).toBe("invalid_input");
+
+    vi.spyOn(store, "summarizeAgentReads").mockImplementationOnce(() => {
+      throw new Error("private read audit storage detail");
+    });
+    const hidden = await requestJson<{ error: string; code: string }>(baseUrl, "/api/agent-reads/stats");
+    expect(hidden.status).toBe(500);
+    expect(hidden.body).toMatchObject({ error: "Internal server error.", code: "internal_error" });
+    expect(JSON.stringify(hidden.body)).not.toContain("private read audit storage detail");
+  });
+
   it("filters Sessions by Agent client and lists the available clients", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-agent-source-test-"));
     const store = new WorkIntelligenceStore(":memory:");

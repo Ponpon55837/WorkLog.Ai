@@ -93,6 +93,8 @@ describe("agent read audit", () => {
       [
         "agent_client",
         "created_at",
+        "duration_ms",
+        "error_code",
         "id",
         "knowledge_ids_json",
         "omitted_knowledge_count",
@@ -126,6 +128,121 @@ describe("agent read audit", () => {
     const [row] = rows(store, "SELECT * FROM agent_read_audit");
     expect(row).toMatchObject({ tool: "work_get_context", outcome: "skipped", project_id: null, returned_count: 0 });
     expect(JSON.stringify(row)).not.toContain("never");
+  });
+
+  it("records duration and a failure code without ids, results, or messages", () => {
+    const { store, project } = createFixture();
+    store.recordAgentRead({
+      tool: "work_recall",
+      result: { outcome: "recall", hits: [] },
+      durationMs: 12.6,
+      now: "2026-02-01T00:00:00.000Z",
+    });
+    store.recordAgentRead({
+      tool: "work_get_context",
+      projectId: project.id,
+      errorCode: "database_busy",
+      durationMs: -4,
+      now: "2026-02-02T00:00:00.000Z",
+    });
+    store.recordAgentRead({
+      tool: "work_search",
+      result: { outcome: "search", hits: [{ type: "session", id: "never-extracted", projectId: project.id }] },
+      errorCode: "Secret message: /never/stored",
+      durationMs: Number.NaN,
+      now: "2026-02-03T00:00:00.000Z",
+    });
+    expect(
+      rows(store, "SELECT tool, outcome, project_id, returned_count, duration_ms, error_code FROM agent_read_audit"),
+    ).toEqual([
+      {
+        tool: "work_recall",
+        outcome: "recall",
+        project_id: null,
+        returned_count: 0,
+        duration_ms: 13,
+        error_code: null,
+      },
+      {
+        tool: "work_get_context",
+        outcome: "error",
+        project_id: project.id,
+        returned_count: 0,
+        duration_ms: 0,
+        error_code: "database_busy",
+      },
+      {
+        tool: "work_search",
+        outcome: "error",
+        project_id: null,
+        returned_count: 0,
+        duration_ms: null,
+        error_code: "internal_error",
+      },
+    ]);
+    expect(rows(store, "SELECT COUNT(*) AS n FROM agent_read_audit_records")[0]).toEqual({ n: 0 });
+    expect(JSON.stringify(rows(store, "SELECT * FROM agent_read_audit"))).not.toContain("never");
+    const [latest, failed, recall] = store.listAgentReads({}).items;
+    expect(latest).toMatchObject({ errorCode: "internal_error" });
+    expect(latest).not.toHaveProperty("durationMs");
+    expect(failed).toMatchObject({ durationMs: 0, errorCode: "database_busy", projectName: "Audit Fixture" });
+    expect(recall).toMatchObject({ durationMs: 13 });
+    expect(recall).not.toHaveProperty("errorCode");
+  });
+
+  it("summarizes per-tool counts, failures, and nearest-rank percentiles, slowest p95 first", () => {
+    const { store, project } = createFixture();
+    const record = (tool: string, extra: { durationMs?: number; errorCode?: string; agentClient?: string } = {}) =>
+      store.recordAgentRead({ tool, result: { outcome: "recall", hits: [] }, projectId: project.id, ...extra });
+    expect(store.summarizeAgentReads()).toEqual({ tools: [] });
+    for (let duration = 1; duration <= 20; duration += 1) record("work_recall", { durationMs: duration });
+    record("work_recall", { errorCode: "database_busy", durationMs: 100 });
+    record("work_get_context", { durationMs: 50, agentClient: "agent-b" });
+    record("work_get_context", { durationMs: 70, agentClient: "agent-b" });
+    record("work_get_context", { errorCode: "invalid_input" });
+    record("work_search");
+    record("work_search");
+
+    const { tools } = store.summarizeAgentReads();
+    expect(tools.map((tool) => tool.tool)).toEqual(["work_get_context", "work_recall", "work_search"]);
+    expect(tools[1]).toEqual({
+      tool: "work_recall",
+      count: 21,
+      errorCount: 1,
+      timedCount: 21,
+      p50Ms: 11,
+      p95Ms: 20,
+      maxMs: 100,
+      errorCodes: { database_busy: 1 },
+    });
+    expect(tools[0]).toMatchObject({ count: 3, timedCount: 2, p50Ms: 50, p95Ms: 70, maxMs: 70, errorCount: 1 });
+    expect(tools[0]?.errorCodes).toEqual({ invalid_input: 1 });
+    expect(tools[2]).toEqual({
+      tool: "work_search",
+      count: 2,
+      errorCount: 0,
+      timedCount: 0,
+      p50Ms: null,
+      p95Ms: null,
+      maxMs: null,
+      errorCodes: {},
+    });
+
+    expect(store.summarizeAgentReads({ agentClient: "agent-b" }).tools).toEqual([
+      expect.objectContaining({ tool: "work_get_context", count: 2, p50Ms: 50, maxMs: 70 }),
+    ]);
+    expect(store.summarizeAgentReads({ projectId: "other" }).tools).toEqual([]);
+    store.updateProject(project.id, { status: "paused" });
+    expect(store.summarizeAgentReads().tools).toEqual([]);
+  });
+
+  it("changes only the audit revision when recording timed and failed reads", () => {
+    const { store } = createFixture();
+    const before = store.getChangeToken();
+    store.recordAgentRead({ tool: "work_recall", errorCode: "internal_error", durationMs: 5 });
+    const after = store.getChangeToken();
+    expect(after.dataRevision).toBe(before.dataRevision);
+    expect(after.auditRevision).toBe(before.auditRevision + 1);
   });
 
   it("never throws when the audit table is unusable", () => {

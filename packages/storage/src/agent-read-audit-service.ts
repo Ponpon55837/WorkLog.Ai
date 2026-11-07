@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import type { AgentReadAuditItem, AgentReadAuditPage, AgentReadReferences } from "@work-intelligence/core";
+import type {
+  AgentReadAuditItem,
+  AgentReadAuditPage,
+  AgentReadReferences,
+  AgentReadStats,
+  AgentReadToolStats,
+} from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { createPageInfo } from "./pagination.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -10,6 +16,8 @@ export type {
   AgentReadAuditPage,
   AgentReadReference,
   AgentReadReferences,
+  AgentReadStats,
+  AgentReadToolStats,
 } from "@work-intelligence/core";
 
 export type AgentReadRecordType = "session" | "knowledge";
@@ -21,6 +29,11 @@ const PRUNE_EVERY_INSERTS = 100;
 const MAX_WALK_NODES = 20_000;
 const MAX_WALK_DEPTH = 10;
 const REFERENCE_LIMIT = 20;
+const CODE_PATTERN = /^[a-z0-9_]{1,40}$/;
+/** Stored for failures whose code is missing or malformed, so a bad caller cannot write free text. */
+export const AGENT_READ_FALLBACK_ERROR_CODE = "internal_error";
+/** Upper bound for a stored duration (one day); anything longer is a clock problem, not a read. */
+const MAX_DURATION_MS = 86_400_000;
 
 export interface AgentReadExtraction {
   projectId?: string;
@@ -31,10 +44,14 @@ export interface AgentReadExtraction {
 export interface RecordAgentReadInput {
   tool: string;
   agentClient?: string;
-  /** The tool's response as returned to the Agent; only ids are read from it. */
-  result: unknown;
+  /** The tool's response as returned to the Agent; only ids are read from it. Omitted for failed reads. */
+  result?: unknown;
   /** The project the call was scoped to by id, when its input named one. */
   projectId?: string;
+  /** Wall time of the read in milliseconds; rounded and clamped, ignored when not finite. */
+  durationMs?: number;
+  /** Set for a failed read: a snake_case code only (never a message); a malformed code becomes internal_error. */
+  errorCode?: string;
   now?: string;
 }
 
@@ -43,6 +60,11 @@ export interface ListAgentReadsOptions {
   agentClient?: string;
   page?: number;
   pageSize?: number;
+}
+
+export interface SummarizeAgentReadsOptions {
+  projectId?: string;
+  agentClient?: string;
 }
 
 interface AuditRow {
@@ -58,6 +80,21 @@ interface AuditRow {
   knowledge_ids_json: string;
   omitted_session_count: number;
   omitted_knowledge_count: number;
+  duration_ms: number | null;
+  error_code: string | null;
+}
+
+interface StatsRow {
+  tool: string;
+  duration_ms: number | null;
+  error_code: string | null;
+}
+
+interface ToolAccumulator {
+  count: number;
+  errorCount: number;
+  durations: number[];
+  errorCodes: Record<string, number>;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -119,10 +156,41 @@ export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
 }
 
 function outcomeOf(result: unknown): string {
-  if (isObject(result) && typeof result.outcome === "string" && /^[a-z0-9_]{1,40}$/.test(result.outcome)) {
+  if (isObject(result) && typeof result.outcome === "string" && CODE_PATTERN.test(result.outcome)) {
     return result.outcome;
   }
   return "ok";
+}
+
+function normalizeDuration(value: number | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.min(Math.max(Math.round(value), 0), MAX_DURATION_MS);
+}
+
+function normalizeErrorCode(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return CODE_PATTERN.test(value) ? value : AGENT_READ_FALLBACK_ERROR_CODE;
+}
+
+/** Nearest-rank percentile of an ascending, non-empty list. */
+function nearestRank(sorted: readonly number[], percentile: number): number {
+  const rank = Math.ceil((percentile / 100) * sorted.length);
+  return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1]!;
+}
+
+function toolStats(tool: string, group: ToolAccumulator): AgentReadToolStats {
+  const sorted = group.durations.sort((left, right) => left - right);
+  const timed = sorted.length > 0;
+  return {
+    tool,
+    count: group.count,
+    errorCount: group.errorCount,
+    timedCount: sorted.length,
+    p50Ms: timed ? nearestRank(sorted, 50) : null,
+    p95Ms: timed ? nearestRank(sorted, 95) : null,
+    maxMs: timed ? sorted[sorted.length - 1]! : null,
+    errorCodes: group.errorCodes,
+  };
 }
 
 function parseIds(json: string): string[] {
@@ -148,26 +216,30 @@ function mapRow(row: AuditRow): AgentReadAuditItem {
     knowledgeIds: parseIds(row.knowledge_ids_json),
     omittedSessionCount: row.omitted_session_count,
     omittedKnowledgeCount: row.omitted_knowledge_count,
+    ...(row.duration_ms !== null && row.duration_ms !== undefined ? { durationMs: row.duration_ms } : {}),
+    ...(row.error_code ? { errorCode: row.error_code } : {}),
   };
 }
 
 /**
  * Passive, content-free log of which Sessions and Knowledge items the MCP read tools returned to Agents.
- * It stores ids, counts, tool names, and the client name only, never queries, paths, text, or errors.
+ * It stores ids, counts, tool names, the client name, durations, and error codes only, never queries, paths, text,
+ * or error messages.
  */
 export class AgentReadAuditService {
   private insertsSincePrune = 0;
 
   public constructor(private readonly db: DatabaseSync) {}
 
-  /** Records one successful read. Never throws: the audit must not break or slow the read. */
+  /** Records one read, successful or failed. Never throws: the audit must not break or slow the read. */
   public record(input: RecordAgentReadInput): void {
     try {
-      const outcome = outcomeOf(input.result);
+      const errorCode = normalizeErrorCode(input.errorCode);
+      const outcome = errorCode ? "error" : outcomeOf(input.result);
       const skipped = outcome === "skipped" || outcome.endsWith("_skipped");
-      const extraction: AgentReadExtraction = skipped
-        ? { sessionIds: [], knowledgeIds: [] }
-        : extractAgentReadRecords(input.result);
+      // A failed read returned nothing, so there are no ids to extract; its project is the one the input named.
+      const extraction: AgentReadExtraction =
+        skipped || errorCode ? { sessionIds: [], knowledgeIds: [] } : extractAgentReadRecords(input.result);
       const projectId = skipped ? undefined : (input.projectId ?? extraction.projectId);
       const sessionIds = extraction.sessionIds.slice(0, AGENT_READ_AUDIT_MAX_IDS);
       const knowledgeIds = extraction.knowledgeIds.slice(0, AGENT_READ_AUDIT_MAX_IDS);
@@ -178,8 +250,9 @@ export class AgentReadAuditService {
             .prepare(
               `INSERT INTO agent_read_audit
              (id, created_at, tool, agent_client, project_id, outcome, returned_count,
-              session_ids_json, knowledge_ids_json, omitted_session_count, omitted_knowledge_count)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              session_ids_json, knowledge_ids_json, omitted_session_count, omitted_knowledge_count,
+              duration_ms, error_code)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               auditId,
@@ -193,6 +266,8 @@ export class AgentReadAuditService {
               JSON.stringify(knowledgeIds),
               extraction.sessionIds.length - sessionIds.length,
               extraction.knowledgeIds.length - knowledgeIds.length,
+              normalizeDuration(input.durationMs),
+              errorCode ?? null,
             );
           if (sessionIds.length + knowledgeIds.length > 0) {
             const insertRecord = this.db.prepare(
@@ -211,31 +286,10 @@ export class AgentReadAuditService {
     }
   }
 
-  /** Runs the audit write without waiting on another process's lock: a busy database drops the audit row instead. */
-  private withoutLockWait(operation: () => void): void {
-    if (this.db.isTransaction) return operation();
-    const row = this.db.prepare("PRAGMA busy_timeout").get() as { timeout?: number } | undefined;
-    this.db.exec("PRAGMA busy_timeout = 0");
-    try {
-      operation();
-    } finally {
-      this.db.exec(`PRAGMA busy_timeout = ${Number(row?.timeout ?? 5000)}`);
-    }
-  }
-
   /** Recent reads of tracked projects (and reads with no project), newest first. */
   public listRecent(options: ListAgentReadsOptions = {}): AgentReadAuditPage {
-    const clauses = ["(a.project_id IS NULL OR p.status = 'tracked')"];
-    const parameters: string[] = [];
-    if (options.projectId) {
-      clauses.push("a.project_id = ?");
-      parameters.push(options.projectId);
-    }
-    if (options.agentClient) {
-      clauses.push("a.agent_client = ?");
-      parameters.push(options.agentClient);
-    }
-    const from = `FROM agent_read_audit a LEFT JOIN projects p ON p.id = a.project_id WHERE ${clauses.join(" AND ")}`;
+    const { where, parameters } = this.filterClause(options);
+    const from = `FROM agent_read_audit a LEFT JOIN projects p ON p.id = a.project_id WHERE ${where}`;
     const total = (this.db.prepare(`SELECT COUNT(*) AS count ${from}`).get(...parameters) as { count: number }).count;
     const pageInfo = createPageInfo(options.page, options.pageSize, total, 100);
     const rows = this.db
@@ -253,6 +307,41 @@ export class AgentReadAuditService {
       )
       .all() as unknown as Array<{ agent_client: string }>;
     return { items: rows.map(mapRow), pageInfo, agents: agents.map((row) => row.agent_client) };
+  }
+
+  /**
+   * Per-tool counts, failures, and nearest-rank latency percentiles over the retained window (at most
+   * AGENT_READ_AUDIT_MAX_ROWS rows), slowest p95 first. One SELECT, grouped in a single pass.
+   */
+  public summarize(options: SummarizeAgentReadsOptions = {}): AgentReadStats {
+    const { where, parameters } = this.filterClause(options);
+    const rows = this.db
+      .prepare(
+        `SELECT a.tool, a.duration_ms, a.error_code
+         FROM agent_read_audit a LEFT JOIN projects p ON p.id = a.project_id WHERE ${where}
+         ORDER BY a.created_at DESC LIMIT ?`,
+      )
+      .all(...parameters, AGENT_READ_AUDIT_MAX_ROWS) as unknown as StatsRow[];
+    const groups = new Map<string, ToolAccumulator>();
+    for (const row of rows) {
+      let group = groups.get(row.tool);
+      if (!group) {
+        group = { count: 0, errorCount: 0, durations: [], errorCodes: {} };
+        groups.set(row.tool, group);
+      }
+      group.count += 1;
+      if (row.duration_ms !== null) group.durations.push(row.duration_ms);
+      if (row.error_code) {
+        group.errorCount += 1;
+        group.errorCodes[row.error_code] = (group.errorCodes[row.error_code] ?? 0) + 1;
+      }
+    }
+    const tools = [...groups].map(([tool, group]) => toolStats(tool, group));
+    tools.sort(
+      (left, right) =>
+        (right.p95Ms ?? -1) - (left.p95Ms ?? -1) || right.count - left.count || left.tool.localeCompare(right.tool),
+    );
+    return { tools };
   }
 
   /** How many audited reads returned this record to an Agent, with the newest ones. */
@@ -293,5 +382,32 @@ export class AgentReadAuditService {
             OR id IN (SELECT id FROM agent_read_audit ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?)`,
       )
       .run(cutoff, AGENT_READ_AUDIT_MAX_ROWS);
+  }
+
+  /** Runs the audit write without waiting on another process's lock: a busy database drops the audit row instead. */
+  private withoutLockWait(operation: () => void): void {
+    if (this.db.isTransaction) return operation();
+    const row = this.db.prepare("PRAGMA busy_timeout").get() as { timeout?: number } | undefined;
+    this.db.exec("PRAGMA busy_timeout = 0");
+    try {
+      operation();
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${Number(row?.timeout ?? 5000)}`);
+    }
+  }
+
+  /** Same tracked-project and filter rules for every listing: reads of untracked projects stay hidden. */
+  private filterClause(options: SummarizeAgentReadsOptions): { where: string; parameters: string[] } {
+    const clauses = ["(a.project_id IS NULL OR p.status = 'tracked')"];
+    const parameters: string[] = [];
+    if (options.projectId) {
+      clauses.push("a.project_id = ?");
+      parameters.push(options.projectId);
+    }
+    if (options.agentClient) {
+      clauses.push("a.agent_client = ?");
+      parameters.push(options.agentClient);
+    }
+    return { where: clauses.join(" AND "), parameters };
   }
 }

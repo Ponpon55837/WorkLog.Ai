@@ -660,6 +660,26 @@ try {
   }
   const analyzedStore = new WorkIntelligenceStore(analyzedPath);
   const expectedAnalyzedYear = JSON.stringify(benchStore.getReport({ period: "year", date: "2026-03-11" }));
+  // A full audit window (5,000 rows) over 12 tools, with durations, failures, and untimed legacy rows.
+  const auditSeed = new DatabaseSync(databasePath);
+  try {
+    auditSeed
+      .prepare(
+        `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 4999)
+         INSERT OR IGNORE INTO agent_read_audit
+           (id, created_at, tool, agent_client, project_id, outcome, returned_count, duration_ms, error_code)
+         SELECT 'bench-read-' || i,
+                strftime('%Y-%m-%dT%H:%M:%fZ', '2026-03-01', '+' || i || ' minutes'),
+                'work_tool_' || (i % 12), 'bench-agent-' || (i % 3), CASE WHEN i % 4 = 0 THEN NULL ELSE ? END,
+                CASE WHEN i % 50 = 0 THEN 'error' ELSE 'ok' END, i % 9,
+                CASE WHEN i % 20 = 0 THEN NULL ELSE (i * 37) % 900 END,
+                CASE WHEN i % 50 = 0 THEN 'database_busy' ELSE NULL END
+         FROM n`,
+      )
+      .run(alpha.id);
+  } finally {
+    auditSeed.close();
+  }
   const cases = {
     "getContext (large report source request)": () => {
       const result = benchStore.getContext(alphaRoot);
@@ -883,6 +903,12 @@ try {
     "getHotspots (files)": () => benchStore.getHotspots({ limit: 20 }),
     "getHotspots (directories, month)": () =>
       benchStore.getHotspots({ groupBy: "directory", from: "2026-03-01", to: "2026-03-31", limit: 20 }),
+    "summarizeAgentReads (5,000 rows)": () => {
+      const result = benchStore.summarizeAgentReads({});
+      if (result.tools.length !== 12 || result.tools.some((tool) => tool.p95Ms === null))
+        throw new Error("Agent read stats must cover the seeded tools");
+      return result;
+    },
   };
 
   const projectDataBundle = benchStore.exportProjectData({ type: "all" });
@@ -1057,6 +1083,7 @@ try {
     "getActivity (year)": 250,
     "getHotspots (files)": 500,
     "getHotspots (directories, month)": 500,
+    "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
     createBackup: 300,
     "exportTo (whole database)": 300,

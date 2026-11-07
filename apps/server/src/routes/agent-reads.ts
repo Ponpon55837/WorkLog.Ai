@@ -1,4 +1,4 @@
-import { agentReadsQuerySchema } from "@work-intelligence/schema";
+import { agentReadStatsQuerySchema, agentReadsQuerySchema } from "@work-intelligence/schema";
 import { numberParam, sendJson, textParam } from "../http.js";
 import { validatedRoute, type Route } from "./router.js";
 
@@ -22,6 +22,16 @@ export const agentReadRoutes: Route[] = [
           page: data.page,
           pageSize: data.pageSize,
         }),
+    ),
+  },
+  {
+    method: "GET",
+    pattern: "/api/agent-reads/stats",
+    handler: validatedRoute(
+      agentReadStatsQuerySchema,
+      "Invalid agent read stats filters.",
+      ({ url }) => ({ projectId: textParam(url, "projectId"), agentClient: textParam(url, "agent") }),
+      ({ store }, data) => store.summarizeAgentReads({ projectId: data.projectId, agentClient: data.agentClient }),
     ),
   },
   {
