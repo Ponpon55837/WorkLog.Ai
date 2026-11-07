@@ -6,23 +6,19 @@
 
 - 最後更新：2026-11-07
 
-## 後端效能改善（1.6.7 已完成）
-
-依 2026-11-03 的效能交接計畫，P0 與 P1 已全部處理並於 1.6.7 發行；逐項量測、CI 結果與複檢紀錄見各 PR 與工作記錄。
+## 1.6.8（已完成）
 
 | 項目 | 結果 |
 | --- | --- |
-| P0：系統狀態非同步、SQLite 頁面快取、Agent 讀取不再觸發全頁重抓（schema 31） | 已合併（#279、#281、#282） |
-| 5.1 備份、匯出、匯入預覽移至 worker | 已合併（#283） |
-| 5.6 metadata follow-up 改 SQL 聚合 | 已合併（#284） |
-| 5.3 finalize 提醒延至 commit 後，失敗不影響已保存的 Session | 已合併（#285） |
-| 5.4 Graph 只讀必要欄位與可顯示候選，RSS 降約 130–180 MB | 已合併（#292） |
-| 5.5 Session 文字搜尋改走 FTS | 不合入：既有 FTS 斷詞無法保留子字串語意；改以 300 ms CI 門檻監控（#287） |
-| 5.7 Recall 主要原始片段判定 | 不合入：量測慢約 15–20%（#289 已關閉） |
-| 5.2 重量級讀取移至 worker | 不做：worker 常駐約 +43 MB，超過 40 MB 停止條件（#293 已關閉） |
-| 第 6 節：Knowledge 過時判斷倒排索引、年報決策查詢固定計畫、attention fingerprint 摘要化 | 已合併（#294、#297） |
-
-同期另完成：CI 平行化（總時間約 23 分降至 6.5 分，#288）、效能 gate 失敗案例重量一次（#291）、Storage 覆蓋率逐檔門檻（#295）、E2E 路由競態修正（#296）、Knowledge Health 唯讀研究（No-Go，#286）。
+| Node.js 26.9 以上 FTS5 刪除標記使報告、recall 回 500 | 已修正（#305）；CI 加 Node 26 storage 測試 |
+| Node.js 最低需求（22.13–22.15、23.x 沒有 FTS5） | 改為 22.16 以上的 22.x 或 24 以上，bootstrap 與 check 會檢查（#307） |
+| MCP 更新後不必重連 | 穩定 launcher 替換 server 子行程（#308），發行前審查補上取消、排空與私有回應修正（#311） |
+| 無 checkout 發行第一階段 | 資料庫路徑解析統一（#304）、獨立套件與 `work-intelligence` 指令（#309）、Release 附 tarball 與 SHA256SUMS（#310） |
+| Web 主 bundle | 514 → 313 kB，gzip 168 → 111 kB（#306） |
+| 發行 workflow | E2E 平行化（#299）、已驗證 commit 略過重複檢查（#301）、只發佈驗證過的 commit（#311） |
+| 搜尋索引大量重建 | 先刪後插，全部 dirty 時中位數約減半（#311） |
+| Windows 快照遷移測試逾時 | 測試回退改單一交易，7.7 → 1.3 秒（#303） |
+| README、方向研究 | README 移除版本摘要（#300）；[方向研究](experiments/direction-research-2026-11-07.md)產出改進候選 C1–C6（#302） |
 
 ## 知識品質 Roadmap（已完成）
 
@@ -38,14 +34,15 @@
 
 | 項目 | 狀態 | 再次評估條件 |
 | --- | --- | --- |
-| 不需要 checkout 的發行方式 | [研究](experiments/standalone-distribution-spike-2026-10-15.md)完成、未實作；Release 已附自帶 MCP 的 plugin 與 `.mcpb` | 使用者決定是否以 Release 附件為官方管道，以及是否發佈 npm（套件名稱、帳號、2FA） |
+| 無 checkout 發行的後續階段 | 第一階段（Release tarball、`work-intelligence` 指令）已於 1.6.8 發行；獨立套件尚未提供 Agent 註冊與登入服務 | 依[研究](experiments/standalone-distribution-spike-2026-10-15.md)第 8 節的 PR3（Agent 註冊與 MCP 重啟偵測）、PR4（直接以 node 執行的登入服務）；npm 發佈另待使用者決定名稱、帳號與 2FA |
+| 方向研究的改進候選 | [C1–C6](experiments/direction-research-2026-11-07.md)：Session 輕量重讀、狀態確認併入 context、知識頁 not_found 診斷、知識搜尋零命中後備、讀取稽核加耗時與錯誤碼、report synthesis 拆段 | C5（稽核加 `duration_ms`／`error_code`）是排定最慢路徑的前提，建議先做 |
 | 歷史 Mermaid 圖表整理成 architecture 快照 | 不阻擋任何功能；歷史圖表以原始碼保留 | 使用者選定要整理的圖表後，逐張核對原工作來源再建立新快照 |
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
 
 ## 已完成歷史
 
-各輪（第五至第九輪、1.5.x 健康檢查、Mermaid 移除、五項功能整合、MCP 精準讀取）的交付都已合併；逐項內容見對應 PR、[CHANGELOG](../CHANGELOG.md) 與[更新說明](releases/)。仍被引用的實測證據：
+各輪（第五至第九輪、1.5.x 健康檢查、Mermaid 移除、五項功能整合、MCP 精準讀取、1.6.7 後端效能 P0／P1）的交付都已合併；逐項內容見對應 PR、[CHANGELOG](../CHANGELOG.md) 與[更新說明](releases/)。仍被引用的實測證據：
 
 - 第八輪工作記錄來源核對：[agent-data-source-audit-2026-09-30.md](experiments/agent-data-source-audit-2026-09-30.md)
 - 未結項清理建議的合成準確度（12 項正確建議、8 項證據不足保留，沒有更改真實未結項）：[outstanding-cleanup-accuracy-2026-10-01.md](experiments/outstanding-cleanup-accuracy-2026-10-01.md)

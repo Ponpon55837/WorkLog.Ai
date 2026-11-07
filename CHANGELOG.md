@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.8] - 2026-11-07
+
+[繁體中文更新說明](docs/releases/1.6.8.md).
+
 ### Added
 
 - MCP launcher (`apps/mcp/dist/launcher.js`): Agents now connect through a small, stable stdio launcher that runs the server as a child process and relays JSON-RPC line by line. After `pnpm build` writes a new server build, it queues new requests, waits for those in flight, starts the new build, replays the client's `initialize` and `notifications/initialized` (the second initialize response is not forwarded), stops the old child (TerminateProcess on Windows), and sends `notifications/tools/list_changed` / `notifications/resources/list_changed` when the lists differ. Codex, Claude Code and Claude Desktop keep the same connection. A new build that fails to start or times out leaves the old one serving and the next request gets an explicit JSON-RPC error; a crashed child is restarted with the replayed handshake. Under the launcher, `server.launcher` reports the launcher version and `restartRequired` is `true` only when the launcher file itself changed.
