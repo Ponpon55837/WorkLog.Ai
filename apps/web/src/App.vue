@@ -15,19 +15,9 @@ import { useProjectsStore } from "./stores/projects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 import { locale, t } from "./i18n";
 
-// Overlays render nothing until a store opens them, so their code loads in separate chunks after the first paint
-// instead of weighing down the entry bundle.
-const CommandPalette = defineAsyncComponent(() => import("./components/domain/CommandPalette.vue"));
-const HandoffImportDialog = defineAsyncComponent(() => import("./components/domain/HandoffImportDialog.vue"));
-const KnowledgeEditorDialog = defineAsyncComponent(() => import("./components/domain/KnowledgeEditorDialog.vue"));
-const KnowledgeHistoryPanel = defineAsyncComponent(() => import("./components/domain/KnowledgeHistoryPanel.vue"));
-const RecordVoidDialog = defineAsyncComponent(() => import("./components/domain/RecordVoidDialog.vue"));
-const SessionLinkDialog = defineAsyncComponent(() => import("./components/domain/SessionLinkDialog.vue"));
-const SessionDiagramPanel = defineAsyncComponent(() => import("./components/domain/SessionDiagramPanel.vue"));
-const SessionPanel = defineAsyncComponent(() => import("./components/domain/SessionPanel.vue"));
-const SessionSummaryEditorDialog = defineAsyncComponent(
-  () => import("./components/domain/SessionSummaryEditorDialog.vue"),
-);
+// The global panels and dialogs render nothing until a store opens them, so their code loads as one separate chunk
+// after the first paint instead of weighing down the entry bundle.
+const AppOverlays = defineAsyncComponent(() => import("./components/layout/AppOverlays.vue"));
 
 const projectsStore = useProjectsStore();
 const { dashboard, trackedProjects } = storeToRefs(projectsStore);
@@ -136,16 +126,7 @@ onBeforeUnmount(() => {
     </RouterView>
 
     <template v-if="overlaysReady" #overlays>
-      <!-- Overlay state lives in stores, so remounting them on a language switch keeps what is open. -->
-      <SessionPanel :key="`session-panel:${locale}`" />
-      <SessionDiagramPanel :key="`session-diagram:${locale}`" />
-      <KnowledgeHistoryPanel :key="`knowledge-history:${locale}`" />
-      <KnowledgeEditorDialog :key="`knowledge-editor:${locale}`" />
-      <SessionSummaryEditorDialog :key="`session-editor:${locale}`" />
-      <RecordVoidDialog :key="`record-void:${locale}`" />
-      <SessionLinkDialog :key="`session-link:${locale}`" />
-      <HandoffImportDialog :key="`handoff-import:${locale}`" />
-      <CommandPalette :key="`palette:${locale}`" v-model:open="paletteOpen" />
+      <AppOverlays v-model:palette-open="paletteOpen" />
     </template>
   </AppShell>
 </template>
