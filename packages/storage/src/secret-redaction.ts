@@ -10,11 +10,22 @@ export interface RedactedValue<T> {
   redactions: RedactionSummary;
 }
 
+/**
+ * One masking rule. Every pattern must find all its matches in time linear in the input length, because it runs
+ * synchronously over every stored string (up to ~200,000 characters) on the shared event loop:
+ * - a match may start only at the beginning of a run of the characters it consumes (a lookbehind or `\b`), so the
+ *   engine never re-scans a run from every position inside it;
+ * - an unbounded run is taken atomically with `(?=(run))\N`, and a candidate that the old greedy pattern would have
+ *   rejected after backtracking is consumed whole and rejected by `accept` instead, so the scan moves past it;
+ * - bounded quantifiers keep their upper bounds.
+ */
 type Detector = {
   kind: SensitiveDataKind;
   pattern: RegExp;
-  group?: number;
-  skip?: (value: string) => boolean;
+  /** Group 1 is the text before the secret and group 2 the secret; only group 2 is masked. Otherwise the whole match is. */
+  masksGroup?: boolean;
+  /** Keeps a candidate as written unless this returns true. `next` is the character after the match ("" at the end). */
+  accept?: (groups: ReadonlyArray<string | undefined>, next: string) => boolean;
 };
 
 /**
@@ -23,6 +34,8 @@ type Detector = {
  */
 const PRIVATE_TAG = /<(\/?)private>/gi;
 const PRIVATE_BLOCK_MARKER = "[REDACTED:private_block]";
+/** A character that may follow an assigned secret value (the end of the input also may). */
+const SECRET_VALUE_TERMINATOR = /["'\s,;}]/;
 
 const GENERIC_PLACEHOLDERS = new Set([
   "changeme",
@@ -43,11 +56,20 @@ function isIdentifierLike(value: string): boolean {
   );
 }
 
+function isAssignedSecretValue(groups: ReadonlyArray<string | undefined>, next: string): boolean {
+  const value = groups[1] ?? "";
+  return value.length >= 8 && (next === "" || SECRET_VALUE_TERMINATOR.test(next)) && !isIdentifierLike(value);
+}
+
 const DETECTORS: readonly Detector[] = [
   {
     kind: "private_key",
+    // The lookahead takes the text up to the first footer (group 1) or, when no footer follows, the rest of the input
+    // (group 2), so a header without a footer is scanned once and every later header (which has no footer either) is
+    // skipped instead of each scanning to the end.
     pattern:
-      /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/g,
+      /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----(?=([\s\S]+?-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----)|([\s\S]*))\1\2/g,
+    accept: (groups) => groups[0] !== undefined,
   },
   {
     kind: "github_token",
@@ -63,11 +85,14 @@ const DETECTORS: readonly Detector[] = [
   },
   {
     kind: "slack_token",
-    pattern: /(?<![A-Za-z0-9_])xox[abprs]-[A-Za-z0-9-]{20,255}(?![A-Za-z0-9_-])/g,
+    // `-` may precede the prefix and is part of the body, so `xoxb-xoxb-…` starts a candidate at every prefix; the
+    // atomic body scans each one at most 255 characters once instead of also backtracking through it.
+    pattern: /(?<![A-Za-z0-9_])xox[abprs]-(?=([A-Za-z0-9-]{20,255}))\1(?![A-Za-z0-9_-])/g,
   },
   {
     kind: "google_api_key",
-    pattern: /(?<![A-Za-z0-9_])AIza[A-Za-z0-9_-]{30,100}(?![A-Za-z0-9_-])/g,
+    // Same as slack_token: `-AIza-AIza…` starts a candidate at every prefix, so the body is taken atomically.
+    pattern: /(?<![A-Za-z0-9_])AIza(?=([A-Za-z0-9_-]{30,100}))\1(?![A-Za-z0-9_-])/g,
   },
   {
     kind: "aws_access_key",
@@ -76,12 +101,15 @@ const DETECTORS: readonly Detector[] = [
   {
     kind: "aws_secret_key",
     pattern: /(\baws_secret_access_key\s*[:=]\s*["']?)([A-Za-z0-9/+=]{40})(?=["'\s,;}]|$)/gi,
-    group: 2,
+    masksGroup: true,
   },
   {
     kind: "connection_string_password",
-    pattern: /((?:[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^:\s/@]+:)([^\s/@]{8,})(@[^\s/]+)/g,
-    group: 2,
+    // A match starts only where a scheme-character run starts (leading digits, `+`, `.` or `-` are kept in group 1 and
+    // the scheme still begins at the run's first letter), so a long word without `://` is scanned once, not once per
+    // letter. The user and password stop at `/`, so each `://` scans its own stretch of text.
+    pattern: /(?<![A-Za-z0-9+.-])([0-9+.-]*[A-Za-z][A-Za-z0-9+.-]*:\/\/[^:\s/@]+:)([^\s/@]{8,})(@[^\s/]+)/g,
+    masksGroup: true,
   },
   {
     kind: "jwt",
@@ -89,9 +117,12 @@ const DETECTORS: readonly Detector[] = [
   },
   {
     kind: "environment_secret",
-    pattern: /(\b(?:api[_-]?key|secret|token|password)\b\s*[:=]\s*["']?)([A-Za-z0-9_./+=:-]{8,})(?=["'\s,;}]|$)/gi,
-    group: 2,
-    skip: isIdentifierLike,
+    // The value class contains `=`, `:` and keyword letters, so `token=token=…` used to re-scan to the end from every
+    // keyword. The value is now the whole run, taken atomically and checked by `accept`; a keyword inside a rejected
+    // run could only match the same run with the same ending, so skipping past the run loses nothing.
+    pattern: /(\b(?:api[_-]?key|secret|token|password)\b\s*[:=]\s*["']?)(?=([A-Za-z0-9_./+=:-]*))\2/gi,
+    masksGroup: true,
+    accept: isAssignedSecretValue,
   },
 ];
 
@@ -165,23 +196,22 @@ export function redactText(input: string): RedactedText {
   let value = redactPrivateBlocks(input, redactions);
 
   for (const detector of DETECTORS) {
-    value = value.replace(detector.pattern, (...args: unknown[]) => {
-      const match = String(args[0] ?? "");
-      const capture = detector.group === undefined ? match : String(args[detector.group] ?? "");
-      if (!capture || detector.skip?.(capture)) {
+    value = value.replace(detector.pattern, (match: string, ...rest: unknown[]) => {
+      const source = rest[rest.length - 1] as string;
+      const offset = rest[rest.length - 2] as number;
+      const groups = rest.slice(0, -2) as Array<string | undefined>;
+      if (detector.accept && !detector.accept(groups, source.charAt(offset + match.length))) {
         return match;
       }
       addRedaction(redactions, detector.kind);
-      if (detector.group === undefined) {
-        return `[REDACTED:${detector.kind}]`;
+      const marker = `[REDACTED:${detector.kind}]`;
+      if (!detector.masksGroup) {
+        return marker;
       }
-      const captureOffset = match.indexOf(capture);
-      if (captureOffset < 0) {
-        return match;
-      }
-      return (
-        match.slice(0, captureOffset) + `[REDACTED:${detector.kind}]` + match.slice(captureOffset + capture.length)
-      );
+      // Cut by group lengths, not by searching for the secret: a user name equal to the password must stay visible.
+      const before = groups[0] ?? "";
+      const secret = groups[1] ?? "";
+      return before + marker + match.slice(before.length + secret.length);
     });
   }
 

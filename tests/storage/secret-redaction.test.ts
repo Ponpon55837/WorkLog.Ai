@@ -8,6 +8,52 @@ import {
 } from "../../packages/storage/src/secret-redaction.js";
 
 const PRIVATE_MARKER = "[REDACTED:private_block]";
+const LONG_INPUT_LENGTH = 200_000;
+const JWT = `eyJ${"a".repeat(18)}.${"b".repeat(20)}.${"c".repeat(20)}`;
+const PASSWORD = "M".repeat(20);
+const VALUE = "N".repeat(12);
+
+function marker(kind: string): string {
+  return `[REDACTED:${kind}]`;
+}
+
+/** Repeats `unit` to exactly `length` characters, the last of which come from `tail`. */
+function repeatTo(unit: string, length: number, tail = ""): string {
+  return unit.repeat(Math.ceil(length / unit.length)).slice(0, length - tail.length) + tail;
+}
+
+/** Inputs that made a detector re-scan or backtrack through the rest of the text from many start positions. */
+function adversarialInputs(length: number): Record<string, string> {
+  return {
+    "one long word": "x".repeat(length),
+    "digits and dots": repeatTo("1.", length),
+    whitespace: " ".repeat(length),
+    "repeated token= without a terminator": repeatTo("token=", length, "<"),
+    "repeated password:": repeatTo("password:", length, "<"),
+    "repeated x-api-key:": repeatTo("x-api-key:", length, "<"),
+    "keyword then whitespace": `password${" ".repeat(length - 9)}<`,
+    "aws key then whitespace": `aws_secret_access_key=${" ".repeat(length - 23)}<`,
+    "repeated aws_secret_access_key=": repeatTo("aws_secret_access_key=", length, "<"),
+    "scheme then a long host": `a://${"b".repeat(length - 4)}`,
+    "scheme and user then a long password": `a://u:${"p".repeat(length - 6)}`,
+    "scheme then colons": `a://${"u".repeat(length / 2 - 4)}${":".repeat(length / 2)}`,
+    "repeated ://": repeatTo("://", length),
+    "repeated a://u:": repeatTo("a://u:", length),
+    "eyJ then a long word": `eyJ${"a".repeat(length - 3)}`,
+    "repeated .eyJ": repeatTo(".eyJ", length),
+    "repeated JWT-like segments": repeatTo("-eyJaaaaaaaaaaaa.aaaaaaaaaaaa", length),
+    "repeated -xoxb-": repeatTo("-xoxb-", length),
+    "repeated -sk-": repeatTo("-sk-", length),
+    "repeated -sk-ant-": repeatTo("-sk-ant-", length),
+    "repeated ghp_": repeatTo(" ghp_", length),
+    "repeated github_pat_": repeatTo(" github_pat_", length),
+    "repeated -AIza": repeatTo("-AIza", length),
+    "repeated AKIA": repeatTo(" AKIA", length),
+    "repeated private key headers": repeatTo("-----BEGIN PRIVATE KEY-----a", length),
+    "repeated <private>": repeatTo("<private>", length),
+    "opening then closing tags": `${"<private>".repeat(length / 20)}${"</private>".repeat(length / 20)}${" ".repeat(length / 20)}`,
+  };
+}
 
 describe("secret redaction", () => {
   it("masks supported token classes without returning token fragments", () => {
@@ -171,6 +217,96 @@ describe("secret redaction", () => {
         value: `${PRIVATE_MARKER} API_KEY=${"N".repeat(20)}`,
         redactions: { total: 1, byKind: { private_block: 1 } },
       });
+    });
+  });
+
+  describe("boundaries", () => {
+    it("masks credentials next to punctuation, at either end, inside URLs, and in quoted values", () => {
+      const cases: Array<[string, string]> = [
+        [`ghp_${"A".repeat(36)}`, marker("github_token")],
+        [`(ghp_${"A".repeat(36)}), next`, `(${marker("github_token")}), next`],
+        [`https://example.com/?key=sk-${"C".repeat(24)}&x=1`, `https://example.com/?key=${marker("openai_token")}&x=1`],
+        [`"xoxb-${"1234567890-".repeat(2)}EEEE"`, `"${marker("slack_token")}"`],
+        [`key-AIza${"F".repeat(35)}`, `key-${marker("google_api_key")}`],
+        [`https://app.example/cb?jwt=${JWT}&next=1`, `https://app.example/cb?jwt=${marker("jwt")}&next=1`],
+        [`aws_secret_access_key: "${"J".repeat(40)}"`, `aws_secret_access_key: "${marker("aws_secret_key")}"`],
+      ];
+      for (const [input, expected] of cases) {
+        expect(redactText(input).value).toBe(expected);
+      }
+    });
+
+    it("masks an assigned value only when the whole value ends at a terminator", () => {
+      const cases: Array<[string, string]> = [
+        [`x-api-key: "${VALUE}"`, `x-api-key: "${marker("environment_secret")}"`],
+        [`password=${VALUE};`, `password=${marker("environment_secret")};`],
+        [`run --token=${VALUE}`, `run --token=${marker("environment_secret")}`],
+        [`{secret: '${VALUE}'}`, `{secret: '${marker("environment_secret")}'}`],
+        [`PASSWORD=password=${VALUE} done`, `PASSWORD=${marker("environment_secret")} done`],
+        [`token=${VALUE}<`, `token=${VALUE}<`],
+        [`token=token=token=${VALUE}<`, `token=token=token=${VALUE}<`],
+        ["secret: 'short'", "secret: 'short'"],
+      ];
+      for (const [input, expected] of cases) {
+        expect(redactText(input).value).toBe(expected);
+      }
+    });
+
+    it("masks connection-string passwords for any scheme and keeps the rest of the URL", () => {
+      const cases: Array<[string, string]> = [
+        [
+          `postgres://user:${PASSWORD}@db.local/work`,
+          `postgres://user:${marker("connection_string_password")}@db.local/work`,
+        ],
+        [
+          `mongodb+srv://svc:${PASSWORD}@cluster0.example.net/app?retryWrites=true`,
+          `mongodb+srv://svc:${marker("connection_string_password")}@cluster0.example.net/app?retryWrites=true`,
+        ],
+        [
+          `see (redis://cache:${PASSWORD}@10.0.0.5:6379)`,
+          `see (redis://cache:${marker("connection_string_password")}@10.0.0.5:6379)`,
+        ],
+        [`9postgres://u:${PASSWORD}@h`, `9postgres://u:${marker("connection_string_password")}@h`],
+        [`url=db-postgres://u:${PASSWORD}@h`, `url=db-postgres://u:${marker("connection_string_password")}@h`],
+        [`postgres://u:${PASSWORD}/db`, `postgres://u:${PASSWORD}/db`],
+        [`123://u:${PASSWORD}@h`, `123://u:${PASSWORD}@h`],
+      ];
+      for (const [input, expected] of cases) {
+        expect(redactText(input).value).toBe(expected);
+      }
+    });
+
+    it("masks the password, not a user name that equals it", () => {
+      expect(redactText("postgres://abcdefgh12:abcdefgh12@db.local/work").value).toBe(
+        `postgres://abcdefgh12:${marker("connection_string_password")}@db.local/work`,
+      );
+    });
+
+    it("masks each private key from its header to the first footer after it", () => {
+      expect(
+        redactText(
+          "-----BEGIN PRIVATE KEY-----\nx\n-----BEGIN RSA PRIVATE KEY-----\ny\n-----END RSA PRIVATE KEY----- tail",
+        ).value,
+      ).toBe(`${marker("private_key")} tail`);
+      expect(
+        redactText(
+          "-----BEGIN PRIVATE KEY-----a-----END PRIVATE KEY----- and -----BEGIN EC PRIVATE KEY-----b-----END EC PRIVATE KEY-----",
+        ).value,
+      ).toBe(`${marker("private_key")} and ${marker("private_key")}`);
+      const empty = "-----BEGIN PRIVATE KEY----------END PRIVATE KEY-----";
+      expect(redactText(empty)).toEqual({ value: empty, redactions: { total: 0, byKind: {} } });
+    });
+  });
+
+  describe("linear time", () => {
+    it("masks 200,000 characters of every adversarial shape quickly", () => {
+      for (const [shape, input] of Object.entries(adversarialInputs(LONG_INPUT_LENGTH))) {
+        expect(input.length, shape).toBe(LONG_INPUT_LENGTH);
+        const started = performance.now();
+        redactText(input);
+        // Each shape took 1–2 s at 40,000 characters (about 46 s at 200,000) before the detectors became linear.
+        expect(performance.now() - started, shape).toBeLessThan(1_000);
+      }
     });
   });
 });

@@ -20,6 +20,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The database upgrades to schema 32 on first start (with the usual pre-migration backup). Older MCP connections report `restartRequired` after the upgrade; reconnect Work Intelligence MCP.
 - `work_get_session` with `view`/`select` still returns only the requested families, but now also builds the full detail once to compute `session.revision` (one revision per Session state). On the synthetic 5,000-Session benchmark this moved the three projection cases from a median of 0.75–1.36 ms to 3.19–3.84 ms; the full read with revision is 3.2 ms and an unchanged answer 3.54 ms (p90 limit 250 ms).
 
+### Security
+
+- Credential masking no longer takes quadratic time on unusual text. Every write masks each stored string (up to about 200,000 characters) on the API / MCP event loop, and a long word, `token=token=…`, `a://` followed by a long word, or `eyJ` followed by a long word made the connection-string or assigned-value rule re-scan the rest of the text from every position: about 1.9 s at 40,000 characters and roughly 46 s at 200,000, freezing every other request (repeated private-key headers without a footer took 0.5 s). Each rule now finds its matches in linear time (a match can only start where a run of its characters starts, unbounded runs are taken atomically, and a header or assigned value that cannot match is skipped whole), so 200,000 characters of any of these shapes take at most a few tens of milliseconds. What gets masked is unchanged, except that a connection-string password equal to its user name is now masked in the password position (the user name was masked before and the password stayed visible).
+
 ## [1.6.8] - 2026-11-07
 
 [繁體中文更新說明](docs/releases/1.6.8.md).
