@@ -343,3 +343,76 @@ describe("attention display preferences", () => {
     }
   });
 });
+
+describe("attention source fingerprints", () => {
+  function execSql(databasePath: string, sql: string) {
+    const db = new DatabaseSync(databasePath);
+    try {
+      db.exec(sql);
+    } finally {
+      db.close();
+    }
+  }
+
+  it("changes the outstanding revision on add, update, delete and void, and stays put when nothing changes", () => {
+    const { store, project, databasePath, finalize } = setup();
+    const first = finalize("first", { openItems: ["Fictional first issue"] });
+    const second = finalize("second", { openItems: ["Fictional second issue"] });
+    const baseline = firstItem(store, project.id, "outstanding");
+    expect(baseline.count).toBe(2);
+    expect(firstItem(store, project.id, "outstanding").sourceRevision).toBe(baseline.sourceRevision);
+
+    // Update: same count and same latest Session time, only the item's updated_at moves forward.
+    execSql(
+      databasePath,
+      `UPDATE outstanding_items SET updated_at = '2030-01-01T00:00:00.000Z' WHERE source_session_id = '${first.id}'`,
+    );
+    const updated = firstItem(store, project.id, "outstanding");
+    expect(updated.count).toBe(baseline.count);
+    expect(updated.updatedAt).toBe(baseline.updatedAt);
+    expect(updated.sourceRevision).not.toBe(baseline.sourceRevision);
+
+    // Add.
+    const third = finalize("third", { openItems: ["Fictional third issue"] });
+    const added = firstItem(store, project.id, "outstanding");
+    expect(added.count).toBe(3);
+    expect(added.sourceRevision).not.toBe(updated.sourceRevision);
+
+    // Delete.
+    execSql(databasePath, `DELETE FROM outstanding_items WHERE source_session_id = '${second.id}'`);
+    const deleted = firstItem(store, project.id, "outstanding");
+    expect(deleted.count).toBe(2);
+    expect(deleted.sourceRevision).not.toBe(added.sourceRevision);
+
+    // Void the source Session of a remaining item.
+    store.setSessionVoid({ sessionId: third.id, voided: true, reason: "Fictional void" });
+    const voided = firstItem(store, project.id, "outstanding");
+    expect(voided.count).toBe(1);
+    expect(voided.sourceRevision).not.toBe(deleted.sourceRevision);
+  });
+
+  it("changes the Knowledge page revision on add, update, void and delete of a later Session", () => {
+    const { store, projectRoot, project, databasePath, finalize } = setup();
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+    const first = finalize("first");
+    const baseline = firstItem(store, project.id, "knowledge_page");
+    expect(firstItem(store, project.id, "knowledge_page").sourceRevision).toBe(baseline.sourceRevision);
+
+    // Update: only the Session's updated_at moves.
+    execSql(databasePath, `UPDATE sessions SET updated_at = '2030-01-01T00:00:00.000Z' WHERE id = '${first.id}'`);
+    const updated = firstItem(store, project.id, "knowledge_page");
+    expect(updated.sourceRevision).not.toBe(baseline.sourceRevision);
+
+    const second = finalize("second");
+    const added = firstItem(store, project.id, "knowledge_page");
+    expect(added.sourceRevision).not.toBe(updated.sourceRevision);
+
+    store.setSessionVoid({ sessionId: second.id, voided: true, reason: "Fictional void" });
+    const voided = firstItem(store, project.id, "knowledge_page");
+    expect(voided.sourceRevision).not.toBe(added.sourceRevision);
+
+    store.setSessionVoid({ sessionId: first.id, voided: true, reason: "Fictional void" });
+    store.deleteSession(first.id);
+    expect(firstItem(store, project.id, "knowledge_page").sourceRevision).not.toBe(voided.sourceRevision);
+  });
+});

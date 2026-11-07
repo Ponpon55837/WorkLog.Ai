@@ -496,13 +496,15 @@ export class ReportReadService {
     const to = localDayStartIso(exclusiveEndDate.toISOString().slice(0, 10)) ?? range.to;
     const scopeClause = projectId ? "AND d.project_id = ?" : "";
     const scopeParams = projectId ? [projectId] : [];
+    // CROSS JOIN pins session_decisions as the outer loop: after ANALYZE the planner otherwise scans the
+    // whole completed_at range of sessions (a year covers all of them) and probes decisions per Session.
     const totals = this.db
       .prepare(
         `SELECT COUNT(*) AS total,
                 SUM(CASE WHEN d.review_status = 'pending' THEN 1 ELSE 0 END) AS pending
          FROM session_decisions d
-         JOIN sessions s ON s.id = d.session_id
-         JOIN projects p ON p.id = d.project_id
+         CROSS JOIN sessions s ON s.id = d.session_id
+         CROSS JOIN projects p ON p.id = d.project_id
          WHERE p.status = 'tracked' AND s.voided_at IS NULL
            AND d.origin = 'agent_autonomous'
            AND s.completed_at >= ? AND s.completed_at < ? ${scopeClause}`,
@@ -514,8 +516,8 @@ export class ReportReadService {
                 d.reviewed_at, d.knowledge_id, s.title AS session_title,
                 s.completed_at AS session_completed_at
          FROM session_decisions d
-         JOIN sessions s ON s.id = d.session_id
-         JOIN projects p ON p.id = d.project_id
+         CROSS JOIN sessions s ON s.id = d.session_id
+         CROSS JOIN projects p ON p.id = d.project_id
          WHERE p.status = 'tracked' AND s.voided_at IS NULL
            AND d.origin = 'agent_autonomous' AND d.review_status = 'pending'
            AND s.completed_at >= ? AND s.completed_at < ? ${scopeClause}

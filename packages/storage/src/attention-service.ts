@@ -267,7 +267,7 @@ export class AttentionService {
       const result = this.dependencies.pages(projectId);
       const revisions = this.db
         .prepare(
-          `SELECT kp.id,json_group_array(json_array(s.id,s.updated_at) ORDER BY s.id) AS fingerprint
+          `SELECT kp.id,json_array(COUNT(s.id),MAX(s.updated_at),MAX(s.id)) AS fingerprint
         FROM knowledge_pages kp JOIN projects p ON p.id=kp.project_id AND p.status='tracked'
         LEFT JOIN sessions s ON s.project_id=kp.project_id AND s.voided_at IS NULL AND s.completed_at>
           COALESCE((SELECT completed_at FROM sessions WHERE id=kp.checked_through_session_id),kp.sourced_through,'')
@@ -348,7 +348,7 @@ export class AttentionService {
     } else if (kind === "cleanup") {
       sql = `SELECT r.id AS source_id, r.project_id, p.name AS project_name, '' AS title, 'review' AS reason,
         COALESCE(proposals.count, 0) AS count,
-        (SELECT json_group_array(json_array(cp.id,cp.created_at) ORDER BY cp.id) FROM outstanding_cleanup_proposals cp WHERE cp.request_id=r.id AND cp.review_status='pending') AS fingerprint,
+        (SELECT json_array(COUNT(*),MAX(cp.created_at),MAX(cp.id)) FROM outstanding_cleanup_proposals cp WHERE cp.request_id=r.id AND cp.review_status='pending') AS fingerprint,
         r.requested_at AS updated_at, COUNT(*) OVER () AS total FROM outstanding_cleanup_requests r JOIN projects p ON p.id = r.project_id LEFT JOIN (SELECT request_id, COUNT(*) AS count FROM outstanding_cleanup_proposals WHERE review_status = 'pending' GROUP BY request_id) proposals ON proposals.request_id = r.id
         WHERE p.status = 'tracked' AND r.status = 'awaiting_review' ${scope} ORDER BY updated_at DESC, source_id DESC LIMIT ?`;
     } else {
@@ -358,7 +358,7 @@ export class AttentionService {
         : "(s.changed_files_confirmed = 0 OR s.verification_json IS NULL)";
       const source = pending ? "outstanding_items o JOIN sessions s ON s.id = o.source_session_id" : "sessions s";
       sql = `WITH counts AS (SELECT p.id AS project_id, p.name AS project_name, COUNT(*) AS count, MAX(s.completed_at) AS updated_at,
-        ${pending ? "json_group_array(json_array(o.id,o.updated_at) ORDER BY o.id)" : "json_group_array(json_array(s.id,s.changed_files_confirmed,s.verification_json) ORDER BY s.id)"} AS fingerprint
+        ${pending ? "json_array(COUNT(*),MAX(o.updated_at),MAX(o.id))" : "json_array(COUNT(*),MAX(s.updated_at),MAX(s.id))"} AS fingerprint
         FROM ${source} JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL ${scope} AND ${condition}
         GROUP BY p.id) SELECT project_id AS source_id, *, '' AS title, '${pending ? "open" : "missing"}' AS reason, COUNT(*) OVER () AS total FROM counts ORDER BY updated_at DESC, source_id DESC LIMIT ?`;
     }
