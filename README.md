@@ -146,11 +146,12 @@ To have the Agent reminded once when it forgets to save, add the save-reminder h
 
 | Agent | Global settings file | Events | Script |
 |---|---|---|---|
-| Claude Code | `~/.claude/settings.json` | `Stop` | `apps/mcp/dist/finalize-reminder.js` |
-| Codex | `~/.codex/hooks.json` | `PostToolUse` (`apply_patch`, `work_finalize_session`) + `Stop` | `apps/mcp/dist/codex-finalize-reminder.js` |
+| Claude Code | `~/.claude/settings.json` | `Stop`; optional `PreCompact` + `SessionStart` (`compact`) | `apps/mcp/dist/finalize-reminder.js` |
+| Codex | `~/.codex/hooks.json` | `PostToolUse` (`apply_patch`, `work_finalize_session`) + `Stop`; optional `UserPromptSubmit` + `SessionStart` (`compact`) | `apps/mcp/dist/codex-finalize-reminder.js` |
 
 - Use the repo's absolute path and run `pnpm build` first.
 - Codex requires you to review and trust the hook under `/hooks`.
+- The optional compaction hooks keep unsaved work visible after a long conversation is compacted: Claude Code's `PreCompact` asks the summary to keep the segment's start time and changed files (paths relative to the project, no contents), and `SessionStart` (`compact`) in both Agents puts the unsaved reminder and start time back into context. They never block compaction.
 - The repo does not ship a project-level `.codex/hooks.json`.
 - `pnpm check` checks whether the setup is correct.
 

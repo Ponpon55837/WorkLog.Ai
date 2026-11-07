@@ -8,7 +8,12 @@ import {
   responseForCodexHook,
   type CodexReminderDeps,
 } from "../../apps/mcp/src/codex-finalize-reminder.js";
-import { isFileInTrackedRoots, REMINDER, reminderWithStart } from "../../apps/mcp/src/finalize-reminder.js";
+import {
+  compactedSessionReminder,
+  isFileInTrackedRoots,
+  REMINDER,
+  reminderWithStart,
+} from "../../apps/mcp/src/finalize-reminder.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const trackedCwd = join(repoRoot, "apps/mcp");
@@ -72,6 +77,10 @@ function postToolEvent(toolName: string, toolResponse?: unknown, toolInput?: unk
         : { tool_input: toolInput }),
     tool_response: toolResponse,
   });
+}
+
+function sessionStartEvent(source: string) {
+  return JSON.stringify({ session_id: "session-1", cwd: trackedCwd, hook_event_name: "SessionStart", source });
 }
 
 function stopEvent() {
@@ -220,6 +229,38 @@ describe("Codex finalize reminder hook", () => {
     ).toEqual(["src/new.ts", "src/old.ts", "src/renamed.ts", "src/remove.ts"]);
     expect(parseApplyPatchFilePaths({ command: "*** Begin Patch\n*** Update File: src/a.ts" })).toBeNull();
     expect(parseApplyPatchFilePaths({ command: "not a patch" })).toBeNull();
+  });
+
+  it("restores the unsaved reminder with its start time after every compaction, but only when work is unsaved", () => {
+    const { deps } = createDeps();
+    const compacted = () => responseForCodexHook(sessionStartEvent("compact"), deps);
+    responseForCodexHook(
+      JSON.stringify({ session_id: "session-1", cwd: trackedCwd, hook_event_name: "UserPromptSubmit" }),
+      deps,
+    );
+    expect(compacted()).toBeNull();
+
+    responseForCodexHook(postToolEvent("apply_patch"), deps);
+    const expected = JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: compactedSessionReminder("2026-09-27T01:00:00.000Z"),
+      },
+    });
+    expect(compacted()).toBe(expected);
+    expect(compactedSessionReminder("2026-09-27T01:00:00.000Z")).toContain("2026-09-27T01:00:00.000Z");
+    // The Stop reminder having fired does not silence the next compaction, and vice versa.
+    expect(responseForCodexHook(stopEvent(), deps)).not.toBeNull();
+    expect(compacted()).toBe(expected);
+    expect(responseForCodexHook(sessionStartEvent("startup"), deps)).toBeNull();
+    expect(responseForCodexHook(sessionStartEvent("resume"), deps)).toBeNull();
+
+    const saved = { content: [{ type: "text", text: JSON.stringify({ outcome: "finalized", session: { id: "s" } }) }] };
+    responseForCodexHook(postToolEvent(finalizeDispatcher, saved, finalizeDispatcherInput), deps);
+    expect(compacted()).toBeNull();
+
+    const untracked = createDeps(false);
+    expect(responseForCodexHook(sessionStartEvent("compact"), untracked.deps)).toBeNull();
   });
 
   it("passes malformed and unrelated hook input without blocking", () => {

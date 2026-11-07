@@ -14,6 +14,7 @@ import { tmpdir, userInfo } from "node:os";
 import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  compactedSessionReminder,
   findTrackedRoot,
   isFileInTrackedRoots,
   isFinalizedPayload,
@@ -29,6 +30,8 @@ export interface CodexHookInput {
   tool_input?: unknown;
   tool_response?: unknown;
   stop_hook_active?: boolean;
+  /** SessionStart only: `compact` after a compaction. */
+  source?: string;
 }
 
 export interface ReminderMarkers {
@@ -255,6 +258,21 @@ export function reminderForStop(input: CodexHookInput, deps: CodexReminderDeps):
   return deps.createMarker(markers.reminded) ? reminderWithStart(segmentStart(deps.readMarker(markers.segment))) : null;
 }
 
+/**
+ * Context for the session that resumes after a compaction: the unsaved state and segment start survive even when the
+ * summary drops them. Unlike the Stop reminder it is not limited to once, since every compaction loses it again.
+ */
+export function contextAfterCompaction(input: CodexHookInput, deps: CodexReminderDeps): string | null {
+  if (input.source !== "compact" || !input.session_id || !input.cwd || !deps.isTrackedWorkspace(input.cwd)) {
+    return null;
+  }
+  const markers = deps.markerPaths(input.session_id);
+  if (!deps.markerExists(markers.dirty)) {
+    return null;
+  }
+  return compactedSessionReminder(segmentStart(deps.readMarker(markers.segment)));
+}
+
 const defaultDeps: CodexReminderDeps = {
   isTrackedWorkspace,
   hasTrackedFiles: (cwd, filePaths) => {
@@ -274,7 +292,7 @@ const defaultDeps: CodexReminderDeps = {
   now: () => new Date(),
 };
 
-/** Convert one hook event into the optional block response; malformed input always passes through. */
+/** Convert one hook event into its optional response; malformed input always passes through. */
 export function responseForCodexHook(raw: string, deps: CodexReminderDeps = defaultDeps): string | null {
   let value: unknown;
   try {
@@ -294,6 +312,12 @@ export function responseForCodexHook(raw: string, deps: CodexReminderDeps = defa
   if (input.hook_event_name === "UserPromptSubmit") {
     trackUserPrompt(input, deps);
     return null;
+  }
+  if (input.hook_event_name === "SessionStart") {
+    const additionalContext = contextAfterCompaction(input, deps);
+    return additionalContext
+      ? JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } })
+      : null;
   }
   if (input.hook_event_name === "Stop") {
     const reason = reminderForStop(input, deps);

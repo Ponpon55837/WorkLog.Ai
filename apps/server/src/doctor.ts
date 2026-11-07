@@ -24,6 +24,7 @@ import {
 } from "./database-inspection.js";
 import {
   CODEX_POST_TOOL_USE_MATCHER,
+  COMPACT_SESSION_START_MATCHER,
   inspectAgentSkillCopies,
   LEGACY_CODEX_POST_TOOL_USE_MATCHER,
   mcpRegistrationKind,
@@ -98,6 +99,10 @@ export interface GlobalHookInspection {
   codexLegacyMatcher: boolean;
   /** Optional UserPromptSubmit hook that lets the Codex reminder state when the segment began. */
   codexSegmentStartConfigured: boolean;
+  /** Optional PreCompact and SessionStart (compact) hooks that keep unsaved-work facts across a compaction. */
+  claudeCompactionConfigured: boolean;
+  /** Optional SessionStart (compact) hook that restores the unsaved-work reminder after a Codex compaction. */
+  codexCompactionConfigured: boolean;
   codexHooksFeature: CodexHooksFeature;
 }
 
@@ -294,6 +299,32 @@ function parsePosixShellWords(command: string): string[] {
   return words;
 }
 
+/** Whether a hook matcher selects the given value: absent, "", and "*" match everything; plain names match exactly. */
+function matcherSelects(matcher: unknown, value: string): boolean {
+  if (matcher === undefined || matcher === "" || matcher === "*") return true;
+  if (typeof matcher !== "string") return false;
+  if (/^[\w|]+$/.test(matcher)) return matcher.split("|").includes(value);
+  try {
+    return new RegExp(matcher).test(value);
+  } catch {
+    return false;
+  }
+}
+
+/** A hook under `event` whose matcher selects `matcherValue` (when given) runs the script. */
+function hasHookFor(
+  hooks: Record<string, unknown> | undefined,
+  event: string,
+  scriptPath: string,
+  matcherValue?: string,
+): boolean {
+  return entries(hooks?.[event]).some((entry) => {
+    const hookEntry = record(entry);
+    if (matcherValue !== undefined && !matcherSelects(hookEntry?.matcher, matcherValue)) return false;
+    return collectCommands(hookEntry?.hooks).some((command) => commandPointsTo(command, scriptPath));
+  });
+}
+
 function hasClaudeStopHook(config: Record<string, unknown> | undefined, scriptPath: string): boolean {
   const hooks = record(config?.hooks);
   return collectCommands(entries(hooks?.Stop)).some((command) => commandPointsTo(command, scriptPath));
@@ -344,6 +375,15 @@ function inspectGlobalHookConfigs(
       codexLegacyMatcher: codexHookState === "legacy",
       codexSegmentStartConfigured: collectCommands(entries(record(codexSettings?.hooks)?.UserPromptSubmit)).some(
         (command) => commandPointsTo(command, codexScript),
+      ),
+      claudeCompactionConfigured:
+        hasHookFor(record(claudeSettings?.hooks), "PreCompact", claudeScript) &&
+        hasHookFor(record(claudeSettings?.hooks), "SessionStart", claudeScript, COMPACT_SESSION_START_MATCHER),
+      codexCompactionConfigured: hasHookFor(
+        record(codexSettings?.hooks),
+        "SessionStart",
+        codexScript,
+        COMPACT_SESSION_START_MATCHER,
       ),
       codexHooksFeature,
     },
@@ -1165,11 +1205,15 @@ export async function collectDoctorFindings(
         ? "無法判定 Claude Stop hook 狀態；settings.json 無法讀取或不是有效 JSON。"
         : claudeHookExists
           ? globalHooks.claudeConfigured
-            ? "全域 Stop hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
+            ? globalHooks.claudeCompactionConfigured
+              ? "全域 Stop、PreCompact 與 SessionStart（compact）hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
+              : "全域 Stop hook 已設定，但未設定 PreCompact 與 SessionStart（compact）hook，上下文壓縮後可能遺失未保存工作的開始時間與改過的檔案；doctor 沒有執行 hook。"
             : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
           : "apps/mcp/dist/finalize-reminder.js 不存在。",
       claudeHookState === "installed"
-        ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
+        ? globalHooks.claudeCompactionConfigured
+          ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
+          : `執行 ${cmd("setup:agents")}，預覽後確認即可補上壓縮前後的提醒 hook。`
         : claudeHookState === "unknown"
           ? `確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`
           : standalone
@@ -1190,9 +1234,13 @@ export async function collectDoctorFindings(
           ? "config.toml 明確停用了 Codex hooks；hooks.json 即使有設定也不代表會執行。"
           : codexHookExists
             ? globalHooks.codexConfigured
-              ? globalHooks.codexSegmentStartConfigured
-                ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
-                : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。"
+              ? `${
+                  globalHooks.codexSegmentStartConfigured
+                    ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定"
+                    : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit"
+                }${
+                  globalHooks.codexCompactionConfigured ? "" : "，未設定壓縮後提醒的 SessionStart（compact）hook"
+                }；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。`
               : globalHooks.codexLegacyMatcher
                 ? "PostToolUse hook 仍使用 MCP dispatcher 之前的舊 matcher，漏掉 work_write_idempotent 的 finalize 呼叫。"
                 : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
@@ -1202,7 +1250,9 @@ export async function collectDoctorFindings(
         : codexHooksDisabled
           ? `如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 ${cmd("check")}。`
           : codexHookExists && globalHooks.codexConfigured
-            ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
+            ? globalHooks.codexCompactionConfigured && globalHooks.codexSegmentStartConfigured
+              ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
+              : `執行 ${cmd("setup:agents")} 補上缺少的選用 hook；之後在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks。`
             : globalHooks.codexHooksFeature === "unknown"
               ? `無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 ${cmd("check")}。`
               : globalHooks.codexLegacyMatcher

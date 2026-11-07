@@ -121,7 +121,20 @@ describe("plugin manifests", () => {
         PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler }],
         Stop: [{ hooks: handler }],
         UserPromptSubmit: [{ hooks: handler }],
+        SessionStart: [{ matcher: "compact", hooks: handler }],
       },
+    });
+  });
+
+  it("give Claude Code the Stop reminder plus the compaction hooks, all through one command", () => {
+    const claude = readJson(join(pluginRoot, ".claude-plugin/plugin.json"));
+    const command = 'node "${CLAUDE_PLUGIN_ROOT}/scripts/launch.mjs" finalize-reminder';
+    const handler = [{ type: "command", command }];
+    expect(claude.hooks).toEqual({
+      Stop: [{ hooks: handler }],
+      // No matcher: both manual and automatic compactions get the summary instructions.
+      PreCompact: [{ hooks: handler }],
+      SessionStart: [{ matcher: "compact", hooks: handler }],
     });
   });
 

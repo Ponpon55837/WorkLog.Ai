@@ -17,7 +17,7 @@
 | MCP server `work-intelligence` | ✓ | ✓ |
 | `work-intelligence` skill（與 `.agents/skills/work-intelligence/SKILL.md` 相同） | ✓ | ✓ |
 | `dashboard` skill（開啟 Web UI，見下方 [Dashboard](#dashboard)） | ✓（`/work-intelligence:dashboard`） | ✓（直接請 Agent 開啟） |
-| 保存提醒 hook | ✓（`Stop`） | ✓（`PostToolUse`、`Stop`、`UserPromptSubmit`；需在 `/hooks` 信任） |
+| 保存提醒 hook | ✓（`Stop`、`PreCompact`、`SessionStart` `compact`） | ✓（`PostToolUse`、`Stop`、`UserPromptSubmit`、`SessionStart` `compact`；需在 `/hooks` 信任） |
 
 ## 共用準備
 

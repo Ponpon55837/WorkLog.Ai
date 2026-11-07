@@ -403,6 +403,8 @@ describe("pnpm doctor read-only checks", () => {
       codexConfigured: false,
       codexLegacyMatcher: true,
       codexSegmentStartConfigured: false,
+      claudeCompactionConfigured: false,
+      codexCompactionConfigured: false,
       codexHooksFeature: "enabled",
     });
 
@@ -423,6 +425,35 @@ describe("pnpm doctor read-only checks", () => {
       codexConfigured: true,
       codexSegmentStartConfigured: true,
     });
+
+    // The compaction hooks count only with a matcher that selects `compact` (or none).
+    const withCompactionHooks = JSON.parse(JSON.stringify(withPromptHook)) as { hooks: Record<string, unknown> };
+    withCompactionHooks.hooks.SessionStart = [
+      { matcher: "startup", hooks: [{ type: "command", command: "node " + JSON.stringify(codexHook) }] },
+    ];
+    writeFileSync(codexHooksPath, JSON.stringify(withCompactionHooks));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).codexCompactionConfigured).toBe(false);
+    for (const matcher of ["compact", "startup|compact", "^(resume|compact)$", undefined]) {
+      withCompactionHooks.hooks.SessionStart = [
+        {
+          ...(matcher === undefined ? {} : { matcher }),
+          hooks: [{ type: "command", command: "node " + JSON.stringify(codexHook) }],
+        },
+      ];
+      writeFileSync(codexHooksPath, JSON.stringify(withCompactionHooks));
+      expect(inspectGlobalHooks(homeDirectory, repositoryRoot).codexCompactionConfigured).toBe(true);
+    }
+
+    // Claude needs both: PreCompact feeds the summary, SessionStart (compact) restores the reminder afterwards.
+    const claudeHandler = [{ type: "command", command: "node " + JSON.stringify(claudeHook) }];
+    const claudeWithPreCompact = JSON.parse(claudeSettings) as { hooks: Record<string, unknown> };
+    claudeWithPreCompact.hooks.PreCompact = [{ hooks: claudeHandler }];
+    writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeCompactionConfigured).toBe(false);
+    claudeWithPreCompact.hooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
+    writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeCompactionConfigured).toBe(true);
+    writeFileSync(claudeSettingsPath, claudeSettings);
 
     writeFileSync(
       codexHooksPath,
@@ -497,6 +528,8 @@ describe("pnpm doctor read-only checks", () => {
       codexConfigured: true,
       codexLegacyMatcher: false,
       codexSegmentStartConfigured: false,
+      claudeCompactionConfigured: false,
+      codexCompactionConfigured: false,
       codexHooksFeature: "disabled",
     });
   });
@@ -674,6 +707,72 @@ describe("pnpm doctor read-only checks", () => {
       recommendation: expect.stringContaining("pnpm setup:agents"),
     });
     expect(findings.find((finding) => finding.title === "Codex MCP")).toMatchObject({ severity: "ok" });
+  });
+
+  it("reports missing compaction hooks next to an installed save reminder without downgrading it", async () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository");
+    const codexHomeDirectory = join(homeDirectory, ".codex");
+    const claudeConfigDirectory = join(homeDirectory, ".claude");
+    const claudeHook = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+    const codexHook = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    mkdirSync(codexHomeDirectory, { recursive: true });
+    mkdirSync(claudeConfigDirectory, { recursive: true });
+    writeFileSync(claudeHook, "// fixture\n");
+    writeFileSync(codexHook, "// fixture\n");
+    const claudeHandler = [{ type: "command", command: commandForAgentHook(claudeHook, process.platform) }];
+    const codexHandler = [{ type: "command", command: commandForAgentHook(codexHook, process.platform) }];
+    const claudeHooks: Record<string, unknown> = { Stop: [{ hooks: claudeHandler }] };
+    const codexHooks: Record<string, unknown> = {
+      PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: codexHandler }],
+      Stop: [{ hooks: codexHandler }],
+      UserPromptSubmit: [{ hooks: codexHandler }],
+    };
+    const write = () => {
+      writeFileSync(join(claudeConfigDirectory, "settings.json"), JSON.stringify({ hooks: claudeHooks }));
+      writeFileSync(join(codexHomeDirectory, "hooks.json"), JSON.stringify({ hooks: codexHooks }));
+    };
+    const doctorOptions = {
+      homeDirectory,
+      repositoryRoot,
+      environment: {
+        HOME: homeDirectory,
+        CODEX_HOME: codexHomeDirectory,
+        CLAUDE_CONFIG_DIR: claudeConfigDirectory,
+        WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite"),
+        WORK_INTELLIGENCE_PORT: "65533",
+      },
+    };
+    write();
+
+    let findings = await collectDoctorFindings(doctorOptions);
+    expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining("未設定 PreCompact 與 SessionStart（compact）hook"),
+      recommendation: expect.stringContaining("setup:agents"),
+    });
+    expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining("未設定壓縮後提醒的 SessionStart（compact）hook"),
+      recommendation: expect.stringContaining("setup:agents"),
+    });
+
+    claudeHooks.PreCompact = [{ hooks: claudeHandler }];
+    claudeHooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
+    codexHooks.SessionStart = [{ matcher: "compact", hooks: codexHandler }];
+    write();
+    findings = await collectDoctorFindings(doctorOptions);
+    expect(findings.find((finding) => finding.title === "Claude 全域 hook")?.detail).toContain(
+      "Stop、PreCompact 與 SessionStart（compact）hook 已設定",
+    );
+    expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
+      severity: "ok",
+      detail:
+        "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。",
+      recommendation: expect.stringContaining("/hooks"),
+    });
   });
 
   it("distinguishes absent and unreadable Agent configs in Doctor findings without rewriting them", async () => {
