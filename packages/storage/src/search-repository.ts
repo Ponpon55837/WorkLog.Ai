@@ -16,6 +16,7 @@ import {
 } from "./search-text.js";
 import { nextCalendarDate } from "./session-repository.js";
 import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
+import { resetLastInsertRowid, runFtsWrite } from "./sqlite-fts.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 type DocType = "session" | "knowledge";
@@ -260,6 +261,7 @@ export class SearchRepository {
         clearDirty.run(row.doc_type, row.doc_id);
       }
     });
+    resetLastInsertRowid(this.db);
   }
 
   public recall(options: RecallOptions): RecallComputation {
@@ -885,8 +887,9 @@ export class SearchRepository {
       .all(type, id) as Array<{ id: number }>;
     const deleteFts = this.db.prepare("DELETE FROM search_fts WHERE rowid = ?");
     for (const chunk of chunkIds) {
-      deleteFts.run(chunk.id);
+      runFtsWrite(deleteFts, chunk.id);
     }
+    resetLastInsertRowid(this.db);
     this.db.prepare("DELETE FROM search_chunks WHERE doc_type = ? AND doc_id = ?").run(type, id);
     this.db.prepare("DELETE FROM search_paths WHERE doc_type = ? AND doc_id = ?").run(type, id);
   }
@@ -913,8 +916,9 @@ export class SearchRepository {
         document.date,
         chunk.field === "raw" ? hashRawContent(chunk.content) : null,
       );
-      insertFts.run(result.lastInsertRowid, tokens.join(" "));
+      runFtsWrite(insertFts, result.lastInsertRowid, tokens.join(" "));
     }
+    resetLastInsertRowid(this.db);
     const insertPath = this.db.prepare(
       `INSERT INTO search_paths (doc_type, doc_id, project_id, path, basename, weight, doc_date)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
