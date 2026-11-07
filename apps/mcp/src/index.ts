@@ -2,7 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
-import { getMcpRestartStatus, registerMcpProcess } from "@work-intelligence/shared/mcp-runtime";
+import { getMcpRestartStatus, type McpRestartStatus, registerMcpProcess } from "@work-intelligence/shared/mcp-runtime";
 import {
   backupOptionsFromEnvironment,
   DatabaseInitializationError,
@@ -11,6 +11,7 @@ import {
 } from "@work-intelligence/storage";
 import { databasePathFor, STANDALONE } from "./database-location.js";
 import { createWorkIntelligenceMcpServer } from "./server.js";
+import { createLauncherUpdateCheck, readLauncherIdentity, supervisedRestartStatus } from "./supervision.js";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(appRoot, "../..");
@@ -27,6 +28,14 @@ const runningBuild = /^[a-f0-9]{64}$/.test(MCP_BUILD_DIST_HASH)
   : undefined;
 const repoDataPath = resolve(appRoot, "../../data", "work-intelligence.sqlite");
 const databasePath = databasePathFor(repoDataPath);
+
+/** Under the launcher a new build switches automatically; started directly, it requires reconnecting. */
+function restartStatusReader(): () => McpRestartStatus {
+  const launcher = readLauncherIdentity();
+  if (!launcher) return () => getMcpRestartStatus(repositoryRoot, runningBuild);
+  const launcherUpdated = createLauncherUpdateCheck(launcher);
+  return () => supervisedRestartStatus(getMcpRestartStatus(repositoryRoot, runningBuild), launcher, launcherUpdated());
+}
 
 async function startMcpServer(): Promise<void> {
   let store: WorkIntelligenceStore | null = null;
@@ -58,7 +67,7 @@ async function startMcpServer(): Promise<void> {
       APP_VERSION,
       LATEST_SCHEMA_VERSION,
       startupFailure,
-      STANDALONE ? undefined : () => getMcpRestartStatus(repositoryRoot, runningBuild),
+      STANDALONE ? undefined : restartStatusReader(),
     );
     await server.connect(new StdioServerTransport());
     if (!startupFailure) {

@@ -4,6 +4,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- MCP launcher (`apps/mcp/dist/launcher.js`): Agents now connect through a small, stable stdio launcher that runs the server as a child process and relays JSON-RPC line by line. After `pnpm build` writes a new server build, it queues new requests, waits for those in flight, starts the new build, replays the client's `initialize` and `notifications/initialized` (the second initialize response is not forwarded), stops the old child (TerminateProcess on Windows), and sends `notifications/tools/list_changed` / `notifications/resources/list_changed` when the lists differ. Codex, Claude Code and Claude Desktop keep the same connection. A new build that fails to start or times out leaves the old one serving and the next request gets an explicit JSON-RPC error; a crashed child is restarted with the replayed handshake. Under the launcher, `server.launcher` reports the launcher version and `restartRequired` is `true` only when the launcher file itself changed.
+- `pnpm setup:agents`, the plugin and `pnpm start:mcp` register or run the launcher. Setup upgrades earlier registrations of `apps/mcp/dist/index.js` (owned or hand-written, keeping other fields); `pnpm check` and System Status report a registration that still runs the server directly as `direct` ("Direct; reconnect after builds").
+
 ### Fixed
 
 - Search index writes no longer fail with `ERR_OUT_OF_RANGE` (`Value is too large to be represented as a JavaScript number`) once the FTS5 index stores delete tombstones, whose shadow rowids exceed 2^53. The error rolled back every index sync, so reports, recall and Knowledge candidate lists returned HTTP 500 until the server restarted on a fixed build. FTS writes no longer read the connection's last insert rowid, and the rowid is reset after them. Stored data and the index were never damaged; no migration is needed.

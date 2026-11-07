@@ -1384,6 +1384,7 @@
     "codexHomeSkillsWorkIntelligence": "CODEX_HOME/skills/work-intelligence（舊版 Codex）",
     "compatibilitySkill": "相容 skill",
     "currentVersion": "目前版本",
+    "directRegistration": "直接執行，建置後需重連",
     "disabled": "已停用",
     "executionCompleted": "completed",
     "explicitlyNotRun": "明確未執行",

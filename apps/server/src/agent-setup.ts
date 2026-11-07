@@ -123,6 +123,10 @@ export const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_sessi
 /** Pre-dispatcher matcher; setup upgrades it and Doctor reports it as stale. */
 export const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+/** The stable launcher Agents register; it swaps the server child after each build without a reconnect. */
+const MCP_LAUNCHER_RELATIVE_PATH = "apps/mcp/dist/launcher.js";
+/** The server entry point registrations used before the launcher; setup upgrades it and Doctor reports it. */
+const MCP_SERVER_RELATIVE_PATH = "apps/mcp/dist/index.js";
 const SKILL_SOURCE_RELATIVE_PATH = ".agents/skills/work-intelligence/SKILL.md";
 const MANIFEST_FILENAME = ".work-intelligence-agent-setup.json";
 const TOML_BLOCK_START = "# >>> Work Intelligence setup:agents >>>";
@@ -511,20 +515,35 @@ function invokesNodeScript(value: unknown, scriptPath: string): boolean {
 }
 
 /**
- * Whether an MCP server entry launches this repository's MCP server, either through its built entry point
- * (`node <repo>/apps/mcp/dist/index.js`, any node path) or `pnpm --dir <repo> start:mcp` / `cwd: <repo>`.
+ * How an MCP server entry starts this repository's MCP server: through the launcher (`node <repo>/apps/mcp/dist/
+ * launcher.js`, any node path, or `pnpm --dir <repo> start:mcp` / `cwd: <repo>`, which runs the launcher), directly
+ * through the server entry point (`node <repo>/apps/mcp/dist/index.js`, needs a reconnect after every build), or not
+ * at all.
  */
-function launchesRepositoryMcp(value: unknown, repositoryRoot: string): boolean {
-  if (!JSON_OBJECT(value) || typeof value.command !== "string") return false;
+export function mcpRegistrationKind(value: unknown, repositoryRoot: string): "launcher" | "direct" | "other" {
+  if (!JSON_OBJECT(value) || typeof value.command !== "string") return "other";
   const args = Array.isArray(value.args) ? value.args.filter((part): part is string => typeof part === "string") : [];
-  const serverPath = normalizeConfigPath(resolve(repositoryRoot, "apps/mcp/dist/index.js"));
-
-  if (isNodeExecutable(value.command) && args[0] && normalizeConfigPath(args[0]) === serverPath) return true;
-  if (!isPnpmExecutable(value.command) || !args.includes("start:mcp")) return false;
+  if (isNodeExecutable(value.command) && args[0]) {
+    const script = normalizeConfigPath(args[0]);
+    if (script === normalizeConfigPath(resolve(repositoryRoot, MCP_LAUNCHER_RELATIVE_PATH))) return "launcher";
+    if (script === normalizeConfigPath(resolve(repositoryRoot, MCP_SERVER_RELATIVE_PATH))) return "direct";
+    return "other";
+  }
+  if (!isPnpmExecutable(value.command) || !args.includes("start:mcp")) return "other";
 
   const dirFlag = args.findIndex((part) => part === "--dir" || part === "-C");
   const directory = dirFlag >= 0 ? args[dirFlag + 1] : typeof value.cwd === "string" ? value.cwd : undefined;
-  return directory !== undefined && normalizeConfigPath(directory) === normalizeConfigPath(resolve(repositoryRoot));
+  return directory !== undefined && normalizeConfigPath(directory) === normalizeConfigPath(resolve(repositoryRoot))
+    ? "launcher"
+    : "other";
+}
+
+/** Points a direct `node <repo>/apps/mcp/dist/index.js` registration at the launcher, keeping everything else. */
+function upgradeDirectMcpRegistration(value: unknown, repositoryRoot: string): unknown {
+  if (mcpRegistrationKind(value, repositoryRoot) !== "direct" || !JSON_OBJECT(value) || !Array.isArray(value.args)) {
+    return undefined;
+  }
+  return { ...value, args: [resolve(repositoryRoot, MCP_LAUNCHER_RELATIVE_PATH), ...value.args.slice(1)] };
 }
 
 /** Reads `[mcp_servers.work-intelligence]` from config.toml when it parses; undefined otherwise. */
@@ -620,6 +639,12 @@ function addJsonSpec(
     if (spec.equivalent?.(current)) {
       actions.push(`保留既有 ${spec.label}：已指向這個 Work Intelligence，不修改。`);
       return false;
+    }
+    const upgraded = spec.upgrade?.(current);
+    if (upgraded !== undefined) {
+      setPathValue(root, spec.path, upgraded);
+      actions.push(`更新既有 ${spec.label}：改用 MCP launcher，建置更新後不必重新連線；其餘自訂設定保留。`);
+      return true;
     }
     conflicts.push(`${spec.label} 已有不同設定，保留且拒絕覆寫。`);
     return changed;
@@ -751,7 +776,7 @@ function codexHooksFeatureFromToml(text: string | undefined): CodexHooksFeature 
 }
 
 function codexTomlBlock(repositoryRoot: string, newline: string): string {
-  const serverPath = resolve(repositoryRoot, "apps/mcp/dist/index.js");
+  const serverPath = resolve(repositoryRoot, MCP_LAUNCHER_RELATIVE_PATH);
   return [
     TOML_BLOCK_START,
     "[mcp_servers.work-intelligence]",
@@ -760,6 +785,26 @@ function codexTomlBlock(repositoryRoot: string, newline: string): string {
     TOML_BLOCK_END,
     "",
   ].join(newline);
+}
+
+/**
+ * Rewrites the one quoted server path in a hand-written `node <repo>/apps/mcp/dist/index.js` Codex registration to the
+ * launcher, in the same TOML string style. Undefined when the path is not found exactly once.
+ */
+function upgradeDirectCodexRegistration(text: string, repositoryRoot: string): string | undefined {
+  const serverPath = resolve(repositoryRoot, MCP_SERVER_RELATIVE_PATH);
+  const launcherPath = resolve(repositoryRoot, MCP_LAUNCHER_RELATIVE_PATH);
+  const forms = [
+    [JSON.stringify(serverPath), JSON.stringify(launcherPath)],
+    [`'${serverPath}'`, `'${launcherPath}'`],
+  ] as const;
+  const matches = forms.filter(([quoted]) => text.includes(quoted));
+  const match = matches[0];
+  if (matches.length !== 1 || !match || text.split(match[0]).length !== 2) return undefined;
+  const upgraded = text.replace(match[0], match[1]);
+  return mcpRegistrationKind(codexWorkIntelligenceServer(upgraded), repositoryRoot) === "launcher"
+    ? upgraded
+    : undefined;
 }
 
 /**
@@ -907,14 +952,15 @@ function addConflict(plan: AgentSetupPlan, message: string): void {
 }
 
 function getClaudeMcpSpec(repositoryRoot: string): JsonMutationSpec {
-  const serverPath = resolve(repositoryRoot, "apps/mcp/dist/index.js");
+  const launcherPath = resolve(repositoryRoot, MCP_LAUNCHER_RELATIVE_PATH);
   return {
     id: "claudeMcp",
     kind: "property",
     path: ["mcpServers", "work-intelligence"],
-    expected: { type: "stdio", command: "node", args: [serverPath] },
+    expected: { type: "stdio", command: "node", args: [launcherPath] },
     label: "Claude MCP 註冊",
-    equivalent: (value) => launchesRepositoryMcp(value, repositoryRoot),
+    equivalent: (value) => mcpRegistrationKind(value, repositoryRoot) === "launcher",
+    upgrade: (value) => upgradeDirectMcpRegistration(value, repositoryRoot),
   };
 }
 
@@ -994,7 +1040,8 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const homeDirectory = options.homeDirectory;
   const repositoryRoot = options.repositoryRoot;
   for (const relativePath of [
-    "apps/mcp/dist/index.js",
+    MCP_SERVER_RELATIVE_PATH,
+    MCP_LAUNCHER_RELATIVE_PATH,
     "apps/mcp/dist/finalize-reminder.js",
     "apps/mcp/dist/codex-finalize-reminder.js",
   ]) {
@@ -1072,6 +1119,7 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const tomlEntryIndex = entryIndex(components, "codexMcp");
   const tomlOwned = tomlEntryIndex >= 0 ? components[tomlEntryIndex] : undefined;
   const tomlOwnedExpected = tomlOwned?.kind === "toml-block" ? tomlOwned.expected : undefined;
+  const codexRegistration = mcpRegistrationKind(codexWorkIntelligenceServer(tomlText), repositoryRoot);
   if (codexPlugin) {
     // The plugin registers the MCP server; leave config.toml alone.
   } else if (tomlText.includes(desiredBlock)) {
@@ -1081,8 +1129,26 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     const next = tomlText.replace(tomlOwnedExpected, desiredBlock);
     stageMutation(plan, options, tomlPath, "Codex MCP 註冊", tomlFile.bytes, Buffer.from(next, "utf8"), tomlFile.mode);
     setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
-  } else if (!tomlOwned && launchesRepositoryMcp(codexWorkIntelligenceServer(tomlText), repositoryRoot)) {
+  } else if (!tomlOwned && codexRegistration === "launcher") {
     plan.actions.push("保留既有 Codex MCP 註冊：已指向這個 Work Intelligence，不修改。");
+  } else if (!tomlOwned && codexRegistration === "direct") {
+    const upgraded = upgradeDirectCodexRegistration(tomlText, repositoryRoot);
+    if (upgraded) {
+      stageMutation(
+        plan,
+        options,
+        tomlPath,
+        "Codex MCP 註冊",
+        tomlFile.bytes,
+        Buffer.from(upgraded, "utf8"),
+        tomlFile.mode,
+      );
+      plan.actions.push("更新既有 Codex MCP 註冊：改用 MCP launcher，建置更新後不必重新連線；其餘自訂設定保留。");
+    } else {
+      plan.actions.push(
+        "保留既有 Codex MCP 註冊：直接執行 server，無法安全改寫；建置更新後需重新連線，可手動把 args 改成 apps/mcp/dist/launcher.js。",
+      );
+    }
   } else if (tomlOwned && !tomlText.includes(tomlOwnedExpected ?? "")) {
     const moved = moveCodexToolTablesOutOfBlock(tomlText, tomlOwnedExpected ?? "", desiredBlock, tomlNewline);
     if (moved) {
