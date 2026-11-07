@@ -267,6 +267,11 @@ async function mcpSession(bin, environment, root, projectFolder) {
   }
 }
 
+/** Whether `text` mentions `path`; Windows project paths are stored lowercased, so compare case-insensitively there. */
+function containsPath(text, path) {
+  return process.platform === "win32" ? text.toLowerCase().includes(path.toLowerCase()) : text.includes(path);
+}
+
 async function main() {
   // The real path: on macOS tmpdir() goes through a /var -> /private/var link and a process reports its cwd resolved.
   const root = realpathSync(
@@ -316,7 +321,7 @@ async function main() {
     );
     check(
       "track <folder> --yes",
-      track.status === 0 && track.output.includes("已開始記錄") && track.output.includes(projectFolder),
+      track.status === 0 && track.output.includes("已開始記錄") && containsPath(track.output, projectFolder),
       excerpt(track.output),
     );
     const again = run(bin, ["track", projectFolder, "--yes"], environment, workingDirectory);
