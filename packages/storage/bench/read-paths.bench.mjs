@@ -26,6 +26,8 @@ const sessionCountArgument = args.find((argument) => !argument.startsWith("--"))
 const sessionCount = Number(sessionCountArgument ?? 5000);
 const checkMode = args.includes("--check");
 const backupWorkerOnly = args.includes("--backup-worker-only");
+// --case=<substring> runs only the cases whose name contains it (for focused before/after comparisons).
+const caseFilter = args.find((argument) => argument.startsWith("--case="))?.slice("--case=".length);
 const backupWorkerModeArgument = args.find((argument) => argument.startsWith("--backup-worker-mode="));
 const backupWorkerMode = backupWorkerModeArgument?.slice("--backup-worker-mode=".length) ?? "worker";
 if (!Number.isSafeInteger(sessionCount) || sessionCount < 1) {
@@ -268,6 +270,27 @@ function seed() {
   console.log(`seeded ${sessionCount} sessions in ${(performance.now() - started).toFixed(0)} ms`);
 }
 
+// Old Sessions that each carry the same boilerplate handoff sections, so most raw hits are duplicates of one primary chunk.
+function seedDuplicateRawHandoffs(targetStore) {
+  const boilerplate = Array.from(
+    { length: 4 },
+    (_, section) => `## Boilerplate ${section}\nduplicatehandoff shared synthetic section ${section} text.`,
+  ).join("\n\n");
+  for (let index = 0; index < 150; index += 1) {
+    targetStore.finalizeSession({
+      projectRoot: alphaRoot,
+      idempotencyKey: `bench-duplicate-handoff-${index}`,
+      title: `Synthetic duplicate handoff ${index}`,
+      summary: "Synthetic Session whose handoff repeats shared boilerplate.",
+      completedAt: new Date(Date.parse("2025-08-01T00:00:00.000Z") + index * 60_000).toISOString(),
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [],
+      verification: { status: "passed" },
+      handoffContent: `${boilerplate}\n\n## Unique ${index}\nduplicatehandoff unique note ${index}.`,
+    });
+  }
+}
+
 // Knowledge older than every synthetic Session, so the staleness check scans the whole project history.
 function seedStaleKnowledge(targetStore, project) {
   for (let index = 0; index < 20; index += 1) {
@@ -497,6 +520,7 @@ try {
   const [newestAlpha] = benchStore.listSessionsPage({ projectId: alpha.id, page: 1, pageSize: 1 }).items;
   const cleanupRequestId = seedOutstandingCleanupReview(benchStore, alpha);
   seedStaleKnowledge(benchStore, alpha);
+  seedDuplicateRawHandoffs(benchStore);
   seedKnowledgePages(benchStore, alpha);
   // A file of the newest original alpha Session, so the path search walks project → Session → file.
   const pathTarget = `file:${alpha.id}:${newestAlpha.changedFiles.at(-1)}`;
@@ -791,6 +815,9 @@ try {
     // Twenty stale-checked Knowledge hits; trust must be read in one batch, not once per hit.
     "recall (20 Knowledge hits with staleness)": () =>
       benchStore.recall({ q: "synthetic knowledge staleness", projectRoot: alphaRoot, limit: 30 }),
+    // 750 raw hits that collapse into 5 distinct raw contents; primary-raw lookups must scale with distinct contents.
+    "recall (duplicate raw handoffs)": () =>
+      benchStore.recall({ q: "duplicatehandoff", projectRoot: alphaRoot, limit: 8 }),
     "recall evaluator (snapshot + MCP recall/context)": () =>
       evaluateRecallQuestions(databasePath, evaluationQuestions),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
@@ -967,6 +994,7 @@ try {
     "recall (month range)": 500,
     "recall (synonym expansion)": 500,
     "recall (20 Knowledge hits with staleness)": 250,
+    "recall (duplicate raw handoffs)": 250,
     "recall evaluator (snapshot + MCP recall/context)": 1000,
     "getGraph (with derived)": 750,
     "getGraphPath (500 nodes)": 750,
@@ -987,7 +1015,8 @@ try {
   const results = [];
   const benchmarkCases = backupWorkerOnly ? heavyCases : { ...cases, ...heavyCases };
   const selectedCases = Object.entries(benchmarkCases).filter(
-    ([name]) => backupWorkerOnly || !checkMode || name in limitsMs,
+    ([name]) =>
+      (backupWorkerOnly || !checkMode || name in limitsMs) && (caseFilter === undefined || name.includes(caseFilter)),
   );
   for (const [name, run] of selectedCases) {
     const isHeavyCase = name in heavyCases;
