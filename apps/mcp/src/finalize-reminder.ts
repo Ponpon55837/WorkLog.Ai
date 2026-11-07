@@ -267,7 +267,7 @@ export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | 
 }
 
 export function databasePath(): string {
-  return databasePathFor(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data", "work-intelligence.sqlite"));
+  return databasePathFor(resolve(dirname(fileURLToPath(import.meta.url)), "../../.."));
 }
 
 export function readTrackedRoots(): string[] {

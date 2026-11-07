@@ -8,7 +8,7 @@ import {
   linkedRepositoryRoot,
   STANDALONE,
   standaloneDatabasePath,
-} from "../../apps/mcp/src/database-location.js";
+} from "../../packages/shared/src/database-location.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -42,26 +42,26 @@ describe("database location", () => {
   it("keeps the repository build on WORK_INTELLIGENCE_DB or the checkout's data/, ignoring any plugin link", () => {
     const home = temporaryDirectory();
     link(home, fakeCheckout(join(home, "elsewhere")));
-    expect(databasePathFor("/repo/data/work-intelligence.sqlite", { environment: {}, home })).toBe(
-      "/repo/data/work-intelligence.sqlite",
+    expect(databasePathFor("/repo", { environment: {}, home })).toBe(
+      resolve("/repo", "data", "work-intelligence.sqlite"),
     );
-    expect(
-      databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "/custom.sqlite" }, home }),
-    ).toBe(resolve("/custom.sqlite"));
+    expect(databasePathFor("/repo", { environment: { WORK_INTELLIGENCE_DB: "/custom.sqlite" }, home })).toBe(
+      resolve("/custom.sqlite"),
+    );
   });
 
   it("resolves a relative database setting from the repository root, not the working directory", () => {
-    expect(databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "data/other.sqlite" } })).toBe(
+    expect(databasePathFor("/repo", { environment: { WORK_INTELLIGENCE_DB: "data/other.sqlite" } })).toBe(
       resolve("/repo", "data/other.sqlite"),
     );
-    expect(databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "  " } })).toBe(
-      "/repo/data/x.sqlite",
+    expect(databasePathFor("/repo", { environment: { WORK_INTELLIGENCE_DB: "  " } })).toBe(
+      resolve("/repo", "data", "work-intelligence.sqlite"),
     );
   });
 
   it.skipIf(process.platform !== "win32")("rejects a drive-relative database setting", () => {
     expect(() =>
-      databasePathFor("/repo/data/x.sqlite", { environment: { WORK_INTELLIGENCE_DB: "C:Users\\fixture\\x.sqlite" } }),
+      databasePathFor("/repo", { environment: { WORK_INTELLIGENCE_DB: "C:Users\\fixture\\x.sqlite" } }),
     ).toThrow("磁碟相對路徑");
     expect(() =>
       standaloneDatabasePath({ environment: { WORK_INTELLIGENCE_DB: "C:fixture.sqlite" }, home: "/fixture-home" }),
@@ -70,13 +70,56 @@ describe("database location", () => {
 
   it("opens the user's data directory when the bundle has no checkout", () => {
     const home = temporaryDirectory();
-    expect(databasePathFor("/bundle/data/x.sqlite", { standalone: true, environment: {}, home })).toBe(
+    expect(databasePathFor("/bundle", { standalone: true, environment: {}, home })).toBe(
       join(home, ".work-intelligence", "data", "work-intelligence.sqlite"),
     );
     expect(configDirectory({ environment: { WORK_INTELLIGENCE_CONFIG_DIR: " /config " }, home })).toBe("/config");
     expect(standaloneDatabasePath({ environment: { WORK_INTELLIGENCE_CONFIG_DIR: "/config" }, home })).toBe(
       join("/config", "data", "work-intelligence.sqlite"),
     );
+  });
+
+  it("resolves a relative database setting from the config directory in standalone mode, not the repository or cwd", () => {
+    const home = temporaryDirectory();
+    const base = join(home, ".work-intelligence");
+    expect(
+      databasePathFor("/bundle", {
+        standalone: true,
+        environment: { WORK_INTELLIGENCE_DB: "data/other.sqlite" },
+        home,
+      }),
+    ).toBe(resolve(base, "data/other.sqlite"));
+    expect(
+      databasePathFor("/bundle", {
+        standalone: true,
+        environment: { WORK_INTELLIGENCE_DB: "../x.sqlite", WORK_INTELLIGENCE_CONFIG_DIR: join(home, "cfg") },
+        home,
+      }),
+    ).toBe(resolve(home, "x.sqlite"));
+    expect(
+      databasePathFor("/bundle", { standalone: true, environment: { WORK_INTELLIGENCE_DB: " :memory: " }, home }),
+    ).toBe(":memory:");
+  });
+
+  it("keeps absolute database settings unchanged in both modes", () => {
+    const absolute = join(temporaryDirectory(), "abs.sqlite");
+    for (const standalone of [false, true]) {
+      expect(
+        databasePathFor("/repo", { standalone, environment: { WORK_INTELLIGENCE_DB: ` ${absolute} ` }, home: "/h" }),
+      ).toBe(absolute);
+    }
+  });
+
+  it("applies Windows path rules when asked", () => {
+    const options = { platform: "win32" as const, home: "C:\\Users\\fixture" };
+    const database = (standalone: boolean, value?: string): string =>
+      databasePathFor("C:\\repo", { ...options, standalone, environment: { WORK_INTELLIGENCE_DB: value } });
+    expect(database(false)).toBe("C:\\repo\\data\\work-intelligence.sqlite");
+    expect(database(false, "db\\a.sqlite")).toBe("C:\\repo\\db\\a.sqlite");
+    expect(database(true)).toBe("C:\\Users\\fixture\\.work-intelligence\\data\\work-intelligence.sqlite");
+    expect(database(true, "db\\a.sqlite")).toBe("C:\\Users\\fixture\\.work-intelligence\\db\\a.sqlite");
+    expect(database(true, "D:\\other\\a.sqlite")).toBe("D:\\other\\a.sqlite");
+    expect(() => database(true, "C:a.sqlite")).toThrow("磁碟相對路徑");
   });
 
   it("shares the linked checkout's database with the Web UI", () => {
@@ -91,7 +134,7 @@ describe("database location", () => {
         environment: { WORK_INTELLIGENCE_DB: " /explicit.sqlite ", WORK_INTELLIGENCE_HOME: other },
         home,
       }),
-    ).toBe("/explicit.sqlite");
+    ).toBe(resolve(join(home, ".work-intelligence"), "/explicit.sqlite"));
   });
 
   it("ignores an empty database setting and links that no longer point at a checkout", () => {

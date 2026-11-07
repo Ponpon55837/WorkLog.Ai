@@ -26,8 +26,7 @@ const runningBuild = /^[a-f0-9]{64}$/.test(MCP_BUILD_DIST_HASH)
       schemaVersion: LATEST_SCHEMA_VERSION,
     }
   : undefined;
-const repoDataPath = resolve(appRoot, "../../data", "work-intelligence.sqlite");
-const databasePath = databasePathFor(repoDataPath);
+const databasePath = databasePathFor(resolve(appRoot, "../.."));
 
 /** Under the launcher a new build switches automatically; started directly, it requires reconnecting. */
 function restartStatusReader(): () => McpRestartStatus {

@@ -19,6 +19,10 @@ export const mcpAliases = [
     replacement: fileURLToPath(new URL("../../packages/shared/src/database-path.ts", import.meta.url)),
   },
   {
+    find: "@work-intelligence/shared/database-location",
+    replacement: fileURLToPath(new URL("../../packages/shared/src/database-location.ts", import.meta.url)),
+  },
+  {
     find: "@work-intelligence/shared/app-version",
     replacement: fileURLToPath(new URL("../../packages/shared/src/app-version.ts", import.meta.url)),
   },

@@ -14,6 +14,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The tag release workflow runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once, matching CI. Every check and threshold is unchanged, and publishing still waits for all of them.
 - The release workflow skips the duplicate Quality and E2E jobs when the tagged commit already has a successful CI run on `main` covering all seven jobs, while still re-running the production dependency audit; any missing or uncertain result falls back to the full checks.
 - The Node.js requirement is now 22.16 or later on the 22 line, or 24 and later (`engines.node` `>=22.16.0 <23 || >=24.0.0`; the `.mcpb` manifest uses the same range). Node.js 22.13–22.15 and every 23.x release ship SQLite without FTS5, so the search-index migration failed with `no such module: fts5`. `pnpm bootstrap` refuses those versions, and `pnpm check` now opens an FTS5 table to confirm the module is present.
+- The API server, CLI, `pnpm check`, login service and MCP now share one database path rule (`@work-intelligence/shared/database-location`). A checkout resolves a relative `WORK_INTELLIGENCE_DB` from the repository root exactly as before; a self-contained bundle resolves it from `~/.work-intelligence` (or `WORK_INTELLIGENCE_CONFIG_DIR`), where the bundled MCP previously kept relative values unresolved. The standalone CLI no longer takes relative folders from an inherited `INIT_CWD`.
 
 ### Fixed
 

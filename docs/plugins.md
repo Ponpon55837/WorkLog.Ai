@@ -104,7 +104,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 
 啟動器仍然先找 checkout（`WORK_INTELLIGENCE_HOME` → 所在 repository → `plugin-link.json`），只有找不到已 build 的 checkout 時才用內附的 server。內附 server 的資料庫：
 
-1. `WORK_INTELLIGENCE_DB`（`.mcpb` 安裝時可填「Database file」）
+1. `WORK_INTELLIGENCE_DB`（`.mcpb` 安裝時可填「Database file」）；相對路徑以 `~/.work-intelligence`（或 `WORK_INTELLIGENCE_CONFIG_DIR`）為基準，絕對路徑照用
 2. `WORK_INTELLIGENCE_HOME` 或 `pnpm plugin:link` 指向的 checkout 的 `data/work-intelligence.sqlite`：與 Web UI 共用同一個資料庫
 3. 都沒有時：`~/.work-intelligence/data/work-intelligence.sqlite`（可用 `WORK_INTELLIGENCE_CONFIG_DIR` 改目錄）
 

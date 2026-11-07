@@ -363,7 +363,7 @@ CI runs build, test, typecheck and coverage on Ubuntu, Windows and macOS; Ubuntu
 
 Other settings:
 
-- `WORK_INTELLIGENCE_DB`: SQLite location.
+- `WORK_INTELLIGENCE_DB`: SQLite location. The server, CLI, `pnpm check`, login service and MCP resolve it with the same rule: a relative value resolves from the repository root (never the shell's current directory); a self-contained bundle resolves it from `~/.work-intelligence` (`WORK_INTELLIGENCE_CONFIG_DIR` changes that folder).
 - `WORK_INTELLIGENCE_PORT`: production port, `3210` by default.
 - `WORK_INTELLIGENCE_ALLOWED_ORIGINS`: not needed in production mode, which is same-origin. In development or with a custom origin, set it in `.env` (comma-separated, `*` not allowed); its hosts are also added to the API's `Host` allowlist.
 - Reports and date filters split days by the server's system time zone (Node honours the `TZ` environment variable).
