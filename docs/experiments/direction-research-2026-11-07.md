@@ -34,7 +34,7 @@
 
 `returned_count` 為 0 的工具（status、outstanding、page context）本來就不以筆數表示結果，不代表空結果；只有 `work_search_knowledge` 的 27.3% 是真正的零命中。
 
-### 近期使用（2026-10-23 之後，280 筆）
+### 近期使用（2026-10-23 之後，227 筆）
 
 `work_get_session` 86、`work_get_context` 63、`work_get_project_status` 24、`work_search_knowledge` 15、`work_recall` 14、`work_get_knowledge_page_context` 14，排名與全期一致。
 
