@@ -8,6 +8,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 - The performance gate measures a failing case once more before failing, keeping every limit unchanged; the table marks re-measured cases with their first-pass p90. Shared CI runners had failed unrelated pull requests on single worker-operation passes (for example `exportProjectData` 410.94 and 477.33 ms, `createBackup` 336.61 ms).
 - CI runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once (Ubuntu with coverage, Windows and macOS without). The required `E2E (Chromium + Firefox + WebKit)` check now aggregates the per-browser jobs; `E2E_PROJECTS` selects browsers for `pnpm test:e2e`.
+- The `listSessionsPage (query)` benchmark and a new no-match worst case now have 300 ms limits in the performance check. `docs/testing.md` documents evaluation discipline for retrieval and knowledge experiments.
 - The API runs database backups, whole-database exports, and project-data export/import previews on a dedicated worker thread. Startup automatic backup is delayed by 60 seconds; shutdown drains the worker before closing SQLite.
 - The backup worker opens the current schema read-only, refuses a version mismatch without changing the database, keeps nested SQLite busy errors classifiable, and exits after 15 seconds idle. Project-data exports transfer UTF-8 bytes from the worker, and import preview JSON is parsed there from transferred request bytes.
 - Snapshot publication cleans only abandoned private staging directories, checks the finished snapshot before publishing, refuses to replace an existing target, and leaves no publication-lock artifacts. It prefers an atomic hard link and falls back to an exclusive openSync(..., "wx") target reservation followed by rename; failed renames remove the reservation.
@@ -20,6 +21,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Fixed
 
+- Metadata backfill previews no longer throw when a session's `changed_files_json` (or related metadata column) is stored as JSON `null`; non-array values are treated as empty, matching the SQL follow-up counts.
 - System status checks the login service asynchronously, shares concurrent probes and caches successful results for 30 seconds, keeping the API responsive while the service manager is slow.
 - Snapshot publication closes its exclusive fallback reservation once, including when the subsequent rename fails.
 

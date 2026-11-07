@@ -747,6 +747,45 @@ describe("WorkIntelligenceStore", () => {
     expect(store.countMetadataBackfillFollowUps({ projectRoot: join(root, "unregistered") })).toBeUndefined();
   });
 
+  it("previews JSON null metadata columns as empty gaps consistent with the SQL follow-up counts", () => {
+    const { store, root } = createStore();
+    const project = store.addProject("Null metadata project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const result = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "json-null-metadata",
+      title: "json-null-metadata",
+      summary: "Legacy null metadata.",
+      changedFiles: ["src/a.ts"],
+      verification: { status: "passed" },
+    });
+    if (result.outcome !== "finalized") {
+      throw new Error("Expected the session to be finalized");
+    }
+    const database = (store as unknown as { db: DatabaseSync }).db;
+    database
+      .prepare(
+        "UPDATE sessions SET changed_files_json = 'null', changed_files_provenance_json = 'null', changed_file_changes_json = 'null', verification_json = 'null' WHERE id = ?",
+      )
+      .run(result.session.id);
+
+    const preview = store.previewMetadataBackfill({ limit: 10 });
+    if (preview.outcome !== "backfill_preview") {
+      throw new Error("Expected a metadata backfill preview");
+    }
+    expect(preview.items).toHaveLength(1);
+    expect(preview.items[0]).toMatchObject({
+      changedFiles: [],
+      changedFilesCount: 0,
+      changedFilesProvenanceCount: 0,
+      changedFileChangesCount: 0,
+      verificationStatus: "not_supplied",
+      gaps: ["changed_files", "verification"],
+    });
+    expect(store.countMetadataBackfillFollowUps()).toEqual(preview.totals);
+    expect(store.countMetadataBackfillFollowUps({ projectRoot: root })).toEqual(preview.totals);
+  });
+
   it("builds tracked-only reports with a deterministic UTC range and provenance", () => {
     const { store, root } = createStore();
     const trackedProject = store.addProject("Tracked project", root);

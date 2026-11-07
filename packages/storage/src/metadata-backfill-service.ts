@@ -143,7 +143,15 @@ function toMetadataBackfillItem(
   row: MetadataBackfillRow,
   mapSession: (row: SessionRow) => WorkSessionRecord,
 ): MetadataBackfillItem {
-  const session = mapSession(row);
+  const mapped = mapSession(row);
+  // Legacy or hand-edited rows may hold JSON `null`, which parseJson returns as-is; treat non-arrays as empty.
+  const session = {
+    ...mapped,
+    changedFiles: Array.isArray(mapped.changedFiles) ? mapped.changedFiles : [],
+    changedFilesProvenance: Array.isArray(mapped.changedFilesProvenance) ? mapped.changedFilesProvenance : [],
+    changedFileChanges: Array.isArray(mapped.changedFileChanges) ? mapped.changedFileChanges : [],
+    verification: mapped.verification ?? undefined,
+  };
   const gaps = [
     ...(!isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed)
       ? ["changed_files" as const]
