@@ -94,6 +94,7 @@ export function userServiceStatusVisual(status: SystemStatus["userService"]): St
 
 export function agentMcpRegistrationVisual(state: AgentMcpRegistrationState): StatusVisual {
   if (state === "registered") return visual("success", CircleCheck, "status.registered");
+  if (state === "direct") return visual("attention", Clock3, "status.directRegistration");
   if (state === "unknown") return visual("attention", CircleAlert, "status.cannotConfirm");
   return visual("attention", CircleDashed, "status.unregistered");
 }

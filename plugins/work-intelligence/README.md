@@ -11,7 +11,7 @@ Work Intelligence keeps a local, searchable record of the work your coding agent
 
 ## Requirements
 
-- Node.js 22.13 or later (`node:sqlite`).
+- Node.js 22.16 or later on the 22 line, or 24 and later (`node:sqlite` with FTS5; 23.x is not supported).
 - A local checkout of [WorkLog.Ai](https://github.com/Ponpon55837/WorkLog.Ai), built once:
 
 ```bash

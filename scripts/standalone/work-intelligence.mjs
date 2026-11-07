@@ -9,28 +9,49 @@ import console from "node:console";
 import process from "node:process";
 import { fileURLToPath, URL } from "node:url";
 
-/** The ">=x.y.z" minimum in the package's engines.node, or undefined when it cannot be read. */
-function requiredNode() {
+/** The package's engines.node, or undefined when it cannot be read. */
+function requiredNodeRange() {
   try {
     const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
     const range = JSON.parse(readFileSync(packagePath, "utf8")).engines?.node;
-    const match = /^>=\s*(\d+)\.(\d+)\.(\d+)$/.exec(typeof range === "string" ? range.trim() : "");
-    return match ? { text: `${match[1]}.${match[2]}.${match[3]}`, parts: match.slice(1, 4).map(Number) } : undefined;
+    return typeof range === "string" && range.trim() ? range.trim() : undefined;
   } catch {
     return undefined;
   }
 }
 
-function nodeIsSupported(required, actual) {
+function compareVersions(left, right) {
   for (let index = 0; index < 3; index += 1) {
-    if (actual[index] !== required.parts[index]) return actual[index] > required.parts[index];
+    if (left[index] !== right[index]) return left[index] - right[index];
   }
-  return true;
+  return 0;
 }
 
-const required = requiredNode();
-if (required && !nodeIsSupported(required, process.versions.node.split(".").map(Number))) {
-  console.error(`Work Intelligence 需要 Node.js ${required.text} 以上（目前是 ${process.versions.node}）。`);
+/**
+ * True when `version` satisfies a range made of `||`-separated sets of `>=x.y.z` / `<x[.y[.z]]` comparators (the form
+ * packages/shared's SUPPORTED_NODE_RANGE uses). A range in any other form is treated as satisfied rather than blocking.
+ */
+function satisfiesRange(range, version) {
+  const actual = version.split(".").map(Number);
+  const sets = range.split("||").map((set) => set.trim().split(/\s+/));
+  let understood = true;
+  const matches = sets.map((comparators) =>
+    comparators.every((comparator) => {
+      const match = /^(>=|<)(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(comparator);
+      if (!match) {
+        understood = false;
+        return false;
+      }
+      const bound = [match[2], match[3] ?? 0, match[4] ?? 0].map(Number);
+      return match[1] === ">=" ? compareVersions(actual, bound) >= 0 : compareVersions(actual, bound) < 0;
+    }),
+  );
+  return !understood || matches.some(Boolean);
+}
+
+const requiredRange = requiredNodeRange();
+if (requiredRange && !satisfiesRange(requiredRange, process.versions.node)) {
+  console.error(`Work Intelligence 需要 Node.js ${requiredRange}（目前是 ${process.versions.node}）。`);
   process.exit(1);
 }
 

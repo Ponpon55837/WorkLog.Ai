@@ -12,7 +12,15 @@ import { runPnpm } from "./run-pnpm.mjs";
  * flow is testable without running pnpm.
  */
 
-export const MINIMUM_NODE = "22.13.0";
+export const MINIMUM_NODE = "22.16.0";
+
+/** Mirrors isSupportedNodeVersion in packages/shared (this script runs before pnpm install): 23.x has no FTS5. */
+export function isSupportedNode(version) {
+  const parts = versionParts(version);
+  if (!parts) return false;
+  const [major, minor] = parts;
+  return major >= 24 || (major === 22 && minor >= 16);
+}
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -135,8 +143,10 @@ export async function runBootstrap(argv, dependencies = defaultBootstrapDependen
     return 0;
   }
 
-  if (!atLeast(dependencies.nodeVersion, MINIMUM_NODE)) {
-    error(`Node.js 版本過低：目前 ${dependencies.nodeVersion}，需要 ${MINIMUM_NODE} 以上。`);
+  if (!isSupportedNode(dependencies.nodeVersion)) {
+    error(
+      `Node.js 版本不支援：目前 ${dependencies.nodeVersion}，需要 ${MINIMUM_NODE} 以上的 22.x，或 24 以上（23.x 內建的 SQLite 沒有 FTS5）。`,
+    );
     error("請升級 Node.js（建議 24），再重新執行 pnpm bootstrap。");
     return 1;
   }

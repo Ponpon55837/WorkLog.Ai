@@ -29,7 +29,7 @@
 
 ## Quick start
 
-Requirements: **Node.js 22.13 or later** (24 recommended; the built-in `node:sqlite` is used) and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
+Requirements: **Node.js 22.16 or later on the 22 line, or 24 and later** (24 recommended; 23.x is not supported). The built-in `node:sqlite` and its FTS5 search module are used, and 22.13–22.15 and 23.x ship SQLite without FTS5 and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
 
 ```bash
 git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
@@ -110,7 +110,7 @@ In Codex, open `/plugins` and install `work-intelligence`, then open `/hooks`, r
 
 **Already registered by hand?** Use either the plugin or the manual registration below, not both, or the Agent sees every tool and reminder twice. Remove the manual one with `claude mcp remove work-intelligence --scope user` / `codex mcp remove work-intelligence` and delete the Work Intelligence entries from the Claude `settings.json` and Codex `hooks.json` hooks; `pnpm check` reports any duplicate.
 
-**No checkout?** Each [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) attaches `work-intelligence-plugin-<version>.zip` (the plugin with a bundled MCP server) and `work-intelligence-<version>.mcpb` (a Claude Desktop extension). They need Node.js 22.13+ and keep data in `~/.work-intelligence/data`, but carry no Web UI.
+**No checkout?** Each [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) attaches `work-intelligence-plugin-<version>.zip` (the plugin with a bundled MCP server) and `work-intelligence-<version>.mcpb` (a Claude Desktop extension). They need Node.js 22.16+ (or 24+; not 23.x) and keep data in `~/.work-intelligence/data`, but carry no Web UI.
 
 Something wrong? Run `pnpm check`, and see the [plugin guide](docs/plugins.md) for its troubleshooting table.
 
@@ -138,7 +138,7 @@ claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTE
 
 Expired MCP leases and leftover temporary files are cleaned up in batches during MCP registration and System Status reads (90-second threshold by default, at most 64 deletion attempts per pass); see [Troubleshooting](docs/troubleshooting.md).
 
-Claude Code also gets two MCP prompts: `/mcp__work-intelligence__finalize-work` and `/mcp__work-intelligence__synthesize-report`. Claude Desktop setup, verification and common questions are in **[docs/agent-setup.md](docs/agent-setup.md)**. After updating Work Intelligence, run `pnpm build` again. You only have to reconnect when the schema or Agent contract changed or compatibility cannot be confirmed; an implementation-only update shows "Update available", the existing connection keeps reading and writing, and you are reminded to reconnect when wrapping up.
+Claude Code also gets two MCP prompts: `/mcp__work-intelligence__finalize-work` and `/mcp__work-intelligence__synthesize-report`. Claude Desktop setup, verification and common questions are in **[docs/agent-setup.md](docs/agent-setup.md)**. After updating Work Intelligence, run `pnpm build` again. Agents connect through a stable MCP launcher (`apps/mcp/dist/launcher.js`, registered by `pnpm setup:agents`, the plugin and `pnpm start:mcp`): when a new build lands it finishes the requests in flight, starts the new server and replays the handshake, so the same connection uses the new version without reconnecting. You only reconnect when the launcher itself changed. A registration that still runs `apps/mcp/dist/index.js` directly keeps the older rule (reconnect when the schema or Agent contract changed); rerun `pnpm setup:agents` to move it to the launcher.
 
 ### Save-reminder hook (optional)
 
@@ -187,7 +187,7 @@ You can rerun recall and context with your own private questions to check that t
 pnpm eval:recall ./recall-questions.json --db ./data/work-intelligence.sqlite --out ./recall-report.json
 ```
 
-Run `pnpm build` first (this CLI needs Node.js 22.13+, like the rest of the repo). Each question sets `mode: "recall"` or `"context"`, a `query`, and one or more expected ids or `expectedNoHit: true`; a project path and recall date range are optional. The report lists hit@1, hit@5 and MRR per mode, each question's rank, confidence, MCP response size and call time. The database is snapshotted to an OS temp file over a read-only SQLite connection, and retrieval and index sync only touch the snapshot; results go to the terminal or to a new file given by `--out`, are never uploaded, and never overwrite an existing file. See [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json) for the format and [Testing](docs/testing.md#檢索品質評估) for limits and metric definitions.
+Run `pnpm build` first (this CLI needs the same Node.js as the rest of the repo: 22.16+ or 24+). Each question sets `mode: "recall"` or `"context"`, a `query`, and one or more expected ids or `expectedNoHit: true`; a project path and recall date range are optional. The report lists hit@1, hit@5 and MRR per mode, each question's rank, confidence, MCP response size and call time. The database is snapshotted to an OS temp file over a read-only SQLite connection, and retrieval and index sync only touch the snapshot; results go to the terminal or to a new file given by `--out`, are never uploaded, and never overwrite an existing file. See [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json) for the format and [Testing](docs/testing.md#檢索品質評估) for limits and metric definitions.
 
 More detail is in the **[User guide](docs/user-guide.md)**.
 

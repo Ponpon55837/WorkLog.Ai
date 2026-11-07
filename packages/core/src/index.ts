@@ -3024,7 +3024,8 @@ export type AgentSkillCopyState = "current" | "missing" | "stale" | "unreadable"
 /** `stale`: the hook is installed but uses an older matcher that misses current MCP operation calls. */
 export type AgentHookInstallState = "installed" | "stale" | "missing" | "disabled" | "unknown";
 
-export type AgentMcpRegistrationState = "registered" | "missing" | "unknown";
+/** `direct` runs the server entry point instead of the launcher, so every build needs a reconnect. */
+export type AgentMcpRegistrationState = "registered" | "direct" | "missing" | "unknown";
 
 export interface SystemAgentConnections {
   codex: {

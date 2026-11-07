@@ -195,6 +195,17 @@ describe("plugin launcher", () => {
     expect(result.status).toBe(3);
   });
 
+  it("runs the checkout's MCP launcher when it is built, so a rebuild does not need a reconnect", () => {
+    const home = temporaryDirectory();
+    const repository = fakeRepository(join(home, "checkout"));
+    writeFileSync(
+      join(repository, "apps/mcp/dist/launcher.js"),
+      'process.stdout.write(JSON.stringify({ name: "launcher", args: process.argv.slice(2) }));',
+    );
+    const result = run(launcher, ["mcp"], { HOME: home, WORK_INTELLIGENCE_HOME: repository });
+    expect(JSON.parse(result.stdout)).toEqual({ name: "launcher", args: [] });
+  });
+
   it("finds the repository it sits in, as when loaded in place from this marketplace", () => {
     const home = temporaryDirectory();
     const repository = fakeRepository(join(home, "checkout"));

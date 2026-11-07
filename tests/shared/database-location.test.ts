@@ -134,7 +134,7 @@ describe("database location", () => {
         environment: { WORK_INTELLIGENCE_DB: " /explicit.sqlite ", WORK_INTELLIGENCE_HOME: other },
         home,
       }),
-    ).toBe(resolve("/explicit.sqlite"));
+    ).toBe(resolve(join(home, ".work-intelligence"), "/explicit.sqlite"));
   });
 
   it("ignores an empty database setting and links that no longer point at a checkout", () => {

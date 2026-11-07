@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
-import { commandName, MINIMUM_NODE_VERSION } from "@work-intelligence/shared";
+import { commandName, isSupportedNodeVersion, MINIMUM_NODE_VERSION } from "@work-intelligence/shared";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { configDirectory, databasePathFor, STANDALONE } from "@work-intelligence/shared/database-location";
 import { isDriveRelativePath } from "@work-intelligence/shared/database-path";
@@ -26,6 +26,7 @@ import {
   CODEX_POST_TOOL_USE_MATCHER,
   inspectAgentSkillCopies,
   LEGACY_CODEX_POST_TOOL_USE_MATCHER,
+  mcpRegistrationKind,
   type AgentSetupFinding,
   type CodexHooksFeature,
 } from "./agent-setup.js";
@@ -57,6 +58,7 @@ const REQUIRED_DIST_FILES = [
   "apps/server/dist/doctor.js",
   "apps/server/dist/server-port.js",
   "apps/mcp/dist/index.js",
+  "apps/mcp/dist/launcher.js",
   "apps/mcp/dist/finalize-reminder.js",
   "apps/mcp/dist/codex-finalize-reminder.js",
   "apps/web/dist/index.html",
@@ -184,7 +186,10 @@ function codexHooksFeatureFromConfig(inspection: CodexTomlConfigInspection): Cod
   return configuredValues.includes(false) ? "disabled" : "enabled";
 }
 
-function inspectCodexMcpState(inspection: CodexTomlConfigInspection): AgentMcpRegistrationState {
+function inspectCodexMcpState(
+  inspection: CodexTomlConfigInspection,
+  repositoryRoot: string,
+): AgentMcpRegistrationState {
   if (inspection.state === "unreadable") return "unknown";
   if (inspection.state === "missing") return "missing";
   const mcpServersValue = inspection.config?.mcp_servers;
@@ -193,7 +198,8 @@ function inspectCodexMcpState(inspection: CodexTomlConfigInspection): AgentMcpRe
   if (!mcpServers) return "unknown";
   const workIntelligenceServer = mcpServers["work-intelligence"];
   if (workIntelligenceServer === undefined) return "missing";
-  return record(workIntelligenceServer) ? "registered" : "unknown";
+  if (!record(workIntelligenceServer)) return "unknown";
+  return mcpRegistrationKind(workIntelligenceServer, repositoryRoot) === "direct" ? "direct" : "registered";
 }
 
 function entries(value: unknown): unknown[] {
@@ -364,11 +370,39 @@ export function inspectGlobalHooks(
   ).inspection;
 }
 
-function inspectClaudeMcpState(homeDirectory: string): AgentMcpRegistrationState {
+function inspectClaudeMcpState(homeDirectory: string, repositoryRoot: string): AgentMcpRegistrationState {
   const file = inspectJsonConfigFile(join(homeDirectory, ".claude.json"));
   if (file.state === "unreadable") return "unknown";
   if (file.state === "missing") return "missing";
-  return record(record(file.config?.mcpServers)?.["work-intelligence"]) ? "registered" : "missing";
+  const server = record(record(file.config?.mcpServers)?.["work-intelligence"]);
+  if (!server) return "missing";
+  return mcpRegistrationKind(server, repositoryRoot) === "direct" ? "direct" : "registered";
+}
+
+/** Doctor finding for one Agent's MCP registration. */
+function addMcpRegistrationFinding(
+  findings: DoctorFinding[],
+  label: string,
+  state: AgentMcpRegistrationState,
+  missingFix: string,
+  unknownDetail: string,
+  unknownFix: string,
+): void {
+  if (state === "registered") {
+    addFinding(findings, "ok", label, "全域設定已註冊 work-intelligence。");
+  } else if (state === "direct") {
+    addFinding(
+      findings,
+      "warning",
+      label,
+      "work-intelligence 直接執行 apps/mcp/dist/index.js；每次 pnpm build 後都要重新連線 MCP。",
+      "執行 pnpm setup:agents 改用 apps/mcp/dist/launcher.js，之後的建置更新會自動切換，不必重新連線。",
+    );
+  } else if (state === "missing") {
+    addFinding(findings, "warning", label, "未找到全域 work-intelligence MCP 註冊。", missingFix);
+  } else {
+    addFinding(findings, "warning", label, unknownDetail, unknownFix);
+  }
 }
 
 /** Reuses Doctor's read-only checks for the System Status API and onboarding checklist. */
@@ -378,7 +412,7 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
   const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
   const codexHomeDirectory = resolve(environment.CODEX_HOME?.trim() || join(homeDirectory, ".codex"));
   const claudeConfigDirectory = resolve(environment.CLAUDE_CONFIG_DIR?.trim() || join(homeDirectory, ".claude"));
-  const claudeMcp = inspectClaudeMcpState(homeDirectory);
+  const claudeMcp = inspectClaudeMcpState(homeDirectory, repositoryRoot);
   const codexConfig = inspectCodexTomlConfig(codexHomeDirectory);
   const codexHooksFeature = codexHooksFeatureFromConfig(codexConfig);
   const globalHookConfigs = inspectGlobalHookConfigs(
@@ -389,7 +423,7 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
     codexHooksFeature,
   );
   const globalHooks = globalHookConfigs.inspection;
-  const codexMcp = inspectCodexMcpState(codexConfig);
+  const codexMcp = inspectCodexMcpState(codexConfig, repositoryRoot);
   const codexPlugin = codexPluginEnabled(codexConfig.config);
   const skillFindings = inspectAgentSkillCopies(
     homeDirectory,
@@ -597,15 +631,22 @@ export function pnpmRequirementSatisfied(installed: string | undefined, required
   return true;
 }
 
-function nodeSupportsSqlite(version: string): boolean {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version);
-  if (!match) {
-    return false;
+/** Whether node:sqlite loads and its bundled SQLite can create the FTS5 table the search index needs. */
+async function probeSqlite(): Promise<{ sqlite: boolean; fts5: boolean }> {
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec("CREATE VIRTUAL TABLE fts5_probe USING fts5(tokens, content = '', contentless_delete = 1)");
+      return { sqlite: true, fts5: true };
+    } catch {
+      return { sqlite: true, fts5: false };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return { sqlite: false, fts5: false };
   }
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const [minimumMajor, minimumMinor] = MINIMUM_NODE_VERSION.split(".").map(Number) as [number, number];
-  return major > minimumMajor || (major === minimumMajor && minor >= minimumMinor);
 }
 
 function envFailure(): DoctorFinding {
@@ -754,9 +795,9 @@ export async function collectDoctorFindings(
   const parsedEnvironment = ENVIRONMENT_SCHEMA.safeParse(environment);
   const findings: DoctorFinding[] = [];
 
-  const sqliteAvailable = await import("node:sqlite").then(() => true).catch(() => false);
+  const sqlite = await probeSqlite();
   const nodeVersion = process.versions.node;
-  const nodeSupported = nodeSupportsSqlite(nodeVersion) && sqliteAvailable;
+  const nodeSupported = isSupportedNodeVersion(nodeVersion) && sqlite.sqlite && sqlite.fts5;
   addFinding(
     findings,
     nodeSupported ? "ok" : "error",
@@ -764,9 +805,13 @@ export async function collectDoctorFindings(
     "目前版本 " +
       nodeVersion +
       "，node:sqlite " +
-      (sqliteAvailable ? "可用" : "無法使用") +
-      `；最低需求為 Node.js ${MINIMUM_NODE_VERSION}。`,
-    nodeSupported ? undefined : `請使用支援 node:sqlite 的 Node.js ${MINIMUM_NODE_VERSION} 以上版本。`,
+      (sqlite.sqlite ? "可用" : "無法使用") +
+      "，FTS5 " +
+      (sqlite.fts5 ? "可用" : "無法使用") +
+      `；需要 Node.js ${MINIMUM_NODE_VERSION} 以上的 22.x，或 24 以上（23.x 沒有 FTS5）。`,
+    nodeSupported
+      ? undefined
+      : `請改用 Node.js ${MINIMUM_NODE_VERSION} 以上的 22.x，或 Node.js 24 以上；搜尋索引需要內建 SQLite 的 FTS5。`,
   );
 
   if (standalone) {
@@ -1031,7 +1076,7 @@ export async function collectDoctorFindings(
   const codexMcp = agentInspection.codexMcp;
   const claudePlugin = agentInspection.claudePluginEnabled;
   if (claudePlugin) {
-    const duplicated = claudeMcp === "registered" || globalHooks.claudeConfigured;
+    const duplicated = claudeMcp === "registered" || claudeMcp === "direct" || globalHooks.claudeConfigured;
     addFinding(
       findings,
       duplicated ? "warning" : "ok",
@@ -1045,25 +1090,18 @@ export async function collectDoctorFindings(
     );
   }
   if (!(claudePlugin && claudeMcp === "missing")) {
-    addFinding(
+    addMcpRegistrationFinding(
       findings,
-      claudeMcp === "registered" ? "ok" : "warning",
       "Claude MCP",
-      claudeMcp === "registered"
-        ? "全域設定已註冊 work-intelligence。"
-        : claudeMcp === "missing"
-          ? "未找到全域 work-intelligence MCP 註冊。"
-          : "無法判定 Claude MCP 註冊狀態；.claude.json 無法讀取或不是有效 JSON。",
-      claudeMcp === "registered"
-        ? undefined
-        : claudeMcp === "missing"
-          ? "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。"
-          : `確認 .claude.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`,
+      claudeMcp,
+      "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。",
+      "無法判定 Claude MCP 註冊狀態；.claude.json 無法讀取或不是有效 JSON。",
+      `確認 .claude.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`,
     );
   }
   const codexPlugin = agentInspection.codexPluginEnabled;
   if (codexPlugin) {
-    const duplicateMcp = codexMcp === "registered";
+    const duplicateMcp = codexMcp === "registered" || codexMcp === "direct";
     // The plugin brings the save-reminder hooks too; one still in hooks.json runs a second time.
     const duplicateHook = globalHooks.codexConfigured || globalHooks.codexLegacyMatcher;
     const duplicates = [
@@ -1088,20 +1126,13 @@ export async function collectDoctorFindings(
     );
   }
   if (!(codexPlugin && codexMcp === "missing")) {
-    addFinding(
+    addMcpRegistrationFinding(
       findings,
-      codexMcp === "registered" ? "ok" : "warning",
       "Codex MCP",
-      codexMcp === "registered"
-        ? "全域設定已註冊 work-intelligence。"
-        : codexMcp === "missing"
-          ? "未找到全域 work-intelligence MCP 註冊。"
-          : "無法判定 Codex MCP 註冊狀態；config.toml 無法讀取或格式無法判定。",
-      codexMcp === "registered"
-        ? undefined
-        : codexMcp === "missing"
-          ? "依 docs/agent-setup.md 註冊 work-intelligence MCP。"
-          : `確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 ${cmd("check")}。`,
+      codexMcp,
+      "依 docs/agent-setup.md 註冊 work-intelligence MCP。",
+      "無法判定 Codex MCP 註冊狀態；config.toml 無法讀取或格式無法判定。",
+      `確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 ${cmd("check")}。`,
     );
   }
 

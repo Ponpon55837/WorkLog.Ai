@@ -29,7 +29,7 @@
 
 ## 快速開始
 
-需求：**Node.js 22.13 以上**（建議 24，會用到內建的 `node:sqlite`）與 **pnpm 11.16 以上**（見 `package.json` 的 `engines.pnpm`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
+需求：**Node.js 22.16 以上的 22.x，或 24 以上**（建議 24；不支援 23.x）。會用到內建的 `node:sqlite` 與它的 FTS5 搜尋模組，22.13–22.15 與 23.x 內建的 SQLite 沒有 FTS5與 **pnpm 11.16 以上**（見 `package.json` 的 `engines.pnpm`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
 
 ```bash
 git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
@@ -110,7 +110,7 @@ codex plugin marketplace add Ponpon55837/WorkLog.Ai
 
 **之前手動註冊過？** plugin 與下方的手動註冊擇一即可，兩者並存時 Agent 會看到兩份相同的工具與提醒。移除手動註冊：`claude mcp remove work-intelligence --scope user`／`codex mcp remove work-intelligence`，並刪除 Claude `settings.json` 與 Codex `hooks.json` 裡 Work Intelligence 的 hook；`pnpm check` 會指出重複的項目。
 
-**沒有 checkout？** 每個 [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) 都附上 `work-intelligence-plugin-<版本>.zip`（內含 MCP server 的 plugin）與 `work-intelligence-<版本>.mcpb`（Claude Desktop 擴充）。需要 Node.js 22.13 以上，資料存在 `~/.work-intelligence/data`，但不含 Web UI。
+**沒有 checkout？** 每個 [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) 都附上 `work-intelligence-plugin-<版本>.zip`（內含 MCP server 的 plugin）與 `work-intelligence-<版本>.mcpb`（Claude Desktop 擴充）。需要 Node.js 22.16 以上（或 24 以上；不支援 23.x），資料存在 `~/.work-intelligence/data`，但不含 Web UI。
 
 遇到問題先執行 `pnpm check`，再看 [plugin 指南](docs/plugins.md) 的排錯表。
 
@@ -138,7 +138,7 @@ claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTE
 
 過期 MCP lease 與遺留暫存檔會在 MCP 註冊及系統狀態讀取時分批清理，預設門檻為 90 秒、每次最多 64 次刪除嘗試；詳見[疑難排解](docs/troubleshooting.md)。
 
-Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-work` 與 `/mcp__work-intelligence__synthesize-report`。Claude Desktop 的設定、驗證方式與常見問題見 **[docs/agent-setup.md](docs/agent-setup.md)**。更新 Work Intelligence 後，請重新 `pnpm build`。只有 schema／Agent 契約改變或無法確認相容性時才必須重新連線；僅實作更新會顯示「有新版可用」，原連線仍可照常讀寫，收尾再提醒重連。
+Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-work` 與 `/mcp__work-intelligence__synthesize-report`。Claude Desktop 的設定、驗證方式與常見問題見 **[docs/agent-setup.md](docs/agent-setup.md)**。更新 Work Intelligence 後，請重新 `pnpm build`。Agent 透過穩定的 MCP launcher（`apps/mcp/dist/launcher.js`，由 `pnpm setup:agents`、plugin 與 `pnpm start:mcp` 使用）連線：新建置出現時，它會等進行中的請求回覆、啟動新版 server 並重播握手，同一個連線就改用新版，不必重新連線；只有 launcher 本身更新時才需要重連一次。仍直接執行 `apps/mcp/dist/index.js` 的註冊維持舊規則（schema／Agent 契約改變時需重連），重新執行 `pnpm setup:agents` 即可改用 launcher。
 
 ### 保存提醒 hook（選用）
 
@@ -187,7 +187,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 pnpm eval:recall ./recall-questions.json --db ./data/work-intelligence.sqlite --out ./recall-report.json
 ```
 
-先執行 `pnpm build`（此 CLI 需 Node.js 22.13+，與 repo 其餘部分相同）。每題指定 `mode: "recall"` 或 `"context"`、`query`、預期 id（可多筆）或 `expectedNoHit: true`；可選專案路徑與 recall 的起訖日期。報告列出各模式 hit@1、hit@5、MRR、每題排名、confidence、MCP 回應字元數與呼叫耗時。資料庫以 SQLite 唯讀連線建立 OS 暫存快照，檢索與索引同步只作用在快照；結果只到終端機或 `--out` 指定的新檔案，不會上傳，也不會覆寫任何已存在檔案。範例格式見 [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json)，完整限制與指標定義見 [測試與驗證](docs/testing.md#檢索品質評估)。
+先執行 `pnpm build`（此 CLI 與 repo 其餘部分需要相同的 Node.js：22.16+ 或 24+）。每題指定 `mode: "recall"` 或 `"context"`、`query`、預期 id（可多筆）或 `expectedNoHit: true`；可選專案路徑與 recall 的起訖日期。報告列出各模式 hit@1、hit@5、MRR、每題排名、confidence、MCP 回應字元數與呼叫耗時。資料庫以 SQLite 唯讀連線建立 OS 暫存快照，檢索與索引同步只作用在快照；結果只到終端機或 `--out` 指定的新檔案，不會上傳，也不會覆寫任何已存在檔案。範例格式見 [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json)，完整限制與指標定義見 [測試與驗證](docs/testing.md#檢索品質評估)。
 
 更完整的操作說明見 **[使用手冊](docs/user-guide.md)**。
 

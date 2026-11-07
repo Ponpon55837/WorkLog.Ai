@@ -94,7 +94,9 @@ claude mcp remove work-intelligence
 
 Claude Code 的 `--` 後方是實際啟動 MCP server 的 command；`--scope user` 會將設定套用到使用者層級。詳見 [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp)。
 
-僅實作改變會回傳 `updateAvailable: true`，可照常讀寫並在收尾提醒一次；只有 `restartRequired: true`（schema／契約更新或無法確認）才停止操作並要求重連。
+`pnpm setup:agents` 註冊的是 MCP launcher（`node <repo>/apps/mcp/dist/launcher.js`），`pnpm start:mcp` 也經由它啟動。之後 `pnpm build` 更新 server 時，launcher 會在同一個連線裡換成新版，Codex、Claude Code 與 Claude Desktop 都不必重新連線；只有 launcher 本身更新時才會回報 `restartRequired: true`。直接執行 `apps/mcp/dist/index.js` 的舊註冊（不論是先前 setup 寫的或手動加的）重新執行 `pnpm setup:agents` 就會改指向 launcher，其他自訂欄位（`env`、node 絕對路徑等）保留；Codex 的手寫設定無法安全改寫時會保留並說明。`pnpm check` 與系統狀態頁會把仍直接執行 server 的註冊標成「直接執行，建置後需重連」。
+
+未經 launcher 時，僅實作改變會回傳 `updateAvailable: true`，可照常讀寫並在收尾提醒一次；只有 `restartRequired: true`（schema／契約更新或無法確認）才停止操作並要求重連。細節見[更新與重新連線](mcp-tools.md#更新與重新連線)。
 
 本輪整理未結項使用 schema 23 與新增 operation 契約；主安裝更新時，先保存正在進行的工作，再完成建置、重啟服務與 Agent 重新連線。重新連線規則見[MCP 更新對照](mcp-tools.md#更新與重新連線)。
 

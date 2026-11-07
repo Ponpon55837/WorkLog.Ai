@@ -270,4 +270,15 @@ describe("hotspotRiskVisual", () => {
     ]);
     expect(agentHookInstallStatus.stale).toMatchObject({ tone: "attention", label: t("status.updateNeeded") });
   });
+
+  it("flags an MCP registration that runs the server directly instead of the launcher", () => {
+    const groups = agentConnectionGroups({
+      codex: { mcpRegistered: "direct", canonicalSkill: "current", legacySkill: "current", hook: "installed" },
+      claudeCode: { mcpRegistered: "registered", skill: "current", hook: "installed" },
+    });
+    expect(groups[0]?.rows[0]).toMatchObject({
+      ok: false,
+      status: { tone: "attention", label: t("status.directRegistration") },
+    });
+  });
 });
