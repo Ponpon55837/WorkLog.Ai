@@ -13,9 +13,66 @@ permissions:
   contents: read
 
 jobs:
+  # Decide whether the tagged commit already passed the full CI on main. Any doubt means the full checks run.
+  verify:
+    name: Detect verified commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      verified: ${{ steps.lookup.outputs.verified }}
+    steps:
+      - name: Look up a successful CI run for this exact commit
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "verified=false" >> "$GITHUB_OUTPUT"
+          # Latest completed CI run for this commit, pushed to main, concluded success.
+          run_id=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&branch=main&status=completed&per_page=100" \
+            | jq -r '[.workflow_runs[] | select(.head_sha == env.SHA and .head_branch == "main" and .event == "push" and .conclusion == "success" and .head_repository.full_name == env.REPO)] | sort_by(.run_number) | last | .id // empty') || run_id=""
+          if [ -z "$run_id" ]; then
+            echo "No successful CI run on main for $SHA; running the full checks."
+            exit 0
+          fi
+          # Every job that covers a release check must itself have succeeded in that run.
+          required='["Quality (ubuntu-latest)","Quality (windows-latest)","Quality (macos-latest)","E2E (chromium)","E2E (firefox)","E2E (webkit)","E2E (Chromium + Firefox + WebKit)"]'
+          ok=$(gh api "repos/$REPO/actions/runs/$run_id/jobs?filter=latest&per_page=100" \
+            | jq -r --argjson required "$required" '[.jobs[] | select(.conclusion == "success") | .name] as $passed | (($required - $passed) | length) == 0') || ok=""
+          if [ "$ok" = "true" ]; then
+            echo "CI run $run_id covers every release check for $SHA; skipping the duplicate checks."
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "CI run $run_id is missing a required successful job; running the full checks."
+          fi
+
+  # Always re-check advisories for production dependencies: they change after CI ran.
+  audit:
+    name: Production dependency audit (verified commit)
+    runs-on: ubuntu-latest
+    needs: verify
+    if: needs.verify.outputs.verified == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+
   quality:
     name: Quality (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    needs: verify
+    if: needs.verify.outputs.verified != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +119,8 @@ jobs:
   e2e-browser:
     name: E2E (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    needs: verify
+    if: needs.verify.outputs.verified != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -90,7 +149,12 @@ jobs:
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [quality, e2e-browser]
+    needs: [verify, audit, quality, e2e-browser]
+    # Either every check ran and passed, or the commit was verified and only the fast audit ran. Never publish on cancelled, failed or ambiguous results.
+    if: >-
+      ${{ !cancelled() && needs.verify.result == 'success' && (
+      (needs.verify.outputs.verified == 'true' && needs.audit.result == 'success' && needs.quality.result == 'skipped' && needs.e2e-browser.result == 'skipped') ||
+      (needs.verify.outputs.verified != 'true' && needs.quality.result == 'success' && needs.e2e-browser.result == 'success')) }}
     permissions:
       contents: write
     steps:

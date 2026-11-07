@@ -7,6 +7,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Changed
 
 - The tag release workflow runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once, matching CI. Every check and threshold is unchanged, and publishing still waits for all of them.
+- The release workflow skips the duplicate Quality and E2E jobs when the tagged commit already has a successful CI run on `main` covering all seven jobs, while still re-running the production dependency audit; any missing or uncertain result falls back to the full checks.
 - The API server, CLI, `pnpm check`, login service and MCP now share one database path rule (`@work-intelligence/shared/database-location`). A checkout resolves a relative `WORK_INTELLIGENCE_DB` from the repository root exactly as before; a self-contained bundle resolves it from `~/.work-intelligence` (or `WORK_INTELLIGENCE_CONFIG_DIR`), where the bundled MCP previously kept relative values unresolved. The standalone CLI no longer takes relative folders from an inherited `INIT_CWD`.
 
 ### Fixed
