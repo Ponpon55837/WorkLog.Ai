@@ -7,6 +7,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Changed
 
 - The tag release workflow runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once, matching CI. Every check and threshold is unchanged, and publishing still waits for all of them.
+- The release workflow skips the duplicate Quality and E2E jobs when the tagged commit already has a successful CI run on `main` covering all seven jobs, while still re-running the production dependency audit; any missing or uncertain result falls back to the full checks.
 
 ### Fixed
 
