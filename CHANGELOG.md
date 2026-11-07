@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Search index writes no longer fail with `ERR_OUT_OF_RANGE` (`Value is too large to be represented as a JavaScript number`) once the FTS5 index stores delete tombstones, whose shadow rowids exceed 2^53. The error rolled back every index sync, so reports, recall and Knowledge candidate lists returned HTTP 500 until the server restarted on a fixed build. FTS writes no longer read the connection's last insert rowid, and the rowid is reset after them. Stored data and the index were never damaged; no migration is needed.
+
 ## [1.6.7] - 2026-11-07
 
 [繁體中文更新說明](docs/releases/1.6.7.md).
