@@ -18,6 +18,7 @@ export interface BootstrapOptions {
   help: boolean;
 }
 export declare const MINIMUM_NODE: string;
+export declare function isSupportedNode(version: string): boolean;
 export declare function parseBootstrapArguments(argv: string[]): BootstrapOptions;
 export declare function defaultBootstrapDependencies(): BootstrapDependencies;
 export declare function runBootstrap(argv: string[], dependencies?: BootstrapDependencies): Promise<number>;

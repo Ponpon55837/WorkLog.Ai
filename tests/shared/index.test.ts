@@ -3,6 +3,7 @@ import {
   API_PREFIX,
   APP_NAME,
   DEFAULT_WEB_PORT,
+  isSupportedNodeVersion,
   localDayStartIso,
   localTimeZone,
   nowIso,
@@ -50,5 +51,18 @@ describe("shared runtime helpers", () => {
     expect(truncateText("short", 8)).toBe("short");
     expect(truncateText("abcdefgh", 5)).toBe("abcd…");
     expect(truncateText("x".repeat(241))).toHaveLength(240);
+  });
+});
+
+describe("isSupportedNodeVersion", () => {
+  it("accepts 22.16+ on the 22 line and 24+, rejecting releases whose SQLite lacks FTS5", () => {
+    expect(["22.16.0", "v22.22.0", "24.0.0", "26.13.0"].map(isSupportedNodeVersion)).toEqual([true, true, true, true]);
+    expect(["22.15.0", "22.13.1", "23.11.0", "21.9.0", "not-a-version"].map(isSupportedNodeVersion)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 });
