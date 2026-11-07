@@ -33,13 +33,19 @@ function temporaryDirectory(): string {
 
 /**
  * A synthetic MCP server: answers initialize, tools/list, resources/list, `whoami` (its build, pid and the
- * initialize it received), `slow` (answers after a delay), and `crash` (exits without answering).
+ * initialize it received), `slow` (answers after a delay), `hang` (never answers) and `crash` (exits without
+ * answering). With `slowLists`, tools/list and resources/list answer after 1.5 s.
  */
-function fakeServer(build: string, tools: string[], options: { brokenStartup?: boolean } = {}): string {
+function fakeServer(
+  build: string,
+  tools: string[],
+  options: { brokenStartup?: boolean; slowLists?: boolean } = {},
+): string {
   return [
     options.brokenStartup ? 'throw new Error("broken build");' : "",
     `const BUILD = ${JSON.stringify(build)};`,
     `const TOOLS = ${JSON.stringify(tools)};`,
+    `const LIST_DELAY = ${options.slowLists ? 1_500 : 0};`,
     "let initialize; let initialized = false; let pending = '';",
     "const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n');",
     "process.stdin.setEncoding('utf8');",
@@ -52,8 +58,9 @@ function fakeServer(build: string, tools: string[], options: { brokenStartup?: b
     "    if (message.method === 'initialize') { initialize = message.params;",
     "      send({ id: message.id, result: { protocolVersion: '2025-06-18', serverInfo: { name: 'fake', version: BUILD }, capabilities: { tools: { listChanged: true } } } }); }",
     "    else if (message.method === 'notifications/initialized') initialized = true;",
-    "    else if (message.method === 'tools/list') send({ id: message.id, result: { tools: TOOLS.map((name) => ({ name })) } });",
-    "    else if (message.method === 'resources/list') send({ id: message.id, result: { resources: [] } });",
+    "    else if (message.method === 'tools/list') { const id = message.id; setTimeout(() => send({ id, result: { tools: TOOLS.map((name) => ({ name })) } }), LIST_DELAY); }",
+    "    else if (message.method === 'resources/list') { const id = message.id; setTimeout(() => send({ id, result: { resources: [] } }), LIST_DELAY); }",
+    "    else if (message.method === 'hang') { /* never answers */ }",
     "    else if (message.method === 'whoami') send({ id: message.id, result: { build: BUILD, pid: process.pid, initialize, initialized } });",
     "    else if (message.method === 'slow') setTimeout(() => send({ id: message.id, result: { build: BUILD } }), 400);",
     "    else if (message.method === 'crash') process.exit(7);",
@@ -63,7 +70,11 @@ function fakeServer(build: string, tools: string[], options: { brokenStartup?: b
   ].join("\n");
 }
 
-function harness(initialBuild = "A", tools = ["work_read"]) {
+function harness(
+  initialBuild = "A",
+  tools = ["work_read"],
+  timeouts: { startupTimeoutMs?: number; drainTimeoutMs?: number } = {},
+) {
   const root = temporaryDirectory();
   const entryPath = join(root, "apps/mcp/dist/index.js");
   mkdirSync(join(root, "apps/mcp/dist"), { recursive: true });
@@ -98,8 +109,9 @@ function harness(initialBuild = "A", tools = ["work_read"]) {
     output,
     errorOutput,
     pollIntervalMs: 50,
-    startupTimeoutMs: 3_000,
+    startupTimeoutMs: timeouts.startupTimeoutMs ?? 3_000,
     stopTimeoutMs: 1_000,
+    ...(timeouts.drainTimeoutMs === undefined ? {} : { drainTimeoutMs: timeouts.drainTimeoutMs }),
   });
   supervisors.push(supervisor);
   const waitFor = (predicate: (message: Message) => boolean): Promise<Message> => {
@@ -114,7 +126,11 @@ function harness(initialBuild = "A", tools = ["work_read"]) {
     response: (id: unknown) => waitFor((message) => message.id === id),
     waitFor,
     /** Writes a new build to disk the way `pnpm build` does, then exposes its id. */
-    publish: (build: string | undefined, nextTools = tools, options: { brokenStartup?: boolean } = {}) => {
+    publish: (
+      build: string | undefined,
+      nextTools = tools,
+      options: { brokenStartup?: boolean; slowLists?: boolean } = {},
+    ) => {
       writeFileSync(entryPath, fakeServer(build ?? "?", nextTools, options));
       buildId = build;
     },
@@ -217,6 +233,47 @@ describe("McpSupervisor", () => {
 
     test.send({ id: 3, method: "whoami" });
     expect((await test.response(3)).result).toMatchObject({ build: "A", initialized: true });
+  });
+
+  it("drops the launcher's own responses that arrive after their wait timed out", async () => {
+    const test = harness("A", ["work_read"], { startupTimeoutMs: 1_000 });
+    await test.supervisor.start();
+    await test.initialize();
+    test.publish("B", ["work_read", "work_write"], { slowLists: true });
+    test.send({ id: 2, method: "whoami" });
+    expect((await test.response(2)).result).toMatchObject({ build: "B" });
+    // The new server answers the launcher's tools/list and resources/list after the 1 s wait gave up.
+    await new Promise((resolve) => setTimeout(resolve, 1_800));
+    expect(test.messages.filter((message) => typeof message.id === "string")).toEqual([]);
+  });
+
+  it("forgets a cancelled request, so it does not hold back the next build", async () => {
+    // Without the cancellation, the swap would wait out the 2 s drain and the old build would answer.
+    const test = harness("A", ["work_read"], { drainTimeoutMs: 2_000 });
+    await test.supervisor.start();
+    await test.initialize();
+    test.send({ id: 2, method: "hang" });
+    test.send({ method: "notifications/cancelled", params: { requestId: 2, reason: "user stopped" } });
+    test.publish("B");
+    test.send({ id: 3, method: "whoami" });
+    expect((await test.response(3)).result).toMatchObject({ build: "B" });
+  });
+
+  it("waits for a stuck request only once, then serves later requests from the old build without delay", async () => {
+    const test = harness("A", ["work_read"], { drainTimeoutMs: 2_000 });
+    await test.supervisor.start();
+    await test.initialize();
+    test.send({ id: 2, method: "hang" });
+    test.publish("B");
+    test.send({ id: 3, method: "whoami" });
+    expect((await test.response(3)).result).toMatchObject({ build: "A" });
+
+    // Waiting for the drain again would take another 2 s; the old build answers right away instead.
+    const started = Date.now();
+    test.send({ id: 4, method: "whoami" });
+    expect((await test.response(4)).result).toMatchObject({ build: "A" });
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(test.supervisor.runningBuildId()).toBe("A");
   });
 
   it("queues requests that arrive before the first server is ready", async () => {

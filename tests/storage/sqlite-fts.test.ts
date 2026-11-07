@@ -42,6 +42,49 @@ function tombstoneCount(db: DatabaseSync, table: string): number {
 }
 
 describe("FTS5 tombstone rowids", () => {
+  it("re-indexes every document when many already-indexed documents are dirty at once", () => {
+    const root = tempDir();
+    const databasePath = join(tempDir(), "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    try {
+      const project = store.addProject("Orchard", root);
+      store.updateProject(project.id, { status: "tracked" });
+      const sessionIds: string[] = [];
+      for (let index = 0; index < 25; index += 1) {
+        const finalized = store.finalizeSession({
+          projectRoot: root,
+          idempotencyKey: `bulk-${index}`,
+          title: `Prune row ${index}`,
+          summary: `Grafted pear tree ${index}.`,
+          workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+          changedFiles: [],
+          verification: { status: "passed" },
+        });
+        if (finalized.outcome !== "finalized") throw new Error("Expected a finalized Session");
+        sessionIds.push(finalized.session.id);
+      }
+      expect(store.recall({ q: "grafted", projectRoot: root, limit: 30 })).toMatchObject({ outcome: "recall" });
+
+      // A migration or redaction marks every indexed document dirty; the next sync rebuilds them all at once.
+      const raw = new DatabaseSync(databasePath);
+      raw.exec("UPDATE sessions SET summary = replace(summary, 'Grafted', 'Budded')");
+      raw.exec("INSERT OR IGNORE INTO search_dirty (doc_type, doc_id) SELECT 'session', id FROM sessions");
+      raw.close();
+
+      const budded = store.recall({ q: "budded", projectRoot: root, limit: 30 });
+      const grafted = store.recall({ q: "grafted", projectRoot: root, limit: 30 });
+      expect(budded.outcome === "recall" ? budded.hits.map((hit) => hit.id).sort() : []).toEqual(
+        [...sessionIds].sort(),
+      );
+      expect(grafted.outcome === "recall" ? grafted.hits : ["not recall"]).toEqual([]);
+      const check = new DatabaseSync(databasePath, { readOnly: true });
+      expect(check.prepare("SELECT COUNT(*) AS count FROM search_dirty").get()).toEqual({ count: 0 });
+      check.close();
+    } finally {
+      store.close();
+    }
+  });
+
   it("deletes from a contentless_delete index without exposing the shadow rowid", () => {
     const db = new DatabaseSync(":memory:");
     db.exec("CREATE VIRTUAL TABLE fts USING fts5(tokens, content = '', contentless_delete = 1)");

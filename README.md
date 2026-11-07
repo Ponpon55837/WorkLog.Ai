@@ -29,7 +29,7 @@
 
 ## Quick start
 
-Requirements: **Node.js 22.16 or later on the 22 line, or 24 and later** (24 recommended; 23.x is not supported). The built-in `node:sqlite` and its FTS5 search module are used, and 22.13–22.15 and 23.x ship SQLite without FTS5 and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
+Requirements: **Node.js 22.16 or later on the 22 line, or 24 and later** (24 recommended; 23.x is not supported, because 22.13–22.15 and every 23.x release ship SQLite without the FTS5 search module that the built-in `node:sqlite` index needs), and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
 
 ```bash
 git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
@@ -211,6 +211,8 @@ A GitHub (Primer) style interface with dark and light themes, available in Engli
 | **Session diagrams** | When work changes cross-module flows, data flows, state machines or architecture, the Agent attaches one or two native architecture v1 diagrams to the Session (`work_attach_diagram` or finalize's `diagrams`; not for single-file fixes, styling, configuration or test-only work). Native cards render in the Session panel; historical Mermaid is preserved as source text with copy and download. Diagrams can be voided but not deleted, and travel with project export and import |
 | **System status** | App and schema version, database location and size, latest automatic backup, backup count and total size, the last database maintenance result, the start-at-login service, and the read-only state of Codex / Claude Code MCP registration, skill copies and global hooks; it never changes service or Agent settings. **Agent read log** lists recent MCP reads (when, which Agent and tool, which project, and the returned Session ids), filterable by project and Agent. **Personal preferences** sets the theme, interface language and whether to open a Session's changed files in VS Code or Cursor (all stored in this browser only). For a full environment check, use `pnpm check` |
 
+Reminder rows on the overview can be hidden or snoozed for seven days; the suppressed view restores them, and open-item totals still count the underlying sources. Reports can preview and copy basic Markdown or the current synthesis presentation, which keeps pin/hide/edit choices and source references after checking the source and revision again; if clipboard access fails, select the preview text or download Markdown.
+
 Session detail also offers up to five related-work suggestions based on shared confirmed files in the same tracked project. Existing links are excluded, and a partial search is marked; opening a suggestion creates no relationship.
 
 Shortcuts: `Ctrl`/`⌘` + `K` to search, jump to a page, or switch theme and language; `/` to focus the page search; `g` + `d` / `s` / `r` / `k` / `g` / `p` to switch pages. Filters and the open Session live in the URL, so you can share or reload them.
@@ -322,8 +324,8 @@ The threat model and how to report vulnerabilities are in [SECURITY.md](SECURITY
 ```text
 apps/
   web/       Vue 3 + Vite Web UI (GitHub/Primer design system, dark / light themes, English / 繁體中文 interface from per-locale JSON message catalogs); Pinia stores hold state, Pinia Colada caches and invalidates API data
-  server/    REST API, production static files, CLI (db:*) and doctor
-  mcp/       MCP stdio server and save-reminder hooks
+  server/    REST API, production static files, CLI (db:*), doctor and the standalone `work-intelligence` command
+  mcp/       MCP stdio server, the stable launcher Agents connect through, and save-reminder hooks
 packages/
   core/            domain types and extension interfaces
   schema/          Zod input contracts
@@ -331,7 +333,7 @@ packages/
   project-policy/  default-deny policy gate and safe paths
   shared/          shared constants, version and helpers
 tests/             unit / integration tests per package and Playwright E2E (one folder per package)
-scripts/           production start, pre-build dist cleanup and other scripts
+scripts/           production start, builds (plugin, standalone package) and their smoke tests, pre-build dist cleanup
 data/              local SQLite and backups/ (not version-controlled)
 ```
 
@@ -360,7 +362,7 @@ pnpm test:e2e                 # Playwright in production mode after a build (ful
 pnpm format                   # format the repo with Prettier
 ```
 
-CI runs build, test, typecheck and coverage on Ubuntu, Windows and macOS; Ubuntu additionally runs the production-dependency security audit (fails on high / critical), the performance, retrieval-quality and MCP response-size thresholds, and Chromium / Firefox / WebKit E2E (Chromium and Firefox run axe accessibility checks on the six main pages, System status, backup management and the first-run checklist, in both themes). Ubuntu WebKit is not a substitute for testing on a real macOS Safari. Details are in [docs/testing.md](docs/testing.md).
+CI runs build, test, typecheck, coverage and the standalone-package smoke test (`pnpm test:standalone`) on Ubuntu, Windows and macOS, plus the storage suite on Node 26; Ubuntu additionally runs the production-dependency security audit (fails on high / critical), the performance, retrieval-quality and MCP response-size thresholds, and Chromium / Firefox / WebKit E2E (Chromium and Firefox run axe accessibility checks on the six main pages, System status, backup management and the first-run checklist, in both themes). Ubuntu WebKit is not a substitute for testing on a real macOS Safari. Details are in [docs/testing.md](docs/testing.md).
 
 Other settings:
 
@@ -382,7 +384,6 @@ Before starting work, read the matching shared skill (shared by Codex and Claude
 Development workflow, health checks and PR rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentation
-
 
 The guides under `docs/` are written in Traditional Chinese.
 
@@ -409,7 +410,3 @@ The guides under `docs/` are written in Traditional Chinese.
 ## License
 
 [MIT](LICENSE)
-
-Reports can preview and copy basic Markdown or the current synthesis presentation. The presentation copy keeps pin/hide/edit choices and source references; it checks the source and revision again. Review the snapshot, then click Copy. If clipboard access fails, select the preview text or download Markdown.
-
-Reminder rows support reversible hide and seven-day snooze. The suppressed view restores them; unresolved totals still count the underlying sources.

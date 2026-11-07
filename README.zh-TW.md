@@ -29,7 +29,7 @@
 
 ## 快速開始
 
-需求：**Node.js 22.16 以上的 22.x，或 24 以上**（建議 24；不支援 23.x）。會用到內建的 `node:sqlite` 與它的 FTS5 搜尋模組，22.13–22.15 與 23.x 內建的 SQLite 沒有 FTS5與 **pnpm 11.16 以上**（見 `package.json` 的 `engines.pnpm`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
+需求：**Node.js 22.16 以上的 22.x，或 24 以上**（建議 24；不支援 23.x，因為 22.13–22.15 與所有 23.x 內建的 SQLite 沒有搜尋索引需要的 FTS5），以及 **pnpm 11.16 以上**（見 `package.json` 的 `engines.pnpm`）。以下是約五分鐘的設定流程；第一次下載依賴可能需要較久。
 
 ```bash
 git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
@@ -212,6 +212,8 @@ GitHub（Primer）風格的介面，有深色與淺色兩種主題，介面語�
 | **Session 圖表** | Agent 在工作改到跨模組流程、資料流、狀態機或架構時，會主動為 Session 附上一到兩張原生 architecture v1 圖表（`work_attach_diagram` 或 finalize 的 `diagrams`；單檔修正、樣式、設定與純測試不附），在 Session 面板顯示原生卡片；歷史 Mermaid 保留原始碼並可複製、下載。圖表可作廢、不能刪除，也會隨專案匯出與匯入 |
 | **系統狀態** | 程式與 schema 版本、資料庫位置與大小、最近的自動備份、備份數量與總大小、最近一次資料庫維護的結果、登入自動啟動服務，以及 Codex／Claude Code MCP 註冊、skill 複本與全域 hook 的唯讀狀態；不會修改服務或 Agent 設定。「Agent 讀取紀錄」列出最近的 MCP 讀取（時間、Agent 與工具、專案，以及回傳的 Session id），可依專案與 Agent 篩選。「個人偏好」可選擇外觀主題、介面語言，以及用 VS Code 或 Cursor 開啟 Session 的 changed files（都只存在這個瀏覽器）。完整環境診斷請用 `pnpm check` |
 
+總覽的提醒列可隱藏此次、七天後再提醒，或由隱藏／稍後清單重新顯示，待處理總數仍依原來源計算。報告可預覽並複製基本版 Markdown 或目前整理版；整理版重新核對來源與修訂版本後，保留釘選、隱藏、改稿及來源引用；剪貼簿存取失敗時可選取預覽文字或下載 Markdown。
+
 Session 詳情提供最多五筆同專案共同檔案的相關工作提示，排除既有關聯，搜尋截短時明示；開啟提示不會建立關聯。
 
 快捷鍵：`Ctrl`/`⌘` + `K` 搜尋、跳頁，或切換主題與介面語言，`/` 聚焦頁面搜尋，`g` + `d`／`s`／`r`／`k`／`g`／`p` 切換頁面。篩選條件與開啟中的 Session 都會寫進網址，可以直接分享或重新整理。
@@ -323,8 +325,8 @@ pnpm db:maintain
 ```text
 apps/
   web/       Vue 3 + Vite Web UI（GitHub/Primer design system，深色／淺色主題，繁體中文／English 介面，文字放在各語系的 JSON 目錄）；Pinia store 管理狀態，Pinia Colada 管理 API 資料的快取與失效
-  server/    REST API、正式模式靜態檔、CLI（db:*）與 doctor
-  mcp/       MCP stdio server 與保存提醒 hook
+  server/    REST API、正式模式靜態檔、CLI（db:*）、doctor 與獨立套件的 `work-intelligence` 指令
+  mcp/       MCP stdio server、Agent 連線用的穩定 launcher 與保存提醒 hook
 packages/
   core/            domain types 與 extension interfaces
   schema/          Zod 輸入契約
@@ -332,7 +334,7 @@ packages/
   project-policy/  default-deny policy gate 與安全路徑
   shared/          共用常數、版本與 helpers
 tests/             各 package 的單元／整合測試與 Playwright E2E（依 package 分資料夾）
-scripts/           正式模式啟動與 build 前清除 dist 等腳本
+scripts/           正式模式啟動、plugin 與獨立套件的打包及其 smoke test、build 前清除 dist
 data/              本機 SQLite 與 backups/（不進版控）
 ```
 
@@ -361,7 +363,7 @@ pnpm test:e2e                 # build 後以正式模式跑 Playwright（Chromiu
 pnpm format                   # 用 Prettier 格式化整個 repo
 ```
 
-CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubuntu 另外跑生產依賴安全稽核（high／critical 即失敗）、效能、檢索品質與 MCP 回應大小門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 與 Firefox 掃描六個主要頁面、系統狀態、備份管理與第一次使用清單的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
+CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck、coverage 與獨立套件 smoke test（`pnpm test:standalone`），另以 Node 26 跑 storage 測試；Ubuntu 另外跑生產依賴安全稽核（high／critical 即失敗）、效能、檢索品質與 MCP 回應大小門檻，以及 Chromium／Firefox／WebKit E2E（Chromium 與 Firefox 掃描六個主要頁面、系統狀態、備份管理與第一次使用清單的 axe 無障礙檢查）。Ubuntu WebKit 不代表 macOS Safari 實機驗證。細節見 [docs/testing.md](docs/testing.md)。
 
 其他設定：
 
@@ -383,7 +385,6 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 開發流程、健康檢查與 PR 規則見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 文件索引
-
 
 | 文件 | 內容 |
 |---|---|
@@ -408,7 +409,3 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 ## 授權
 
 [MIT](LICENSE)
-
-報告可預覽並複製基本版 Markdown 或目前整理版；整理版保留釘選、隱藏、改稿及來源引用，重新核對來源與修訂版本。先預覽，再點複製；剪貼簿存取失敗時可選取預覽文字或下載 Markdown。
-
-提醒列可隱藏此次、七天後再提醒，或由隱藏／稍後清單重新顯示；待處理總數仍依原來源計算。

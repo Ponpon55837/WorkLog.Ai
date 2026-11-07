@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type { KnowledgeKind, RecallConfidence, RecallField, RecallHit, RecallTermHits } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
 import {
@@ -99,6 +99,17 @@ interface IndexedDocument {
   date: string;
   chunks: ChunkInput[];
   paths: Array<{ path: string; weight: number }>;
+}
+
+/** The statements one index sync reuses for every dirty document. */
+interface IndexWriteStatements {
+  chunkIds: StatementSync;
+  deleteFts: StatementSync;
+  deleteChunks: StatementSync;
+  deletePaths: StatementSync;
+  insertChunk: StatementSync;
+  insertFts: StatementSync;
+  insertPath: StatementSync;
 }
 
 interface ScoredChunkRow {
@@ -240,7 +251,11 @@ export class SearchRepository {
     };
   }
 
-  /** Re-indexes documents marked dirty by the write triggers. */
+  /**
+   * Re-indexes documents marked dirty by the write triggers. Every old FTS row is deleted before any new one is
+   * inserted: interleaving per document makes FTS5 flush a small segment for each lower rowid it receives and merge
+   * them, which grew far faster than linear once a migration or redaction marked thousands of documents dirty.
+   */
   public syncIndex(): void {
     const pending = this.db.prepare("SELECT 1 FROM search_dirty LIMIT 1").get();
     if (!pending) {
@@ -251,15 +266,17 @@ export class SearchRepository {
         doc_type: DocType;
         doc_id: string;
       }>;
-      const clearDirty = this.db.prepare("DELETE FROM search_dirty WHERE doc_type = ? AND doc_id = ?");
+      const statements = this.prepareIndexWrites();
       for (const row of dirty) {
-        this.removeDocument(row.doc_type, row.doc_id);
+        this.removeDocument(statements, row.doc_type, row.doc_id);
+      }
+      for (const row of dirty) {
         const document = row.doc_type === "session" ? this.loadSession(row.doc_id) : this.loadKnowledge(row.doc_id);
         if (document) {
-          this.insertDocument(row.doc_type, row.doc_id, document);
+          this.insertDocument(statements, row.doc_type, row.doc_id, document);
         }
-        clearDirty.run(row.doc_type, row.doc_id);
       }
+      this.db.exec("DELETE FROM search_dirty");
     });
     resetLastInsertRowid(this.db);
   }
@@ -443,8 +460,9 @@ export class SearchRepository {
       }
     ).count;
 
+    const statements = this.prepareIndexWrites();
     for (const document of documents.values()) {
-      this.removeDocument(document.type, document.id);
+      this.removeDocument(statements, document.type, document.id);
     }
     this.db.prepare(`DELETE FROM search_dirty WHERE ${dirtyPredicate}`).run(sessionIdJson, knowledgeIdJson);
     return { chunks, fts, paths, dirty };
@@ -881,31 +899,43 @@ export class SearchRepository {
     return { projectId: row.project_id, date: row.updated_at, chunks, paths };
   }
 
-  private removeDocument(type: DocType, id: string): void {
-    const chunkIds = this.db
-      .prepare("SELECT id FROM search_chunks WHERE doc_type = ? AND doc_id = ?")
-      .all(type, id) as Array<{ id: number }>;
-    const deleteFts = this.db.prepare("DELETE FROM search_fts WHERE rowid = ?");
-    for (const chunk of chunkIds) {
-      runFtsWrite(deleteFts, chunk.id);
-    }
-    resetLastInsertRowid(this.db);
-    this.db.prepare("DELETE FROM search_chunks WHERE doc_type = ? AND doc_id = ?").run(type, id);
-    this.db.prepare("DELETE FROM search_paths WHERE doc_type = ? AND doc_id = ?").run(type, id);
+  private prepareIndexWrites(): IndexWriteStatements {
+    return {
+      chunkIds: this.db.prepare("SELECT id FROM search_chunks WHERE doc_type = ? AND doc_id = ?"),
+      deleteFts: this.db.prepare("DELETE FROM search_fts WHERE rowid = ?"),
+      deleteChunks: this.db.prepare("DELETE FROM search_chunks WHERE doc_type = ? AND doc_id = ?"),
+      deletePaths: this.db.prepare("DELETE FROM search_paths WHERE doc_type = ? AND doc_id = ?"),
+      insertChunk: this.db.prepare(
+        `INSERT INTO search_chunks (doc_type, doc_id, project_id, field, heading, content, weight, doc_date, content_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ),
+      insertFts: this.db.prepare("INSERT INTO search_fts (rowid, tokens) VALUES (?, ?)"),
+      insertPath: this.db.prepare(
+        `INSERT INTO search_paths (doc_type, doc_id, project_id, path, basename, weight, doc_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ),
+    };
   }
 
-  private insertDocument(type: DocType, id: string, document: IndexedDocument): void {
-    const insertChunk = this.db.prepare(
-      `INSERT INTO search_chunks (doc_type, doc_id, project_id, field, heading, content, weight, doc_date, content_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const insertFts = this.db.prepare("INSERT INTO search_fts (rowid, tokens) VALUES (?, ?)");
+  private removeDocument(statements: IndexWriteStatements, type: DocType, id: string): void {
+    const chunkIds = statements.chunkIds.all(type, id) as Array<{ id: number }>;
+    if (chunkIds.length > 0) {
+      for (const chunk of chunkIds) {
+        runFtsWrite(statements.deleteFts, chunk.id);
+      }
+      resetLastInsertRowid(this.db);
+      statements.deleteChunks.run(type, id);
+    }
+    statements.deletePaths.run(type, id);
+  }
+
+  private insertDocument(statements: IndexWriteStatements, type: DocType, id: string, document: IndexedDocument): void {
     for (const chunk of document.chunks) {
       const tokens = tokenize(chunk.content);
       if (tokens.length === 0) {
         continue;
       }
-      const result = insertChunk.run(
+      const result = statements.insertChunk.run(
         type,
         id,
         document.projectId,
@@ -916,15 +946,11 @@ export class SearchRepository {
         document.date,
         chunk.field === "raw" ? hashRawContent(chunk.content) : null,
       );
-      runFtsWrite(insertFts, result.lastInsertRowid, tokens.join(" "));
+      runFtsWrite(statements.insertFts, result.lastInsertRowid, tokens.join(" "));
     }
     resetLastInsertRowid(this.db);
-    const insertPath = this.db.prepare(
-      `INSERT INTO search_paths (doc_type, doc_id, project_id, path, basename, weight, doc_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    );
     for (const { path, weight } of document.paths) {
-      insertPath.run(type, id, document.projectId, path, pathBasename(path), weight, document.date);
+      statements.insertPath.run(type, id, document.projectId, path, pathBasename(path), weight, document.date);
     }
   }
 }

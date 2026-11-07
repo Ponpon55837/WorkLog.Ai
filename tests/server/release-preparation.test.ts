@@ -58,6 +58,11 @@ describe("release preparation", () => {
     expect(workflow).toContain("needs: [verify, audit, quality, e2e-browser]");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("--verify-tag");
+    // Publish packs the commit the checks verified, refuses a tag moved since, and keeps the write token out of git.
+    expect(workflow).toContain("ref: ${{ github.sha }}");
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).toContain('tagged="$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"');
+    expect(workflow).not.toContain("ref: ${{ github.ref }}");
     // The standalone tarball is smoke-tested as uploaded, and every asset gets a SHA-256 line.
     expect(workflow).toContain("pnpm build && pnpm build:standalone");
     expect(workflow).toContain(
