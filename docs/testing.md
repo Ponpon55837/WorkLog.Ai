@@ -183,6 +183,8 @@ node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-on
 
 `getGraph (default 180 nodes)` 量測預設 Graph（最多 180 個節點）：只讀取必要欄位並只解碼可顯示的 Session 候選範圍，總數由 SQL 聚合；bench 在計時前驗證結果被截斷在 180 個節點。上限 250 ms 為寬鬆 CI 門檻。可用 `--case=<完整案例名稱>` 只跑該案例，例如 `node packages/storage/bench/read-paths.bench.mjs 5000 --check --case="getGraph (default 180 nodes)"`。`tests/storage/graph-candidates.test.ts` 以固定預期檔 `tests/storage/fixtures/graph-candidates.golden.json`（由舊的全量載入實作產生）比對節點、邊、總數、截斷旗標與排序，涵蓋 limit／maxNodes／maxEdges、單一專案、cursor 逐頁、作廢 Session、暫停專案、壞掉的舊 changed-files JSON 與 Session 連結。
 
+`getReport year (after ANALYZE)` 以 `VACUUM INTO` 複製 bench 資料庫、在副本執行 `ANALYZE`（等同 `db:maintain`）後量年報，並要求輸出與未 ANALYZE 的年報完全相同；p90 上限沿用年報的 1,500 ms。這個門檻很寬、只擋數量級退化，精確防線是 `tests/storage/report-decision-plan.test.ts`：ANALYZE 後以 `EXPLAIN QUERY PLAN` 斷言決策總數與待處理決策兩條查詢仍以 `session_decisions` 為外層（不是 `sessions` 的 `completed_at` 範圍掃描）。`tests/storage/attention.test.ts` 的 fingerprint 案例涵蓋 outstanding 與 Knowledge page 來源的新增、更新、刪除、作廢，以及無變動時 `sourceRevision` 不變。
+
 `metadata follow-up count` 獨立量測 `work_get_context` 使用的 SQL 聚合，不建立完整預覽 DTO；bench 在計時前用 JavaScript 預覽 totals 驗證 SQL 結果完全相同。5,000 筆完整預覽的既有本機 p90 約 58 ms，因此 count-only 路徑設 100 ms 上限；完整明細預覽仍保留原本路徑與回傳內容。
 
 第九輪 B1 在相同 5,000 Sessions／1,000 合成未結項中新增來源完成日期的月份篩選，p90 為 1.62 ms（上限 250 ms）；既有未結項列表 p90 為 7.89 ms。28 組讀取門檻全部通過。批次測試涵蓋 100／101 項、重複／無效 ID、作廢來源、停用專案、狀態衝突、無變更不追加稽核與稽核失敗整批回滾；瀏覽器測試涵蓋跨頁復原、日期 URL／reload，以及 1440／960／375px 的區塊內捲動。
