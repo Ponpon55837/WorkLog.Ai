@@ -27,7 +27,7 @@ export const insightRoutes: Route[] = [
         includeDerived: url.searchParams.get("includeDerived") === "true" || undefined,
         coChangeMinSessions: numberParam(url, "coChangeMinSessions"),
       }),
-      ({ store }, data) => store.getGraph(data),
+      ({ services }, data) => services.heavyReads.getGraph(data),
     ),
   },
   {
@@ -86,7 +86,7 @@ export const insightRoutes: Route[] = [
         groupBy: url.searchParams.get("groupBy") || undefined,
         limit: numberParam(url, "limit"),
       }),
-      ({ store }, data) => store.getHotspots(data),
+      ({ services }, data) => services.heavyReads.getHotspots(data),
     ),
   },
   {

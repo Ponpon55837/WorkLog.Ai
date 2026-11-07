@@ -41,6 +41,8 @@ P1 5.6 將 `work_get_context` 的 metadata follow-up totals 改由 SQLite 聚合
 
 Ubuntu 效能 gate 使用 5,000 筆合成 Sessions，操作時間與 health 探測分開量測。操作／health／event-loop blocking p90：備份 125.87／4.06／10.73 ms、整庫匯出 225.27／25.47／13.47 ms、專案匯出 390.01／15.40／11.99 ms、匯入預覽 959.68／1.26／24.71 ms；RSS peak 537.7／598.3／664.3／744.3 MB。操作門檻仍為 300／300／400／1,500 ms，blocking 門檻 100 ms。冷啟動操作 p90 308／380.9／571.89／1,297.15 ms（只回報）；metadata follow-up counts p90 16.57 ms／100 ms 門檻。
 
+P1 5.2 spike（draft，**不建議合入**）：年報、Graph、Hotspots 的 `GET` 路由改由唯讀 worker 執行（白名單三項操作、獨立唯讀連線、schema 版本核對、15 秒閒置結束、shutdown 排空；待處理的搜尋索引同步仍在 API 執行緒完成，`:memory:` 退回同執行緒）。5,000 筆合成 Sessions，三輪交錯 sync／worker，各案例 5 次 p90 取三輪中位數。health p90 sync → worker：年報 784.7 → 23.6 ms、Graph 673.5 → 56.4 ms、Hotspots 1,034 → 69.9 ms；事件迴圈阻塞 p90：920.7 → 36.2、888.1 → 96.9、795.9 → 49.3 ms；操作總 p90 無一致改善（年報 935.9 → 897.8、Graph 901.0 → 1,269.5、Hotspots 964.8 → 575.3 ms，結構化複製與冷啟動使 Graph 變慢）。**RSS 增幅超過 40 MB 停止條件**：獨立 probe（乾淨行程、同一份 5,000 Sessions 資料庫、三輪交錯）worker 生成後立即 +46.8／+47.0／+42.2 MB（同執行緒僅 +3.3～+4.2 MB），重讀尖峰比同執行緒高 +64／+69／+58 MB，worker 閒置結束後仍高 +52／+59／+46 MB（配置器未立即還給作業系統）。因此停在 spike，不產品化，待使用者決定。量測時主機 load average 105～373（同時有其他 agent 建置測試），絕對時間僅供相對比較。
+
 ## 知識品質 Roadmap（已完成）
 
 2026-10-22 至 10-30 依實測逐階段執行：Phase 0 建立私有題庫與規模基線；Phase 2 與 P0（PR #261～#263、#268～#271）改善 recall 排序並補上答案性規則，confidence 計算維持不變；Phase 1、Phase 3 C1–C4 與 Phase 4 D2 經量測沒有實際失敗而不做，D3 經使用者決定不做；Phase 4 D1 以 PR #275 加入有界的 `relevant.supplements`，parent／related 觸及率 28.3% → 37.6%、active applied Knowledge 7.4% → 18.5%，私有題庫指標不變。計畫文件已刪除，逐輪數字見各 PR 與 CHANGELOG；長期規模問題只在實測出現瓶頸時再處理。

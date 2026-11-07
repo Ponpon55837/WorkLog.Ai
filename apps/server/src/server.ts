@@ -21,6 +21,7 @@ import {
   sendError,
 } from "./http.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
+import { createInlineReadOperations, type HeavyReadOperations } from "./read-worker-client.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
@@ -110,11 +111,29 @@ export interface ApiHandlerOptions {
   userServiceStatus?: () => UserServiceStatus | Promise<UserServiceStatus>;
   /** Offloads disk snapshots and large project-data preparation from the API event loop. */
   backgroundStore?: BackgroundStoreOperations;
+  /** Offloads year reports, Graph, and Hotspots from the API event loop; omitted means the API thread. */
+  heavyReads?: HeavyReadOperations;
 }
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
   closeEventStreams: () => void;
 };
+
+/** A read-only worker cannot write, so the API thread applies pending search-index work before dispatching. */
+function withSearchIndexSync(store: WorkIntelligenceStore, reads: HeavyReadOperations): HeavyReadOperations {
+  return {
+    getReport(input) {
+      store.syncSearchIndex();
+      return reads.getReport(input);
+    },
+    getGraph: (input) => reads.getGraph(input),
+    getHotspots(input) {
+      store.syncSearchIndex();
+      return reads.getHotspots(input);
+    },
+    close: () => reads.close(),
+  };
+}
 
 function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundStoreOperations {
   return {
@@ -153,6 +172,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const inspectConnections = options.agentConnections ?? (() => inspectAgentConnections({ repositoryRoot }));
   const queryUserService = options.userServiceStatus ?? (() => getUserServiceStatusAsync({ repositoryRoot }));
   const backgroundStore = options.backgroundStore ?? createInlineBackgroundStore(store);
+  const heavyReads = withSearchIndexSync(store, options.heavyReads ?? createInlineReadOperations(store));
   let cachedUserService: { status: UserServiceStatus; expiresAt: number } | undefined;
   let pendingUserService: Promise<UserServiceStatus> | undefined;
   function inspectUserService(): Promise<UserServiceStatus> {
@@ -269,6 +289,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
     backgroundStore,
+    heavyReads,
   };
 
   const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

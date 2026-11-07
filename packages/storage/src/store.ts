@@ -994,6 +994,11 @@ export class WorkIntelligenceStore {
     };
   }
 
+  /** Re-indexes pending search documents; the only write a heavy read needs, kept off read-only workers. */
+  public syncSearchIndex(): void {
+    this.searchIndex.syncIndex();
+  }
+
   public getReport(options: {
     period: ReportPeriod;
     date?: string;

@@ -5,6 +5,7 @@
 //   node packages/storage/bench/read-paths.bench.mjs [sessionCount]
 //   node packages/storage/bench/read-paths.bench.mjs 5000 --check --case=finalize-related-reminder
 //   node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-only --backup-worker-mode=sync|worker
+//   node packages/storage/bench/read-paths.bench.mjs 5000 --check --read-worker-only --read-worker-mode=sync|worker
 //
 // Seeding thousands of Sessions is slow, so set WI_BENCH_CACHE=<path prefix> to keep the
 // seeded SQLite file and reuse it on the next run (for before/after comparisons).
@@ -33,11 +34,20 @@ const benchmarkCaseFilter =
   caseFilter === "finalize-related-reminder" ? "finalizeSession (related pending reminder)" : caseFilter;
 const backupWorkerModeArgument = args.find((argument) => argument.startsWith("--backup-worker-mode="));
 const backupWorkerMode = backupWorkerModeArgument?.slice("--backup-worker-mode=".length) ?? "worker";
+const readWorkerOnly = args.includes("--read-worker-only");
+const readWorkerModeArgument = args.find((argument) => argument.startsWith("--read-worker-mode="));
+const readWorkerMode = readWorkerModeArgument?.slice("--read-worker-mode=".length) ?? "worker";
 if (!Number.isSafeInteger(sessionCount) || sessionCount < 1) {
   throw new Error("Session count must be a positive safe integer.");
 }
 if (backupWorkerMode !== "worker" && backupWorkerMode !== "sync") {
   throw new Error("Backup worker benchmark mode must be 'worker' or 'sync'.");
+}
+if (readWorkerMode !== "worker" && readWorkerMode !== "sync") {
+  throw new Error("Read worker benchmark mode must be 'worker' or 'sync'.");
+}
+if (readWorkerOnly && backupWorkerOnly) {
+  throw new Error("Choose either --backup-worker-only or --read-worker-only.");
 }
 const repositoryRoot = resolve(
   process.env.WI_BACKUP_BENCH_BUILD_ROOT ?? fileURLToPath(new URL("../../..", import.meta.url)),
@@ -55,6 +65,7 @@ const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvalua
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
 const runs = 15;
 const backupWorkerBenchIdleTimeoutMs = 15_000;
+const readWorkerBenchIdleTimeoutMs = 15_000;
 const root = mkdtempSync(join(tmpdir(), "wi-bench-"));
 const alphaRoot = join(root, "alpha");
 const betaRoot = join(root, "beta");
@@ -74,7 +85,7 @@ let benchmarkApiClosed = false;
 const heavyApiClientScript = `
 import { request } from "node:http";
 import { performance } from "node:perf_hooks";
-const [baseUrl, path, sessionCountArgument, healthArgument] = process.argv.slice(1);
+const [baseUrl, path, sessionCountArgument, healthArgument, method = "POST"] = process.argv.slice(1);
 const sessionCount = Number(sessionCountArgument);
 const collectHealth = healthArgument === "health";
 const bodyChunks = [];
@@ -83,8 +94,8 @@ const body = Buffer.concat(bodyChunks);
 const operationStarted = performance.now();
 const operationPromise = new Promise((resolve, reject) => {
   const operation = request(new URL(path, baseUrl), {
-    method: "POST",
-    headers: { "content-type": "application/json", "content-length": String(body.length) },
+    method,
+    headers: method === "GET" ? {} : { "content-type": "application/json", "content-length": String(body.length) },
   }, (response) => {
     const chunks = [];
     response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
@@ -95,7 +106,25 @@ const operationPromise = new Promise((resolve, reject) => {
         reject(new Error("Heavy API request failed: " + response.statusCode + " " + content.toString("utf8")));
         return;
       }
-      if (path === "/api/backups") {
+      if (path.startsWith("/api/reports?")) {
+        const result = JSON.parse(content.toString("utf8"));
+        if (result.outcome !== "report") {
+          reject(new Error("Expected a report."));
+          return;
+        }
+      } else if (path.startsWith("/api/graph?")) {
+        const result = JSON.parse(content.toString("utf8"));
+        if (result.outcome !== "graph" || !Array.isArray(result.nodes) || result.nodes.length === 0) {
+          reject(new Error("Expected a populated Graph."));
+          return;
+        }
+      } else if (path.startsWith("/api/insights/hotspots?")) {
+        const result = JSON.parse(content.toString("utf8"));
+        if (result.outcome !== "hotspots" || !Array.isArray(result.items) || result.items.length === 0) {
+          reject(new Error("Expected Hotspots."));
+          return;
+        }
+      } else if (path === "/api/backups") {
         const result = JSON.parse(content.toString("utf8"));
         if (result.outcome !== "database_backups" || !result.created?.bytes) {
           reject(new Error("Expected a written backup."));
@@ -123,7 +152,8 @@ const operationPromise = new Promise((resolve, reject) => {
   operation.once("error", (error) => {
     reject(error);
   });
-  operation.end(body);
+  if (method === "GET") operation.end();
+  else operation.end(body);
 });
 const healthSamples = [];
 let operationComplete = false;
@@ -159,7 +189,7 @@ process.stdout.write(JSON.stringify({
 }));
 `;
 
-function runHeavyApiClient(baseUrl, path, body, targetSessionCount, probeHealth = false) {
+function runHeavyApiClient(baseUrl, path, body, targetSessionCount, probeHealth = false, method = "POST") {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -171,6 +201,7 @@ function runHeavyApiClient(baseUrl, path, body, targetSessionCount, probeHealth 
         path,
         String(targetSessionCount),
         probeHealth ? "health" : "operation",
+        method,
       ],
       {
         env: process.env,
@@ -864,7 +895,7 @@ try {
     pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "server.js")).href
   );
   const workerClientModule =
-    backupWorkerMode === "worker"
+    backupWorkerMode === "worker" && !readWorkerOnly
       ? await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "backup-worker-client.js")).href)
       : undefined;
   const BackupWorkerClient = workerClientModule?.BackupWorkerClient;
@@ -906,9 +937,19 @@ try {
         },
       }
     : undefined;
+  const readWorkerModule =
+    readWorkerMode === "worker"
+      ? await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "read-worker-client.js")).href)
+      : undefined;
+  const heavyReads = readWorkerModule
+    ? new readWorkerModule.ReadWorkerClient(databasePath, LATEST_SCHEMA_VERSION, {
+        idleTimeoutMs: readWorkerBenchIdleTimeoutMs,
+      })
+    : undefined;
   const benchmarkServer = createServer(
     createApiHandler(benchStore, {
       ...(backgroundStore ? { backgroundStore } : {}),
+      ...(heavyReads && readWorkerOnly ? { heavyReads } : {}),
     }),
   );
   await new Promise((resolve, reject) => {
@@ -945,6 +986,7 @@ try {
     if (coldStartServer) await closeServer(coldStartServer);
     await backgroundStore?.close();
     await coldStartBackgroundStore?.close();
+    await heavyReads?.close();
   };
 
   const makeHeavyCases = (baseUrl, probeHealth) => ({
@@ -961,9 +1003,21 @@ try {
         probeHealth,
       ),
   });
-  const heavyCases = makeHeavyCases(benchmarkBaseUrl, false);
-  const heavyHealthCases = makeHeavyCases(benchmarkBaseUrl, true);
-  const coldStartHeavyCases = coldStartBaseUrl ? makeHeavyCases(coldStartBaseUrl, false) : {};
+  const makeHeavyReadCases = (baseUrl, probeHealth) => ({
+    "API getReport year": () =>
+      runHeavyApiClient(baseUrl, "/api/reports?period=year&date=2026-03-11", "", sessionCount, probeHealth, "GET"),
+    "API getGraph (with derived)": () =>
+      runHeavyApiClient(baseUrl, "/api/graph?includeDerived=true", "", sessionCount, probeHealth, "GET"),
+    "API getHotspots (files)": () =>
+      runHeavyApiClient(baseUrl, "/api/insights/hotspots?limit=20", "", sessionCount, probeHealth, "GET"),
+  });
+  const heavyCases = readWorkerOnly
+    ? makeHeavyReadCases(benchmarkBaseUrl, false)
+    : makeHeavyCases(benchmarkBaseUrl, false);
+  const heavyHealthCases = readWorkerOnly
+    ? makeHeavyReadCases(benchmarkBaseUrl, true)
+    : makeHeavyCases(benchmarkBaseUrl, true);
+  const coldStartHeavyCases = !readWorkerOnly && coldStartBaseUrl ? makeHeavyCases(coldStartBaseUrl, false) : {};
   const heavyRuns = 5;
   const beforeEachRun = {
     "getMcpRuntimeStatus (286 expired leases)": seedExpiredLeases,
@@ -1026,6 +1080,9 @@ try {
     "exportTo (whole database)": 300,
     "exportProjectData (all projects)": 400,
     "previewProjectDataImport (all projects)": 1500,
+    "API getReport year": 1500,
+    "API getGraph (with derived)": 750,
+    "API getHotspots (files)": 500,
   };
   const transactionLimitsMs = {
     "finalizeSession (related pending reminder)": 50,
@@ -1034,10 +1091,12 @@ try {
   const eventLoopBlockLimitMs = 100;
 
   const results = [];
-  const benchmarkCases = backupWorkerOnly ? heavyCases : { ...cases, ...heavyCases };
+  const rssStartMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
+  const benchmarkCases = backupWorkerOnly || readWorkerOnly ? heavyCases : { ...cases, ...heavyCases };
   const selectedCases = Object.entries(benchmarkCases).filter(
     ([name]) =>
-      (backupWorkerOnly || !checkMode || name in limitsMs) && (!benchmarkCaseFilter || name === benchmarkCaseFilter),
+      (backupWorkerOnly || readWorkerOnly || !checkMode || name in limitsMs) &&
+      (!benchmarkCaseFilter || name === benchmarkCaseFilter),
   );
   if (benchmarkCaseFilter && selectedCases.length === 0) {
     throw new Error(`No benchmark case matched --case=${caseFilter}.`);
@@ -1171,6 +1230,22 @@ try {
       workerIdleTimeoutMs: backupWorkerBenchIdleTimeoutMs,
     });
   }
+  if (readWorkerOnly) {
+    // RSS of the whole bench process (API thread + worker isolate + both SQLite connections).
+    const rssBeforeIdleMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
+    await new Promise((resolve) => setTimeout(resolve, readWorkerBenchIdleTimeoutMs + 250));
+    const rssAfterIdleMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
+    console.log("Read worker RSS (synthetic heavy reads):", {
+      mode: readWorkerMode,
+      rssStartMb,
+      rssPeakMb: Math.max(...results.map((result) => result.rssPeakMaxMb ?? 0)),
+      rssPeakDeltaMb: Number((Math.max(...results.map((result) => result.rssPeakMaxMb ?? 0)) - rssStartMb).toFixed(1)),
+      rssAfterLastReadMb: rssBeforeIdleMb,
+      rssAfterWorkerIdleMb: rssAfterIdleMb,
+      idleDeltaMb: Number((rssAfterIdleMb - rssBeforeIdleMb).toFixed(1)),
+      workerIdleTimeoutMs: readWorkerBenchIdleTimeoutMs,
+    });
+  }
   console.table(results);
   if (checkMode) {
     const failures = results.filter((result) => !result.passed);
@@ -1189,9 +1264,11 @@ try {
       process.exitCode = 1;
     } else {
       console.log(
-        backupWorkerOnly
-          ? `Backup worker gate passed (${backupWorkerMode}, ${sessionCount} synthetic sessions; operation totals were timed without probes, while health was probed every 10 ms in a separate pass; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`
-          : `Performance regression gate passed (${sessionCount} synthetic sessions; operation totals and continuous health probes used separate passes; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`,
+        readWorkerOnly
+          ? `Read worker gate passed (${readWorkerMode}, ${sessionCount} synthetic sessions; operation totals were timed without probes, while health was probed every 10 ms in a separate pass; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`
+          : backupWorkerOnly
+            ? `Backup worker gate passed (${backupWorkerMode}, ${sessionCount} synthetic sessions; operation totals were timed without probes, while health was probed every 10 ms in a separate pass; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`
+            : `Performance regression gate passed (${sessionCount} synthetic sessions; operation totals and continuous health probes used separate passes; event-loop p90 limit ${eventLoopBlockLimitMs} ms).`,
       );
     }
   }

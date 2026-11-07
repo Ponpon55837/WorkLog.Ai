@@ -212,6 +212,10 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - in-memory 資料庫回傳 409 `backup_unavailable`。
 - 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。
 
+## 重量級讀取（worker）
+
+`GET /api/reports`、`GET /api/graph`、`GET /api/insights/hotspots` 在正式 server（檔案資料庫）由唯讀 worker thread 執行；請求與回應格式、錯誤碼、policy 跳過行為與狀態碼不變，沒有新增或改變路由。worker 只接受這三個白名單操作，擁有自己的唯讀連線並核對 schema 版本，閒置 15 秒後結束，shutdown 時等待進行中的讀取排空後才關閉 SQLite。待處理的搜尋索引同步（唯一的寫入）由 API 執行緒在派送前完成；`:memory:` 資料庫退回 API 執行緒同步執行。
+
 ## 系統狀態
 
 - REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`userService` 唯讀回報目前使用者的登入服務管理器、安裝／執行／啟用狀態、服務設定路徑、資料庫、備份目錄與日誌路徑；`sseConnections` 是目前開啟的即時更新連線數。 `agents.codex` 與 `agents.claudeCode` 顯示 MCP 註冊狀態（`registered`／`missing`／`unknown`）、skill 複本狀態及 hook 狀態；Codex TOML 無法解析時回報 `unknown`，不會修改設定檔；`mcp.restartRequired` 保留 A3 的重新連線判斷。

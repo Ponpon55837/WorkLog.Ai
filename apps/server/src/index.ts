@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { DatabaseInitializationError, LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { databasePath, storeOptions } from "./config.js";
 import { BackupWorkerClient } from "./backup-worker-client.js";
+import { ReadWorkerClient } from "./read-worker-client.js";
 import { describeListenError } from "./listen-error.js";
 import { createApiHandler } from "./server.js";
 import { resolveServerPort } from "./server-port.js";
@@ -23,7 +24,10 @@ function startApi(): void {
     databasePath === ":memory:"
       ? undefined
       : new BackupWorkerClient(databasePath, storeOptions.backup, LATEST_SCHEMA_VERSION);
+  const readWorker =
+    databasePath === ":memory:" ? undefined : new ReadWorkerClient(databasePath, LATEST_SCHEMA_VERSION);
   const apiHandler = createApiHandler(store, {
+    ...(readWorker ? { heavyReads: readWorker } : {}),
     ...(webDirectory ? { webDirectory } : {}),
     ...(backupWorker ? { backgroundStore: backupWorker } : {}),
   });
@@ -96,7 +100,9 @@ function startApi(): void {
         clearTimeout(initialBackupTimer);
       },
       closeEventStreams: () => apiHandler.closeEventStreams(),
-      closeBackgroundWork: () => backupWorker?.close() ?? Promise.resolve(),
+      closeBackgroundWork: async () => {
+        await Promise.all([backupWorker?.close(), readWorker?.close()]);
+      },
       closeDatabase: () => store.close(),
       onBackgroundWorkCloseError: (error) => {
         console.error(

@@ -53,7 +53,7 @@ export const reportRoutes: Route[] = [
       reportQuerySchema,
       "Invalid report query.",
       ({ url }) => reportQuery(url),
-      ({ store }, data) => store.getReport(data),
+      ({ services }, data) => services.heavyReads.getReport(data),
     ),
   },
   {

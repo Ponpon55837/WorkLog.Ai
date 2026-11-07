@@ -1,3 +1,4 @@
+import type { HeavyReadOperations } from "../read-worker-client.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   DatabaseBackupCreated,
@@ -46,6 +47,7 @@ export interface RouteServices {
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
   backgroundStore: BackgroundStoreOperations;
+  heavyReads: HeavyReadOperations;
 }
 
 export interface RouteContext {
@@ -100,7 +102,7 @@ export function validatedRoute<T>(
       sendError(context.response, 400, invalidMessage, parsed.error.flatten());
       return;
     }
-    sendJson(context.response, status, run(context, parsed.data));
+    sendJson(context.response, status, await run(context, parsed.data));
   };
 }
 
