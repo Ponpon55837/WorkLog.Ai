@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-11-08
+
+[繁體中文更新說明](docs/releases/1.6.9.md).
+
 ### Added
 
 - Unsaved work survives context compaction. Claude Code's `PreCompact` hook (manual and automatic) prints extra summary instructions when a tracked project has edits after the last successful save: keep that the work is unsaved, the segment's start time, and the changed files (paths relative to the tracked root, at most 30 then "等 N 個", control characters removed, never contents, far below the 10,000-character cap). It never blocks compaction and prints nothing otherwise. After a compaction, `SessionStart` (`compact`) in Claude Code (from the transcript, which keeps entries before the compact boundary; the compaction summary is not taken as a typed message) and in Codex (from its unsaved marker) adds the unsaved reminder and start time back as `additionalContext`, on every compaction. Both reuse the existing reminder scripts and dispatch on `hook_event_name`; the plugin manifests, `pnpm setup:agents` (preview and confirmation as before; uninstall removes them) and `pnpm check` include the new hooks, which stay optional.
