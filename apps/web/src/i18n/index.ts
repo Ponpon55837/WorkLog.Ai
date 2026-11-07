@@ -1,5 +1,4 @@
-import { ref } from "vue";
-import enUS from "./locales/en-US.json";
+import { customRef, type Ref } from "vue";
 import zhTW from "./locales/zh-TW.json";
 
 /**
@@ -10,6 +9,10 @@ import zhTW from "./locales/zh-TW.json";
  * The locale lives in a module-level ref (not a Pinia store) because pure utils — status maps, label maps,
  * formatters, router meta — translate outside any component or active Pinia. Anything that calls `t()` while
  * rendering or inside a computed re-runs when the locale changes.
+ *
+ * 繁體中文 is bundled because it is the fallback for every other locale. Other catalogs are separate chunks loaded
+ * on demand: assigning `locale.value` fetches the catalog first and only then switches, so no screen ever renders
+ * half-translated. `localeReady()` resolves once a pending switch has landed.
  */
 export const LOCALES = ["zh-TW", "en-US"] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -31,12 +34,53 @@ function flatten(catalog: Catalog, prefix = "", into: Record<string, string> = {
   return into;
 }
 
-const catalogs: Record<Locale, Readonly<Record<string, string>>> = {
-  "zh-TW": flatten(zhTW),
-  "en-US": flatten(enUS),
+const catalogs: Partial<Record<Locale, Readonly<Record<string, string>>>> = { "zh-TW": flatten(zhTW) };
+const fallbackCatalog = catalogs["zh-TW"] as Readonly<Record<string, string>>;
+
+const catalogLoaders: Record<Exclude<Locale, "zh-TW">, () => Promise<{ default: Catalog }>> = {
+  "en-US": () => import("./locales/en-US.json"),
 };
 
-export const locale = ref<Locale>("zh-TW");
+let currentLocale: Locale = "zh-TW";
+let requestedLocale: Locale = "zh-TW";
+let pendingSwitch: Promise<void> = Promise.resolve();
+
+/** Fetches and flattens a locale's catalog once; resolves immediately when it is already loaded. */
+export async function loadCatalog(target: Locale): Promise<void> {
+  if (catalogs[target] || target === "zh-TW") return;
+  catalogs[target] = flatten((await catalogLoaders[target]()).default);
+}
+
+/**
+ * The active locale. Writing a locale whose catalog is not loaded yet fetches it, then switches; the latest write
+ * wins, and a failed fetch leaves the current locale in place.
+ */
+export const locale: Ref<Locale> = customRef<Locale>((track, trigger) => ({
+  get() {
+    track();
+    return currentLocale;
+  },
+  set(next) {
+    requestedLocale = next;
+    if (catalogs[next]) {
+      currentLocale = next;
+      trigger();
+      return;
+    }
+    pendingSwitch = loadCatalog(next)
+      .then(() => {
+        if (requestedLocale !== next) return;
+        currentLocale = next;
+        trigger();
+      })
+      .catch(() => undefined);
+  },
+}));
+
+/** Resolves when the most recent locale write has taken effect (immediately when nothing is pending). */
+export function localeReady(): Promise<void> {
+  return pendingSwitch;
+}
 
 /** Each language is named in itself, so it stays recognisable whatever the current locale is. */
 export const LOCALE_OPTIONS: ReadonlyArray<{ value: Locale; label: string }> = [
@@ -57,7 +101,7 @@ export function isLocale(value: unknown): value is Locale {
 
 /** The flat key → text map of one locale, for tests and tooling that check catalogs against each other. */
 export function catalogEntries(target: Locale): Readonly<Record<string, string>> {
-  return catalogs[target];
+  return catalogs[target] ?? {};
 }
 
 function pluralForm(text: string, params: MessageParams): string {
@@ -71,7 +115,7 @@ function pluralForm(text: string, params: MessageParams): string {
  * the first number placeholder (Chinese messages have a single form).
  */
 export function t(key: MessageKey, params?: MessageParams): string {
-  let text = catalogs[locale.value][key] ?? catalogs["zh-TW"][key] ?? key;
+  let text = catalogs[locale.value]?.[key] ?? fallbackCatalog[key] ?? key;
   if (!params) return text;
   if (text.includes("|")) text = pluralForm(text, params);
   return text.replace(/\{(\w+)\}/g, (match, name: string) => (name in params ? String(params[name] ?? "") : match));

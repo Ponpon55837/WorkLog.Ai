@@ -1,11 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createStoreHarness } from "../helpers/store-harness.js";
-import { catalogEntries, locale, t } from "../../../apps/web/src/i18n/index.js";
+import { catalogEntries, loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 import { usePreferencesStore } from "../../../apps/web/src/stores/preferences.js";
 
 let harness: ReturnType<typeof createStoreHarness>;
 const storage = new Map<string, string>();
+
+beforeAll(() => loadCatalog("en-US"));
 
 beforeEach(() => {
   storage.clear();

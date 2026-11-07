@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { nextTick, watchEffect } from "vue";
 import {
   catalogEntries,
   detectLocale,
+  loadCatalog,
   locale,
   t,
   translatedOptions,
@@ -61,6 +62,8 @@ function placeholders(text: string): string {
   return [...new Set(text.match(/\{\w+\}/g) ?? [])].sort().join();
 }
 
+beforeAll(() => loadCatalog("en-US"));
+
 afterEach(() => {
   locale.value = "zh-TW";
 });
@@ -69,7 +72,12 @@ describe("message catalogs", () => {
   const strings: string[] = [];
   for (const code of Object.values(SOURCES)) collectStrings(code, strings);
   const zhTW = catalogEntries("zh-TW");
-  const enUS = catalogEntries("en-US");
+  let enUS: Readonly<Record<string, string>> = {};
+
+  beforeAll(async () => {
+    await loadCatalog("en-US");
+    enUS = catalogEntries("en-US");
+  });
 
   it("reads the web sources", () => {
     expect(Object.keys(SOURCES).length).toBeGreaterThan(100);

@@ -5,7 +5,7 @@ import {
   editorProtocolLabels,
   pathInsideProject,
 } from "../../../apps/web/src/utils/code-links.js";
-import { locale, t } from "../../../apps/web/src/i18n/index.js";
+import { locale, localeReady, t } from "../../../apps/web/src/i18n/index.js";
 
 describe("pathInsideProject", () => {
   it("joins project-relative and absolute paths under the root", () => {
@@ -70,9 +70,10 @@ describe("commitUrl", () => {
 });
 
 describe("editorProtocolLabels", () => {
-  it("translates the no-editor choice and keeps product names as they are", () => {
+  it("translates the no-editor choice and keeps product names as they are", async () => {
     expect(editorProtocolLabels.none).toBe(t("labels.none"));
     locale.value = "en-US";
+    await localeReady();
     expect(editorProtocolLabels.none).toBe(t("labels.none"));
     expect(editorProtocolLabels.vscode).toBe("VS Code");
     expect(editorProtocolLabels.cursor).toBe("Cursor");
