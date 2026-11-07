@@ -1790,15 +1790,20 @@ export class WorkIntelligenceStore {
     });
     if (result.outcome === "finalized") {
       const { session } = result;
+      // The Session is already committed; a failed reminder lookup only omits the optional reminders.
       runAfterImmediateTransaction(this.db, () => {
-        result.relatedOutstandingItems = this.contextRecallService.relatedOutstandingItems(
-          session.projectId,
-          {
-            task: `${session.title} ${session.summary}`.slice(0, 2_000),
-            paths: session.changedFiles,
-          },
-          session.id,
-        );
+        try {
+          result.relatedOutstandingItems = this.contextRecallService.relatedOutstandingItems(
+            session.projectId,
+            {
+              task: `${session.title} ${session.summary}`.slice(0, 2_000),
+              paths: session.changedFiles,
+            },
+            session.id,
+          );
+        } catch {
+          delete result.relatedOutstandingItems;
+        }
       });
     }
     return result;

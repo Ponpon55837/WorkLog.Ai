@@ -116,6 +116,26 @@ describe("outstanding items", () => {
     expect(duplicate.relatedOutstandingItems).toEqual(first.relatedOutstandingItems);
   });
 
+  it("keeps a committed finalize successful when the post-commit reminder lookup fails", () => {
+    const { store, root } = createTrackedProject("Outstanding post-commit reminder failure fixture");
+    const recall = (store as unknown as { contextRecallService: { relatedOutstandingItems: () => unknown } })
+      .contextRecallService;
+    const lookup = vi.spyOn(recall, "relatedOutstandingItems").mockImplementation(() => {
+      throw new Error("reminder lookup failed");
+    });
+
+    const first = store.withCompatibleSchema(LATEST_SCHEMA_VERSION, () =>
+      finalize(store, root, "outstanding-post-commit-failure", ["Check Orbit reminder fallback"]),
+    );
+    expect(first).toMatchObject({ outcome: "finalized", duplicate: false });
+    if (first.outcome !== "finalized") throw new Error("Expected finalize result.");
+    expect(first).not.toHaveProperty("relatedOutstandingItems");
+    expect(lookup).toHaveBeenCalledTimes(1);
+
+    const retry = finalize(store, root, "outstanding-post-commit-failure", ["Check Orbit reminder fallback"]);
+    expect(retry).toMatchObject({ outcome: "finalized", duplicate: true, session: { id: first.session.id } });
+  });
+
   it("keeps exact-text identities and terminal history when workSummary nextSteps changes", () => {
     const { store, root } = createTrackedProject("Outstanding sync fixture");
     const created = finalize(store, root, "outstanding-sync-source", ["Keep this id", "Remove this", "Looks complete"]);
