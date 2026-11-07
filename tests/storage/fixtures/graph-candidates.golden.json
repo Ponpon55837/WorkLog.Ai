@@ -1,0 +1,3495 @@
+{
+  "default": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 22",
+        "kind": "session",
+        "label": "Session 22",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "completedAt": "2026-09-08T12:22:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 19",
+        "kind": "session",
+        "label": "Session 19",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 19",
+        "metadata": {
+          "completedAt": "2026-09-07T12:19:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 16",
+        "kind": "session",
+        "label": "Session 16",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 16",
+        "metadata": {
+          "completedAt": "2026-09-06T12:16:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-0.ts",
+        "kind": "file",
+        "label": "src/part-0.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-0.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 13",
+        "kind": "session",
+        "label": "Session 13",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 13",
+        "metadata": {
+          "completedAt": "2026-09-05T12:13:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 10",
+        "kind": "session",
+        "label": "Session 10",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 10",
+        "metadata": {
+          "completedAt": "2026-09-04T12:10:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 07",
+        "kind": "session",
+        "label": "Session 07",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 07",
+        "metadata": {
+          "completedAt": "2026-09-03T12:07:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 01",
+        "kind": "session",
+        "label": "Session 01",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 01",
+        "metadata": {
+          "completedAt": "2026-09-01T12:01:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 7",
+        "kind": "knowledge",
+        "label": "Knowledge 7",
+        "projectId": "P:beta",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-10",
+        "kind": "evidence",
+        "label": "test: Evidence 10 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 10",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-10",
+          "capturedAt": "2026-10-01T00:01:06.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-16",
+        "kind": "evidence",
+        "label": "test: Evidence 16 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 16",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-16",
+          "capturedAt": "2026-10-01T00:01:09.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-22",
+        "kind": "evidence",
+        "label": "test: Evidence 22 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-22",
+          "capturedAt": "2026-10-01T00:01:12.000Z"
+        }
+      },
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 21",
+        "kind": "session",
+        "label": "Session 21",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 21",
+        "metadata": {
+          "completedAt": "2026-09-08T12:21:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 18",
+        "kind": "session",
+        "label": "Session 18",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "completedAt": "2026-09-07T12:18:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 15",
+        "kind": "session",
+        "label": "Session 15",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 15",
+        "metadata": {
+          "completedAt": "2026-09-06T12:15:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 12",
+        "kind": "session",
+        "label": "Session 12",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 12",
+        "metadata": {
+          "completedAt": "2026-09-05T12:12:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-0.ts",
+        "kind": "file",
+        "label": "src/part-0.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-0.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 09",
+        "kind": "session",
+        "label": "Session 09",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 09",
+        "metadata": {
+          "completedAt": "2026-09-04T12:09:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "session:S:Session 06",
+        "kind": "session",
+        "label": "Session 06",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 06",
+        "metadata": {
+          "completedAt": "2026-09-03T12:06:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 03",
+        "kind": "session",
+        "label": "Session 03",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 03",
+        "metadata": {
+          "completedAt": "2026-09-02T12:03:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 00",
+        "kind": "session",
+        "label": "Session 00",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "completedAt": "2026-09-01T12:00:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 21",
+        "kind": "knowledge",
+        "label": "Knowledge 21",
+        "projectId": "P:alpha",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 0",
+        "kind": "knowledge",
+        "label": "Knowledge 0",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-0",
+        "kind": "evidence",
+        "label": "test: Evidence 0 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-0",
+          "capturedAt": "2026-10-01T00:01:01.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-6",
+        "kind": "evidence",
+        "label": "test: Evidence 6 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 06",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-6",
+          "capturedAt": "2026-10-01T00:01:04.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-12",
+        "kind": "evidence",
+        "label": "test: Evidence 12 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 12",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-12",
+          "capturedAt": "2026-10-01T00:01:07.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-18",
+        "kind": "evidence",
+        "label": "test: Evidence 18 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-18",
+          "capturedAt": "2026-10-01T00:01:10.000Z"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 22",
+        "from": "project:P:beta",
+        "to": "session:S:Session 22",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/shared.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/part-2.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 19",
+        "from": "project:P:beta",
+        "to": "session:S:Session 19",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/shared.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/part-3.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 16",
+        "from": "project:P:beta",
+        "to": "session:S:Session 16",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 16:src/shared.ts",
+        "from": "session:S:Session 16",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 16:src/part-0.ts",
+        "from": "session:S:Session 16",
+        "to": "file:P:beta:src/part-0.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 13",
+        "from": "project:P:beta",
+        "to": "session:S:Session 13",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 13:src/shared.ts",
+        "from": "session:S:Session 13",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 13:src/part-1.ts",
+        "from": "session:S:Session 13",
+        "to": "file:P:beta:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 10",
+        "from": "project:P:beta",
+        "to": "session:S:Session 10",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 07",
+        "from": "project:P:beta",
+        "to": "session:S:Session 07",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 07:src/shared.ts",
+        "from": "session:S:Session 07",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 07:src/part-3.ts",
+        "from": "session:S:Session 07",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 01",
+        "from": "project:P:beta",
+        "to": "session:S:Session 01",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 01:src/shared.ts",
+        "from": "session:S:Session 01",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 01:src/part-1.ts",
+        "from": "session:S:Session 01",
+        "to": "file:P:beta:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:beta:K:Knowledge 7",
+        "from": "project:P:beta",
+        "to": "knowledge:K:Knowledge 7",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 10:E:pnpm test --filter part-10",
+        "from": "session:S:Session 10",
+        "to": "evidence:E:pnpm test --filter part-10",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 16:E:pnpm test --filter part-16",
+        "from": "session:S:Session 16",
+        "to": "evidence:E:pnpm test --filter part-16",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 22:E:pnpm test --filter part-22",
+        "from": "session:S:Session 22",
+        "to": "evidence:E:pnpm test --filter part-22",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 21",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 21",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/shared.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/part-1.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 18",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 18",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/shared.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/part-2.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 15",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 15",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 12",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 12",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 12:src/shared.ts",
+        "from": "session:S:Session 12",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 12:src/part-0.ts",
+        "from": "session:S:Session 12",
+        "to": "file:P:alpha:src/part-0.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 09",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 09",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 09:src/shared.ts",
+        "from": "session:S:Session 09",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 09:src/part-1.ts",
+        "from": "session:S:Session 09",
+        "to": "file:P:alpha:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 06",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 06",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 03",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 03",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 03:src/shared.ts",
+        "from": "session:S:Session 03",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 03:src/part-3.ts",
+        "from": "session:S:Session 03",
+        "to": "file:P:alpha:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 00",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 00",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:alpha:K:Knowledge 21",
+        "from": "project:P:alpha",
+        "to": "knowledge:K:Knowledge 21",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:session:S:Session 00:K:Knowledge 0",
+        "from": "session:S:Session 00",
+        "to": "knowledge:K:Knowledge 0",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 00:E:pnpm test --filter part-0",
+        "from": "session:S:Session 00",
+        "to": "evidence:E:pnpm test --filter part-0",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 06:E:pnpm test --filter part-6",
+        "from": "session:S:Session 06",
+        "to": "evidence:E:pnpm test --filter part-6",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 12:E:pnpm test --filter part-12",
+        "from": "session:S:Session 12",
+        "to": "evidence:E:pnpm test --filter part-12",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 18:E:pnpm test --filter part-18",
+        "from": "session:S:Session 18",
+        "to": "evidence:E:pnpm test --filter part-18",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "session_link:S:Session 10:S:Session 07",
+        "from": "session:S:Session 07",
+        "to": "session:S:Session 10",
+        "kind": "session_link",
+        "provenance": "recorded"
+      },
+      {
+        "id": "session_link:S:Session 22:S:Session 01",
+        "from": "session:S:Session 01",
+        "to": "session:S:Session 22",
+        "kind": "session_link",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": [
+      "S:Session 22",
+      "S:Session 19",
+      "S:Session 16",
+      "S:Session 13",
+      "S:Session 10",
+      "S:Session 07",
+      "S:Session 01",
+      "S:Session 21",
+      "S:Session 18",
+      "S:Session 15",
+      "S:Session 12",
+      "S:Session 09",
+      "S:Session 06",
+      "S:Session 03",
+      "S:Session 00"
+    ],
+    "truncation": {
+      "nodeLimit": 180,
+      "edgeLimit": 360,
+      "nodesTruncated": false,
+      "edgesTruncated": false
+    }
+  },
+  "derived (beta only)": {
+    "outcome": "graph",
+    "project": {
+      "id": "P:beta",
+      "name": "beta",
+      "rootPath": "<root>/beta",
+      "status": "tracked",
+      "createdAt": "<time>",
+      "updatedAt": "<time>",
+      "lastIngestedAt": "<time>"
+    },
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 22",
+        "kind": "session",
+        "label": "Session 22",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "completedAt": "2026-09-08T12:22:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 19",
+        "kind": "session",
+        "label": "Session 19",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 19",
+        "metadata": {
+          "completedAt": "2026-09-07T12:19:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 16",
+        "kind": "session",
+        "label": "Session 16",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 16",
+        "metadata": {
+          "completedAt": "2026-09-06T12:16:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-0.ts",
+        "kind": "file",
+        "label": "src/part-0.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-0.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 13",
+        "kind": "session",
+        "label": "Session 13",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 13",
+        "metadata": {
+          "completedAt": "2026-09-05T12:13:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 10",
+        "kind": "session",
+        "label": "Session 10",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 10",
+        "metadata": {
+          "completedAt": "2026-09-04T12:10:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 07",
+        "kind": "session",
+        "label": "Session 07",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 07",
+        "metadata": {
+          "completedAt": "2026-09-03T12:07:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 01",
+        "kind": "session",
+        "label": "Session 01",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 01",
+        "metadata": {
+          "completedAt": "2026-09-01T12:01:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 7",
+        "kind": "knowledge",
+        "label": "Knowledge 7",
+        "projectId": "P:beta",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-10",
+        "kind": "evidence",
+        "label": "test: Evidence 10 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 10",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-10",
+          "capturedAt": "2026-10-01T00:01:06.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-16",
+        "kind": "evidence",
+        "label": "test: Evidence 16 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 16",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-16",
+          "capturedAt": "2026-10-01T00:01:09.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-22",
+        "kind": "evidence",
+        "label": "test: Evidence 22 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-22",
+          "capturedAt": "2026-10-01T00:01:12.000Z"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 22",
+        "from": "project:P:beta",
+        "to": "session:S:Session 22",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/shared.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/part-2.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 19",
+        "from": "project:P:beta",
+        "to": "session:S:Session 19",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/shared.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/part-3.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 16",
+        "from": "project:P:beta",
+        "to": "session:S:Session 16",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 16:src/shared.ts",
+        "from": "session:S:Session 16",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 16:src/part-0.ts",
+        "from": "session:S:Session 16",
+        "to": "file:P:beta:src/part-0.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 13",
+        "from": "project:P:beta",
+        "to": "session:S:Session 13",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 13:src/shared.ts",
+        "from": "session:S:Session 13",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 13:src/part-1.ts",
+        "from": "session:S:Session 13",
+        "to": "file:P:beta:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 10",
+        "from": "project:P:beta",
+        "to": "session:S:Session 10",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 07",
+        "from": "project:P:beta",
+        "to": "session:S:Session 07",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 07:src/shared.ts",
+        "from": "session:S:Session 07",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 07:src/part-3.ts",
+        "from": "session:S:Session 07",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 01",
+        "from": "project:P:beta",
+        "to": "session:S:Session 01",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 01:src/shared.ts",
+        "from": "session:S:Session 01",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 01:src/part-1.ts",
+        "from": "session:S:Session 01",
+        "to": "file:P:beta:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:beta:K:Knowledge 7",
+        "from": "project:P:beta",
+        "to": "knowledge:K:Knowledge 7",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 10:E:pnpm test --filter part-10",
+        "from": "session:S:Session 10",
+        "to": "evidence:E:pnpm test --filter part-10",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 16:E:pnpm test --filter part-16",
+        "from": "session:S:Session 16",
+        "to": "evidence:E:pnpm test --filter part-16",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 22:E:pnpm test --filter part-22",
+        "from": "session:S:Session 22",
+        "to": "evidence:E:pnpm test --filter part-22",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "co-changed:file:P:beta:src/part-1.ts:file:P:beta:src/shared.ts",
+        "from": "file:P:beta:src/part-1.ts",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "co_changed",
+        "provenance": "derived",
+        "reason": "2 筆 Session 同時修改了這兩個檔案"
+      },
+      {
+        "id": "co-changed:file:P:beta:src/part-3.ts:file:P:beta:src/shared.ts",
+        "from": "file:P:beta:src/part-3.ts",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "co_changed",
+        "provenance": "derived",
+        "reason": "2 筆 Session 同時修改了這兩個檔案"
+      },
+      {
+        "id": "session_link:S:Session 10:S:Session 07",
+        "from": "session:S:Session 07",
+        "to": "session:S:Session 10",
+        "kind": "session_link",
+        "provenance": "recorded"
+      },
+      {
+        "id": "session_link:S:Session 22:S:Session 01",
+        "from": "session:S:Session 01",
+        "to": "session:S:Session 22",
+        "kind": "session_link",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 17,
+    "totalEdges": 25,
+    "totalNodesByKind": {
+      "project": 1,
+      "session": 7,
+      "knowledge": 1,
+      "evidence": 3,
+      "file": 5
+    },
+    "sourceProjectIds": ["P:beta"],
+    "sourceSessionIds": [
+      "S:Session 22",
+      "S:Session 19",
+      "S:Session 16",
+      "S:Session 13",
+      "S:Session 10",
+      "S:Session 07",
+      "S:Session 01"
+    ],
+    "truncation": {
+      "nodeLimit": 180,
+      "edgeLimit": 360,
+      "nodesTruncated": false,
+      "edgesTruncated": false
+    }
+  },
+  "limit 2 per project": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 22",
+        "kind": "session",
+        "label": "Session 22",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "completedAt": "2026-09-08T12:22:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 19",
+        "kind": "session",
+        "label": "Session 19",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 19",
+        "metadata": {
+          "completedAt": "2026-09-07T12:19:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 7",
+        "kind": "knowledge",
+        "label": "Knowledge 7",
+        "projectId": "P:beta",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-22",
+        "kind": "evidence",
+        "label": "test: Evidence 22 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-22",
+          "capturedAt": "2026-10-01T00:01:12.000Z"
+        }
+      },
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 21",
+        "kind": "session",
+        "label": "Session 21",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 21",
+        "metadata": {
+          "completedAt": "2026-09-08T12:21:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 18",
+        "kind": "session",
+        "label": "Session 18",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "completedAt": "2026-09-07T12:18:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 21",
+        "kind": "knowledge",
+        "label": "Knowledge 21",
+        "projectId": "P:alpha",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 0",
+        "kind": "knowledge",
+        "label": "Knowledge 0",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-18",
+        "kind": "evidence",
+        "label": "test: Evidence 18 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-18",
+          "capturedAt": "2026-10-01T00:01:10.000Z"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 22",
+        "from": "project:P:beta",
+        "to": "session:S:Session 22",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/shared.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/part-2.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 19",
+        "from": "project:P:beta",
+        "to": "session:S:Session 19",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/shared.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/part-3.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:beta:K:Knowledge 7",
+        "from": "project:P:beta",
+        "to": "knowledge:K:Knowledge 7",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 22:E:pnpm test --filter part-22",
+        "from": "session:S:Session 22",
+        "to": "evidence:E:pnpm test --filter part-22",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 21",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 21",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/shared.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/part-1.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 18",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 18",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/shared.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/part-2.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:alpha:K:Knowledge 21",
+        "from": "project:P:alpha",
+        "to": "knowledge:K:Knowledge 21",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:alpha:K:Knowledge 0",
+        "from": "project:P:alpha",
+        "to": "knowledge:K:Knowledge 0",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 18:E:pnpm test --filter part-18",
+        "from": "session:S:Session 18",
+        "to": "evidence:E:pnpm test --filter part-18",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 22", "S:Session 19", "S:Session 21", "S:Session 18"],
+    "truncation": {
+      "nodeLimit": 180,
+      "edgeLimit": 360,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    }
+  },
+  "limit 5 with tight nodes": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 22",
+        "kind": "session",
+        "label": "Session 22",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "completedAt": "2026-09-08T12:22:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 19",
+        "kind": "session",
+        "label": "Session 19",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 19",
+        "metadata": {
+          "completedAt": "2026-09-07T12:19:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 16",
+        "kind": "session",
+        "label": "Session 16",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 16",
+        "metadata": {
+          "completedAt": "2026-09-06T12:16:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-0.ts",
+        "kind": "file",
+        "label": "src/part-0.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-0.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 13",
+        "kind": "session",
+        "label": "Session 13",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 13",
+        "metadata": {
+          "completedAt": "2026-09-05T12:13:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 22",
+        "from": "project:P:beta",
+        "to": "session:S:Session 22",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/shared.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/part-2.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 19",
+        "from": "project:P:beta",
+        "to": "session:S:Session 19",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/shared.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/part-3.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 16",
+        "from": "project:P:beta",
+        "to": "session:S:Session 16",
+        "kind": "contains",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 22", "S:Session 19", "S:Session 16", "S:Session 13"],
+    "truncation": {
+      "nodeLimit": 9,
+      "edgeLimit": 7,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    }
+  },
+  "tiny nodes": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 22",
+        "kind": "session",
+        "label": "Session 22",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "completedAt": "2026-09-08T12:22:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 22",
+        "from": "project:P:beta",
+        "to": "session:S:Session 22",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/shared.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 22"],
+    "truncation": {
+      "nodeLimit": 3,
+      "edgeLimit": 2,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    }
+  },
+  "alpha project": {
+    "outcome": "graph",
+    "project": {
+      "id": "P:alpha",
+      "name": "alpha",
+      "rootPath": "<root>/alpha",
+      "status": "tracked",
+      "createdAt": "<time>",
+      "updatedAt": "<time>",
+      "lastIngestedAt": "<time>"
+    },
+    "projects": [
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 21",
+        "kind": "session",
+        "label": "Session 21",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 21",
+        "metadata": {
+          "completedAt": "2026-09-08T12:21:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 18",
+        "kind": "session",
+        "label": "Session 18",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "completedAt": "2026-09-07T12:18:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 15",
+        "kind": "session",
+        "label": "Session 15",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 15",
+        "metadata": {
+          "completedAt": "2026-09-06T12:15:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 12",
+        "kind": "session",
+        "label": "Session 12",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 12",
+        "metadata": {
+          "completedAt": "2026-09-05T12:12:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-0.ts",
+        "kind": "file",
+        "label": "src/part-0.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-0.ts"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 21",
+        "kind": "knowledge",
+        "label": "Knowledge 21",
+        "projectId": "P:alpha",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 0",
+        "kind": "knowledge",
+        "label": "Knowledge 0",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-12",
+        "kind": "evidence",
+        "label": "test: Evidence 12 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 12",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-12",
+          "capturedAt": "2026-10-01T00:01:07.000Z"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-18",
+        "kind": "evidence",
+        "label": "test: Evidence 18 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-18",
+          "capturedAt": "2026-10-01T00:01:10.000Z"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:alpha:S:Session 21",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 21",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/shared.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/part-1.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 18",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 18",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/shared.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/part-2.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 15",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 15",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 12",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 12",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 12:src/shared.ts",
+        "from": "session:S:Session 12",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 12:src/part-0.ts",
+        "from": "session:S:Session 12",
+        "to": "file:P:alpha:src/part-0.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:alpha:K:Knowledge 21",
+        "from": "project:P:alpha",
+        "to": "knowledge:K:Knowledge 21",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:alpha:K:Knowledge 0",
+        "from": "project:P:alpha",
+        "to": "knowledge:K:Knowledge 0",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 12:E:pnpm test --filter part-12",
+        "from": "session:S:Session 12",
+        "to": "evidence:E:pnpm test --filter part-12",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 18:E:pnpm test --filter part-18",
+        "from": "session:S:Session 18",
+        "to": "evidence:E:pnpm test --filter part-18",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 20,
+    "totalEdges": 24,
+    "totalNodesByKind": {
+      "project": 1,
+      "session": 8,
+      "knowledge": 2,
+      "evidence": 4,
+      "file": 5
+    },
+    "sourceProjectIds": ["P:alpha"],
+    "sourceSessionIds": ["S:Session 21", "S:Session 18", "S:Session 15", "S:Session 12"],
+    "truncation": {
+      "nodeLimit": 180,
+      "edgeLimit": 360,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    }
+  },
+  "first cursor page": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 22",
+        "kind": "session",
+        "label": "Session 22",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "completedAt": "2026-09-08T12:22:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-22",
+        "kind": "evidence",
+        "label": "test: Evidence 22 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-22",
+          "capturedAt": "2026-10-01T00:01:12.000Z"
+        }
+      },
+      {
+        "id": "session:S:Session 21",
+        "kind": "session",
+        "label": "Session 21",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 21",
+        "metadata": {
+          "completedAt": "2026-09-08T12:21:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 19",
+        "kind": "session",
+        "label": "Session 19",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 19",
+        "metadata": {
+          "completedAt": "2026-09-07T12:19:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 22",
+        "from": "project:P:beta",
+        "to": "session:S:Session 22",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/shared.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/part-2.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 22:E:pnpm test --filter part-22",
+        "from": "session:S:Session 22",
+        "to": "evidence:E:pnpm test --filter part-22",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 21",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 21",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/shared.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/part-1.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 19",
+        "from": "project:P:beta",
+        "to": "session:S:Session 19",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/shared.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/part-3.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "session_link:S:Session 22:S:Session 01",
+        "from": "session:S:Session 01",
+        "to": "session:S:Session 22",
+        "kind": "session_link",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 22", "S:Session 21", "S:Session 19"],
+    "truncation": {
+      "nodeLimit": 12,
+      "edgeLimit": 360,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    },
+    "pageInfo": {
+      "unit": "sessions",
+      "phase": "sessions",
+      "offset": 0,
+      "pageSize": 3,
+      "hasNext": true
+    },
+    "nextCursor": "eyJ2ZXJzaW9uIjoyLCJwaGFzZSI6InNlc3Npb25zIiwicHJvamVjdE9mZnNldCI6Miwic2Vzc2lvbk9mZnNldCI6MywicmVsYXRpb25PZmZzZXQiOjAsInNjb3BlIjoiW1wiXCIsXCJcIl0ifQ"
+  },
+  "cursor chain 0": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 22",
+        "kind": "session",
+        "label": "Session 22",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "completedAt": "2026-09-08T12:22:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-22",
+        "kind": "evidence",
+        "label": "test: Evidence 22 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 22",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-22",
+          "capturedAt": "2026-10-01T00:01:12.000Z"
+        }
+      },
+      {
+        "id": "session:S:Session 21",
+        "kind": "session",
+        "label": "Session 21",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 21",
+        "metadata": {
+          "completedAt": "2026-09-08T12:21:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 19",
+        "kind": "session",
+        "label": "Session 19",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 19",
+        "metadata": {
+          "completedAt": "2026-09-07T12:19:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 18",
+        "kind": "session",
+        "label": "Session 18",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "completedAt": "2026-09-07T12:18:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-2.ts",
+        "kind": "file",
+        "label": "src/part-2.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-2.ts"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-18",
+        "kind": "evidence",
+        "label": "test: Evidence 18 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 18",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-18",
+          "capturedAt": "2026-10-01T00:01:10.000Z"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 22",
+        "from": "project:P:beta",
+        "to": "session:S:Session 22",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/shared.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 22:src/part-2.ts",
+        "from": "session:S:Session 22",
+        "to": "file:P:beta:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 22:E:pnpm test --filter part-22",
+        "from": "session:S:Session 22",
+        "to": "evidence:E:pnpm test --filter part-22",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 21",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 21",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/shared.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 21:src/part-1.ts",
+        "from": "session:S:Session 21",
+        "to": "file:P:alpha:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 19",
+        "from": "project:P:beta",
+        "to": "session:S:Session 19",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/shared.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 19:src/part-3.ts",
+        "from": "session:S:Session 19",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 18",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 18",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/shared.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 18:src/part-2.ts",
+        "from": "session:S:Session 18",
+        "to": "file:P:alpha:src/part-2.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 18:E:pnpm test --filter part-18",
+        "from": "session:S:Session 18",
+        "to": "evidence:E:pnpm test --filter part-18",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "session_link:S:Session 22:S:Session 01",
+        "from": "session:S:Session 01",
+        "to": "session:S:Session 22",
+        "kind": "session_link",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 22", "S:Session 21", "S:Session 19", "S:Session 18"],
+    "truncation": {
+      "nodeLimit": 14,
+      "edgeLimit": 60,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    },
+    "pageInfo": {
+      "unit": "sessions",
+      "phase": "sessions",
+      "offset": 0,
+      "pageSize": 4,
+      "hasNext": true
+    },
+    "nextCursor": "eyJ2ZXJzaW9uIjoyLCJwaGFzZSI6InNlc3Npb25zIiwicHJvamVjdE9mZnNldCI6Miwic2Vzc2lvbk9mZnNldCI6NCwicmVsYXRpb25PZmZzZXQiOjAsInNjb3BlIjoiW1wiXCIsXCJcIl0ifQ"
+  },
+  "cursor chain 1": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 16",
+        "kind": "session",
+        "label": "Session 16",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 16",
+        "metadata": {
+          "completedAt": "2026-09-06T12:16:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-0.ts",
+        "kind": "file",
+        "label": "src/part-0.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-0.ts"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-16",
+        "kind": "evidence",
+        "label": "test: Evidence 16 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 16",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-16",
+          "capturedAt": "2026-10-01T00:01:09.000Z"
+        }
+      },
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 15",
+        "kind": "session",
+        "label": "Session 15",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 15",
+        "metadata": {
+          "completedAt": "2026-09-06T12:15:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "session:S:Session 13",
+        "kind": "session",
+        "label": "Session 13",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 13",
+        "metadata": {
+          "completedAt": "2026-09-05T12:13:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 12",
+        "kind": "session",
+        "label": "Session 12",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 12",
+        "metadata": {
+          "completedAt": "2026-09-05T12:12:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-0.ts",
+        "kind": "file",
+        "label": "src/part-0.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-0.ts"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-12",
+        "kind": "evidence",
+        "label": "test: Evidence 12 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 12",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-12",
+          "capturedAt": "2026-10-01T00:01:07.000Z"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 16",
+        "from": "project:P:beta",
+        "to": "session:S:Session 16",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 16:src/shared.ts",
+        "from": "session:S:Session 16",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 16:src/part-0.ts",
+        "from": "session:S:Session 16",
+        "to": "file:P:beta:src/part-0.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 16:E:pnpm test --filter part-16",
+        "from": "session:S:Session 16",
+        "to": "evidence:E:pnpm test --filter part-16",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 15",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 15",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 13",
+        "from": "project:P:beta",
+        "to": "session:S:Session 13",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 13:src/shared.ts",
+        "from": "session:S:Session 13",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 13:src/part-1.ts",
+        "from": "session:S:Session 13",
+        "to": "file:P:beta:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 12",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 12",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 12:src/shared.ts",
+        "from": "session:S:Session 12",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 12:src/part-0.ts",
+        "from": "session:S:Session 12",
+        "to": "file:P:alpha:src/part-0.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 12:E:pnpm test --filter part-12",
+        "from": "session:S:Session 12",
+        "to": "evidence:E:pnpm test --filter part-12",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 16", "S:Session 15", "S:Session 13", "S:Session 12"],
+    "truncation": {
+      "nodeLimit": 14,
+      "edgeLimit": 60,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    },
+    "pageInfo": {
+      "unit": "sessions",
+      "phase": "sessions",
+      "offset": 4,
+      "pageSize": 4,
+      "hasNext": true
+    },
+    "cursor": "eyJ2ZXJzaW9uIjoyLCJwaGFzZSI6InNlc3Npb25zIiwicHJvamVjdE9mZnNldCI6Miwic2Vzc2lvbk9mZnNldCI6NCwicmVsYXRpb25PZmZzZXQiOjAsInNjb3BlIjoiW1wiXCIsXCJcIl0ifQ",
+    "nextCursor": "eyJ2ZXJzaW9uIjoyLCJwaGFzZSI6InNlc3Npb25zIiwicHJvamVjdE9mZnNldCI6Miwic2Vzc2lvbk9mZnNldCI6OCwicmVsYXRpb25PZmZzZXQiOjAsInNjb3BlIjoiW1wiXCIsXCJcIl0ifQ"
+  },
+  "cursor chain 2": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 10",
+        "kind": "session",
+        "label": "Session 10",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 10",
+        "metadata": {
+          "completedAt": "2026-09-04T12:10:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-10",
+        "kind": "evidence",
+        "label": "test: Evidence 10 passed.",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 10",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-10",
+          "capturedAt": "2026-10-01T00:01:06.000Z"
+        }
+      },
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 09",
+        "kind": "session",
+        "label": "Session 09",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 09",
+        "metadata": {
+          "completedAt": "2026-09-04T12:09:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 07",
+        "kind": "session",
+        "label": "Session 07",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 07",
+        "metadata": {
+          "completedAt": "2026-09-03T12:07:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 06",
+        "kind": "session",
+        "label": "Session 06",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 06",
+        "metadata": {
+          "completedAt": "2026-09-03T12:06:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-6",
+        "kind": "evidence",
+        "label": "test: Evidence 6 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 06",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-6",
+          "capturedAt": "2026-10-01T00:01:04.000Z"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:beta:S:Session 10",
+        "from": "project:P:beta",
+        "to": "session:S:Session 10",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 10:E:pnpm test --filter part-10",
+        "from": "session:S:Session 10",
+        "to": "evidence:E:pnpm test --filter part-10",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 09",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 09",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 09:src/shared.ts",
+        "from": "session:S:Session 09",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 09:src/part-1.ts",
+        "from": "session:S:Session 09",
+        "to": "file:P:alpha:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 07",
+        "from": "project:P:beta",
+        "to": "session:S:Session 07",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 07:src/shared.ts",
+        "from": "session:S:Session 07",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 07:src/part-3.ts",
+        "from": "session:S:Session 07",
+        "to": "file:P:beta:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 06",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 06",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 06:E:pnpm test --filter part-6",
+        "from": "session:S:Session 06",
+        "to": "evidence:E:pnpm test --filter part-6",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "session_link:S:Session 10:S:Session 07",
+        "from": "session:S:Session 07",
+        "to": "session:S:Session 10",
+        "kind": "session_link",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 10", "S:Session 09", "S:Session 07", "S:Session 06"],
+    "truncation": {
+      "nodeLimit": 14,
+      "edgeLimit": 60,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    },
+    "pageInfo": {
+      "unit": "sessions",
+      "phase": "sessions",
+      "offset": 8,
+      "pageSize": 4,
+      "hasNext": true
+    },
+    "cursor": "eyJ2ZXJzaW9uIjoyLCJwaGFzZSI6InNlc3Npb25zIiwicHJvamVjdE9mZnNldCI6Miwic2Vzc2lvbk9mZnNldCI6OCwicmVsYXRpb25PZmZzZXQiOjAsInNjb3BlIjoiW1wiXCIsXCJcIl0ifQ",
+    "nextCursor": "eyJ2ZXJzaW9uIjoyLCJwaGFzZSI6InNlc3Npb25zIiwicHJvamVjdE9mZnNldCI6Miwic2Vzc2lvbk9mZnNldCI6MTIsInJlbGF0aW9uT2Zmc2V0IjowLCJzY29wZSI6IltcIlwiLFwiXCJdIn0"
+  },
+  "cursor chain 3": {
+    "outcome": "graph",
+    "projects": [
+      {
+        "id": "P:beta",
+        "name": "beta",
+        "rootPath": "<root>/beta",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      },
+      {
+        "id": "P:alpha",
+        "name": "alpha",
+        "rootPath": "<root>/alpha",
+        "status": "tracked",
+        "createdAt": "<time>",
+        "updatedAt": "<time>",
+        "lastIngestedAt": "<time>"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "project:P:alpha",
+        "kind": "project",
+        "label": "alpha",
+        "projectId": "P:alpha",
+        "metadata": {
+          "rootPath": "<root>/alpha",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 03",
+        "kind": "session",
+        "label": "Session 03",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 03",
+        "metadata": {
+          "completedAt": "2026-09-02T12:03:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "not_supplied"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:alpha:src/part-3.ts",
+        "kind": "file",
+        "label": "src/part-3.ts",
+        "projectId": "P:alpha",
+        "metadata": {
+          "path": "src/part-3.ts"
+        }
+      },
+      {
+        "id": "project:P:beta",
+        "kind": "project",
+        "label": "beta",
+        "projectId": "P:beta",
+        "metadata": {
+          "rootPath": "<root>/beta",
+          "status": "tracked"
+        }
+      },
+      {
+        "id": "session:S:Session 01",
+        "kind": "session",
+        "label": "Session 01",
+        "projectId": "P:beta",
+        "sessionId": "S:Session 01",
+        "metadata": {
+          "completedAt": "2026-09-01T12:01:00.000Z",
+          "changedFilesCount": 2,
+          "verification": "passed"
+        }
+      },
+      {
+        "id": "file:P:beta:src/shared.ts",
+        "kind": "file",
+        "label": "src/shared.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/shared.ts"
+        }
+      },
+      {
+        "id": "file:P:beta:src/part-1.ts",
+        "kind": "file",
+        "label": "src/part-1.ts",
+        "projectId": "P:beta",
+        "metadata": {
+          "path": "src/part-1.ts"
+        }
+      },
+      {
+        "id": "session:S:Session 00",
+        "kind": "session",
+        "label": "Session 00",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "completedAt": "2026-09-01T12:00:00.000Z",
+          "changedFilesCount": 0,
+          "verification": "failed"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 0",
+        "kind": "knowledge",
+        "label": "Knowledge 0",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "evidence:E:pnpm test --filter part-0",
+        "kind": "evidence",
+        "label": "test: Evidence 0 passed.",
+        "projectId": "P:alpha",
+        "sessionId": "S:Session 00",
+        "metadata": {
+          "kind": "test",
+          "reference": "pnpm test --filter part-0",
+          "capturedAt": "2026-10-01T00:01:01.000Z"
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 21",
+        "kind": "knowledge",
+        "label": "Knowledge 21",
+        "projectId": "P:alpha",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      },
+      {
+        "id": "knowledge:K:Knowledge 7",
+        "kind": "knowledge",
+        "label": "Knowledge 7",
+        "projectId": "P:beta",
+        "metadata": {
+          "kind": "pattern",
+          "status": "active",
+          "tagsCount": 0
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "contains:P:alpha:S:Session 03",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 03",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 03:src/shared.ts",
+        "from": "session:S:Session 03",
+        "to": "file:P:alpha:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 03:src/part-3.ts",
+        "from": "session:S:Session 03",
+        "to": "file:P:alpha:src/part-3.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:beta:S:Session 01",
+        "from": "project:P:beta",
+        "to": "session:S:Session 01",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 01:src/shared.ts",
+        "from": "session:S:Session 01",
+        "to": "file:P:beta:src/shared.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "changed-file:S:Session 01:src/part-1.ts",
+        "from": "session:S:Session 01",
+        "to": "file:P:beta:src/part-1.ts",
+        "kind": "changed_file",
+        "provenance": "recorded"
+      },
+      {
+        "id": "contains:P:alpha:S:Session 00",
+        "from": "project:P:alpha",
+        "to": "session:S:Session 00",
+        "kind": "contains",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:session:S:Session 00:K:Knowledge 0",
+        "from": "session:S:Session 00",
+        "to": "knowledge:K:Knowledge 0",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-evidence:S:Session 00:E:pnpm test --filter part-0",
+        "from": "session:S:Session 00",
+        "to": "evidence:E:pnpm test --filter part-0",
+        "kind": "has_evidence",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:alpha:K:Knowledge 21",
+        "from": "project:P:alpha",
+        "to": "knowledge:K:Knowledge 21",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "has-knowledge:project:P:beta:K:Knowledge 7",
+        "from": "project:P:beta",
+        "to": "knowledge:K:Knowledge 7",
+        "kind": "has_knowledge",
+        "provenance": "recorded"
+      },
+      {
+        "id": "session_link:S:Session 22:S:Session 01",
+        "from": "session:S:Session 01",
+        "to": "session:S:Session 22",
+        "kind": "session_link",
+        "provenance": "recorded"
+      }
+    ],
+    "totalNodes": 37,
+    "totalEdges": 49,
+    "totalNodesByKind": {
+      "project": 2,
+      "session": 15,
+      "knowledge": 3,
+      "evidence": 7,
+      "file": 10
+    },
+    "sourceProjectIds": ["P:beta", "P:alpha"],
+    "sourceSessionIds": ["S:Session 03", "S:Session 01", "S:Session 00"],
+    "truncation": {
+      "nodeLimit": 14,
+      "edgeLimit": 60,
+      "nodesTruncated": true,
+      "edgesTruncated": true
+    },
+    "pageInfo": {
+      "unit": "sessions",
+      "phase": "project_knowledge",
+      "offset": 12,
+      "pageSize": 4,
+      "hasNext": false
+    },
+    "cursor": "eyJ2ZXJzaW9uIjoyLCJwaGFzZSI6InNlc3Npb25zIiwicHJvamVjdE9mZnNldCI6Miwic2Vzc2lvbk9mZnNldCI6MTIsInJlbGF0aW9uT2Zmc2V0IjowLCJzY29wZSI6IltcIlwiLFwiXCJdIn0"
+  }
+}

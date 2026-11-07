@@ -43,6 +43,10 @@ P1 5.6 將 `work_get_context` 的 metadata follow-up totals 改由 SQLite 聚合
 
 Ubuntu 效能 gate 使用 5,000 筆合成 Sessions，操作時間與 health 探測分開量測。操作／health／event-loop blocking p90：備份 125.87／4.06／10.73 ms、整庫匯出 225.27／25.47／13.47 ms、專案匯出 390.01／15.40／11.99 ms、匯入預覽 959.68／1.26／24.71 ms；RSS peak 537.7／598.3／664.3／744.3 MB。操作門檻仍為 300／300／400／1,500 ms，blocking 門檻 100 ms。冷啟動操作 p90 308／380.9／571.89／1,297.15 ms（只回報）；metadata follow-up counts p90 16.57 ms／100 ms 門檻。
 
+P1 5.4 讓預設 Graph 不再載入並解碼所有 Session：`graph-builder.ts` 只選取節點需要的欄位，節點與邊只解碼可顯示的候選（每個專案最新的 `limit` 筆，或 cursor 的一頁），節點／邊總數與檔案節點去重數改由 SQLite 聚合（含壞掉舊資料的防護）。`tests/storage/graph-candidates.test.ts` 以舊實作產生的固定預期檔比對節點、邊、總數、截斷與排序。`read-paths.bench.mjs` 新增 `getGraph (default 180 nodes)`（上限 250 ms）與 `--case=` 篩選。
+
+5.4 量測使用同一份 5,000 Sessions 合成快取，舊／新實作交錯三輪，每輪一個獨立行程、15 次取 p90：p90 為 1,114.86／977.17／794.45 ms → 621.35／229.04／773.40 ms（中位數 977.17 → 621.35 ms）；整個行程的 peak RSS 為 476／527／494 MB → 344／345／355 MB。量測時整台 macOS 同時有其他 agent 在建置與測試，load average 約 200–425，因此絕對值遠高於安靜機器，且第 3 輪兩者接近；僅可讀作方向性證據（三輪皆新版較快、RSS 一致較低），不寫成確切倍率。上限 250 ms 沿用寬鬆 CI 門檻，沒有放寬任何既有門檻；完整 `pnpm test:performance` 與 `pnpm test:e2e` 交給 CI。
+
 ## 知識品質 Roadmap（已完成）
 
 2026-10-22 至 10-30 依實測逐階段執行：Phase 0 建立私有題庫與規模基線；Phase 2 與 P0（PR #261～#263、#268～#271）改善 recall 排序並補上答案性規則，confidence 計算維持不變；Phase 1、Phase 3 C1–C4 與 Phase 4 D2 經量測沒有實際失敗而不做，D3 經使用者決定不做；Phase 4 D1 以 PR #275 加入有界的 `relevant.supplements`，parent／related 觸及率 28.3% → 37.6%、active applied Knowledge 7.4% → 18.5%，私有題庫指標不變。計畫文件已刪除，逐輪數字見各 PR 與 CHANGELOG；長期規模問題只在實測出現瓶頸時再處理。
