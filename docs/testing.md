@@ -277,19 +277,19 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 整理面板的三個瀏覽器案例涵蓋逐筆與批次接受／拒絕、接受前原狀、來源與證據跳轉、URL 審核狀態與第二頁重載、1440／960／375px 內部滾輪與鍵盤捲動、axe、Esc 與焦點返回，以及過期建議與取消後唯讀／清除選取。兩種清單均驗證同頁刷新保留仍符合條件的勾選；批次復原案例先確認畫面呈現復原後的本頁成員再重新選取。
 
 
-## Archify 技術探測
+## 實驗資料
 
-歷史版本的 `pnpm test:archify-probe /path/to/archify-checkout` 是選擇性的隔離探測（2026-10-10 隨 Mermaid runtime 移除而刪除命令），需先建置與安裝三個 Playwright 瀏覽器；不使用正式資料庫或全域 skill。固定上游版本、75 組 CSP／主題／語言／規模驗證、原始測量值及邊界見 [Archify 技術驗證](archify-spike.md)。
+`docs/experiments/` 保存仍被決策引用的合成實測。腳本只用合成資料或其副本，不接觸正式資料庫；數字是當次機器的樣本，不是產品 SLO。
 
-
-架構圖格式 v1 測試涵蓋界限、未知版本／欄位、引用與作者路徑順序、MCP dispatcher、migration 26→27 保留排序／作廢、結構化遮蔽、舊匯出相容與新格式 round-trip。既有 SessionDetail 讀取路徑與政策不變。
-
-`getSessionDetail (200 architecture nodes)` 增加 200 節點／199 連線合成快照，p90 門檻 250ms，確認圖表隨完整 Session 讀取；不是瀏覽器繪製或實機觸控量測。
-
-
-原生架構閱讀器的跨瀏覽器案例涵蓋群組、來源、直接關係、作者路徑、面板收合、縮放／背景拖曳、鍵盤／焦點、重載網址、明暗主題／繁中英文、375／960／1440 視窗與桌面側欄縮窄、axe、CSP、HTML 字串逸出與未知版本來源回退。200 節點案例保存選取至兩個繪製幀的五筆樣本及中位數（寬鬆 2,000ms 回歸門檻），不是輸入延遲／FPS／冷啟動網路或實機 Safari／觸控的驗收；密集及巢狀圖不在本輪量測範圍。
-
-進行中驗證回歸：`tests/storage/verification-progress.test.ts` 檢查同筆狀態稽核、補登區別、205 筆進行中超過來源上限的完整統計與匯出匯入；MCP/schema 與三瀏覽器案例驗證 `not_run → in_progress → passed/failed`、雙語明暗主題、1440／960／375px、axe 與不受信任字串逸出。合成 5,000 筆 read-path benchmark 新增 `getReport (in-progress verification)`，15 次的 p90 上限 750ms。
+| 檔案 | 用途 |
+| --- | --- |
+| `attention-query-probe.mjs`／`.results.json` | 提醒聚合的 SQL 計畫與 CPU profile |
+| `related-query-probe.mjs`／`.results.json` | 相關工作索引在 5k／50k Sessions 的首次同步與暖讀取 |
+| `related-work-candidates.mjs`／`-2026-10-09.json` | 相關工作候選與全掃描 oracle 的比對 |
+| `session-read-projection-2026-10-10.json` | MCP Session 精準讀取的任務成本、p90 與 peak RSS |
+| `agent-data-source-audit-2026-09-30.md` | 第八輪工作記錄的來源與時間核對 |
+| `outstanding-cleanup-accuracy-2026-10-01.md` | 未結項清理建議的合成準確度評估 |
+| `standalone-distribution-spike-2026-10-15.md`／`.mjs` | 不需要 checkout 的發行方式研究與原型 |
 
 ## 五項整合 A1 提醒聚合
 
