@@ -1,0 +1,264 @@
+{
+  "sizes": {
+    "sessions": 5050,
+    "knowledge": 2260,
+    "activeKnowledge": 2210,
+    "pages": 150
+  },
+  "benignTouchRate": 0.1,
+  "seedMs": 89362,
+  "analyzer": {
+    "medianMs": 1201.7,
+    "runsMs": [
+      990.1,
+      1201.7,
+      1207.6
+    ],
+    "rssBeforeMb": 42.2,
+    "rssAfterMb": 79,
+    "peakRssMb": 79,
+    "heapDeltaMb": 15.6,
+    "skippedBuckets": 0
+  },
+  "existingSignals": {
+    "elapsedMs": 2657.9,
+    "rssMb": 122.5,
+    "needsReviewPages": 100,
+    "needsReviewSources": 100,
+    "possiblyStale": 191,
+    "reviewedContradicted": 50,
+    "archived": 50
+  },
+  "evaluation": {
+    "rows": [
+      {
+        "rule": "source_invalid_cited",
+        "planted": 100,
+        "analyzerTargets": 100,
+        "findings": 100,
+        "truePositives": 100,
+        "falsePositives": 0,
+        "precision": 1,
+        "recall": 1,
+        "existingCaught": 50,
+        "analyzerFindingsAlsoFlaggedByExisting": 50,
+        "newTruePositives": 50
+      },
+      {
+        "rule": "source_modified_after_creation",
+        "planted": 100,
+        "analyzerTargets": 100,
+        "findings": 164,
+        "truePositives": 100,
+        "falsePositives": 64,
+        "precision": 0.6097560975609756,
+        "recall": 1,
+        "existingCaught": 50,
+        "analyzerFindingsAlsoFlaggedByExisting": 60,
+        "newTruePositives": 50
+      },
+      {
+        "rule": "source_orphaned",
+        "planted": 50,
+        "analyzerTargets": 50,
+        "findings": 50,
+        "truePositives": 50,
+        "falsePositives": 0,
+        "precision": 1,
+        "recall": 1,
+        "existingCaught": 0,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 50
+      },
+      {
+        "rule": "lifecycle_supersede_conflict",
+        "planted": 60,
+        "analyzerTargets": 60,
+        "findings": 60,
+        "truePositives": 60,
+        "falsePositives": 0,
+        "precision": 1,
+        "recall": 1,
+        "existingCaught": 0,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 60
+      },
+      {
+        "rule": "topic_multiple_active",
+        "planted": 50,
+        "analyzerTargets": 50,
+        "findings": 50,
+        "truePositives": 50,
+        "falsePositives": 0,
+        "precision": 1,
+        "recall": 1,
+        "existingCaught": 0,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 50
+      },
+      {
+        "rule": "possible_conflict_negation",
+        "planted": 50,
+        "analyzerTargets": 50,
+        "findings": 50,
+        "truePositives": 50,
+        "falsePositives": 0,
+        "precision": 1,
+        "recall": 1,
+        "existingCaught": 0,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 50
+      },
+      {
+        "rule": "duplicate_overlap",
+        "planted": 50,
+        "analyzerTargets": 50,
+        "findings": 50,
+        "truePositives": 50,
+        "falsePositives": 0,
+        "precision": 1,
+        "recall": 1,
+        "existingCaught": 0,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 50
+      },
+      {
+        "rule": "duplicate_text_only",
+        "planted": 50,
+        "analyzerTargets": 0,
+        "findings": 0,
+        "truePositives": 0,
+        "falsePositives": 0,
+        "precision": null,
+        "recall": null,
+        "existingCaught": 0,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 0
+      },
+      {
+        "rule": "existing_possibly_stale",
+        "planted": 50,
+        "analyzerTargets": 0,
+        "findings": 0,
+        "truePositives": 0,
+        "falsePositives": 0,
+        "precision": null,
+        "recall": null,
+        "existingCaught": 50,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 0
+      },
+      {
+        "rule": "existing_contradicted",
+        "planted": 50,
+        "analyzerTargets": 0,
+        "findings": 0,
+        "truePositives": 0,
+        "falsePositives": 0,
+        "precision": null,
+        "recall": null,
+        "existingCaught": 50,
+        "analyzerFindingsAlsoFlaggedByExisting": 0,
+        "newTruePositives": 0
+      }
+    ],
+    "totals": {
+      "findings": 524,
+      "truePositives": 460,
+      "falsePositives": 64,
+      "overlap": 110,
+      "newTruePositives": 360
+    },
+    "existingRecall": {
+      "caught": 200,
+      "planted": 560
+    },
+    "pagesAny": 100
+  },
+  "sampleFindings": {
+    "source_invalid_cited": [
+      {
+        "rule": "source_invalid_cited",
+        "subjectType": "knowledge",
+        "subjectId": "aad49240-6d69-43cc-a317-149693cffef4",
+        "sourceId": "acfdf989-58b2-4a56-a11a-156a61b81c21",
+        "key": "aad49240-6d69-43cc-a317-149693cffef4",
+        "reason": "來源 Session 已作廢，Knowledge 仍為 active",
+        "at": "2026-11-07T04:49:32.308Z",
+        "version": "rev:2025-01-01T03:15:03.000Z"
+      }
+    ],
+    "source_modified_after_creation": [
+      {
+        "rule": "source_modified_after_creation",
+        "subjectType": "knowledge",
+        "subjectId": "3333f1f5-0405-43be-af3d-2c4cd5861161",
+        "sourceId": "c5bffda8-802f-4e40-ac6a-0f8d40c70681",
+        "key": "3333f1f5-0405-43be-af3d-2c4cd5861161",
+        "reason": "來源 Session 在 Knowledge 建立／最後確認之後被修改",
+        "at": "2025-01-03T11:19:00.000Z",
+        "version": "rev:2025-01-01T11:20:04.000Z"
+      }
+    ],
+    "source_orphaned": [
+      {
+        "rule": "source_orphaned",
+        "subjectType": "knowledge",
+        "subjectId": "ce43492f-a5c0-40e6-be8a-8144abe171cc",
+        "sourceId": "0b7464b9-fb7f-4b1e-91fc-60c692732493",
+        "key": "ce43492f-a5c0-40e6-be8a-8144abe171cc",
+        "reason": "建立時的來源 Session 已不存在（來源被刪除），且沒有其他來源",
+        "at": "2025-01-01T00:00:05.000Z",
+        "version": "rev:2025-01-01T00:00:05.000Z"
+      }
+    ],
+    "lifecycle_supersede_conflict": [
+      {
+        "rule": "lifecycle_supersede_conflict",
+        "subjectType": "knowledge",
+        "subjectId": "a4131323-d78c-495f-ae0e-b7dca90d5d54",
+        "sourceId": "3bec2a2b-7e9a-4edb-9ddf-bea52dd1756a",
+        "key": "a4131323-d78c-495f-ae0e-b7dca90d5d54",
+        "reason": "新版與被取代的舊版同時 active",
+        "at": "2025-01-01T00:00:09.000Z",
+        "version": "rev:2025-01-01T00:00:09.000Z"
+      }
+    ],
+    "topic_multiple_active": [
+      {
+        "rule": "topic_multiple_active",
+        "subjectType": "knowledge",
+        "subjectId": "0d1cd1d9-09cb-447b-a69d-3ff50a2d1d13",
+        "sourceId": "e277e841-8fef-4474-898e-a27ee3cb3067",
+        "key": "0d1cd1d9-09cb-447b-a69d-3ff50a2d1d13|e277e841-8fef-4474-898e-a27ee3cb3067",
+        "reason": "同專案同類型同標題有多個 active 版本且沒有 supersedes 關係",
+        "at": "2025-01-01T00:00:12.000Z",
+        "version": "rev:2025-01-01T00:00:12.000Z"
+      }
+    ],
+    "possible_conflict_negation": [
+      {
+        "rule": "possible_conflict_negation",
+        "subjectType": "knowledge",
+        "subjectId": "e127661b-4675-4d32-843f-f0ddca405d0a",
+        "sourceId": "76dcdaa4-c6cf-4363-8f2a-1354fdf4a8ca",
+        "key": "76dcdaa4-c6cf-4363-8f2a-1354fdf4a8ca|e127661b-4675-4d32-843f-f0ddca405d0a",
+        "reason": "相同標籤、內容高度相似（0.89）但否定語氣相反",
+        "at": "2025-01-01T00:00:15.000Z",
+        "version": "rev:2025-01-01T00:00:15.000Z"
+      }
+    ],
+    "duplicate_overlap": [
+      {
+        "rule": "duplicate_overlap",
+        "subjectType": "knowledge",
+        "subjectId": "ec77175e-72b5-47cd-b72c-9cb11f618aac",
+        "sourceId": "eb183b37-fc0a-47ea-a821-afefa008f181",
+        "key": "eb183b37-fc0a-47ea-a821-afefa008f181|ec77175e-72b5-47cd-b72c-9cb11f618aac",
+        "reason": "來源重疊且文字相似度 1.00",
+        "at": "2025-01-01T14:34:20.000Z",
+        "version": "rev:2025-01-01T14:34:20.000Z"
+      }
+    ]
+  }
+}
