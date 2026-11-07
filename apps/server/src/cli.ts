@@ -23,6 +23,7 @@ import {
   type DatabaseRedactionResult,
   type RestorePathRemap,
 } from "@work-intelligence/storage";
+import { commandName } from "@work-intelligence/shared";
 import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath, repositoryRoot, storeOptions } from "./config.js";
 import {
@@ -35,19 +36,30 @@ import { runTrackCommand, type TrackCliDependencies } from "./track-cli.js";
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 const NO_MAINTENANCE_ARGS_SCHEMA = z.array(z.never());
-const usage = `用法：
-  pnpm db:maintain                    備份後檢查、整理資料庫並重建搜尋索引
-  pnpm db:redact [--dry-run]           唯讀預覽既有資料的敏感資訊遮蔽數量
-  pnpm db:redact --apply              先備份，再遮蔽資料並標記搜尋索引待更新
-  pnpm db:backup                      立即備份（存到資料庫旁的 backups/）
-  pnpm db:backups                     列出備份與總大小
-  pnpm db:backups --delete <檔名>     確認後刪除一份備份
-  pnpm db:export <檔案>               把整份資料匯出成一個 .sqlite 檔，帶到別台電腦
-  pnpm db:export --all [選項]         匯出全部專案為可攜式 JSON
-  pnpm db:export --project <名稱或 id> [選項]  匯出單一專案為可攜式 JSON
-  pnpm db:import <檔案> [選項]         預覽後合併匯入可攜式 JSON
-  pnpm db:restore <檔案> [選項]       用匯出或備份的檔案取代目前的資料
-  pnpm track <資料夾> [--name <名稱>] [--yes]  預覽後把專案加入並設為記錄中
+const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[] = [
+  ["db:maintain", "備份後檢查、整理資料庫並重建搜尋索引"],
+  ["db:redact [--dry-run]", "唯讀預覽既有資料的敏感資訊遮蔽數量"],
+  ["db:redact --apply", "先備份，再遮蔽資料並標記搜尋索引待更新"],
+  ["db:backup", "立即備份（存到資料庫旁的 backups/）"],
+  ["db:backups", "列出備份與總大小"],
+  ["db:backups --delete <檔名>", "確認後刪除一份備份"],
+  ["db:export <檔案>", "把整份資料匯出成一個 .sqlite 檔，帶到別台電腦"],
+  ["db:export --all [選項]", "匯出全部專案為可攜式 JSON"],
+  ["db:export --project <名稱或 id> [選項]", "匯出單一專案為可攜式 JSON"],
+  ["db:import <檔案> [選項]", "預覽後合併匯入可攜式 JSON"],
+  ["db:restore <檔案> [選項]", "用匯出或備份的檔案取代目前的資料"],
+  ["track <資料夾> [--name <名稱>] [--yes]", "預覽後把專案加入並設為記錄中"],
+];
+
+/** The help text; command names follow the mode (`pnpm db:backup` in a checkout, `work-intelligence db backup` standalone). */
+export function databaseUsage(standalone?: boolean): string {
+  const commands = COMMAND_SUMMARIES.map(([script, summary]) => {
+    const [name = script, ...rest] = script.split(" ");
+    return [[commandName(name, standalone), ...rest].join(" "), summary] as const;
+  });
+  const width = Math.max(...commands.map(([command]) => command.length));
+  return `用法：
+${commands.map(([command, summary]) => `  ${command.padEnd(width)}  ${summary}`).join("\n")}
 
 export 選項：
   --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑
@@ -60,8 +72,9 @@ import 選項：
 restore 選項：
   --remap-root <舊路徑>=<新路徑>     專案在新電腦的位置不同時，把路徑前綴換掉（可重複）
 
-還原前請先停止 API server（pnpm dev／pnpm start:server），並關閉會啟動 MCP 的 Codex／Claude 對話。
+還原前請先停止 API server（${(standalone ?? STANDALONE) ? commandName("start", true) : "pnpm dev／pnpm start:server"}），並關閉會啟動 MCP 的 Codex／Claude 對話。
 還原會先取得獨佔鎖、自動備份目前的資料，並將資料庫升級至本版 schema；回傳新的 revision，重新啟動 server 後前端會重新讀取資料。`;
+}
 
 const backupKindLabels: Record<DatabaseBackupKind, string> = {
   automatic: "每日自動",
@@ -243,8 +256,10 @@ export interface DatabaseCliDependencies {
   confirmBackupDeletion?: (backup: DatabaseBackup, isLastBackup: boolean) => Promise<boolean>;
   /** Probes used to explain a DATABASE_IN_USE failure; injectable so tests never touch real processes. */
   busyDiagnosis?: DatabaseBusyDiagnosisDependencies;
-  /** Prompt and terminal probes for `pnpm track`; injectable so tests never read the real terminal. */
+  /** Prompt and terminal probes for `track`; injectable so tests never read the real terminal. */
   track?: Pick<TrackCliDependencies, "isInteractive" | "confirm" | "port">;
+  /** Which command names to show in messages; defaults to the running mode. */
+  standalone?: boolean;
 }
 
 export async function runDatabaseCli(
@@ -255,6 +270,8 @@ export async function runDatabaseCli(
   // command runs where the user typed it, and an inherited INIT_CWD from some outer pnpm run must not redirect it.
   const invocationDirectory =
     dependencies.invocationDirectory ?? (STANDALONE ? undefined : process.env.INIT_CWD) ?? process.cwd();
+  const usage = databaseUsage(dependencies.standalone);
+  const commandText = (script: string): string => commandName(script, dependencies.standalone);
   const fromInvocation = (path: string): string => resolve(invocationDirectory, path);
   const runWithStore = dependencies.withStore ?? withStore;
   const runMaintenance =
@@ -272,6 +289,7 @@ export async function runDatabaseCli(
     return runTrackCommand(args, {
       withStore: runWithStore,
       invocationDirectory,
+      standalone: dependencies.standalone,
       log: print,
       error: printError,
       ...dependencies.track,
@@ -280,7 +298,7 @@ export async function runDatabaseCli(
   try {
     if (command === "maintain") {
       if (!NO_MAINTENANCE_ARGS_SCHEMA.safeParse(args).success) {
-        fail("pnpm db:maintain 不接受參數。");
+        fail(`${commandText("db:maintain")} 不接受參數。`);
       }
       const result = runMaintenance();
       print(
@@ -289,7 +307,9 @@ export async function runDatabaseCli(
       print("doctor 已記錄最近一次維護結果。");
     } else if (command === "redact") {
       if (args.length > 1 || (args.length === 1 && args[0] !== "--apply" && args[0] !== "--dry-run")) {
-        fail("敏感資料整理只接受 `pnpm db:redact [--dry-run]` 或 `pnpm db:redact --apply`。");
+        fail(
+          `敏感資料整理只接受 \`${commandText("db:redact")} [--dry-run]\` 或 \`${commandText("db:redact")} --apply\`。`,
+        );
       }
       const apply = args[0] === "--apply";
       const result = runRedaction(apply);
@@ -343,7 +363,7 @@ export async function runDatabaseCli(
           }
         }
       } else {
-        fail("備份管理只接受 `pnpm db:backups` 或 `pnpm db:backups --delete <檔名>`。");
+        fail(`備份管理只接受 \`${commandText("db:backups")}\` 或 \`${commandText("db:backups")} --delete <檔名>\`。`);
       }
     } else if (command === "export") {
       if (args[0] === "--all" || args[0] === "--project") {
@@ -547,7 +567,8 @@ export async function runDatabaseCli(
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// A standalone bundle is started through its bin, which calls runDatabaseCli itself.
+if (!STANDALONE && process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   void runDatabaseCli().then((exitCode) => {
     process.exitCode = exitCode;
   });

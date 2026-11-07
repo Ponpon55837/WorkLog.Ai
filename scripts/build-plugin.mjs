@@ -23,7 +23,7 @@ import { build } from "esbuild";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRY_POINTS = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** Copied beside the bundle at the paths apps/mcp/src/agent-resources.ts reads. */
-const AGENT_RESOURCES = [
+export const AGENT_RESOURCES = [
   ".agents/skills/work-intelligence/SKILL.md",
   "docs/work-record-and-report-format.md",
   ".agents/skills/worklog-report-writing/SKILL.md",
@@ -42,7 +42,7 @@ function readJson(path) {
  * Resolves `@work-intelligence/<package>[/<subpath>]` to the package's TypeScript source, so the bundle never depends
  * on whether the workspace packages were built (the release job packs the plugin straight from a fresh checkout).
  */
-const workspaceSources = {
+export const workspaceSources = {
   name: "work-intelligence-workspace-sources",
   setup(builder) {
     builder.onResolve({ filter: /^@work-intelligence\/[^/]+(\/.+)?$/ }, (args) => {
@@ -53,24 +53,29 @@ const workspaceSources = {
   },
 };
 
+/** esbuild options shared by every standalone bundle (the plugin's MCP server and the standalone package). */
+export const bundleOptions = {
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  logLevel: "warning",
+  legalComments: "none",
+  define: { __WORK_INTELLIGENCE_STANDALONE__: "true" },
+  plugins: [workspaceSources],
+  // Some dependencies still call require(); give the ESM bundle one.
+  banner: {
+    js: 'import { createRequire as __createRequire } from "node:module";const require = __createRequire(import.meta.url);',
+  },
+};
+
 /** Writes the bundled MCP server and the files it reads into `<target>/server`. */
 async function buildServer(target, version) {
   const server = join(target, "server");
   await build({
+    ...bundleOptions,
     entryPoints: ENTRY_POINTS.map((name) => join(repositoryRoot, `apps/mcp/src/${name}.ts`)),
     outdir: join(server, "apps/mcp/dist"),
-    bundle: true,
-    platform: "node",
-    format: "esm",
-    target: "node22",
-    logLevel: "warning",
-    legalComments: "none",
-    define: { __WORK_INTELLIGENCE_STANDALONE__: "true" },
-    plugins: [workspaceSources],
-    // Some dependencies still call require(); give the ESM bundle one.
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module";const require = __createRequire(import.meta.url);',
-    },
   });
   writeFileSync(
     join(server, "package.json"),
@@ -117,7 +122,7 @@ function mcpbManifest(plugin, version) {
   };
 }
 
-function filesUnder(directory) {
+export function filesUnder(directory) {
   return readdirSync(directory)
     .sort()
     .flatMap((name) => {

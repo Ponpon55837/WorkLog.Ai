@@ -341,6 +341,7 @@ pnpm start                    # production: Web and API on one port (build first
 pnpm dashboard                # start the production server if needed and open the Web UI
 pnpm plugin:link              # let the Claude Code / Codex plugin find this checkout
 pnpm build:plugin             # self-contained plugin zip and Claude Desktop .mcpb in dist/plugin/
+pnpm build:standalone         # checkout-free package and tarball in dist/standalone/ (docs/standalone.md)
 pnpm start:server             # API only
 pnpm start:mcp                # MCP stdio server only
 pnpm check                    # read-only diagnostics
@@ -394,6 +395,7 @@ The guides under `docs/` are written in Traditional Chinese.
 | [docs/service.md](docs/service.md) | User-level start at login on macOS, Windows and Linux, removal and troubleshooting |
 | [docs/agent-setup.md](docs/agent-setup.md) | Registering with Codex CLI, Claude Code and Claude Desktop, and the global save-reminder hook |
 | [docs/plugins.md](docs/plugins.md) | The Claude Code / Codex plugin: install, `pnpm plugin:link`, and switching from manual registration |
+| [docs/standalone.md](docs/standalone.md) | The checkout-free package: layout, the `work-intelligence` command, data location, what `check` verifies and its smoke test |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | Every MCP tool's purpose, fields, examples, policy behaviour, annotations and prompts |
 | [docs/rest-api.md](docs/rest-api.md) | REST endpoints, lowercase snake_case error codes, metadata backfill, report export, backups, project data export / import, deletion and the live update stream |
 | [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | The five-section Session format, report granularity and backfill limits |

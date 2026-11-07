@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { nowIso } from "@work-intelligence/shared";
+import { commandName, nowIso } from "@work-intelligence/shared";
 import type { BackupRetentionOptions } from "./backup.js";
 import { backupDatabaseBeforeMaintenance } from "./backup.js";
 import { DatabaseInitializationError, initializeWorkIntelligenceDatabase } from "./database-initialization.js";
@@ -84,7 +84,7 @@ export function maintainDatabase(options: {
   if (databasePath === ":memory:" || !existsSync(databasePath)) {
     throw new DatabaseMaintenanceError(
       "DATABASE_MISSING",
-      "找不到已建立的資料庫；請先執行 pnpm start 建立資料庫，再執行維護。",
+      `找不到已建立的資料庫；請先執行 ${commandName("start")} 建立資料庫，再執行維護。`,
     );
   }
 
@@ -164,7 +164,7 @@ export function maintainDatabase(options: {
       }
       throw new DatabaseMaintenanceError(
         "DATABASE_MAINTENANCE_FAILED",
-        "資料庫維護未完成；維護前備份已保留，請執行 pnpm check 檢查結果。",
+        `資料庫維護未完成；維護前備份已保留，請執行 ${commandName("check")} 檢查結果。`,
         { cause: error },
       );
     }
@@ -177,7 +177,7 @@ export function maintainDatabase(options: {
     }
     throw new DatabaseMaintenanceError(
       "DATABASE_MAINTENANCE_FAILED",
-      "資料庫維護未完成；若已建立維護前備份，請保留該檔案並執行 pnpm check 檢查結果。",
+      `資料庫維護未完成；若已建立維護前備份，請保留該檔案並執行 ${commandName("check")} 檢查結果。`,
       { cause: error },
     );
   } finally {

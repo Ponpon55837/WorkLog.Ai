@@ -1,13 +1,14 @@
 import { basename, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
+import { commandName } from "@work-intelligence/shared";
 import { canonicalizeProjectRoot, isPathWithinProject, type WorkIntelligenceStore } from "@work-intelligence/storage";
 import { inspectProjectFolder } from "./http.js";
 import { resolveServerPort } from "./server-port.js";
 
 export interface TrackCliDependencies {
   withStore: <T>(task: (store: WorkIntelligenceStore) => T) => T;
-  /** Directory the user ran the command from (pnpm sets INIT_CWD); relative folders resolve against it. */
+  /** Directory the user ran the command from (pnpm sets INIT_CWD; a standalone command uses its cwd); relative folders resolve against it. */
   invocationDirectory: string;
   log: (message: string) => void;
   error: (message: string) => void;
@@ -15,6 +16,8 @@ export interface TrackCliDependencies {
   isInteractive?: () => boolean;
   confirm?: (question: string) => Promise<boolean>;
   port?: number;
+  /** Which command names to show; defaults to the running mode. */
+  standalone?: boolean;
 }
 
 interface TrackOptions {
@@ -36,12 +39,15 @@ const statusLabels: Record<ProjectStatus, string> = {
 };
 const TRACKED_MEANING =
   "「記錄中」的意思：Agent 可以在這個專案讀取 handoff、Git／worktree 與 source，並保存工作紀錄；其他狀態會安靜略過所有讀取。之後可以在 Web 的「專案」頁暫停或忽略。";
-export const trackUsage = `用法：
-  pnpm track <資料夾> [--name <名稱>] [--yes]
+
+export function trackUsage(standalone?: boolean): string {
+  return `用法：
+  ${commandName("track", standalone)} <資料夾> [--name <名稱>] [--yes]
 
 把一個專案加入並設為「記錄中」。會先顯示預覽，確認後才寫入。
   --name <名稱>   專案名稱；預設使用資料夾名稱
   --yes           略過確認直接套用（非互動環境沒有 --yes 時只顯示預覽）`;
+}
 
 function parseTrackArgs(args: readonly string[]): TrackOptions | string {
   let folder: string | undefined;
@@ -117,11 +123,11 @@ async function askToConfirm(question: string): Promise<boolean> {
   }
 }
 
-/** `pnpm track`: the user, in a terminal, explicitly adds a folder and switches it to tracked. Never callable by Agents. */
+/** `track` (`pnpm track` in a checkout): the user, in a terminal, explicitly adds a folder and switches it to tracked. Never callable by Agents. */
 export async function runTrackCommand(args: readonly string[], dependencies: TrackCliDependencies): Promise<number> {
   const parsed = parseTrackArgs(args);
   if (typeof parsed === "string") {
-    dependencies.error(`錯誤：${parsed}\n\n${trackUsage}`);
+    dependencies.error(`錯誤：${parsed}\n\n${trackUsage(dependencies.standalone)}`);
     return USAGE_EXIT_CODE;
   }
   try {

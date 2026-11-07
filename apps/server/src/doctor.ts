@@ -5,7 +5,8 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
-import { isSupportedNodeVersion, MINIMUM_NODE_VERSION } from "@work-intelligence/shared";
+import { commandName, isSupportedNodeVersion, MINIMUM_NODE_VERSION } from "@work-intelligence/shared";
+import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { configDirectory, databasePathFor, STANDALONE } from "@work-intelligence/shared/database-location";
 import { isDriveRelativePath } from "@work-intelligence/shared/database-path";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
@@ -678,17 +679,119 @@ function addRootSqliteFinding(findings: DoctorFinding[], repositoryRoot: string)
   );
 }
 
+/** Files a standalone package needs, relative to its `libexec/` folder (the bundles and what they read at run time). */
+export const STANDALONE_LIBEXEC_FILES: readonly string[] = [
+  "package.json",
+  "apps/server/dist/standalone-cli.js",
+  "apps/mcp/dist/index.js",
+  "apps/mcp/dist/finalize-reminder.js",
+  "apps/mcp/dist/codex-finalize-reminder.js",
+  ".agents/skills/work-intelligence/SKILL.md",
+  ".agents/skills/worklog-report-writing/SKILL.md",
+  ".agents/skills/worklog-report-writing/references/en.md",
+  ".agents/skills/worklog-report-writing/references/zh-TW.md",
+  "docs/work-record-and-report-format.md",
+];
+
+/** Files a standalone package needs, relative to the package root (the folder holding `bin/` and `libexec/`). */
+export const STANDALONE_PACKAGE_FILES: readonly string[] = [
+  "package.json",
+  "bin/work-intelligence.mjs",
+  "web/index.html",
+];
+
+function readJsonVersion(path: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const version = record(parsed)?.version;
+    return typeof version === "string" ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What a standalone package check can say without a checkout: every file the package ships is present and the
+ * package, its libexec and the running bundle agree on one version. Read-only; reports names, never file contents.
+ */
+export function inspectStandalonePackage(options: { packageRoot: string; libexecRoot: string; appVersion: string }): {
+  missingFiles: string[];
+  versions: { running: string; package: string | undefined; libexec: string | undefined };
+  versionsAgree: boolean;
+} {
+  const missingFiles = [
+    ...STANDALONE_PACKAGE_FILES.filter((file) => !existsSync(resolve(options.packageRoot, file))),
+    ...STANDALONE_LIBEXEC_FILES.filter((file) => !existsSync(resolve(options.libexecRoot, file))).map(
+      (file) => "libexec/" + file,
+    ),
+  ];
+  const versions = {
+    running: options.appVersion,
+    package: readJsonVersion(resolve(options.packageRoot, "package.json")),
+    libexec: readJsonVersion(resolve(options.libexecRoot, "package.json")),
+  };
+  return {
+    missingFiles,
+    versions,
+    versionsAgree: versions.package === versions.running && versions.libexec === versions.running,
+  };
+}
+
+function addStandalonePackageFindings(
+  findings: DoctorFinding[],
+  options: { packageRoot: string; libexecRoot: string; appVersion: string },
+): void {
+  const inspection = inspectStandalonePackage(options);
+  const missingSummary =
+    inspection.missingFiles.slice(0, 8).join("、") +
+    (inspection.missingFiles.length > 8 ? " 等，共 " + inspection.missingFiles.length + " 項" : "");
+  const reinstall = "重新下載對應版本的 Work Intelligence 套件並覆蓋安裝。";
+  addFinding(
+    findings,
+    inspection.missingFiles.length === 0 ? "ok" : "warning",
+    "套件檔案",
+    inspection.missingFiles.length === 0
+      ? "server、MCP、Web 與 Agent 資源的必要檔案都完整。"
+      : "缺少必要檔案：" + missingSummary + "。",
+    inspection.missingFiles.length === 0 ? undefined : reinstall,
+  );
+  const { versions } = inspection;
+  addFinding(
+    findings,
+    inspection.versionsAgree ? "ok" : "warning",
+    "套件版本",
+    inspection.versionsAgree
+      ? "執行中的程式、套件與 libexec 都是 " + versions.running + "。"
+      : "執行中的程式 " +
+          versions.running +
+          "，套件 package.json " +
+          (versions.package ?? "無法讀取") +
+          "，libexec " +
+          (versions.libexec ?? "無法讀取") +
+          "；版本不一致。",
+    inspection.versionsAgree ? undefined : reinstall,
+  );
+}
+
 export async function collectDoctorFindings(
   options: {
     homeDirectory?: string;
     repositoryRoot?: string;
     environment?: NodeJS.ProcessEnv;
     userServiceStatus?: UserServiceStatus;
+    /** Check a standalone package instead of a checkout; defaults to the running mode. */
+    standalone?: boolean;
+    /** The standalone package folder (holds `bin/` and `libexec/`); defaults to the parent of the repository root. */
+    packageRoot?: string;
+    /** Version the running code reports; injectable for tests. */
+    appVersion?: string;
   } = {},
 ): Promise<DoctorFinding[]> {
   const environment = options.environment ?? process.env;
   const homeDirectory = options.homeDirectory ?? environment.HOME ?? environment.USERPROFILE ?? "";
   const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
+  const standalone = options.standalone ?? STANDALONE;
+  const cmd = (script: string): string => commandName(script, standalone);
   const parsedEnvironment = ENVIRONMENT_SCHEMA.safeParse(environment);
   const findings: DoctorFinding[] = [];
 
@@ -711,95 +814,117 @@ export async function collectDoctorFindings(
       : `請改用 Node.js ${MINIMUM_NODE_VERSION} 以上的 22.x，或 Node.js 24 以上；搜尋索引需要內建 SQLite 的 FTS5。`,
   );
 
-  const packageManager = readPackageManagerVersion();
-  const pnpmMatches = pnpmRequirementSatisfied(packageManager.installed, packageManager.required);
-  addFinding(
-    findings,
-    pnpmMatches ? "ok" : "warning",
-    "pnpm",
-    packageManager.installed
-      ? "目前版本 " + packageManager.installed + "；專案要求 " + packageManager.required + "。"
-      : "無法取得 pnpm 版本；專案要求 " + packageManager.required + "。",
-    pnpmMatches ? undefined : "使用符合 package.json 要求的 pnpm 版本執行 pnpm install 與 pnpm check。",
-  );
+  if (standalone) {
+    addStandalonePackageFindings(findings, {
+      packageRoot: options.packageRoot ?? resolve(repositoryRoot, ".."),
+      libexecRoot: repositoryRoot,
+      appVersion: options.appVersion ?? APP_VERSION,
+    });
+  } else {
+    const packageManager = readPackageManagerVersion();
+    const pnpmMatches = pnpmRequirementSatisfied(packageManager.installed, packageManager.required);
+    addFinding(
+      findings,
+      pnpmMatches ? "ok" : "warning",
+      "pnpm",
+      packageManager.installed
+        ? "目前版本 " + packageManager.installed + "；專案要求 " + packageManager.required + "。"
+        : "無法取得 pnpm 版本；專案要求 " + packageManager.required + "。",
+      pnpmMatches ? undefined : `使用符合 package.json 要求的 pnpm 版本執行 pnpm install 與 ${cmd("check")}。`,
+    );
 
-  const missingDist = expectedDistFiles(repositoryRoot).filter(
-    (path) => path.includes("*") || !existsSync(resolve(repositoryRoot, path)),
-  );
-  const missingDistSummary =
-    missingDist.slice(0, 8).join("、") + (missingDist.length > 8 ? " 等，共 " + missingDist.length + " 項" : "");
-  addFinding(
-    findings,
-    missingDist.length === 0 ? "ok" : "warning",
-    "Build 檔案",
-    missingDist.length === 0
-      ? "server、MCP、Web 與 workspace 的必要 dist 檔案都完整。"
-      : "缺少必要 dist 檔案：" + missingDistSummary + "。",
-    missingDist.length === 0 ? undefined : "在專案根目錄執行 pnpm build。",
-  );
+    const missingDist = expectedDistFiles(repositoryRoot).filter(
+      (path) => path.includes("*") || !existsSync(resolve(repositoryRoot, path)),
+    );
+    const missingDistSummary =
+      missingDist.slice(0, 8).join("、") + (missingDist.length > 8 ? " 等，共 " + missingDist.length + " 項" : "");
+    addFinding(
+      findings,
+      missingDist.length === 0 ? "ok" : "warning",
+      "Build 檔案",
+      missingDist.length === 0
+        ? "server、MCP、Web 與 workspace 的必要 dist 檔案都完整。"
+        : "缺少必要 dist 檔案：" + missingDistSummary + "。",
+      missingDist.length === 0 ? undefined : "在專案根目錄執行 pnpm build。",
+    );
+  }
 
-  const mcpRuntime = getMcpRuntimeStatus(repositoryRoot);
-  const mcpRuntimeHealthy =
-    mcpRuntime.monitoringAvailable &&
-    mcpRuntime.activeProcesses > 0 &&
-    !mcpRuntime.restartRequired &&
-    !mcpRuntime.updateAvailable;
-  const mcpRuntimeDetail =
-    mcpRuntime.updateAvailable && !mcpRuntime.restartRequired
-      ? `${mcpRuntime.updateAvailableProcesses} 個 MCP 連線有新版可用，仍可照常讀寫。`
-      : mcpRuntime.restartRequired
-        ? `${mcpRuntime.activeProcesses} 個可監測 MCP 連線中，${mcpRuntime.outdatedProcesses} 個需要重新連線。 ${mcpRuntime.message ?? ""}`.trim()
-        : mcpRuntime.activeProcesses > 0 && mcpRuntime.monitoringAvailable
-          ? `${mcpRuntime.activeProcesses} 個可監測 MCP 連線均使用目前建置。`
-          : (mcpRuntime.message ?? "無法確認 MCP runtime 狀態。");
-  addFinding(
-    findings,
-    mcpRuntimeHealthy ? "ok" : "warning",
-    "MCP runtime",
-    mcpRuntimeDetail,
-    mcpRuntimeHealthy
-      ? undefined
-      : mcpRuntime.restartRequired
-        ? "請在 Agent 用戶端重新連線 Work Intelligence MCP。"
-        : mcpRuntime.updateAvailable
-          ? "目前契約相容，可照常讀寫；收尾後重新連線即可載入新版。"
-          : mcpRuntime.monitoringAvailable
-            ? "尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置。"
-            : "請確認建置完成後重新執行 doctor。",
-  );
-
-  // A drive-relative database path is reported as its own error below; keep the service probe from throwing on it.
   const databaseSetting = parsedEnvironment.success ? parsedEnvironment.data.WORK_INTELLIGENCE_DB : undefined;
   const databaseDriveRelative = databaseSetting !== undefined && isDriveRelativePath(databaseSetting);
-  const userService =
-    options.userServiceStatus ??
-    getUserServiceStatus({
-      homeDirectory,
-      repositoryRoot,
-      environment: databaseDriveRelative ? { ...environment, WORK_INTELLIGENCE_DB: undefined } : environment,
-    });
-  const userServiceLabel = {
-    running: "正在執行",
-    stopped: "已安裝但目前未執行",
-    not_installed: "尚未安裝",
-    unavailable: "無法判定服務管理器狀態",
-    unsupported: "此作業系統不支援自動啟動服務",
-  }[userService.state];
-  const userServiceHealthy =
-    (userService.state === "running" && userService.enabled !== false) ||
-    userService.state === "not_installed" ||
-    userService.state === "unsupported";
-  addFinding(
-    findings,
-    userServiceHealthy ? "ok" : "warning",
-    "登入自動啟動服務",
-    `${userService.manager ?? "服務管理器未提供"}；${userServiceLabel}。資料庫：${userService.databasePath}；備份：${userService.backupDirectory}；日誌：${userService.logPath}。`,
-    userService.state === "not_installed"
-      ? "如需在登入時自動啟動，請先執行 pnpm build，再執行 pnpm service:install。"
-      : userServiceHealthy
+
+  if (standalone) {
+    // A standalone package has no MCP heartbeat or login service of its own yet, and the check never queries the
+    // system service manager from a package.
+    addFinding(
+      findings,
+      "ok",
+      "登入自動啟動服務",
+      "獨立套件目前不管理登入自動啟動服務，診斷也不會查詢系統服務管理器。",
+    );
+  } else {
+    const mcpRuntime = getMcpRuntimeStatus(repositoryRoot);
+    const mcpRuntimeHealthy =
+      mcpRuntime.monitoringAvailable &&
+      mcpRuntime.activeProcesses > 0 &&
+      !mcpRuntime.restartRequired &&
+      !mcpRuntime.updateAvailable;
+    const mcpRuntimeDetail =
+      mcpRuntime.updateAvailable && !mcpRuntime.restartRequired
+        ? `${mcpRuntime.updateAvailableProcesses} 個 MCP 連線有新版可用，仍可照常讀寫。`
+        : mcpRuntime.restartRequired
+          ? `${mcpRuntime.activeProcesses} 個可監測 MCP 連線中，${mcpRuntime.outdatedProcesses} 個需要重新連線。 ${mcpRuntime.message ?? ""}`.trim()
+          : mcpRuntime.activeProcesses > 0 && mcpRuntime.monitoringAvailable
+            ? `${mcpRuntime.activeProcesses} 個可監測 MCP 連線均使用目前建置。`
+            : (mcpRuntime.message ?? "無法確認 MCP runtime 狀態。");
+    addFinding(
+      findings,
+      mcpRuntimeHealthy ? "ok" : "warning",
+      "MCP runtime",
+      mcpRuntimeDetail,
+      mcpRuntimeHealthy
         ? undefined
-        : "執行 pnpm service:status 查看狀態；若服務已停止，可重新執行 pnpm service:install。",
-  );
+        : mcpRuntime.restartRequired
+          ? "請在 Agent 用戶端重新連線 Work Intelligence MCP。"
+          : mcpRuntime.updateAvailable
+            ? "目前契約相容，可照常讀寫；收尾後重新連線即可載入新版。"
+            : mcpRuntime.monitoringAvailable
+              ? "尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置。"
+              : "請確認建置完成後重新執行 doctor。",
+    );
+
+    // A drive-relative database path is reported as its own error below; keep the service probe from throwing on it.
+
+    // A drive-relative database path is reported as its own error below; keep the service probe from throwing on it.
+    const userService =
+      options.userServiceStatus ??
+      getUserServiceStatus({
+        homeDirectory,
+        repositoryRoot,
+        environment: databaseDriveRelative ? { ...environment, WORK_INTELLIGENCE_DB: undefined } : environment,
+      });
+    const userServiceLabel = {
+      running: "正在執行",
+      stopped: "已安裝但目前未執行",
+      not_installed: "尚未安裝",
+      unavailable: "無法判定服務管理器狀態",
+      unsupported: "此作業系統不支援自動啟動服務",
+    }[userService.state];
+    const userServiceHealthy =
+      (userService.state === "running" && userService.enabled !== false) ||
+      userService.state === "not_installed" ||
+      userService.state === "unsupported";
+    addFinding(
+      findings,
+      userServiceHealthy ? "ok" : "warning",
+      "登入自動啟動服務",
+      `${userService.manager ?? "服務管理器未提供"}；${userServiceLabel}。資料庫：${userService.databasePath}；備份：${userService.backupDirectory}；日誌：${userService.logPath}。`,
+      userService.state === "not_installed"
+        ? `如需在登入時自動啟動，請先執行 pnpm build，再執行 ${cmd("service:install")}。`
+        : userServiceHealthy
+          ? undefined
+          : `執行 ${cmd("service:status")} 查看狀態；若服務已停止，可重新執行 ${cmd("service:install")}。`,
+    );
+  }
 
   if (!parsedEnvironment.success) {
     findings.push(envFailure());
@@ -814,17 +939,17 @@ export async function collectDoctorFindings(
       `WORK_INTELLIGENCE_DB 的值「${databaseSetting}」是磁碟相對路徑，反斜線可能被 shell 吃掉了。`,
       "請改用正斜線，或以引號包住完整絕對路徑（PowerShell 中用單引號）。",
     );
-    addRootSqliteFinding(findings, repositoryRoot);
+    if (!standalone) addRootSqliteFinding(findings, repositoryRoot);
     return findings;
   }
-  const dbPath = databasePathFor(repositoryRoot, { environment, home: homeDirectory || undefined });
+  const dbPath = databasePathFor(repositoryRoot, { environment, home: homeDirectory || undefined, standalone });
   if (databaseSetting && !isAbsolute(databaseSetting) && databaseSetting !== ":memory:") {
-    const base = STANDALONE
+    const base = standalone
       ? `設定目錄 ${configDirectory({ environment, home: homeDirectory || undefined })}`
       : "repo 根目錄";
     addFinding(findings, "ok", "資料庫路徑", `WORK_INTELLIGENCE_DB 是相對路徑，已以${base}解析為 ${dbPath}。`);
   }
-  addRootSqliteFinding(findings, repositoryRoot);
+  if (!standalone) addRootSqliteFinding(findings, repositoryRoot);
   const database = await inspectDatabaseReadOnly(dbPath);
   // Keep the database, doctor, and server on the same relative backup-directory rule.
   const backupDirectory = resolveBackupDirectory(dbPath, parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR);
@@ -837,7 +962,7 @@ export async function collectDoctorFindings(
       "warning",
       "資料庫",
       dbPath + " 尚未建立；最近自動備份：" + backupDetail + "。",
-      "第一次啟動 pnpm start 後會建立資料庫。",
+      `第一次啟動 ${cmd("start")} 後會建立資料庫。`,
     );
   } else if (database.state === "unreadable") {
     addFinding(
@@ -845,7 +970,7 @@ export async function collectDoctorFindings(
       "error",
       "資料庫",
       dbPath + " 無法以唯讀模式檢查；大小與 schema 版本無法取得。",
-      "確認檔案權限與 SQLite 狀態，再用備份還原或執行 pnpm db:backup。",
+      `確認檔案權限與 SQLite 狀態，再用備份還原或執行 ${cmd("db:backup")}。`,
     );
   } else if (database.state === "unhealthy") {
     addFinding(
@@ -889,7 +1014,7 @@ export async function collectDoctorFindings(
       "warning",
       "可回收空間",
       `資料庫檔案內有 ${formatBytes(database.reclaimableBytes)} 未使用空間（約占 ${share}%）；SQLite 會留給之後的資料重複使用，不影響運作。`,
-      "如要縮小檔案，先停止 server 與 Agent，再執行 pnpm db:maintain（會先備份）；診斷程序不會自動執行。",
+      `如要縮小檔案，先停止 server 與 Agent，再執行 ${cmd("db:maintain")}（會先備份）；診斷程序不會自動執行。`,
     );
   }
 
@@ -899,7 +1024,7 @@ export async function collectDoctorFindings(
       "warning",
       "資料庫維護",
       "尚無維護紀錄。",
-      "執行 pnpm db:maintain 建立備份、整理資料庫並重建搜尋索引。",
+      `執行 ${cmd("db:maintain")} 建立備份、整理資料庫並重建搜尋索引。`,
     );
   } else if (database.maintenance) {
     const maintenance = database.maintenance;
@@ -918,7 +1043,7 @@ export async function collectDoctorFindings(
         maintenance.status === "running"
           ? `最近一次維護於 ${maintenance.startedAt} 開始但未完成；備份 ${maintenance.backupFileName}。`
           : `最近一次維護於 ${maintenance.completedAt ?? maintenance.startedAt} 未完成；備份 ${maintenance.backupFileName}；分類 ${maintenance.failureCode ?? "DATABASE_MAINTENANCE_FAILED"}。`,
-        "確認 server 與 Agent 已停止，再次執行 pnpm db:maintain；如仍失敗，請依疑難排解從維護前備份還原。",
+        `確認 server 與 Agent 已停止，再次執行 ${cmd("db:maintain")}；如仍失敗，請依疑難排解從維護前備份還原。`,
       );
     }
   }
@@ -941,7 +1066,7 @@ export async function collectDoctorFindings(
       "warning",
       "API",
       "port " + port + " 可用，但 /api/health 無法連線。",
-      "在專案根目錄執行 pnpm start。",
+      `${standalone ? "" : "在專案根目錄"}執行 ${cmd("start")}。`,
     );
   }
 
@@ -960,7 +1085,7 @@ export async function collectDoctorFindings(
         ? "work-intelligence plugin 已啟用，但全域設定也註冊了 work-intelligence MCP 或 Stop hook；Agent 會看到兩份相同工具與提醒。"
         : "work-intelligence plugin 已啟用，提供 MCP、skill 與 Stop hook。",
       duplicated
-        ? "保留一種接法即可：停用 plugin，或移除手動註冊。由 pnpm setup:agents 安裝的用 pnpm setup:agents --uninstall 移除（也會移除 Codex 的設定）；手動加入的請執行 claude mcp remove work-intelligence --scope user，並刪除 Claude settings.json 中指向 apps/mcp/dist/finalize-reminder.js 的 Stop hook。plugin 不會自動移除任何設定。"
+        ? `保留一種接法即可：停用 plugin，或移除手動註冊。由 ${cmd("setup:agents")} 安裝的用 ${cmd("setup:agents")} --uninstall 移除（也會移除 Codex 的設定）；手動加入的請執行 claude mcp remove work-intelligence --scope user，並刪除 Claude settings.json 中指向 apps/mcp/dist/finalize-reminder.js 的 Stop hook。plugin 不會自動移除任何設定。`
         : undefined,
     );
   }
@@ -971,7 +1096,7 @@ export async function collectDoctorFindings(
       claudeMcp,
       "依 docs/agent-setup.md 以 user scope 註冊 work-intelligence。",
       "無法判定 Claude MCP 註冊狀態；.claude.json 無法讀取或不是有效 JSON。",
-      "確認 .claude.json 存在且可讀、格式有效後重新執行 pnpm check。",
+      `確認 .claude.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`,
     );
   }
   const codexPlugin = agentInspection.codexPluginEnabled;
@@ -1007,7 +1132,7 @@ export async function collectDoctorFindings(
       codexMcp,
       "依 docs/agent-setup.md 註冊 work-intelligence MCP。",
       "無法判定 Codex MCP 註冊狀態；config.toml 無法讀取或格式無法判定。",
-      "確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 pnpm check。",
+      `確認 CODEX_HOME 下的 config.toml 存在且可讀、格式有效後重新執行 ${cmd("check")}。`,
     );
   }
 
@@ -1026,7 +1151,7 @@ export async function collectDoctorFindings(
       finding.state === "current" ? "ok" : "warning",
       title,
       finding.detail,
-      finding.state === "current" ? undefined : "執行 pnpm setup:agents 預覽並依提示安裝或更新 skill。",
+      finding.state === "current" ? undefined : `執行 ${cmd("setup:agents")} 預覽並依提示安裝或更新 skill。`,
     );
   }
 
@@ -1046,8 +1171,10 @@ export async function collectDoctorFindings(
       claudeHookState === "installed"
         ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
         : claudeHookState === "unknown"
-          ? "確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 pnpm check。"
-          : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
+          ? `確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`
+          : standalone
+            ? `執行 ${cmd("setup:agents")} 設定全域 Claude hook。`
+            : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
     );
   const codexHookState = agentInspection.connections.codex.hook;
   const codexHooksDisabled = globalHooks.codexHooksFeature === "disabled";
@@ -1071,16 +1198,18 @@ export async function collectDoctorFindings(
                 : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
             : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
       codexHookState === "unknown"
-        ? "確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 pnpm check。"
+        ? `確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`
         : codexHooksDisabled
-          ? "如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 pnpm check。"
+          ? `如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 ${cmd("check")}。`
           : codexHookExists && globalHooks.codexConfigured
             ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
             : globalHooks.codexHooksFeature === "unknown"
-              ? "無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 pnpm check。"
+              ? `無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 ${cmd("check")}。`
               : globalHooks.codexLegacyMatcher
-                ? "執行 pnpm setup:agents，預覽後確認即可更新 matcher；更新後在 Codex /hooks 重新信任。"
-                : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
+                ? `執行 ${cmd("setup:agents")}，預覽後確認即可更新 matcher；更新後在 Codex /hooks 重新信任。`
+                : standalone
+                  ? `執行 ${cmd("setup:agents")} 設定全域 Codex hook。`
+                  : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
     );
   return findings;
 }
@@ -1100,17 +1229,21 @@ export function formatDoctorFindings(findings: DoctorFinding[]): string {
   return lines.join("\n");
 }
 
-async function main(): Promise<void> {
+/** Prints the read-only diagnosis and returns the exit code (1 when it found an error). */
+export async function runDoctorCli(): Promise<number> {
   const findings = await collectDoctorFindings();
   console.log(formatDoctorFindings(findings));
-  if (findings.some((finding) => finding.severity === "error")) {
-    process.exitCode = 1;
-  }
+  return findings.some((finding) => finding.severity === "error") ? 1 : 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch(() => {
-    console.error("Work Intelligence 唯讀診斷無法完成；請確認 Node.js 環境後重試。");
-    process.exitCode = 1;
-  });
+// A standalone bundle is started through its bin, which calls runDoctorCli itself.
+if (!STANDALONE && process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void runDoctorCli()
+    .then((exitCode) => {
+      if (exitCode !== 0) process.exitCode = exitCode;
+    })
+    .catch(() => {
+      console.error("Work Intelligence 唯讀診斷無法完成；請確認 Node.js 環境後重試。");
+      process.exitCode = 1;
+    });
 }

@@ -1,3 +1,5 @@
+export { commandName, STANDALONE_COMMAND_NAME } from "./command-name.js";
+
 /**
  * The oldest Node.js whose built-in SQLite includes FTS5 (the search index). node:sqlite itself needs no flag from
  * 22.13, but 22.13–22.15 and every 23.x release ship SQLite without FTS5, so the migrations cannot create the index.

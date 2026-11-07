@@ -10,6 +10,7 @@ export const storageAliases = {
   "@work-intelligence/shared/database-location": fileURLToPath(
     new URL("../shared/src/database-location.ts", import.meta.url),
   ),
+  "@work-intelligence/shared/app-version": fileURLToPath(new URL("../shared/src/app-version.ts", import.meta.url)),
   "@work-intelligence/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)),
 };
 
