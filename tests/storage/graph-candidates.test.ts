@@ -118,7 +118,13 @@ function normalize(value: unknown, idNames: Map<string, string>): unknown {
 describe("graph candidate window", () => {
   it("keeps nodes, edges, totals, truncation and order identical to the full-load implementation", () => {
     const { store, root, projects, sessions } = seed();
-    const idNames = new Map<string, string>([[root, "<root>"]]);
+    // Stored roots are canonical (on Windows: lower-case, 8.3 short names) and JSON escapes their backslashes,
+    // so map each project's stored root as it appears in the serialized result before the raw temp root.
+    const jsonText = (value: string) => JSON.stringify(value).slice(1, -1);
+    const idNames = new Map<string, string>(
+      projects.map((project) => [jsonText(project.rootPath), `<root>/${project.name}`] as [string, string]),
+    );
+    idNames.set(jsonText(root), "<root>");
     for (const project of projects) idNames.set(project.id, `P:${project.name}`);
     for (const session of sessions) idNames.set(session.id, `S:${session.title}`);
     const everything = store.getGraph({ limit: 200, maxNodes: 500, maxEdges: 1_000 });
