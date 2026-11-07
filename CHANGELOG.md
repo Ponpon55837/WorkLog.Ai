@@ -16,6 +16,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The `--force` bypass was removed from `pnpm db:restore`; an in-use database always blocks restoration.
 - Schema 31 tracks project-data and Agent-read audit revisions separately. Project changes send the existing data-free `changed` event; Agent read audits send `agent-reads-changed`, which refreshes only Agent read history. Older MCP connections report `restartRequired` after the schema upgrade; reconnect Work Intelligence MCP.
 
+- Storage coverage now measures all of `packages/storage/src` and enforces per-file thresholds on 27 high-risk services (policy helpers, redaction, reports, attention, related work, outstanding items, knowledge, data transfer, deletion, transactions) plus a looser floor for the rest. Added storage unit tests for `policy-helper` and the Agent report projection (`report-agent-view`).
+
 ### Fixed
 
 - System status checks the login service asynchronously, shares concurrent probes and caches successful results for 30 seconds, keeping the API responsive while the service manager is slow.
