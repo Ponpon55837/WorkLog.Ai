@@ -290,6 +290,17 @@ describe("Agent setup", () => {
     expect(object(claudeSettings).userSetting).toBe("preserve me");
     expect(object(claudeSettings.hooks).Stop as unknown[]).toHaveLength(2);
     expect(object(claudeSettings.hooks).Notification as unknown[]).toHaveLength(1);
+    expect(object(claudeSettings.hooks).PreCompact).toEqual([
+      { hooks: [{ type: "command", command: expect.stringContaining("finalize-reminder.js") as unknown }] },
+    ]);
+    expect(object(claudeSettings.hooks).SessionStart).toEqual([
+      {
+        matcher: "compact",
+        hooks: [{ type: "command", command: expect.stringContaining("finalize-reminder.js") as unknown }],
+      },
+    ]);
+    expect(plan.actions).toContain("加入 Claude PreCompact hook。");
+    expect(plan.actions).toContain("加入 Codex SessionStart（compact）hook。");
 
     const codexHooks = readJson(fixture.paths.codexHooks);
     expect(object(codexHooks).userSetting).toEqual({ keep: true });
@@ -297,6 +308,7 @@ describe("Agent setup", () => {
     expect(object(codexHooks.hooks).PostToolUse as unknown[]).toHaveLength(1);
     expect(object(codexHooks.hooks).UserPromptSubmit as unknown[]).toHaveLength(1);
     expect(object(codexHooks.hooks).UserNotification as unknown[]).toHaveLength(1);
+    expect((object(codexHooks.hooks).SessionStart as Array<Record<string, unknown>>)[0]?.matcher).toBe("compact");
     expect((object(codexHooks.hooks).PostToolUse as Array<Record<string, unknown>>)[0]?.matcher).toBe(
       CODEX_POST_TOOL_USE_MATCHER,
     );
@@ -306,10 +318,21 @@ describe("Agent setup", () => {
     expect(componentIds).toContain("codexSkill");
     expect(componentIds).toContain("codexLegacySkill");
     expect(componentIds).toContain("claudeSkill");
+    for (const id of ["claudePreCompactHook", "claudeSessionStartHook", "codexSessionStartHook"]) {
+      expect(componentIds).toContain(id);
+    }
 
     const secondPlan = createAgentSetupPlan(fixture.options);
     expect(secondPlan.conflicts).toEqual([]);
     expect(secondPlan.mutations).toEqual([]);
+
+    // Uninstall removes exactly what setup added, compaction hooks included, and keeps the user's own entries.
+    expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options, "uninstall")).applied).toBe(true);
+    const restoredClaude = object(readJson(fixture.paths.claudeSettings).hooks);
+    expect(restoredClaude.PreCompact).toEqual([]);
+    expect(restoredClaude.SessionStart).toEqual([]);
+    expect(restoredClaude.Stop as unknown[]).toHaveLength(1);
+    expect(object(readJson(fixture.paths.codexHooks).hooks).SessionStart).toEqual([]);
   });
 
   it("upgrades an owned legacy Codex matcher to include the dispatcher while preserving one hook", () => {
@@ -400,7 +423,11 @@ describe("Agent setup", () => {
       command: "/usr/local/bin/node",
       args: [join(repositoryRoot, "apps", "mcp", "dist", "launcher.js")],
     });
-    expect(readFileSync(fixture.paths.claudeSettings)).toEqual(claudeSettings);
+    // The hand-written Stop hook is kept as is; only the missing compaction hooks are added beside it.
+    const claudeHooks = object(readJson(fixture.paths.claudeSettings).hooks);
+    expect(claudeHooks.Stop).toEqual(object(JSON.parse(claudeSettings.toString("utf8")).hooks).Stop);
+    expect(claudeHooks.PreCompact as unknown[]).toHaveLength(1);
+    expect((claudeHooks.SessionStart as Array<Record<string, unknown>>)[0]?.matcher).toBe("compact");
     const codexHooks = object(readJson(fixture.paths.codexHooks).hooks);
     expect(codexHooks.PostToolUse).toEqual([
       {
@@ -412,7 +439,14 @@ describe("Agent setup", () => {
     expect(codexHooks.UserPromptSubmit as unknown[]).toHaveLength(1);
     // Kept entries are not recorded as setup-owned, so uninstall never removes them.
     const componentIds = (readJson(fixture.paths.manifest).components as Array<{ id: string }>).map(({ id }) => id);
-    expect(componentIds.sort()).toEqual(["claudeSkill", "codexLegacySkill", "codexSkill"]);
+    expect(componentIds.sort()).toEqual([
+      "claudePreCompactHook",
+      "claudeSessionStartHook",
+      "claudeSkill",
+      "codexLegacySkill",
+      "codexSessionStartHook",
+      "codexSkill",
+    ]);
 
     const secondPlan = createAgentSetupPlan(fixture.options);
     expect(secondPlan.conflicts).toEqual([]);

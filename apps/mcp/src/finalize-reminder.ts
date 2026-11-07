@@ -7,32 +7,72 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { databasePathFor } from "./database-location.js";
 
 /**
- * Claude Code Stop hook: when an Agent changed files in a tracked project and has not saved a Work
- * Intelligence record since, ask it once to finalize. It reads the project registry read-only, never
- * writes the database, and stays silent whenever it cannot tell.
+ * Claude Code hooks for unsaved work in a tracked project. Stop: when an Agent changed files and has not saved a
+ * Work Intelligence record since, ask it once to finalize. PreCompact: tell the compaction summary to keep when the
+ * segment began and which files changed. SessionStart (after compaction): put the same facts back into context.
+ * It reads the project registry read-only, never writes the database, and stays silent whenever it cannot tell.
  */
 export interface StopHookInput {
   session_id?: string;
   transcript_path?: string;
   cwd?: string;
   stop_hook_active?: boolean;
+  hook_event_name?: string;
+  /** SessionStart only: `compact` after a compaction. */
+  source?: string;
+}
+
+/** Unsaved work in a tracked project: when its segment began and the tracked files edited since the last save. */
+export interface UnsavedWork {
+  lastFinalize: number;
+  segmentStartedAt?: string;
+  /** Paths relative to their tracked root, "/"-separated, in first-edit order. */
+  files: string[];
+}
+
+export interface TranscriptSummary {
+  lastEdit: number;
+  lastFinalize: number;
+  segmentStartedAt?: string;
+  /** Only filled when a path scope is given. */
+  editedFiles: string[];
 }
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+/** How many changed files the compaction notes list by name; the rest are counted. */
+const MAX_LISTED_FILES = 30;
+const MAX_PATH_LENGTH = 200;
+/** Claude Code cuts PreCompact stdout at 10,000 characters; stay well below it. */
+const MAX_COMPACTION_TEXT = 8_000;
+// C0/C1 controls and bidirectional overrides: a file name must not reshape the text around it.
+// eslint-disable-next-line no-control-regex
+const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 export const REMINDER =
   "這個專案有在 Work Intelligence 記錄，上次保存之後又改了檔案，還沒有保存工作記錄。如果這段工作已經完成，請依 work-intelligence skill 保存；如果還在進行或不需要記錄，直接結束這一輪即可。同一段工作只會提醒一次。";
 
-/** Adds when the current segment began (the first message after the last successful save), so the Agent never estimates startedAt. */
-export function reminderWithStart(segmentStartedAt: string | undefined): string {
+function startHint(segmentStartedAt: string | undefined): string {
   return segmentStartedAt
-    ? `${REMINDER}這段工作的開始時間（上一次成功保存後的第一則訊息）：${segmentStartedAt}。保存時請把它填入 startedAt；completedAt 請省略，由伺服器記錄。`
-    : REMINDER;
+    ? `這段工作的開始時間（上一次成功保存後的第一則訊息）：${segmentStartedAt}。保存時請把它填入 startedAt；completedAt 請省略，由伺服器記錄。`
+    : "";
 }
 
-/** A message the user typed (a string or text blocks), as opposed to tool results, which are also `user` entries. */
-function isHumanMessage(entry: { type?: string; isMeta?: boolean; message?: { content?: unknown } }): boolean {
-  if (entry.type !== "user" || entry.isMeta) {
+/** Adds when the current segment began (the first message after the last successful save), so the Agent never estimates startedAt. */
+export function reminderWithStart(segmentStartedAt: string | undefined): string {
+  return `${REMINDER}${startHint(segmentStartedAt)}`;
+}
+
+/**
+ * A message the user typed (a string or text blocks), as opposed to tool results, which are also `user` entries,
+ * and the summary Claude Code writes after a compact boundary.
+ */
+function isHumanMessage(entry: {
+  type?: string;
+  isMeta?: boolean;
+  isCompactSummary?: boolean;
+  message?: { content?: unknown };
+}): boolean {
+  if (entry.type !== "user" || entry.isMeta || entry.isCompactSummary) {
     return false;
   }
   const content = entry.message?.content;
@@ -62,16 +102,32 @@ function editedPath(name: string, input: unknown): string | null {
   return typeof path === "string" && path.trim() ? path : null;
 }
 
-/** Resolve a tool path without reading file contents; new files use their deepest existing parent. */
-export function isFileInTrackedRoots(
+/** A path relative to its tracked root for display: "/"-separated, no control characters, bounded length. */
+function relativeDisplayPath(location: { root: string; target: string }): string | null {
+  const base = location.root.replace(/[\\/]+$/, "");
+  const relative = location.target
+    .slice(base.length + 1)
+    .replaceAll("\\", "/")
+    .replace(UNSAFE_TEXT, "");
+  if (!relative || relative.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    return null;
+  }
+  return relative.length > MAX_PATH_LENGTH ? `…${relative.slice(-(MAX_PATH_LENGTH - 1))}` : relative;
+}
+
+/**
+ * Resolve a tool path without reading file contents (new files use their deepest existing parent) and find the
+ * tracked root that contains it.
+ */
+function trackedLocation(
   filePath: string,
   cwd: string,
   roots: readonly string[],
   realpath: (path: string) => string,
   platform: NodeJS.Platform = process.platform,
-): boolean {
+): { root: string; target: string } | null {
   if (!filePath.trim()) {
-    return false;
+    return null;
   }
 
   let target = resolve(cwd, filePath);
@@ -91,7 +147,19 @@ export function isFileInTrackedRoots(
       current = parent;
     }
   }
-  return Boolean(findTrackedRoot(target, roots, platform));
+  const root = findTrackedRoot(target, roots, platform);
+  return root ? { root, target } : null;
+}
+
+/** Whether a tool path resolves inside a tracked root. */
+export function isFileInTrackedRoots(
+  filePath: string,
+  cwd: string,
+  roots: readonly string[],
+  realpath: (path: string) => string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return trackedLocation(filePath, cwd, roots, realpath, platform) !== null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -140,14 +208,21 @@ function finalizeResultSucceeded(result: { content?: unknown; is_error?: unknown
  * Where in the transcript files were last edited and the record was last saved (-1 when never), and when the
  * current segment began: the first message the user typed after the last successful save.
  */
-export function summarizeTranscript(
-  text: string,
-  scope?: TranscriptPathScope,
-): { lastEdit: number; lastFinalize: number; segmentStartedAt?: string } {
+export function summarizeTranscript(text: string, scope?: TranscriptPathScope): TranscriptSummary {
   let lastEdit = -1;
   let lastFinalize = -1;
   let segmentStartedAt: string | undefined;
   let index = 0;
+  // Tracked file → index of its latest edit; a successful save drops the edits it covered.
+  const editedFiles = new Map<string, number>();
+  const closeSegment = (finalizeIndex: number) => {
+    lastFinalize = finalizeIndex;
+    // The next typed message starts a new segment.
+    segmentStartedAt = undefined;
+    for (const [file, editIndex] of editedFiles) {
+      if (editIndex < finalizeIndex) editedFiles.delete(file);
+    }
+  };
   // Finalize calls wait for their result: only a successful save ends the segment.
   const pendingFinalize = new Map<string, number>();
   for (const line of text.split("\n")) {
@@ -180,9 +255,7 @@ export function summarizeTranscript(
         }
         pendingFinalize.delete(result.tool_use_id);
         if (finalizeResultSucceeded(result)) {
-          lastFinalize = finalizeIndex;
-          // The next typed message starts a new segment.
-          segmentStartedAt = undefined;
+          closeSegment(finalizeIndex);
         }
       }
     }
@@ -194,9 +267,12 @@ export function summarizeTranscript(
       if (name && EDIT_TOOLS.has(name)) {
         if (scope) {
           const path = editedPath(name, tool.input);
-          if (!path || !isFileInTrackedRoots(path, scope.cwd, scope.roots, scope.realpath, scope.platform)) {
+          const location = path && trackedLocation(path, scope.cwd, scope.roots, scope.realpath, scope.platform);
+          if (!location) {
             continue;
           }
+          const display = relativeDisplayPath(location);
+          if (display) editedFiles.set(display, index);
         }
         lastEdit = index;
       } else if (name && isFinalizeToolCall(name, tool.input)) {
@@ -204,13 +280,17 @@ export function summarizeTranscript(
           pendingFinalize.set(tool.id, index);
         } else {
           // Without an id the result cannot be matched; keep the older behavior of trusting the call.
-          lastFinalize = index;
-          segmentStartedAt = undefined;
+          closeSegment(index);
         }
       }
     }
   }
-  return { lastEdit, lastFinalize, ...(segmentStartedAt ? { segmentStartedAt } : {}) };
+  return {
+    lastEdit,
+    lastFinalize,
+    ...(segmentStartedAt ? { segmentStartedAt } : {}),
+    editedFiles: [...editedFiles.keys()],
+  };
 }
 
 /** The tracked project root containing `cwd`, comparing whole path segments (case-insensitive on Windows). */
@@ -237,33 +317,105 @@ export interface ReminderDeps {
   markOnce: (key: string) => boolean;
 }
 
-/** The reason to show the Agent, or null to let it stop. */
-export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | null {
-  if (input.stop_hook_active || !input.cwd || !input.transcript_path || !input.session_id) {
+/**
+ * The unsaved work in this session when `cwd` is in a tracked project and a tracked file was edited after the last
+ * successful save; null otherwise, including whenever the check itself fails.
+ */
+export function unsavedWorkFor(input: StopHookInput, deps: Omit<ReminderDeps, "markOnce">): UnsavedWork | null {
+  if (!input.cwd || !input.transcript_path || !input.session_id) {
     return null;
   }
-  let cwd: string;
-  let roots: string[];
-  let transcript: string;
   try {
-    cwd = deps.realpath(input.cwd);
-    roots = deps.trackedRoots();
+    const cwd = deps.realpath(input.cwd);
+    const roots = deps.trackedRoots();
     if (!findTrackedRoot(cwd, roots)) {
       return null;
     }
-    transcript = deps.readTranscript(input.transcript_path);
+    const { lastEdit, lastFinalize, segmentStartedAt, editedFiles } = summarizeTranscript(
+      deps.readTranscript(input.transcript_path),
+      { cwd, roots, realpath: deps.realpath },
+    );
+    if (lastEdit < 0 || lastEdit < lastFinalize) {
+      return null;
+    }
+    return { lastFinalize, files: editedFiles, ...(segmentStartedAt ? { segmentStartedAt } : {}) };
   } catch {
     return null;
   }
-  const { lastEdit, lastFinalize, segmentStartedAt } = summarizeTranscript(transcript, {
-    cwd,
-    roots,
-    realpath: deps.realpath,
-  });
-  if (lastEdit < 0 || lastEdit < lastFinalize) {
+}
+
+/** The reason to show the Agent, or null to let it stop. */
+export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | null {
+  if (input.stop_hook_active) {
     return null;
   }
-  return deps.markOnce(`${input.session_id}:${lastFinalize}`) ? reminderWithStart(segmentStartedAt) : null;
+  const work = unsavedWorkFor(input, deps);
+  if (!work) {
+    return null;
+  }
+  return deps.markOnce(`${input.session_id}:${work.lastFinalize}`) ? reminderWithStart(work.segmentStartedAt) : null;
+}
+
+/** "a、b、c 等 N 個" with at most MAX_LISTED_FILES names. */
+function fileList(files: readonly string[]): string {
+  const listed = files.slice(0, MAX_LISTED_FILES).join("、");
+  return files.length > MAX_LISTED_FILES ? `${listed} 等 ${files.length} 個` : listed;
+}
+
+function boundedText(text: string): string {
+  return text.length > MAX_COMPACTION_TEXT ? `${text.slice(0, MAX_COMPACTION_TEXT - 1)}…` : text;
+}
+
+/** Extra instructions for the compaction summary, so it keeps what the work record needs. */
+export function compactionSummaryInstructions(work: UnsavedWork): string {
+  const parts = ["摘要請保留：這段工作尚未保存 Work Intelligence 工作記錄"];
+  if (work.segmentStartedAt) parts.push(`開始時間 ${work.segmentStartedAt}`);
+  if (work.files.length) parts.push(`在記錄中專案改過的檔案：${fileList(work.files)}`);
+  return boundedText(`${parts.join("；")}。完成後要依 work-intelligence skill 保存。`);
+}
+
+/** Context added after a compaction, so the start time and the unsaved state survive even if the summary drops them. */
+export function compactedSessionReminder(segmentStartedAt: string | undefined, files: readonly string[] = []): string {
+  const changed = files.length ? `上次保存之後改過的檔案：${fileList(files)}。` : "";
+  return boundedText(
+    `對話剛壓縮過，這段工作的狀態仍然有效：這個專案有在 Work Intelligence 記錄，上次保存之後改過檔案，還沒有保存工作記錄。${startHint(segmentStartedAt)}${changed}工作完成後請依 work-intelligence skill 保存。`,
+  );
+}
+
+/** The hook's stdout for one Claude Code event, or null to print nothing. */
+export function responseForClaudeHook(raw: string, deps: ReminderDeps): string | null {
+  let input: StopHookInput;
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (!isRecord(value)) return null;
+    input = value as StopHookInput;
+  } catch {
+    return null;
+  }
+  if (input.hook_event_name === "PreCompact") {
+    // Plain stdout becomes summary instructions. Never block: that would skip or fail the compaction.
+    const work = unsavedWorkFor(input, deps);
+    return work ? compactionSummaryInstructions(work) : null;
+  }
+  if (input.hook_event_name === "SessionStart") {
+    if (input.source !== "compact") return null;
+    const work = unsavedWorkFor(input, deps);
+    if (!work) return null;
+    const additionalContext = compactedSessionReminder(work.segmentStartedAt, work.files);
+    return JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } });
+  }
+  if (input.hook_event_name !== undefined && input.hook_event_name !== "Stop") {
+    return null;
+  }
+  const reason = reminderFor(input, deps);
+  // Newer Claude Code reads hookSpecificOutput; older versions read the top-level fields.
+  return reason
+    ? JSON.stringify({
+        decision: "block",
+        reason,
+        hookSpecificOutput: { hookEventName: "Stop", decision: "block", reason },
+      })
+    : null;
 }
 
 export function databasePath(): string {
@@ -317,21 +469,14 @@ async function main(): Promise<void> {
   for await (const chunk of process.stdin) {
     raw += String(chunk);
   }
-  let reason: string | null = null;
+  let response: string | null = null;
   try {
-    reason = reminderFor(JSON.parse(raw) as StopHookInput, defaultDeps);
+    response = responseForClaudeHook(raw, defaultDeps);
   } catch {
-    // A reminder is best-effort: never block the Agent because the check itself failed.
+    // A reminder is best-effort: never block the Agent or a compaction because the check itself failed.
   }
-  if (reason) {
-    // Newer Claude Code reads hookSpecificOutput; older versions read the top-level fields.
-    process.stdout.write(
-      JSON.stringify({
-        decision: "block",
-        reason,
-        hookSpecificOutput: { hookEventName: "Stop", decision: "block", reason },
-      }),
-    );
+  if (response) {
+    process.stdout.write(response);
   }
 }
 

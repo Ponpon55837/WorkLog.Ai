@@ -106,15 +106,40 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 
 工作記錄要靠 Agent 記得保存。Claude Code 與 Codex 都能在**全域**加上 hook（和 MCP 一樣，不綁單一專案）：在「記錄中」的專案裡，Agent 上次保存之後又改了檔案、這一輪結束卻還沒保存時，提醒它一次；同一段未保存工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
 
+長對話會被自動壓縮，壓縮後 Agent 可能忘了這段工作何時開始、改過哪些檔案、還沒保存。同一支腳本也處理壓縮：壓縮前請摘要保留這些資訊，壓縮後再把未保存提醒（含開始時間）放回上下文。hook 無法替 Agent 保存，只負責把保存所需的事實留下來；壓縮相關的 hook 不會擋住壓縮，每次壓縮都會重新提供，不受「只提醒一次」限制。
+
 #### Claude Code
 
-先執行 `pnpm build`，再把下面的設定加到全域的 `~/.claude/settings.json`（路徑換成你的 repo 位置）。這樣任何專案都會套用，hook 會自行略過沒有記錄的專案：
+先執行 `pnpm build`，再把下面的設定加到全域的 `~/.claude/settings.json`（路徑換成你的 repo 位置）。這樣任何專案都會套用，hook 會自行略過沒有記錄的專案。三個事件用同一支腳本，腳本依 `hook_event_name` 分辨：
 
 ```json
 {
   "hooks": {
     "Stop": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
         "hooks": [
           {
             "type": "command",
@@ -131,7 +156,10 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 - 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
 - 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
-- 提醒時會附上這段工作的**開始時間**：上一次**成功**保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果）。被拒絕、衝突或略過的保存不算數，所以不會把下一段的開始時間算錯。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
+- 提醒時會附上這段工作的**開始時間**：上一次**成功**保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果與壓縮摘要）。被拒絕、衝突或略過的保存不算數，所以不會把下一段的開始時間算錯。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
+- `PreCompact`（不設 matcher，手動 `/compact` 與自動壓縮都適用）：有未保存的改動時，以純文字 stdout 提供壓縮摘要的額外指示，請摘要保留「尚未保存、開始時間、記錄中專案改過的檔案」。檔案只列相對於專案根目錄的路徑（最多 30 個，其餘以「等 N 個」表示），不含檔案內容，控制字元會移除，總長度遠低於 Claude Code 的 10,000 字元上限。它永遠不擋住壓縮（擋住會讓壓縮略過或失敗）；沒有未保存改動時不輸出任何東西。
+- `SessionStart`（matcher `compact`）：壓縮完成後，以 `additionalContext` 放回未保存提醒、開始時間與改過的檔案，即使摘要漏掉也不會遺失開始時間。壓縮後 transcript 檔仍保留壓縮前的紀錄，所以邊界之前的改動與保存都照常計入。
+- 兩個壓縮 hook 是選用的：只設 `Stop` 時保存提醒照常運作；`pnpm check` 會指出缺少的壓縮 hook。
 
 #### Codex
 
@@ -139,7 +167,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 
 和 MCP 一樣，這個 hook 要裝在**全域**，任何專案都能用；它會自己判斷目前的工作目錄是否屬於「記錄中」的專案，其他專案一律放行。repo 不附專案層級的 `.codex/hooks.json`。
 
-先執行 `pnpm build`，再把下面三段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
+先執行 `pnpm build`，再把下面四段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
 
 ```json
 {
@@ -177,6 +205,18 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
@@ -185,6 +225,8 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 既有安裝若仍使用只匹配 `work_finalize_session` 的舊 matcher，該 matcher 不會收到新 dispatcher 的成功保存事件。下次使用者依專案更新流程執行 `pnpm setup:agents` 並確認套用時，installer 會更新它管理的 matcher；`pnpm check` 在更新前會將舊 matcher 顯示為未完整設定。此文件更新不會自行修改使用者的全域設定。
 
 `UserPromptSubmit` 是選用的：沒有設定時提醒照常運作，只是不會附上開始時間；`pnpm check` 會指出這件事。
+
+`SessionStart`（matcher `compact`，Codex 以 `source` 比對）也是選用的：上下文壓縮後，若仍有未保存的改動，就以 `additionalContext` 放回未保存提醒與開始時間；每次壓縮都會提供，不受「只提醒一次」限制。Codex 的 `PreCompact` 會忽略純文字 stdout，無法影響摘要內容，所以 Codex 不設定 `PreCompact`；Codex 的提醒也不列出檔案，因為它只記錄「有未保存改動」，不保存路徑。
 
 確認 `~/.codex/config.toml` 已啟用 hooks，然後在 Codex 輸入 `/hooks`，檢查並信任 Work Intelligence 保存提醒 hook。Codex 會略過尚未信任的 hook。
 

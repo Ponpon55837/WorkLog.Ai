@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { join, resolve } from "node:path";
 import {
+  compactedSessionReminder,
   findTrackedRoot,
   REMINDER,
   reminderFor,
   reminderWithStart,
+  responseForClaudeHook,
   summarizeTranscript,
   type ReminderDeps,
 } from "../../apps/mcp/src/finalize-reminder.js";
@@ -66,6 +68,23 @@ function deps(transcript: string[], roots = [PROJECT_ROOT]): ReminderDeps & { ma
 }
 
 const input = { session_id: "s1", transcript_path: "/t.jsonl", cwd: PROJECT_SRC };
+// What Claude Code appends when it compacts: earlier entries stay in the file, followed by a boundary and a summary.
+const compactBoundary = JSON.stringify({
+  type: "system",
+  subtype: "compact_boundary",
+  content: "Conversation compacted",
+  timestamp: "2026-09-27T01:00:00.000Z",
+  compactMetadata: { trigger: "auto", preTokens: 160000 },
+});
+const compactSummary = JSON.stringify({
+  type: "user",
+  isCompactSummary: true,
+  isVisibleInTranscriptOnly: true,
+  timestamp: "2026-09-27T01:00:01.000Z",
+  message: { role: "user", content: "This session is being continued from a previous conversation…" },
+});
+const hookEvent = (hook_event_name: string, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ ...input, hook_event_name, ...extra });
 
 describe("finalize reminder hook", () => {
   it("reports when the current segment began: the first typed message after the last save", () => {
@@ -222,7 +241,119 @@ describe("finalize reminder hook", () => {
     ).toEqual({
       lastEdit: 1,
       lastFinalize: -1,
+      editedFiles: [],
     });
+  });
+
+  it("asks the compaction summary to keep the start time and changed files, without blocking or marking", () => {
+    const d = deps([
+      typed("task", "2026-09-27T00:10:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      toolWithInput("Write", { file_path: "../README.md" }),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      toolWithInput("Edit", { file_path: EXTERNAL_MEMORY }),
+    ]);
+    const output = responseForClaudeHook(hookEvent("PreCompact", { trigger: "auto", custom_instructions: null }), d);
+    expect(output).toBe(
+      "摘要請保留：這段工作尚未保存 Work Intelligence 工作記錄；開始時間 2026-09-27T00:10:00.000Z；在記錄中專案改過的檔案：src/hive.ts、README.md。完成後要依 work-intelligence skill 保存。",
+    );
+    // Plain text, never a block decision: blocking would skip or fail the compaction.
+    expect(output).not.toContain("decision");
+    expect(d.marked).toEqual([]);
+    expect(responseForClaudeHook(hookEvent("PreCompact", { trigger: "manual" }), d)).toBe(output);
+    // The Stop reminder still fires once after compaction notes were written.
+    expect(responseForClaudeHook(hookEvent("Stop"), d)).toContain('"decision":"block"');
+  });
+
+  it("restores the unsaved reminder after a compaction, counting work before the compact boundary", () => {
+    const d = deps([
+      typed("task", "2026-09-27T00:10:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      compactBoundary,
+      compactSummary,
+    ]);
+    const output = responseForClaudeHook(hookEvent("SessionStart", { source: "compact" }), d);
+    const additionalContext = compactedSessionReminder("2026-09-27T00:10:00.000Z", ["src/hive.ts"]);
+    expect(output).toBe(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } }));
+    expect(additionalContext).toContain("startedAt");
+    expect(additionalContext).toContain("src/hive.ts");
+    expect(d.marked).toEqual([]);
+    for (const source of ["startup", "resume", "clear"]) {
+      expect(responseForClaudeHook(hookEvent("SessionStart", { source }), d)).toBeNull();
+    }
+  });
+
+  it("does not treat the compaction summary as the first message of a new segment", () => {
+    const d = deps([
+      typed("task", "2026-09-27T00:10:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      finalizeCall("save-1"),
+      finalizeResult("save-1", saved),
+      compactBoundary,
+      compactSummary,
+      typed("next task", "2026-09-27T01:05:00.000Z"),
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "queen.ts") }),
+    ]);
+    expect(responseForClaudeHook(hookEvent("PreCompact"), d)).toBe(
+      "摘要請保留：這段工作尚未保存 Work Intelligence 工作記錄；開始時間 2026-09-27T01:05:00.000Z；在記錄中專案改過的檔案：src/queen.ts。完成後要依 work-intelligence skill 保存。",
+    );
+  });
+
+  it("stays silent at compaction when the work was saved, nothing changed, or the project is untracked", () => {
+    const savedWork = deps([
+      toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }),
+      finalizeCall("save-1"),
+      finalizeResult("save-1", saved),
+      compactBoundary,
+      compactSummary,
+    ]);
+    const noEdits = deps([typed("question", "2026-09-27T00:10:00.000Z"), text("answer")]);
+    const untracked = deps([toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") })], []);
+    for (const d of [savedWork, noEdits, untracked]) {
+      expect(responseForClaudeHook(hookEvent("PreCompact"), d)).toBeNull();
+      expect(responseForClaudeHook(hookEvent("SessionStart", { source: "compact" }), d)).toBeNull();
+    }
+    const unreadable = {
+      ...deps([]),
+      readTranscript: () => {
+        throw new Error("EACCES");
+      },
+    };
+    expect(responseForClaudeHook(hookEvent("PreCompact"), unreadable)).toBeNull();
+    expect(responseForClaudeHook("not json", unreadable)).toBeNull();
+    expect(responseForClaudeHook(hookEvent("Notification"), unreadable)).toBeNull();
+  });
+
+  it("lists at most 30 changed files, strips control characters, and stays far below the 10,000-character cap", () => {
+    const lines = [typed("task", "2026-09-27T00:10:00.000Z")];
+    for (let index = 0; index < 45; index += 1) {
+      lines.push(toolWithInput("Write", { file_path: join(PROJECT_SRC, `${"deep/".repeat(60)}file-${index}.ts`) }));
+    }
+    lines.push(toolWithInput("Write", { file_path: join(PROJECT_SRC, "evil\u202e\u0007name\n.ts") }));
+    const output = responseForClaudeHook(hookEvent("PreCompact"), deps(lines)) ?? "";
+    expect(output).toContain("等 46 個");
+    expect(output.match(/file-\d+\.ts/g)).toHaveLength(30);
+    expect(output.length).toBeLessThanOrEqual(8_000);
+    expect(output).not.toContain(PROJECT_ROOT);
+    expect([...output].some((char) => char.charCodeAt(0) < 0x20 || char === "\u202e")).toBe(false);
+
+    const evil = responseForClaudeHook(
+      hookEvent("PreCompact"),
+      deps([toolWithInput("Write", { file_path: join(PROJECT_SRC, "evil\u202e\u0007name\n.ts") })]),
+    );
+    expect(evil).toContain("src/evilname.ts");
+  });
+
+  it("keeps the Stop output shape for Stop events and for inputs without an event name", () => {
+    const transcript = [toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") })];
+    const expected = JSON.stringify({
+      decision: "block",
+      reason: REMINDER,
+      hookSpecificOutput: { hookEventName: "Stop", decision: "block", reason: REMINDER },
+    });
+    expect(responseForClaudeHook(hookEvent("Stop"), deps(transcript))).toBe(expected);
+    expect(responseForClaudeHook(JSON.stringify(input), deps(transcript))).toBe(expected);
+    expect(responseForClaudeHook(hookEvent("Stop", { stop_hook_active: true }), deps(transcript))).toBeNull();
   });
 
   it("matches project roots on whole path segments, case-insensitively on Windows", () => {

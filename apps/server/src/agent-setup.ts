@@ -25,9 +25,12 @@ export type AgentSetupComponentId =
   | "codexMcp"
   | "claudeMcp"
   | "claudeStopHook"
+  | "claudePreCompactHook"
+  | "claudeSessionStartHook"
   | "codexPostToolUseHook"
   | "codexStopHook"
-  | "codexUserPromptSubmitHook";
+  | "codexUserPromptSubmitHook"
+  | "codexSessionStartHook";
 
 export type CodexHooksFeature = "enabled" | "disabled" | "unknown";
 
@@ -79,12 +82,14 @@ export interface AgentSetupCliDependencies extends AgentSetupPlanOptions {
   confirm?: (question: string) => Promise<boolean>;
 }
 
+type HookComponentId = Extract<AgentSetupComponentId, `${string}Hook`>;
+
 type ManagedEntry =
   | { id: "codexSkill" | "codexLegacySkill" | "claudeSkill"; kind: "file"; expected: string }
   | { id: "codexMcp"; kind: "toml-block"; expected: string }
   | { id: "claudeMcp"; kind: "json-property"; expected: unknown }
   | {
-      id: "claudeStopHook" | "codexPostToolUseHook" | "codexStopHook" | "codexUserPromptSubmitHook";
+      id: HookComponentId;
       kind: "json-array-item";
       expected: unknown;
     };
@@ -118,6 +123,17 @@ interface ReadFileResult {
   conflict?: string;
 }
 
+const HOOK_COMPONENT_IDS: ReadonlySet<AgentSetupComponentId> = new Set<HookComponentId>([
+  "claudeStopHook",
+  "claudePreCompactHook",
+  "claudeSessionStartHook",
+  "codexPostToolUseHook",
+  "codexStopHook",
+  "codexUserPromptSubmitHook",
+  "codexSessionStartHook",
+]);
+/** SessionStart matcher (on `source`) for the session that resumes after a compaction; same in both Agents. */
+export const COMPACT_SESSION_START_MATCHER = "compact";
 /** PostToolUse matcher that sees finalize calls both as a legacy direct tool and through the MCP dispatcher. */
 export const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
 /** Pre-dispatcher matcher; setup upgrades it and Doctor reports it as stale. */
@@ -231,10 +247,13 @@ function targetPath(id: AgentSetupComponentId, options: AgentSetupPlanOptions): 
     case "claudeMcp":
       return join(options.homeDirectory, ".claude.json");
     case "claudeStopHook":
+    case "claudePreCompactHook":
+    case "claudeSessionStartHook":
       return join(claudeConfigDirectory, "settings.json");
     case "codexPostToolUseHook":
     case "codexStopHook":
     case "codexUserPromptSubmitHook":
+    case "codexSessionStartHook":
       return join(codexHome, "hooks.json");
   }
 }
@@ -322,12 +341,7 @@ function parseManifest(bytes: Buffer | null): { manifest: SetupManifest; conflic
           typeof item.expected === "string") ||
         (id === "codexMcp" && item.kind === "toml-block" && typeof item.expected === "string") ||
         (id === "claudeMcp" && item.kind === "json-property" && "expected" in item) ||
-        ((id === "claudeStopHook" ||
-          id === "codexPostToolUseHook" ||
-          id === "codexStopHook" ||
-          id === "codexUserPromptSubmitHook") &&
-          item.kind === "json-array-item" &&
-          "expected" in item);
+        (HOOK_COMPONENT_IDS.has(id) && item.kind === "json-array-item" && "expected" in item);
       if (!valid) {
         return {
           manifest: { version: 2, components: [] },
@@ -698,6 +712,7 @@ function addJsonSpec(
     return false;
   }
   array.push(spec.expected);
+  actions.push(`加入 ${spec.label}。`);
   setEntry(entries, {
     id: spec.id as ManagedEntry["id"],
     kind: "json-array-item",
@@ -973,18 +988,51 @@ export function commandForAgentHook(scriptPath: string, platform: NodeJS.Platfor
   return `node ${quoteShellArgument(scriptPath, platform)}`;
 }
 
-function getClaudeStopSpec(repositoryRoot: string, platform: NodeJS.Platform): JsonMutationSpec {
-  const scriptPath = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
-  const expected = { hooks: [{ type: "command", command: commandForAgentHook(scriptPath, platform) }] };
+/** A SessionStart hook that runs only after a compaction (`source: "compact"`). */
+function compactSessionStartSpec(
+  id: "claudeSessionStartHook" | "codexSessionStartHook",
+  label: string,
+  scriptPath: string,
+  command: string,
+): JsonMutationSpec {
+  const matcher = COMPACT_SESSION_START_MATCHER;
   return {
-    id: "claudeStopHook",
+    id,
     kind: "array-item",
-    path: ["hooks", "Stop"],
-    expected,
-    label: "Claude Stop hook",
+    path: ["hooks", "SessionStart"],
+    expected: { matcher, hooks: [{ type: "command", command }] },
+    label,
     similar: (value) => referencesScriptPath(value, scriptPath),
-    equivalent: (value) => invokesNodeScript(value, scriptPath),
+    equivalent: (value) => JSON_OBJECT(value) && value.matcher === matcher && invokesNodeScript(value, scriptPath),
   };
+}
+
+function getClaudeHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): JsonMutationSpec[] {
+  const scriptPath = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+  const command = commandForAgentHook(scriptPath, platform);
+  const simpleHook = { hooks: [{ type: "command", command }] };
+  return [
+    {
+      id: "claudeStopHook",
+      kind: "array-item",
+      path: ["hooks", "Stop"],
+      expected: simpleHook,
+      label: "Claude Stop hook",
+      similar: (value) => referencesScriptPath(value, scriptPath),
+      equivalent: (value) => invokesNodeScript(value, scriptPath),
+    },
+    {
+      // No matcher: manual and automatic compactions both get the summary instructions.
+      id: "claudePreCompactHook",
+      kind: "array-item",
+      path: ["hooks", "PreCompact"],
+      expected: simpleHook,
+      label: "Claude PreCompact hook",
+      similar: (value) => referencesScriptPath(value, scriptPath),
+      equivalent: (value) => invokesNodeScript(value, scriptPath),
+    },
+    compactSessionStartSpec("claudeSessionStartHook", "Claude SessionStart（compact）hook", scriptPath, command),
+  ];
 }
 
 function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): JsonMutationSpec[] {
@@ -1031,6 +1079,7 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
       similar: (value) => referencesScriptPath(value, scriptPath),
       equivalent: (value) => invokesNodeScript(value, scriptPath),
     },
+    compactSessionStartSpec("codexSessionStartHook", "Codex SessionStart（compact）hook", scriptPath, command),
   ];
 }
 
@@ -1217,7 +1266,7 @@ function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const platform = options.platform ?? process.platform;
   if (!claudePlugin) {
     mutateJson(targetPath("claudeMcp", options), [getClaudeMcpSpec(repositoryRoot)]);
-    mutateJson(targetPath("claudeStopHook", options), [getClaudeStopSpec(repositoryRoot, platform)]);
+    mutateJson(targetPath("claudeStopHook", options), getClaudeHookSpecs(repositoryRoot, platform));
   }
   if (!codexPlugin && codexFeature !== "disabled" && codexFeature !== "unknown") {
     mutateJson(targetPath("codexStopHook", options), getCodexHookSpecs(repositoryRoot, platform));
@@ -1330,10 +1379,10 @@ function uninstallPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
         targetFile.changed;
       continue;
     }
-    const spec =
-      entry.id === "claudeStopHook"
-        ? getClaudeStopSpec(repositoryRoot, options.platform ?? process.platform)
-        : getCodexHookSpecs(repositoryRoot, options.platform ?? process.platform).find((item) => item.id === entry.id);
+    const platform = options.platform ?? process.platform;
+    const spec = [...getClaudeHookSpecs(repositoryRoot, platform), ...getCodexHookSpecs(repositoryRoot, platform)].find(
+      (item) => item.id === entry.id,
+    );
     if (!spec) {
       addConflict(plan, `無法識別 ${entry.id} 的安裝項目；保留安裝紀錄。`);
       continue;

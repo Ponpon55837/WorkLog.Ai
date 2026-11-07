@@ -3,7 +3,10 @@
   "displayName": "Work Intelligence",
   "version": "1.6.8",
   "description": "Local-first work records for coding agents: the Work Intelligence MCP server, its agent skill, and the finalize reminder, run from your local WorkLog.Ai checkout.",
-  "author": { "name": "Ponpon55837", "url": "https://github.com/Ponpon55837" },
+  "author": {
+    "name": "Ponpon55837",
+    "url": "https://github.com/Ponpon55837"
+  },
   "homepage": "https://github.com/Ponpon55837/WorkLog.Ai",
   "repository": "https://github.com/Ponpon55837/WorkLog.Ai",
   "license": "MIT",
@@ -18,6 +21,27 @@
   "hooks": {
     "Stop": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/launch.mjs\" finalize-reminder"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/launch.mjs\" finalize-reminder"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
         "hooks": [
           {
             "type": "command",

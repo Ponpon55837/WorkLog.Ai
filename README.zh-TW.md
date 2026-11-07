@@ -146,11 +146,12 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 
 | Agent | 全域設定檔 | 事件 | 腳本 |
 |---|---|---|---|
-| Claude Code | `~/.claude/settings.json` | `Stop` | `apps/mcp/dist/finalize-reminder.js` |
-| Codex | `~/.codex/hooks.json` | `PostToolUse`（`apply_patch`、`work_finalize_session`）＋`Stop` | `apps/mcp/dist/codex-finalize-reminder.js` |
+| Claude Code | `~/.claude/settings.json` | `Stop`；選用 `PreCompact`＋`SessionStart`（`compact`） | `apps/mcp/dist/finalize-reminder.js` |
+| Codex | `~/.codex/hooks.json` | `PostToolUse`（`apply_patch`、`work_finalize_session`）＋`Stop`；選用 `UserPromptSubmit`＋`SessionStart`（`compact`） | `apps/mcp/dist/codex-finalize-reminder.js` |
 
 - 設定時請使用 repo 的絕對路徑，並先執行 `pnpm build`。
 - Codex 需要在 `/hooks` 中檢查並信任這個 hook。
+- 選用的壓縮 hook 讓長對話被壓縮後仍記得未保存的工作：Claude Code 的 `PreCompact` 請摘要保留這段工作的開始時間與改過的檔案（相對於專案的路徑，不含內容）；兩個 Agent 的 `SessionStart`（`compact`）會把未保存提醒與開始時間放回上下文。它們不會擋住壓縮。
 - repo 不附專案層級的 `.codex/hooks.json`。
 - 設定是否正確，可以用 `pnpm check` 檢查。
 
