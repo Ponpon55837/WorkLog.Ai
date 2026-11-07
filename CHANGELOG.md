@@ -12,6 +12,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Writable and read-only SQLite connections share the 5,000 ms busy timeout and 16,000 KiB page-cache configuration.
 - Backup worker failures are scoped to their worker lifetime; startup busy errors remain classifiable by the HTTP layer.
 - `work_get_context` calculates metadata follow-up totals with a SQLite aggregate instead of materializing every metadata preview item. Its SQL candidate logic matches the JavaScript preview semantics, including malformed legacy metadata.
+- Finalize reminder lookup runs after the outermost immediate transaction commits, including MCP's compatible-schema transaction and idempotent resends. Related-item scoring first filters rows using the same keyword, source-session, and path relevance conditions. If the post-commit reminder lookup fails, finalize still reports the committed Session and omits `relatedOutstandingItems`.
 - The `--force` bypass was removed from `pnpm db:restore`; an in-use database always blocks restoration.
 - Schema 31 tracks project-data and Agent-read audit revisions separately. Project changes send the existing data-free `changed` event; Agent read audits send `agent-reads-changed`, which refreshes only Agent read history. Older MCP connections report `restartRequired` after the schema upgrade; reconnect Work Intelligence MCP.
 

@@ -199,6 +199,24 @@ export class OutstandingItemService {
       OR substr(${changedPath}, 1, length(q.path) + 1) = q.path || '/'
       OR substr(${changedPath}, -length(q.path) - 1) = '/' || q.path
       OR substr(q.path, -length(${changedPath}) - 1) = '/' || ${changedPath}`;
+    // Apply the positive-score conditions before evaluating the correlated score subqueries.
+    const relevanceCandidates = [
+      ...(terms.length
+        ? [
+            `(${terms.map(() => "instr(lower(i.text), ?) > 0").join(" OR ")})`,
+            `(${terms.map(() => "instr(lower(s.title), ?) > 0").join(" OR ")})`,
+            `(${terms.map(() => "instr(lower(substr(s.summary, 1, 2000)), ?) > 0").join(" OR ")})`,
+          ]
+        : []),
+      ...(sources.length ? ["EXISTS (SELECT 1 FROM sources WHERE id = s.id)"] : []),
+      ...(paths.length
+        ? [
+            `EXISTS (SELECT 1 FROM path_queries q WHERE EXISTS (
+              SELECT 1 FROM json_each(s.changed_files_json) f WHERE ${pathMatch}
+            ))`,
+          ]
+        : []),
+    ];
     const score = `(SELECT COUNT(*) FROM keywords WHERE instr(lower(i.text), term) > 0) * 3.0
       + (SELECT COUNT(*) FROM keywords WHERE instr(lower(s.title), term) > 0) * 0.5
       + (SELECT COUNT(*) FROM keywords WHERE instr(lower(substr(s.summary, 1, 2000)), term) > 0) * 0.25
@@ -213,7 +231,8 @@ export class OutstandingItemService {
       path_queries AS MATERIALIZED (SELECT value AS path FROM json_each(?)),
       sources AS MATERIALIZED (SELECT value AS id, (20 - CAST(key AS INTEGER)) / 20.0 AS weight FROM json_each(?)),
       scored AS MATERIALIZED (${baseSelect(
-        `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?`,
+        `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?
+           AND (${relevanceCandidates.join(" OR ")})`,
         `i.*, p.name AS project_name, s.title AS source_session_title,
          s.completed_at AS source_session_completed_at, ${score} AS relevance`,
       )})
@@ -227,6 +246,9 @@ export class OutstandingItemService {
         JSON.stringify(sources),
         ...(input.projectId ? [input.projectId] : []),
         input.excludeSourceSessionId ?? "",
+        ...terms,
+        ...terms,
+        ...terms,
       ) as Array<OutstandingItemRow & { matching_total: number }>;
     return { items: rows.map(toOutstandingItem), total: rows[0]?.matching_total ?? 0 };
   }

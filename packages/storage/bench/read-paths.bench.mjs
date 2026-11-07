@@ -3,6 +3,7 @@
 // Usage:
 //   pnpm --filter @work-intelligence/storage build
 //   node packages/storage/bench/read-paths.bench.mjs [sessionCount]
+//   node packages/storage/bench/read-paths.bench.mjs 5000 --check --case=finalize-related-reminder
 //   node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-only --backup-worker-mode=sync|worker
 //
 // Seeding thousands of Sessions is slow, so set WI_BENCH_CACHE=<path prefix> to keep the
@@ -26,6 +27,10 @@ const sessionCountArgument = args.find((argument) => !argument.startsWith("--"))
 const sessionCount = Number(sessionCountArgument ?? 5000);
 const checkMode = args.includes("--check");
 const backupWorkerOnly = args.includes("--backup-worker-only");
+const caseArgument = args.find((argument) => argument.startsWith("--case="));
+const caseFilter = caseArgument?.slice("--case=".length);
+const benchmarkCaseFilter =
+  caseFilter === "finalize-related-reminder" ? "finalizeSession (related pending reminder)" : caseFilter;
 const backupWorkerModeArgument = args.find((argument) => argument.startsWith("--backup-worker-mode="));
 const backupWorkerMode = backupWorkerModeArgument?.slice("--backup-worker-mode=".length) ?? "worker";
 if (!Number.isSafeInteger(sessionCount) || sessionCount < 1) {
@@ -225,6 +230,30 @@ async function measureProcessResources(run) {
   };
 }
 
+function observeWriteTransactionDurations(targetStore) {
+  const database = targetStore.db;
+  const originalExec = database.exec;
+  const samples = [];
+  let transactionStartedAt;
+  database.exec = function (statement) {
+    const normalized = statement.trim().toUpperCase();
+    const result = originalExec.call(database, statement);
+    if (normalized === "BEGIN IMMEDIATE") transactionStartedAt = performance.now();
+    if (normalized === "COMMIT" && transactionStartedAt !== undefined) {
+      samples.push(performance.now() - transactionStartedAt);
+      transactionStartedAt = undefined;
+    }
+    if (normalized === "ROLLBACK") transactionStartedAt = undefined;
+    return result;
+  };
+  return {
+    samples,
+    restore() {
+      database.exec = originalExec;
+    },
+  };
+}
+
 function seed() {
   const roots = [alphaRoot, betaRoot];
   for (const [index, projectRoot] of roots.entries()) {
@@ -318,6 +347,7 @@ function seedKnowledgePages(targetStore, project) {
 }
 
 function seedOutstandingItems(targetStore, projectIds) {
+  const candidateByProject = new Map();
   const database = new DatabaseSync(targetStore.databasePath);
   try {
     const sessions = database
@@ -337,12 +367,15 @@ function seedOutstandingItems(targetStore, projectIds) {
       if (index % 5 !== 0) return;
       const id = `benchmark-outstanding-${index}`;
       const createdAt = String(session.created_at);
-      insertItem.run(id, session.id, session.project_id, `Synthetic pending item ${index}`, createdAt, createdAt);
+      const term = `candidatekey${index}x`;
+      insertItem.run(id, session.id, session.project_id, `Synthetic pending ${term}`, createdAt, createdAt);
       insertEvent.run(`benchmark-outstanding-event-${index}`, id, session.project_id, createdAt);
+      if (!candidateByProject.has(session.project_id)) candidateByProject.set(session.project_id, { id, term });
     });
   } finally {
     database.close();
   }
+  return candidateByProject;
 }
 
 function seedOutstandingCleanupReview(targetStore, project) {
@@ -492,7 +525,9 @@ try {
     }
     return result;
   };
-  seedOutstandingItems(benchStore, [alpha.id, beta.id]);
+  const outstandingCandidates = seedOutstandingItems(benchStore, [alpha.id, beta.id]);
+  const finalizeReminderCandidate = outstandingCandidates.get(alpha.id);
+  if (!finalizeReminderCandidate) throw new Error("Expected a synthetic finalize reminder candidate.");
   // Capture the original graph/recall fixture before cleanup adds an evidence Session with no changed files.
   const [newestAlpha] = benchStore.listSessionsPage({ projectId: alpha.id, page: 1, pageSize: 1 }).items;
   const cleanupRequestId = seedOutstandingCleanupReview(benchStore, alpha);
@@ -715,17 +750,28 @@ try {
     },
     "finalizeSession (related pending reminder)": () => {
       const index = ++maintenanceFinalizeIndex;
+      const focus = [
+        finalizeReminderCandidate.term,
+        ...Array.from({ length: 23 }, (_, termIndex) => `reminderprobe${termIndex}x`),
+      ].join(" ");
       const result = benchStore.finalizeSession({
         projectRoot: alphaRoot,
         idempotencyKey: `bench-outstanding-finalize-${index}`,
-        title: `Synthetic pending report pipeline ${index}`,
-        summary: "Verified report pipeline work with related older pending items.",
-        changedFiles: ["src/module-0.ts"],
+        title: focus,
+        summary: focus,
+        changedFiles: [],
         verification: { status: "passed" },
         workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
       });
-      if (result.outcome !== "finalized" || !result.relatedOutstandingItems?.items.length)
-        throw new Error("Related finalize benchmark must return pending pointers.");
+      if (
+        result.outcome !== "finalized" ||
+        !result.relatedOutstandingItems?.items.some((item) => item.id === finalizeReminderCandidate.id) ||
+        result.relatedOutstandingItems.total !== 1
+      )
+        throw new Error(
+          `Related finalize benchmark must return only ${finalizeReminderCandidate.id} for ${finalizeReminderCandidate.term}; ` +
+            `got ${JSON.stringify(result.relatedOutstandingItems)}.`,
+        );
       return result;
     },
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
@@ -981,44 +1027,58 @@ try {
     "exportProjectData (all projects)": 400,
     "previewProjectDataImport (all projects)": 1500,
   };
+  const transactionLimitsMs = {
+    "finalizeSession (related pending reminder)": 50,
+  };
   // Ubuntu CI observed 11.26–44.83 ms event-loop block p90; twice the 44.83 ms maximum rounds up to 100 ms.
   const eventLoopBlockLimitMs = 100;
 
   const results = [];
   const benchmarkCases = backupWorkerOnly ? heavyCases : { ...cases, ...heavyCases };
   const selectedCases = Object.entries(benchmarkCases).filter(
-    ([name]) => backupWorkerOnly || !checkMode || name in limitsMs,
+    ([name]) =>
+      (backupWorkerOnly || !checkMode || name in limitsMs) && (!benchmarkCaseFilter || name === benchmarkCaseFilter),
   );
+  if (benchmarkCaseFilter && selectedCases.length === 0) {
+    throw new Error(`No benchmark case matched --case=${caseFilter}.`);
+  }
   for (const [name, run] of selectedCases) {
     const isHeavyCase = name in heavyCases;
     const caseRuns = isHeavyCase ? heavyRuns : runs;
     beforeEachRun[name]?.();
     await run();
+    const transactionObserver =
+      name === "finalizeSession (related pending reminder)" ? observeWriteTransactionDurations(benchStore) : undefined;
     const samples = [];
+    const transactionSamples = transactionObserver?.samples ?? [];
     const operationSamples = [];
     const eventLoopP90Samples = [];
     const eventLoopMaxSamples = [];
     const rssPeakSamples = [];
     const healthP90Samples = [];
     const healthProbeSamples = [];
-    for (let index = 0; index < caseRuns; index += 1) {
-      beforeEachRun[name]?.();
-      if (isHeavyCase) {
-        const measured = await measureProcessResources(run);
-        samples.push(measured.value.operationMs);
-        operationSamples.push(measured.value.operationMs);
-        eventLoopP90Samples.push(measured.eventLoopP90Ms);
-        eventLoopMaxSamples.push(measured.eventLoopMaxMs);
-        rssPeakSamples.push(measured.rssPeakMb);
+    try {
+      for (let index = 0; index < caseRuns; index += 1) {
         beforeEachRun[name]?.();
-        const healthRun = await heavyHealthCases[name]();
-        healthP90Samples.push(healthRun.healthP90Ms);
-        healthProbeSamples.push(healthRun.healthProbeCount);
-      } else {
-        const started = performance.now();
-        await run();
-        samples.push(performance.now() - started);
+        if (isHeavyCase) {
+          const measured = await measureProcessResources(run);
+          samples.push(measured.value.operationMs);
+          operationSamples.push(measured.value.operationMs);
+          eventLoopP90Samples.push(measured.eventLoopP90Ms);
+          eventLoopMaxSamples.push(measured.eventLoopMaxMs);
+          rssPeakSamples.push(measured.rssPeakMb);
+          beforeEachRun[name]?.();
+          const healthRun = await heavyHealthCases[name]();
+          healthP90Samples.push(healthRun.healthP90Ms);
+          healthProbeSamples.push(healthRun.healthProbeCount);
+        } else {
+          const started = performance.now();
+          await run();
+          samples.push(performance.now() - started);
+        }
       }
+    } finally {
+      transactionObserver?.restore();
     }
     samples.sort((a, b) => a - b);
     const p90Ms = Number(samples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2));
@@ -1031,6 +1091,20 @@ try {
       limitMs: limitsMs[name] ?? null,
       passed: checkMode ? p90Ms <= limitsMs[name] : undefined,
     };
+    if (transactionSamples.length > 0) {
+      transactionSamples.sort((left, right) => left - right);
+      const transactionP90Ms = Number(transactionSamples[Math.ceil(transactionSamples.length * 0.9) - 1].toFixed(2));
+      const transactionLimitMs = transactionLimitsMs[name];
+      Object.assign(result, {
+        transactionMedianMs: Number(transactionSamples[Math.floor(transactionSamples.length / 2)].toFixed(2)),
+        transactionP90Ms,
+        transactionLimitMs,
+        passed:
+          checkMode && transactionLimitMs !== undefined
+            ? result.passed && transactionP90Ms <= transactionLimitMs
+            : result.passed,
+      });
+    }
     if (isHeavyCase) {
       operationSamples.sort((a, b) => a - b);
       eventLoopP90Samples.sort((a, b) => a - b);
@@ -1104,9 +1178,11 @@ try {
       console.error(
         `Performance regression gate failed: ${failures
           .map((result) =>
-            result.operationP90Ms === undefined
-              ? `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`
-              : `${result.case} health p90 ${result.healthP90Ms}/${result.healthLimitMs} ms, operation p90 ${result.operationP90Ms}/${result.operationLimitMs} ms, event-loop blocking p90 ${result.eventLoopBlockP90Ms}/${result.eventLoopLimitMs} ms`,
+            result.transactionP90Ms !== undefined && result.transactionP90Ms > result.transactionLimitMs
+              ? `${result.case} operation p90 ${result.p90Ms}/${result.limitMs} ms, transaction p90 ${result.transactionP90Ms}/${result.transactionLimitMs} ms`
+              : result.operationP90Ms === undefined
+                ? `${result.case} p90 ${result.p90Ms} ms > ${result.limitMs} ms`
+                : `${result.case} health p90 ${result.healthP90Ms}/${result.healthLimitMs} ms, operation p90 ${result.operationP90Ms}/${result.operationLimitMs} ms, event-loop blocking p90 ${result.eventLoopBlockP90Ms}/${result.eventLoopLimitMs} ms`,
           )
           .join("; ")}`,
       );

@@ -215,7 +215,10 @@ import {
   configureWorkIntelligenceDatabaseConnection,
   initializeWorkIntelligenceDatabase,
 } from "./database-initialization.js";
-import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
+import {
+  runAfterImmediateTransaction,
+  runImmediateTransaction as runImmediateSqlTransaction,
+} from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { DiagramService } from "./diagram-service.js";
 import { ActivityRepository } from "./activity-repository.js";
@@ -1581,7 +1584,7 @@ export class WorkIntelligenceStore {
       },
     ];
 
-    return runImmediateSqlTransaction(this.db, () => {
+    const result = runImmediateSqlTransaction<FinalizeSessionResult>(this.db, () => {
       const existing = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (existing) {
         const incomingSummary = sanitizedSummary.value.trim();
@@ -1609,14 +1612,6 @@ export class WorkIntelligenceStore {
           workSummaryFollowUp: getWorkSummaryFollowUp(existing),
           resolvedOutstandingItemIds: this.outstandingItems.resolvedByActorSession(existing.id),
           supersededOutstandingItemIds: this.outstandingItems.transitionedByActorSession(existing.id, "not_needed"),
-          relatedOutstandingItems: this.contextRecallService.relatedOutstandingItems(
-            existing.projectId,
-            {
-              task: `${existing.title} ${existing.summary}`.slice(0, 2_000),
-              paths: existing.changedFiles,
-            },
-            existing.id,
-          ),
           ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         };
       }
@@ -1781,14 +1776,6 @@ export class WorkIntelligenceStore {
         ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         resolvedOutstandingItemIds: resolution.resolvedIds,
         supersededOutstandingItemIds: supersession.resolvedIds,
-        relatedOutstandingItems: this.contextRecallService.relatedOutstandingItems(
-          project.id,
-          {
-            task: `${session.title} ${session.summary}`.slice(0, 2_000),
-            paths: session.changedFiles,
-          },
-          session.id,
-        ),
         ...(unresolvedIds.length > 0 || unsupersededIds.length > 0
           ? {
               outstandingItemWarnings: {
@@ -1801,6 +1788,25 @@ export class WorkIntelligenceStore {
           : {}),
       };
     });
+    if (result.outcome === "finalized") {
+      const { session } = result;
+      // The Session is already committed; a failed reminder lookup only omits the optional reminders.
+      runAfterImmediateTransaction(this.db, () => {
+        try {
+          result.relatedOutstandingItems = this.contextRecallService.relatedOutstandingItems(
+            session.projectId,
+            {
+              task: `${session.title} ${session.summary}`.slice(0, 2_000),
+              paths: session.changedFiles,
+            },
+            session.id,
+          );
+        } catch {
+          delete result.relatedOutstandingItems;
+        }
+      });
+    }
+    return result;
   }
 
   public getContext(projectRoot?: string, focus: ContextFocus = {}): ContextQueryResult {
