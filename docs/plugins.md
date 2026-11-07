@@ -78,7 +78,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 |---|---|
 | MCP 沒有連上，stderr 出現 `Work Intelligence repository not found` | Agent 把 plugin 複製到快取後找不到 checkout。在 repo 執行 `pnpm plugin:link`，或設定 `WORK_INTELLIGENCE_HOME`；也可以改用 release 附的自帶 server 版本。 |
 | `Missing apps/mcp/dist/index.js in …` | 找到的 checkout 都還沒 build。在你的 checkout 執行 `pnpm install && pnpm build && pnpm plugin:link`，再重新連線 MCP。訊息列出的 Codex marketplace clone（`.codex/.tmp/marketplaces/…`）不需要 build。 |
-| `node:sqlite` 相關錯誤或 `ERR_UNKNOWN_BUILTIN_MODULE` | Node.js 低於 22.13。升級 Node.js；`node --version` 確認 Agent 使用的是同一個 Node。 |
+| `node:sqlite` 相關錯誤、`ERR_UNKNOWN_BUILTIN_MODULE` 或 `no such module: fts5` | Node.js 低於 22.16，或是 23.x。改用 22.16 以上的 22.x 或 24 以上；`node --version` 確認 Agent 使用的是同一個 Node。 |
 | 工具或 skill 出現兩份 | plugin 與 `pnpm setup:agents`／手動 `mcp add` 同時啟用。依上方「不要同時用兩種接法」擇一；`pnpm check` 會指出重複。 |
 | 資料庫不是預期的那一個 | MCP 啟動時在 stderr 印出 `connected using <路徑>`。依序檢查 `WORK_INTELLIGENCE_DB`、`WORK_INTELLIGENCE_HOME`、`~/.work-intelligence/plugin-link.json`。 |
 | 更新 repo 後 Agent 提示需要重新連線 | 與手動註冊相同：`pnpm build` 後重新連線 MCP（Claude Code 可用 `/mcp` 重新連線，或重新開啟工作階段）。 |
@@ -108,7 +108,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 2. `WORK_INTELLIGENCE_HOME` 或 `pnpm plugin:link` 指向的 checkout 的 `data/work-intelligence.sqlite`：與 Web UI 共用同一個資料庫
 3. 都沒有時：`~/.work-intelligence/data/work-intelligence.sqlite`（可用 `WORK_INTELLIGENCE_CONFIG_DIR` 改目錄）
 
-內附 server 隨 plugin 整包更新，不做 checkout 的 build 監看與重新連線提示。它需要 Node.js 22.13 以上（`node:sqlite`）；`.mcpb` 的 manifest 宣告了這個需求，Claude Desktop 內建的 Node.js 不符時會拒絕安裝。Web UI、REST API、備份 CLI 仍需要 checkout。
+內附 server 隨 plugin 整包更新，不做 checkout 的 build 監看與重新連線提示。它需要 Node.js 22.16 以上的 22.x 或 24 以上（`node:sqlite` 與 FTS5）；`.mcpb` 的 manifest 宣告了這個需求，Claude Desktop 內建的 Node.js 不符時會拒絕安裝。Web UI、REST API、備份 CLI 仍需要 checkout。
 
 - Claude Code：`claude --plugin-url <zip 的網址>` 試用一次，或解壓後加入自己的 marketplace。
 - Claude Desktop：下載 `.mcpb` 後雙擊，或從「設定 → 擴充功能」安裝。
