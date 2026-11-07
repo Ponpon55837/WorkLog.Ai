@@ -313,6 +313,7 @@ The full data contracts, consistency guarantees and design principles are in [do
 - The API listens only on `127.0.0.1` and checks `Host` and `Origin`. In production mode the Web UI and API share an origin and add a Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
 - Static file serving blocks `..`, encoded paths and symlinks pointing outside.
 - Error responses carry fixed messages and never leak SQLite or file-system internals.
+- Before text is stored, known credential formats are masked and anything wrapped in `<private>…</private>` is replaced with `[REDACTED:private_block]` (a block needs its closing tag; an unclosed tag is stored as written). `pnpm db:redact` applies the same rules to existing data. See [SECURITY.md](SECURITY.md#敏感資料遮蔽).
 - Backups and exports are not encrypted; store and move them by trusted means.
 - When using MCP, the Agent host may send tool results to a remote model depending on its settings; that is governed by the Agent host's policy.
 - Successful MCP reads are audited locally with ids and counts only (never the query or content), kept for 30 days or the newest 5,000 reads, and removed with their project.

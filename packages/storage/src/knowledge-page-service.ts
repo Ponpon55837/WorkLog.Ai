@@ -272,14 +272,19 @@ export class KnowledgePageService {
     const projectId = decision.project.id;
     const existing = this.findPage(projectId, input.slug);
     const fallback = DEFAULT_PAGES.get(input.slug);
-    const title = input.title ?? existing?.title ?? fallback?.title;
-    const question = input.question ?? existing?.question ?? fallback?.question;
-    if (!title || !question) {
+    const rawTitle = input.title ?? existing?.title ?? fallback?.title;
+    const rawQuestion = input.question ?? existing?.question ?? fallback?.question;
+    if (!rawTitle || !rawQuestion) {
       return {
         outcome: "invalid_page",
         reason: "A page that is not one of the defaults needs a title and a question.",
       };
     }
+    const redactedTitle = redactText(rawTitle);
+    const redactedQuestion = redactText(rawQuestion);
+    const title = redactedTitle.value;
+    const question = redactedQuestion.value;
+    const redactions = combineRedactionSummaries(redactedTitle.redactions, redactedQuestion.redactions);
     const now = nowIso();
     runImmediateTransaction(this.db, () => {
       if (existing) {
@@ -297,7 +302,11 @@ export class KnowledgePageService {
           .run(randomUUID(), projectId, input.slug, title, question, now, now, now);
       }
     });
-    return { outcome: "knowledge_page_update_requested", page: this.recordFor(this.findPage(projectId, input.slug)!) };
+    return {
+      outcome: "knowledge_page_update_requested",
+      page: this.recordFor(this.findPage(projectId, input.slug)!),
+      ...(redactions.total > 0 ? { redactions } : {}),
+    };
   }
 
   public getContext(query: KnowledgePageContextQuery): KnowledgePageContextResult {

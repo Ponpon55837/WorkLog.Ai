@@ -8,6 +8,7 @@ import type {
   ReportPresentationExport,
   ReportPresentationState,
   AttachEvidenceInput,
+  RedactionSummary,
   AttachEvidenceResult,
   ContextQueryResult,
   DecideKnowledgeCandidateInput,
@@ -257,7 +258,7 @@ import type {
 } from "./agent-read-audit-service.js";
 import { ProjectDeletionService } from "./project-deletion-service.js";
 import { SessionDeletionService } from "./session-deletion-service.js";
-import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
+import { combineRedactionSummaries, redactPrivateBlocksText, redactText, redactValue } from "./secret-redaction.js";
 import type { EvidenceRow, KnowledgeRow } from "./session-record-codecs.js";
 import {
   normalizeWorkSummarySections,
@@ -1579,6 +1580,7 @@ export class WorkIntelligenceStore {
       sanitizedVerification?.redactions ?? { total: 0, byKind: {} },
       sanitizedEvents.redactions,
       sanitizedHandoff?.redactions ?? { total: 0, byKind: {} },
+      capturedHandoff?.redactions ?? { total: 0, byKind: {} },
     );
     const git = input.git ?? this.readGitMetadata(project.rootPath);
     const sessionId = randomUUID();
@@ -1996,7 +1998,7 @@ export class WorkIntelligenceStore {
   private captureHandoff(
     projectRoot: string,
     input: FinalizeSessionInput,
-  ): { content: string; sourcePath?: string } | undefined {
+  ): { content: string; sourcePath?: string; redactions?: RedactionSummary } | undefined {
     if (input.handoffContent !== undefined) {
       return { content: input.handoffContent, sourcePath: input.handoffPath };
     }
@@ -2011,9 +2013,12 @@ export class WorkIntelligenceStore {
     }
 
     try {
+      // Remove private blocks before the length cut so a block straddling it cannot lose its closing tag.
+      const withoutPrivate = redactPrivateBlocksText(readFileSync(handoffPath, "utf8"));
       return {
-        content: readFileSync(handoffPath, "utf8").slice(0, 200_000),
+        content: withoutPrivate.value.slice(0, 200_000),
         sourcePath: input.handoffPath,
+        redactions: withoutPrivate.redactions,
       };
     } catch {
       return undefined;

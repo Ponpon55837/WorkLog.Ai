@@ -33,7 +33,7 @@ MCP 寫入會在同一個 SQLite write transaction 核對 schema。報告儲存�
 
 ## 敏感資料遮蔽
 
-會保存文字的寫入工具會先依固定規則遮蔽已知格式的憑證；成功回應可帶 `redactions: { total, byKind }`，其中只有各類型數量，不含原文或憑證片段。這涵蓋 finalize、摘要／workSummary／verification 修正、Evidence、Knowledge、候選、報告整理與 handoff 匯入。Session 回應另帶 `redactionCount`，Session 面板顯示已遮蔽數量。匯入／匯出與既有資料整理請使用 CLI `pnpm db:redact`；MCP 沒有資料庫整理、刪除備份或改路徑能力。
+會保存文字的寫入工具會先移除 `<private>…</private>` 包住的內容（標籤不分大小寫、可跨行，整段換成 `[REDACTED:private_block]` 並計為 `private_block`；區塊必須有結尾標籤，沒有結尾的 `<private>` 會照原文保存；區塊內的憑證只算一次 `private_block`；handoff 檔案會在截斷長度前先移除區塊），再依固定規則遮蔽已知格式的憑證；成功回應可帶 `redactions: { total, byKind }`，其中只有各類型數量，不含原文或憑證片段。這涵蓋 finalize、摘要／workSummary／verification 修正、Evidence、Knowledge、候選、報告整理、Knowledge 頁面（含要求頁面時的標題與問題）與 handoff 匯入。Session 回應另帶 `redactionCount`，Session 面板顯示已遮蔽數量。匯入／匯出與既有資料整理請使用 CLI `pnpm db:redact`；MCP 沒有資料庫整理、刪除備份或改路徑能力。
 
 ## 更新與重新連線
 

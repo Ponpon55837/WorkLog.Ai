@@ -17,6 +17,13 @@ type Detector = {
   skip?: (value: string) => boolean;
 };
 
+/**
+ * `<private>` and `</private>` (case-insensitive, no attributes or inner whitespace). One literal-only regex scanned
+ * once, so finding every block is linear in the input length with no backtracking.
+ */
+const PRIVATE_TAG = /<(\/?)private>/gi;
+const PRIVATE_BLOCK_MARKER = "[REDACTED:private_block]";
+
 const GENERIC_PLACEHOLDERS = new Set([
   "changeme",
   "change-me",
@@ -97,6 +104,45 @@ function addRedaction(summary: RedactionSummary, kind: SensitiveDataKind): void 
   summary.byKind[kind] = (summary.byKind[kind] ?? 0) + 1;
 }
 
+/**
+ * Replaces each outermost `<private>…</private>` block with one marker. A closing tag pairs with the nearest open
+ * `<private>` before it, so nested blocks become one marker. An opening tag that is never closed and a stray closing
+ * tag are ordinary text and stay as written: records often name the tag itself. One regex pass plus a stack of open
+ * positions and a list of finished blocks (each block is pushed and dropped at most once), so the scan stays linear.
+ */
+function redactPrivateBlocks(input: string, redactions: RedactionSummary): string {
+  if (!input.includes("<")) {
+    return input;
+  }
+  const opens: number[] = [];
+  const blocks: Array<{ start: number; end: number }> = [];
+  for (const match of input.matchAll(PRIVATE_TAG)) {
+    if (match[1] !== "/") {
+      opens.push(match.index);
+      continue;
+    }
+    const start = opens.pop();
+    if (start === undefined) {
+      continue;
+    }
+    while (blocks.length > 0 && blocks[blocks.length - 1]!.start > start) {
+      blocks.pop();
+    }
+    blocks.push({ start, end: match.index + match[0].length });
+  }
+  if (blocks.length === 0) {
+    return input;
+  }
+  let output = "";
+  let cursor = 0;
+  for (const block of blocks) {
+    output += input.slice(cursor, block.start) + PRIVATE_BLOCK_MARKER;
+    addRedaction(redactions, "private_block");
+    cursor = block.end;
+  }
+  return output + input.slice(cursor);
+}
+
 function combineRedactions(target: RedactionSummary, source: RedactionSummary): void {
   target.total += source.total;
   for (const [kind, count] of Object.entries(source.byKind) as Array<[SensitiveDataKind, number]>) {
@@ -104,9 +150,19 @@ function combineRedactions(target: RedactionSummary, source: RedactionSummary): 
   }
 }
 
-export function redactText(input: string): RedactedText {
-  let value = input;
+/**
+ * Removes only the private blocks. Call it on the full text before any length cut, so a block that straddles the cut
+ * is still removed instead of losing its closing tag.
+ */
+export function redactPrivateBlocksText(input: string): RedactedText {
   const redactions = emptyRedactions();
+  return { value: redactPrivateBlocks(input, redactions), redactions };
+}
+
+export function redactText(input: string): RedactedText {
+  const redactions = emptyRedactions();
+  // Private blocks go first so a credential inside one is counted once, as private_block.
+  let value = redactPrivateBlocks(input, redactions);
 
   for (const detector of DETECTORS) {
     value = value.replace(detector.pattern, (...args: unknown[]) => {
@@ -151,6 +207,29 @@ export function redactValue<T>(input: T): RedactedValue<T> {
   };
 
   return { value: visit(input) as T, redactions };
+}
+
+/**
+ * Masks stored JSON text (a `*_json` column). Plain-text rules run first as a cheap check; when they find something,
+ * the string values are masked one by one instead, so a match can never span two values or break the JSON syntax
+ * (a `<private>` in one value and `</private>` in a later one would otherwise remove the JSON between them). Text that is not JSON stays plain text.
+ */
+export function redactJsonText(input: string): RedactedText {
+  const plain = redactText(input);
+  if (plain.redactions.total === 0) {
+    return plain;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    return plain;
+  }
+  const structured = redactValue(parsed);
+  return {
+    value: structured.redactions.total === 0 ? input : JSON.stringify(structured.value),
+    redactions: structured.redactions,
+  };
 }
 
 export function combineRedactionSummaries(...summaries: readonly RedactionSummary[]): RedactionSummary {
