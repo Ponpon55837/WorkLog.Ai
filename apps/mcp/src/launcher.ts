@@ -70,6 +70,7 @@ const INTERNAL_ERROR = -32603;
 const CRASH_WINDOW_MS = 60_000;
 const CRASH_LIMIT = 3;
 const STABLE_BUILD_WAIT_MS = 120_000;
+const RACY_WINDOW_MS = 2_000;
 const SWAP_FAILED_MESSAGE =
   "Work Intelligence MCP 新版 server 無法啟動，仍使用目前版本；請檢查 pnpm build 的輸出後再試。";
 const SERVER_STOPPED_MESSAGE = "Work Intelligence MCP server 行程意外結束，已自動重新啟動；請重試這個請求。";
@@ -143,9 +144,12 @@ export function createBuildIdReader(repositoryRoot: string, entryPath: string): 
   return () => {
     if (existsSync(markerPath)) return undefined;
     let signature: string;
+    let recent: boolean;
     try {
       const entry = statSync(entryPath);
       const packageJson = statSync(packagePath);
+      // Files written within the timestamp resolution may change again without a new signature (coarse on Windows).
+      recent = Date.now() - Math.max(entry.mtimeMs, packageJson.mtimeMs) < RACY_WINDOW_MS;
       signature = [entry.size, entry.mtimeMs, entry.ino, packageJson.size, packageJson.mtimeMs, packageJson.ino].join();
     } catch {
       return undefined;
@@ -160,7 +164,7 @@ export function createBuildIdReader(repositoryRoot: string, entryPath: string): 
       buildId = undefined;
     }
     if (existsSync(markerPath)) return undefined;
-    cached = { signature, buildId };
+    cached = recent ? undefined : { signature, buildId };
     return buildId;
   };
 }

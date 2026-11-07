@@ -11,6 +11,7 @@ export const SUPERVISED_ENVIRONMENT = {
   version: "WORK_INTELLIGENCE_MCP_LAUNCHER_VERSION",
 } as const;
 
+const RACY_WINDOW_MS = 2_000;
 const LAUNCHER_RESTART_MESSAGE =
   "Work Intelligence MCP launcher 已更新；請重新連線 MCP 一次，之後的建置更新會自動切換。";
 const AUTO_SWITCH_MESSAGE = "磁碟上的 MCP 建置已更新；launcher 會在下一個請求前自動切換，不必重新連線。";
@@ -32,9 +33,12 @@ export function createLauncherUpdateCheck(identity: McpLauncherIdentity): () => 
   let cached: { signature: string; updated: boolean } | undefined;
   return () => {
     let signature: string;
+    let recent: boolean;
     try {
       const stats = statSync(identity.path);
       signature = `${stats.size}:${stats.mtimeMs}:${stats.ino}`;
+      // A file written within the timestamp resolution could change again without a new signature (coarse on Windows).
+      recent = Date.now() - stats.mtimeMs < RACY_WINDOW_MS;
     } catch {
       return false;
     }
@@ -46,7 +50,7 @@ export function createLauncherUpdateCheck(identity: McpLauncherIdentity): () => 
       hash = undefined;
     }
     const updated = hash !== undefined && hash !== identity.hash;
-    cached = { signature, updated };
+    cached = recent ? undefined : { signature, updated };
     return updated;
   };
 }

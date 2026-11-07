@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -347,5 +347,21 @@ describe("supervision", () => {
     expect(real()).toBe(true);
     rmSync(path);
     expect(real()).toBe(false);
+  });
+
+  it("notices a same-size rewrite that keeps the timestamp, as on coarse Windows clocks", () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "launcher.js");
+    writeFileSync(path, "launcher v1");
+    const { mtime } = statSync(path);
+    const check = createLauncherUpdateCheck({
+      path,
+      hash: createHash("sha256").update("launcher v1").digest("hex"),
+      version: 1,
+    });
+    expect(check()).toBe(false);
+    writeFileSync(path, "launcher v9");
+    utimesSync(path, mtime, mtime);
+    expect(check()).toBe(true);
   });
 });
