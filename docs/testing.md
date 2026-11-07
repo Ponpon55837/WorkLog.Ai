@@ -38,7 +38,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 - **Quality**（`ubuntu-latest`、`windows-latest`、`macos-latest`）：`pnpm install --frozen-lockfile` → `pnpm build`（workspace 套件透過 `dist/` 互相引用，要先 build）→ `pnpm run verify:backup-worker-build`（用 production build 和合成資料啟動 worker）→ 測試 → `pnpm typecheck`。`pnpm test:coverage` 與 `pnpm test` 執行相同的測試檔，所以每個 OS 只跑一次：Ubuntu 執行 `pnpm lint`、`pnpm format:check` 與 `pnpm test:coverage`（含覆蓋率門檻），Windows 與 macOS 執行 `pnpm test`（含 ESLint 與全 repo Prettier check）。維護者主要使用 macOS；Windows 與 Linux 守住不同的路徑處理（大小寫、分隔符號、8.3 短檔名）與 shell 行為。
 - **生產依賴安全稽核**：Ubuntu Quality job 執行 `pnpm audit --prod --audit-level high`；生產依賴出現 high 或 critical 級別漏洞時，檢查會失敗。
-- **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。最近一次本機量測中，5,000 Sessions／1,000 個合成未結項的清單 p90 為 2.09 ms（上限 250 ms）；100 筆 Session digest 的 pending-items 批次查詢 p90 為 4.61 ms（上限 100 ms，先前量測為 8.11 ms）。
+- **效能門檻**：在 Ubuntu Quality job 的測試與覆蓋率成功後，執行 `pnpm test:performance`；某個案例第一次量測超過門檻時，會只針對該案例再量一次，第二次仍超標才判定失敗；門檻不變，結果表以 `remeasured` 與 `firstPassP90Ms` 標示。效能基準只跑一次，避免在 OS matrix 重複佔用 CI 時間。5,000 Sessions 匯入 50,000 events 的 20 秒上限則在 `pnpm test` 中跨平台執行。最近一次本機量測中，5,000 Sessions／1,000 個合成未結項的清單 p90 為 2.09 ms（上限 250 ms）；100 筆 Session digest 的 pending-items 批次查詢 p90 為 4.61 ms（上限 100 ms，先前量測為 8.11 ms）。
 - **Recall evaluator 效能門檻**：同一個 `pnpm test:performance` 另以 5,000 筆合成 Sessions、MCP in-memory transport 與真實 snapshot 流程量測 recall/context evaluator，15 次執行的 p90 上限為 1,000 ms。此數字涵蓋唯讀來源備份、scratch store 啟動、必要的 scratch 索引同步與兩個 MCP 呼叫；不使用使用者資料庫。最近一次本機量測 p90 為 259.19 ms（median 250.06 ms、max 263.91 ms），整體讀取效能 gate 23/23 通過。
 - **Knowledge 信任狀態批次查詢**：`recall (20 Knowledge hits with staleness)` 以 20 筆帶 `appliesTo` 的過時 Knowledge 作為 recall 命中，p90 上限 250 ms。recall 與 `work_get_context` 會替每筆 Knowledge 命中標示過時與確認／推翻次數，這些資訊必須一次批次讀取；逐筆讀取時，每筆都要重新掃描之後的 Session。本機 Windows 量測（5,000 Sessions）：改為批次前 p90 1,414 ms（median 1,217 ms），改為批次後 p90 113 ms（median 88 ms）。
 - **Recall evaluator CI smoke**：Quality 的 Ubuntu、Windows、macOS 三個 matrix 都執行 `pnpm run test:recall-eval:example`，在暫存目錄建立合成 SQLite，結構化代入臨時 project root 與本次 seed 的 Session／Knowledge ids，再直接用目前 Node 執行 evaluator，避免 shell 路徑與 `pnpm` shim 差異。recall 與 context 正例必須都達 hit@1、hit@5、MRR = 1；負例預期為 `confidence: "none"`，任何不符都以非零結束。CI 明確傳入暫存 `--db`，不讀取 `data/`。
@@ -286,19 +286,19 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 整理面板的三個瀏覽器案例涵蓋逐筆與批次接受／拒絕、接受前原狀、來源與證據跳轉、URL 審核狀態與第二頁重載、1440／960／375px 內部滾輪與鍵盤捲動、axe、Esc 與焦點返回，以及過期建議與取消後唯讀／清除選取。兩種清單均驗證同頁刷新保留仍符合條件的勾選；批次復原案例先確認畫面呈現復原後的本頁成員再重新選取。
 
 
-## Archify 技術探測
+## 實驗資料
 
-歷史版本的 `pnpm test:archify-probe /path/to/archify-checkout` 是選擇性的隔離探測（2026-10-10 隨 Mermaid runtime 移除而刪除命令），需先建置與安裝三個 Playwright 瀏覽器；不使用正式資料庫或全域 skill。固定上游版本、75 組 CSP／主題／語言／規模驗證、原始測量值及邊界見 [Archify 技術驗證](archify-spike.md)。
+`docs/experiments/` 保存仍被決策引用的合成實測。腳本只用合成資料或其副本，不接觸正式資料庫；數字是當次機器的樣本，不是產品 SLO。
 
-
-架構圖格式 v1 測試涵蓋界限、未知版本／欄位、引用與作者路徑順序、MCP dispatcher、migration 26→27 保留排序／作廢、結構化遮蔽、舊匯出相容與新格式 round-trip。既有 SessionDetail 讀取路徑與政策不變。
-
-`getSessionDetail (200 architecture nodes)` 增加 200 節點／199 連線合成快照，p90 門檻 250ms，確認圖表隨完整 Session 讀取；不是瀏覽器繪製或實機觸控量測。
-
-
-原生架構閱讀器的跨瀏覽器案例涵蓋群組、來源、直接關係、作者路徑、面板收合、縮放／背景拖曳、鍵盤／焦點、重載網址、明暗主題／繁中英文、375／960／1440 視窗與桌面側欄縮窄、axe、CSP、HTML 字串逸出與未知版本來源回退。200 節點案例保存選取至兩個繪製幀的五筆樣本及中位數（寬鬆 2,000ms 回歸門檻），不是輸入延遲／FPS／冷啟動網路或實機 Safari／觸控的驗收；密集及巢狀圖不在本輪量測範圍。
-
-進行中驗證回歸：`tests/storage/verification-progress.test.ts` 檢查同筆狀態稽核、補登區別、205 筆進行中超過來源上限的完整統計與匯出匯入；MCP/schema 與三瀏覽器案例驗證 `not_run → in_progress → passed/failed`、雙語明暗主題、1440／960／375px、axe 與不受信任字串逸出。合成 5,000 筆 read-path benchmark 新增 `getReport (in-progress verification)`，15 次的 p90 上限 750ms。
+| 檔案 | 用途 |
+| --- | --- |
+| `attention-query-probe.mjs`／`.results.json` | 提醒聚合的 SQL 計畫與 CPU profile |
+| `related-query-probe.mjs`／`.results.json` | 相關工作索引在 5k／50k Sessions 的首次同步與暖讀取 |
+| `related-work-candidates.mjs`／`-2026-10-09.json` | 相關工作候選與全掃描 oracle 的比對 |
+| `session-read-projection-2026-10-10.json` | MCP Session 精準讀取的任務成本、p90 與 peak RSS |
+| `agent-data-source-audit-2026-09-30.md` | 第八輪工作記錄的來源與時間核對 |
+| `outstanding-cleanup-accuracy-2026-10-01.md` | 未結項清理建議的合成準確度評估 |
+| `standalone-distribution-spike-2026-10-15.md`／`.mjs` | 不需要 checkout 的發行方式研究與原型 |
 
 ## 五項整合 A1 提醒聚合
 
