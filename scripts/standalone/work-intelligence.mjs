@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import console from "node:console";
 import process from "node:process";
 import { fileURLToPath, URL } from "node:url";
+import { satisfiesNodeRange } from "./node-range.mjs";
 
 /** The package's engines.node, or undefined when it cannot be read. */
 function requiredNodeRange() {
@@ -20,37 +21,8 @@ function requiredNodeRange() {
   }
 }
 
-function compareVersions(left, right) {
-  for (let index = 0; index < 3; index += 1) {
-    if (left[index] !== right[index]) return left[index] - right[index];
-  }
-  return 0;
-}
-
-/**
- * True when `version` satisfies a range made of `||`-separated sets of `>=x.y.z` / `<x[.y[.z]]` comparators (the form
- * packages/shared's SUPPORTED_NODE_RANGE uses). A range in any other form is treated as satisfied rather than blocking.
- */
-function satisfiesRange(range, version) {
-  const actual = version.split(".").map(Number);
-  const sets = range.split("||").map((set) => set.trim().split(/\s+/));
-  let understood = true;
-  const matches = sets.map((comparators) =>
-    comparators.every((comparator) => {
-      const match = /^(>=|<)(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(comparator);
-      if (!match) {
-        understood = false;
-        return false;
-      }
-      const bound = [match[2], match[3] ?? 0, match[4] ?? 0].map(Number);
-      return match[1] === ">=" ? compareVersions(actual, bound) >= 0 : compareVersions(actual, bound) < 0;
-    }),
-  );
-  return !understood || matches.some(Boolean);
-}
-
 const requiredRange = requiredNodeRange();
-if (requiredRange && !satisfiesRange(requiredRange, process.versions.node)) {
+if (requiredRange && !satisfiesNodeRange(requiredRange, process.versions.node)) {
   console.error(`Work Intelligence 需要 Node.js ${requiredRange}（目前是 ${process.versions.node}）。`);
   process.exit(1);
 }

@@ -162,10 +162,9 @@ export async function buildStandalone(outputDirectory = join(repositoryRoot, "di
   cpSync(webSource, join(packageDirectory, "web"), { recursive: true });
 
   mkdirSync(join(packageDirectory, "bin"), { recursive: true });
-  cpSync(
-    join(repositoryRoot, "scripts/standalone/work-intelligence.mjs"),
-    join(packageDirectory, "bin/work-intelligence.mjs"),
-  );
+  for (const file of ["work-intelligence.mjs", "node-range.mjs"]) {
+    cpSync(join(repositoryRoot, "scripts/standalone", file), join(packageDirectory, "bin", file));
+  }
   writeFileSync(
     join(packageDirectory, "package.json"),
     `${JSON.stringify(packageManifest(version, rootPackage.engines.node, plugin), null, 2)}\n`,
