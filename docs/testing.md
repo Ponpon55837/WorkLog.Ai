@@ -181,7 +181,7 @@ node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-on
 
 搜尋的上限原本是 10,000 ms。修正全文搜尋的 join 順序後（見 `search-repository.ts` 的 `CROSS JOIN` 註解），中位數從約 2,000 ms 降到約 13 ms，因此收緊到 500 ms，讓同樣數量級的退化會直接失敗。新增讀取路徑時，請在 `read-paths.bench.mjs` 加上對應情境與上限。
 
-`getGraph (default 180 nodes)` 量測預設 Graph（最多 180 個節點）：只讀取必要欄位並只解碼可顯示的 Session 候選範圍，總數由 SQL 聚合；bench 在計時前驗證結果被截斷在 180 個節點。上限 250 ms 為寬鬆 CI 門檻。可用 `--case=<名稱片段>` 只跑符合的讀取案例，例如 `node packages/storage/bench/read-paths.bench.mjs 5000 --check --case="getGraph (default"`。`tests/storage/graph-candidates.test.ts` 以固定預期檔 `tests/storage/fixtures/graph-candidates.golden.json`（由舊的全量載入實作產生）比對節點、邊、總數、截斷旗標與排序，涵蓋 limit／maxNodes／maxEdges、單一專案、cursor 逐頁、作廢 Session、暫停專案、壞掉的舊 changed-files JSON 與 Session 連結。
+`getGraph (default 180 nodes)` 量測預設 Graph（最多 180 個節點）：只讀取必要欄位並只解碼可顯示的 Session 候選範圍，總數由 SQL 聚合；bench 在計時前驗證結果被截斷在 180 個節點。上限 250 ms 為寬鬆 CI 門檻。可用 `--case=<完整案例名稱>` 只跑該案例，例如 `node packages/storage/bench/read-paths.bench.mjs 5000 --check --case="getGraph (default 180 nodes)"`。`tests/storage/graph-candidates.test.ts` 以固定預期檔 `tests/storage/fixtures/graph-candidates.golden.json`（由舊的全量載入實作產生）比對節點、邊、總數、截斷旗標與排序，涵蓋 limit／maxNodes／maxEdges、單一專案、cursor 逐頁、作廢 Session、暫停專案、壞掉的舊 changed-files JSON 與 Session 連結。
 
 `metadata follow-up count` 獨立量測 `work_get_context` 使用的 SQL 聚合，不建立完整預覽 DTO；bench 在計時前用 JavaScript 預覽 totals 驗證 SQL 結果完全相同。5,000 筆完整預覽的既有本機 p90 約 58 ms，因此 count-only 路徑設 100 ms 上限；完整明細預覽仍保留原本路徑與回傳內容。
 
