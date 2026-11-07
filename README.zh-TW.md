@@ -110,7 +110,7 @@ codex plugin marketplace add Ponpon55837/WorkLog.Ai
 
 **之前手動註冊過？** plugin 與下方的手動註冊擇一即可，兩者並存時 Agent 會看到兩份相同的工具與提醒。移除手動註冊：`claude mcp remove work-intelligence --scope user`／`codex mcp remove work-intelligence`，並刪除 Claude `settings.json` 與 Codex `hooks.json` 裡 Work Intelligence 的 hook；`pnpm check` 會指出重複的項目。
 
-**沒有 checkout？** 每個 [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) 都附上 `work-intelligence-plugin-<版本>.zip`（內含 MCP server 的 plugin）與 `work-intelligence-<版本>.mcpb`（Claude Desktop 擴充）。需要 Node.js 22.16 以上（或 24 以上；不支援 23.x），資料存在 `~/.work-intelligence/data`，但不含 Web UI。
+**沒有 checkout？** 每個 [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) 都附上 `work-intelligence-plugin-<版本>.zip`（內含 MCP server 的 plugin）與 `work-intelligence-<版本>.mcpb`（Claude Desktop 擴充），這兩個不含 Web UI；另外附上完整的獨立套件 `work-intelligence-<版本>.tgz`（API server、Web 介面、MCP server 與 `work-intelligence` 指令，見 [docs/standalone.md](docs/standalone.md)），以及列出每個附件 SHA-256 的 `SHA256SUMS.txt`。全部都需要 Node.js 22.16 以上（或 24 以上；不支援 23.x），資料存在 `~/.work-intelligence/data`。
 
 遇到問題先執行 `pnpm check`，再看 [plugin 指南](docs/plugins.md) 的排錯表。
 

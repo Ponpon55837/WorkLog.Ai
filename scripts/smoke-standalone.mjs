@@ -2,7 +2,8 @@
 /**
  * `pnpm test:standalone`: builds the standalone package into a temp directory, unpacks the tarball there, and runs the
  * installed command the way a user without a checkout would: `--version`, `start` (health, Web UI, a backup through
- * the worker thread), `track`, `db backups`, `check` and an MCP stdio session.
+ * the worker thread), `track`, `db backups`, `check` and an MCP stdio session. With `--tarball <path>` it skips the
+ * build and checks that tarball instead, so a release can test the exact file it uploads.
  *
  * Needs `pnpm build` first (for apps/web/dist). Everything it can write to (HOME, USERPROFILE, CODEX_HOME,
  * CLAUDE_CONFIG_DIR, WORK_INTELLIGENCE_CONFIG_DIR, TMP) is redirected into one fresh temp directory, which is removed
@@ -267,6 +268,30 @@ async function mcpSession(bin, environment, root, projectFolder) {
   }
 }
 
+/** The tarball after `--tarball <path>`, or undefined; any other argument is a usage error. */
+function givenTarball(argv = process.argv.slice(2)) {
+  if (argv.length === 0) return undefined;
+  if (argv.length === 2 && argv[0] === "--tarball" && argv[1]) return resolve(argv[1]);
+  console.error("用法：node scripts/smoke-standalone.mjs [--tarball <work-intelligence-版本.tgz>]");
+  process.exit(2);
+}
+
+/** Builds a fresh package, or uses the given tarball (its version and file count are read after unpacking). */
+async function builtOrGivenTarball(buildDirectory) {
+  const tarball = givenTarball();
+  return tarball ? { tarball, version: undefined, fileCount: undefined } : buildStandalone(buildDirectory);
+}
+
+/** The version in the single unpacked package folder's package.json. */
+function unpackedVersion(installRoot) {
+  const [folder] = readdirSync(installRoot);
+  try {
+    return JSON.parse(readFileSync(join(installRoot, folder, "package.json"), "utf8")).version;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Whether `text` mentions `path`; Windows project paths are stored lowercased, so compare case-insensitively there. */
 function containsPath(text, path) {
   return process.platform === "win32" ? text.toLowerCase().includes(path.toLowerCase()) : text.includes(path);
@@ -278,11 +303,16 @@ async function main() {
     mkdtempSync(join(process.env.WORK_INTELLIGENCE_TEST_TMP?.trim() || tmpdir(), "work-intelligence-standalone-")),
   );
   try {
-    const built = await buildStandalone(join(root, "build"));
+    const built = await builtOrGivenTarball(join(root, "build"));
     check("build: tarball written", existsSync(built.tarball), built.tarball);
     const installRoot = join(root, "install");
     const files = extractTarGz(built.tarball, installRoot);
-    check("build: tarball unpacks", files === built.fileCount, `${files} != ${built.fileCount}`);
+    if (built.fileCount === undefined) {
+      built.version = unpackedVersion(installRoot);
+      check("build: tarball unpacks", files > 0 && built.version !== undefined, `${files} files`);
+    } else {
+      check("build: tarball unpacks", files === built.fileCount, `${files} != ${built.fileCount}`);
+    }
     if (process.platform !== "win32") {
       const listing = spawnSync("tar", ["-tzf", built.tarball], { encoding: "utf8" });
       check(
