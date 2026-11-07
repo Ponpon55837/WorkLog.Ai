@@ -2,7 +2,18 @@ import console from "node:console";
 import process from "node:process";
 import { runPnpm } from "./run-pnpm.mjs";
 
-const projects = ["chromium", "firefox", "webkit"];
+const allProjects = ["chromium", "firefox", "webkit"];
+// CI runs one browser per job through E2E_PROJECTS (comma-separated); locally every project runs in order.
+const requestedProjects = (process.env.E2E_PROJECTS ?? "")
+  .split(",")
+  .map((project) => project.trim())
+  .filter(Boolean);
+const unknownProjects = requestedProjects.filter((project) => !allProjects.includes(project));
+if (unknownProjects.length > 0) {
+  console.error(`Unknown E2E_PROJECTS value: ${unknownProjects.join(", ")}`);
+  process.exit(1);
+}
+const projects = requestedProjects.length > 0 ? requestedProjects : allProjects;
 // The browser regression suite builds its fixtures once in beforeAll, so Playwright cannot retry a test in place.
 // On CI a failed project is run once more from the start; each run gets a fresh server and SQLite database.
 const attempts = process.env.CI ? 2 : 1;

@@ -6,6 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- CI runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once (Ubuntu with coverage, Windows and macOS without). The required `E2E (Chromium + Firefox + WebKit)` check now aggregates the per-browser jobs; `E2E_PROJECTS` selects browsers for `pnpm test:e2e`.
 - The API runs database backups, whole-database exports, and project-data export/import previews on a dedicated worker thread. Startup automatic backup is delayed by 60 seconds; shutdown drains the worker before closing SQLite.
 - The backup worker opens the current schema read-only, refuses a version mismatch without changing the database, keeps nested SQLite busy errors classifiable, and exits after 15 seconds idle. Project-data exports transfer UTF-8 bytes from the worker, and import preview JSON is parsed there from transferred request bytes.
 - Snapshot publication cleans only abandoned private staging directories, checks the finished snapshot before publishing, refuses to replace an existing target, and leaves no publication-lock artifacts. It prefers an atomic hard link and falls back to an exclusive openSync(..., "wx") target reservation followed by rename; failed renames remove the reservation.
