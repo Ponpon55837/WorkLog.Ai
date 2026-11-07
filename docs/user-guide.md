@@ -26,7 +26,7 @@ pnpm check
 
 | 環境變數 | 用途 |
 | --- | --- |
-| `WORK_INTELLIGENCE_DB` | 共用 SQLite 檔案位置，API、MCP 與 CLI 應使用同一個檔案 |
+| `WORK_INTELLIGENCE_DB` | 共用 SQLite 檔案位置，API、MCP、CLI、`pnpm check` 與登入服務用同一條規則解析：相對路徑以 repo 根目錄為基準（不是目前所在資料夾）；不需要 checkout 的獨立套件則以 `~/.work-intelligence`（可用 `WORK_INTELLIGENCE_CONFIG_DIR` 改目錄）為基準 |
 | `WORK_INTELLIGENCE_PORT` | Web 與 API 共用的本機連接埠，預設 `3210` |
 | `WORK_INTELLIGENCE_BACKUP_DIR` | 備份目錄，預設為資料庫旁的 `backups/`；相對路徑以資料庫所在資料夾為基準，API、MCP、CLI 與 doctor 會指向同一個位置 |
 | `WORK_INTELLIGENCE_BACKUP_KEEP` | 手動備份保留份數，預設 3；自動備份另行保留 3 份 |

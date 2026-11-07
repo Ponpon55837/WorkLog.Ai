@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- The API server, CLI, `pnpm check`, login service and MCP now share one database path rule (`@work-intelligence/shared/database-location`). A checkout resolves a relative `WORK_INTELLIGENCE_DB` from the repository root exactly as before; a self-contained bundle resolves it from `~/.work-intelligence` (or `WORK_INTELLIGENCE_CONFIG_DIR`), where the bundled MCP previously kept relative values unresolved. The standalone CLI no longer takes relative folders from an inherited `INIT_CWD`.
+
 ## [1.6.7] - 2026-11-07
 
 [繁體中文更新說明](docs/releases/1.6.7.md).

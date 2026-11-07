@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 import { MINIMUM_NODE_VERSION } from "@work-intelligence/shared";
-import { isDriveRelativePath, resolveDatabasePath } from "@work-intelligence/shared/database-path";
+import { configDirectory, databasePathFor, STANDALONE } from "@work-intelligence/shared/database-location";
+import { isDriveRelativePath } from "@work-intelligence/shared/database-path";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import type { AgentMcpRegistrationState, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
@@ -771,12 +772,12 @@ export async function collectDoctorFindings(
     addRootSqliteFinding(findings, repositoryRoot);
     return findings;
   }
-  const dbPath = resolveDatabasePath(parsedEnvironment.data.WORK_INTELLIGENCE_DB, {
-    baseDirectory: repositoryRoot,
-    fallback: resolve(repositoryRoot, "data", "work-intelligence.sqlite"),
-  });
+  const dbPath = databasePathFor(repositoryRoot, { environment, home: homeDirectory || undefined });
   if (databaseSetting && !isAbsolute(databaseSetting) && databaseSetting !== ":memory:") {
-    addFinding(findings, "ok", "資料庫路徑", `WORK_INTELLIGENCE_DB 是相對路徑，已以 repo 根目錄解析為 ${dbPath}。`);
+    const base = STANDALONE
+      ? `設定目錄 ${configDirectory({ environment, home: homeDirectory || undefined })}`
+      : "repo 根目錄";
+    addFinding(findings, "ok", "資料庫路徑", `WORK_INTELLIGENCE_DB 是相對路徑，已以${base}解析為 ${dbPath}。`);
   }
   addRootSqliteFinding(findings, repositoryRoot);
   const database = await inspectDatabaseReadOnly(dbPath);

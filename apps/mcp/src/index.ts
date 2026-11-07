@@ -25,8 +25,7 @@ const runningBuild = /^[a-f0-9]{64}$/.test(MCP_BUILD_DIST_HASH)
       schemaVersion: LATEST_SCHEMA_VERSION,
     }
   : undefined;
-const repoDataPath = resolve(appRoot, "../../data", "work-intelligence.sqlite");
-const databasePath = databasePathFor(repoDataPath);
+const databasePath = databasePathFor(resolve(appRoot, "../.."));
 
 async function startMcpServer(): Promise<void> {
   let store: WorkIntelligenceStore | null = null;

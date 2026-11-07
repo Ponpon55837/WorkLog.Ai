@@ -5,6 +5,9 @@ export const serverAliases = {
   "@work-intelligence/shared/database-path": fileURLToPath(
     new URL("../../packages/shared/src/database-path.ts", import.meta.url),
   ),
+  "@work-intelligence/shared/database-location": fileURLToPath(
+    new URL("../../packages/shared/src/database-location.ts", import.meta.url),
+  ),
   "@work-intelligence/shared/app-version": fileURLToPath(
     new URL("../../packages/shared/src/app-version.ts", import.meta.url),
   ),
