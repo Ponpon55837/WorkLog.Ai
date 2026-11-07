@@ -76,39 +76,123 @@ function firstSessionAfter(sessions: LaterSession[], since: string): number {
   return low;
 }
 
+/** A project's later Sessions plus an index from each distinct normalized changed file to the Sessions touching it. */
+interface LaterSessionIndex {
+  sessions: LaterSession[];
+  /** normalized path -> ascending, unique indexes into `sessions`; files that normalize to "" never match and are omitted. */
+  sessionsByFile: Map<string, number[]>;
+  /** appliesTo pattern -> distinct matching files and the ascending Session indexes touching any of them; filled lazily. */
+  patternMatches: Map<string, PatternMatches>;
+  sessionIndexById?: Map<string, number>;
+}
+
+interface PatternMatches {
+  files: Set<string>;
+  sessionIndexes: number[];
+}
+
+function buildLaterSessionIndex(sessions: LaterSession[]): LaterSessionIndex {
+  const sessionsByFile = new Map<string, number[]>();
+  sessions.forEach((session, index) => {
+    for (const file of session.files) {
+      if (!file.normalized) {
+        continue;
+      }
+      const indexes = sessionsByFile.get(file.normalized);
+      if (!indexes) {
+        sessionsByFile.set(file.normalized, [index]);
+      } else if (indexes[indexes.length - 1] !== index) {
+        indexes.push(index);
+      }
+    }
+  });
+  return { sessions, sessionsByFile, patternMatches: new Map() };
+}
+
+/** Matches one normalized pattern against every distinct changed file once; all Knowledge sharing it reuse the result. */
+function matchesForPattern(index: LaterSessionIndex, pattern: string): PatternMatches {
+  const cached = index.patternMatches.get(pattern);
+  if (cached) {
+    return cached;
+  }
+  const matches = compileAppliesTo(pattern);
+  const files = new Set<string>();
+  const touched = new Set<number>();
+  for (const [file, indexes] of index.sessionsByFile) {
+    if (matches(file)) {
+      files.add(file);
+      for (const sessionIndex of indexes) {
+        touched.add(sessionIndex);
+      }
+    }
+  }
+  const result = { files, sessionIndexes: [...touched].sort((a, b) => a - b) };
+  index.patternMatches.set(pattern, result);
+  return result;
+}
+
+/** First position in an ascending number array whose value is >= `target`. */
+function lowerBound(values: number[], target: number): number {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (values[middle]! >= target) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+  return low;
+}
+
 function knowledgeStaleness(
   knowledge: KnowledgeRecord,
-  sessions: LaterSession[],
+  laterSessions: LaterSessionIndex,
   contexts: PathContext[],
 ): KnowledgeStaleness | undefined {
-  const matchers = knowledge.appliesTo
-    .map((pattern) => normalizePath(pattern, contexts))
-    .filter(Boolean)
-    .map(compileAppliesTo);
-  const excluded = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
-  let first: KnowledgeStaleness | undefined;
-  let sessionCount = 0;
-  for (let index = firstSessionAfter(sessions, stalenessSince(knowledge)); index < sessions.length; index += 1) {
-    const session = sessions[index]!;
-    if (excluded.has(session.id)) {
-      continue;
-    }
-    const paths = session.files
-      .filter((file) => matchers.some((matches) => matches(file.normalized)))
-      .map((file) => file.raw);
-    if (paths.length === 0) {
-      continue;
-    }
-    sessionCount += 1;
-    first ??= {
-      sessionId: session.id,
-      sessionTitle: session.title,
-      completedAt: session.completedAt,
-      paths: paths.slice(0, 5),
-      sessionCount: 0,
-    };
+  const { sessions } = laterSessions;
+  const patterns = [...new Set(knowledge.appliesTo.map((pattern) => normalizePath(pattern, contexts)).filter(Boolean))];
+  if (patterns.length === 0) {
+    return undefined;
   }
-  return first ? { ...first, sessionCount } : undefined;
+  const start = firstSessionAfter(sessions, stalenessSince(knowledge));
+  const matches = patterns.map((pattern) => matchesForPattern(laterSessions, pattern));
+  const touched = new Set<number>();
+  for (const { sessionIndexes } of matches) {
+    for (let at = lowerBound(sessionIndexes, start); at < sessionIndexes.length; at += 1) {
+      touched.add(sessionIndexes[at]!);
+    }
+  }
+  for (const id of [knowledge.sessionId, knowledge.lastConfirmedSessionId]) {
+    if (id) {
+      laterSessions.sessionIndexById ??= new Map(sessions.map((session, index) => [session.id, index]));
+      const excludedIndex = laterSessions.sessionIndexById.get(id);
+      if (excludedIndex !== undefined) {
+        touched.delete(excludedIndex);
+      }
+    }
+  }
+  if (touched.size === 0) {
+    return undefined;
+  }
+  let firstIndex = Number.POSITIVE_INFINITY;
+  for (const sessionIndex of touched) {
+    if (sessionIndex < firstIndex) {
+      firstIndex = sessionIndex;
+    }
+  }
+  const session = sessions[firstIndex]!;
+  const paths = session.files
+    .filter((file) => matches.some(({ files }) => files.has(file.normalized)))
+    .map((file) => file.raw);
+  return {
+    sessionId: session.id,
+    sessionTitle: session.title,
+    completedAt: session.completedAt,
+    paths: paths.slice(0, 5),
+    sessionCount: touched.size,
+  };
 }
 
 export class KnowledgeService {
@@ -236,7 +320,7 @@ export class KnowledgeService {
       const project = this.dependencies.getProjectById(projectId);
       const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
       const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
-      const sessions = this.loadLaterSessions(projectId, earliest, contexts);
+      const sessions = buildLaterSessionIndex(this.loadLaterSessions(projectId, earliest, contexts));
       for (const item of group) {
         const result = knowledgeStaleness(item, sessions, contexts);
         if (result) {
