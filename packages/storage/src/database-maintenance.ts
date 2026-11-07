@@ -130,8 +130,9 @@ export function maintainDatabase(options: {
       .run(id, startedAt, backupFileName);
 
     try {
-      database.exec("VACUUM; ANALYZE;");
+      database.exec("VACUUM;");
       const indexed = new SearchRepository(database).rebuildIndex();
+      // One ANALYZE after the index rebuild is enough; an earlier one would be overwritten.
       database.exec("ANALYZE;");
       assertDatabaseIntegrity(database);
       const completedAt = nowIso();

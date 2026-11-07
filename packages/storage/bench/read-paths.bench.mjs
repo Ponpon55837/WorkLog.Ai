@@ -643,6 +643,23 @@ try {
   if (metadataFollowUpPreview.outcome !== "backfill_preview")
     throw new Error("Missing metadata follow-up benchmark source");
   const expectedMetadataFollowUpTotals = metadataFollowUpPreview.totals;
+  // db:maintain runs ANALYZE; measure the year report on a snapshot with planner statistics, because the
+  // statistics once flipped the decision queries to a full Session scan (4.6-8 ms became 43-130 ms).
+  const analyzedPath = join(root, "bench-analyzed.sqlite");
+  const snapshot = new DatabaseSync(databasePath);
+  try {
+    snapshot.exec(`VACUUM INTO '${analyzedPath.replaceAll("'", "''")}'`);
+  } finally {
+    snapshot.close();
+  }
+  const analyzedDatabase = new DatabaseSync(analyzedPath);
+  try {
+    analyzedDatabase.exec("ANALYZE;");
+  } finally {
+    analyzedDatabase.close();
+  }
+  const analyzedStore = new WorkIntelligenceStore(analyzedPath);
+  const expectedAnalyzedYear = JSON.stringify(benchStore.getReport({ period: "year", date: "2026-03-11" }));
   const cases = {
     "getContext (large report source request)": () => {
       const result = benchStore.getContext(alphaRoot);
@@ -732,6 +749,12 @@ try {
     },
     "getReport month": () => benchStore.getReport({ period: "month", date: "2026-03-11" }),
     "getReport year": () => benchStore.getReport({ period: "year", date: "2026-03-11" }),
+    "getReport year (after ANALYZE)": () => {
+      const result = analyzedStore.getReport({ period: "year", date: "2026-03-11" });
+      if (JSON.stringify(result) !== expectedAnalyzedYear)
+        throw new Error("The ANALYZE snapshot must produce the same year report.");
+      return result;
+    },
     getContext: () => benchStore.getContext(),
     "metadata follow-up counts": () => {
       const result = benchStore.countMetadataBackfillFollowUps();
@@ -1002,6 +1025,7 @@ try {
     "getReport week": 750,
     "getReport (in-progress verification)": 750,
     "getReport year": 1500,
+    "getReport year (after ANALYZE)": 1500,
     getContext: 2500,
     "metadata follow-up counts": 100,
     "getContext (project with pages)": 500,
@@ -1222,6 +1246,7 @@ try {
     }
   }
   await closeBenchmarkApi();
+  analyzedStore.close();
   benchStore.close();
 } finally {
   try {
