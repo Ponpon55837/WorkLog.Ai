@@ -715,6 +715,8 @@ try {
     "listSessionsPage (project + range)": () =>
       benchStore.listSessionsPage({ projectId: beta.id, from: "2026-03-01", to: "2026-03-31", page: 1, pageSize: 20 }),
     "listSessionsPage (query)": () => benchStore.listSessionsPage({ query: "graph", page: 1, pageSize: 20 }),
+    "listSessionsPage (query, no match)": () =>
+      benchStore.listSessionsPage({ query: "zzqxnomatchterm", page: 1, pageSize: 20 }),
     "listSessionDigests (page 100 + pending items)": () => listSessionDigestPage(benchStore, alpha.id),
     getDashboardSummary: () => benchStore.getDashboardSummary(),
     "getReport week": () => benchStore.getReport({ period: "week", date: "2026-03-11" }),
@@ -986,6 +988,8 @@ try {
     "getSessionProjection (handoff, 200 nodes omitted)": 250,
     "getSessionProjection (selected native source)": 250,
     "listSessionsPage (default)": 200,
+    "listSessionsPage (query)": 300,
+    "listSessionsPage (query, no match)": 300,
     "listSessionDigests (page 100 + pending items)": 100,
     getDashboardSummary: 1000,
     "getReport week": 750,

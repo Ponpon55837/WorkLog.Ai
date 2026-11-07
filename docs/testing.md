@@ -85,6 +85,15 @@ Context 每題呼叫 `work_get_context` 的實際 MCP handler；排名只看 `re
 
 合成題目模板在 [`tests/fixtures/recall-eval-example.json`](../tests/fixtures/recall-eval-example.json)；`scripts/run-recall-eval-example.mjs` 在 OS 暫存位置建立資料庫並代入本次 seed ids，故範例不含固定的隨機 UUID，也不會碰使用者的 DB。CI 也嘗試把 `--out` 指向 SQLite 主檔與各 sidecar，確認命令失敗且檔案位元組不變。MCP evaluator 的 source/WAL 保持不變與 scratch dirty-index 命中由 `tests/mcp/recall-evaluation.test.ts` 驗證。
 
+### 實驗紀律
+
+檢索與知識類實驗遵守以下規則，避免數字看起來好看卻不可靠：
+
+- 不同目標分開量測（例如找回舊工作、避免誤報、相關提示），不以單一 Hit@5 代表全部。
+- 題目使用問題發生當時的歷史快照，不得洩漏之後才出現的知識。
+- 門檻與 Go/No-Go 條件在實驗前寫下，實驗後不得調整。
+- 私有資料只在本機唯讀副本上執行；repo 只保留合成資料與彙總數字。
+
 ## Agent MCP 回應大小
 
 `pnpm test:response-size` 以虛構合成資料透過 in-memory MCP transport 呼叫工具，計算 Agent 實際收到的文字長度（JavaScript 字元數，不是 UTF-8 位元組或 token）。所有工具的文字結果都是緊湊 JSON。資料包含 20 筆 Session、10 筆共用同一段舊規劃的 handoff、完成工作的決策與陷阱、4 筆 Knowledge、3 頁 Knowledge page，以及 9 筆未結項；資料庫只在記憶體中建立，不讀取 `data/` 或使用者資料。一般未結項頁面為 2,183 字元；另透過合法的舊格式匯入資料建立超過 4,000 字元的全文，確認 storage 與匯出／匯入保留全文，而 MCP 單筆最多回傳 4,000 字元並以 `textTruncated: true` 標示截短。另一個邊界案例以合法的 4,000 字元項目文字作為輸入，同時把合成專案名稱與 Session title 設成含引號、反斜線及換行的超長已存 metadata；測試量完整序列化後的 MCP JSON，確認未結項頁面不超過 30,000 UTF-16 code units，且縮短欄位均帶對應的 `Truncated` 標記。最近一次本機測試中，這個最長頁面為 22,270 UTF-16 code units；MCP 專用 `pageSize` 預設及上限為 5、傳入 6 會被拒絕。REST 仍使用共用的 100 筆上限並保留完整文字。
