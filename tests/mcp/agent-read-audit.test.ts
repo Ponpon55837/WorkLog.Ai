@@ -36,6 +36,12 @@ function auditRows(store: WorkIntelligenceStore): Array<Record<string, unknown>>
     .all();
 }
 
+function latestSessionId(store: WorkIntelligenceStore): unknown {
+  return (store as unknown as { db: { prepare(sql: string): { get(): Record<string, unknown> } } }).db
+    .prepare("SELECT id FROM sessions ORDER BY rowid DESC LIMIT 1")
+    .get().id;
+}
+
 async function call(client: Client, dispatcher: string, operation: string, args: Record<string, unknown>) {
   return client.callTool({ name: dispatcher, arguments: { operation, arguments: args } });
 }
@@ -62,6 +68,41 @@ describe("MCP passive read audit", () => {
     expect(rows[0]).toMatchObject({ tool: "work_recall", agent_client: "fiction-audit-agent", outcome: "recall" });
     expect(Number(rows[0]!.returned_count)).toBeGreaterThan(0);
     expect(JSON.stringify(rows[0])).not.toContain("lantern");
+  });
+
+  it("audits an unchanged Session re-read as session_unchanged with its id", async () => {
+    const { client, store, root } = await connect();
+    await call(client, "work_write_idempotent", "work_finalize_session", {
+      projectRoot: root,
+      idempotencyKey: "audit-mcp-unchanged",
+      title: "Synthetic unchanged lantern",
+      summary: "Synthetic unchanged summary.",
+      workSummary: { outcomes: ["Done."], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/a.ts"],
+      verification: { status: "passed" },
+    });
+    const sessionId = String(latestSessionId(store));
+    const full = await call(client, "work_read", "work_get_session", { sessionId });
+    const body = JSON.parse((full.content as Array<{ text: string }>)[0]!.text) as { session: { revision: string } };
+    const unchanged = await call(client, "work_read", "work_get_session", {
+      sessionId,
+      knownRevision: body.session.revision,
+    });
+    expect(unchanged.isError).toBeFalsy();
+    expect(JSON.parse((unchanged.content as Array<{ text: string }>)[0]!.text)).toMatchObject({
+      outcome: "session_unchanged",
+      session: { id: sessionId, revision: body.session.revision },
+    });
+    expect(unchanged.structuredContent).toEqual({
+      outcome: "session_unchanged",
+      sessionId,
+      revision: body.session.revision,
+    });
+    const rows = auditRows(store);
+    expect(rows.map((row) => [row.tool, row.outcome, row.session_ids_json, row.returned_count])).toEqual([
+      ["work_get_session", "session_detail", JSON.stringify([sessionId]), 1],
+      ["work_get_session", "session_unchanged", JSON.stringify([sessionId]), 1],
+    ]);
   });
 
   it("does not fail the read when the audit insert fails", async () => {

@@ -577,11 +577,22 @@ export const agentReadStatsQuerySchema = z.object({
   agentClient: z.string().trim().min(1).max(100).optional(),
 });
 
+/** work_get_session revisions: 16 base64url characters of a SHA-256. */
+export const SESSION_REVISION_LENGTH = 16;
+const SESSION_REVISION_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${SESSION_REVISION_LENGTH}}$`);
+
 export const sessionDetailQuerySchemaBase = z.object({
   sessionId: z.string().trim().min(1).max(200),
   includeRawSnapshots: z.boolean().default(false),
   view: z.enum(["completion", "handoff"]).optional(),
   select: z.array(z.enum(SESSION_READ_FIELDS)).min(1).max(SESSION_READ_FIELDS.length).optional(),
+  knownRevision: z
+    .string()
+    .regex(SESSION_REVISION_PATTERN)
+    .optional()
+    .describe(
+      "The revision of this Session's body that you still hold in full in this context. If it still matches, the result is session_unchanged without the body. Never pass it for content you no longer hold.",
+    ),
 });
 export const sessionDetailQuerySchema = sessionDetailQuerySchemaBase.superRefine((input, context) => {
   if (input.view && input.select)

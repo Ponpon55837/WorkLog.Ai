@@ -179,6 +179,7 @@ import type {
 } from "@work-intelligence/core";
 import { nowIso, serverClock, toLocalCalendarDate, truncateText } from "@work-intelligence/shared";
 import { createProjectPathResolver, ProjectPolicyGate, safeProjectPath } from "@work-intelligence/project-policy";
+import { sessionDetailQuerySchema } from "@work-intelligence/schema";
 import {
   backupDatabase,
   DEFAULT_AUTOMATIC_BACKUP_KEEP,
@@ -218,6 +219,7 @@ import {
 import {
   runAfterImmediateTransaction,
   runImmediateTransaction as runImmediateSqlTransaction,
+  runReadTransaction,
 } from "./sqlite-transaction.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { DiagramService } from "./diagram-service.js";
@@ -227,7 +229,12 @@ import { TimelineRepository } from "./timeline-repository.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
 import { ProjectDataTransferService } from "./project-data-transfer.js";
-import { SessionAgentReadService } from "./session-agent-read-service.js";
+import {
+  SessionAgentReadService,
+  sameSessionRevision,
+  sessionUnchanged,
+  toAgentSessionDetail,
+} from "./session-agent-read-service.js";
 import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
 import { OutstandingItemService } from "./outstanding-item-service.js";
@@ -464,6 +471,10 @@ export class WorkIntelligenceStore {
       withKnowledgeTrustMany: (knowledge) => this.knowledgeService.withKnowledgeTrustMany(knowledge),
       listDiagrams: (sessionId) => this.diagrams.listForSession(sessionId),
       getSessionLinks: (sessionId) => this.sessionRecords.getSessionLinks(sessionId),
+      agentSessionDetail: (sessionId) => {
+        const detail = this.getSessionDetail(sessionId);
+        return detail ? toAgentSessionDetail(detail) : undefined;
+      },
     });
     this.reportReader = new ReportReadService(this.db, this);
     this.knowledge = new KnowledgeRepository(this.db, toKnowledge, createPageInfo, {
@@ -1857,39 +1868,13 @@ export class WorkIntelligenceStore {
     includeRawSnapshots?: boolean;
     view?: never;
     select?: never;
+    knownRevision?: never;
   }): SessionDetailQueryResult;
   public getSessionDetailForAgent(query: SessionAgentReadQuery): SessionAgentReadResult;
   public getSessionDetailForAgent(query: SessionAgentReadQuery): SessionAgentReadResult {
     if (query.view !== undefined || query.select !== undefined) return this.sessionAgentReads.read(query);
-    const notFound: SessionNotFoundResult = {
-      outcome: "not_found",
-      sessionId: query.sessionId,
-      reason: "Session does not exist.",
-    };
-    const session = this.getSessionById(query.sessionId);
-    if (!session) {
-      return notFound;
-    }
-    const decision = this.checkProjectById(session.projectId);
-    if (!decision.allowed || !decision.project) {
-      return {
-        outcome: "skipped",
-        sessionId: query.sessionId,
-        projectStatus: decision.projectStatus,
-        reason: decision.reason ?? "Project recording is not enabled.",
-      };
-    }
-    const detail = this.getSessionDetail(query.sessionId);
-    if (!detail) {
-      return notFound;
-    }
-    return {
-      outcome: "session_detail",
-      ...detail,
-      rawSnapshots: query.includeRawSnapshots
-        ? detail.rawSnapshots
-        : detail.rawSnapshots.map(({ content, ...snapshot }) => ({ ...snapshot, contentLength: content.length })),
-    };
+    if (query.knownRevision !== undefined) sessionDetailQuerySchema.parse(query);
+    return runReadTransaction(this.db, () => this.readFullSessionForAgent(query));
   }
 
   /** Paged tracked-only Session list for Agents, scoped by projectRoot or projectId. */
@@ -1947,6 +1932,36 @@ export class WorkIntelligenceStore {
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       ...(scope.projectId ? { projectId: scope.projectId } : {}),
     });
+  }
+
+  /** Full Agent read (no view/select) inside one read snapshot, so the body and its revision match. */
+  private readFullSessionForAgent(query: SessionAgentReadQuery): SessionAgentReadResult {
+    const notFound: SessionNotFoundResult = {
+      outcome: "not_found",
+      sessionId: query.sessionId,
+      reason: "Session does not exist.",
+    };
+    const session = this.getSessionById(query.sessionId);
+    if (!session) {
+      return notFound;
+    }
+    const decision = this.checkProjectById(session.projectId);
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        sessionId: query.sessionId,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+    const detail = this.getSessionDetail(query.sessionId);
+    if (!detail) {
+      return notFound;
+    }
+    const result = toAgentSessionDetail(detail);
+    const { revision } = result.session;
+    if (sameSessionRevision(query.knownRevision, revision)) return sessionUnchanged(result.session, revision);
+    return query.includeRawSnapshots ? { ...result, rawSnapshots: detail.rawSnapshots } : result;
   }
 
   /** Resolves an optional projectRoot/projectId pair to a tracked project id, or the quiet skip result. */

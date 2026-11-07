@@ -44,6 +44,18 @@ function toProjectionStructuredContent(value: unknown): StructuredContent | unde
   };
 }
 
+/** session_unchanged carries identity only; Session-shaped defaults (0 changed files, no verification) would mislead. */
+function toUnchangedStructuredContent(value: unknown): StructuredContent | undefined {
+  if (!isRecord(value) || value.outcome !== "session_unchanged" || !isRecord(value.session)) return undefined;
+  const session = value.session;
+  return {
+    outcome: value.outcome,
+    sessionId: session.id,
+    revision: session.revision,
+    ...(session.voided ? { voided: session.voided } : {}),
+  };
+}
+
 export function toSessionStructuredContent(value: unknown): StructuredContent | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -62,7 +74,8 @@ export function toStructuredContent(value: unknown): StructuredContent | undefin
 
 /** Tool results are compact JSON: indentation only costs the Agent tokens. */
 export function textResult(value: unknown) {
-  const structuredContent = toProjectionStructuredContent(value) ?? toStructuredContent(value);
+  const structuredContent =
+    toUnchangedStructuredContent(value) ?? toProjectionStructuredContent(value) ?? toStructuredContent(value);
 
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],

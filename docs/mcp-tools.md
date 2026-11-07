@@ -177,13 +177,15 @@ MCP client 的 stdio 設定可使用：
 
 `work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
 
-可選 `view: "completion" | "handoff"` 或 `select` 固定欄位陣列（兩者互斥；1–18 個、不可重複）。未提供時維持完整回應；精準讀取只查詢指定資料族群，回傳 `projection: {version: 1, view?, includedFields, unavailableFields}`。必要 Session 識別、lifecycle、完成時間及作廢狀態保留；缺少的歷史欄位列入 unavailableFields，未選取欄位不代表空資料。
+可選 `view: "completion" | "handoff"` 或 `select` 固定欄位陣列（兩者互斥；1–18 個、不可重複）。未提供時維持完整回應；精準讀取只回傳指定資料族群（`session.revision` 另由完整詳情計算，因此仍會讀取完整詳情一次），回傳 `projection: {version: 1, view?, includedFields, unavailableFields}`。必要 Session 識別、lifecycle、完成時間及作廢狀態保留；缺少的歷史欄位列入 unavailableFields，未選取欄位不代表空資料。
 
 - `completion`：summary、outcomes、摘要 verification／nextSteps、機器 verification、links、verificationHistory。
 - `handoff`：summary、完整五段 workSummary、decisions、機器 verification、links、verificationHistory。
 - `select`：`session.summary`、五個 `session.workSummary.<section>`、`session.verification`、`session.changedFiles`、`session.git`、`decisions`、`links`、`verificationHistory`、`voidHistory`、`events`、`evidence`、`knowledge`、`diagrams`、`rawSnapshots`。`session.git` 沿用 commitSha／gitBranch；changedFiles 同時保留 provenance／lifecycle changes。
 
 摘要 decisions 自動帶完整決策來源／審查狀態；機器 verification 自動帶修改歷史。欄位順序固定，不受請求順序影響。選取 rawSnapshots 預設只回傳 metadata／JavaScript UTF-16 contentLength；精準模式的 includeRawSnapshots=true 必須明確選取 rawSnapshots，兩種 view 都不含 raw。Knowledge trust、來源作廢與連結作廢旗標均保留。structuredContent 只帶實際識別／狀態及已讀取的 verification／changedFilesCount，不重複完整來源。
+
+條件式重讀：每個成功回傳的本體（完整或精準讀取）都帶 `session.revision`，是該 Session 完整 Agent 詳情（raw snapshot 只計長度、不含所屬專案的 `project` 物件）JSON 的 SHA-256 前 16 個 base64url 字元；精準讀取也由完整詳情計算，所以同一個 Session 狀態只有一個 revision。可選 `knownRevision`（剛好 16 個 base64url 字元）；Session 存在、屬於 tracked 專案，且目前 revision 相同（常數時間比較）時，回傳 `{ outcome: "session_unchanged", session: { id, projectId, title, revision, voided? } }`，不含內容本體，Agent 應沿用手上那份內容。其他情況照常回傳（`view`／`select`／`includeRawSnapshots` 只在回傳本體時套用）；`not_found`、`skipped` 不變，不會透露非 tracked 或不存在的 Session 的 revision。revision 涵蓋回應中所有內容，包括 Knowledge trust（`possiblyStale`、確認／反駁次數）、links 中其他 Session 的標題與作廢狀態、Diagram 與決策審查狀態，因此任何一項改變都會得到新的 revision，不依賴 `updatedAt`。完整回應中的 `project` 物件不列入，因為它隨專案內任何寫入而變；需要最新專案狀態時用 `work_get_project_status`。只有內容仍完整留在目前 context 時才傳；新對話、壓縮 context 後或 subagent 都不要傳。讀取稽核記錄 outcome `session_unchanged` 與該 Session id。
 
 部分讀取不能當成已讀完整來源。接手、結案或清理仍須取得所有與判斷相關的原文、限制及補查；現有要求完整來源的流程維持原要求。這是 Agent MCP 功能，REST、Web、報告與資料匯出匯入不變；schema 維持 30，契約 fingerprint 改變，更新後需要重新連線。
 

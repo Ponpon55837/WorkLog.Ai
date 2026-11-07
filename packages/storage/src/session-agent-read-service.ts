@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   SESSION_READ_FIELDS,
@@ -5,14 +6,18 @@ import {
   type PolicyDecision,
   type SessionAgentReadQuery,
   type SessionAgentReadResult,
+  type SessionDetail,
+  type SessionDetailResult,
   type SessionDiagramRecord,
   type SessionLinkRecord,
   type SessionProjectionResult,
   type SessionReadField,
+  type SessionUnchangedResult,
   type VerificationSummary,
+  type WorkSessionRecord,
   type WorkSummarySections,
 } from "@work-intelligence/core";
-import { sessionDetailQuerySchema } from "@work-intelligence/schema";
+import { SESSION_REVISION_LENGTH, sessionDetailQuerySchema } from "@work-intelligence/schema";
 import {
   parseJson,
   toEvent,
@@ -36,6 +41,8 @@ export interface SessionAgentReadDependencies {
   withKnowledgeTrustMany(knowledge: KnowledgeRecord[]): KnowledgeRecord[];
   listDiagrams(sessionId: string): SessionDiagramRecord[];
   getSessionLinks(sessionId: string): SessionLinkRecord[];
+  /** The tracked Session's full Agent detail (with revision), built in the caller's current read snapshot. */
+  agentSessionDetail(sessionId: string): SessionDetailResult | undefined;
 }
 
 type SelectedRow = {
@@ -93,7 +100,55 @@ function fieldsFor(query: SessionAgentReadQuery): SessionReadField[] {
   return SESSION_READ_FIELDS.filter((field) => selected.has(field));
 }
 
-/** Projected reads load no unselected family and retain one consistent deferred SQLite snapshot. */
+/**
+ * The revision of a full Agent Session detail with raw snapshot content omitted: the first 16 base64url characters
+ * of the SHA-256 of its JSON, serialized once. Our builders emit keys in a fixed order, so equal content gives an
+ * equal revision. The project record is left out; it changes with every write anywhere in the project.
+ */
+export function sessionDetailRevision(detail: object): string {
+  const { project: _project, outcome: _outcome, ...content } = detail as Record<string, unknown>;
+  return createHash("sha256").update(JSON.stringify(content)).digest("base64url").slice(0, SESSION_REVISION_LENGTH);
+}
+
+/** Constant-time comparison of a held revision with the current one. */
+export function sameSessionRevision(known: string | undefined, current: string): boolean {
+  if (known === undefined) return false;
+  const left = Buffer.from(known);
+  const right = Buffer.from(current);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/** Full Agent detail with raw snapshot content replaced by its length, plus the content revision. */
+export function toAgentSessionDetail(detail: SessionDetail): SessionDetailResult {
+  const body = {
+    outcome: "session_detail" as const,
+    ...detail,
+    rawSnapshots: detail.rawSnapshots.map(({ content, ...snapshot }) => ({
+      ...snapshot,
+      contentLength: content.length,
+    })),
+  };
+  return { ...body, session: { ...body.session, revision: sessionDetailRevision(body) } };
+}
+
+/** Identity-only answer for a body the Agent already holds. */
+export function sessionUnchanged(
+  session: Pick<WorkSessionRecord, "id" | "projectId" | "title" | "voided">,
+  revision: string,
+): SessionUnchangedResult {
+  return {
+    outcome: "session_unchanged",
+    session: {
+      id: session.id,
+      projectId: session.projectId,
+      title: session.title,
+      revision,
+      ...(session.voided ? { voided: session.voided } : {}),
+    },
+  };
+}
+
+/** Projected reads return no unselected family and retain one consistent deferred SQLite snapshot. */
 export class SessionAgentReadService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -120,6 +175,11 @@ export class SessionAgentReadService {
         projectStatus: decision.projectStatus,
         reason: decision.reason ?? "Project recording is not enabled.",
       };
+    // One revision per Session state: always derived from the full detail, whatever this read projects.
+    const full = this.dependencies.agentSessionDetail(query.sessionId);
+    if (!full) return { outcome: "not_found", sessionId: query.sessionId, reason: "Session does not exist." };
+    const { revision } = full.session;
+    if (sameSessionRevision(query.knownRevision, revision)) return sessionUnchanged(full.session, revision);
     const fields = fieldsFor(query);
     const selected = new Set(fields);
     // Every SQL fragment here is a developer-owned constant; only ids are bound from input.
@@ -160,6 +220,7 @@ export class SessionAgentReadService {
         completedAt: row.completed_at,
         ...(row.updated_at ? { updatedAt: row.updated_at } : {}),
         ...(row.voided_at ? { voided: { at: row.voided_at, reason: row.void_reason ?? "" } } : {}),
+        revision,
       },
     };
     const unavailable = new Set<SessionReadField>();
