@@ -30,7 +30,7 @@ export const agentReadRoutes: Route[] = [
     handler: validatedRoute(
       agentReadStatsQuerySchema,
       "Invalid agent read stats filters.",
-      ({ url }) => ({ projectId: textParam(url, "projectId"), agentClient: textParam(url, "agentClient") }),
+      ({ url }) => ({ projectId: textParam(url, "projectId"), agentClient: textParam(url, "agent") }),
       ({ store }, data) => store.summarizeAgentReads({ projectId: data.projectId, agentClient: data.agentClient }),
     ),
   },

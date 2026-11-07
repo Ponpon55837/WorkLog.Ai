@@ -36,7 +36,7 @@ export function createAgentReadsApi(client: ApiTransport): AgentReadsApi {
 
     getAgentReadStats(options: AgentReadStatsRequest = {}, signal?: AbortSignal): Promise<AgentReadStats> {
       return client.request<AgentReadStats>(
-        appendQuery("/api/agent-reads/stats", { projectId: options.projectId, agentClient: options.agentClient }),
+        appendQuery("/api/agent-reads/stats", { projectId: options.projectId, agent: options.agentClient }),
         { signal },
       );
     },

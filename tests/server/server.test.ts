@@ -989,16 +989,13 @@ describe("Work Intelligence REST API", () => {
     ]);
     const filtered = await requestJson<{ tools: Array<{ tool: string; count: number }> }>(
       baseUrl,
-      `/api/agent-reads/stats?projectId=${encodeURIComponent(project.id)}&agentClient=fiction-client`,
+      `/api/agent-reads/stats?projectId=${encodeURIComponent(project.id)}&agent=fiction-client`,
     );
     expect(filtered.body.tools.map(({ tool, count }) => ({ tool, count }))).toEqual([
       { tool: "work_recall", count: 1 },
     ]);
 
-    const invalid = await requestJson<{ code: string }>(
-      baseUrl,
-      `/api/agent-reads/stats?agentClient=${"x".repeat(101)}`,
-    );
+    const invalid = await requestJson<{ code: string }>(baseUrl, `/api/agent-reads/stats?agent=${"x".repeat(101)}`);
     expect(invalid.status).toBe(400);
     expect(invalid.body.code).toBe("invalid_input");
 

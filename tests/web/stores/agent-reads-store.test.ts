@@ -73,7 +73,7 @@ describe("agent reads store", () => {
     const params = harness.calls.filter((call) => call.url.pathname === "/api/agent-reads/stats").at(-1)!.url
       .searchParams;
     expect(params.get("projectId")).toBe("project-1");
-    expect(params.get("agentClient")).toBe("fiction-client");
+    expect(params.get("agent")).toBe("fiction-client");
     expect(params.has("page")).toBe(false);
     expect(store.toolStats).toEqual(stats.tools);
     expect(store.statsError).toBe("");

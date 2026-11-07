@@ -50,7 +50,7 @@ describe("domain API factories", () => {
       "/api/sessions/session%2F1/agent-reads",
       "/api/knowledge/knowledge%2F1/agent-reads",
       "/api/agent-reads/stats",
-      "/api/agent-reads/stats?projectId=project+1&agentClient=fiction-client",
+      "/api/agent-reads/stats?projectId=project+1&agent=fiction-client",
     ]);
   });
 
