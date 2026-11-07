@@ -486,7 +486,6 @@ export class WorkIntelligenceStore {
       getProjectById: (projectId) => this.getProjectById(projectId),
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       checkProjectById: (projectId) => this.checkProjectById(projectId),
-      toSession,
       toKnowledge,
     });
     this.reportSynthesis = new ReportSynthesisService(

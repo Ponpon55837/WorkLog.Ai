@@ -844,6 +844,13 @@ try {
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
+    "getGraph (default 180 nodes)": () => {
+      const result = benchStore.getGraph({});
+      if (result.outcome !== "graph" || result.nodes.length !== 180 || result.totalNodes <= 180) {
+        throw new Error("Default graph benchmark must truncate to 180 nodes of a larger synthetic graph.");
+      }
+      return result;
+    },
     "getGraph (with derived)": () => benchStore.getGraph({ includeDerived: true }),
     "getGraphPath (500 nodes)": () =>
       benchStore.getGraphPath({ projectId: alpha.id, from: `project:${alpha.id}`, to: pathTarget }),
@@ -1018,6 +1025,7 @@ try {
     "recall (synonym expansion)": 500,
     "recall (20 Knowledge hits with staleness)": 250,
     "recall evaluator (snapshot + MCP recall/context)": 1000,
+    "getGraph (default 180 nodes)": 250,
     "getGraph (with derived)": 750,
     "getGraphPath (500 nodes)": 750,
     "getTimeline (month)": 250,

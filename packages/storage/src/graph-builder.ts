@@ -14,11 +14,11 @@ import type {
   KnowledgeStatus,
   PolicyDecision,
   ProjectRecord,
-  WorkSessionRecord,
+  VerificationSummary,
 } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
 import { coChangedEdges, shortestPath } from "./graph-derivation.js";
-import type { SessionRow } from "./session-repository.js";
+import { parseJson } from "./session-record-codecs.js";
 
 type GraphKnowledgeRow = {
   id: string;
@@ -48,12 +48,49 @@ type GraphEvidenceRow = {
   project_name: string | null;
 };
 
+/** The columns of a Session row the graph reads; everything else stays in SQLite. */
+type GraphSessionRow = {
+  id: string;
+  project_id: string;
+  title: string;
+  completed_at: string;
+  changed_files_json: string;
+  verification_json: string | null;
+};
+
+/** The few Session fields a node and its file relations need. */
+interface GraphSession {
+  id: string;
+  projectId: string;
+  title: string;
+  completedAt: string;
+  changedFiles: string[];
+  verificationStatus: string;
+}
+
+function toGraphSession(row: GraphSessionRow): GraphSession {
+  const changedFiles = parseJson<unknown>(row.changed_files_json, []);
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    completedAt: row.completed_at,
+    changedFiles: Array.isArray(changedFiles) ? (changedFiles as string[]) : [],
+    verificationStatus:
+      parseJson<VerificationSummary | undefined>(row.verification_json, undefined)?.status ?? "not_supplied",
+  };
+}
+
+/** The changed-files array of a row, or `[]` for legacy rows whose JSON is malformed or not an array. */
+const CHANGED_FILES_ARRAY_SQL = `CASE WHEN json_valid(s.changed_files_json)
+    THEN CASE WHEN json_type(s.changed_files_json) = 'array' THEN s.changed_files_json ELSE '[]' END
+    ELSE '[]' END`;
+
 interface GraphBuilderDependencies {
   listProjects(): ProjectRecord[];
   getProjectById(projectId: string): ProjectRecord | undefined;
   checkProjectRoot(projectRoot: string): PolicyDecision;
   checkProjectById(projectId: string): PolicyDecision;
-  toSession(row: SessionRow): WorkSessionRecord;
   toKnowledge(row: GraphKnowledgeRow): KnowledgeRecord;
 }
 
@@ -251,21 +288,41 @@ export class GraphBuilder {
       : this.dependencies.listProjects().filter((project) => project.status === "tracked");
     const projectScopeClause = scopedProject ? "AND p.id = ?" : "";
     const projectScopeParameters = scopedProject ? [scopedProject.id] : [];
-    const allSessionsForCounts = projects.length
-      ? (
-          this.db
-            .prepare(
-              `SELECT s.*, p.name AS project_name
-             FROM sessions s
+    const sessionScopeSql = `FROM sessions s
              JOIN projects p ON p.id = s.project_id
              WHERE p.status = 'tracked'
                AND s.voided_at IS NULL
-               ${projectScopeClause}
-             ORDER BY s.completed_at DESC, s.id DESC`,
+               ${projectScopeClause}`;
+    // Totals and the link scope come from SQL; only the Sessions the response can show are decoded below.
+    const sessionIdsInScope = new Set(
+      projects.length
+        ? (
+            this.db.prepare(`SELECT s.id ${sessionScopeSql}`).all(...projectScopeParameters) as Array<{ id: string }>
+          ).map((row) => row.id)
+        : [],
+    );
+    const sessionTotals = projects.length
+      ? (this.db
+          .prepare(
+            `SELECT COUNT(*) AS session_count,
+                    COALESCE(SUM(json_array_length(${CHANGED_FILES_ARRAY_SQL})), 0) AS changed_file_count
+             ${sessionScopeSql}`,
+          )
+          .get(...projectScopeParameters) as { session_count: number; changed_file_count: number })
+      : { session_count: 0, changed_file_count: 0 };
+    const distinctFileCount = projects.length
+      ? (
+          this.db
+            .prepare(
+              `SELECT COUNT(*) AS count FROM (
+                 SELECT DISTINCT s.project_id, f.value
+                 ${sessionScopeSql.replace("WHERE", `, json_each(${CHANGED_FILES_ARRAY_SQL}) f WHERE`)}
+               )`,
             )
-            .all(...projectScopeParameters) as SessionRow[]
-        ).map(this.dependencies.toSession)
-      : [];
+            .get(...projectScopeParameters) as { count: number }
+        ).count
+      : 0;
+    const totalSessions = sessionTotals.session_count;
     const knowledgeRows = projects.length
       ? (
           this.db
@@ -298,8 +355,32 @@ export class GraphBuilder {
       : [];
 
     const sessionLimit = Math.min(Math.max(options.limit ?? 50, 1), 200);
-    const sessionWindow = allSessionsForCounts;
-    const sessionsByProject = new Map<string, WorkSessionRecord[]>();
+    // The Sessions a response can include: a page of the global order for a cursor, else the newest per project.
+    const windowStart = cursorRequested ? Math.min(decodedCursor?.sessionOffset ?? 0, totalSessions) : 0;
+    const sessionWindow: GraphSession[] = projects.length
+      ? (
+          this.db
+            .prepare(
+              cursorRequested
+                ? `SELECT s.id, s.project_id, s.title, s.completed_at, s.changed_files_json, s.verification_json
+                   ${sessionScopeSql}
+                   ORDER BY s.completed_at DESC, s.id DESC
+                   LIMIT ? OFFSET ?`
+                : `SELECT id, project_id, title, completed_at, changed_files_json, verification_json FROM (
+                     SELECT s.id, s.project_id, s.title, s.completed_at, s.changed_files_json, s.verification_json,
+                            ROW_NUMBER() OVER (PARTITION BY s.project_id ORDER BY s.completed_at DESC, s.id DESC) AS rank
+                     ${sessionScopeSql}
+                   ) WHERE rank <= ?
+                   ORDER BY completed_at DESC, id DESC`,
+            )
+            .all(
+              ...projectScopeParameters,
+              sessionLimit,
+              ...(cursorRequested ? [windowStart] : []),
+            ) as GraphSessionRow[]
+        ).map(toGraphSession)
+      : [];
+    const sessionsByProject = new Map<string, GraphSession[]>();
     for (const session of sessionWindow) {
       const sessions = sessionsByProject.get(session.projectId) ?? [];
       sessions.push(session);
@@ -317,23 +398,16 @@ export class GraphBuilder {
       items.push(item);
       evidenceBySession.set(item.session_id, items);
     }
-    const fileNodeIds = new Set(
-      allSessionsForCounts.flatMap((session) =>
-        session.changedFiles.map((file) => `file:${session.projectId}:${file}`),
-      ),
-    );
     const knowledgeCount = knowledgeRows.length;
     const evidenceCount = evidenceRows.length;
-    const totalNodes =
-      projects.length + allSessionsForCounts.length + fileNodeIds.size + knowledgeCount + evidenceCount;
+    const totalNodes = projects.length + totalSessions + distinctFileCount + knowledgeCount + evidenceCount;
     const totalNodesByKind: GraphNodeTotals = {
       project: projects.length,
-      session: allSessionsForCounts.length,
+      session: totalSessions,
       knowledge: knowledgeCount,
       evidence: evidenceCount,
-      file: fileNodeIds.size,
+      file: distinctFileCount,
     };
-    const sessionIdsInScope = new Set(allSessionsForCounts.map((session) => session.id));
     const sessionLinks = (
       this.db.prepare("SELECT session_id, related_session_id FROM session_links").all() as Array<{
         session_id: string;
@@ -341,11 +415,7 @@ export class GraphBuilder {
       }>
     ).filter((link) => sessionIdsInScope.has(link.session_id) && sessionIdsInScope.has(link.related_session_id));
     const totalEdges =
-      sessionLinks.length +
-      allSessionsForCounts.length +
-      allSessionsForCounts.reduce((total, session) => total + session.changedFiles.length, 0) +
-      knowledgeCount +
-      evidenceCount;
+      sessionLinks.length + totalSessions + sessionTotals.changed_file_count + knowledgeCount + evidenceCount;
     const nodeLimit = Math.min(
       Math.max(cursorRequested ? (options.pageSize ?? options.maxNodes ?? 180) : (options.maxNodes ?? 180), 1),
       500,
@@ -354,7 +424,7 @@ export class GraphBuilder {
 
     if (cursorRequested) {
       const knowledgeBySession = new Map<string, KnowledgeRecord[]>();
-      const knownSessionIds = new Set(allSessionsForCounts.map((session) => session.id));
+      const knownSessionIds = sessionIdsInScope;
       const projectKnowledge = knowledgeRows.filter((item) => !item.sessionId || !knownSessionIds.has(item.sessionId));
       for (const item of knowledgeRows) {
         if (!item.sessionId || !knownSessionIds.has(item.sessionId)) {
@@ -372,7 +442,7 @@ export class GraphBuilder {
         evidenceBySession.set(item.session_id, items);
       }
 
-      const pageStartSessionOffset = Math.min(decodedCursor?.sessionOffset ?? 0, allSessionsForCounts.length);
+      const pageStartSessionOffset = windowStart;
       let phase: GraphCursorPhase = decodedCursor?.phase ?? "projects";
       let projectOffset = Math.min(decodedCursor?.projectOffset ?? 0, projects.length);
       let sessionOffset = pageStartSessionOffset;
@@ -420,7 +490,7 @@ export class GraphBuilder {
           metadata: { rootPath: project.rootPath, status: project.status },
         });
       };
-      const addSessionNode = (session: WorkSessionRecord): boolean => {
+      const addSessionNode = (session: GraphSession): boolean => {
         const sessionNodeId = `session:${session.id}`;
         if (
           !addNode({
@@ -432,7 +502,7 @@ export class GraphBuilder {
             metadata: {
               completedAt: session.completedAt,
               changedFilesCount: session.changedFiles.length,
-              verification: session.verification?.status ?? "not_supplied",
+              verification: session.verificationStatus,
             },
           })
         ) {
@@ -451,7 +521,7 @@ export class GraphBuilder {
         }
         return true;
       };
-      const addFileRelation = (session: WorkSessionRecord, file: string): boolean => {
+      const addFileRelation = (session: GraphSession, file: string): boolean => {
         const fileNodeId = `file:${session.projectId}:${file}`;
         if (
           !addNode({
@@ -544,8 +614,8 @@ export class GraphBuilder {
 
       if (phase === "sessions") {
         let pageSessionCount = 0;
-        while (sessionOffset < allSessionsForCounts.length && pageSessionCount < sessionLimit) {
-          const session = allSessionsForCounts[sessionOffset]!;
+        while (sessionOffset < totalSessions && pageSessionCount < sessionLimit) {
+          const session = sessionWindow[sessionOffset - windowStart]!;
           const project = projects.find((candidate) => candidate.id === session.projectId);
           if (project) {
             addProjectContext(project);
@@ -581,7 +651,7 @@ export class GraphBuilder {
           pageSessionCount += 1;
         }
 
-        if (sessionOffset >= allSessionsForCounts.length && relationOffset === 0) {
+        if (sessionOffset >= totalSessions && relationOffset === 0) {
           phase = "project_knowledge";
           relationOffset = Math.min(
             decodedCursor?.phase === "project_knowledge" ? decodedCursor.relationOffset : 0,
@@ -621,7 +691,7 @@ export class GraphBuilder {
         phase === "projects"
           ? projectOffset < projects.length
           : phase === "sessions"
-            ? sessionOffset < allSessionsForCounts.length || relationOffset > 0 || projectKnowledge.length > 0
+            ? sessionOffset < totalSessions || relationOffset > 0 || projectKnowledge.length > 0
             : relationOffset < projectKnowledge.length;
       const nextCursor = hasNext
         ? encodeGraphCursor({ phase, projectOffset, sessionOffset, relationOffset }, cursorScope)
@@ -716,7 +786,7 @@ export class GraphBuilder {
           metadata: {
             completedAt: session.completedAt,
             changedFilesCount: session.changedFiles.length,
-            verification: session.verification?.status ?? "not_supplied",
+            verification: session.verificationStatus,
           },
         });
         if (!nodeIds.has(sessionNodeId)) {
