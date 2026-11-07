@@ -110,7 +110,7 @@ In Codex, open `/plugins` and install `work-intelligence`, then open `/hooks`, r
 
 **Already registered by hand?** Use either the plugin or the manual registration below, not both, or the Agent sees every tool and reminder twice. Remove the manual one with `claude mcp remove work-intelligence --scope user` / `codex mcp remove work-intelligence` and delete the Work Intelligence entries from the Claude `settings.json` and Codex `hooks.json` hooks; `pnpm check` reports any duplicate.
 
-**No checkout?** Each [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) attaches `work-intelligence-plugin-<version>.zip` (the plugin with a bundled MCP server) and `work-intelligence-<version>.mcpb` (a Claude Desktop extension). They need Node.js 22.16+ (or 24+; not 23.x) and keep data in `~/.work-intelligence/data`, but carry no Web UI.
+**No checkout?** Each [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) attaches `work-intelligence-plugin-<version>.zip` (the plugin with a bundled MCP server) and `work-intelligence-<version>.mcpb` (a Claude Desktop extension), which carry no Web UI, plus `work-intelligence-<version>.tgz`, the full standalone package (API server, Web UI, MCP server and the `work-intelligence` command; see [docs/standalone.md](docs/standalone.md)). `SHA256SUMS.txt` lists every asset's SHA-256. All of them need Node.js 22.16+ (or 24+; not 23.x) and keep data in `~/.work-intelligence/data`.
 
 Something wrong? Run `pnpm check`, and see the [plugin guide](docs/plugins.md) for its troubleshooting table.
 

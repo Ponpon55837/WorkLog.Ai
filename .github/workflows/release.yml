@@ -184,6 +184,31 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build the plugin and Claude Desktop extension
         run: pnpm build:plugin
+      # The standalone package serves the built Web UI, so it needs the workspace build first.
+      - name: Build the standalone package
+        run: pnpm build && pnpm build:standalone
+      - name: Smoke-test the standalone tarball that will be uploaded
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: node scripts/smoke-standalone.mjs --tarball "dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"
+      - name: Write SHA-256 checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          assets=(
+            "$RUNNER_TEMP/$GITHUB_REF_NAME.tar.gz"
+            "$RUNNER_TEMP/$GITHUB_REF_NAME.zip"
+            "dist/plugin/work-intelligence-plugin-$RELEASE_VERSION.zip"
+            "dist/plugin/work-intelligence-$RELEASE_VERSION.mcpb"
+            "dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"
+          )
+          # One "<hash>  <file name>" line per asset, readable by sha256sum -c and shasum -a 256 -c.
+          for asset in "${assets[@]}"; do
+            (cd "$(dirname "$asset")" && sha256sum "$(basename "$asset")")
+          done > "$RUNNER_TEMP/SHA256SUMS.txt"
+          cat "$RUNNER_TEMP/SHA256SUMS.txt"
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -198,3 +223,5 @@ jobs:
           "$RUNNER_TEMP/$GITHUB_REF_NAME.zip"
           "dist/plugin/work-intelligence-plugin-$RELEASE_VERSION.zip"
           "dist/plugin/work-intelligence-$RELEASE_VERSION.mcpb"
+          "dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"
+          "$RUNNER_TEMP/SHA256SUMS.txt"

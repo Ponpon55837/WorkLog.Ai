@@ -58,6 +58,13 @@ describe("release preparation", () => {
     expect(workflow).toContain("needs: [verify, audit, quality, e2e-browser]");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("--verify-tag");
+    // The standalone tarball is smoke-tested as uploaded, and every asset gets a SHA-256 line.
+    expect(workflow).toContain("pnpm build && pnpm build:standalone");
+    expect(workflow).toContain(
+      'node scripts/smoke-standalone.mjs --tarball "dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"',
+    );
+    expect(workflow).toContain('"dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"');
+    expect(workflow).toContain('"$RUNNER_TEMP/SHA256SUMS.txt"');
   });
 
   it("extracts only the dated section matching the application tag", () => {

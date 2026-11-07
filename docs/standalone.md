@@ -1,6 +1,6 @@
 # 獨立套件（不需要 checkout）
 
-獨立套件把 API server、Web 介面、MCP server 與命令列打包成一個資料夾（或 tarball），只需要 Node.js，不需要 git、pnpm 或 build。官方管道是 GitHub Release 附件（附件由後續的 release 流程上傳）；目前不發佈到 npm，套件的 `package.json` 是 `private`。
+獨立套件把 API server、Web 介面、MCP server 與命令列打包成一個資料夾（或 tarball），只需要 Node.js，不需要 git、pnpm 或 build。官方管道是 GitHub Release 附件 `work-intelligence-<版本>.tgz`（發行流程會先對要上傳的那個 tarball 跑 smoke test）；目前不發佈到 npm，套件的 `package.json` 是 `private`。
 
 目前的套件提供 `start`、`mcp`、`track`、`check`、`db` 與 `--version`。Agent 註冊（`setup-agents`）與登入自動啟動服務（`service`）尚未提供，仍請用 checkout 的 `pnpm setup:agents`、`pnpm service:install`，或自行把 `node <套件>/libexec/apps/mcp/dist/index.js` 註冊到 Agent（見 [agent-setup.md](agent-setup.md)）。
 
@@ -30,6 +30,19 @@ work-intelligence-<版本>/
 ```
 
 所有相依套件都是純 JavaScript，已打包進 `libexec/`，資料夾內沒有 `node_modules`，也沒有原生模組。`backup-worker.js` 必須與 `standalone-cli.js` 在同一個資料夾，API 的備份與匯出由它在 worker thread 執行。
+
+## 下載與驗證
+
+從 [GitHub Releases](https://github.com/Ponpon55837/WorkLog.Ai/releases) 下載 `work-intelligence-<版本>.tgz` 與同一個 Release 的 `SHA256SUMS.txt`，放在同一個資料夾後核對：
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS.txt        # Linux
+shasum -a 256 -c --ignore-missing SHA256SUMS.txt    # macOS
+```
+
+Windows PowerShell 用 `(Get-FileHash work-intelligence-<版本>.tgz -Algorithm SHA256).Hash` 算出雜湊，與 `SHA256SUMS.txt` 中同名那一行比對（大小寫不同沒關係）。不相符就不要使用，重新下載。
+
+解壓到固定位置（不要放在 Downloads 或暫存資料夾，之後 Agent 與服務會以絕對路徑指向它）。在 Windows 上請用 `./` 相對路徑或 `file:` URL 指定 tarball，不要把 `C:\…\x.tgz` 直接交給 npx，npm 會靜默失敗。
 
 ## 使用
 
