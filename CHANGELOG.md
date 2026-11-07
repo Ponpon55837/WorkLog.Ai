@@ -7,6 +7,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Changed
 
 - The tag release workflow runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once, matching CI. Every check and threshold is unchanged, and publishing still waits for all of them.
+- The release workflow skips the duplicate Quality and E2E jobs when the tagged commit already has a successful CI run on `main` covering all seven jobs, while still re-running the production dependency audit; any missing or uncertain result falls back to the full checks.
 - The Web entry bundle shrank from 514.38 kB (gzip 168.29 kB) to 313.18 kB (gzip 111.44 kB), below Vite's 500 kB warning. The English catalog is a separate chunk fetched only when English is the saved or chosen language (the boot splash waits for it, and switching language keeps the current language until it has loaded), and the global panels and dialogs load together as one chunk (65.63 kB) after the first paint, mounting in their original order so they stack as before. Screens, copy and behavior are unchanged.
 
 ### Fixed
