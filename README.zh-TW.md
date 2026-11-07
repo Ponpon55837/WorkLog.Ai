@@ -1,7 +1,5 @@
 # Work Intelligence
 
-**1.6.7** 把備份、匯出與匯入預覽移到 worker 執行，加快 Graph、Knowledge 過時判斷與年報決策查詢，Agent 讀取也不再讓整個畫面重新抓資料。資料庫 schema 會在備份後自動從 30 升到 31，升級後請重新連線 Agent MCP；`pnpm db:restore` 不再接受 `--force`。[完整更新說明](CHANGELOG.md#167---2026-11-07)與[繁體中文更新指南](docs/releases/1.6.7.md)。**1.6.6** 新增 `pnpm service:restart`：更新後重啟登入自動啟動服務，並等到 server 回報新版本才結束。Windows 上重啟、重新安裝或移除服務時，也會一併停止工作排程器留下的舊 server；先前它會在更新後繼續以舊版服務。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#166---2026-10-30)與[繁體中文更新指南](docs/releases/1.6.6.md)。**1.6.5** 讓帶任務的 `work_get_context` 從排名最前的 Session 補上最多 4 筆相關 Session 與曾套用的 active Knowledge 精簡指標，放在獨立的 `relevant.supplements`；原本的結果、排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#165---2026-10-30)與[繁體中文更新指南](docs/releases/1.6.5.md)。**1.6.4** 要求 Agent 只在來源直接支持答案時才引用搜尋到的紀錄，否則回答「資料不足」；排序與 confidence 不變。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#164---2026-10-28)與[繁體中文更新指南](docs/releases/1.6.4.md)。**1.6.3** 升級 Zod 至 4.6.7，並將 body-parser 2.x override 至 2.4.0，以修補兩項 high 等級安全公告；改進 recall 排序與 Knowledge 查詢效能，並修正 Windows migration 後的專案根路徑大小寫。資料庫 schema 維持 30，不需 migration。[完整更新說明](CHANGELOG.md#163---2026-10-27)與[繁體中文更新指南](docs/releases/1.6.3.md)。**1.6.2** 修正 Codex 設定與 hooks 偵測、API 健康狀態與連接埠處理，並新增備份、匯出與匯入預覽的同步阻塞門檻。REST 錯誤碼統一為小寫 snake_case，比對舊專案或 Session 刪除錯誤碼的腳本需要更新。不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.2.md)。1.6.0 預設每種備份只保留 3 份，並清空超過 7 天的 workSummary 更新重播內容，讓資料庫成長更慢；不需 migration，schema 維持 30。[完整更新說明](docs/releases/1.6.0.md)。1.5.3 新增 `pnpm track <資料夾>`：在終端機預覽並確認後，把專案加入並設為「記錄中」，Agent 仍無法自行設定。診斷命令改名為 `pnpm check`，舊的 `pnpm run doctor` 仍可使用。`pnpm db:maintain` 拿不到資料庫鎖時，會說明是 server、登入服務還是 Agent MCP 連線占用，以及如何停止。`pnpm start` 偵測到已安裝的 Agent skill 或 hook 過期時，會印出一行提醒。[1.5.3 說明](docs/releases/1.5.3.md)。更新後若有使用登入服務請重啟，並重新連線 Agent MCP。
-
 [English](README.md) | **繁體中文**
 
 **本機優先的開發工作記憶。** Codex、Claude 等 Agent 完成一段工作後，會把「做了什麼、改了哪些檔案、怎麼驗證」寫進你電腦上的一個 SQLite 檔案。你可以在 Web UI 回顧工作歷程，產生日、週、月、季、年或自訂期間的報告；之後 Agent 開工前或遇到錯誤時，也能從這裡找回過去的工作與 Knowledge。
@@ -43,7 +41,7 @@ pnpm start
 
 `pnpm start` 啟動本機 Dashboard 與 REST API。終端機保持執行，按 `Ctrl+C` 停止。啟動時若偵測到 Agent 設定過期，會印出一行提醒（沒有問題時不輸出，也不會拖慢啟動）。正式模式由同一個 process、同一個 port 提供 Web UI 與 REST API。
 
-如果希望在登入電腦後自動啟動，可先執行 `pnpm build`，再執行 `pnpm service:install`。安裝前會列出即將寫入的服務檔案與完整內容；確認後才會設定目前使用者的服務，無須管理員權限。`pnpm service:status` 查看狀態，`pnpm service:restart` 在更新後重啟，`pnpm service:uninstall` 停止並移除服務設定，保留資料庫、備份與日誌。各平台位置與排除問題方式見[登入自動啟動](docs/service.md)。
+如果希望在登入電腦後自動啟動，可先執行 `pnpm build`，再執行 `pnpm service:install`。安裝前會列出即將寫入的服務檔案與完整內容；確認後才會設定目前使用者的服務，無須管理員權限。`pnpm service:status` 查看狀態，`pnpm service:restart` 在更新後重啟（會等到 server 回報新版本才結束；Windows 上也會一併停止工作排程器留下的舊 server，重新安裝或移除服務時同樣如此），`pnpm service:uninstall` 停止並移除服務設定，保留資料庫、備份與日誌。各平台位置與排除問題方式見[登入自動啟動](docs/service.md)。
 
 | 項目 | 位置 |
 |---|---|
@@ -169,7 +167,7 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 | 整理既有未結項 | 「請整理這個專案的未結項。」 | 工作歷程 → 未結項：選擇專案並建立整理請求，查看來源、理由與證據後逐筆或批次接受／拒絕 |
 | 接續前次未結項 | 「這次處理了哪些先前列出的未結項？」 | 工作歷程 →「未結項」可依專案與狀態篩選，標記完成、不再需要或重新開啟 |
 | 取回專案脈絡 | 「先看一下 Work Intelligence 裡這個專案最近做了什麼。」 | 工作歷程、工作知識 |
-| 查過去的工作或錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge；結構化工作欄位優先，重複的舊 handoff 計分會降低，固定軟體詞表可跨中英文找低信心線索。`work_search` 回傳帶 confidence 的精簡 Session 命中；`none` 代表沒有可引用依據，`high` 與 `low` 只代表字面相符，Agent 引用前會先讀完整記錄） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
+| 查過去的工作或錯誤 | 「之前有處理過報告時區的問題嗎？」或直接貼上錯誤訊息（Agent 用 `work_recall` 排序檢索 Session、raw handoff 與 Knowledge；結構化工作欄位優先，重複的舊 handoff 計分會降低，固定軟體詞表可跨中英文找低信心線索。`work_search` 回傳帶 confidence 的精簡 Session 命中；`none` 代表沒有可引用依據，`high` 與 `low` 只代表字面相符，Agent 引用前會先讀完整記錄，來源無法直接支持答案時回答「資料不足」。帶任務的 `work_get_context` 還會從排名最前的 Session 補上最多 4 筆相關 Session 與曾套用的 active Knowledge 精簡指標，放在獨立的 `relevant.supplements`，不改變主要結果、排序與 confidence） | 工作歷程搜尋（多個關鍵字時每個都要命中） |
 | 整理報告 | 「幫我整理這週的 Work Intelligence 報告。」（沒有請求時 Agent 會自己建立；自訂期間也可以） | 工作報告 →「請 Agent 整理這份報告」，Agent 完成後頁面會自動更新 |
 | 整理 Knowledge 候選 | 「幫我整理 Work Intelligence 的 Knowledge 候選。」 | 工作知識 →「整理候選」，接受（可先修改）或拒絕後才會成為 Knowledge |
 | 更新常駐知識頁 | 「幫我更新這個專案的知識頁。」 | 工作知識 →「知識頁」：架構與慣例、進行中的工作與未結項、常見陷阱，每段附來源 Session；來源需核對或新資料累積 3 筆時，Agent 會收到維護提示；頁面顯示最後檢查到的時間，可手動編輯與查看版本 |
@@ -225,7 +223,7 @@ API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence 
 所有記錄都在一個 SQLite 檔案裡。
 
 - **自動備份**：API server 每個本機日曆日自動備份一次，存到資料庫旁的 `backups/`。自動備份與手動備份分開保留，預設各保留最近 3 份，手動備份不會擠掉每日自動備份。備份檔只有目前的使用者可以讀寫。
-- **手動備份**：Web UI 的「專案 → 資料備份 → 立即備份」，或執行 `pnpm db:backup`。
+- **手動備份**：Web UI 的「專案 → 資料備份 → 立即備份」，或執行 `pnpm db:backup`。備份、整庫匯出、專案資料匯出與匯入預覽都在 worker 執行，API 與畫面不會被卡住；啟動後的自動備份會延後 60 秒。
 - **管理備份**：「專案 → 資料備份」會列出備份種類、時間、大小與總大小；刪除前會顯示檔名與種類並要求確認，刪除唯一一份列出的備份時會額外警告。CLI 可用 `pnpm db:backups` 列出，或在互動終端執行 `pnpm db:backups --delete <檔名>` 確認刪除。刪除專案後，刪除前備份與其他舊備份仍可能包含該專案資料，可從資料備份頁管理。
 - **依專案攜帶資料**：在「專案 → 資料備份」可以匯出全部專案或單一專案的 JSON。CLI 用 `pnpm db:export --all` 或 `pnpm db:export --project <專案名稱或 id>`，加上 `--out <檔案.json>` 可以指定輸出位置。JSON 沒有加密，請妥善保管。
 - **合併匯入**：
@@ -245,7 +243,7 @@ API 無法連線時，頁面上方會顯示「無法連線到 Work Intelligence 
      pnpm db:restore <匯出的檔案> --remap-root <舊電腦的專案上層路徑>=<新電腦的路徑>
      ```
 
-  專案在新電腦的位置相同時，不用加 `--remap-root`；也可以加多組。還原前會檢查檔案完整性與版本、自動備份新電腦上原本的資料；資料庫仍被其他程式開著時會停止。用備份還原也是同一個指令。
+  專案在新電腦的位置相同時，不用加 `--remap-root`；也可以加多組。還原前會檢查檔案完整性與版本、自動備份新電腦上原本的資料；只要資料庫仍被 server 或 Agent 開著就一律停止（沒有強制旗標）。用備份還原也是同一個指令。
 
 - **永久刪除專案**：在「專案 → 專案清單」按專案旁的垃圾桶，閱讀刪除範圍後輸入完整的專案名稱才能確認。
   - 會先建立並驗證一份完整備份，備份失敗就不刪除。
@@ -396,12 +394,12 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 | [docs/agent-setup.md](docs/agent-setup.md) | 註冊到 Codex CLI、Claude Code、Claude Desktop，以及全域保存提醒 hook |
 | [docs/plugins.md](docs/plugins.md) | Claude Code／Codex plugin：安裝、`pnpm plugin:link` 與從手動註冊切換 |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | 每個 MCP tool 的用途、欄位、範例、policy 行為、annotations 與 prompts |
-| [docs/rest-api.md](docs/rest-api.md) | REST endpoints、metadata backfill、報告匯出、備份、專案資料匯出／匯入、刪除與即時更新串流 |
+| [docs/rest-api.md](docs/rest-api.md) | REST endpoints、小寫 snake_case 錯誤碼、metadata backfill、報告匯出、備份、專案資料匯出／匯入、刪除與即時更新串流 |
 | [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | Session 五段格式、報告粒度與回填邊界 |
 | [docs/architecture.md](docs/architecture.md) | 資料契約、一致性與輸入邊界、Recording Policy、設計原則 |
 | [docs/testing.md](docs/testing.md) | 測試指令、覆蓋率、效能、檢索品質與無障礙門檻，以及 E2E 範圍 |
 | [docs/status.md](docs/status.md) | 專案現況、未結項與暫緩項目 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本變更紀錄 |
+| [CHANGELOG.md](CHANGELOG.md)、[docs/releases/](docs/releases/) | 版本變更紀錄與各版繁體中文更新指南 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 開發流程、健康檢查、PR 與工作記錄規則 |
 | [SECURITY.md](SECURITY.md) | 威脅模型、本機安全邊界與私密漏洞回報方式 |
 
