@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { commandName } from "@work-intelligence/shared";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { resolveServerPort } from "./server-port.js";
 import { getUserServiceStatus, WINDOWS_TASK_NAME } from "./user-service.js";
@@ -12,6 +13,8 @@ export interface DatabaseBusyDiagnosisDependencies {
   getServiceStatus?: () => { state: string };
   platform?: NodeJS.Platform;
   port?: number;
+  /** Which command names to show; defaults to the running mode. */
+  standalone?: boolean;
 }
 
 const HEALTH_PROBE_TIMEOUT_MS = 1500;
@@ -47,6 +50,7 @@ export async function diagnoseDatabaseInUse(
   const getMcpStatus = dependencies.getMcpStatus ?? (() => getMcpRuntimeStatus(repositoryRoot));
   const getServiceStatus = dependencies.getServiceStatus ?? (() => getUserServiceStatus({ repositoryRoot }));
   const platform = dependencies.platform ?? process.platform;
+  const command = (script: string): string => commandName(script, dependencies.standalone);
   const lines: string[] = [];
   let serverRunning: boolean;
   let mcpCount = 0;
@@ -68,10 +72,10 @@ export async function diagnoseDatabaseInUse(
   }
   if (serverRunning) {
     const where = `Work Intelligence server 正在 http://127.0.0.1:${port} 執行：`;
-    const terminalHint = "若是用 pnpm start 啟動，請在該終端機按 Ctrl+C。";
-    const serviceHint = `若是登入自動啟動服務，請執行 pnpm service:uninstall 停止，維護完成後執行 pnpm service:install 恢復${
+    const terminalHint = `若是用 ${command("start")} 啟動，請在該終端機按 Ctrl+C。`;
+    const serviceHint = `若是登入自動啟動服務，請執行 ${command("service:uninstall")} 停止，維護完成後執行 ${command("service:install")} 恢復${
       platform === "win32"
-        ? `；也可以在工作排程器「結束」名為「${WINDOWS_TASK_NAME}」的工作，維護後執行 pnpm service:install 重新啟動`
+        ? `；也可以在工作排程器「結束」名為「${WINDOWS_TASK_NAME}」的工作，維護後執行 ${command("service:install")} 重新啟動`
         : ""
     }。`;
     let serviceState: string | undefined;
@@ -87,7 +91,7 @@ export async function diagnoseDatabaseInUse(
     } else if (serviceState === undefined) {
       lines.push(`${where}${terminalHint}${serviceHint}`);
     } else {
-      lines.push(`${where}請在執行 pnpm start 的終端機按 Ctrl+C。`);
+      lines.push(`${where}請在執行 ${command("start")} 的終端機按 Ctrl+C。`);
     }
   }
   if (mcpCount > 0) {

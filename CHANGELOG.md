@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- `pnpm build:standalone` packs the API server, Web UI, MCP server and CLI into a checkout-free package (`dist/standalone/work-intelligence-<version>/` and a reproducible `.tgz`) with a `work-intelligence` command (`start`, `mcp`, `track`, `check`, `db`, `--version`) that runs in one process. In a package, messages name `work-intelligence …` instead of `pnpm …`, the Web UI is served from the package's `web/` folder, and `check` verifies the package files and version instead of the checkout's pnpm, dist and root SQLite files. `pnpm test:standalone` builds, unpacks and runs the package end to end. See `docs/standalone.md`.
+
 ### Changed
 
 - The tag release workflow runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once, matching CI. Every check and threshold is unchanged, and publishing still waits for all of them.

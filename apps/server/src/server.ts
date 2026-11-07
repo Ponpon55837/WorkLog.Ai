@@ -22,6 +22,7 @@ import {
 } from "./http.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
+import { resolveWebDirectory } from "./web-directory.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
@@ -32,9 +33,7 @@ const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)),
 /** Built once: the route table is static, and building it rejects duplicate routes at startup. */
 const router = new Router(apiRoutes);
 
-const defaultAllowedOrigins = process.env.WORK_INTELLIGENCE_WEB_DIST
-  ? ""
-  : "http://127.0.0.1:5966,http://localhost:5966";
+const defaultAllowedOrigins = resolveWebDirectory() ? "" : "http://127.0.0.1:5966,http://localhost:5966";
 const allowedOrigins = new Set(
   (process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? defaultAllowedOrigins)
     .split(",")

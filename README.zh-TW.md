@@ -342,6 +342,7 @@ pnpm start                    # 正式模式：Web 與 API 同一個 port（需�
 pnpm dashboard                # 必要時啟動正式模式 server，並開啟 Web UI
 pnpm plugin:link              # 讓 Claude Code／Codex plugin 找到這個 checkout
 pnpm build:plugin             # 在 dist/plugin/ 產生自帶 MCP 的 plugin zip 與 Claude Desktop .mcpb
+pnpm build:standalone         # 在 dist/standalone/ 產生不需 checkout 的套件與 tarball（docs/standalone.md）
 pnpm start:server             # 只啟動 API
 pnpm start:mcp                # 只啟動 MCP stdio server
 pnpm check                    # 唯讀診斷
@@ -393,6 +394,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck 與 coverage；Ubun
 | [docs/service.md](docs/service.md) | macOS、Windows 與 Linux 的使用者層級登入自動啟動、移除與疑難排解 |
 | [docs/agent-setup.md](docs/agent-setup.md) | 註冊到 Codex CLI、Claude Code、Claude Desktop，以及全域保存提醒 hook |
 | [docs/plugins.md](docs/plugins.md) | Claude Code／Codex plugin：安裝、`pnpm plugin:link` 與從手動註冊切換 |
+| [docs/standalone.md](docs/standalone.md) | 不需要 checkout 的獨立套件：版面、`work-intelligence` 指令、資料位置、`check` 檢查項目與 smoke test |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | 每個 MCP tool 的用途、欄位、範例、policy 行為、annotations 與 prompts |
 | [docs/rest-api.md](docs/rest-api.md) | REST endpoints、小寫 snake_case 錯誤碼、metadata backfill、報告匯出、備份、專案資料匯出／匯入、刪除與即時更新串流 |
 | [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | Session 五段格式、報告粒度與回填邊界 |

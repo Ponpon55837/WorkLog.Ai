@@ -51,6 +51,10 @@ jobs:
       - name: Verify production backup worker build
         run: pnpm run verify:backup-worker-build
 
+      # Builds the checkout-free package, unpacks the tarball and runs it with a temporary HOME on a free port.
+      - name: Standalone package smoke test
+        run: pnpm run test:standalone
+
       # The coverage run executes the same test files as pnpm test, so each OS runs the suite once:
       # Ubuntu runs lint + format:check + coverage, Windows and macOS run pnpm test (lint + format:check + tests).
       - name: Lint and format

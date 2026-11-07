@@ -1,9 +1,12 @@
 import type { SystemAgentConnections } from "@work-intelligence/core";
+import { commandName } from "@work-intelligence/shared";
 import { repositoryRoot as defaultRepositoryRoot } from "./config.js";
 import { inspectAgentConnections } from "./doctor.js";
 
 export interface StartupCheckOptions {
   repositoryRoot?: string;
+  /** Which command names to show; defaults to the running mode. */
+  standalone?: boolean;
   /** Injectable for tests; the default reads only local skill and hook files (no service queries, API calls or database). */
   inspectConnections?: () => SystemAgentConnections;
 }
@@ -18,12 +21,13 @@ export function collectStartupHints(options: StartupCheckOptions = {}): string[]
       options.inspectConnections ??
       (() => inspectAgentConnections({ repositoryRoot: options.repositoryRoot ?? defaultRepositoryRoot }));
     const { codex, claudeCode } = inspect();
+    const sync = `${commandName("bootstrap", options.standalone)}（或 ${commandName("setup:agents", options.standalone)}）同步`;
     const hints: string[] = [];
     if ([codex.canonicalSkill, codex.legacySkill, claudeCode.skill].includes("stale")) {
-      hints.push("Agent skill 已過期：執行 pnpm bootstrap（或 pnpm setup:agents）同步。");
+      hints.push(`Agent skill 已過期：執行 ${sync}。`);
     }
     if (codex.hook === "stale") {
-      hints.push("Codex 保存提醒 hook 使用舊設定：執行 pnpm bootstrap（或 pnpm setup:agents）同步。");
+      hints.push(`Codex 保存提醒 hook 使用舊設定：執行 ${sync}。`);
     }
     return hints;
   } catch {
