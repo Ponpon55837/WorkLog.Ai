@@ -5,6 +5,7 @@ import type { BackupRetentionOptions } from "./backup.js";
 import { backupDatabaseBeforeMaintenance } from "./backup.js";
 import { redactDiagramSource } from "./diagram-source-redaction.js";
 import { redactText } from "./secret-redaction.js";
+import { resetLastInsertRowid, runFtsWrite } from "./sqlite-fts.js";
 
 export type DatabaseRedactionErrorCode =
   "DATABASE_MISSING" | "DATABASE_IN_USE" | "DATABASE_INVALID" | "DATABASE_BACKUP_FAILED" | "DATABASE_REDACTION_FAILED";
@@ -193,8 +194,9 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
           .prepare("SELECT id FROM search_chunks WHERE doc_type = 'session' AND doc_id = ?")
           .all(sessionId) as Array<{ id: number }>;
         for (const chunk of chunks) {
-          removeFts.run(chunk.id);
+          runFtsWrite(removeFts, chunk.id);
         }
+        resetLastInsertRowid(database);
         removeChunks.run("session", sessionId);
         removePaths?.run("session", sessionId);
       }
@@ -203,8 +205,9 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
           .prepare("SELECT id FROM search_chunks WHERE doc_type = 'knowledge' AND doc_id = ?")
           .all(knowledgeId) as Array<{ id: number }>;
         for (const chunk of chunks) {
-          removeFts.run(chunk.id);
+          runFtsWrite(removeFts, chunk.id);
         }
+        resetLastInsertRowid(database);
         removeChunks.run("knowledge", knowledgeId);
         removePaths?.run("knowledge", knowledgeId);
       }
