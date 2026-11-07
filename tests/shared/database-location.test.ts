@@ -42,7 +42,9 @@ describe("database location", () => {
   it("keeps the repository build on WORK_INTELLIGENCE_DB or the checkout's data/, ignoring any plugin link", () => {
     const home = temporaryDirectory();
     link(home, fakeCheckout(join(home, "elsewhere")));
-    expect(databasePathFor("/repo", { environment: {}, home })).toBe("/repo/data/work-intelligence.sqlite");
+    expect(databasePathFor("/repo", { environment: {}, home })).toBe(
+      resolve("/repo", "data", "work-intelligence.sqlite"),
+    );
     expect(databasePathFor("/repo", { environment: { WORK_INTELLIGENCE_DB: "/custom.sqlite" }, home })).toBe(
       resolve("/custom.sqlite"),
     );
@@ -132,7 +134,7 @@ describe("database location", () => {
         environment: { WORK_INTELLIGENCE_DB: " /explicit.sqlite ", WORK_INTELLIGENCE_HOME: other },
         home,
       }),
-    ).toBe("/explicit.sqlite");
+    ).toBe(resolve("/explicit.sqlite"));
   });
 
   it("ignores an empty database setting and links that no longer point at a checkout", () => {
