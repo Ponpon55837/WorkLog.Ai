@@ -68,6 +68,7 @@ export const SENSITIVE_DATA_KINDS = [
   "jwt",
   "connection_string_password",
   "environment_secret",
+  "private_block",
 ] as const;
 export type SensitiveDataKind = (typeof SENSITIVE_DATA_KINDS)[number];
 
@@ -2269,7 +2270,7 @@ export type KnowledgePageListResult =
   { outcome: "knowledge_pages"; items: KnowledgePageRecord[] } | KnowledgePageSkippedResult;
 
 export type RequestKnowledgePageUpdateResult =
-  | { outcome: "knowledge_page_update_requested"; page: KnowledgePageRecord }
+  | { outcome: "knowledge_page_update_requested"; page: KnowledgePageRecord; redactions?: RedactionSummary }
   | { outcome: "invalid_page"; reason: string }
   | KnowledgePageSkippedResult;
 

@@ -26,7 +26,7 @@ import { redactDiagramSource } from "./diagram-source-redaction.js";
 import { remapPathPrefix } from "./project-path-remap.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
-import { combineRedactionSummaries, redactText } from "./secret-redaction.js";
+import { combineRedactionSummaries, redactJsonText, redactText } from "./secret-redaction.js";
 
 const TABLE_ORDER: readonly ProjectDataTable[] = [
   "projects",
@@ -158,7 +158,9 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
           const result =
             table === "session_diagrams" && field === "source"
               ? redactDiagramSource(value, String(output.kind))
-              : redactText(value);
+              : field.endsWith("_json")
+                ? redactJsonText(value)
+                : redactText(value);
           output[field] = result.value;
           rowCount += result.redactions.total;
           allRedactions.total += result.redactions.total;

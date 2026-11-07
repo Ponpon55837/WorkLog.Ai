@@ -314,6 +314,7 @@ pnpm db:maintain
 - API 只監聽 `127.0.0.1`，並檢查 `Host` 與 `Origin`。正式模式下 Web 與 API 同源，另外加上 Content-Security-Policy、`X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff` 與 `Referrer-Policy: no-referrer`。
 - 靜態檔案會阻擋 `..`、編碼過的路徑與指向外部的 symlink。
 - 錯誤回應只包含固定的訊息，不會外洩 SQLite 或檔案系統的內部細節。
+- 文字保存前會遮蔽已知格式的憑證，並把 `<private>…</private>` 包住的內容換成 `[REDACTED:private_block]`（區塊必須有結尾標籤，沒有結尾的標籤會照原文保存）；`pnpm db:redact` 以相同規則整理既有資料，詳見 [SECURITY.md](SECURITY.md#敏感資料遮蔽)。
 - 備份與匯出檔沒有加密，請用可信任的方式保存與傳輸。
 - 使用 MCP 時，Agent host 可能依其設定把工具結果送到遠端模型，這部分由 Agent host 的政策決定。
 - 成功的 MCP 讀取會在本機留下稽核紀錄，只存 id 與數量（不存查詢或內容），保留 30 天或最新 5,000 筆，刪除專案時一併移除。

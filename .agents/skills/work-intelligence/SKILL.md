@@ -37,6 +37,7 @@ For the canonical field definitions, reporting granularity, and examples, read t
 - Project recording is explicit opt-in and default-deny. A project must be `tracked` before any project-scoped source, handoff, Git/worktree, or evidence inspection or write.
 - Before reading project files outside MCP, call `work_get_context` with `projectRoot`: one call returns `tracked` and `projectStatus` with the context, so do not also call `work_get_project_status` (use that only for a status check without context). If `tracked` is not `true`, the result is `outcome: "skipped"`, or tracking cannot be confirmed, stop without inspecting or writing project data. Do not scan for handoffs or Git metadata first.
 - `unregistered`, `paused`, and `ignored` are quiet skips. Do not create a Session, event, snapshot, metadata, evidence, Knowledge, or report source from them. Ask the user to enable tracking only when needed to explain why no record was made.
+- When the user says something must not be stored, wrap it in `<private>…</private>` in any text you write, always with the closing tag; the block is removed before storage, and an unclosed tag is stored as written.
 - Prefer MCP operations that enforce the policy gate. Honor every skipped result; never retry through direct filesystem access.
 
 ## Retrieve task context

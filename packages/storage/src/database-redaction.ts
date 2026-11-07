@@ -4,7 +4,7 @@ import type { RedactionSummary, SensitiveDataKind } from "@work-intelligence/cor
 import type { BackupRetentionOptions } from "./backup.js";
 import { backupDatabaseBeforeMaintenance } from "./backup.js";
 import { redactDiagramSource } from "./diagram-source-redaction.js";
-import { redactText } from "./secret-redaction.js";
+import { redactJsonText, redactText } from "./secret-redaction.js";
 import { resetLastInsertRowid, runFtsWrite } from "./sqlite-fts.js";
 
 export type DatabaseRedactionErrorCode =
@@ -150,7 +150,9 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
         const sanitized =
           table === "session_diagrams" && field === "source"
             ? redactDiagramSource(value, String(row.kind))
-            : redactText(value);
+            : field.endsWith("_json")
+              ? redactJsonText(value)
+              : redactText(value);
         values.push(sanitized.value);
         rowRedactions += sanitized.redactions.total;
         addSummary(redactions, sanitized.redactions);
