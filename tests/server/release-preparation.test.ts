@@ -55,7 +55,7 @@ describe("release preparation", () => {
 
     expect(workflow).toContain('      - "v*"');
     expect(workflow).not.toMatch(/^\s+(pull_request|workflow_dispatch):/m);
-    expect(workflow).toContain("needs: [quality, e2e]");
+    expect(workflow).toContain("needs: [verify, audit, quality, e2e-browser]");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("--verify-tag");
   });

@@ -43,7 +43,9 @@ git tag -a v1.0.0 -m "Work Intelligence 1.0.0"
 git push origin v1.0.0
 ```
 
-推送 tag 後，GitHub Actions 會跑完整發行檢查；全部通過後才建立 GitHub Release。若 workflow 失敗，先修正問題、合併修正，再依修正後的 `main` 建立新的版本 tag；不要把既有 tag 移到不同 commit。
+推送 tag 後，GitHub Actions 會跑完整發行檢查；全部通過後才建立 GitHub Release。發行 workflow（`.github/workflows/release.yml`）的結構比照 CI：Quality（Ubuntu、Windows、macOS）與 E2E（Chromium、Firefox、WebKit 各一個 job，只安裝該瀏覽器）同時開始，每個 OS 的單元與整合測試只跑一次（Ubuntu 為 lint＋format:check＋coverage，Windows 與 macOS 為 `pnpm test`），檢查項目與門檻不變；`Publish GitHub Release` 要等 Quality 三個 OS 與三個瀏覽器 job 全部成功才會開始。
+
+另外，workflow 一開始的 `Detect verified commit` job（只有 `actions: read` 權限）會查詢 tag 指向的 commit 是否已在 `main` 有成功的 CI run：必須是同一個 commit SHA、`ci.yml` 的 push 事件、分支為 `main`、run conclusion 為 success，且 Quality 三個 OS、三個瀏覽器 E2E 與彙總 E2E 共七個 job 都是 success。符合時略過重複的 Quality 與 E2E，只重跑生產依賴稽核（`pnpm audit --prod --audit-level high`，因為安全公告會在 CI 之後更新），再執行發行步驟；tag、版本與 CHANGELOG 一致性、封存檔與 plugin 打包仍照常在 Publish job 執行。查不到 run、job 缺少或非 success、API 查詢失敗或任何不確定時，一律回到完整檢查。這個機制只對「先合併到 `main`、再對該合併 commit 推 tag」的標準流程生效；若在尚未通過 `main` CI 的 commit 上推 tag，會跑完整檢查。E2E 失敗時以 `release-playwright-results-<瀏覽器>` 上傳 `test-results/`。若 workflow 失敗，先修正問題、合併修正，再依修正後的 `main` 建立新的版本 tag；不要把既有 tag 移到不同 commit。
 
 ## 從舊版本升級
 
