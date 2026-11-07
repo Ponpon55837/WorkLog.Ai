@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.7] - 2026-11-07
+
+[繁體中文更新說明](docs/releases/1.6.7.md).
+
 ### Changed
 
 - The performance gate measures a failing case once more before failing, keeping every limit unchanged; the table marks re-measured cases with their first-pass p90. Shared CI runners had failed unrelated pull requests on single worker-operation passes (for example `exportProjectData` 410.94 and 477.33 ms, `createBackup` 336.61 ms).
@@ -22,7 +26,6 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Attention source revisions for Knowledge pages, outstanding items, metadata backfill and cleanup proposals summarize their sources as `[count, latest updated_at, latest id]` instead of serializing every source row. A hidden or snoozed item still resurfaces when a source is added, updated, removed or voided; importing an older `updated_at` while deleting a different source in the same step is the one combination no longer detected.
 - The `--force` bypass was removed from `pnpm db:restore`; an in-use database always blocks restoration.
 - Schema 31 tracks project-data and Agent-read audit revisions separately. Project changes send the existing data-free `changed` event; Agent read audits send `agent-reads-changed`, which refreshes only Agent read history. Older MCP connections report `restartRequired` after the schema upgrade; reconnect Work Intelligence MCP.
-
 - Storage coverage now measures all of `packages/storage/src` and enforces per-file thresholds on 27 high-risk services (policy helpers, redaction, reports, attention, related work, outstanding items, knowledge, data transfer, deletion, transactions) plus a looser floor for the rest. Added storage unit tests for `policy-helper` and the Agent report projection (`report-agent-view`).
 
 ### Fixed
