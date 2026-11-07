@@ -138,7 +138,7 @@ claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTE
 
 Expired MCP leases and leftover temporary files are cleaned up in batches during MCP registration and System Status reads (90-second threshold by default, at most 64 deletion attempts per pass); see [Troubleshooting](docs/troubleshooting.md).
 
-Claude Code also gets two MCP prompts: `/mcp__work-intelligence__finalize-work` and `/mcp__work-intelligence__synthesize-report`. Claude Desktop setup, verification and common questions are in **[docs/agent-setup.md](docs/agent-setup.md)**. After updating Work Intelligence, run `pnpm build` again. You only have to reconnect when the schema or Agent contract changed or compatibility cannot be confirmed; an implementation-only update shows "Update available", the existing connection keeps reading and writing, and you are reminded to reconnect when wrapping up.
+Claude Code also gets two MCP prompts: `/mcp__work-intelligence__finalize-work` and `/mcp__work-intelligence__synthesize-report`. Claude Desktop setup, verification and common questions are in **[docs/agent-setup.md](docs/agent-setup.md)**. After updating Work Intelligence, run `pnpm build` again. Agents connect through a stable MCP launcher (`apps/mcp/dist/launcher.js`, registered by `pnpm setup:agents`, the plugin and `pnpm start:mcp`): when a new build lands it finishes the requests in flight, starts the new server and replays the handshake, so the same connection uses the new version without reconnecting. You only reconnect when the launcher itself changed. A registration that still runs `apps/mcp/dist/index.js` directly keeps the older rule (reconnect when the schema or Agent contract changed); rerun `pnpm setup:agents` to move it to the launcher.
 
 ### Save-reminder hook (optional)
 
@@ -363,7 +363,7 @@ CI runs build, test, typecheck and coverage on Ubuntu, Windows and macOS; Ubuntu
 
 Other settings:
 
-- `WORK_INTELLIGENCE_DB`: SQLite location.
+- `WORK_INTELLIGENCE_DB`: SQLite location. The server, CLI, `pnpm check`, login service and MCP resolve it with the same rule: a relative value resolves from the repository root (never the shell's current directory); a self-contained bundle resolves it from `~/.work-intelligence` (`WORK_INTELLIGENCE_CONFIG_DIR` changes that folder).
 - `WORK_INTELLIGENCE_PORT`: production port, `3210` by default.
 - `WORK_INTELLIGENCE_ALLOWED_ORIGINS`: not needed in production mode, which is same-origin. In development or with a custom origin, set it in `.env` (comma-separated, `*` not allowed); its hosts are also added to the API's `Host` allowlist.
 - Reports and date filters split days by the server's system time zone (Node honours the `TZ` environment variable).

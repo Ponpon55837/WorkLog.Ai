@@ -5,7 +5,7 @@ import { delimiter, posix, resolve, win32 } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { resolveDatabasePath } from "@work-intelligence/shared/database-path";
+import { databasePathFor } from "@work-intelligence/shared/database-location";
 import type { UserServiceManager, UserServiceState, UserServiceStatus } from "@work-intelligence/core";
 
 export type UserServicePlatform = "darwin" | "linux" | "win32" | "unsupported";
@@ -102,11 +102,12 @@ function configuredStoragePaths(
   platform: UserServicePlatform,
   repositoryRoot: string,
   environment: NodeJS.ProcessEnv,
+  homeDirectory: string,
 ): StoragePaths {
   const path = pathApi(platform);
-  const databasePath = resolveDatabasePath(environment.WORK_INTELLIGENCE_DB, {
-    baseDirectory: repositoryRoot,
-    fallback: path.resolve(repositoryRoot, "data", "work-intelligence.sqlite"),
+  const databasePath = databasePathFor(repositoryRoot, {
+    environment,
+    home: homeDirectory,
     platform: platform === "win32" ? "win32" : "linux",
   });
   const configuredBackupDirectory = environment.WORK_INTELLIGENCE_BACKUP_DIR?.trim();
@@ -122,7 +123,7 @@ function resolveServicePaths(options: UserServiceOptions = {}): ServicePaths {
   const path = pathApi(platform);
   const homeDirectory = options.homeDirectory ?? defaultHomeDirectory(platform, environment);
   const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
-  const storage = configuredStoragePaths(platform, repositoryRoot, environment);
+  const storage = configuredStoragePaths(platform, repositoryRoot, environment, homeDirectory);
   const manager =
     platform === "darwin"
       ? "LaunchAgent"

@@ -4,6 +4,9 @@
  * repository checkout and runs the same built entry points that `pnpm setup:agents` registers, so the MCP server,
  * database location, and build checks behave exactly as they do without the plugin.
  *
+ * In a checkout, `mcp` runs the stable MCP launcher (apps/mcp/dist/launcher.js), which swaps in each new build of the
+ * server without the Agent reconnecting; an older checkout without the launcher runs the server directly.
+ *
  * A release build (`pnpm build:plugin`) also carries a bundled server, used when no checkout is found.
  *
  * Usage: node launch.mjs mcp | finalize-reminder | codex-finalize-reminder | dashboard [--open]
@@ -27,6 +30,8 @@ export const ENTRY_POINTS = {
  * unbuilt one Codex runs the plugin from, so the dashboard looks for the built server instead.
  */
 const BUILT_MARKERS = { dashboard: "apps/server/dist/index.js" };
+/** Run in place of the entry point when a checkout has it: it keeps the MCP connection across rebuilds. */
+const SUPERVISORS = { mcp: "apps/mcp/dist/launcher.js" };
 /** Hook commands: they must never block the Agent, so they stay silent and exit 0 whatever happens. */
 const HOOK_COMMANDS = new Set(["finalize-reminder", "codex-finalize-reminder"]);
 
@@ -98,7 +103,11 @@ export function resolveEntryPoint(command, options) {
   const repositories = findRepositories(options);
   const marker = BUILT_MARKERS[command] ?? relativePath;
   const built = repositories.find((repository) => existsSync(join(repository.root, marker)));
-  if (built) return { script: join(built.root, relativePath), repository: built };
+  if (built) {
+    const supervisor = SUPERVISORS[command];
+    const script = supervisor && existsSync(join(built.root, supervisor)) ? supervisor : relativePath;
+    return { script: join(built.root, script), repository: built };
+  }
   // The bundle still opens a linked checkout's database even when that checkout is not built (database-location.ts).
   // It carries no Web UI, so the dashboard always needs a built checkout.
   const bundled = command === "dashboard" ? undefined : bundledServer(options.pluginRoot);

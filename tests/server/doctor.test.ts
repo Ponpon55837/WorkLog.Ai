@@ -637,6 +637,45 @@ describe("pnpm doctor read-only checks", () => {
     ).toBe("missing");
   });
 
+  it("reports a registration that runs the server entry point directly, which needs a reconnect after builds", async () => {
+    const directory = temporaryDirectory();
+    const homeDirectory = join(directory, "home");
+    const repositoryRoot = join(directory, "repository");
+    const codexHomeDirectory = join(homeDirectory, ".codex");
+    const claudeConfigDirectory = join(homeDirectory, ".claude");
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    mkdirSync(codexHomeDirectory, { recursive: true });
+    mkdirSync(claudeConfigDirectory, { recursive: true });
+    const serverPath = join(repositoryRoot, "apps/mcp/dist/index.js");
+    const launcherPath = join(repositoryRoot, "apps/mcp/dist/launcher.js");
+    writeFileSync(
+      join(homeDirectory, ".claude.json"),
+      JSON.stringify({ mcpServers: { "work-intelligence": { command: "node", args: [serverPath] } } }),
+    );
+    writeFileSync(
+      join(codexHomeDirectory, "config.toml"),
+      `[mcp_servers.work-intelligence]\ncommand = "node"\nargs = [${JSON.stringify(launcherPath)}]\n`,
+    );
+    const environment = {
+      HOME: homeDirectory,
+      CODEX_HOME: codexHomeDirectory,
+      CLAUDE_CONFIG_DIR: claudeConfigDirectory,
+      WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite"),
+      WORK_INTELLIGENCE_PORT: "65533",
+    };
+    const connections = inspectAgentConnections({ homeDirectory, repositoryRoot, environment });
+    expect(connections.claudeCode.mcpRegistered).toBe("direct");
+    expect(connections.codex.mcpRegistered).toBe("registered");
+
+    const findings = await collectDoctorFindings({ homeDirectory, repositoryRoot, environment });
+    expect(findings.find((finding) => finding.title === "Claude MCP")).toMatchObject({
+      severity: "warning",
+      detail: expect.stringContaining("每次 pnpm build 後都要重新連線"),
+      recommendation: expect.stringContaining("pnpm setup:agents"),
+    });
+    expect(findings.find((finding) => finding.title === "Codex MCP")).toMatchObject({ severity: "ok" });
+  });
+
   it("distinguishes absent and unreadable Agent configs in Doctor findings without rewriting them", async () => {
     const directory = temporaryDirectory();
     const homeDirectory = join(directory, "home");

@@ -1384,6 +1384,7 @@
     "codexHomeSkillsWorkIntelligence": "CODEX_HOME/skills/work-intelligence (legacy Codex)",
     "compatibilitySkill": "Compatibility skill",
     "currentVersion": "Current version",
+    "directRegistration": "Direct; reconnect after builds",
     "disabled": "Disabled",
     "executionCompleted": "completed",
     "explicitlyNotRun": "Explicitly not run",

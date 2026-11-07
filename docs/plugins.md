@@ -10,7 +10,7 @@
 
 - **資料庫位置不變**：預設仍是 repo 的 `data/work-intelligence.sqlite`；Agent 環境有設 `WORK_INTELLIGENCE_DB` 時照樣使用它。plugin 不會建立第二個資料庫。
 - **原本的用法不受影響**：Web UI、REST API、CLI、`pnpm setup:agents`、手動 `claude mcp add`／`codex mcp add` 都照舊。plugin 不寫入、不移除任何既有設定。
-- **更新方式不變**：在 repo 執行 `git pull`、`pnpm install`、`pnpm build`；plugin 直接使用新的 build，重新連線提示也和原本一樣。
+- **更新方式不變**：在 repo 執行 `git pull`、`pnpm install`、`pnpm build`；plugin 經由 MCP launcher（`apps/mcp/dist/launcher.js`）執行 server，build 後同一個連線會自動換成新版，不必重新連線。尚未有 launcher 的舊 checkout 會直接執行 `apps/mcp/dist/index.js`。
 
 | 內容 | Claude Code | Codex |
 |---|---|---|
@@ -81,7 +81,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 | `node:sqlite` 相關錯誤、`ERR_UNKNOWN_BUILTIN_MODULE` 或 `no such module: fts5` | Node.js 低於 22.16，或是 23.x。改用 22.16 以上的 22.x 或 24 以上；`node --version` 確認 Agent 使用的是同一個 Node。 |
 | 工具或 skill 出現兩份 | plugin 與 `pnpm setup:agents`／手動 `mcp add` 同時啟用。依上方「不要同時用兩種接法」擇一；`pnpm check` 會指出重複。 |
 | 資料庫不是預期的那一個 | MCP 啟動時在 stderr 印出 `connected using <路徑>`。依序檢查 `WORK_INTELLIGENCE_DB`、`WORK_INTELLIGENCE_HOME`、`~/.work-intelligence/plugin-link.json`。 |
-| 更新 repo 後 Agent 提示需要重新連線 | 與手動註冊相同：`pnpm build` 後重新連線 MCP（Claude Code 可用 `/mcp` 重新連線，或重新開啟工作階段）。 |
+| 更新 repo 後 Agent 提示需要重新連線 | 只有 MCP launcher 本身更新時才會出現：重新連線一次 MCP（Claude Code 可用 `/mcp` 重新連線，或重新開啟工作階段），之後的 build 會自動切換。 |
 | Dashboard 打不開 | 執行 `pnpm dashboard` 看訊息：未 build 時先 `pnpm build`；port 被占用時停止該程式或設定 `WORK_INTELLIGENCE_PORT`；server 沒有在時限內就緒時，改用 `pnpm start` 在前景執行查看錯誤。 |
 | 保存提醒沒有出現 | 提醒只在「追蹤中」的專案、改過檔案且上次保存後才出現，同一段工作只提醒一次；`pnpm check` 會檢查 hook 設定。 |
 
@@ -104,7 +104,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 
 啟動器仍然先找 checkout（`WORK_INTELLIGENCE_HOME` → 所在 repository → `plugin-link.json`），只有找不到已 build 的 checkout 時才用內附的 server。內附 server 的資料庫：
 
-1. `WORK_INTELLIGENCE_DB`（`.mcpb` 安裝時可填「Database file」）
+1. `WORK_INTELLIGENCE_DB`（`.mcpb` 安裝時可填「Database file」）；相對路徑以 `~/.work-intelligence`（或 `WORK_INTELLIGENCE_CONFIG_DIR`）為基準，絕對路徑照用
 2. `WORK_INTELLIGENCE_HOME` 或 `pnpm plugin:link` 指向的 checkout 的 `data/work-intelligence.sqlite`：與 Web UI 共用同一個資料庫
 3. 都沒有時：`~/.work-intelligence/data/work-intelligence.sqlite`（可用 `WORK_INTELLIGENCE_CONFIG_DIR` 改目錄）
 

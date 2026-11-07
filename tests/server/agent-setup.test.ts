@@ -10,6 +10,7 @@ import {
   createAgentSetupPlan,
   inspectAgentSkillCopies,
   inspectCodexHooksFeature,
+  mcpRegistrationKind,
   runAgentSetupCli,
   type AgentSetupPlanOptions,
 } from "../../apps/server/src/agent-setup.js";
@@ -86,7 +87,7 @@ function createFixture(repositoryDirectoryName = "repo with space's name"): Fixt
     join(repositoryRoot, ".agents", "skills", "work-intelligence", "SKILL.md"),
     "# Work Intelligence\n\nFixture skill v1.\n",
   );
-  for (const filename of ["index.js", "finalize-reminder.js", "codex-finalize-reminder.js"]) {
+  for (const filename of ["index.js", "launcher.js", "finalize-reminder.js", "codex-finalize-reminder.js"]) {
     writeFileSync(join(repositoryRoot, "apps", "mcp", "dist", filename), `// fixture ${filename}\n`);
   }
 
@@ -338,7 +339,7 @@ describe("Agent setup", () => {
     expect(updatedPostToolUse[0]?.matcher).toBe(CODEX_POST_TOOL_USE_MATCHER);
   });
 
-  it("keeps hand-written registrations and hooks that already point to this repository, upgrading only a legacy matcher", () => {
+  it("keeps hand-written registrations and hooks that already point to this repository, upgrading a direct server registration and a legacy matcher", () => {
     const fixture = createFixture();
     const { repositoryRoot } = fixture.options;
     const serverPath = join(repositoryRoot, "apps", "mcp", "dist", "index.js");
@@ -384,14 +385,20 @@ describe("Agent setup", () => {
     const plan = createAgentSetupPlan(fixture.options);
     expect(plan.conflicts).toEqual([]);
     expect(plan.actions).toContain("保留既有 Codex MCP 註冊：已指向這個 Work Intelligence，不修改。");
-    expect(plan.actions).toContain("保留既有 Claude MCP 註冊：已指向這個 Work Intelligence，不修改。");
+    expect(plan.actions).toContain(
+      "更新既有 Claude MCP 註冊：改用 MCP launcher，建置更新後不必重新連線；其餘自訂設定保留。",
+    );
     expect(plan.actions).toContain("保留既有 Claude Stop hook：已指向這個 Work Intelligence，不修改。");
     expect(plan.actions).toContain("更新既有 Codex PostToolUse hook 的 matcher，其餘自訂設定保留。");
     expect(applyAgentSetupPlan(plan).applied).toBe(true);
 
-    // Registrations and the exec-form Claude hook are untouched; no duplicate hook is added.
+    // The pnpm registration already runs the launcher; the direct Claude one keeps its node path and moves to it.
     expect(readFileSync(fixture.paths.codexConfig)).toEqual(codexConfig);
-    expect(readFileSync(fixture.paths.claudeJson)).toEqual(claudeJson);
+    expect(claudeJson.toString("utf8")).toContain("index.js");
+    expect(object(readJson(fixture.paths.claudeJson).mcpServers)["work-intelligence"]).toEqual({
+      command: "/usr/local/bin/node",
+      args: [join(repositoryRoot, "apps", "mcp", "dist", "launcher.js")],
+    });
     expect(readFileSync(fixture.paths.claudeSettings)).toEqual(claudeSettings);
     const codexHooks = object(readJson(fixture.paths.codexHooks).hooks);
     expect(codexHooks.PostToolUse).toEqual([
@@ -409,6 +416,129 @@ describe("Agent setup", () => {
     const secondPlan = createAgentSetupPlan(fixture.options);
     expect(secondPlan.conflicts).toEqual([]);
     expect(secondPlan.mutations).toEqual([]);
+  });
+
+  it("registers the MCP launcher, not the server entry point", () => {
+    const fixture = createFixture();
+    const launcherPath = join(fixture.options.repositoryRoot, "apps", "mcp", "dist", "launcher.js");
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+
+    expect(object(readJson(fixture.paths.claudeJson).mcpServers)["work-intelligence"]).toEqual({
+      type: "stdio",
+      command: "node",
+      args: [launcherPath],
+    });
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).toContain(`args = [${JSON.stringify(launcherPath)}]`);
+  });
+
+  it("upgrades an owned server-entry registration from an earlier setup to the launcher", () => {
+    const fixture = createFixture();
+    const { repositoryRoot } = fixture.options;
+    const serverPath = join(repositoryRoot, "apps", "mcp", "dist", "index.js");
+    const launcherPath = join(repositoryRoot, "apps", "mcp", "dist", "launcher.js");
+    expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options)).applied).toBe(true);
+    // Rewrite what an earlier setup (before the launcher) wrote and recorded as owned.
+    const swapPath = (value: unknown): unknown =>
+      typeof value === "string"
+        ? value
+            .replaceAll(JSON.stringify(launcherPath), JSON.stringify(serverPath))
+            .replaceAll(launcherPath, serverPath)
+        : Array.isArray(value)
+          ? value.map(swapPath)
+          : value && typeof value === "object"
+            ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, swapPath(item)]))
+            : value;
+    for (const path of [fixture.paths.claudeJson, fixture.paths.manifest]) writeJson(path, swapPath(readJson(path)));
+    writeFileSync(fixture.paths.codexConfig, swapPath(readFileSync(fixture.paths.codexConfig, "utf8")) as string);
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).not.toContain("launcher.js");
+
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+    expect(object(readJson(fixture.paths.claudeJson).mcpServers)["work-intelligence"]).toMatchObject({
+      args: [launcherPath],
+    });
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).toContain(JSON.stringify(launcherPath));
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).not.toContain("index.js");
+    expect(createAgentSetupPlan(fixture.options).mutations).toEqual([]);
+  });
+
+  it("upgrades a hand-written direct Codex registration in place and keeps its other tables", () => {
+    const fixture = createFixture();
+    const { repositoryRoot } = fixture.options;
+    const serverPath = join(repositoryRoot, "apps", "mcp", "dist", "index.js");
+    const launcherPath = join(repositoryRoot, "apps", "mcp", "dist", "launcher.js");
+    mkdirSync(fixture.paths.codexHome, { recursive: true });
+    const lines = [
+      'model = "fixture"',
+      "",
+      "[mcp_servers.work-intelligence]",
+      'command = "node"',
+      `args = [${JSON.stringify(serverPath)}]`,
+      "",
+      "[mcp_servers.work-intelligence.env]",
+      'WORK_INTELLIGENCE_DB = "/fixture/work-intelligence.sqlite"',
+      "",
+    ];
+    writeFileSync(fixture.paths.codexConfig, lines.join("\n"));
+
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.actions).toContain(
+      "更新既有 Codex MCP 註冊：改用 MCP launcher，建置更新後不必重新連線；其餘自訂設定保留。",
+    );
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(
+      lines.join("\n").replace(JSON.stringify(serverPath), JSON.stringify(launcherPath)),
+    );
+    // Not recorded as owned: uninstall leaves the hand-written registration alone.
+    const componentIds = (readJson(fixture.paths.manifest).components as Array<{ id: string }>).map(({ id }) => id);
+    expect(componentIds).not.toContain("codexMcp");
+  });
+
+  it("keeps a direct Codex registration it cannot rewrite safely and says so", () => {
+    const fixture = createFixture();
+    const serverPath = join(fixture.options.repositoryRoot, "apps", "mcp", "dist", "index.js");
+    mkdirSync(fixture.paths.codexHome, { recursive: true });
+    // The same path twice (once in a comment) makes the rewrite ambiguous.
+    const config = [
+      `# was ${JSON.stringify(serverPath)}`,
+      "[mcp_servers.work-intelligence]",
+      'command = "node"',
+      `args = [${JSON.stringify(serverPath)}]`,
+      "",
+    ].join("\n");
+    writeFileSync(fixture.paths.codexConfig, config);
+    const plan = createAgentSetupPlan(fixture.options);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.actions.some((action) => action.startsWith("保留既有 Codex MCP 註冊：直接執行 server"))).toBe(true);
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(config);
+  });
+
+  it("recognises Windows-style separators and node.exe in MCP registrations", () => {
+    const repositoryRoot = join(tmpdir(), "Work Intelligence");
+    const windowsStyle = (relativePath: string) => join(repositoryRoot, relativePath).replaceAll("/", "\\");
+    expect(
+      mcpRegistrationKind(
+        { command: "C:\\Program Files\\nodejs\\node.exe", args: [windowsStyle("apps/mcp/dist/launcher.js")] },
+        repositoryRoot,
+      ),
+    ).toBe("launcher");
+    expect(
+      mcpRegistrationKind({ command: "node.exe", args: [windowsStyle("apps/mcp/dist/index.js")] }, repositoryRoot),
+    ).toBe("direct");
+    expect(
+      mcpRegistrationKind(
+        { command: "pnpm.cmd", args: ["--dir", repositoryRoot.replaceAll("/", "\\"), "start:mcp"] },
+        repositoryRoot,
+      ),
+    ).toBe("launcher");
+    expect(mcpRegistrationKind({ command: "node", args: ["C:\\elsewhere\\launcher.js"] }, repositoryRoot)).toBe(
+      "other",
+    );
   });
 
   it("does not treat a path-only echo command as an equivalent MCP server or hook", () => {
@@ -966,7 +1096,7 @@ describe("Agent setup", () => {
       join(movedRepository, ".agents", "skills", "work-intelligence", "SKILL.md"),
       readFileSync(join(fixture.options.repositoryRoot, ".agents", "skills", "work-intelligence", "SKILL.md")),
     );
-    for (const filename of ["index.js", "finalize-reminder.js", "codex-finalize-reminder.js"]) {
+    for (const filename of ["index.js", "launcher.js", "finalize-reminder.js", "codex-finalize-reminder.js"]) {
       writeFileSync(
         join(movedRepository, "apps", "mcp", "dist", filename),
         readFileSync(join(fixture.options.repositoryRoot, "apps", "mcp", "dist", filename)),

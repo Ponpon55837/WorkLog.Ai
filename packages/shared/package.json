@@ -15,6 +15,10 @@
       "types": "./dist/database-path.d.ts",
       "import": "./dist/database-path.js"
     },
+    "./database-location": {
+      "types": "./dist/database-location.d.ts",
+      "import": "./dist/database-location.js"
+    },
     "./app-version": {
       "types": "./dist/app-version.d.ts",
       "import": "./dist/app-version.js"

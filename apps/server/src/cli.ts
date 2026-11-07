@@ -23,6 +23,7 @@ import {
   type DatabaseRedactionResult,
   type RestorePathRemap,
 } from "@work-intelligence/storage";
+import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath, repositoryRoot, storeOptions } from "./config.js";
 import {
   diagnoseDatabaseInUse,
@@ -250,8 +251,10 @@ export async function runDatabaseCli(
   argv: readonly string[] = process.argv.slice(2),
   dependencies: DatabaseCliDependencies = {},
 ): Promise<number> {
-  // pnpm runs root scripts from the repo root; resolve paths against where the user ran the command.
-  const invocationDirectory = dependencies.invocationDirectory ?? process.env.INIT_CWD ?? process.cwd();
+  // pnpm runs root scripts from the repo root, so a checkout resolves paths against pnpm's INIT_CWD; a standalone
+  // command runs where the user typed it, and an inherited INIT_CWD from some outer pnpm run must not redirect it.
+  const invocationDirectory =
+    dependencies.invocationDirectory ?? (STANDALONE ? undefined : process.env.INIT_CWD) ?? process.cwd();
   const fromInvocation = (path: string): string => resolve(invocationDirectory, path);
   const runWithStore = dependencies.withStore ?? withStore;
   const runMaintenance =

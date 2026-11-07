@@ -22,8 +22,9 @@ const props = defineProps<{
 
 const agentConnected = computed(() =>
   props.agentConnections
-    ? props.agentConnections.codex.mcpRegistered === "registered" ||
-      props.agentConnections.claudeCode.mcpRegistered === "registered"
+    ? [props.agentConnections.codex.mcpRegistered, props.agentConnections.claudeCode.mcpRegistered].some(
+        (state) => state === "registered" || state === "direct",
+      )
     : null,
 );
 const agentStepState = computed(() => {
