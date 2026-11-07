@@ -114,7 +114,7 @@ analyzer 每次執行是整庫掃描，主執行緒同步工作，因此即使�
 
 ## 4. Go／No-Go 建議
 
-**有條件 Go，範圍縮到三條規則；整套 lint 與其餘規則 No-Go。**
+**合成資料階段的建議：有條件 Go，範圍縮到三條規則；整套 lint 與其餘規則 No-Go。實際資料結果見 4.1，最終判定為 No-Go。**
 
 Go（Knowledge 層的來源與 lifecycle 一致性，皆為確定性、可重現、無 LLM）：
 
@@ -132,6 +132,22 @@ No-Go 或延後：
 前置條件（進入任何實作之前）：在 **唯讀備份副本**（不是使用者正在使用的資料庫）上用同一支 analyzer 量真實盛行率；若三條規則加總的真實命中數為 0 或極少，則改判 No-Go。這一步需要使用者同意使用實際資料，本研究沒有做。
 
 若之後實作：不新增 migration（三條規則只讀既有欄位與 `knowledge_audit`）；以 `pnpm db:*`／doctor 風格的唯讀診斷輸出，不寫入、不進 MCP 寫入工具、不改 finalize，並依 `worklog-backend` 規則補基準案例與 p90 上限。
+
+## 4.1 實際資料唯讀副本結果（2026-11-07）
+
+依上述前置條件，在使用者本機資料庫以 `VACUUM INTO` 建立的唯讀副本上執行同一支 analyzer，只記錄數量，量完即刪除副本。
+
+| 項目 | 數量 |
+| --- | ---: |
+| Sessions／Knowledge（active）／Knowledge Pages／專案 | 322／65（31）／6／6 |
+| `source_invalid_cited` | 0 |
+| `source_orphaned` | 0 |
+| `lifecycle_supersede_conflict` | 0 |
+| `topic_multiple_active`、`possible_conflict_negation`、`duplicate_overlap` | 0 |
+| `source_modified_after_creation`（建議不做的高雜訊規則） | 10 |
+| analyzer 耗時 | 約 190 ms |
+
+**結論：No-Go。** 三條建議規則的真實命中數為 0，依前置條件改判 No-Go；Knowledge Impact Analyzer 研究也不開工。限制：該副本不含另一臺電腦 2026-10-30 之後的記錄，匯入後可用同一支 analyzer 重跑。
 
 ## 5. 限制
 
