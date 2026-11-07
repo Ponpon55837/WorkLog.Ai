@@ -40,5 +40,14 @@ export function undoMigrationsAfter(db: DatabaseSync, version: number): void {
   const applied = db
     .prepare("SELECT version FROM schema_migrations WHERE version > ? ORDER BY version DESC")
     .all(version) as Array<{ version: number }>;
-  for (const migration of applied) undoSchemaMigration(db, migration.version);
+  // Every DROP is its own commit (and fsync) outside a transaction; one transaction makes the rewind a single commit.
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN");
+  try {
+    for (const migration of applied) undoSchemaMigration(db, migration.version);
+    if (ownsTransaction) db.exec("COMMIT");
+  } catch (error) {
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
+    throw error;
+  }
 }
