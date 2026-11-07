@@ -6,6 +6,9 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
+- The tag release workflow runs the three Playwright browsers as parallel jobs that start alongside the Quality matrix, and each OS runs the unit suite once, matching CI. Every check and threshold is unchanged, and publishing still waits for all of them.
+- The Web entry bundle shrank from 514.38 kB (gzip 168.29 kB) to 316.04 kB (gzip 112.43 kB), below Vite's 500 kB warning. The English catalog is a separate chunk fetched only when English is the saved or chosen language (the boot splash waits for it, and switching language keeps the current language until it has loaded), and the global panels and dialogs load as separate chunks after the first paint. Screens, copy and behavior are unchanged.
+
 ### Fixed
 
 - Search index writes no longer fail with `ERR_OUT_OF_RANGE` (`Value is too large to be represented as a JavaScript number`) once the FTS5 index stores delete tombstones, whose shadow rowids exceed 2^53. The error rolled back every index sync, so reports, recall and Knowledge candidate lists returned HTTP 500 until the server restarted on a fixed build. FTS writes no longer read the connection's last insert rowid, and the rowid is reset after them. Stored data and the index were never damaged; no migration is needed.
