@@ -6,18 +6,15 @@
 
 - 最後更新：2026-11-08
 
-## 1.6.9（已完成）
+## 1.6.10（已完成）
 
-依 2026-11-07 的方向研究與 GitHub 同性質專案調查（claude-mem、mcp-memory-service 等）排定。
+修正 1.6.9 期間發現的三個既有小問題（#320）。
 
 | 項目 | 結果 |
 | --- | --- |
-| C5：讀取稽核加入耗時與錯誤碼（schema 32） | 已合併（#313）；系統狀態顯示各工具次數、p50／p95 與失敗數 |
-| C1：Session 未變動時不重送全文 | 已合併（#314）；`session.revision` 內容指紋與 `knownRevision` |
-| C2：一次 context 呼叫確認追蹤狀態 | 已合併（#315） |
-| `<private>` 區塊不保存 | 已合併（#316）；並補上知識頁請求未遮蔽、JSON 欄位遮蔽可能破壞結構 |
-| 遮蔽規則二次方時間（ReDoS） | 已修正（#317）；200,000 字最長約 46 秒 → 數毫秒 |
-| 對話壓縮前後的未保存提醒 | 已合併（#318）；並修正壓縮後開始時間被重設 |
+| 圖表作廢／還原 | 改在同一交易內重讀再寫入；重複作廢保留原時間與原因，狀態改變才更新所屬 Session 的 `updatedAt` |
+| finalize 帶 parent／related 建立關聯 | 被關聯的 Session 也更新 `updatedAt`，與 `work_link_sessions` 一致 |
+| build 失敗留下 `.work-intelligence-build-in-progress` | 編譯或 finalize 失敗時只移除自己建立的標記；行程被終止時仍保留 |
 
 ## 知識品質 Roadmap（已完成）
 
@@ -35,14 +32,13 @@
 | --- | --- | --- |
 | 無 checkout 發行的後續階段 | 第一階段（Release tarball、`work-intelligence` 指令）已於 1.6.8 發行；獨立套件尚未提供 Agent 註冊與登入服務 | 依[研究](experiments/standalone-distribution-spike-2026-10-15.md)第 8 節的 PR3（Agent 註冊與 MCP 重啟偵測）、PR4（直接以 node 執行的登入服務）；npm 發佈另待使用者決定名稱、帳號與 2FA |
 | 方向研究的改進候選 | C1、C2、C5 已於 1.6.9 完成；剩 [C3、C4、C6](experiments/direction-research-2026-11-07.md)：知識頁 not_found 診斷、知識搜尋零命中後備、report synthesis 拆段 | 累積 C5 的耗時與錯誤代碼資料後，依最慢工具與失敗類型排序；C1 採用率看稽核 `session_unchanged` 次數，C2 成效看 `work_get_project_status` 占比 |
-| 既有小問題（1.6.9 期間發現） | 圖表作廢／還原非原子且重複作廢會覆寫時間；finalize 帶 parent／related 不更新對方 Session 的 `updatedAt`；個別套件 build 失敗會留下 `.work-intelligence-build-in-progress` 標記 | 使用者決定是否排入下一版 |
 | 歷史 Mermaid 圖表整理成 architecture 快照 | 不阻擋任何功能；歷史圖表以原始碼保留 | 使用者選定要整理的圖表後，逐張核對原工作來源再建立新快照 |
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
 
 ## 已完成歷史
 
-各輪（第五至第九輪、1.5.x 健康檢查、Mermaid 移除、五項功能整合、MCP 精準讀取、1.6.7 後端效能 P0／P1、1.6.8 無 checkout 發行第一階段與 launcher）的交付都已合併；逐項內容見對應 PR、[CHANGELOG](../CHANGELOG.md) 與[更新說明](releases/)。仍被引用的實測證據：
+各輪（第五至第九輪、1.5.x 健康檢查、Mermaid 移除、五項功能整合、MCP 精準讀取、1.6.7 後端效能 P0／P1、1.6.8 無 checkout 發行第一階段與 launcher、1.6.9 讀取稽核與 Session 輕量重讀）的交付都已合併；逐項內容見對應 PR、[CHANGELOG](../CHANGELOG.md) 與[更新說明](releases/)。仍被引用的實測證據：
 
 - 第八輪工作記錄來源核對：[agent-data-source-audit-2026-09-30.md](experiments/agent-data-source-audit-2026-09-30.md)
 - 未結項清理建議的合成準確度（12 項正確建議、8 項證據不足保留，沒有更改真實未結項）：[outstanding-cleanup-accuracy-2026-10-01.md](experiments/outstanding-cleanup-accuracy-2026-10-01.md)

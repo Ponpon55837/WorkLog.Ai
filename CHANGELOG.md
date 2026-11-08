@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.10] - 2026-11-08
+
+[繁體中文更新說明](docs/releases/1.6.10.md).
+
 ### Fixed
 
 - Voiding or restoring a diagram is now atomic and idempotent. It runs in one immediate transaction that re-reads the diagram, so voiding an already voided diagram keeps its original time and reason and restoring an active one changes nothing; both answer `duplicate: true`. A real change moves the owning Session's `updatedAt`, like voiding Evidence (a repeat does not).
