@@ -138,11 +138,31 @@ export class DiagramService {
       return skipped(decision);
     }
     const reason = input.voided ? redactValue(input.reason?.trim() ?? "").value : null;
-    this.db
-      .prepare("UPDATE session_diagrams SET voided_at = ?, void_reason = ? WHERE id = ?")
-      .run(input.voided ? nowIso() : null, reason, row.id);
-    const updated = this.db.prepare("SELECT * FROM session_diagrams WHERE id = ?").get(row.id) as unknown as DiagramRow;
-    return { outcome: "diagram_void_updated", diagram: toDiagram(updated) };
+    return runImmediateTransaction(this.db, () => {
+      // Re-read under the write lock: another void/restore or a permanent deletion may have run since the read above.
+      const current = this.db.prepare("SELECT * FROM session_diagrams WHERE id = ?").get(row.id) as
+        DiagramRow | undefined;
+      if (!current) {
+        return { outcome: "not_found", diagramId: input.diagramId };
+      }
+      // Voiding a voided diagram or restoring an active one keeps the stored time and reason.
+      const duplicate = Boolean(current.voided_at) === input.voided;
+      if (duplicate) {
+        return { outcome: "diagram_void_updated", duplicate, diagram: toDiagram(current) };
+      }
+      const changedAt = nowIso();
+      const voidedAt = input.voided ? changedAt : null;
+      this.db
+        .prepare("UPDATE session_diagrams SET voided_at = ?, void_reason = ? WHERE id = ?")
+        .run(voidedAt, reason, current.id);
+      // Like voiding evidence, a real state change is a change to the Session that owns the diagram.
+      this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(changedAt, current.session_id);
+      return {
+        outcome: "diagram_void_updated",
+        duplicate,
+        diagram: toDiagram({ ...current, voided_at: voidedAt, void_reason: reason }),
+      };
+    });
   }
 
   private write(

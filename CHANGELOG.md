@@ -4,6 +4,12 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Voiding or restoring a diagram is now atomic and idempotent. It runs in one immediate transaction that re-reads the diagram, so voiding an already voided diagram keeps its original time and reason and restoring an active one changes nothing; both answer `duplicate: true`. A real change moves the owning Session's `updatedAt`, like voiding Evidence (a repeat does not).
+- A finalize that links Sessions with `parentSessionId` or `relatedSessionIds` now moves each linked Session's `updatedAt` too, in the same transaction and once per Session, as `work_link_sessions` does for both ends. Ids that cannot be linked and retried finalizes touch nothing.
+- A runtime build that fails no longer leaves `.work-intelligence-build-in-progress` behind to block the next build. When compiling or finalizing fails, `pnpm build` and a direct package build remove the marker only while it still holds the content they wrote, so another build's marker, a marker replaced mid-build, and the root build's marker seen from a package build are kept. A failed build still never counts as a valid MCP build (its dist lacks the matching embedded fingerprint), and a build that is killed keeps the marker as before.
+
 ## [1.6.9] - 2026-11-08
 
 [繁體中文更新說明](docs/releases/1.6.9.md).

@@ -24,7 +24,7 @@
 
 MCP 註冊及系統狀態讀取會自動清理同一安裝 scope 的過期 lease：預設心跳 TTL 為 30 秒，再留 60 秒緩衝，因此超過 90 秒才可清理。`.json` 的心跳與檔案修改時間都必須超過門檻；損毀的 `.json` 與遺留 `.tmp` 依修改時間判斷。每次最多嘗試刪除 64 個檔案，註冊最多檢查 512 個目錄項目；大量舊檔會隨後續讀取逐步清理。只處理目前 scope 內符合 UUID v4 命名的一般檔案，保留其他檔名、子目錄、符號連結與其他 scope；刪除失敗靜默略過，不中斷記錄。
 
-Workspace build 中斷時 `.work-intelligence-build-in-progress` 會保留，避免混合 dist 被誤判為有效版本。確認 marker 記錄的 PID 已退出後，移除該 marker 並重新執行完整 `pnpm build`；不要在 build process 仍執行時刪除。
+Workspace build 或個別套件 build 因編譯、finalize 失敗結束時，會移除自己建立的 `.work-intelligence-build-in-progress`，修正錯誤後直接重跑即可；dist 未注入相符 fingerprint，不會被當成有效版本。Build 被中斷（行程被終止）時標記會保留。確認 marker 記錄的 PID 已退出後，移除該 marker 並重新執行完整 `pnpm build`；不要在 build process 仍執行時刪除。
 
 第九輪整理未結項新增 schema 與 Agent 契約，更新主安裝後需要重啟服務並重新連線。若仍看不到整理請求，先確認執行中的服務和 Agent 指向已完成建置的同一安裝，再依[MCP 更新對照](mcp-tools.md#更新與重新連線)確認狀態。
 

@@ -521,7 +521,7 @@ export interface SetDiagramVoidInput {
 }
 
 export type SetDiagramVoidResult =
-  | { outcome: "diagram_void_updated"; diagram: SessionDiagramRecord }
+  | { outcome: "diagram_void_updated"; duplicate: boolean; diagram: SessionDiagramRecord }
   | { outcome: "not_found"; diagramId: string }
   | SkippedResult;
 

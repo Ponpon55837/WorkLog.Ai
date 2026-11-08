@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import type { DiagramContentInput } from "../../packages/core/src/index.js";
 import { afterEach, describe, expect, it } from "vitest";
+import { DiagramService } from "../../packages/storage/src/diagram-service.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only; the fake token is built at runtime so no complete token sits in the source.
@@ -228,6 +230,82 @@ describe("Session diagrams", () => {
     ).toMatchObject({
       outcome: "skipped",
     });
+  });
+
+  it("keeps the first void time on a repeated void, ignores a repeated restore, and moves the Session updatedAt only on a change", () => {
+    const { store, finalize } = setup();
+    const sessionId = finalize("repeat", [{ title: "Flow", ...native, source: flow }]).session.id;
+    const [diagram] = store.getSessionDetail(sessionId)!.diagrams;
+    const sessionUpdatedAt = () => store.getSessionById(sessionId)!.updatedAt;
+    const wait = () => {
+      const until = Date.now() + 5;
+      while (Date.now() < until) {
+        // Timestamps have millisecond precision; make each write observable.
+      }
+    };
+    const finalizedAt = sessionUpdatedAt();
+
+    wait();
+    const voided = store.setDiagramVoid({ diagramId: diagram!.id, voided: true, reason: "Wrong flow." });
+    expect(voided).toMatchObject({ outcome: "diagram_void_updated", duplicate: false });
+    const voidedAt = voided.outcome === "diagram_void_updated" ? voided.diagram.voided!.at : "";
+    expect(sessionUpdatedAt()).toBe(voidedAt);
+    expect(voidedAt > finalizedAt).toBe(true);
+
+    wait();
+    expect(store.setDiagramVoid({ diagramId: diagram!.id, voided: true, reason: "Another reason." })).toMatchObject({
+      outcome: "diagram_void_updated",
+      duplicate: true,
+      diagram: { voided: { at: voidedAt, reason: "Wrong flow." } },
+    });
+    expect(store.getSessionDetail(sessionId)?.diagrams[0]?.voided).toEqual({ at: voidedAt, reason: "Wrong flow." });
+    expect(sessionUpdatedAt()).toBe(voidedAt);
+
+    wait();
+    const restored = store.setDiagramVoid({ diagramId: diagram!.id, voided: false });
+    expect(restored).toMatchObject({ outcome: "diagram_void_updated", duplicate: false });
+    const restoredAt = sessionUpdatedAt();
+    expect(restoredAt > voidedAt).toBe(true);
+
+    wait();
+    expect(store.setDiagramVoid({ diagramId: diagram!.id, voided: false })).toMatchObject({
+      outcome: "diagram_void_updated",
+      duplicate: true,
+    });
+    expect(sessionUpdatedAt()).toBe(restoredAt);
+  });
+
+  it("re-reads the diagram inside the write transaction, so a void that lands after the first read is kept", () => {
+    const { store, root, finalize } = setup(true);
+    const sessionId = finalize("race", [{ title: "Flow", ...native, source: flow }]).session.id;
+    const [diagram] = store.getSessionDetail(sessionId)!.diagrams;
+    const databasePath = join(root, "diagrams.sqlite");
+    const writer = new DatabaseSync(databasePath);
+    const reader = new DatabaseSync(databasePath);
+    try {
+      const earlierVoid = "2026-01-02T03:04:05.000Z";
+      // Another writer voids the diagram between setVoid's first read and its transaction.
+      const service = new DiagramService(reader, {
+        checkProjectById: () => {
+          writer
+            .prepare("UPDATE session_diagrams SET voided_at = ?, void_reason = ? WHERE id = ?")
+            .run(earlierVoid, "Voided elsewhere.", diagram!.id);
+          return { allowed: true, projectStatus: "tracked", canonicalRoot: root };
+        },
+      });
+      expect(service.setVoid({ diagramId: diagram!.id, voided: true, reason: "Late void." })).toMatchObject({
+        outcome: "diagram_void_updated",
+        duplicate: true,
+        diagram: { voided: { at: earlierVoid, reason: "Voided elsewhere." } },
+      });
+      expect(store.getSessionDetail(sessionId)?.diagrams[0]?.voided).toEqual({
+        at: earlierVoid,
+        reason: "Voided elsewhere.",
+      });
+    } finally {
+      writer.close();
+      reader.close();
+    }
   });
 
   it("rejects implicit, Mermaid and unsupported new writes without leaving a partially finalized Session", () => {

@@ -477,6 +477,39 @@ describe("Session start and update times", () => {
     expect(expectMoved() > afterEvidence).toBe(true);
   });
 
+  it("moves the linked Sessions' updatedAt when finalize links them, like linking them later", () => {
+    const { store, finalize } = setup();
+    const plan = finalize("plan");
+    const related = finalize("related");
+    const untouched = finalize("untouched");
+    const updatedAt = (id: string) => store.getSessionById(id)!.updatedAt;
+    const untouchedAt = updatedAt(untouched);
+    const until = Date.now() + 5;
+    while (Date.now() < until) {
+      // Timestamps have millisecond precision; make the change observable.
+    }
+
+    const childInput = {
+      parentSessionId: plan,
+      relatedSessionIds: [related, plan, related, "missing-session"],
+    };
+    const child = finalize("child", childInput);
+    const childSession = store.getSessionById(child)!;
+    expect(childSession.updatedAt).toBe(childSession.createdAt);
+    expect(updatedAt(plan)).toBe(childSession.createdAt);
+    expect(updatedAt(related)).toBe(childSession.createdAt);
+    expect(updatedAt(untouched)).toBe(untouchedAt);
+
+    const later = Date.now() + 5;
+    while (Date.now() < later) {
+      // A retry must not move the linked Sessions again.
+    }
+    // A retried finalize returns the original Session without writing the links again.
+    expect(finalize("child", childInput)).toBe(child);
+    expect(updatedAt(plan)).toBe(childSession.createdAt);
+    expect(updatedAt(related)).toBe(childSession.createdAt);
+  });
+
   it("backfills start and update times for Sessions written before the migration", () => {
     const databasePath = join(mkdtempSync(join(tmpdir(), "work-intelligence-times-")), "times.sqlite");
     tempDirs.push(dirname(databasePath));

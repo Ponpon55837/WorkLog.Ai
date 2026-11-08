@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { createBuildMarker, removeOwnBuildMarker } from "./build-marker.mjs";
 import { runPnpm } from "./run-pnpm.mjs";
-import { closeSync, existsSync, openSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, URL } from "node:url";
@@ -38,9 +39,9 @@ if (existsSync(markerPath)) {
   );
 }
 
-let markerFd;
+let markerContent;
 try {
-  markerFd = openSync(markerPath, "wx", 0o600);
+  markerContent = createBuildMarker(markerPath, "workspace");
 } catch (error) {
   if (error && typeof error === "object" && "code" in error && error.code === "EEXIST") {
     throw new Error("Another Work Intelligence runtime build acquired the marker; the existing marker was preserved.", {
@@ -49,13 +50,11 @@ try {
   }
   throw error;
 }
-try {
-  writeFileSync(
-    markerFd,
-    JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), package: "workspace" }),
-  );
-} finally {
-  closeSync(markerFd);
+
+// A failed package build or finalize releases this build's own marker so the next pnpm build is not blocked.
+function failBuild(status) {
+  removeOwnBuildMarker(markerPath, markerContent);
+  process.exit(status);
 }
 
 const build = runPnpm(["-r", "build"], {
@@ -63,13 +62,19 @@ const build = runPnpm(["-r", "build"], {
   stdio: "inherit",
   env: { ...process.env, WORK_INTELLIGENCE_ROOT_BUILD: "1" },
 });
-if (build.error) throw build.error;
-if (build.status !== 0) process.exit(build.status ?? 1);
+if (build.error) {
+  removeOwnBuildMarker(markerPath, markerContent);
+  throw build.error;
+}
+if (build.status !== 0) failBuild(build.status ?? 1);
 
 const finalize = spawnSync(process.execPath, [resolve(repositoryRoot, "scripts/finalize-runtime-build.mjs")], {
   cwd: repositoryRoot,
   stdio: "inherit",
 });
-if (finalize.error) throw finalize.error;
-if (finalize.status !== 0) process.exit(finalize.status ?? 1);
-rmSync(markerPath, { force: true });
+if (finalize.error) {
+  removeOwnBuildMarker(markerPath, markerContent);
+  throw finalize.error;
+}
+if (finalize.status !== 0) failBuild(finalize.status ?? 1);
+removeOwnBuildMarker(markerPath, markerContent);

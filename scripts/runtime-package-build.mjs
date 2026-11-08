@@ -1,8 +1,9 @@
 import { runPnpm } from "./run-pnpm.mjs";
-import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, URL } from "node:url";
+import { createBuildMarker, removeOwnBuildMarker } from "./build-marker.mjs";
 import { finalizeRuntimePackageBuild } from "./runtime-build-finalizer.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -38,16 +39,11 @@ const isManagedPackage = [
 
 if (!isManagedPackage) throw new Error("Runtime package build must run from a tracked MCP runtime package.");
 
-let ownsMarker = false;
+// Content of the marker this build created; undefined while a root build owns the marker.
+let markerContent;
 if (!rootBuild) {
-  let markerFd;
   try {
-    markerFd = openSync(markerPath, "wx", 0o600);
-    ownsMarker = true;
-    writeFileSync(
-      markerFd,
-      JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), package: workspaceDirectory }),
-    );
+    markerContent = createBuildMarker(markerPath, workspaceDirectory);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "EEXIST") {
       throw new Error(
@@ -56,14 +52,22 @@ if (!rootBuild) {
       );
     }
     throw error;
-  } finally {
-    if (markerFd !== undefined) closeSync(markerFd);
   }
 }
 
-rmSync(resolve(workspaceDirectory, "dist"), { recursive: true, force: true });
-const build = runPnpm(["exec", "tsc", "-p", "tsconfig.json"], { cwd: workspaceDirectory, stdio: "inherit" });
-if (build.error) throw build.error;
-if (build.status !== 0) process.exit(build.status ?? 1);
-
-if (ownsMarker) await finalizeRuntimePackageBuild(repositoryRoot, markerPath);
+// A failed compile or finalize releases this build's own marker so the next build is not blocked.
+let status;
+try {
+  rmSync(resolve(workspaceDirectory, "dist"), { recursive: true, force: true });
+  const build = runPnpm(["exec", "tsc", "-p", "tsconfig.json"], { cwd: workspaceDirectory, stdio: "inherit" });
+  if (build.error) throw build.error;
+  status = build.status ?? 1;
+  if (status === 0 && markerContent !== undefined) await finalizeRuntimePackageBuild(repositoryRoot, markerPath);
+} catch (error) {
+  if (markerContent !== undefined) removeOwnBuildMarker(markerPath, markerContent);
+  throw error;
+}
+if (status !== 0) {
+  if (markerContent !== undefined) removeOwnBuildMarker(markerPath, markerContent);
+  process.exit(status);
+}

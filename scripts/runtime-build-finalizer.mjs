@@ -72,7 +72,9 @@ export async function finalizeRuntimeBuild(repositoryRoot, computeIdentityOverri
     (await import(pathToFileURL(resolve(root, "packages/shared/dist/mcp-runtime.js")).href)).computeMcpBuildIdentity;
   const identity = computeIdentity(root);
   if (!identity)
-    throw new Error("Work Intelligence MCP build identity is unavailable; the in-progress marker was preserved.");
+    throw new Error(
+      "Work Intelligence MCP build identity is unavailable; MCP status stays unknown until a full build.",
+    );
 
   const entryPath = resolve(root, "apps/mcp/dist/index.js");
   const entrySource = readFileSync(entryPath, "utf8");
