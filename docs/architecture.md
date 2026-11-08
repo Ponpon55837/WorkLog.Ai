@@ -123,7 +123,7 @@ REST 路由依領域分成 `apps/server/src/routes/` 下的路由表（system、
 
 應用程式 semver 取自根目錄 `package.json`；`/api/health` 回傳 `version` 與 `schemaVersion`，MCP server metadata/instructions 與 UI 側欄使用相同版本來源。`pnpm check` 以只讀方式檢查環境與資料庫 metadata，並顯示最近一次維護結果；hook 診斷只檢查全域 `~/.claude/settings.json` 與 `~/.codex/hooks.json`、以及目前 repo 的 hook dist 檔，不讀取或修改 repo 內的 Agent 設定。診斷命令是 `pnpm check`（舊名稱 `pnpm run doctor` 仍可使用）；不要用 `pnpm doctor`，pnpm 11 的它是套件管理器自身命令。
 
-MCP runtime identity 以根目錄版本與 MCP、core、project-policy、schema、shared、storage 的 JavaScript dist 雜湊組成；MCP entry 在載入時已帶有 build finalizer 注入的 fingerprint，不會在 static imports 載入後才推測啟動版本。根目錄 `.work-intelligence-build-in-progress` 在整個 workspace build 期間存在；缺檔、更新標記或讀取不穩定時，MCP、doctor 與 API 都回報未知。直接重建 runtime package 也會在清理 dist 前建立同一標記，完成 fingerprint 注入才移除。若 build 中斷，確認標記所記 PID 已退出後，只移除 `.work-intelligence-build-in-progress` 再重跑完整 `pnpm build`。
+MCP runtime identity 以根目錄版本與 MCP、core、project-policy、schema、shared、storage 的 JavaScript dist 雜湊組成；MCP entry 在載入時已帶有 build finalizer 注入的 fingerprint，不會在 static imports 載入後才推測啟動版本。根目錄 `.work-intelligence-build-in-progress` 在整個 workspace build 期間存在；缺檔、更新標記或讀取不穩定時，MCP、doctor 與 API 都回報未知。直接重建 runtime package 也會在清理 dist 前建立同一標記，完成 fingerprint 注入才移除。編譯或 finalize 失敗時，build 只移除內容仍與自己寫入相同的標記，不會刪掉其他 build 的標記；失敗後的 dist 沒有注入相符 fingerprint，MCP 仍回報未知。若 build 被中斷（行程被終止），標記會保留，確認標記所記 PID 已退出後，只移除 `.work-intelligence-build-in-progress` 再重跑完整 `pnpm build`。
 
 每個 MCP process 在 OS 暫存目錄以安裝根目錄雜湊作 scope，原子更新一份獨立 heartbeat lease；正常退出刪除自己的 lease，崩潰或強制終止的 lease 由 TTL 忽略。MCP read operations 直接比較該程序的 startup fingerprint 與磁碟建置；`pnpm check` 與 `/api/system/status` 則掃描並彙總同一組 leases，再與磁碟建置比對。registry 不可讀寫或建置身份未知時都回報未知；任一活躍舊 lease 都要求重新連線。projectRoot 只用於查詢專案 policy，不用來定位 MCP 安裝。
 

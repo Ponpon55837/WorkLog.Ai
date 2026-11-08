@@ -1752,6 +1752,8 @@ export class WorkIntelligenceStore {
         .prepare("UPDATE projects SET last_ingested_at = ?, updated_at = ? WHERE id = ?")
         .run(createdAt, createdAt, project.id);
 
+      // Like work_link_sessions, a new link changes the other Session too; each one is touched once.
+      const linkedSessionIds = new Set<string>();
       const linkWarnings = [
         ...(input.parentSessionId ? [{ id: input.parentSessionId, relation: "continues" as const }] : []),
         ...(input.relatedSessionIds ?? []).map((id) => ({ id, relation: "related" as const })),
@@ -1761,8 +1763,12 @@ export class WorkIntelligenceStore {
           return [`${id}: ${problem}`];
         }
         this.writeSessionLink(sessionId, id, relation, "agent", createdAt);
+        linkedSessionIds.add(id);
         return [];
       });
+      for (const linkedSessionId of linkedSessionIds) {
+        this.touchSession(linkedSessionId, createdAt);
+      }
 
       const knowledgeWarnings = this.applyKnowledgeFeedback(project.id, sessionId, completedAt, input);
       const diagramRedactions = input.diagrams?.length
