@@ -16,6 +16,7 @@ import {
   projectDataColumnValue,
   projectDataImportInputSchema,
 } from "../../packages/schema/src/index.js";
+import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { remapPathPrefix } from "../../packages/storage/src/project-path-remap.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -1520,13 +1521,15 @@ function createTwoMachines() {
     dbA.close();
   }
 
-  const machineBRoot = join(machineA.root, "machine-b-checkout");
-  mkdirSync(machineBRoot);
+  mkdirSync(join(machineA.root, "machine-b-checkout"));
+  // Stored roots are canonical (on Windows: long-form and lowercase), so compare and remap with that form.
+  const machineBRoot = canonicalizeProjectRoot(join(machineA.root, "machine-b-checkout"));
+  const machineARoot = canonicalizeProjectRoot(machineA.projectRoot);
   const machineB = new WorkIntelligenceStore(join(machineA.root, "machine-b.sqlite"));
   stores.push(machineB);
   machineB.importProjectData({
     bundle: machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId }),
-    remap: [{ from: machineA.projectRoot, to: machineBRoot }],
+    remap: [{ from: machineARoot, to: machineBRoot }],
   });
   machineB.updateProject(machineA.projectId, { status: "tracked" });
   const [firstSessionId, secondSessionId] = machineA.sessionIds;
@@ -1605,6 +1608,7 @@ function createTwoMachines() {
   return {
     machineA,
     machineB,
+    machineARoot,
     machineBRoot,
     pageId,
     firstSessionId,
@@ -1625,7 +1629,7 @@ describe("two-machine portable sync", () => {
     const previewA = machineA.store.previewProjectDataImport(intoA);
     expect(previewA.conflictGroups).toEqual([]);
     expect(total(previewA.conflicts)).toBe(0);
-    expect(previewA.autoRemaps).toMatchObject([{ projectId: machineA.projectId, to: machineA.projectRoot }]);
+    expect(previewA.autoRemaps).toMatchObject([{ projectId: machineA.projectId, to: setup.machineARoot }]);
     expect(previewA.additions.sessions).toBe(1);
     expect(previewA.updates).toMatchObject({ sessions: 1, knowledge_pages: 1 });
     expect(previewA.keptLocal).toMatchObject({ sessions: 1, session_decisions: 1, outstanding_items: 1 });
@@ -1635,7 +1639,7 @@ describe("two-machine portable sync", () => {
     const intoB = { bundle: exportA, strategy: "newer-wins" as const };
     const previewB = machineB.previewProjectDataImport(intoB);
     expect(total(previewB.conflicts)).toBe(0);
-    expect(previewB.autoRemaps).toMatchObject([{ from: machineA.projectRoot, to: setup.machineBRoot }]);
+    expect(previewB.autoRemaps).toMatchObject([{ from: setup.machineARoot, to: setup.machineBRoot }]);
     expect(previewB.updates).toMatchObject({ sessions: 1, session_decisions: 1, outstanding_items: 1 });
     expect(previewB.keptLocal).toMatchObject({ sessions: 1, knowledge_pages: 1 });
     expect(previewB.renumbered).toEqual({ knowledge_page_versions: 1 });
@@ -1659,7 +1663,7 @@ describe("two-machine portable sync", () => {
         readRows(store, "SELECT review_status FROM session_decisions WHERE session_id = ?", setup.firstSessionId),
       ).toEqual([{ review_status: "confirmed" }]);
     }
-    expect(readRows(machineA.store, "SELECT root_path FROM projects")).toEqual([{ root_path: machineA.projectRoot }]);
+    expect(readRows(machineA.store, "SELECT root_path FROM projects")).toEqual([{ root_path: setup.machineARoot }]);
     expect(readRows(machineB, "SELECT root_path FROM projects")).toEqual([{ root_path: setup.machineBRoot }]);
 
     // Once both directions ran, a further round trip finds nothing to change.
