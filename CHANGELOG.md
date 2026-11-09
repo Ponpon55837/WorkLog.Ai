@@ -4,6 +4,21 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.13] - 2026-11-09
+
+[繁體中文更新說明](docs/releases/1.6.13.md).
+
+### Changed
+
+- Portable JSON import now works for two computers that both keep recording the same project. When the project ID already exists under a different root, the import reuses this computer's root (project and handoff paths) instead of marking the whole project and every child row as conflicting.
+- New merge strategy `newer-wins` (Web default; CLI `--strategy newer-wins`; REST `strategy`). A mutable row that differs on both sides is replaced only when the imported copy is newer by its own time columns (for example `updated_at`, `reviewed_at`, `decided_at`); a newer local row is always kept, and append-only history and the local project row are never overwritten. The default `merge` strategy still only adds rows, but now keeps newer local rows without calling them conflicts. The preview shows how many rows will be updated and how many local rows are kept.
+- Rows that differ only in values each computer derives itself are no longer conflicts: Session `redaction_count`, text masked only by newer masking rules, the order of merged changed-file provenance, attention hide/snooze state, and `is_current` on report summaries (recomputed after import). Rows already identical locally are skipped even when their parent conflicts, and a conflicting existing Session or Knowledge item no longer blocks new child rows.
+- Handoff source paths that differ only in Windows letter case or separators (a stored Windows root is lowercase while the handoff path keeps its case) are the same path, not a path conflict.
+- When both computers saved the same Knowledge page version number, all of that page's versions are renumbered by creation time and both are kept; the page counter moves to the newest version.
+- Import conflicts are summarized by table, category (path, newer imported copy, different content, unique key, dependency) and reason with sample ids, instead of only the first 100 ids.
+- A single-project export now also carries the cross-project report requests, summaries and metadata backfill requests that cite the project's Sessions, so deleting the project and importing it again keeps them.
+- Import preview prepares each unique-key lookup once per connection instead of once per row; previewing 5,000 Sessions and 50,000 events into an empty database uses about 19% less CPU.
+
 ## [1.6.12] - 2026-11-09
 
 [繁體中文更新說明](docs/releases/1.6.12.md).

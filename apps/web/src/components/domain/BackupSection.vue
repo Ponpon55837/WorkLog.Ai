@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { Archive, DatabaseBackup, Download, RefreshCw, Trash2 } from "lucide-vue-next";
-import type { ProjectDataImportPreview } from "@work-intelligence/core";
+import type { ProjectDataImportConflictCategory, ProjectDataImportPreview } from "@work-intelligence/core";
 import { useBackupsStore } from "../../stores/backups";
 import { useProjectDataTransferStore } from "../../stores/project-data-transfer";
 import { useProjectsStore } from "../../stores/projects";
@@ -49,6 +49,7 @@ const {
   importProjects,
   importFileName,
   importProjectId,
+  importStrategy,
   importLoading,
   importPreview,
   importError,
@@ -84,6 +85,9 @@ const importSummary = computed(() => (preview: ProjectDataImportPreview) => {
     Object.values(counts).reduce((sum, count) => sum + (count ?? 0), 0);
   return {
     additions: total(preview.additions),
+    updates: total(preview.updates),
+    keptLocal: total(preview.keptLocal),
+    renumbered: total(preview.renumbered),
     skipped: total(preview.skipped),
     conflicts: total(preview.conflicts),
     projects: preview.additions.projects ?? 0,
@@ -96,6 +100,17 @@ const importProjectResolutionLabels = {
   new: t("projects.projectsToAdd"),
   conflict: t("projects.projectConflicts"),
 } as const;
+const importStrategyOptions = [
+  { value: "newer-wins", label: t("projects.importStrategyNewerWins") },
+  { value: "merge", label: t("projects.importStrategyMerge") },
+];
+const importConflictCategoryLabels: Record<ProjectDataImportConflictCategory, string> = {
+  path: t("projects.conflictCategoryPath"),
+  newer_content: t("projects.conflictCategoryNewerContent"),
+  content: t("projects.conflictCategoryContent"),
+  unique: t("projects.conflictCategoryUnique"),
+  dependency: t("projects.conflictCategoryDependency"),
+};
 const importFolderStatusLabels = {
   found: t("projects.folderFound"),
   missing: t("projects.thisFolderWasNotFound"),
@@ -106,6 +121,9 @@ const remappedProjectCount = computed(
 );
 const remappedSnapshotCount = computed(
   () => importPreview.value?.remappedPaths.reduce((total, item) => total + item.snapshots, 0) ?? 0,
+);
+const autoRemappedSnapshotCount = computed(
+  () => importPreview.value?.autoRemaps.reduce((total, item) => total + item.snapshots, 0) ?? 0,
 );
 
 function exportPortableData(): Promise<void> {
@@ -296,6 +314,14 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             :label="t('projects.chooseImportScope')"
           />
         </UiField>
+        <UiField :label="t('projects.importStrategy')">
+          <UiSelect
+            v-model="importStrategy"
+            :options="importStrategyOptions"
+            :label="t('projects.chooseImportStrategy')"
+            data-testid="project-import-strategy"
+          />
+        </UiField>
         <p class="backup-section__hint">
           {{ t("projects.theFileIsPreviewedAs") }}
         </p>
@@ -348,6 +374,14 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
               })
             }}</small>
           </div>
+          <div data-testid="project-import-updates">
+            <span>{{ t("projects.updated") }}</span>
+            <strong>{{ importSummary(importPreview).updates }}</strong>
+          </div>
+          <div data-testid="project-import-kept-local">
+            <span>{{ t("projects.keptLocal") }}</span>
+            <strong>{{ importSummary(importPreview).keptLocal }}</strong>
+          </div>
           <div data-testid="project-import-skipped">
             <span>{{ t("projects.skipped") }}</span>
             <strong>{{ importSummary(importPreview).skipped }}</strong>
@@ -365,23 +399,45 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             })
           }}
         </p>
+        <p v-if="importPreview.autoRemaps.length > 0" class="backup-section__hint">
+          {{
+            t("projects.autoRemappedRoots", {
+              count: importPreview.autoRemaps.length,
+              snapshots: autoRemappedSnapshotCount,
+            })
+          }}
+        </p>
+        <p v-if="importSummary(importPreview).renumbered > 0" class="backup-section__hint">
+          {{ t("projects.pageVersionsRenumbered", { count: importSummary(importPreview).renumbered }) }}
+        </p>
         <VirtualList
-          v-if="importPreview.conflictDetails.length > 0"
-          :items="importPreview.conflictDetails"
-          :enabled="importPreview.conflictDetails.length > 4"
+          v-if="importPreview.conflictGroups.length > 0"
+          :items="importPreview.conflictGroups"
+          :enabled="importPreview.conflictGroups.length > 4"
           :estimate-item-height="68"
           max-height="min(40vh, 320px)"
           :label="t('projects.importConflicts')"
+          data-testid="project-import-conflict-groups"
         >
           <template #default="{ item }">
-            <UiBoxRow :title="item.reason" :meta="`${item.table} · ${item.id}`" />
+            <UiBoxRow
+              class="transfer-preview__project-row"
+              :title="item.reason"
+              :meta="
+                t('projects.conflictGroupMeta', {
+                  category: importConflictCategoryLabels[item.category],
+                  table: item.table,
+                  count: item.count,
+                  samples: item.sampleIds.join(', '),
+                })
+              "
+            />
           </template>
         </VirtualList>
-        <p v-if="importPreview.conflictDetailsTruncated" class="backup-section__hint">
-          {{ t("projects.moreThan100ConflictsOnly") }}
-        </p>
         <p class="backup-section__hint">
-          {{ t("projects.importingNeverOverwritesConflictingOr") }}
+          {{
+            importPreview.strategy === "newer-wins" ? t("projects.importNewerWinsHint") : t("projects.importMergeHint")
+          }}
         </p>
         <UiButton size="sm" variant="primary" :loading="importLoading" @click="applyProjectDataImport">{{
           t("projects.confirmAndImport")
@@ -517,7 +573,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
 .transfer-preview__counts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
@@ -546,6 +602,10 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
   .transfer-controls,
   .transfer-controls--import {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .transfer-preview__counts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

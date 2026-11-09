@@ -80,7 +80,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET/POST | `/api/backups`                                   | 列出資料庫備份／立即建立備份（POST body `{}`）                                         |
 | POST     | `/api/export`                                    | body `{}` 匯出整份 SQLite 快照；指定 `scope` 時匯出可攜式 JSON（見下方）                 |
 | POST     | `/api/import/preview`                            | 驗證可攜式 JSON 並預覽新增、略過、衝突與路徑轉換，不寫入資料                           |
-| POST     | `/api/import`                                     | 將可攜式 JSON 的非衝突資料合併寫入目前資料庫                                           |
+| POST     | `/api/import`                                     | 依合併策略將可攜式 JSON 的非衝突資料寫入目前資料庫                                     |
 | GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session；`agent` 以完全相符篩選寫入該 Session 的 Agent 用戶端（例如 `claude-code`） |
 | GET      | `/api/sessions/agents`                           | 回傳 `{ agents: string[] }`：tracked 專案未作廢 Session 中出現過的 Agent 用戶端（去重、排序），供 Web 篩選選單使用 |
 | GET      | `/api/agent-reads`                               | 被動稽核：Agent 經 MCP 讀取時回傳過哪些紀錄（只含 tracked 專案與無專案的讀取），新到舊分頁；可用 `projectId`、`agent`、`page`、`pageSize`（1–100）。每筆含 `at`、`tool`、`agentClient`、`projectId`／`projectName`、`outcome`、`returnedCount`、`sessionIds`、`knowledgeIds`（只有 id，每種最多 50 個，超出以 `omitted*Count` 表示），以及選填的 `durationMs`（整數毫秒；schema 32 之前的紀錄沒有）與 `errorCode`（讀取失敗時的代碼：`invalid_input`、`database_busy`、`restart_required`、`internal_error`；失敗紀錄的 `outcome` 為 `error`，不含 id 與錯誤訊息）。保留 30 天且最多 5,000 筆 |
@@ -207,8 +207,10 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - REST：GET /api/backups 列出備份（檔名、種類、時間、大小，及手動／自動各自的保留份數）；POST /api/backups（body `{}`）建立手動備份。
 - 自動備份以 server 的本機日曆日為單位每天最多建立一份，預設保留最近 3 份；手動備份另有獨立的 3 份保留額度，不會影響自動備份排程或刪除自動備份。
 - REST：POST /api/export（body `{}`）即時產生整份資料的 SQLite 快照，以 `application/vnd.sqlite3` 下載，暫存檔在傳送後刪除。可攜式 JSON 則使用 `{"scope":"all"}`，或 `{"scope":"project","projectId":"<id>"}`；檔案上限為 50 MiB，超過回 413。
-- REST：POST /api/import/preview 與 POST /api/import 都接受 `{ "bundle": <可攜式匯出>, "projectId"?: "<id>", "remap"?: [{"from":"<舊路徑>","to":"<新路徑>"}] }`。`projectId` 可從全專案匯出檔挑選單一專案；`remap` 可重複多筆，以完整路徑片段比對、Windows 路徑不分大小寫，並依新路徑轉換分隔符號。只有匯入兩個端點把 request body 上限提高至 50 MiB；超過回 413，格式錯誤回 400。
-- Preview 只讀取並回傳各資料表新增／略過／衝突筆數及最多 100 筆衝突明細，不回傳專案路徑。正式匯入會在一個 SQLite 交易中重新計算預覽並合併非衝突資料；不覆寫或刪除既有資料，且重複匯入可冪等略過。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
+- REST：POST /api/import/preview 與 POST /api/import 都接受 `{ "bundle": <可攜式匯出>, "projectId"?: "<id>", "remap"?: [{"from":"<舊路徑>","to":"<新路徑>"}], "strategy"?: "merge" | "newer-wins" }`。`projectId` 可從全專案匯出檔挑選單一專案；`remap` 可重複多筆，以完整路徑片段比對、Windows 路徑不分大小寫，並依新路徑轉換分隔符號。只有匯入兩個端點把 request body 上限提高至 50 MiB；超過回 413，格式錯誤回 400。
+- 相同專案 ID 已存在但根路徑不同時，自動以本機根路徑轉換該專案的根路徑與 handoff 來源路徑，結果列在 `autoRemaps`（`projectId`、`from`、`to`、`snapshots`）。
+- `strategy` 預設 `merge`：只新增本機沒有的列。`newer-wins`：同 ID 內容不同的可變更列，依該表的時間欄位（如 `updated_at`、`reviewed_at`、`decided_at`、`completed_at`）取較新者覆寫；兩種策略都保留本機較新的列，只追加的歷史表與本機專案列永不覆寫。比較前排除各機自行衍生的欄位（Session `redaction_count`、attention 的隱藏／延後狀態、報告 `is_current`），並以相同規則遮蔽本機文字、忽略 changed-file provenance 的合併順序。`knowledge_page_versions` 撞號時依建立時間將該頁所有版本重新編號後並存，並把頁面版本計數器移到最新版本。
+- Preview 只讀取並回傳 `strategy`、各資料表 `additions`／`updates`／`keptLocal`／`skipped`／`conflicts`／`renumbered` 筆數、`conflictGroups`（依資料表、`category`：`path`／`newer_content`／`content`／`unique`／`dependency` 與原因彙總的筆數及最多 5 個範例 id）與最多 100 筆 `conflictDetails`。正式匯入會在一個 SQLite 交易中重新計算預覽並套用；不刪除既有資料，且重複匯入可冪等略過。單一專案匯出會一併帶入引用該專案 Session 的跨專案報告請求、摘要與 metadata 回補請求。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
 - 可攜式 JSON 未加密，請妥善保管。整份 SQLite 快照與可攜式匯出都要求 `Content-Type: application/json`，跨站表單無法觸發；下載回應只含檔名，不會出現暫存檔路徑。
 - in-memory 資料庫回傳 409 `backup_unavailable`。
 - 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。

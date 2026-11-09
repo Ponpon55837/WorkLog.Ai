@@ -16,6 +16,7 @@ import {
   projectDataColumnValue,
   projectDataImportInputSchema,
 } from "../../packages/schema/src/index.js";
+import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { remapPathPrefix } from "../../packages/storage/src/project-path-remap.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -898,6 +899,7 @@ describe("portable project data transfer", () => {
       table: "outstanding_cleanup_proposal_evidence",
       id: duplicateEvidence.id,
       reason: "匯入檔內有重複的唯一識別值。",
+      category: "unique",
     });
 
     const crossProjectItemPreview = destination.previewProjectDataImport({ bundle: crossProjectItemBundle });
@@ -905,12 +907,14 @@ describe("portable project data transfer", () => {
       table: "outstanding_cleanup_request_items",
       id: crossProjectItem.id,
       reason: "清理快照項目必須引用同一專案中可用的待結項。",
+      category: "dependency",
     });
     const wrongSourcePreview = destination.previewProjectDataImport({ bundle: sameProjectWrongSourceBundle });
     expect(wrongSourcePreview.conflictDetails).toContainEqual({
       table: "outstanding_cleanup_request_items",
       id: wrongSourceItem.id,
       reason: "清理快照項目的來源 Session 必須與待結項來源一致。",
+      category: "dependency",
     });
 
     const wrongSubmissionBundle = structuredClone(bundle);
@@ -928,6 +932,7 @@ describe("portable project data transfer", () => {
       table: "outstanding_cleanup_proposals",
       id: wrongSubmissionProposal.id,
       reason: "清理提案及其關聯資料必須屬於同一專案與請求。",
+      category: "dependency",
     });
 
     const mismatchedExaminedSubmissionBundle = structuredClone(bundle);
@@ -949,6 +954,7 @@ describe("portable project data transfer", () => {
       table: "outstanding_cleanup_proposals",
       id: mismatchedExaminedProposal.id,
       reason: "清理提案提交紀錄必須與快照項目檢視的提交一致。",
+      category: "dependency",
     });
 
     const emptyCleanupAuditIdsBundle = structuredClone(bundle);
@@ -963,6 +969,7 @@ describe("portable project data transfer", () => {
       table: "outstanding_item_events",
       id: emptyCleanupAuditEvent.id,
       reason: "清理稽核事件引用的請求或提案發生衝突或不存在。",
+      category: "dependency",
     });
 
     bundle.tables.outstanding_cleanup_requests.push(duplicateActive, duplicateRequestKey);
@@ -1256,29 +1263,81 @@ describe("portable project data transfer", () => {
     );
   });
 
-  it("marks a project with an ID and root-path mismatch as conflicted in the preview", () => {
+  it("reuses the local root when the same project ID already exists under a different root", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
     const project = bundle.tables.projects[0];
     if (!project) {
       throw new Error("The fixture should contain a project.");
     }
-    const targetRoot = join(source.root, "project-path-conflict.sqlite");
-    const conflictingRoot = join(source.root, "different-project-location");
+    const targetRoot = join(source.root, "project-path-auto-remap.sqlite");
+    const localRoot = join(source.root, "different-project-location");
     const destination = new WorkIntelligenceStore(targetRoot);
     stores.push(destination);
     const db = new DatabaseSync(targetRoot);
     try {
-      insertRow(db, "projects", row("projects", { ...project, root_path: conflictingRoot }));
+      insertRow(db, "projects", row("projects", { ...project, root_path: localRoot }));
     } finally {
       db.close();
     }
 
     const preview = destination.previewProjectDataImport({ bundle });
 
-    expect(preview.conflicts.projects).toBe(1);
+    expect(total(preview.conflicts)).toBe(0);
+    expect(preview.skipped.projects).toBe(1);
+    expect(preview.additions.sessions).toBe(2);
     expect(preview.selectedProjects).toMatchObject([
-      { id: source.projectId, rootPath: String(project.root_path), resolution: "conflict" },
+      { id: source.projectId, sourceRootPath: String(project.root_path), rootPath: localRoot, resolution: "existing" },
+    ]);
+    expect(preview.autoRemaps).toEqual([
+      { projectId: source.projectId, from: String(project.root_path), to: localRoot, snapshots: 1 },
+    ]);
+
+    destination.importProjectData({ bundle });
+    const check = new DatabaseSync(targetRoot, { readOnly: true });
+    try {
+      expect(check.prepare("SELECT root_path FROM projects").all()).toEqual([{ root_path: localRoot }]);
+      expect(check.prepare("SELECT source_path FROM raw_snapshots").all()).toEqual([
+        { source_path: join(localRoot, "handoff.md") },
+      ]);
+    } finally {
+      check.close();
+    }
+    // Importing the same file again is a no-op instead of a project-wide conflict.
+    const again = destination.previewProjectDataImport({ bundle });
+    expect(total(again.conflicts)).toBe(0);
+    expect(total(again.additions)).toBe(0);
+  });
+
+  it("treats Windows handoff paths that differ only in case or separators as the same path", () => {
+    const source = createSource();
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const windowsRoot = "C:\\Users\\Dev\\Portable";
+    const targetRoot = join(source.root, "windows-paths.sqlite");
+    const destination = new WorkIntelligenceStore(targetRoot);
+    stores.push(destination);
+    destination.importProjectData({ bundle, remap: [{ from: source.projectRoot, to: windowsRoot }] });
+    // A Windows database keeps its root lowercase (canonical) while the handoff path keeps the original case.
+    runSql(destination, "UPDATE projects SET root_path = ?", windowsRoot.toLowerCase());
+    runSql(destination, "UPDATE raw_snapshots SET source_path = ?", "C:\\USERS\\Dev\\Portable\\handoff.md");
+
+    const preview = destination.previewProjectDataImport({ bundle, strategy: "newer-wins" });
+    expect(preview.autoRemaps).toHaveLength(1);
+    expect(preview.conflictGroups).toEqual([]);
+    expect(preview.skipped.raw_snapshots).toBe(1);
+  });
+
+  it("still reports a handoff path that really points elsewhere as a path conflict", () => {
+    const source = createSource();
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const destination = new WorkIntelligenceStore(join(source.root, "moved-handoff.sqlite"));
+    stores.push(destination);
+    destination.importProjectData({ bundle });
+    runSql(destination, "UPDATE raw_snapshots SET source_path = ?", join(source.root, "elsewhere", "handoff.md"));
+
+    const preview = destination.previewProjectDataImport({ bundle });
+    expect(preview.conflictGroups).toEqual([
+      expect.objectContaining({ category: "path", table: "raw_snapshots", count: 1 }),
     ]);
   });
 
@@ -1329,6 +1388,7 @@ describe("portable project data transfer", () => {
       table: "outstanding_item_events",
       id: event.id,
       reason: "待結項稽核事件必須屬於對應項目的專案。",
+      category: "dependency",
     });
   });
 
@@ -1422,6 +1482,474 @@ describe("portable project data transfer", () => {
     ).toBe(true);
   });
 });
+
+function runSql(store: WorkIntelligenceStore, sql: string, ...values: ProjectDataValue[]): void {
+  const db = new DatabaseSync(store.databasePath);
+  try {
+    db.prepare(sql).run(...values);
+  } finally {
+    db.close();
+  }
+}
+
+function readRows(store: WorkIntelligenceStore, sql: string, ...values: ProjectDataValue[]): unknown[] {
+  const db = new DatabaseSync(store.databasePath, { readOnly: true });
+  try {
+    return db.prepare(sql).all(...values);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Machine A records work, machine B imports it under another root, and then both keep working on their own:
+ * each changes rows the other also has, and each saves "version 2" of the same Knowledge page.
+ */
+let twoMachineClock = Date.now();
+
+function later(minutes: number): string {
+  return new Date(twoMachineClock + minutes * 60_000).toISOString();
+}
+
+function createTwoMachines() {
+  const machineA = createSource();
+  // Every edit happens after the fixture rows were written, so the edited copy is the newer one.
+  twoMachineClock = Date.now() + 60_000;
+  const pageId = "sync-page";
+  const page = (version: number, updatedAt: string): ProjectDataRow =>
+    row("knowledge_pages", {
+      id: pageId,
+      project_id: machineA.projectId,
+      slug: "sync-notes",
+      title: "同步筆記",
+      question: "兩台電腦的進度？",
+      sections_json: JSON.stringify([{ heading: "進度", body: `版本 ${version}` }]),
+      version,
+      sourced_through: null,
+      update_requested_at: null,
+      last_author: "agent",
+      checked_through_session_id: null,
+      created_at: "2026-10-01T00:00:00.000Z",
+      updated_at: updatedAt,
+    });
+  const pageVersion = (id: string, version: number, createdAt: string): ProjectDataRow =>
+    row("knowledge_page_versions", {
+      id,
+      page_id: pageId,
+      project_id: machineA.projectId,
+      version,
+      title: "同步筆記",
+      question: "兩台電腦的進度？",
+      sections_json: JSON.stringify([{ heading: "進度", body: id }]),
+      author: "agent",
+      idempotency_key: `${id}-key`,
+      created_at: createdAt,
+    });
+  const dbA = new DatabaseSync(machineA.store.databasePath);
+  try {
+    insertRow(dbA, "knowledge_pages", page(1, "2026-10-01T00:00:00.000Z"));
+    insertRow(dbA, "knowledge_page_versions", pageVersion("page-v1", 1, "2026-10-01T00:00:00.000Z"));
+  } finally {
+    dbA.close();
+  }
+
+  mkdirSync(join(machineA.root, "machine-b-checkout"));
+  // Stored roots are canonical (on Windows: long-form and lowercase), so compare and remap with that form.
+  const machineBRoot = canonicalizeProjectRoot(join(machineA.root, "machine-b-checkout"));
+  const machineARoot = canonicalizeProjectRoot(machineA.projectRoot);
+  const machineB = new WorkIntelligenceStore(join(machineA.root, "machine-b.sqlite"));
+  stores.push(machineB);
+  machineB.importProjectData({
+    bundle: machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId }),
+    remap: [{ from: machineARoot, to: machineBRoot }],
+  });
+  machineB.updateProject(machineA.projectId, { status: "tracked" });
+  const [firstSessionId, secondSessionId] = machineA.sessionIds;
+
+  // Machine A: newer summary on the first Session, a confirmed decision, a completed outstanding item,
+  // its own version 2 of the page, and a new Session.
+  runSql(
+    machineA.store,
+    "UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?",
+    "A 機器更新第一筆。",
+    later(1),
+    firstSessionId,
+  );
+  runSql(
+    machineA.store,
+    "UPDATE session_decisions SET review_status = 'confirmed', reviewed_at = ? WHERE session_id = ?",
+    later(2),
+    firstSessionId,
+  );
+  runSql(
+    machineA.store,
+    "UPDATE outstanding_items SET status = 'completed', updated_at = ? WHERE source_session_id = ?",
+    later(3),
+    firstSessionId,
+  );
+  runSql(
+    machineA.store,
+    "UPDATE knowledge_pages SET version = 2, sections_json = ?, updated_at = ? WHERE id = ?",
+    JSON.stringify([{ heading: "進度", body: "A 的版本 2" }]),
+    later(4),
+    pageId,
+  );
+  const dbA2 = new DatabaseSync(machineA.store.databasePath);
+  try {
+    insertRow(dbA2, "knowledge_page_versions", pageVersion("page-v2-a", 2, later(4)));
+  } finally {
+    dbA2.close();
+  }
+  const onlyOnA = machineA.store.finalizeSession({
+    projectRoot: machineA.projectRoot,
+    idempotencyKey: "machine-a-only",
+    title: "只在 A 的工作",
+    summary: "只在 A 機器記錄的工作。",
+  });
+
+  // Machine B: newer summary on the second Session, its own version 2 (saved later than A's), and a new Session.
+  runSql(
+    machineB,
+    "UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?",
+    "B 機器更新第二筆。",
+    later(5),
+    secondSessionId,
+  );
+  runSql(
+    machineB,
+    "UPDATE knowledge_pages SET version = 2, sections_json = ?, updated_at = ? WHERE id = ?",
+    JSON.stringify([{ heading: "進度", body: "B 的版本 2" }]),
+    later(6),
+    pageId,
+  );
+  const dbB = new DatabaseSync(machineB.databasePath);
+  try {
+    insertRow(dbB, "knowledge_page_versions", pageVersion("page-v2-b", 2, later(6)));
+  } finally {
+    dbB.close();
+  }
+  const onlyOnB = machineB.finalizeSession({
+    projectRoot: machineBRoot,
+    idempotencyKey: "machine-b-only",
+    title: "只在 B 的工作",
+    summary: "只在 B 機器記錄的工作。",
+  });
+  if (onlyOnA.outcome !== "finalized" || onlyOnB.outcome !== "finalized") {
+    throw new Error("Both machines must accept their own Sessions.");
+  }
+  return {
+    machineA,
+    machineB,
+    machineARoot,
+    machineBRoot,
+    pageId,
+    firstSessionId,
+    secondSessionId,
+    onlyOnA: onlyOnA.session.id,
+    onlyOnB: onlyOnB.session.id,
+  };
+}
+
+describe("two-machine portable sync", () => {
+  it("merges two machines' independent work both ways with newer-wins and no conflicts", () => {
+    const setup = createTwoMachines();
+    const { machineA, machineB, pageId } = setup;
+    const exportA = machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId });
+    const exportB = machineB.exportProjectData({ type: "project", projectId: machineA.projectId });
+
+    const intoA = { bundle: exportB, strategy: "newer-wins" as const };
+    const previewA = machineA.store.previewProjectDataImport(intoA);
+    expect(previewA.conflictGroups).toEqual([]);
+    expect(total(previewA.conflicts)).toBe(0);
+    expect(previewA.autoRemaps).toMatchObject([{ projectId: machineA.projectId, to: setup.machineARoot }]);
+    expect(previewA.additions.sessions).toBe(1);
+    expect(previewA.updates).toMatchObject({ sessions: 1, knowledge_pages: 1 });
+    expect(previewA.keptLocal).toMatchObject({ sessions: 1, session_decisions: 1, outstanding_items: 1 });
+    expect(previewA.renumbered).toEqual({ knowledge_page_versions: 1 });
+    machineA.store.importProjectData(intoA);
+
+    const intoB = { bundle: exportA, strategy: "newer-wins" as const };
+    const previewB = machineB.previewProjectDataImport(intoB);
+    expect(total(previewB.conflicts)).toBe(0);
+    expect(previewB.autoRemaps).toMatchObject([{ from: setup.machineARoot, to: setup.machineBRoot }]);
+    expect(previewB.updates).toMatchObject({ sessions: 1, session_decisions: 1, outstanding_items: 1 });
+    expect(previewB.keptLocal).toMatchObject({ sessions: 1, knowledge_pages: 1 });
+    expect(previewB.renumbered).toEqual({ knowledge_page_versions: 1 });
+    machineB.importProjectData(intoB);
+
+    for (const store of [machineA.store, machineB]) {
+      expect(store.getSessionById(setup.firstSessionId)?.summary).toBe("A 機器更新第一筆。");
+      expect(store.getSessionById(setup.secondSessionId)?.summary).toBe("B 機器更新第二筆。");
+      expect(store.getSessionById(setup.onlyOnA)).toBeDefined();
+      expect(store.getSessionById(setup.onlyOnB)).toBeDefined();
+      // Both machines' version 2 survive, renumbered by time; the page counter points past the newest one.
+      expect(
+        readRows(store, "SELECT id, version FROM knowledge_page_versions WHERE page_id = ? ORDER BY version", pageId),
+      ).toEqual([
+        { id: "page-v1", version: 1 },
+        { id: "page-v2-a", version: 2 },
+        { id: "page-v2-b", version: 3 },
+      ]);
+      expect(readRows(store, "SELECT version FROM knowledge_pages WHERE id = ?", pageId)).toEqual([{ version: 3 }]);
+      expect(
+        readRows(store, "SELECT review_status FROM session_decisions WHERE session_id = ?", setup.firstSessionId),
+      ).toEqual([{ review_status: "confirmed" }]);
+    }
+    expect(readRows(machineA.store, "SELECT root_path FROM projects")).toEqual([{ root_path: setup.machineARoot }]);
+    expect(readRows(machineB, "SELECT root_path FROM projects")).toEqual([{ root_path: setup.machineBRoot }]);
+
+    // Once both directions ran, a further round trip finds nothing to change.
+    const settled = machineB.previewProjectDataImport({
+      bundle: machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId }),
+      strategy: "newer-wins",
+    });
+    expect(total(settled.conflicts)).toBe(0);
+    expect(total(settled.additions)).toBe(0);
+    expect(total(settled.updates)).toBe(0);
+    expect(total(settled.keptLocal)).toBe(0);
+  });
+
+  it("keeps local rows that are newer and never overwrites them with an older imported copy", () => {
+    const { machineA, machineB, secondSessionId } = createTwoMachines();
+    const exportA = machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId });
+
+    const preview = machineB.previewProjectDataImport({ bundle: exportA, strategy: "newer-wins" });
+    expect(preview.keptLocal.sessions).toBe(1);
+    machineB.importProjectData({ bundle: exportA, strategy: "newer-wins" });
+    expect(machineB.getSessionById(secondSessionId)?.summary).toBe("B 機器更新第二筆。");
+  });
+
+  it("merge mode reports newer imported rows by reason without blocking new child rows", () => {
+    const { machineA, machineB, onlyOnB, pageId } = createTwoMachines();
+    const exportB = machineB.exportProjectData({ type: "project", projectId: machineA.projectId });
+
+    const preview = machineA.store.previewProjectDataImport({ bundle: exportB });
+    expect(preview.strategy).toBe("merge");
+    expect(total(preview.updates)).toBe(0);
+    expect(preview.conflictGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ category: "newer_content", table: "sessions", count: 1 }),
+        expect.objectContaining({ category: "newer_content", table: "knowledge_pages", count: 1 }),
+        expect.objectContaining({ category: "dependency", table: "knowledge_page_versions", count: 1 }),
+      ]),
+    );
+    expect(preview.conflictGroups.every((group) => group.sampleIds.length > 0)).toBe(true);
+    expect(preview.additions.sessions).toBe(1);
+    machineA.store.importProjectData({ bundle: exportB });
+    expect(machineA.store.getSessionById(onlyOnB)).toBeDefined();
+    expect(readRows(machineA.store, "SELECT version FROM knowledge_pages WHERE id = ?", pageId)).toEqual([
+      { version: 2 },
+    ]);
+  });
+
+  it("ignores locally derived columns and newer masking rules when comparing rows", () => {
+    const machineA = createSource();
+    const token = `gho_${"C".repeat(36)}`;
+    const [firstSessionId] = machineA.sessionIds;
+    runSql(machineA.store, "UPDATE sessions SET summary = ? WHERE id = ?", `摘要 ${token}`, firstSessionId);
+    const bundle = machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId });
+    const machineB = new WorkIntelligenceStore(join(machineA.root, "derived.sqlite"));
+    stores.push(machineB);
+    machineB.importProjectData({ bundle });
+    // B keeps the unmasked text from before a masking rule existed, its own redaction count,
+    // and the same changed-file provenance merged in a different order.
+    runSql(
+      machineB,
+      "UPDATE sessions SET summary = ?, redaction_count = 9, changed_files_provenance_json = ? WHERE id = ?",
+      `摘要 ${token}`,
+      JSON.stringify([
+        { path: "README.md", sources: ["git", "agent"], references: ["b", "a"] },
+        { path: "README.md", sources: ["agent", "git"], references: ["a", "b"] },
+      ]),
+      firstSessionId,
+    );
+    runSql(
+      machineA.store,
+      "UPDATE sessions SET changed_files_provenance_json = ? WHERE id = ?",
+      JSON.stringify([{ path: "README.md", sources: ["agent", "git"], references: ["a", "b"] }]),
+      firstSessionId,
+    );
+
+    const preview = machineB.previewProjectDataImport({
+      bundle: machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId }),
+    });
+    expect(total(preview.conflicts)).toBe(0);
+    expect(preview.skipped.sessions).toBe(2);
+    expect(readRows(machineB, "SELECT redaction_count FROM sessions WHERE id = ?", firstSessionId)).toEqual([
+      { redaction_count: 9 },
+    ]);
+  });
+
+  it("renumbers colliding page versions that arrive in the same file and keeps the counter in sync", () => {
+    const { machineA, machineB, pageId } = createTwoMachines();
+    const exportB = machineB.exportProjectData({ type: "project", projectId: machineA.projectId });
+    const duplicate = exportB.tables.knowledge_page_versions.find((version) => version.id === "page-v2-b");
+    if (!duplicate) throw new Error("Expected machine B's page version.");
+    exportB.tables.knowledge_page_versions.push({
+      ...duplicate,
+      id: "page-v2-b-late",
+      idempotency_key: "page-v2-b-late-key",
+      created_at: later(7),
+    });
+
+    machineA.store.importProjectData({ bundle: exportB, strategy: "newer-wins" });
+    expect(
+      readRows(
+        machineA.store,
+        "SELECT id, version FROM knowledge_page_versions WHERE page_id = ? ORDER BY version",
+        pageId,
+      ),
+    ).toEqual([
+      { id: "page-v1", version: 1 },
+      { id: "page-v2-a", version: 2 },
+      { id: "page-v2-b", version: 3 },
+      { id: "page-v2-b-late", version: 4 },
+    ]);
+    expect(readRows(machineA.store, "SELECT version FROM knowledge_pages WHERE id = ?", pageId)).toEqual([
+      { version: 4 },
+    ]);
+  });
+
+  it("refuses a newer-wins update that would take another row's unique key", () => {
+    const { machineA, machineB, secondSessionId } = createTwoMachines();
+    const exportB = machineB.exportProjectData({ type: "project", projectId: machineA.projectId });
+    const session = exportB.tables.sessions.find((item) => item.id === secondSessionId);
+    if (!session) throw new Error("Expected the second Session.");
+    session.idempotency_key = "machine-a-only";
+
+    const preview = machineA.store.previewProjectDataImport({ bundle: exportB, strategy: "newer-wins" });
+    expect(preview.conflictDetails).toContainEqual({
+      table: "sessions",
+      id: secondSessionId,
+      reason: "唯一識別值已被另一筆資料使用。",
+      category: "unique",
+    });
+    expect(preview.updates.sessions ?? 0).toBe(0);
+  });
+
+  it("never overwrites append-only history or the local project row, even with newer-wins", () => {
+    const { machineA, machineB, firstSessionId } = createTwoMachines();
+    const exportB = machineB.exportProjectData({ type: "project", projectId: machineA.projectId });
+    // An event both machines already have (the export also holds B's own new events, which are simply added).
+    const event = exportB.tables.work_events.find((item) => item.session_id === firstSessionId);
+    const project = exportB.tables.projects[0];
+    if (!event || !project) throw new Error("Expected a work event and the project.");
+    event.summary = "改寫過的歷史事件。";
+    project.name = "另一台電腦的名稱";
+
+    const preview = machineA.store.previewProjectDataImport({ bundle: exportB, strategy: "newer-wins" });
+    expect(preview.conflictDetails).toContainEqual({
+      table: "work_events",
+      id: String(event.id),
+      reason: "相同 ID 的既有資料內容不同。",
+      category: "content",
+    });
+    machineA.store.importProjectData({ bundle: exportB, strategy: "newer-wins" });
+    expect(readRows(machineA.store, "SELECT summary FROM work_events WHERE id = ?", String(event.id))).not.toEqual([
+      { summary: "改寫過的歷史事件。" },
+    ]);
+    expect(machineA.store.listProjects()).toMatchObject([{ name: "Portable project", status: "tracked" }]);
+  });
+
+  it("rejects an unknown import strategy", () => {
+    const { machineA } = createTwoMachines();
+    const bundle = machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId });
+    expect(projectDataImportInputSchema.safeParse({ bundle, strategy: "overwrite" }).success).toBe(false);
+    expect(() =>
+      machineA.store.previewProjectDataImport({ bundle, strategy: "overwrite" } as unknown as Parameters<
+        typeof machineA.store.previewProjectDataImport
+      >[0]),
+    ).toThrow();
+  });
+
+  it("carries cross-project reports that cite the project so deleting and re-importing keeps them", () => {
+    const source = createSource();
+    insertCrossProjectReport(source.store, source.sessionIds);
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    expect(bundle.tables.report_synthesis_requests.map((item) => item.id)).toContain("cross-report-request");
+    expect(bundle.tables.report_summaries.map((item) => item.id)).toContain("cross-report-summary");
+    expect(bundle.tables.metadata_backfill_requests.map((item) => item.id)).toContain("cross-metadata-request");
+
+    source.store.deleteProject(source.projectId, "Portable project");
+    expect(readRows(source.store, "SELECT id FROM report_summaries WHERE id = 'cross-report-summary'")).toEqual([]);
+    const preview = source.store.previewProjectDataImport({ bundle, projectId: source.projectId });
+    expect(total(preview.conflicts)).toBe(0);
+    source.store.importProjectData({ bundle, projectId: source.projectId });
+    expect(readRows(source.store, "SELECT id, is_current FROM report_summaries WHERE project_id IS NULL")).toEqual([
+      { id: "cross-report-summary", is_current: 1 },
+    ]);
+  });
+});
+
+function insertCrossProjectReport(store: WorkIntelligenceStore, sessionIds: readonly string[]): void {
+  const db = new DatabaseSync(store.databasePath);
+  try {
+    insertRow(
+      db,
+      "report_synthesis_requests",
+      row("report_synthesis_requests", {
+        id: "cross-report-request",
+        idempotency_key: "cross-report-request-key",
+        scope_type: "all",
+        project_id: null,
+        period: "week",
+        range_from: "2026-09-14",
+        range_to: "2026-09-20",
+        status: "completed",
+        requested_at: "2026-09-21T12:00:00.000Z",
+        started_at: "2026-09-21T12:00:01.000Z",
+        completed_at: "2026-09-21T12:00:02.000Z",
+        failure_reason: null,
+        source_session_ids_json: JSON.stringify(sessionIds),
+      }),
+    );
+    insertRow(
+      db,
+      "report_summaries",
+      row("report_summaries", {
+        id: "cross-report-summary",
+        request_id: "cross-report-request",
+        period: "week",
+        range_from: "2026-09-14",
+        range_to: "2026-09-20",
+        project_id: null,
+        title: "跨專案週報",
+        executive_summary: "本週跨專案摘要。",
+        themes_json: "[]",
+        highlights_json: "[]",
+        verification_json: "[]",
+        comparison_json: "[]",
+        risks_json: "[]",
+        decisions_json: "[]",
+        next_steps_json: "[]",
+        source_session_ids_json: JSON.stringify(sessionIds),
+        generated_by_agent: "test-agent",
+        generated_by_model: null,
+        prompt_version: "test-v1",
+        created_at: "2026-09-21T12:00:02.000Z",
+        is_current: 1,
+      }),
+    );
+    insertRow(
+      db,
+      "metadata_backfill_requests",
+      row("metadata_backfill_requests", {
+        id: "cross-metadata-request",
+        idempotency_key: "cross-metadata-request-key",
+        scope_type: "all",
+        project_id: null,
+        status: "completed",
+        requested_at: "2026-09-21T12:01:00.000Z",
+        started_at: "2026-09-21T12:01:01.000Z",
+        completed_at: "2026-09-21T12:01:02.000Z",
+        failure_reason: null,
+        source_session_ids_json: JSON.stringify(sessionIds),
+      }),
+    );
+  } finally {
+    db.close();
+  }
+}
 
 describe("project path prefix conversion", () => {
   it("matches complete path segments and converts separators across platforms", () => {

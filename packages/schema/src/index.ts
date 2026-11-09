@@ -35,6 +35,7 @@ import {
   VERIFICATION_STATUSES,
   INSIGHT_AVAILABILITIES,
   INSIGHT_PROVIDER_EXECUTIONS,
+  PROJECT_DATA_IMPORT_STRATEGIES,
   PROJECT_DATA_TABLES,
   ATTENTION_KINDS,
 } from "@work-intelligence/core";
@@ -2178,6 +2179,7 @@ export const projectDataImportInputSchema = z
     bundle: projectDataExportSchema,
     projectId: z.string().trim().min(1).max(200).optional(),
     remap: z.array(projectPathRemapSchema).max(20).optional(),
+    strategy: z.enum(PROJECT_DATA_IMPORT_STRATEGIES).optional(),
   })
   .strict()
   .superRefine((input, context) => {

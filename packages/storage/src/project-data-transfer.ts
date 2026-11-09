@@ -5,7 +5,11 @@ import {
   PROJECT_DATA_TABLES,
   type ProjectDataCounts,
   type ProjectDataExport,
+  type ProjectDataAutoRemap,
   type ProjectDataImportConflict,
+  type ProjectDataImportConflictCategory,
+  type ProjectDataImportConflictGroup,
+  type ProjectDataImportStrategy,
   type ProjectDataImportInput,
   type ProjectDataImportPreview,
   type ProjectDataImportResult,
@@ -85,7 +89,8 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   session_links: [["session_id", "related_session_id"]],
   session_decisions: [["session_id", "position"]],
   knowledge_pages: [["project_id", "slug"]],
-  knowledge_page_versions: [["page_id", "version"]],
+  // (page_id, version) is resolved by renumbering both machines' versions by time instead of conflicting.
+  knowledge_page_versions: [["page_id", "idempotency_key"]],
   session_diagrams: [["session_id", "idempotency_key"]],
 };
 
@@ -130,6 +135,75 @@ const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = 
   metadata_backfill_requests: ["failure_reason"],
 };
 
+/** Columns each machine derives on its own; they never make two copies of a row different and are never overwritten. */
+const LOCAL_DERIVED_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
+  sessions: ["redaction_count"],
+  // Import always resets hide/snooze, so the local choice is kept.
+  attention_preferences: ["state", "snoozed_until"],
+  // Recomputed after import from the newest summary of each report scope.
+  report_summaries: ["is_current"],
+};
+
+/** JSON arrays whose element order and duplicate merging differ between machines without changing meaning. */
+const UNORDERED_JSON_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
+  sessions: ["changed_files_provenance_json"],
+};
+
+/**
+ * Time columns that advance when a mutable row changes; the latest of them dates one copy of the row.
+ * Tables not listed are append-only history: a differing copy with the same ID stays a conflict.
+ */
+const VERSION_TIME_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
+  sessions: ["created_at", "completed_at", "updated_at", "voided_at"],
+  evidence: ["captured_at", "voided_at"],
+  knowledge: ["created_at", "updated_at", "last_confirmed_at"],
+  session_decisions: ["reviewed_at"],
+  knowledge_pages: ["created_at", "updated_at", "update_requested_at"],
+  session_diagrams: ["created_at", "voided_at"],
+  knowledge_candidate_requests: ["requested_at", "started_at", "completed_at"],
+  knowledge_candidates: ["created_at", "decided_at"],
+  report_synthesis_requests: ["requested_at", "started_at", "completed_at"],
+  report_summaries: ["created_at"],
+  attention_preferences: ["updated_at"],
+  metadata_backfill_requests: ["requested_at", "started_at", "completed_at"],
+  outstanding_items: ["created_at", "updated_at"],
+  outstanding_cleanup_requests: ["requested_at", "completed_at"],
+  outstanding_cleanup_proposals: ["created_at", "decided_at"],
+};
+
+/** Temporary shift while renumbering local page versions, so the unique (page, version) index never collides mid-update. */
+const PAGE_VERSION_OFFSET = 1_000_000;
+const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
+
+/** Applies the portable redaction rules to one row; also used to compare a local row with a sanitized import. */
+function redactRow(
+  table: ProjectDataTable,
+  row: ProjectDataRow,
+): { row: ProjectDataRow; redactions: ReturnType<typeof combineRedactionSummaries> } {
+  const output = { ...row } as Record<string, ProjectDataValue>;
+  const redactions = combineRedactionSummaries();
+  for (const field of REDACTABLE_FIELDS[table] ?? []) {
+    const value = output[field];
+    if (typeof value !== "string") {
+      continue;
+    }
+    const result =
+      table === "session_diagrams" && field === "source"
+        ? redactDiagramSource(value, String(output.kind))
+        : field.endsWith("_json")
+          ? redactJsonText(value)
+          : redactText(value);
+    output[field] = result.value;
+    if (result.redactions.total === 0) continue;
+    redactions.total += result.redactions.total;
+    for (const [kind, count] of Object.entries(result.redactions.byKind)) {
+      const key = kind as keyof typeof redactions.byKind;
+      redactions.byKind[key] = (redactions.byKind[key] ?? 0) + (count ?? 0);
+    }
+  }
+  return { row: output as ProjectDataRow, redactions };
+}
+
 function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>): {
   rows: Record<ProjectDataTable, ProjectDataRow[]>;
   redactions: ReturnType<typeof combineRedactionSummaries>;
@@ -148,26 +222,13 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
   const sanitized = Object.fromEntries(
     PROJECT_DATA_TABLES.map((table) => {
       const result = rows[table].map((row) => {
-        const output = { ...row } as Record<string, ProjectDataValue>;
-        let rowCount = 0;
-        for (const field of REDACTABLE_FIELDS[table] ?? []) {
-          const value = output[field];
-          if (typeof value !== "string") {
-            continue;
-          }
-          const result =
-            table === "session_diagrams" && field === "source"
-              ? redactDiagramSource(value, String(output.kind))
-              : field.endsWith("_json")
-                ? redactJsonText(value)
-                : redactText(value);
-          output[field] = result.value;
-          rowCount += result.redactions.total;
-          allRedactions.total += result.redactions.total;
-          for (const [kind, count] of Object.entries(result.redactions.byKind)) {
-            const key = kind as keyof typeof allRedactions.byKind;
-            allRedactions.byKind[key] = (allRedactions.byKind[key] ?? 0) + (count ?? 0);
-          }
+        const redacted = redactRow(table, row);
+        const output = redacted.row as Record<string, ProjectDataValue>;
+        const rowCount = redacted.redactions.total;
+        if (rowCount > 0) allRedactions.total += rowCount;
+        for (const [kind, count] of rowCount > 0 ? Object.entries(redacted.redactions.byKind) : []) {
+          const key = kind as keyof typeof allRedactions.byKind;
+          allRedactions.byKind[key] = (allRedactions.byKind[key] ?? 0) + (count ?? 0);
         }
         if (rowCount > 0) {
           const sessionId =
@@ -233,20 +294,33 @@ function sanitizeImportInput(input: ProjectDataImportInput): {
 
 interface PlannedRow {
   row: ProjectDataRow;
-  disposition: "add" | "skip" | "conflict";
+  /** add: new row; update: replaces an older local copy; keep: local copy is newer; skip: identical. */
+  disposition: "add" | "skip" | "conflict" | "update" | "keep";
   reason?: string;
+  category?: ProjectDataImportConflictCategory;
 }
 
 type InsertStatement = ReturnType<DatabaseSync["prepare"]>;
 
 interface TransferPlan {
+  strategy: ProjectDataImportStrategy;
   rows: Record<ProjectDataTable, PlannedRow[]>;
   projectIds: Map<string, string>;
   selectedProjects: ProjectDataImportPreview["selectedProjects"];
   remappedPaths: ProjectDataImportPreview["remappedPaths"];
+  autoRemaps: ProjectDataAutoRemap[];
   conflicts: ProjectDataImportConflict[];
   conflictDetailsTruncated: boolean;
+  conflictGroups: ProjectDataImportConflictGroup[];
+  /** Local knowledge page versions that move to a new number so imported versions fit in time order. */
+  pageVersionRenumbers: Array<{ id: string; version: number }>;
+  renumbered: ProjectDataCounts;
 }
+
+/** Content conflicts leave the local row in place, so rows that depend on it can still be imported. */
+const NON_BLOCKING_CONFLICTS: ReadonlySet<ProjectDataImportConflictCategory> = new Set(["content", "newer_content"]);
+/** Columns that hold machine-specific paths; a row differing only here is a path conflict. */
+const PATH_COLUMNS: Partial<Record<ProjectDataTable, readonly string[]>> = { raw_snapshots: ["source_path"] };
 
 function emptyCounts(): Record<ProjectDataTable, number> {
   return Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, 0])) as Record<ProjectDataTable, number>;
@@ -300,6 +374,22 @@ function getRows(db: DatabaseSync, table: ProjectDataTable): Set<string> {
   return new Set(ids.map((row) => row.id));
 }
 
+/** True when a row's source_session_ids_json cites any Session in the bound JSON array (same test as deletion). */
+const CITES_SESSIONS_SQL = `EXISTS (
+  SELECT 1 FROM json_each(CASE WHEN json_valid(source_session_ids_json) THEN source_session_ids_json ELSE '[]' END) AS cited
+  WHERE cited.value IN (SELECT value FROM json_each(?))
+)`;
+
+function citesAnySession(value: ProjectDataValue | undefined, sessionIds: ReadonlySet<string>): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) && parsed.some((id) => typeof id === "string" && sessionIds.has(id));
+  } catch {
+    return false;
+  }
+}
+
 function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Record<ProjectDataTable, ProjectDataRow[]> {
   const projects =
     scope.type === "all" ? sqlRows(db, "projects") : sqlRows(db, "projects", "id = ?", [scope.projectId]);
@@ -307,10 +397,17 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
   const sessions = rowsByIds(db, "sessions", "project_id", projectIds);
   const sessionIds = sessions.map((session) => String(session.id));
   const sessionIdSet = new Set(sessionIds);
+  // Cross-project requests that cite this project's Sessions are removed with the project, so they travel with it.
+  const sessionIdsJson = JSON.stringify(sessionIds);
   const reportRequests =
     scope.type === "all"
       ? sqlRows(db, "report_synthesis_requests")
-      : sqlRows(db, "report_synthesis_requests", "scope_type = 'project' AND project_id = ?", [scope.projectId]);
+      : sqlRows(
+          db,
+          "report_synthesis_requests",
+          `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
+          [scope.projectId, sessionIdsJson],
+        );
   const reportRequestIds = reportRequests.map((request) => String(request.id));
   const candidateRequests = rowsByIds(db, "knowledge_candidate_requests", "project_id", projectIds);
   const candidateRequestIds = candidateRequests.map((request) => String(request.id));
@@ -344,7 +441,12 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
     metadata_backfill_requests:
       scope.type === "all"
         ? sqlRows(db, "metadata_backfill_requests")
-        : sqlRows(db, "metadata_backfill_requests", "scope_type = 'project' AND project_id = ?", [scope.projectId]),
+        : sqlRows(
+            db,
+            "metadata_backfill_requests",
+            `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
+            [scope.projectId, sessionIdsJson],
+          ),
     session_summary_updates: rowsByIds(db, "session_summary_updates", "session_id", sessionIds),
     session_work_summary_updates: rowsByIds(db, "session_work_summary_updates", "session_id", sessionIds),
     outstanding_items: rowsByIds(db, "outstanding_items", "project_id", projectIds),
@@ -403,21 +505,14 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
   const candidateRequests = bundle.tables.knowledge_candidate_requests.filter((item) =>
     selectedIds.has(String(item.project_id)),
   );
-  const reportRequests = bundle.tables.report_synthesis_requests.filter(
-    (item) => item.scope_type === "all" || (item.scope_type === "project" && selectedIds.has(String(item.project_id))),
-  );
+  // With one project selected, a cross-project request comes along only if it cites that project's Sessions.
+  const inScope = (item: ProjectDataRow) =>
+    item.scope_type === "all"
+      ? projectId === undefined || citesAnySession(item.source_session_ids_json, sessionIds)
+      : item.scope_type === "project" && selectedIds.has(String(item.project_id));
+  const reportRequests = bundle.tables.report_synthesis_requests.filter(inScope);
   const reportRequestIds = new Set(reportRequests.map((item) => String(item.id)));
-  const metadataRequests = bundle.tables.metadata_backfill_requests.filter(
-    (item) => item.scope_type === "all" || (item.scope_type === "project" && selectedIds.has(String(item.project_id))),
-  );
-
-  if (projectId) {
-    for (const row of reportRequests) {
-      if (row.scope_type === "all") {
-        reportRequestIds.delete(String(row.id));
-      }
-    }
-  }
+  const metadataRequests = bundle.tables.metadata_backfill_requests.filter(inScope);
   const filterSessionChildrenByScope = bundle.scope.type === "all" && projectId !== undefined;
   const scopedSummaryIds = new Set(
     bundle.tables.report_summaries
@@ -453,7 +548,7 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     session_diagrams: bundle.tables.session_diagrams.filter((row) => selectedIds.has(String(row.project_id))),
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
-    report_synthesis_requests: reportRequests.filter((row) => projectId === undefined || row.scope_type === "project"),
+    report_synthesis_requests: reportRequests,
     // Portable source identities/revisions cannot prove that a hidden issue is still the same problem.
     attention_preferences: bundle.tables.attention_preferences
       .filter((row) => selectedIds.has(String(row.project_id)))
@@ -465,9 +560,7 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
       projectId === undefined
         ? bundle.tables.report_summaries
         : bundle.tables.report_summaries.filter((row) => reportRequestIds.has(String(row.request_id))),
-    metadata_backfill_requests: metadataRequests.filter(
-      (row) => projectId === undefined || row.scope_type === "project",
-    ),
+    metadata_backfill_requests: metadataRequests,
     session_summary_updates: filterSessionChildrenByScope
       ? bundle.tables.session_summary_updates.filter((row) => sessionIds.has(String(row.session_id)))
       : bundle.tables.session_summary_updates,
@@ -578,10 +671,102 @@ function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
   }
 }
 
-function equalRows(table: ProjectDataTable, left: ProjectDataRow, right: ProjectDataRow): boolean {
-  return projectDataExportTableColumns[table].every(
-    (column) => projectDataColumnValue(table, left, column) === projectDataColumnValue(table, right, column),
-  );
+/** Sorts and de-duplicates a JSON array (and string arrays inside its objects) so merge order does not matter. */
+function normalizeUnorderedJson(value: ProjectDataValue | undefined): ProjectDataValue | undefined {
+  if (typeof value !== "string") {
+    return value;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return value;
+  }
+  if (!Array.isArray(parsed)) {
+    return value;
+  }
+  const entries = parsed.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return JSON.stringify(entry);
+    }
+    const record = entry as Record<string, unknown>;
+    return JSON.stringify(
+      Object.keys(record)
+        .sort()
+        .map((key) => {
+          const field = record[key];
+          return [key, Array.isArray(field) ? [...new Set(field.map((item) => JSON.stringify(item)))].sort() : field];
+        }),
+    );
+  });
+  return JSON.stringify([...new Set(entries)].sort());
+}
+
+function comparableValue(table: ProjectDataTable, row: ProjectDataRow, column: string): ProjectDataValue | undefined {
+  const value = projectDataColumnValue(table, row, column);
+  return UNORDERED_JSON_FIELDS[table]?.includes(column) ? normalizeUnorderedJson(value) : value;
+}
+
+function sameComparableColumns(table: ProjectDataTable, left: ProjectDataRow, right: ProjectDataRow): boolean {
+  const derived = LOCAL_DERIVED_FIELDS[table];
+  const unordered = UNORDERED_JSON_FIELDS[table];
+  const paths = PATH_COLUMNS[table];
+  for (const column of projectDataExportTableColumns[table]) {
+    const leftValue = projectDataColumnValue(table, left, column);
+    const rightValue = projectDataColumnValue(table, right, column);
+    // Equal raw values are the common case; only differing JSON arrays are parsed and normalized.
+    if (leftValue === rightValue || derived?.includes(column)) continue;
+    if (unordered?.includes(column) && normalizeUnorderedJson(leftValue) === normalizeUnorderedJson(rightValue)) {
+      continue;
+    }
+    // Windows paths are case-insensitive: a stored root is lowercase while a handoff path keeps its case.
+    if (
+      paths?.includes(column) &&
+      typeof leftValue === "string" &&
+      typeof rightValue === "string" &&
+      projectRootKey(leftValue) === projectRootKey(rightValue)
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Compares a local row with an already sanitized imported row, ignoring columns each machine derives itself.
+ * The local row is redacted with the same rules first, so text masked only by the newer rules is not a difference.
+ */
+function equalRows(table: ProjectDataTable, local: ProjectDataRow, imported: ProjectDataRow): boolean {
+  if (sameComparableColumns(table, local, imported)) {
+    return true;
+  }
+  return REDACTABLE_FIELDS[table] !== undefined && sameComparableColumns(table, redactRow(table, local).row, imported);
+}
+
+/** When this copy of a mutable row last changed (epoch ms, -Infinity if never), or undefined for append-only history. */
+function versionRank(table: ProjectDataTable, row: ProjectDataRow): number | undefined {
+  if (table === "outstanding_cleanup_request_items") {
+    // A snapshot item only moves forward by recording the submission that examined it.
+    return typeof row.examined_submission_id === "string" ? 1 : 0;
+  }
+  const fields = VERSION_TIME_FIELDS[table];
+  if (!fields) {
+    return undefined;
+  }
+  let latest = Number.NEGATIVE_INFINITY;
+  for (const field of fields) {
+    const value = row[field];
+    if (typeof value !== "string") {
+      continue;
+    }
+    const time = Date.parse(value);
+    if (Number.isFinite(time) && time > latest) {
+      latest = time;
+    }
+  }
+  // A mutable row with none of its time columns set has never changed: any dated copy is newer.
+  return latest;
 }
 
 function existingRow(db: DatabaseSync, table: ProjectDataTable, id: string): ProjectDataRow | undefined {
@@ -589,7 +774,29 @@ function existingRow(db: DatabaseSync, table: ProjectDataTable, id: string): Pro
   return db.prepare(`SELECT ${columns} FROM ${table} WHERE id = ?`).get(id) as unknown as ProjectDataRow | undefined;
 }
 
-function existingUniqueRow(db: DatabaseSync, table: ProjectDataTable, row: ProjectDataRow): ProjectDataRow | undefined {
+const statementCache = new WeakMap<DatabaseSync, Map<string, InsertStatement>>();
+
+/** Unique-key lookups run once per imported row; preparing each SQL text once per connection avoids re-parsing it. */
+function cachedStatement(db: DatabaseSync, sql: string): InsertStatement {
+  let statements = statementCache.get(db);
+  if (!statements) {
+    statements = new Map();
+    statementCache.set(db, statements);
+  }
+  let statement = statements.get(sql);
+  if (!statement) {
+    statement = db.prepare(sql);
+    statements.set(sql, statement);
+  }
+  return statement;
+}
+
+function existingUniqueRow(
+  db: DatabaseSync,
+  table: ProjectDataTable,
+  row: ProjectDataRow,
+  exceptId?: string,
+): ProjectDataRow | undefined {
   for (const fields of UNIQUE_FIELDS[table] ?? []) {
     const values: ProjectDataValue[] = [];
     let missingValue = false;
@@ -606,9 +813,9 @@ function existingUniqueRow(db: DatabaseSync, table: ProjectDataTable, row: Proje
     }
     const where = fields.map((field) => `${field} = ?`).join(" AND ");
     const columns = projectDataExportTableColumns[table].join(", ");
-    const found = db.prepare(`SELECT ${columns} FROM ${table} WHERE ${where}`).get(...values) as
+    const found = cachedStatement(db, `SELECT ${columns} FROM ${table} WHERE ${where}`).get(...values) as
       ProjectDataRow | undefined;
-    if (found) {
+    if (found && String(found.id) !== exceptId) {
       return found;
     }
   }
@@ -618,21 +825,29 @@ function existingUniqueRow(db: DatabaseSync, table: ProjectDataTable, row: Proje
     typeof row.project_id === "string"
   ) {
     const columns = projectDataExportTableColumns[table].join(", ");
-    const found = db
-      .prepare(
-        `SELECT ${columns} FROM outstanding_cleanup_requests
+    const found = cachedStatement(
+      db,
+      `SELECT ${columns} FROM outstanding_cleanup_requests
          WHERE project_id = ? AND status IN ('pending', 'awaiting_review')`,
-      )
-      .get(row.project_id) as ProjectDataRow | undefined;
-    if (found) return found;
+    ).get(row.project_id) as ProjectDataRow | undefined;
+    if (found && String(found.id) !== exceptId) return found;
   }
   return undefined;
 }
 
-function countPlan(plan: TransferPlan, disposition: PlannedRow["disposition"]): ProjectDataCounts {
-  const counts = emptyCounts();
+/** Counts every disposition per table in one pass over the plan. */
+function countPlan(plan: TransferPlan): Record<PlannedRow["disposition"], ProjectDataCounts> {
+  const counts = {
+    add: emptyCounts(),
+    skip: emptyCounts(),
+    conflict: emptyCounts(),
+    update: emptyCounts(),
+    keep: emptyCounts(),
+  };
   for (const table of TABLE_ORDER) {
-    counts[table] = plan.rows[table].filter((row) => row.disposition === disposition).length;
+    for (const entry of plan.rows[table]) {
+      counts[entry.disposition][table] += 1;
+    }
   }
   return counts;
 }
@@ -1055,6 +1270,134 @@ function orderKnowledgeRows(rows: ProjectDataRow[]): ProjectDataRow[] {
   return [...rows].sort((left, right) => depth(String(left.id)) - depth(String(right.id)));
 }
 
+type AddPlan = (
+  table: ProjectDataTable,
+  row: ProjectDataRow,
+  disposition: PlannedRow["disposition"],
+  reason?: string,
+  category?: ProjectDataImportConflictCategory,
+) => void;
+
+/** Decides how an imported row with an ID that already exists locally is handled. */
+function planExistingRow(
+  db: DatabaseSync,
+  table: ProjectDataTable,
+  current: ProjectDataRow,
+  row: ProjectDataRow,
+  strategy: ProjectDataImportStrategy,
+  addPlan: AddPlan,
+): void {
+  if (equalRows(table, current, row)) {
+    addPlan(table, row, "skip");
+    return;
+  }
+  const pathColumns = PATH_COLUMNS[table] ?? [];
+  if (
+    pathColumns.length > 0 &&
+    projectDataExportTableColumns[table].every(
+      (column) =>
+        (pathColumns as readonly string[]).includes(column) ||
+        comparableValue(table, current, column) === comparableValue(table, row, column),
+    )
+  ) {
+    addPlan(table, row, "conflict", "只有路徑不同；請確認路徑前綴轉換。", "path");
+    return;
+  }
+  const localRank = versionRank(table, current);
+  const importedRank = versionRank(table, row);
+  if (localRank !== undefined && importedRank !== undefined && localRank !== importedRank) {
+    if (importedRank < localRank) {
+      addPlan(table, row, "keep");
+      return;
+    }
+    if (strategy !== "newer-wins") {
+      addPlan(table, row, "conflict", "匯入資料較新；選擇「較新者優先」即可更新本機資料。", "newer_content");
+      return;
+    }
+    if (existingUniqueRow(db, table, row, String(row.id))) {
+      addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。", "unique");
+      return;
+    }
+    for (const field of LOCAL_DERIVED_FIELDS[table] ?? []) {
+      row[field] = projectDataColumnValue(table, current, field) ?? null;
+    }
+    addPlan(table, row, "update");
+    return;
+  }
+  addPlan(table, row, "conflict", "相同 ID 的既有資料內容不同。", "content");
+}
+
+function versionTime(value: ProjectDataValue | undefined): number {
+  const time = typeof value === "string" ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+/**
+ * Two machines can each save "version N" of the same page. When the numbers collide, every version of the page
+ * (local and imported) is renumbered 1..n by creation time so both are kept. One query, then O(n log n) per page.
+ */
+function planPageVersionNumbers(
+  db: DatabaseSync,
+  plannedVersions: PlannedRow[],
+): { localRenumbers: Array<{ id: string; version: number }>; count: number } {
+  const addedByPage = new Map<string, ProjectDataRow[]>();
+  for (const entry of plannedVersions) {
+    if (entry.disposition !== "add") continue;
+    const pageId = String(entry.row.page_id);
+    const list = addedByPage.get(pageId);
+    if (list) list.push(entry.row);
+    else addedByPage.set(pageId, [entry.row]);
+  }
+  const localRenumbers: Array<{ id: string; version: number }> = [];
+  if (addedByPage.size === 0) {
+    return { localRenumbers, count: 0 };
+  }
+  const localByPage = new Map<string, Array<{ id: string; version: number; created_at: string }>>();
+  const localRows = db
+    .prepare(
+      `SELECT id, page_id, version, created_at FROM knowledge_page_versions
+       WHERE page_id IN (SELECT value FROM json_each(?))`,
+    )
+    .all(JSON.stringify([...addedByPage.keys()])) as Array<{
+    id: string;
+    page_id: string;
+    version: number;
+    created_at: string;
+  }>;
+  for (const local of localRows) {
+    const list = localByPage.get(local.page_id);
+    if (list) list.push(local);
+    else localByPage.set(local.page_id, [local]);
+  }
+  let count = 0;
+  for (const [pageId, added] of addedByPage) {
+    const locals = localByPage.get(pageId) ?? [];
+    const versions: Array<{ id: string; version: number; createdAt: string; row?: ProjectDataRow }> = [
+      ...locals.map((local) => ({ id: local.id, version: local.version, createdAt: local.created_at })),
+      ...added.map((row) => ({
+        id: String(row.id),
+        version: Number(row.version),
+        createdAt: String(row.created_at),
+        row,
+      })),
+    ];
+    const seen = new Set<number>();
+    const collides = versions.some((version) => seen.size === seen.add(version.version).size);
+    if (!collides) continue;
+    versions.sort(
+      (left, right) => versionTime(left.createdAt) - versionTime(right.createdAt) || left.id.localeCompare(right.id),
+    );
+    versions.forEach((version, index) => {
+      const next = index + 1;
+      if (version.version === next) return;
+      count += 1;
+      if (version.row) version.row.version = next;
+      else localRenumbers.push({ id: version.id, version: next });
+    });
+  }
+  return { localRenumbers, count };
+}
+
 function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan {
   const inputResult = projectDataImportInputSchema.safeParse(input);
   if (!inputResult.success) {
@@ -1077,6 +1420,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     );
   }
 
+  const strategy: ProjectDataImportStrategy = input.strategy ?? "merge";
   const selectedBundle = bundleForScope(input.bundle, input.projectId);
   const sourceRootPaths = new Map(
     selectedBundle.tables.projects.map((project) => [String(project.id), String(project.root_path)]),
@@ -1097,20 +1441,35 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     PROJECT_DATA_TABLES.map((table) => [table, new Set<string>()]),
   ) as Record<ProjectDataTable, Set<string>>;
   const conflicts: ProjectDataImportConflict[] = [];
+  const conflictGroups = new Map<string, ProjectDataImportConflictGroup>();
   let conflictDetailsTruncated = false;
   const addPlan = (
     table: ProjectDataTable,
     row: ProjectDataRow,
     disposition: PlannedRow["disposition"],
     reason?: string,
+    category: ProjectDataImportConflictCategory = "dependency",
   ) => {
-    rows[table].push({ row, disposition, reason });
+    rows[table].push(disposition === "conflict" ? { row, disposition, reason, category } : { row, disposition });
     if (disposition === "conflict") {
-      conflictIds[table].add(String(row.id));
+      const id = String(row.id).slice(0, MAX_CONFLICT_ID_LENGTH);
+      const message = reason ?? "資料衝突。";
+      // A page whose content conflicts keeps blocking its versions, so history never runs ahead of the page.
+      if (!NON_BLOCKING_CONFLICTS.has(category) || table === "knowledge_pages") {
+        conflictIds[table].add(String(row.id));
+      }
       if (conflicts.length < CONFLICT_DETAIL_LIMIT) {
-        conflicts.push({ table, id: String(row.id).slice(0, MAX_CONFLICT_ID_LENGTH), reason: reason ?? "資料衝突。" });
+        conflicts.push({ table, id, reason: message, category });
       } else {
         conflictDetailsTruncated = true;
+      }
+      const groupKey = JSON.stringify([table, category, message]);
+      const group = conflictGroups.get(groupKey);
+      if (group) {
+        group.count += 1;
+        if (group.sampleIds.length < CONFLICT_GROUP_SAMPLE_LIMIT) group.sampleIds.push(id);
+      } else {
+        conflictGroups.set(groupKey, { category, table, reason: message, count: 1, sampleIds: [id] });
       }
     } else {
       for (const key of plannedUniqueKeysForRow(table, row)) {
@@ -1155,6 +1514,7 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
   const plannedProjectsByRoot = new Map<string, { rootPath: string; projectId: string }>();
   const plannedProjectIds = new Set<string>();
   const selectedProjects: ProjectDataImportPreview["selectedProjects"] = [];
+  const autoRemaps: ProjectDataAutoRemap[] = [];
 
   for (const original of selectedBundle.tables.projects) {
     const row = { ...original };
@@ -1166,17 +1526,39 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     const byRoot = existingProjectsByRoot.get(rootKey);
     const plannedByRoot = plannedProjectsByRoot.get(rootKey);
 
-    if (byId && byRoot && byId.id !== byRoot.id) {
-      addPlan("projects", row, "conflict", "專案 ID 與根路徑分別對應到不同的既有專案。");
-      selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "conflict" });
+    if (byId) {
+      // The same project ID is the same project: its data follows the root this machine already uses.
+      let effectiveRoot = rootPath;
+      if (!equalProjectRoot(byId.root_path, rootPath)) {
+        const mapping = { from: rootPath, to: byId.root_path };
+        let snapshots = 0;
+        for (const snapshot of selectedBundle.tables.raw_snapshots) {
+          if (snapshot.project_id !== sourceId || typeof snapshot.source_path !== "string") {
+            continue;
+          }
+          const moved = remapPathPrefix(snapshot.source_path, mapping);
+          if (moved !== snapshot.source_path) {
+            snapshot.source_path = moved;
+            snapshots += 1;
+          }
+        }
+        effectiveRoot = byId.root_path;
+        row.root_path = effectiveRoot;
+        autoRemaps.push({ projectId: sourceId, from: rootPath, to: effectiveRoot, snapshots });
+      }
+      projectIds.set(sourceId, byId.id);
+      existingIds.projects.add(byId.id);
+      addPlan("projects", row, "skip");
+      selectedProjects.push({
+        id: sourceId,
+        name: String(row.name),
+        sourceRootPath,
+        rootPath: effectiveRoot,
+        resolution: "existing",
+      });
       continue;
     }
-    if (byId && !equalProjectRoot(byId.root_path, rootPath)) {
-      addPlan("projects", row, "conflict", "相同專案 ID 已存在，但根路徑不同；請確認路徑前綴轉換。");
-      selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "conflict" });
-      continue;
-    }
-    const matchedProject = byId ?? byRoot ?? plannedByRoot;
+    const matchedProject = byRoot ?? plannedByRoot;
     if (matchedProject) {
       const targetId = "projectId" in matchedProject ? matchedProject.projectId : matchedProject.id;
       projectIds.set(sourceId, targetId);
@@ -1187,12 +1569,12 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
         name: String(row.name),
         sourceRootPath,
         rootPath,
-        resolution: byId || byRoot ? "existing" : "new",
+        resolution: byRoot ? "existing" : "new",
       });
       continue;
     }
     if (plannedProjectIds.has(sourceId)) {
-      addPlan("projects", row, "conflict", "匯入檔中有重複的專案 ID。");
+      addPlan("projects", row, "conflict", "匯入檔中有重複的專案 ID。", "unique");
       selectedProjects.push({ id: sourceId, name: String(row.name), sourceRootPath, rootPath, resolution: "conflict" });
       continue;
     }
@@ -1386,29 +1768,30 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
         cleanupRequestItemReferences,
         cleanupProposalReferences,
       );
-      if (dependencyError) {
-        addPlan(table, row, "conflict", dependencyError);
-        continue;
-      }
       const id = String(row.id);
       const current = existingRowsById[table].get(id);
-      if (current) {
-        if (equalRows(table, current, row)) {
+      if (dependencyError) {
+        // A row already stored here unchanged needs nothing, whatever happened to its parent.
+        if (current && equalRows(table, current, row)) {
           addPlan(table, row, "skip");
         } else {
-          addPlan(table, row, "conflict", "相同 ID 的既有資料內容不同。");
+          addPlan(table, row, "conflict", dependencyError, "dependency");
         }
+        continue;
+      }
+      if (current) {
+        planExistingRow(db, table, current, row, strategy, addPlan);
         continue;
       }
 
       const unique = existingUniqueRow(db, table, row);
       if (unique) {
-        addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。");
+        addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。", "unique");
         continue;
       }
       const hasPlannedUnique = plannedUniqueKeysForRow(table, row).some((key) => plannedUniqueKeys[table].has(key));
       if (hasPlannedUnique) {
-        addPlan(table, row, "conflict", "匯入檔內有重複的唯一識別值。");
+        addPlan(table, row, "conflict", "匯入檔內有重複的唯一識別值。", "unique");
         continue;
       }
       existingIds[table].add(id);
@@ -1416,39 +1799,112 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     }
   }
 
+  const renumbering = planPageVersionNumbers(db, rows.knowledge_page_versions);
   return {
+    strategy,
     rows,
     projectIds,
     selectedProjects,
     remappedPaths,
+    autoRemaps,
     conflicts,
     conflictDetailsTruncated,
+    conflictGroups: [...conflictGroups.values()].sort(
+      (left, right) => right.count - left.count || left.table.localeCompare(right.table),
+    ),
+    pageVersionRenumbers: renumbering.localRenumbers,
+    renumbered: renumbering.count > 0 ? { knowledge_page_versions: renumbering.count } : {},
   };
 }
 
 function previewFromPlan(plan: TransferPlan): ProjectDataImportPreview {
+  const counts = countPlan(plan);
   return {
     outcome: "project_data_import_preview",
-    additions: countPlan(plan, "add"),
-    skipped: countPlan(plan, "skip"),
-    conflicts: countPlan(plan, "conflict"),
+    strategy: plan.strategy,
+    additions: counts.add,
+    skipped: counts.skip,
+    conflicts: counts.conflict,
+    updates: counts.update,
+    keptLocal: counts.keep,
+    renumbered: plan.renumbered,
     selectedProjects: plan.selectedProjects,
     remappedPaths: plan.remappedPaths,
+    autoRemaps: plan.autoRemaps,
     conflictDetails: plan.conflicts,
     conflictDetailsTruncated: plan.conflictDetailsTruncated,
+    conflictGroups: plan.conflictGroups,
   };
 }
 
-function insertRow(db: DatabaseSync, table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {
-  const columns = projectDataExportTableColumns[table];
-  const values = columns.map((column) => {
+function rowValues(table: ProjectDataTable, row: ProjectDataRow, columns: readonly string[]): ProjectDataValue[] {
+  return columns.map((column) => {
     const value = projectDataColumnValue(table, row, column);
     if (value === undefined) {
       throw new ProjectDataTransferError("invalid_bundle", `匯入的 ${table} 資料缺少 ${column} 欄位。`);
     }
     return value;
   });
-  statement.run(...values);
+}
+
+function insertRow(table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {
+  statement.run(...rowValues(table, row, projectDataExportTableColumns[table]));
+}
+
+function updatableColumns(table: ProjectDataTable): string[] {
+  const derived = LOCAL_DERIVED_FIELDS[table] ?? [];
+  return projectDataExportTableColumns[table].filter((column) => column !== "id" && !derived.includes(column));
+}
+
+function updateRow(table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {
+  statement.run(...rowValues(table, row, updatableColumns(table)), String(row.id));
+}
+
+/** Moves local page versions to their new numbers in two steps, so no step reuses a number still in use. */
+function applyPageVersionRenumbers(db: DatabaseSync, renumbers: TransferPlan["pageVersionRenumbers"]): void {
+  if (renumbers.length === 0) return;
+  const ids = JSON.stringify(renumbers.map((entry) => entry.id));
+  db.prepare(
+    `UPDATE knowledge_page_versions SET version = version + ${PAGE_VERSION_OFFSET}
+     WHERE id IN (SELECT value FROM json_each(?))`,
+  ).run(ids);
+  const statement = db.prepare("UPDATE knowledge_page_versions SET version = ? WHERE id = ?");
+  for (const entry of renumbers) statement.run(entry.version, entry.id);
+}
+
+/** Keeps each page's version counter at its newest stored version so the next save gets a free number. */
+function syncPageVersionCounters(db: DatabaseSync, pageIds: readonly string[]): void {
+  if (pageIds.length === 0) return;
+  db.prepare(
+    `UPDATE knowledge_pages
+     SET version = MAX(version, COALESCE((SELECT MAX(v.version) FROM knowledge_page_versions v
+                                          WHERE v.page_id = knowledge_pages.id), 0))
+     WHERE id IN (SELECT value FROM json_each(?))`,
+  ).run(JSON.stringify(pageIds));
+}
+
+/** Only the newest summary of each report scope stays current after summaries from two machines are merged. */
+function syncCurrentReportSummaries(db: DatabaseSync, summaries: readonly ProjectDataRow[]): void {
+  const scopes = new Map<string, ProjectDataValue[]>();
+  for (const summary of summaries) {
+    const scope = [
+      summary.period ?? null,
+      summary.range_from ?? null,
+      summary.range_to ?? null,
+      summary.project_id ?? null,
+    ];
+    scopes.set(JSON.stringify(scope), scope);
+  }
+  const statement = db.prepare(
+    `UPDATE report_summaries
+     SET is_current = CASE WHEN id = (
+       SELECT s.id FROM report_summaries s
+       WHERE s.period = ?1 AND s.range_from = ?2 AND s.range_to = ?3 AND s.project_id IS ?4
+       ORDER BY s.created_at DESC, s.id DESC LIMIT 1
+     ) THEN 1 ELSE 0 END
+     WHERE period = ?1 AND range_from = ?2 AND range_to = ?3 AND project_id IS ?4`,
+  );
+  for (const scope of scopes.values()) statement.run(...scope);
 }
 
 /** Exports complete project-scoped data and merges validated portable data without closing SQLite. */
@@ -1481,7 +1937,9 @@ export class ProjectDataTransferService {
     const sanitized = sanitizeImportInput(input);
     return runImmediateTransaction(this.db, () => {
       const plan = makePlan(this.db, sanitized.input);
+      applyPageVersionRenumbers(this.db, plan.pageVersionRenumbers);
       const insertStatements = new Map<ProjectDataTable, InsertStatement>();
+      const updateStatements = new Map<ProjectDataTable, InsertStatement>();
       for (const table of TABLE_ORDER) {
         for (const entry of plan.rows[table]) {
           if (entry.disposition === "add") {
@@ -1492,14 +1950,42 @@ export class ProjectDataTransferService {
               statement = this.db.prepare(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`);
               insertStatements.set(table, statement);
             }
-            insertRow(this.db, table, entry.row, statement);
+            insertRow(table, entry.row, statement);
+          } else if (entry.disposition === "update") {
+            let statement = updateStatements.get(table);
+            if (!statement) {
+              const assignments = updatableColumns(table).map((column) => `${column} = ?`);
+              statement = this.db.prepare(`UPDATE ${table} SET ${assignments.join(", ")} WHERE id = ?`);
+              updateStatements.set(table, statement);
+            }
+            updateRow(table, entry.row, statement);
           }
         }
       }
+      const written = (table: ProjectDataTable) =>
+        plan.rows[table].filter((entry) => entry.disposition === "add" || entry.disposition === "update");
+      syncPageVersionCounters(this.db, [
+        ...new Set([
+          ...written("knowledge_page_versions").map((entry) => String(entry.row.page_id)),
+          ...written("knowledge_pages").map((entry) => String(entry.row.id)),
+        ]),
+      ]);
+      syncCurrentReportSummaries(
+        this.db,
+        written("report_summaries").map((entry) => entry.row),
+      );
       const preview = previewFromPlan(plan);
       const importedAt = nowIso();
       const sourceDigest = createHash("sha256").update(JSON.stringify(sanitized.input)).digest("hex");
-      const remapCounts = JSON.stringify(plan.remappedPaths);
+      // Counts only: the audit never stores paths or row contents.
+      const remapCounts = JSON.stringify({
+        explicit: plan.remappedPaths,
+        automatic: plan.autoRemaps.map((entry) => ({ projects: 1, snapshots: entry.snapshots })),
+        strategy: plan.strategy,
+        updates: preview.updates,
+        keptLocal: preview.keptLocal,
+        renumbered: preview.renumbered,
+      });
       this.db
         .prepare(
           `INSERT INTO project_data_import_audits

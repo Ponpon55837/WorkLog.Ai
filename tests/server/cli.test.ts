@@ -221,6 +221,42 @@ describe("database maintenance CLI", () => {
     expect(existsSync(newRoot)).toBe(false);
   });
 
+  it("imports with the newer-wins strategy, reuses the local root, and prints grouped counts", async () => {
+    const root = createRoot();
+    const source = createStore();
+    const { project, finalized } = createPortableProject(source, root);
+    const bundleFile = join(root, "portable.json");
+    const bundle = source.exportProjectData({ type: "project", projectId: project.id });
+    writeFileSync(bundleFile, JSON.stringify(bundle));
+
+    const destination = createStore();
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps = dependencies(destination, root, messages, async () => true);
+    const localRoot = join(root, "local-checkout");
+    expect(
+      await runDatabaseCli(["import", "portable.json", "--remap-root", `${project.rootPath}=${localRoot}`], deps),
+    ).toBe(0);
+
+    // The other computer edits the Session later and exports again under its own root.
+    const session = bundle.tables.sessions.find((item) => item.id === finalized.session.id);
+    if (!session) throw new Error("Expected the finalized Session in the export.");
+    session.summary = "另一台電腦較新的摘要。";
+    session.updated_at = new Date(Date.now() + 60_000).toISOString();
+    writeFileSync(bundleFile, JSON.stringify(bundle));
+    messages.log.length = 0;
+
+    expect(await runDatabaseCli(["import", "portable.json", "--strategy", "newer-wins"], deps)).toBe(0);
+    const output = messages.log.join("\n");
+    expect(output).toContain("合併策略：較新者優先");
+    expect(output).toContain("將以匯入資料更新 1 筆");
+    expect(output).toContain(`自動沿用本機路徑：${project.rootPath} → ${localRoot}`);
+    expect(destination.getSessionById(finalized.session.id)?.summary).toBe("另一台電腦較新的摘要。");
+    expect(destination.listProjects()).toMatchObject([{ id: project.id, rootPath: localRoot }]);
+
+    expect(await runDatabaseCli(["import", "portable.json", "--strategy=overwrite", "--dry-run"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("--strategy 只接受 merge 或 newer-wins");
+  });
+
   it("asks for a missing project folder during an interactive portable import", async () => {
     const root = createRoot();
     const source = createStore();
