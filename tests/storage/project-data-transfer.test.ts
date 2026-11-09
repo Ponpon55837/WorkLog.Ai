@@ -1309,6 +1309,38 @@ describe("portable project data transfer", () => {
     expect(total(again.additions)).toBe(0);
   });
 
+  it("treats Windows handoff paths that differ only in case or separators as the same path", () => {
+    const source = createSource();
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const windowsRoot = "C:\\Users\\Dev\\Portable";
+    const targetRoot = join(source.root, "windows-paths.sqlite");
+    const destination = new WorkIntelligenceStore(targetRoot);
+    stores.push(destination);
+    destination.importProjectData({ bundle, remap: [{ from: source.projectRoot, to: windowsRoot }] });
+    // A Windows database keeps its root lowercase (canonical) while the handoff path keeps the original case.
+    runSql(destination, "UPDATE projects SET root_path = ?", windowsRoot.toLowerCase());
+    runSql(destination, "UPDATE raw_snapshots SET source_path = ?", "C:\\USERS\\Dev\\Portable\\handoff.md");
+
+    const preview = destination.previewProjectDataImport({ bundle, strategy: "newer-wins" });
+    expect(preview.autoRemaps).toHaveLength(1);
+    expect(preview.conflictGroups).toEqual([]);
+    expect(preview.skipped.raw_snapshots).toBe(1);
+  });
+
+  it("still reports a handoff path that really points elsewhere as a path conflict", () => {
+    const source = createSource();
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const destination = new WorkIntelligenceStore(join(source.root, "moved-handoff.sqlite"));
+    stores.push(destination);
+    destination.importProjectData({ bundle });
+    runSql(destination, "UPDATE raw_snapshots SET source_path = ?", join(source.root, "elsewhere", "handoff.md"));
+
+    const preview = destination.previewProjectDataImport({ bundle });
+    expect(preview.conflictGroups).toEqual([
+      expect.objectContaining({ category: "path", table: "raw_snapshots", count: 1 }),
+    ]);
+  });
+
   it("rejects supersedes and link references that are outside the selected scope", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });

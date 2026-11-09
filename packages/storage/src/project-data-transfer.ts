@@ -710,12 +710,22 @@ function comparableValue(table: ProjectDataTable, row: ProjectDataRow, column: s
 function sameComparableColumns(table: ProjectDataTable, left: ProjectDataRow, right: ProjectDataRow): boolean {
   const derived = LOCAL_DERIVED_FIELDS[table];
   const unordered = UNORDERED_JSON_FIELDS[table];
+  const paths = PATH_COLUMNS[table];
   for (const column of projectDataExportTableColumns[table]) {
     const leftValue = projectDataColumnValue(table, left, column);
     const rightValue = projectDataColumnValue(table, right, column);
     // Equal raw values are the common case; only differing JSON arrays are parsed and normalized.
     if (leftValue === rightValue || derived?.includes(column)) continue;
     if (unordered?.includes(column) && normalizeUnorderedJson(leftValue) === normalizeUnorderedJson(rightValue)) {
+      continue;
+    }
+    // Windows paths are case-insensitive: a stored root is lowercase while a handoff path keeps its case.
+    if (
+      paths?.includes(column) &&
+      typeof leftValue === "string" &&
+      typeof rightValue === "string" &&
+      projectRootKey(leftValue) === projectRootKey(rightValue)
+    ) {
       continue;
     }
     return false;
