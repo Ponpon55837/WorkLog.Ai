@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.11] - 2026-11-09
+
+[繁體中文更新說明](docs/releases/1.6.11.md).
+
+### Documentation
+
+- Both READMEs now show eight Web UI screenshots (overview, work history, Session details, reports, knowledge, graph, projects, system status) in English and Traditional Chinese. Project names and record text in the images are blurred.
+
 ## [1.6.10] - 2026-11-08
 
 [繁體中文更新說明](docs/releases/1.6.10.md).

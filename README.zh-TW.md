@@ -194,7 +194,37 @@ pnpm eval:recall ./recall-questions.json --db ./data/work-intelligence.sqlite --
 
 ## Web UI 導覽
 
-GitHub（Primer）風格的介面，有深色與淺色兩種主題，介面語言可選繁體中文或 English。左側選單分三組。長清單都在各自的框內捲動，不會把整頁撐長。
+GitHub（Primer）風格的介面，有深色與淺色兩種主題，介面語言可選繁體中文或 English。左側選單分三組。長清單都在各自的框內捲動，不會把整頁撐長。下列截圖已將所有專案名稱與記錄文字模糊處理。
+
+**總覽**
+
+![總覽：工作熱度、本週洞察、需要處理與最近完成的工作](docs/images/zh-TW/overview.png)
+
+**工作歷程**與 Session 詳情
+
+![工作歷程：依日期分組的 Session，附搜尋與篩選](docs/images/zh-TW/work-history.png)
+
+![Session 詳情面板，含固定的五段內容](docs/images/zh-TW/session-detail.png)
+
+**工作報告**
+
+![工作報告：週報總覽、驗證結果、每日分布與專案占比](docs/images/zh-TW/work-reports.png)
+
+**工作知識**
+
+![工作知識：Knowledge 清單，另有知識頁、候選與待確認決策分頁](docs/images/zh-TW/work-knowledge.png)
+
+**工作圖譜**（時間軸分頁）
+
+![工作圖譜時間軸：每個專案一條泳道，依驗證結果上色](docs/images/zh-TW/work-graph.png)
+
+**專案**
+
+![專案：記錄中專案清單與預設拒絕說明](docs/images/zh-TW/projects.png)
+
+**系統狀態**
+
+![系統狀態：版本、Agent 連線、讀取紀錄、服務、資料庫與備份](docs/images/zh-TW/system-status.png)
 
 - **主題**：頁首的太陽／月亮按鈕切換淺色與深色；「系統狀態 → 個人偏好」可改回「跟隨系統」，隨作業系統的淺色／深色設定自動切換。第一次開啟時就跟隨系統。
 - **語言**：頁首的語言選單切換繁體中文與 English。第一次開啟時依瀏覽器語言決定（中文瀏覽器用繁體中文，其他用 English）。只翻譯介面文字；Session、報告與 Agent 寫入的內容維持原本記錄的語言。

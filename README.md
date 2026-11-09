@@ -194,7 +194,37 @@ More detail is in the **[User guide](docs/user-guide.md)**.
 
 ## Web UI tour
 
-A GitHub (Primer) style interface with dark and light themes, available in English and Traditional Chinese. The sidebar has three groups. Long lists scroll inside their own box instead of stretching the page.
+A GitHub (Primer) style interface with dark and light themes, available in English and Traditional Chinese. The sidebar has three groups. Long lists scroll inside their own box instead of stretching the page. The screenshots below blur all project names and record text.
+
+**Overview**
+
+![Overview: work activity calendar, weekly insights, needs attention and recent work](docs/images/en-US/overview.png)
+
+**Work history** and a Session's details
+
+![Work history: Sessions grouped by day with search and filters](docs/images/en-US/work-history.png)
+
+![Session details panel with the five fixed sections](docs/images/en-US/session-detail.png)
+
+**Work reports**
+
+![Work reports: weekly overview with verification, by-day breakdown and project share](docs/images/en-US/work-reports.png)
+
+**Work knowledge**
+
+![Work knowledge: Knowledge list with tabs for pages, candidates and decisions to confirm](docs/images/en-US/work-knowledge.png)
+
+**Work graph** (Timeline tab)
+
+![Work graph timeline: one swimlane per project, coloured by verification result](docs/images/en-US/work-graph.png)
+
+**Projects**
+
+![Projects: tracked project list with the default-deny policy notice](docs/images/en-US/projects.png)
+
+**System status**
+
+![System status: versions, Agent connections, read log, service, database and backups](docs/images/en-US/system-status.png)
 
 - **Theme**: the sun/moon button in the header switches between light and dark; System status → Personal preferences can return to **Follow system**, which tracks your operating system's light or dark setting. The first visit follows the system. The light theme uses soft grey surfaces rather than pure white to reduce glare.
 - **Language**: the language menu in the header switches between English and 繁體中文. The first visit follows the browser language (Chinese browsers get Traditional Chinese, everything else English). Only interface text is translated; Sessions, reports and anything an Agent wrote keep the language they were recorded in.
