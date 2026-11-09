@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.12] - 2026-11-09
+
+[繁體中文更新說明](docs/releases/1.6.12.md).
+
+### Documentation
+
+- Recompressed the 16 README Web UI screenshots to palette PNGs (at most 256 colors): 4.19 MB down to 1.34 MB (-68%) with the text still sharp. No content changes.
+
 ## [1.6.11] - 2026-11-09
 
 [繁體中文更新說明](docs/releases/1.6.11.md).
