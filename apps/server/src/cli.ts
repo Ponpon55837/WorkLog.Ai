@@ -8,8 +8,11 @@ import type {
   ProjectDataExport,
   ProjectDataImportInput,
   ProjectDataImportPreview,
+  ProjectDataImportConflictCategory,
+  ProjectDataImportStrategy,
   ProjectPathRemap,
 } from "@work-intelligence/core";
+import { PROJECT_DATA_IMPORT_STRATEGIES } from "@work-intelligence/core";
 import { projectDataExportSchema, projectDataImportInputSchema } from "@work-intelligence/schema";
 import { z } from "zod";
 import {
@@ -66,7 +69,8 @@ export 選項：
 
 import 選項：
   --project <名稱或 id>              只匯入檔案中的單一專案；預設為全部
-  --remap-root <舊路徑>=<新路徑>     換電腦時替換路徑前綴（可重複）
+  --remap-root <舊路徑>=<新路徑>     換電腦時替換路徑前綴（可重複）；相同專案 ID 會自動沿用本機路徑
+  --strategy <merge|newer-wins>     merge 只新增（預設）；newer-wins 同 ID 內容不同時以較新者覆寫，本機較新則保留
   --dry-run                         只顯示預覽，不寫入資料
 
 restore 選項：
@@ -169,6 +173,14 @@ function writePortableExport(target: string, bundle: ProjectDataExport): number 
   return bytes;
 }
 
+const IMPORT_CONFLICT_CATEGORY_LABELS: Record<ProjectDataImportConflictCategory, string> = {
+  path: "路徑",
+  newer_content: "匯入資料較新",
+  content: "內容不同",
+  unique: "唯一識別值",
+  dependency: "依賴連帶",
+};
+
 function printImportPreview(
   preview: ProjectDataImportPreview,
   log: (message: string) => void = (message) => console.log(message),
@@ -184,11 +196,17 @@ function printImportPreview(
   log(
     `明細：專案新增 ${preview.additions.projects ?? 0}、Session 新增 ${preview.additions.sessions ?? 0}、Knowledge 新增 ${preview.additions.knowledge ?? 0}。`,
   );
-  for (const conflict of preview.conflictDetails) {
-    log(`衝突：${conflict.table} ${conflict.id}：${conflict.reason}`);
+  log(`合併策略：${preview.strategy === "newer-wins" ? "較新者優先" : "只新增"}`);
+  log(
+    `將以匯入資料更新 ${totalCounts(preview.updates)} 筆、保留本機較新 ${totalCounts(preview.keptLocal)} 筆、知識頁版本重新編號 ${totalCounts(preview.renumbered)} 筆。`,
+  );
+  for (const remap of preview.autoRemaps) {
+    log(`自動沿用本機路徑：${remap.from} → ${remap.to}（handoff 路徑 ${remap.snapshots} 筆）`);
   }
-  if (preview.conflictDetailsTruncated) {
-    log("衝突明細超過 100 筆，僅顯示前 100 筆。");
+  for (const group of preview.conflictGroups) {
+    log(
+      `衝突（${IMPORT_CONFLICT_CATEGORY_LABELS[group.category]}）：${group.table} ${group.count} 筆：${group.reason}（例：${group.sampleIds.join("、")}）`,
+    );
   }
 }
 
@@ -412,6 +430,7 @@ export async function runDatabaseCli(
       let source: string | undefined;
       let projectValue: string | undefined;
       let dryRun = false;
+      let strategy: ProjectDataImportStrategy | undefined;
       const remap: ProjectPathRemap[] = [];
       for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
@@ -428,6 +447,12 @@ export async function runDatabaseCli(
           remap.push(parseRemap(args[index]));
         } else if (arg.startsWith("--remap-root=")) {
           remap.push(parseRemap(arg.slice("--remap-root=".length)));
+        } else if (arg === "--strategy" || arg.startsWith("--strategy=")) {
+          const value = arg === "--strategy" ? args[(index += 1)] : arg.slice("--strategy=".length);
+          if (!PROJECT_DATA_IMPORT_STRATEGIES.includes(value as ProjectDataImportStrategy)) {
+            fail("--strategy 只接受 merge 或 newer-wins。");
+          }
+          strategy = value as ProjectDataImportStrategy;
         } else if (arg === "--dry-run") {
           dryRun = true;
         } else if (arg && !arg.startsWith("--") && !source) {
@@ -467,6 +492,7 @@ export async function runDatabaseCli(
         bundle,
         ...(projectId ? { projectId } : {}),
         ...(remap.length > 0 ? { remap } : {}),
+        ...(strategy ? { strategy } : {}),
       };
       const parsedInput = projectDataImportInputSchema.safeParse(input);
       if (!parsedInput.success) {
@@ -505,7 +531,7 @@ export async function runDatabaseCli(
       } else if (await confirmImport()) {
         const result = runWithStore((store) => store.importProjectData(validatedInput));
         print(
-          `匯入完成：新增 ${totalCounts(result.additions)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
+          `匯入完成：新增 ${totalCounts(result.additions)} 筆，更新 ${totalCounts(result.updates)} 筆，保留本機 ${totalCounts(result.keptLocal)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
         );
         print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
       } else {

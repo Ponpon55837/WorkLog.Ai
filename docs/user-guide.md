@@ -154,7 +154,7 @@ pnpm track <資料夾> [--name <名稱>] [--yes]
 - 寫入 Session、Evidence、Knowledge 等文字前，會遮蔽已知格式的憑證，並移除 `<private>…</private>` 包住的內容（換成 `[REDACTED:private_block]`；區塊必須有結尾標籤，沒有結尾的 `<private>` 會照原文保存）。不希望被保存的內容，可請 Agent 用這組標籤包住。
 - `pnpm db:redact` 只讀掃描並顯示各類型遮蔽數量與受影響 Session 數；確認後先停止 server、關閉 MCP Agent，再用 `pnpm db:redact --apply` 遮蔽目前資料庫。命令會先建立一份包含原始內容的備份。既有備份與先前匯出檔不會被改寫；請在「專案 → 資料備份」檢視並處理不再需要的檔案，必要時重新匯出可攜式 JSON。
 - 完整 SQLite 快照可在 Web 介面匯出，或使用 `pnpm db:export <檔案.sqlite>`。快照包含所有專案與工作記錄。
-- 可攜式 JSON 支援單一或全部專案：`pnpm db:export --project <專案名稱或 id>`、`pnpm db:export --all`。在 Web 匯入或執行 `pnpm db:import <檔案.json> --dry-run`，先查看新增、略過、衝突及路徑轉換，再確認匯入。匯入不會覆寫既有資料；新專案會以暫停狀態加入。
+- 可攜式 JSON 支援單一或全部專案：`pnpm db:export --project <專案名稱或 id>`、`pnpm db:export --all`。在 Web 匯入或執行 `pnpm db:import <檔案.json> --dry-run`，先查看新增、更新、保留本機、略過、衝突及路徑轉換，再確認匯入；新專案會以暫停狀態加入。相同專案 ID 已存在時自動沿用本機根路徑。兩台電腦都在記錄同一專案時用「較新者優先」（`--strategy newer-wins`）：兩邊都改過的資料取較新者、本機較新的保留、歷史只新增、撞號的知識頁版本依時間重新編號後並存；「只新增」（預設 `merge`）不覆寫既有資料。
 - JSON 匯出未加密。SQLite 快照與備份也應視同包含私人工作記錄，請存放在可信任位置。
 
 ## 換電腦與還原

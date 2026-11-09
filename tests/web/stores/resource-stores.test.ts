@@ -182,25 +182,37 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
   if (url.pathname === "/api/import/preview") {
     return {
       outcome: "project_data_import_preview",
+      strategy: "newer-wins",
       additions: { projects: 1 },
       skipped: {},
       conflicts: {},
+      updates: { sessions: 2 },
+      keptLocal: { sessions: 1 },
+      renumbered: {},
       selectedProjects: [],
       remappedPaths: [],
+      autoRemaps: [],
       conflictDetails: [],
       conflictDetailsTruncated: false,
+      conflictGroups: [],
     };
   }
   if (url.pathname === "/api/import") {
     return {
       outcome: "project_data_imported",
+      strategy: "newer-wins",
       additions: { projects: 1 },
       skipped: {},
       conflicts: {},
+      updates: { sessions: 2 },
+      keptLocal: { sessions: 1 },
+      renumbered: {},
       selectedProjects: [],
       remappedPaths: [],
+      autoRemaps: [],
       conflictDetails: [],
       conflictDetailsTruncated: false,
+      conflictGroups: [],
       importedAt: "2026-09-27T00:00:00.000Z",
     };
   }
@@ -495,8 +507,23 @@ describe("resource stores", () => {
     expect(harness.count("/api/import", "POST")).toBe(0);
     mocks.confirmAction.mockResolvedValueOnce(true);
     await store.applyProjectDataImport();
+    expect(mocks.confirmAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        message: t("projects.recordsWillBeAddedAnd", {
+          additions: 1,
+          updates: 2,
+          keptLocal: 1,
+          skipped: 0,
+          conflicts: 0,
+        }),
+      }),
+    );
+    expect(store.importStrategy).toBe("newer-wins");
     expect(harness.count("/api/import/preview", "POST")).toBe(1);
     expect(harness.count("/api/import", "POST")).toBe(1);
+    expect(
+      harness.calls.find((call) => call.url.pathname === "/api/import" && call.method === "POST")?.body,
+    ).toMatchObject({ strategy: "newer-wins" });
     expect(store.importFileName).toBe("");
     expect(store.importLoading).toBe(false);
     expect(mocks.confirmAction).toHaveBeenCalledTimes(2);

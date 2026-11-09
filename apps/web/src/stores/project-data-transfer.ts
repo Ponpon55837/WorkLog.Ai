@@ -6,6 +6,7 @@ import type {
   ProjectDataExportScope,
   ProjectDataImportInput,
   ProjectDataImportPreview,
+  ProjectDataImportStrategy,
   ProjectPathRemap,
 } from "@work-intelligence/core";
 import { projectDataExportSchema } from "@work-intelligence/schema";
@@ -30,6 +31,8 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   const importFileName = ref("");
   const importProjectId = ref("");
   const importRemaps = ref<ProjectPathRemap[]>([]);
+  // Importing between two computers that both keep working is the common case, so newer copies win by default.
+  const importStrategy = ref<ProjectDataImportStrategy>("newer-wins");
   const importPreviewInput = ref<ProjectDataImportInput | null>(null);
   const importPreviewVisible = ref(false);
   const importPreviewRequestId = ref(0);
@@ -65,7 +68,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     void queryCache.cancelQueries({ key: queryKeys.projects.projectDataImportPreview, exact: true });
   }
 
-  watch(importProjectId, () => {
+  watch([importProjectId, importStrategy], () => {
     cancelImportPreview();
     if (importBundle.value) void previewProjectDataImport();
   });
@@ -81,6 +84,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       bundle: importBundle.value,
       ...(importProjectId.value ? { projectId: importProjectId.value } : {}),
       ...(remap.length > 0 ? { remap } : {}),
+      strategy: importStrategy.value,
     };
   }
 
@@ -176,11 +180,13 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     const preview = importPreview.value;
     if (!preview) return;
     const additions = countItems(preview.additions);
+    const updates = countItems(preview.updates);
+    const keptLocal = countItems(preview.keptLocal);
     const skipped = countItems(preview.skipped);
     const conflicts = countItems(preview.conflicts);
     const confirmed = await confirmAction({
       title: t("projects.confirmProjectDataImport"),
-      message: t("projects.recordsWillBeAddedAnd", { additions, skipped, conflicts }),
+      message: t("projects.recordsWillBeAddedAnd", { additions, updates, keptLocal, skipped, conflicts }),
       confirmLabel: t("projects.import"),
     });
     if (!confirmed) return;
@@ -192,6 +198,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       useToast().showToast(
         t("projects.importFinishedAddedSkippedIn", {
           value: countItems(result.additions),
+          updates: countItems(result.updates),
           value2: countItems(result.skipped),
           value3: countItems(result.conflicts),
         }),
@@ -313,6 +320,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importFileName,
     importProjectId,
     importRemaps,
+    importStrategy,
     importLoading,
     importPreview,
     importError,

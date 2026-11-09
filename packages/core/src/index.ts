@@ -3195,18 +3195,48 @@ export interface ProjectPathRemap {
   to: string;
 }
 
+/**
+ * How rows that already exist locally with different content are resolved.
+ * `merge` adds new rows only; `newer-wins` also replaces a mutable row when the imported copy is newer.
+ * In both, a local row that is newer than the imported copy is kept.
+ */
+export const PROJECT_DATA_IMPORT_STRATEGIES = ["merge", "newer-wins"] as const;
+export type ProjectDataImportStrategy = (typeof PROJECT_DATA_IMPORT_STRATEGIES)[number];
+
 export interface ProjectDataImportInput {
   bundle: ProjectDataExport;
   projectId?: string;
   remap?: ProjectPathRemap[];
+  strategy?: ProjectDataImportStrategy;
 }
 
 export type ProjectDataCounts = Partial<Record<ProjectDataTable, number>>;
+
+/** Why a row could not be imported: the project root, newer or differing content, a unique key, or a dependency. */
+export type ProjectDataImportConflictCategory = "path" | "newer_content" | "content" | "unique" | "dependency";
 
 export interface ProjectDataImportConflict {
   table: ProjectDataTable;
   id: string;
   reason: string;
+  category?: ProjectDataImportConflictCategory;
+}
+
+/** All conflicts of one table that share one reason, so large imports are summarized instead of truncated. */
+export interface ProjectDataImportConflictGroup {
+  category: ProjectDataImportConflictCategory;
+  table: ProjectDataTable;
+  reason: string;
+  count: number;
+  sampleIds: string[];
+}
+
+/** A project whose ID already exists locally under another root; the import reuses the local root. */
+export interface ProjectDataAutoRemap {
+  projectId: string;
+  from: string;
+  to: string;
+  snapshots: number;
 }
 
 export interface ProjectDataPathRemapCount {
@@ -3216,9 +3246,16 @@ export interface ProjectDataPathRemapCount {
 
 export interface ProjectDataImportPreview {
   outcome: "project_data_import_preview";
+  strategy: ProjectDataImportStrategy;
   additions: ProjectDataCounts;
   skipped: ProjectDataCounts;
   conflicts: ProjectDataCounts;
+  /** Existing rows that will be replaced by a newer imported copy (`newer-wins` only). */
+  updates: ProjectDataCounts;
+  /** Existing rows kept because the local copy is newer than the imported one. */
+  keptLocal: ProjectDataCounts;
+  /** Knowledge page versions (local or imported) renumbered by time so both machines' versions are kept. */
+  renumbered: ProjectDataCounts;
   selectedProjects: Array<{
     id: string;
     name: string;
@@ -3230,8 +3267,10 @@ export interface ProjectDataImportPreview {
     folderStatus?: ProjectFolderStatus;
   }>;
   remappedPaths: ProjectDataPathRemapCount[];
+  autoRemaps: ProjectDataAutoRemap[];
   conflictDetails: ProjectDataImportConflict[];
   conflictDetailsTruncated: boolean;
+  conflictGroups: ProjectDataImportConflictGroup[];
 }
 
 export interface ProjectDataImportResult extends Omit<ProjectDataImportPreview, "outcome"> {
