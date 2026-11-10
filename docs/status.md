@@ -4,7 +4,11 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-09
+- 最後更新：2026-11-10
+
+## 1.6.14（已完成）
+
+修正 `pnpm bootstrap` 結尾提示：不再每次都要求重新連線 MCP。第一次連接 Agent 時開新對話或重啟 Agent；之後更新由 launcher 自動切換新版，只有 Agent 回報 `restartRequired` 時才重連一次。無程式行為變更，schema 維持 32。
 
 ## 1.6.13（已完成）
 

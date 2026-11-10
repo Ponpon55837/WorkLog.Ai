@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.14] - 2026-11-10
+
+[繁體中文更新說明](docs/releases/1.6.14.md).
+
+### Fixed
+
+- `pnpm bootstrap` no longer ends every run with "reconnect MCP in your Agent". It now says to open a new conversation or restart the Agent only after connecting it for the first time, and that later updates need no reconnect because connected MCP sessions switch to the new build on their own; reconnect once only when the Agent reports `restartRequired`.
+
 ## [1.6.13] - 2026-11-09
 
 [繁體中文更新說明](docs/releases/1.6.13.md).

@@ -74,6 +74,15 @@ describe("pnpm bootstrap", () => {
     expect(harness.output.join("\n")).toContain("或執行 pnpm track <資料夾>");
   });
 
+  it("tells an updated install that connected MCP sessions switch builds without reconnecting", async () => {
+    const harness = createHarness();
+    expect(await runBootstrap(["--yes"], harness.dependencies)).toBe(0);
+    const output = harness.output.join("\n");
+    expect(output).toContain("之後更新不必重新連線");
+    expect(output).toContain("restartRequired");
+    expect(output).not.toContain("在 Agent 重新連線 MCP");
+  });
+
   it.each(["22.15.0", "23.11.0"])(
     "stops before running anything on Node.js %s, which lacks FTS5",
     async (nodeVersion) => {
