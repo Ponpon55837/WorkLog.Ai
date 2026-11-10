@@ -43,7 +43,8 @@ const NEXT_STEPS = [
   "完成。接下來：",
   "  1. 啟動：pnpm start（若已安裝登入自動啟動服務，Dashboard 網址為 http://127.0.0.1:3210；更新後請執行 pnpm service:restart 重啟服務，讓新版生效）",
   "  2. 開啟 http://127.0.0.1:3210 →「專案」→「加入專案」→ 設為「記錄中」（或執行 pnpm track <資料夾>）",
-  "  3. 在 Agent 重新連線 MCP；Codex 需在 /hooks 信任 hook",
+  "  3. 第一次連接 Agent：開新對話或重啟 Agent 載入 MCP；Codex 需在 /hooks 信任 hook",
+  "     之後更新不必重新連線：已連線的 MCP 會自動切換到新版；只有 Agent 回報 restartRequired 時才重新連線一次",
 ].join("\n");
 
 /** Splits a "v22.13.0" or "22.13.0" style version into numbers; undefined when it is not one. */
