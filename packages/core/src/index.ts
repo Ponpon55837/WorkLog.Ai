@@ -1,4 +1,5 @@
 export * from "./attention.js";
+export * from "./file-history.js";
 export * from "./related-work.js";
 export * from "./report-presentation.js";
 
@@ -2813,8 +2814,10 @@ export interface RelevantContext {
   /** Sections of standing Knowledge pages whose headings or content match this task. */
   knowledgePages?: RelevantKnowledgePageDigest[];
   termHits?: RecallTermHits[];
-  /** Paths from the request that recent Sessions changed often (only with paths). */
+  /** Paths from the request that recent Sessions changed often, or any of the first three that has history. */
   hotspots?: HotspotHint[];
+  /** Set when a hotspot path has more Sessions than this context shows: read them with that operation. */
+  fileHistoryReadWith?: "work_get_file_history";
 }
 
 export interface TimelineQuery extends DateRange {
@@ -2926,6 +2929,8 @@ export interface HotspotHint {
   sessionCount: number;
   failedCount: number;
   notRunCount: number;
+  /** Every non-voided Session that recorded the path, at any time and of any breadth. */
+  totalSessions: number;
 }
 
 export interface SearchResult {

@@ -42,6 +42,8 @@ const RESPONSE_BUDGETS = {
   knowledgeSearchRelaxed: 3_000,
   sessionListScoped: 9_000,
   knowledgePageNotFound: 700,
+  fileHistoryOnePath: 4_000,
+  fileHistoryThreePaths: 10_000,
 } as const;
 const sharedPlan = [
   "## Historical proposal: Agent context retrieval budget",
@@ -1226,6 +1228,55 @@ describe("synthetic MCP response-size baseline", () => {
     ]);
     // The relaxed records were returned to the Agent, so the audit lists them although the scoped items omit projectId.
     expect(reads[1]!.knowledgeIds.sort()).toEqual(value.relaxedMatches.map((match) => match.id).sort());
+  });
+
+  it("bounds a long file history at the default size and keeps its totals complete", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const files = [
+      "packages/example-lamp/src/beam.ts",
+      "packages/example-lamp/src/lens.ts",
+      "packages/example-lamp/src/wick.ts",
+    ];
+    for (let index = 0; index < 30; index += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `response-size-history-${index}`,
+        title: `Agent context retrieval budget history ${index} ${"with a long fictional title ".repeat(4)}`,
+        summary: longSummary,
+        workSummary: {
+          outcomes: [`Completed fictional history fixture ${index}.`],
+          scope: [],
+          decisions: [longDecision, longDecision, longDecision],
+          verification: [],
+          nextSteps: [longOpenItem, longOpenItem, longOpenItem],
+        },
+        changedFiles: files,
+        verification: { status: index % 4 === 0 ? "failed" : index % 4 === 1 ? "not_run" : "passed" },
+      });
+      if (result.outcome !== "finalized") throw new Error(`Expected history Session ${index} to finalize.`);
+    }
+
+    const one = await serializedMcpPayload(client, "work_get_file_history", { projectRoot, paths: [files[0]] });
+    const three = await serializedMcpPayload(client, "work_get_file_history", { projectRoot, paths: files });
+    const widest = await serializedMcpPayload(client, "work_get_file_history", {
+      projectRoot,
+      paths: [files[0]],
+      limit: 10,
+    });
+    console.info(
+      `File history size (characters): one path ${one.length}, three paths ${three.length}, limit 10 ${widest.length}`,
+    );
+
+    expect(one.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.fileHistoryOnePath);
+    expect(widest.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.fileHistoryOnePath);
+    expect(three.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.fileHistoryThreePaths);
+    const value = one.value as {
+      files: Array<{ totals: { sessions: number; pendingItems: number }; recent: unknown[]; attention: unknown[] }>;
+    };
+    expect(value.files[0]!.totals).toMatchObject({ sessions: 30, pendingItems: 90 });
+    expect(value.files[0]!.recent.length).toBeGreaterThan(0);
+    expect(value.files[0]!.attention.length).toBeGreaterThan(0);
   });
 
   it("keeps pending requests and Knowledge review flags within the focused context budget", async () => {

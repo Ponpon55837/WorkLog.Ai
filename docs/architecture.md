@@ -30,7 +30,7 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 - `idempotencyKey` 保證 finalize retry 不會重複建立 session
 - 常駐知識頁（`knowledge-page-service.ts`）：每頁的每段引用來源 Session，保存為版本；新 Session 顯示為有新資料，可用不建立新版本的已檢查游標標記已評估內容；引用來源在儲存後修改、作廢或還原時以批次查詢獨立標示需要核對。檢查游標只保存同專案 Session id，隨知識頁匯出／匯入並在來源 Session 刪除時設為空；它不是可搜尋文字，不納入 FTS 索引
 - Knowledge 證據強度：`knowledge_feedback` 保存 Session 確認、推翻與手動確認，檢索排序會納入
-- 洞察讀取路徑：熱點（`hotspot-repository.ts`）、時間軸（`timeline-repository.ts`），以及推導的「一起修改」邊與最短關聯路徑（`graph-derivation.ts`，BFS）；推導結果只在讀取時計算，不寫回資料庫
+- 洞察讀取路徑：熱點（`hotspot-repository.ts`）、檔案歷史（`file-history-service.ts`，以 `search_paths` 的檔名索引查出記錄過該路徑的 Session）、時間軸（`timeline-repository.ts`），以及推導的「一起修改」邊與最短關聯路徑（`graph-derivation.ts`，BFS）；推導結果只在讀取時計算，不寫回資料庫
 - Session 圖表（`diagram-service.ts`）：Mermaid 原始碼寫入前遮蔽敏感資料，可作廢、不可刪除。Web 以 strict 模式延遲載入 Mermaid，渲染到 Shadow DOM 並套用 constructable stylesheet，所以不必放寬 CSP
 - 預留 reports、evidence、knowledge、graph extension interfaces
 - Production 模式由單一本機 HTTP server 在同一個 port 提供 REST API 與 build 後的 Web UI；開發模式仍分開使用 Vite 與 API。
@@ -142,7 +142,7 @@ REST JSON 寫入要求 `Content-Type: application/json`，HTTP body 與 MCP stdi
 5. registry 位於中央 SQLite；side project 不會因 MCP 連線而自動被記錄。
 6. Agent 可以透過唯讀 dispatcher `work_read` 執行 operation `work_get_project_status` 查詢記錄狀態，但沒有任何 MCP operation 能變更它；切換為 `tracked` 只能由使用者在 Web UI 確認。
 
-任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_read` 的 `work_get_context`、project-scoped `work_recall`／`work_search` operations、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
+任何需要專案檔案的程式路徑都必須先呼叫同一個 `ProjectPolicyGate`。`work_read` 的 `work_get_context`、`work_get_file_history`、project-scoped `work_recall`／`work_search` operations、Knowledge 的讀寫也會先檢查狀態，避免把未授權專案資料交給 Agent。
 
 ## 擴充邊界
 

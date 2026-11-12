@@ -335,6 +335,18 @@ export function compileAppliesTo(pattern: string): (path: string) => boolean {
   return (path) => Boolean(path) && pathMatchStrength(path, pattern) > 0;
 }
 
+/**
+ * How strongly a normalized appliesTo entry covers a normalized path, the rule work_recall ranks by: a glob matching
+ * the whole path 0.8; a plain entry equal to it 1, either one a path-segment suffix of the other 0.8, either one a
+ * directory containing the other 0.6; otherwise 0.
+ */
+export function appliesToStrength(pattern: string, path: string): number {
+  if (/[*?]/.test(pattern)) {
+    return compileAppliesTo(pattern)(path) ? 0.8 : 0;
+  }
+  return Math.max(pathMatchStrength(pattern, path), pathMatchStrength(path, pattern));
+}
+
 export function pathBasename(path: string): string {
   const index = path.lastIndexOf("/");
   return index >= 0 ? path.slice(index + 1) : path;
