@@ -39,7 +39,7 @@ const RESPONSE_BUDGETS = {
   searchDefault: 8_000,
   contextOmitted: 1_300,
   knowledgeSearchEmpty: 400,
-  knowledgeSearchRelaxed: 6_000,
+  knowledgeSearchRelaxed: 3_000,
   sessionListScoped: 9_000,
   knowledgePageNotFound: 700,
 } as const;
@@ -1214,6 +1214,7 @@ describe("synthetic MCP response-size baseline", () => {
     for (const match of value.relaxedMatches) {
       expect(match.matchedTerms).toEqual(["retrieval", "budget"]);
       expect(match).not.toHaveProperty("projectId");
+      expect(match).not.toHaveProperty("body");
     }
     expect(relaxed.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgeSearchRelaxed);
     expect(strict.value).toMatchObject({ match: "strict", pageInfo: { total: 4 } });

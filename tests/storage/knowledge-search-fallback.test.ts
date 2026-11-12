@@ -100,11 +100,39 @@ describe("Agent Knowledge search fallback", () => {
     // Identifier parts count as terms: graftUnion contains both graft and union.
     expect(result.relaxedMatches?.[0]?.matchedTerms).toEqual(["apple", "graft", "union"]);
     expect(result.relaxedMatches?.[1]?.matchedTerms).toEqual(["apple"]);
-    expect(result.relaxedMatches?.[0]).toMatchObject({
+    // Each match is a digest; the full record is one work_get_knowledge_history read away.
+    expect(result.relaxedMatches?.[0]).toEqual({
+      id: graft,
+      projectId: expect.any(String),
+      projectName: "Orchard",
+      kind: "gotcha",
+      status: "active",
       title: "Graft apple scions in early spring",
-      body: expect.any(String),
+      matchedTerms: ["apple", "graft", "union"],
+      excerpt: "Seal the graftUnion with wax.",
     });
-    expect(result.hint).toContain("relaxedMatches");
+    expect(result.hint).toContain("work_get_knowledge_history");
+  });
+
+  it("bounds a digest's excerpt around the matched terms and its appliesTo list", () => {
+    const { store, root } = setup();
+    const filler = "Fictional orchard filler sentence. ".repeat(30);
+    record(store, root, "k1", {
+      title: "Cellar notes",
+      body: `${filler}Keep the cider barrels below twelve degrees. ${filler}`,
+      appliesTo: ["src/cellar/a.ts", "src/cellar/b.ts", "src/cellar/c.ts", "src/cellar/d.ts", "src/cellar/e.ts"],
+    });
+
+    const [match] = search(store, { projectRoot: root, q: "cider barrels zzyzx" }).relaxedMatches ?? [];
+    expect(match).toMatchObject({
+      excerptTruncated: true,
+      appliesTo: ["src/cellar/a.ts", "src/cellar/b.ts", "src/cellar/c.ts"],
+      appliesToOmittedCount: 2,
+    });
+    expect(match?.excerpt).toContain("cider barrels");
+    // 400 characters plus the leading and trailing cut marks.
+    expect(match?.excerpt.length).toBeLessThanOrEqual(402);
+    expect(match).not.toHaveProperty("body");
   });
 
   it("finds a Chinese paraphrase through shared character pairs", () => {

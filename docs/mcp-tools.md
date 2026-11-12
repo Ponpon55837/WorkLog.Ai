@@ -455,7 +455,7 @@ Knowledge 必須由 Agent 明確提交，不會因為 finalize、handoff 或 sou
 | `relaxed` | 沒有任何一筆包含全部的詞；`items` 為空，改附最多 3 筆 `relaxedMatches` |
 | `none` | 嚴格與寬鬆比對都沒有結果 |
 
-`relaxedMatches` 是同一個範圍（專案、`kind`、`status`）內依相關度排序的部分符合：使用與 `work_recall` 相同的斷詞（中文雙字組、識別字拆分）與排序，以 OR 比對，並把像路徑的詞拿去比對 `appliesTo`（glob、完全相同、路徑尾段或目錄）與 references 路徑。每筆是完整 Knowledge，另附 `matchedTerms`（記錄中出現的查詢詞元，最多 8 個）與 `matchedPaths`（命中的 `appliesTo`／reference 路徑，最多 3 個）。只靠固定同義詞命中的記錄不會列入，因為每筆都必須能說出共有哪些詞。部分符合不是答案，Agent 必須讀過內容再引用。
+`relaxedMatches` 是同一個範圍（專案、`kind`、`status`）內依相關度排序的部分符合：使用與 `work_recall` 相同的斷詞（中文雙字組、識別字拆分）與排序，以 OR 比對，並把像路徑的詞拿去比對 `appliesTo`（glob、完全相同、路徑尾段或目錄）與 references 路徑。每筆是摘要而非完整記錄：`id`、`kind`、`status`、`title`、最多 3 個 `appliesTo`（其餘以 `appliesToOmittedCount` 計數）、`matchedTerms`（記錄中出現的查詢詞元，最多 8 個）、`matchedPaths`（命中的 `appliesTo`／reference 路徑，最多 3 個）、以命中詞為中心最多 400 字的內文 `excerpt`（內文被截斷時帶 `excerptTruncated: true`），以及 `possiblyStale`／`needsReview` 旗標；不限定專案時另帶 `projectId`／`projectName`。要讀完整內容時以 `work_get_knowledge_history`（`projectRoot`、`knowledgeId`）讀取，回應的 `knowledge` 就是完整記錄。只靠固定同義詞命中的記錄不會列入，因為每筆都必須能說出共有哪些詞。部分符合不是答案，Agent 必須讀過完整記錄再引用。
 
 `match` 為 `relaxed` 或 `none` 時，若其他狀態有符合的記錄，會附 `otherStatusMatches`（例如 `{ "archived": 2 }`），只有數量、不含內容；數字是改傳該 `status` 時會得到的筆數（有嚴格結果時算嚴格筆數，否則算寬鬆筆數）。`hint` 用一句話說明結果性質與要改傳哪個 `status`。所有計數都在已通過 policy gate 的同一範圍內，不會揭露其他專案或非 tracked 專案的 Knowledge。不帶 `q` 的清單不會出現這些欄位。REST `GET /api/knowledge` 不回傳這些欄位。
 

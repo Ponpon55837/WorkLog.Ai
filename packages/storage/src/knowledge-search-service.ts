@@ -9,7 +9,8 @@ import type {
   KnowledgeStatus,
   RelaxedKnowledgeMatch,
 } from "@work-intelligence/core";
-import type { KnowledgeRankOptions, KnowledgeRanking } from "./search-repository.js";
+import type { KnowledgeRankHit, KnowledgeRankOptions, KnowledgeRanking } from "./search-repository.js";
+import { excerptAround } from "./search-text.js";
 
 export interface KnowledgeSearchServiceDependencies {
   /** The strict list search with trust signals, policy-gated like every Knowledge read. */
@@ -23,6 +24,31 @@ export interface KnowledgeSearchServiceDependencies {
 
 // The fallback is a pointer to likely candidates, not a second result list: a few full records are enough to read.
 const RELAXED_MATCH_LIMIT = 3;
+// Each match is a digest: enough to judge relevance, with the full record one read away.
+const RELAXED_EXCERPT_CHARS = 400;
+const RELAXED_APPLIES_TO_LIMIT = 3;
+
+function toRelaxedMatch(record: KnowledgeRecord, hit: KnowledgeRankHit): RelaxedKnowledgeMatch {
+  const body = record.body.replace(/\s+/g, " ").trim();
+  const appliesTo = record.appliesTo.slice(0, RELAXED_APPLIES_TO_LIMIT);
+  const omittedAppliesTo = record.appliesTo.length - appliesTo.length;
+  return {
+    id: record.id,
+    projectId: record.projectId,
+    ...(record.projectName ? { projectName: record.projectName } : {}),
+    kind: record.kind,
+    status: record.status,
+    title: record.title,
+    ...(appliesTo.length > 0 ? { appliesTo } : {}),
+    ...(omittedAppliesTo > 0 ? { appliesToOmittedCount: omittedAppliesTo } : {}),
+    matchedTerms: hit.matchedTerms,
+    ...(hit.matchedPaths ? { matchedPaths: hit.matchedPaths } : {}),
+    excerpt: excerptAround(body, hit.matchedTerms, RELAXED_EXCERPT_CHARS),
+    ...(body.length > RELAXED_EXCERPT_CHARS ? { excerptTruncated: true as const } : {}),
+    ...(record.possiblyStale ? { possiblyStale: true as const } : {}),
+    ...(record.review ? { needsReview: true as const } : {}),
+  };
+}
 
 /**
  * The Agent-facing Knowledge search. The strict list search (every word in some field, newest first) stays the answer
@@ -66,19 +92,13 @@ export class KnowledgeSearchService {
       if (!record) {
         return [];
       }
-      return [
-        {
-          ...record,
-          matchedTerms: hit.matchedTerms,
-          ...(hit.matchedPaths ? { matchedPaths: hit.matchedPaths } : {}),
-        },
-      ];
+      return [toRelaxedMatch(record, hit)];
     });
     const otherStatusMatches = this.otherStatusMatches(query, status, projectId, options.kind, ranking);
     const otherStatuses = Object.keys(otherStatusMatches) as KnowledgeStatus[];
     const hints = [
       relaxedMatches.length > 0
-        ? "No Knowledge contains every word; relaxedMatches share only their matchedTerms. Read one before relying on it."
+        ? "No Knowledge contains every word; relaxedMatches are digests sharing only their matchedTerms. Read one in full with work_get_knowledge_history (projectRoot, knowledgeId) before relying on it."
         : "Nothing matched; rephrase or try work_recall.",
       ...otherStatuses.map(
         (other) => `${otherStatusMatches[other]} ${other} match; pass status "${other}" to read them.`,
