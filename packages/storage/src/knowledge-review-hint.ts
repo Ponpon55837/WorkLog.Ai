@@ -1,8 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { KnowledgeReviewHint } from "@work-intelligence/core";
+import { isAppliesToGlob, type KnowledgeReviewHint } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
+import {
+  APPLIES_TO_SCAN_LIMIT,
+  compileAppliesTo,
+  createAppliesToBudget,
+  type AppliesToBudget,
+} from "./applies-to-match.js";
 import { parseJson } from "./session-record-codecs.js";
-import { APPLIES_TO_SCAN_LIMIT, compileAppliesTo, normalizePath, type PathContext } from "./search-text.js";
+import { normalizePath, type PathContext } from "./search-text.js";
 
 export interface KnowledgeReviewFocus {
   projectId: string;
@@ -12,6 +18,12 @@ export interface KnowledgeReviewFocus {
   /** The Session's stored changed files. */
   changedFiles: readonly string[];
   project: PathContext;
+}
+
+export interface KnowledgeToReview {
+  hints: KnowledgeReviewHint[];
+  /** The appliesTo match budget ran out before every candidate was checked. */
+  truncated: boolean;
 }
 
 type KnowledgeAppliesToRow = {
@@ -31,12 +43,11 @@ const KNOWLEDGE_TO_REVIEW_TITLE_CHARS = 120;
 /** An appliesTo entry equal to a changed path outranks a glob that matches it. */
 const EXACT_STRENGTH = 1;
 const GLOB_STRENGTH = 0.8;
-const GLOB_CHARACTERS = /[*?]/;
 const MIN_FRAGMENT_LENGTH = 3;
 
 /** How the entry names the path: equal to it, or a glob that matches it. Directories and suffixes do not count. */
-function namedStrength(pattern: string, path: string): number {
-  if (GLOB_CHARACTERS.test(pattern)) return compileAppliesTo(pattern)(path) ? GLOB_STRENGTH : 0;
+function namedStrength(pattern: string, path: string, budget: AppliesToBudget): number {
+  if (isAppliesToGlob(pattern)) return compileAppliesTo(pattern)(path, budget) ? GLOB_STRENGTH : 0;
   return pattern === path ? EXACT_STRENGTH : 0;
 }
 
@@ -62,6 +73,7 @@ function newlyInDoubtCheck(
   db: DatabaseSync,
   focus: KnowledgeReviewFocus,
   contexts: PathContext[],
+  budget: AppliesToBudget,
 ): (candidate: Candidate) => boolean {
   const filesBySession = new Map<string, string[]>();
   return ({ row, patterns }) => {
@@ -89,7 +101,8 @@ function newlyInDoubtCheck(
         sessionFiles = parseJson<string[]>(session.changed_files_json, []).map((file) => normalizePath(file, contexts));
         filesBySession.set(session.id, sessionFiles);
       }
-      if (sessionFiles.some((file) => file && matchers.some((matches) => matches(file)))) return false;
+      if (sessionFiles.some((file) => file && matchers.some((matches) => matches(file, budget)))) return false;
+      if (budget.exhausted) return false;
     }
     return true;
   };
@@ -100,16 +113,17 @@ function newlyInDoubtCheck(
  * entry names a changed file (the exact path, or a glob that matches it), and no other Session changed a file the
  * Knowledge covers since it was recorded or last confirmed, so the possiblyStale marker starts with this Session.
  * Knowledge that is already possiblyStale is shown on every read and is not repeated here. Exact matches come first,
- * then the newest. Reads the same newest-first bounded rows as the other appliesTo scans and changes nothing.
+ * then the newest. Reads the same newest-first bounded rows as the other appliesTo scans and changes nothing. Both
+ * phases share one match budget; when it runs out the hints found so far are returned and `truncated` is set.
  */
-export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFocus): KnowledgeReviewHint[] {
+export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFocus): KnowledgeToReview {
   const contexts = [focus.project];
   const files = new Map<string, string>();
   for (const file of focus.changedFiles) {
     const key = normalizePath(file, contexts);
     if (key && !files.has(key)) files.set(key, file);
   }
-  if (files.size === 0) return [];
+  if (files.size === 0) return { hints: [], truncated: false };
   const rows = db
     .prepare(
       `SELECT k.id, k.title, k.applies_to_json, k.updated_at, k.created_at, k.session_id,
@@ -121,7 +135,9 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
        ORDER BY k.updated_at DESC, k.id ASC LIMIT ?`,
     )
     .all(focus.projectId, focus.sessionId, focus.sessionId, APPLIES_TO_SCAN_LIMIT) as KnowledgeAppliesToRow[];
-  const candidates = rows.flatMap((row): Candidate[] => {
+  const budget = createAppliesToBudget();
+  const candidates: Candidate[] = [];
+  for (const row of rows) {
     let best = { strength: 0, path: "", appliesTo: "" };
     const patterns: string[] = [];
     for (const raw of parseJson<unknown[]>(row.applies_to_json, [])) {
@@ -130,23 +146,27 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
       if (!pattern) continue;
       patterns.push(pattern);
       for (const [key, path] of files) {
-        const strength = namedStrength(pattern, key);
+        const strength = namedStrength(pattern, key, budget);
         if (strength > best.strength) best = { strength, path, appliesTo: raw };
       }
     }
-    return best.strength > 0 ? [{ row, patterns, ...best }] : [];
-  });
+    if (budget.exhausted) break;
+    if (best.strength > 0) candidates.push({ row, patterns, ...best });
+  }
   candidates.sort(
     (left, right) =>
       right.strength - left.strength ||
       right.row.updated_at.localeCompare(left.row.updated_at) ||
       left.row.id.localeCompare(right.row.id),
   );
-  const isNewlyInDoubt = newlyInDoubtCheck(db, focus, contexts);
+  const isNewlyInDoubt = newlyInDoubtCheck(db, focus, contexts, budget);
   const hints: KnowledgeReviewHint[] = [];
   for (const candidate of candidates) {
     if (hints.length === KNOWLEDGE_TO_REVIEW_LIMIT) break;
-    if (!isNewlyInDoubt(candidate)) continue;
+    if (!isNewlyInDoubt(candidate)) {
+      if (budget.exhausted) break;
+      continue;
+    }
     hints.push({
       id: candidate.row.id,
       title: truncateText(candidate.row.title, KNOWLEDGE_TO_REVIEW_TITLE_CHARS),
@@ -154,5 +174,5 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
       ...(candidate.appliesTo === candidate.path ? {} : { appliesTo: candidate.appliesTo }),
     });
   }
-  return hints;
+  return { hints, truncated: budget.exhausted };
 }

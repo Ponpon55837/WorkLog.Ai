@@ -1,4 +1,6 @@
 import {
+  APPLIES_TO_GLOB_STARS_FIX,
+  isOverComplexAppliesToGlob,
   isSafeRepositoryUrl,
   SESSION_DIAGRAM_KINDS,
   SESSION_READ_FIELDS,
@@ -914,8 +916,22 @@ export const attachEvidenceInputSchema = z.object({
 export const knowledgeKindSchema = z.enum(KNOWLEDGE_KINDS);
 export const knowledgeStatusSchema = z.enum(KNOWLEDGE_STATUSES);
 
+const appliesToEntrySchema = z.string().trim().min(1).max(1_000);
+
+// New Knowledge and candidates must stay within the star bound. An update may keep an entry already stored above it
+// (an import, or data from before the bound), so archiving or editing other fields never fails on it; storage answers
+// such an update with a warning instead. Stored and imported entries above the bound load and never match.
 const knowledgeAppliesToSchema = z
-  .array(z.string().trim().min(1).max(1_000))
+  .array(
+    appliesToEntrySchema.refine((pattern) => !isOverComplexAppliesToGlob(pattern), {
+      message: `This appliesTo glob has too many wildcards. ${APPLIES_TO_GLOB_STARS_FIX}`,
+    }),
+  )
+  .max(30)
+  .describe("Project-relative paths or globs (*, **, ?) this Knowledge is about.");
+
+const updatedKnowledgeAppliesToSchema = z
+  .array(appliesToEntrySchema)
   .max(30)
   .describe("Project-relative paths or globs (*, **, ?) this Knowledge is about.");
 
@@ -1055,7 +1071,7 @@ export const updateKnowledgeInputSchemaBase = z.object({
   tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
   references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
   status: knowledgeStatusSchema.optional(),
-  appliesTo: knowledgeAppliesToSchema.optional(),
+  appliesTo: updatedKnowledgeAppliesToSchema.optional(),
   confirm: z.literal(true).optional().describe("Record that the Knowledge was checked and still holds."),
 });
 

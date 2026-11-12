@@ -10,9 +10,8 @@ import type {
   RecallTermHits,
 } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
+import { APPLIES_TO_SCAN_LIMIT, appliesToStrength, createAppliesToBudget } from "./applies-to-match.js";
 import {
-  APPLIES_TO_SCAN_LIMIT,
-  appliesToStrength,
   excerptAround,
   ftsTermExpression,
   normalizePath,
@@ -259,6 +258,8 @@ export interface KnowledgeRanking {
   /** Matches per status, including the ones not returned as hits. */
   totals: Partial<Record<KnowledgeStatus, number>>;
   hits: KnowledgeRankHit[];
+  /** The appliesTo match budget ran out, so older Knowledge was not checked against the query's paths. */
+  appliesToScanTruncated?: true;
 }
 
 export interface SearchIndexRebuildResult {
@@ -447,7 +448,7 @@ export class SearchRepository {
       .flatMap((word) => normalizeReference(word))
       .filter((reference) => reference.kind === "path")
       .map((reference) => reference.value);
-    const { terms, ranked } = this.rank({
+    const { terms, ranked, appliesToScanTruncated } = this.rank({
       q: options.q,
       paths: [...new Set(paths)].slice(0, MAX_QUERY_PATH_WORDS),
       projectId: options.projectId,
@@ -475,6 +476,7 @@ export class SearchRepository {
           matchedTerms: terms.filter((_, index) => doc.terms.has(index)).slice(0, MAX_MATCHED_TERMS),
           ...(doc.matchedPaths.size > 0 ? { matchedPaths: [...doc.matchedPaths].slice(0, MAX_MATCHED_PATHS) } : {}),
         })),
+      ...(appliesToScanTruncated ? { appliesToScanTruncated: true as const } : {}),
     };
   }
 
@@ -556,6 +558,7 @@ export class SearchRepository {
     idf: number[];
     docs: Map<string, DocAccumulator>;
     ranked: RankedDoc[];
+    appliesToScanTruncated: boolean;
   } {
     const words = options.q ? parseQueryWords(options.q) : [];
     const terms = [...new Set(words.flatMap((word) => word.terms))].slice(0, MAX_QUERY_TERMS);
@@ -591,10 +594,11 @@ export class SearchRepository {
     if (synonyms.length > 0) {
       this.scoreSynonyms(synonyms, accumulator, options);
     }
+    let appliesToScanTruncated = false;
     if (queriedPaths.length > 0) {
       this.scorePaths(queriedPaths, accumulator, options);
       if (options.matchAppliesTo) {
-        this.scoreAppliesTo(queriedPaths, accumulator, options);
+        appliesToScanTruncated = this.scoreAppliesTo(queriedPaths, accumulator, options);
       }
     }
 
@@ -638,7 +642,7 @@ export class SearchRepository {
             (entry.doc.bestSynonymRaw?.score ?? 0) > 0),
       )
       .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
-    return { words, terms, idf, docs, ranked };
+    return { words, terms, idf, docs, ranked, appliesToScanTruncated };
   }
 
   /** Moves each qualifying continuation directly above the earlier Session it continues; see CONTINUATION_SCORE_SHARE. */
@@ -901,13 +905,14 @@ export class SearchRepository {
   /**
    * Adds a fixed path score for Knowledge whose appliesTo covers a queried path: a glob that matches it, a plain entry
    * equal to it or a path-segment suffix of it, or a directory entry that contains it (or lies inside a queried
-   * directory). appliesTo is not in the retrieval index, so the scoped rows are read once and matched in memory.
+   * directory). appliesTo is not in the retrieval index, so the scoped rows are read once and matched in memory,
+   * newest first, within one match budget; returns whether the budget ran out before every row was checked.
    */
   private scoreAppliesTo(
     queriedPaths: string[],
     accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
     options: RecallOptions,
-  ): void {
+  ): boolean {
     const { clause, parameters } = this.scopeClause("k", {
       ...options,
       types: undefined,
@@ -930,6 +935,7 @@ export class SearchRepository {
       name: string;
       root_path: string;
     }>;
+    const budget = createAppliesToBudget();
     for (const row of rows) {
       const contexts = [{ name: row.name, rootPath: row.root_path }];
       let best = 0;
@@ -938,19 +944,22 @@ export class SearchRepository {
         const pattern = normalizePath(raw, contexts);
         if (!pattern) continue;
         for (const queried of queriedPaths) {
-          const strength = appliesToStrength(pattern, queried);
+          const strength = appliesToStrength(pattern, queried, budget);
           if (strength > best) {
             best = strength;
             bestPattern = pattern;
           }
         }
       }
+      // A row whose matching the budget cut short is left out whole, so a partial best never ranks it.
+      if (budget.exhausted) return true;
       if (best > 0) {
         const doc = accumulator("knowledge", row.id, row.project_id, row.updated_at);
         doc.pathScore += best * PATH_WEIGHT;
         doc.matchedPaths.add(bestPattern);
       }
     }
+    return false;
   }
 
   private scopeClause(alias: string, options: RecallOptions): { clause: string; parameters: string[] } {

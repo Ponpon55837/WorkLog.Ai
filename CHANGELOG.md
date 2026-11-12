@@ -4,6 +4,24 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.23] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.23.md).
+
+### Security
+
+- Matching stored `appliesTo` globs has a bounded cost. Since 1.6.18 one match cost pattern length × path length, and both can be large at the schema limits, so stored globs against long caller paths could still hold the single-threaded MCP and API process for seconds per call. Three layers now bound it, and ordinary patterns match exactly as before (the previous regular expression stays the test oracle over the fixed tables and a new 6,000-case generated table; 59,682 pattern × changed-file pairs from a real database copy give identical results):
+  - Exact rejections before the matcher runs: a path shorter than the pattern's literal and `?` count, a literal prefix or suffix that does not match, or literal runs that do not occur in order between them.
+  - A glob may have at most 16 stars (`*` or `**`, adjacent stars of one kind count once); every glob in the real data has one. A stored or imported glob above the bound loads unchanged and never matches. New Knowledge (`work_record_knowledge`, REST create) and Knowledge candidates (submission and review edits) reject it with a validation message that says how to rewrite it. Updates accept it, so such a record can still be archived or edited, and `work_update_knowledge` answers with `warnings` while the saved `appliesTo` keeps it. JSON import, restore and reads apply no such rule.
+  - A deterministic step budget per scan (one step per pattern × path pair plus one per pattern token for each path character simulated): 2,000,000 steps for the scans of caller paths (relaxed Knowledge search, file history, finalize `knowledgeToReview`), whose heaviest real use spends 4,332, and 16,000,000 for the staleness check of a Knowledge read, which spends about 73,000 on the real Knowledge list. When the budget runs out the scan stops and the result says so: `appliesToScanTruncated: true` on the relaxed Knowledge search and file history, `knowledgeToReviewTruncated: true` on the finalize result, and `stalenessUnchecked: true` on a Knowledge record whose `possiblyStale` could not be decided.
+  - 30 entries of 500 stars against 20 paths of 1,000 characters took about 3.6 s and now take under 2 ms (600 steps). The costliest globs the bound allows stop at the budget in about 10 ms. Benchmark cases cover both (20 ms and 100 ms).
+
+### Changed
+
+- The related pending items that finalize (`relatedOutstandingItems`) and `work_get_context` (`relevant.outstandingItems`) rank are read at most 2,000 at a time, newest source Sessions first; the largest real project holds 43. When more qualify, the result has `truncated: true` and `total` counts the ranked ones. Below the limit results and order are unchanged: 300 focuses on a real database copy return the same matches in the same order. A SQL relevance prefilter was measured and left out because it removed few rows and doubled the call time.
+- The core work-intelligence skill states again that Agent-autonomous decisions enter the Web review queue and that confirming, rejecting and promoting them to Knowledge are Web-only, and that finalize `resolvedOutstandingItemIds` and `supersededOutstandingItemIds` must not bypass an active outstanding-cleanup review. `tests/mcp/agent-reading-budget.test.ts` checks both as core rules.
+- A comment in `db:redact` now says that the re-index runs after the redaction commits, and why that is safe.
+
 ## [1.6.22] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.22.md).

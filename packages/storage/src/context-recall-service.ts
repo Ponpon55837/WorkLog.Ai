@@ -130,7 +130,11 @@ interface ContextRecallStoreReader {
   }): OutstandingItemListQueryResult;
   pendingOutstandingItemsForSessions(sessionIds: readonly string[]): OutstandingItem[];
   hasPendingOutstandingItems(projectId: string, excludeSourceSessionId?: string): boolean;
-  relatedPendingOutstandingItems(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number };
+  relatedPendingOutstandingItems(input: OutstandingItemFocus): {
+    items: OutstandingItem[];
+    total: number;
+    truncated?: true;
+  };
   hotspotHints(projectId: string, paths: readonly string[]): HotspotHint[];
   /** Runs one composite read whose parts share the page records they need (see KnowledgePageService). */
   withSharedReads<T>(read: () => T): T;
@@ -1192,7 +1196,11 @@ export class ContextRecallService {
     return grouped;
   }
 
-  private outstandingItemDigest(result: { items: OutstandingItem[]; total: number }): RelatedOutstandingItems {
+  private outstandingItemDigest(result: {
+    items: OutstandingItem[];
+    total: number;
+    truncated?: true;
+  }): RelatedOutstandingItems {
     return {
       items: result.items.map((item) => {
         const text = truncateAtSentenceBoundary(item.text, 400);
@@ -1209,6 +1217,7 @@ export class ContextRecallService {
       }),
       total: result.total,
       omitted: Math.max(0, result.total - result.items.length),
+      ...(result.truncated ? { truncated: true as const } : {}),
       ...(result.total > 0 ? { hint: RELATED_OUTSTANDING_HINT } : {}),
     };
   }
@@ -1217,6 +1226,7 @@ export class ContextRecallService {
   private contextOutstandingItemDigest(result: {
     items: OutstandingItem[];
     total: number;
+    truncated?: true;
   }): ContextRelatedOutstandingItems {
     return {
       items: result.items.map((item) => {
@@ -1230,6 +1240,7 @@ export class ContextRecallService {
       }),
       total: result.total,
       omitted: Math.max(0, result.total - result.items.length),
+      ...(result.truncated ? { truncated: true as const } : {}),
       ...(result.total > 0 ? { hint: RELATED_OUTSTANDING_HINT } : {}),
     };
   }

@@ -1902,10 +1902,12 @@ export class WorkIntelligenceStore {
                 changedFiles: session.changedFiles,
                 project: { name: project.name, rootPath: project.rootPath },
               })
-            : [];
-          if (knowledgeToReview.length > 0) result.knowledgeToReview = knowledgeToReview;
+            : { hints: [], truncated: false };
+          if (knowledgeToReview.hints.length > 0) result.knowledgeToReview = knowledgeToReview.hints;
+          if (knowledgeToReview.truncated) result.knowledgeToReviewTruncated = true;
         } catch {
           delete result.knowledgeToReview;
+          delete result.knowledgeToReviewTruncated;
         }
       });
     }

@@ -11,15 +11,10 @@ import type {
 } from "@work-intelligence/core";
 import { decodeFileHistoryCursor, encodeFileHistoryCursor, type FileHistoryCursor } from "@work-intelligence/schema";
 import { truncateText } from "@work-intelligence/shared";
+import { APPLIES_TO_SCAN_LIMIT, appliesToStrength, createAppliesToBudget } from "./applies-to-match.js";
 import { skippedByRoot } from "./policy-helper.js";
 import { parseJson, parseWorkSummarySections } from "./session-record-codecs.js";
-import {
-  APPLIES_TO_SCAN_LIMIT,
-  appliesToStrength,
-  normalizePath,
-  pathBasename,
-  type PathContext,
-} from "./search-text.js";
+import { normalizePath, pathBasename, type PathContext } from "./search-text.js";
 
 export interface FileHistoryServiceDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
@@ -170,6 +165,7 @@ export class FileHistoryService {
       files: histories.map((history) => this.entry(history, level, texts, pending)),
       knowledge: knowledge.items,
       ...(knowledge.omitted > 0 ? { knowledgeOmitted: knowledge.omitted } : {}),
+      ...(knowledge.truncated ? { appliesToScanTruncated: true as const } : {}),
       readWith: "work_get_session",
       readArguments: { view: "handoff" },
     });
@@ -330,8 +326,8 @@ export class FileHistoryService {
     projectId: string,
     contexts: PathContext[],
     keys: string[],
-  ): { items: FileHistoryResult["knowledge"]; omitted: number } {
-    if (keys.length === 0) return { items: [], omitted: 0 };
+  ): { items: FileHistoryResult["knowledge"]; omitted: number; truncated: boolean } {
+    if (keys.length === 0) return { items: [], omitted: 0, truncated: false };
     const rows = this.db
       .prepare(
         `SELECT id, title, applies_to_json, updated_at FROM knowledge
@@ -344,16 +340,20 @@ export class FileHistoryService {
       applies_to_json: string;
       updated_at: string;
     }>;
-    const matched = rows.flatMap((row) => {
+    // Newest first within one match budget; a row the budget cut short is left out and the result says so.
+    const budget = createAppliesToBudget();
+    const matched: Array<{ row: (typeof rows)[number]; strength: number }> = [];
+    for (const row of rows) {
       let strength = 0;
       for (const raw of parseJson<unknown[]>(row.applies_to_json, [])) {
         if (typeof raw !== "string") continue;
         const pattern = normalizePath(raw, contexts);
         if (!pattern) continue;
-        for (const key of keys) strength = Math.max(strength, appliesToStrength(pattern, key));
+        for (const key of keys) strength = Math.max(strength, appliesToStrength(pattern, key, budget));
       }
-      return strength > 0 ? [{ row, strength }] : [];
-    });
+      if (budget.exhausted) break;
+      if (strength > 0) matched.push({ row, strength });
+    }
     matched.sort(
       (left, right) =>
         right.strength - left.strength ||
@@ -367,6 +367,7 @@ export class FileHistoryService {
         title: truncateText(row.title, KNOWLEDGE_TITLE_CHARS),
       })),
       omitted: Math.max(matched.length - KNOWLEDGE_LIMIT, 0),
+      truncated: budget.exhausted,
     };
   }
 }
