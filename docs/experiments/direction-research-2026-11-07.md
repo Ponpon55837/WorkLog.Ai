@@ -111,6 +111,7 @@ metadata backfill 的 1 筆失敗請求已開始但沒有 `completed_at`。
 - 數據依據：report synthesis 執行平均 540 秒、最大 977 秒，為所有非同步請求中最長；knowledge candidate 等待最大 341 秒。
 - 預估效益：依來源 Session 分批、回報進度，減少長時間佔用與使用者等待；樣本只有 5 筆，需先以 C5 的訊號確認瓶頸在伺服器還是 Agent 端。
 - 程式位置：report synthesis 與 knowledge candidate 請求的 storage 服務（`packages/storage/src` 內對應 `report_synthesis_requests`、`knowledge_candidate_requests`）。
+- 狀態：1.6.19 完成。實測伺服器每頁只需約 30 ms，長尾來自 Agent 讀寫的內容量，因此改為減少重複內容而非拆段回報進度：報告區塊只在 `sessionPage: 1` 回傳一次，之後的頁面只含該頁 Session 與其 evidence，並以 `reportBlockOnSessionPage` 指回第 1 頁。實際資料 193 筆 Session 的月份由 180,943 字降到 156,378 字（9 次呼叫），第 1 頁保留原本被預算移除的決策與風險，各頁合計送出 317 筆 evidence（原為 0）。
 
 ## 資料不足的題目
 

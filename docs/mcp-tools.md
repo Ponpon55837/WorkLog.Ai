@@ -514,7 +514,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 每個 tracked 專案有三個預設知識頁：`architecture`（架構與慣例）、`in-progress`（進行中的工作與未結項）、`pitfalls`（常見陷阱），也可以用自訂 `slug`（2–40 個小寫英數或連字號）加上 `title` 與 `question` 建立其他頁。知識頁是 Agent 依已記錄 Session 改寫的整頁答案，和逐筆明確提交的 Knowledge 分開保存；每次儲存（Agent 或 Web 手動編輯）都是新版本，舊版本保留供工作知識頁檢視。
 
 1. `work_request_knowledge_page_update`（`projectRoot`、`slug`，自訂頁另帶 `title`、`question`）：建立頁面（尚未存在時）並標記「已要求更新」。未知 slug 又沒有 title／question 時回傳 `invalid_page`。
-2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及要讀的 Session（摘要與五段 workSummary，共 24,000 字內，超過時 `truncated: true`）。依頁面狀態分兩種 `mode`：
+2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及要讀的 Session（共 12,000 字內，超過時 `truncated: true`）。每筆 Session 是預覽：id、標題、完成時間，以及 workSummary 的 outcomes／decisions／nextSteps 各前 2 項、每項最多 100 字（截短處以 `…` 結尾，該 Session 帶 `truncated: true`）；摘要、scope 與 verification 列在 `omittedSessionFields`，需要時以 `sessionReadWith`（`work_get_session`，`view: "handoff"`）讀取。回應不再重複固定的 `instructions` 文字，寫法規則見 `work_save_knowledge_page` 的 contract 與 skill。依頁面狀態分兩種 `mode`：
    - `full`：頁面還沒寫過或使用者要求更新，給最新的未作廢 Session（最多 60 筆），用來整頁改寫。
    - `review`：已寫過的頁面，只給頁面涵蓋範圍之後完成的 Session（`reason: "new"`，由舊到新），以及儲存後有變動的引用來源（`reason: "source_changed"`）。沒有影響就用 `work_mark_knowledge_page_checked` 回報檢查到的最後一筆。
    - 若引用 Session 在頁面儲存後被修改、作廢或還原，`page.needsReview` 與 `page.reviewSections` 會列出受影響段落、來源 Session id／標題與原因（`source_updated_after_save`、`source_voided_after_save`、`source_restored_after_save`、`source_missing` 或 `source_state_unknown`）。還原不代表已重新核對；Agent 必須檢查目前來源，儲存新版本後標記才會清除。找不到頁面時回傳 `not_found`，並附 `reasonCode`、一句可照做的 `reason`、這個專案現有的 `existingSlugs`（依字母排序，最多 20 個，其餘以 `existingSlugsOmittedCount` 計數），以及可直接重試的 `suggestedSlug`：傳入的是本專案某頁的 id（`page_id_as_slug`），或編輯距離 2 以內最接近的現有／預設 slug（`slug_near_match`）。看起來像 id 但不是本專案頁面時為 `slug_looks_like_id`，從未要求過的預設頁為 `page_not_requested`（這時才用 `work_request_knowledge_page_update` 建立），其餘為 `page_unknown`；只有使用者要求新頁面時才建立自訂頁，不要為了錯字建立新頁。其他專案的頁面不會被比對或透露。
@@ -637,6 +637,8 @@ REST 對應端點是 `GET /api/imports/handoffs/preview` 與 `POST /api/imports/
 work_get_report 新增 view（agent／full，預設 agent）、maxCharacters（12,000–60,000，預設 24,000）、sessionPage（預設 1）、maxSessions（1–100，預設 24）。基本報告來源仍為目前期間最新 200 筆，其截斷旗標與整期 totals 保留。
 
 work_get_report_context 新增同樣 view／maxCharacters 與 sessionPage／evidencePage（皆預設 1）；maxSessions 控制固定來源頁大小。coverage 的 requestSnapshotAt／requestedSessions 是建立請求時的範圍，eligibleSessions／unavailableSessions 是目前政策檢查結果，selectedSessions／sessionPageInfo 是選取來源頁，currentPeriodAsOf／currentPeriodSessions 是本次即時期間統計；evidence.total／returned 只計 selected_sessions。
+
+1.6.19 起 agent 模式的報告區塊（totals、comparison、projects、risks、decisions、trends、spanning 等整期資料）不隨來源頁變動，只在 `sessionPage: 1` 回傳一次；之後的頁面 `report` 只含該頁 Session 的 `evidence` 與 `evidencePageInfo`，並帶 `reportBlockOnSessionPage: 1`，`projection.omittedFields` 含 `report.block`。Agent 直接讀第 N 頁、重試某頁或重啟後續作時，再讀一次第 1 頁就會取得同一個報告區塊，伺服器不保存分頁狀態。報告區塊內 projects 與 risks 的 `sourceSessionIds` 最多列 8 筆，其餘數量為 `sourceSessionIdsOmittedCount`（完整來源在各來源頁）；evidence 只以 `sessionId` 指向同頁的 Session 預覽，不重複標題與專案名稱。maxSessions 預設維持 24：在實際資料上改為 32 以上時，第 1 頁會因預算移除報告區塊的決策或風險。view: full 與 REST 回應不變。
 
 agent 模式刪除重複完整資料，Session 只含 ID、標題／摘要預覽、完成時間、驗證狀態與截字欄位提示。projection.budgetOmitted 記錄因整體大小預算移除的完整項目，與頁碼及源資料截斷不同；sourceSessionIdsOmitted 最多列五個 ID，moreSourceSessionIdsOmitted 計其餘數量。省略項目需以分頁、較小 maxSessions 或完整讀取補查，不可當成已驗證。view: full 明確退出此預算，保留原完整欄位；REST 基本報告不使用此預覽。
 

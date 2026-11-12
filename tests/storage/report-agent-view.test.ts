@@ -122,4 +122,60 @@ describe("Agent report projection", () => {
     const missing = store.getReportSynthesisContext({ requestId: "missing-request", maxSessions: 20 });
     expect(toAgentReportContext(missing)).toBe(missing);
   });
+
+  it("sends the report block on the first Session page only and returns it again whenever page 1 is read", () => {
+    const store = setup(12);
+    const report = store.getReport({ period: "week", date: "2030-01-10" });
+    if (report.outcome !== "report") throw new Error("Expected a report");
+    for (const session of report.sessions) {
+      store.attachEvidence({ sessionId: session.id, kind: "test", reference: "fixture", summary: "Hive count." });
+    }
+    const created = store.createReportSynthesisRequest({ period: "week", date: "2030-01-10" });
+    if (created.outcome !== "report_synthesis_request") throw new Error("Expected a request");
+    const page = (sessionPage: number, maxSessions = 5) => {
+      const view = toAgentReportContext(
+        store.getReportSynthesisContext({ requestId: created.request.id, sessionPage, maxSessions }),
+      );
+      if (!("sessions" in view)) throw new Error("Expected an Agent context");
+      return view;
+    };
+
+    const first = page(1);
+    expect(first).not.toHaveProperty("reportBlockOnSessionPage");
+    expect(first.report).toMatchObject({ totals: { sessions: 12 }, periodSummary: expect.any(String) });
+    expect(first.projection.omittedFields).not.toContain("report.block");
+    // Long Session-id lists keep their first ids and a count; the Session pages list every source.
+    const [project] = (first.report as { projects: Array<{ sourceSessionIds: string[] }> }).projects;
+    expect(project).toMatchObject({ sessionCount: 12, sourceSessionIdsOmittedCount: 4 });
+    expect(project!.sourceSessionIds).toEqual(report.projects[0]!.sourceSessionIds.slice(0, 8));
+    // Evidence names its Session by id only: the preview of that Session is on the same page.
+    const firstIds = new Set(first.sessions.map((session) => session.id));
+    expect(first.report.evidence.length).toBeGreaterThanOrEqual(5);
+    for (const item of first.report.evidence) {
+      expect(item).not.toHaveProperty("sessionTitle");
+      expect(firstIds.has(item.sessionId)).toBe(true);
+    }
+
+    const second = page(2);
+    expect(second.reportBlockOnSessionPage).toBe(1);
+    expect(Object.keys(second.report).sort()).toEqual(["evidence", "evidencePageInfo"]);
+    expect(new Set(second.report.evidence.map((item) => item.sessionId))).toEqual(
+      new Set(second.sessions.map((session) => session.id)),
+    );
+    expect(second.projection.omittedFields).toContain("report.block");
+    expect(second.coverage.sessionPageInfo).toMatchObject({ page: 2, hasNext: true });
+    expect(JSON.stringify(second).length).toBeLessThan(JSON.stringify(first).length);
+
+    // A retry of a later page is the same; reading page 1 again (for example after a restart) returns the block.
+    expect(page(2).report).toEqual(second.report);
+    expect(page(3).sessions).toHaveLength(2);
+    expect(page(1).report).toEqual(first.report);
+
+    // A period that fits one page is complete on that page.
+    const single = page(1, 20);
+    expect(single).not.toHaveProperty("reportBlockOnSessionPage");
+    expect(single.sessions).toHaveLength(12);
+    expect(single.coverage.sessionPageInfo.hasNext).toBe(false);
+    expect(single.report).toMatchObject({ totals: { sessions: 12 } });
+  });
 });

@@ -735,6 +735,14 @@ try {
       if (JSON.stringify(result).length > 24_000) throw new Error("Agent budget exceeded");
       return result;
     },
+    "report Agent context later page": () => {
+      const result = toAgentReportContext(
+        benchStore.getReportSynthesisContext({ requestId: presentationRequest.request.id, sessionPage: 2 }),
+      );
+      if (result.reportBlockOnSessionPage !== 1 || "totals" in result.report || JSON.stringify(result).length > 24_000)
+        throw new Error("A later Agent context page must leave the report block to page 1 and keep its budget");
+      return result;
+    },
     "getAttention (suppressed preferences)": () => {
       const result = benchStore.getAttention({ projectId: alpha.id, kind: "outstanding", view: "suppressed" });
       if (result.outcome !== "attention" || !result.suppressedCount || !result.items.length)
@@ -1112,6 +1120,7 @@ try {
     "getContext (large report source request)": 500,
     "report fixed-source context page": 1500,
     "report Agent context budget": 1500,
+    "report Agent context later page": 1500,
     "getReportPresentation (version and source gate)": 250,
     "exportReportPresentation (snapshot and Markdown)": 250,
     "getAttention (mixed sources)": 500,

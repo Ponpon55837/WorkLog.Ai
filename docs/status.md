@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.19（已完成）
+
+完成方向研究 C6：報告整理 context 的整期報告區塊只在第 1 頁回傳一次，之後的頁面只含該頁 Session、其 evidence 與指向第 1 頁的 `reportBlockOnSessionPage`；直接讀第 N 頁、重試或重啟後再讀第 1 頁即可取得同一個區塊，伺服器不保存分頁狀態。區塊內 projects 與 risks 的來源 id 最多列 8 筆並附數量，evidence 不再重複 Session 標題。實際資料 193 筆 Session 的月份同樣 9 次呼叫，由 180,943 字降到 156,378 字，第 1 頁保留原本被預算移除的 8 條決策與 7 項風險，各頁合計送出 317 筆 evidence（原為 0）；68 筆 Session 的月份 70,849 → 56,259 字，5 筆 Session 的一週 13,385 → 12,561 字。每頁 Session 數維持 24：改為 32 以上時第 1 頁會失去決策或風險。知識頁 context 的每筆 Session 改為 outcomes／decisions／nextSteps 各前 2 項（每項最多 100 字）的預覽，其餘以 `work_get_session` 讀取，並移除與 contract 重複的 `instructions`；三個常駐知識頁由 23,705／20,752／22,670 字降到 14,935／11,982／13,900 字。方向研究的改進候選 C1–C6 全部完成；成效仍以讀取稽核觀察（C1 看 `session_unchanged` 次數、C2 看 `work_get_project_status` 占比、C3 看知識頁 not_found 原因代碼、C4 看 `knowledge_relaxed`／`knowledge_none` 比例）。schema 維持 32。
+
 ## 1.6.18（已完成）
 
 Agent 讀取更省：`work_get_session` 新增 `session.files`，每個變更路徑只列一次並附狀態、來源與 references，`view: "handoff"` 包含它；Agent 指引預設改用 handoff，只有需要原始 provenance、events 或 evidence 時才完整讀取（完整讀取的形狀不變）。實際資料（328 筆 Session）20 筆抽樣 Session 合計由 150,728 字降到 95,720 字（中位數 6,907 → 4,021）。帶 task 的 `work_get_context` 未結項指標只留 id、來源 Session id 與 240 字摘錄，同一 Session 的決策只在第一條附標題與日期；五個 task context 的相關 Session 由 1–2 筆增為 2–3 筆，一跳補充在兩個 context 出現，每個 context 都保留補充的省略指標。Knowledge 候選 context 另列已封存的 Knowledge 與已拒絕的候選標題（19,625 → 17,910 字，列出 69 而非 31 個標題）；送出候選時附參考用的重疊提示，實際資料只標出已知的一組近似重複、沒有誤報；同內容重送回傳原本的候選。安全性：`appliesTo` glob 改用不回溯的比對器，修正大量星號樣式對長路徑的災難性回溯。Web 候選審核畫面尚未顯示重疊提示。schema 維持 32。
@@ -63,7 +67,6 @@ Agent 讀取更精簡：`work_get_context` 的 `omitted` 改為每區只有數�
 | 項目 | 狀態 | 再次評估條件 |
 | --- | --- | --- |
 | 無 checkout 發行的後續階段 | 第一階段（Release tarball、`work-intelligence` 指令）已於 1.6.8 發行；獨立套件尚未提供 Agent 註冊與登入服務 | 依[研究](experiments/standalone-distribution-spike-2026-10-15.md)第 8 節的 PR3（Agent 註冊與 MCP 重啟偵測）、PR4（直接以 node 執行的登入服務）；npm 發佈另待使用者決定名稱、帳號與 2FA |
-| 方向研究的改進候選 | C1、C2、C5 已於 1.6.9 完成，C3 已於 1.6.15 完成，C4 已於 1.6.16 完成；剩 [C6](experiments/direction-research-2026-11-07.md)：report synthesis 拆段 | 累積 C5 的耗時與錯誤代碼資料後，依最慢工具與失敗類型排序；C1 採用率看稽核 `session_unchanged` 次數，C2 成效看 `work_get_project_status` 占比，C3 看稽核中 `work_get_knowledge_page_context` 的 not_found 原因代碼分布，C4 看稽核中 `work_search_knowledge` 的 `knowledge_relaxed`／`knowledge_none` 比例 |
 | 歷史 Mermaid 圖表整理成 architecture 快照 | 不阻擋任何功能；歷史圖表以原始碼保留 | 使用者選定要整理的圖表後，逐張核對原工作來源再建立新快照 |
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |
