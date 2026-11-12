@@ -52,6 +52,21 @@ export default [
     },
   },
   {
+    // Storage canonicalizes a project root (lowercase on Windows, resolved temp paths on macOS), so a test that
+    // compares rootPath with the path it passed in passes on Linux and fails elsewhere. Use ids or names instead.
+    files: ["tests/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "BinaryExpression[operator=/^[!=]==?$/] > MemberExpression[property.name='rootPath']",
+          message:
+            "Do not compare rootPath with a raw path: storage canonicalizes roots per OS. Look projects up by id or name.",
+        },
+      ],
+    },
+  },
+  {
     files: ["**/*.vue"],
     languageOptions: {
       parser: vueParser,

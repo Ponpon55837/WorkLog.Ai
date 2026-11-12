@@ -378,7 +378,8 @@ describe("stored appliesTo above the star bound", () => {
     expect(listed).toMatchObject({ items: [{ id, appliesTo: [overComplex] }] });
     expect(store.getFileHistory({ projectRoot: root, paths: ["a".repeat(17)] })).toMatchObject({ knowledge: [] });
 
-    const project = store.listProjects().find((candidate) => candidate.rootPath === root);
+    // Look the project up by name: storage canonicalizes the root (lowercase on Windows), so the temp path differs.
+    const project = store.listProjects().find((candidate) => candidate.name === "Synthetic Glob 0");
     if (!project) throw new Error("Expected the synthetic project.");
     const bundle = store.exportProjectData({ type: "project", projectId: project.id });
     const destination = new WorkIntelligenceStore(":memory:");
