@@ -212,12 +212,14 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     try {
       const result = await importProjectDataMutation.mutateAsync(currentInput());
       useToast().showToast(
-        t("projects.importFinishedAddedSkippedIn", {
-          value: countItems(result.additions),
-          updates: countItems(result.updates),
-          value2: countItems(result.skipped),
-          value3: countItems(result.conflicts),
-        }),
+        result.changed
+          ? t("projects.importFinishedAddedSkippedIn", {
+              value: countItems(result.additions),
+              updates: countItems(result.updates),
+              value2: countItems(result.skipped),
+              value3: countItems(result.conflicts),
+            })
+          : t("projects.importFinishedNothingChanged"),
         "success",
       );
       cancelImportPreview();

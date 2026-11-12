@@ -3475,8 +3475,10 @@ export interface ProjectDataImportPreview {
 export interface ProjectDataImportResult extends Omit<ProjectDataImportPreview, "outcome"> {
   outcome: "project_data_imported";
   importedAt: string;
+  /** False when every row was already present, so nothing was written and no snapshot was taken. */
+  changed: boolean;
   redactions?: RedactionSummary;
-  /** The checked snapshot written just before the import; absent only for an in-memory database. */
+  /** The checked snapshot written just before the import; absent when nothing changed or for an in-memory database. */
   backupFileName?: string;
 }
 

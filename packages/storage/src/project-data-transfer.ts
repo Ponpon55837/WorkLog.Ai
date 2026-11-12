@@ -392,6 +392,15 @@ interface TransferPlan {
   renumbered: ProjectDataCounts;
 }
 
+/** A plan with the data revision it was made at and the snapshot, if any, taken after it. */
+interface PlannedImport {
+  revision: number;
+  plan: TransferPlan;
+  /** True once a snapshot was taken, or found unnecessary (an in-memory database has no file to keep). */
+  backedUp: boolean;
+  backupFileName?: string;
+}
+
 /** Content conflicts leave the local row in place, so rows that depend on it can still be imported. */
 const NON_BLOCKING_CONFLICTS: ReadonlySet<ProjectDataImportConflictCategory> = new Set(["content", "newer_content"]);
 /** Columns that hold machine-specific paths; a row differing only here is a path conflict. */
@@ -2035,6 +2044,16 @@ function dataRevision(db: DatabaseSync): number {
   return Number(row?.revision ?? 0);
 }
 
+/** Whether applying the plan changes stored rows; only such an import needs a snapshot to undo it. */
+function planWritesData(plan: TransferPlan): boolean {
+  return (
+    plan.pageVersionRenumbers.length > 0 ||
+    TABLE_ORDER.some((table) =>
+      plan.rows[table].some((entry) => entry.disposition === "add" || entry.disposition === "update"),
+    )
+  );
+}
+
 /** Exports complete project-scoped data and merges validated portable data without closing SQLite. */
 export class ProjectDataTransferService {
   public constructor(
@@ -2065,20 +2084,46 @@ export class ProjectDataTransferService {
   }
 
   /**
-   * Writes a checked snapshot first and refuses to import without one. The plan is made from a read snapshot, so the
-   * write lock is held only while rows are written: every project-data write raises data_revision, so an unchanged
-   * revision inside the write transaction proves the plan still describes the database, and a changed one makes the
-   * import plan again under the lock.
+   * Plans from a read snapshot, then writes a checked snapshot only when the plan changes rows, and refuses to write
+   * without one; an import that changes nothing (or fails while planning) leaves the kept import snapshots alone.
+   * The write lock is held only while rows are written: every project-data write raises data_revision, so an
+   * unchanged revision inside the write transaction proves the plan still describes the database, and a changed one
+   * makes the import plan again under the lock. When that new plan writes rows the first one did not back up for,
+   * the import releases the lock without writing, backs up and tries once more; the retry always backs up first.
    */
   public import(validated: ValidatedProjectDataImport): ProjectDataImportResult {
-    const backupFileName = this.backupBeforeImport();
+    const sourceDigest = createHash("sha256").update(JSON.stringify(validated.input)).digest("hex");
+    for (const alwaysBackUp of [false, true]) {
+      const result = this.writePlanned(validated, this.planWithBackup(validated, alwaysBackUp), sourceDigest);
+      if (result) return result;
+    }
+    // Unreachable: the second attempt always has a snapshot, so writePlanned never declines it.
+    throw new ProjectDataTransferError("project_backup_failed", "匯入前無法建立並檢查安全備份，資料沒有變更。");
+  }
+
+  private planWithBackup(validated: ValidatedProjectDataImport, alwaysBackUp: boolean): PlannedImport {
     const planned = runReadTransaction(this.db, () => ({
       revision: dataRevision(this.db),
       plan: makePlan(this.db, validated),
     }));
-    const sourceDigest = createHash("sha256").update(JSON.stringify(validated.input)).digest("hex");
+    // Taken before the write lock and after the state the plan was made from, so restoring it undoes the import.
+    if (!alwaysBackUp && !planWritesData(planned.plan)) {
+      return { ...planned, backedUp: this.databasePath === ":memory:" };
+    }
+    const backupFileName = this.backupBeforeImport();
+    return { ...planned, backedUp: true, ...(backupFileName ? { backupFileName } : {}) };
+  }
+
+  /** Returns undefined, having written nothing, when the plan made under the lock needs a snapshot it does not have. */
+  private writePlanned(
+    validated: ValidatedProjectDataImport,
+    planned: PlannedImport,
+    sourceDigest: string,
+  ): ProjectDataImportResult | undefined {
     return runImmediateTransaction(this.db, () => {
       const plan = dataRevision(this.db) === planned.revision ? planned.plan : makePlan(this.db, validated);
+      const changed = planWritesData(plan);
+      if (changed && !planned.backedUp) return undefined;
       applyPageVersionRenumbers(this.db, plan.pageVersionRenumbers);
       const insertStatements = new Map<ProjectDataTable, InsertStatement>();
       const updateStatements = new Map<ProjectDataTable, InsertStatement>();
@@ -2146,8 +2191,9 @@ export class ProjectDataTransferService {
         ...preview,
         outcome: "project_data_imported",
         importedAt,
+        changed,
         redactions: validated.redactions,
-        ...(backupFileName ? { backupFileName } : {}),
+        ...(planned.backupFileName ? { backupFileName: planned.backupFileName } : {}),
       };
     });
   }

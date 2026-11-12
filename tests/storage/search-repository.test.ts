@@ -454,6 +454,99 @@ describe("recall", () => {
     expect(ids).toContain(unlinked);
   });
 
+  it("puts a Knowledge item directly above its own source Session without changing scores or the hits returned", () => {
+    const { store, root } = trackedStore();
+    for (let index = 0; index < 10; index += 1) {
+      finalize(store, root, `trellis-filler-${index}`, { title: `Seed tray ${index}`, summary: "Watered the trays." });
+    }
+    const source = finalize(store, root, "trellis-source", {
+      title: "Trellis wire tension tuning for the north greenhouse",
+      summary: "Tuned the trellis wire tension; trellis wire tension now holds through the north greenhouse wind.",
+      workSummary: {
+        outcomes: ["Trellis wire tension tuned."],
+        scope: [],
+        decisions: ["Retune trellis wire tension every spring."],
+        verification: [],
+        nextSteps: [],
+      },
+    });
+    const other = finalize(store, root, "trellis-other", {
+      title: "Trellis wire tension check",
+      summary: "Checked the trellis wire tension once.",
+    });
+    const fromSource = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "trellis-knowledge",
+      kind: "pattern",
+      title: "Retune trellis wire tension",
+      body: "Retune the trellis wire tension every spring.",
+      sessionId: source,
+    });
+    const fromOther = store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "trellis-other-knowledge",
+      kind: "pattern",
+      title: "Trellis wire",
+      body: "A trellis wire.",
+      sessionId: other,
+    });
+    if (fromSource.outcome !== "knowledge_recorded" || fromOther.outcome !== "knowledge_recorded") {
+      throw new Error("Expected synthetic Knowledge");
+    }
+    const query = { q: "trellis wire tension" };
+    const result = recall(store, { ...query, limit: 10 });
+    const ids = result.hits.map((hit) => hit.id);
+    const score = (id: string) => result.hits.find((hit) => hit.id === id)!.score;
+    // The source Session scores higher; only the order changed.
+    expect(score(source)).toBeGreaterThan(score(fromSource.knowledge.id));
+    expect(ids.indexOf(fromSource.knowledge.id)).toBe(ids.indexOf(source) - 1);
+    // Each item moves only to its own source: the other one passes its own Session but not the higher one.
+    expect(ids).toEqual([fromSource.knowledge.id, source, fromOther.knowledge.id, other]);
+    expect(score(other)).toBeGreaterThan(score(fromOther.knowledge.id));
+
+    // Only hits already returned move: with room for the source Session alone, the Knowledge item stays out.
+    const top = recall(store, { ...query, limit: 1 }).hits.map((hit) => hit.id);
+    expect(top).toEqual([source]);
+  });
+
+  it("never moves a Knowledge item next to a Session of another project", () => {
+    const databasePath = join(tempDir(), "projects.sqlite");
+    const { store, root } = trackedStore(databasePath);
+    const otherRoot = tempDir();
+    store.updateProject(store.addProject("Vineyard", otherRoot).id, { status: "tracked" });
+    for (let index = 0; index < 10; index += 1) {
+      finalize(store, root, `lattice-filler-${index}`, { title: `Seed tray ${index}`, summary: "Watered the trays." });
+    }
+    const source = finalize(store, root, "lattice-source", {
+      title: "Lattice wire tension tuning",
+      summary: "Tuned the lattice wire tension; lattice wire tension now holds through the wind.",
+      workSummary: {
+        outcomes: ["Lattice wire tension tuned."],
+        scope: [],
+        decisions: ["Retune lattice wire tension every spring."],
+        verification: [],
+        nextSteps: [],
+      },
+    });
+    const own = finalize(store, otherRoot, "lattice-own", { title: "Vineyard maintenance", summary: "Routine." });
+    const knowledge = store.recordKnowledge({
+      projectRoot: otherRoot,
+      idempotencyKey: "lattice-knowledge",
+      kind: "pattern",
+      title: "Lattice wire",
+      body: "A lattice wire.",
+      sessionId: own,
+    });
+    if (knowledge.outcome !== "knowledge_recorded") throw new Error("Expected synthetic Knowledge");
+    // A damaged link to a Session of the other project must not carry the item across projects.
+    const writer = new DatabaseSync(databasePath);
+    writer.prepare("UPDATE knowledge SET session_id = ? WHERE id = ?").run(source, knowledge.knowledge.id);
+    writer.close();
+    const hits = recall(store, { q: "lattice wire tension" }).hits;
+    expect(hits.map((hit) => hit.id)).toEqual([source, knowledge.knowledge.id]);
+    expect(hits[0]!.projectId).not.toBe(hits[1]!.projectId);
+  });
+
   it("ranks a record that answers in structured fields above a long handoff that only mentions the words in raw text", () => {
     const { store, root } = trackedStore();
     // Unrelated history gives the query words a meaningful document frequency.

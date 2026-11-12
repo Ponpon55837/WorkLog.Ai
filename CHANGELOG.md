@@ -4,6 +4,26 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.30] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.30.md).
+
+### Fixed
+
+- The pre-import snapshot of 1.6.29 was written before the import was planned, so an import that changed nothing (every row already present) or that failed while planning (for example a selected project that is not in the file) still wrote one, and three such attempts pushed out the snapshot of an earlier import that really changed data. The import now plans first, from a read snapshot, and writes and checks the snapshot only when the plan adds, updates or renumbers at least one row, still before the write transaction and still failing closed. An import that changes nothing writes no snapshot, returns no `backupFileName` and reports the new result field `changed: false` (`true` when rows were written); the CLI and the Web say that nothing was changed. When the database changes between planning and the write lock so that the plan made again under the lock now writes rows, the import releases the lock without writing, writes the snapshot and tries once more; the second attempt always backs up first, so there are at most two. The owner's export still imports into a fresh database with 4,344 rows, 0 conflicts and one snapshot; importing it again adds nothing and writes no snapshot.
+
+### Changed
+
+- `work_recall` now places a returned Knowledge item directly above its own source Session (the Session it was recorded from, in the same project) when that Session ranks higher. The Knowledge item is the reviewed statement of what the longer record says. Only the order of the hits already selected changes: scores, confidence, which hits are returned and their number stay the same. On a copy of real data, for 18 queries whose answer is an active Knowledge item, the item ranks first in 17 instead of 9 (none of the 9 lost); 11 of 56 queries change order, each only by this rule. `pnpm test:retrieval-quality` metrics are unchanged (25/25).
+- Benchmark: `importProjectData (all projects, already present)` now checks that nothing changed and no snapshot was written; p90 580–604 → 414 ms (limit 1,500 ms).
+- Docs: `docs/mcp-tools.md` (recall order), `docs/rest-api.md`, `docs/user-guide.md` and `docs/troubleshooting.md` (when the import snapshot is written; restoring it also discards anything written after it), `docs/testing.md`.
+
+### Upgrading
+
+No schema change (33). The import result has the new field `changed`; `backupFileName` is absent when nothing changed.
+
+Coming from 1.6.14 or earlier: read "Upgrading from 1.6.14 or earlier" under 1.6.27 below first. It lists every change since 1.6.14 that an existing Agent, REST client or exported file can notice (schema 33 and its migration, which exports import, strict REST input, receipts instead of echoed Sessions, the report block sent once, the new error codes). Coming from 1.6.8 or earlier (schema 31), also read the 1.6.9–1.6.14 entries. Since that note was written, 1.6.29 added the safety snapshot before an online import, the `missing_parent` conflict category and the import running in the background worker, and this release the `changed` field and the recall order above.
+
 ## [1.6.29] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.29.md).

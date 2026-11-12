@@ -540,7 +540,11 @@ export async function runDatabaseCli(
           `匯入完成：新增 ${totalCounts(result.additions)} 筆，更新 ${totalCounts(result.updates)} 筆，保留本機 ${totalCounts(result.keptLocal)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
         );
         if (result.backupFileName) print(`匯入前的資料已備份為 ${result.backupFileName}。`);
-        print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
+        if (result.changed) {
+          print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
+        } else {
+          print("檔案中的資料這裡都已經有了，資料沒有變更，也沒有建立備份。");
+        }
       } else {
         print("已取消匯入，資料沒有變更。");
       }

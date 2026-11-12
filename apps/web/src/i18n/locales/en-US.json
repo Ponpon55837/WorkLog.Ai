@@ -878,6 +878,7 @@
     "importFile": "Import file",
     "importFilesCannotExceed50": "Import files cannot exceed 50 MiB.",
     "importFinishedAddedSkippedIn": "Import finished: {value} added, {updates} updated, {value2} skipped, {value3} in conflict.",
+    "importFinishedNothingChanged": "Nothing to import: every record in the file is already here, so nothing changed and no backup was written.",
     "importPastHandoffs": "Import past handoffs",
     "importProjectsAndApplyPaths": "Import projects and apply paths",
     "importProjectsAndPaths": "Import projects and paths",

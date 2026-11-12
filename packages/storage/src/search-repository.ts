@@ -405,7 +405,7 @@ export class SearchRepository {
       .map((term, index) => ({ term, idf: idf[index] ?? 0 }))
       .sort((left, right) => right.idf - left.idf)
       .map((entry) => entry.term);
-    const selected = this.preferContinuations(ranked).slice(0, options.limit);
+    const selected = this.preferKnowledgeOverSource(this.preferContinuations(ranked).slice(0, options.limit));
     // Confidence is judged only on the entries that became hits, so a record the response leaves out cannot raise it.
     const returned = selected.flatMap((entry) => {
       const hit = this.toHit(entry.doc, entry.score, excerptTerms);
@@ -703,6 +703,55 @@ export class SearchRepository {
       index -= 1;
     }
     return [...order, ...ranked.slice(CONTINUATION_WINDOW)];
+  }
+
+  /**
+   * Moves each returned Knowledge item directly above its own source Session when that Session ranks higher: the item
+   * is the reviewed statement of what the longer record says, and the Session stays one step away. Only the order of
+   * the entries already selected changes, never a score or which entries are returned, and only within one project.
+   */
+  private preferKnowledgeOverSource<T extends { doc: { type: DocType; id: string; projectId: string } }>(
+    selected: T[],
+  ): T[] {
+    const sessions = new Map<string, { index: number; projectId: string }>();
+    const knowledgeIds: string[] = [];
+    selected.forEach((entry, index) => {
+      if (entry.doc.type === "session") sessions.set(entry.doc.id, { index, projectId: entry.doc.projectId });
+      else knowledgeIds.push(entry.doc.id);
+    });
+    if (sessions.size === 0 || knowledgeIds.length === 0) {
+      return selected;
+    }
+    const sources = new Map(
+      (
+        this.db
+          .prepare(
+            `SELECT id, session_id FROM knowledge
+             WHERE id IN (SELECT value FROM json_each(?)) AND session_id IS NOT NULL`,
+          )
+          .all(JSON.stringify(knowledgeIds)) as Array<{ id: string; session_id: string }>
+      ).map((row) => [row.id, row.session_id]),
+    );
+    // Knowledge to place above each source Session, in ranked order so several items from one Session keep theirs.
+    const above = new Map<string, T[]>();
+    const moved = new Set<T>();
+    selected.forEach((entry, index) => {
+      if (entry.doc.type !== "knowledge") return;
+      const sessionId = sources.get(entry.doc.id);
+      const source = sessionId === undefined ? undefined : sessions.get(sessionId);
+      if (sessionId === undefined || !source || source.index > index || source.projectId !== entry.doc.projectId) {
+        return;
+      }
+      above.set(sessionId, [...(above.get(sessionId) ?? []), entry]);
+      moved.add(entry);
+    });
+    if (moved.size === 0) {
+      return selected;
+    }
+    return selected.flatMap((entry) => {
+      if (moved.has(entry)) return [];
+      return entry.doc.type === "session" ? [...(above.get(entry.doc.id) ?? []), entry] : [entry];
+    });
   }
 
   private knowledgeStatuses(knowledgeIds: string[]): Map<string, KnowledgeStatus> {
