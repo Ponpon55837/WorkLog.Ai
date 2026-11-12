@@ -24,6 +24,7 @@ import type {
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { isChangedFilesMetadataConfirmed } from "./changed-files-confirmation.js";
+import { DataRevisionCache } from "./data-revision-cache.js";
 import { MetadataBackfillRepository } from "./metadata-backfill-repository.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import type { SessionRow } from "./session-repository.js";
@@ -179,11 +180,16 @@ function toMetadataBackfillItem(
 }
 
 export class MetadataBackfillService {
+  // The follow-up count scans every Session of its scope and getContext asks for it on every call.
+  private readonly followUpCounts: DataRevisionCache<MetadataBackfillTotals>;
+
   public constructor(
     private readonly db: DatabaseSync,
     private readonly store: MetadataBackfillStoreReader,
     private readonly repository: MetadataBackfillRepository,
-  ) {}
+  ) {
+    this.followUpCounts = new DataRevisionCache(db);
+  }
 
   private toMetadataBackfillItem(row: MetadataBackfillRow): MetadataBackfillItem {
     return toMetadataBackfillItem(row, (sessionRow) => this.store.toSession(sessionRow));
@@ -265,35 +271,9 @@ export class MetadataBackfillService {
       }
       projectId = decision.project.id;
     }
-
-    const parameters: string[] = [];
-    const projectClause = projectId ? " AND s.project_id = ?" : "";
-    if (projectId) {
-      parameters.push(projectId);
-    }
-    const changedFilesMissing = changedFilesMetadataMissingSql("s");
-    const verificationFalsy = verificationValueFalsySql("s");
-    const verificationMissing = verificationStatusNotSuppliedSql("s");
-    const verificationNotRun = verificationStatusNotRunSql("s");
-    const needsBackfill = `(${changedFilesMissing} = 1 OR ${verificationFalsy} = 1 OR ${verificationNotRun} = 1)`;
-    const row = this.db
-      .prepare(
-        "SELECT " +
-          `COALESCE(SUM(CASE WHEN ${needsBackfill} THEN 1 ELSE 0 END), 0) AS needs_backfill, ` +
-          `COALESCE(SUM(CASE WHEN ${changedFilesMissing} = 1 THEN 1 ELSE 0 END), 0) AS changed_files_missing, ` +
-          `COALESCE(SUM(CASE WHEN ${needsBackfill} AND ${verificationMissing} = 1 THEN 1 ELSE 0 END), 0) AS verification_missing, ` +
-          `COALESCE(SUM(CASE WHEN ${needsBackfill} AND ${verificationNotRun} = 1 THEN 1 ELSE 0 END), 0) AS verification_not_run ` +
-          "FROM sessions s JOIN projects p ON p.id = s.project_id " +
-          "WHERE p.status = 'tracked' AND s.voided_at IS NULL" +
-          projectClause,
-      )
-      .get(...parameters) as MetadataBackfillCountRow;
-    return {
-      needsBackfill: row.needs_backfill,
-      changedFilesMissing: row.changed_files_missing,
-      verificationMissing: row.verification_missing,
-      verificationNotRun: row.verification_not_run,
-    };
+    // Policy is checked above on every call; only the count itself is reused, keyed by its project scope.
+    const totals = this.followUpCounts.get(projectId ?? "", () => this.scanMetadataBackfillFollowUps(projectId));
+    return { ...totals };
   }
 
   public createMetadataBackfillRequest(input: CreateMetadataBackfillRequestInput): CreateMetadataBackfillRequestResult {
@@ -725,6 +705,37 @@ export class MetadataBackfillService {
       failures,
       ...(request ? { request } : {}),
       ...(remainingItems ? { remainingItems } : {}),
+    };
+  }
+
+  private scanMetadataBackfillFollowUps(projectId: string | undefined): MetadataBackfillTotals {
+    const parameters: string[] = [];
+    const projectClause = projectId ? " AND s.project_id = ?" : "";
+    if (projectId) {
+      parameters.push(projectId);
+    }
+    const changedFilesMissing = changedFilesMetadataMissingSql("s");
+    const verificationFalsy = verificationValueFalsySql("s");
+    const verificationMissing = verificationStatusNotSuppliedSql("s");
+    const verificationNotRun = verificationStatusNotRunSql("s");
+    const needsBackfill = `(${changedFilesMissing} = 1 OR ${verificationFalsy} = 1 OR ${verificationNotRun} = 1)`;
+    const row = this.db
+      .prepare(
+        "SELECT " +
+          `COALESCE(SUM(CASE WHEN ${needsBackfill} THEN 1 ELSE 0 END), 0) AS needs_backfill, ` +
+          `COALESCE(SUM(CASE WHEN ${changedFilesMissing} = 1 THEN 1 ELSE 0 END), 0) AS changed_files_missing, ` +
+          `COALESCE(SUM(CASE WHEN ${needsBackfill} AND ${verificationMissing} = 1 THEN 1 ELSE 0 END), 0) AS verification_missing, ` +
+          `COALESCE(SUM(CASE WHEN ${needsBackfill} AND ${verificationNotRun} = 1 THEN 1 ELSE 0 END), 0) AS verification_not_run ` +
+          "FROM sessions s JOIN projects p ON p.id = s.project_id " +
+          "WHERE p.status = 'tracked' AND s.voided_at IS NULL" +
+          projectClause,
+      )
+      .get(...parameters) as MetadataBackfillCountRow;
+    return {
+      needsBackfill: row.needs_backfill,
+      changedFilesMissing: row.changed_files_missing,
+      verificationMissing: row.verification_missing,
+      verificationNotRun: row.verification_not_run,
     };
   }
 }

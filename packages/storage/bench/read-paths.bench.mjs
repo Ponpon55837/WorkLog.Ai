@@ -691,6 +691,35 @@ try {
     analyzedDatabase.close();
   }
   const analyzedStore = new WorkIntelligenceStore(analyzedPath);
+  // A second connection writes like another process (the REST server and MCP servers share the file).
+  const withBenchConnection = (path, operation) => {
+    const connection = new DatabaseSync(path);
+    try {
+      connection.exec("PRAGMA busy_timeout = 5000");
+      operation(connection);
+    } finally {
+      connection.close();
+    }
+  };
+  // One project-data write moves the data revision, so the next follow-up count is a cache miss.
+  const touchProjectData = () =>
+    withBenchConnection(databasePath, (connection) =>
+      connection.prepare("UPDATE projects SET updated_at = updated_at WHERE id = ?").run(alpha.id),
+    );
+  // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.
+  const reindexPath = join(root, "bench-reindex.sqlite");
+  withBenchConnection(databasePath, (connection) =>
+    connection.exec(`VACUUM INTO '${reindexPath.replaceAll("'", "''")}'`),
+  );
+  const reindexStore = new WorkIntelligenceStore(reindexPath);
+  const dirtyDocumentCount = Math.min(5000, sessionCount);
+  const markSessionsDirty = () =>
+    withBenchConnection(reindexPath, (connection) =>
+      connection.exec(
+        `INSERT OR IGNORE INTO search_dirty (doc_type, doc_id)
+         SELECT 'session', id FROM sessions ORDER BY id LIMIT ${dirtyDocumentCount}`,
+      ),
+    );
   const expectedAnalyzedYear = JSON.stringify(benchStore.getReport({ period: "year", date: "2026-03-11" }));
   // A full audit window (5,000 rows) over 12 tools, with durations, failures, and untimed legacy rows.
   const auditSeed = new DatabaseSync(databasePath);
@@ -857,6 +886,23 @@ try {
       if (!result || JSON.stringify(result) !== JSON.stringify(expectedMetadataFollowUpTotals)) {
         throw new Error("Metadata follow-up count query must match the complete preview totals.");
       }
+      return result;
+    },
+    // Every run follows a write by another connection, so the count is scanned again instead of reused.
+    "metadata follow-up counts (after a write)": () => {
+      const result = benchStore.countMetadataBackfillFollowUps();
+      if (!result || JSON.stringify(result) !== JSON.stringify(expectedMetadataFollowUpTotals)) {
+        throw new Error("Metadata follow-up count after a write must match the complete preview totals.");
+      }
+      return result;
+    },
+    // A bulk change left 5,000 Session documents dirty; the first read re-indexes them all before searching.
+    "first read after 5,000 dirty documents": () => {
+      const result = reindexStore.search("zzqxnomatchterm");
+      withBenchConnection(reindexPath, (connection) => {
+        if (connection.prepare("SELECT COUNT(*) AS count FROM search_dirty").get().count !== 0)
+          throw new Error("The first read must re-index every dirty document before it searches.");
+      });
       return result;
     },
     "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
@@ -1168,6 +1214,8 @@ try {
   const heavyRuns = 5;
   const beforeEachRun = {
     "finalizeSession (changed files, Knowledge review)": seedFreshReviewKnowledge,
+    "metadata follow-up counts (after a write)": touchProjectData,
+    "first read after 5,000 dirty documents": markSessionsDirty,
     "getMcpRuntimeStatus (286 expired leases)": seedExpiredLeases,
     "registerMcpProcess (286 expired leases)": seedExpiredLeases,
     createBackup: resetHeavyOutputs,
@@ -1194,13 +1242,15 @@ try {
     "listSessionsPage (query)": 300,
     "listSessionsPage (query, no match)": 300,
     "listSessionDigests (page 100 + pending items)": 100,
-    getDashboardSummary: 1000,
+    getDashboardSummary: 250,
     "getReport week": 750,
     "getReport (in-progress verification)": 750,
     "getReport year": 1500,
     "getReport year (after ANALYZE)": 1500,
-    getContext: 2500,
+    getContext: 500,
     "metadata follow-up counts": 100,
+    "metadata follow-up counts (after a write)": 100,
+    "first read after 5,000 dirty documents": 1500,
     "getContext (project with pages)": 500,
     "getContext (related pending items)": 500,
     "finalizeSession (related pending reminder)": 250,
@@ -1427,6 +1477,7 @@ try {
   }
   await closeBenchmarkApi();
   analyzedStore.close();
+  reindexStore.close();
   overlapDatabase.close();
   benchStore.close();
 } finally {

@@ -157,6 +157,16 @@ interface IndexWriteStatements {
   insertPath: StatementSync;
 }
 
+/** The statements one index sync reuses to read every dirty document, and each project's path context once. */
+interface IndexReadStatements {
+  session: StatementSync;
+  events: StatementSync;
+  snapshots: StatementSync;
+  knowledge: StatementSync;
+  project: StatementSync;
+  contexts: Map<string, PathContext[]>;
+}
+
 interface ScoredChunkRow {
   id: number;
   doc_type: DocType;
@@ -345,6 +355,12 @@ export class SearchRepository {
    * Re-indexes documents marked dirty by the write triggers. Every old FTS row is deleted before any new one is
    * inserted: interleaving per document makes FTS5 flush a small segment for each lower rowid it receives and merge
    * them, which grew far faster than linear once a migration or redaction marked thousands of documents dirty.
+   *
+   * One dirty document (the usual case after a finalize) stays cheap, and a large backlog costs per document only
+   * the SQL that must run for it: the old chunk and path rows of all dirty documents are removed with one statement
+   * each, the read and write statements are prepared once per sync, and each project's path context is read once.
+   * The same rows are deleted and written in the same order, so even the new chunk rowids match re-indexing one
+   * document at a time.
    */
   public syncIndex(): void {
     const pending = this.db.prepare("SELECT 1 FROM search_dirty LIMIT 1").get();
@@ -357,11 +373,11 @@ export class SearchRepository {
         doc_id: string;
       }>;
       const statements = this.prepareIndexWrites();
+      this.removeDirtyDocuments(statements);
+      const reads = this.prepareIndexReads();
       for (const row of dirty) {
-        this.removeDocument(statements, row.doc_type, row.doc_id);
-      }
-      for (const row of dirty) {
-        const document = row.doc_type === "session" ? this.loadSession(row.doc_id) : this.loadKnowledge(row.doc_id);
+        const document =
+          row.doc_type === "session" ? this.loadSession(reads, row.doc_id) : this.loadKnowledge(reads, row.doc_id);
         if (document) {
           this.insertDocument(statements, row.doc_type, row.doc_id, document);
         }
@@ -721,11 +737,10 @@ export class SearchRepository {
   ): { idf: number[]; totalIdf: number } {
     const totalChunks = (this.db.prepare("SELECT COUNT(*) AS count FROM search_chunks").get() as { count: number })
       .count;
-    const matchStatement = this.db.prepare("SELECT rowid AS id FROM search_fts WHERE search_fts MATCH ?");
-    const termSets = terms.map(
-      (term) => new Set((matchStatement.all(ftsTermExpression(term)) as Array<{ id: number }>).map((row) => row.id)),
-    );
-    const idf = termSets.map((set) => Math.log(1 + (totalChunks - set.size + 0.5) / (set.size + 0.5)));
+    // IDF needs only how many chunks contain each term, so SQLite counts them instead of returning every rowid.
+    const countStatement = this.db.prepare("SELECT COUNT(*) AS count FROM search_fts WHERE search_fts MATCH ?");
+    const termCounts = terms.map((term) => (countStatement.get(ftsTermExpression(term)) as { count: number }).count);
+    const idf = termCounts.map((count) => Math.log(1 + (totalChunks - count + 0.5) / (count + 0.5)));
     const totalIdf = idf.reduce((sum, value) => sum + value, 0);
     if (totalIdf === 0) {
       return { idf, totalIdf };
@@ -752,6 +767,7 @@ export class SearchRepository {
          WHERE search_fts MATCH ? AND ${clause}`,
       )
       .all(terms.map(ftsTermExpression).join(" OR "), ...parameters) as unknown as ScoredChunkRow[];
+    const termSets = this.termMembership(terms, termCounts, rows.length);
 
     for (const row of rows) {
       const doc = accumulator(row.doc_type, row.doc_id, row.project_id, row.doc_date);
@@ -776,6 +792,32 @@ export class SearchRepository {
       doc.fields.set(row.field, (doc.fields.get(row.field) ?? 0) + score);
     }
     return { idf, totalIdf };
+  }
+
+  /**
+   * Which returned chunks contain each query term, for coverage. Reading every rowid of a term is the costly part,
+   * so it is skipped where the answer is already known: no returned chunk (nothing to attribute), a term no chunk
+   * contains (no member), or a single term with any match (every chunk the OR query returned must contain it).
+   */
+  private termMembership(
+    terms: string[],
+    termCounts: number[],
+    returnedRows: number,
+  ): Array<{ has(chunkId: number): boolean }> {
+    const none = { has: () => false };
+    const matchedTerms = termCounts.filter((count) => count > 0).length;
+    if (returnedRows === 0) {
+      return terms.map(() => none);
+    }
+    if (matchedTerms === 1) {
+      return termCounts.map((count) => (count > 0 ? { has: () => true } : none));
+    }
+    const matchStatement = this.db.prepare("SELECT rowid AS id FROM search_fts WHERE search_fts MATCH ?");
+    return terms.map((term, index) =>
+      termCounts[index] === 0
+        ? none
+        : new Set((matchStatement.all(ftsTermExpression(term)) as Array<{ id: number }>).map((row) => row.id)),
+    );
   }
 
   private scoreSynonyms(
@@ -1013,19 +1055,19 @@ export class SearchRepository {
     return rows.map((row) => ({ name: row.name, rootPath: row.root_path }));
   }
 
-  private projectContext(projectId: string): PathContext[] {
-    const row = this.db.prepare("SELECT name, root_path FROM projects WHERE id = ?").get(projectId) as
-      { name: string; root_path: string } | undefined;
-    return row ? [{ name: row.name, rootPath: row.root_path }] : [];
+  /** A project's path context, read once per sync: the sync's write transaction keeps projects unchanged. */
+  private projectContext(reads: IndexReadStatements, projectId: string): PathContext[] {
+    let contexts = reads.contexts.get(projectId);
+    if (!contexts) {
+      const row = reads.project.get(projectId) as { name: string; root_path: string } | undefined;
+      contexts = row ? [{ name: row.name, rootPath: row.root_path }] : [];
+      reads.contexts.set(projectId, contexts);
+    }
+    return contexts;
   }
 
-  private loadSession(sessionId: string): IndexedDocument | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT project_id, title, summary, work_summary_json, completed_at, git_branch, changed_files_json
-         FROM sessions WHERE id = ? AND voided_at IS NULL`,
-      )
-      .get(sessionId) as
+  private loadSession(reads: IndexReadStatements, sessionId: string): IndexedDocument | undefined {
+    const row = reads.session.get(sessionId) as
       | {
           project_id: string;
           title: string;
@@ -1065,9 +1107,7 @@ export class SearchRepository {
     if (row.git_branch) {
       chunks.push({ field: "branch", content: row.git_branch, weight: FIELD_WEIGHTS.branch });
     }
-    const events = this.db
-      .prepare("SELECT summary FROM work_events WHERE session_id = ? ORDER BY occurred_at ASC")
-      .all(sessionId) as Array<{ summary: string }>;
+    const events = reads.events.all(sessionId) as Array<{ summary: string }>;
     if (events.length > 0) {
       chunks.push({
         field: "event",
@@ -1075,15 +1115,13 @@ export class SearchRepository {
         weight: FIELD_WEIGHTS.event,
       });
     }
-    const snapshots = this.db
-      .prepare("SELECT content FROM raw_snapshots WHERE session_id = ? ORDER BY captured_at ASC")
-      .all(sessionId) as Array<{ content: string }>;
+    const snapshots = reads.snapshots.all(sessionId) as Array<{ content: string }>;
     for (const snapshot of snapshots) {
       for (const section of splitMarkdownSections(snapshot.content)) {
         chunks.push({ field: "raw", heading: section.heading, content: section.content, weight: FIELD_WEIGHTS.raw });
       }
     }
-    const contexts = this.projectContext(row.project_id);
+    const contexts = this.projectContext(reads, row.project_id);
     return {
       projectId: row.project_id,
       date: row.completed_at,
@@ -1095,10 +1133,8 @@ export class SearchRepository {
     };
   }
 
-  private loadKnowledge(knowledgeId: string): IndexedDocument | undefined {
-    const row = this.db
-      .prepare("SELECT project_id, title, body, tags_json, references_json, updated_at FROM knowledge WHERE id = ?")
-      .get(knowledgeId) as
+  private loadKnowledge(reads: IndexReadStatements, knowledgeId: string): IndexedDocument | undefined {
+    const row = reads.knowledge.get(knowledgeId) as
       | {
           project_id: string;
           title: string;
@@ -1123,12 +1159,28 @@ export class SearchRepository {
     if (references.length > 0) {
       chunks.push({ field: "references", content: references.join("\n"), weight: FIELD_WEIGHTS.references });
     }
-    const contexts = this.projectContext(row.project_id);
+    const contexts = this.projectContext(reads, row.project_id);
     const paths = references
       .flatMap((reference) => normalizeReference(reference, contexts))
       .filter((reference) => reference.kind === "path")
       .map((reference) => ({ path: reference.value, weight: 1 }));
     return { projectId: row.project_id, date: row.updated_at, chunks, paths };
+  }
+
+  private prepareIndexReads(): IndexReadStatements {
+    return {
+      session: this.db.prepare(
+        `SELECT project_id, title, summary, work_summary_json, completed_at, git_branch, changed_files_json
+         FROM sessions WHERE id = ? AND voided_at IS NULL`,
+      ),
+      events: this.db.prepare("SELECT summary FROM work_events WHERE session_id = ? ORDER BY occurred_at ASC"),
+      snapshots: this.db.prepare("SELECT content FROM raw_snapshots WHERE session_id = ? ORDER BY captured_at ASC"),
+      knowledge: this.db.prepare(
+        "SELECT project_id, title, body, tags_json, references_json, updated_at FROM knowledge WHERE id = ?",
+      ),
+      project: this.db.prepare("SELECT name, root_path FROM projects WHERE id = ?"),
+      contexts: new Map(),
+    };
   }
 
   private prepareIndexWrites(): IndexWriteStatements {
@@ -1161,6 +1213,26 @@ export class SearchRepository {
     statements.deletePaths.run(type, id);
   }
 
+  /**
+   * Removes the cached rows of every document in search_dirty: all FTS rows first, then the chunk and path rows with
+   * one statement each. Call inside the sync transaction, before any document is inserted again.
+   */
+  private removeDirtyDocuments(statements: IndexWriteStatements): void {
+    const dirtyChunks = `SELECT c.id FROM search_dirty d
+      CROSS JOIN search_chunks c ON c.doc_type = d.doc_type AND c.doc_id = d.doc_id`;
+    const chunkIds = this.db.prepare(dirtyChunks).all() as Array<{ id: number }>;
+    for (const chunk of chunkIds) {
+      runFtsWrite(statements.deleteFts, chunk.id);
+    }
+    resetLastInsertRowid(this.db);
+    this.db.exec(`DELETE FROM search_chunks WHERE id IN (${dirtyChunks})`);
+    this.db.exec(
+      `DELETE FROM search_paths WHERE EXISTS (
+         SELECT 1 FROM search_dirty d WHERE d.doc_type = search_paths.doc_type AND d.doc_id = search_paths.doc_id
+       )`,
+    );
+  }
+
   private insertDocument(statements: IndexWriteStatements, type: DocType, id: string, document: IndexedDocument): void {
     for (const chunk of document.chunks) {
       const tokens = tokenize(chunk.content);
@@ -1180,7 +1252,7 @@ export class SearchRepository {
       );
       runFtsWrite(statements.insertFts, result.lastInsertRowid, tokens.join(" "));
     }
-    resetLastInsertRowid(this.db);
+    // No rowid reset is needed here: each INSERT below reports its own new rowid, never an FTS shadow rowid.
     for (const { path, weight } of document.paths) {
       statements.insertPath.run(type, id, document.projectId, path, pathBasename(path), weight, document.date);
     }

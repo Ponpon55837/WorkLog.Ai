@@ -4,6 +4,8 @@ import type { RedactionSummary, SensitiveDataKind } from "@work-intelligence/cor
 import type { BackupRetentionOptions } from "./backup.js";
 import { backupDatabaseBeforeMaintenance } from "./backup.js";
 import { redactDiagramSource } from "./diagram-source-redaction.js";
+import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
+import { SearchRepository } from "./search-repository.js";
 import { redactJsonText, redactText } from "./secret-redaction.js";
 import { resetLastInsertRowid, runFtsWrite } from "./sqlite-fts.js";
 
@@ -233,6 +235,24 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
 }
 
 /** Dry-run scans read-only. Apply takes an exclusive lock, backs up, and rewrites text in one transaction. */
+/**
+ * Re-indexes the documents the redaction marked dirty while the exclusive lock is still held, so the first read
+ * after the API restarts does not re-index them inline. Only a database already at the latest schema has the index
+ * layout this build writes; an older one keeps its dirty marks and is re-indexed after its migration. A failure
+ * leaves the marks in place, and the next read re-indexes those documents as it did before.
+ */
+function reindexRedactedDocuments(database: DatabaseSync): void {
+  try {
+    const row = database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as
+      { version: number | null } | undefined;
+    if (row?.version === LATEST_SCHEMA_VERSION) {
+      new SearchRepository(database).syncIndex();
+    }
+  } catch {
+    // The redaction is committed; the dirty marks stay for the next read.
+  }
+}
+
 export function redactDatabase(options: {
   databasePath: string;
   apply?: boolean;
@@ -270,11 +290,11 @@ export function redactDatabase(options: {
       });
     }
 
+    let result: DatabaseRedactionResult;
     try {
       database.exec("BEGIN IMMEDIATE");
-      const result = applyToDatabase(database, true);
+      result = applyToDatabase(database, true);
       database.exec("COMMIT");
-      return { ...result, backupFileName };
     } catch (error) {
       try {
         database.exec("ROLLBACK");
@@ -285,6 +305,8 @@ export function redactDatabase(options: {
         cause: error,
       });
     }
+    reindexRedactedDocuments(database);
+    return { ...result, backupFileName };
   } finally {
     database.close();
   }

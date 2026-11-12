@@ -570,8 +570,9 @@ export async function runDatabaseCli(
       if (remap.length) {
         print(`已更新 ${result.remapped.projects} 個專案路徑、${result.remapped.handoffSnapshots} 個 handoff 路徑。`);
       }
-      // Opening the store once applies any newer migrations before the server or an Agent uses it.
-      runWithStore(() => undefined);
+      // Opening the store once applies any newer migrations before the server or an Agent uses it, and re-indexes the
+      // restored documents now rather than on the first read after the API starts.
+      runWithStore((store) => store.syncSearchIndex());
       print("完成。重新啟動 API server 與 Agent 對話即可使用。");
     } else {
       print(usage);

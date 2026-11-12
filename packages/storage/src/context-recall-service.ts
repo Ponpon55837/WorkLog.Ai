@@ -132,6 +132,8 @@ interface ContextRecallStoreReader {
   hasPendingOutstandingItems(projectId: string, excludeSourceSessionId?: string): boolean;
   relatedPendingOutstandingItems(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number };
   hotspotHints(projectId: string, paths: readonly string[]): HotspotHint[];
+  /** Runs one composite read whose parts share the page records they need (see KnowledgePageService). */
+  withSharedReads<T>(read: () => T): T;
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -252,6 +254,11 @@ export class ContextRecallService {
   ) {}
 
   public getContext(projectRoot?: string, focus: ContextFocus = {}): ContextQueryResult {
+    // Page digests, page omissions and pending page requests all read the same projects' page records.
+    return this.store.withSharedReads(() => this.readContext(projectRoot, focus));
+  }
+
+  private readContext(projectRoot: string | undefined, focus: ContextFocus): ContextQueryResult {
     if (projectRoot) {
       const decision = this.store.checkProjectRoot(projectRoot);
       if (!decision.allowed || !decision.project) {
@@ -1264,9 +1271,11 @@ export class ContextRecallService {
   private getRecentDecisions(projectId?: string): DecisionDigest[] {
     const rows = this.db
       .prepare(
+        // CROSS JOIN walks idx_sessions_completed newest first and stops at the limit, like SessionRepository.list;
+        // a plain JOIN parsed the JSON of every tracked Session and sorted them all.
         `SELECT s.id, s.title, s.completed_at, json_extract(s.work_summary_json, '$.decisions') AS decisions_json
          FROM sessions s
-         JOIN projects p ON p.id = s.project_id
+         CROSS JOIN projects p ON p.id = s.project_id
          WHERE p.status = 'tracked'
            AND s.voided_at IS NULL
            ${projectId ? "AND p.id = ?" : ""}

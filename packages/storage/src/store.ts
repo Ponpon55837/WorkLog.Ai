@@ -611,6 +611,7 @@ export class WorkIntelligenceStore {
         this.searchIndex.syncIndex();
         return this.hotspots.hints(projectId, paths);
       },
+      withSharedReads: (read) => this.knowledgePages.withSharedReads(read),
     });
   }
 
@@ -705,9 +706,26 @@ export class WorkIntelligenceStore {
     return this.projectDataTransfer.preview(input);
   }
 
-  /** Merges portable project data inside one transaction while this store remains open. */
+  /**
+   * Merges portable project data inside one transaction while this store remains open. The search index is brought
+   * up to date right after the commit, so the first read after a large import does not re-index thousands of
+   * documents inline.
+   */
   public importProjectData(input: ProjectDataImportInput): ProjectDataImportResult {
-    return this.projectDataTransfer.import(input);
+    const result = this.projectDataTransfer.import(input);
+    runAfterImmediateTransaction(this.db, () => {
+      try {
+        this.searchIndex.syncIndex();
+      } catch {
+        // The import is committed; documents still marked dirty are re-indexed by the next read, as before.
+      }
+    });
+    return result;
+  }
+
+  /** Re-indexes every document a bulk change marked dirty (db:restore calls it), so no later read inherits them. */
+  public syncSearchIndex(): void {
+    this.searchIndex.syncIndex();
   }
 
   /** Writes one automatic backup per local calendar day, independently of manual backups. */
@@ -1009,13 +1027,17 @@ export class WorkIntelligenceStore {
         "SELECT COUNT(*) AS count FROM sessions s JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL",
       )
       .get() as { count: number };
+    // sessions.id is unique, so the events whose Session is eligible are exactly the rows of the former three-way join.
+    // The eligible ids are read once in table order instead of one Session lookup per event, which avoids most random
+    // page reads; those grew faster than the data once the database outgrew the page cache.
     const recordedEvents = this.db
       .prepare(
         `SELECT COUNT(*) AS count
          FROM work_events e
-         JOIN sessions s ON s.id = e.session_id
-         JOIN projects p ON p.id = s.project_id
-         WHERE p.status = 'tracked' AND s.voided_at IS NULL`,
+         WHERE e.session_id IN (
+           SELECT s.id FROM sessions s CROSS JOIN projects p ON p.id = s.project_id
+           WHERE p.status = 'tracked' AND s.voided_at IS NULL
+         )`,
       )
       .get() as { count: number };
 

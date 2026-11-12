@@ -292,10 +292,30 @@ export function renderKnowledgePage(sections: readonly KnowledgePageSection[], i
 
 /** Owns standing Knowledge pages: Agent update requests, their context, saving versions, and staleness. */
 export class KnowledgePageService {
+  // Page records shared by the reads of one withSharedReads call; undefined outside such a call.
+  private sharedRecords: Map<string, KnowledgePageRecord[]> | undefined;
+
   public constructor(
     private readonly db: DatabaseSync,
     private readonly dependencies: KnowledgePageDependencies,
   ) {}
+
+  /**
+   * Runs one read-only composite read (work_get_context) whose parts each need the same projects' page records:
+   * they are built once and shared until `read` returns. Nothing is kept afterwards, so a later call always sees
+   * the current pages. `read` must not write pages; callers only filter or copy the shared records.
+   */
+  public withSharedReads<T>(read: () => T): T {
+    if (this.sharedRecords) {
+      return read();
+    }
+    this.sharedRecords = new Map();
+    try {
+      return read();
+    } finally {
+      this.sharedRecords = undefined;
+    }
+  }
 
   /** Bounded page window for attention; trust is still derived by this authoritative service. */
   public attentionPages(projectId?: string): { items: KnowledgePageRecord[]; total: number } {
@@ -773,6 +793,11 @@ export class KnowledgePageService {
     if (projectIds.length === 0) {
       return [];
     }
+    const key = JSON.stringify(projectIds);
+    const shared = this.sharedRecords?.get(key);
+    if (shared) {
+      return shared;
+    }
     const rows = this.db
       .prepare(
         `SELECT * FROM knowledge_pages WHERE project_id IN (SELECT value FROM json_each(?))
@@ -780,11 +805,13 @@ export class KnowledgePageService {
       )
       .all(JSON.stringify(projectIds)) as PageRow[];
     const defaultOrder = new Map(KNOWLEDGE_PAGE_DEFAULTS.map((page, index) => [page.slug as string, index]));
-    return this.toRecords(rows).sort(
+    const records = this.toRecords(rows).sort(
       (left, right) =>
         left.projectId.localeCompare(right.projectId) ||
         (defaultOrder.get(left.slug) ?? defaultOrder.size) - (defaultOrder.get(right.slug) ?? defaultOrder.size),
     );
+    this.sharedRecords?.set(key, records);
+    return records;
   }
 
   /**
