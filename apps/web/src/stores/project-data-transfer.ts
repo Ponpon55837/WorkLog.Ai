@@ -101,8 +101,22 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       importError.value = t("projects.importFilesCannotExceed50");
       return;
     }
+    let text: string;
     try {
-      const parsedJson: unknown = JSON.parse(await file.text());
+      text = await file.text();
+    } catch {
+      // The browser's own reason (a moved, locked or unreadable file) is not translated, so it is not shown.
+      importError.value = t("projects.couldNotReadTheImport");
+      return;
+    }
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(text);
+    } catch {
+      importError.value = t("projects.theImportFileIsNotJson");
+      return;
+    }
+    try {
       const parsed = projectDataExportSchema.safeParse(parsedJson);
       if (!parsed.success) {
         importError.value = t("projects.theExportFileIsMalformed", {
@@ -166,6 +180,8 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
       queryCache.invalidateQueries({ key: queryKeys.views.graph }),
       queryCache.invalidateQueries({ key: queryKeys.views.systemStatus, exact: true }),
+      // The import wrote a pre-import snapshot, which the backup list shows.
+      queryCache.invalidateQueries({ key: queryKeys.projects.backups, exact: true }),
     ]);
   }
 

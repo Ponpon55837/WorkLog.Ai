@@ -67,6 +67,8 @@ describe("secret redaction", () => {
       { kind: "aws_access_key", value: `AKIA${"G".repeat(16)}` },
       { kind: "aws_access_key", value: `ASIA${"H".repeat(16)}` },
       { kind: "aws_secret_key", value: `aws_secret_access_key=${"J".repeat(40)}` },
+      // The case-insensitive rules are found through their keywords in any case, not only as written above.
+      { kind: "aws_secret_key", value: `AWS_Secret_Access_Key: ${"J".repeat(40)}` },
       {
         kind: "private_key",
         value: `-----BEGIN PRIVATE KEY-----\n${"K".repeat(64)}\n-----END PRIVATE KEY-----`,
@@ -74,6 +76,8 @@ describe("secret redaction", () => {
       { kind: "jwt", value: `eyJ${"a".repeat(18)}.${"b".repeat(20)}.${"c".repeat(20)}` },
       { kind: "connection_string_password", value: `postgres://worker:${"M".repeat(20)}@db.local/work` },
       { kind: "environment_secret", value: `API_KEY=${"N".repeat(20)}` },
+      { kind: "environment_secret", value: `Password: ${"N".repeat(20)}` },
+      { kind: "environment_secret", value: `apiKey=${"N".repeat(20)}` },
     ] as const;
 
     for (const entry of cases) {

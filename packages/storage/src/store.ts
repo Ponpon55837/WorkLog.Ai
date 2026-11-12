@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { NoopInsightProvider } from "@work-intelligence/core";
@@ -232,7 +232,7 @@ import { HotspotRepository } from "./hotspot-repository.js";
 import { TimelineRepository } from "./timeline-repository.js";
 import { SearchRepository } from "./search-repository.js";
 import { ContextRecallService, type ContextFocus } from "./context-recall-service.js";
-import { ProjectDataTransferService } from "./project-data-transfer.js";
+import { ProjectDataTransferService, ValidatedProjectDataImport } from "./project-data-transfer.js";
 import {
   SessionAgentReadService,
   sameSessionRevision,
@@ -367,9 +367,12 @@ export interface WorkIntelligenceStoreOptions {
   insightProvider?: InsightProvider;
   /** Where backups go and how many manual and automatic copies to retain independently. */
   backup?: BackupRetentionOptions;
-  /** Opens only an already initialized database and refuses to write any schema changes. */
-  mode?: "initialize" | "read-only";
-  /** Required with read-only mode; the database must already have this exact schema version. */
+  /**
+   * `read-only` opens an already initialized database without write access. `existing` opens one for writing but,
+   * like `read-only`, never migrates it: the background worker imports through it while the API owns the schema.
+   */
+  mode?: "initialize" | "read-only" | "existing";
+  /** Required with read-only and existing modes; the database must already have this exact schema version. */
   expectedSchemaVersion?: number;
 }
 
@@ -421,22 +424,24 @@ export class WorkIntelligenceStore {
     this.insightProvider = options.insightProvider ?? new NoopInsightProvider();
     this.backupOptions = options.backup ?? {};
     const readOnly = options.mode === "read-only";
+    const existingOnly = readOnly || options.mode === "existing";
     if (
-      readOnly &&
+      existingOnly &&
       (!Number.isSafeInteger(options.expectedSchemaVersion) || (options.expectedSchemaVersion ?? 0) < 1)
     ) {
-      throw new Error("A read-only WorkIntelligenceStore requires an expected schema version.");
+      throw new Error("A read-only or existing-database WorkIntelligenceStore requires an expected schema version.");
     }
-    if (readOnly && databasePath === ":memory:") {
-      throw new Error("A read-only WorkIntelligenceStore requires an existing database file.");
+    // Opening a missing file for writing would create an empty database the schema check then rejects.
+    if (existingOnly && (databasePath === ":memory:" || (!readOnly && !existsSync(databasePath)))) {
+      throw new Error("A read-only or existing-database WorkIntelligenceStore requires an existing database file.");
     }
-    if (!readOnly && databasePath !== ":memory:") {
+    if (!existingOnly && databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
 
     this.db = new DatabaseSync(databasePath, readOnly ? { readOnly: true } : {});
     try {
-      if (readOnly) {
+      if (existingOnly) {
         configureWorkIntelligenceDatabaseConnection(this.db);
         assertDatabaseSchemaVersion(this.db, options.expectedSchemaVersion!);
       } else {
@@ -448,7 +453,7 @@ export class WorkIntelligenceStore {
     }
     // Before any statement runs: SQLite refuses to define a function while a statement is active.
     registerListSearchFunctions(this.db);
-    this.projectDataTransfer = new ProjectDataTransferService(this.db);
+    this.projectDataTransfer = new ProjectDataTransferService(this.db, databasePath, this.backupOptions);
     this.projects = new ProjectRepository(this.db);
     this.projectLocationService = new ProjectLocationService(this.db, this.projects);
     this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
@@ -705,18 +710,20 @@ export class WorkIntelligenceStore {
     return this.projectDataTransfer.export(scope);
   }
 
-  /** Counts additions, duplicates, and conflicts without writing imported data. */
-  public previewProjectDataImport(input: ProjectDataImportInput): ProjectDataImportPreview {
-    return this.projectDataTransfer.preview(input);
+  /** Counts additions, duplicates, and conflicts without writing anything, not even a backup. */
+  public previewProjectDataImport(
+    input: ProjectDataImportInput | ValidatedProjectDataImport,
+  ): ProjectDataImportPreview {
+    return this.projectDataTransfer.preview(ValidatedProjectDataImport.from(input));
   }
 
   /**
-   * Merges portable project data inside one transaction while this store remains open. The search index is brought
-   * up to date right after the commit, so the first read after a large import does not re-index thousands of
-   * documents inline.
+   * Writes a checked pre-import snapshot (refusing to import without one), then merges portable project data inside
+   * one transaction while this store remains open. The search index is brought up to date right after the commit,
+   * so the first read after a large import does not re-index thousands of documents inline.
    */
-  public importProjectData(input: ProjectDataImportInput): ProjectDataImportResult {
-    const result = this.projectDataTransfer.import(input);
+  public importProjectData(input: ProjectDataImportInput | ValidatedProjectDataImport): ProjectDataImportResult {
+    const result = this.projectDataTransfer.import(ValidatedProjectDataImport.from(input));
     runAfterImmediateTransaction(this.db, () => {
       try {
         this.searchIndex.syncIndex();

@@ -2,14 +2,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Buffer } from "node:buffer";
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import type {
-  ApiErrorCode,
-  ProjectDataImportInput,
-  ProjectFolderStatus,
-  ProjectListRecord,
-} from "@work-intelligence/core";
-import { ProjectDataTransferError, canonicalizeProjectRoot } from "@work-intelligence/storage";
-import { projectDataImportInputSchema, validationIssueMessage } from "@work-intelligence/schema";
+import type { ApiErrorCode, ProjectFolderStatus, ProjectListRecord } from "@work-intelligence/core";
+import {
+  ProjectDataTransferError,
+  ValidatedProjectDataImport,
+  canonicalizeProjectRoot,
+} from "@work-intelligence/storage";
 
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 export const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -112,22 +110,15 @@ export async function readJsonBytesBody(
 }
 
 /** Parses and validates an import payload after it reaches the worker or inline fallback. */
-export function parseProjectDataImportBytes(bytes: Uint8Array): ProjectDataImportInput {
+/** Parses an import request body and validates it once; the result goes straight to the planner. */
+export function parseProjectDataImportBytes(bytes: Uint8Array): ValidatedProjectDataImport {
   let value: unknown;
   try {
-    value = JSON.parse(Buffer.from(bytes).toString("utf8"));
+    value = JSON.parse(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("utf8"));
   } catch {
     throw new RequestBodyError(400, "Invalid JSON request body.");
   }
-
-  const parsed = projectDataImportInputSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new RequestBodyError(
-      400,
-      `匯入檔格式錯誤：${validationIssueMessage(parsed.error.issues[0]) ?? "欄位驗證失敗。"}`,
-    );
-  }
-  return parsed.data;
+  return ValidatedProjectDataImport.validate(value);
 }
 
 /** The JSON body as an object, so a route can merge path parameters into it before validation. */
@@ -163,6 +154,15 @@ export function sendProjectDataTransferError(response: ServerResponse, error: un
     case "invalid_bundle":
     case "unsupported_schema":
       sendError(response, 400, error.message, undefined, error.code);
+      return true;
+    case "project_backup_failed":
+      sendError(
+        response,
+        503,
+        "The required pre-import backup could not be created; nothing was imported.",
+        undefined,
+        error.code,
+      );
       return true;
   }
 }

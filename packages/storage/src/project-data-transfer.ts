@@ -18,17 +18,20 @@ import {
   type ProjectDataValue,
   type ProjectPathRemap,
   type ProjectDataExportScope,
+  type RedactionSummary,
 } from "@work-intelligence/core";
 import {
-  projectDataExportSchema,
   projectDataImportInputSchema,
+  projectDataImportOptionsSchema,
   projectDataColumnValue,
   projectDataExportTableColumns,
   validationIssueMessage,
 } from "@work-intelligence/schema";
 import { nowIso } from "@work-intelligence/shared";
+import { backupDatabaseBeforeImport, type BackupRetentionOptions } from "./backup.js";
 import { redactDiagramSource } from "./diagram-source-redaction.js";
 import { remapPathPrefix } from "./project-path-remap.js";
+import { databaseUnavailableReason } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 import { combineRedactionSummaries, redactJsonText, redactText } from "./secret-redaction.js";
@@ -183,31 +186,41 @@ const VERSION_TIME_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> 
 /** Temporary shift while renumbering local page versions, so the unique (page, version) index never collides mid-update. */
 const PAGE_VERSION_OFFSET = 1_000_000;
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
+const MISSING_PROJECT_REASON = "所屬專案不在匯入檔中。";
+const MISSING_SESSION_REASON = "所屬 Session 不在匯入檔中。";
+const MISSING_REQUEST_REASON = "報告所屬的請求不在匯入檔中。";
+const MISSING_SUMMARY_REASON = "報告呈現的原始版本不在匯入檔中。";
 
 /** The first validation issue for the error text; unknown keys come from the file, so they are named in bounded form. */
 function firstIssueMessage(issues: Parameters<typeof validationIssueMessage>[0][]): string {
   return validationIssueMessage(issues[0]) ?? "欄位驗證失敗。";
 }
 
-/** Applies the portable redaction rules to one row; also used to compare a local row with a sanitized import. */
+/**
+ * Applies the portable redaction rules to one row; also used to compare a local row with a sanitized import. A row
+ * with nothing to mask is returned as it is: copying every row of a whole-database export cost more than masking it.
+ */
 function redactRow(
   table: ProjectDataTable,
   row: ProjectDataRow,
 ): { row: ProjectDataRow; redactions: ReturnType<typeof combineRedactionSummaries> } {
-  const output = { ...row } as Record<string, ProjectDataValue>;
+  let output: Record<string, ProjectDataValue> | undefined;
   const redactions = combineRedactionSummaries();
   for (const field of REDACTABLE_FIELDS[table] ?? []) {
-    const value = output[field];
+    const value = row[field];
     if (typeof value !== "string") {
       continue;
     }
     const result =
       table === "session_diagrams" && field === "source"
-        ? redactDiagramSource(value, String(output.kind))
+        ? redactDiagramSource(value, String(row.kind))
         : field.endsWith("_json")
           ? redactJsonText(value)
           : redactText(value);
-    output[field] = result.value;
+    if (result.value !== value) {
+      output ??= { ...row } as Record<string, ProjectDataValue>;
+      output[field] = result.value;
+    }
     if (result.redactions.total === 0) continue;
     redactions.total += result.redactions.total;
     for (const [kind, count] of Object.entries(result.redactions.byKind)) {
@@ -215,7 +228,7 @@ function redactRow(
       redactions.byKind[key] = (redactions.byKind[key] ?? 0) + (count ?? 0);
     }
   }
-  return { row: output as ProjectDataRow, redactions };
+  return { row: (output ?? row) as ProjectDataRow, redactions };
 }
 
 function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>): {
@@ -266,14 +279,17 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
     }),
   ) as unknown as Record<ProjectDataTable, ProjectDataRow[]>;
 
-  for (const session of sanitized.sessions as Array<ProjectDataRow & { id: string; redaction_count: number }>) {
-    session.redaction_count = Number(session.redaction_count ?? 0) + (sessionCounts.get(session.id) ?? 0);
-  }
+  // Unmasked rows are the caller's own objects, so a Session whose count changes gets it on a copy.
+  sanitized.sessions = sanitized.sessions.map((session) => {
+    const added = sessionCounts.get(String(session.id)) ?? 0;
+    if (added === 0 && typeof session.redaction_count === "number") return session;
+    return { ...session, redaction_count: Number(session.redaction_count ?? 0) + added };
+  });
   return { rows: sanitized, redactions: allRedactions };
 }
 
 export type ProjectDataTransferErrorCode =
-  "invalid_input" | "invalid_bundle" | "unsupported_schema" | "project_not_found";
+  "invalid_input" | "invalid_bundle" | "unsupported_schema" | "project_not_found" | "project_backup_failed";
 
 export class ProjectDataTransferError extends Error {
   public constructor(
@@ -285,25 +301,63 @@ export class ProjectDataTransferError extends Error {
   }
 }
 
-function sanitizeImportInput(input: ProjectDataImportInput): {
-  input: ProjectDataImportInput;
-  redactions: ReturnType<typeof combineRedactionSummaries>;
-} {
-  const inputResult = projectDataImportInputSchema.safeParse(input);
-  if (!inputResult.success) {
+function assertImportableSchemaVersion(schemaVersion: number): void {
+  if (schemaVersion > LATEST_SCHEMA_VERSION) {
     throw new ProjectDataTransferError(
-      "invalid_input",
-      `匯入資料不符合格式：${firstIssueMessage(inputResult.error.issues)}`,
+      "unsupported_schema",
+      `匯入檔使用較新的 schema 版本 ${schemaVersion}，此程式最高支援 ${LATEST_SCHEMA_VERSION}。請先更新 Work Intelligence 再匯入。`,
     );
   }
-  const sanitized = redactProjectDataRows(inputResult.data.bundle.tables);
-  return {
-    input: {
-      ...inputResult.data,
-      bundle: { ...inputResult.data.bundle, tables: sanitized.rows },
-    },
-    redactions: sanitized.redactions,
-  };
+  if (schemaVersion < OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION) {
+    throw new ProjectDataTransferError(
+      "unsupported_schema",
+      `匯入檔使用 schema 版本 ${schemaVersion}，此程式可匯入 ${OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION} 至 ${LATEST_SCHEMA_VERSION} 的匯出檔。`,
+    );
+  }
+}
+
+/**
+ * An import input that has passed every validation rule exactly once: the bundle schema with its per-row rules, the
+ * import options, the supported schema range, and then the portable redaction. Only `validate` creates one, and the
+ * planner accepts nothing else, so an unchecked bundle cannot reach it; the REST worker, the CLI and direct store
+ * callers all pass through here. A 50 MiB file used to be parsed four times per preview or import.
+ */
+export class ValidatedProjectDataImport {
+  private constructor(
+    /** The redacted input the planner reads. Planning copies its rows, so the same input can be planned again. */
+    public readonly input: ProjectDataImportInput,
+    public readonly redactions: RedactionSummary,
+  ) {}
+
+  public static validate(value: unknown): ValidatedProjectDataImport {
+    const parsed = projectDataImportInputSchema.safeParse(value);
+    if (!parsed.success) {
+      throw new ProjectDataTransferError("invalid_input", `匯入檔格式錯誤：${firstIssueMessage(parsed.error.issues)}`);
+    }
+    assertImportableSchemaVersion(parsed.data.bundle.schemaVersion);
+    const sanitized = redactProjectDataRows(parsed.data.bundle.tables);
+    return new ValidatedProjectDataImport(
+      { ...parsed.data, bundle: { ...parsed.data.bundle, tables: sanitized.rows } },
+      sanitized.redactions,
+    );
+  }
+
+  /** An already validated import as it is; anything else is validated first. */
+  public static from(value: ProjectDataImportInput | ValidatedProjectDataImport): ValidatedProjectDataImport {
+    return value instanceof ValidatedProjectDataImport ? value : ValidatedProjectDataImport.validate(value);
+  }
+
+  /** The same validated bundle with other import choices; only the small options object is validated again. */
+  public withOptions(options: unknown): ValidatedProjectDataImport {
+    const parsed = projectDataImportOptionsSchema.safeParse(options);
+    if (!parsed.success) {
+      throw new ProjectDataTransferError(
+        "invalid_input",
+        `匯入選項格式錯誤：${firstIssueMessage(parsed.error.issues)}`,
+      );
+    }
+    return new ValidatedProjectDataImport({ bundle: this.input.bundle, ...parsed.data }, this.redactions);
+  }
 }
 
 interface PlannedRow {
@@ -315,6 +369,13 @@ interface PlannedRow {
 }
 
 type InsertStatement = ReturnType<DatabaseSync["prepare"]>;
+
+/** A row the file cannot place because the project, Session, request or summary it belongs to is not in the file. */
+interface MissingParentRow {
+  table: ProjectDataTable;
+  row: ProjectDataRow;
+  reason: string;
+}
 
 interface TransferPlan {
   strategy: ProjectDataImportStrategy;
@@ -496,7 +557,15 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
   return rows;
 }
 
-function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectDataExport {
+/**
+ * The rows of the selected projects. A row left out because it belongs to a project in the file that the user did not
+ * select is out of scope. A row whose project, Session, request or summary is not in the file at all could never be
+ * imported, so it is returned in `missingParents` and reported instead of disappearing from the counts.
+ */
+function bundleForScope(
+  bundle: ProjectDataExport,
+  projectId?: string,
+): { bundle: ProjectDataExport; missingParents: MissingParentRow[] } {
   const selectedIds = new Set(
     (projectId ? [projectId] : bundle.tables.projects.map((project) => String(project.id))).filter(
       (id) => id.length > 0,
@@ -513,100 +582,135 @@ function bundleForScope(bundle: ProjectDataExport, projectId?: string): ProjectD
     throw new ProjectDataTransferError("invalid_bundle", "所選專案不在匯入檔中。");
   }
 
-  const sessions = bundle.tables.sessions.filter((session) => selectedIds.has(String(session.project_id)));
+  const missingParents: MissingParentRow[] = [];
+  const missingRows = new Set<ProjectDataRow>();
+  const reportMissing = (table: ProjectDataTable, row: ProjectDataRow, reason: string): void => {
+    missingParents.push({ table, row, reason });
+    missingRows.add(row);
+  };
+  const fileProjectIds = new Set(bundle.tables.projects.map((project) => String(project.id)));
+  const unselectedProject = (id: ProjectDataValue | undefined) =>
+    fileProjectIds.has(String(id)) && !selectedIds.has(String(id));
+  const byProject = (table: ProjectDataTable): ProjectDataRow[] =>
+    bundle.tables[table].filter((row) => {
+      if (selectedIds.has(String(row.project_id))) return true;
+      if (!unselectedProject(row.project_id)) reportMissing(table, row, MISSING_PROJECT_REASON);
+      return false;
+    });
+
+  const sessions = byProject("sessions");
   const sessionIds = new Set(sessions.map((session) => String(session.id)));
-  const knowledge = bundle.tables.knowledge.filter((item) => selectedIds.has(String(item.project_id)));
-  const candidateRequests = bundle.tables.knowledge_candidate_requests.filter((item) =>
-    selectedIds.has(String(item.project_id)),
+  const fileSessionProjects = new Map(
+    bundle.tables.sessions.map((session) => [String(session.id), session.project_id] as const),
   );
+  /** A Session in the file whose project is in the file too but not selected; it and its rows are out of scope. */
+  const unselectedSession = (id: ProjectDataValue | undefined) =>
+    fileSessionProjects.has(String(id)) && unselectedProject(fileSessionProjects.get(String(id)));
+  const bySession = (table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] =>
+    rows.filter((row) => {
+      if (sessionIds.has(String(row.session_id))) return true;
+      if (!unselectedSession(row.session_id)) reportMissing(table, row, MISSING_SESSION_REASON);
+      return false;
+    });
   // With one project selected, a cross-project request comes along only if it cites that project's Sessions.
-  const inScope = (item: ProjectDataRow) =>
-    item.scope_type === "all"
-      ? projectId === undefined || citesAnySession(item.source_session_ids_json, sessionIds)
-      : item.scope_type === "project" && selectedIds.has(String(item.project_id));
-  const reportRequests = bundle.tables.report_synthesis_requests.filter(inScope);
+  const byRequestScope = (table: "report_synthesis_requests" | "metadata_backfill_requests"): ProjectDataRow[] =>
+    bundle.tables[table].filter((item) => {
+      if (item.scope_type === "all") {
+        return projectId === undefined || citesAnySession(item.source_session_ids_json, sessionIds);
+      }
+      if (selectedIds.has(String(item.project_id))) return true;
+      if (!unselectedProject(item.project_id)) {
+        reportMissing(table, item, MISSING_PROJECT_REASON);
+      }
+      return false;
+    });
+
+  const knowledge = byProject("knowledge");
+  const candidateRequests = byProject("knowledge_candidate_requests");
+  const reportRequests = byRequestScope("report_synthesis_requests");
   const reportRequestIds = new Set(reportRequests.map((item) => String(item.id)));
-  const metadataRequests = bundle.tables.metadata_backfill_requests.filter(inScope);
-  const filterSessionChildrenByScope = bundle.scope.type === "all" && projectId !== undefined;
-  const scopedSummaryIds = new Set(
-    bundle.tables.report_summaries
-      .filter((summary) => projectId === undefined || reportRequestIds.has(String(summary.request_id)))
-      .map((summary) => String(summary.id)),
+  const fileReportRequestIds = new Set(
+    bundle.tables.report_synthesis_requests.filter((item) => !missingRows.has(item)).map((item) => String(item.id)),
   );
+  const metadataRequests = byRequestScope("metadata_backfill_requests");
+  const filterSessionChildrenByScope = bundle.scope.type === "all" && projectId !== undefined;
+  const sessionChildren = (table: ProjectDataTable): ProjectDataRow[] =>
+    filterSessionChildrenByScope ? bySession(table, bundle.tables[table]) : bundle.tables[table];
+  const reportSummaries =
+    projectId === undefined
+      ? bundle.tables.report_summaries
+      : bundle.tables.report_summaries.filter((row) => {
+          if (reportRequestIds.has(String(row.request_id))) return true;
+          if (!fileReportRequestIds.has(String(row.request_id))) {
+            reportMissing("report_summaries", row, MISSING_REQUEST_REASON);
+          }
+          return false;
+        });
+  const scopedSummaryIds = new Set(reportSummaries.map((summary) => String(summary.id)));
+  const fileSummaryIds = new Set(
+    bundle.tables.report_summaries.filter((summary) => !missingRows.has(summary)).map((summary) => String(summary.id)),
+  );
+  const sessionLinks = bundle.tables.session_links.filter((row) => {
+    const linked =
+      sessionIds.has(String(row.session_id)) &&
+      (!filterSessionChildrenByScope || sessionIds.has(String(row.related_session_id)));
+    if (linked) return true;
+    const endpoints = filterSessionChildrenByScope ? [row.session_id, row.related_session_id] : [row.session_id];
+    if (endpoints.some((id) => !sessionIds.has(String(id)) && !unselectedSession(id))) {
+      reportMissing("session_links", row, MISSING_SESSION_REASON);
+    }
+    return false;
+  });
   const tables: Record<ProjectDataTable, ProjectDataRow[]> = {
     projects: selectedProjects,
     sessions,
-    work_events: filterSessionChildrenByScope
-      ? bundle.tables.work_events.filter((row) => sessionIds.has(String(row.session_id)))
-      : bundle.tables.work_events,
-    raw_snapshots: bundle.tables.raw_snapshots.filter((row) => selectedIds.has(String(row.project_id))),
-    evidence: bundle.tables.evidence.filter((row) => selectedIds.has(String(row.project_id))),
-    void_audit: bundle.tables.void_audit.filter((row) => selectedIds.has(String(row.project_id))),
-    session_verification_updates: filterSessionChildrenByScope
-      ? bundle.tables.session_verification_updates.filter((row) => sessionIds.has(String(row.session_id)))
-      : bundle.tables.session_verification_updates,
-    session_links:
-      bundle.scope.type === "all" && projectId !== undefined
-        ? bundle.tables.session_links.filter(
-            (row) => sessionIds.has(String(row.session_id)) && sessionIds.has(String(row.related_session_id)),
-          )
-        : bundle.tables.session_links.filter((row) => sessionIds.has(String(row.session_id))),
+    work_events: sessionChildren("work_events"),
+    raw_snapshots: byProject("raw_snapshots"),
+    evidence: byProject("evidence"),
+    void_audit: byProject("void_audit"),
+    session_verification_updates: sessionChildren("session_verification_updates"),
+    session_links: sessionLinks,
     knowledge,
-    session_decisions: bundle.tables.session_decisions.filter((row) => selectedIds.has(String(row.project_id))),
-    knowledge_pages: bundle.tables.knowledge_pages.filter((row) => selectedIds.has(String(row.project_id))),
-    knowledge_page_versions: bundle.tables.knowledge_page_versions.filter((row) =>
-      selectedIds.has(String(row.project_id)),
-    ),
-    knowledge_audit: bundle.tables.knowledge_audit.filter((row) => selectedIds.has(String(row.project_id))),
-    knowledge_feedback: bundle.tables.knowledge_feedback.filter((row) => selectedIds.has(String(row.project_id))),
-    session_diagrams: bundle.tables.session_diagrams.filter((row) => selectedIds.has(String(row.project_id))),
+    session_decisions: byProject("session_decisions"),
+    knowledge_pages: byProject("knowledge_pages"),
+    knowledge_page_versions: byProject("knowledge_page_versions"),
+    knowledge_audit: byProject("knowledge_audit"),
+    knowledge_feedback: byProject("knowledge_feedback"),
+    session_diagrams: byProject("session_diagrams"),
     knowledge_candidate_requests: candidateRequests,
-    knowledge_candidates: bundle.tables.knowledge_candidates.filter((row) => selectedIds.has(String(row.project_id))),
+    knowledge_candidates: byProject("knowledge_candidates"),
     report_synthesis_requests: reportRequests,
     // Portable source identities/revisions cannot prove that a hidden issue is still the same problem.
-    attention_preferences: bundle.tables.attention_preferences
-      .filter((row) => selectedIds.has(String(row.project_id)))
-      .map((row) => ({ ...row, state: "visible", snoozed_until: null })),
-    report_presentations: bundle.tables.report_presentations.filter((row) =>
-      scopedSummaryIds.has(String(row.summary_id)),
-    ),
-    report_summaries:
-      projectId === undefined
-        ? bundle.tables.report_summaries
-        : bundle.tables.report_summaries.filter((row) => reportRequestIds.has(String(row.request_id))),
+    attention_preferences: byProject("attention_preferences").map((row) => ({
+      ...row,
+      state: "visible",
+      snoozed_until: null,
+    })),
+    report_presentations: bundle.tables.report_presentations.filter((row) => {
+      if (scopedSummaryIds.has(String(row.summary_id))) return true;
+      if (!fileSummaryIds.has(String(row.summary_id))) {
+        reportMissing("report_presentations", row, MISSING_SUMMARY_REASON);
+      }
+      return false;
+    }),
+    report_summaries: reportSummaries,
     metadata_backfill_requests: metadataRequests,
-    session_summary_updates: filterSessionChildrenByScope
-      ? bundle.tables.session_summary_updates.filter((row) => sessionIds.has(String(row.session_id)))
-      : bundle.tables.session_summary_updates,
-    session_work_summary_updates: filterSessionChildrenByScope
-      ? bundle.tables.session_work_summary_updates.filter((row) => sessionIds.has(String(row.session_id)))
-      : bundle.tables.session_work_summary_updates,
-    outstanding_items: bundle.tables.outstanding_items.filter((row) => selectedIds.has(String(row.project_id))),
-    outstanding_cleanup_requests: bundle.tables.outstanding_cleanup_requests.filter((row) =>
-      selectedIds.has(String(row.project_id)),
-    ),
-    outstanding_cleanup_submissions: bundle.tables.outstanding_cleanup_submissions.filter((row) =>
-      selectedIds.has(String(row.project_id)),
-    ),
-    outstanding_cleanup_request_items: bundle.tables.outstanding_cleanup_request_items.filter((row) =>
-      selectedIds.has(String(row.project_id)),
-    ),
-    outstanding_cleanup_proposals: bundle.tables.outstanding_cleanup_proposals.filter((row) =>
-      selectedIds.has(String(row.project_id)),
-    ),
-    outstanding_cleanup_proposal_evidence: bundle.tables.outstanding_cleanup_proposal_evidence.filter((row) =>
-      selectedIds.has(String(row.project_id)),
-    ),
-    outstanding_item_events: bundle.tables.outstanding_item_events.filter((row) =>
-      selectedIds.has(String(row.project_id)),
-    ),
+    session_summary_updates: sessionChildren("session_summary_updates"),
+    session_work_summary_updates: sessionChildren("session_work_summary_updates"),
+    outstanding_items: byProject("outstanding_items"),
+    outstanding_cleanup_requests: byProject("outstanding_cleanup_requests"),
+    outstanding_cleanup_submissions: byProject("outstanding_cleanup_submissions"),
+    outstanding_cleanup_request_items: byProject("outstanding_cleanup_request_items"),
+    outstanding_cleanup_proposals: byProject("outstanding_cleanup_proposals"),
+    outstanding_cleanup_proposal_evidence: byProject("outstanding_cleanup_proposal_evidence"),
+    outstanding_item_events: byProject("outstanding_item_events"),
   };
 
   for (const table of PROJECT_DATA_TABLES) {
     tables[table] = tables[table].map((row) => ({ ...row }));
   }
 
-  return { ...bundle, scope: { type: "all" }, tables };
+  return { bundle: { ...bundle, scope: { type: "all" }, tables }, missingParents };
 }
 
 function applyPathRemaps(
@@ -1412,36 +1516,10 @@ function planPageVersionNumbers(
   return { localRenumbers, count };
 }
 
-function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan {
-  const inputResult = projectDataImportInputSchema.safeParse(input);
-  if (!inputResult.success) {
-    throw new ProjectDataTransferError(
-      "invalid_input",
-      `匯入資料不符合格式：${firstIssueMessage(inputResult.error.issues)}`,
-    );
-  }
-  const bundleResult = projectDataExportSchema.safeParse(input.bundle);
-  if (!bundleResult.success) {
-    throw new ProjectDataTransferError(
-      "invalid_bundle",
-      `匯入檔格式錯誤：${firstIssueMessage(bundleResult.error.issues)}`,
-    );
-  }
-  if (input.bundle.schemaVersion > LATEST_SCHEMA_VERSION) {
-    throw new ProjectDataTransferError(
-      "unsupported_schema",
-      `匯入檔使用較新的 schema 版本 ${input.bundle.schemaVersion}，此程式最高支援 ${LATEST_SCHEMA_VERSION}。請先更新 Work Intelligence 再匯入。`,
-    );
-  }
-  if (input.bundle.schemaVersion < OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION) {
-    throw new ProjectDataTransferError(
-      "unsupported_schema",
-      `匯入檔使用 schema 版本 ${input.bundle.schemaVersion}，此程式可匯入 ${OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION} 至 ${LATEST_SCHEMA_VERSION} 的匯出檔。`,
-    );
-  }
-
+function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): TransferPlan {
+  const { input } = validated;
   const strategy: ProjectDataImportStrategy = input.strategy ?? "merge";
-  const selectedBundle = bundleForScope(input.bundle, input.projectId);
+  const { bundle: selectedBundle, missingParents } = bundleForScope(input.bundle, input.projectId);
   const sourceRootPaths = new Map(
     selectedBundle.tables.projects.map((project) => [String(project.id), String(project.root_path)]),
   );
@@ -1819,6 +1897,29 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
     }
   }
 
+  // A row whose parent is not in the file is never imported; one already stored here unchanged needs nothing.
+  const missingByTable = new Map<ProjectDataTable, MissingParentRow[]>();
+  for (const missing of missingParents) {
+    const list = missingByTable.get(missing.table);
+    if (list) list.push(missing);
+    else missingByTable.set(missing.table, [missing]);
+  }
+  for (const [table, entries] of missingByTable) {
+    const localRows = new Map(
+      rowsByIds(
+        db,
+        table,
+        "id",
+        entries.map((entry) => String(entry.row.id)),
+      ).map((row) => [String(row.id), row]),
+    );
+    for (const { row, reason } of entries) {
+      const current = localRows.get(String(row.id));
+      if (current && equalRows(table, current, row)) addPlan(table, row, "skip");
+      else addPlan(table, row, "conflict", reason, "missing_parent");
+    }
+  }
+
   const renumbering = planPageVersionNumbers(db, rows.knowledge_page_versions);
   return {
     strategy,
@@ -1927,9 +2028,20 @@ function syncCurrentReportSummaries(db: DatabaseSync, summaries: readonly Projec
   for (const scope of scopes.values()) statement.run(...scope);
 }
 
+/** The counter every project-data write raises (schema 31 triggers); planning reads only those tables. */
+function dataRevision(db: DatabaseSync): number {
+  const row = db.prepare("SELECT data_revision AS revision FROM change_revisions WHERE singleton = 1").get() as
+    { revision?: number } | undefined;
+  return Number(row?.revision ?? 0);
+}
+
 /** Exports complete project-scoped data and merges validated portable data without closing SQLite. */
 export class ProjectDataTransferService {
-  public constructor(private readonly db: DatabaseSync) {}
+  public constructor(
+    private readonly db: DatabaseSync,
+    private readonly databasePath: string,
+    private readonly backupOptions: BackupRetentionOptions,
+  ) {}
 
   public export(scope: ProjectDataExportScope): ProjectDataExport {
     return runReadTransaction(this.db, () => {
@@ -1948,15 +2060,25 @@ export class ProjectDataTransferService {
     });
   }
 
-  public preview(input: ProjectDataImportInput): ProjectDataImportPreview {
-    const sanitized = sanitizeImportInput(input);
-    return runReadTransaction(this.db, () => previewFromPlan(makePlan(this.db, sanitized.input)));
+  public preview(validated: ValidatedProjectDataImport): ProjectDataImportPreview {
+    return runReadTransaction(this.db, () => previewFromPlan(makePlan(this.db, validated)));
   }
 
-  public import(input: ProjectDataImportInput): ProjectDataImportResult {
-    const sanitized = sanitizeImportInput(input);
+  /**
+   * Writes a checked snapshot first and refuses to import without one. The plan is made from a read snapshot, so the
+   * write lock is held only while rows are written: every project-data write raises data_revision, so an unchanged
+   * revision inside the write transaction proves the plan still describes the database, and a changed one makes the
+   * import plan again under the lock.
+   */
+  public import(validated: ValidatedProjectDataImport): ProjectDataImportResult {
+    const backupFileName = this.backupBeforeImport();
+    const planned = runReadTransaction(this.db, () => ({
+      revision: dataRevision(this.db),
+      plan: makePlan(this.db, validated),
+    }));
+    const sourceDigest = createHash("sha256").update(JSON.stringify(validated.input)).digest("hex");
     return runImmediateTransaction(this.db, () => {
-      const plan = makePlan(this.db, sanitized.input);
+      const plan = dataRevision(this.db) === planned.revision ? planned.plan : makePlan(this.db, validated);
       applyPageVersionRenumbers(this.db, plan.pageVersionRenumbers);
       const insertStatements = new Map<ProjectDataTable, InsertStatement>();
       const updateStatements = new Map<ProjectDataTable, InsertStatement>();
@@ -1996,7 +2118,6 @@ export class ProjectDataTransferService {
       );
       const preview = previewFromPlan(plan);
       const importedAt = nowIso();
-      const sourceDigest = createHash("sha256").update(JSON.stringify(sanitized.input)).digest("hex");
       // Counts only: the audit never stores paths or row contents.
       const remapCounts = JSON.stringify({
         explicit: plan.remappedPaths,
@@ -2021,7 +2142,25 @@ export class ProjectDataTransferService {
           JSON.stringify(preview.conflicts),
           remapCounts,
         );
-      return { ...preview, outcome: "project_data_imported", importedAt, redactions: sanitized.redactions };
+      return {
+        ...preview,
+        outcome: "project_data_imported",
+        importedAt,
+        redactions: validated.redactions,
+        ...(backupFileName ? { backupFileName } : {}),
+      };
     });
+  }
+
+  /** Fails closed like project deletion: no checked snapshot, no import. An in-memory database has no file to keep. */
+  private backupBeforeImport(): string | undefined {
+    if (this.databasePath === ":memory:") return undefined;
+    try {
+      return backupDatabaseBeforeImport(this.db, this.databasePath, this.backupOptions).created.fileName;
+    } catch (error) {
+      // A busy, read-only or full database keeps its own code; every other backup failure stops the import.
+      if (databaseUnavailableReason(error)) throw error;
+      throw new ProjectDataTransferError("project_backup_failed", "匯入前無法建立並檢查安全備份，資料沒有變更。");
+    }
   }
 }

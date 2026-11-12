@@ -3204,7 +3204,8 @@ export interface AmbiguousCommitShaResult {
 export type SessionListQueryResult =
   SessionListResult | SkippedResult | ProjectIdSkippedResult | AmbiguousCommitShaResult;
 
-export type DatabaseBackupKind = "automatic" | "manual" | "migration" | "deletion" | "session_deletion" | "maintenance";
+export type DatabaseBackupKind =
+  "automatic" | "manual" | "migration" | "deletion" | "session_deletion" | "maintenance" | "import";
 
 /** One SQLite snapshot written beside the database; `createdAt` comes from its UTC file name. */
 export interface DatabaseBackup {
@@ -3409,7 +3410,9 @@ export interface ProjectDataImportInput {
 export type ProjectDataCounts = Partial<Record<ProjectDataTable, number>>;
 
 /** Why a row could not be imported: the project root, newer or differing content, a unique key, or a dependency. */
-export type ProjectDataImportConflictCategory = "path" | "newer_content" | "content" | "unique" | "dependency";
+/** `missing_parent`: the file itself lacks the project, Session or other row this row belongs to, so it is not imported. */
+export type ProjectDataImportConflictCategory =
+  "path" | "newer_content" | "content" | "unique" | "dependency" | "missing_parent";
 
 export interface ProjectDataImportConflict {
   table: ProjectDataTable;
@@ -3473,6 +3476,8 @@ export interface ProjectDataImportResult extends Omit<ProjectDataImportPreview, 
   outcome: "project_data_imported";
   importedAt: string;
   redactions?: RedactionSummary;
+  /** The checked snapshot written just before the import; absent only for an in-memory database. */
+  backupFileName?: string;
 }
 
 /** The folder chosen in the native dialog the API server shows when adding a project. */

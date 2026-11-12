@@ -45,7 +45,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `unsupported_schema` | 400 | 可攜式匯入檔的 schema 版本不受支援。 |
 | `invalid_project_deletion_confirmation` | 400 | 專案刪除確認內容未通過驗證。 |
 | `project_name_mismatch` | 409 | 專案刪除確認名稱不相符。 |
-| `project_backup_failed` | 503 | 專案刪除前無法建立必要備份。 |
+| `project_backup_failed` | 503 | 專案刪除前或可攜式匯入前無法建立必要備份；資料沒有變更。 |
 | `project_delete_failed` | 500 | 專案刪除交易失敗，既有備份仍保留。 |
 | `session_not_found` | 404 | Session 永久刪除找不到該 Session。 |
 | `session_not_voided` | 409 | 只有已作廢的 Session 可以永久刪除。 |
@@ -245,7 +245,10 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - 相同專案 ID 已存在但根路徑不同時，自動以本機根路徑轉換該專案的根路徑與 handoff 來源路徑，結果列在 `autoRemaps`（`projectId`、`from`、`to`、`snapshots`）。
 - `strategy` 預設 `merge`：只新增本機沒有的列。`newer-wins`：同 ID 內容不同的可變更列，依該表的時間欄位（如 `updated_at`、`reviewed_at`、`decided_at`、`completed_at`）取較新者覆寫；兩種策略都保留本機較新的列，只追加的歷史表與本機專案列永不覆寫。比較前排除各機自行衍生的欄位（Session `redaction_count`、attention 的隱藏／延後狀態、報告 `is_current`），並以相同規則遮蔽本機文字、忽略 changed-file provenance 的合併順序。`knowledge_page_versions` 撞號時依建立時間將該頁所有版本重新編號後並存，並把頁面版本計數器移到最新版本。
 - 匯入檔除了結構與 JSON 欄位格式，也檢查 `knowledge` 與 `knowledge_candidates` 的 `applies_to_json`：必須是最多 100 筆、每筆最多 4,096 字元的文字陣列（1.6.26 起）。這個上限刻意比寫入限制（30 筆、1,000 字元）寬：遮蔽憑證時標記可能比原文長，舊版也可能存過較長的值，所以 Work Intelligence 產生的匯出檔都能匯入；超過寫入限制的項目照原樣保存，但永遠不比對，掃描時以 `appliesToScanTruncated` 等標示不完整。只有超過這個結構上限的清單（任何版本都不會寫出）會讓 preview 與匯入回 400 `invalid_input`，`error` 為「匯入檔格式錯誤：knowledge.applies_to_json 必須是最多 100 筆、每筆最多 4,096 字元的文字清單。」（候選為 `knowledge_candidates.applies_to_json`），不寫入任何資料；訊息不含檔案內容。
-- Preview 只讀取並回傳 `strategy`、各資料表 `additions`／`updates`／`keptLocal`／`skipped`／`conflicts`／`renumbered` 筆數、`conflictGroups`（依資料表、`category`：`path`／`newer_content`／`content`／`unique`／`dependency` 與原因彙總的筆數及最多 5 個範例 id）與最多 100 筆 `conflictDetails`。正式匯入會在一個 SQLite 交易中重新計算預覽並套用；不刪除既有資料，且重複匯入可冪等略過。單一專案匯出會一併帶入引用該專案 Session 的跨專案報告請求、摘要與 metadata 回補請求。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
+- Preview 只讀取並回傳 `strategy`、各資料表 `additions`／`updates`／`keptLocal`／`skipped`／`conflicts`／`renumbered` 筆數、`conflictGroups`（依資料表、`category`：`path`／`newer_content`／`content`／`unique`／`dependency`／`missing_parent` 與原因彙總的筆數及最多 5 個範例 id）與最多 100 筆 `conflictDetails`；preview 不寫入任何東西，連備份也不寫。不刪除既有資料，且重複匯入可冪等略過。
+- `missing_parent`（1.6.29 起）：列所屬的專案、Session、報告請求或報告原始版本不在匯入檔中，這些列永遠不會匯入，現在計入 `conflicts` 並在 `conflictGroups` 說明原因，不再從筆數中消失；本機已有完全相同的列時算 `skipped`。從全專案匯出檔只挑一個專案時，其他專案的列屬於範圍外，不列入。匯入哪些列與先前相同。
+- 正式匯入（1.6.29 起）先建立並檢查整份 SQLite 快照（`pre-import-` 開頭，備份種類 `import`），回應帶 `backupFileName`；寫不出快照時不匯入，回 503 `project_backup_failed`（資料庫忙碌、唯讀或磁碟已滿仍回原本的代碼）。這類快照獨立保留，份數與自動備份相同（預設 3 份），不佔用手動、刪除前或 migration 備份的額度。in-memory 資料庫沒有檔案可備份，直接匯入、不帶 `backupFileName`。接著在讀取快照上計算匯入計畫，只有寫入時才持有寫入鎖：寫入交易一開始確認資料版本（`data_revision`）沒變，有變就在交易內重新計算；交易失敗時資料庫不變，已建立的快照保留。
+- 匯入檔的解析、驗證、備份、計畫與寫入都在背景 worker 執行，主執行緒只負責接收 request body、回應與 SSE，所以匯入期間 `/api/health` 與其他請求不會被卡住；寫入完成後同一個 worker 補齊搜尋索引，資料版本改變照常觸發 `changed` 事件。每條路徑（REST、worker、CLI、直接呼叫 store）都只驗證一次完整檔案。單一專案匯出會一併帶入引用該專案 Session 的跨專案報告請求、摘要與 metadata 回補請求。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
 - 可攜式 JSON 未加密，請妥善保管。整份 SQLite 快照與可攜式匯出都要求 `Content-Type: application/json`，跨站表單無法觸發；下載回應只含檔名，不會出現暫存檔路徑。
 - in-memory 資料庫回傳 409 `backup_unavailable`。
 - 還原不提供 REST：要取代資料庫時不能有其他連線開著它，請用 `pnpm db:restore`（見 README「備份與換電腦」）。
@@ -279,7 +282,7 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - `GET /api/projects` 會附上衍生欄位 `folderStatus`：`found`、`missing` 或 `unavailable`。Server 僅檢查路徑是否為本機絕對路徑及 `stat` 資料夾狀態，不讀取資料夾內容。
 - 可攜式匯入預覽會在每個 `selectedProjects` 項目附上 `sourceRootPath`（匯出時路徑）與 `folderStatus`；`rootPath` 是 remap 後的目標路徑。這些資料僅供本機 UI／CLI 預覽，不會用來開啟或讀取資料夾。
 - `PATCH /api/projects/:id/location` 接受 `{ "rootPath": "<新資料夾>", "confirmedTrackedScope": true }`。新位置須存在且為目錄；tracked 專案需要 `confirmedTrackedScope: true`，並在一個交易內更新 registry 路徑、同專案 raw snapshot 的路徑前綴與不含路徑的稽核資料。與其他專案根目錄重疊時回 409；需要確認、位置無效與專案不存在分別回傳安全錯誤碼。
-- `POST /api/import/preview` 與 `POST /api/import` 的 remap 行為相同；匯入本身仍不會讀取 remap 指向的檔案或資料夾。MCP 沒有重新指定專案位置或刪除工具。
+- `POST /api/import/preview` 與 `POST /api/import` 的 remap 行為相同；匯入本身仍不會讀取 remap 指向的檔案或資料夾。`POST /api/import` 失敗時的錯誤代碼同 preview，另加 503 `project_backup_failed`（見「備份與匯出」）。MCP 沒有重新指定專案位置或刪除工具。
 
 ## 即時更新串流
 

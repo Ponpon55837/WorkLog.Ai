@@ -2079,6 +2079,9 @@ const projectDataExportObjectSchema = z
       totalRows += rows.length;
       const expected = new Set<string>(projectDataExportTableColumns[table]);
       const defaults = projectDataColumnDefaults[table] ?? {};
+      // Built once per table: the row loop below runs up to 200,000 times.
+      const required = new Set(projectDataRequiredColumns[table]);
+      const numeric = new Set(projectDataNumericColumns[table] ?? []);
       const ids = new Set<string>();
       rows.forEach((row, index) => {
         if (
@@ -2144,7 +2147,9 @@ const projectDataExportObjectSchema = z
             message: "Invalid knowledge candidate overlap advisory.",
           });
         const keys = Object.keys(row);
-        const missingRequired = [...expected].some((column) => !Object.hasOwn(row, column) && !(column in defaults));
+        const missingRequired = projectDataExportTableColumns[table].some(
+          (column) => !Object.hasOwn(row, column) && !(column in defaults),
+        );
         if (missingRequired || keys.some((key) => !expected.has(key))) {
           context.addIssue({
             code: "custom",
@@ -2161,8 +2166,6 @@ const projectDataExportObjectSchema = z
         } else {
           ids.add(row.id);
         }
-        const required = new Set(projectDataRequiredColumns[table]);
-        const numeric = new Set(projectDataNumericColumns[table] ?? []);
         for (const column of projectDataExportTableColumns[table]) {
           const value = projectDataColumnValue(table, row, column);
           if (numeric.has(column)) {
@@ -2302,25 +2305,34 @@ export const projectPathRemapSchema = z
     "The source and destination path prefixes must be absolute paths.",
   );
 
-export const projectDataImportInputSchema = z
-  .object({
-    bundle: projectDataExportSchema,
-    projectId: z.string().trim().min(1).max(200).optional(),
-    remap: z.array(projectPathRemapSchema).max(20).optional(),
-    strategy: z.enum(PROJECT_DATA_IMPORT_STRATEGIES).optional(),
-  })
-  .strict()
-  .superRefine((input, context) => {
-    const seen = new Set<string>();
-    for (const [index, entry] of (input.remap ?? []).entries()) {
-      const key = entry.from.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
-      if (seen.has(key)) {
-        context.addIssue({
-          code: "custom",
-          path: ["remap", index, "from"],
-          message: "Each source path prefix can only be mapped once.",
-        });
-      }
-      seen.add(key);
+const projectDataImportOptionsShape = {
+  projectId: z.string().trim().min(1).max(200).optional(),
+  remap: z.array(projectPathRemapSchema).max(20).optional(),
+  strategy: z.enum(PROJECT_DATA_IMPORT_STRATEGIES).optional(),
+};
+
+function refineUniqueRemapSources(input: { remap?: Array<{ from: string }> }, context: z.RefinementCtx): void {
+  const seen = new Set<string>();
+  for (const [index, entry] of (input.remap ?? []).entries()) {
+    const key = entry.from.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+    if (seen.has(key)) {
+      context.addIssue({
+        code: "custom",
+        path: ["remap", index, "from"],
+        message: "Each source path prefix can only be mapped once.",
+      });
     }
-  });
+    seen.add(key);
+  }
+}
+
+/** The import choices without the bundle, so changing paths after a preview does not validate the whole file again. */
+export const projectDataImportOptionsSchema = z
+  .object(projectDataImportOptionsShape)
+  .strict()
+  .superRefine(refineUniqueRemapSources);
+
+export const projectDataImportInputSchema = z
+  .object({ bundle: projectDataExportSchema, ...projectDataImportOptionsShape })
+  .strict()
+  .superRefine(refineUniqueRemapSources);

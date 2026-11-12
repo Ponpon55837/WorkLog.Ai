@@ -46,6 +46,7 @@ export const databaseBackupKindLabels: Record<DatabaseBackupKind, string> = tran
   deletion: "labels.beforeProjectDeletion",
   session_deletion: "labels.beforeSessionDeletion",
   maintenance: "labels.beforeDataMaintenance",
+  import: "labels.beforeProjectDataImport",
 });
 
 export const projectDeletionCountLabels: Record<keyof ProjectDeletionCounts, string> = translatedRecord({

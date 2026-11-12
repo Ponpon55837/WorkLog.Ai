@@ -4,6 +4,29 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.29] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.29.md).
+
+### Fixed
+
+- An online project-data import (Web, `POST /api/import` and `pnpm db:import`) wrote no backup: once committed, the only way back was the daily backup. It now writes and checks a `pre-import-` snapshot (backup kind `import`) before it writes anything and returns its `backupFileName`; when the snapshot cannot be written the import does not run and REST answers 503 `project_backup_failed` (a busy, read-only or full database keeps its own code). Import snapshots keep their own group, as many copies as automatic backups (3 by default), so repeated imports never push out manual, deletion or migration backups. A preview writes nothing. If the import fails halfway, the database is unchanged and the snapshot stays.
+- Rows whose project, Session, report request or report summary is not in the file were dropped without a word: with one of 5,000 Sessions pointing at a missing project, 4,999 were imported and the counts did not mention the other. Such rows are now counted as conflicts per table, with a reason, under the new category `missing_parent` in the preview, the result and the Web preview ("Missing from the file"). The rows imported are the same; a row already stored here unchanged counts as skipped, and rows of a project in the file that was not selected are out of scope as before.
+- `POST /api/import` parsed, validated and imported on the API thread, so every other request and the SSE stream waited: at 5,000 Sessions `/api/health` stalled 1,453 ms, at 20,000 5,574 ms. The background worker that already ran the preview now runs the whole import (parse, validation, backup, plan, write and the search-index sync), through a write connection opened in a new `existing` store mode that never migrates; the worst `/api/health` latency during the same imports is 7 ms and 13 ms. The plan is made from a read snapshot and the write lock is held only while rows are written: the write transaction checks that `data_revision` has not changed since planning and plans again under the lock when it has. Write transaction at 5,000 / 20,000 Sessions: 670 / 2,440 ms → 280–390 / 1,260–1,310 ms; the search-index sync after it is its own transaction of about 420 / 1,700 ms, as before. The CLI import stays synchronous.
+- A preview or import validated the whole file four times (route or worker, sanitizing, and twice more in the planner). It is now validated once, into a `ValidatedProjectDataImport` that only validation can create and the planner requires, so an unchecked bundle cannot reach it; the CLI validates the file once and re-validates only the options when the user picks a new folder. The validator also no longer rebuilds two column sets for every row. Every rule still runs exactly once on every entry path (a test feeds each invalid-file class through the store, REST inline and through the worker, and `db:import`). Preview at 5,000 / 20,000 Sessions into an empty database: 718 / 2,426 ms → 325 / 973 ms, peak RSS 188 / 455 MiB → 160 / 345 MiB; into a database that already holds the data 737 / 3,178 ms → 408 / 1,356 ms.
+- An unreadable import file, or one that is not JSON, showed the browser's untranslated reason in the Web; both now show a translated message.
+
+### Changed
+
+- Export: the portable redaction ran eleven regular-expression passes over every stored string and copied every row. Each rule now runs only when the text contains a literal it needs, and a row or Session is copied only when its text or count changes. The exported bytes are identical (compared on a real data copy and the 5,000-Session benchmark database). `exportProjectData` for the 5,000-Session benchmark data 155 → 83 ms in process; benchmark p90 334 → 245–300 ms (limit 400 ms). `exportTo` is SQLite's `VACUUM INTO` plus `quick_check` and the download; it is unchanged.
+- Benchmark: `importProjectData (all projects, already present)` (1,500 ms), the whole online import through the worker with the API's event-loop gate.
+- The 1.6.28 figure for reaching the staleness history ceiling ("at most 2.4 s and 380 MB") holds for the longest paths too: Sessions of 200 distinct 1,000-character paths reach it after about 800 Sessions in 1.6 s with a 330 MB peak process RSS (the 0.7 GB estimated in review did not occur). A regression test now checks that a page of 50 whose items each name a directory with 4,000 later paths and one of its subdirectories is fully decided: 84M match units, above the 50M ceiling first chosen and under a third of 300M.
+- Docs: `docs/rest-api.md`, `docs/user-guide.md`, `docs/troubleshooting.md` (the import backup, `missing_parent`), `docs/architecture.md` (the import worker), `docs/mcp-tools.md` and `docs/testing.md`.
+
+### Upgrading
+
+No schema change (33) and no new import rule. `POST /api/import` can now answer 503 `project_backup_failed`, and its result has `backupFileName`; the import needs free space for one more snapshot of the database.
+
 ## [1.6.28] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.28.md).

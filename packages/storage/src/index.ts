@@ -26,6 +26,7 @@ export {
 export {
   OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION,
   ProjectDataTransferError,
+  ValidatedProjectDataImport,
   type ProjectDataTransferErrorCode,
 } from "./project-data-transfer.js";
 export {

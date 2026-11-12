@@ -333,6 +333,50 @@ describe("staleness ceilings", () => {
     expect(match!.units * 50).toBeLessThanOrEqual(STALENESS_MATCH_UNIT_LIMIT);
   });
 
+  it("decides a page of 50 whose directory entries each cover thousands of later paths, within a third of the match ceiling", () => {
+    const { store, root, db } = trackedStore();
+    const directory = (index: number) => `packages/${"nested-module/".repeat(6)}g${index}`;
+    // 4,000 Sessions of 50 distinct paths of about 110 characters in 50 directories of about 95 characters. Each item
+    // names its directory (4,000 distinct later paths) and one subdirectory (800 of them, found among the same 4,000
+    // candidates): 84M match units, more than the 50M ceiling first chosen and under a third of the shipped 300M.
+    insertSessions(
+      store,
+      db,
+      root,
+      Array.from({ length: 4_000 }, (_, index) => ({
+        id: `s${index}`,
+        title: `Synthetic ${index}`,
+        completedAt: new Date(Date.parse("2026-02-01T00:00:00.000Z") + index * 1_000).toISOString(),
+        files: Array.from({ length: 50 }, (_, file) => `${directory(file)}/h${index % 5}/${index}-${file}.ts`),
+        voided: false,
+      })),
+    );
+    for (let item = 0; item < 50; item += 1) {
+      store.recordKnowledge({
+        projectRoot: root,
+        idempotencyKey: `k${item}`,
+        kind: "gotcha",
+        title: `Synthetic rule ${item}`,
+        body: "Synthetic.",
+        appliesTo: [directory(item), `${directory(item)}/h${item % 5}`],
+      });
+    }
+    db.prepare("UPDATE knowledge SET created_at = '2026-01-01T00:00:00.000Z'").run();
+    const budgets: AppliesToBudget[] = [];
+    setAppliesToBudgetProbe(budgets);
+    const result = store.searchKnowledge({ projectRoot: root, pageSize: 50 });
+    if (result.outcome !== "knowledge") throw new Error("Expected Knowledge.");
+    expect(result.items).toHaveLength(50);
+    expect(result.items.filter((item) => item.stalenessUnchecked)).toHaveLength(0);
+    expect(result.items.every((item) => item.possiblyStale?.sessionCount === 4_000)).toBe(true);
+    const [history, match] = budgets;
+    expect(history!.exhausted).toBe(false);
+    expect(match!.exhausted).toBe(false);
+    expect(match!.units).toBeGreaterThan(50_000_000);
+    expect(match!.units * 3).toBeLessThan(STALENESS_MATCH_UNIT_LIMIT);
+    // Reading 200,000 distinct paths into the index takes about 1.3 s (more under coverage), so it has its own timeout.
+  }, 60_000);
+
   it("stops a 15-star entry tested against every long path at the match ceiling, and marks it unchecked", () => {
     const { store, root, db } = trackedStore();
     insertSessions(

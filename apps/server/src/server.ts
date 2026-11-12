@@ -153,6 +153,9 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
         })),
       };
     },
+    async importProjectData(input: ProjectDataImportInput | Uint8Array) {
+      return store.importProjectData(input instanceof Uint8Array ? parseProjectDataImportBytes(input) : input);
+    },
     async close() {},
   };
 }

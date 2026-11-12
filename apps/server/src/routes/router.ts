@@ -6,6 +6,7 @@ import type {
   ProjectDataExportScope,
   ProjectDataImportInput,
   ProjectDataImportPreview,
+  ProjectDataImportResult,
   ProjectFolderStatus,
   SystemAgentConnections,
   UserServiceStatus,
@@ -36,6 +37,8 @@ export interface BackgroundStoreOperations {
   previewProjectDataImport(
     input: ProjectDataImportInput | Uint8Array,
   ): Promise<ProjectDataImportPreviewWithFolderStatus>;
+  /** Validates, backs up and imports; the search index is synced before it resolves. */
+  importProjectData(input: ProjectDataImportInput | Uint8Array): Promise<ProjectDataImportResult>;
   close(): Promise<void>;
 }
 
