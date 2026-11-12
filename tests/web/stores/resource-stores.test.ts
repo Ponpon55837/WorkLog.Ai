@@ -487,7 +487,13 @@ describe("resource stores", () => {
     await store.loadImportFile({ name: "large.json", size: 50 * 1024 * 1024 + 1, text: async () => "" } as File);
     expect(store.importError).toBe(t("projects.importFilesCannotExceed50"));
     await store.loadImportFile({ name: "broken.json", size: 8, text: async () => "{" } as File);
-    expect(store.importError).toContain("JSON");
+    expect(store.importError).toBe(t("projects.theImportFileIsNotJson"));
+    // A file the browser cannot read shows the translated message, never the browser's own reason.
+    const unreadable = async (): Promise<string> => {
+      throw new DOMException("Synthetic browser reason", "NotReadableError");
+    };
+    await store.loadImportFile({ name: "locked.json", size: 8, text: unreadable } as File);
+    expect(store.importError).toBe(t("projects.couldNotReadTheImport"));
     await store.loadImportFile({ name: "wrong-shape.json", size: 8, text: async () => "{}" } as File);
     expect(store.importError).toContain(t("projects.theExportFileIsMalformed", { value: "" }));
 

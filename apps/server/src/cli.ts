@@ -13,18 +13,15 @@ import type {
   ProjectPathRemap,
 } from "@work-intelligence/core";
 import { PROJECT_DATA_IMPORT_STRATEGIES } from "@work-intelligence/core";
-import {
-  projectDataExportSchema,
-  projectDataImportInputSchema,
-  validationIssueMessage,
-} from "@work-intelligence/schema";
 import { z } from "zod";
 import {
   maintainDatabase,
   redactDatabase,
   canonicalizeProjectRoot,
   initializeWorkIntelligenceDatabase,
+  ProjectDataTransferError,
   restoreDatabase,
+  ValidatedProjectDataImport,
   WorkIntelligenceStore,
   type DatabaseMaintenanceResult,
   type DatabaseRedactionResult,
@@ -91,6 +88,7 @@ const backupKindLabels: Record<DatabaseBackupKind, string> = {
   deletion: "專案刪除前",
   session_deletion: "Session 刪除前",
   maintenance: "資料維護前",
+  import: "專案資料匯入前",
 };
 
 function formatBackupSize(bytes: number): string {
@@ -183,6 +181,7 @@ const IMPORT_CONFLICT_CATEGORY_LABELS: Record<ProjectDataImportConflictCategory,
   content: "內容不同",
   unique: "唯一識別值",
   dependency: "依賴連帶",
+  missing_parent: "匯入檔缺少上層資料",
 };
 
 function printImportPreview(
@@ -481,28 +480,34 @@ export async function runDatabaseCli(
       } catch {
         fail("匯入檔不是有效的 JSON。");
       }
-      const parsedBundle = projectDataExportSchema.safeParse(parsedJson);
-      if (!parsedBundle.success) {
-        fail(`匯入檔格式錯誤：${validationIssueMessage(parsedBundle.error.issues[0]) ?? "欄位驗證失敗。"}`);
+      // The whole file is validated once; a location chosen below re-validates only the small options object.
+      let validatedInput: ValidatedProjectDataImport;
+      try {
+        validatedInput = ValidatedProjectDataImport.validate({ bundle: parsedJson });
+      } catch (error) {
+        if (!(error instanceof ProjectDataTransferError)) throw error;
+        fail(error.message);
       }
-      const bundle = parsedBundle.data satisfies ProjectDataExport;
+      const bundle = validatedInput.input.bundle;
       const projectId = projectValue
         ? findProjectId(
             bundle.tables.projects.map((project) => ({ id: String(project.id), name: String(project.name) })),
             projectValue,
           )
         : undefined;
-      const input: ProjectDataImportInput = {
-        bundle,
+      const withOptions = (options: Omit<ProjectDataImportInput, "bundle">): ValidatedProjectDataImport => {
+        try {
+          return validatedInput.withOptions(options);
+        } catch (error) {
+          if (!(error instanceof ProjectDataTransferError)) throw error;
+          fail(error.message);
+        }
+      };
+      validatedInput = withOptions({
         ...(projectId ? { projectId } : {}),
         ...(remap.length > 0 ? { remap } : {}),
         ...(strategy ? { strategy } : {}),
-      };
-      const parsedInput = projectDataImportInputSchema.safeParse(input);
-      if (!parsedInput.success) {
-        fail(`匯入選項格式錯誤：${validationIssueMessage(parsedInput.error.issues[0]) ?? "欄位驗證失敗。"}`);
-      }
-      let validatedInput = parsedInput.data satisfies ProjectDataImportInput;
+      });
       let preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
       const canAskForLocations =
         Boolean(dependencies.chooseImportProjectLocation) || (process.stdin.isTTY && process.stdout.isTTY);
@@ -515,17 +520,14 @@ export async function runDatabaseCli(
             print(`略過「${project.name}」：選擇的位置不是可用資料夾。`);
             continue;
           }
-          const remapsBySource = new Map((validatedInput.remap ?? []).map((mapping) => [mapping.from, mapping]));
+          const current = validatedInput.input;
+          const remapsBySource = new Map((current.remap ?? []).map((mapping) => [mapping.from, mapping]));
           remapsBySource.set(project.rootPath, { from: project.rootPath, to: selectedRoot });
-          const withLocation: ProjectDataImportInput = {
-            ...validatedInput,
+          validatedInput = withOptions({
+            ...(current.projectId ? { projectId: current.projectId } : {}),
             remap: [...remapsBySource.values()],
-          };
-          const validatedLocation = projectDataImportInputSchema.safeParse(withLocation);
-          if (!validatedLocation.success) {
-            fail(`匯入選項格式錯誤：${validationIssueMessage(validatedLocation.error.issues[0]) ?? "欄位驗證失敗。"}`);
-          }
-          validatedInput = validatedLocation.data satisfies ProjectDataImportInput;
+            ...(current.strategy ? { strategy: current.strategy } : {}),
+          });
           preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
         }
       }
@@ -537,6 +539,7 @@ export async function runDatabaseCli(
         print(
           `匯入完成：新增 ${totalCounts(result.additions)} 筆，更新 ${totalCounts(result.updates)} 筆，保留本機 ${totalCounts(result.keptLocal)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
         );
+        if (result.backupFileName) print(`匯入前的資料已備份為 ${result.backupFileName}。`);
         print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
       } else {
         print("已取消匯入，資料沒有變更。");

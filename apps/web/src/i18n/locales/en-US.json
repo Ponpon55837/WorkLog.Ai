@@ -166,7 +166,7 @@
     "backupsAreUnavailableRightNow": "Backups are unavailable right now.",
     "beforeRelocatingATrackedProject": "Before relocating a tracked project, confirm that the folders the Agent can read will change.",
     "chooseAFolderThatExists": "Choose a folder that exists and is usable.",
-    "couldNotCreateAndVerify": "Could not create and verify the pre-deletion backup, so the project was not deleted. Make sure the database is writable and try again.",
+    "couldNotCreateAndVerify": "Could not create and verify the safety backup, so nothing was changed. Make sure the database and the backup folder are writable and try again.",
     "durationDays": "{days} d",
     "durationHours": "{hours} h",
     "durationMinutes": "{rest} min",
@@ -641,7 +641,8 @@
     "overlapDuplicateKnowledge": "May repeat Knowledge",
     "overlapDuplicateCandidate": "May repeat another candidate",
     "overlapArchivedKnowledge": "Overlaps archived Knowledge",
-    "overlapRejectedCandidate": "Overlaps a rejected candidate"
+    "overlapRejectedCandidate": "Overlaps a rejected candidate",
+    "beforeProjectDataImport": "Before project data import"
   },
   "layout": {
     "dataStaysInLocalSqlite": "Data stays in local SQLite only",
@@ -1006,7 +1007,9 @@
     "conflictCategoryNewerContent": "Imported copy is newer",
     "conflictCategoryContent": "Different content",
     "conflictCategoryUnique": "Unique key",
-    "conflictCategoryDependency": "Dependency"
+    "conflictCategoryDependency": "Dependency",
+    "conflictCategoryMissingParent": "Missing from the file",
+    "theImportFileIsNotJson": "The import file is not valid JSON. Choose a Work Intelligence export file."
   },
   "reports": {
     "aCustomRangeCanSpan": "A custom range can span at most {days} day.|A custom range can span at most {days} days.",

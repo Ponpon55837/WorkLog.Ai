@@ -129,6 +129,16 @@ const operationPromise = new Promise((resolve, reject) => {
           reject(new Error("Expected every synthetic Session previewed as already present."));
           return;
         }
+      } else if (path === "/api/import") {
+        const result = JSON.parse(content.toString("utf8"));
+        if (
+          result.outcome !== "project_data_imported" ||
+          (result.skipped?.sessions ?? 0) < sessionCount ||
+          typeof result.backupFileName !== "string"
+        ) {
+          reject(new Error("Expected every synthetic Session skipped after a pre-import backup."));
+          return;
+        }
       } else if (path === "/api/export" && content.byteLength === 0) {
         reject(new Error("Expected a written database export."));
         return;
@@ -1480,6 +1490,7 @@ try {
         exportTo: (target) => runColdStartWorker((worker) => worker.exportTo(target)),
         exportProjectData: (scope) => runColdStartWorker((worker) => worker.exportProjectData(scope)),
         previewProjectDataImport: (input) => runColdStartWorker((worker) => worker.previewProjectDataImport(input)),
+        importProjectData: (input) => runColdStartWorker((worker) => worker.importProjectData(input)),
         async close() {
           await Promise.all([...coldStartWorkers].map((worker) => worker.close()));
           await waitForColdStartWorkersClosed();
@@ -1540,6 +1551,16 @@ try {
         sessionCount,
         probeHealth,
       ),
+    // The whole online import (pre-import backup, validation, plan, write transaction, index sync) of data already
+    // present: every row is skipped, so each run leaves the snapshot as it was apart from one audit row.
+    "importProjectData (all projects, already present)": () =>
+      runHeavyApiClient(
+        baseUrl,
+        "/api/import",
+        JSON.stringify({ bundle: projectDataBundle }),
+        sessionCount,
+        probeHealth,
+      ),
   });
   const heavyCases = makeHeavyCases(benchmarkBaseUrl, false);
   const heavyHealthCases = makeHeavyCases(benchmarkBaseUrl, true);
@@ -1553,6 +1574,7 @@ try {
     "registerMcpProcess (286 expired leases)": seedExpiredLeases,
     createBackup: resetHeavyOutputs,
     "exportTo (whole database)": resetHeavyOutputs,
+    "importProjectData (all projects, already present)": resetHeavyOutputs,
   };
 
   const limitsMs = {
@@ -1635,6 +1657,7 @@ try {
     "exportTo (whole database)": 300,
     "exportProjectData (all projects)": 400,
     "previewProjectDataImport (all projects)": 1500,
+    "importProjectData (all projects, already present)": 1500,
   };
   const transactionLimitsMs = {
     "finalizeSession (related pending reminder)": 50,

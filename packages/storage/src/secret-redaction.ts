@@ -26,6 +26,12 @@ type Detector = {
   masksGroup?: boolean;
   /** Keeps a candidate as written unless this returns true. `next` is the character after the match ("" at the end). */
   accept?: (groups: ReadonlyArray<string | undefined>, next: string) => boolean;
+  /**
+   * False when the text lacks a literal every match must contain, so the pattern cannot match and is not run. Most
+   * stored strings hold no candidate at all, and a substring search is far cheaper than a scan that starts with a
+   * lookbehind at every position; an export redacts every stored string.
+   */
+  mayMatch: (text: string) => boolean;
 };
 
 /**
@@ -34,6 +40,11 @@ type Detector = {
  */
 const PRIVATE_TAG = /<(\/?)private>/gi;
 const PRIVATE_BLOCK_MARKER = "[REDACTED:private_block]";
+/** The keywords environment_secret needs, without its boundaries; finding none rules the pattern out. */
+const ENVIRONMENT_SECRET_KEYWORD = /api[_-]?key|secret|token|password/i;
+/** A literal some detector needs, searched once; text without any (most stored text) skips every detector. */
+const ANY_DETECTOR_LITERAL =
+  /-----BEGIN |github_pat_|gh[pousr]_|sk-|xox|AIza|AKIA|ASIA|aws_secret_access_key|:\/\/|eyJ|api[_-]?key|secret|token|password/i;
 /** A character that may follow an assigned secret value (the end of the input also may). */
 const SECRET_VALUE_TERMINATOR = /["'\s,;}]/;
 
@@ -70,38 +81,46 @@ const DETECTORS: readonly Detector[] = [
     pattern:
       /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----(?=([\s\S]+?-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----)|([\s\S]*))\1\2/g,
     accept: (groups) => groups[0] !== undefined,
+    mayMatch: (text) => text.includes("-----BEGIN "),
   },
   {
     kind: "github_token",
     pattern: /(?<![A-Za-z0-9_])(?:github_pat_[A-Za-z0-9_]{50,255}|gh[pousr]_[A-Za-z0-9]{36,255})(?![A-Za-z0-9_])/g,
+    mayMatch: (text) => text.includes("github_pat_") || /gh[pousr]_/.test(text),
   },
   {
     kind: "anthropic_token",
     pattern: /(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{20,255}(?![A-Za-z0-9_-])/g,
+    mayMatch: (text) => text.includes("sk-ant-"),
   },
   {
     kind: "openai_token",
     pattern: /(?<![A-Za-z0-9_-])sk-(?!ant-)[A-Za-z0-9_-]{20,255}(?![A-Za-z0-9_-])/g,
+    mayMatch: (text) => text.includes("sk-"),
   },
   {
     kind: "slack_token",
     // `-` may precede the prefix and is part of the body, so `xoxb-xoxb-…` starts a candidate at every prefix; the
     // atomic body scans each one at most 255 characters once instead of also backtracking through it.
     pattern: /(?<![A-Za-z0-9_])xox[abprs]-(?=([A-Za-z0-9-]{20,255}))\1(?![A-Za-z0-9_-])/g,
+    mayMatch: (text) => text.includes("xox"),
   },
   {
     kind: "google_api_key",
     // Same as slack_token: `-AIza-AIza…` starts a candidate at every prefix, so the body is taken atomically.
     pattern: /(?<![A-Za-z0-9_])AIza(?=([A-Za-z0-9_-]{30,100}))\1(?![A-Za-z0-9_-])/g,
+    mayMatch: (text) => text.includes("AIza"),
   },
   {
     kind: "aws_access_key",
     pattern: /(?<![A-Za-z0-9_])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9_])/g,
+    mayMatch: (text) => text.includes("AKIA") || text.includes("ASIA"),
   },
   {
     kind: "aws_secret_key",
     pattern: /(\baws_secret_access_key\s*[:=]\s*["']?)([A-Za-z0-9/+=]{40})(?=["'\s,;}]|$)/gi,
     masksGroup: true,
+    mayMatch: (text) => /aws_secret_access_key/i.test(text),
   },
   {
     kind: "connection_string_password",
@@ -110,10 +129,12 @@ const DETECTORS: readonly Detector[] = [
     // letter. The user and password stop at `/`, so each `://` scans its own stretch of text.
     pattern: /(?<![A-Za-z0-9+.-])([0-9+.-]*[A-Za-z][A-Za-z0-9+.-]*:\/\/[^:\s/@]+:)([^\s/@]{8,})(@[^\s/]+)/g,
     masksGroup: true,
+    mayMatch: (text) => text.includes("://"),
   },
   {
     kind: "jwt",
     pattern: /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])/g,
+    mayMatch: (text) => text.includes("eyJ"),
   },
   {
     kind: "environment_secret",
@@ -123,6 +144,7 @@ const DETECTORS: readonly Detector[] = [
     pattern: /(\b(?:api[_-]?key|secret|token|password)\b\s*[:=]\s*["']?)(?=([A-Za-z0-9_./+=:-]*))\2/gi,
     masksGroup: true,
     accept: isAssignedSecretValue,
+    mayMatch: (text) => ENVIRONMENT_SECRET_KEYWORD.test(text),
   },
 ];
 
@@ -194,8 +216,12 @@ export function redactText(input: string): RedactedText {
   const redactions = emptyRedactions();
   // Private blocks go first so a credential inside one is counted once, as private_block.
   let value = redactPrivateBlocks(input, redactions);
+  if (!ANY_DETECTOR_LITERAL.test(value)) {
+    return { value, redactions };
+  }
 
   for (const detector of DETECTORS) {
+    if (!detector.mayMatch(value)) continue;
     value = value.replace(detector.pattern, (match: string, ...rest: unknown[]) => {
       const source = rest[rest.length - 1] as string;
       const offset = rest[rest.length - 2] as number;

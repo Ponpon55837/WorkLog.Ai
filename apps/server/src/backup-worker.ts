@@ -41,7 +41,15 @@ function errorResponse(id: number, error: unknown): BackupWorkerReply {
   return { id, ok: false, error: serializeError(error) };
 }
 
-function executeOperation(store: WorkIntelligenceStore, operation: BackupWorkerOperation): WorkerOperationResult {
+/**
+ * Snapshots, exports and previews read through the read-only store; only an import opens the writable one, on
+ * first use, without migrating: the API process owns the schema and checked it before starting this worker.
+ */
+function executeOperation(
+  stores: { reader(): WorkIntelligenceStore; writer(): WorkIntelligenceStore },
+  operation: BackupWorkerOperation,
+): WorkerOperationResult {
+  const store = operation.type === "importProjectData" ? stores.writer() : stores.reader();
   switch (operation.type) {
     case "createBackup":
       return { value: store.createBackup() };
@@ -70,12 +78,18 @@ function executeOperation(store: WorkIntelligenceStore, operation: BackupWorkerO
         },
       };
     }
+    case "importProjectData": {
+      // Parsing, validation, planning and the search-index sync after the commit all run here, off the API thread.
+      const input =
+        operation.input instanceof Uint8Array ? parseProjectDataImportBytes(operation.input) : operation.input;
+      return { value: store.importProjectData(input) };
+    }
   }
 }
 
-function handleClose(store: WorkIntelligenceStore | undefined, request: BackupWorkerCloseRequest): void {
+function handleClose(stores: Array<WorkIntelligenceStore | undefined>, request: BackupWorkerCloseRequest): void {
   try {
-    store?.close();
+    for (const store of stores) store?.close();
     parentPort?.postMessage({ id: request.id, ok: true, value: null } satisfies BackupWorkerReply);
   } catch (error) {
     parentPort?.postMessage(errorResponse(request.id, error));
@@ -87,6 +101,25 @@ function handleClose(store: WorkIntelligenceStore | undefined, request: BackupWo
 const workerContext = workerData as BackupWorkerData;
 const port = parentPort;
 let store: WorkIntelligenceStore | undefined;
+let writer: WorkIntelligenceStore | undefined;
+const stores = {
+  reader(): WorkIntelligenceStore {
+    store ??= new WorkIntelligenceStore(workerContext.databasePath, {
+      backup: workerContext.backup,
+      mode: "read-only",
+      expectedSchemaVersion: workerContext.expectedSchemaVersion,
+    });
+    return store;
+  },
+  writer(): WorkIntelligenceStore {
+    writer ??= new WorkIntelligenceStore(workerContext.databasePath, {
+      backup: workerContext.backup,
+      mode: "existing",
+      expectedSchemaVersion: workerContext.expectedSchemaVersion,
+    });
+    return writer;
+  },
+};
 
 if (!port) {
   throw new Error("The backup worker requires a parent thread.");
@@ -94,17 +127,12 @@ if (!port) {
 
 port.on("message", (message: BackupWorkerRequest | BackupWorkerCloseRequest) => {
   if ("close" in message) {
-    handleClose(store, message);
+    handleClose([store, writer], message);
     return;
   }
 
   try {
-    store ??= new WorkIntelligenceStore(workerContext.databasePath, {
-      backup: workerContext.backup,
-      mode: "read-only",
-      expectedSchemaVersion: workerContext.expectedSchemaVersion,
-    });
-    const result = executeOperation(store, message.operation);
+    const result = executeOperation(stores, message.operation);
     port.postMessage(
       { id: message.id, ok: true, value: result.value } satisfies BackupWorkerReply,
       result.transferList,

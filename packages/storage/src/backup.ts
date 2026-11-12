@@ -31,7 +31,7 @@ export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 3;
 /** Session deletions keep their own few snapshots so a cleanup spree cannot push out manual backups. */
 export const SESSION_DELETION_BACKUP_KEEP = 3;
 
-type RetentionBucket = "automatic" | "session_deletion" | "manual";
+type RetentionBucket = "automatic" | "session_deletion" | "import" | "manual";
 
 export interface BackupRetentionOptions {
   directory?: string;
@@ -66,6 +66,7 @@ function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string
   const maintenanceName = /^pre-maintenance-(.+)$/.exec(value);
   const deletionName = /^pre-delete-(.+)$/.exec(value);
   const sessionDeletionName = /^pre-session-delete-(.+)$/.exec(value);
+  const importName = /^pre-import-(.+)$/.exec(value);
   const migrationVersion = migrationName?.[1] ? Number(migrationName[1]) : undefined;
   if (migrationName && (!Number.isSafeInteger(migrationVersion) || (migrationVersion ?? 0) < 1)) {
     return null;
@@ -80,15 +81,18 @@ function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string
         ? "deletion"
         : sessionDeletionName
           ? "session_deletion"
-          : maintenanceName
-            ? "maintenance"
-            : "manual";
+          : importName
+            ? "import"
+            : maintenanceName
+              ? "maintenance"
+              : "manual";
   const stamp =
     standardName?.[2] ??
     migrationName?.[2] ??
     maintenanceName?.[1] ??
     deletionName?.[1] ??
     sessionDeletionName?.[1] ??
+    importName?.[1] ??
     value;
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
   if (!match) {
@@ -109,7 +113,7 @@ function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string
 }
 
 function retentionBucket(kind: DatabaseBackupKind): RetentionBucket {
-  return kind === "automatic" || kind === "session_deletion" ? kind : "manual";
+  return kind === "automatic" || kind === "session_deletion" || kind === "import" ? kind : "manual";
 }
 
 /** Accepts only a single, recognized filename for the current database. */
@@ -334,8 +338,13 @@ function writeDatabaseBackup(
   const kind = options.kind ?? "manual";
   const keep = Math.max(1, Math.trunc(options.keep ?? DEFAULT_BACKUP_KEEP));
   const automaticKeep = Math.max(1, Math.trunc(options.automaticKeep ?? DEFAULT_AUTOMATIC_BACKUP_KEEP));
+  // Import snapshots are written without the user asking, so they keep as many copies as automatic backups do.
   const kindKeep =
-    bucket === "automatic" ? automaticKeep : bucket === "session_deletion" ? SESSION_DELETION_BACKUP_KEEP : keep;
+    bucket === "automatic" || bucket === "import"
+      ? automaticKeep
+      : bucket === "session_deletion"
+        ? SESSION_DELETION_BACKUP_KEEP
+        : keep;
   mkdirSync(directory, { recursive: true, mode: 0o700 });
 
   const stamp = timestamp(options.now ?? new Date());
@@ -449,6 +458,18 @@ export function backupDatabaseBeforeSessionDeletion(
     "pre-session-delete-",
     "session_deletion",
   );
+}
+
+/**
+ * Writes a checked snapshot before project data is imported into this database. Imports keep their own group, as many
+ * copies as automatic backups, so repeated imports never push out manual, deletion or migration backups.
+ */
+export function backupDatabaseBeforeImport(
+  db: DatabaseSync,
+  databasePath: string,
+  options: BackupRetentionOptions = {},
+): DatabaseBackupCreated {
+  return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, "pre-import-", "import");
 }
 
 /** Writes a checked, manually retained safety snapshot before database maintenance. */

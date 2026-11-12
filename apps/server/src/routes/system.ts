@@ -3,19 +3,12 @@ import { createReadStream, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import type {
-  DatabaseBackup,
-  ProjectDataExportScope,
-  ProjectDataImportInput,
-  SystemStatus,
-} from "@work-intelligence/core";
+import type { DatabaseBackup, ProjectDataExportScope, SystemStatus } from "@work-intelligence/core";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import {
   databaseBackupFileNameSchema,
   deleteDatabaseBackupBodySchema,
   projectDataExportRequestSchema,
-  projectDataImportInputSchema,
-  validationIssueMessage,
 } from "@work-intelligence/schema";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { inspectDatabaseReadOnlyMetadata } from "../database-inspection.js";
@@ -73,17 +66,6 @@ async function sendProjectDataExport(
     "X-Content-Type-Options": "nosniff",
   });
   response.end(content);
-}
-
-/** Parses a project import body, sending the validation error itself when it is invalid. */
-async function readImportInput({ request, response }: RouteContext): Promise<ProjectDataImportInput | undefined> {
-  const parsed = projectDataImportInputSchema.safeParse(await readJsonBody(request, MAX_PROJECT_IMPORT_BYTES));
-  if (!parsed.success) {
-    const message = validationIssueMessage(parsed.error.issues[0]) ?? "欄位驗證失敗。";
-    sendError(response, 400, `匯入檔格式錯誤：${message}`);
-    return undefined;
-  }
-  return parsed.data satisfies ProjectDataImportInput;
 }
 
 async function systemStatus({ store, response, services }: RouteContext): Promise<void> {
@@ -188,11 +170,11 @@ async function previewImport(context: RouteContext): Promise<void> {
   }
 }
 
+/** The bytes go to the background worker, which parses, validates, backs up and imports away from this thread. */
 async function importData(context: RouteContext): Promise<void> {
-  const input = await readImportInput(context);
-  if (!input) return;
   try {
-    sendJson(context.response, 200, context.store.importProjectData(input));
+    const input = await readJsonBytesBody(context.request, MAX_PROJECT_IMPORT_BYTES);
+    sendJson(context.response, 200, await context.services.backgroundStore.importProjectData(input));
   } catch (error) {
     if (!sendProjectDataTransferError(context.response, error)) throw error;
   }

@@ -11,6 +11,7 @@ import type {
   DatabaseBackupUnavailable,
   ProjectDataExportScope,
   ProjectDataImportInput,
+  ProjectDataImportResult,
 } from "@work-intelligence/core";
 import type { BackupRetentionOptions } from "@work-intelligence/storage";
 import type {
@@ -25,7 +26,8 @@ export type BackupWorkerOperation =
   | { type: "backupIfDue" }
   | { type: "exportTo"; target: string }
   | { type: "exportProjectData"; scope: ProjectDataExportScope }
-  | { type: "previewProjectDataImport"; input: ProjectDataImportInput | Uint8Array };
+  | { type: "previewProjectDataImport"; input: ProjectDataImportInput | Uint8Array }
+  | { type: "importProjectData"; input: ProjectDataImportInput | Uint8Array };
 
 export interface BackupWorkerRequest {
   id: number;
@@ -113,6 +115,7 @@ function restoredError(error: SerializedWorkerError): Error {
     "invalid_bundle",
     "unsupported_schema",
     "project_not_found",
+    "project_backup_failed",
   ];
   if (transferCodes.includes(error.code as ProjectDataTransferErrorCode)) {
     return new ProjectDataTransferError(error.code as ProjectDataTransferErrorCode, error.message);
@@ -175,6 +178,10 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     return this.run({ type: "previewProjectDataImport", input });
   }
 
+  public importProjectData(input: ProjectDataImportInput | Uint8Array): Promise<ProjectDataImportResult> {
+    return this.run({ type: "importProjectData", input });
+  }
+
   public close(): Promise<void> {
     if (!this.closePromise) {
       this.accepting = false;
@@ -212,7 +219,9 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       try {
         const request = { id, operation } satisfies BackupWorkerRequest;
         const transferBuffer =
-          operation.type === "previewProjectDataImport" ? inputTransferBuffer(operation.input) : undefined;
+          operation.type === "previewProjectDataImport" || operation.type === "importProjectData"
+            ? inputTransferBuffer(operation.input)
+            : undefined;
         lifetime.worker.postMessage(request, transferBuffer ? [transferBuffer] : []);
       } catch (error) {
         this.pending.delete(id);

@@ -166,7 +166,7 @@
     "backupsAreUnavailableRightNow": "目前無法使用備份功能。",
     "beforeRelocatingATrackedProject": "重新指定記錄中專案的位置前，請先確認 Agent 可讀取的範圍會改變。",
     "chooseAFolderThatExists": "請選擇一個存在且可用的資料夾。",
-    "couldNotCreateAndVerify": "無法建立並檢查刪除前備份，專案尚未刪除。請確認資料庫可寫入後再試。",
+    "couldNotCreateAndVerify": "無法建立並檢查安全備份，資料沒有變更。請確認資料庫與備份資料夾可寫入後再試。",
     "durationDays": "{days} 天",
     "durationHours": "{hours} 小時",
     "durationMinutes": "{rest} 分鐘",
@@ -641,7 +641,8 @@
     "overlapDuplicateKnowledge": "可能與 Knowledge 重複",
     "overlapDuplicateCandidate": "可能與另一個候選重複",
     "overlapArchivedKnowledge": "與已封存的 Knowledge 重疊",
-    "overlapRejectedCandidate": "與已拒絕的候選重疊"
+    "overlapRejectedCandidate": "與已拒絕的候選重疊",
+    "beforeProjectDataImport": "專案資料匯入前"
   },
   "layout": {
     "dataStaysInLocalSqlite": "資料只存在本機 SQLite",
@@ -1006,7 +1007,9 @@
     "conflictCategoryNewerContent": "匯入資料較新",
     "conflictCategoryContent": "內容不同",
     "conflictCategoryUnique": "唯一識別值",
-    "conflictCategoryDependency": "依賴連帶"
+    "conflictCategoryDependency": "依賴連帶",
+    "conflictCategoryMissingParent": "匯入檔缺少上層資料",
+    "theImportFileIsNotJson": "匯入檔不是有效的 JSON，請確認選的是 Work Intelligence 匯出檔。"
   },
   "reports": {
     "aCustomRangeCanSpan": "自訂期間最長 {days} 天。",

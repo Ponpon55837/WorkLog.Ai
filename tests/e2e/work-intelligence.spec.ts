@@ -2446,6 +2446,26 @@ test.describe("Work Intelligence browser regression", () => {
     expect(bundle.scope).toEqual({ type: "project", projectId });
     expect(bundle.tables.projects).toHaveLength(1);
 
+    // A Session whose project is not in the file is listed under conflicts instead of disappearing from the counts.
+    const withOrphan = JSON.parse(exported.toString("utf8")) as {
+      tables: { sessions: Array<Record<string, unknown>> };
+    };
+    const orphanId = "e2e-orphan-session";
+    withOrphan.tables.sessions.push({
+      ...withOrphan.tables.sessions[0],
+      id: orphanId,
+      idempotency_key: orphanId,
+      project_id: "e2e-project-not-in-file",
+    });
+    await backups.getByLabel(tt("projects.importFile")).setInputFiles({
+      name: "orphan.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(withOrphan)),
+    });
+    const conflictGroups = backups.getByTestId("project-import-conflict-groups");
+    await expect(conflictGroups).toContainText(tt("projects.conflictCategoryMissingParent"));
+    await expect(conflictGroups).toContainText(orphanId);
+
     await backups.getByLabel(tt("projects.importFile")).setInputFiles({
       name: download.suggestedFilename(),
       mimeType: "application/json",
@@ -2470,6 +2490,8 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(
       page.getByText(ttPattern("projects.importFinishedAddedSkippedIn", { value: 0, value3: 0 })),
     ).toBeVisible();
+    // The import wrote its pre-import snapshot first, and the backup list shows it.
+    await expect(backups).toContainText(tt("labels.beforeProjectDataImport"));
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);
