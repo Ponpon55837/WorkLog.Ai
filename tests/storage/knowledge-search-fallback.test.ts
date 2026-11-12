@@ -208,7 +208,7 @@ describe("Agent Knowledge search fallback", () => {
     record(store, otherRoot, "k2", { title: "Trellis wire tension" });
     record(store, otherRoot, "k3", { title: "Trellis post spacing", archived: true });
     record(store, pausedRoot, "k4", { title: "Trellis anchors" });
-    const paused = store.listProjects().find((project) => project.rootPath === pausedRoot)!;
+    const paused = store.listProjects().find((project) => project.name === "Paused Grove")!;
     store.updateProject(paused.id, { status: "paused" });
 
     const scoped = search(store, { projectRoot: root, q: "trellis tension zzyzx" });
