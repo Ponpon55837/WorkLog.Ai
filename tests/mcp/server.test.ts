@@ -275,13 +275,13 @@ describe("Work Intelligence MCP server", () => {
     const project = store.addProject("Progress fixture", root);
     store.updateProject(project.id, { status: "tracked" });
     const finalized = await callJson<{
-      session: { id: string; verification: { status: string } };
+      session: { id: string; verificationStatus: string };
       verificationFollowUp?: unknown;
     }>(client, "work_finalize_session", {
       ...finalizePayload(root, "progress-fixture", "Progress fixture"),
       verification: { status: "in_progress", summary: "Synthetic check is underway." },
     });
-    expect(finalized.session.verification.status).toBe("in_progress");
+    expect(finalized.session.verificationStatus).toBe("in_progress");
     expect(finalized.verificationFollowUp).toBeUndefined();
     expect((await getToolContractCatalog(client)).sections.get("work_finalize_session")).toContain("in_progress");
     const updated = await callJson(client, "work_update_session_metadata", {
@@ -312,19 +312,27 @@ describe("Work Intelligence MCP server", () => {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     cleanups.push(() => client.close());
 
-    type Finalized = { session: { agentClient?: string; agentModel?: string } };
+    // Both are stored on the Session; the finalize receipt echoes neither.
+    type Finalized = { session: { id: string; agentClient?: string; agentModel?: string } };
     const withModel = await callJson<Finalized>(client, "work_finalize_session", {
       ...finalizePayload(root, "agent-source-1", "With model"),
       agentModel: "fiction-model-1",
     });
-    expect(withModel.session).toMatchObject({ agentClient: "fiction-agent-cli", agentModel: "fiction-model-1" });
+    expect(withModel.session).not.toHaveProperty("agentClient");
+    expect(withModel.session).not.toHaveProperty("agentModel");
+    expect(store.getSessionDetail(withModel.session.id)?.session).toMatchObject({
+      agentClient: "fiction-agent-cli",
+      agentModel: "fiction-model-1",
+    });
     const withoutModel = await callJson<Finalized>(
       client,
       "work_finalize_session",
       finalizePayload(root, "agent-source-2", "Without model"),
     );
-    expect(withoutModel.session.agentClient).toBe("fiction-agent-cli");
-    expect(withoutModel.session.agentModel).toBeUndefined();
+    expect(store.getSessionDetail(withoutModel.session.id)?.session).toMatchObject({
+      agentClient: "fiction-agent-cli",
+    });
+    expect(store.getSessionDetail(withoutModel.session.id)?.session.agentModel).toBeUndefined();
   });
 
   it("rejects stale writes after another connection migrates the database even when local dist is unchanged", async () => {

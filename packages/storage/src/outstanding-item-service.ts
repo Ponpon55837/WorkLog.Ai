@@ -13,6 +13,7 @@ import type {
 } from "@work-intelligence/core";
 import { MAX_OUTSTANDING_ITEM_BATCH_SIZE, OUTSTANDING_ITEM_STATUSES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
+import { rankRelatedPending, type RelatedPendingCandidate } from "./outstanding-item-relevance.js";
 import { normalizePath, parseQueryWords } from "./search-text.js";
 import { createPageInfo } from "./pagination.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -39,10 +40,14 @@ type OutstandingItemRow = {
   updated_at: string;
 };
 
+type RelatedPendingRow = OutstandingItemRow & RelatedPendingCandidate;
+
 interface OutstandingItemDependencies {
   checkProjectById(projectId: string): PolicyDecision;
   checkProjectRoot(projectRoot: string): PolicyDecision;
 }
+
+const RELATED_PENDING_LIMIT = 5;
 
 function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
   return {
@@ -169,7 +174,10 @@ export class OutstandingItemService {
     );
   }
 
-  /** Scores every eligible pending item in SQL, returning at most five pointers without per-item queries. */
+  /**
+   * Reads the eligible pending items once and scores them in memory, returning at most five pointers. SQL folds the
+   * text fields with lower() so term matching keeps SQLite's case rules; paths are normalized once per Session.
+   */
   public relatedPending(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number } {
     if (input.projectId) {
       const policy = this.dependencies.checkProjectById(input.projectId);
@@ -192,65 +200,21 @@ export class OutstandingItemService {
     );
     const sources = [...new Set(input.sourceSessionIds ?? [])].slice(0, 20);
     if (!terms.length && !paths.length && !sources.length) return { items: [], total: 0 };
-    const changedPath = "lower(replace(f.value, char(92), '/'))";
-    // Materialized CTEs parse query inputs and score each item once; window sorting must not repeat correlated scans.
-    // Equality and segment boundaries treat directories literally; Agent paths never become LIKE patterns.
-    const pathMatch = `${changedPath} = q.path
-      OR substr(${changedPath}, 1, length(q.path) + 1) = q.path || '/'
-      OR substr(${changedPath}, -length(q.path) - 1) = '/' || q.path
-      OR substr(q.path, -length(${changedPath}) - 1) = '/' || ${changedPath}`;
-    // Apply the positive-score conditions before evaluating the correlated score subqueries.
-    const relevanceCandidates = [
-      ...(terms.length
-        ? [
-            `(${terms.map(() => "instr(lower(i.text), ?) > 0").join(" OR ")})`,
-            `(${terms.map(() => "instr(lower(s.title), ?) > 0").join(" OR ")})`,
-            `(${terms.map(() => "instr(lower(substr(s.summary, 1, 2000)), ?) > 0").join(" OR ")})`,
-          ]
-        : []),
-      ...(sources.length ? ["EXISTS (SELECT 1 FROM sources WHERE id = s.id)"] : []),
-      ...(paths.length
-        ? [
-            `EXISTS (SELECT 1 FROM path_queries q WHERE EXISTS (
-              SELECT 1 FROM json_each(s.changed_files_json) f WHERE ${pathMatch}
-            ))`,
-          ]
-        : []),
-    ];
-    const score = `(SELECT COUNT(*) FROM keywords WHERE instr(lower(i.text), term) > 0) * 3.0
-      + (SELECT COUNT(*) FROM keywords WHERE instr(lower(s.title), term) > 0) * 0.5
-      + (SELECT COUNT(*) FROM keywords WHERE instr(lower(substr(s.summary, 1, 2000)), term) > 0) * 0.25
-      + COALESCE((SELECT weight FROM sources WHERE id = s.id), 0)
-      + (SELECT COUNT(*) FROM path_queries q WHERE EXISTS (
-        SELECT 1 FROM json_each(s.changed_files_json) f WHERE ${pathMatch}
-      )) * 10.0`;
-    const rows = this.db
+    const candidates = this.db
       .prepare(
-        `WITH
-      keywords AS MATERIALIZED (SELECT value AS term FROM json_each(?)),
-      path_queries AS MATERIALIZED (SELECT value AS path FROM json_each(?)),
-      sources AS MATERIALIZED (SELECT value AS id, (20 - CAST(key AS INTEGER)) / 20.0 AS weight FROM json_each(?)),
-      scored AS MATERIALIZED (${baseSelect(
-        `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?
-           AND (${relevanceCandidates.join(" OR ")})`,
-        `i.*, p.name AS project_name, s.title AS source_session_title,
-         s.completed_at AS source_session_completed_at, ${score} AS relevance`,
-      )})
-      SELECT *, COUNT(*) OVER () AS matching_total FROM scored WHERE relevance > 0
-      ORDER BY relevance DESC, source_session_completed_at DESC, source_session_id DESC, position ASC, id ASC
-      LIMIT 5`,
+        baseSelect(
+          `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?`,
+          `i.*, p.name AS project_name, s.title AS source_session_title,
+           s.completed_at AS source_session_completed_at,
+           ${terms.length ? "lower(i.text)" : "''"} AS text_key,
+           ${terms.length ? "lower(s.title)" : "''"} AS title_key,
+           ${terms.length ? "lower(substr(s.summary, 1, 2000))" : "''"} AS summary_key,
+           ${paths.length ? "s.changed_files_json" : "'[]'"} AS changed_files_json`,
+        ),
       )
-      .all(
-        JSON.stringify(terms),
-        JSON.stringify(paths),
-        JSON.stringify(sources),
-        ...(input.projectId ? [input.projectId] : []),
-        input.excludeSourceSessionId ?? "",
-        ...terms,
-        ...terms,
-        ...terms,
-      ) as Array<OutstandingItemRow & { matching_total: number }>;
-    return { items: rows.map(toOutstandingItem), total: rows[0]?.matching_total ?? 0 };
+      .all(...(input.projectId ? [input.projectId] : []), input.excludeSourceSessionId ?? "") as RelatedPendingRow[];
+    const ranked = rankRelatedPending(candidates, { terms, paths, sources });
+    return { items: ranked.slice(0, RELATED_PENDING_LIMIT).map(toOutstandingItem), total: ranked.length };
   }
 
   public batchUpdateStatus(input: BatchUpdateOutstandingItemStatusInput): BatchUpdateOutstandingItemStatusResult {

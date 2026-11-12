@@ -247,6 +247,7 @@ import { RelatedWorkService } from "./related-work-service.js";
 import type { FileHistoryQuery, FileHistoryResult, RelatedWorkResult } from "@work-intelligence/core";
 import { AttentionService } from "./attention-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
+import { findKnowledgeToReview } from "./knowledge-review-hint.js";
 import { KnowledgeSearchService } from "./knowledge-search-service.js";
 import { FileHistoryService } from "./file-history-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
@@ -1656,7 +1657,6 @@ export class WorkIntelligenceStore {
             suggestedTool: "work_update_session_summary",
           };
         }
-        const knowledgePageMaintenanceHint = this.knowledgePages.maintenanceHintForProject(existing.projectId);
         return {
           outcome: "finalized",
           duplicate: true,
@@ -1669,7 +1669,6 @@ export class WorkIntelligenceStore {
           workSummaryFollowUp: getWorkSummaryFollowUp(existing),
           resolvedOutstandingItemIds: this.outstandingItems.resolvedByActorSession(existing.id),
           supersededOutstandingItemIds: this.outstandingItems.transitionedByActorSession(existing.id, "not_needed"),
-          ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         };
       }
 
@@ -1817,8 +1816,6 @@ export class WorkIntelligenceStore {
       const knowledgePagesAcknowledged = input.maintainedKnowledgePages?.length
         ? this.knowledgePages.acknowledgeMaintenance(project.id, sessionId, input.maintainedKnowledgePages)
         : [];
-      const knowledgePageMaintenanceHint = this.knowledgePages.maintenanceHintForProject(project.id);
-
       const session = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (!session) {
         throw new Error("Session was inserted but could not be loaded.");
@@ -1836,7 +1833,6 @@ export class WorkIntelligenceStore {
         ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
         ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
         ...(knowledgePagesAcknowledged.length > 0 ? { knowledgePagesAcknowledged } : {}),
-        ...(knowledgePageMaintenanceHint ? { knowledgePageMaintenanceHint } : {}),
         resolvedOutstandingItemIds: resolution.resolvedIds,
         supersededOutstandingItemIds: supersession.resolvedIds,
         ...(unresolvedIds.length > 0 || unsupersededIds.length > 0
@@ -1853,8 +1849,15 @@ export class WorkIntelligenceStore {
     });
     if (result.outcome === "finalized") {
       const { session } = result;
-      // The Session is already committed; a failed reminder lookup only omits the optional reminders.
+      // The Session is already committed, so these read-only reminders do not hold the write lock; a failed lookup
+      // only omits its reminder.
       runAfterImmediateTransaction(this.db, () => {
+        try {
+          const knowledgePageMaintenanceHint = this.knowledgePages.maintenanceHintForProject(session.projectId);
+          if (knowledgePageMaintenanceHint) result.knowledgePageMaintenanceHint = knowledgePageMaintenanceHint;
+        } catch {
+          delete result.knowledgePageMaintenanceHint;
+        }
         try {
           result.relatedOutstandingItems = this.contextRecallService.relatedOutstandingItems(
             session.projectId,
@@ -1866,6 +1869,20 @@ export class WorkIntelligenceStore {
           );
         } catch {
           delete result.relatedOutstandingItems;
+        }
+        try {
+          const project = this.getProjectById(session.projectId);
+          const knowledgeToReview = project
+            ? findKnowledgeToReview(this.db, {
+                projectId: project.id,
+                sessionId: session.id,
+                changedFiles: session.changedFiles,
+                project: { name: project.name, rootPath: project.rootPath },
+              })
+            : [];
+          if (knowledgeToReview.length > 0) result.knowledgeToReview = knowledgeToReview;
+        } catch {
+          delete result.knowledgeToReview;
         }
       });
     }

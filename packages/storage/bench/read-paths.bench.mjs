@@ -870,6 +870,31 @@ try {
         );
       return result;
     },
+    // A realistic closing write: 20 changed paths shared with pending items' Sessions and with Knowledge appliesTo,
+    // so the related-item path scoring and the knowledgeToReview scan both do real work.
+    "finalizeSession (changed files, Knowledge review)": () => {
+      const index = ++maintenanceFinalizeIndex;
+      const changedFiles = Array.from({ length: 10 }, (_, fileIndex) => [
+        `src/module-${fileIndex}.ts`,
+        `src/feature-${fileIndex}/index.ts`,
+      ]).flat();
+      const result = benchStore.finalizeSession({
+        projectRoot: alphaRoot,
+        idempotencyKey: `bench-changed-files-finalize-${index}`,
+        title: `Synthetic module refactor ${index}`,
+        summary: "Refactored synthetic modules and their feature entry points; verified with the synthetic suite.",
+        changedFiles,
+        verification: { status: "passed" },
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      });
+      if (
+        result.outcome !== "finalized" ||
+        !result.relatedOutstandingItems?.total ||
+        result.knowledgeToReview?.length !== 3
+      )
+        throw new Error("Changed-files finalize benchmark must return related items and three Knowledge to review.");
+      return result;
+    },
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
     "finalizeSession (knowledge page reminder)": finalizeWithKnowledgePageMaintenance,
     "MCP guarded finalize (schema check)": () =>
@@ -1146,6 +1171,7 @@ try {
     "getContext (project with pages)": 500,
     "getContext (related pending items)": 500,
     "finalizeSession (related pending reminder)": 250,
+    "finalizeSession (changed files, Knowledge review)": 250,
     "listKnowledgePages (staleness)": 250,
     "finalizeSession (knowledge page reminder)": 250,
     "MCP guarded finalize (schema check)": 250,
@@ -1186,6 +1212,7 @@ try {
   };
   const transactionLimitsMs = {
     "finalizeSession (related pending reminder)": 50,
+    "finalizeSession (changed files, Knowledge review)": 50,
   };
   // Ubuntu CI observed 11.26–44.83 ms event-loop block p90; twice the 44.83 ms maximum rounds up to 100 ms.
   const eventLoopBlockLimitMs = 100;
@@ -1205,8 +1232,7 @@ try {
     const caseRuns = isHeavyCase ? heavyRuns : runs;
     beforeEachRun[name]?.();
     await run();
-    const transactionObserver =
-      name === "finalizeSession (related pending reminder)" ? observeWriteTransactionDurations(benchStore) : undefined;
+    const transactionObserver = name in transactionLimitsMs ? observeWriteTransactionDurations(benchStore) : undefined;
     const samples = [];
     const transactionSamples = transactionObserver?.samples ?? [];
     const operationSamples = [];

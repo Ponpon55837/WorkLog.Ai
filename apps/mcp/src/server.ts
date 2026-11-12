@@ -68,7 +68,7 @@ import {
   updateSessionWorkSummaryInputSchema,
   updateSessionWorkSummaryInputSchemaBase,
 } from "@work-intelligence/schema";
-import { truncateText } from "@work-intelligence/shared";
+import { truncateAtCodeUnitLimit, truncateText } from "@work-intelligence/shared";
 import type { McpRestartStatus } from "@work-intelligence/shared/mcp-runtime";
 import {
   DATABASE_BUSY_MESSAGE,
@@ -93,6 +93,7 @@ import {
   serverInstructions,
   workRecordContract,
 } from "./contracts.js";
+import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { parseMcpInput } from "./input.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { sessionTextResult, textResult } from "./result.js";
@@ -113,6 +114,11 @@ interface StoreToolDefinition<S extends z.ZodType> {
   /** Attach the process build status to this operation's result. */
   includeServerStatus?: boolean;
   run: (input: z.infer<S>, context: { agentClient?: string; serverStatus: McpRestartStatus }) => unknown;
+  /**
+   * Shapes the result for the Agent once the write has committed, so reminders that storage attaches after the
+   * commit are included.
+   */
+  present?: (result: unknown, input: z.infer<S>) => unknown;
 }
 
 export interface McpStartupFailure {
@@ -226,24 +232,6 @@ const TOOL_DISPATCHERS: readonly ToolDispatcherDefinition[] = [
     annotations: OVERWRITE_IDEMPOTENT,
   },
 ];
-
-function truncateAtCodeUnitLimit(value: string, limit: number): { text: string; truncated: boolean } {
-  if (value.length <= limit) return { text: value, truncated: false };
-  if (limit <= 0) return { text: "", truncated: true };
-
-  let prefixLength = limit - 1;
-  const lastPrefixCodeUnit = value.charCodeAt(prefixLength - 1);
-  const nextCodeUnit = value.charCodeAt(prefixLength);
-  if (
-    lastPrefixCodeUnit >= 0xd800 &&
-    lastPrefixCodeUnit <= 0xdbff &&
-    nextCodeUnit >= 0xdc00 &&
-    nextCodeUnit <= 0xdfff
-  ) {
-    prefixLength -= 1;
-  }
-  return { text: `${value.slice(0, prefixLength)}…`, truncated: true };
-}
 
 function serializedResponseLength(value: unknown): number {
   return JSON.stringify(value)?.length ?? 0;
@@ -523,9 +511,10 @@ export function createWorkIntelligenceMcpServer(
             };
           }
           const context = { agentClient, serverStatus: restartStatus };
-          const result = readOnly
+          const stored = readOnly
             ? await definition.run(parsed.data, context)
             : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
+          const result = definition.present ? definition.present(stored, parsed.data) : stored;
           if (readOnly) {
             // Passive audit of what this read returned (ids only) and how long it took; never affects the response.
             auditRead(store, { tool: name, agentClient, result, projectId, durationMs: performance.now() - startedAt });
@@ -586,10 +575,10 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_finalize_session", {
     title: "Finalize a work session",
     description:
-      "Finalize only after planning, execution, verification, and closing are complete. Required: outcome-first summary, five-section workSummary, intentional changedFiles ([] for no changes), and verification passed/failed/in_progress/not_run. in_progress means started with no confirmed result; update the same Session after verification. Starting work never means passed. Pass baselineChangedFiles captured at start: exclude those paths even if edited again; a rename from baseline records the new path as added. changedFilesProvenance cites Agent/handoff/Git/worktree evidence; changedFileChanges records lifecycle changes (renamed requires previousPath). Report only recalled Knowledge actually used with appliedKnowledgeIds or contradictedKnowledgeIds; parentSessionId links continued work. startedAt needs a conversation/hook timestamp with offset; omit if unknown, never estimate. Omit completedAt for just-finished work; backfill only from historical evidence with offset. Future times are rejected; correct timestampWarnings with work_update_session_metadata. updatedAt tracks edits; Git is optional, separate metadata. Only tracked projects permit source/handoff/Git reads and recording; others quietly skip. Same-key retries return the original Session; a different summary conflicts. Missing legacy verification/files/workSummary yields follow-up instructions." +
-      "Before closing, refresh task/paths context and read the sources of relevant.outstandingItems. resolvedOutstandingItemIds completes only same-project pending work directly verified as done. supersededOutstandingItemIds marks older pending work not_needed only when nonempty nextSteps explicitly replace it. Both transitions are atomic with the Session and audited with actorSessionId; conflicting ids stay unchanged and warn. Never infer completion from wording or ranking. relatedOutstandingItems returns bounded still-pending matches, excluding this Session’s new items, with an evidence caution. " +
-      "The result may include knowledgePageMaintenanceHint, a one-line list of pages with a source-review warning, an explicit update request, or at least three accumulated new Sessions. " +
-      "Sensitive values in Session text are masked before storage; the result reports redaction counts by type only and never returns a token fragment. " +
+      "Finalize only after planning, execution, verification, and closing are complete. Required: outcome-first summary, five-section workSummary, intentional changedFiles ([] for no changes), and verification passed/failed/in_progress/not_run. in_progress means started with no confirmed result; update the same Session after verification. Starting work never means passed. Pass baselineChangedFiles captured at start: exclude those paths even if edited again; a rename from baseline records the new path as added. changedFilesProvenance cites Agent/handoff/Git/worktree evidence; changedFileChanges records lifecycle changes (renamed requires previousPath). Report only recalled Knowledge actually used with appliedKnowledgeIds or contradictedKnowledgeIds; parentSessionId links continued work. startedAt needs a conversation/hook timestamp with offset; omit if unknown, never estimate. Omit completedAt for just-finished work; backfill only from historical evidence with offset. Future times are rejected; correct timestampWarnings with work_update_session_metadata. updatedAt tracks edits. Only tracked projects permit source/handoff/Git reads and recording; others quietly skip. Same-key retries return the original Session; a different summary conflicts. Missing legacy verification/files/workSummary yields follow-up instructions." +
+      "Before closing, refresh task/paths context and read the sources of relevant.outstandingItems. resolvedOutstandingItemIds and supersededOutstandingItemIds (rules in the contract below) change only same-project pending items; both transitions are atomic with the Session and audited with actorSessionId; conflicting ids stay unchanged and warn. Never infer completion from wording or ranking. relatedOutstandingItems lists bounded still-pending matches (not this Session's new items) with an evidence caution. " +
+      "The result is a receipt, not an echo of the request; it may include knowledgePageMaintenanceHint (pages with a source-review warning, an update request, or 3+ new Sessions). " +
+      "Sensitive values are masked before storage; the result reports redaction counts by type only, never token fragments. " +
       workRecordContract,
     inputShape: mcpFinalizeSessionInputSchema.shape,
     schema: mcpFinalizeSessionInputSchema,
@@ -601,6 +590,8 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid finalize payload.",
     sessionResult: true,
     run: (input, context) => store.finalizeSession(input, context),
+    present: (result, input) =>
+      toFinalizeReceipt(input, result as ReturnType<WorkIntelligenceStore["finalizeSession"]>),
   });
 
   registerStoreTool("work_get_session", {

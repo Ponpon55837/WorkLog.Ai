@@ -4,6 +4,25 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.20] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.20.md).
+
+### Added
+
+- `work_finalize_session` returns `knowledgeToReview`: at most 3 active Knowledge items of the Session's project whose `appliesTo` covers a file the Session changed, each with its `id`, `title`, the matched `path`, and the `appliesTo` entry when it differs from the path. Matching uses the `work_recall` rule (exact, segment suffix, directory, glob), strongest first and then newest, over the same 2,000 newest Knowledge rows as the other `appliesTo` scans. Knowledge the Session recorded, or already reported as applied or contradicted, is left out. It is advisory and changes no Knowledge; the work record contract and the work-intelligence skill tell the Agent to confirm an item that still holds (`work_update_knowledge` with `confirm: true`), update it with the user when the change made it wrong, or leave it. Replaying the 50 newest Sessions of a real database (328 Sessions, 31 active Knowledge) would have given 32 of them a hint (65 items); the lookup takes about 0.6 ms.
+
+### Changed
+
+- The MCP finalize result is a receipt instead of an echo of the request. `session` carries the id, `executionStatus`, `completedAt`, `updatedAt`, `verificationStatus`, and `changedFilesCount`, plus only what the server changed or derived: a `startedAt` it derived or changed, the stored `changedFiles` when they differ from the submitted list, Git metadata it read because the request had none, and void state. `redactions` appears only when something was masked; resolved and superseded item ids appear when the request named items or a retry recovered them; follow-ups, warnings, `knowledgePageMaintenanceHint`, and `relatedOutstandingItems` are unchanged, the latter in the `work_get_context` pointer shape (id, source Session id, text). The title, summary, work summary, and submitted changed files are read with `work_get_session`. On the real database a realistic finalize (3,064-character request) now answers with 1,748 characters of text and 1,886 of `structuredContent` instead of 5,249 and 5,453; a synthetic realistic request is held to 2,000 characters in `tests/mcp/response-size.test.ts`. REST `POST /api/work/finalize` and the storage result keep the full Session. Both the text block and `structuredContent` stay: the MCP specification asks tools that return structured content to also return it as text for clients that read only text, and the Codex finalize hook reads `structuredContent` first.
+- Finalize is faster. The related-outstanding-items reminder matched every stored changed file against every query path in SQL and recomputed the normalized path per pair; it now reads the eligible pending items once and scores them in memory, normalizing each path once, with the same rules (only ASCII letters fold, as SQLite `lower()` does) and the same tie order. A characterization test written against the old SQL pins the ordering, and on the real database the old and new lookup return identical results for 300 focuses (7,211 matches, same order). The lookup takes 0.9 ms instead of 5.9 ms (median over the 100 newest Sessions' finalize focuses), finalize 6.0 ms instead of 16.3 ms (median of 21 calls through MCP), and a focused `work_get_context` about 35 ms instead of 54 ms. On 5,000 synthetic Sessions a finalize with 20 changed files that share paths with pending items and Knowledge takes 11.7 ms instead of 35.4 ms (median of three processes), including the new Knowledge lookup.
+- The Knowledge page maintenance hint is computed after the finalize commit, with the other read-only reminders, so the write lock is no longer held for it (finalize transaction median 1.0 ms instead of 3.8 ms at 5,000 Sessions). Its text is unchanged; a failed lookup now only omits the hint instead of failing the finalize.
+
+### Fixed
+
+- `work_get_knowledge_page_context` shortens Session previews without splitting an emoji or another character outside the Basic Multilingual Plane; it uses the code-unit truncation helper that outstanding item lists already used, now shared.
+- The two tests that make the MCP lease directory unwritable (`tests/server/server.test.ts` system status, `tests/server/doctor.test.ts` stale lease) replace the directory with an empty file instead of removing its write permission, so they also run on Windows and as root, where permission bits do not stop a write.
+
 ## [1.6.19] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.19.md).

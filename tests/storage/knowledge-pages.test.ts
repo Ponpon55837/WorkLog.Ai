@@ -138,6 +138,27 @@ describe("Knowledge pages", () => {
     expect(missed.reasonCode).toBe("page_unknown");
   });
 
+  it("shortens context Session previews without splitting a surrogate pair", () => {
+    const { store, projectRoot } = setup();
+    // 98 ASCII characters, then an emoji whose two code units straddle the 99-unit cut before the ellipsis.
+    const outcome = `${"a".repeat(98)}🐝 hive notes`;
+    const result = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "surrogate-preview",
+      title: "Session surrogate preview",
+      summary: "Synthetic emoji preview.",
+      workSummary: { outcomes: [outcome], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    if (result.outcome !== "finalized") throw new Error("Expected finalize");
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    const context = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
+    if (context.outcome !== "knowledge_page_context") throw new Error("Expected context");
+    const [preview] = context.sessions[0]!.workSummary.outcomes;
+    expect(preview).toBe(`${"a".repeat(98)}…`);
+  });
+
   it("gives the Agent recent non-voided Sessions and saves a cited version idempotently", () => {
     const { store, projectRoot, otherRoot, finalize, sections } = setup();
     const first = finalize("first");

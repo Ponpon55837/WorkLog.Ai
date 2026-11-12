@@ -28,6 +28,28 @@ export function truncateText(value: string, maxLength = 240): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
+/**
+ * Shortens to at most `limit` UTF-16 code units including the trailing ellipsis, without splitting a surrogate pair
+ * (an emoji or a rare CJK character would otherwise end in half a character).
+ */
+export function truncateAtCodeUnitLimit(value: string, limit: number): { text: string; truncated: boolean } {
+  if (value.length <= limit) return { text: value, truncated: false };
+  if (limit <= 0) return { text: "", truncated: true };
+
+  let prefixLength = limit - 1;
+  const lastPrefixCodeUnit = value.charCodeAt(prefixLength - 1);
+  const nextCodeUnit = value.charCodeAt(prefixLength);
+  if (
+    lastPrefixCodeUnit >= 0xd800 &&
+    lastPrefixCodeUnit <= 0xdbff &&
+    nextCodeUnit >= 0xdc00 &&
+    nextCodeUnit <= 0xdfff
+  ) {
+    prefixLength -= 1;
+  }
+  return { text: `${value.slice(0, prefixLength)}…`, truncated: true };
+}
+
 /*
  * Calendar dates follow the host's local time zone: the server runs on the user's machine, so a
  * "day" in reports and filters is the day the user sees on their clock. Timestamps stay UTC ISO.

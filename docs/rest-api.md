@@ -10,7 +10,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 
 ## 收尾與未結項
 
-`POST /api/work/finalize` 與 MCP finalize 共用驗證：`resolvedOutstandingItemIds` 只接受本次已確認完成的同專案 pending 項目；`supersededOutstandingItemIds` 只用於本次非空 `workSummary.nextSteps` 明確取代的舊項目。每個陣列最多 200 個非空 id。狀態、逐筆 actor Session 稽核及 Session 在同一交易寫入；衝突、無效、已處理、作廢或跨專案 id 維持原狀並回傳警告。結果含兩種實際變更 id 與最多五筆 `relatedOutstandingItems` 提示（total／omitted、文字最多 400 字、來源標題 160 字）；提示排除本次新項目，排名不能作為完成證據。完整規則見 [MCP 收尾說明](mcp-tools.md#work_finalize_session)。
+`POST /api/work/finalize` 與 MCP finalize 共用驗證：`resolvedOutstandingItemIds` 只接受本次已確認完成的同專案 pending 項目；`supersededOutstandingItemIds` 只用於本次非空 `workSummary.nextSteps` 明確取代的舊項目。每個陣列最多 200 個非空 id。狀態、逐筆 actor Session 稽核及 Session 在同一交易寫入；衝突、無效、已處理、作廢或跨專案 id 維持原狀並回傳警告。結果含兩種實際變更 id 與最多五筆 `relatedOutstandingItems` 提示（total／omitted、文字最多 400 字、來源標題 160 字）；提示排除本次新項目，排名不能作為完成證據。REST 回傳完整的 storage 結果（含完整 `session`），另可帶最多三筆 `knowledgeToReview`（appliesTo 涵蓋本次變更檔案的 active Knowledge，只是提示）；MCP 則回傳不回顯請求內容的回條。完整規則見 [MCP 收尾說明](mcp-tools.md#work_finalize_session)。
 
 ## 錯誤回應與代碼
 
