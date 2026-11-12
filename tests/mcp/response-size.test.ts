@@ -27,13 +27,14 @@ const retrievalQuery = "agent context retrieval budget gotcha";
 const RESPONSE_BUDGETS = {
   contextWithoutTask: 16_000,
   contextWithTask: 10_000,
-  finalizeWithRelatedOutstandingItems: 16_000,
+  finalizeWithRelatedOutstandingItems: 4_000,
+  finalizeReceipt: 2_000,
   outstandingItemsPage: 30_000,
   outstandingCleanupContext: 24_000,
   contextWithOutstandingCleanup: 10_000,
   outstandingCleanupRequestPage: 8_000,
   outstandingCleanupProposalPage: 30_000,
-  relatedOutstandingItems: 4_200,
+  relatedOutstandingItems: 3_000,
   contextRelatedOutstandingItems: 2_200,
   recallDefault: 3_500,
   recallFive: 2_400,
@@ -563,14 +564,7 @@ describe("synthetic MCP response-size baseline", () => {
       session: { id: string };
       supersededOutstandingItemIds: string[];
       relatedOutstandingItems: {
-        items: Array<{
-          id: string;
-          sourceSessionId: string;
-          sourceSessionTitle: string;
-          text: string;
-          textTruncated?: boolean;
-          sourceSessionTitleTruncated?: boolean;
-        }>;
+        items: Array<{ id: string; sourceSessionId: string; text: string; textTruncated?: boolean }>;
         total: number;
         omitted: number;
         hint?: string;
@@ -582,12 +576,101 @@ describe("synthetic MCP response-size baseline", () => {
     expect(related.total).toBeGreaterThan(0);
     expect(related.items.length).toBeLessThanOrEqual(5);
     expect(related.items.every((item) => item.text.length <= 400 && item.textTruncated === true)).toBe(true);
-    expect(related.items.every((item) => item.sourceSessionTitle.length <= 160)).toBe(true);
-    expect(related.items.some((item) => item.sourceSessionTitleTruncated === true)).toBe(true);
+    // Finalize pointers have the work_get_context shape: the source title and date are one read away.
+    expect(related.items.every((item) => Object.keys(item).every((key) => CONTEXT_ITEM_KEYS.has(key)))).toBe(true);
     expect(related.items.map((item) => item.id)).not.toContain(supersededItem.id);
     expect(related.items.every((item) => item.sourceSessionId !== finalizeValue.session.id)).toBe(true);
     expect(related.items.map((item) => item.text)).not.toContain(newNextStep);
     expect(JSON.stringify(related).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.relatedOutstandingItems);
+  });
+
+  it("returns a finalize receipt, not an echo, for a realistic request", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const changedFiles = Array.from({ length: 20 }, (_, index) =>
+      index < 2 ? `packages/ledger/src/settlement-${index}.ts` : `apps/console/src/views/ledger-panel-${index}.vue`,
+    );
+    for (let index = 0; index < 6; index += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const source = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `response-size-receipt-source-${index}`,
+        title: `Ledger settlement follow-up ${index}`,
+        summary: "Left a fictional settlement check open for a later Session.",
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: [`Confirm the fictional settlement rounding rule ${index} against the ledger panel totals.`],
+        },
+        changedFiles: [changedFiles[index % 2]!],
+        verification: { status: "passed" },
+      });
+      if (source.outcome !== "finalized") throw new Error(`Expected receipt source ${index}.`);
+    }
+    for (const [index, appliesTo] of [
+      ["packages/ledger/src/settlement-0.ts"],
+      ["apps/console/src/views/**"],
+    ].entries()) {
+      store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `response-size-receipt-knowledge-${index}`,
+        kind: "gotcha",
+        title: `Fictional ledger rule ${index}`,
+        body: "Synthetic Knowledge for the finalize receipt budget.",
+        appliesTo,
+      });
+    }
+    const sentence = (topic: string) =>
+      `Completed the fictional ${topic} change and checked its settlement totals against the synthetic ledger fixtures.`;
+    const summary = `${sentence("settlement rounding")} ${sentence("ledger panel")} ${sentence("export")}`;
+    const workSummary = {
+      outcomes: [sentence("rounding"), sentence("panel totals"), sentence("export header")],
+      scope: [sentence("storage scope"), sentence("console scope")],
+      decisions: [sentence("rounding decision"), sentence("panel decision")],
+      verification: [sentence("unit test"), sentence("typecheck"), sentence("benchmark")],
+      nextSteps: [`Confirm the fictional settlement rounding rule with the next synthetic ledger export.`],
+    };
+    const args = {
+      projectRoot,
+      idempotencyKey: "response-size-receipt",
+      title: "Settle fictional ledger rounding and panel totals",
+      summary,
+      workSummary,
+      changedFiles,
+      changedFilesProvenance: changedFiles.map((path) => ({ path, sources: ["agent", "git"] })),
+      verification: { status: "passed", summary: "Synthetic unit tests, typecheck and benchmark passed." },
+    };
+    expect(JSON.stringify(args).length).toBeGreaterThan(3_000);
+    vi.setSystemTime(Date.now() + 60_000);
+    const result = await client.callTool({
+      name: "work_write_idempotent",
+      arguments: { operation: "work_finalize_session", arguments: args },
+    });
+    expect(result.isError).not.toBe(true);
+    const text = (result.content as Array<{ type: string; text?: string }>).find((item) => item.type === "text")!.text!;
+    const value = JSON.parse(text) as {
+      outcome: string;
+      session: { id: string; changedFilesCount: number; changedFiles?: unknown };
+      relatedOutstandingItems?: { total: number };
+      knowledgeToReview?: Array<{ id: string; path: string }>;
+    };
+    expect(text.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.finalizeReceipt);
+    expect(JSON.stringify(result.structuredContent).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.finalizeReceipt + 200);
+    expect(value).toMatchObject({ outcome: "finalized", session: { changedFilesCount: 20 } });
+    expect(result.structuredContent).toMatchObject({ outcome: "finalized", sessionId: value.session.id });
+    expect(value.session).not.toHaveProperty("changedFiles");
+    expect(value.relatedOutstandingItems?.total).toBeGreaterThan(0);
+    expect(value.knowledgeToReview?.map((item) => item.path)).toEqual([
+      "packages/ledger/src/settlement-0.ts",
+      expect.stringMatching(/^apps\/console\/src\/views\//),
+    ]);
+    // Nothing in the receipt depends on the OS or the temp directory: paths are project-relative.
+    expect(text).not.toContain(projectRoot);
+    expect(text).not.toContain(tmpdir());
+    for (const echoed of [args.title, summary, ...workSummary.outcomes, changedFiles[5]!]) {
+      expect(text).not.toContain(echoed);
+    }
   });
 
   it("bounds cleanup reads while retaining all selected item and later Session IDs", async () => {

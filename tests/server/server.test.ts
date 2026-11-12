@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer, request as httpRequest, type Server } from "node:http";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
@@ -310,22 +310,23 @@ describe("Work Intelligence REST API", () => {
     const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     expect(after).toBe(before);
 
-    // Windows does not enforce POSIX directory write bits; the shared status test uses a portable probe seam.
-    if (process.platform !== "win32") {
-      const registryDirectory = getMcpRuntimeDirectory(repositoryRoot);
-      chmodSync(registryDirectory, 0o500);
-      try {
-        const unavailable = await requestJson<{ mcp: Record<string, unknown> }>(baseUrl, "/api/system/status");
-        expect(unavailable.body.mcp).toMatchObject({
-          restartRequired: true,
-          monitoringAvailable: false,
-          activeProcesses: 0,
-          outdatedProcesses: 0,
-          message: expect.stringContaining("無法確認"),
-        });
-      } finally {
-        chmodSync(registryDirectory, 0o700);
-      }
+    const registryDirectory = getMcpRuntimeDirectory(repositoryRoot);
+    // A file where the registry directory belongs makes the write probe fail on every platform, also for root,
+    // which ignores permission bits.
+    rmSync(registryDirectory, { recursive: true, force: true });
+    writeFileSync(registryDirectory, "");
+    try {
+      const unavailable = await requestJson<{ mcp: Record<string, unknown> }>(baseUrl, "/api/system/status");
+      expect(unavailable.body.mcp).toMatchObject({
+        restartRequired: true,
+        monitoringAvailable: false,
+        activeProcesses: 0,
+        outdatedProcesses: 0,
+        message: expect.stringContaining("無法確認"),
+      });
+    } finally {
+      rmSync(registryDirectory, { force: true });
+      mkdirSync(registryDirectory, { recursive: true, mode: 0o700 });
     }
 
     await reader?.cancel();

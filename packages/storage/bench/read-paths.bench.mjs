@@ -529,6 +529,31 @@ try {
     }
     return result;
   };
+  const freshReviewKnowledge = { id: "", path: "" };
+  let freshReviewIndex = 0;
+  // Untimed: Knowledge recorded before every synthetic Session and never touched since.
+  const seedFreshReviewKnowledge = () => {
+    freshReviewIndex += 1;
+    freshReviewKnowledge.path = `src/fresh-review-${freshReviewIndex}.ts`;
+    const recorded = benchStore.recordKnowledge({
+      projectRoot: alphaRoot,
+      idempotencyKey: `bench-fresh-review-${freshReviewIndex}`,
+      kind: "gotcha",
+      title: `Synthetic fresh review rule ${freshReviewIndex}`,
+      body: "Synthetic Knowledge that a benchmark finalize puts in doubt for the first time.",
+      appliesTo: [freshReviewKnowledge.path],
+    });
+    if (recorded.outcome !== "knowledge_recorded") throw new Error("Could not seed the fresh review Knowledge.");
+    freshReviewKnowledge.id = recorded.knowledge.id;
+    const database = new DatabaseSync(databasePath);
+    try {
+      database
+        .prepare("UPDATE knowledge SET created_at = ?, updated_at = ? WHERE id = ?")
+        .run("2025-09-01T00:00:00.000Z", "2025-09-01T00:00:00.000Z", recorded.knowledge.id);
+    } finally {
+      database.close();
+    }
+  };
   const outstandingCandidates = seedOutstandingItems(benchStore, [alpha.id, beta.id]);
   const finalizeReminderCandidate = outstandingCandidates.get(alpha.id);
   if (!finalizeReminderCandidate) throw new Error("Expected a synthetic finalize reminder candidate.");
@@ -870,6 +895,38 @@ try {
         );
       return result;
     },
+    // A realistic closing write: 20 changed paths shared with pending items' Sessions and with Knowledge appliesTo,
+    // so the related-item path scoring and the knowledgeToReview check both do real work. The seeded module
+    // Knowledge is already possiblyStale (an early exit); the fresh Knowledge seeded before each run is not, so its
+    // check walks every later Session of the project before it is reported.
+    "finalizeSession (changed files, Knowledge review)": () => {
+      const index = ++maintenanceFinalizeIndex;
+      const changedFiles = [
+        ...Array.from({ length: 9 }, (_, fileIndex) => [
+          `src/module-${fileIndex}.ts`,
+          `src/feature-${fileIndex}/index.ts`,
+        ]).flat(),
+        `src/module-9.ts`,
+        freshReviewKnowledge.path,
+      ];
+      const result = benchStore.finalizeSession({
+        projectRoot: alphaRoot,
+        idempotencyKey: `bench-changed-files-finalize-${index}`,
+        title: `Synthetic module refactor ${index}`,
+        summary: "Refactored synthetic modules and their feature entry points; verified with the synthetic suite.",
+        changedFiles,
+        verification: { status: "passed" },
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      });
+      if (
+        result.outcome !== "finalized" ||
+        !result.relatedOutstandingItems?.total ||
+        result.knowledgeToReview?.length !== 1 ||
+        result.knowledgeToReview[0].id !== freshReviewKnowledge.id
+      )
+        throw new Error("Changed-files finalize benchmark must return related items and only the fresh Knowledge.");
+      return result;
+    },
     "listKnowledgePages (staleness)": () => benchStore.listKnowledgePages({}),
     "finalizeSession (knowledge page reminder)": finalizeWithKnowledgePageMaintenance,
     "MCP guarded finalize (schema check)": () =>
@@ -1110,6 +1167,7 @@ try {
   const coldStartHeavyCases = coldStartBaseUrl ? makeHeavyCases(coldStartBaseUrl, false) : {};
   const heavyRuns = 5;
   const beforeEachRun = {
+    "finalizeSession (changed files, Knowledge review)": seedFreshReviewKnowledge,
     "getMcpRuntimeStatus (286 expired leases)": seedExpiredLeases,
     "registerMcpProcess (286 expired leases)": seedExpiredLeases,
     createBackup: resetHeavyOutputs,
@@ -1146,6 +1204,7 @@ try {
     "getContext (project with pages)": 500,
     "getContext (related pending items)": 500,
     "finalizeSession (related pending reminder)": 250,
+    "finalizeSession (changed files, Knowledge review)": 250,
     "listKnowledgePages (staleness)": 250,
     "finalizeSession (knowledge page reminder)": 250,
     "MCP guarded finalize (schema check)": 250,
@@ -1186,6 +1245,7 @@ try {
   };
   const transactionLimitsMs = {
     "finalizeSession (related pending reminder)": 50,
+    "finalizeSession (changed files, Knowledge review)": 50,
   };
   // Ubuntu CI observed 11.26–44.83 ms event-loop block p90; twice the 44.83 ms maximum rounds up to 100 ms.
   const eventLoopBlockLimitMs = 100;
@@ -1205,8 +1265,7 @@ try {
     const caseRuns = isHeavyCase ? heavyRuns : runs;
     beforeEachRun[name]?.();
     await run();
-    const transactionObserver =
-      name === "finalizeSession (related pending reminder)" ? observeWriteTransactionDurations(benchStore) : undefined;
+    const transactionObserver = name in transactionLimitsMs ? observeWriteTransactionDurations(benchStore) : undefined;
     const samples = [];
     const transactionSamples = transactionObserver?.samples ?? [];
     const operationSamples = [];

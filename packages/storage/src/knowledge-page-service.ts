@@ -28,7 +28,7 @@ import {
   type UpdateKnowledgePageResult,
   type WorkSummarySections,
 } from "@work-intelligence/core";
-import { nowIso } from "@work-intelligence/shared";
+import { nowIso, truncateAtCodeUnitLimit } from "@work-intelligence/shared";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import { parseJson, parseWorkSummarySections } from "./session-record-codecs.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -122,9 +122,9 @@ function previewWorkSummary(sections: WorkSummarySections | undefined): {
   const preview = (items: string[] = []) => {
     if (items.length > CONTEXT_SESSION_ITEMS) truncated = true;
     return items.slice(0, CONTEXT_SESSION_ITEMS).map((item) => {
-      if (item.length <= CONTEXT_SESSION_ITEM_CHARS) return item;
-      truncated = true;
-      return `${item.slice(0, CONTEXT_SESSION_ITEM_CHARS - 1)}…`;
+      const bounded = truncateAtCodeUnitLimit(item, CONTEXT_SESSION_ITEM_CHARS);
+      if (bounded.truncated) truncated = true;
+      return bounded.text;
     });
   };
   const workSummary = {

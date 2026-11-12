@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.20（已完成）
+
+finalize 更快、更精簡：相關未結項提醒改為一次讀出 pending 候選、在記憶體評分，規則與同分排序不變（舊 SQL 的特性測試固定排序，實際資料 300 組焦點結果完全相同）；查詢由 5.9 ms 降到 0.9 ms，實際資料 finalize 中位數 16.3 → 6.0 ms，5,000 筆合成 Session 帶 20 個變更路徑的 finalize 35.4 → 15.8 ms，知識頁維護提示移到交易提交後（交易中位數 3.8 → 1.0 ms）。MCP finalize 回應改為回條，不再回顯標題、摘要、workSummary 與 changedFiles，只回傳 id、時間、數量與伺服器推得的事實；實際請求的回應由 5,249／5,453 字（文字／structuredContent）降到 1,500／1,638 字，REST 與 storage 結果不變。新增 `knowledgeToReview`：最多 3 筆 `appliesTo` 直接點名本次變更檔案、且由本次 Session 才第一次讓它可能過時的 active Knowledge，只是提示，不改資料；實際資料最近 50 筆 Session 有 5 筆會收到（較寬的初版規則為 32 筆）。另修正知識頁 context 預覽截斷可能切開輔助平面字元，並讓兩個 lease 目錄不可寫的測試不再依賴權限位元。其他回傳完整 Session 的寫入工具尚未改成回條。schema 維持 32。
+
 ## 1.6.19（已完成）
 
 完成方向研究 C6：報告整理 context 的整期報告區塊只在第 1 頁回傳一次，之後的頁面只含該頁 Session、其 evidence 與指向第 1 頁的 `reportBlockOnSessionPage`；直接讀第 N 頁、重試或重啟後再讀第 1 頁即可取得同一個區塊，伺服器不保存分頁狀態。區塊內 projects 與 risks 的來源 id 最多列 8 筆並附數量，evidence 不再重複 Session 標題。實際資料 193 筆 Session 的月份同樣 9 次呼叫，由 180,943 字降到 156,378 字，第 1 頁保留原本被預算移除的 8 條決策與 7 項風險，各頁合計送出 317 筆 evidence（原為 0）；68 筆 Session 的月份 70,849 → 56,259 字，5 筆 Session 的一週 13,385 → 12,561 字。每頁 Session 數維持 24：改為 32 以上時第 1 頁會失去決策或風險。知識頁 context 的每筆 Session 改為 outcomes／decisions／nextSteps 各前 2 項（每項最多 100 字）的預覽，其餘以 `work_get_session` 讀取，並移除與 contract 重複的 `instructions`；三個常駐知識頁由 23,705／20,752／22,670 字降到 14,935／11,982／13,900 字。方向研究的改進候選 C1–C6 全部完成；成效仍以讀取稽核觀察（C1 看 `session_unchanged` 次數、C2 看 `work_get_project_status` 占比、C3 看知識頁 not_found 原因代碼、C4 看 `knowledge_relaxed`／`knowledge_none` 比例）。schema 維持 32。

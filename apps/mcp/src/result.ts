@@ -10,9 +10,16 @@ function buildSessionStructuredContent(value: StructuredContent): StructuredCont
   const changedFilesCount =
     typeof value.changedFilesCount === "number"
       ? value.changedFilesCount
-      : Array.isArray(changedFiles)
-        ? changedFiles.length
-        : 0;
+      : typeof session?.changedFilesCount === "number"
+        ? session.changedFilesCount
+        : Array.isArray(changedFiles)
+          ? changedFiles.length
+          : 0;
+  // A finalize receipt carries the verification status only, not the submitted verification body.
+  const verification =
+    session?.verification ??
+    value.verification ??
+    (typeof session?.verificationStatus === "string" ? { status: session.verificationStatus } : null);
 
   return {
     ...value,
@@ -21,7 +28,7 @@ function buildSessionStructuredContent(value: StructuredContent): StructuredCont
       typeof value.sessionId === "string" ? value.sessionId : typeof session?.id === "string" ? session.id : null,
     executionStatus: typeof session?.executionStatus === "string" ? session.executionStatus : "completed",
     changedFilesCount,
-    verification: session?.verification ?? value.verification ?? null,
+    verification,
   };
 }
 

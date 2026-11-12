@@ -1585,11 +1585,23 @@ export interface FinalizedSessionResult {
   supersededOutstandingItemIds?: string[];
   /** Still-pending older items related to this work; retrieval is not completion evidence. */
   relatedOutstandingItems?: RelatedOutstandingItems;
+  /** Active Knowledge whose appliesTo covers a file this Session changed; advisory, nothing was changed. */
+  knowledgeToReview?: KnowledgeReviewHint[];
   outstandingItemWarnings?: {
     unresolvedIds: string[];
     unsupersededIds?: string[];
     message: string;
   };
+}
+
+/** One Knowledge item a finishing Agent should check against its change: confirm, update, or leave it. */
+export interface KnowledgeReviewHint {
+  id: string;
+  title: string;
+  /** The changed file, as stored on the Session, that the pattern covers. */
+  path: string;
+  /** The appliesTo entry that covers it, when it is not the path itself. */
+  appliesTo?: string;
 }
 
 export interface FinalizeIdempotencyConflictResult {

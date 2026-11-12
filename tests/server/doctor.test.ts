@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
@@ -246,29 +246,30 @@ describe("pnpm doctor read-only checks", () => {
         recommendation: expect.stringContaining("pnpm setup:agents"),
       });
 
-      // Windows does not enforce POSIX directory write bits; the shared status test uses a portable probe seam.
-      if (process.platform !== "win32") {
-        const registryDirectory = getMcpRuntimeDirectory(repositoryRoot);
-        chmodSync(registryDirectory, 0o500);
-        try {
-          const unavailableFindings = await collectDoctorFindings({
-            homeDirectory,
-            repositoryRoot,
-            environment: {
-              HOME: homeDirectory,
-              CODEX_HOME: codexHome,
-              CLAUDE_CONFIG_DIR: claudeDirectory,
-              WORK_INTELLIGENCE_DB: join(homeDirectory, "synthetic.sqlite"),
-              WORK_INTELLIGENCE_PORT: "65533",
-            },
-          });
-          expect(unavailableFindings.find((finding) => finding.title === "MCP runtime")).toMatchObject({
-            severity: "warning",
-            detail: expect.stringContaining("無法確認"),
-          });
-        } finally {
-          chmodSync(registryDirectory, 0o700);
-        }
+      const registryDirectory = getMcpRuntimeDirectory(repositoryRoot);
+      // A file where the registry directory belongs makes the write probe fail on every platform, also for root,
+      // which ignores permission bits.
+      rmSync(registryDirectory, { recursive: true, force: true });
+      writeFileSync(registryDirectory, "");
+      try {
+        const unavailableFindings = await collectDoctorFindings({
+          homeDirectory,
+          repositoryRoot,
+          environment: {
+            HOME: homeDirectory,
+            CODEX_HOME: codexHome,
+            CLAUDE_CONFIG_DIR: claudeDirectory,
+            WORK_INTELLIGENCE_DB: join(homeDirectory, "synthetic.sqlite"),
+            WORK_INTELLIGENCE_PORT: "65533",
+          },
+        });
+        expect(unavailableFindings.find((finding) => finding.title === "MCP runtime")).toMatchObject({
+          severity: "warning",
+          detail: expect.stringContaining("無法確認"),
+        });
+      } finally {
+        rmSync(registryDirectory, { force: true });
+        mkdirSync(registryDirectory, { recursive: true, mode: 0o700 });
       }
     } finally {
       stopMcpProcess();
