@@ -22,6 +22,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 No schema change (33). The import result has the new field `changed`; `backupFileName` is absent when nothing changed.
 
+Coming from 1.6.14 or earlier: read "Upgrading from 1.6.14 or earlier" under 1.6.27 below first. It lists every change since 1.6.14 that an existing Agent, REST client or exported file can notice (schema 33 and its migration, which exports import, strict REST input, receipts instead of echoed Sessions, the report block sent once, the new error codes). Coming from 1.6.8 or earlier (schema 31), also read the 1.6.9–1.6.14 entries. Since that note was written, 1.6.29 added the safety snapshot before an online import, the `missing_parent` conflict category and the import running in the background worker, and this release the `changed` field and the recall order above.
+
 ## [1.6.29] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.29.md).
