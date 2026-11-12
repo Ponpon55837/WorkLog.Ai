@@ -81,6 +81,8 @@ import type {
   KnowledgeHistoryResult,
   KnowledgeQuery,
   KnowledgeQueryResult,
+  AgentKnowledgeQueryResult,
+  KnowledgeRecord,
   KnowledgeSkippedResult,
   MetadataBackfillApplyInput,
   MetadataBackfillBatchResult,
@@ -245,6 +247,7 @@ import { RelatedWorkService } from "./related-work-service.js";
 import type { RelatedWorkResult } from "@work-intelligence/core";
 import { AttentionService } from "./attention-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
+import { KnowledgeSearchService } from "./knowledge-search-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { AgentReadAuditService } from "./agent-read-audit-service.js";
 import type {
@@ -386,6 +389,7 @@ export class WorkIntelligenceStore {
   private readonly attention: AttentionService;
   private readonly knowledge: KnowledgeRepository;
   private readonly knowledgeService: KnowledgeService;
+  private readonly knowledgeSearch: KnowledgeSearchService;
   private readonly graphBuilder: GraphBuilder;
   private readonly handoffImportService = new HandoffImportService();
   private readonly projectDataTransfer: ProjectDataTransferService;
@@ -525,6 +529,12 @@ export class WorkIntelligenceStore {
       new MetadataBackfillRepository(this.db),
     );
     this.searchIndex = new SearchRepository(this.db);
+    this.knowledgeSearch = new KnowledgeSearchService({
+      searchKnowledge: (query) => this.searchKnowledge(query),
+      countKnowledge: (query) => this.knowledge.count(query),
+      rankKnowledge: (options) => this.searchIndex.rankKnowledge(options),
+      getKnowledgeWithTrustMany: (knowledgeIds) => this.trackedKnowledgeWithTrust(knowledgeIds),
+    });
     this.agentReadAudit = new AgentReadAuditService(this.db);
     this.hotspots = new HotspotRepository(this.db);
     this.timelines = new TimelineRepository(this.db);
@@ -1348,6 +1358,24 @@ export class WorkIntelligenceStore {
 
   public searchKnowledge(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
     return this.knowledgeService.searchKnowledge(options);
+  }
+
+  /** The Agent Knowledge search: the strict list result, or a labelled relaxed fallback when it is empty. */
+  public searchKnowledgeForAgent(options: KnowledgeQuery = {}): AgentKnowledgeQueryResult | KnowledgeSkippedResult {
+    return this.knowledgeSearch.search(options);
+  }
+
+  /** Full Knowledge records with trust signals, for ids of tracked projects only, read in one batch. */
+  private trackedKnowledgeWithTrust(knowledgeIds: string[]): Map<string, KnowledgeRecord> {
+    if (knowledgeIds.length === 0) return new Map();
+    const rows = this.db
+      .prepare(
+        `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
+         WHERE p.status = 'tracked' AND k.id IN (SELECT value FROM json_each(?))`,
+      )
+      .all(JSON.stringify([...new Set(knowledgeIds)])) as unknown as KnowledgeRow[];
+    const trusted = this.knowledgeService.withKnowledgeTrustMany(rows.map(toKnowledge));
+    return new Map(trusted.map((knowledge) => [knowledge.id, knowledge]));
   }
 
   public getGraph(options: GraphQuery = {}): GraphQueryResult {

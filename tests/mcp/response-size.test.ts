@@ -39,6 +39,7 @@ const RESPONSE_BUDGETS = {
   searchDefault: 8_000,
   contextOmitted: 1_300,
   knowledgeSearchEmpty: 400,
+  knowledgeSearchRelaxed: 6_000,
   sessionListScoped: 9_000,
   knowledgePageNotFound: 700,
 } as const;
@@ -1096,7 +1097,7 @@ describe("synthetic MCP response-size baseline", () => {
     const storedRoot = store.listProjects().find((project) => project.id === projectId)?.rootPath;
     const emptySearch = await serializedMcpPayload(client, "work_search_knowledge", {
       projectRoot,
-      q: "nonexistent-synthetic-term",
+      q: "zzyzxquux",
     });
     const sessionPage = await serializedMcpPayload(client, "work_list_sessions", { projectRoot });
     const outstandingPage = await serializedMcpPayload(client, "work_list_outstanding_items", { projectRoot });
@@ -1112,10 +1113,13 @@ describe("synthetic MCP response-size baseline", () => {
     expect(emptySearch.value).toEqual({
       outcome: "knowledge",
       project: { id: projectId, name: "Synthetic Cedar", rootPath: storedRoot },
+      match: "none",
       items: [],
       pageInfo: expect.objectContaining({ total: 0 }),
+      hint: expect.stringContaining("work_recall"),
     });
-    expect(emptySearch.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgeSearchEmpty);
+    // The temp root differs in length per OS, so the empty-answer budget leaves the echoed root out.
+    expect(emptySearch.length - (storedRoot?.length ?? 0)).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgeSearchEmpty);
     expect(sessionPage.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.sessionListScoped);
     for (const [name, payload, key] of [
       ["work_list_sessions", sessionPage, "items"],
@@ -1185,6 +1189,42 @@ describe("synthetic MCP response-size baseline", () => {
     ]);
     expect(byId.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
     expect(typo.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
+  });
+
+  it("keeps a relaxed Knowledge search answer within its budget and audits how it was answered", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const relaxed = await serializedMcpPayload(client, "work_search_knowledge", {
+      projectRoot,
+      q: "retrieval budget zzyzxquux",
+    });
+    const strict = await serializedMcpPayload(client, "work_search_knowledge", {
+      projectRoot,
+      q: "retrieval budget",
+      pageSize: 1,
+    });
+    console.info(`Relaxed Knowledge search size (characters): ${relaxed.length}`);
+
+    const value = relaxed.value as {
+      match: string;
+      items: unknown[];
+      relaxedMatches: Array<{ id: string; matchedTerms: string[]; projectId?: string }>;
+    };
+    expect(value).toMatchObject({ outcome: "knowledge", match: "relaxed", items: [] });
+    expect(value.relaxedMatches).toHaveLength(3);
+    for (const match of value.relaxedMatches) {
+      expect(match.matchedTerms).toEqual(["retrieval", "budget"]);
+      expect(match).not.toHaveProperty("projectId");
+    }
+    expect(relaxed.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgeSearchRelaxed);
+    expect(strict.value).toMatchObject({ match: "strict", pageInfo: { total: 4 } });
+
+    const reads = store.listAgentReads({}).items.filter((read) => read.tool === "work_search_knowledge");
+    expect(reads.map(({ outcome, errorCode }) => ({ outcome, errorCode }))).toEqual([
+      { outcome: "knowledge_strict", errorCode: undefined },
+      { outcome: "knowledge_relaxed", errorCode: undefined },
+    ]);
+    // The relaxed records were returned to the Agent, so the audit lists them although the scoped items omit projectId.
+    expect(reads[1]!.knowledgeIds.sort()).toEqual(value.relaxedMatches.map((match) => match.id).sort());
   });
 
   it("keeps pending requests and Knowledge review flags within the focused context budget", async () => {

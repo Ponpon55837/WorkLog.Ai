@@ -30,6 +30,7 @@ const MAX_WALK_NODES = 20_000;
 const MAX_WALK_DEPTH = 10;
 const REFERENCE_LIMIT = 20;
 const CODE_PATTERN = /^[a-z0-9_]{1,40}$/;
+const KNOWLEDGE_MATCHES = new Set(["strict", "relaxed", "none"]);
 /** Stored for failures whose code is missing or malformed, so a bad caller cannot write free text. */
 export const AGENT_READ_FALLBACK_ERROR_CODE = "internal_error";
 /** Upper bound for a stored duration (one day); anything longer is a clock problem, not a read. */
@@ -109,11 +110,14 @@ function idOf(value: Record<string, unknown>): string | undefined {
   return typeof value.id === "string" && value.id.length > 0 && value.id.length <= 200 ? value.id : undefined;
 }
 
-/** Which kind of stored record an object is, from its own shape; undefined for pointers and everything else. */
-function recordTypeOf(value: Record<string, unknown>): AgentReadRecordType | undefined {
+/**
+ * Which kind of stored record an object is, from its own shape; undefined for pointers and everything else. A
+ * response scoped to one project names it once at the top and its records omit projectId, so `scoped` accepts them.
+ */
+function recordTypeOf(value: Record<string, unknown>, scoped: boolean): AgentReadRecordType | undefined {
   if (!idOf(value)) return undefined;
   if (value.type === "session" || value.type === "knowledge") return value.type;
-  if (typeof value.projectId !== "string") return undefined;
+  if (typeof value.projectId !== "string" && !scoped) return undefined;
   if ("completedAt" in value && ("verificationStatus" in value || "summary" in value)) return "session";
   if ("kind" in value && "title" in value && ("body" in value || "excerpt" in value)) return "knowledge";
   return undefined;
@@ -128,6 +132,7 @@ export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
   const knowledge = new Set<string>();
   const projects = new Set<string>();
   let visited = 0;
+  const scoped = isObject(result) && isObject(result.project) && typeof result.project.id === "string";
   const walk = (node: unknown, depth: number): void => {
     if (visited++ >= MAX_WALK_NODES || depth > MAX_WALK_DEPTH) return;
     if (Array.isArray(node)) {
@@ -135,7 +140,7 @@ export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
       return;
     }
     if (!isObject(node)) return;
-    const type = recordTypeOf(node);
+    const type = recordTypeOf(node, scoped);
     if (type) {
       (type === "session" ? sessions : knowledge).add(idOf(node)!);
       if (typeof node.projectId === "string") projects.add(node.projectId);
@@ -165,11 +170,19 @@ export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
   return { projectId, sessionIds: [...sessions], knowledgeIds: [...knowledge] };
 }
 
+/**
+ * The result's own outcome code. A Knowledge search with a query also records how it was answered
+ * (knowledge_strict, knowledge_relaxed, or knowledge_none), so the zero-hit rate can be measured; error_code stays
+ * empty because none of these is a failure.
+ */
 function outcomeOf(result: unknown): string {
-  if (isObject(result) && typeof result.outcome === "string" && CODE_PATTERN.test(result.outcome)) {
-    return result.outcome;
+  if (!isObject(result) || typeof result.outcome !== "string" || !CODE_PATTERN.test(result.outcome)) {
+    return "ok";
   }
-  return "ok";
+  if (result.outcome === "knowledge" && typeof result.match === "string" && KNOWLEDGE_MATCHES.has(result.match)) {
+    return `knowledge_${result.match}`;
+  }
+  return result.outcome;
 }
 
 /**

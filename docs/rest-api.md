@@ -102,7 +102,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/knowledge/candidates`                      | 待審核（`status=proposed`，預設）或已處理的 Knowledge 候選與未完成的整理請求；可用 `projectRoot` 篩選 |
 | POST     | `/api/knowledge/candidate-requests`              | 建立（或回傳既有的）Knowledge 候選整理請求（`projectRoot`），由 Agent 處理                |
 | POST     | `/api/knowledge/candidates/:id/decision`         | 接受（`decision: "accept"`，可帶 `edits`）或拒絕候選；接受時才寫成 Knowledge             |
-| GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge                                            |
+| GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge；`q` 的每個詞須出現在標題、內文、tags、references 或 `appliesTo` 路徑（1.6.16 起含 `appliesTo`）。MCP 專用的寬鬆備援與其他狀態計數不在 REST 回應中 |
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
 | PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge                                           |
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |

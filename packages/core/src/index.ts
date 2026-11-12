@@ -852,6 +852,30 @@ export interface KnowledgeQueryResult {
 
 export type KnowledgeSearchResult = KnowledgeQueryResult | KnowledgeSkippedResult;
 
+/**
+ * How an Agent Knowledge search with a query was answered: `strict` when every word matched (items), `relaxed` when
+ * nothing did and ranked partial matches stand in (relaxedMatches), `none` when neither found anything.
+ */
+export type KnowledgeSearchMatch = "strict" | "relaxed" | "none";
+
+/** A ranked partial match from the relaxed fallback; it shares some query terms but is not an exact match. */
+export type RelaxedKnowledgeMatch = KnowledgeRecord & {
+  /** Tokenized query terms (words, identifier parts, CJK bigrams) the Knowledge contains. */
+  matchedTerms: string[];
+  /** appliesTo or reference paths that matched a path-like query word. */
+  matchedPaths?: string[];
+};
+
+/** work_search_knowledge result: the strict list result, plus the fallback and status pointers when it was empty. */
+export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
+  /** Present when the search had a query. */
+  match?: KnowledgeSearchMatch;
+  relaxedMatches?: RelaxedKnowledgeMatch[];
+  /** Matches in the statuses this search did not cover, counted the same way; counts only, never content. */
+  otherStatusMatches?: Partial<Record<KnowledgeStatus, number>>;
+  hint?: string;
+}
+
 export interface KnowledgeHistoryQuery {
   projectRoot: string;
   knowledgeId: string;

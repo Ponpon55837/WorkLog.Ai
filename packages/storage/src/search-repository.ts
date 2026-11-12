@@ -1,8 +1,17 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import type { KnowledgeKind, RecallConfidence, RecallField, RecallHit, RecallTermHits } from "@work-intelligence/core";
+import { KNOWLEDGE_STATUSES } from "@work-intelligence/core";
+import type {
+  KnowledgeKind,
+  KnowledgeStatus,
+  RecallConfidence,
+  RecallField,
+  RecallHit,
+  RecallTermHits,
+} from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
 import {
+  compileAppliesTo,
   excerptAround,
   ftsTermExpression,
   normalizePath,
@@ -13,6 +22,7 @@ import {
   splitMarkdownSections,
   tokenize,
   type PathContext,
+  type QueryWord,
 } from "./search-text.js";
 import { nextCalendarDate } from "./session-repository.js";
 import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
@@ -72,6 +82,38 @@ const CONTRADICTED_FACTOR = 0.7;
 const CONTINUATION_SCORE_SHARE = 0.3;
 // Only the leading ranked entries are reordered; continuations further down cannot reach the returned hits anyway.
 const CONTINUATION_WINDOW = 100;
+// A relaxed Knowledge match names at most this many shared query terms and appliesTo/reference paths.
+const MAX_MATCHED_TERMS = 8;
+const MAX_MATCHED_PATHS = 3;
+// Single CJK characters that carry no topic of their own (particles, conjunctions, copulas). A query word made only
+// of one of them is left out of termHits: reporting that "的" matched nothing only invites a pointless rephrase.
+const ZERO_INFORMATION_CJK_WORDS = new Set([
+  "的",
+  "之",
+  "與",
+  "和",
+  "及",
+  "或",
+  "跟",
+  "讓",
+  "把",
+  "被",
+  "對",
+  "從",
+  "在",
+  "是",
+  "了",
+  "也",
+  "就",
+  "都",
+  "而",
+  "並",
+  "但",
+  "嗎",
+  "呢",
+  "吧",
+]);
+const CJK_RUN = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]{3,}$/u;
 const SOFTWARE_TERM_GROUPS = [
   ["endpoint", "API", "路由", "route"],
   ["慣例", "convention"],
@@ -153,11 +195,23 @@ interface DocAccumulator {
   matchedPaths: Set<string>;
 }
 
+interface RankedDoc {
+  doc: DocAccumulator;
+  coverage: number;
+  structuredCoverage: number;
+  score: number;
+}
+
 export interface RecallOptions {
   q?: string;
   paths?: string[];
   projectId?: string;
   types?: DocType[];
+  /** Knowledge statuses to rank; recall reads active Knowledge only when this is not set. */
+  knowledgeStatuses?: KnowledgeStatus[];
+  kind?: KnowledgeKind;
+  /** Also match queried paths against Knowledge appliesTo (the relaxed Knowledge search). */
+  matchAppliesTo?: boolean;
   /** Inclusive calendar dates in the server's time zone, compared against each document's date. */
   from?: string;
   to?: string;
@@ -168,6 +222,30 @@ export interface RecallComputation {
   hits: RecallHit[];
   confidence: RecallConfidence;
   termHits?: RecallTermHits[];
+}
+
+export interface KnowledgeRankOptions {
+  q: string;
+  projectId?: string;
+  /** The status whose best matches are returned as hits; every status is counted in totals. */
+  status: KnowledgeStatus;
+  kind?: KnowledgeKind;
+  limit: number;
+}
+
+export interface KnowledgeRankHit {
+  id: string;
+  score: number;
+  /** Tokenized query terms (words, identifier parts, CJK bigrams) the Knowledge contains. */
+  matchedTerms: string[];
+  /** Normalized appliesTo or reference paths that matched a path-like query word. */
+  matchedPaths?: string[];
+}
+
+export interface KnowledgeRanking {
+  /** Matches per status, including the ones not returned as hits. */
+  totals: Partial<Record<KnowledgeStatus, number>>;
+  hits: KnowledgeRankHit[];
 }
 
 export interface SearchIndexRebuildResult {
@@ -214,6 +292,15 @@ function docKey(type: DocType, id: string): string {
 function hashRawContent(content: string): string {
   const normalized = content.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
   return createHash("sha256").update(normalized).digest("hex");
+}
+
+function isZeroInformationWord(word: QueryWord): boolean {
+  return ZERO_INFORMATION_CJK_WORDS.has(word.word);
+}
+
+/** A query word that is one unsegmented CJK run of three or more characters, so it became several bigrams. */
+function isCjkRun(word: QueryWord): boolean {
+  return CJK_RUN.test(word.word.normalize("NFKC"));
 }
 
 function expandSoftwareTermSynonyms(terms: string[]): string[] {
@@ -283,117 +370,92 @@ export class SearchRepository {
 
   public recall(options: RecallOptions): RecallComputation {
     this.syncIndex();
-    const words = options.q ? parseQueryWords(options.q) : [];
-    const terms = [...new Set(words.flatMap((word) => word.terms))].slice(0, MAX_QUERY_TERMS);
-    const synonyms = expandSoftwareTermSynonyms(terms);
-    const contexts = this.pathContexts(options.projectId);
-    const queriedPaths = [
-      ...new Set((options.paths ?? []).map((path) => normalizePath(path, contexts)).filter(Boolean)),
-    ];
-    const docs = new Map<string, DocAccumulator>();
-    const accumulator = (type: DocType, id: string, projectId: string, date: string): DocAccumulator => {
-      const key = docKey(type, id);
-      let doc = docs.get(key);
-      if (!doc) {
-        doc = {
-          type,
-          id,
-          projectId,
-          date,
-          fieldScore: 0,
-          fields: new Map(),
-          terms: new Set(),
-          structuredTerms: new Set(),
-          pathScore: 0,
-          matchedPaths: new Set(),
-        };
-        docs.set(key, doc);
-      }
-      return doc;
-    };
-
-    const { idf, totalIdf } =
-      terms.length > 0 ? this.scoreTerms(terms, accumulator, options) : { idf: [], totalIdf: 0 };
-    if (synonyms.length > 0) {
-      this.scoreSynonyms(synonyms, accumulator, options);
-    }
-    if (queriedPaths.length > 0) {
-      this.scorePaths(queriedPaths, accumulator, options);
-    }
-
-    const now = Date.now();
-    const evidence = this.evidenceFactors(
-      [...docs.values()].filter((doc) => doc.type === "knowledge").map((doc) => doc.id),
-    );
-    const ranked = [...docs.values()]
-      .map((doc) => {
-        let matchedIdf = 0;
-        for (const index of doc.terms) {
-          matchedIdf += idf[index] ?? 0;
-        }
-        let structuredIdf = 0;
-        for (const index of doc.structuredTerms) {
-          structuredIdf += idf[index] ?? 0;
-        }
-        const coverage = totalIdf > 0 ? matchedIdf / totalIdf : 0;
-        const structuredCoverage = totalIdf > 0 ? structuredIdf / totalIdf : 0;
-        const rankingCoverage =
-          totalIdf > 0 ? (structuredIdf + (matchedIdf - structuredIdf) * RAW_ONLY_COVERAGE_SHARE) / totalIdf : 0;
-        const originalScore = doc.fieldScore + (doc.bestRaw?.score ?? 0);
-        const synonymScore = Math.max(doc.bestSynonymChunk?.score ?? 0, doc.bestSynonymRaw?.score ?? 0);
-        const textScore =
-          originalScore > 0
-            ? (originalScore + Math.min(synonymScore, originalScore * MAX_SYNONYM_SCORE_SHARE)) *
-              rankingCoverage *
-              rankingCoverage
-            : synonymScore;
-        const ageDays = Math.max(0, (now - Date.parse(doc.date)) / 86_400_000) || 0;
-        const recency = 0.75 + 0.25 * Math.exp(-ageDays / RECENCY_DAYS);
-        const strength = doc.type === "knowledge" ? (evidence.get(doc.id) ?? 1) : 1;
-        return { doc, coverage, structuredCoverage, score: (textScore + doc.pathScore) * recency * strength };
-      })
-      .filter(
-        (entry) =>
-          entry.score > 0 &&
-          (entry.doc.matchedPaths.size > 0 ||
-            entry.coverage >= MIN_QUERY_COVERAGE ||
-            (entry.doc.bestSynonymChunk?.score ?? 0) > 0 ||
-            (entry.doc.bestSynonymRaw?.score ?? 0) > 0),
-      )
-      .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
-
+    const { words, terms, idf, docs, ranked } = this.rank(options);
     const excerptTerms = terms
       .map((term, index) => ({ term, idf: idf[index] ?? 0 }))
       .sort((left, right) => right.idf - left.idf)
       .map((entry) => entry.term);
     const selected = this.preferContinuations(ranked).slice(0, options.limit);
-    const hits = selected.flatMap(({ doc, score }) => {
-      const hit = this.toHit(doc, score, excerptTerms);
-      return hit ? [hit] : [];
+    // Confidence is judged only on the entries that became hits, so a record the response leaves out cannot raise it.
+    const returned = selected.flatMap((entry) => {
+      const hit = this.toHit(entry.doc, entry.score, excerptTerms);
+      return hit ? [{ entry, hit }] : [];
     });
+    const hits = returned.map(({ hit }) => hit);
     const confidence =
-      hits.length === 0
+      returned.length === 0
         ? "none"
-        : selected.some(
-              (entry) => entry.doc.matchedPaths.size > 0 || entry.structuredCoverage >= HIGH_CONFIDENCE_QUERY_COVERAGE,
+        : returned.some(
+              ({ entry }) =>
+                entry.doc.matchedPaths.size > 0 || entry.structuredCoverage >= HIGH_CONFIDENCE_QUERY_COVERAGE,
             )
           ? "high"
           : "low";
 
-    const termHits = words.map((word) => {
-      const indexes = word.terms.map((term) => terms.indexOf(term)).filter((index) => index >= 0);
-      let count = 0;
-      for (const doc of docs.values()) {
-        if (indexes.length > 0 && indexes.every((index) => doc.terms.has(index))) {
-          count += 1;
+    const termHits = words
+      .filter((word) => !isZeroInformationWord(word))
+      .map((word) => {
+        const indexes = word.terms.map((term) => terms.indexOf(term)).filter((index) => index >= 0);
+        // An unsegmented CJK run is split into overlapping bigrams; requiring every bigram in one record reported
+        // phrases whose parts all matched as "matched nothing". Half of its bigrams count as found.
+        const required = isCjkRun(word) ? Math.ceil(indexes.length / 2) : indexes.length;
+        let count = 0;
+        for (const doc of docs.values()) {
+          if (indexes.length > 0 && indexes.filter((index) => doc.terms.has(index)).length >= required) {
+            count += 1;
+          }
         }
-      }
-      return { term: word.word, count };
-    });
+        return { term: word.word, count };
+      });
     return {
       hits,
       confidence,
       ...(termHits.some((entry) => entry.count === 0) ? { termHits } : {}),
+    };
+  }
+
+  /**
+   * Ranked OR matching over Knowledge only: the relaxed fallback of the strict Knowledge list search. It reuses the
+   * recall ranking (shared tokenizer, BM25 field weights, IDF coverage, path matches) and also matches path-like query
+   * words against appliesTo. Records found only through a fixed synonym are left out, because every match must name
+   * the query terms it shares. One ranking covers every status, since a record's score does not depend on which other
+   * records are ranked: `hits` keeps the best `limit` of the requested status and `totals` counts each status.
+   */
+  public rankKnowledge(options: KnowledgeRankOptions): KnowledgeRanking {
+    this.syncIndex();
+    const paths = options.q
+      .split(/\s+/u)
+      .flatMap((word) => normalizeReference(word))
+      .filter((reference) => reference.kind === "path")
+      .map((reference) => reference.value);
+    const { terms, ranked } = this.rank({
+      q: options.q,
+      paths,
+      projectId: options.projectId,
+      types: ["knowledge"],
+      knowledgeStatuses: [...KNOWLEDGE_STATUSES],
+      ...(options.kind ? { kind: options.kind } : {}),
+      matchAppliesTo: true,
+      limit: options.limit,
+    });
+    const matches = ranked.filter((entry) => entry.doc.terms.size > 0 || entry.doc.matchedPaths.size > 0);
+    const statuses = this.knowledgeStatuses(matches.map((entry) => entry.doc.id));
+    const totals: Partial<Record<KnowledgeStatus, number>> = {};
+    for (const entry of matches) {
+      const status = statuses.get(entry.doc.id);
+      if (status) totals[status] = (totals[status] ?? 0) + 1;
+    }
+    return {
+      totals,
+      hits: matches
+        .filter((entry) => statuses.get(entry.doc.id) === options.status)
+        .slice(0, options.limit)
+        .map(({ doc, score }) => ({
+          id: doc.id,
+          score: Math.round(score * 1000) / 1000,
+          matchedTerms: terms.filter((_, index) => doc.terms.has(index)).slice(0, MAX_MATCHED_TERMS),
+          ...(doc.matchedPaths.size > 0 ? { matchedPaths: [...doc.matchedPaths].slice(0, MAX_MATCHED_PATHS) } : {}),
+        })),
     };
   }
 
@@ -468,7 +530,98 @@ export class SearchRepository {
     return { chunks, fts, paths, dirty };
   }
 
-  /** Ranking multipliers for Knowledge with recorded feedback (one grouped query); others keep 1. */
+  /** Scores every matching document and returns them best first, with the parsed query the scores refer to. */
+  private rank(options: RecallOptions): {
+    words: QueryWord[];
+    terms: string[];
+    idf: number[];
+    docs: Map<string, DocAccumulator>;
+    ranked: RankedDoc[];
+  } {
+    const words = options.q ? parseQueryWords(options.q) : [];
+    const terms = [...new Set(words.flatMap((word) => word.terms))].slice(0, MAX_QUERY_TERMS);
+    const synonyms = expandSoftwareTermSynonyms(terms);
+    const contexts = this.pathContexts(options.projectId);
+    const queriedPaths = [
+      ...new Set((options.paths ?? []).map((path) => normalizePath(path, contexts)).filter(Boolean)),
+    ];
+    const docs = new Map<string, DocAccumulator>();
+    const accumulator = (type: DocType, id: string, projectId: string, date: string): DocAccumulator => {
+      const key = docKey(type, id);
+      let doc = docs.get(key);
+      if (!doc) {
+        doc = {
+          type,
+          id,
+          projectId,
+          date,
+          fieldScore: 0,
+          fields: new Map(),
+          terms: new Set(),
+          structuredTerms: new Set(),
+          pathScore: 0,
+          matchedPaths: new Set(),
+        };
+        docs.set(key, doc);
+      }
+      return doc;
+    };
+
+    const { idf, totalIdf } =
+      terms.length > 0 ? this.scoreTerms(terms, accumulator, options) : { idf: [], totalIdf: 0 };
+    if (synonyms.length > 0) {
+      this.scoreSynonyms(synonyms, accumulator, options);
+    }
+    if (queriedPaths.length > 0) {
+      this.scorePaths(queriedPaths, accumulator, options);
+      if (options.matchAppliesTo) {
+        this.scoreAppliesTo(queriedPaths, accumulator, options);
+      }
+    }
+
+    const now = Date.now();
+    const evidence = this.evidenceFactors(
+      [...docs.values()].filter((doc) => doc.type === "knowledge").map((doc) => doc.id),
+    );
+    const ranked = [...docs.values()]
+      .map((doc) => {
+        let matchedIdf = 0;
+        for (const index of doc.terms) {
+          matchedIdf += idf[index] ?? 0;
+        }
+        let structuredIdf = 0;
+        for (const index of doc.structuredTerms) {
+          structuredIdf += idf[index] ?? 0;
+        }
+        const coverage = totalIdf > 0 ? matchedIdf / totalIdf : 0;
+        const structuredCoverage = totalIdf > 0 ? structuredIdf / totalIdf : 0;
+        const rankingCoverage =
+          totalIdf > 0 ? (structuredIdf + (matchedIdf - structuredIdf) * RAW_ONLY_COVERAGE_SHARE) / totalIdf : 0;
+        const originalScore = doc.fieldScore + (doc.bestRaw?.score ?? 0);
+        const synonymScore = Math.max(doc.bestSynonymChunk?.score ?? 0, doc.bestSynonymRaw?.score ?? 0);
+        const textScore =
+          originalScore > 0
+            ? (originalScore + Math.min(synonymScore, originalScore * MAX_SYNONYM_SCORE_SHARE)) *
+              rankingCoverage *
+              rankingCoverage
+            : synonymScore;
+        const ageDays = Math.max(0, (now - Date.parse(doc.date)) / 86_400_000) || 0;
+        const recency = 0.75 + 0.25 * Math.exp(-ageDays / RECENCY_DAYS);
+        const strength = doc.type === "knowledge" ? (evidence.get(doc.id) ?? 1) : 1;
+        return { doc, coverage, structuredCoverage, score: (textScore + doc.pathScore) * recency * strength };
+      })
+      .filter(
+        (entry) =>
+          entry.score > 0 &&
+          (entry.doc.matchedPaths.size > 0 ||
+            entry.coverage >= MIN_QUERY_COVERAGE ||
+            (entry.doc.bestSynonymChunk?.score ?? 0) > 0 ||
+            (entry.doc.bestSynonymRaw?.score ?? 0) > 0),
+      )
+      .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
+    return { words, terms, idf, docs, ranked };
+  }
+
   /** Moves each qualifying continuation directly above the earlier Session it continues; see CONTINUATION_SCORE_SHARE. */
   private preferContinuations<T extends { doc: { type: DocType; id: string }; score: number }>(ranked: T[]): T[] {
     const window = ranked.slice(0, CONTINUATION_WINDOW);
@@ -516,6 +669,17 @@ export class SearchRepository {
     return [...order, ...ranked.slice(CONTINUATION_WINDOW)];
   }
 
+  private knowledgeStatuses(knowledgeIds: string[]): Map<string, KnowledgeStatus> {
+    if (knowledgeIds.length === 0) {
+      return new Map();
+    }
+    const rows = this.db
+      .prepare("SELECT id, status FROM knowledge WHERE id IN (SELECT value FROM json_each(?))")
+      .all(JSON.stringify(knowledgeIds)) as Array<{ id: string; status: KnowledgeStatus }>;
+    return new Map(rows.map((row) => [row.id, row.status]));
+  }
+
+  /** Ranking multipliers for Knowledge with recorded feedback (one grouped query); others keep 1. */
   private evidenceFactors(knowledgeIds: string[]): Map<string, number> {
     const factors = new Map<string, number>();
     if (knowledgeIds.length === 0) {
@@ -689,9 +853,79 @@ export class SearchRepository {
     }
   }
 
+  /**
+   * Adds a fixed path score for Knowledge whose appliesTo covers a queried path: a glob that matches it, a plain entry
+   * equal to it or a path-segment suffix of it, or a directory entry that contains it (or lies inside a queried
+   * directory). appliesTo is not in the retrieval index, so the scoped rows are read once and matched in memory.
+   */
+  private scoreAppliesTo(
+    queriedPaths: string[],
+    accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
+    options: RecallOptions,
+  ): void {
+    const { clause, parameters } = this.scopeClause("k", {
+      ...options,
+      types: undefined,
+      from: undefined,
+      to: undefined,
+    });
+    const rows = this.db
+      .prepare(
+        `SELECT k.id, k.project_id, k.updated_at, k.applies_to_json, p.name, p.root_path
+         FROM knowledge k
+         JOIN projects p ON p.id = k.project_id
+         WHERE k.applies_to_json <> '[]' AND ${clause}`,
+      )
+      .all(...parameters) as Array<{
+      id: string;
+      project_id: string;
+      updated_at: string;
+      applies_to_json: string;
+      name: string;
+      root_path: string;
+    }>;
+    for (const row of rows) {
+      const contexts = [{ name: row.name, rootPath: row.root_path }];
+      let best = 0;
+      let bestPattern = "";
+      for (const raw of parseStringArray(row.applies_to_json)) {
+        const pattern = normalizePath(raw, contexts);
+        if (!pattern) continue;
+        const glob = /[*?]/.test(pattern);
+        const matches = glob ? compileAppliesTo(pattern) : undefined;
+        for (const queried of queriedPaths) {
+          const strength = matches
+            ? matches(queried)
+              ? 0.8
+              : 0
+            : Math.max(pathMatchStrength(pattern, queried), pathMatchStrength(queried, pattern));
+          if (strength > best) {
+            best = strength;
+            bestPattern = pattern;
+          }
+        }
+      }
+      if (best > 0) {
+        const doc = accumulator("knowledge", row.id, row.project_id, row.updated_at);
+        doc.pathScore += best * PATH_WEIGHT;
+        doc.matchedPaths.add(bestPattern);
+      }
+    }
+  }
+
   private scopeClause(alias: string, options: RecallOptions): { clause: string; parameters: string[] } {
-    const clauses = ["p.status = 'tracked'", `(${alias}.doc_type = 'session' OR k.status = 'active')`];
-    const parameters: string[] = [];
+    // Recall reads active Knowledge only; the relaxed Knowledge search names the statuses it searches.
+    const statuses = options.knowledgeStatuses;
+    const knowledgeFilters = [
+      statuses ? `k.status IN (${statuses.map(() => "?").join(", ")})` : "k.status = 'active'",
+      ...(options.kind ? ["k.kind = ?"] : []),
+    ].join(" AND ");
+    // The knowledge table itself (alias k) has no doc_type: every row it scopes is Knowledge.
+    const clauses = [
+      "p.status = 'tracked'",
+      alias === "k" ? knowledgeFilters : `(${alias}.doc_type = 'session' OR (${knowledgeFilters}))`,
+    ];
+    const parameters: string[] = [...(statuses ?? []), ...(options.kind ? [options.kind] : [])];
     if (options.projectId) {
       clauses.push(`${alias}.project_id = ?`);
       parameters.push(options.projectId);

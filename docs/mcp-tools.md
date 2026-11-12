@@ -235,7 +235,7 @@ Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現�
 - **排序**：BM25 × 欄位權重（title 3、tags 2、summary／workSummary／Knowledge 本文 1.5、其他 1；raw handoff 只取最相關的一段並 ×0.3），再乘上「命中關鍵字比例（依 IDF 加權）的平方」（只在 raw handoff 命中的詞在這裡只算一半，避免長篇匯入交接靠順帶提到很多詞而排在前面；最低命中門檻與 confidence 仍用完整比例），命中越多關鍵字的記錄排越前面，最後加上溫和的時間權重。結構化 Session 欄位優先於只命中 raw handoff 的記錄。raw 段落內容先做 NFKC、空白與大小寫正規化，再以 SHA-256 存進衍生的 `search_chunks.content_hash`；同一專案內最早的 Session 保留完整 raw 權重，後續重複引用只計 10% raw 分數。changed files 超過 20 個的 Session，其檔案欄位與路徑命中會依比例降權。排序前 100 筆中，如果某筆 Session 延續（`continues` 連結）了排在它前面的另一筆，而且分數至少是那筆的 30%，就移到那筆的正上方：同一系列先顯示最新狀態，較早的紀錄緊接在後，不會被移除。
 - **路徑**：`paths` 可用絕對路徑、`專案名/相對路徑` 或相對路徑，比對前會去掉專案根目錄與專案名前綴；完全相同、檔名或路徑尾段相同、位於查詢的目錄下都算命中。Knowledge `references` 裡的 commit SHA 與 URL 會分開處理，不參與路徑比對。
 
-每筆 hit 包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、最強的 `matchedIn` 欄位、raw 段落標題 `section`（最多 24 字元）、最多 110 字元的 `excerpt`、`matchedPaths`、`score`，以及 Session 的關聯 Session `related`（只保留目標 `id` 與 `relation`）。excerpt 被縮短時會帶 `truncated: true`，不能當成完整原文。提供 `projectRoot` 時，頂層只帶精簡的 `project: { id, name }`，每筆 hit 不再重複 `projectId`／`projectName`。用 `work_get_session` 或 `work_search_knowledge` 讀完整來源，回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。
+每筆 hit 包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、最強的 `matchedIn` 欄位、raw 段落標題 `section`（最多 24 字元）、最多 110 字元的 `excerpt`、`matchedPaths`、`score`，以及 Session 的關聯 Session `related`（只保留目標 `id` 與 `relation`）。excerpt 被縮短時會帶 `truncated: true`，不能當成完整原文。提供 `projectRoot` 時，頂層只帶精簡的 `project: { id, name }`，每筆 hit 不再重複 `projectId`／`projectName`。用 `work_get_session` 或 `work_search_knowledge` 讀完整來源，回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。單一的虛字（的、與、讓等）不列入 `termHits`；三字以上連續的中文詞會拆成雙字組，只要有一半雙字組出現在同一筆紀錄就算找到，不會因為沒有完整詞段就回報 0。`confidence` 只依實際回傳的 hit 判斷。
 
 ```json
 { "q": "排程 重複執行 lock", "paths": ["src/scheduler/queue.ts"], "projectRoot": "C:\\work\\assistant" }
@@ -444,6 +444,22 @@ Knowledge 必須由 Agent 明確提交，不會因為 finalize、handoff 或 sou
 ```
 
 同一專案重試相同 `idempotencyKey` 會回傳原本的 Knowledge，`duplicate: true`；不會覆蓋原文。`work_search_knowledge` 預設只搜尋 `active` Knowledge，並支援 `projectRoot`、`projectId`、`q`、`kind` 與 `status` 篩選。限定專案時回傳 `{ outcome, project: { id, name, rootPath }, items, pageInfo }`：不再附重複的 `projects`，每筆 Knowledge 也不再重複 `projectId`／`projectName`；不限定時維持 `projects` 與逐筆專案欄位。REST `GET /api/knowledge` 的回應不變。所有結果只來自 tracked projects；unregistered、paused、ignored 專案會安靜回傳 `outcome: "skipped"`。
+
+`work_search_knowledge` 是嚴格清單搜尋：每個以空白分隔的詞（或 `"引號片語"`）都必須出現在標題、內文、tags、references 或 `appliesTo` 路徑其中之一，結果依更新時間由新到舊。1.6.16 起 `appliesTo` 也納入比對，所以直接查檔案路徑可以找到針對該檔案記錄的 Knowledge；Web 知識清單使用同一個搜尋，原本就有結果的查詢不受影響。
+
+帶 `q` 時回應多一個 `match`，說明這次怎麼回答：
+
+| `match` | 意義 |
+| --- | --- |
+| `strict` | `items` 每筆都包含全部的詞，與 Web 清單結果相同 |
+| `relaxed` | 沒有任何一筆包含全部的詞；`items` 為空，改附最多 3 筆 `relaxedMatches` |
+| `none` | 嚴格與寬鬆比對都沒有結果 |
+
+`relaxedMatches` 是同一個範圍（專案、`kind`、`status`）內依相關度排序的部分符合：使用與 `work_recall` 相同的斷詞（中文雙字組、識別字拆分）與排序，以 OR 比對，並把像路徑的詞拿去比對 `appliesTo`（glob、完全相同、路徑尾段或目錄）與 references 路徑。每筆是完整 Knowledge，另附 `matchedTerms`（記錄中出現的查詢詞元，最多 8 個）與 `matchedPaths`（命中的 `appliesTo`／reference 路徑，最多 3 個）。只靠固定同義詞命中的記錄不會列入，因為每筆都必須能說出共有哪些詞。部分符合不是答案，Agent 必須讀過內容再引用。
+
+`match` 為 `relaxed` 或 `none` 時，若其他狀態有符合的記錄，會附 `otherStatusMatches`（例如 `{ "archived": 2 }`），只有數量、不含內容；數字是改傳該 `status` 時會得到的筆數（有嚴格結果時算嚴格筆數，否則算寬鬆筆數）。`hint` 用一句話說明結果性質與要改傳哪個 `status`。所有計數都在已通過 policy gate 的同一範圍內，不會揭露其他專案或非 tracked 專案的 Knowledge。不帶 `q` 的清單不會出現這些欄位。REST `GET /api/knowledge` 不回傳這些欄位。
+
+讀取稽核（`agent_read_audit`）會把帶 `q` 的 Knowledge 搜尋記成 `outcome` `knowledge_strict`、`knowledge_relaxed` 或 `knowledge_none`（不帶 `q` 維持 `knowledge`），不寫 `error_code`，也不算失敗讀取，可用來量測實際的零命中率。
 
 Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區塊，也會由 `work_get_context` 以 `recentKnowledge` 提供給後續 Agent。這一層只保存 Agent 明確確認的內容，不讓 LLM 取代 policy decision 或原始資料保存。
 

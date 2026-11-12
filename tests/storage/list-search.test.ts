@@ -108,4 +108,26 @@ describe("Knowledge list search", () => {
     const found = store.searchKnowledge({ query: "smoker inspection" });
     expect(found.outcome === "knowledge" ? found.items.map((item) => item.title) : found).toEqual(["Smoker technique"]);
   });
+
+  it("also finds a file path in appliesTo without changing word matches", () => {
+    const { store, root } = setup();
+    const record = (key: string, title: string, appliesTo: string[]) =>
+      store.recordKnowledge({
+        projectRoot: root,
+        idempotencyKey: key,
+        kind: "gotcha",
+        title,
+        body: "Wax melts near the frame.",
+        appliesTo,
+      });
+    record("k1", "Frame spacing", ["src/hive/frames.ts"]);
+    record("k2", "Wax storage", []);
+    const byPath = store.searchKnowledge({ query: "src/hive/frames.ts" });
+    expect(byPath.outcome === "knowledge" ? byPath.items.map((item) => item.title) : byPath).toEqual(["Frame spacing"]);
+    const byWord = store.searchKnowledge({ query: "wax" });
+    expect(byWord.outcome === "knowledge" ? byWord.items.map((item) => item.title).sort() : byWord).toEqual([
+      "Frame spacing",
+      "Wax storage",
+    ]);
+  });
 });

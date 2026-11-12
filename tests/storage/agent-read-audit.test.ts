@@ -221,6 +221,46 @@ describe("agent read audit", () => {
     ]);
   });
 
+  it("records how a Knowledge search was answered as its outcome, never as a failure", () => {
+    const { store } = createFixture();
+    const answers = [
+      { outcome: "knowledge", match: "strict", items: [] },
+      { outcome: "knowledge", match: "relaxed", items: [] },
+      { outcome: "knowledge", match: "none", items: [] },
+      { outcome: "knowledge", items: [] },
+      { outcome: "knowledge", match: "Free text", items: [] },
+    ];
+    answers.forEach((result, index) =>
+      store.recordAgentRead({ tool: "work_search_knowledge", result, now: `2026-03-0${index + 1}T00:00:00.000Z` }),
+    );
+    expect(rows(store, "SELECT outcome, error_code FROM agent_read_audit ORDER BY created_at")).toEqual([
+      { outcome: "knowledge_strict", error_code: null },
+      { outcome: "knowledge_relaxed", error_code: null },
+      { outcome: "knowledge_none", error_code: null },
+      { outcome: "knowledge", error_code: null },
+      { outcome: "knowledge", error_code: null },
+    ]);
+    expect(store.summarizeAgentReads().tools).toEqual([
+      expect.objectContaining({ tool: "work_search_knowledge", count: 5, errorCount: 0 }),
+    ]);
+  });
+
+  it("extracts records of a project-scoped response whose items omit projectId", () => {
+    const scoped = {
+      outcome: "knowledge",
+      project: { id: "project-orchard", name: "Orchard", rootPath: "/orchard" },
+      items: [{ id: "knowledge-graft", kind: "pattern", title: "Graft in spring", body: "Seal with wax." }],
+      relaxedMatches: [{ id: "knowledge-prune", kind: "gotcha", title: "Prune late", body: "After harvest." }],
+    };
+    expect(extractAgentReadRecords(scoped)).toEqual({
+      projectId: "project-orchard",
+      sessionIds: [],
+      knowledgeIds: ["knowledge-graft", "knowledge-prune"],
+    });
+    // Without a top-level project, a record must name its own project to count.
+    expect(extractAgentReadRecords({ ...scoped, project: undefined }).knowledgeIds).toEqual([]);
+  });
+
   it("summarizes per-tool counts, failures, and nearest-rank percentiles, slowest p95 first", () => {
     const { store, project } = createFixture();
     const record = (tool: string, extra: { durationMs?: number; errorCode?: string; agentClient?: string } = {}) =>
