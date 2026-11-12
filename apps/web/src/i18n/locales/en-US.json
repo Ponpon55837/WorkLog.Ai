@@ -176,6 +176,8 @@
     "theDataChangedRefreshAnd": "The data changed. Refresh and try again.",
     "theDataExceedsTheSize": "The data exceeds the size that can be processed.",
     "theDatabaseIsBusyPlease": "The database is busy. Please try again shortly.",
+    "theDatabaseIsReadOnly": "The database is read-only, so this change was not saved. Reading still works. Make sure the database file and its folder are writable, then try again.",
+    "theDiskIsFull": "The disk is full, so this change was not saved. Saved data is unchanged. Free up space on the database's disk, then try again.",
     "theDeletionConfirmationIsInvalid": "The deletion confirmation is invalid. Re-enter the full project name.",
     "theDeletionDidNotFinish": "The deletion did not finish; the project data is kept and the pre-deletion backup still exists.",
     "theImportFileIsInvalid": "The import file is invalid. Check its contents.",
@@ -1343,6 +1345,7 @@
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "Every finished task leaves traceable context.",
+    "couldNotLoadWorkHistory": "Could not load the work history.",
     "loadingWorkHistory": "Loading work history…",
     "noSessionsMatchTheFilters": "No Sessions match the filters",
     "searchWorkHistory": "Search work history",

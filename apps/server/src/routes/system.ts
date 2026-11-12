@@ -26,7 +26,7 @@ import {
   sendJson,
   sendProjectDataTransferError,
 } from "../http.js";
-import type { Route, RouteContext } from "./router.js";
+import { parseRequestInput, type Route, type RouteContext } from "./router.js";
 
 /** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
 async function sendDatabaseExport(
@@ -126,8 +126,9 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
 async function deleteBackup({ store, request, response, params }: RouteContext): Promise<void> {
   // JSON-only requests keep cross-site forms from triggering destructive actions.
   const body = await readJsonBody(request);
-  if (!deleteDatabaseBackupBodySchema.safeParse(body).success) {
-    sendError(response, 400, "刪除備份請求無效。");
+  const parsedBody = parseRequestInput(deleteDatabaseBackupBodySchema, body);
+  if (!parsedBody.success) {
+    sendError(response, 400, "刪除備份請求無效。", parsedBody.error.flatten());
     return;
   }
   let fileName: string;

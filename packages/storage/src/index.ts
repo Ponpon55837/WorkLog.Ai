@@ -34,7 +34,15 @@ export {
   type DatabaseInitializationErrorCode,
   initializeWorkIntelligenceDatabase,
 } from "./database-initialization.js";
-export { DATABASE_BUSY_MESSAGE, isDatabaseBusyError } from "./sqlite-errors.js";
+export {
+  DATABASE_BUSY_MESSAGE,
+  DATABASE_DISK_FULL_MESSAGE,
+  DATABASE_READ_ONLY_MESSAGE,
+  databaseUnavailableMessage,
+  databaseUnavailableReason,
+  isDatabaseBusyError,
+} from "./sqlite-errors.js";
+export type { DatabaseUnavailableReason } from "./sqlite-errors.js";
 export { canonicalizeProjectRoot, isPathWithinProject } from "@work-intelligence/project-policy";
 export { ProjectDeletionError, type ProjectDeletionErrorCode } from "./project-deletion-service.js";
 export { SessionDeletionError, type SessionDeletionErrorCode } from "./session-deletion-service.js";

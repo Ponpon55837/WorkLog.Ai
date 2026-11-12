@@ -25,6 +25,14 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 
 `pnpm db:redact` 的 dry-run 與 `--apply` 測試只使用暫存目錄內的合成 SQLite 資料庫；不會讀寫使用者的實際資料庫。測試中的憑證字串由執行期片段組合，不在原始碼保存完整假 token。
 
+## 介面契約與錯誤路徑
+
+- **文件與實作一致**：`tests/mcp/docs-parity.test.ts` 確認每個已註冊的 MCP operation 都在 `docs/mcp-tools.md` 出現，文件也沒有提到不存在的 operation 或 dispatcher；`tests/server/rest-docs-parity.test.ts` 對 `docs/rest-api.md` 與 REST 路由表做同樣檢查（路徑參數名稱與查詢字串不影響比對）。新增或移除工具與路由時，兩邊要一起更新。
+- **REST 嚴格輸入**：`tests/server/rest-strict-input.test.ts` 對每個寫入路由送出帶未知欄位的 body，要求 400 並點名該欄位；沒有 body 的路由必須列在測試內並寫明原因。另檢查所有路由都經 `parseRequestInput` 驗證，不直接呼叫 `safeParse`。
+- **資料庫無法寫入**：`tests/storage/sqlite-errors.test.ts` 以建構的錯誤涵蓋 busy、唯讀與磁碟已滿的分類（磁碟已滿無法在測試中可攜地重現）；唯讀情境在 storage、server 與 MCP 測試中以 `PRAGMA query_only` 或唯讀連線重現，不依賴 chmod（root 與 Windows 的行為不同）。
+- **破壞性與維護操作的錯誤路徑**：`tests/storage/project-deletion.test.ts` 涵蓋找不到專案、名稱不符、備份目錄不可用、寫入鎖被占用與唯讀資料庫，每種都確認專案與 Session 仍在；`tests/storage/database-maintenance.test.ts` 涵蓋缺少資料庫、非 SQLite 檔案、外來資料庫、完整性檢查失敗（以 `writable_schema` 讓索引指向錯誤頁面，各平台一致）、備份失敗與 schema 過新，並確認檔案未被修改；`tests/storage/handoff-importer.test.ts` 涵蓋排除不讀取、`maxFiles` 上限、超出專案根目錄的路徑與符號連結。
+- **鎖定下開啟**：`tests/storage/database-initialization.test.ts` 與 `tests/mcp/server.test.ts` 以第二條連線明確持有、再釋放寫入鎖，確認目前 schema 的資料庫在鎖定時仍可讀取、待 migration 時回傳 `DATABASE_BUSY` 且不寫出備份，釋放後下一次呼叫即恢復；`tests/mcp/store-access.test.ts` 以手動時鐘確認重試次數有上限，不依賴實際時間。
+
 ## 介面語言與主題
 
 - **訊息目錄**：`tests/web/i18n/catalog.test.ts` 確認 `zh-TW.json` 與 `en-US.json` 的 key 與 `{placeholder}` 完全一致、沒有空字串、沒有已不再使用的 key，且 `apps/web/src` 裡沒有寫死的中文字串（只允許 `資料不足` 這類資料標記）。不存在的 key 由型別檢查擋下（`t()` 只接受 `MessageKey`）。同一檔案也測試插值、單複數與常數標籤表隨語系切換。

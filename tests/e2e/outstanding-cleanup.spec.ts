@@ -152,7 +152,11 @@ test("reviews cleanup proposals individually and in a batch, preserves rejected 
     const response = await route.fetch();
     const body = (await response.json()) as { proposals: Array<{ reason: string }> };
     for (const proposal of body.proposals) proposal.reason = "Verified background refresh";
-    await route.fulfill({ response, json: body });
+    // A newer refresh (SSE or the next visibility poll) can cancel this request while it is being fetched; the
+    // page then never reads it, and Playwright reports the route as already handled.
+    await route.fulfill({ response, json: body }).catch((error: unknown) => {
+      if (!(error instanceof Error && error.message.includes("Route is already handled"))) throw error;
+    });
   });
   await refreshInBackground(page);
   await expect(panel.getByText("Verified background refresh", { exact: true }).first()).toBeVisible();
@@ -334,7 +338,8 @@ test("preserves outstanding reading position when SSE refreshes the same item ID
     (response) => response.url().includes("/api/outstanding-items?") && response.request().method() === "GET",
   );
   const response = await request.patch(`/api/sessions/${fixture.sourceId}/title`, {
-    data: { idempotencyKey: `refresh-title-${fixture.projectId}`, title: "Updated source" },
+    // The title route takes only the title; strict REST input rejects any other field.
+    data: { title: "Updated source" },
   });
   expect(response.ok()).toBe(true);
   await refreshed;

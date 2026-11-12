@@ -101,13 +101,13 @@ const {
   <UiFlash v-if="reportError" tone="danger">{{ reportError }}</UiFlash>
   <UiSkeleton v-if="reportLoading && !report" variant="card" :count="4" :label="t('reports.loadingTheWorkReport')" />
   <UiEmptyState
-    v-else-if="!report"
+    v-else-if="!report && !reportError"
     :icon="ChartColumn"
     :title="t('reports.noReportYet')"
     :description="t('reports.afterYouChooseAPeriod')"
   />
 
-  <template v-else>
+  <template v-else-if="report">
     <UiFlash
       v-if="report.sessionTruncation?.currentPeriod || report.sessionTruncation?.previousPeriod"
       tone="attention"

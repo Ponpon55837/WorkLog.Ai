@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import type {
+  ApiErrorCode,
   FolderPickResult,
   ProjectDataExportScope,
   ProjectDataImportInput,
@@ -9,7 +10,12 @@ import type {
   SystemAgentConnections,
   UserServiceStatus,
 } from "@work-intelligence/core";
-import { DATABASE_BUSY_MESSAGE, WorkIntelligenceStore, isDatabaseBusyError } from "@work-intelligence/storage";
+import {
+  databaseUnavailableMessage,
+  databaseUnavailableReason,
+  type DatabaseUnavailableReason,
+  WorkIntelligenceStore,
+} from "@work-intelligence/storage";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { inspectAgentConnections } from "./doctor.js";
@@ -26,6 +32,12 @@ import { resolveWebDirectory } from "./web-directory.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
+/** A write that changed nothing because the database is locked, read-only or out of space; the user can retry. */
+const DATABASE_UNAVAILABLE_RESPONSES: Record<DatabaseUnavailableReason, { status: number; code: ApiErrorCode }> = {
+  busy: { status: 503, code: "database_busy" },
+  read_only: { status: 503, code: "database_read_only" },
+  disk_full: { status: 507, code: "database_disk_full" },
+};
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -329,8 +341,10 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         return;
       }
 
-      if (isDatabaseBusyError(error)) {
-        sendError(response, 503, DATABASE_BUSY_MESSAGE, undefined, "database_busy");
+      const unavailable = databaseUnavailableReason(error);
+      if (unavailable) {
+        const { status, code } = DATABASE_UNAVAILABLE_RESPONSES[unavailable];
+        sendError(response, status, databaseUnavailableMessage(unavailable), undefined, code);
         return;
       }
 

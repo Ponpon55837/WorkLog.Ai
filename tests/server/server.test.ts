@@ -15,7 +15,11 @@ import {
 import { APP_VERSION } from "../../packages/shared/src/app-version.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
-import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import {
+  DATABASE_DISK_FULL_MESSAGE,
+  DATABASE_READ_ONLY_MESSAGE,
+  WorkIntelligenceStore,
+} from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
 import {
@@ -596,6 +600,50 @@ describe("Work Intelligence REST API", () => {
       lockConnection.exec("ROLLBACK");
       lockConnection.close();
     }
+  });
+
+  it("returns database_read_only for a write to a read-only database and keeps reads working", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-read-only-test-"));
+    const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));
+    store.addProject("Readable project", join(root, "readable-project"));
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const apiDatabase = (store as unknown as { db: DatabaseSync }).db;
+    // query_only fails writes with SQLITE_READONLY on every platform; chmod is ignored by root and differs on Windows.
+    apiDatabase.exec("PRAGMA query_only = ON");
+
+    try {
+      const write = await requestJson<{ error: string }>(baseUrl, "/api/projects", {
+        method: "POST",
+        body: { name: "Unsaved project", rootPath: join(root, "unsaved-project") },
+      });
+      expect(write.status).toBe(503);
+      expect(write.body).toEqual({ error: DATABASE_READ_ONLY_MESSAGE, code: "database_read_only" });
+
+      const read = await requestJson<Array<{ name: string }>>(baseUrl, "/api/projects");
+      expect(read.status).toBe(200);
+      expect(read.body.map((project) => project.name)).toEqual(["Readable project"]);
+    } finally {
+      apiDatabase.exec("PRAGMA query_only = OFF");
+    }
+  });
+
+  it("returns database_disk_full with status 507 when a write runs out of space", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-disk-full-test-"));
+    const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    // A full disk cannot be produced portably in a test; this is the error node:sqlite raises for SQLITE_FULL.
+    vi.spyOn(store, "addProject").mockImplementation(() => {
+      throw Object.assign(new Error("database or disk is full"), { code: "ERR_SQLITE_ERROR", errcode: 13 });
+    });
+
+    const response = await requestJson<{ error: string }>(baseUrl, "/api/projects", {
+      method: "POST",
+      body: { name: "Full disk project", rootPath: join(root, "full-disk-project") },
+    });
+    expect(response.status).toBe(507);
+    expect(response.body).toEqual({ error: DATABASE_DISK_FULL_MESSAGE, code: "database_disk_full" });
   });
 
   it("returns database_busy for consecutive cold-worker requests blocked by an exclusive lock", async () => {

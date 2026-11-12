@@ -75,6 +75,18 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 - 修正既有記錄：請 Agent 用 `work_update_session_metadata` 的 `startedAt`、`completedAt`，填入有依據的時間（對話紀錄或 commit 時間，並帶時區，例如 `+08:00`）。不需要作廢再重建。修正完成時間時，Session 會多一筆「完成時間由…更正為…」的事件，保留原值。
 - 保存提醒 hook 會在提醒中附上這段工作的開始時間（Codex 需要另外設定 `UserPromptSubmit` hook，見[連接 Agent](agent-setup.md)）；Agent 需要現在時間時，可以從 `work_get_project_status` 或 `work_get_context` 回傳的 `clock` 取得。
 
+## 資料庫忙碌、唯讀或磁碟已滿
+
+這三種錯誤都表示這次寫入沒有保存、已保存的資料沒有變更，不需要從備份還原。Web UI 會顯示對應訊息；REST 以下列代碼回應，MCP 回傳大寫的同名代碼（例如 `DATABASE_READ_ONLY`）：
+
+| REST 代碼 | HTTP | 原因 | 處理方式 |
+| --- | --- | --- | --- |
+| `database_busy` | 503 | 另一個行程（另一個 Agent 的 MCP、`pnpm db:*` 命令）正在寫入 | 稍候再試；持續發生時用 `pnpm check` 查看誰占用資料庫 |
+| `database_read_only` | 503 | 資料庫檔案、所在資料夾或磁碟目前唯讀（例如檔案被設為唯讀、放在唯讀磁碟或被同步工具鎖定） | 讓檔案與資料夾恢復可寫入後重試；讀取仍可使用 |
+| `database_disk_full` | 507 | 資料庫所在磁碟沒有空間 | 釋放空間後重試；也可以刪除較舊的備份（專案 → 資料備份） |
+
+MCP 啟動時遇到這三種情況，不會一直保留錯誤：資料庫已是最新 schema 時，啟動只讀取版本、不需要寫入鎖，所以其他行程正在寫入也能讀取；需要 migration 而無法取得寫入鎖時回傳 `DATABASE_BUSY`（不會先寫出備份），之後每次 tool 呼叫都會再試一次，問題排除後就恢復，不必重新連線。只有 `DATABASE_MIGRATION_FAILED`、`DATABASE_MIGRATION_BACKUP_FAILED`、`DATABASE_SCHEMA_VERSION_TOO_NEW` 等需要處理的情況，才會保留到 MCP 重新啟動。
+
 ## 還原時資料庫仍被開著
 
 還原會取代目前的 SQLite，因此必須先釋放其他連線：

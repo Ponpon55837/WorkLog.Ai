@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
 
       <UiSkeleton v-if="graphLoading && !graph" variant="card" :count="3" :label="t('graph.loadingTheWorkGraph')" />
       <UiEmptyState
-        v-else-if="!graph || graph.nodes.length === 0"
+        v-else-if="graph ? graph.nodes.length === 0 : !graphError"
         :icon="Share2"
         :title="t('graph.nothingToVisualizeYet')"
         :description="t('graph.workRelationshipsAppearHereOnce')"
@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
         >
       </UiEmptyState>
       <GraphCanvas
-        v-else
+        v-else-if="graph"
         :nodes="graphVisual.nodes"
         :edges="graphVisual.edges"
         :height="graphVisual.height"

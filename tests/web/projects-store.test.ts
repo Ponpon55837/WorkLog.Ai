@@ -197,9 +197,16 @@ describe("projects Pinia store", () => {
 
     expect(requestCount("/api/dashboard")).toBe(0);
     expect(requestCount("/api/projects")).toBe(0);
+    // Views show an empty state only once a list has loaded; an empty array before that is not "no projects".
+    expect(store.projects).toEqual([]);
+    expect(store.projectsLoaded).toBe(false);
+    expect(store.dashboardLoaded).toBe(false);
 
     await store.loadProjects();
     expect(requestCount("/api/projects")).toBe(1);
+    expect(store.projectsLoaded).toBe(true);
+    expect(store.dashboardLoaded).toBe(false);
+    expect(store.initialDataReady).toBe(false);
   });
 
   it("invalidates deletion audits without fetching until the audit view is active", async () => {

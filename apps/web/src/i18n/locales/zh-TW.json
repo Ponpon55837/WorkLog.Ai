@@ -176,6 +176,8 @@
     "theDataChangedRefreshAnd": "資料狀態已變更，請重新整理後再試。",
     "theDataExceedsTheSize": "資料超過可處理大小。",
     "theDatabaseIsBusyPlease": "資料庫暫時忙碌，請稍後再試。",
+    "theDatabaseIsReadOnly": "資料庫目前是唯讀狀態，這次變更沒有保存；讀取仍可使用。請確認資料庫檔案與所在資料夾可以寫入後再試。",
+    "theDiskIsFull": "磁碟空間不足，這次變更沒有保存；已保存的資料沒有變更。請釋放資料庫所在磁碟的空間後再試。",
     "theDeletionConfirmationIsInvalid": "刪除確認資料無效，請重新輸入完整專案名稱。",
     "theDeletionDidNotFinish": "刪除作業未完成，專案資料已保留；刪除前備份仍在。",
     "theImportFileIsInvalid": "匯入檔格式無效，請確認檔案內容。",
@@ -1343,6 +1345,7 @@
   },
   "sessions": {
     "everyFinishedTaskLeavesTraceable": "每一次完成，都留下可追溯的脈絡。",
+    "couldNotLoadWorkHistory": "無法載入工作歷程。",
     "loadingWorkHistory": "正在載入工作歷程…",
     "noSessionsMatchTheFilters": "沒有符合條件的 Session",
     "searchWorkHistory": "搜尋工作歷程",

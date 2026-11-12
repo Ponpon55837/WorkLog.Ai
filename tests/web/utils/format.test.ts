@@ -66,6 +66,12 @@ describe("errorMessage", () => {
     expect(errorMessage(new ApiError("database_busy", 503, "English message"), "fallback")).toBe(
       t("format.theDatabaseIsBusyPlease"),
     );
+    expect(errorMessage(new ApiError("database_read_only", 503, "English message"), "fallback")).toBe(
+      t("format.theDatabaseIsReadOnly"),
+    );
+    expect(errorMessage(new ApiError("database_disk_full", 507, "English message"), "fallback")).toBe(
+      t("format.theDiskIsFull"),
+    );
   });
 
   it("uses the caller fallback for unknown API codes instead of exposing server text", () => {

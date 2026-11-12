@@ -16,11 +16,11 @@ import {
 } from "@work-intelligence/schema";
 import { SessionDeletionError } from "@work-intelligence/storage";
 import { numberParam, readJsonBody, readJsonObject, sendError, sendJson, textParam } from "../http.js";
-import { validatedRoute, type Route, type RouteContext } from "./router.js";
+import { parseRequestInput, validatedRoute, type Route, type RouteContext } from "./router.js";
 
 /** Permanent deletion of a voided Session; the JSON confirmation keeps it out of reach of plain links and forms. */
 async function deleteSession({ store, request, response, params }: RouteContext): Promise<void> {
-  const parsed = deleteSessionInputSchema.safeParse(await readJsonBody(request));
+  const parsed = parseRequestInput(deleteSessionInputSchema, await readJsonBody(request));
   if (!parsed.success) {
     sendError(response, 400, "Invalid session deletion confirmation.", parsed.error.flatten());
     return;
