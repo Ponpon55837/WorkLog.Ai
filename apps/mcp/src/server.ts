@@ -84,6 +84,7 @@ import {
   type AgentToolContractOperation,
 } from "./agent-resources.js";
 import {
+  finalizeClosingContract,
   implementationDetail,
   knowledgeCandidateContract,
   knowledgePageContract,
@@ -97,6 +98,12 @@ import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { parseMcpInput } from "./input.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { sessionTextResult, textResult } from "./result.js";
+import {
+  toSessionMetadataReceipt,
+  toSessionSummaryReceipt,
+  toSessionTitleReceipt,
+  toSessionWorkSummaryReceipt,
+} from "./session-update-receipt.js";
 
 interface StoreToolDefinition<S extends z.ZodType> {
   title: string;
@@ -575,11 +582,13 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_finalize_session", {
     title: "Finalize a work session",
     description:
-      "Finalize only after planning, execution, verification, and closing are complete. Required: outcome-first summary, five-section workSummary, intentional changedFiles ([] for no changes), and verification passed/failed/in_progress/not_run. in_progress means started with no confirmed result; update the same Session after verification. Starting work never means passed. Pass baselineChangedFiles captured at start: exclude those paths even if edited again; a rename from baseline records the new path as added. changedFilesProvenance cites Agent/handoff/Git/worktree evidence; changedFileChanges records lifecycle changes (renamed requires previousPath). Report only recalled Knowledge actually used with appliedKnowledgeIds or contradictedKnowledgeIds; parentSessionId links continued work. startedAt needs a conversation/hook timestamp with offset; omit if unknown, never estimate. Omit completedAt for just-finished work; backfill only from historical evidence with offset. Future times are rejected; correct timestampWarnings with work_update_session_metadata. updatedAt tracks edits. Only tracked projects permit source/handoff/Git reads and recording; others quietly skip. Same-key retries return the original Session; a different summary conflicts. Missing legacy verification/files/workSummary yields follow-up instructions." +
-      "Before closing, refresh task/paths context and read the sources of relevant.outstandingItems. resolvedOutstandingItemIds and supersededOutstandingItemIds (rules in the contract below) change only same-project pending items; both transitions are atomic with the Session and audited with actorSessionId; conflicting ids stay unchanged and warn. Never infer completion from wording or ranking. relatedOutstandingItems lists bounded still-pending matches (not this Session's new items) with an evidence caution. " +
+      "Finalize only after planning, execution, verification, and closing are complete. Required: outcome-first summary, five-section workSummary, intentional changedFiles ([] for no changes), and verification passed/failed/in_progress/not_run. in_progress means started with no confirmed result; update the same Session after verification. Starting work never means passed. Pass baselineChangedFiles captured at start: exclude those paths even if edited again; a rename from baseline records the new path as added. changedFilesProvenance cites Agent/handoff/Git/worktree evidence; changedFileChanges records lifecycle changes (renamed requires previousPath). Report only recalled Knowledge actually used with appliedKnowledgeIds or contradictedKnowledgeIds; parentSessionId links continued work. startedAt and completedAt follow their field rules below and are never estimated; future times are rejected; correct timestampWarnings with work_update_session_metadata. updatedAt tracks edits. Only tracked projects permit source/handoff/Git reads and recording; others quietly skip. Same-key retries return the original Session; a different summary conflicts. Missing legacy verification/files/workSummary yields follow-up instructions. " +
+      "resolvedOutstandingItemIds and supersededOutstandingItemIds (rules in the contract below) change only same-project pending items; both transitions are atomic with the Session and audited with actorSessionId; conflicting ids stay unchanged and warn. relatedOutstandingItems lists bounded still-pending matches (not this Session's new items) with an evidence caution. " +
       "The result is a receipt, not an echo of the request; it may include knowledgePageMaintenanceHint (pages with a source-review warning, an update request, or 3+ new Sessions). " +
       "Sensitive values are masked before storage; the result reports redaction counts by type only, never token fragments. " +
-      workRecordContract,
+      workRecordContract +
+      " " +
+      finalizeClosingContract,
     inputShape: mcpFinalizeSessionInputSchema.shape,
     schema: mcpFinalizeSessionInputSchema,
     validationNotes: [
@@ -769,7 +778,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. relevant.outstandingItems ranks pending items by direct item keywords, source changed-file paths, and recalled source Session order, so older items are not excluded by recency or the top recalled sources. It contains at most 5 pointers (id, sourceSessionId, and text capped at 240 characters; read the source Session for its title), total/omitted counts and a caution hint; context budgeting may shorten text or omit lower-ranked items with a readWith pointer. Ranking is not completion evidence. Only server.restartRequired stops operations; server.updateAvailable permits normal reads and writes with one reminder at closing. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. "high" and "low" only measure wording overlap, not whether a result answers the task; read the record before relying on it. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted, a small pointer per section: count, duplicates (already shown elsewhere in this response), up to 3 ids with reasons for budget omissions plus moreIds, entries with only the id and flags of anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; page review detail and citation ids are not repeated there. Truncated excerpts are marked. Without a focus, the 3 newest Sessions are kept until older Knowledge, decisions, and page content are trimmed. With projectRoot, the project appears once in project, projects is empty, and items omit projectId and projectName. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns projectStatus "tracked" and tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", projectRoot, projectStatus, tracked: false, reason, and server, with no project data, so no separate work_get_project_status call is needed.',
+      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. relevant.outstandingItems ranks pending items by direct item keywords, source changed-file paths, and recalled source Session order, so older items are not excluded by recency or the top recalled sources. It contains at most 5 pointers (id, sourceSessionId, and text capped at 240 characters; read the source Session for its title), total/omitted counts and a caution hint; context budgeting may shorten text or omit lower-ranked items with a readWith pointer. Ranking is not completion evidence. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. "high" and "low" only measure wording overlap, not whether a result answers the task; read the record before relying on it. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted, a small pointer per section: count, duplicates (already shown elsewhere in this response), up to 3 ids with reasons for budget omissions plus moreIds, entries with only the id and flags of anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; page review detail and citation ids are not repeated there. Truncated excerpts are marked. Without a focus, the 3 newest Sessions are kept until older Knowledge, decisions, and page content are trimmed. With projectRoot, the project appears once in project, projects is empty, and items omit projectId and projectName. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns projectStatus "tracked" and tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", projectRoot, projectStatus, tracked: false, reason, and server, with no project data, so no separate work_get_project_status call is needed.',
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,
@@ -796,7 +805,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_update_session_metadata", {
     title: "Update session metadata",
     description:
-      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. The Agent must inspect the worktree/diff first and provide the confirmed changedFiles list; use [] only when the work intentionally changed no files. By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. Non-tracked projects are skipped quietly.",
+      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. The Agent must inspect the worktree/diff first and provide the confirmed changedFiles list; use [] only when the work intentionally changed no files. By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
     inputShape: updateSessionMetadataInputSchema.shape,
     schema: updateSessionMetadataInputSchema,
     validationNotes: [
@@ -807,36 +816,42 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid session metadata payload.",
     sessionResult: true,
     run: (input) => store.updateSessionMetadata(input),
+    present: (result, input) =>
+      toSessionMetadataReceipt(input, result as ReturnType<WorkIntelligenceStore["updateSessionMetadata"]>),
   });
 
   registerStoreTool("work_update_session_summary", {
     title: "Update a finalized session summary",
     description:
-      "Update the primary summary text of an existing finalized Session without creating a new Session. mode=replace replaces the complete summary; mode=append adds a clearly separated follow-up paragraph. changedFiles, verification, events, evidence, handoff snapshots, and the Session id are preserved. It has its own idempotencyKey; retrying the same payload never appends twice. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. Non-tracked projects are skipped quietly.",
+      "Update the primary summary text of an existing finalized Session without creating a new Session. mode=replace replaces the complete summary; mode=append adds a clearly separated follow-up paragraph. changedFiles, verification, events, evidence, handoff snapshots, and the Session id are preserved. It has its own idempotencyKey; retrying the same payload never appends twice. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
     inputShape: updateSessionSummaryInputSchema.shape,
     schema: updateSessionSummaryInputSchema,
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid session summary payload.",
     sessionResult: true,
     run: (input) => store.updateSessionSummary(input),
+    present: (result, input) =>
+      toSessionSummaryReceipt(input, result as ReturnType<WorkIntelligenceStore["updateSessionSummary"]>),
   });
 
   registerStoreTool("work_update_session_title", {
     title: "Correct a finalized session title",
     description:
-      "Correct the title of an existing finalized Session when the user asks or confirms the new wording. The previous title is kept as a note event on the Session; nothing else changes. Setting the same title again is a no-op (duplicate: true). Voided Sessions are skipped with a reason; restore them in the Web UI first. Sensitive values are masked; results report counts by type only. Non-tracked projects are skipped quietly.",
+      "Correct the title of an existing finalized Session when the user asks or confirms the new wording. The previous title is kept as a note event on the Session; nothing else changes. Setting the same title again is a no-op (duplicate: true). Voided Sessions are skipped with a reason; restore them in the Web UI first. Sensitive values are masked; results report counts by type only. The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
     inputShape: updateSessionTitleInputSchema.shape,
     schema: updateSessionTitleInputSchema,
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid session title payload.",
     sessionResult: true,
     run: (input) => store.updateSessionTitle(input),
+    present: (result, input) =>
+      toSessionTitleReceipt(input, result as ReturnType<WorkIntelligenceStore["updateSessionTitle"]>),
   });
 
   registerStoreTool("work_update_session_work_summary", {
     title: "Update a finalized session work summary",
     description:
-      "Update the structured five-section workSummary of an existing finalized Session. mode=replace needs all five sections; mode=patch merges one or more confirmed sections (a legacy missing workSummary starts from empty arrays). The Session id, idempotencyKey, changedFiles, verification, events, evidence, handoff snapshots, and Git metadata are preserved. It has its own idempotencyKey; retries never repeat a change. Non-tracked projects are skipped quietly. " +
+      "Update the structured five-section workSummary of an existing finalized Session. mode=replace needs all five sections; mode=patch merges one or more confirmed sections (a legacy missing workSummary starts from empty arrays). The Session id, idempotencyKey, changedFiles, verification, events, evidence, handoff snapshots, and Git metadata are preserved. It has its own idempotencyKey; retries never repeat a change. The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly. " +
       "Sensitive values are masked before storage; the result reports redaction counts by type only and never returns a token fragment. " +
       workRecordContract,
     inputShape: updateSessionWorkSummaryInputSchemaBase.shape,
@@ -849,6 +864,8 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid session workSummary payload.",
     sessionResult: true,
     run: (input) => store.updateSessionWorkSummary(input, "agent"),
+    present: (result, input) =>
+      toSessionWorkSummaryReceipt(input, result as ReturnType<WorkIntelligenceStore["updateSessionWorkSummary"]>),
   });
 
   registerStoreTool("work_void_session", {

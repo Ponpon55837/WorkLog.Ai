@@ -29,6 +29,7 @@ const RESPONSE_BUDGETS = {
   contextWithTask: 10_000,
   finalizeWithRelatedOutstandingItems: 4_000,
   finalizeReceipt: 2_000,
+  sessionUpdateReceipt: 1_200,
   outstandingItemsPage: 30_000,
   outstandingCleanupContext: 24_000,
   contextWithOutstandingCleanup: 10_000,
@@ -671,6 +672,96 @@ describe("synthetic MCP response-size baseline", () => {
     for (const echoed of [args.title, summary, ...workSummary.outcomes, changedFiles[5]!]) {
       expect(text).not.toContain(echoed);
     }
+  });
+
+  it("answers the in-place Session updates with receipts, not an echo of the Session", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const sentence = (topic: string) =>
+      `Completed the fictional ${topic} change and checked its settlement totals against the synthetic ledger fixtures.`;
+    const changedFiles = Array.from({ length: 20 }, (_, index) => `packages/ledger/src/receipt-${index}.ts`);
+    vi.setSystemTime(Date.now() + 60_000);
+    const finalized = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "response-size-update-receipts",
+      title: "Settle fictional ledger rounding before the update receipts",
+      summary: `${sentence("settlement rounding")} ${sentence("ledger panel")}`,
+      workSummary: {
+        outcomes: [sentence("rounding"), sentence("panel totals")],
+        scope: [sentence("storage scope")],
+        decisions: [sentence("rounding decision")],
+        verification: [sentence("unit test"), sentence("typecheck")],
+        nextSteps: [],
+      },
+      changedFiles,
+      changedFilesProvenance: changedFiles.map((path) => ({ path, sources: ["agent", "git"] })),
+      verification: { status: "passed", summary: "Synthetic unit tests and typecheck passed." },
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected the update receipt source Session.");
+    const sessionId = finalized.session.id;
+    const workSummary = {
+      outcomes: [sentence("corrected rounding"), sentence("corrected panel totals")],
+      scope: [sentence("corrected storage scope")],
+      decisions: [{ text: sentence("corrected rounding decision"), origin: "user_requested" }],
+      verification: [sentence("corrected unit test")],
+      nextSteps: [],
+    };
+    const calls = [
+      {
+        operation: "work_update_session_metadata",
+        args: { sessionId, changedFiles, verification: { status: "passed", summary: "Re-ran the synthetic suite." } },
+        outcome: "updated",
+        echoed: [changedFiles[5]!],
+      },
+      {
+        operation: "work_update_session_summary",
+        args: { sessionId, idempotencyKey: "response-size-summary-receipt", summary: sentence("corrected summary") },
+        outcome: "summary_updated",
+        echoed: [sentence("corrected summary"), sentence("settlement rounding")],
+      },
+      {
+        operation: "work_update_session_title",
+        args: { sessionId, title: "Settle fictional ledger rounding after the correction" },
+        outcome: "title_updated",
+        echoed: ["Settle fictional ledger rounding after the correction"],
+      },
+      {
+        operation: "work_update_session_work_summary",
+        args: { sessionId, idempotencyKey: "response-size-work-summary-receipt", mode: "replace", workSummary },
+        outcome: "work_summary_updated",
+        echoed: [sentence("corrected rounding"), sentence("rounding"), sentence("corrected rounding decision")],
+      },
+    ];
+    const sizes: Record<string, number> = {};
+    for (const call of calls) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const result = await client.callTool({
+        name: "work_write_overwrite",
+        arguments: { operation: call.operation, arguments: call.args },
+      });
+      expect(result.isError, call.operation).not.toBe(true);
+      const text = (result.content as Array<{ type: string; text?: string }>).find(
+        (item) => item.type === "text",
+      )!.text!;
+      const value = JSON.parse(text) as { outcome: string; session: Record<string, unknown> };
+      sizes[call.operation] = text.length;
+      expect(text.length, call.operation).toBeLessThanOrEqual(RESPONSE_BUDGETS.sessionUpdateReceipt);
+      expect(value.outcome).toBe(call.outcome);
+      expect(value.session).toMatchObject({ id: sessionId, verificationStatus: "passed", changedFilesCount: 20 });
+      expect(Object.keys(value.session).sort()).toEqual(
+        ["changedFilesCount", "completedAt", "executionStatus", "id", "updatedAt", "verificationStatus"].sort(),
+      );
+      expect(result.structuredContent).toMatchObject({ sessionId, verification: { status: "passed" } });
+      // Nothing the Agent sent or read before is echoed back, and paths stay project-relative.
+      for (const echoed of call.echoed) expect(text, call.operation).not.toContain(echoed);
+      expect(text).not.toContain(projectRoot);
+    }
+    console.info(`Session update receipt sizes (characters): ${JSON.stringify(sizes)}`);
+    // Storage and REST keep the complete result.
+    expect(store.getSessionDetail(sessionId)?.session).toMatchObject({
+      title: "Settle fictional ledger rounding after the correction",
+      summary: sentence("corrected summary"),
+      workSummary: { decisions: [sentence("corrected rounding decision")] },
+    });
   });
 
   it("bounds cleanup reads while retaining all selected item and later Session IDs", async () => {

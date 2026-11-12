@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,12 @@ const SKILL = JSON.stringify({
   method: "resources/read",
   params: { uri: "work-intelligence://agent/work-intelligence/SKILL.md" },
 });
+/** The core skill's on-demand guides, as the bundle must serve them. */
+const SKILL_GUIDES = readdirSync(join(repositoryRoot, ".agents/skills/work-intelligence/references"))
+  .filter((name) => name.endsWith(".md"))
+  .sort()
+  .map((name) => `references/${name}`);
+const REPORT_WRITING_FILES = ["SKILL.md", "references/en.md", "references/zh-TW.md"];
 let output: string;
 
 function testTemporaryRoot(): string {
@@ -54,7 +60,21 @@ function environmentFor(home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.Pro
 /** Runs the copied plugin's MCP server through its launcher and returns the JSON-RPC responses by id. */
 function talkToPlugin(pluginRoot: string, home: string, extra: NodeJS.ProcessEnv = {}) {
   const result = spawnSync(process.execPath, [join(pluginRoot, "scripts/launch.mjs"), "mcp"], {
-    input: `${INITIALIZE}\n${SKILL}\n${["SKILL.md", "references/en.md", "references/zh-TW.md"].map((path, index) => JSON.stringify({ jsonrpc: "2.0", id: index + 3, method: "resources/read", params: { uri: `work-intelligence://agent/worklog-report-writing/${path}` } })).join("\n")}\n`,
+    input: `${[
+      INITIALIZE,
+      SKILL,
+      ...[
+        ...REPORT_WRITING_FILES.map((path) => `worklog-report-writing/${path}`),
+        ...SKILL_GUIDES.map((path) => `work-intelligence/${path}`),
+      ].map((path, index) =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: index + 3,
+          method: "resources/read",
+          params: { uri: `work-intelligence://agent/${path}` },
+        }),
+      ),
+    ].join("\n")}\n`,
     encoding: "utf8",
     env: environmentFor(home, extra),
     cwd: home,
@@ -94,11 +114,20 @@ describe("pnpm build:plugin", () => {
     expect(
       readFileSync(join(output, "work-intelligence/server/.agents/skills/work-intelligence/SKILL.md"), "utf8"),
     ).toBe(readFileSync(join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md"), "utf8"));
+    for (const guide of SKILL_GUIDES) {
+      const canonical = readFileSync(join(repositoryRoot, ".agents/skills/work-intelligence", guide), "utf8");
+      // The plugin's skill folder ships each guide beside SKILL.md for clients that load the skill without MCP.
+      expect(readFileSync(join(output, "work-intelligence/skills/work-intelligence", guide), "utf8")).toBe(canonical);
+      expect(
+        readFileSync(join(output, "work-intelligence/server/.agents/skills/work-intelligence", guide), "utf8"),
+      ).toBe(canonical);
+    }
     const extension = readFileSync(join(output, `work-intelligence-${version}.mcpb`));
     for (const name of [
       "manifest.json",
       "server/apps/mcp/dist/index.js",
       "server/docs/work-record-and-report-format.md",
+      ...SKILL_GUIDES.map((guide) => `server/.agents/skills/work-intelligence/${guide}`),
     ]) {
       expect(extension.includes(Buffer.from(name))).toBe(true);
     }
@@ -112,9 +141,14 @@ describe("pnpm build:plugin", () => {
       expect(responses.get(1)?.result?.serverInfo).toEqual({ name: "work-intelligence", version });
       const skill = (responses.get(2)?.result?.contents as Array<{ text: string }> | undefined)?.[0]?.text;
       expect(skill).toContain("name: work-intelligence");
-      for (const [index, path] of ["SKILL.md", "references/en.md", "references/zh-TW.md"].entries()) {
+      const served = [
+        ...REPORT_WRITING_FILES.map((path) => join(".agents/skills/worklog-report-writing", path)),
+        ...SKILL_GUIDES.map((path) => join(".agents/skills/work-intelligence", path)),
+      ];
+      expect(SKILL_GUIDES.length).toBeGreaterThan(0);
+      for (const [index, path] of served.entries()) {
         const text = (responses.get(index + 3)?.result?.contents as Array<{ text: string }> | undefined)?.[0]?.text;
-        expect(text).toBe(readFileSync(join(repositoryRoot, ".agents/skills/worklog-report-writing", path), "utf8"));
+        expect(text).toBe(readFileSync(join(repositoryRoot, path), "utf8"));
       }
       expect(stderr).toContain(join(home, ".work-intelligence", "data", "work-intelligence.sqlite"));
       expect(existsSync(join(home, ".work-intelligence", "data", "work-intelligence.sqlite"))).toBe(true);

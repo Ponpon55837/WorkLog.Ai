@@ -263,7 +263,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 
 ## 在其他專案貼上使用說明
 
-任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是工作流程與隱私規則，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位與報告粒度，`work-intelligence://agent/tool-contracts` 是 48 項操作的精簡索引，`work-intelligence://agent/tool-contracts/<operation>` 是單一操作的完整 schema、說明與安全標註。第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。Skill 複本供 host 自動判斷何時使用；resources 是完整內容的跨 client 來源。
+任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是每次工作都要讀的核心（隱私規則、開始與收尾流程），`work-intelligence://agent/work-intelligence/references/<guide>.md` 是各流程的指南（`reading-records`、`diagrams`、`repair-and-backfill`、`outstanding-cleanup`、`synthesis`、`knowledge`），開始該流程時才讀，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位定義與範例，`work-intelligence://agent/tool-contracts` 是 48 項操作的精簡索引，`work-intelligence://agent/tool-contracts/<operation>` 是單一操作的完整 schema、說明與安全標註。第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。Skill 複本供 host 自動判斷何時使用；resources 是完整內容的跨 client 來源。
 
 如果 Agent 不會主動選用 user-level skill，可將下列簡短規則貼到其他專案的 `AGENTS.md` 或 `CLAUDE.md`。它不需要引用 Work Intelligence repo 的檔案：
 
@@ -272,7 +272,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 
 - 在已由使用者明確設為「記錄中」的專案，開始工作前透過 `work_read` 執行一次 `work_get_context`，提供 `projectRoot`、任務與已知路徑；它同時回傳 `tracked` 與 `projectStatus`，不必另外呼叫 `work_get_project_status`。結果為 `skipped` 時不要讀取該專案的任何資料。
 - 工作完成後，在完成驗證與交接後透過 `work_write_idempotent` 執行 `work_finalize_session`；只回報實際確認的成果、變更檔案與驗證結果。若專案不是 tracked，或無法確認狀態，不要建立 Work Intelligence 記錄。
-- 第一次呼叫某個 operation 前，讀取 `work-intelligence://agent/tool-contracts/<operation>` 取得該操作的完整契約（索引在 `work-intelligence://agent/tool-contracts`）；需要完整隱私規則與操作流程時，讀取 `work-intelligence://agent/work-intelligence/SKILL.md`；準備或修正記錄與報告時，再讀 `work-intelligence://agent/work-record-and-report-format.md`。
+- 第一次呼叫某個 operation 前，讀取 `work-intelligence://agent/tool-contracts/<operation>` 取得該操作的完整契約（索引在 `work-intelligence://agent/tool-contracts`）；開始前先讀 `work-intelligence://agent/work-intelligence/SKILL.md`：每次工作都需要的隱私規則與開始、收尾流程，並列出報告、修正、整理未結項與 Knowledge 等流程的指南，開始該流程時再讀。
 ```
 
 ## 第一次使用

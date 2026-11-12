@@ -15,7 +15,7 @@
 | 內容 | Claude Code | Codex |
 |---|---|---|
 | MCP server `work-intelligence` | ✓ | ✓ |
-| `work-intelligence` skill（與 `.agents/skills/work-intelligence/SKILL.md` 相同） | ✓ | ✓ |
+| `work-intelligence` skill 與其 `references/` 流程指南（與 `.agents/skills/work-intelligence/` 相同） | ✓ | ✓ |
 | `dashboard` skill（開啟 Web UI，見下方 [Dashboard](#dashboard)） | ✓（`/work-intelligence:dashboard`） | ✓（直接請 Agent 開啟） |
 | 保存提醒 hook | ✓（`Stop`、`PreCompact`、`SessionStart` `compact`） | ✓（`PostToolUse`、`Stop`、`UserPromptSubmit`、`SessionStart` `compact`；需在 `/hooks` 信任） |
 
@@ -89,7 +89,7 @@ plugin 與 `pnpm setup:agents`（或手動 `mcp add`）二選一即可；兩者�
 
 ## 版本與檢查
 
-`plugin.json` 的版本與根目錄 `package.json` 相同，發版時一起更新；`tests/server/plugin.test.ts` 會檢查版本、兩個 Agent 的 MCP 設定、skill 與 `.agents/skills/work-intelligence/SKILL.md` 一致，以及啟動器的尋找、轉送與失敗行為；`tests/server/plugin-bundle.test.ts` 會實際執行 `pnpm build:plugin`，在沒有 checkout 的暫存 HOME 啟動內附 server，確認 MCP 握手、skill resource 與資料庫位置。修改 canonical skill 後請同步複製到 `plugins/work-intelligence/skills/work-intelligence/SKILL.md`。`claude plugin validate plugins/work-intelligence` 與 `claude plugin validate .` 可檢查 Claude Code 的 manifest 與 marketplace。
+`plugin.json` 的版本與根目錄 `package.json` 相同，發版時一起更新；`tests/server/plugin.test.ts` 會檢查版本、兩個 Agent 的 MCP 設定、skill 與其 `references/` 流程指南逐檔和 `.agents/skills/work-intelligence/` 一致，以及啟動器的尋找、轉送與失敗行為；`tests/server/plugin-bundle.test.ts` 會實際執行 `pnpm build:plugin`，在沒有 checkout 的暫存 HOME 啟動內附 server，確認 MCP 握手、skill resource 與資料庫位置。修改 canonical skill 後請同步複製到 `plugins/work-intelligence/skills/work-intelligence/SKILL.md`。`claude plugin validate plugins/work-intelligence` 與 `claude plugin validate .` 可檢查 Claude Code 的 manifest 與 marketplace。
 
 ## 不用 checkout 的版本（release 附件）
 
@@ -119,4 +119,4 @@ claude.ai 與 ChatGPT 網頁版只能連遠端 HTTPS MCP，與「資料只留在
 
 ## 1.5.1 寫作指南資源
 
-發行 plugin 同時包含 worklog-report-writing skill 及英文／繁體中文參考頁；MCP 也提供三個固定 resource URI。單獨安裝 work-intelligence skill 的 client 由其 MCP 指引按需讀取，不必另複製全域詞典。打包後需在沒有原始 checkout 的位置核對資源可讀與內容一致。
+發行 plugin 同時包含 worklog-report-writing skill 及英文／繁體中文參考頁；MCP 也提供三個固定 resource URI。work-intelligence skill 的 `references/` 流程指南（報告、修正與回補、整理未結項、Knowledge、架構圖、讀取紀錄）放在 skill 資料夾內 `SKILL.md` 旁，只載入 skill 檔案、不讀 MCP resources 的 client 也能依核心的指引讀到；MCP 以 `work-intelligence://agent/work-intelligence/references/<guide>.md` 提供同一份內容。單獨安裝 work-intelligence skill 的 client 由其 MCP 指引按需讀取，不必另複製全域詞典。打包後需在沒有原始 checkout 的位置核對資源可讀與內容一致。
