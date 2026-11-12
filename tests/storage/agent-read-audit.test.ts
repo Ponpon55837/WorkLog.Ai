@@ -190,6 +190,37 @@ describe("agent read audit", () => {
     expect(recall).not.toHaveProperty("errorCode");
   });
 
+  it("records a not_found cause code without counting it as a failed read", () => {
+    const { store, root, project } = createFixture();
+    const missed = store.getKnowledgePageContext({ projectRoot: root, slug: "architectur" });
+    store.recordAgentRead({
+      tool: "work_get_knowledge_page_context",
+      result: missed,
+      projectId: project.id,
+      now: "2026-03-01T00:00:00.000Z",
+    });
+    store.recordAgentRead({
+      tool: "work_get_knowledge_page_context",
+      result: { outcome: "not_found", slug: "x", reasonCode: "Free text: /never/stored" },
+      now: "2026-03-02T00:00:00.000Z",
+    });
+    expect(rows(store, "SELECT outcome, error_code FROM agent_read_audit ORDER BY created_at")).toEqual([
+      { outcome: "not_found", error_code: "slug_near_match" },
+      { outcome: "not_found", error_code: null },
+    ]);
+    expect(store.listAgentReads({}).items).toContainEqual(
+      expect.objectContaining({ outcome: "not_found", errorCode: "slug_near_match" }),
+    );
+    expect(store.summarizeAgentReads().tools).toEqual([
+      expect.objectContaining({
+        tool: "work_get_knowledge_page_context",
+        count: 2,
+        errorCount: 0,
+        errorCodes: { slug_near_match: 1 },
+      }),
+    ]);
+  });
+
   it("summarizes per-tool counts, failures, and nearest-rank percentiles, slowest p95 first", () => {
     const { store, project } = createFixture();
     const record = (tool: string, extra: { durationMs?: number; errorCode?: string; agentClient?: string } = {}) =>

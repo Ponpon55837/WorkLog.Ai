@@ -1044,10 +1044,11 @@ describe("Work Intelligence MCP server", () => {
     const beforeProjectRoots = store.listProjects().map(({ id, rootPath }) => ({ id, rootPath }));
     const listed = await callJson<{
       outcome: string;
+      project?: { id: string; name?: string };
       items: Array<{
         id: string;
-        projectId: string;
-        projectName: string;
+        projectId?: string;
+        projectName?: string;
         sourceSessionId: string;
         sourceSessionTitle: string;
         sourceSessionCompletedAt: string;
@@ -1061,10 +1062,12 @@ describe("Work Intelligence MCP server", () => {
       openWorldHint: false,
     });
     expect(listed).toMatchObject({ outcome: "outstanding_items", pageInfo: { total: 1 } });
+    // A projectRoot page names its project once instead of on every row.
+    expect(listed.project).toEqual({ id: project.id, name: "Outstanding item project" });
+    expect(listed.items[0]).not.toHaveProperty("projectId");
+    expect(listed.items[0]).not.toHaveProperty("projectName");
     expect(listed.items).toEqual([
       expect.objectContaining({
-        projectId: project.id,
-        projectName: "Outstanding item project",
         sourceSessionId: ownSource.session.id,
         sourceSessionTitle: "Outstanding item source",
         text: ownText,

@@ -75,6 +75,69 @@ describe("Knowledge pages", () => {
     ).toMatchObject({ outcome: "knowledge_page_update_requested", page: { slug: "release-notes" } });
   });
 
+  it("explains a missed page lookup with the project's slugs, an id passed as slug, or the nearest slug", () => {
+    const { store, projectRoot, otherRoot } = setup();
+    const requested = store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    if (requested.outcome !== "knowledge_page_update_requested") throw new Error("Expected a page");
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "hive-log", title: "蜂箱紀錄", question: "蜂箱狀態？" });
+    const foreign = store.requestKnowledgePageUpdate({
+      projectRoot: otherRoot,
+      slug: "orchard-notes",
+      title: "果園",
+      question: "果園狀態？",
+    });
+    if (foreign.outcome !== "knowledge_page_update_requested") throw new Error("Expected a foreign page");
+    const lookup = (slug: string) => store.getKnowledgePageContext({ projectRoot, slug });
+    const listed = { existingSlugs: ["hive-log", "pitfalls"] };
+
+    expect(lookup(requested.page.id)).toEqual({
+      outcome: "not_found",
+      slug: requested.page.id,
+      reasonCode: "page_id_as_slug",
+      reason: expect.stringContaining('slug "pitfalls"'),
+      suggestedSlug: "pitfalls",
+      ...listed,
+    });
+    // Another project's page id is never resolved or revealed.
+    expect(lookup(foreign.page.id)).toEqual({
+      outcome: "not_found",
+      slug: foreign.page.id,
+      reasonCode: "slug_looks_like_id",
+      reason: expect.any(String),
+      ...listed,
+    });
+    expect(lookup("pitfall")).toMatchObject({ reasonCode: "slug_near_match", suggestedSlug: "pitfalls", ...listed });
+    expect(lookup("hive-logs")).toMatchObject({ reasonCode: "slug_near_match", suggestedSlug: "hive-log" });
+    // A typo of a default page that was never requested points to the request tool.
+    expect(lookup("architectur")).toMatchObject({
+      reasonCode: "slug_near_match",
+      suggestedSlug: "architecture",
+      reason: expect.stringContaining("work_request_knowledge_page_update"),
+    });
+    expect(lookup("architecture")).toMatchObject({
+      reasonCode: "page_not_requested",
+      reason: expect.stringContaining("work_request_knowledge_page_update"),
+    });
+    const unknown = lookup("orchard-notes");
+    expect(unknown).toMatchObject({ reasonCode: "page_unknown", ...listed });
+    expect(unknown).not.toHaveProperty("suggestedSlug");
+    expect(JSON.stringify(unknown)).not.toContain(foreign.page.id);
+  });
+
+  it("bounds the slugs a missed page lookup lists", () => {
+    const { store, projectRoot } = setup();
+    for (let index = 0; index < 23; index += 1) {
+      const slug = `page-${index.toString().padStart(2, "0")}`;
+      store.requestKnowledgePageUpdate({ projectRoot, slug, title: `Page ${index}`, question: `Question ${index}?` });
+    }
+    const missed = store.getKnowledgePageContext({ projectRoot, slug: "unrelated-topic" });
+    if (missed.outcome !== "not_found") throw new Error("Expected not_found");
+    expect(missed.existingSlugs).toHaveLength(20);
+    expect(missed.existingSlugs[0]).toBe("page-00");
+    expect(missed.existingSlugsOmittedCount).toBe(3);
+    expect(missed.reasonCode).toBe("page_unknown");
+  });
+
   it("gives the Agent recent non-voided Sessions and saves a cited version idempotently", () => {
     const { store, projectRoot, otherRoot, finalize, sections } = setup();
     const first = finalize("first");

@@ -34,9 +34,13 @@ const RESPONSE_BUDGETS = {
   outstandingCleanupRequestPage: 8_000,
   outstandingCleanupProposalPage: 30_000,
   relatedOutstandingItems: 4_200,
-  recallDefault: 7_000,
-  recallFive: 3_500,
+  recallDefault: 3_500,
+  recallFive: 2_400,
   searchDefault: 8_000,
+  contextOmitted: 1_300,
+  knowledgeSearchEmpty: 400,
+  sessionListScoped: 9_000,
+  knowledgePageNotFound: 700,
 } as const;
 const sharedPlan = [
   "## Historical proposal: Agent context retrieval budget",
@@ -291,11 +295,18 @@ describe("synthetic MCP response-size baseline", () => {
     expect(outstandingPage.items).toHaveLength(4);
     expect(outstandingPage.items.every((item) => item.status === "pending" && item.text === longOpenItem)).toBe(true);
     expect(outstandingItemsPage.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingItemsPage);
+    expect(recallDefault.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallDefault);
+    expect(recallFive.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallFive);
+    for (const context of [contextWithoutTask, contextWithTask]) {
+      const omitted = JSON.stringify((context.value as { omitted?: unknown }).omitted ?? []);
+      expect(omitted.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextOmitted);
+    }
 
     console.info(
       `Synthetic MCP response sizes (characters): ${JSON.stringify({
         contextWithoutTask: contextWithoutTask.length,
         contextWithTask: contextWithTask.length,
+        contextWithTaskOmitted: JSON.stringify((contextWithTask.value as { omitted?: unknown }).omitted ?? []).length,
         outstandingItemsPage: outstandingItemsPage.length,
         recallDefault: recallDefault.length,
         recallFive: recallFive.length,
@@ -311,7 +322,10 @@ describe("synthetic MCP response-size baseline", () => {
     expect(recallFivePayload.hits.some((hit) => hit.title.includes("gotcha"))).toBe(true);
     expect(recallFivePayload.hits.some((hit) => hit.related?.length === 3)).toBe(true);
     expect(relatedLinks.every((link) => link.id && link.relation && !link.title)).toBe(true);
-    expect(recallFive.value).not.toHaveProperty("project");
+    // A projectRoot recall names its project once; hits do not repeat it.
+    expect(recallFive.value).toMatchObject({ project: { id: expect.any(String), name: expect.any(String) } });
+    expect(Object.keys((recallFive.value as { project: object }).project)).toEqual(["id", "name"]);
+    expect(recallFivePayload.hits.every((hit) => !("projectId" in hit) && !("projectName" in hit))).toBe(true);
     expect(searchResponse).toMatchObject({ outcome: "search", confidence: "low" });
     expect(searchPayload).toHaveLength(20);
     expect(
@@ -1058,6 +1072,119 @@ describe("synthetic MCP response-size baseline", () => {
         reviewReasons: ["source_updated_after_save"],
       }),
     );
+    // Omission pointers name a page and its flag only; review detail stays with work_get_knowledge_page_context.
+    const taskOmitted = (taskContext.value as { omitted?: Array<{ section: string; entries?: unknown[] }> }).omitted;
+    const serializedOmitted = JSON.stringify(taskOmitted ?? []);
+    expect(serializedOmitted).not.toContain("reviewSections");
+    expect(serializedOmitted).not.toContain("sourceSessionIds");
+    expect(serializedOmitted.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextOmitted);
+    // The matched page is counted as shown; the other pages keep only their id and review flag.
+    const pageOmission = taskOmitted?.find((section) => section.section === "knowledgePages");
+    expect(pageOmission).toMatchObject({ duplicates: 1 });
+    expect(pageOmission?.entries).toHaveLength(2);
+    expect(pageOmission?.entries).toEqual(
+      expect.arrayContaining([
+        { id: "pitfalls", needsReview: true },
+        { id: "response-budget", needsReview: true },
+      ]),
+    );
+  });
+
+  it("names a projectRoot scope once instead of on every item", async () => {
+    const { client, projectId, projectRoot, store } = await connectWithSyntheticHistory();
+    // Storage canonicalizes the root (lowercase on Windows), so compare with the stored value.
+    const storedRoot = store.listProjects().find((project) => project.id === projectId)?.rootPath;
+    const emptySearch = await serializedMcpPayload(client, "work_search_knowledge", {
+      projectRoot,
+      q: "nonexistent-synthetic-term",
+    });
+    const sessionPage = await serializedMcpPayload(client, "work_list_sessions", { projectRoot });
+    const outstandingPage = await serializedMcpPayload(client, "work_list_outstanding_items", { projectRoot });
+    const recall = await serializedMcpPayload(client, "work_recall", { projectRoot, q: retrievalQuery });
+    const context = await serializedMcpPayload(client, "work_get_context", { projectRoot });
+    console.info(
+      `Scoped response sizes (characters): ${JSON.stringify({
+        knowledgeSearchEmpty: emptySearch.length,
+        sessionListScoped: sessionPage.length,
+      })}`,
+    );
+
+    expect(emptySearch.value).toEqual({
+      outcome: "knowledge",
+      project: { id: projectId, name: "Synthetic Cedar", rootPath: storedRoot },
+      items: [],
+      pageInfo: expect.objectContaining({ total: 0 }),
+    });
+    expect(emptySearch.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgeSearchEmpty);
+    expect(sessionPage.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.sessionListScoped);
+    for (const [name, payload, key] of [
+      ["work_list_sessions", sessionPage, "items"],
+      ["work_list_outstanding_items", outstandingPage, "items"],
+      ["work_recall", recall, "hits"],
+    ] as const) {
+      const value = payload.value as Record<string, unknown> & { project?: unknown };
+      expect(value.project, name).toEqual({ id: projectId, name: "Synthetic Cedar" });
+      const items = value[key] as Array<Record<string, unknown>>;
+      expect(items.length, name).toBeGreaterThan(0);
+      expect(
+        items.some((item) => "projectId" in item || "projectName" in item),
+        name,
+      ).toBe(false);
+    }
+    const contextValue = context.value as {
+      project: { id: string };
+      projects: unknown[];
+      recentSessions: Array<Record<string, unknown>>;
+      recentKnowledge: Array<Record<string, unknown>>;
+      pendingOutstandingItems: Array<Record<string, unknown>>;
+    };
+    expect(contextValue.project.id).toBe(projectId);
+    expect(contextValue.projects).toEqual([]);
+    for (const item of [
+      ...contextValue.recentSessions,
+      ...contextValue.recentKnowledge,
+      ...contextValue.pendingOutstandingItems,
+    ]) {
+      expect(item).not.toHaveProperty("projectId");
+      expect(item).not.toHaveProperty("projectName");
+    }
+  });
+
+  it("answers a missed Knowledge page lookup with bounded retry hints", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const listed = store.listKnowledgePages({ projectRoot });
+    if (listed.outcome !== "knowledge_pages") throw new Error("Expected synthetic Knowledge pages.");
+    const architecture = listed.items.find((page) => page.slug === "architecture")!;
+
+    const byId = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      projectRoot,
+      slug: architecture.id,
+    });
+    const typo = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      projectRoot,
+      slug: "pitfall",
+    });
+    expect(byId.value).toEqual({
+      outcome: "not_found",
+      slug: architecture.id,
+      reasonCode: "page_id_as_slug",
+      reason: expect.stringContaining('slug "architecture"'),
+      suggestedSlug: "architecture",
+      existingSlugs: ["architecture", "pitfalls", "response-budget"],
+    });
+    expect(typo.value).toMatchObject({ reasonCode: "slug_near_match", suggestedSlug: "pitfalls" });
+    // The cause lands in the read audit as a code; the outcome stays not_found.
+    expect(
+      store
+        .listAgentReads({})
+        .items.filter((read) => read.tool === "work_get_knowledge_page_context")
+        .map(({ outcome, errorCode }) => ({ outcome, errorCode })),
+    ).toEqual([
+      { outcome: "not_found", errorCode: "slug_near_match" },
+      { outcome: "not_found", errorCode: "page_id_as_slug" },
+    ]);
+    expect(byId.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
+    expect(typo.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
   });
 
   it("keeps pending requests and Knowledge review flags within the focused context budget", async () => {

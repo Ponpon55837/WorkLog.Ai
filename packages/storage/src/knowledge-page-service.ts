@@ -10,6 +10,7 @@ import {
   type KnowledgePageDigest,
   type KnowledgePageListQuery,
   type KnowledgePageListResult,
+  type KnowledgePageNotFoundResult,
   type MarkKnowledgePageCheckedInput,
   type MarkKnowledgePageCheckedResult,
   type KnowledgePageRecord,
@@ -99,6 +100,12 @@ const DIGEST_SOURCE_SESSION_LIMIT = 8;
 export const KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD = 3;
 /** Versions shown in the Web history; older versions stay in the database and in exports. */
 const VERSION_HISTORY_LIMIT = 50;
+/** Slugs a not_found page lookup lists, so a project with many custom pages still gets a bounded answer. */
+const NOT_FOUND_SLUG_LIMIT = 20;
+/** Largest edit distance at which a slug is offered as the one the Agent probably meant. */
+const NEAR_SLUG_DISTANCE = 2;
+/** The shape of a page, Session, or Knowledge id; a slug never looks like this. */
+const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const DEFAULT_PAGES = new Map<string, { title: string; question: string }>(
   KNOWLEDGE_PAGE_DEFAULTS.map((page) => [page.slug, { title: page.title, question: page.question }]),
@@ -111,6 +118,40 @@ function skipped(decision: PolicyDecision): KnowledgePageSkippedResult {
     projectStatus: decision.projectStatus,
     reason: decision.reason ?? "Project recording is not enabled.",
   };
+}
+
+/**
+ * Levenshtein distance, or `limit + 1` as soon as it must exceed `limit`. Slugs are at most 40 characters, so one
+ * two-row pass per candidate is cheap.
+ */
+function boundedEditDistance(left: string, right: string, limit: number): number {
+  if (Math.abs(left.length - right.length) > limit) return limit + 1;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    let rowMinimum = row;
+    for (let column = 1; column <= right.length; column += 1) {
+      const substitution = previous[column - 1]! + (left[row - 1] === right[column - 1] ? 0 : 1);
+      const value = Math.min(previous[column]! + 1, current[column - 1]! + 1, substitution);
+      current.push(value);
+      rowMinimum = Math.min(rowMinimum, value);
+    }
+    if (rowMinimum > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[right.length]!;
+}
+
+/** The closest candidate within NEAR_SLUG_DISTANCE edits (the first in order on a tie), if any. */
+function nearestSlug(slug: string, candidates: readonly string[]): string | undefined {
+  let best: { slug: string; distance: number } | undefined;
+  for (const candidate of candidates) {
+    const distance = boundedEditDistance(slug, candidate, NEAR_SLUG_DISTANCE);
+    // A distance as large as the candidate itself means the strings share almost nothing.
+    if (distance > NEAR_SLUG_DISTANCE || distance >= candidate.length) continue;
+    if (!best || distance < best.distance) best = { slug: candidate, distance };
+  }
+  return best?.slug;
 }
 
 interface CompletedSessionCursor {
@@ -315,13 +356,7 @@ export class KnowledgePageService {
       return skipped(decision);
     }
     const row = this.findPage(decision.project.id, query.slug);
-    if (!row) {
-      return {
-        outcome: "not_found",
-        slug: query.slug,
-        reason: "Request the page with work_request_knowledge_page_update first.",
-      };
-    }
+    if (!row) return this.pageNotFound(decision.project.id, query.slug);
     const page = this.recordFor(row);
     const mode = row.version === 0 || row.update_requested_at ? "full" : "review";
     const { sessions, truncated } =
@@ -635,6 +670,77 @@ export class KnowledgePageService {
         id: string;
       }>
     ).map((row) => row.id);
+  }
+
+  /**
+   * Explains a missed page lookup with what the Agent can retry: the project's slugs, the page whose id was passed
+   * as a slug, or the nearest slug. Only pages of the already policy-checked project are read.
+   */
+  private pageNotFound(projectId: string, slug: string): KnowledgePageNotFoundResult {
+    const pages = this.db
+      .prepare("SELECT id, slug FROM knowledge_pages WHERE project_id = ? ORDER BY slug")
+      .all(projectId) as Array<{ id: string; slug: string }>;
+    const listed = {
+      existingSlugs: pages.slice(0, NOT_FOUND_SLUG_LIMIT).map((page) => page.slug),
+      ...(pages.length > NOT_FOUND_SLUG_LIMIT
+        ? { existingSlugsOmittedCount: pages.length - NOT_FOUND_SLUG_LIMIT }
+        : {}),
+    };
+    if (ID_PATTERN.test(slug)) {
+      const page = pages.find((candidate) => candidate.id === slug);
+      return page
+        ? {
+            outcome: "not_found",
+            slug,
+            reasonCode: "page_id_as_slug",
+            reason: `This is the id of page "${page.slug}", not a slug. Call again with slug "${page.slug}".`,
+            suggestedSlug: page.slug,
+            ...listed,
+          }
+        : {
+            outcome: "not_found",
+            slug,
+            reasonCode: "slug_looks_like_id",
+            reason: "This looks like an id, not a page slug. Call again with one of existingSlugs.",
+            ...listed,
+          };
+    }
+    const existing = new Set(pages.map((page) => page.slug));
+    const requestFirst = "Request it with work_request_knowledge_page_update first.";
+    if (DEFAULT_PAGES.has(slug)) {
+      return {
+        outcome: "not_found",
+        slug,
+        reasonCode: "page_not_requested",
+        reason: `The default page "${slug}" has not been requested in this project yet. ${requestFirst}`,
+        ...listed,
+      };
+    }
+    const suggestedSlug = nearestSlug(slug, [
+      ...pages.map((page) => page.slug),
+      ...[...DEFAULT_PAGES.keys()].filter((candidate) => !existing.has(candidate)),
+    ]);
+    if (suggestedSlug) {
+      return {
+        outcome: "not_found",
+        slug,
+        reasonCode: "slug_near_match",
+        reason: existing.has(suggestedSlug)
+          ? `No page "${slug}" in this project. Did you mean "${suggestedSlug}"? Call again with that slug.`
+          : `No page "${slug}" in this project. Did you mean the default page "${suggestedSlug}"? ${requestFirst}`,
+        suggestedSlug,
+        ...listed,
+      };
+    }
+    return {
+      outcome: "not_found",
+      slug,
+      reasonCode: "page_unknown",
+      reason:
+        "No page with this slug in this project. Call again with one of existingSlugs; request a new custom page " +
+        "(slug, title, and question) only when the user asks for one.",
+      ...listed,
+    };
   }
 
   private findPage(projectId: string, slug: string): PageRow | undefined {
