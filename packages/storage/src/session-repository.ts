@@ -2,8 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import type { PageInfo, SessionListResult, SessionVoidedFilter, WorkSessionRecord } from "@work-intelligence/core";
 import { localDayStartIso } from "@work-intelligence/shared";
 import {
-  LIST_SEARCH_CHARGE_FUNCTION,
+  listSearchMoreGuard,
   listSearchOverBoundWarning,
+  listSearchRowCap,
+  listSearchRowGuard,
   SESSION_SEARCH_ROW_BYTES,
   parseListSearchTerms,
   runListSearchScan,
@@ -87,12 +89,15 @@ type PageInfoBuilder = (
 ) => PageInfo;
 
 /**
- * Stored bytes the term clauses of a text query may read, charged before any of them runs: octet_length reads the
- * record header without loading the text, and the event summaries come from the session_id index.
+ * Stored bytes the term clauses of a text query may read, in two parts. The Session's own columns are checked before a
+ * word reads them (octet_length reads the record header without loading the text); the event summaries, which a SUM
+ * over the session_id index adds up, are added and checked only when a word was not found in those columns and is
+ * about to read the events, at most once per row (listSearchMoreGuard). A word found in a column never reads the
+ * events, so it needs no event sum: the sum per word over every row made a three-word query twice as slow.
  */
-const SEARCHED_BYTES = `COALESCE(octet_length(s.title), 0) + COALESCE(octet_length(s.summary), 0)
-  + COALESCE(octet_length(s.work_summary_json), 0) + COALESCE(octet_length(s.changed_files_json), 0)
-  + (SELECT COALESCE(SUM(octet_length(charged_events.summary)), 0) FROM work_events charged_events
+const SEARCHED_COLUMN_BYTES = `COALESCE(octet_length(s.title), 0) + COALESCE(octet_length(s.summary), 0)
+  + COALESCE(octet_length(s.work_summary_json), 0) + COALESCE(octet_length(s.changed_files_json), 0)`;
+const SEARCHED_EVENT_BYTES = `(SELECT COALESCE(SUM(octet_length(charged_events.summary)), 0) FROM work_events charged_events
      WHERE charged_events.session_id = s.id)`;
 
 /** Read-side Session persistence kept separate from finalize/update workflows. */
@@ -352,13 +357,18 @@ export class SessionRepository {
 
     // Every term must appear in at least one of the Session's text fields. instr(LOWER(x), term) > 0 is
     // LOWER(x) LIKE '%term%' with the wildcards escaped (terms are lower-case, LIKE folds ASCII only), without LIKE's
-    // re-match from every stored position. Each CASE charges the row's stored bytes before its word reads them.
+    // re-match from every stored position. Each word's tests run only after the bytes they may read were checked
+    // against the per-row cap: the columns first, and the events (added to the columns) before they are read.
     const { terms, warnings } = parseListSearchTerms(options.query ?? "");
     if (terms.length > 0) {
-      // Each word is charged when SQLite reaches it, so a row the first word rules out costs one pass, not eight.
+      // Each word is checked when SQLite reaches it, so a row the first word rules out costs one pass, not eight. The
+      // test sits in a CASE WHEN condition, which SQLite evaluates left to right and stops at the answer: the check
+      // runs first and a word found in the title is not searched for in the other fields. (In a THEN branch, as in
+      // 1.6.27, AND and OR are computed as values and every field was searched for every word.)
+      const cap = listSearchRowCap(SESSION_SEARCH_ROW_BYTES);
       const termClauses = terms.map(
-        () =>
-          `CASE WHEN ${LIST_SEARCH_CHARGE_FUNCTION}(${SEARCHED_BYTES}) THEN (instr(LOWER(s.title), ?) > 0 OR instr(LOWER(s.summary), ?) > 0
+        (_, index) =>
+          `CASE WHEN ${listSearchRowGuard("s.rowid", SEARCHED_COLUMN_BYTES, index, cap)} AND (instr(LOWER(s.title), ?) > 0 OR instr(LOWER(s.summary), ?) > 0
           -- Match the values only, so section names like "decisions" do not match every Session.
           OR EXISTS (
             SELECT 1
@@ -371,10 +381,10 @@ export class SessionRepository {
             FROM json_each(CASE WHEN json_valid(s.changed_files_json) THEN s.changed_files_json ELSE '[]' END) file
             WHERE instr(LOWER(file.value), ?) > 0
           )
-          OR EXISTS (
+          OR ${listSearchMoreGuard("s.rowid", SEARCHED_EVENT_BYTES)} AND EXISTS (
             SELECT 1 FROM work_events search_events
             WHERE search_events.session_id = s.id AND instr(LOWER(search_events.summary), ?) > 0
-          )) ELSE 0 END`,
+          )) THEN 1 ELSE 0 END`,
       );
       clauses.push(`(${termClauses.join(" AND ")})`);
       for (const term of terms) parameters.push(term, term, term, term, term);

@@ -4,6 +4,28 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.28] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.28.md).
+
+### Fixed
+
+- The staleness check of a Knowledge read (every Knowledge list or read, page 20–50, and reads that attach Knowledge trust) compared every `appliesTo` entry of the page with every distinct file later Sessions changed, with a budget that grew with history and no ceiling. On 2,000 later Sessions of 50 distinct paths of about 100 characters with 200 Knowledge items of five entries, a page of 20 took 2.97 s (1.6.14: 0.96 s) and a page of 50 6.8 s, growing linearly with history; 200 Sessions of 200 distinct 1,000-character files with 30-entry items took 55 s, and one 15-star entry in each item 58 s. It now builds, once per call and per project, an index of the distinct paths the later Sessions changed (a stored path repeated across Sessions is normalized once; each distinct path keeps the Sessions that changed it and, when the call resolves more than two entries, is filed under each of its path segments), and resolves each distinct entry once per call against the paths that can match it: a plain entry only against the paths that have its rarest segment and the paths equal to the text after one of its `/`; a glob only against the paths that have a whole segment of its literal prefix or suffix, and against every distinct path only when it has none. Each candidate is still decided by the existing matcher, so the answers are the same (the code comments give the argument that the candidates contain every match). A read that resolves one or two entries (a single Knowledge read) tests them against every distinct path instead, which is faster than filing the segments. Same data: 0.19 s for a page of 20 and 0.17 s for a page of 50 (5× and 12× faster than 1.6.14); 5,000 Sessions 0.49 / 0.47 s (1.6.14: 2.4 / 5.4 s); the 200 × 200 × 1,000-character data 0.34 s with the correct answer; ordinary data of 5,000 / 20,000 Sessions 23 / 75 ms (1.6.14: 31 / 112 ms); one Knowledge item over 5,000 Sessions of 20 distinct files 0.18 s (1.6.27: 0.18 s, 1.6.14: 0.17 s).
+- The check has two fixed ceilings per call again, set from measurement: reading later Sessions into the index (2,200,000,000 units; the largest legitimate history measured, 5,000 Sessions of 50 distinct paths under a 110-character project root, uses 708M, and 20,000 ordinary Sessions 53M) and resolving entries (50,000,000 units; ordinary pages use about 1M, the 200 × 200 × 1,000-character data 12.7M). Reaching either marks the affected items `stalenessUnchecked`, never current. Reaching the history ceiling took at most 2.4 s and 380 MB on the development machine; the resolution ceiling about 0.2 s. The 15-star case now stops there and marks its items unchecked in 0.46 s (the earlier versions answered "stale" after 9–58 s).
+- Knowledge and Session list searches were 1.6–4× slower than 1.6.14 on ordinary data, and 2,000 Knowledge rows at the write limits with three words took 0.76 s instead of 0.075 s. The per-row guard of 1.6.27 put each word's field tests in a `CASE … THEN (a OR b OR …)` branch, where SQLite computes `OR` as a value and searched every field for every word; the tests are now a `CASE WHEN guard AND (a OR b OR …)` condition, which stops at the first field that has the word. A Session's event bytes, which needed a `SUM` over its events for every word, are now summed only when a word was not found in the Session's own columns and is about to read its events, at most once per row; the later words of a Session search re-check the first word's column bytes in SQL instead of calling the counting function again. Same results: 206 list queries on a real data copy and 44 on 5,000 synthetic Sessions return the same ids, order and totals. At 5,000 synthetic Sessions: Knowledge three-word list 3.3 ms (1.6.27 4.2, 1.6.14 2.3), Sessions three-word list 11.1 ms (23.3, 5.6), recall 75 ms (67, 75); 2,000 Knowledge rows at the write limits 98 ms (757, 75).
+- A Session whose own columns are within the 4 MiB search cap but whose events push it over it was skipped by every word; it is now found by words that appear in its columns, and a word that would read its events is still refused and counted. Only a hand-written database holds such a row.
+- `normalizePath` runs each of its three replacements only when its pattern can match, and remembers the lowered project root (bounded), with the same result.
+
+### Changed
+
+- Benchmark: the gate review's distinct-path staleness shape (2,000 Sessions × 50 distinct files, 200 Knowledge × 5 entries, page 20; 1,000 ms) and the 15-star glob that stops at the resolution ceiling (1,000 ms), on a database of their own.
+- Docs: the inventory in `docs/architecture.md` describes the indexed staleness check and gains the Knowledge-candidate overlap advisory (the newest 1,000 Knowledge items and 1,000 candidates of the project, the first 4,000 body characters each); `docs/mcp-tools.md` says that MCP reports skipped records in `warnings` and that `searchSkippedRecords` is a REST and Web field.
+- finalize `knowledgeToReview` already reads later Sessions once, newest first, with an early stop for the few candidates that name a changed file, so it keeps its own pass; only its SQL narrowing now stops at the first matching fragment. Its results are unchanged.
+
+### Upgrading from 1.6.14 or earlier
+
+Unchanged from the 1.6.27 note below: 1.6.28 changes no schema (33), response shape or import rule. `stalenessUnchecked` is again set by fixed per-call ceilings, far above legitimate use.
+
 ## [1.6.27] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.27.md).

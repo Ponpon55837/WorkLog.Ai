@@ -36,6 +36,11 @@ export const SESSION_SEARCH_ROW_BYTES = 4 * 1024 * 1024;
 export const PATH_SEARCH_ROW_BYTES = 4 * 1024;
 /** SQL function that checks one row for one word: CASE WHEN wi_list_search_charge(bytes) THEN <word> ELSE 0 END. */
 export const LIST_SEARCH_CHARGE_FUNCTION = "wi_list_search_charge";
+/** SQL functions for a row's costly part (a Session's events): its check, and the repeat for the next words. */
+const LIST_SEARCH_MORE_FUNCTION = "wi_list_search_more";
+const LIST_SEARCH_MORE_AGAIN_FUNCTION = "wi_list_search_more_again";
+/** SQL function a later word's in-SQL re-check calls only when it refuses a row: counts the row once, returns 0. */
+const LIST_SEARCH_REFUSED_FUNCTION = "wi_list_search_refused";
 
 export interface ListSearchTerms {
   /** Lower-case terms, each at most MAX_LIST_SEARCH_TERM_LENGTH characters, at most MAX_LIST_SEARCH_TERMS. */
@@ -53,10 +58,15 @@ export interface ListSearchScan {
   overBound: number;
   /** Units (bytes x termCount, plus one per check) the granted checks allowed to be read (debug counter for tests). */
   charged: number;
-  /** Checks granted: rows times the words that read them (debug counter for tests). */
+  /**
+   * Checks granted: rows times the words that read them, or rows once for a search whose later words re-check the
+   * first word's bytes in SQL (the Sessions list; listSearchRowGuard) (debug counter for tests).
+   */
   rowsCharged: number;
   /** Stored bytes the granted checks allowed to be read (debug counter for tests). */
   bytesCharged: number;
+  /** Rows whose costly part was measured (a Session's event bytes summed), at most once per row (debug counter). */
+  rowsMeasured: number;
 }
 
 /** Test instrumentation: records every scan, and may lower the row cap of the next ones. */
@@ -69,18 +79,81 @@ const registered = new WeakSet<DatabaseSync>();
 let activeScan: ListSearchScan | undefined;
 let scanProbe: ListSearchScanProbe | undefined;
 
-function chargeRow(bytes: unknown): number {
+/**
+ * The last row a keyed check measured in the active scan (its key, cheap bytes, and costly part once a word summed
+ * it). One scan is active at a time; runListSearchScan saves and restores it with the scan.
+ */
+let lastKey: unknown;
+let lastLength = 0;
+let lastMore: number | undefined;
+/** The last keyed row was refused (and counted). */
+let lastRefused = false;
+/** Counts one granted check that may read `length` bytes. */
+function grant(scan: ListSearchScan, length: number, checks: number): void {
+  scan.charged += (length + checks) * scan.termCount;
+  scan.rowsCharged += checks;
+  scan.bytesCharged += length;
+}
+
+function chargeRow(bytes: unknown, key?: unknown): number {
   const scan = activeScan;
   if (!scan) return 1;
   const length = typeof bytes === "number" && Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+  if (key !== undefined && key !== null) {
+    lastKey = key;
+    lastLength = length;
+    lastMore = undefined;
+    lastRefused = length > scan.maxRowBytes;
+  }
   if (length > scan.maxRowBytes) {
     scan.overBound += 1;
     return 0;
   }
-  scan.charged += (length + 1) * scan.termCount;
-  scan.rowsCharged += 1;
-  scan.bytesCharged += length;
+  grant(scan, length, 1);
   return 1;
+}
+
+/** The second check of a keyed row (chargeRow came first): its cheap bytes plus `more` must stay within the cap. */
+function checkMore(scan: ListSearchScan, more: number): number {
+  if (lastLength + more > scan.maxRowBytes) {
+    scan.overBound += 1;
+    return 0;
+  }
+  grant(scan, more, 0);
+  return 1;
+}
+
+function chargeMore(bytes: unknown, key: unknown): number {
+  const scan = activeScan;
+  if (!scan) return 1;
+  const more = typeof bytes === "number" && Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+  scan.rowsMeasured += 1;
+  // Only reachable after chargeRow granted this row; without its record the row is refused rather than guessed.
+  if (key === null || key === undefined || lastKey !== key) {
+    scan.overBound += 1;
+    return 0;
+  }
+  lastMore = more;
+  return checkMore(scan, more);
+}
+
+function countRefused(key: unknown): number {
+  const scan = activeScan;
+  if (!scan) return 0;
+  if (lastKey !== key || !lastRefused) {
+    lastKey = key;
+    lastMore = undefined;
+    lastRefused = true;
+    scan.overBound += 1;
+  }
+  return 0;
+}
+
+function chargeMoreAgain(key: unknown): number | null {
+  const scan = activeScan;
+  if (!scan) return 1;
+  if (lastMore === undefined || key === null || lastKey !== key) return null;
+  return checkMore(scan, lastMore);
 }
 
 function cutTerm(term: string): string {
@@ -129,8 +202,39 @@ export function parseListSearchTerms(query: string): ListSearchTerms {
  */
 export function registerListSearchFunctions(db: DatabaseSync): void {
   if (registered.has(db)) return;
-  db.function(LIST_SEARCH_CHARGE_FUNCTION, { deterministic: false }, chargeRow);
+  db.function(LIST_SEARCH_CHARGE_FUNCTION, { deterministic: false, varargs: true }, chargeRow);
+  db.function(LIST_SEARCH_MORE_FUNCTION, { deterministic: false }, chargeMore);
+  db.function(LIST_SEARCH_MORE_AGAIN_FUNCTION, { deterministic: false }, chargeMoreAgain);
+  db.function(LIST_SEARCH_REFUSED_FUNCTION, { deterministic: false }, countRefused);
   registered.add(db);
+}
+
+/**
+ * The guard of word `index`'s test of a row whose searched text has a cheap part (its own columns: octet_length reads
+ * the record header) and perhaps a costly part (listSearchMoreGuard). The first word checks and counts the row under
+ * `keySql` (its rowid) in JS; each later word repeats the same comparison of the same bytes with the same cap in SQL,
+ * so it needs no call per word (13,500 calls were a third of a three-word query over 5,000 Sessions), and calls JS
+ * only to count a row it refuses (once per row). Every word is guarded on its own, in whatever order SQLite runs them.
+ * `maxRowBytes` is the cap the scan will use (listSearchRowCap).
+ */
+export function listSearchRowGuard(keySql: string, cheapBytesSql: string, index: number, maxRowBytes: number): string {
+  if (index === 0) return `${LIST_SEARCH_CHARGE_FUNCTION}(${cheapBytesSql}, ${keySql})`;
+  return `((${cheapBytesSql}) <= ${Math.floor(maxRowBytes)} OR ${LIST_SEARCH_REFUSED_FUNCTION}(${keySql}))`;
+}
+
+/** The per-row cap a scan started with `maxRowBytes` will use (a test probe may lower it). */
+export function listSearchRowCap(maxRowBytes: number): number {
+  return scanProbe?.maxRowBytes ?? maxRowBytes;
+}
+
+/**
+ * The guard of the same word's test of the costly part, placed after the cheap tests so a word found there never
+ * sums it: the row's cheap and costly bytes together must stay within the cap. The first word that reaches it sums
+ * `moreBytesSql`; COALESCE evaluates its second argument only when the first is NULL, so the later words repeat that
+ * check from the recorded sum instead of summing again. Every word is still counted and refused the same way.
+ */
+export function listSearchMoreGuard(keySql: string, moreBytesSql: string): string {
+  return `COALESCE(${LIST_SEARCH_MORE_AGAIN_FUNCTION}(${keySql}), ${LIST_SEARCH_MORE_FUNCTION}(${moreBytesSql}, ${keySql}))`;
 }
 
 /** Test instrumentation only: records the scans of later calls into `probe` until called again. */
@@ -164,18 +268,26 @@ export function runListSearchScan<T>(
   registerListSearchFunctions(db);
   const scan: ListSearchScan = {
     termCount: Math.max(1, termCount),
-    maxRowBytes: scanProbe?.maxRowBytes ?? maxRowBytes,
+    maxRowBytes: listSearchRowCap(maxRowBytes),
     overBound: 0,
     charged: 0,
     rowsCharged: 0,
     bytesCharged: 0,
+    rowsMeasured: 0,
   };
   scanProbe?.scans.push(scan);
-  const previous = activeScan;
+  const previous = { scan: activeScan, key: lastKey, length: lastLength, more: lastMore, refused: lastRefused };
   activeScan = scan;
+  lastKey = undefined;
+  lastMore = undefined;
+  lastRefused = false;
   try {
     return { value: run(scan), scan };
   } finally {
-    activeScan = previous;
+    activeScan = previous.scan;
+    lastKey = previous.key;
+    lastLength = previous.length;
+    lastMore = previous.more;
+    lastRefused = previous.refused;
   }
 }

@@ -5,7 +5,6 @@ import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   APPLIES_TO_MATCH_UNIT_LIMIT,
-  APPLIES_TO_STALENESS_UNIT_LIMIT,
   appliesToStrength,
   createAppliesToBudget,
   MAX_STORED_APPLIES_TO_JSON_BYTES,
@@ -14,6 +13,7 @@ import {
   type AppliesToBudget,
 } from "../../packages/storage/src/applies-to-match.js";
 import { findKnowledgeToReview } from "../../packages/storage/src/knowledge-review-hint.js";
+import { STALENESS_HISTORY_UNIT_LIMIT } from "../../packages/storage/src/later-change-index.js";
 import {
   rankRelatedPending,
   rankRelatedPendingWithin,
@@ -244,6 +244,78 @@ describe("Sessions list search", () => {
   });
 });
 
+describe("Sessions list search, row checks", () => {
+  it("sums a Session's events at most once per row, and never for a row every word finds in its columns", () => {
+    const { store, root } = trackedStore();
+    finalize(store, root, "columns", ["src/alpha.ts"], "2026-03-01T10:00:00.000Z");
+    const events = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "events",
+      title: "Synthetic other",
+      summary: "Synthetic change.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/beta.ts"],
+      verification: { status: "passed" },
+      completedAt: "2026-03-01T11:00:00.000Z",
+      events: [{ type: "note", summary: "lease renewal and token refresh" }],
+    });
+    if (events.outcome !== "finalized") throw new Error("Could not finalize.");
+    const scans = probe();
+    // "synthetic" is in both titles; "lease" and "token" only in the second Session's event.
+    const result = store.listSessionsPage({ query: "synthetic lease token", trackedOnly: true });
+    expect(result).toMatchObject({ items: [{ title: "Synthetic other" }], pageInfo: { total: 1 } });
+    // The first row reaches the events once (for "lease", then fails); the second sums them once for both words.
+    expect(scans.scans[0]).toMatchObject({ rowsMeasured: 2, rowsCharged: 2, overBound: 0 });
+    const columnsOnly = probe();
+    store.listSessionsPage({ query: "synthetic change", trackedOnly: true });
+    expect(columnsOnly.scans[0]).toMatchObject({ rowsMeasured: 0, rowsCharged: 2 });
+  });
+
+  it("refuses and counts a row once when its events push it over the cap, whichever word reaches them", () => {
+    const { store, root, db } = trackedStore();
+    const kept = finalize(store, root, "small", ["src/alpha.ts"], "2026-03-01T10:00:00.000Z").session;
+    const large = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "large",
+      title: "Synthetic large",
+      summary: "Synthetic change.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/beta.ts"],
+      verification: { status: "passed" },
+      completedAt: "2026-03-01T11:00:00.000Z",
+      events: Array.from({ length: 3 }, () => ({ type: "note" as const, summary: `needle ${"e".repeat(1_500)}` })),
+    });
+    if (large.outcome !== "finalized") throw new Error("Could not finalize.");
+    db.prepare("UPDATE work_events SET summary = 'needle' WHERE session_id = ?").run(kept.id);
+    probe(2_000);
+    const result = store.listSessionsPage({ query: "synthetic needle", trackedOnly: true });
+    expect(result).toMatchObject({ items: [{ id: kept.id }], searchSkippedRecords: 1 });
+    expect(result.warnings).toEqual([expect.stringContaining("1 record is longer than")]);
+  });
+});
+
+describe("staleness index charges", () => {
+  it("charges every stored list, path and new distinct path to the history budget before it is read", () => {
+    const { store, root, db } = trackedStore();
+    recordKnowledge(store, root, "k", ["src/0.ts"]);
+    db.prepare("UPDATE knowledge SET created_at = '2026-01-01T00:00:00.000Z'").run();
+    const lists = Array.from({ length: 5 }, (_, index) =>
+      Array.from({ length: 40 }, (_, file) => `src/${index}/${file}/${"p".repeat(200)}.ts`),
+    );
+    lists.forEach((files, index) => finalize(store, root, `s${index}`, files, `2026-02-0${index + 1}T00:00:00.000Z`));
+    const budgets: AppliesToBudget[] = [];
+    setAppliesToBudgetProbe(budgets);
+    cleanups.push(() => setAppliesToBudgetProbe(undefined));
+    store.searchKnowledge({ projectRoot: root });
+    // At least: the JSON text at 4 units per character, then each path normalized (4 per character) and hashed (1),
+    // plus the constant work of each Session, each file and each new distinct path.
+    const text = lists.reduce((total, files) => total + JSON.stringify(files).length, 0);
+    const characters = lists.flat().reduce((total, file) => total + file.length, 0);
+    expect(budgets[0]!.units).toBeGreaterThanOrEqual(4 * text + characters * (4 + 1) + 200 * (32 + 500) + 5 * 2_000);
+    expect(budgets[0]!.exhausted).toBe(false);
+  });
+});
+
 describe("recall path comparison", () => {
   it("checks each stored path against the per-path cap before the substring test and reports skipped paths", () => {
     const { store, root } = trackedStore();
@@ -356,7 +428,7 @@ describe("staleness check", () => {
     );
     const files = Array.from({ length: 200 }, (_, file) => `${file}${ENTRY.slice(1)}`);
     finalize(store, root, "seed", files, "2026-02-01T00:00:00.000Z");
-    // Copies of the largest allowed list: 40 x 200 x 1,000 characters, more than the fixed 50M units could parse.
+    // Copies of the largest allowed list: 40 x 200 x 1,000 characters (8 MB of paths), read to the end.
     const row = db.prepare("SELECT * FROM sessions WHERE idempotency_key = 'seed'").get() as Record<string, unknown>;
     const columns = Object.keys(row);
     const insert = db.prepare(
@@ -373,7 +445,9 @@ describe("staleness check", () => {
     expect(store.searchKnowledge({ projectRoot: root })).toMatchObject({
       items: [{ id, possiblyStale: { sessionCount: 1 } }],
     });
-    expect(budgets[0]!.units).toBeGreaterThan(APPLIES_TO_STALENESS_UNIT_LIMIT);
+    // The history budget (the first) read every row, well under its ceiling.
+    expect(budgets[0]!.exhausted).toBe(false);
+    expect(budgets[0]!.units * 10).toBeLessThanOrEqual(STALENESS_HISTORY_UNIT_LIMIT);
     // A later list above the load bound cannot be read: the record is unchecked, not reported current.
     db.prepare("UPDATE sessions SET changed_files_json = ? WHERE id = 'copy-0'").run(
       JSON.stringify([`src/${"x".repeat(MAX_STORED_CHANGED_FILES_JSON_BYTES)}`]),

@@ -585,6 +585,105 @@ function seedStoredTextWorstCases(baseRoot) {
   return { store: reopened, path, root: worstRoot, listRoot, focus, nearMiss };
 }
 
+/**
+ * The staleness shapes of the 1.6.27 gate review, in a database of their own: 2,000 later Sessions of 50 distinct
+ * paths of about 100 characters with 200 Knowledge items of five appliesTo entries (two one-star globs), where 1.6.27
+ * compared every entry with every path (2.9 s for a page of 20 here, 1.0 s in 1.6.14); and, in a second project, 20
+ * Knowledge items whose 15-star glob every path of 10 Sessions x 200 x 1,000 characters is a candidate for, which must
+ * stop at the match ceiling and mark them unchecked. Sessions are copied in SQL from one finalized template.
+ */
+function seedDistinctPathStaleness(baseRoot) {
+  const distinctRoot = join(baseRoot, "distinct-paths");
+  const starRoot = join(baseRoot, "star-glob");
+  mkdirSync(distinctRoot, { recursive: true });
+  mkdirSync(starRoot, { recursive: true });
+  const path = join(baseRoot, "distinct-paths.sqlite");
+  const seedStore = new WorkIntelligenceStore(path);
+  const projects = [distinctRoot, starRoot].map((projectRoot, index) => {
+    const project = seedStore.addProject(index === 0 ? "distinct-paths" : "star-glob", projectRoot);
+    seedStore.updateProject(project.id, { status: "tracked" });
+    return project;
+  });
+  const record = (projectRoot, key, appliesTo) => {
+    const recorded = seedStore.recordKnowledge({
+      projectRoot,
+      idempotencyKey: key,
+      kind: "gotcha",
+      title: `Synthetic staleness rule ${key}`,
+      body: "Synthetic body.",
+      appliesTo,
+    });
+    if (recorded.outcome !== "knowledge_recorded") throw new Error(`Could not seed ${key}`);
+  };
+  for (let index = 0; index < 200; index += 1) {
+    record(distinctRoot, `distinct-${index}`, [
+      `src/m${index}/*.ts`,
+      index % 3 === 0 ? `src/d${index * 7}/*.ts` : `docs/g${index}/*.md`,
+      `src/zz${index}.ts`,
+      `packages/p${index}/index.ts`,
+      index % 5 === 0 ? `src/d${index * 3}` : `lib/q${index}`,
+    ]);
+  }
+  for (let index = 0; index < 20; index += 1) record(starRoot, `star-${index}`, ["*a".repeat(15)]);
+  for (const [index, projectRoot] of [distinctRoot, starRoot].entries()) {
+    const template = seedStore.finalizeSession({
+      projectRoot,
+      idempotencyKey: `template-${index}`,
+      title: "Synthetic template",
+      summary: "Synthetic.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/x.ts"],
+      verification: { status: "passed" },
+      completedAt: "2026-01-02T00:00:00.000Z",
+    });
+    if (template.outcome !== "finalized") throw new Error("Could not seed the staleness template.");
+  }
+  seedStore.close();
+  const database = new DatabaseSync(path);
+  try {
+    database
+      .prepare("UPDATE knowledge SET created_at = ?, updated_at = ?")
+      .run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+    const copies = [
+      [
+        "template-0",
+        projects[0].id,
+        2_000,
+        (session) => Array.from({ length: 50 }, (_, file) => `src/d${session}/${"f".repeat(85)}${file}.ts`),
+      ],
+      [
+        "template-1",
+        projects[1].id,
+        10,
+        (session) => Array.from({ length: 200 }, (_, file) => `${session}-${file}-${"a".repeat(990)}`),
+      ],
+    ];
+    database.exec("BEGIN");
+    for (const [key, projectId, count, files] of copies) {
+      const row = database.prepare("SELECT * FROM sessions WHERE idempotency_key = ?").get(key);
+      const columns = Object.keys(row);
+      const insert = database.prepare(
+        `INSERT INTO sessions (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+      );
+      for (let index = 0; index < count; index += 1) {
+        const copy = {
+          ...row,
+          id: `${key}-${index}`,
+          idempotency_key: `${key}-${index}`,
+          project_id: projectId,
+          completed_at: new Date(Date.parse("2026-02-01T00:00:00.000Z") + index * 1_000).toISOString(),
+          changed_files_json: JSON.stringify(files(index)),
+        };
+        insert.run(...columns.map((column) => copy[column]));
+      }
+    }
+    database.exec("COMMIT");
+  } finally {
+    database.close();
+  }
+  return { store: new WorkIntelligenceStore(path), distinctRoot, starRoot };
+}
+
 function listSessionDigestPage(targetStore, projectId) {
   const result = targetStore.listSessionsPage({ projectId, trackedOnly: true, page: 1, pageSize: 100 });
   const pendingItems = targetStore.pendingOutstandingItemsForSessions(result.items.map(({ id }) => id));
@@ -895,6 +994,7 @@ try {
   }));
   const worstText = seedStoredTextWorstCases(root);
   const worstTextDatabase = new DatabaseSync(worstText.path);
+  const distinctPaths = seedDistinctPathStaleness(root);
   const cases = {
     "getContext (large report source request)": () => {
       const result = benchStore.getContext(alphaRoot);
@@ -1292,6 +1392,24 @@ try {
         throw new Error("The staleness check must finish on legitimate history.");
       return result;
     },
+    // Each appliesTo entry is resolved against an index of the distinct later paths (later-change-index.ts).
+    "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": () => {
+      const result = distinctPaths.store.searchKnowledge({ projectRoot: distinctPaths.distinctRoot, pageSize: 20 });
+      if (
+        result.outcome !== "knowledge" ||
+        result.items.length !== 20 ||
+        result.items.some((item) => item.stalenessUnchecked) ||
+        !result.items.some((item) => item.possiblyStale)
+      )
+        throw new Error("The indexed staleness check must finish on distinct-path history.");
+      return result;
+    },
+    "searchKnowledge (15-star glob stops at the staleness match ceiling)": () => {
+      const result = distinctPaths.store.searchKnowledge({ projectRoot: distinctPaths.starRoot, pageSize: 20 });
+      if (result.outcome !== "knowledge" || !result.items.every((item) => item.stalenessUnchecked))
+        throw new Error("A 15-star glob tested against every long path must stop at the match ceiling.");
+      return result;
+    },
     "summarizeAgentReads (5,000 rows)": () => {
       const result = benchStore.summarizeAgentReads({});
       if (result.tools.length !== 12 || result.tools.some((tool) => tool.p95Ms === null))
@@ -1506,6 +1624,8 @@ try {
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": 1000,
     "knowledgeToReview (200 candidates, 5,000 later Sessions)": 250,
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": 500,
+    "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": 1000,
+    "searchKnowledge (15-star glob stops at the staleness match ceiling)": 1000,
     "searchKnowledgeForAgent (relaxed fallback)": 250,
     createBackup: 300,
     "exportTo (whole database)": 300,
@@ -1701,6 +1821,7 @@ try {
   heavyStore.close();
   worstText.store.close();
   worstTextDatabase.close();
+  distinctPaths.store.close();
   reindexStore.close();
   overlapDatabase.close();
   benchStore.close();
