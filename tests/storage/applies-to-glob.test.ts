@@ -371,7 +371,9 @@ describe("appliesTo match budget", () => {
     if (listed.outcome !== "knowledge") throw new Error("Expected a Knowledge list.");
     expect(listed.items[0]).toMatchObject({ stalenessUnchecked: true });
     expect(listed.items[0]).not.toHaveProperty("possiblyStale");
-  });
+    // Four scans each run until their whole budget is spent, which is seconds of work by design and several times
+    // slower under coverage instrumentation, so this test gets its own timeout.
+  }, 120_000);
 
   it("keeps ordinary scans of another project whole and unflagged", () => {
     const { store, root, otherRoot } = syntheticStore();

@@ -289,7 +289,8 @@ describe("appliesTo accounting invariant", () => {
     expect(counter.examined).toBe(0);
     expect(budget.skippedEntries).toBe(3 + 5);
     expect(budget.exhausted).toBe(false);
-  });
+    // Every case runs a scan until its budget is spent; under coverage instrumentation that is many seconds.
+  }, 120_000);
 
   it("charges a cache miss for every distinct pattern, so evicting cannot turn into unpaid recompiling", () => {
     const patterns = Array.from({ length: 1_200 }, (_, item) => `${item}-*${"a".repeat(MAX_PATTERN - 10)}`);
