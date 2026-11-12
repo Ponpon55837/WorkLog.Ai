@@ -113,6 +113,7 @@ export class KnowledgeSearchService {
       pageInfo: strict.pageInfo,
       ...(relaxedMatches.length > 0 ? { relaxedMatches } : {}),
       ...(otherStatuses.length > 0 ? { otherStatusMatches } : {}),
+      ...(ranking.appliesToScanTruncated ? { appliesToScanTruncated: true as const } : {}),
       hint: hints.join(" "),
     };
   }

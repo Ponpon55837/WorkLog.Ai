@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeRecord, KnowledgeStaleness } from "../../packages/core/src/index.js";
-import { compileAppliesTo, normalizePath } from "../../packages/storage/src/search-text.js";
+import { compileAppliesTo } from "../../packages/storage/src/applies-to-match.js";
+import { normalizePath } from "../../packages/storage/src/search-text.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only. The oracle below is the original per-Knowledge × per-Session × per-file implementation

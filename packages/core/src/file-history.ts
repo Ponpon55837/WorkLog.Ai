@@ -67,6 +67,8 @@ export interface FileHistoryResult {
   /** Active Knowledge whose appliesTo covers a requested path, best match first. */
   knowledge: Array<{ type: "knowledge"; id: string; title: string }>;
   knowledgeOmitted?: number;
+  /** The appliesTo match budget ran out, so older Knowledge was not checked against the requested paths. */
+  appliesToScanTruncated?: true;
   /** Digests were shortened or dropped to keep the response within budget. */
   budgetTrimmed?: true;
   readWith: "work_get_session";

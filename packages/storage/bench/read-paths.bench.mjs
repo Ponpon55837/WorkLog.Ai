@@ -46,13 +46,13 @@ const [
   { LATEST_SCHEMA_VERSION, toAgentReportContext, toSessionDigests, WorkIntelligenceStore },
   recallEvaluation,
   mcpRuntime,
-  { appliesToStrength },
+  { appliesToStrength, compileAppliesTo, createAppliesToBudget },
   { findKnowledgeCandidateOverlaps },
 ] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
   import(pathToFileURL(join(repositoryRoot, "apps", "mcp", "dist", "recall-evaluation.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "shared", "dist", "mcp-runtime.js")).href),
-  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "search-text.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "applies-to-match.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-candidate-overlap.js")).href),
 ]);
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
@@ -1081,6 +1081,25 @@ try {
       for (const path of ["a".repeat(500), `${"a/".repeat(249)}a`, "ba".repeat(250)])
         if (appliesToStrength(pattern, path) !== 0) throw new Error("The star-heavy pattern must not match.");
     },
+    // The second security review's input: 30 entries of 500 stars against 20 paths at the 1,000-character limit.
+    // The star bound rejects each pair in one step; unbounded, this took about 3.5 s.
+    "appliesTo glob (30 x 500-star patterns, 20 x 1,000-char paths)": () => {
+      const budget = createAppliesToBudget();
+      const pattern = "a*".repeat(500);
+      for (let entry = 0; entry < 30; entry += 1)
+        for (let path = 0; path < 20; path += 1)
+          if (appliesToStrength(pattern, "a".repeat(1_000), budget) !== 0)
+            throw new Error("A glob above the star bound must not match.");
+      if (budget.steps !== 600) throw new Error("Each over-complex pair must cost one step.");
+    },
+    // The costliest globs the star bound allows (16 stars between literal runs a long path contains) until one scan's
+    // match budget runs out: the wall-clock side of the deterministic step limit.
+    "appliesTo scan (16-star patterns until the match budget runs out)": () => {
+      const budget = createAppliesToBudget();
+      const matches = compileAppliesTo(`${`**${"a".repeat(62)}`.repeat(15)}**`);
+      for (let pair = 0; pair < 600 && !budget.exhausted; pair += 1) matches("a".repeat(1_000), budget);
+      if (!budget.exhausted) throw new Error("The scan must stop at its match budget.");
+    },
     // 30 submitted candidates against 500 Knowledge items of one project: each existing item is tokenized once.
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": () => {
       const result = findKnowledgeCandidateOverlaps(
@@ -1284,6 +1303,8 @@ try {
     "getHotspots (directories, month)": 500,
     "getFileHistory (3 paths)": 50,
     "appliesTo glob (star-heavy pattern, 500-char paths)": 20,
+    "appliesTo glob (30 x 500-star patterns, 20 x 1,000-char paths)": 20,
+    "appliesTo scan (16-star patterns until the match budget runs out)": 100,
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,

@@ -48,6 +48,11 @@ interface OutstandingItemDependencies {
 }
 
 const RELATED_PENDING_LIMIT = 5;
+/**
+ * Pending items one relatedPending call scores at most, after the SQL prefilter. The real database holds 43 pending
+ * items in its largest project; this is about 45 times that and bounds what a scope with runaway pending work loads.
+ */
+const RELATED_PENDING_CANDIDATE_LIMIT = 2_000;
 
 function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
   return {
@@ -177,8 +182,13 @@ export class OutstandingItemService {
   /**
    * Reads the eligible pending items once and scores them in memory, returning at most five pointers. SQL folds the
    * text fields with lower() so term matching keeps SQLite's case rules; paths are normalized once per Session.
+   *
+   * At most RELATED_PENDING_CANDIDATE_LIMIT items are read, newest source Sessions first; the scorer sorts what it
+   * keeps, so below the limit the read order changes nothing. When more items qualify, `truncated` says so and `total`
+   * counts the read ones only. (A SQL relevance prefilter was measured and left out: on real data it removed few rows
+   * and doubled the call's time.)
    */
-  public relatedPending(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number } {
+  public relatedPending(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number; truncated?: true } {
     if (input.projectId) {
       const policy = this.dependencies.checkProjectById(input.projectId);
       if (!policy.allowed || !policy.project) return { items: [], total: 0 };
@@ -202,7 +212,7 @@ export class OutstandingItemService {
     if (!terms.length && !paths.length && !sources.length) return { items: [], total: 0 };
     const candidates = this.db
       .prepare(
-        baseSelect(
+        `${baseSelect(
           `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?`,
           `i.*, p.name AS project_name, s.title AS source_session_title,
            s.completed_at AS source_session_completed_at,
@@ -210,11 +220,22 @@ export class OutstandingItemService {
            ${terms.length ? "lower(s.title)" : "''"} AS title_key,
            ${terms.length ? "lower(substr(s.summary, 1, 2000))" : "''"} AS summary_key,
            ${paths.length ? "s.changed_files_json" : "'[]'"} AS changed_files_json`,
-        ),
+        )}
+         ORDER BY s.completed_at DESC, i.source_session_id DESC, i.position, i.id
+         LIMIT ?`,
       )
-      .all(...(input.projectId ? [input.projectId] : []), input.excludeSourceSessionId ?? "") as RelatedPendingRow[];
-    const ranked = rankRelatedPending(candidates, { terms, paths, sources });
-    return { items: ranked.slice(0, RELATED_PENDING_LIMIT).map(toOutstandingItem), total: ranked.length };
+      .all(
+        ...(input.projectId ? [input.projectId] : []),
+        input.excludeSourceSessionId ?? "",
+        RELATED_PENDING_CANDIDATE_LIMIT + 1,
+      ) as RelatedPendingRow[];
+    const truncated = candidates.length > RELATED_PENDING_CANDIDATE_LIMIT;
+    const ranked = rankRelatedPending(truncated ? candidates.slice(0, -1) : candidates, { terms, paths, sources });
+    return {
+      items: ranked.slice(0, RELATED_PENDING_LIMIT).map(toOutstandingItem),
+      total: ranked.length,
+      ...(truncated ? { truncated: true as const } : {}),
+    };
   }
 
   public batchUpdateStatus(input: BatchUpdateOutstandingItemStatusInput): BatchUpdateOutstandingItemStatusResult {

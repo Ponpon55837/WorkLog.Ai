@@ -236,10 +236,13 @@ function applyToDatabase(database: DatabaseSync, apply: boolean): DatabaseRedact
 
 /** Dry-run scans read-only. Apply takes an exclusive lock, backs up, and rewrites text in one transaction. */
 /**
- * Re-indexes the documents the redaction marked dirty while the exclusive lock is still held, so the first read
- * after the API restarts does not re-index them inline. Only a database already at the latest schema has the index
- * layout this build writes; an older one keeps its dirty marks and is re-indexed after its migration. A failure
- * leaves the marks in place, and the next read re-indexes those documents as it did before.
+ * Re-indexes the documents the redaction marked dirty, after its transaction has committed and on the same
+ * connection, so the first read after the API restarts does not re-index them inline. Running outside that
+ * transaction is safe: the redaction already deleted the documents' old index rows (chunks, full-text entries, paths)
+ * and marked them dirty in the same transaction as the rewrite, so no index row with the old text survives the
+ * commit whether or not this step runs. Only a database already at the latest schema has the index layout this
+ * build writes; an older one keeps its dirty marks and is re-indexed after its migration. A failure leaves the marks
+ * in place, and the next read re-indexes those documents as it did before.
  */
 function reindexRedactedDocuments(database: DatabaseSync): void {
   try {

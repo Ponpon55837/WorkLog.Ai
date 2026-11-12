@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { APPLIES_TO_GLOB_STARS_FIX, isOverComplexAppliesToGlob } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import type {
   FinalizeSessionInput,
@@ -22,7 +23,8 @@ import type {
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
-import { compileAppliesTo, normalizePath, type PathContext } from "./search-text.js";
+import { compileAppliesTo, createAppliesToBudget, type AppliesToBudget } from "./applies-to-match.js";
+import { normalizePath, type PathContext } from "./search-text.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { cleanList, parseJson, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
 import type { KnowledgeAuditRow, KnowledgeRow } from "./session-record-codecs.js";
@@ -55,6 +57,13 @@ interface AppliedKnowledgeRow {
 }
 
 const FEEDBACK_HISTORY_LIMIT = 100;
+/**
+ * Match steps one trust read may spend on staleness. Unlike the caller-path scans it compares every distinct appliesTo
+ * entry of the read Knowledge with every distinct file later Sessions changed, both stored, so it grows with history:
+ * a copy of real data spent about 73,000 steps for its whole Knowledge list. This leaves room for 200 times that
+ * history and still caps a crafted pattern at well under a second.
+ */
+const STALENESS_MATCH_STEP_LIMIT = 16_000_000;
 
 /** Knowledge goes possibly stale when a Session after its last confirmation (or creation) touches appliesTo. */
 function stalenessSince(knowledge: KnowledgeRecord): string {
@@ -84,14 +93,18 @@ interface LaterSessionIndex {
   /** appliesTo pattern -> distinct matching files and the ascending Session indexes touching any of them; filled lazily. */
   patternMatches: Map<string, PatternMatches>;
   sessionIndexById?: Map<string, number>;
+  /** Shared by every pattern of one trust read, across projects. */
+  budget: AppliesToBudget;
 }
 
 interface PatternMatches {
   files: Set<string>;
   sessionIndexes: number[];
+  /** The match budget ran out while (or before) this pattern was compared with every file. */
+  incomplete: boolean;
 }
 
-function buildLaterSessionIndex(sessions: LaterSession[]): LaterSessionIndex {
+function buildLaterSessionIndex(sessions: LaterSession[], budget: AppliesToBudget): LaterSessionIndex {
   const sessionsByFile = new Map<string, number[]>();
   sessions.forEach((session, index) => {
     for (const file of session.files) {
@@ -106,7 +119,7 @@ function buildLaterSessionIndex(sessions: LaterSession[]): LaterSessionIndex {
       }
     }
   });
-  return { sessions, sessionsByFile, patternMatches: new Map() };
+  return { sessions, sessionsByFile, patternMatches: new Map(), budget };
 }
 
 /** Matches one normalized pattern against every distinct changed file once; all Knowledge sharing it reuse the result. */
@@ -119,14 +132,19 @@ function matchesForPattern(index: LaterSessionIndex, pattern: string): PatternMa
   const files = new Set<string>();
   const touched = new Set<number>();
   for (const [file, indexes] of index.sessionsByFile) {
-    if (matches(file)) {
+    if (matches(file, index.budget)) {
       files.add(file);
       for (const sessionIndex of indexes) {
         touched.add(sessionIndex);
       }
     }
+    if (index.budget.exhausted) break;
   }
-  const result = { files, sessionIndexes: [...touched].sort((a, b) => a - b) };
+  const result = {
+    files,
+    sessionIndexes: [...touched].sort((a, b) => a - b),
+    incomplete: index.budget.exhausted,
+  };
   index.patternMatches.set(pattern, result);
   return result;
 }
@@ -146,11 +164,15 @@ function lowerBound(values: number[], target: number): number {
   return low;
 }
 
+/**
+ * The possiblyStale marker of one Knowledge record, or "unchecked" when the match budget ran out before its patterns
+ * were compared with every later file: a partial comparison can neither prove nor rule out staleness.
+ */
 function knowledgeStaleness(
   knowledge: KnowledgeRecord,
   laterSessions: LaterSessionIndex,
   contexts: PathContext[],
-): KnowledgeStaleness | undefined {
+): KnowledgeStaleness | "unchecked" | undefined {
   const { sessions } = laterSessions;
   const patterns = [...new Set(knowledge.appliesTo.map((pattern) => normalizePath(pattern, contexts)).filter(Boolean))];
   if (patterns.length === 0) {
@@ -158,6 +180,9 @@ function knowledgeStaleness(
   }
   const start = firstSessionAfter(sessions, stalenessSince(knowledge));
   const matches = patterns.map((pattern) => matchesForPattern(laterSessions, pattern));
+  if (matches.some((match) => match.incomplete)) {
+    return "unchecked";
+  }
   const touched = new Set<number>();
   for (const { sessionIndexes } of matches) {
     for (let at = lowerBound(sessionIndexes, start); at < sessionIndexes.length; at += 1) {
@@ -315,12 +340,13 @@ export class KnowledgeService {
       }
     }
 
-    const staleness = new Map<string, KnowledgeStaleness>();
+    const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
+    const budget = createAppliesToBudget(STALENESS_MATCH_STEP_LIMIT);
     for (const [projectId, group] of byProject) {
       const project = this.dependencies.getProjectById(projectId);
       const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
       const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
-      const sessions = buildLaterSessionIndex(this.loadLaterSessions(projectId, earliest, contexts));
+      const sessions = buildLaterSessionIndex(this.loadLaterSessions(projectId, earliest, contexts), budget);
       for (const item of group) {
         const result = knowledgeStaleness(item, sessions, contexts);
         if (result) {
@@ -333,7 +359,7 @@ export class KnowledgeService {
       const counts = evidence.get(item.id);
       return {
         ...item,
-        ...(result ? { possiblyStale: result } : {}),
+        ...(result === "unchecked" ? { stalenessUnchecked: true as const } : result ? { possiblyStale: result } : {}),
         ...(counts ? { evidence: counts } : {}),
       };
     });
@@ -647,7 +673,22 @@ export class KnowledgeService {
       this.insertFeedback(auditId, next, "manual_confirm", updatedAt);
     }
 
-    return { outcome: "knowledge_updated", knowledge: this.withKnowledgeTrust(next), redactions };
+    // The schema lets an update keep entries above the star bound; say they never match and how to fix them.
+    const overComplex = input.appliesTo
+      ? next.appliesTo.flatMap((pattern, index) => (isOverComplexAppliesToGlob(pattern) ? [index] : []))
+      : [];
+    return {
+      outcome: "knowledge_updated",
+      knowledge: this.withKnowledgeTrust(next),
+      redactions,
+      ...(overComplex.length > 0
+        ? {
+            warnings: [
+              `appliesTo entries at positions ${overComplex.join(", ")} (from 0) never match. ${APPLIES_TO_GLOB_STARS_FIX}`,
+            ],
+          }
+        : {}),
+    };
   }
 
   public getKnowledgeHistory(input: KnowledgeHistoryQuery): KnowledgeHistoryResult {

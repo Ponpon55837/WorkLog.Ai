@@ -63,7 +63,7 @@ Schema 31 新增資料與 Agent 讀取稽核 revisions。MCP build 相容性識�
 
 MCP 回應是一張回條，不回顯 Agent 剛送出的內容：`session` 只有 `id`、`executionStatus`、`completedAt`、`updatedAt`、`verificationStatus`、`changedFilesCount`，以及伺服器自己決定或補上的事實——由事件推得或與請求不同的 `startedAt`、與請求不同時的已保存 `changedFiles`（正規化、排除基準或由變更事件加入）、請求沒帶 `git` 時伺服器讀到的 `commitSha`／`gitBranch`、作廢狀態。`redactions` 只在有遮蔽時出現；`resolvedOutstandingItemIds`／`supersededOutstandingItemIds` 在請求帶了 id 或重試還原出結果時出現；follow-up、警告、`knowledgePageMaintenanceHint`、`relatedOutstandingItems` 與 `knowledgeToReview` 照常回傳。title、summary、workSummary 與送出的 changedFiles 不再回傳，需要時以 `work_get_session` 讀取。`structuredContent` 是同一張回條加上 `sessionId`、`changedFilesCount` 與 `verification: { status }`。storage 的 finalize 結果不變（測試、bench 與 CLI 仍拿到完整 Session）。
 
-`knowledgeToReview` 最多列 3 筆同專案、狀態為 active 的 Knowledge，條件有二：其 `appliesTo` 直接點名本次的某個變更檔案（與路徑完全相同，或是比對得到的 glob；只涵蓋上層目錄或只是路徑後綴的不算），而且這次 Session 是它被記錄或最後確認以來第一個改到它涵蓋檔案的 Session，也就是 `possiblyStale` 因本次才開始。已經是 `possiblyStale` 的 Knowledge 在每次讀取時都會標示，不在這裡重複。每筆有 `id`、`title`（最多 120 字元）、命中的 `path`，以及與 `path` 不同時命中的 `appliesTo`；完全相同的排在 glob 前，同類再依 Knowledge 更新時間由新到舊。與其他 appliesTo 掃描一樣最多讀最新的 2,000 筆。本次 Session 自己記錄的、或已在本次 `appliedKnowledgeIds`／`contradictedKnowledgeIds` 回報過的 Knowledge 不列入；完成時間早於 Knowledge 確認時間的補登 Session 也不會觸發。這只是提示，不改任何 Knowledge；Agent 依契約檢查：仍成立就用 `work_update_knowledge` 帶 `confirm: true`，被本次變更推翻就告知使用者並在確認後更新，不確定就保留。它與相關未結項、知識頁提示都在交易提交後才計算，查詢失敗只會省略該欄位。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
+`knowledgeToReview` 最多列 3 筆同專案、狀態為 active 的 Knowledge，條件有二：其 `appliesTo` 直接點名本次的某個變更檔案（與路徑完全相同，或是比對得到的 glob；只涵蓋上層目錄或只是路徑後綴的不算），而且這次 Session 是它被記錄或最後確認以來第一個改到它涵蓋檔案的 Session，也就是 `possiblyStale` 因本次才開始。已經是 `possiblyStale` 的 Knowledge 在每次讀取時都會標示，不在這裡重複。每筆有 `id`、`title`（最多 120 字元）、命中的 `path`，以及與 `path` 不同時命中的 `appliesTo`；完全相同的排在 glob 前，同類再依 Knowledge 更新時間由新到舊。與其他 appliesTo 掃描一樣最多讀最新的 2,000 筆，並共用一次呼叫的比對步數預算（見下方 `appliesTo`）；預算用完時停止掃描，已找到的提示照常回傳並帶 `knowledgeToReviewTruncated: true`。本次 Session 自己記錄的、或已在本次 `appliedKnowledgeIds`／`contradictedKnowledgeIds` 回報過的 Knowledge 不列入；完成時間早於 Knowledge 確認時間的補登 Session 也不會觸發。這只是提示，不改任何 Knowledge；Agent 依契約檢查：仍成立就用 `work_update_knowledge` 帶 `confirm: true`，被本次變更推翻就告知使用者並在確認後更新，不確定就保留。它與相關未結項、知識頁提示都在交易提交後才計算，查詢失敗只會省略該欄位。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
 選填 `agentModel`（最多 100 字）：Agent 知道自己確切的模型 id（例如 system prompt 中的 id）時可帶入；不確定就省略，不要猜，省略不會有警告或追問。Agent 用戶端名稱（例如 Claude Code、Codex）不需要傳入，由 MCP server 在連線 initialize 握手時自動記錄（`getClientVersion().name`）；REST finalize 不記錄用戶端。兩者都顯示在 Session 面板，既有 Session 維持未回報；同一 `idempotencyKey` 重試保留第一次的值。
 
 
@@ -141,7 +141,7 @@ MCP client 的 stdio 設定可使用：
 
 | 欄位 | 內容 |
 | --- | --- |
-| `relevant.outstandingItems` | 依項目關鍵字、來源 changed-file 路徑與來源 Session 檢索順序排序的 pending 指標；直接文字／路徑命中可找出來源不在前 20 筆 Session 的舊項目。最多 5 項，每項只有 `id`、`sourceSessionId` 與最多 240 字的文字摘錄（截短時 `textTruncated`），來源 Session 標題在 `relevant.sessions` 或讀一次 `work_get_session` 即可取得；附 total／omitted 與證據提示，預算省略在 omitted 指向完整清單。先讀來源 Session，排名不代表已完成。 |
+| `relevant.outstandingItems` | 依項目關鍵字、來源 changed-file 路徑與來源 Session 檢索順序排序的 pending 指標；直接文字／路徑命中可找出來源不在前 20 筆 Session 的舊項目。最多 5 項，每項只有 `id`、`sourceSessionId` 與最多 240 字的文字摘錄（截短時 `textTruncated`），來源 Session 標題在 `relevant.sessions` 或讀一次 `work_get_session` 即可取得；附 total／omitted 與證據提示，預算省略在 omitted 指向完整清單。每次最多讀取並排名 2,000 筆 pending 項目（來源 Session 由新到舊）；範圍內更多時帶 `truncated: true`，total 只計入已排名的項目。finalize 回條的 `relatedOutstandingItems` 同樣適用。先讀來源 Session，排名不代表已完成。 |
 | `relevant.confidence` | 規則同 `work_recall`：`none` 時沒有可引用依據；`high` 與 `low` 都只代表字面相符，依賴前都要讀原文。來源讀完仍不支持答案時，明確回覆「資料不足」，不可依字面、confidence 或排名推論 |
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.supplements` | 選填的可能相關指標；最多 4 筆，限最終保留的前三筆 Session 的一層 parent／related 與 active applied Knowledge。它們不是字面命中或答案證據，需讀取完整來源；Knowledge 可附 `possiblyStale`／`needsReview` |
@@ -189,7 +189,7 @@ MCP client 的 stdio 設定可使用：
 | `omitted` | `older`：比 `recent` 最後一筆更早的 Session 數；`attention`：未列出的更早失敗／未執行 Session 數 |
 | `nextCursor` | 還有更早的 Session 時出現；以相同單一路徑帶回 `cursor` 分頁 |
 
-頂層 `knowledge` 列出 `appliesTo` 涵蓋任一路徑的 active Knowledge（`type`、`id`、`title`，最多 5 筆，其餘以 `knowledgeOmitted` 計數），比對規則與 `work_recall` 相同（glob、完全相同、路徑尾段、目錄）。回應上限為單一路徑 4,000 字元、每多一個路徑再加 3,000 字元；超過時依序縮短文字、只保留 id 與計數，最後才捨棄最舊的摘要，並標示 `budgetTrimmed: true`，計數與 `nextCursor` 仍然完整。`readWith: "work_get_session"` 搭配 `readArguments: { view: "handoff" }`：以 handoff 精準讀取 Session，每個變更路徑只列一次。
+頂層 `knowledge` 列出 `appliesTo` 涵蓋任一路徑的 active Knowledge（`type`、`id`、`title`，最多 5 筆，其餘以 `knowledgeOmitted` 計數），比對規則與 `work_recall` 相同（glob、完全相同、路徑尾段、目錄）；比對步數預算用完時停止掃描並帶 `appliesToScanTruncated: true`。回應上限為單一路徑 4,000 字元、每多一個路徑再加 3,000 字元；超過時依序縮短文字、只保留 id 與計數，最後才捨棄最舊的摘要，並標示 `budgetTrimmed: true`，計數與 `nextCursor` 仍然完整。`readWith: "work_get_session"` 搭配 `readArguments: { view: "handoff" }`：以 handoff 精準讀取 Session，每個變更路徑只列一次。
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "paths": ["src/report/range.ts"] }
@@ -491,7 +491,7 @@ Knowledge 必須由 Agent 明確提交，不會因為 finalize、handoff 或 sou
 | `relaxed` | 沒有任何一筆包含全部的詞；`items` 為空，改附最多 3 筆 `relaxedMatches` |
 | `none` | 嚴格與寬鬆比對都沒有結果 |
 
-`relaxedMatches` 是同一個範圍（專案、`kind`、`status`）內依相關度排序的部分符合：使用與 `work_recall` 相同的斷詞（中文雙字組、識別字拆分）與排序，以 OR 比對，並把像路徑的詞拿去比對 `appliesTo`（glob、完全相同、路徑尾段或目錄）與 references 路徑。每筆是摘要而非完整記錄：`id`、`kind`、`status`、`title`、最多 3 個 `appliesTo`（其餘以 `appliesToOmittedCount` 計數）、`matchedTerms`（記錄中出現的查詢詞元，最多 8 個）、`matchedPaths`（命中的 `appliesTo`／reference 路徑，最多 3 個）、以命中詞為中心最多 400 字的內文 `excerpt`（內文被截斷時帶 `excerptTruncated: true`），以及 `possiblyStale`／`needsReview` 旗標；不限定專案時另帶 `projectId`／`projectName`。要讀完整內容時以 `work_get_knowledge_history`（`projectRoot`、`knowledgeId`）讀取，回應的 `knowledge` 就是完整記錄。只靠固定同義詞命中的記錄不會列入，因為每筆都必須能說出共有哪些詞。部分符合不是答案，Agent 必須讀過完整記錄再引用。
+`relaxedMatches` 是同一個範圍（專案、`kind`、`status`）內依相關度排序的部分符合：使用與 `work_recall` 相同的斷詞（中文雙字組、識別字拆分）與排序，以 OR 比對，並把像路徑的詞拿去比對 `appliesTo`（glob、完全相同、路徑尾段或目錄）與 references 路徑。每筆是摘要而非完整記錄：`id`、`kind`、`status`、`title`、最多 3 個 `appliesTo`（其餘以 `appliesToOmittedCount` 計數）、`matchedTerms`（記錄中出現的查詢詞元，最多 8 個）、`matchedPaths`（命中的 `appliesTo`／reference 路徑，最多 3 個）、以命中詞為中心最多 400 字的內文 `excerpt`（內文被截斷時帶 `excerptTruncated: true`），以及 `possiblyStale`／`needsReview` 旗標；不限定專案時另帶 `projectId`／`projectName`。路徑詞比對 `appliesTo` 時，比對步數預算用完會停止掃描並帶 `appliesToScanTruncated: true`。要讀完整內容時以 `work_get_knowledge_history`（`projectRoot`、`knowledgeId`）讀取，回應的 `knowledge` 就是完整記錄。只靠固定同義詞命中的記錄不會列入，因為每筆都必須能說出共有哪些詞。部分符合不是答案，Agent 必須讀過完整記錄再引用。
 
 `match` 為 `relaxed` 或 `none` 時，若其他狀態有符合的記錄，會附 `otherStatusMatches`（例如 `{ "archived": 2 }`），只有數量、不含內容；數字是改傳該 `status` 時會得到的筆數（有嚴格結果時算嚴格筆數，否則算寬鬆筆數）。`hint` 用一句話說明結果性質與要改傳哪個 `status`。所有計數都在已通過 policy gate 的同一範圍內，不會揭露其他專案或非 tracked 專案的 Knowledge。不帶 `q` 的清單不會出現這些欄位。REST `GET /api/knowledge` 不回傳這些欄位。
 
@@ -501,7 +501,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 
 ### 可信度：`appliesTo`、確認與取代
 
-- `appliesTo`：這筆 Knowledge 針對的專案內路徑或 glob（`*`、`**`、`?`；一般路徑也涵蓋其下的檔案）。從最後確認時間（沒有就用建立時間）之後，同專案未作廢的 Session 改到符合的檔案時，讀取結果會帶 `possiblyStale`（第一筆改動的 Session、路徑與之後共幾筆）。這是規則判斷，不推測內容是否真的過時；建立它的 Session 與最後確認它的 Session 不算。
+- `appliesTo`：這筆 Knowledge 針對的專案內路徑或 glob（`*`、`**`、`?`；一般路徑也涵蓋其下的檔案）。從最後確認時間（沒有就用建立時間）之後，同專案未作廢的 Session 改到符合的檔案時，讀取結果會帶 `possiblyStale`（第一筆改動的 Session、路徑與之後共幾筆）。這是規則判斷，不推測內容是否真的過時；建立它的 Session 與最後確認它的 Session 不算。glob 最多可有 16 個星號（`*` 或 `**`，相鄰的同類星號算一個）；新增 Knowledge（`work_record_knowledge`、REST 新增）、提交候選與審核候選時的編輯超過時以驗證錯誤拒絕，訊息說明如何改寫（拆成較窄的 glob 或列出一般路徑）。`work_update_knowledge`／REST 更新不拒絕這類樣式，所以已儲存的超限記錄仍可封存或只改其他欄位，重送原本的 `appliesTo` 也可以；只要更新後的 `appliesTo` 仍有超限項目，回應會帶 `warnings` 指出位置與改法。JSON 匯入、還原與讀取不套用這條規則，已儲存或匯入的超限樣式照原樣讀出，但永遠不比對。每次掃描的 appliesTo 比對有固定的步數預算（每組樣式與路徑 1 步，加上模擬比對時每讀一個路徑字元依樣式長度計步），與時間無關，結果可重現；一般資料只用到極小比例，只有刻意構造的樣式會用完。讀取 Knowledge 時若 staleness 比對預算用完，該筆帶 `stalenessUnchecked: true`，表示沒有 `possiblyStale` 不代表仍然有效。
 - `supersedesId`：記錄新 Knowledge 時指定它取代的舊 Knowledge（同專案），舊的會自動封存並留下 audit；找不到時只在 `warnings` 提示，不影響保存。
 - finalize 的 `appliedKnowledgeIds`：這次工作用到且仍然有效的 Knowledge，最後確認時間移到這筆 Session，並清除「需要檢視」。`contradictedKnowledgeIds`：這次工作發現已不成立的 Knowledge，會帶 `review`（`contradicted`、Session、時間）。找不到的 id 列在 `knowledgeWarnings`。所有變更都寫入 Knowledge audit。
 - `work_get_context` 的 `recentKnowledge` 與 `work_recall` 的 Knowledge hit 會帶 `possiblyStale`／`needsReview` 旗標；使用前應先打開原文確認。

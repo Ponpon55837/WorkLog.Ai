@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FinalizeSessionInput, KnowledgeRecord } from "../../packages/core/src/index.js";
-import { matchesAppliesTo } from "../../packages/storage/src/search-text.js";
+import { matchesAppliesTo } from "../../packages/storage/src/applies-to-match.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only.

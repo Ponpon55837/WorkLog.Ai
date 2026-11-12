@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.23（已完成）
+
+第二次安全複檢的發現已處理。`appliesTo` glob 比對的成本有上限：比對前先做精確排除，一個 glob 最多 16 個星號（超過的已儲存或匯入樣式仍可讀出但不比對，新增時以驗證錯誤拒絕，更新時回傳 `warnings`），每次掃描另有固定步數預算，用完時以 `appliesToScanTruncated`、`knowledgeToReviewTruncated` 或 `stalenessUnchecked` 標示。30 筆 500 個星號的樣式對 20 個 1,000 字元路徑由約 3.6 秒降到不到 2 ms，一般樣式結果不變（實際資料 59,682 組比對一致）。相關未結項每次最多讀 2,000 筆，超過時帶 `truncated`，實際資料 300 個焦點結果與順序不變。核心 skill 補回 Agent 自主決策只在 Web 審核、不可用 finalize 繞過整理未結項審核兩條規則。`db:redact` 註解更正。Web 尚未顯示新標示。schema 維持 32。
+
 ## 1.6.22（已完成）
 
 Agent 開始工作前要讀的內容變少：work-intelligence skill 拆成每次工作都要讀的核心（隱私與追蹤規則、開始工作、證據規則、finalize 流程）與六份按需讀取的流程指南（`reading-records`、`diagrams`、`repair-and-backfill`、`outstanding-cleanup`、`synthesis`、`knowledge`），以 MCP resource 與 skill 資料夾內的 `references/` 檔案提供，plugin、Claude Desktop 擴充與 standalone 套件都會帶上。重複的規則改放在 Agent 需要時會讀到的契約或指南，finalize 專用規則移到只附在 `work_finalize_session` 的收尾契約。固定閱讀量 63,209 → 39,642 字（−37%），核心 skill 35,554 → 12,893 字，記錄格式文件 11,789 → 7,749 字；少用流程最多 29,115 字（原 47,343）。拆分前抽出的 350 條規範性敘述全部仍讀得到（296 條逐字、54 條合併或改寫），並以測試鎖定預算、核心規則與指南 URI。四個 Session 更新工具的 MCP 回應改為回條，實際資料原本 3,534–5,940 字，合成資料現在 303–405 字；REST 與 storage 結果不變。user-level skill 安裝仍只複製 `SKILL.md`，指南經 MCP 讀取。schema 維持 32。

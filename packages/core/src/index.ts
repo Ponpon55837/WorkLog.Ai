@@ -1,3 +1,4 @@
+export * from "./applies-to.js";
 export * from "./attention.js";
 export * from "./file-history.js";
 export * from "./related-work.js";
@@ -706,6 +707,12 @@ export interface KnowledgeRecord {
    * confirmation (or creation), so the Knowledge may no longer hold.
    */
   possiblyStale?: KnowledgeStaleness;
+  /**
+   * Computed on read: the read's appliesTo match budget ran out before this Knowledge's entries were compared with
+   * every later changed file (only crafted, star-heavy stored data gets here), so a missing possiblyStale proves
+   * nothing.
+   */
+  stalenessUnchecked?: true;
   /** Computed on read from knowledge_feedback; absent when no Session or person has confirmed or contradicted it. */
   evidence?: KnowledgeEvidence;
 }
@@ -802,6 +809,8 @@ export interface UpdatedKnowledgeResult {
   outcome: "knowledge_updated";
   knowledge: KnowledgeRecord;
   redactions?: RedactionSummary;
+  /** Present when the saved appliesTo keeps an entry that never matches (a glob above the star bound). */
+  warnings?: string[];
 }
 
 export interface KnowledgeUpdateNotFoundResult {
@@ -903,6 +912,11 @@ export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
   relaxedMatches?: RelaxedKnowledgeMatch[];
   /** Matches in the statuses this search did not cover, counted the same way; counts only, never content. */
   otherStatusMatches?: Partial<Record<KnowledgeStatus, number>>;
+  /**
+   * The relaxed search's appliesTo match budget ran out (only crafted, star-heavy stored patterns reach it), so
+   * older Knowledge was not checked against the path words of the query.
+   */
+  appliesToScanTruncated?: true;
   hint?: string;
 }
 
@@ -1587,6 +1601,8 @@ export interface FinalizedSessionResult {
   relatedOutstandingItems?: RelatedOutstandingItems;
   /** Active Knowledge whose appliesTo covers a file this Session changed; advisory, nothing was changed. */
   knowledgeToReview?: KnowledgeReviewHint[];
+  /** The appliesTo match budget ran out, so older Knowledge was not checked for knowledgeToReview. */
+  knowledgeToReviewTruncated?: true;
   outstandingItemWarnings?: {
     unresolvedIds: string[];
     unsupersededIds?: string[];
@@ -2855,6 +2871,8 @@ export interface RelatedOutstandingItems {
   }>;
   total: number;
   omitted: number;
+  /** More pending items passed the relevance prefilter than one read scores; total counts the newest scored ones. */
+  truncated?: true;
   hint?: string;
 }
 
