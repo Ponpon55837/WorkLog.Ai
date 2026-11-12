@@ -1640,7 +1640,11 @@ try {
   const eventLoopBlockLimitMs = 100;
 
   const results = [];
-  const benchmarkCases = backupWorkerOnly ? heavyCases : { ...cases, ...heavyCases };
+  // The heavy cases run first. They read their own snapshot through their own store, so nothing they do reaches the
+  // other cases; run last, they were measured while the operating system was still writing out what the earlier
+  // cases produced (the dirty-document copy, the worst-case stores), and Ubuntu CI saw createBackup at 193–213 ms and
+  // exportTo at 262–305 ms against 133 and 225 ms before those cases existed, with every CPU-bound case unchanged.
+  const benchmarkCases = backupWorkerOnly ? heavyCases : { ...heavyCases, ...cases };
   const selectedCases = Object.entries(benchmarkCases).filter(
     ([name]) =>
       (backupWorkerOnly || !checkMode || name in limitsMs) && (!benchmarkCaseFilter || name === benchmarkCaseFilter),

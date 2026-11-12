@@ -89,10 +89,12 @@ export const STALENESS_HISTORY_UNIT_LIMIT = 2_200_000_000;
 /**
  * Units one staleness read may spend resolving appliesTo patterns against the index. Ordinary reads spend about 1M (a
  * page of 50 over 20,000 ordinary Sessions 1.3M; 5,000 Sessions of 50 distinct files 0.4M), and 200 Sessions of 200
- * distinct 1,000-character files against 50 x 30 entries of 1,000 characters 12.7M. A 15-star glob that every path is
- * a candidate for stops here, after about 0.2 s.
+ * distinct 1,000-character files against 50 x 30 entries of 1,000 characters 12.7M. Directory entries that many paths
+ * fall under cost far more: a page of 50 over 2,000 Sessions of 50 distinct files, with a directory entry of about
+ * 8,000 candidates per item, needed between 50M and 150M in the release review, which is why the ceiling is 300M and
+ * not the 50M first chosen. At about 4 ns per unit, reaching it is roughly 1.2 s (estimated from the unit cost).
  */
-export const STALENESS_MATCH_UNIT_LIMIT = 50_000_000;
+export const STALENESS_MATCH_UNIT_LIMIT = 300_000_000;
 
 /**
  * Units for the constant work of each Session row, of each stored file, of a new distinct path (its map entries and

@@ -359,6 +359,8 @@ describe("staleness ceilings", () => {
       });
     }
     db.prepare("UPDATE knowledge SET created_at = '2026-01-01T00:00:00.000Z'").run();
+    // A ceiling this small data can reach: the shipped one sits far above it so that ordinary pages always finish.
+    setStalenessUnitLimits({ match: 50_000_000 });
     const budgets: AppliesToBudget[] = [];
     setAppliesToBudgetProbe(budgets);
     const result = store.searchKnowledge({ projectRoot: root, pageSize: 20 });

@@ -10,6 +10,7 @@ import {
   matchesAppliesTo,
   setAppliesToWorkCounter,
 } from "../../packages/storage/src/applies-to-match.js";
+import { setStalenessUnitLimits } from "../../packages/storage/src/later-change-index.js";
 
 // Fictional paths and patterns only.
 const ORDINARY_PATTERNS = [
@@ -169,6 +170,7 @@ function recordScoped(store: WorkIntelligenceStore, projectRoot: string, key: st
 
 afterEach(() => {
   vi.useRealTimers();
+  setStalenessUnitLimits(undefined);
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });
 
@@ -367,6 +369,8 @@ describe("appliesTo match budget", () => {
     });
     expect(finalized).toMatchObject({ outcome: "finalized", knowledgeToReviewTruncated: true });
     expect(finalized).not.toHaveProperty("knowledgeToReview");
+    // A ceiling this small data can reach: the shipped one sits far above it so that ordinary pages always finish.
+    setStalenessUnitLimits({ match: 50_000_000 });
     const listed = store.searchKnowledge({ projectRoot: root, limit: 10 });
     if (listed.outcome !== "knowledge") throw new Error("Expected a Knowledge list.");
     expect(listed.items[0]).toMatchObject({ stalenessUnchecked: true });
