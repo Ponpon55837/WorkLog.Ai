@@ -54,6 +54,7 @@ import {
   toVoidAudit,
   toVerificationUpdate,
   toKnowledge,
+  normalizeCommitSha,
 } from "./session-record-codecs.js";
 import type {
   EvidenceRow,
@@ -429,7 +430,7 @@ export class SessionRecordService {
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
           changedFileChanges: JSON.stringify(changedFileChanges),
           verification: nextVerification ? JSON.stringify(nextVerification) : null,
-          commitSha: input.git?.commitSha ?? current.commitSha ?? null,
+          commitSha: normalizeCommitSha(input.git?.commitSha) ?? current.commitSha ?? null,
           gitBranch: input.git?.branch ?? current.gitBranch ?? null,
           redactionCount: redactions.total,
         });

@@ -299,6 +299,8 @@ export const useSessionsStore = defineStore("sessions", () => {
   const sessions = computed(() => sessionsQuery.data.value?.items ?? []);
   const sessionsLoading = computed(() => sessionsQuery.isLoading.value);
   const sessionsLoaded = computed(() => sessionsQuery.data.value !== undefined);
+  // Records the text search skipped as too large to read; the list notes that its results may be incomplete.
+  const sessionsSkippedRecords = computed(() => sessionsQuery.data.value?.searchSkippedRecords ?? 0);
   // Only a list that never loaded shows the error state; a failed refresh keeps the rows already shown.
   const sessionsError = computed(() =>
     sessionsQuery.error.value && !sessionsLoaded.value
@@ -448,6 +450,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessions,
     sessionsLoading,
     sessionsLoaded,
+    sessionsSkippedRecords,
     sessionsError,
     linkCandidates,
     linkCandidatesLoading,

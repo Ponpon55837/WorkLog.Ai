@@ -110,7 +110,8 @@
     "workHistory": "Work history",
     "workKnowledge": "Work knowledge",
     "yes": "Yes",
-    "yesterday": "Yesterday"
+    "yesterday": "Yesterday",
+    "searchSkippedRecords": "{count} record is too large to search and was skipped, so results may be incomplete; narrow the search.|{count} records are too large to search and were skipped, so results may be incomplete; narrow the search."
   },
   "dashboard": {
     "activityCalendarLabel": "Work activity over the past year, one day per cell",

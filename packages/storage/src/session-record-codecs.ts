@@ -645,6 +645,14 @@ export function withKnowledgeDefaults(record: KnowledgeRecord): KnowledgeRecord 
   return { ...record, appliesTo: record.appliesTo ?? [] };
 }
 
+/**
+ * A recorded commit id as stored: hex in lower case, the form Git prints and the commitSha filter seeks in the index.
+ * Anything that is not plain hex is kept as given.
+ */
+export function normalizeCommitSha(commitSha: string | undefined): string | undefined {
+  return commitSha && /^[0-9a-f]+$/i.test(commitSha) ? commitSha.toLowerCase() : commitSha;
+}
+
 export function cleanList(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => value.trim().replace(/\\/g, "/")).filter(Boolean))];
 }

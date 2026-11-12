@@ -48,6 +48,7 @@ const {
   sessionsLoading,
   sessionsLoaded,
   sessionsError,
+  sessionsSkippedRecords,
   searchTerm,
   selectedProjectId,
   selectedAgent,
@@ -231,6 +232,13 @@ onBeforeUnmount(() => {
     <template #actions
       ><UiButton size="sm" @click="retrySessions">{{ t("common.retry") }}</UiButton></template
     >
+  </UiFlash>
+  <UiFlash
+    v-else-if="sessionsSkippedRecords > 0 && tab === 'sessions'"
+    tone="attention"
+    data-testid="sessions-search-incomplete"
+  >
+    {{ t("common.searchSkippedRecords", { count: sessionsSkippedRecords }) }}
   </UiFlash>
 
   <section

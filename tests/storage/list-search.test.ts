@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
-import { splitSearchTerms } from "../../packages/storage/src/sql-like.js";
+import { splitSearchTerms } from "../../packages/storage/src/list-search-scan.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only.

@@ -9,7 +9,7 @@ import type {
   ProjectListRecord,
 } from "@work-intelligence/core";
 import { ProjectDataTransferError, canonicalizeProjectRoot } from "@work-intelligence/storage";
-import { projectDataImportInputSchema } from "@work-intelligence/schema";
+import { projectDataImportInputSchema, validationIssueMessage } from "@work-intelligence/schema";
 
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 export const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -122,7 +122,10 @@ export function parseProjectDataImportBytes(bytes: Uint8Array): ProjectDataImpor
 
   const parsed = projectDataImportInputSchema.safeParse(value);
   if (!parsed.success) {
-    throw new RequestBodyError(400, `匯入檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+    throw new RequestBodyError(
+      400,
+      `匯入檔格式錯誤：${validationIssueMessage(parsed.error.issues[0]) ?? "欄位驗證失敗。"}`,
+    );
   }
   return parsed.data;
 }

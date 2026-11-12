@@ -166,6 +166,11 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const knowledgeLoading = computed(() => listQuery.isLoading.value);
   // "Loaded" means the first answer arrived; until then counts are unknown, not zero.
   const knowledgeLoaded = computed(() => listQuery.data.value !== undefined);
+  // Records the text search skipped as too large to read; the list notes that its results may be incomplete.
+  const knowledgeSkippedRecords = computed(() => {
+    const data = listQuery.data.value;
+    return data?.outcome === "knowledge" ? (data.searchSkippedRecords ?? 0) : 0;
+  });
   const knowledgeError = computed(() => {
     if (listQuery.error.value) return errorMessage(listQuery.error.value, t("knowledge.couldNotLoadKnowledge"));
     const result = listQuery.data.value;
@@ -295,6 +300,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     knowledgeStatus,
     knowledgeLoading,
     knowledgeLoaded,
+    knowledgeSkippedRecords,
     knowledgeError,
     setKnowledgeListActive,
     loadKnowledge,

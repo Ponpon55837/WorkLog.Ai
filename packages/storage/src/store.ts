@@ -206,6 +206,7 @@ import {
 import { createPageInfo } from "./pagination.js";
 import { GraphBuilder } from "./graph-builder.js";
 import { KnowledgeRepository } from "./knowledge-repository.js";
+import { registerListSearchFunctions } from "./list-search-scan.js";
 import { ProjectRepository, type ProjectUpdate } from "./project-repository.js";
 import { ProjectLocationService } from "./project-location-service.js";
 import { MetadataBackfillService } from "./metadata-backfill-service.js";
@@ -281,6 +282,7 @@ import {
   getVerificationFollowUp,
   getChangedFilesFollowUp,
   getWorkSummaryFollowUp,
+  normalizeCommitSha,
 } from "./session-record-codecs.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
 
@@ -444,6 +446,8 @@ export class WorkIntelligenceStore {
       this.db.close();
       throw error;
     }
+    // Before any statement runs: SQLite refuses to define a function while a statement is active.
+    registerListSearchFunctions(this.db);
     this.projectDataTransfer = new ProjectDataTransferService(this.db);
     this.projects = new ProjectRepository(this.db);
     this.projectLocationService = new ProjectLocationService(this.db, this.projects);
@@ -1718,7 +1722,7 @@ export class WorkIntelligenceStore {
           workSummary: JSON.stringify(sanitizedWorkSummary.value),
           completedAt,
           createdAt,
-          commitSha: git?.commitSha ?? null,
+          commitSha: normalizeCommitSha(git?.commitSha) ?? null,
           gitBranch: git?.branch ?? null,
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
           changedFilesConfirmed: input.changedFiles !== undefined || normalizedChangedFiles.files.length > 0 ? 1 : 0,

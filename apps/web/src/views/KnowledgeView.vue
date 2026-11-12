@@ -53,6 +53,7 @@ const {
   knowledgeStatus,
   knowledgeLoading,
   knowledgeError,
+  knowledgeSkippedRecords,
 } = storeToRefs(knowledgeStore);
 const { loadKnowledge, retryKnowledge, setKnowledgeListActive } = knowledgeStore;
 const {
@@ -270,6 +271,13 @@ onBeforeUnmount(() => {
     <template #actions
       ><UiButton size="sm" @click="retryKnowledge">{{ t("common.retry") }}</UiButton></template
     >
+  </UiFlash>
+  <UiFlash
+    v-else-if="knowledgeSkippedRecords > 0 && tab === 'list'"
+    tone="attention"
+    data-testid="knowledge-search-incomplete"
+  >
+    {{ t("common.searchSkippedRecords", { count: knowledgeSkippedRecords }) }}
   </UiFlash>
 
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />

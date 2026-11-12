@@ -205,6 +205,31 @@ describe("work data stores", () => {
     expect(store.sessionsError).toBe("");
   });
 
+  it("exposes how many records a list search skipped as too large, and nothing for ordinary answers", async () => {
+    const page = { page: 1, pageSize: 10, total: 0, totalPages: 1, from: 0, to: 0, hasPrevious: false, hasNext: false };
+    harness.setResponder(({ url, method }) => {
+      if (url.pathname === "/api/sessions") return { items: [], pageInfo: page, searchSkippedRecords: 2 };
+      if (url.pathname === "/api/knowledge")
+        return { outcome: "knowledge", projects: [], items: [], pageInfo: page, searchSkippedRecords: 1 };
+      return workResponder({ url, method, body: undefined, signal: undefined });
+    });
+    const sessions = useSessionsStore();
+    sessions.setSessionsListActive(true);
+    await vi.waitFor(() => expect(sessions.sessionsSkippedRecords).toBe(2));
+    const knowledge = useKnowledgeStore();
+    knowledge.setKnowledgeListActive(true);
+    await vi.waitFor(() => expect(knowledge.knowledgeSkippedRecords).toBe(1));
+    expect(t("common.searchSkippedRecords", { count: 2 })).toMatch(/2/);
+
+    harness.setResponder(workResponder);
+    sessions.searchTerm = "ordinary";
+    sessions.loadSessions();
+    await vi.waitFor(() =>
+      expect(harness.calls.some(({ url }) => url.searchParams.get("q") === "ordinary")).toBe(true),
+    );
+    await vi.waitFor(() => expect(sessions.sessionsSkippedRecords).toBe(0));
+  });
+
   it("maps a report API error and blocks incomplete or oversized custom ranges before fetching", async () => {
     const store = useReportsStore();
     store.reportPeriod = "custom";

@@ -29,7 +29,21 @@ export type RelatedPendingCandidate = {
   changed_files_json: string;
 };
 
+/**
+ * Work one relatedPending call may spend scoring, in character units charged before the work runs: each candidate's
+ * three text keys once per term (String.prototype.includes, about 1.8 ns per character and term for 80-character
+ * near-miss terms over repeated letters), and per source Session its changed-files JSON (parsed and folded) plus each
+ * stored path once per query path. 50M units is about 100 ms on the development machine; the worst allowed input
+ * (2,000 items of 4,000 characters, 24 near-miss terms, 20 query paths against 200 stored paths of 1,000 characters)
+ * took 2.1 s unbounded. Real data uses well under 1%.
+ */
+export const RELATED_PENDING_UNIT_LIMIT = 50_000_000;
+/** Per-pair constant work of a path comparison (four prefix/suffix checks), in the units above. */
+const PATH_PAIR_UNITS = 16;
+const JSON_UNITS_PER_CHAR = 4;
+
 const TEXT_WEIGHT = 3;
+let relatedPendingProbe: number[] | undefined;
 const TITLE_WEIGHT = 0.5;
 const SUMMARY_WEIGHT = 0.25;
 const PATH_WEIGHT = 10;
@@ -79,6 +93,35 @@ export function rankRelatedPending<T extends RelatedPendingCandidate>(
   candidates: readonly T[],
   focus: RelatedPendingFocus,
 ): T[] {
+  return rankRelatedPendingWithin(candidates, focus, Number.POSITIVE_INFINITY).ranked;
+}
+
+/** Measurement instrumentation only: records the units of every scoring run until called again. */
+export function setRelatedPendingProbe(probe: number[] | undefined): void {
+  relatedPendingProbe = probe;
+}
+
+/**
+ * rankRelatedPending within `limitUnits` (see RELATED_PENDING_UNIT_LIMIT). Candidates arrive newest source Session
+ * first; each is charged before it is scored, and once the budget would be passed the rest are left out and
+ * `exhausted` is set, so the ranking covers the newest candidates the budget could afford.
+ */
+export function rankRelatedPendingWithin<T extends RelatedPendingCandidate>(
+  candidates: readonly T[],
+  focus: RelatedPendingFocus,
+  limitUnits: number,
+): { ranked: T[]; exhausted: boolean; units: number } {
+  let units = 0;
+  let exhausted = false;
+  const charge = (cost: number): boolean => {
+    if (units + cost > limitUnits) {
+      exhausted = true;
+      return false;
+    }
+    units += cost;
+    return true;
+  };
+  const termCount = Math.max(1, focus.terms.length);
   const sourceWeights = new Map(
     focus.sources.map((id, index) => [id, (SOURCE_WEIGHT_STEPS - index) / SOURCE_WEIGHT_STEPS]),
   );
@@ -89,10 +132,19 @@ export function rankRelatedPending<T extends RelatedPendingCandidate>(
     if (pathScore === undefined) {
       pathScore = 0;
       if (focus.paths.length > 0) {
+        if (!charge(JSON_UNITS_PER_CHAR * candidate.changed_files_json.length + 1)) break;
         const stored = storedPaths(candidate.changed_files_json);
+        const storedUnits = stored.reduce((total, path) => total + path.length + PATH_PAIR_UNITS, 0);
+        if (!charge(storedUnits * focus.paths.length)) break;
         for (const query of focus.paths) if (stored.some((path) => pathMatches(path, query))) pathScore += 1;
       }
       pathsBySession.set(candidate.source_session_id, pathScore);
+    }
+    if (
+      focus.terms.length > 0 &&
+      !charge((candidate.text_key.length + candidate.title_key.length + candidate.summary_key.length + 3) * termCount)
+    ) {
+      break;
     }
     const relevance =
       countTerms(candidate.text_key, focus.terms) * TEXT_WEIGHT +
@@ -102,7 +154,7 @@ export function rankRelatedPending<T extends RelatedPendingCandidate>(
       pathScore * PATH_WEIGHT;
     if (relevance > 0) scored.push({ candidate, relevance });
   }
-  return scored
+  const ranked = scored
     .sort(
       (left, right) =>
         right.relevance - left.relevance ||
@@ -112,4 +164,6 @@ export function rankRelatedPending<T extends RelatedPendingCandidate>(
         compareBinary(left.candidate.id, right.candidate.id),
     )
     .map((entry) => entry.candidate);
+  relatedPendingProbe?.push(units);
+  return { ranked, exhausted, units };
 }

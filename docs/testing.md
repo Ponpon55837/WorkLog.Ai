@@ -168,8 +168,10 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 知識搜尋寬鬆備援（嚴格零命中後的 FTS 排序、`appliesTo` 路徑比對與其他狀態計數） | 250 ms |
 | 檔案歷史（3 個路徑、每個 28–125 筆 Session：整段歷史統計、摘要、驗證失敗／未執行提醒與 `appliesTo` Knowledge；本機 p90 2.98 ms） | 50 ms |
 | `appliesTo` glob 比對（儲存的大量星號樣式對 3 個 500 字元路徑；不回溯的比對器，本機 p90 0.44 ms） | 20 ms |
-| `appliesTo` glob 比對（30 筆 500 個星號的樣式對 20 個 1,000 字元路徑；超過 16 個星號每組 1 步即拒絕，未設上限時約 3.5 秒；本機 p90 0.7 ms） | 20 ms |
-| `appliesTo` 掃描（16 個星號、字面片段都在路徑中的最貴樣式，跑到比對步數預算用完；本機 p90 9.87 ms） | 100 ms |
+| `appliesTo` glob 比對（30 筆 500 個星號的樣式對 20 個 1,000 字元路徑；超過 16 個星號的樣式不模擬即拒絕，未設上限時約 3.5 秒；本機 p90 0.7 ms） | 20 ms |
+| `appliesTo` 掃描（16 個星號、字面片段都在路徑中的最貴樣式，跑到比對預算用完；1.6.26 預算改以字元操作計、約 100 ms 目標，本機 p90 69.7 ms） | 250 ms |
+| `appliesTo` 掃描（2 個星號夾約 600 字元近似重複的字面片段，2,000 筆 × 30 項 × 20 個 1,000 字元路徑，跑到預算用完；1.6.25 每組只計 1 步、約 50 秒；本機 p90 63.2 ms） | 250 ms |
+| `appliesTo` 儲存項目（2 MB 的單一項目不解析即略過（1.6.27 起解析每字元計 4 單位，超過約 2.5 MB 的清單在 SQL 端就不載入，所以改用 2 MB），之後不重複的 1,000 字元項目逐一編譯直到預算用完；1.6.25 編譯 5 MB 項目約 1.7 秒、674 MB；本機 p90 89.9 ms） | 250 ms |
 | Knowledge 候選重疊檢查（30 筆候選對同專案 500 筆 Knowledge，每筆既有記錄只斷詞一次；本機 p90 32.9 ms） | 150 ms |
 | Session 列表依 commit 前綴（`work_list_sessions` 的 `commitSha`：歧義檢查、計數與一頁；合成 Session 沒有 commit，量的是索引 seek，本機 p90 0.2 ms） | 50 ms |
 | 未結項清單（5,000 個 Session 中的 1,000 筆合成項目） | 250 ms |
@@ -183,6 +185,9 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 工作熱度日曆（一整年，每日 Session 計數，本地日於記憶體分桶） | 250 ms |
 | Agent 讀取各工具耗時統計（`summarizeAgentReads`，5,000 筆稽核、12 個工具，含失敗與無耗時舊紀錄） | 100 ms |
 | Knowledge 列表含過時判斷（20 筆 Knowledge × 一年的 Session） | 500 ms |
+| Knowledge 列表搜尋最壞情況（另一份資料庫：200 筆 × 30 項 1,000 字元 `appliesTo`，8 個 200 字元近似詞；每筆成本固定、讀完全部且沒有 `warnings`，與筆數成正比；1.6.26 的 `LIKE` 約 15.7 秒，本機 p90 287 ms） | 1,000 ms |
+| finalize `knowledgeToReview` 最壞情況（200 筆候選、5,000 個之後的 Session 各 20 × 100 字元檔案，最舊的一個碰到全部候選；1.6.26 每筆候選各掃一次約 2.9 秒，本機 p90 23 ms） | 250 ms |
+| Knowledge 讀取的過時判斷（之後 5,000 個 Session 各 20 × 100 字元檔案；預算隨讀到的 Session 成長，讀完且不標 `stalenessUnchecked`；1.6.26 以 `.all()` 讀 50 × 100 字元約 433 ms、235 MB，本機 p90 188 ms） | 500 ms |
 | 手動備份（`createBackup`，整個資料庫快照） | 300 ms |
 | 整庫匯出（`exportTo`，`VACUUM INTO`） | 300 ms |
 | 專案資料匯出（`exportProjectData`，全部專案） | 400 ms |
@@ -194,7 +199,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 
 2026-11-06 在 Windows／Node 24.16.0 使用同一份 5,000 Sessions 合成快取，兩個專案共 1,000 個待辦（目標專案 500 個）；每個獨立 bench 行程跑 15 次，三組都依序 main → branch。每組操作 p90／交易 p90 為：main 89.77／54.67 → branch 83.79／23.14 ms；main 114.06／75.40 → branch 112.98／31.06 ms；main 146.99／126.44 → branch 146.95／46.88 ms。所有操作 p90 都在原有 250 ms 上限內；三組交易 p90 分別降低 57.7%、58.8%、62.9%。最後一組以含 50 ms 交易門檻的 bench 執行，main 如預期因交易 p90 超標失敗，branch 通過。
 
-`operationP90Ms` 從 client 開始送出重工作請求，到完整讀完 API 回應，包含 worker `postMessage`、結構化複製的請求／回應資料、JSON 輸出和傳輸成本。專案匯出在 worker 將 JSON 編碼為 UTF-8 bytes，轉移 ArrayBuffer 回主執行緒，避免 structured-clone 複製大型字串；HTTP body 仍是相同 JSON bytes。匯入預覽會在 API 收到原始 bytes 後把 ArrayBuffer 轉移給 worker，由 worker 解析與驗證大型 JSON，避免主執行緒同步解析。worker 模式另列冷啟動操作時間：每筆請求建立新的 worker client，HTTP 計時包含 worker 啟動，回應後的 worker 關閉不計入；此欄只回報，不設門檻。bench 另以 10 ms 取樣列出各操作的程序 RSS 峰值，並在一次合成自動備份後等待 worker idle close 再列閒置 RSS；穩態 bench 與正式 server 都使用 15 秒 idle timeout。案例沿用同一個 5,000 Sessions 合成 store；`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入 `export/`，兩者在每次計時前清空（不計入時間）；匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。
+`operationP90Ms` 從 client 開始送出重工作請求，到完整讀完 API 回應，包含 worker `postMessage`、結構化複製的請求／回應資料、JSON 輸出和傳輸成本。專案匯出在 worker 將 JSON 編碼為 UTF-8 bytes，轉移 ArrayBuffer 回主執行緒，避免 structured-clone 複製大型字串；HTTP body 仍是相同 JSON bytes。匯入預覽會在 API 收到原始 bytes 後把 ArrayBuffer 轉移給 worker，由 worker 解析與驗證大型 JSON，避免主執行緒同步解析。worker 模式另列冷啟動操作時間：每筆請求建立新的 worker client，HTTP 計時包含 worker 啟動，回應後的 worker 關閉不計入；此欄只回報，不設門檻。bench 另以 10 ms 取樣列出各操作的程序 RSS 峰值，並在一次合成自動備份後等待 worker idle close 再列閒置 RSS；穩態 bench 與正式 server 都使用 15 秒 idle timeout。四個重案例不讀共用 store，而是讀種子資料建好、任何案例執行前（WAL checkpoint 後）複製出的同一份資料庫檔：其他案例會寫入共用 store（finalize 案例新增 Session 與每輪的 Knowledge、未結項清理等），1.6.26 以前完整執行到重案例時共用檔已比只跑 `--backup-worker-only` 時大約 5%（26.5 → 27.9 MB），備份與匯出複製的檔案也跟著變大。結果表的 `databaseBytes` 是重案例看到的檔案大小，完整執行與 `--backup-worker-only`（同一份 `WI_BENCH_CACHE`）相同（26,484,736 bytes）。`createBackup` 寫入暫存根目錄下的 `backups/`，`exportTo` 寫入 `export/`，兩者在每次計時前清空（不計入時間）；匯入預覽使用計時前先匯出一次的全部專案資料，所以每筆 Session 都判定為已存在。其他讀取案例仍共用 store，會看到前面 finalize 案例新增的約 48 個 Session 與 16 筆 Knowledge（約 1%）；年報 ANALYZE、大量變更後第一次讀取、候選重疊與 1.6.27 的儲存文字最壞情況各用自己的資料庫。
 
 經驗證的快照先寫進同一目錄內的私有 staging directory，quick check 成功後優先以 `linkSync` 原子建立正式目標。若 hard link 失敗且錯誤不是 `EEXIST`，程式以 `openSync(target, "wx")` 專有地建立目的檔佔位，再將 staging 檔 `renameSync` 到目的路徑；佔位會阻止另一個遵循相同 no-clobber 流程的程序發布同名檔。若佔位建立遇到 `EEXIST`，保留既有目標；若 rename 失敗，刪除本次佔位並回報原始 rename 錯誤。備份、匯出或 migration 前備份完成後，目標目錄只留下正式輸出，沒有 `.wi-publish-*` 鎖檔或 staging 目錄。
 

@@ -24,6 +24,7 @@ import {
   projectDataImportInputSchema,
   projectDataColumnValue,
   projectDataExportTableColumns,
+  validationIssueMessage,
 } from "@work-intelligence/schema";
 import { nowIso } from "@work-intelligence/shared";
 import { redactDiagramSource } from "./diagram-source-redaction.js";
@@ -183,6 +184,11 @@ const VERSION_TIME_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> 
 const PAGE_VERSION_OFFSET = 1_000_000;
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
 
+/** The first validation issue for the error text; unknown keys come from the file, so they are named in bounded form. */
+function firstIssueMessage(issues: Parameters<typeof validationIssueMessage>[0][]): string {
+  return validationIssueMessage(issues[0]) ?? "欄位驗證失敗。";
+}
+
 /** Applies the portable redaction rules to one row; also used to compare a local row with a sanitized import. */
 function redactRow(
   table: ProjectDataTable,
@@ -287,7 +293,7 @@ function sanitizeImportInput(input: ProjectDataImportInput): {
   if (!inputResult.success) {
     throw new ProjectDataTransferError(
       "invalid_input",
-      `匯入資料不符合格式：${inputResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`,
+      `匯入資料不符合格式：${firstIssueMessage(inputResult.error.issues)}`,
     );
   }
   const sanitized = redactProjectDataRows(inputResult.data.bundle.tables);
@@ -1411,14 +1417,14 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
   if (!inputResult.success) {
     throw new ProjectDataTransferError(
       "invalid_input",
-      `匯入資料不符合格式：${inputResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`,
+      `匯入資料不符合格式：${firstIssueMessage(inputResult.error.issues)}`,
     );
   }
   const bundleResult = projectDataExportSchema.safeParse(input.bundle);
   if (!bundleResult.success) {
     throw new ProjectDataTransferError(
       "invalid_bundle",
-      `匯入檔格式錯誤：${bundleResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`,
+      `匯入檔格式錯誤：${firstIssueMessage(bundleResult.error.issues)}`,
     );
   }
   if (input.bundle.schemaVersion > LATEST_SCHEMA_VERSION) {

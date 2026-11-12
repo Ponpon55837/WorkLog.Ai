@@ -38,7 +38,7 @@ function oracleStaleness(
   const matchers = knowledge.appliesTo
     .map((pattern) => normalizePath(pattern, contexts))
     .filter(Boolean)
-    .map(compileAppliesTo);
+    .map((pattern) => compileAppliesTo(pattern));
   const excluded = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
   const since = knowledge.lastConfirmedAt ?? knowledge.createdAt;
   let first: KnowledgeStaleness | undefined;

@@ -10,8 +10,20 @@ import type {
   PolicyDecision,
   ProjectRecord,
 } from "@work-intelligence/core";
-import { LIKE_ESCAPE, likeContainsPattern, splitSearchTerms } from "./sql-like.js";
+import {
+  LIST_SEARCH_CHARGE_FUNCTION,
+  KNOWLEDGE_SEARCH_ROW_BYTES,
+  listSearchOverBoundWarning,
+  parseListSearchTerms,
+  runListSearchScan,
+} from "./list-search-scan.js";
 import { createPageInfo } from "./pagination.js";
+
+export interface KnowledgeCount {
+  count: number;
+  /** Rows above the per-row search cap were skipped, so count may be low. */
+  truncated: boolean;
+}
 
 type KnowledgeRepositoryRow = {
   id: string;
@@ -49,6 +61,8 @@ interface KnowledgeRepositoryDependencies {
 }
 
 const SEARCHED_COLUMNS = ["title", "body", "tags_json", "references_json", "applies_to_json"] as const;
+/** Stored bytes the term clauses may read, from the record header (octet_length does not load the text). */
+const SEARCHED_BYTES = SEARCHED_COLUMNS.map((column) => `COALESCE(octet_length(k.${column}), 0)`).join(" + ");
 
 /** Knowledge query persistence. Mutation and audit flows remain behind the facade for now. */
 export class KnowledgeRepository {
@@ -91,9 +105,66 @@ export class KnowledgeRepository {
       projectId = decision.project.id;
     }
 
-    const { where, parameters } = this.whereClause(options, projectId);
+    const { where, parameters, terms, warnings } = this.whereClause(options, projectId);
     const pageSize = options.pageSize ?? options.limit ?? 50;
-    const pageInfo = this.buildPageInfo(options.page, pageSize, this.countWhere(where, parameters), 200);
+    const trackedProjects = this.dependencies.listTrackedProjects();
+    const page =
+      terms.length > 0
+        ? this.searchTextPage(where, parameters, options.page, pageSize)
+        : this.searchPage(where, parameters, options.page, pageSize);
+    const allWarnings = [...warnings, ...page.warnings];
+    const skipped = page.skippedRecords ?? 0;
+    return {
+      outcome: "knowledge",
+      project: scopedProject,
+      projects: scopedProject ? [scopedProject] : trackedProjects,
+      items: page.rows.map(this.mapKnowledge),
+      pageInfo: page.pageInfo,
+      ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
+      ...(skipped > 0 ? { searchSkippedRecords: skipped } : {}),
+    };
+  }
+
+  /**
+   * How many Knowledge records the list search would return in a scope the caller already passed through the policy
+   * gate (an allowed projectId, or every tracked project), without reading them. A text query spends at most
+   * reads at most KNOWLEDGE_SEARCH_ROW_BYTES of each row (see list-search-scan.ts).
+   */
+  public count(options: KnowledgeQuery & { status: KnowledgeStatus }): KnowledgeCount {
+    const { where, parameters, terms } = this.whereClause(options, options.projectId);
+    const countWhere = () =>
+      (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM knowledge k
+             JOIN projects p ON p.id = k.project_id
+             WHERE ${where}`,
+          )
+          .get(...parameters) as { count: number }
+      ).count;
+    if (terms.length === 0) return { count: countWhere(), truncated: false };
+    const { value, scan } = runListSearchScan(this.db, 1, countWhere, KNOWLEDGE_SEARCH_ROW_BYTES);
+    return { count: value, truncated: scan.overBound > 0 };
+  }
+
+  private searchPage(
+    where: string,
+    parameters: Array<string | number>,
+    page: number | undefined,
+    pageSize: number,
+  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[]; skippedRecords?: number } {
+    const total = (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM knowledge k
+           JOIN projects p ON p.id = k.project_id
+           WHERE ${where}`,
+        )
+        .get(...parameters) as { count: number }
+    ).count;
+    const pageInfo = this.buildPageInfo(page, pageSize, total, 200);
     const rows = this.db
       .prepare(
         `SELECT k.*, p.name AS project_name
@@ -104,41 +175,59 @@ export class KnowledgeRepository {
          LIMIT ? OFFSET ?`,
       )
       .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as KnowledgeRepositoryRow[];
-    const trackedProjects = this.dependencies.listTrackedProjects();
-    return {
-      outcome: "knowledge",
-      project: scopedProject,
-      projects: scopedProject ? [scopedProject] : trackedProjects,
-      items: rows.map(this.mapKnowledge),
-      pageInfo,
-    };
+    return { rows, pageInfo, warnings: [] };
   }
 
   /**
-   * How many Knowledge records the list search would return in a scope the caller already passed through the policy
-   * gate (an allowed projectId, or every tracked project), without reading them.
+   * A text query scans the stored text once: the ordered ids of every match give the total, and the page is cut from
+   * them before the full rows are read by primary key in the same order (as the Sessions list does). The page clamps
+   * to the total exactly as COUNT plus LIMIT/OFFSET did, and a row above the per-row cap is left out of both.
    */
-  public count(options: KnowledgeQuery & { status: KnowledgeStatus }): number {
-    const { where, parameters } = this.whereClause(options, options.projectId);
-    return this.countWhere(where, parameters);
-  }
-
-  private countWhere(where: string, parameters: Array<string | number>): number {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE ${where}`,
-      )
-      .get(...parameters) as { count: number };
-    return row.count;
+  private searchTextPage(
+    where: string,
+    parameters: Array<string | number>,
+    page: number | undefined,
+    pageSize: number,
+  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[]; skippedRecords?: number } {
+    const { value: ids, scan } = runListSearchScan(
+      this.db,
+      1,
+      () =>
+        (
+          this.db
+            .prepare(
+              `SELECT k.id
+             FROM knowledge k
+             JOIN projects p ON p.id = k.project_id
+             WHERE ${where}
+             ORDER BY k.updated_at DESC, k.id DESC`,
+            )
+            .all(...parameters) as Array<{ id: string }>
+        ).map((row) => row.id),
+      KNOWLEDGE_SEARCH_ROW_BYTES,
+    );
+    const pageInfo = this.buildPageInfo(page, pageSize, ids.length, 200);
+    const pageIds = ids.slice((pageInfo.page - 1) * pageInfo.pageSize, pageInfo.page * pageInfo.pageSize);
+    const rows =
+      pageIds.length === 0
+        ? []
+        : (this.db
+            .prepare(
+              `SELECT k.*, p.name AS project_name
+               FROM json_each(?) page
+               CROSS JOIN knowledge k ON k.id = page.value
+               JOIN projects p ON p.id = k.project_id
+               ORDER BY page.key`,
+            )
+            .all(JSON.stringify(pageIds)) as KnowledgeRepositoryRow[]);
+    const truncated = listSearchOverBoundWarning(scan);
+    return { rows, pageInfo, warnings: truncated ? [truncated] : [], skippedRecords: scan.overBound };
   }
 
   private whereClause(
     options: KnowledgeQuery,
     projectId: string | undefined,
-  ): { where: string; parameters: Array<string | number> } {
+  ): { where: string; parameters: Array<string | number>; terms: string[]; warnings: string[] } {
     const clauses = ["p.status = 'tracked'"];
     const parameters: Array<string | number> = [];
     if (projectId) {
@@ -155,12 +244,20 @@ export class KnowledgeRepository {
       parameters.push(status);
     }
     // Every term must appear in at least one of the Knowledge's text fields or appliesTo paths, so a file path
-    // finds the Knowledge recorded about it.
-    for (const term of splitSearchTerms(options.query?.trim() || options.q?.trim() || "")) {
-      clauses.push(`(${SEARCHED_COLUMNS.map((column) => `LOWER(k.${column}) LIKE ? ${LIKE_ESCAPE}`).join(" OR ")})`);
-      const needle = likeContainsPattern(term);
-      parameters.push(...SEARCHED_COLUMNS.map(() => needle));
+    // finds the Knowledge recorded about it. instr(LOWER(x), term) > 0 is LOWER(x) LIKE '%term%' with the wildcards
+    // escaped (terms are lower-case, LIKE folds ASCII only), without LIKE's re-match from every stored position. Each
+    // CASE charges the row's stored bytes before its word reads them; the structural filters above run first.
+    const { terms, warnings } = parseListSearchTerms(options.query?.trim() || options.q?.trim() || "");
+    if (terms.length > 0) {
+      // Each word is charged when SQLite reaches it, so a row the first word rules out costs one pass, not eight.
+      const termClauses = terms.map(
+        () =>
+          `CASE WHEN ${LIST_SEARCH_CHARGE_FUNCTION}(${SEARCHED_BYTES})
+             THEN (${SEARCHED_COLUMNS.map((column) => `instr(LOWER(k.${column}), ?) > 0`).join(" OR ")}) ELSE 0 END`,
+      );
+      clauses.push(`(${termClauses.join(" AND ")})`);
+      for (const term of terms) parameters.push(...SEARCHED_COLUMNS.map(() => term));
     }
-    return { where: clauses.join(" AND "), parameters };
+    return { where: clauses.join(" AND "), parameters, terms, warnings };
   }
 }

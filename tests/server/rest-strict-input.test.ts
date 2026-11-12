@@ -102,6 +102,27 @@ describe("strict REST input", () => {
     expect(body.details?.fieldErrors?.workSummary?.join(" ")).toMatch(/in workSummary: outcomez/);
   });
 
+  it("names unknown fields in bounded form, also on export and import", async () => {
+    const keys = Array.from({ length: 500 }, (_, index) => `${"k".repeat(1_500)}${index}`);
+    const flood = Object.fromEntries(keys.map((key) => [key, 1]));
+    for (const [path, body] of [
+      ["/api/export", { scope: "all", ...flood }],
+      ["/api/sessions/probe-id/work-summary", { workSummary: { outcomes: ["Fictional outcome."] }, ...flood }],
+      ["/api/import/preview", { bundle: store.exportProjectData({ type: "all" }), ...flood }],
+    ] as const) {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: path === "/api/sessions/probe-id/work-summary" ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      expect({ path, status: response.status }).toEqual({ path, status: 400 });
+      // Ten names of at most 64 characters each, then a count: a few kilobytes at most for 750 kB of key names.
+      expect(text).toContain("and 490 more");
+      expect(text.length).toBeLessThan(10_000);
+    }
+  });
+
   it("rejects an unknown query parameter where the whole query reaches the schema", async () => {
     for (const path of QUERY_ROUTES) {
       const response = await fetch(`${baseUrl}${path}?${PROBE_FIELD}=1`);
@@ -112,12 +133,8 @@ describe("strict REST input", () => {
   });
 
   it("parses every route input through the strict REST parser", () => {
-    // Import and export validate their bundles with schemas that are strict themselves; they are left as they are.
-    const allowed = new Set([
-      "projectDataImportInputSchema",
-      "projectDataExportRequestSchema",
-      "databaseBackupFileNameSchema",
-    ]);
+    // Import validates its bundle with a schema that is strict itself (its unknown-key message is bounded the same way).
+    const allowed = new Set(["projectDataImportInputSchema", "databaseBackupFileNameSchema"]);
     const direct = readdirSync(ROUTES_DIRECTORY)
       .filter((file) => file.endsWith(".ts"))
       .flatMap((file) =>

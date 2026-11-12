@@ -1,7 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import type { PageInfo, SessionListResult, SessionVoidedFilter, WorkSessionRecord } from "@work-intelligence/core";
 import { localDayStartIso } from "@work-intelligence/shared";
-import { LIKE_ESCAPE, likeContainsPattern, splitSearchTerms } from "./sql-like.js";
+import {
+  LIST_SEARCH_CHARGE_FUNCTION,
+  listSearchOverBoundWarning,
+  SESSION_SEARCH_ROW_BYTES,
+  parseListSearchTerms,
+  runListSearchScan,
+} from "./list-search-scan.js";
 
 export type SessionRow = {
   id: string;
@@ -80,6 +86,15 @@ type PageInfoBuilder = (
   maxPageSize?: number,
 ) => PageInfo;
 
+/**
+ * Stored bytes the term clauses of a text query may read, charged before any of them runs: octet_length reads the
+ * record header without loading the text, and the event summaries come from the session_id index.
+ */
+const SEARCHED_BYTES = `COALESCE(octet_length(s.title), 0) + COALESCE(octet_length(s.summary), 0)
+  + COALESCE(octet_length(s.work_summary_json), 0) + COALESCE(octet_length(s.changed_files_json), 0)
+  + (SELECT COALESCE(SUM(octet_length(charged_events.summary)), 0) FROM work_events charged_events
+     WHERE charged_events.session_id = s.id)`;
+
 /** Read-side Session persistence kept separate from finalize/update workflows. */
 export class SessionRepository {
   public constructor(
@@ -96,24 +111,42 @@ export class SessionRepository {
     // the limit. With a plain JOIN SQLite started from the tracked projects and sorted all of their Sessions (full
     // rows) to return a few: 9 ms instead of 0.02 ms for the dashboard's six at 20,000 Sessions. ORDER BY ends with
     // the unique id, so the order is the same under any plan.
-    const rows = this.db
-      .prepare(
-        `SELECT s.*, p.name AS project_name
-         FROM sessions s
-         CROSS JOIN projects p ON p.id = s.project_id
-         ${where}
-         ORDER BY s.completed_at DESC, s.id DESC
-         LIMIT ?`,
-      )
-      .all(...parameters, limit) as SessionRow[];
+    const { value: rows } = runListSearchScan(
+      this.db,
+      1,
+      () =>
+        this.db
+          .prepare(
+            `SELECT s.*, p.name AS project_name
+             FROM sessions s
+             CROSS JOIN projects p ON p.id = s.project_id
+             ${where}
+             ORDER BY s.completed_at DESC, s.id DESC
+             LIMIT ?`,
+          )
+          .all(...parameters, limit) as SessionRow[],
+      SESSION_SEARCH_ROW_BYTES,
+    );
     return rows.map(this.mapSession);
   }
 
   public listPage(options: SessionListOptions = {}): SessionListResult {
-    const { clauses, parameters } = this.buildFilter(options);
+    const { clauses, parameters, terms, warnings } = this.buildFilter(options);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    if (splitSearchTerms(options.query ?? "").length > 0) {
-      return this.listTextQueryPage(where, parameters, options);
+    if (terms.length > 0) {
+      const { value, scan } = runListSearchScan(
+        this.db,
+        1,
+        () => this.listTextQueryPage(where, parameters, options),
+        SESSION_SEARCH_ROW_BYTES,
+      );
+      const truncated = listSearchOverBoundWarning(scan);
+      const allWarnings = [...warnings, ...(truncated ? [truncated] : [])];
+      return {
+        ...value,
+        ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
+        ...(scan.overBound > 0 ? { searchSkippedRecords: scan.overBound } : {}),
+      };
     }
     const totalRow = this.db
       .prepare(
@@ -178,15 +211,21 @@ export class SessionRepository {
   public distinctCommitShas(options: SessionListOptions, limit: number): string[] {
     const { clauses, parameters } = this.buildFilter(options);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.db
-      .prepare(
-        `SELECT DISTINCT s.commit_sha AS commit_sha
-         FROM sessions s
-         JOIN projects p ON p.id = s.project_id
-         ${where}
-         LIMIT ?`,
-      )
-      .all(...parameters, limit) as Array<{ commit_sha: string }>;
+    const { value: rows } = runListSearchScan(
+      this.db,
+      1,
+      () =>
+        this.db
+          .prepare(
+            `SELECT DISTINCT lower(s.commit_sha) AS commit_sha
+             FROM sessions s
+             JOIN projects p ON p.id = s.project_id
+             ${where}
+             LIMIT ?`,
+          )
+          .all(...parameters, limit) as Array<{ commit_sha: string }>,
+      SESSION_SEARCH_ROW_BYTES,
+    );
     return rows.map((row) => row.commit_sha);
   }
 
@@ -270,6 +309,8 @@ export class SessionRepository {
   private buildFilter(options: SessionListOptions): {
     clauses: string[];
     parameters: Array<string | number | null>;
+    terms: string[];
+    warnings: string[];
   } {
     const clauses: string[] = [];
     const parameters: Array<string | number | null> = [];
@@ -291,10 +332,15 @@ export class SessionRepository {
     // A prefix range rather than LIKE, so idx_sessions_commit_sha seeks it: every text starting with the prefix sorts
     // at or after it and before the prefix with its last character advanced. As a rowid subquery the range is read
     // once; as a plain term the planner preferred the project_id equality and scanned each tracked project's Sessions.
+    // The filter arrives lower-cased and new writes store hex lower-cased; a sha an older build or an import stored in
+    // upper case gets a second seek of its own range (Git never prints mixed case).
     if (options.commitSha) {
-      const prefix = options.commitSha;
-      clauses.push("s.rowid IN (SELECT rowid FROM sessions WHERE commit_sha >= ? AND commit_sha < ?)");
-      parameters.push(prefix, prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1));
+      const ranges = [...new Set([options.commitSha, options.commitSha.toUpperCase()])];
+      const range = "SELECT rowid FROM sessions WHERE commit_sha >= ? AND commit_sha < ?";
+      clauses.push(`s.rowid IN (${ranges.map(() => range).join(" UNION ALL ")})`);
+      for (const prefix of ranges) {
+        parameters.push(prefix, prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1));
+      }
     }
 
     const voided = options.voided ?? "exclude";
@@ -304,29 +350,34 @@ export class SessionRepository {
       clauses.push("s.voided_at IS NOT NULL");
     }
 
-    // Every term must appear in at least one of the Session's text fields.
-    for (const term of splitSearchTerms(options.query ?? "")) {
-      clauses.push(
-        `(LOWER(s.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(s.summary) LIKE ? ${LIKE_ESCAPE}
+    // Every term must appear in at least one of the Session's text fields. instr(LOWER(x), term) > 0 is
+    // LOWER(x) LIKE '%term%' with the wildcards escaped (terms are lower-case, LIKE folds ASCII only), without LIKE's
+    // re-match from every stored position. Each CASE charges the row's stored bytes before its word reads them.
+    const { terms, warnings } = parseListSearchTerms(options.query ?? "");
+    if (terms.length > 0) {
+      // Each word is charged when SQLite reaches it, so a row the first word rules out costs one pass, not eight.
+      const termClauses = terms.map(
+        () =>
+          `CASE WHEN ${LIST_SEARCH_CHARGE_FUNCTION}(${SEARCHED_BYTES}) THEN (instr(LOWER(s.title), ?) > 0 OR instr(LOWER(s.summary), ?) > 0
           -- Match the values only, so section names like "decisions" do not match every Session.
           OR EXISTS (
             SELECT 1
             FROM json_each(CASE WHEN json_valid(s.work_summary_json) THEN s.work_summary_json ELSE '{}' END) section,
               json_each(CASE WHEN section.type = 'array' THEN section.value ELSE '[]' END) line
-            WHERE LOWER(line.value) LIKE ? ${LIKE_ESCAPE}
+            WHERE instr(LOWER(line.value), ?) > 0
           )
           OR EXISTS (
             SELECT 1
             FROM json_each(CASE WHEN json_valid(s.changed_files_json) THEN s.changed_files_json ELSE '[]' END) file
-            WHERE LOWER(file.value) LIKE ? ${LIKE_ESCAPE}
+            WHERE instr(LOWER(file.value), ?) > 0
           )
           OR EXISTS (
             SELECT 1 FROM work_events search_events
-            WHERE search_events.session_id = s.id AND LOWER(search_events.summary) LIKE ? ${LIKE_ESCAPE}
-          ))`,
+            WHERE search_events.session_id = s.id AND instr(LOWER(search_events.summary), ?) > 0
+          )) ELSE 0 END`,
       );
-      const needle = likeContainsPattern(term);
-      parameters.push(needle, needle, needle, needle, needle);
+      clauses.push(`(${termClauses.join(" AND ")})`);
+      for (const term of terms) parameters.push(term, term, term, term, term);
     }
 
     // Compare the raw ISO timestamp so the completed_at indexes stay usable. Calendar dates become
@@ -370,6 +421,6 @@ export class SessionRepository {
       parameters.push(nextCalendarDate(options.updatedTo));
     }
 
-    return { clauses, parameters };
+    return { clauses, parameters, terms, warnings };
   }
 }

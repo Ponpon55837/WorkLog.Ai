@@ -8,6 +8,7 @@ import {
   compileAppliesTo,
   createAppliesToBudget,
   matchesAppliesTo,
+  setAppliesToWorkCounter,
 } from "../../packages/storage/src/applies-to-match.js";
 
 // Fictional paths and patterns only.
@@ -80,10 +81,14 @@ const LONG_PATHS = Array.from({ length: 20 }, () => "a".repeat(1_000));
 // so every exact rejection passes and the simulation reads the whole path (466 tokens x 480 characters per match).
 const HEAVY_PATTERN = `${`**${"a".repeat(30)}`.repeat(15)}**`;
 const HEAVY_PATH = "a".repeat(480);
-const HEAVY_TOKENS = 466;
-const HEAVY_PATH_STEPS = 1 + HEAVY_TOKENS * HEAVY_PATH.length;
 // Distinct entries (a stored list keeps one of each); every suffix is a run of "a" the long path ends with.
 const HEAVY_PATTERNS = Array.from({ length: 30 }, (_, index) => `${HEAVY_PATTERN}${"a".repeat(index)}`);
+// Five records of 30 distinct entries that all match: repeated leading stars fold into one, so each record's entries
+// tokenize like HEAVY_PATTERNS but are cached apart. Against one such path they cost about 1.75 times one scan's units,
+// so each scan below is cut short.
+const HEAVY_RECORDS = Array.from({ length: 5 }, (_, record) =>
+  HEAVY_PATTERNS.map((pattern) => `${"**".repeat(record)}${pattern}`),
+);
 
 /** The anchored RegExp the matcher replaced, kept here as the reference for its semantics. */
 function legacyGlobMatches(pattern: string, path: string): boolean {
@@ -269,23 +274,25 @@ describe("appliesTo exact rejections", () => {
       ]);
   });
 
-  it("reject before the simulation, so a rejected pair costs one step", () => {
-    const cases: Array<[string, string]> = [
-      ["src/**/*.ts", "docs/a.ts"], // literal prefix
-      ["src/**/*.ts", "src/a.md"], // literal suffix
-      ["ab*ba", "aba"], // shorter than the pattern's literals
-      ["src/*needle*/x.ts", "src/haystack/x.ts"], // a literal run absent between prefix and suffix
-      ["src/*b*a*/x.ts", "src/ab/x.ts"], // literal runs present, but not in pattern order
+  it("reject before the simulation, so a rejected pair costs only the checks it ran", () => {
+    // [pattern, path, units]: 12 per pair, then each check's characters (prefix, suffix, 2 x literal search window).
+    const cases: Array<[string, string, number]> = [
+      ["src/**/*.ts", "docs/a.ts", 12 + 4], // literal prefix
+      ["src/**/*.ts", "src/a.md", 12 + 4 + 3], // literal suffix
+      ["ab*ba", "aba", 12], // shorter than the pattern's literals
+      ["src/*needle*/x.ts", "src/haystack/x.ts", 12 + 4 + 5 + 2 * 8], // a literal run absent between prefix and suffix
+      ["src/*b*a*/x.ts", "src/ab/x.ts", 12 + 4 + 5 + 2 * 2], // literal runs present, but not in pattern order
     ];
-    for (const [pattern, path] of cases) {
+    for (const [pattern, path, units] of cases) {
+      const matcher = compileAppliesTo(pattern);
       const budget = createAppliesToBudget();
-      expect([pattern, compileAppliesTo(pattern)(path, budget), budget.steps]).toEqual([pattern, false, 1]);
+      expect([pattern, matcher(path, budget), budget.units]).toEqual([pattern, false, units]);
       expect(legacyGlobMatches(pattern, path)).toBe(false);
     }
-    // A pair that reaches the simulation pays one step per middle token per middle character: here `**`, `*` and "a/b".
+    // A pair that reaches the simulation pays (tokens + 1) to set up and per middle character: `**`, `*` and "a/b".
     const budget = createAppliesToBudget();
     expect(compileAppliesTo("src/**/*.ts")("src/a/b.ts", budget)).toBe(true);
-    expect(budget.steps).toBe(1 + 2 * 3);
+    expect(budget.units).toBe(12 + 4 + 3 + 3 + 3 * 3);
   });
 });
 
@@ -302,42 +309,51 @@ describe("appliesTo complexity bound", () => {
     expect(appliesToStrength(overComplex, "a".repeat(17))).toBe(0);
   });
 
-  it("answers the second review's 600 pattern-path pairs in one step each", () => {
+  it("answers the second review's 600 pattern-path pairs without simulating them", () => {
+    compileAppliesTo(STAR_FLOOD_PATTERN);
     const budget = createAppliesToBudget();
     for (const pattern of Array.from({ length: 30 }, () => STAR_FLOOD_PATTERN))
       for (const path of LONG_PATHS) expect(appliesToStrength(pattern, path, budget)).toBe(0);
-    expect(budget).toMatchObject({ steps: 600, exhausted: false });
+    // A cached glob costs 1 unit per lookup and the over-bound pair its 12 constant-time units.
+    expect(budget).toMatchObject({ units: 600 * (1 + 12), exhausted: false });
   });
 });
 
 describe("appliesTo match budget", () => {
-  it("stops a scan of allowed but costly globs at its step limit, deterministically", () => {
+  it("stops a scan of allowed but costly globs at its unit limit, deterministically", () => {
+    const matcher = compileAppliesTo(HEAVY_PATTERN);
+    const one = createAppliesToBudget();
+    expect(matcher(HEAVY_PATH, one)).toBe(true);
+    const pairUnits = one.units;
     const budget = createAppliesToBudget();
     let matched = 0;
-    for (const path of LONG_PATHS.map(() => HEAVY_PATH))
-      for (let index = 0; index < 30; index += 1) if (compileAppliesTo(HEAVY_PATTERN)(path, budget)) matched += 1;
+    for (let pair = 0; pair < 2 * Math.ceil(budget.limit / pairUnits); pair += 1)
+      if (matcher(HEAVY_PATH, budget)) matched += 1;
     expect(budget.exhausted).toBe(true);
-    expect(budget.steps).toBeLessThanOrEqual(budget.limit);
-    expect(matched).toBe(Math.floor(budget.limit / HEAVY_PATH_STEPS));
-    // The cut pair paid its own step and every character it could still afford, then stopped.
-    const left = budget.limit - matched * HEAVY_PATH_STEPS - 1;
-    expect(budget.steps).toBe(matched * HEAVY_PATH_STEPS + 1 + HEAVY_TOKENS * Math.floor(left / HEAVY_TOKENS));
+    expect(budget.units).toBeLessThanOrEqual(budget.limit);
+    expect(matched).toBe(Math.floor(budget.limit / pairUnits));
+    // The cut pair stopped at the first charge it could not afford, so less than one pair's units were left.
+    expect(budget.limit - budget.units).toBeLessThan(pairUnits);
     // A spent budget answers every later pair "no match" without work.
-    expect(compileAppliesTo("src/**")("src/a.ts", budget)).toBe(false);
+    const counter = { examined: 0 };
+    setAppliesToWorkCounter(counter);
+    expect(compileAppliesTo("src/**", budget)("src/a.ts", budget)).toBe(false);
     expect(appliesToStrength("src", "src/a.ts", budget)).toBe(0);
+    expect(appliesToStrength("src/*.ts", "src/a.ts", budget)).toBe(0);
+    setAppliesToWorkCounter(undefined);
+    expect(counter.examined).toBe(0);
   });
 
   it("reports the cut in file history, the relaxed Knowledge search, finalize, and staleness", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-01T08:00:00.000Z"));
     const { store, root } = syntheticStore();
-    recordScoped(store, root, "heavy", HEAVY_PATTERNS);
+    for (const [index, patterns] of HEAVY_RECORDS.entries()) recordScoped(store, root, `heavy-${index}`, patterns);
     vi.setSystemTime(new Date("2026-06-01T09:00:00.000Z"));
-    expect(store.getFileHistory({ projectRoot: root, paths: [HEAVY_PATH] })).toMatchObject({
-      outcome: "file_history",
-      knowledge: [],
-      appliesToScanTruncated: true,
-    });
+    // The rows matched before the budget ran out are kept; the row it cut and every later one are left out.
+    const history = store.getFileHistory({ projectRoot: root, paths: [HEAVY_PATH] });
+    expect(history).toMatchObject({ outcome: "file_history", appliesToScanTruncated: true });
+    expect(history.outcome === "file_history" ? history.knowledge.length : -1).toBeLessThan(HEAVY_RECORDS.length);
     expect(store.searchKnowledgeForAgent({ projectRoot: root, q: `a/${HEAVY_PATH} zzyzx` })).toMatchObject({
       appliesToScanTruncated: true,
     });
@@ -355,7 +371,9 @@ describe("appliesTo match budget", () => {
     if (listed.outcome !== "knowledge") throw new Error("Expected a Knowledge list.");
     expect(listed.items[0]).toMatchObject({ stalenessUnchecked: true });
     expect(listed.items[0]).not.toHaveProperty("possiblyStale");
-  });
+    // Four scans each run until their whole budget is spent, which is seconds of work by design and several times
+    // slower under coverage instrumentation, so this test gets its own timeout.
+  }, 120_000);
 
   it("keeps ordinary scans of another project whole and unflagged", () => {
     const { store, root, otherRoot } = syntheticStore();

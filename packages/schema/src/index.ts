@@ -1,6 +1,10 @@
 import {
   APPLIES_TO_GLOB_STARS_FIX,
   isOverComplexAppliesToGlob,
+  MAX_APPLIES_TO_ENTRIES,
+  MAX_APPLIES_TO_ENTRY_LENGTH,
+  MAX_STORED_APPLIES_TO_ENTRIES,
+  MAX_STORED_APPLIES_TO_ENTRY_LENGTH,
   isSafeRepositoryUrl,
   SESSION_DIAGRAM_KINDS,
   SESSION_READ_FIELDS,
@@ -48,6 +52,8 @@ export { attentionQuerySchema, updateAttentionPreferenceSchema } from "./attenti
 export {
   findUnrecognizedKeys,
   safeParseStrict,
+  unrecognizedKeysMessage,
+  validationIssueMessage,
   type StrictParseResult,
   type UnrecognizedKeys,
 } from "./unrecognized-keys.js";
@@ -932,7 +938,7 @@ export const attachEvidenceInputSchema = z.object({
 export const knowledgeKindSchema = z.enum(KNOWLEDGE_KINDS);
 export const knowledgeStatusSchema = z.enum(KNOWLEDGE_STATUSES);
 
-const appliesToEntrySchema = z.string().trim().min(1).max(1_000);
+const appliesToEntrySchema = z.string().trim().min(1).max(MAX_APPLIES_TO_ENTRY_LENGTH);
 
 // New Knowledge and candidates must stay within the star bound. An update may keep an entry already stored above it
 // (an import, or data from before the bound), so archiving or editing other fields never fails on it; storage answers
@@ -943,12 +949,12 @@ const knowledgeAppliesToSchema = z
       message: `This appliesTo glob has too many wildcards. ${APPLIES_TO_GLOB_STARS_FIX}`,
     }),
   )
-  .max(30)
+  .max(MAX_APPLIES_TO_ENTRIES)
   .describe("Project-relative paths or globs (*, **, ?) this Knowledge is about.");
 
 const updatedKnowledgeAppliesToSchema = z
   .array(appliesToEntrySchema)
-  .max(30)
+  .max(MAX_APPLIES_TO_ENTRIES)
   .describe("Project-relative paths or globs (*, **, ?) this Knowledge is about.");
 
 export const recordKnowledgeInputSchema = z.object({
@@ -2025,6 +2031,27 @@ export function projectDataColumnValue(
 }
 
 /** A missing or null advisory is valid (older exports); a present one must be the stored form the server writes. */
+/**
+ * Whether a stored appliesTo list (knowledge and knowledge_candidates.applies_to_json) is within the structural import
+ * bound: an array of at most MAX_STORED_APPLIES_TO_ENTRIES strings of at most MAX_STORED_APPLIES_TO_ENTRY_LENGTH
+ * characters. The bound is wider than the write limits so every export Work Intelligence produced imports (see the
+ * constants); entries beyond the write limits are kept unchanged and matching skips them. A list beyond this bound
+ * could only be crafted. The star bound is not checked either.
+ */
+function validStoredAppliesTo(value: string | number | null | undefined): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return (
+      Array.isArray(parsed) &&
+      parsed.length <= MAX_STORED_APPLIES_TO_ENTRIES &&
+      parsed.every((entry) => typeof entry === "string" && entry.length <= MAX_STORED_APPLIES_TO_ENTRY_LENGTH)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function validStoredOverlaps(value: string | number | null | undefined): boolean {
   if (value === undefined || value === null) return true;
   if (typeof value !== "string") return false;
@@ -2100,6 +2127,16 @@ const projectDataExportObjectSchema = z
               message: "Invalid report presentation state or revision.",
             });
         }
+        if (
+          (table === "knowledge" || table === "knowledge_candidates") &&
+          typeof row.applies_to_json === "string" &&
+          !validStoredAppliesTo(row.applies_to_json)
+        )
+          context.addIssue({
+            code: "custom",
+            path: ["tables", table, index, "applies_to_json"],
+            message: `${table}.applies_to_json 必須是最多 ${MAX_STORED_APPLIES_TO_ENTRIES} 筆、每筆最多 ${MAX_STORED_APPLIES_TO_ENTRY_LENGTH.toLocaleString("en-US")} 字元的文字清單。`,
+          });
         if (table === "knowledge_candidates" && !validStoredOverlaps(row.overlaps_json))
           context.addIssue({
             code: "custom",

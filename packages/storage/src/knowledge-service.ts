@@ -23,7 +23,19 @@ import type {
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
-import { compileAppliesTo, createAppliesToBudget, type AppliesToBudget } from "./applies-to-match.js";
+import {
+  APPLIES_TO_GRANT_FACTOR,
+  APPLIES_TO_STALENESS_UNIT_LIMIT,
+  appliesToPairEstimate,
+  chargeNormalizePath,
+  chargeStoredJson,
+  compileAppliesTo,
+  createAppliesToBudget,
+  grantAppliesTo,
+  MAX_STORED_CHANGED_FILES_JSON_BYTES,
+  normalizedAppliesTo,
+  type AppliesToBudget,
+} from "./applies-to-match.js";
 import { normalizePath, type PathContext } from "./search-text.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { cleanList, parseJson, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
@@ -57,13 +69,6 @@ interface AppliedKnowledgeRow {
 }
 
 const FEEDBACK_HISTORY_LIMIT = 100;
-/**
- * Match steps one trust read may spend on staleness. Unlike the caller-path scans it compares every distinct appliesTo
- * entry of the read Knowledge with every distinct file later Sessions changed, both stored, so it grows with history:
- * a copy of real data spent about 73,000 steps for its whole Knowledge list. This leaves room for 200 times that
- * history and still caps a crafted pattern at well under a second.
- */
-const STALENESS_MATCH_STEP_LIMIT = 16_000_000;
 
 /** Knowledge goes possibly stale when a Session after its last confirmation (or creation) touches appliesTo. */
 function stalenessSince(knowledge: KnowledgeRecord): string {
@@ -95,6 +100,8 @@ interface LaterSessionIndex {
   sessionIndexById?: Map<string, number>;
   /** Shared by every pattern of one trust read, across projects. */
   budget: AppliesToBudget;
+  /** Total length of the distinct normalized files, for the per-pattern grant. */
+  fileCharacters: number;
 }
 
 interface PatternMatches {
@@ -119,7 +126,9 @@ function buildLaterSessionIndex(sessions: LaterSession[], budget: AppliesToBudge
       }
     }
   });
-  return { sessions, sessionsByFile, patternMatches: new Map(), budget };
+  let fileCharacters = 0;
+  for (const file of sessionsByFile.keys()) fileCharacters += file.length;
+  return { sessions, sessionsByFile, patternMatches: new Map(), budget, fileCharacters };
 }
 
 /** Matches one normalized pattern against every distinct changed file once; all Knowledge sharing it reuse the result. */
@@ -128,7 +137,13 @@ function matchesForPattern(index: LaterSessionIndex, pattern: string): PatternMa
   if (cached) {
     return cached;
   }
-  const matches = compileAppliesTo(pattern);
+  const matches = compileAppliesTo(pattern, index.budget);
+  // Every distinct file is compared once: grant three times what ordinary pairs cost (see APPLIES_TO_GRANT_FACTOR).
+  grantAppliesTo(
+    index.budget,
+    APPLIES_TO_GRANT_FACTOR *
+      (index.sessionsByFile.size * appliesToPairEstimate(0, pattern.length) + index.fileCharacters),
+  );
   const files = new Set<string>();
   const touched = new Set<number>();
   for (const [file, indexes] of index.sessionsByFile) {
@@ -173,8 +188,15 @@ function knowledgeStaleness(
   laterSessions: LaterSessionIndex,
   contexts: PathContext[],
 ): KnowledgeStaleness | "unchecked" | undefined {
-  const { sessions } = laterSessions;
-  const patterns = [...new Set(knowledge.appliesTo.map((pattern) => normalizePath(pattern, contexts)).filter(Boolean))];
+  const { sessions, budget } = laterSessions;
+  const skippedBefore = budget.skippedEntries;
+  const patterns = [
+    ...new Set(normalizedAppliesTo(knowledge.appliesTo, contexts, budget).map((entry) => entry.pattern)),
+  ];
+  // An entry above the write-time limits is never compared, so staleness can be neither proven nor ruled out.
+  if (budget.skippedEntries > skippedBefore || budget.exhausted) {
+    return "unchecked";
+  }
   if (patterns.length === 0) {
     return undefined;
   }
@@ -341,12 +363,18 @@ export class KnowledgeService {
     }
 
     const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
-    const budget = createAppliesToBudget(STALENESS_MATCH_STEP_LIMIT);
+    const budget = createAppliesToBudget(APPLIES_TO_STALENESS_UNIT_LIMIT);
     for (const [projectId, group] of byProject) {
       const project = this.dependencies.getProjectById(projectId);
       const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
       const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
-      const sessions = buildLaterSessionIndex(this.loadLaterSessions(projectId, earliest, contexts), budget);
+      const later = this.loadLaterSessions(projectId, earliest, contexts, budget);
+      if (!later.complete) {
+        // Some later Session was not read, so no item of the group can be proven current or stale.
+        for (const item of group) staleness.set(item.id, "unchecked");
+        continue;
+      }
+      const sessions = buildLaterSessionIndex(later.sessions, budget);
       for (const item of group) {
         const result = knowledgeStaleness(item, sessions, contexts);
         if (result) {
@@ -394,24 +422,48 @@ export class KnowledgeService {
     return evidence;
   }
 
-  /** A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. */
-  private loadLaterSessions(projectId: string, since: string, contexts: PathContext[]): LaterSession[] {
+  /**
+   * A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. Rows are
+   * read one at a time instead of with one .all() (5,000 Sessions of 50 x 100 characters took 433 ms and 235 MB);
+   * each list is charged by its length before it is parsed, and each path before it is normalized, after granting
+   * three times that (history grows the budget instead of exhausting it; APPLIES_TO_GRANT_FACTOR). A list above
+   * MAX_STORED_CHANGED_FILES_JSON_BYTES is not loaded. `complete` is false when a row stopped the read.
+   */
+  private loadLaterSessions(
+    projectId: string,
+    since: string,
+    contexts: PathContext[],
+    budget: AppliesToBudget,
+  ): { sessions: LaterSession[]; complete: boolean } {
     const rows = this.db
       .prepare(
-        `SELECT id, title, completed_at, changed_files_json FROM sessions
+        `SELECT id, title, completed_at,
+                CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
+                     THEN changed_files_json END AS changed_files_json
+         FROM sessions
          WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
          ORDER BY completed_at ASC, id ASC`,
       )
-      .all(projectId, since) as Array<{ id: string; title: string; completed_at: string; changed_files_json: string }>;
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      completedAt: row.completed_at,
-      files: parseJson<string[]>(row.changed_files_json, []).map((file) => ({
-        raw: file,
-        normalized: normalizePath(file, contexts),
-      })),
-    }));
+      .iterate(projectId, since) as Iterable<{
+      id: string;
+      title: string;
+      completed_at: string;
+      changed_files_json: string | null;
+    }>;
+    const sessions: LaterSession[] = [];
+    for (const row of rows) {
+      if (row.changed_files_json === null || !chargeStoredJson(budget, row.changed_files_json, true)) {
+        return { sessions, complete: false };
+      }
+      const files: LaterSession["files"] = [];
+      for (const file of parseJson<unknown[]>(row.changed_files_json, [])) {
+        if (typeof file !== "string") continue;
+        if (!chargeNormalizePath(budget, file, contexts, true)) return { sessions, complete: false };
+        files.push({ raw: file, normalized: normalizePath(file, contexts) });
+      }
+      sessions.push({ id: row.id, title: row.title, completedAt: row.completed_at, files });
+    }
+    return { sessions, complete: true };
   }
 
   public recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult {
