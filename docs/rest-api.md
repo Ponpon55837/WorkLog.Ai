@@ -105,7 +105,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/export`                                    | body `{}` 匯出整份 SQLite 快照；指定 `scope` 時匯出可攜式 JSON（見下方）                 |
 | POST     | `/api/import/preview`                            | 驗證可攜式 JSON 並預覽新增、略過、衝突與路徑轉換，不寫入資料                           |
 | POST     | `/api/import`                                     | 依合併策略將可攜式 JSON 的非衝突資料寫入目前資料庫                                     |
-| GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session；`agent` 以完全相符篩選寫入該 Session 的 Agent 用戶端（例如 `claude-code`） |
+| GET      | `/api/sessions`                                  | Worklog session list（只含 tracked 專案）；可用 `q`、`projectId`、`from`／`to`（YYYY-MM-DD）篩選（系統時區、含頭尾），`voided=include`／`only` 顯示已作廢的 Session；`agent` 以完全相符篩選寫入該 Session 的 Agent 用戶端（例如 `claude-code`）。`q` 最多採用 8 個詞、每詞前 200 個字元，超過或文字掃描上限用完時回應帶 `warnings`（見下方「列表搜尋上限」） |
 | GET      | `/api/sessions/agents`                           | 回傳 `{ agents: string[] }`：tracked 專案未作廢 Session 中出現過的 Agent 用戶端（去重、排序），供 Web 篩選選單使用 |
 | GET      | `/api/agent-reads`                               | 被動稽核：Agent 經 MCP 讀取時回傳過哪些紀錄（只含 tracked 專案與無專案的讀取），新到舊分頁；可用 `projectId`、`agent`、`page`、`pageSize`（1–100）。每筆含 `at`、`tool`、`agentClient`、`projectId`／`projectName`、`outcome`、`returnedCount`、`sessionIds`、`knowledgeIds`（只有 id，每種最多 50 個，超出以 `omitted*Count` 表示），以及選填的 `durationMs`（整數毫秒；schema 32 之前的紀錄沒有）與 `errorCode`（讀取失敗時的代碼：`invalid_input`、`database_busy`、`restart_required`、`internal_error`；失敗紀錄的 `outcome` 為 `error`，不含 id 與錯誤訊息。`work_get_knowledge_page_context` 找不到頁面時 `outcome` 為 `not_found`，`errorCode` 是原因代碼：`page_id_as_slug`、`slug_looks_like_id`、`slug_near_match`、`page_not_requested`、`page_unknown`）。保留 30 天且最多 5,000 筆 |
 | GET      | `/api/agent-reads/stats`                         | 依工具彙整保留中的讀取稽核：`{ tools: [{ tool, count, errorCount, timedCount, p50Ms, p95Ms, maxMs, errorCodes }] }`。`errorCount` 只計 `outcome` 為 `error` 的讀取；`errorCodes` 依代碼計數，也包含 not_found 原因代碼。`timedCount` 是有耗時的筆數，百分位採 nearest-rank，沒有耗時時為 `null`；依 `p95Ms` 由大到小、再依 `count` 排序。可用 `projectId`、`agent`（完全相符）篩選，範圍與 `/api/agent-reads` 相同；參數無效回 400 `invalid_input` |
@@ -127,7 +127,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/knowledge/candidates`                      | 待審核（`status=proposed`，預設）或已處理的 Knowledge 候選與未完成的整理請求；可用 `projectRoot` 篩選。候選送出時保存的重疊提示以 `overlaps` 回傳（最多 3 筆：`relation`、`type`、`id`、送出時的 `status`、`score`，以及對象仍存在於同專案時的 `title`）；沒有提示時省略 |
 | POST     | `/api/knowledge/candidate-requests`              | 建立（或回傳既有的）Knowledge 候選整理請求（`projectRoot`），由 Agent 處理                |
 | POST     | `/api/knowledge/candidates/:id/decision`         | 接受（`decision: "accept"`，可帶 `edits`）或拒絕候選；接受時才寫成 Knowledge             |
-| GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge；`q` 的每個詞須出現在標題、內文、tags、references 或 `appliesTo` 路徑（1.6.16 起含 `appliesTo`）。MCP 專用的寬鬆備援與其他狀態計數不在 REST 回應中 |
+| GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge；`q` 的每個詞須出現在標題、內文、tags、references 或 `appliesTo` 路徑（1.6.16 起含 `appliesTo`）。MCP 專用的寬鬆備援與其他狀態計數不在 REST 回應中；`q` 的上限與 `warnings` 同 `/api/sessions` |
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
 | PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge                                           |
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
@@ -166,6 +166,10 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/reports/summaries`                         | Agent 回寫摘要與來源 Session                                                           |
 | DELETE   | `/api/reports/summaries/:id`                     | 移除非目前使用中的歷史報告版本                                                         |
 | POST     | `/api/work/finalize`                             | REST 形式的 finalize                                                                   |
+
+## 列表搜尋上限
+
+`GET /api/sessions` 與 `GET /api/knowledge` 的 `q` 以空白分隔成詞（`"引號片語"` 保持完整），每個詞都必須出現在某個文字欄位。1.6.27 起最多採用前 8 個詞，每個詞最多比對前 200 個字元；詞比對改用 `instr()`（結果與先前的 `LIKE '%詞%'` 相同，但不再從每個儲存位置重試整個詞）。每個詞讀取一筆記錄的文字前，先依該筆被搜尋欄位的位元組數計入單次文字掃描上限（24,000,000 位元組 × 詞）；用完時其餘較舊的記錄不再比對。截短的詞、被略過的詞與用完的上限都寫在回應的 `warnings: string[]`，HTTP 狀態仍是 200。一般查詢不會出現 `warnings`，結果與 1.6.26 相同。
 
 ## 敏感資料遮蔽
 

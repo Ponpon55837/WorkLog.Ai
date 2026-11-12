@@ -5,7 +5,10 @@
  * The accounting invariant. A unit stands for one character operation. Every operation here whose cost grows with the
  * length of a stored entry or a caller path is charged to the scan's budget BEFORE it runs, with at least one unit per
  * code unit comparison it may make (times a weight, measured so one unit costs about the same time on every path):
- *   - reading a stored list (storedAppliesTo): the JSON text it parses, then each entry it normalizes (x4);
+ *   - reading a stored list (storedAppliesTo): the JSON text it parses (x4: JSON.parse measured about four times a
+ *     plain character read), then each entry it normalizes (x4); a stored list longer than
+ *     MAX_STORED_APPLIES_TO_JSON_BYTES is cut off in SQL (appliesToColumnSql) before it is loaded and never matches;
+ *   - telling a glob from a plain entry: the pattern length, unless the compiled glob is cached (1 unit);
  *   - compiling a glob or a plain entry's segment search: x16 per pattern character on a cache miss (tokenizing, the
  *     literal prefix and suffix, the literal runs and their failure tables: at most 5 comparisons per character, and
  *     allocation), 1 unit on a hit;
@@ -30,6 +33,8 @@ import {
   MAX_APPLIES_TO_ENTRIES,
   MAX_APPLIES_TO_ENTRY_LENGTH,
   MAX_APPLIES_TO_GLOB_STARS,
+  MAX_STORED_APPLIES_TO_ENTRIES,
+  MAX_STORED_APPLIES_TO_ENTRY_LENGTH,
   tokenizeAppliesToGlobCompact,
 } from "@work-intelligence/core";
 import { normalizePath, type PathContext } from "./search-text.js";
@@ -107,8 +112,25 @@ export const APPLIES_TO_MATCH_UNIT_LIMIT = 20_000_000;
  */
 export const APPLIES_TO_STALENESS_UNIT_LIMIT = 50_000_000;
 
+/**
+ * Longest stored appliesTo JSON text (UTF-8 bytes) any read loads: the structural import bound (100 entries of 4,096
+ * characters) with every character written as a six-byte JSON escape, plus quotes, commas and brackets. Real lists are
+ * a few hundred bytes; only a list written into SQLite by hand can be longer, and it is skipped like an entry above the
+ * write-time limits.
+ */
+export const MAX_STORED_APPLIES_TO_JSON_BYTES =
+  MAX_STORED_APPLIES_TO_ENTRIES * (6 * MAX_STORED_APPLIES_TO_ENTRY_LENGTH + 3) + 2;
+
+/**
+ * Longest stored changed-files text (UTF-8 bytes) the appliesTo staleness and review reads load: the write limit of
+ * 200 paths of 1,000 characters, every character a six-byte JSON escape (about 1.2 MB). Real lists are a few KB, and
+ * an import without the count limit still fits unless its text is this long; a longer value (a hand-written database)
+ * is not loaded, and the read that skipped it reports itself incomplete.
+ */
+export const MAX_STORED_CHANGED_FILES_JSON_BYTES = 200 * (6 * 1_000 + 3) + 2;
+
 /** Per-path weights, so one unit costs about the same time on each path (measured; see APPLIES_TO_MATCH_UNIT_LIMIT). */
-const JSON_UNITS_PER_CHAR = 1;
+const JSON_UNITS_PER_CHAR = 4;
 const NORMALIZE_UNITS_PER_CHAR = 4;
 const COMPILE_UNITS_PER_CHAR = 16;
 const PAIR_UNITS = 12;
@@ -151,6 +173,9 @@ function createBoundedCache<T>(): BoundedCache<T> {
       entries.set(key, { value, size, recent: false });
       characters += size;
       // Each pass either evicts the oldest entry or clears its mark and moves it back, so this ends within two passes.
+      // Not charged: it runs only after a cache miss, which was charged 16 units per pattern character, and over any
+      // sequence of misses the moves are at most the marks set by hits (each charged 1 unit) plus the evictions, at
+      // most one per entry ever inserted, so the loop's work is amortized within what the hits and misses paid.
       while (entries.size > CACHE_LIMIT || characters > CACHE_CHARACTERS) {
         const [oldestKey, oldest] = entries.entries().next().value as [string, CacheEntry<T>];
         entries.delete(oldestKey);
@@ -280,6 +305,16 @@ function cachedGlob(pattern: string, budget: AppliesToBudget | undefined): Compi
   const compiled = compileGlob(pattern);
   globCache.set(pattern, compiled, compiled.size);
   return compiled;
+}
+
+/**
+ * Whether a pattern is a glob, charged: a cached compiled glob answers for 1 unit (cachedGlob charges it), otherwise
+ * the scan of the pattern for `*` or `?` costs its length. undefined when unaffordable.
+ */
+function chargedIsGlob(pattern: string, budget: AppliesToBudget | undefined): boolean | undefined {
+  if (globCache.get(pattern)) return true;
+  if (!charge(budget, pattern.length)) return undefined;
+  return isAppliesToGlob(pattern);
 }
 
 /** `/word/` and its failure table, cached like compiled globs and charged the same way; undefined when unaffordable. */
@@ -439,10 +474,15 @@ export function setAppliesToWorkCounter(counter: AppliesToWorkCounter | undefine
  * that normalize to nothing are left out; the list stops early when the budget is spent.
  */
 export function storedAppliesTo(
-  stored: string,
+  stored: string | null,
   contexts: PathContext[],
   budget: AppliesToBudget,
 ): Array<{ raw: string; pattern: string }> {
+  // null: appliesToColumnSql found the text above MAX_STORED_APPLIES_TO_JSON_BYTES and did not load it.
+  if (stored === null) {
+    budget.skippedEntries += 1;
+    return [];
+  }
   if (!charge(budget, JSON_UNITS_PER_CHAR * stored.length + 1)) return [];
   let list: unknown;
   try {
@@ -475,8 +515,33 @@ export function normalizedAppliesTo(
   return entries;
 }
 
+/**
+ * SQL for a stored appliesTo column that loads the text only within MAX_STORED_APPLIES_TO_JSON_BYTES: octet_length
+ * reads the record header, so a longer value is never read into memory and comes back as NULL (a missing value as
+ * '[]'). storedAppliesTo counts the NULL as a skipped entry.
+ */
+export function appliesToColumnSql(column: string): string {
+  return `CASE WHEN octet_length(${column}) > ${MAX_STORED_APPLIES_TO_JSON_BYTES} THEN NULL ELSE COALESCE(${column}, '[]') END`;
+}
+
+/** Charges parsing a stored JSON text other than appliesTo (changed files) at the same rate, before it runs. */
+export function chargeStoredJson(budget: AppliesToBudget, text: string): boolean {
+  return charge(budget, JSON_UNITS_PER_CHAR * text.length + 1);
+}
+
+/** Charges normalizing a stored path at the rate storedAppliesTo uses for an entry, before it runs. */
+export function chargeNormalizePath(budget: AppliesToBudget, path: string, contexts: PathContext[]): boolean {
+  const context = contexts.reduce((total, item) => total + item.name.length + item.rootPath.length, 0);
+  return charge(budget, NORMALIZE_UNITS_PER_CHAR * (path.length + context) + 1);
+}
+
+/** Whether a normalized entry is a glob, charged like the matcher's own check; undefined when unaffordable. */
+export function classifyAppliesTo(pattern: string, budget: AppliesToBudget): boolean | undefined {
+  return chargedIsGlob(pattern, budget);
+}
+
 /** The normalized patterns of storedAppliesTo. */
-export function appliesToEntries(stored: string, contexts: PathContext[], budget: AppliesToBudget): string[] {
+export function appliesToEntries(stored: string | null, contexts: PathContext[], budget: AppliesToBudget): string[] {
   return storedAppliesTo(stored, contexts, budget).map((entry) => entry.pattern);
 }
 
@@ -493,7 +558,9 @@ export function compileAppliesTo(pattern: string, budget?: AppliesToBudget): App
     if (budget) budget.skippedEntries += 1;
     return () => false;
   }
-  if (isAppliesToGlob(pattern)) {
+  const isGlob = chargedIsGlob(pattern, budget);
+  if (isGlob === undefined) return () => false;
+  if (isGlob) {
     const glob = cachedGlob(pattern, budget);
     if (!glob) return () => false;
     return (path, pathBudget) => Boolean(path) && charge(pathBudget, PAIR_UNITS) && globMatches(glob, path, pathBudget);
@@ -521,9 +588,10 @@ export function appliesToStrength(pattern: string, path: string, budget?: Applie
     if (budget) budget.skippedEntries += 1;
     return 0;
   }
-  if (isAppliesToGlob(pattern)) {
-    return compileAppliesTo(pattern, budget)(path, budget) ? 0.8 : 0;
-  }
+  // Every classification is charged; once a glob is compiled, both this one and compileAppliesTo's are cache hits.
+  const isGlob = chargedIsGlob(pattern, budget);
+  if (isGlob === undefined) return 0;
+  if (isGlob) return compileAppliesTo(pattern, budget)(path, budget) ? 0.8 : 0;
   if (!charge(budget, PAIR_UNITS)) return 0;
   return Math.max(plainStrength(pattern, path, budget), plainStrength(path, pattern, budget));
 }

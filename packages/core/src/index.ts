@@ -864,6 +864,8 @@ export interface SessionListResult {
   outcome: "sessions";
   items: WorkSessionRecord[];
   pageInfo: PageInfo;
+  /** How a text query was shortened, or that its text scan stopped at the limit; absent for ordinary queries. */
+  warnings?: string[];
 }
 
 export interface KnowledgeQueryResult {
@@ -872,6 +874,8 @@ export interface KnowledgeQueryResult {
   projects: ProjectRecord[];
   items: KnowledgeRecord[];
   pageInfo: PageInfo;
+  /** How a text query was shortened, or that its text scan stopped at the limit; absent for ordinary queries. */
+  warnings?: string[];
 }
 
 export type KnowledgeSearchResult = KnowledgeQueryResult | KnowledgeSkippedResult;
@@ -915,8 +919,9 @@ export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
   /** Matches in the statuses this search did not cover, counted the same way; counts only, never content. */
   otherStatusMatches?: Partial<Record<KnowledgeStatus, number>>;
   /**
-   * The relaxed search's appliesTo match budget ran out (only crafted, star-heavy stored patterns reach it), so
-   * older Knowledge was not checked against the path words of the query.
+   * The relaxed search's appliesTo match budget or its path-scan budget ran out (only crafted stored patterns or
+   * very long histories reach them), or a stored list above the load bound was skipped, so older Knowledge was not
+   * checked against the path words of the query.
    */
   appliesToScanTruncated?: true;
   hint?: string;
@@ -2665,6 +2670,8 @@ export interface RecallResult {
   confidence: RecallConfidence;
   /** Present when some query word matched nothing, so the Agent can reshape the query. */
   termHits?: RecallTermHits[];
+  /** Present when the path comparison stopped at its text-scan limit; absent for ordinary queries. */
+  warnings?: string[];
 }
 
 export type RecallQueryResult = RecallResult | SkippedContextResult;
@@ -3041,6 +3048,8 @@ export interface SearchQueryResult {
   confidence: RecallConfidence;
   /** Present when some query word matched nothing, so the Agent can reshape the query. */
   termHits?: RecallTermHits[];
+  /** Present when the path comparison stopped at its text-scan limit; absent for ordinary queries. */
+  warnings?: string[];
 }
 
 export interface SkippedContextResult {

@@ -9,14 +9,16 @@ import type {
   KnowledgeStatus,
   RelaxedKnowledgeMatch,
 } from "@work-intelligence/core";
+import type { KnowledgeCount } from "./knowledge-repository.js";
+import { LIST_SEARCH_SCAN_BUDGET } from "./list-search-scan.js";
 import type { KnowledgeRankHit, KnowledgeRankOptions, KnowledgeRanking } from "./search-repository.js";
 import { excerptAround } from "./search-text.js";
 
 export interface KnowledgeSearchServiceDependencies {
   /** The strict list search with trust signals, policy-gated like every Knowledge read. */
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
-  /** Strict match count in an already-gated scope. */
-  countKnowledge(options: KnowledgeQuery & { status: KnowledgeStatus }): number;
+  /** Strict match count in an already-gated scope, spending at most scanBudget text-scan units. */
+  countKnowledge(options: KnowledgeQuery & { status: KnowledgeStatus }, scanBudget: number): KnowledgeCount;
   rankKnowledge(options: KnowledgeRankOptions): KnowledgeRanking;
   /** Full records with trust signals for Knowledge of tracked projects; other ids are absent from the map. */
   getKnowledgeWithTrustMany(knowledgeIds: string[]): Map<string, KnowledgeRecord>;
@@ -73,6 +75,7 @@ export class KnowledgeSearchService {
         match: "strict",
         items: strict.items,
         pageInfo: strict.pageInfo,
+        ...(strict.warnings ? { warnings: strict.warnings } : {}),
       };
     }
 
@@ -94,7 +97,19 @@ export class KnowledgeSearchService {
       }
       return [toRelaxedMatch(record, hit)];
     });
-    const otherStatusMatches = this.otherStatusMatches(query, status, projectId, options.kind, ranking);
+    const { counts: otherStatusMatches, truncated: countsTruncated } = this.otherStatusMatches(
+      query,
+      status,
+      projectId,
+      options.kind,
+      ranking,
+    );
+    const warnings = [
+      ...(strict.warnings ?? []),
+      ...(countsTruncated
+        ? ["Counting matches in other statuses stopped at the text-scan limit; otherStatusMatches may be low."]
+        : []),
+    ];
     const otherStatuses = Object.keys(otherStatusMatches) as KnowledgeStatus[];
     const hints = [
       relaxedMatches.length > 0
@@ -114,6 +129,7 @@ export class KnowledgeSearchService {
       ...(relaxedMatches.length > 0 ? { relaxedMatches } : {}),
       ...(otherStatuses.length > 0 ? { otherStatusMatches } : {}),
       ...(ranking.appliesToScanTruncated ? { appliesToScanTruncated: true as const } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
       hint: hints.join(" "),
     };
   }
@@ -121,6 +137,7 @@ export class KnowledgeSearchService {
   /**
    * Per other status, how many records the same search would answer there: the strict count when it has any,
    * otherwise the relaxed count, which is what passing that status would show. Counts only, in the same gated scope.
+   * All the counts share one text-scan budget, so the call scans at most twice the stored text budget in total.
    */
   private otherStatusMatches(
     query: string,
@@ -128,14 +145,18 @@ export class KnowledgeSearchService {
     projectId: string | undefined,
     kind: KnowledgeKind | undefined,
     ranking: KnowledgeRanking,
-  ): Partial<Record<KnowledgeStatus, number>> {
+  ): { counts: Partial<Record<KnowledgeStatus, number>>; truncated: boolean } {
     const counts: Partial<Record<KnowledgeStatus, number>> = {};
+    let scanBudget = LIST_SEARCH_SCAN_BUDGET;
+    let truncated = false;
     for (const other of KNOWLEDGE_STATUSES) {
       if (other === status) continue;
-      const strictCount = this.dependencies.countKnowledge({ q: query, projectId, kind, status: other });
-      const count = strictCount > 0 ? strictCount : (ranking.totals[other] ?? 0);
+      const strict = this.dependencies.countKnowledge({ q: query, projectId, kind, status: other }, scanBudget);
+      scanBudget = strict.remainingBudget;
+      truncated ||= strict.truncated;
+      const count = strict.count > 0 ? strict.count : (ranking.totals[other] ?? 0);
       if (count > 0) counts[other] = count;
     }
-    return counts;
+    return { counts, truncated };
   }
 }

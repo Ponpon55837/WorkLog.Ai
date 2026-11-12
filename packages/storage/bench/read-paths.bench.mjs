@@ -12,7 +12,17 @@ import console from "node:console";
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import { join, resolve } from "node:path";
@@ -48,12 +58,14 @@ const [
   mcpRuntime,
   { appliesToEntries, appliesToStrength, compileAppliesTo, createAppliesToBudget },
   { findKnowledgeCandidateOverlaps },
+  { findKnowledgeToReview },
 ] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
   import(pathToFileURL(join(repositoryRoot, "apps", "mcp", "dist", "recall-evaluation.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "shared", "dist", "mcp-runtime.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "applies-to-match.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-candidate-overlap.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-review-hint.js")).href),
 ]);
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
@@ -456,6 +468,123 @@ function seedOutstandingCleanupReview(targetStore, project) {
   return created.request.id;
 }
 
+/**
+ * Separate databases at the stored-text limits of the 1.6.27 review, so the worst cases never touch benchStore: 2,000
+ * Knowledge rows with 30 appliesTo entries of 1,000 characters (the list search), 200 Knowledge items with the same
+ * appliesTo and 5,000 later Sessions of 20 x 100-character files (finalize knowledgeToReview), and a Knowledge read
+ * whose staleness check meets the same 5,000 Sessions. Rows are copied in SQL; only the first goes through the store.
+ */
+function seedStoredTextWorstCases(baseRoot) {
+  const worstRoot = join(baseRoot, "worst-text");
+  const listRoot = join(baseRoot, "worst-list");
+  mkdirSync(worstRoot, { recursive: true });
+  mkdirSync(listRoot, { recursive: true });
+  const path = join(baseRoot, "worst-text.sqlite");
+  const worstStore = new WorkIntelligenceStore(path);
+  // The list rows live in a project of their own, so the review and staleness cases never read them.
+  const project = worstStore.addProject("worst-text", worstRoot);
+  worstStore.updateProject(project.id, { status: "tracked" });
+  worstStore.updateProject(worstStore.addProject("worst-list", listRoot).id, { status: "tracked" });
+  const record = (key, appliesTo, kind = "gotcha", projectRoot = worstRoot) => {
+    const recorded = worstStore.recordKnowledge({
+      projectRoot,
+      idempotencyKey: key,
+      kind,
+      title: `Synthetic worst-case rule ${key}`,
+      body: "Synthetic body.",
+      appliesTo,
+    });
+    if (recorded.outcome !== "knowledge_recorded") throw new Error(`Could not seed ${key}`);
+    return recorded.knowledge.id;
+  };
+  const finalize = (key, changedFiles, completedAt) => {
+    const result = worstStore.finalizeSession({
+      projectRoot: worstRoot,
+      idempotencyKey: key,
+      title: `Synthetic worst-case Session ${key}`,
+      summary: "Synthetic.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles,
+      verification: { status: "passed" },
+      completedAt,
+    });
+    if (result.outcome !== "finalized") throw new Error(`Could not seed ${key}`);
+    return result.session;
+  };
+  record("list-0", [], "gotcha", listRoot);
+  for (let index = 0; index < 200; index += 1) record(`review-${index}`, ["src/shared/lease.ts"]);
+  record("stale", ["src/stale/target.ts"], "decision");
+  finalize("touch", ["src/shared/lease.ts"], "2026-01-02T00:00:00.000Z");
+  finalize("template", ["src/x.ts"], "2026-01-03T00:00:00.000Z");
+  worstStore.close();
+  const database = new DatabaseSync(path);
+  try {
+    database
+      .prepare("UPDATE knowledge SET created_at = ?, updated_at = ?")
+      .run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+    const appliesTo = JSON.stringify(
+      Array.from({ length: 30 }, (_, entry) =>
+        entry === 29 ? `${"a".repeat(992)}bbbbbbbb` : `${entry}${"a".repeat(999)}`,
+      ),
+    );
+    database.prepare("UPDATE knowledge SET applies_to_json = ? WHERE idempotency_key = 'list-0'").run(appliesTo);
+    const copyRows = (table, key, count, change) => {
+      const row = database.prepare(`SELECT * FROM ${table} WHERE idempotency_key = ?`).get(key);
+      const columns = Object.keys(row);
+      const insert = database.prepare(
+        `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+      );
+      database.exec("BEGIN");
+      for (let index = 0; index < count; index += 1) {
+        const copy = { ...row, ...change(index) };
+        insert.run(...columns.map((column) => copy[column]));
+      }
+      database.exec("COMMIT");
+    };
+    copyRows("knowledge", "list-0", 1_999, (index) => ({
+      id: `list-${index + 1}`,
+      idempotency_key: `list-${index + 1}`,
+    }));
+    // 5,000 later Sessions of 20 files of about 100 characters: no file contains the review fragment (the oldest
+    // Session touches every candidate), and the staleness check cannot afford to parse them all.
+    copyRows("sessions", "template", 5_000, (index) => ({
+      id: `later-${index}`,
+      idempotency_key: `later-${index}`,
+      completed_at: new Date(Date.parse("2026-01-04T00:00:00.000Z") + index * 1_000).toISOString(),
+      changed_files_json: JSON.stringify(
+        Array.from({ length: 20 }, (_, file) => `src/other/${index}/${file}/${"z".repeat(80)}.ts`),
+      ),
+    }));
+  } finally {
+    database.close();
+  }
+  const reopened = new WorkIntelligenceStore(path);
+  const focus = (() => {
+    const session = reopened.finalizeSession({
+      projectRoot: worstRoot,
+      idempotencyKey: "focus",
+      title: "Synthetic focus",
+      summary: "Synthetic.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/shared/lease.ts"],
+      verification: { status: "passed" },
+      completedAt: "2026-06-01T00:00:00.000Z",
+    });
+    if (session.outcome !== "finalized") throw new Error("Could not seed the focus Session.");
+    return {
+      projectId: project.id,
+      sessionId: session.session.id,
+      completedAt: session.session.completedAt,
+      changedFiles: ["src/shared/lease.ts"],
+      project: { name: "worst-text", rootPath: worstRoot },
+    };
+  })();
+  const nearMiss = Array.from({ length: 8 }, (_, index) => `${"a".repeat(199 - index)}${"b".repeat(index + 1)}`).join(
+    " ",
+  );
+  return { store: reopened, path, root: worstRoot, listRoot, focus, nearMiss };
+}
+
 function listSessionDigestPage(targetStore, projectId) {
   const result = targetStore.listSessionsPage({ projectId, trackedOnly: true, page: 1, pageSize: 100 });
   const pendingItems = targetStore.pendingOutstandingItemsForSessions(result.items.map(({ id }) => id));
@@ -764,6 +893,8 @@ try {
     title: `Synthetic module ${index * 3} cache is stale after reload`,
     body: `Synthetic module ${index * 3} returns stale cache entries after a reload until the handler clears it.`,
   }));
+  const worstText = seedStoredTextWorstCases(root);
+  const worstTextDatabase = new DatabaseSync(worstText.path);
   const cases = {
     "getContext (large report source request)": () => {
       const result = benchStore.getContext(alphaRoot);
@@ -1116,11 +1247,12 @@ try {
         }
       if (!budget.exhausted) throw new Error("The scan must stop at its match budget.");
     },
-    // The second finding: a crafted 5 MB entry (skipped before it is tokenized) and distinct 1,000-character entries
+    // The second finding: a crafted 2 MB entry (skipped before it is tokenized; from 1.6.27 parsing costs 4 units per
+    // character, so a 5 MB list alone would spend the budget, and SQL no longer loads lists above about 2.5 MB) and distinct 1,000-character entries
     // that defeat the compile cache (each miss charged) until the budget runs out.
-    "appliesTo stored entries (5 MB entry, distinct 1,000-char entries)": () => {
+    "appliesTo stored entries (2 MB entry, distinct 1,000-char entries)": () => {
       const budget = createAppliesToBudget();
-      const crafted = JSON.stringify([`src/*${"a".repeat(5_000_000)}*.ts`, "src/*.ts"]);
+      const crafted = JSON.stringify([`src/*${"a".repeat(2_000_000)}*.ts`, "src/*.ts"]);
       if (appliesToEntries(crafted, [], budget).length !== 1 || budget.skippedEntries !== 1)
         throw new Error("The oversized entry must be skipped without normalizing it.");
       for (let entry = 0; !budget.exhausted; entry += 1)
@@ -1137,6 +1269,29 @@ try {
         throw new Error("Every synthetic candidate must overlap its module's Knowledge.");
       return result;
     },
+    // The 1.6.27 review's list-search shape: eight 200-character near-miss words over 2,000 rows of the largest
+    // appliesTo (38.6 s with LIKE for one 500-character word). instr and the scan budget stop it with a warning.
+    "searchKnowledge (2,000 x 30 x 1,000-char appliesTo, 8 near-miss words)": () => {
+      const result = worstText.store.searchKnowledge({ projectRoot: worstText.listRoot, q: worstText.nearMiss });
+      if (result.outcome !== "knowledge" || !result.warnings?.some((warning) => warning.includes("text-scan limit")))
+        throw new Error("The worst-case list search must stop at the scan budget and say so.");
+      return result;
+    },
+    // 200 candidates, 5,000 later Sessions, the oldest touching all of them (3.0 s when each candidate scanned alone).
+    "knowledgeToReview (200 candidates, 5,000 later Sessions)": () => {
+      const result = findKnowledgeToReview(worstTextDatabase, worstText.focus);
+      if (result.hints.length !== 0 || result.truncated)
+        throw new Error("The one-pass review check must decide every candidate within its budget.");
+      return result;
+    },
+    // A Knowledge read after 5,000 later Sessions of 20 x 100-character files (50 x 100 took 433 ms and 235 MB with
+    // one .all()); the budgeted read stops and marks the record unchecked.
+    "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": () => {
+      const result = worstText.store.searchKnowledge({ projectRoot: worstText.root, kind: "decision" });
+      if (result.outcome !== "knowledge" || !result.items.some((item) => item.stalenessUnchecked))
+        throw new Error("The staleness check must stop at its budget and mark the record unchecked.");
+      return result;
+    },
     "summarizeAgentReads (5,000 rows)": () => {
       const result = benchStore.summarizeAgentReads({});
       if (result.tools.length !== 12 || result.tools.some((tool) => tool.p95Ms === null))
@@ -1146,6 +1301,15 @@ try {
   };
 
   const projectDataBundle = benchStore.exportProjectData({ type: "all" });
+  // The heavy API cases (backup, export, import preview) copy or read the whole database, so their time grows with
+  // the file. The other cases write into benchStore (finalize, per-run Knowledge, outstanding cleanup…), which made
+  // the heavy cases copy a larger file in a full run than with --backup-worker-only. They therefore run against a
+  // byte copy of the database taken here, after all seeding and before any case runs: the same file in both modes.
+  withBenchConnection(databasePath, (connection) => connection.exec("PRAGMA wal_checkpoint(TRUNCATE)"));
+  const heavyDatabasePath = join(root, "bench-heavy.sqlite");
+  copyFileSync(databasePath, heavyDatabasePath);
+  const heavyStore = new WorkIntelligenceStore(heavyDatabasePath);
+  const heavyDatabaseBytes = () => statSync(heavyDatabasePath).size;
   const exportDirectory = join(root, "export");
   const resetHeavyOutputs = () => {
     rmSync(join(root, "backups"), { recursive: true, force: true });
@@ -1161,12 +1325,14 @@ try {
       : undefined;
   const BackupWorkerClient = workerClientModule?.BackupWorkerClient;
   const backgroundStore = BackupWorkerClient
-    ? new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: backupWorkerBenchIdleTimeoutMs })
+    ? new BackupWorkerClient(heavyDatabasePath, {}, LATEST_SCHEMA_VERSION, {
+        idleTimeoutMs: backupWorkerBenchIdleTimeoutMs,
+      })
     : undefined;
   const coldStartWorkers = new Set();
   const coldStartWorkerClosures = new Set();
   function runColdStartWorker(operation) {
-    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: 0 });
+    const worker = new BackupWorkerClient(heavyDatabasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: 0 });
     coldStartWorkers.add(worker);
     const result = operation(worker);
     const closeWorker = () => {
@@ -1199,7 +1365,7 @@ try {
       }
     : undefined;
   const benchmarkServer = createServer(
-    createApiHandler(benchStore, {
+    createApiHandler(heavyStore, {
       ...(backgroundStore ? { backgroundStore } : {}),
     }),
   );
@@ -1215,7 +1381,7 @@ try {
   let coldStartServer;
   let coldStartBaseUrl;
   if (coldStartBackgroundStore) {
-    coldStartServer = createServer(createApiHandler(benchStore, { backgroundStore: coldStartBackgroundStore }));
+    coldStartServer = createServer(createApiHandler(heavyStore, { backgroundStore: coldStartBackgroundStore }));
     await new Promise((resolve, reject) => {
       coldStartServer.once("error", reject);
       coldStartServer.listen(0, "127.0.0.1", resolve);
@@ -1333,10 +1499,13 @@ try {
     "appliesTo glob (30 x 500-star patterns, 20 x 1,000-char paths)": 20,
     "appliesTo scan (16-star patterns until the match budget runs out)": 250,
     "appliesTo scan (near-miss literal runs, 2,000 rows x 30 x 20 paths)": 250,
-    "appliesTo stored entries (5 MB entry, distinct 1,000-char entries)": 250,
+    "appliesTo stored entries (2 MB entry, distinct 1,000-char entries)": 250,
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
+    "searchKnowledge (2,000 x 30 x 1,000-char appliesTo, 8 near-miss words)": 750,
+    "knowledgeToReview (200 candidates, 5,000 later Sessions)": 250,
+    "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": 500,
     "searchKnowledgeForAgent (relaxed fallback)": 250,
     createBackup: 300,
     "exportTo (whole database)": 300,
@@ -1363,6 +1532,7 @@ try {
   const measureCase = async (name, run) => {
     const isHeavyCase = name in heavyCases;
     const caseRuns = isHeavyCase ? heavyRuns : runs;
+    const databaseBytesBefore = isHeavyCase ? heavyDatabaseBytes() : undefined;
     beforeEachRun[name]?.();
     await run();
     const transactionObserver = name in transactionLimitsMs ? observeWriteTransactionDurations(benchStore) : undefined;
@@ -1453,6 +1623,7 @@ try {
         eventLoopLimitMs,
         healthProbeCountMedian: Number(healthProbeSamples.sort((a, b) => a - b)[Math.floor(caseRuns / 2)]),
         rssPeakMaxMb: rssPeakSamples.at(-1),
+        databaseBytes: databaseBytesBefore,
         passed: checkMode ? passed : undefined,
       });
 
@@ -1527,6 +1698,9 @@ try {
   }
   await closeBenchmarkApi();
   analyzedStore.close();
+  heavyStore.close();
+  worstText.store.close();
+  worstTextDatabase.close();
   reindexStore.close();
   overlapDatabase.close();
   benchStore.close();

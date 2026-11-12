@@ -13,7 +13,12 @@ import type {
 } from "@work-intelligence/core";
 import { MAX_OUTSTANDING_ITEM_BATCH_SIZE, OUTSTANDING_ITEM_STATUSES } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
-import { rankRelatedPending, type RelatedPendingCandidate } from "./outstanding-item-relevance.js";
+import {
+  rankRelatedPendingWithin,
+  RELATED_PENDING_UNIT_LIMIT,
+  type RelatedPendingCandidate,
+} from "./outstanding-item-relevance.js";
+import { MAX_STORED_CHANGED_FILES_JSON_BYTES } from "./applies-to-match.js";
 import { normalizePath, parseQueryWords } from "./search-text.js";
 import { createPageInfo } from "./pagination.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -184,8 +189,9 @@ export class OutstandingItemService {
    * text fields with lower() so term matching keeps SQLite's case rules; paths are normalized once per Session.
    *
    * At most RELATED_PENDING_CANDIDATE_LIMIT items are read, newest source Sessions first; the scorer sorts what it
-   * keeps, so below the limit the read order changes nothing. When more items qualify, `truncated` says so and `total`
-   * counts the read ones only. (A SQL relevance prefilter was measured and left out: on real data it removed few rows
+   * keeps, so below the limit the read order changes nothing. When more items qualify, or scoring them would pass
+   * RELATED_PENDING_UNIT_LIMIT (charged before each candidate is scored), `truncated` says so and `total` counts the
+   * scored ones only. (A SQL relevance prefilter was measured and left out: on real data it removed few rows
    * and doubled the call's time.)
    */
   public relatedPending(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number; truncated?: true } {
@@ -218,8 +224,7 @@ export class OutstandingItemService {
            s.completed_at AS source_session_completed_at,
            ${terms.length ? "lower(i.text)" : "''"} AS text_key,
            ${terms.length ? "lower(s.title)" : "''"} AS title_key,
-           ${terms.length ? "lower(substr(s.summary, 1, 2000))" : "''"} AS summary_key,
-           ${paths.length ? "s.changed_files_json" : "'[]'"} AS changed_files_json`,
+           ${terms.length ? "lower(substr(s.summary, 1, 2000))" : "''"} AS summary_key`,
         )}
          ORDER BY s.completed_at DESC, i.source_session_id DESC, i.position, i.id
          LIMIT ?`,
@@ -228,9 +233,36 @@ export class OutstandingItemService {
         ...(input.projectId ? [input.projectId] : []),
         input.excludeSourceSessionId ?? "",
         RELATED_PENDING_CANDIDATE_LIMIT + 1,
-      ) as RelatedPendingRow[];
-    const truncated = candidates.length > RELATED_PENDING_CANDIDATE_LIMIT;
-    const ranked = rankRelatedPending(truncated ? candidates.slice(0, -1) : candidates, { terms, paths, sources });
+      ) as Array<Omit<RelatedPendingRow, "changed_files_json">>;
+    const overLimit = candidates.length > RELATED_PENDING_CANDIDATE_LIMIT;
+    const read = overLimit ? candidates.slice(0, -1) : candidates;
+    // Changed files are read once per source Session (they were copied into every item row: 2,000 rows of a
+    // 200 KB list were 400 MB), only when paths are queried, and only within the stored-list load bound.
+    const filesBySession = new Map<string, string | null>();
+    if (paths.length > 0 && read.length > 0) {
+      const rows = this.db
+        .prepare(
+          `SELECT id, CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
+                           THEN changed_files_json END AS changed_files_json
+           FROM sessions WHERE id IN (SELECT value FROM json_each(?))`,
+        )
+        .all(JSON.stringify([...new Set(read.map((row) => row.source_session_id))])) as Array<{
+        id: string;
+        changed_files_json: string | null;
+      }>;
+      for (const row of rows) filesBySession.set(row.id, row.changed_files_json);
+    }
+    const overBound = [...filesBySession.values()].some((json) => json === null);
+    const scoring = read.map((row) => ({
+      ...row,
+      changed_files_json: filesBySession.get(row.source_session_id) ?? "[]",
+    }));
+    const { ranked, exhausted } = rankRelatedPendingWithin(
+      scoring,
+      { terms, paths, sources },
+      RELATED_PENDING_UNIT_LIMIT,
+    );
+    const truncated = overLimit || exhausted || overBound;
     return {
       items: ranked.slice(0, RELATED_PENDING_LIMIT).map(toOutstandingItem),
       total: ranked.length,

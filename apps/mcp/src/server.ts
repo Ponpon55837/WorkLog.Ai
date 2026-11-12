@@ -712,7 +712,13 @@ export function createWorkIntelligenceMcpServer(
       const digests = toSessionDigests(result.items, pendingItems);
       if (!input.projectRoot && !input.projectId) return { ...result, items: digests };
       const { project, items } = hoistItemProject(digests);
-      return { outcome: result.outcome, ...(project ? { project } : {}), items, pageInfo: result.pageInfo };
+      return {
+        outcome: result.outcome,
+        ...(project ? { project } : {}),
+        items,
+        pageInfo: result.pageInfo,
+        ...(result.warnings ? { warnings: result.warnings } : {}),
+      };
     },
   });
 
@@ -764,6 +770,7 @@ export function createWorkIntelligenceMcpServer(
         confidence: result.confidence,
         hits: hits.map(withoutProjectFields),
         ...(result.termHits ? { termHits: result.termHits } : {}),
+        ...(result.warnings ? { warnings: result.warnings } : {}),
       };
     },
   });
@@ -994,6 +1001,7 @@ export function createWorkIntelligenceMcpServer(
         pageInfo: result.pageInfo,
         ...(result.relaxedMatches ? { relaxedMatches: result.relaxedMatches.map(withoutProjectFields) } : {}),
         ...(result.otherStatusMatches ? { otherStatusMatches: result.otherStatusMatches } : {}),
+        ...(result.warnings ? { warnings: result.warnings } : {}),
         ...(result.hint ? { hint: result.hint } : {}),
       };
     },

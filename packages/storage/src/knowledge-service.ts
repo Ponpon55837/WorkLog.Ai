@@ -25,8 +25,11 @@ import type {
 } from "@work-intelligence/core";
 import {
   APPLIES_TO_STALENESS_UNIT_LIMIT,
+  chargeNormalizePath,
+  chargeStoredJson,
   compileAppliesTo,
   createAppliesToBudget,
+  MAX_STORED_CHANGED_FILES_JSON_BYTES,
   normalizedAppliesTo,
   type AppliesToBudget,
 } from "./applies-to-match.js";
@@ -352,7 +355,13 @@ export class KnowledgeService {
       const project = this.dependencies.getProjectById(projectId);
       const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
       const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
-      const sessions = buildLaterSessionIndex(this.loadLaterSessions(projectId, earliest, contexts), budget);
+      const later = this.loadLaterSessions(projectId, earliest, contexts, budget);
+      if (!later.complete) {
+        // Some later Session was not read, so no item of the group can be proven current or stale.
+        for (const item of group) staleness.set(item.id, "unchecked");
+        continue;
+      }
+      const sessions = buildLaterSessionIndex(later.sessions, budget);
       for (const item of group) {
         const result = knowledgeStaleness(item, sessions, contexts);
         if (result) {
@@ -400,24 +409,48 @@ export class KnowledgeService {
     return evidence;
   }
 
-  /** A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. */
-  private loadLaterSessions(projectId: string, since: string, contexts: PathContext[]): LaterSession[] {
+  /**
+   * A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. Rows are
+   * read one at a time; each list is charged to the staleness budget by its length before it is parsed, and each path
+   * before it is normalized, so a long history stops at the budget instead of loading every list (5,000 Sessions of
+   * 50 x 100 characters took 433 ms and 235 MB with one .all()). A list above MAX_STORED_CHANGED_FILES_JSON_BYTES is not
+   * loaded. `complete` is false when either stopped the read.
+   */
+  private loadLaterSessions(
+    projectId: string,
+    since: string,
+    contexts: PathContext[],
+    budget: AppliesToBudget,
+  ): { sessions: LaterSession[]; complete: boolean } {
     const rows = this.db
       .prepare(
-        `SELECT id, title, completed_at, changed_files_json FROM sessions
+        `SELECT id, title, completed_at,
+                CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
+                     THEN changed_files_json END AS changed_files_json
+         FROM sessions
          WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
          ORDER BY completed_at ASC, id ASC`,
       )
-      .all(projectId, since) as Array<{ id: string; title: string; completed_at: string; changed_files_json: string }>;
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      completedAt: row.completed_at,
-      files: parseJson<string[]>(row.changed_files_json, []).map((file) => ({
-        raw: file,
-        normalized: normalizePath(file, contexts),
-      })),
-    }));
+      .iterate(projectId, since) as Iterable<{
+      id: string;
+      title: string;
+      completed_at: string;
+      changed_files_json: string | null;
+    }>;
+    const sessions: LaterSession[] = [];
+    for (const row of rows) {
+      if (row.changed_files_json === null || !chargeStoredJson(budget, row.changed_files_json)) {
+        return { sessions, complete: false };
+      }
+      const files: LaterSession["files"] = [];
+      for (const file of parseJson<unknown[]>(row.changed_files_json, [])) {
+        if (typeof file !== "string") continue;
+        if (!chargeNormalizePath(budget, file, contexts)) return { sessions, complete: false };
+        files.push({ raw: file, normalized: normalizePath(file, contexts) });
+      }
+      sessions.push({ id: row.id, title: row.title, completedAt: row.completed_at, files });
+    }
+    return { sessions, complete: true };
   }
 
   public recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult {

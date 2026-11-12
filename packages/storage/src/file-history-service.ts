@@ -13,6 +13,7 @@ import { decodeFileHistoryCursor, encodeFileHistoryCursor, type FileHistoryCurso
 import { truncateText } from "@work-intelligence/shared";
 import {
   APPLIES_TO_SCAN_LIMIT,
+  appliesToColumnSql,
   appliesToEntries,
   appliesToScanIncomplete,
   appliesToStrength,
@@ -52,7 +53,8 @@ interface SessionTextRow {
 interface KnowledgeAppliesToRow {
   id: string;
   title: string;
-  applies_to_json: string;
+  /** NULL when the stored text is above MAX_STORED_APPLIES_TO_JSON_BYTES (not loaded). */
+  applies_to_json: string | null;
   updated_at: string;
 }
 
@@ -343,7 +345,7 @@ export class FileHistoryService {
     if (keys.length === 0) return { items: [], omitted: 0, truncated: false };
     const rows = this.db
       .prepare(
-        `SELECT id, title, applies_to_json, updated_at FROM knowledge
+        `SELECT id, title, ${appliesToColumnSql("applies_to_json")} AS applies_to_json, updated_at FROM knowledge
          WHERE project_id = ? AND status = 'active' AND applies_to_json <> '[]'
          ORDER BY updated_at DESC, id ASC LIMIT ?`,
       )

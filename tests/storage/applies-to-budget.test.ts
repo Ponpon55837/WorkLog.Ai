@@ -308,7 +308,8 @@ describe("appliesTo accounting invariant", () => {
     // A small working set stays cached and costs one unit per lookup.
     const hot = createAppliesToBudget(Number.MAX_SAFE_INTEGER);
     for (let round = 0; round < 50; round += 1) compileAppliesTo("src/**/*.ts", hot);
-    expect(hot.units).toBeLessThanOrEqual(16 * "src/**/*.ts".length + 1 + 49);
+    // The first lookup also pays for telling the glob apart (its length); later ones find it compiled in the cache.
+    expect(hot.units).toBeLessThanOrEqual(17 * "src/**/*.ts".length + 1 + 49);
   });
 });
 
@@ -470,7 +471,8 @@ describe("stored appliesTo above the write-time limits", () => {
     const budget = createAppliesToBudget();
     expect(appliesToEntries(JSON.stringify(atBound), [], budget)).toEqual([]);
     expect(budget.exhausted).toBe(false);
-    expect(budget.units).toBeLessThanOrEqual(JSON.stringify(atBound).length + 1);
+    // JSON.parse is charged four units per character, its measured cost against a plain character read.
+    expect(budget.units).toBeLessThanOrEqual(4 * JSON.stringify(atBound).length + 1);
     expect(budget.skippedEntries).toBe(100);
   });
 });

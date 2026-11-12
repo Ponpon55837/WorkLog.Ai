@@ -206,6 +206,7 @@ import {
 import { createPageInfo } from "./pagination.js";
 import { GraphBuilder } from "./graph-builder.js";
 import { KnowledgeRepository } from "./knowledge-repository.js";
+import { registerListSearchFunctions } from "./list-search-scan.js";
 import { ProjectRepository, type ProjectUpdate } from "./project-repository.js";
 import { ProjectLocationService } from "./project-location-service.js";
 import { MetadataBackfillService } from "./metadata-backfill-service.js";
@@ -445,6 +446,8 @@ export class WorkIntelligenceStore {
       this.db.close();
       throw error;
     }
+    // Before any statement runs: SQLite refuses to define a function while a statement is active.
+    registerListSearchFunctions(this.db);
     this.projectDataTransfer = new ProjectDataTransferService(this.db);
     this.projects = new ProjectRepository(this.db);
     this.projectLocationService = new ProjectLocationService(this.db, this.projects);
@@ -535,7 +538,7 @@ export class WorkIntelligenceStore {
     this.searchIndex = new SearchRepository(this.db);
     this.knowledgeSearch = new KnowledgeSearchService({
       searchKnowledge: (query) => this.searchKnowledge(query),
-      countKnowledge: (query) => this.knowledge.count(query),
+      countKnowledge: (query, scanBudget) => this.knowledge.count(query, scanBudget),
       rankKnowledge: (options) => this.searchIndex.rankKnowledge(options),
       getKnowledgeWithTrustMany: (knowledgeIds) => this.trackedKnowledgeWithTrust(knowledgeIds),
     });

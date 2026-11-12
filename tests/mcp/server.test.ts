@@ -2081,3 +2081,25 @@ describe("Work Intelligence MCP server", () => {
     expect(finalizeContract).toContain("skip single-file fixes");
   });
 });
+
+describe("list search warnings over MCP", () => {
+  it("passes warnings through the project-scoped Knowledge, Session and recall answers", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Warnings fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const long = `${"w".repeat(200)}tail`;
+    store.recordKnowledge({
+      projectRoot: root,
+      idempotencyKey: "warnings-knowledge",
+      kind: "gotcha",
+      title: "Synthetic warning rule",
+      body: `Synthetic ${long}.`,
+    });
+    const knowledge = await callJson(client, "work_search_knowledge", { projectRoot: root, q: long });
+    expect(knowledge).toMatchObject({ match: "strict", warnings: [expect.stringContaining("200 characters")] });
+    const sessions = await callJson(client, "work_list_sessions", { projectRoot: root, q: long });
+    expect(sessions).toMatchObject({ warnings: [expect.stringContaining("200 characters")] });
+    const ordinary = await callJson(client, "work_search_knowledge", { projectRoot: root, q: "synthetic warning" });
+    expect(ordinary).not.toHaveProperty("warnings");
+  });
+});

@@ -12,6 +12,7 @@ import type {
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
 import {
   APPLIES_TO_SCAN_LIMIT,
+  appliesToColumnSql,
   appliesToEntries,
   appliesToStrength,
   createAppliesToBudget,
@@ -29,8 +30,8 @@ import {
   type PathContext,
   type QueryWord,
 } from "./search-text.js";
+import { LIST_SEARCH_CHARGE_FUNCTION, runListSearchScan } from "./list-search-scan.js";
 import { nextCalendarDate } from "./session-repository.js";
-import { LIKE_ESCAPE, likeContainsPattern } from "./sql-like.js";
 import { resetLastInsertRowid, runFtsWrite } from "./sqlite-fts.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
@@ -65,6 +66,8 @@ const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
 /** Path-like words of a Knowledge query matched against paths and appliesTo; more add cost, not recall. */
 const MAX_QUERY_PATH_WORDS = 5;
+const PATH_SCAN_TRUNCATED_WARNING =
+  "The path comparison stopped at its text-scan limit, so older records were not compared with paths; narrow the scope with projectRoot or a date range.";
 const EXCERPT_LENGTH = 220;
 const MAX_SYNONYM_TERMS = 32;
 const SYNONYM_SCORE_WEIGHT = 0.2;
@@ -239,6 +242,8 @@ export interface RecallComputation {
   hits: RecallHit[];
   confidence: RecallConfidence;
   termHits?: RecallTermHits[];
+  /** Present when the path scan stopped at its text-scan limit, so older paths were not compared. */
+  warnings?: string[];
 }
 
 export interface KnowledgeRankOptions {
@@ -263,7 +268,7 @@ export interface KnowledgeRanking {
   /** Matches per status, including the ones not returned as hits. */
   totals: Partial<Record<KnowledgeStatus, number>>;
   hits: KnowledgeRankHit[];
-  /** The appliesTo match budget ran out, so older Knowledge was not checked against the query's paths. */
+  /** The appliesTo match budget or the path-scan budget ran out, so older Knowledge was not checked against the query's paths. */
   appliesToScanTruncated?: true;
 }
 
@@ -395,7 +400,7 @@ export class SearchRepository {
 
   public recall(options: RecallOptions): RecallComputation {
     this.syncIndex();
-    const { words, terms, idf, docs, ranked } = this.rank(options);
+    const { words, terms, idf, docs, ranked, pathScanTruncated } = this.rank(options);
     const excerptTerms = terms
       .map((term, index) => ({ term, idf: idf[index] ?? 0 }))
       .sort((left, right) => right.idf - left.idf)
@@ -436,6 +441,7 @@ export class SearchRepository {
       hits,
       confidence,
       ...(termHits.some((entry) => entry.count === 0) ? { termHits } : {}),
+      ...(pathScanTruncated ? { warnings: [PATH_SCAN_TRUNCATED_WARNING] } : {}),
     };
   }
 
@@ -453,7 +459,7 @@ export class SearchRepository {
       .flatMap((word) => normalizeReference(word))
       .filter((reference) => reference.kind === "path")
       .map((reference) => reference.value);
-    const { terms, ranked, appliesToScanTruncated } = this.rank({
+    const { terms, ranked, appliesToScanTruncated, pathScanTruncated } = this.rank({
       q: options.q,
       paths: [...new Set(paths)].slice(0, MAX_QUERY_PATH_WORDS),
       projectId: options.projectId,
@@ -481,7 +487,7 @@ export class SearchRepository {
           matchedTerms: terms.filter((_, index) => doc.terms.has(index)).slice(0, MAX_MATCHED_TERMS),
           ...(doc.matchedPaths.size > 0 ? { matchedPaths: [...doc.matchedPaths].slice(0, MAX_MATCHED_PATHS) } : {}),
         })),
-      ...(appliesToScanTruncated ? { appliesToScanTruncated: true as const } : {}),
+      ...(appliesToScanTruncated || pathScanTruncated ? { appliesToScanTruncated: true as const } : {}),
     };
   }
 
@@ -564,6 +570,7 @@ export class SearchRepository {
     docs: Map<string, DocAccumulator>;
     ranked: RankedDoc[];
     appliesToScanTruncated: boolean;
+    pathScanTruncated: boolean;
   } {
     const words = options.q ? parseQueryWords(options.q) : [];
     const terms = [...new Set(words.flatMap((word) => word.terms))].slice(0, MAX_QUERY_TERMS);
@@ -600,8 +607,9 @@ export class SearchRepository {
       this.scoreSynonyms(synonyms, accumulator, options);
     }
     let appliesToScanTruncated = false;
+    let pathScanTruncated = false;
     if (queriedPaths.length > 0) {
-      this.scorePaths(queriedPaths, accumulator, options);
+      pathScanTruncated = this.scorePaths(queriedPaths, accumulator, options);
       if (options.matchAppliesTo) {
         appliesToScanTruncated = this.scoreAppliesTo(queriedPaths, accumulator, options);
       }
@@ -647,7 +655,7 @@ export class SearchRepository {
             (entry.doc.bestSynonymRaw?.score ?? 0) > 0),
       )
       .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
-    return { words, terms, idf, docs, ranked, appliesToScanTruncated };
+    return { words, terms, idf, docs, ranked, appliesToScanTruncated, pathScanTruncated };
   }
 
   /** Moves each qualifying continuation directly above the earlier Session it continues; see CONTINUATION_SCORE_SHARE. */
@@ -872,38 +880,55 @@ export class SearchRepository {
     }
   }
 
+  /**
+   * Scores stored paths against each queried path: the same basename, or a stored path that contains `queried/`.
+   * instr(lower(path), lower(needle)) > 0 is `path LIKE '%needle%'` with the wildcards escaped (LIKE folds ASCII
+   * only, as lower() does) without LIKE's re-match from every stored position, which cost about 400 ns per stored
+   * byte for a 1,000-character near-miss path. The substring test charges each row's stored bytes first, and every
+   * queried path of the call shares one text-scan budget; returns whether that budget ran out.
+   */
   private scorePaths(
     queriedPaths: string[],
     accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
     options: RecallOptions,
-  ): void {
+  ): boolean {
     const { clause, parameters } = this.scopeClause("sp", options);
     const statement = this.db.prepare(
       `SELECT sp.doc_type, sp.doc_id, sp.project_id, sp.path, sp.weight, sp.doc_date
        FROM search_paths sp
        JOIN projects p ON p.id = sp.project_id
        LEFT JOIN knowledge k ON sp.doc_type = 'knowledge' AND k.id = sp.doc_id
-       WHERE (sp.basename = ? OR sp.path LIKE ? ${LIKE_ESCAPE}) AND ${clause}`,
+       WHERE (sp.basename = ?
+         OR CASE WHEN ${LIST_SEARCH_CHARGE_FUNCTION}(octet_length(sp.path)) THEN instr(lower(sp.path), lower(?)) > 0
+            ELSE 0 END)
+         AND ${clause}`,
     );
-    for (const queried of queriedPaths) {
-      const best = new Map<string, { row: PathRow; strength: number }>();
-      const rows = statement.all(
-        pathBasename(queried),
-        likeContainsPattern(`${queried}/`),
-        ...parameters,
-      ) as unknown as PathRow[];
-      for (const row of rows) {
-        const strength = pathMatchStrength(row.path, queried) * row.weight;
-        const key = docKey(row.doc_type, row.doc_id);
-        if (strength > 0 && strength > (best.get(key)?.strength ?? 0)) {
-          best.set(key, { row, strength });
-        }
+    const { scan } = runListSearchScan(this.db, 1, () => {
+      for (const queried of queriedPaths) this.scorePath(statement, queried, parameters, accumulator);
+    });
+    return scan.exhausted;
+  }
+
+  /** Adds each document's best path score for one queried path (its own call, inside the shared scan). */
+  private scorePath(
+    statement: StatementSync,
+    queried: string,
+    parameters: Array<string | number>,
+    accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
+  ): void {
+    const best = new Map<string, { row: PathRow; strength: number }>();
+    const rows = statement.all(pathBasename(queried), `${queried}/`, ...parameters) as unknown as PathRow[];
+    for (const row of rows) {
+      const strength = pathMatchStrength(row.path, queried) * row.weight;
+      const key = docKey(row.doc_type, row.doc_id);
+      if (strength > 0 && strength > (best.get(key)?.strength ?? 0)) {
+        best.set(key, { row, strength });
       }
-      for (const { row, strength } of best.values()) {
-        const doc = accumulator(row.doc_type, row.doc_id, row.project_id, row.doc_date);
-        doc.pathScore += strength * PATH_WEIGHT;
-        doc.matchedPaths.add(row.path);
-      }
+    }
+    for (const { row, strength } of best.values()) {
+      const doc = accumulator(row.doc_type, row.doc_id, row.project_id, row.doc_date);
+      doc.pathScore += strength * PATH_WEIGHT;
+      doc.matchedPaths.add(row.path);
     }
   }
 
@@ -927,7 +952,8 @@ export class SearchRepository {
     });
     const rows = this.db
       .prepare(
-        `SELECT k.id, k.project_id, k.updated_at, k.applies_to_json, p.name, p.root_path
+        `SELECT k.id, k.project_id, k.updated_at, ${appliesToColumnSql("k.applies_to_json")} AS applies_to_json,
+                p.name, p.root_path
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
          WHERE k.applies_to_json <> '[]' AND ${clause}
@@ -937,7 +963,7 @@ export class SearchRepository {
       id: string;
       project_id: string;
       updated_at: string;
-      applies_to_json: string;
+      applies_to_json: string | null;
       name: string;
       root_path: string;
     }>;
