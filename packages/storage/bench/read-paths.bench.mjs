@@ -46,7 +46,7 @@ const [
   { LATEST_SCHEMA_VERSION, toAgentReportContext, toSessionDigests, WorkIntelligenceStore },
   recallEvaluation,
   mcpRuntime,
-  { appliesToStrength, compileAppliesTo, createAppliesToBudget },
+  { appliesToEntries, appliesToStrength, compileAppliesTo, createAppliesToBudget },
   { findKnowledgeCandidateOverlaps },
 ] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
@@ -1093,7 +1093,7 @@ try {
         for (let path = 0; path < 20; path += 1)
           if (appliesToStrength(pattern, "a".repeat(1_000), budget) !== 0)
             throw new Error("A glob above the star bound must not match.");
-      if (budget.steps !== 600) throw new Error("Each over-complex pair must cost one step.");
+      if (budget.exhausted) throw new Error("Over-complex pairs must be rejected without simulating them.");
     },
     // The costliest globs the star bound allows (16 stars between literal runs a long path contains) until one scan's
     // match budget runs out: the wall-clock side of the deterministic step limit.
@@ -1102,6 +1102,29 @@ try {
       const matches = compileAppliesTo(`${`**${"a".repeat(62)}`.repeat(15)}**`);
       for (let pair = 0; pair < 600 && !budget.exhausted; pair += 1) matches("a".repeat(1_000), budget);
       if (!budget.exhausted) throw new Error("The scan must stop at its match budget.");
+    },
+    // The third review's first finding: 2-star globs around ~600 characters of near-miss literal runs against paths
+    // at the length limit, as one call's 2,000 rows x 30 entries x 20 paths. The literal search is linear and charged
+    // per character, so the scan stops at the budget (charged 1 step per pair and quadratic, this took about 50 s).
+    "appliesTo scan (near-miss literal runs, 2,000 rows x 30 x 20 paths)": () => {
+      const budget = createAppliesToBudget();
+      const paths = Array.from({ length: 20 }, (_, index) => `x${"a".repeat(996 - index)}y`);
+      for (let row = 0; row < 2_000 && !budget.exhausted; row += 1)
+        for (let entry = 0; entry < 30 && !budget.exhausted; entry += 1) {
+          const matches = compileAppliesTo(`x*${"a".repeat(300)}b${"a".repeat(300 - (entry % 3))}*y`, budget);
+          for (const path of paths) if (matches(path, budget)) throw new Error("The near-miss glob must not match.");
+        }
+      if (!budget.exhausted) throw new Error("The scan must stop at its match budget.");
+    },
+    // The second finding: a crafted 5 MB entry (skipped before it is tokenized) and distinct 1,000-character entries
+    // that defeat the compile cache (each miss charged) until the budget runs out.
+    "appliesTo stored entries (5 MB entry, distinct 1,000-char entries)": () => {
+      const budget = createAppliesToBudget();
+      const crafted = JSON.stringify([`src/*${"a".repeat(5_000_000)}*.ts`, "src/*.ts"]);
+      if (appliesToEntries(crafted, [], budget).length !== 1 || budget.skippedEntries !== 1)
+        throw new Error("The oversized entry must be skipped without normalizing it.");
+      for (let entry = 0; !budget.exhausted; entry += 1)
+        compileAppliesTo(`${entry}-*${"a".repeat(985)}*`, budget)("src/a.ts", budget);
     },
     // 30 submitted candidates against 500 Knowledge items of one project: each existing item is tokenized once.
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": () => {
@@ -1308,7 +1331,9 @@ try {
     "getFileHistory (3 paths)": 50,
     "appliesTo glob (star-heavy pattern, 500-char paths)": 20,
     "appliesTo glob (30 x 500-star patterns, 20 x 1,000-char paths)": 20,
-    "appliesTo scan (16-star patterns until the match budget runs out)": 100,
+    "appliesTo scan (16-star patterns until the match budget runs out)": 250,
+    "appliesTo scan (near-miss literal runs, 2,000 rows x 30 x 20 paths)": 250,
+    "appliesTo stored entries (5 MB entry, distinct 1,000-char entries)": 250,
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,

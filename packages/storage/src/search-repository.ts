@@ -10,7 +10,12 @@ import type {
   RecallTermHits,
 } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
-import { APPLIES_TO_SCAN_LIMIT, appliesToStrength, createAppliesToBudget } from "./applies-to-match.js";
+import {
+  APPLIES_TO_SCAN_LIMIT,
+  appliesToEntries,
+  appliesToStrength,
+  createAppliesToBudget,
+} from "./applies-to-match.js";
 import {
   excerptAround,
   ftsTermExpression,
@@ -906,7 +911,8 @@ export class SearchRepository {
    * Adds a fixed path score for Knowledge whose appliesTo covers a queried path: a glob that matches it, a plain entry
    * equal to it or a path-segment suffix of it, or a directory entry that contains it (or lies inside a queried
    * directory). appliesTo is not in the retrieval index, so the scoped rows are read once and matched in memory,
-   * newest first, within one match budget; returns whether the budget ran out before every row was checked.
+   * newest first, within one match budget; returns whether the budget ran out before every row was checked or a
+   * stored entry above the write-time limits was skipped.
    */
   private scoreAppliesTo(
     queriedPaths: string[],
@@ -927,7 +933,7 @@ export class SearchRepository {
          WHERE k.applies_to_json <> '[]' AND ${clause}
          ORDER BY k.updated_at DESC, k.id ASC LIMIT ?`,
       )
-      .all(...parameters, APPLIES_TO_SCAN_LIMIT) as Array<{
+      .iterate(...parameters, APPLIES_TO_SCAN_LIMIT) as Iterable<{
       id: string;
       project_id: string;
       updated_at: string;
@@ -935,14 +941,13 @@ export class SearchRepository {
       name: string;
       root_path: string;
     }>;
+    // Rows are read one at a time, so a spent budget also stops reading them.
     const budget = createAppliesToBudget();
     for (const row of rows) {
       const contexts = [{ name: row.name, rootPath: row.root_path }];
       let best = 0;
       let bestPattern = "";
-      for (const raw of parseStringArray(row.applies_to_json)) {
-        const pattern = normalizePath(raw, contexts);
-        if (!pattern) continue;
+      for (const pattern of appliesToEntries(row.applies_to_json, contexts, budget)) {
         for (const queried of queriedPaths) {
           const strength = appliesToStrength(pattern, queried, budget);
           if (strength > best) {
@@ -959,7 +964,7 @@ export class SearchRepository {
         doc.matchedPaths.add(bestPattern);
       }
     }
-    return false;
+    return budget.skippedEntries > 0;
   }
 
   private scopeClause(alias: string, options: RecallOptions): { clause: string; parameters: string[] } {

@@ -180,7 +180,7 @@ export class SessionRepository {
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.db
       .prepare(
-        `SELECT DISTINCT s.commit_sha AS commit_sha
+        `SELECT DISTINCT lower(s.commit_sha) AS commit_sha
          FROM sessions s
          JOIN projects p ON p.id = s.project_id
          ${where}
@@ -291,10 +291,15 @@ export class SessionRepository {
     // A prefix range rather than LIKE, so idx_sessions_commit_sha seeks it: every text starting with the prefix sorts
     // at or after it and before the prefix with its last character advanced. As a rowid subquery the range is read
     // once; as a plain term the planner preferred the project_id equality and scanned each tracked project's Sessions.
+    // The filter arrives lower-cased and new writes store hex lower-cased; a sha an older build or an import stored in
+    // upper case gets a second seek of its own range (Git never prints mixed case).
     if (options.commitSha) {
-      const prefix = options.commitSha;
-      clauses.push("s.rowid IN (SELECT rowid FROM sessions WHERE commit_sha >= ? AND commit_sha < ?)");
-      parameters.push(prefix, prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1));
+      const ranges = [...new Set([options.commitSha, options.commitSha.toUpperCase()])];
+      const range = "SELECT rowid FROM sessions WHERE commit_sha >= ? AND commit_sha < ?";
+      clauses.push(`s.rowid IN (${ranges.map(() => range).join(" UNION ALL ")})`);
+      for (const prefix of ranges) {
+        parameters.push(prefix, prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1));
+      }
     }
 
     const voided = options.voided ?? "exclude";

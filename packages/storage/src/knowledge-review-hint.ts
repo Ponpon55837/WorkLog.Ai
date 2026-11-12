@@ -3,8 +3,11 @@ import { isAppliesToGlob, type KnowledgeReviewHint } from "@work-intelligence/co
 import { truncateText } from "@work-intelligence/shared";
 import {
   APPLIES_TO_SCAN_LIMIT,
+  appliesToScanIncomplete,
+  chargeAppliesTo,
   compileAppliesTo,
   createAppliesToBudget,
+  storedAppliesTo,
   type AppliesToBudget,
 } from "./applies-to-match.js";
 import { parseJson } from "./session-record-codecs.js";
@@ -44,10 +47,17 @@ const KNOWLEDGE_TO_REVIEW_TITLE_CHARS = 120;
 const EXACT_STRENGTH = 1;
 const GLOB_STRENGTH = 0.8;
 const MIN_FRAGMENT_LENGTH = 3;
+/**
+ * Longest fragment the Session scan searches for: any part of a required run is required too, so a shorter one
+ * narrows correctly, and SQLite's instr() then costs at most this many comparisons per stored character whatever
+ * length the stored entry has.
+ */
+const MAX_FRAGMENT_LENGTH = 64;
 
 /** How the entry names the path: equal to it, or a glob that matches it. Directories and suffixes do not count. */
 function namedStrength(pattern: string, path: string, budget: AppliesToBudget): number {
-  if (isAppliesToGlob(pattern)) return compileAppliesTo(pattern)(path, budget) ? GLOB_STRENGTH : 0;
+  if (isAppliesToGlob(pattern)) return compileAppliesTo(pattern, budget)(path, budget) ? GLOB_STRENGTH : 0;
+  if (!chargeAppliesTo(budget, 1 + pattern.length)) return 0;
   return pattern === path ? EXACT_STRENGTH : 0;
 }
 
@@ -60,7 +70,7 @@ function namedStrength(pattern: string, path: string, budget: AppliesToBudget): 
 function requiredFragment(pattern: string): string | undefined {
   const runs = pattern.match(/[a-z0-9._-]+/g) ?? [];
   const longest = runs.reduce((best, run) => (run.length > best.length ? run : best), "");
-  return longest.length >= MIN_FRAGMENT_LENGTH ? longest : undefined;
+  return longest.length >= MIN_FRAGMENT_LENGTH ? longest.slice(0, MAX_FRAGMENT_LENGTH) : undefined;
 }
 
 /**
@@ -80,7 +90,10 @@ function newlyInDoubtCheck(
     const since = row.last_confirmed_at ?? row.created_at;
     // A backfilled Session that finished before the Knowledge was confirmed does not put it in doubt.
     if (focus.completedAt <= since) return false;
-    const matchers = patterns.map(compileAppliesTo);
+    const matchers = patterns.map((pattern) => compileAppliesTo(pattern, budget));
+    // requiredFragment reads each pattern once.
+    const patternCharacters = patterns.reduce((total, pattern) => total + pattern.length, 0);
+    if (!chargeAppliesTo(budget, patternCharacters)) return false;
     const fragments = patterns.map(requiredFragment);
     const narrowed = fragments.every((fragment) => fragment !== undefined);
     const own = new Set([row.session_id, row.last_confirmed_session_id]);
@@ -98,6 +111,8 @@ function newlyInDoubtCheck(
       if (own.has(session.id)) continue;
       let sessionFiles = filesBySession.get(session.id);
       if (!sessionFiles) {
+        // Parsing and normalizing the stored list is charged like the stored appliesTo lists are.
+        if (!chargeAppliesTo(budget, 5 * session.changed_files_json.length + 1)) return false;
         sessionFiles = parseJson<string[]>(session.changed_files_json, []).map((file) => normalizePath(file, contexts));
         filesBySession.set(session.id, sessionFiles);
       }
@@ -134,16 +149,18 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
          AND NOT EXISTS (SELECT 1 FROM knowledge_feedback f WHERE f.knowledge_id = k.id AND f.session_id = ?)
        ORDER BY k.updated_at DESC, k.id ASC LIMIT ?`,
     )
-    .all(focus.projectId, focus.sessionId, focus.sessionId, APPLIES_TO_SCAN_LIMIT) as KnowledgeAppliesToRow[];
+    .iterate(
+      focus.projectId,
+      focus.sessionId,
+      focus.sessionId,
+      APPLIES_TO_SCAN_LIMIT,
+    ) as Iterable<KnowledgeAppliesToRow>;
   const budget = createAppliesToBudget();
   const candidates: Candidate[] = [];
   for (const row of rows) {
     let best = { strength: 0, path: "", appliesTo: "" };
     const patterns: string[] = [];
-    for (const raw of parseJson<unknown[]>(row.applies_to_json, [])) {
-      if (typeof raw !== "string") continue;
-      const pattern = normalizePath(raw, contexts);
-      if (!pattern) continue;
+    for (const { raw, pattern } of storedAppliesTo(row.applies_to_json, contexts, budget)) {
       patterns.push(pattern);
       for (const [key, path] of files) {
         const strength = namedStrength(pattern, key, budget);
@@ -174,5 +191,5 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
       ...(candidate.appliesTo === candidate.path ? {} : { appliesTo: candidate.appliesTo }),
     });
   }
-  return { hints, truncated: budget.exhausted };
+  return { hints, truncated: appliesToScanIncomplete(budget) };
 }

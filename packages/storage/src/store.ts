@@ -281,6 +281,7 @@ import {
   getVerificationFollowUp,
   getChangedFilesFollowUp,
   getWorkSummaryFollowUp,
+  normalizeCommitSha,
 } from "./session-record-codecs.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
 
@@ -1718,7 +1719,7 @@ export class WorkIntelligenceStore {
           workSummary: JSON.stringify(sanitizedWorkSummary.value),
           completedAt,
           createdAt,
-          commitSha: git?.commitSha ?? null,
+          commitSha: normalizeCommitSha(git?.commitSha) ?? null,
           gitBranch: git?.branch ?? null,
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
           changedFilesConfirmed: input.changedFiles !== undefined || normalizedChangedFiles.files.length > 0 ? 1 : 0,

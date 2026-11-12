@@ -11,9 +11,15 @@ import type {
 } from "@work-intelligence/core";
 import { decodeFileHistoryCursor, encodeFileHistoryCursor, type FileHistoryCursor } from "@work-intelligence/schema";
 import { truncateText } from "@work-intelligence/shared";
-import { APPLIES_TO_SCAN_LIMIT, appliesToStrength, createAppliesToBudget } from "./applies-to-match.js";
+import {
+  APPLIES_TO_SCAN_LIMIT,
+  appliesToEntries,
+  appliesToScanIncomplete,
+  appliesToStrength,
+  createAppliesToBudget,
+} from "./applies-to-match.js";
 import { skippedByRoot } from "./policy-helper.js";
-import { parseJson, parseWorkSummarySections } from "./session-record-codecs.js";
+import { parseWorkSummarySections } from "./session-record-codecs.js";
 import { normalizePath, pathBasename, type PathContext } from "./search-text.js";
 
 export interface FileHistoryServiceDependencies {
@@ -41,6 +47,13 @@ interface SessionTextRow {
   id: string;
   title: string;
   work_summary_json: string | null;
+}
+
+interface KnowledgeAppliesToRow {
+  id: string;
+  title: string;
+  applies_to_json: string;
+  updated_at: string;
 }
 
 interface TextLevel {
@@ -334,21 +347,13 @@ export class FileHistoryService {
          WHERE project_id = ? AND status = 'active' AND applies_to_json <> '[]'
          ORDER BY updated_at DESC, id ASC LIMIT ?`,
       )
-      .all(projectId, APPLIES_TO_SCAN_LIMIT) as Array<{
-      id: string;
-      title: string;
-      applies_to_json: string;
-      updated_at: string;
-    }>;
+      .iterate(projectId, APPLIES_TO_SCAN_LIMIT) as Iterable<KnowledgeAppliesToRow>;
     // Newest first within one match budget; a row the budget cut short is left out and the result says so.
     const budget = createAppliesToBudget();
-    const matched: Array<{ row: (typeof rows)[number]; strength: number }> = [];
+    const matched: Array<{ row: KnowledgeAppliesToRow; strength: number }> = [];
     for (const row of rows) {
       let strength = 0;
-      for (const raw of parseJson<unknown[]>(row.applies_to_json, [])) {
-        if (typeof raw !== "string") continue;
-        const pattern = normalizePath(raw, contexts);
-        if (!pattern) continue;
+      for (const pattern of appliesToEntries(row.applies_to_json, contexts, budget)) {
         for (const key of keys) strength = Math.max(strength, appliesToStrength(pattern, key, budget));
       }
       if (budget.exhausted) break;
@@ -367,7 +372,7 @@ export class FileHistoryService {
         title: truncateText(row.title, KNOWLEDGE_TITLE_CHARS),
       })),
       omitted: Math.max(matched.length - KNOWLEDGE_LIMIT, 0),
-      truncated: budget.exhausted,
+      truncated: appliesToScanIncomplete(budget),
     };
   }
 }

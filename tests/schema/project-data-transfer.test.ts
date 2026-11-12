@@ -196,7 +196,8 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   }
   for (const column of projectDataExportTableColumns[table]) {
     if (column.endsWith("_json")) {
-      row[column] = "{}";
+      // A stored appliesTo list is checked for its shape; every other JSON column only for valid JSON.
+      row[column] = column === "applies_to_json" ? "[]" : "{}";
     }
   }
   Object.assign(row, enumDefaults[table]);

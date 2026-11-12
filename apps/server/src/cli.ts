@@ -13,7 +13,11 @@ import type {
   ProjectPathRemap,
 } from "@work-intelligence/core";
 import { PROJECT_DATA_IMPORT_STRATEGIES } from "@work-intelligence/core";
-import { projectDataExportSchema, projectDataImportInputSchema } from "@work-intelligence/schema";
+import {
+  projectDataExportSchema,
+  projectDataImportInputSchema,
+  validationIssueMessage,
+} from "@work-intelligence/schema";
 import { z } from "zod";
 import {
   maintainDatabase,
@@ -479,7 +483,7 @@ export async function runDatabaseCli(
       }
       const parsedBundle = projectDataExportSchema.safeParse(parsedJson);
       if (!parsedBundle.success) {
-        fail(`匯入檔格式錯誤：${parsedBundle.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+        fail(`匯入檔格式錯誤：${validationIssueMessage(parsedBundle.error.issues[0]) ?? "欄位驗證失敗。"}`);
       }
       const bundle = parsedBundle.data satisfies ProjectDataExport;
       const projectId = projectValue
@@ -496,7 +500,7 @@ export async function runDatabaseCli(
       };
       const parsedInput = projectDataImportInputSchema.safeParse(input);
       if (!parsedInput.success) {
-        fail(`匯入選項格式錯誤：${parsedInput.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+        fail(`匯入選項格式錯誤：${validationIssueMessage(parsedInput.error.issues[0]) ?? "欄位驗證失敗。"}`);
       }
       let validatedInput = parsedInput.data satisfies ProjectDataImportInput;
       let preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
@@ -519,7 +523,7 @@ export async function runDatabaseCli(
           };
           const validatedLocation = projectDataImportInputSchema.safeParse(withLocation);
           if (!validatedLocation.success) {
-            fail(`匯入選項格式錯誤：${validatedLocation.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+            fail(`匯入選項格式錯誤：${validationIssueMessage(validatedLocation.error.issues[0]) ?? "欄位驗證失敗。"}`);
           }
           validatedInput = validatedLocation.data satisfies ProjectDataImportInput;
           preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));

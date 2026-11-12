@@ -23,7 +23,13 @@ import type {
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
-import { compileAppliesTo, createAppliesToBudget, type AppliesToBudget } from "./applies-to-match.js";
+import {
+  APPLIES_TO_STALENESS_UNIT_LIMIT,
+  compileAppliesTo,
+  createAppliesToBudget,
+  normalizedAppliesTo,
+  type AppliesToBudget,
+} from "./applies-to-match.js";
 import { normalizePath, type PathContext } from "./search-text.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import { cleanList, parseJson, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
@@ -57,13 +63,6 @@ interface AppliedKnowledgeRow {
 }
 
 const FEEDBACK_HISTORY_LIMIT = 100;
-/**
- * Match steps one trust read may spend on staleness. Unlike the caller-path scans it compares every distinct appliesTo
- * entry of the read Knowledge with every distinct file later Sessions changed, both stored, so it grows with history:
- * a copy of real data spent about 73,000 steps for its whole Knowledge list. This leaves room for 200 times that
- * history and still caps a crafted pattern at well under a second.
- */
-const STALENESS_MATCH_STEP_LIMIT = 16_000_000;
 
 /** Knowledge goes possibly stale when a Session after its last confirmation (or creation) touches appliesTo. */
 function stalenessSince(knowledge: KnowledgeRecord): string {
@@ -128,7 +127,7 @@ function matchesForPattern(index: LaterSessionIndex, pattern: string): PatternMa
   if (cached) {
     return cached;
   }
-  const matches = compileAppliesTo(pattern);
+  const matches = compileAppliesTo(pattern, index.budget);
   const files = new Set<string>();
   const touched = new Set<number>();
   for (const [file, indexes] of index.sessionsByFile) {
@@ -173,8 +172,15 @@ function knowledgeStaleness(
   laterSessions: LaterSessionIndex,
   contexts: PathContext[],
 ): KnowledgeStaleness | "unchecked" | undefined {
-  const { sessions } = laterSessions;
-  const patterns = [...new Set(knowledge.appliesTo.map((pattern) => normalizePath(pattern, contexts)).filter(Boolean))];
+  const { sessions, budget } = laterSessions;
+  const skippedBefore = budget.skippedEntries;
+  const patterns = [
+    ...new Set(normalizedAppliesTo(knowledge.appliesTo, contexts, budget).map((entry) => entry.pattern)),
+  ];
+  // An entry above the write-time limits is never compared, so staleness can be neither proven nor ruled out.
+  if (budget.skippedEntries > skippedBefore || budget.exhausted) {
+    return "unchecked";
+  }
   if (patterns.length === 0) {
     return undefined;
   }
@@ -341,7 +347,7 @@ export class KnowledgeService {
     }
 
     const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
-    const budget = createAppliesToBudget(STALENESS_MATCH_STEP_LIMIT);
+    const budget = createAppliesToBudget(APPLIES_TO_STALENESS_UNIT_LIMIT);
     for (const [projectId, group] of byProject) {
       const project = this.dependencies.getProjectById(projectId);
       const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];

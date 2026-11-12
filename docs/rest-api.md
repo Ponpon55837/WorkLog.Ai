@@ -70,6 +70,8 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 }
 ```
 
+欄位名稱來自請求，所以訊息只點名每個位置的前 10 個未知欄位，每個名稱與路徑片段最多 64 字元（超過以 `…` 結尾），其餘以「and N more」計數；`POST /api/export` 與匯入、匯入預覽的錯誤訊息也是如此（1.6.26 起；匯出 body 改用同一個嚴格解析）。
+
 只讀取指定名稱的查詢參數的 GET 路由，不會看到其他參數；Shared schema 本身沒有改變，MCP 依舊以自己的規則拒絕未知參數（見 [MCP 工具參考](mcp-tools.md)）。
 
 Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code` 顯示目前介面語言（繁體中文或 English）的訊息；`network_error` 與 `malformed_response` 是 client 本地代碼，不會由 REST API 回傳。
@@ -238,6 +240,7 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - REST：POST /api/import/preview 與 POST /api/import 都接受 `{ "bundle": <可攜式匯出>, "projectId"?: "<id>", "remap"?: [{"from":"<舊路徑>","to":"<新路徑>"}], "strategy"?: "merge" | "newer-wins" }`。`projectId` 可從全專案匯出檔挑選單一專案；`remap` 可重複多筆，以完整路徑片段比對、Windows 路徑不分大小寫，並依新路徑轉換分隔符號。只有匯入兩個端點把 request body 上限提高至 50 MiB；超過回 413，格式錯誤回 400。可匯入 `schemaVersion` 31 到目前版本的匯出檔（`formatVersion` 1）；之後 migration 新增的欄位以匯入預設值補上（例如 schema 33 的候選 `overlaps_json` 為空），較舊匯出檔沒有的資料表視為空。比目前程式新的匯出檔回 400 `unsupported_schema`，訊息請使用者先更新 Work Intelligence；早於 31 的匯出檔也以同一代碼拒絕。
 - 相同專案 ID 已存在但根路徑不同時，自動以本機根路徑轉換該專案的根路徑與 handoff 來源路徑，結果列在 `autoRemaps`（`projectId`、`from`、`to`、`snapshots`）。
 - `strategy` 預設 `merge`：只新增本機沒有的列。`newer-wins`：同 ID 內容不同的可變更列，依該表的時間欄位（如 `updated_at`、`reviewed_at`、`decided_at`、`completed_at`）取較新者覆寫；兩種策略都保留本機較新的列，只追加的歷史表與本機專案列永不覆寫。比較前排除各機自行衍生的欄位（Session `redaction_count`、attention 的隱藏／延後狀態、報告 `is_current`），並以相同規則遮蔽本機文字、忽略 changed-file provenance 的合併順序。`knowledge_page_versions` 撞號時依建立時間將該頁所有版本重新編號後並存，並把頁面版本計數器移到最新版本。
+- 匯入檔除了結構與 JSON 欄位格式，也檢查 `knowledge` 與 `knowledge_candidates` 的 `applies_to_json`：必須是最多 100 筆、每筆最多 4,096 字元的文字陣列（1.6.26 起）。這個上限刻意比寫入限制（30 筆、1,000 字元）寬：遮蔽憑證時標記可能比原文長，舊版也可能存過較長的值，所以 Work Intelligence 產生的匯出檔都能匯入；超過寫入限制的項目照原樣保存，但永遠不比對，掃描時以 `appliesToScanTruncated` 等標示不完整。只有超過這個結構上限的清單（任何版本都不會寫出）會讓 preview 與匯入回 400 `invalid_input`，`error` 為「匯入檔格式錯誤：knowledge.applies_to_json 必須是最多 100 筆、每筆最多 4,096 字元的文字清單。」（候選為 `knowledge_candidates.applies_to_json`），不寫入任何資料；訊息不含檔案內容。
 - Preview 只讀取並回傳 `strategy`、各資料表 `additions`／`updates`／`keptLocal`／`skipped`／`conflicts`／`renumbered` 筆數、`conflictGroups`（依資料表、`category`：`path`／`newer_content`／`content`／`unique`／`dependency` 與原因彙總的筆數及最多 5 個範例 id）與最多 100 筆 `conflictDetails`。正式匯入會在一個 SQLite 交易中重新計算預覽並套用；不刪除既有資料，且重複匯入可冪等略過。單一專案匯出會一併帶入引用該專案 Session 的跨專案報告請求、摘要與 metadata 回補請求。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
 - 可攜式 JSON 未加密，請妥善保管。整份 SQLite 快照與可攜式匯出都要求 `Content-Type: application/json`，跨站表單無法觸發；下載回應只含檔名，不會出現暫存檔路徑。
 - in-memory 資料庫回傳 409 `backup_unavailable`。

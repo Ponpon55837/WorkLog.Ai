@@ -8,6 +8,10 @@ export interface UnrecognizedKeys {
   keys: string[];
 }
 
+/** Unknown keys named per path, and characters per named key or path segment: the error echoes caller input. */
+const NAMED_KEY_LIMIT = 10;
+const NAMED_KEY_CHARS = 64;
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -15,6 +19,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /** Removes wrappers that do not change which object keys a schema accepts. */
 function publicSchema(schema: unknown): z.ZodType {
   return schema as z.ZodType;
+}
+
+function shortName(name: string | number): string | number {
+  return typeof name === "string" && name.length > NAMED_KEY_CHARS ? `${name.slice(0, NAMED_KEY_CHARS)}…` : name;
 }
 
 function unwrapSchema(schema: z.ZodType): z.ZodType {
@@ -123,6 +131,25 @@ function collectUnrecognizedKeys(
 }
 
 /**
+ * The message for unknown keys at one path. The names come from the request, so each name and path segment is
+ * shortened and only the first few names are listed.
+ */
+export function unrecognizedKeysMessage(path: readonly PropertyKey[], keys: readonly string[]): string {
+  const named = keys.slice(0, NAMED_KEY_LIMIT).map((key) => shortName(key));
+  const more = keys.length > named.length ? ` and ${keys.length - named.length} more` : "";
+  const where = path.map((segment) => shortName(typeof segment === "symbol" ? String(segment) : segment)).join(".");
+  return `Unknown field(s)${where ? ` in ${where}` : ""}: ${named.join(", ")}${more}. Unknown fields are rejected, not ignored.`;
+}
+
+/** The message of a validation issue for an error text: unknown keys come from the request, so they are bounded. */
+export function validationIssueMessage(
+  issue: { code: string; message: string; path: PropertyKey[]; keys?: string[] } | undefined,
+): string | undefined {
+  if (!issue) return undefined;
+  return issue.code === "unrecognized_keys" ? unrecognizedKeysMessage(issue.path, issue.keys ?? []) : issue.message;
+}
+
+/**
  * Finds object keys the schema would silently strip. Zod's default object mode drops unknown keys, which turns a
  * misspelled argument or field into a successful call that ignored it. MCP and REST both reject what this finds.
  */
@@ -144,11 +171,11 @@ export function safeParseStrict<T extends z.ZodType>(schema: T, value: unknown):
   return {
     success: false,
     error: new z.ZodError(
-      unrecognized.map(({ path, keys }) => ({
+      unrecognized.slice(0, NAMED_KEY_LIMIT).map(({ path, keys }) => ({
         code: "unrecognized_keys" as const,
-        keys,
-        path,
-        message: `Unknown field(s)${path.length ? ` in ${path.join(".")}` : ""}: ${keys.join(", ")}. Unknown fields are rejected, not ignored.`,
+        keys: keys.slice(0, NAMED_KEY_LIMIT).map((key) => String(shortName(key))),
+        path: path.map(shortName),
+        message: unrecognizedKeysMessage(path, keys),
       })),
     ),
   };

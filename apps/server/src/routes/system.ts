@@ -15,6 +15,7 @@ import {
   deleteDatabaseBackupBodySchema,
   projectDataExportRequestSchema,
   projectDataImportInputSchema,
+  validationIssueMessage,
 } from "@work-intelligence/schema";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { inspectDatabaseReadOnlyMetadata } from "../database-inspection.js";
@@ -78,7 +79,8 @@ async function sendProjectDataExport(
 async function readImportInput({ request, response }: RouteContext): Promise<ProjectDataImportInput | undefined> {
   const parsed = projectDataImportInputSchema.safeParse(await readJsonBody(request, MAX_PROJECT_IMPORT_BYTES));
   if (!parsed.success) {
-    sendError(response, 400, `匯入檔格式錯誤：${parsed.error.issues[0]?.message ?? "欄位驗證失敗。"}`);
+    const message = validationIssueMessage(parsed.error.issues[0]) ?? "欄位驗證失敗。";
+    sendError(response, 400, `匯入檔格式錯誤：${message}`);
     return undefined;
   }
   return parsed.data satisfies ProjectDataImportInput;
@@ -162,7 +164,7 @@ async function exportData({ request, response, services }: RouteContext): Promis
     await sendDatabaseExport(services.backgroundStore, response);
     return;
   }
-  const parsed = projectDataExportRequestSchema.safeParse(body);
+  const parsed = parseRequestInput(projectDataExportRequestSchema, body);
   if (!parsed.success) {
     sendError(response, 400, "匯出範圍無效。", parsed.error.flatten());
     return;

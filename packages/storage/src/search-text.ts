@@ -187,27 +187,61 @@ export interface PathContext {
 const COMMIT_SHA = /^[0-9a-f]{7,40}$/i;
 const URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 
+/** `value.replace(/\/+$/, "")` in one backward pass: the RegExp retries from every slash of a run (quadratic). */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return end === value.length ? value : value.slice(0, end);
+}
+
+function isLineTerminatorCode(code: number): boolean {
+  return code === 10 || code === 13 || code === 0x2028 || code === 0x2029;
+}
+
+/**
+ * `value.replace(/#L\d+.*$/i, "")` in linear time; the RegExp backtracks through `\d+` and `.*` from every `#L`
+ * (quadratic on a long digit run). It matches at the first `#`, `L` or `l`, digit whose tail holds no line terminator:
+ * `\d+.*` is then any non-empty run of non-terminators to the end, and none can start earlier, because an earlier
+ * start would need the terminator after it to be inside that run.
+ */
+function stripLineAnchor(value: string): string {
+  let from = 0;
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (isLineTerminatorCode(value.charCodeAt(index))) {
+      from = index + 1;
+      break;
+    }
+  }
+  for (let index = from; index + 2 < value.length; index += 1) {
+    if (value.charCodeAt(index) !== 35) continue;
+    const letter = value.charCodeAt(index + 1);
+    const digit = value.charCodeAt(index + 2);
+    if ((letter === 76 || letter === 108) && digit >= 48 && digit <= 57) return value.slice(0, index);
+  }
+  return value;
+}
+
 /**
  * Normalizes a stored or queried path for suffix matching: forward slashes, lower case, no line
  * suffix, and relative to the project when it carries the project root or a `<projectName>/` prefix.
  */
 export function normalizePath(raw: string, projects: PathContext[] = []): string {
   let value = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
-  value = value.replace(/#L\d+.*$/i, "").replace(/:\d+(?::\d+)?$/, "");
+  value = stripLineAnchor(value).replace(/:\d+(?::\d+)?$/, "");
   const lower = value.toLowerCase();
   for (const project of projects) {
-    const root = project.rootPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const root = trimTrailingSlashes(project.rootPath.replace(/\\/g, "/")).toLowerCase();
     if (root && (lower === root || lower.startsWith(`${root}/`))) {
-      return lower.slice(root.length + 1).replace(/\/+$/, "");
+      return trimTrailingSlashes(lower.slice(root.length + 1));
     }
   }
   for (const project of projects) {
     const name = project.name.toLowerCase();
     if (name && lower.startsWith(`${name}/`)) {
-      return lower.slice(name.length + 1).replace(/\/+$/, "");
+      return trimTrailingSlashes(lower.slice(name.length + 1));
     }
   }
-  return lower.replace(/\/+$/, "");
+  return trimTrailingSlashes(lower);
 }
 
 /**
@@ -216,16 +250,13 @@ export function normalizePath(raw: string, projects: PathContext[] = []): string
  */
 export function projectRelativePath(raw: string, projects: PathContext[] = []): string | undefined {
   let value = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
-  value = value
-    .replace(/#L\d+.*$/i, "")
-    .replace(/:\d+(?::\d+)?$/, "")
-    .replace(/\/+$/, "");
+  value = trimTrailingSlashes(stripLineAnchor(value).replace(/:\d+(?::\d+)?$/, ""));
   const lower = value.toLowerCase();
   if (lower.length !== value.length) {
     return undefined;
   }
   for (const project of projects) {
-    const root = project.rootPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const root = trimTrailingSlashes(project.rootPath.replace(/\\/g, "/")).toLowerCase();
     if (root && lower.startsWith(`${root}/`)) {
       return value.slice(root.length + 1);
     }
