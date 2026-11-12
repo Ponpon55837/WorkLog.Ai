@@ -4,6 +4,26 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.18] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.18.md).
+
+### Security
+
+- Matching a Knowledge `appliesTo` glob no longer uses a regular expression. The old matcher turned every `*` and `**` into a backtracking group, and since 1.6.16 and 1.6.17 such stored patterns are tested against caller-chosen paths (`work_get_file_history` and path-like words of a relaxed `work_search_knowledge` query). A stored pattern made of many stars could take seconds per call at 60 characters and block the single-threaded MCP and API process at the 500-character path limit; such a pattern can also arrive through a project import. The new matcher walks all pattern positions at once, so its cost is at most pattern length × path length, and it matches exactly what the old one did (checked against the old expression on a table of ordinary patterns and 2,000 generated star-heavy pairs). A star-heavy pattern against three 500-character paths now takes well under a millisecond (benchmark limit 20 ms).
+- A relaxed Knowledge search uses at most 5 path-like words of its query, and each `appliesTo` scan (relaxed Knowledge search, file history) reads at most the 2,000 newest Knowledge rows, so their cost stays bounded when no `projectRoot` narrows the scope.
+
+### Added
+
+- `work_get_session` has a new projection field `session.files`: the changed files with each path once and its `status`, `previousPath`, `sources`, and `references`, merged from `changedFiles`, `changedFilesProvenance`, and `changedFileChanges`. `view: "handoff"` now includes it. A read without `view` or `select` keeps its full shape, and REST and the Web are unchanged.
+- `work_submit_knowledge_candidates` returns advisory `overlaps` on each candidate that resembles the same project's Knowledge or an earlier candidate: `possible_duplicate` (active Knowledge or a candidate still waiting for review), `overlaps_archived`, or `overlaps_rejected`, with the matched id, title, status, and score (at most 3). The score weighs the title and the title plus body equally (overlap coefficient of the retrieval tokens; flagged from 0.3). Only records of the same project that existed before the submission compare, and nothing is rejected, merged, or changed. Resubmitting the same payload for a completed request returns the stored candidates with the same advisories and `duplicate: true` instead of `request_not_open`; no candidate is stored twice. The Web candidate review does not show the advisories yet.
+
+### Changed
+
+- Agent guidance (server instructions, the `work_get_session` contract, and the work-intelligence skill) steers Agents to `view: "handoff"` and to the full read only when they need raw provenance, events, evidence, Knowledge, or diagrams. `work_get_file_history` returns `readArguments: { view: "handoff" }` next to `readWith`. On a real 328-Session database the 20 sampled Sessions read 95,720 characters in the handoff view instead of 150,728 in full (median 4,021 instead of 6,907; p95 12,922 instead of 18,909); their merged file list averages 1,861 characters instead of 2,977 for the three lists.
+- A focused `work_get_context` spends less of its 9,800-character budget on pointers. Each `relevant.outstandingItems` entry is its `id`, `sourceSessionId`, and a text excerpt of up to 240 characters (was up to 400, plus the source title and date), and among `relevant.decisions` only the first decision of each Session carries its title and date. On the same real database, the five task contexts' outstanding items take 960–1,141 characters instead of 1,534–1,709 and decisions 1,407–2,038 instead of 1,663–2,753; the freed budget keeps 2–3 relevant Sessions instead of 1–2, one-hop supplements now fit in two contexts instead of one, and every context keeps the supplement omission pointer (two of five lost it before). Finalize's `relatedOutstandingItems` is unchanged.
+- `work_get_knowledge_candidate_context` lists in `existingKnowledge` the project's archived Knowledge and rejected candidates (flagged with `status`) after its active Knowledge, titles only, newest first, at most 150 active, 30 archived, and 20 rejected, with `existingKnowledgeOmitted` when a cap applies. Source Sessions carry the `outcomes`, `decisions`, and `nextSteps` of their work summary; `scope` and `verification` are listed in `omittedWorkSummarySections` and read with `work_get_session`. On the real database the context is 17,910 characters instead of 19,625 while listing 69 titles instead of 31.
+
 ## [1.6.17] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.17.md).

@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   SESSION_READ_FIELDS,
+  type ChangedFileChange,
+  type ChangedFileProvenance,
   type KnowledgeRecord,
   type PolicyDecision,
   type SessionAgentReadQuery,
@@ -9,6 +11,7 @@ import {
   type SessionDetail,
   type SessionDetailResult,
   type SessionDiagramRecord,
+  type SessionFileEntry,
   type SessionLinkRecord,
   type SessionProjectionResult,
   type SessionReadField,
@@ -78,18 +81,21 @@ const HANDOFF: SessionReadField[] = [
   "session.summary",
   ...WORK_SECTIONS.map((key): SessionReadField => `session.workSummary.${key}`),
   "session.verification",
+  "session.files",
   "decisions",
   "links",
+];
+const FILE_COLUMNS = [
+  "changed_files_json",
+  "changed_files_confirmed",
+  "changed_files_provenance_json",
+  "changed_file_changes_json",
 ];
 const COLUMNS: Partial<Record<SessionReadField, string[]>> = {
   "session.summary": ["summary"],
   "session.verification": ["verification_json"],
-  "session.changedFiles": [
-    "changed_files_json",
-    "changed_files_confirmed",
-    "changed_files_provenance_json",
-    "changed_file_changes_json",
-  ],
+  "session.changedFiles": FILE_COLUMNS,
+  "session.files": FILE_COLUMNS,
   "session.git": ["commit_sha", "git_branch"],
 };
 
@@ -98,6 +104,50 @@ function fieldsFor(query: SessionAgentReadQuery): SessionReadField[] {
   if (selected.has("session.workSummary.decisions")) selected.add("decisions");
   if (selected.has("session.verification")) selected.add("verificationHistory");
   return SESSION_READ_FIELDS.filter((field) => selected.has(field));
+}
+
+function changedFileList(row: SelectedRow): string[] | undefined {
+  const files = parseJson<unknown>(row.changed_files_json ?? null, undefined);
+  // An empty list counts as known only once confirmed; older Sessions stored [] for "not reported".
+  return Array.isArray(files) &&
+    files.every((file) => typeof file === "string") &&
+    (files.length > 0 || row.changed_files_confirmed === 1)
+    ? files
+    : undefined;
+}
+
+/**
+ * One entry per path, in changedFiles order and then any path only the change or provenance lists name, so an
+ * Agent reads each path once with its status, sources and references.
+ */
+function mergeSessionFiles(
+  files: string[],
+  provenance: ChangedFileProvenance[],
+  changes: ChangedFileChange[],
+): SessionFileEntry[] {
+  const entries = new Map<string, SessionFileEntry>();
+  const entryFor = (path: string): SessionFileEntry => {
+    let entry = entries.get(path);
+    if (!entry) {
+      entry = { path };
+      entries.set(path, entry);
+    }
+    return entry;
+  };
+  for (const path of files) entryFor(path);
+  for (const change of Array.isArray(changes) ? changes : []) {
+    if (typeof change?.path !== "string") continue;
+    const entry = entryFor(change.path);
+    entry.status = change.status;
+    if (change.previousPath) entry.previousPath = change.previousPath;
+  }
+  for (const item of Array.isArray(provenance) ? provenance : []) {
+    if (typeof item?.path !== "string") continue;
+    const entry = entryFor(item.path);
+    if (Array.isArray(item.sources) && item.sources.length > 0) entry.sources = item.sources;
+    if (Array.isArray(item.references) && item.references.length > 0) entry.references = item.references;
+  }
+  return [...entries.values()];
 }
 
 /**
@@ -194,7 +244,8 @@ export class SessionAgentReadService {
       "voided_at",
       "void_reason",
     ];
-    for (const field of fields) columns.push(...(COLUMNS[field] ?? []));
+    for (const field of fields)
+      for (const column of COLUMNS[field] ?? []) if (!columns.includes(column)) columns.push(column);
     for (const key of WORK_SECTIONS)
       if (selected.has(`session.workSummary.${key}`))
         columns.push(
@@ -240,17 +291,21 @@ export class SessionAgentReadService {
       if (verification) result.session.verification = verification;
       else unavailable.add("session.verification");
     }
-    if (selected.has("session.changedFiles")) {
-      const files = parseJson<unknown>(row.changed_files_json ?? null, undefined);
-      if (
-        Array.isArray(files) &&
-        files.every((file) => typeof file === "string") &&
-        (files.length > 0 || row.changed_files_confirmed === 1)
-      ) {
-        result.session.changedFiles = files;
-        result.session.changedFilesProvenance = parseJson(row.changed_files_provenance_json ?? null, []);
-        result.session.changedFileChanges = parseJson(row.changed_file_changes_json ?? null, []);
-      } else unavailable.add("session.changedFiles");
+    if (selected.has("session.changedFiles") || selected.has("session.files")) {
+      const files = changedFileList(row);
+      const provenance = parseJson<ChangedFileProvenance[]>(row.changed_files_provenance_json ?? null, []);
+      const changes = parseJson<ChangedFileChange[]>(row.changed_file_changes_json ?? null, []);
+      if (selected.has("session.changedFiles")) {
+        if (files) {
+          result.session.changedFiles = files;
+          result.session.changedFilesProvenance = provenance;
+          result.session.changedFileChanges = changes;
+        } else unavailable.add("session.changedFiles");
+      }
+      if (selected.has("session.files")) {
+        if (files) result.session.files = mergeSessionFiles(files, provenance, changes);
+        else unavailable.add("session.files");
+      }
     }
     if (selected.has("session.git")) {
       if (row.commit_sha) result.session.commitSha = row.commit_sha;

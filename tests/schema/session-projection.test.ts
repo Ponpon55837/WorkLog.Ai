@@ -17,7 +17,7 @@ describe("Session Agent field read input boundary", () => {
       expect(sessionDetailQuerySchema.parse({ sessionId: "synthetic", select: [field] }).select).toEqual([field]);
     expect(
       sessionDetailQuerySchema.parse({ sessionId: "synthetic", select: [...SESSION_READ_FIELDS] }).select,
-    ).toHaveLength(18);
+    ).toHaveLength(SESSION_READ_FIELDS.length);
     expect(
       sessionDetailQuerySchema.parse({ sessionId: "synthetic", includeRawSnapshots: true }).includeRawSnapshots,
     ).toBe(true);

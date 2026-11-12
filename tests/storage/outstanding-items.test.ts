@@ -1036,10 +1036,11 @@ describe("outstanding items", () => {
     expect(related.items.length).toBeLessThanOrEqual(5);
     expect(related.omitted).toBe(related.total - related.items.length);
     expect(related.items.length).toBeLessThan(5);
-    expect(related.items.every((item) => item.text.length <= 400 && item.textTruncated)).toBe(true);
-    expect(
-      related.items.every((item) => item.sourceSessionTitle.length <= 160 && item.sourceSessionTitleTruncated),
-    ).toBe(true);
+    expect(related.items.every((item) => item.text.length <= 240 && item.textTruncated)).toBe(true);
+    // Context items carry the source Session id only; its title is one read away.
+    expect(related.items.every((item) => item.sourceSessionId.length > 0 && !("sourceSessionTitle" in item))).toBe(
+      true,
+    );
     expect(related.items.map((item) => item.id)).not.toContain(completedItem.id);
     expect(related.items.map((item) => item.id)).not.toContain(notNeededItem.id);
     expect(related.items.map((item) => item.id)).not.toContain(voidedItem.id);

@@ -281,37 +281,100 @@ export function pathMatchStrength(stored: string, queried: string): number {
   return 0;
 }
 
+/**
+ * One step of a compiled appliesTo glob: a literal code unit, `?` (one character other than `/`), `*` (any run
+ * without `/`), or `**` (any run, `/` included). A `/` right after `**` belongs to it, so `src/**` followed by
+ * `/x.ts` also matches `src/x.ts`.
+ */
+type GlobToken = { kind: "literal"; char: string } | { kind: "one" } | { kind: "segment" } | { kind: "any" };
+
+/**
+ * Knowledge rows one appliesTo scan reads at most, newest first: the scans run in memory on caller-supplied paths,
+ * so their cost stays bounded however many Knowledge items the tracked projects hold.
+ */
+export const APPLIES_TO_SCAN_LIMIT = 2_000;
+
 // Staleness checks test the same few appliesTo globs against every changed file of every later Session,
 // so compile each glob once. The bound only guards against unbounded growth; real projects use a handful.
 const GLOB_CACHE_LIMIT = 512;
-const globCache = new Map<string, RegExp>();
+const globCache = new Map<string, GlobToken[]>();
 
-function globToRegExp(pattern: string): RegExp {
+function compileGlob(pattern: string): GlobToken[] {
   const cached = globCache.get(pattern);
   if (cached) {
     return cached;
   }
-  let source = "";
+  const tokens: GlobToken[] = [];
+  const pushStar = (kind: "segment" | "any"): void => {
+    // Two adjacent stars of one kind match exactly what one does, so keep one: fewer states, same answers.
+    if (tokens.at(-1)?.kind !== kind) tokens.push({ kind });
+  };
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index]!;
     if (char === "*" && pattern[index + 1] === "*") {
-      source += ".*";
+      pushStar("any");
       index += pattern[index + 2] === "/" ? 2 : 1;
     } else if (char === "*") {
-      source += "[^/]*";
+      pushStar("segment");
     } else if (char === "?") {
-      source += "[^/]";
+      tokens.push({ kind: "one" });
     } else {
-      source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      tokens.push({ kind: "literal", char });
     }
   }
-  // No `g` flag, so the shared RegExp keeps no lastIndex state between test() calls.
-  const compiled = new RegExp(`^${source}$`);
   if (globCache.size >= GLOB_CACHE_LIMIT) {
     globCache.clear();
   }
-  globCache.set(pattern, compiled);
-  return compiled;
+  globCache.set(pattern, tokens);
+  return tokens;
+}
+
+/** Characters `.` in a JavaScript RegExp without the `s` flag does not match; `**` has always excluded them. */
+function isLineTerminator(char: string): boolean {
+  return char === "\n" || char === "\r" || char === "\u2028" || char === "\u2029";
+}
+
+/**
+ * Whole-string glob match by simulating every pattern position at once (a Thompson-style NFA walk), so a stored
+ * pattern full of stars costs O(pattern x path) in the worst case instead of exponential regex backtracking.
+ * Works on UTF-16 code units, like the anchored RegExp it replaced.
+ */
+function globMatches(tokens: readonly GlobToken[], path: string): boolean {
+  const accept = tokens.length;
+  let active = new Uint8Array(accept + 1);
+  let next = new Uint8Array(accept + 1);
+  // A star may match nothing, so each active star also activates the position after it.
+  const close = (states: Uint8Array): void => {
+    for (let index = 0; index < accept; index += 1) {
+      const kind = tokens[index]!.kind;
+      if (states[index] && (kind === "segment" || kind === "any")) states[index + 1] = 1;
+    }
+  };
+  active[0] = 1;
+  close(active);
+  for (let offset = 0; offset < path.length; offset += 1) {
+    const char = path[offset]!;
+    next.fill(0);
+    let alive = false;
+    for (let index = 0; index < accept; index += 1) {
+      if (!active[index]) continue;
+      const token = tokens[index]!;
+      if (token.kind === "literal") {
+        if (token.char === char) next[index + 1] = 1;
+      } else if (token.kind === "one") {
+        if (char !== "/") next[index + 1] = 1;
+      } else if (token.kind === "segment") {
+        if (char !== "/") next[index] = 1;
+      } else if (!isLineTerminator(char)) {
+        next[index] = 1;
+      }
+    }
+    close(next);
+    for (let index = 0; index <= accept; index += 1) alive ||= next[index] === 1;
+    if (!alive) return false;
+    [active, next] = [next, active];
+  }
+  return active[accept] === 1;
 }
 
 /**
@@ -329,8 +392,8 @@ export function compileAppliesTo(pattern: string): (path: string) => boolean {
     return () => false;
   }
   if (/[*?]/.test(pattern)) {
-    const glob = globToRegExp(pattern);
-    return (path) => Boolean(path) && glob.test(path);
+    const glob = compileGlob(pattern);
+    return (path) => Boolean(path) && globMatches(glob, path);
   }
   return (path) => Boolean(path) && pathMatchStrength(path, pattern) > 0;
 }

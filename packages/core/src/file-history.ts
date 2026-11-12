@@ -70,4 +70,6 @@ export interface FileHistoryResult {
   /** Digests were shortened or dropped to keep the response within budget. */
   budgetTrimmed?: true;
   readWith: "work_get_session";
+  /** Arguments to pass with readWith: the compact handoff projection, which lists each changed path once. */
+  readArguments: { view: "handoff" };
 }

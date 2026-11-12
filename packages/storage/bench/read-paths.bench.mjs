@@ -46,10 +46,14 @@ const [
   { LATEST_SCHEMA_VERSION, toAgentReportContext, toSessionDigests, WorkIntelligenceStore },
   recallEvaluation,
   mcpRuntime,
+  { appliesToStrength },
+  { findKnowledgeCandidateOverlaps },
 ] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
   import(pathToFileURL(join(repositoryRoot, "apps", "mcp", "dist", "recall-evaluation.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "shared", "dist", "mcp-runtime.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "search-text.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-candidate-overlap.js")).href),
 ]);
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
@@ -683,6 +687,29 @@ try {
   } finally {
     auditSeed.close();
   }
+  // A separate project database with 500 Knowledge items, so the candidate overlap check scans a large project.
+  const overlapPath = join(root, "overlap.sqlite");
+  const overlapRoot = join(root, "overlap");
+  mkdirSync(overlapRoot, { recursive: true });
+  const overlapSeed = new WorkIntelligenceStore(overlapPath);
+  const overlapProject = overlapSeed.addProject("overlap", overlapRoot);
+  overlapSeed.updateProject(overlapProject.id, { status: "tracked" });
+  for (let index = 0; index < 500; index += 1)
+    overlapSeed.recordKnowledge({
+      projectRoot: overlapRoot,
+      idempotencyKey: `bench-overlap-${index}`,
+      kind: "gotcha",
+      title: `Synthetic module ${index} cache keeps stale entries after reload ${index % 7}`,
+      body: `Synthetic module ${index} keeps stale cache entries after a reload; clear the cache in the reload handler. `.repeat(
+        3,
+      ),
+    });
+  overlapSeed.close();
+  const overlapDatabase = new DatabaseSync(overlapPath, { readOnly: true });
+  const overlapCandidates = Array.from({ length: 30 }, (_, index) => ({
+    title: `Synthetic module ${index * 3} cache is stale after reload`,
+    body: `Synthetic module ${index * 3} returns stale cache entries after a reload until the handler clears it.`,
+  }));
   const cases = {
     "getContext (large report source request)": () => {
       const result = benchStore.getContext(alphaRoot);
@@ -937,6 +964,23 @@ try {
         throw new Error("File history benchmark must read the synthetic histories of all three paths.");
       return result;
     },
+    // A stored star-heavy appliesTo against caller paths at the 500-character limit; a backtracking matcher hangs here.
+    "appliesTo glob (star-heavy pattern, 500-char paths)": () => {
+      const pattern = "**a**a**a**a**a**a**a**b";
+      for (const path of ["a".repeat(500), `${"a/".repeat(249)}a`, "ba".repeat(250)])
+        if (appliesToStrength(pattern, path) !== 0) throw new Error("The star-heavy pattern must not match.");
+    },
+    // 30 submitted candidates against 500 Knowledge items of one project: each existing item is tokenized once.
+    "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": () => {
+      const result = findKnowledgeCandidateOverlaps(
+        overlapDatabase,
+        { projectId: overlapProject.id, requestId: "bench-request", createdAtOrBefore: "9999-12-31T00:00:00.000Z" },
+        overlapCandidates,
+      );
+      if (result.length !== 30 || result.some((overlaps) => overlaps.length === 0))
+        throw new Error("Every synthetic candidate must overlap its module's Knowledge.");
+      return result;
+    },
     "summarizeAgentReads (5,000 rows)": () => {
       const result = benchStore.summarizeAgentReads({});
       if (result.tools.length !== 12 || result.tools.some((tool) => tool.p95Ms === null))
@@ -1121,6 +1165,8 @@ try {
     "getHotspots (files)": 500,
     "getHotspots (directories, month)": 500,
     "getFileHistory (3 paths)": 50,
+    "appliesTo glob (star-heavy pattern, 500-char paths)": 20,
+    "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
     "searchKnowledgeForAgent (relaxed fallback)": 250,
@@ -1313,6 +1359,7 @@ try {
   }
   await closeBenchmarkApi();
   analyzedStore.close();
+  overlapDatabase.close();
   benchStore.close();
 } finally {
   try {

@@ -11,6 +11,7 @@ import type {
 } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
 import {
+  APPLIES_TO_SCAN_LIMIT,
   appliesToStrength,
   excerptAround,
   ftsTermExpression,
@@ -58,6 +59,8 @@ export const CHANGED_FILES_NORMAL = 20;
 const PATH_WEIGHT = 4;
 const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
+/** Path-like words of a Knowledge query matched against paths and appliesTo; more add cost, not recall. */
+const MAX_QUERY_PATH_WORDS = 5;
 const EXCERPT_LENGTH = 220;
 const MAX_SYNONYM_TERMS = 32;
 const SYNONYM_SCORE_WEIGHT = 0.2;
@@ -430,7 +433,7 @@ export class SearchRepository {
       .map((reference) => reference.value);
     const { terms, ranked } = this.rank({
       q: options.q,
-      paths,
+      paths: [...new Set(paths)].slice(0, MAX_QUERY_PATH_WORDS),
       projectId: options.projectId,
       types: ["knowledge"],
       knowledgeStatuses: [...KNOWLEDGE_STATUSES],
@@ -874,9 +877,10 @@ export class SearchRepository {
         `SELECT k.id, k.project_id, k.updated_at, k.applies_to_json, p.name, p.root_path
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
-         WHERE k.applies_to_json <> '[]' AND ${clause}`,
+         WHERE k.applies_to_json <> '[]' AND ${clause}
+         ORDER BY k.updated_at DESC, k.id ASC LIMIT ?`,
       )
-      .all(...parameters) as Array<{
+      .all(...parameters, APPLIES_TO_SCAN_LIMIT) as Array<{
       id: string;
       project_id: string;
       updated_at: string;

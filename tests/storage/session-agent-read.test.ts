@@ -174,6 +174,39 @@ describe("Agent Session projection", () => {
       "session.git",
     ]);
   });
+  it("merges the three changed-file lists into one entry per path", () => {
+    const { store, id, db } = setup();
+    db.prepare(
+      "UPDATE sessions SET changed_files_json = ?, changed_files_confirmed = 1, changed_files_provenance_json = ?, changed_file_changes_json = ? WHERE id = ?",
+    ).run(
+      JSON.stringify(["src/new.ts", "src/kept.ts"]),
+      JSON.stringify([
+        { path: "src/new.ts", sources: ["agent", "git"], references: ["abc1234"] },
+        { path: "src/kept.ts", sources: [] },
+        { path: "src/only-provenance.ts", sources: ["handoff"] },
+      ]),
+      JSON.stringify([{ path: "src/new.ts", status: "renamed", previousPath: "src/old.ts" }]),
+      id,
+    );
+    const both = projectRead(store, id, ["session.changedFiles", "session.files"]);
+    expect(both.session.changedFiles).toEqual(["src/new.ts", "src/kept.ts"]);
+    expect(both.session.files).toEqual([
+      {
+        path: "src/new.ts",
+        status: "renamed",
+        previousPath: "src/old.ts",
+        sources: ["agent", "git"],
+        references: ["abc1234"],
+      },
+      { path: "src/kept.ts" },
+      { path: "src/only-provenance.ts", sources: ["handoff"] },
+    ]);
+    const handoff = store.getSessionDetailForAgent({ sessionId: id, view: "handoff" });
+    if (handoff.outcome !== "session_detail" || !("projection" in handoff)) throw new Error("Expected a projection.");
+    expect(handoff.projection.includedFields).toContain("session.files");
+    expect(handoff.session).not.toHaveProperty("changedFilesProvenance");
+    expect(handoff.session.files).toEqual(both.session.files);
+  });
   it("does not turn historical unconfirmed file metadata into known no-change work", () => {
     const { store, id, db } = setup();
     db.prepare("UPDATE sessions SET changed_files_json = '[]', changed_files_confirmed = 0 WHERE id = ?").run(id);
@@ -184,6 +217,10 @@ describe("Agent Session projection", () => {
     const confirmed = projectRead(store, id, ["session.changedFiles"]);
     expect(confirmed.session.changedFiles).toEqual([]);
     expect(confirmed.projection.unavailableFields).toEqual([]);
+    db.prepare("UPDATE sessions SET changed_files_confirmed = 0 WHERE id = ?").run(id);
+    const unknownMerged = projectRead(store, id, ["session.files"]);
+    expect(unknownMerged.session).not.toHaveProperty("files");
+    expect(unknownMerged.projection.unavailableFields).toEqual(["session.files"]);
   });
   it("preserves corrected verification, rejected decisions and voided sources", () => {
     const { store, id, root } = setup();

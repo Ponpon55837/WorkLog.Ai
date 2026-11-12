@@ -13,7 +13,13 @@ import { decodeFileHistoryCursor, encodeFileHistoryCursor, type FileHistoryCurso
 import { truncateText } from "@work-intelligence/shared";
 import { skippedByRoot } from "./policy-helper.js";
 import { parseJson, parseWorkSummarySections } from "./session-record-codecs.js";
-import { appliesToStrength, normalizePath, pathBasename, type PathContext } from "./search-text.js";
+import {
+  APPLIES_TO_SCAN_LIMIT,
+  appliesToStrength,
+  normalizePath,
+  pathBasename,
+  type PathContext,
+} from "./search-text.js";
 
 export interface FileHistoryServiceDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
@@ -165,6 +171,7 @@ export class FileHistoryService {
       knowledge: knowledge.items,
       ...(knowledge.omitted > 0 ? { knowledgeOmitted: knowledge.omitted } : {}),
       readWith: "work_get_session",
+      readArguments: { view: "handoff" },
     });
     const budget = budgetFor(histories.length);
     const fits = (result: FileHistoryResult): boolean => JSON.stringify(result).length <= budget;
@@ -328,9 +335,15 @@ export class FileHistoryService {
     const rows = this.db
       .prepare(
         `SELECT id, title, applies_to_json, updated_at FROM knowledge
-         WHERE project_id = ? AND status = 'active' AND applies_to_json <> '[]'`,
+         WHERE project_id = ? AND status = 'active' AND applies_to_json <> '[]'
+         ORDER BY updated_at DESC, id ASC LIMIT ?`,
       )
-      .all(projectId) as Array<{ id: string; title: string; applies_to_json: string; updated_at: string }>;
+      .all(projectId, APPLIES_TO_SCAN_LIMIT) as Array<{
+      id: string;
+      title: string;
+      applies_to_json: string;
+      updated_at: string;
+    }>;
     const matched = rows.flatMap((row) => {
       let strength = 0;
       for (const raw of parseJson<unknown[]>(row.applies_to_json, [])) {

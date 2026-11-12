@@ -33,6 +33,8 @@ import type {
   RecallQueryResult,
   RelevantContext,
   RelatedOutstandingItems,
+  ContextRelatedOutstandingItems,
+  RelevantDecisionDigest,
   RelevantKnowledgePageDigest,
   ReportSynthesisRequestListQueryResult,
   ReportSynthesisRequestQuery,
@@ -83,6 +85,8 @@ const CONTEXT_SOURCE_SESSION_LIMIT = 8;
 const CONTEXT_OUTSTANDING_ITEM_TEXT_LENGTH = 500;
 const CONTEXT_PAGE_SECTION_CHARS = 500;
 const CONTEXT_EXCERPT_CHARS = 240;
+const RELATED_OUTSTANDING_HINT =
+  "這些相關項目仍未處理；先讀來源並核對證據，確認完成才結案，被本次 nextSteps 取代才標記不再需要，不確定就保留。";
 const RECALL_EXCERPT_CHARS = 110;
 
 /** What an Agent is about to work on; ranks relevant records into the context result. */
@@ -872,12 +876,12 @@ export class ContextRecallService {
       .flatMap(({ record }) =>
         (record.workSummary?.decisions ?? [])
           .filter((text) => text.trim().length > 0)
-          .map((text) => {
+          .map((text, index): RelevantDecisionDigest => {
             const bounded = truncateAtSentenceBoundary(text, DIGEST_ITEM_LENGTH);
             return {
               sessionId: record.id,
-              sessionTitle: record.title,
-              completedAt: record.completedAt,
+              // The Session's other decisions follow this one; budget trimming drops from the end, so the first stays.
+              ...(index === 0 ? { sessionTitle: record.title, completedAt: record.completedAt } : {}),
               text: bounded.text,
               ...(bounded.truncated ? { truncated: true } : {}),
             };
@@ -890,7 +894,7 @@ export class ContextRecallService {
       ...(task ? { task } : {}),
       ...(paths.length > 0 ? { paths } : {}),
       confidence: recalled.confidence,
-      outstandingItems: this.outstandingItemDigest(
+      outstandingItems: this.contextOutstandingItemDigest(
         this.store.relatedPendingOutstandingItems({
           projectId,
           task,
@@ -1198,11 +1202,28 @@ export class ContextRecallService {
       }),
       total: result.total,
       omitted: Math.max(0, result.total - result.items.length),
-      ...(result.total > 0
-        ? {
-            hint: "這些相關項目仍未處理；先讀來源並核對證據，確認完成才結案，被本次 nextSteps 取代才標記不再需要，不確定就保留。",
-          }
-        : {}),
+      ...(result.total > 0 ? { hint: RELATED_OUTSTANDING_HINT } : {}),
+    };
+  }
+
+  /** Context items keep only what decides whether to read more; the source title is one read away. */
+  private contextOutstandingItemDigest(result: {
+    items: OutstandingItem[];
+    total: number;
+  }): ContextRelatedOutstandingItems {
+    return {
+      items: result.items.map((item) => {
+        const text = truncateAtSentenceBoundary(item.text, CONTEXT_EXCERPT_CHARS);
+        return {
+          id: item.id,
+          sourceSessionId: item.sourceSessionId,
+          text: text.text,
+          ...(text.truncated ? { textTruncated: true } : {}),
+        };
+      }),
+      total: result.total,
+      omitted: Math.max(0, result.total - result.items.length),
+      ...(result.total > 0 ? { hint: RELATED_OUTSTANDING_HINT } : {}),
     };
   }
 

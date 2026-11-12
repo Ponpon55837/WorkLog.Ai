@@ -34,6 +34,7 @@ const RESPONSE_BUDGETS = {
   outstandingCleanupRequestPage: 8_000,
   outstandingCleanupProposalPage: 30_000,
   relatedOutstandingItems: 4_200,
+  contextRelatedOutstandingItems: 2_200,
   recallDefault: 3_500,
   recallFive: 2_400,
   searchDefault: 8_000,
@@ -44,7 +45,9 @@ const RESPONSE_BUDGETS = {
   knowledgePageNotFound: 700,
   fileHistoryOnePath: 4_000,
   fileHistoryThreePaths: 10_000,
+  sessionHandoffThirtyFiles: 6_500,
 } as const;
+const CONTEXT_ITEM_KEYS = new Set(["id", "sourceSessionId", "text", "textTruncated"]);
 const sharedPlan = [
   "## Historical proposal: Agent context retrieval budget",
   "The old plan proposes returning every recent Session, decision, Knowledge page, and raw handoff excerpt together.",
@@ -513,14 +516,7 @@ describe("synthetic MCP response-size baseline", () => {
     const contextValue = context.value as {
       relevant?: {
         outstandingItems?: {
-          items: Array<{
-            id: string;
-            sourceSessionId: string;
-            sourceSessionTitle: string;
-            text: string;
-            textTruncated?: boolean;
-            sourceSessionTitleTruncated?: boolean;
-          }>;
+          items: Array<{ id: string; sourceSessionId: string; text: string; textTruncated?: boolean }>;
           total: number;
           omitted: number;
           hint?: string;
@@ -533,9 +529,12 @@ describe("synthetic MCP response-size baseline", () => {
     expect(contextItems?.items).toHaveLength(5);
     expect(contextItems?.omitted).toBe((contextItems?.total ?? 0) - 5);
     expect(contextItems?.hint).toContain("仍未處理");
-    expect(contextItems?.items.every((item) => item.text.length <= 400 && item.textTruncated === true)).toBe(true);
-    expect(contextItems?.items.every((item) => item.sourceSessionTitle.length <= 160)).toBe(true);
-    expect(contextItems?.items.some((item) => item.sourceSessionTitleTruncated === true)).toBe(true);
+    expect(contextItems?.items.every((item) => item.text.length <= 240 && item.textTruncated === true)).toBe(true);
+    // A context item is an id, its source Session id and an excerpt; the source title is one read away.
+    expect(contextItems?.items.every((item) => Object.keys(item).every((key) => CONTEXT_ITEM_KEYS.has(key)))).toBe(
+      true,
+    );
+    expect(JSON.stringify(contextItems).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextRelatedOutstandingItems);
 
     const pending = store.listOutstandingItems({ projectRoot, status: "pending", pageSize: 100 });
     if (pending.outcome !== "outstanding_items") throw new Error("Expected pending response-budget fixture items.");
@@ -1277,6 +1276,55 @@ describe("synthetic MCP response-size baseline", () => {
     expect(value.files[0]!.totals).toMatchObject({ sessions: 30, pendingItems: 90 });
     expect(value.files[0]!.recent.length).toBeGreaterThan(0);
     expect(value.files[0]!.attention.length).toBeGreaterThan(0);
+  });
+
+  it("lists each changed path once in the handoff view Agents are steered to", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const paths = Array.from({ length: 30 }, (_, index) => `packages/cedar/src/module-${index}/service.ts`);
+    const finalized = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "response-size-thirty-files",
+      title: "Synthetic thirty-file refactor",
+      summary: "Refactored thirty fictional modules.",
+      workSummary: {
+        outcomes: ["Refactored thirty fictional modules."],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: [],
+      },
+      changedFiles: paths,
+      changedFilesProvenance: paths.map((path) => ({ path, sources: ["agent", "git"], references: ["abc1234"] })),
+      changedFileChanges: paths.map((path, index) =>
+        index === 0
+          ? { path, status: "renamed", previousPath: "packages/cedar/src/legacy/service.ts" }
+          : { path, status: "modified" },
+      ),
+      verification: { status: "passed" },
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected the thirty-file synthetic Session.");
+    const full = await serializedMcpPayload(client, "work_get_session", { sessionId: finalized.session.id });
+    const handoff = await serializedMcpPayload(client, "work_get_session", {
+      sessionId: finalized.session.id,
+      view: "handoff",
+    });
+    console.info(`Session read size (characters): full ${full.length}, handoff view ${handoff.length}`);
+
+    const value = handoff.value as { session: { files?: Array<Record<string, unknown>>; changedFiles?: unknown } };
+    expect(value.session).not.toHaveProperty("changedFiles");
+    // Storage records a rename's old path as a changed file too, so it gets an entry of its own.
+    expect(value.session.files?.map((file) => file.path)).toEqual([...paths, "packages/cedar/src/legacy/service.ts"]);
+    expect(value.session.files?.[0]).toEqual({
+      path: paths[0],
+      status: "renamed",
+      previousPath: "packages/cedar/src/legacy/service.ts",
+      sources: ["agent", "git"],
+      references: ["abc1234"],
+    });
+    const text = JSON.stringify(handoff.value);
+    for (const path of paths) expect(text.split(`"${path}"`)).toHaveLength(2);
+    expect(handoff.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.sessionHandoffThirtyFiles);
+    expect(handoff.length).toBeLessThan(full.length * 0.6);
   });
 
   it("keeps pending requests and Knowledge review flags within the focused context budget", async () => {

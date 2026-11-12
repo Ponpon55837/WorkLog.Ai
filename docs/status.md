@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.18（已完成）
+
+Agent 讀取更省：`work_get_session` 新增 `session.files`，每個變更路徑只列一次並附狀態、來源與 references，`view: "handoff"` 包含它；Agent 指引預設改用 handoff，只有需要原始 provenance、events 或 evidence 時才完整讀取（完整讀取的形狀不變）。實際資料（328 筆 Session）20 筆抽樣 Session 合計由 150,728 字降到 95,720 字（中位數 6,907 → 4,021）。帶 task 的 `work_get_context` 未結項指標只留 id、來源 Session id 與 240 字摘錄，同一 Session 的決策只在第一條附標題與日期；五個 task context 的相關 Session 由 1–2 筆增為 2–3 筆，一跳補充在兩個 context 出現，每個 context 都保留補充的省略指標。Knowledge 候選 context 另列已封存的 Knowledge 與已拒絕的候選標題（19,625 → 17,910 字，列出 69 而非 31 個標題）；送出候選時附參考用的重疊提示，實際資料只標出已知的一組近似重複、沒有誤報；同內容重送回傳原本的候選。安全性：`appliesTo` glob 改用不回溯的比對器，修正大量星號樣式對長路徑的災難性回溯。Web 候選審核畫面尚未顯示重疊提示。schema 維持 32。
+
 ## 1.6.17（已完成）
 
 新增 `work_get_file_history`：Agent 修改檔案前，一次呼叫取得該檔案的完整歷史統計（Session 數、首末日期、各驗證狀態數量、有 decisions 的 Session 數、仍 pending 的未結項）、最新幾筆 Session 摘要、較早的驗證失敗／未執行 Session，以及 `appliesTo` 涵蓋該路徑的 active Knowledge；只採用已記錄的 changed files，單一路徑回應上限 4,000 字。實際資料（328 筆 Session）五個最常修改的檔案，統計與直接計數完全一致，回應 1,685–2,640 字、約 2 ms，取代原本約 7 次呼叫、27,000–60,000 字仍只涵蓋 5 筆 Session 的做法。`work_get_context` 對前 3 個指定路徑一律顯示熱點提示並附整段歷史數量。schema 維持 32。
