@@ -93,6 +93,18 @@ export interface ChangedFileChange {
   previousPath?: string;
 }
 
+/**
+ * One changed path as an Agent projection returns it: changedFiles, changedFilesProvenance and changedFileChanges
+ * merged, so the path appears once with its status, sources and references.
+ */
+export interface SessionFileEntry {
+  path: string;
+  status?: ChangedFileChangeStatus;
+  previousPath?: string;
+  sources?: ChangedFileSource[];
+  references?: string[];
+}
+
 export interface ProjectRecord {
   id: string;
   name: string;
@@ -2039,6 +2051,13 @@ export interface DecisionDigest {
   truncated?: boolean;
 }
 
+/**
+ * A decision in a focused context. Decisions of one Session are listed together, so only the first of them carries
+ * the Session's title and completion time.
+ */
+export type RelevantDecisionDigest = Omit<DecisionDigest, "sessionTitle" | "completedAt"> &
+  Partial<Pick<DecisionDigest, "sessionTitle" | "completedAt">>;
+
 export const KNOWLEDGE_CANDIDATE_REQUEST_STATUSES = [
   "pending",
   "processing",
@@ -2102,7 +2121,8 @@ export interface KnowledgeCandidateSourceSession {
   title: string;
   summary: string;
   completedAt: string;
-  workSummary?: WorkSummarySections;
+  /** The sections reusable Knowledge comes from; scope and verification are one work_get_session read away. */
+  workSummary?: Pick<WorkSummarySections, "outcomes" | "decisions" | "nextSteps">;
   /** Raw handoff text, truncated to the request's character budget. */
   handoff?: string;
   handoffTruncated?: boolean;
@@ -2112,8 +2132,30 @@ export interface KnowledgeCandidateContext {
   outcome: "knowledge_candidate_context";
   request: KnowledgeCandidateRequest;
   sessions: KnowledgeCandidateSourceSession[];
-  /** Active Knowledge of the project, so proposals do not repeat it. */
-  existingKnowledge: Array<{ id: string; kind: KnowledgeKind; title: string }>;
+  /** workSummary sections left out of sessions; read them with sessionReadWith. */
+  omittedWorkSummarySections: Array<"scope" | "verification">;
+  sessionReadWith: "work_get_session";
+  /**
+   * What the project already decided, so proposals do not repeat it: active Knowledge (no status), archived
+   * Knowledge, and rejected candidates, titles only, newest first within fixed caps per status.
+   */
+  existingKnowledge: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
+  /** Entries left out by those caps. */
+  existingKnowledgeOmitted?: number;
+}
+
+/**
+ * An advisory computed when candidates are submitted: the candidate resembles existing Knowledge or an earlier
+ * candidate of the same project. It never rejects, merges, or changes anything; the user decides in the Web UI.
+ */
+export interface KnowledgeCandidateOverlap {
+  relation: "possible_duplicate" | "overlaps_archived" | "overlaps_rejected";
+  type: "knowledge" | "candidate";
+  id: string;
+  title: string;
+  status: "active" | "archived" | "proposed" | "rejected";
+  /** Token overlap of title and body, 0–1, rounded to two decimals. */
+  score: number;
 }
 
 export type KnowledgeCandidateSkippedResult = {
@@ -2137,8 +2179,10 @@ export type KnowledgeCandidateContextResult =
 export type SubmitKnowledgeCandidatesResult =
   | {
       outcome: "knowledge_candidates_submitted";
+      /** Set when the same payload was already submitted for this request; nothing new was stored. */
+      duplicate?: true;
       request: KnowledgeCandidateRequest;
-      candidates: KnowledgeCandidate[];
+      candidates: Array<KnowledgeCandidate & { overlaps?: KnowledgeCandidateOverlap[] }>;
       redactions?: RedactionSummary;
     }
   | { outcome: "not_found"; requestId: string; reason: string }
@@ -2796,6 +2840,14 @@ export interface RelatedOutstandingItems {
   hint?: string;
 }
 
+/**
+ * Pending items in a focused context, bounded to what decides whether to read more: the item id, its source Session
+ * id, and a text excerpt. The source Session's title is in relevant.sessions or one work_get_session away.
+ */
+export interface ContextRelatedOutstandingItems extends Omit<RelatedOutstandingItems, "items"> {
+  items: Array<{ id: string; sourceSessionId: string; text: string; textTruncated?: boolean }>;
+}
+
 export interface RelevantContext {
   task?: string;
   paths?: string[];
@@ -2804,9 +2856,9 @@ export interface RelevantContext {
   /** Knowledge (gotchas, patterns, decisions, …) ranked for the task and paths. */
   knowledge: ProjectScopedItem<RecallHit>[];
   /** workSummary.decisions of the relevant Sessions, each citing its Session. */
-  decisions: DecisionDigest[];
+  decisions: RelevantDecisionDigest[];
   /** Pending items ranked by their text, source paths, and source Session relevance. */
-  outstandingItems?: RelatedOutstandingItems;
+  outstandingItems?: ContextRelatedOutstandingItems;
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<ProjectScopedItem<RecallHit> & { openItems: string[] }>;
   /** Optional compact pointers to possibly related Sessions or applied Knowledge; never literal-match evidence. */
@@ -3009,6 +3061,7 @@ export const SESSION_READ_FIELDS = [
   "session.workSummary.nextSteps",
   "session.verification",
   "session.changedFiles",
+  "session.files",
   "session.git",
   "decisions",
   "links",
@@ -3060,7 +3113,7 @@ export interface SessionProjectionResult {
         | "commitSha"
         | "gitBranch"
       >
-    > & { workSummary?: Partial<WorkSummarySections> };
+    > & { workSummary?: Partial<WorkSummarySections>; files?: SessionFileEntry[] };
   decisions?: SessionDecisionRecord[];
   links?: SessionLinkRecord[];
   verificationHistory?: VerificationUpdateRecord[];

@@ -299,14 +299,14 @@ describe("task-aware context supplements", () => {
     expect(context.relevant!.sessions.map((hit) => hit.id)).toContain(source.id);
     expect(JSON.stringify(omittedSessions)).toContain(omittedDirect.id);
     expect(context.relevant!.supplements?.map((item) => item.id) ?? []).not.toContain(omittedDirect.id);
-    // The main content fills the budget to within a few characters, and the project root (whose length differs per
-    // OS temp directory) is part of it. The pointer is therefore kept only when it still fits; otherwise the baseline
-    // response stays untouched and carries no supplements at all.
+    // How many supplements fit depends on a few characters of budget, and the project root (whose length differs per
+    // OS temp directory) is part of it. Whatever fits, supplements never repeat a direct hit, and any that were left
+    // out are counted under a budget pointer when that pointer fits.
+    const directIds = new Set([...context.relevant!.sessions, ...context.relevant!.knowledge].map((hit) => hit.id));
+    expect((context.relevant!.supplements ?? []).filter((item) => directIds.has(item.id))).toEqual([]);
     if (omittedSupplements) {
       expect(omittedSupplements.count).toBeGreaterThan(0);
       expect(omittedSupplements.reasons).toEqual(expect.arrayContaining([expect.stringContaining("預算")]));
-    } else {
-      expect(context.relevant!.supplements).toBeUndefined();
     }
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(9_800);
     expect(context.relevant!.sessions.map((hit) => hit.id)).not.toContain(omittedDirect.id);

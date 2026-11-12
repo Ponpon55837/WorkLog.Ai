@@ -89,6 +89,51 @@ describe("context budget", () => {
     expect(context.recentSessions).toEqual([]);
   });
 
+  it("names a Session once among its relevant decisions and keeps outstanding items to pointers", () => {
+    const { store, root } = setup();
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "osprey-decisions",
+      title: "Osprey latch decisions",
+      summary: "Chose the osprey latch layout.",
+      workSummary: {
+        outcomes: ["Chose the osprey latch layout."],
+        scope: [],
+        decisions: [
+          "Keep the osprey latch manual.",
+          "Store osprey latch notes beside the gate.",
+          "Retire the old osprey hook.",
+        ],
+        verification: [],
+        nextSteps: ["Confirm the osprey latch on the second gate."],
+      },
+      changedFiles: ["src/osprey-latch.ts"],
+      verification: { status: "passed" },
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected the osprey fixture Session.");
+    const context = store.getContext(root, { task: "osprey latch" });
+    if (context.outcome !== "context" || !context.relevant) throw new Error("Expected a focused context.");
+    const own = context.relevant.decisions.filter((decision) => decision.sessionId === finalized.session.id);
+    expect(own.map((decision) => decision.text)).toEqual([
+      "Keep the osprey latch manual.",
+      "Store osprey latch notes beside the gate.",
+      "Retire the old osprey hook.",
+    ]);
+    expect(own[0]).toMatchObject({
+      sessionTitle: "Osprey latch decisions",
+      completedAt: finalized.session.completedAt,
+    });
+    expect(own.slice(1).every((decision) => !("sessionTitle" in decision) && !("completedAt" in decision))).toBe(true);
+    const item = context.relevant.outstandingItems?.items.find(
+      (entry) => entry.sourceSessionId === finalized.session.id,
+    );
+    expect(item).toEqual({
+      id: expect.any(String),
+      sourceSessionId: finalized.session.id,
+      text: "Confirm the osprey latch on the second gate.",
+    });
+  });
+
   it("keeps omission pointers to ids, counts, and flags without page review detail", () => {
     const { store, root, sessionIds } = setup();
     vi.setSystemTime(Date.now() + 60_000);

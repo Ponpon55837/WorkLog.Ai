@@ -137,11 +137,11 @@ MCP client 的 stdio 設定可使用：
 
 | 欄位 | 內容 |
 | --- | --- |
-| `relevant.outstandingItems` | 依項目關鍵字、來源 changed-file 路徑與來源 Session 檢索順序排序的 pending 指標；直接文字／路徑命中可找出來源不在前 20 筆 Session 的舊項目。最多 5 項、文字 400 字、來源標題 160 字，附截短旗標、total／omitted 與證據提示；預算省略在 omitted 指向完整清單。先讀來源 Session，排名不代表已完成。 |
+| `relevant.outstandingItems` | 依項目關鍵字、來源 changed-file 路徑與來源 Session 檢索順序排序的 pending 指標；直接文字／路徑命中可找出來源不在前 20 筆 Session 的舊項目。最多 5 項，每項只有 `id`、`sourceSessionId` 與最多 240 字的文字摘錄（截短時 `textTruncated`），來源 Session 標題在 `relevant.sessions` 或讀一次 `work_get_session` 即可取得；附 total／omitted 與證據提示，預算省略在 omitted 指向完整清單。先讀來源 Session，排名不代表已完成。 |
 | `relevant.confidence` | 規則同 `work_recall`：`none` 時沒有可引用依據；`high` 與 `low` 都只代表字面相符，依賴前都要讀原文。來源讀完仍不支持答案時，明確回覆「資料不足」，不可依字面、confidence 或排名推論 |
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.supplements` | 選填的可能相關指標；最多 4 筆，限最終保留的前三筆 Session 的一層 parent／related 與 active applied Knowledge。它們不是字面命中或答案證據，需讀取完整來源；Knowledge 可附 `possiblyStale`／`needsReview` |
-| `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId` |
+| `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId`；同一 Session 的決策連續排列，只有第一條帶 `sessionTitle` 與 `completedAt` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
 | `relevant.knowledgePages` | 符合 task／paths 的知識頁段落與需核對段落；每段附 `sourceSessionIds`、`truncated`，來源變動時另附 `reviewSources`（有上限時含 `reviewOmittedSourceCount`／`reviewReasons`），頁面附 `needsReview` |
 | `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
@@ -185,7 +185,7 @@ MCP client 的 stdio 設定可使用：
 | `omitted` | `older`：比 `recent` 最後一筆更早的 Session 數；`attention`：未列出的更早失敗／未執行 Session 數 |
 | `nextCursor` | 還有更早的 Session 時出現；以相同單一路徑帶回 `cursor` 分頁 |
 
-頂層 `knowledge` 列出 `appliesTo` 涵蓋任一路徑的 active Knowledge（`type`、`id`、`title`，最多 5 筆，其餘以 `knowledgeOmitted` 計數），比對規則與 `work_recall` 相同（glob、完全相同、路徑尾段、目錄）。回應上限為單一路徑 4,000 字元、每多一個路徑再加 3,000 字元；超過時依序縮短文字、只保留 id 與計數，最後才捨棄最舊的摘要，並標示 `budgetTrimmed: true`，計數與 `nextCursor` 仍然完整。讀取完整 Session 用 `work_get_session`。
+頂層 `knowledge` 列出 `appliesTo` 涵蓋任一路徑的 active Knowledge（`type`、`id`、`title`，最多 5 筆，其餘以 `knowledgeOmitted` 計數），比對規則與 `work_recall` 相同（glob、完全相同、路徑尾段、目錄）。回應上限為單一路徑 4,000 字元、每多一個路徑再加 3,000 字元；超過時依序縮短文字、只保留 id 與計數，最後才捨棄最舊的摘要，並標示 `budgetTrimmed: true`，計數與 `nextCursor` 仍然完整。`readWith: "work_get_session"` 搭配 `readArguments: { view: "handoff" }`：以 handoff 精準讀取 Session，每個變更路徑只列一次。
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "paths": ["src/report/range.ts"] }
@@ -203,13 +203,13 @@ MCP client 的 stdio 設定可使用：
 
 `work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的精簡 Session digest。每筆包含 id、專案（以 `projectRoot` 或 `projectId` 限定時，改在頂層 `project: { id, name }` 列一次，項目不再重複）、標題、最多 400 字摘要、完成／更新時間、Verification 狀態、changed-file 數量，以及最多 3 個目前狀態為 `pending` 的未結項；已完成或 `not_needed` 的 `nextSteps` 不會顯示為待處理內容。不含 changed-file 路徑、events、Evidence 或完整 workSummary。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。需要完整資料時，依 digest 的 `id` 呼叫 `work_get_session`。
 
-`work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
+`work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。Agent 預設應使用 `view: "handoff"`；只有需要原始 `changedFilesProvenance`／`changedFileChanges`、events、evidence、Knowledge 或 diagrams 時才做完整讀取。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
 
-可選 `view: "completion" | "handoff"` 或 `select` 固定欄位陣列（兩者互斥；1–18 個、不可重複）。未提供時維持完整回應；精準讀取只回傳指定資料族群（`session.revision` 另由完整詳情計算，因此仍會讀取完整詳情一次），回傳 `projection: {version: 1, view?, includedFields, unavailableFields}`。必要 Session 識別、lifecycle、完成時間及作廢狀態保留；缺少的歷史欄位列入 unavailableFields，未選取欄位不代表空資料。
+可選 `view: "completion" | "handoff"` 或 `select` 固定欄位陣列（兩者互斥；1–19 個、不可重複）。未提供時維持完整回應；精準讀取只回傳指定資料族群（`session.revision` 另由完整詳情計算，因此仍會讀取完整詳情一次），回傳 `projection: {version: 1, view?, includedFields, unavailableFields}`。必要 Session 識別、lifecycle、完成時間及作廢狀態保留；缺少的歷史欄位列入 unavailableFields，未選取欄位不代表空資料。
 
 - `completion`：summary、outcomes、摘要 verification／nextSteps、機器 verification、links、verificationHistory。
-- `handoff`：summary、完整五段 workSummary、decisions、機器 verification、links、verificationHistory。
-- `select`：`session.summary`、五個 `session.workSummary.<section>`、`session.verification`、`session.changedFiles`、`session.git`、`decisions`、`links`、`verificationHistory`、`voidHistory`、`events`、`evidence`、`knowledge`、`diagrams`、`rawSnapshots`。`session.git` 沿用 commitSha／gitBranch；changedFiles 同時保留 provenance／lifecycle changes。
+- `handoff`：summary、完整五段 workSummary、decisions、機器 verification、`session.files`、links、verificationHistory。
+- `select`：`session.summary`、五個 `session.workSummary.<section>`、`session.verification`、`session.changedFiles`、`session.files`、`session.git`、`decisions`、`links`、`verificationHistory`、`voidHistory`、`events`、`evidence`、`knowledge`、`diagrams`、`rawSnapshots`。`session.git` 沿用 commitSha／gitBranch；changedFiles 同時保留 provenance／lifecycle changes。`session.files` 把這三份清單合併成每個路徑一筆：`{ path, status?, previousPath?, sources?, references? }`，依 changedFiles 順序，只出現在 provenance 或 changes 的路徑接在後面；changed files 未確認時與 `session.changedFiles` 一樣列入 unavailableFields。
 
 摘要 decisions 自動帶完整決策來源／審查狀態；機器 verification 自動帶修改歷史。欄位順序固定，不受請求順序影響。選取 rawSnapshots 預設只回傳 metadata／JavaScript UTF-16 contentLength；精準模式的 includeRawSnapshots=true 必須明確選取 rawSnapshots，兩種 view 都不含 raw。Knowledge trust、來源作廢與連結作廢旗標均保留。structuredContent 只帶實際識別／狀態及已讀取的 verification／changedFilesCount，不重複完整來源。
 
@@ -504,8 +504,8 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 讓 Agent 從已記錄的 Session（含 raw handoff）整理出值得重用的 Knowledge，但**候選不是 Knowledge**：只有使用者在「工作知識」頁接受（可先修改）後才會以 `work_record_knowledge` 相同的流程寫入，維持 Knowledge 必須明確提交的原則。MCP 沒有接受候選的工具。
 
 1. `work_request_knowledge_candidates`（`projectRoot`）：以這個專案還沒被任何請求涵蓋、未作廢的 Session（新到舊，最多 10 筆）建立請求；已有未完成的請求時直接回傳它；都整理過時回傳 `knowledge_candidates_not_needed`。工作知識頁的「整理候選」建立的是同一種請求。
-2. `work_get_knowledge_candidate_context`（`projectRoot` 或 `requestId`）：把請求標為 processing，回傳來源 Session 的摘要、五段 workSummary 與 raw handoff（全部共 40,000 字內，逐筆截斷並標示 `handoffTruncated`），以及專案現有 active Knowledge 的標題，避免重複。超過 30 分鐘沒回寫的請求會標為 failed，可以再取一次 context 重新處理。
-3. `work_submit_knowledge_candidates`（`requestId`、`candidates`）：每筆候選包含 `sourceSessionId`（必須是這個請求的來源）、`kind`、`title`、`body`、`rationale`（引用或指出來源 Session 中支持它的部分），選填 `tags`、`references`、`appliesTo`。沒有值得提出的內容時送空陣列也是正確結果。送出後請求完成，候選出現在工作知識頁等待審核。
+2. `work_get_knowledge_candidate_context`（`projectRoot` 或 `requestId`）：把請求標為 processing，回傳來源 Session 的摘要、workSummary 的 outcomes／decisions／nextSteps 與 raw handoff（全部共 40,000 字內，逐筆截斷並標示 `handoffTruncated`）；scope 與 verification 列在 `omittedWorkSummarySections`，需要時以 `sessionReadWith`（`work_get_session`，`view: "handoff"`）讀取。`existingKnowledge` 依新到舊列出同專案的 active Knowledge（無 `status`，最多 150 筆）、archived Knowledge（`status: "archived"`，最多 30 筆）與已拒絕的候選（`status: "rejected"`，最多 20 筆），只有 id、kind 與標題，超出上限的數量為 `existingKnowledgeOmitted`；Agent 不應重複提出，也不應在沒有新證據時重提已封存或已拒絕的主題。超過 30 分鐘沒回寫的請求會標為 failed，可以再取一次 context 重新處理。
+3. `work_submit_knowledge_candidates`（`requestId`、`candidates`）：每筆候選包含 `sourceSessionId`（必須是這個請求的來源）、`kind`、`title`、`body`、`rationale`（引用或指出來源 Session 中支持它的部分），選填 `tags`、`references`、`appliesTo`。沒有值得提出的內容時送空陣列也是正確結果。送出後請求完成，候選出現在工作知識頁等待審核。回傳的每筆候選可能帶參考用的 `overlaps`（最多 3 筆，分數高到低）：與同專案 active Knowledge 或仍待審的候選相似為 `possible_duplicate`，與 archived Knowledge 相似為 `overlaps_archived`，與已拒絕的候選相似為 `overlaps_rejected`，附對象的 `type`、`id`、標題、`status` 與 0–1 的 `score`。分數是標題與「標題＋內文前 4,000 字」兩組詞元的 overlap coefficient 各占一半（與檢索相同的斷詞），0.3 以上才列出；只比對同專案、在這次送出前已存在的記錄，不含本次請求自己的候選。這只是提示：不會拒絕、合併、封存或修改任何資料，由使用者在 Web 決定；Web 候選審核畫面目前不顯示這項提示。對已完成的請求再次送出完全相同（正規化後）的內容時，回傳原本保存的候選、相同的 overlaps 與 `duplicate: true`，不會新增候選；內容不同則回傳 `request_not_open`。
 
 `work_get_context` 的 `pendingRequests.knowledgeCandidates` 會列出 pending／processing 的候選請求。
 

@@ -5,8 +5,10 @@ import type {
   DecideKnowledgeCandidateResult,
   KnowledgeCandidate,
   KnowledgeCandidateContextResult,
+  KnowledgeCandidateContext,
   KnowledgeCandidateInput,
   KnowledgeCandidateListResult,
+  KnowledgeCandidateOverlap,
   KnowledgeCandidateRequest,
   KnowledgeCandidateRequestStatus,
   KnowledgeCandidateSkippedResult,
@@ -21,10 +23,13 @@ import type {
   WorkSummarySections,
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
+import { findKnowledgeCandidateOverlaps } from "./knowledge-candidate-overlap.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 const MAX_SOURCE_SESSIONS = 10;
+/** existingKnowledge caps per status, newest first: titles only, so the whole list stays a few thousand characters. */
+const EXISTING_KNOWLEDGE_LIMITS = { active: 150, archived: 30, rejected: 20 } as const;
 const HANDOFF_BUDGET = 40_000;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 const OPEN_STATUSES: readonly KnowledgeCandidateRequestStatus[] = ["pending", "processing", "failed"];
@@ -47,6 +52,8 @@ type RequestRow = {
   source_session_ids_json: string;
   candidate_count: number;
 };
+
+type TitleRow = { id: string; kind: KnowledgeKind; title: string; total: number };
 
 type CandidateRow = {
   id: string;
@@ -116,6 +123,41 @@ function toCandidate(row: CandidateRow): KnowledgeCandidate {
     createdAt: row.created_at,
     ...(row.decided_at ? { decidedAt: row.decided_at } : {}),
   };
+}
+
+/** The stored form of a submitted candidate, for recognising a resubmission of the same payload. */
+function candidateFingerprint(candidate: {
+  sourceSessionId?: string;
+  kind: KnowledgeKind;
+  title: string;
+  body: string;
+  tags: string[];
+  references: string[];
+  appliesTo: string[];
+  rationale: string;
+}): string {
+  return JSON.stringify([
+    candidate.sourceSessionId ?? null,
+    candidate.kind,
+    candidate.title,
+    candidate.body,
+    candidate.tags,
+    candidate.references,
+    candidate.appliesTo,
+    candidate.rationale,
+  ]);
+}
+
+function sanitizeCandidate(candidate: KnowledgeCandidateInput) {
+  return redactValue({
+    ...candidate,
+    title: candidate.title.trim(),
+    body: candidate.body.trim(),
+    tags: cleanList(candidate.tags),
+    references: cleanList(candidate.references),
+    appliesTo: cleanList(candidate.appliesTo),
+    rationale: candidate.rationale.trim(),
+  });
 }
 
 function skipped(decision: PolicyDecision): KnowledgeCandidateSkippedResult {
@@ -218,10 +260,12 @@ export class KnowledgeCandidateService {
       )
         .map((snapshot) => snapshot.content)
         .join("\n\n");
-      let workSummary: WorkSummarySections | undefined;
+      let workSummary: KnowledgeCandidateContext["sessions"][number]["workSummary"];
       try {
         const parsed = JSON.parse(row.work_summary_json ?? "{}") as Partial<WorkSummarySections>;
-        workSummary = Array.isArray(parsed.outcomes) ? (parsed as WorkSummarySections) : undefined;
+        workSummary = Array.isArray(parsed.outcomes)
+          ? { outcomes: parsed.outcomes, decisions: parsed.decisions ?? [], nextSteps: parsed.nextSteps ?? [] }
+          : undefined;
       } catch {
         workSummary = undefined;
       }
@@ -237,16 +281,15 @@ export class KnowledgeCandidateService {
         },
       ];
     });
-    const existingKnowledge = this.db
-      .prepare(
-        "SELECT id, kind, title FROM knowledge WHERE project_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 200",
-      )
-      .all(request.projectId) as Array<{ id: string; kind: KnowledgeKind; title: string }>;
+    const { existingKnowledge, omitted } = this.existingKnowledge(request.projectId);
     return {
       outcome: "knowledge_candidate_context",
       request: this.getRequest(request.id)!,
       sessions,
-      existingKnowledge: existingKnowledge.map((item) => ({ id: item.id, kind: item.kind, title: item.title })),
+      omittedWorkSummarySections: ["scope", "verification"],
+      sessionReadWith: "work_get_session",
+      existingKnowledge,
+      ...(omitted > 0 ? { existingKnowledgeOmitted: omitted } : {}),
     };
   }
 
@@ -265,7 +308,13 @@ export class KnowledgeCandidateService {
       return skipped(decision);
     }
     if (!OPEN_STATUSES.includes(request.status)) {
-      return { outcome: "request_not_open", request, reason: "This request is already completed or cancelled." };
+      return (
+        this.replaySubmission(request, input.candidates) ?? {
+          outcome: "request_not_open",
+          request,
+          reason: "This request is already completed or cancelled.",
+        }
+      );
     }
     const sources = new Set(request.sourceSessionIds);
     const outside = input.candidates.find((candidate) => !sources.has(candidate.sourceSessionId));
@@ -275,19 +324,9 @@ export class KnowledgeCandidateService {
         reason: `sourceSessionId ${outside.sourceSessionId} is not one of this request's source Sessions.`,
       };
     }
-    const sanitizedCandidates = input.candidates.map((candidate) =>
-      redactValue({
-        ...candidate,
-        title: candidate.title.trim(),
-        body: candidate.body.trim(),
-        tags: cleanList(candidate.tags),
-        references: cleanList(candidate.references),
-        appliesTo: cleanList(candidate.appliesTo),
-        rationale: candidate.rationale.trim(),
-      }),
-    );
+    const sanitizedCandidates = input.candidates.map(sanitizeCandidate);
     const redactions = combineRedactionSummaries(...sanitizedCandidates.map((candidate) => candidate.redactions));
-    return runImmediateTransaction(this.db, () => {
+    const stored = runImmediateTransaction(this.db, () => {
       const createdAt = nowIso();
       const insert = this.db.prepare(
         `INSERT INTO knowledge_candidates (
@@ -319,13 +358,19 @@ export class KnowledgeCandidateService {
            SET status = 'completed', completed_at = ?, candidate_count = ?, failure_reason = NULL WHERE id = ?`,
         )
         .run(createdAt, ids.length, request.id);
-      return {
-        outcome: "knowledge_candidates_submitted",
-        request: this.getRequest(request.id)!,
-        candidates: ids.map((id) => this.getCandidate(id)!),
-        redactions,
-      };
+      return { ids, createdAt };
     });
+    // Advisories are read-only, so they are computed after the commit and never hold the write lock.
+    return {
+      outcome: "knowledge_candidates_submitted",
+      request: this.getRequest(request.id)!,
+      candidates: this.withOverlaps(
+        request,
+        stored.ids.map((id) => this.getCandidate(id)!),
+        stored.createdAt,
+      ),
+      redactions,
+    };
   }
 
   public list(input: { projectRoot?: string; status?: KnowledgeCandidateStatus }): KnowledgeCandidateListResult {
@@ -422,6 +467,95 @@ export class KnowledgeCandidateService {
         )
         .all(...(projectId ? [projectId] : []), limit) as RequestRow[]
     ).map(toRequest);
+  }
+
+  /** Active Knowledge, archived Knowledge, and rejected candidates of one project, titles only. */
+  private existingKnowledge(projectId: string): {
+    existingKnowledge: KnowledgeCandidateContext["existingKnowledge"];
+    omitted: number;
+  } {
+    const select = (sql: string, limit: number): TitleRow[] => this.db.prepare(sql).all(projectId, limit) as TitleRow[];
+    const groups: Array<{ status?: "archived" | "rejected"; rows: TitleRow[]; limit: number }> = [
+      {
+        rows: select(
+          `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
+           WHERE project_id = ? AND status = 'active' ORDER BY updated_at DESC, id ASC LIMIT ?`,
+          EXISTING_KNOWLEDGE_LIMITS.active,
+        ),
+        limit: EXISTING_KNOWLEDGE_LIMITS.active,
+      },
+      {
+        status: "archived",
+        rows: select(
+          `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
+           WHERE project_id = ? AND status = 'archived' ORDER BY updated_at DESC, id ASC LIMIT ?`,
+          EXISTING_KNOWLEDGE_LIMITS.archived,
+        ),
+        limit: EXISTING_KNOWLEDGE_LIMITS.archived,
+      },
+      {
+        status: "rejected",
+        rows: select(
+          `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
+           WHERE project_id = ? AND status = 'rejected' ORDER BY decided_at DESC, id ASC LIMIT ?`,
+          EXISTING_KNOWLEDGE_LIMITS.rejected,
+        ),
+        limit: EXISTING_KNOWLEDGE_LIMITS.rejected,
+      },
+    ];
+    return {
+      existingKnowledge: groups.flatMap(({ status, rows }) =>
+        rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, ...(status ? { status } : {}) })),
+      ),
+      omitted: groups.reduce((sum, { rows }) => sum + Math.max(0, (rows[0]?.total ?? 0) - rows.length), 0),
+    };
+  }
+
+  /**
+   * A completed request resubmitted with the same normalized payload returns what the first submission stored,
+   * with advisories computed against the same records, instead of request_not_open.
+   */
+  private replaySubmission(
+    request: KnowledgeCandidateRequest,
+    candidates: KnowledgeCandidateInput[],
+  ): SubmitKnowledgeCandidatesResult | undefined {
+    if (request.status !== "completed") return undefined;
+    const stored = (
+      this.db
+        .prepare(`${CANDIDATE_SELECT} WHERE c.request_id = ? ORDER BY c.rowid ASC`)
+        .all(request.id) as CandidateRow[]
+    ).map(toCandidate);
+    const sanitized = candidates.map(sanitizeCandidate);
+    const submitted = sanitized.map((candidate) => candidateFingerprint(candidate.value));
+    const same =
+      stored.length === submitted.length &&
+      stored.every(
+        (candidate, index) =>
+          candidateFingerprint({ ...candidate, sourceSessionId: candidate.sessionId }) === submitted[index],
+      );
+    if (!same) return undefined;
+    return {
+      outcome: "knowledge_candidates_submitted",
+      duplicate: true,
+      request,
+      candidates: this.withOverlaps(request, stored, stored[0]?.createdAt ?? request.completedAt ?? nowIso()),
+      redactions: combineRedactionSummaries(...sanitized.map((candidate) => candidate.redactions)),
+    };
+  }
+
+  private withOverlaps(
+    request: KnowledgeCandidateRequest,
+    candidates: KnowledgeCandidate[],
+    createdAt: string,
+  ): Array<KnowledgeCandidate & { overlaps?: KnowledgeCandidateOverlap[] }> {
+    const overlaps = findKnowledgeCandidateOverlaps(
+      this.db,
+      { projectId: request.projectId, requestId: request.id, createdAtOrBefore: createdAt },
+      candidates,
+    );
+    return candidates.map((candidate, index) =>
+      overlaps[index]?.length ? { ...candidate, overlaps: overlaps[index] } : candidate,
+    );
   }
 
   private uncoveredSessionIds(project: ProjectRecord): string[] {

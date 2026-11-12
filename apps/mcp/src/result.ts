@@ -40,7 +40,11 @@ function toProjectionStructuredContent(value: unknown): StructuredContent | unde
     executionStatus: session.executionStatus,
     ...(session.voided ? { voided: session.voided } : {}),
     ...(session.verification ? { verification: session.verification } : {}),
-    ...(Array.isArray(session.changedFiles) ? { changedFilesCount: session.changedFiles.length } : {}),
+    ...(Array.isArray(session.changedFiles)
+      ? { changedFilesCount: session.changedFiles.length }
+      : Array.isArray(session.files)
+        ? { changedFilesCount: session.files.length }
+        : {}),
   };
 }
 
