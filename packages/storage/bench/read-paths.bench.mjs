@@ -860,6 +860,9 @@ try {
     "listSessionsPage (query, no match)": () =>
       benchStore.listSessionsPage({ query: "zzqxnomatchterm", page: 1, pageSize: 20 }),
     "listSessionDigests (page 100 + pending items)": () => listSessionDigestPage(benchStore, alpha.id),
+    // Synthetic Sessions record no commit, so this times the ambiguity check, count and page on the index seek.
+    "listSessionsForAgent (commitSha prefix)": () =>
+      benchStore.listSessionsForAgent({ commitSha: "abc1234", page: 1, pageSize: 20 }),
     getDashboardSummary: () => benchStore.getDashboardSummary(),
     "getReport week": () => benchStore.getReport({ period: "week", date: "2026-03-11" }),
     "getReport (in-progress verification)": () => {
@@ -1261,6 +1264,7 @@ try {
     "listSessionsPage (query)": 300,
     "listSessionsPage (query, no match)": 300,
     "listSessionDigests (page 100 + pending items)": 100,
+    "listSessionsForAgent (commitSha prefix)": 50,
     getDashboardSummary: 250,
     "getReport week": 750,
     "getReport (in-progress verification)": 750,

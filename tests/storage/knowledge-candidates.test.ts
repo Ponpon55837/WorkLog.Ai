@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeCandidateInput } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
@@ -69,6 +70,38 @@ function submitted(store: WorkIntelligenceStore, requestId: string, candidates: 
   const result = store.submitKnowledgeCandidates({ requestId, candidates });
   if (result.outcome !== "knowledge_candidates_submitted") throw new Error("Expected submitted candidates");
   return result.candidates;
+}
+
+function databaseOf(store: WorkIntelligenceStore): DatabaseSync {
+  return (store as unknown as { db: DatabaseSync }).db;
+}
+
+function storedOverlaps(store: WorkIntelligenceStore, candidateId: string): unknown {
+  const row = databaseOf(store)
+    .prepare("SELECT overlaps_json FROM knowledge_candidates WHERE id = ?")
+    .get(candidateId) as { overlaps_json: string | null } | undefined;
+  return row?.overlaps_json === null || row === undefined ? row?.overlaps_json : JSON.parse(row.overlaps_json);
+}
+
+/** One proposed candidate that resembles one active Knowledge of the same project. */
+function submitOverlappingCandidate(fixture: ReturnType<typeof setup>) {
+  const { store, root, finalize, candidate } = fixture;
+  const first = finalize("first");
+  const knowledgeId = recorded(
+    store,
+    root,
+    "stored-active",
+    "Sprinkler lease expires silently",
+    "The sprinkler lease expires without an error.",
+  );
+  const request = openRequest(store, root);
+  store.getKnowledgeCandidateContext({ requestId: request });
+  const payload = [
+    { ...candidate(first, "Sprinkler lease expires silently"), body: "The sprinkler lease expires without an error." },
+    candidate(first, "Compost bin lid warps in sun"),
+  ];
+  const result = submitted(store, request, payload);
+  return { ...fixture, request, payload, knowledgeId, result };
 }
 
 describe("Knowledge candidates", () => {
@@ -310,5 +343,112 @@ describe("Knowledge candidates", () => {
     expect(
       store.submitKnowledgeCandidates({ requestId: request, candidates: [candidate(first, "A different payload")] }),
     ).toMatchObject({ outcome: "request_not_open" });
+  });
+});
+
+describe("stored Knowledge candidate overlap advisories", () => {
+  it("stores ids, statuses and scores only, and lists the advisory with the matched title", () => {
+    const fixture = submitOverlappingCandidate(setup());
+    const { store, root, knowledgeId, result } = fixture;
+    expect(storedOverlaps(store, result[0]!.id)).toEqual([
+      {
+        relation: "possible_duplicate",
+        type: "knowledge",
+        id: knowledgeId,
+        status: "active",
+        score: expect.any(Number),
+      },
+    ]);
+    // No match is stored as an empty list, so it is never mistaken for a candidate submitted before schema 33.
+    expect(storedOverlaps(store, result[1]!.id)).toEqual([]);
+    expect(JSON.stringify(storedOverlaps(store, result[0]!.id))).not.toContain("Sprinkler");
+
+    const listed = store.listKnowledgeCandidates({ projectRoot: root });
+    if (listed.outcome !== "knowledge_candidates") throw new Error("Expected the candidate list");
+    const byId = new Map(listed.items.map((item) => [item.id, item]));
+    expect(byId.get(result[0]!.id)!.overlaps).toEqual(result[0]!.overlaps);
+    expect(byId.get(result[0]!.id)!.overlaps![0]).toMatchObject({ title: "Sprinkler lease expires silently" });
+    expect(byId.get(result[1]!.id)).not.toHaveProperty("overlaps");
+  });
+
+  it("replays the stored advisory after the matched record's status changed", () => {
+    const fixture = submitOverlappingCandidate(setup());
+    const { store, root, request, payload, knowledgeId, result } = fixture;
+    store.updateKnowledge({ projectRoot: root, knowledgeId, status: "archived" });
+
+    const again = store.submitKnowledgeCandidates({ requestId: request, candidates: payload });
+    if (again.outcome !== "knowledge_candidates_submitted") throw new Error("Expected the replay");
+    expect(again.duplicate).toBe(true);
+    // Recomputing would now say overlaps_archived; the stored advisory keeps what the submission found.
+    expect(again.candidates[0]!.overlaps).toEqual([
+      expect.objectContaining({ relation: "possible_duplicate", id: knowledgeId, status: "active" }),
+    ]);
+    expect(again.candidates).toEqual(result);
+  });
+
+  it("recomputes a candidate submitted before schema 33 exactly as before", () => {
+    const fixture = submitOverlappingCandidate(setup());
+    const { store, request, payload, knowledgeId, result } = fixture;
+    databaseOf(store).prepare("UPDATE knowledge_candidates SET overlaps_json = NULL WHERE request_id = ?").run(request);
+
+    const listed = store.listKnowledgeCandidates({});
+    expect(listed.outcome === "knowledge_candidates" && listed.items.every((item) => !item.overlaps)).toBe(true);
+    const again = store.submitKnowledgeCandidates({ requestId: request, candidates: payload });
+    if (again.outcome !== "knowledge_candidates_submitted") throw new Error("Expected the replay");
+    expect(again.candidates[0]!.overlaps).toEqual([expect.objectContaining({ id: knowledgeId })]);
+    expect(again.candidates).toEqual(result);
+  });
+
+  it("drops a damaged advisory and never names a record of another project", () => {
+    const fixture = submitOverlappingCandidate(setup());
+    const { store, result } = fixture;
+    const otherRoot = mkdtempSync(join(tmpdir(), "work-intelligence-candidates-foreign-"));
+    tempDirs.push(otherRoot);
+    const other = store.addProject("Orchard", otherRoot);
+    store.updateProject(other.id, { status: "tracked" });
+    const foreign = recorded(store, otherRoot, "foreign", "Orchard secret plan");
+    const db = databaseOf(store);
+    const update = db.prepare("UPDATE knowledge_candidates SET overlaps_json = ? WHERE id = ?");
+    update.run(
+      JSON.stringify([
+        { relation: "possible_duplicate", type: "knowledge", id: foreign, status: "active", score: 0.9 },
+      ]),
+      result[0]!.id,
+    );
+    update.run("{not json", result[1]!.id);
+
+    const listed = store.listKnowledgeCandidates({});
+    if (listed.outcome !== "knowledge_candidates") throw new Error("Expected the candidate list");
+    const byId = new Map(listed.items.map((item) => [item.id, item]));
+    // The id resolves only inside the candidate's own project: it stays an advisory without a title.
+    expect(byId.get(result[0]!.id)!.overlaps).toEqual([
+      { relation: "possible_duplicate", type: "knowledge", id: foreign, status: "active", score: 0.9 },
+    ]);
+    expect(byId.get(result[1]!.id)).not.toHaveProperty("overlaps");
+
+    update.run(
+      JSON.stringify([{ relation: "overlaps_archived", type: "knowledge", id: foreign, status: "active", score: 0.9 }]),
+      result[0]!.id,
+    );
+    const inconsistent = store.listKnowledgeCandidates({});
+    expect(
+      inconsistent.outcome === "knowledge_candidates" &&
+        inconsistent.items.find((item) => item.id === result[0]!.id)?.overlaps,
+    ).toBeUndefined();
+  });
+
+  it("keeps the stored relation without a title once the matched record is gone", () => {
+    const fixture = submitOverlappingCandidate(setup());
+    const { store, root, knowledgeId, result } = fixture;
+    const db = databaseOf(store);
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.prepare("DELETE FROM knowledge WHERE id = ?").run(knowledgeId);
+    db.exec("PRAGMA foreign_keys = ON");
+
+    const listed = store.listKnowledgeCandidates({ projectRoot: root });
+    if (listed.outcome !== "knowledge_candidates") throw new Error("Expected the candidate list");
+    const overlap = listed.items.find((item) => item.id === result[0]!.id)!.overlaps![0]!;
+    expect(overlap).toMatchObject({ relation: "possible_duplicate", id: knowledgeId, status: "active" });
+    expect(overlap).not.toHaveProperty("title");
   });
 });

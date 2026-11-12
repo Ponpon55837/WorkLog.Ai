@@ -8,7 +8,6 @@ import type {
   KnowledgeCandidateContext,
   KnowledgeCandidateInput,
   KnowledgeCandidateListResult,
-  KnowledgeCandidateOverlap,
   KnowledgeCandidateRequest,
   KnowledgeCandidateRequestStatus,
   KnowledgeCandidateSkippedResult,
@@ -23,7 +22,12 @@ import type {
   WorkSummarySections,
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
-import { findKnowledgeCandidateOverlaps } from "./knowledge-candidate-overlap.js";
+import {
+  findKnowledgeCandidateOverlaps,
+  parseStoredOverlaps,
+  resolveStoredOverlaps,
+  storedOverlapsJson,
+} from "./knowledge-candidate-overlap.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
@@ -73,6 +77,7 @@ type CandidateRow = {
   knowledge_id: string | null;
   created_at: string;
   decided_at: string | null;
+  overlaps_json: string | null;
 };
 
 function parseList(value: string | null): string[] {
@@ -123,6 +128,14 @@ function toCandidate(row: CandidateRow): KnowledgeCandidate {
     createdAt: row.created_at,
     ...(row.decided_at ? { decidedAt: row.decided_at } : {}),
   };
+}
+
+/** Advisories are listed only when there is one, so a candidate without matches looks as it always did. */
+function withOverlapList(
+  candidate: KnowledgeCandidate,
+  overlaps: KnowledgeCandidate["overlaps"] | undefined,
+): KnowledgeCandidate {
+  return overlaps?.length ? { ...candidate, overlaps } : candidate;
 }
 
 /** The stored form of a submitted candidate, for recognising a resubmission of the same payload. */
@@ -326,15 +339,22 @@ export class KnowledgeCandidateService {
     }
     const sanitizedCandidates = input.candidates.map(sanitizeCandidate);
     const redactions = combineRedactionSummaries(...sanitizedCandidates.map((candidate) => candidate.redactions));
-    const stored = runImmediateTransaction(this.db, () => {
-      const createdAt = nowIso();
+    const createdAt = nowIso();
+    // Advisories only read, so they are computed before the write lock. Records created after createdAt never
+    // compare, so the stored advisory is what a later replay returns.
+    const overlaps = findKnowledgeCandidateOverlaps(
+      this.db,
+      { projectId: request.projectId, requestId: request.id, createdAtOrBefore: createdAt },
+      sanitizedCandidates.map((candidate) => candidate.value),
+    );
+    const ids = runImmediateTransaction(this.db, () => {
       const insert = this.db.prepare(
         `INSERT INTO knowledge_candidates (
            id, request_id, project_id, session_id, kind, title, body, tags_json, references_json,
-           applies_to_json, rationale, status, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`,
+           applies_to_json, rationale, status, created_at, overlaps_json
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)`,
       );
-      const ids = sanitizedCandidates.map(({ value: candidate }) => {
+      const storedIds = sanitizedCandidates.map(({ value: candidate }, index) => {
         const id = randomUUID();
         insert.run(
           id,
@@ -349,6 +369,7 @@ export class KnowledgeCandidateService {
           JSON.stringify(candidate.appliesTo),
           candidate.rationale,
           createdAt,
+          storedOverlapsJson(overlaps[index] ?? []),
         );
         return id;
       });
@@ -357,18 +378,13 @@ export class KnowledgeCandidateService {
           `UPDATE knowledge_candidate_requests
            SET status = 'completed', completed_at = ?, candidate_count = ?, failure_reason = NULL WHERE id = ?`,
         )
-        .run(createdAt, ids.length, request.id);
-      return { ids, createdAt };
+        .run(createdAt, storedIds.length, request.id);
+      return storedIds;
     });
-    // Advisories are read-only, so they are computed after the commit and never hold the write lock.
     return {
       outcome: "knowledge_candidates_submitted",
       request: this.getRequest(request.id)!,
-      candidates: this.withOverlaps(
-        request,
-        stored.ids.map((id) => this.getCandidate(id)!),
-        stored.createdAt,
-      ),
+      candidates: ids.map((id, index) => withOverlapList(this.getCandidate(id)!, overlaps[index])),
       redactions,
     };
   }
@@ -385,14 +401,14 @@ export class KnowledgeCandidateService {
     this.recoverStale();
     const scope = projectId ? "AND p.id = ?" : "";
     const parameters = projectId ? [projectId] : [];
-    const items = (
+    const items = this.withStoredOverlaps(
       this.db
         .prepare(
           `${CANDIDATE_SELECT} WHERE p.status = 'tracked' AND c.status = ? ${scope}
            ORDER BY c.created_at DESC, c.id ASC LIMIT 200`,
         )
-        .all(input.status ?? "proposed", ...parameters) as CandidateRow[]
-    ).map(toCandidate);
+        .all(input.status ?? "proposed", ...parameters) as CandidateRow[],
+    );
     const openRequests = (
       this.db
         .prepare(
@@ -513,18 +529,18 @@ export class KnowledgeCandidateService {
 
   /**
    * A completed request resubmitted with the same normalized payload returns what the first submission stored,
-   * with advisories computed against the same records, instead of request_not_open.
+   * including its stored advisories, instead of request_not_open. Candidates submitted before schema 33 have none
+   * stored; theirs are computed again against the records that existed at the submission, as before.
    */
   private replaySubmission(
     request: KnowledgeCandidateRequest,
     candidates: KnowledgeCandidateInput[],
   ): SubmitKnowledgeCandidatesResult | undefined {
     if (request.status !== "completed") return undefined;
-    const stored = (
-      this.db
-        .prepare(`${CANDIDATE_SELECT} WHERE c.request_id = ? ORDER BY c.rowid ASC`)
-        .all(request.id) as CandidateRow[]
-    ).map(toCandidate);
+    const rows = this.db
+      .prepare(`${CANDIDATE_SELECT} WHERE c.request_id = ? ORDER BY c.rowid ASC`)
+      .all(request.id) as CandidateRow[];
+    const stored = rows.map(toCandidate);
     const sanitized = candidates.map(sanitizeCandidate);
     const submitted = sanitized.map((candidate) => candidateFingerprint(candidate.value));
     const same =
@@ -534,28 +550,39 @@ export class KnowledgeCandidateService {
           candidateFingerprint({ ...candidate, sourceSessionId: candidate.sessionId }) === submitted[index],
       );
     if (!same) return undefined;
+    const legacy = rows.filter((row) => parseStoredOverlaps(row.overlaps_json) === undefined).map(toCandidate);
+    const recomputed = findKnowledgeCandidateOverlaps(
+      this.db,
+      {
+        projectId: request.projectId,
+        requestId: request.id,
+        createdAtOrBefore: stored[0]?.createdAt ?? request.completedAt ?? nowIso(),
+      },
+      legacy,
+    );
+    const legacyOverlaps = new Map(legacy.map((candidate, index) => [candidate.id, recomputed[index]]));
+    const storedOverlaps = new Map(this.withStoredOverlaps(rows).map((candidate) => [candidate.id, candidate]));
     return {
       outcome: "knowledge_candidates_submitted",
       duplicate: true,
       request,
-      candidates: this.withOverlaps(request, stored, stored[0]?.createdAt ?? request.completedAt ?? nowIso()),
+      candidates: stored.map((candidate) =>
+        legacyOverlaps.has(candidate.id)
+          ? withOverlapList(candidate, legacyOverlaps.get(candidate.id))
+          : storedOverlaps.get(candidate.id)!,
+      ),
       redactions: combineRedactionSummaries(...sanitized.map((candidate) => candidate.redactions)),
     };
   }
 
-  private withOverlaps(
-    request: KnowledgeCandidateRequest,
-    candidates: KnowledgeCandidate[],
-    createdAt: string,
-  ): Array<KnowledgeCandidate & { overlaps?: KnowledgeCandidateOverlap[] }> {
-    const overlaps = findKnowledgeCandidateOverlaps(
+  /** Candidates with their stored advisories, the matched titles read in one query per record type. */
+  private withStoredOverlaps(rows: readonly CandidateRow[]): KnowledgeCandidate[] {
+    const parsed = rows.map((row) => parseStoredOverlaps(row.overlaps_json) ?? []);
+    const resolved = resolveStoredOverlaps(
       this.db,
-      { projectId: request.projectId, requestId: request.id, createdAtOrBefore: createdAt },
-      candidates,
+      rows.map((row, index) => ({ projectId: row.project_id, overlaps: parsed[index]! })),
     );
-    return candidates.map((candidate, index) =>
-      overlaps[index]?.length ? { ...candidate, overlaps: overlaps[index] } : candidate,
-    );
+    return rows.map((row, index) => withOverlapList(toCandidate(row), resolved[index]));
   }
 
   private uncoveredSessionIds(project: ProjectRecord): string[] {

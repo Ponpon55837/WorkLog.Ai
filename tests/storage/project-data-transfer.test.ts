@@ -18,6 +18,7 @@ import {
 } from "../../packages/schema/src/index.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { remapPathPrefix } from "../../packages/storage/src/project-path-remap.js";
+import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 const stores: WorkIntelligenceStore[] = [];
@@ -1074,6 +1075,62 @@ describe("portable project data transfer", () => {
     expect(olderSession?.redactionCount).toBe(0);
   });
 
+  it("carries the stored candidate advisory, imports schema-32 exports without it, and never conflicts on it", () => {
+    const source = createSource();
+    const advisory = JSON.stringify([
+      { relation: "possible_duplicate", type: "knowledge", id: "knowledge-1", status: "active", score: 0.42 },
+    ]);
+    runSql(source.store, "UPDATE knowledge_candidates SET overlaps_json = ? WHERE id = 'candidate-1'", advisory);
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    expect(bundle.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
+    expect(bundle.tables.knowledge_candidates[0]?.overlaps_json).toBe(advisory);
+    const advisoryOf = (store: WorkIntelligenceStore) =>
+      readRows(store, "SELECT overlaps_json FROM knowledge_candidates WHERE id = 'candidate-1'");
+
+    for (const strategy of ["merge", "newer-wins"] as const) {
+      const current = new WorkIntelligenceStore(join(source.root, `advisory-${strategy}.sqlite`));
+      stores.push(current);
+      current.importProjectData({ bundle, remap: [], strategy });
+      expect(advisoryOf(current)).toEqual([{ overlaps_json: advisory }]);
+      // A local copy without the advisory (submitted before schema 33) is the same candidate: skipped, kept local.
+      runSql(current, "UPDATE knowledge_candidates SET overlaps_json = NULL WHERE id = 'candidate-1'");
+      const again = current.previewProjectDataImport({ bundle, remap: [], strategy });
+      expect(total(again.conflicts)).toBe(0);
+      expect(total(again.additions)).toBe(0);
+      current.importProjectData({ bundle, remap: [], strategy });
+      expect(advisoryOf(current)).toEqual([{ overlaps_json: null }]);
+    }
+
+    // A schema-32 export has no such key; it imports with the advisory empty.
+    const legacy = structuredClone(bundle);
+    legacy.schemaVersion = 32;
+    for (const candidate of legacy.tables.knowledge_candidates) delete candidate.overlaps_json;
+    expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
+    const older = new WorkIntelligenceStore(join(source.root, "advisory-legacy.sqlite"));
+    stores.push(older);
+    expect(older.importProjectData({ bundle: legacy, remap: [] }).additions.knowledge_candidates).toBe(1);
+    expect(advisoryOf(older)).toEqual([{ overlaps_json: null }]);
+    // Older and newer export schemas stay refused, as before.
+    for (const schemaVersion of [30, LATEST_SCHEMA_VERSION + 1]) {
+      expect(() => older.previewProjectDataImport({ bundle: { ...legacy, schemaVersion }, remap: [] })).toThrow(
+        /schema 版本/,
+      );
+    }
+
+    // Only the stored form is accepted: ids, statuses and scores, no text and no unknown keys.
+    for (const invalid of [
+      "{}",
+      JSON.stringify([{ relation: "possible_duplicate", type: "knowledge", id: "k", status: "active", score: 2 }]),
+      JSON.stringify([
+        { relation: "possible_duplicate", type: "knowledge", id: "k", status: "active", score: 0.5, title: "Text" },
+      ]),
+    ]) {
+      const tampered = structuredClone(bundle);
+      tampered.tables.knowledge_candidates[0]!.overlaps_json = invalid;
+      expect(projectDataExportSchema.safeParse(tampered).success).toBe(false);
+    }
+  });
+
   it("round-trips the Agent source columns and imports exports made before they existed", () => {
     const source = createSource();
     const sourceDb = new DatabaseSync(source.store.databasePath);
@@ -1430,9 +1487,13 @@ describe("portable project data transfer", () => {
     const destination = new WorkIntelligenceStore(":memory:");
     stores.push(destination);
 
+    // Exports from schema 31 up to this program's import; a newer one asks for an update, an older one is refused.
     expect(() =>
-      destination.previewProjectDataImport({ bundle: { ...bundle, schemaVersion: bundle.schemaVersion - 1 } }),
-    ).toThrow(/schema 版本/);
+      destination.previewProjectDataImport({ bundle: { ...bundle, schemaVersion: bundle.schemaVersion + 1 } }),
+    ).toThrow(/請先更新 Work Intelligence/);
+    expect(() => destination.previewProjectDataImport({ bundle: { ...bundle, schemaVersion: 30 } })).toThrow(
+      /schema 版本/,
+    );
     const legacy = structuredClone(bundle) as unknown as { schemaVersion: number; tables: Record<string, unknown> };
     legacy.schemaVersion = 22;
     delete legacy.tables.outstanding_cleanup_requests;

@@ -626,6 +626,15 @@ export const sessionDetailQuerySchema = sessionDetailQuerySchemaBase.superRefine
     });
 });
 
+/** Hex only, so the value can only ever be a commit id or its prefix; Git writes SHA-1 (40) or SHA-256 (64). */
+const commitShaFilterSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-fA-F]{7,64}$/, "commitSha must be 7 to 64 hexadecimal characters.")
+  .describe(
+    "A full commit sha or an unambiguous prefix of at least 7 hex characters. Lists the Sessions whose recorded commit starts with it.",
+  );
+
 /** MCP list: scoped by projectRoot or projectId; no "all" page size so Agent payloads stay bounded. */
 export const mcpListSessionsInputSchemaBase = z.object({
   q: z.string().trim().max(500).optional(),
@@ -634,6 +643,7 @@ export const mcpListSessionsInputSchemaBase = z.object({
   from: calendarDateSchema.optional(),
   to: calendarDateSchema.optional(),
   voided: voidedFilterSchema.default("exclude"),
+  commitSha: commitShaFilterSchema.optional(),
   page: z.number().int().min(1).max(10_000).default(1),
   pageSize: z.number().int().min(1).max(100).default(20),
 });
@@ -1042,6 +1052,36 @@ export const submitKnowledgeCandidatesInputSchema = z.object({
   candidates: z.array(knowledgeCandidateSchema).max(30),
 });
 
+/** The relation each matched record's status gives; any other pairing is not an advisory the server writes. */
+const OVERLAP_RELATION_BY_STATUS: Record<string, Record<string, string>> = {
+  knowledge: { active: "possible_duplicate", archived: "overlaps_archived" },
+  candidate: { proposed: "possible_duplicate", rejected: "overlaps_rejected" },
+};
+
+/**
+ * The stored form of a candidate's overlap advisory (knowledge_candidates.overlaps_json): ids, statuses and scores
+ * only, never text, so there is nothing in it to redact. At most three entries, as the server computes them.
+ */
+export const storedKnowledgeCandidateOverlapsSchema = z
+  .array(
+    z
+      .object({
+        relation: z.enum(["possible_duplicate", "overlaps_archived", "overlaps_rejected"]),
+        type: z.enum(["knowledge", "candidate"]),
+        id: z.string().min(1).max(200),
+        status: z.enum(["active", "archived", "proposed", "rejected"]),
+        score: z.number().min(0).max(1),
+      })
+      .strict()
+      .refine((overlap) => OVERLAP_RELATION_BY_STATUS[overlap.type]?.[overlap.status] === overlap.relation, {
+        message: "The overlap relation does not match the matched record's type and status.",
+      }),
+  )
+  .max(3)
+  .refine((overlaps) => new Set(overlaps.map((overlap) => `${overlap.type}:${overlap.id}`)).size === overlaps.length, {
+    message: "Each matched record appears once.",
+  });
+
 export const knowledgeCandidateListQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
   status: z.enum(["proposed", "accepted", "rejected"]).default("proposed"),
@@ -1288,6 +1328,7 @@ export type HandoffImportApplyInput = z.infer<typeof handoffImportApplyInputSche
 export type ProjectStatusQuery = z.infer<typeof projectStatusQuerySchema>;
 export type SessionDetailQuery = z.infer<typeof sessionDetailQuerySchema>;
 export type McpListSessionsInput = z.infer<typeof mcpListSessionsInputSchema>;
+export type StoredKnowledgeCandidateOverlap = z.infer<typeof storedKnowledgeCandidateOverlapsSchema>[number];
 export type McpCreateReportSynthesisRequestInput = z.infer<typeof mcpCreateReportSynthesisRequestInputSchema>;
 export type McpCreateMetadataBackfillRequestInput = z.infer<typeof mcpCreateMetadataBackfillRequestInputSchema>;
 
@@ -1495,6 +1536,7 @@ export const projectDataExportTableColumns = {
     "knowledge_id",
     "created_at",
     "decided_at",
+    "overlaps_json",
   ],
   report_synthesis_requests: [
     "id",
@@ -1963,6 +2005,8 @@ export const projectDataColumnDefaults: Partial<
   session_diagrams: { format_version: 1 },
   outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
   knowledge_pages: { checked_through_session_id: null },
+  // Schema 33: candidates submitted earlier, and every schema-32 export, carry no stored overlap advisory.
+  knowledge_candidates: { overlaps_json: null },
 };
 
 /** A row's value for a column, falling back to the column default for bundles that predate it. */
@@ -1972,6 +2016,17 @@ export function projectDataColumnValue(
   column: string,
 ): string | number | null | undefined {
   return Object.hasOwn(row, column) ? row[column] : projectDataColumnDefaults[table]?.[column];
+}
+
+/** A missing or null advisory is valid (older exports); a present one must be the stored form the server writes. */
+function validStoredOverlaps(value: string | number | null | undefined): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== "string") return false;
+  try {
+    return storedKnowledgeCandidateOverlapsSchema.safeParse(JSON.parse(value)).success;
+  } catch {
+    return false;
+  }
 }
 
 const projectDataExportObjectSchema = z
@@ -2039,6 +2094,12 @@ const projectDataExportObjectSchema = z
               message: "Invalid report presentation state or revision.",
             });
         }
+        if (table === "knowledge_candidates" && !validStoredOverlaps(row.overlaps_json))
+          context.addIssue({
+            code: "custom",
+            path: ["tables", table, index, "overlaps_json"],
+            message: "Invalid knowledge candidate overlap advisory.",
+          });
         const keys = Object.keys(row);
         const missingRequired = [...expected].some((column) => !Object.hasOwn(row, column) && !(column in defaults));
         if (missingRequired || keys.some((key) => !expected.has(key))) {

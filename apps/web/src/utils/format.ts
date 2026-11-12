@@ -192,6 +192,11 @@ export function formatMilliseconds(value: number): string {
   return t("format.milliseconds", { value: new Intl.NumberFormat(intlLocale()).format(value) });
 }
 
+/** A 0–1 ratio as a whole percentage in the interface locale, e.g. 「42%」. */
+export function formatPercent(value: number): string {
+  return new Intl.NumberFormat(intlLocale(), { style: "percent", maximumFractionDigits: 0 }).format(value);
+}
+
 /** A Session counts as updated when it changed more than a minute after it was finalized. */
 export function wasUpdatedAfterFinalize(session: { createdAt: string; updatedAt: string }): boolean {
   return Date.parse(session.updatedAt) - Date.parse(session.createdAt) > 60_000;

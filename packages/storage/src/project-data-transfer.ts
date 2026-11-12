@@ -94,6 +94,12 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   session_diagrams: [["session_id", "idempotency_key"]],
 };
 
+/**
+ * The oldest export schema that imports. Every column a migration added after it has an import default in
+ * projectDataColumnDefaults and every table it lacked defaults to empty; tests/storage/project-data-import-floor.test.ts
+ * checks that against the schema rewound to this version, and real schema-31 and schema-32 exports are fixtures.
+ */
+export const OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION = 31;
 const CONFLICT_DETAIL_LIMIT = 100;
 const MAX_CONFLICT_ID_LENGTH = 200;
 
@@ -142,6 +148,8 @@ const LOCAL_DERIVED_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>>
   attention_preferences: ["state", "snoozed_until"],
   // Recomputed after import from the newest summary of each report scope.
   report_summaries: ["is_current"],
+  // An advisory computed at submission: a copy without one (submitted before schema 33) is the same candidate.
+  knowledge_candidates: ["overlaps_json"],
 };
 
 /** JSON arrays whose element order and duplicate merging differ between machines without changing meaning. */
@@ -1413,10 +1421,16 @@ function makePlan(db: DatabaseSync, input: ProjectDataImportInput): TransferPlan
       `匯入檔格式錯誤：${bundleResult.error.issues[0]?.message ?? "欄位驗證失敗。"}`,
     );
   }
-  if (input.bundle.schemaVersion !== LATEST_SCHEMA_VERSION) {
+  if (input.bundle.schemaVersion > LATEST_SCHEMA_VERSION) {
     throw new ProjectDataTransferError(
       "unsupported_schema",
-      `匯入檔使用 schema 版本 ${input.bundle.schemaVersion}，目前支援版本為 ${LATEST_SCHEMA_VERSION}。`,
+      `匯入檔使用較新的 schema 版本 ${input.bundle.schemaVersion}，此程式最高支援 ${LATEST_SCHEMA_VERSION}。請先更新 Work Intelligence 再匯入。`,
+    );
+  }
+  if (input.bundle.schemaVersion < OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION) {
+    throw new ProjectDataTransferError(
+      "unsupported_schema",
+      `匯入檔使用 schema 版本 ${input.bundle.schemaVersion}，此程式可匯入 ${OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION} 至 ${LATEST_SCHEMA_VERSION} 的匯出檔。`,
     );
   }
 

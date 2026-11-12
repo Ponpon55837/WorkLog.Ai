@@ -179,7 +179,7 @@
     "theDeletionConfirmationIsInvalid": "刪除確認資料無效，請重新輸入完整專案名稱。",
     "theDeletionDidNotFinish": "刪除作業未完成，專案資料已保留；刪除前備份仍在。",
     "theImportFileIsInvalid": "匯入檔格式無效，請確認檔案內容。",
-    "theImportFileSData": "匯入檔的資料版本不受支援。",
+    "theImportFileSData": "匯入檔的資料版本不受支援。若是由較新版 Work Intelligence 匯出，請先更新本程式。",
     "theInputIsInvalidCheck": "輸入資料有誤，請檢查後再試。",
     "theNameDoesNotMatch": "輸入的名稱與專案名稱不相符，專案尚未刪除。",
     "theNewFolderOverlapsAnother": "新資料夾與其他專案的根目錄重疊。",
@@ -471,6 +471,10 @@
     "oneReferencePerLine": "每行一個 reference",
     "onlyTheCentralRegistryChanges": "{value} · 只修改中央 registry，不會讀取或修改來源 repo。",
     "openSourceSession": "開啟來源 Session",
+    "overlapAdvisory": "提出時找到相似紀錄，僅供參考，由你決定。",
+    "overlapList": "相似紀錄",
+    "overlapRecordGone": "已不存在的紀錄",
+    "overlapSimilarity": "相似度 {score}",
     "proposed": "提出於 {value}",
     "rationale": "依據：{rationale}",
     "recordsFromSessionsThatReported": "Session 套用後回報仍有效、回報已不成立，或在這裡手動確認的紀錄",
@@ -630,7 +634,11 @@
     "worksummaryUpdates": "WorkSummary 更新",
     "worktree": "工作樹",
     "reportPresentations": "報告呈現版本",
-    "attentionPreferences": "提醒顯示偏好"
+    "attentionPreferences": "提醒顯示偏好",
+    "overlapDuplicateKnowledge": "可能與 Knowledge 重複",
+    "overlapDuplicateCandidate": "可能與另一個候選重複",
+    "overlapArchivedKnowledge": "與已封存的 Knowledge 重疊",
+    "overlapRejectedCandidate": "與已拒絕的候選重疊"
   },
   "layout": {
     "dataStaysInLocalSqlite": "資料只存在本機 SQLite",

@@ -966,6 +966,16 @@ const MIGRATIONS: SchemaMigration[] = [
     sql: `ALTER TABLE agent_read_audit ADD COLUMN duration_ms INTEGER;
     ALTER TABLE agent_read_audit ADD COLUMN error_code TEXT;`,
   },
+  {
+    version: 33,
+    name: "candidate-overlaps-and-session-lookups",
+    // Additive only. Existing candidates keep NULL: their advisory was never stored, so a replay recomputes it as
+    // before. The commit index serves the commitSha filter of work_list_sessions; the partial index counts live
+    // Sessions per project without reading voided rows.
+    sql: `ALTER TABLE knowledge_candidates ADD COLUMN overlaps_json TEXT;
+    CREATE INDEX idx_sessions_commit_sha ON sessions(commit_sha);
+    CREATE INDEX idx_sessions_live_project ON sessions(project_id) WHERE voided_at IS NULL;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

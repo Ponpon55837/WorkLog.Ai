@@ -23,7 +23,11 @@ export {
   type RestoreDatabaseResult,
   type RestorePathRemap,
 } from "./backup.js";
-export { ProjectDataTransferError, type ProjectDataTransferErrorCode } from "./project-data-transfer.js";
+export {
+  OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION,
+  ProjectDataTransferError,
+  type ProjectDataTransferErrorCode,
+} from "./project-data-transfer.js";
 export {
   assertDatabaseSchemaVersion,
   DatabaseInitializationError,

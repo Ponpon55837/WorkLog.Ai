@@ -774,6 +774,45 @@ describe("Work Intelligence MCP server", () => {
     });
   });
 
+  it("finds Sessions by a recorded commit sha or an unambiguous prefix inside the scope", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Commit lookup project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const sha = (prefix: string) => prefix.padEnd(40, "0");
+    for (const [key, commitSha] of [
+      ["commit-a", sha("abc1234a")],
+      ["commit-b", sha("abc1234b")],
+      ["commit-c", sha("def5678")],
+    ] as const) {
+      await callJson(client, "work_finalize_session", {
+        ...finalizePayload(root, key, key),
+        git: { branch: "main", commitSha },
+      });
+    }
+
+    expect(await callJson(client, "work_list_sessions", { projectRoot: root, commitSha: "DEF5678" })).toMatchObject({
+      outcome: "sessions",
+      items: [{ title: "commit-c" }],
+      pageInfo: { total: 1 },
+    });
+    expect(
+      await callJson(client, "work_list_sessions", { projectRoot: root, commitSha: sha("abc1234b") }),
+    ).toMatchObject({ items: [{ title: "commit-b" }] });
+    expect(await callJson(client, "work_list_sessions", { projectRoot: root, commitSha: "abc1234" })).toEqual({
+      outcome: "ambiguous_commit_sha",
+      commitSha: "abc1234",
+      reason: expect.any(String),
+    });
+    expect(await callJson(client, "work_list_sessions", { commitSha: "0123456" })).toMatchObject({
+      items: [],
+      pageInfo: { total: 0 },
+    });
+    for (const commitSha of ["abc123", "abc1234g", "abc%", `${"a".repeat(65)}`]) {
+      const rejected = await callMcpOperation(client, "work_list_sessions", { commitSha });
+      expect(rejected.isError).toBe(true);
+    }
+  });
+
   it("confirms tracking with one project-scoped context call and leaks nothing when skipped", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Context status project", root);

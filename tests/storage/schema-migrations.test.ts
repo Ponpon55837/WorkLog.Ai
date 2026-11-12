@@ -91,7 +91,7 @@ function expectedMigration31RevisionTriggers(): Array<{ name: string; sql: strin
   );
 }
 
-/** Focused legacy fixtures omit unrelated tables and leave migration 31 to its full-schema test. */
+/** Focused legacy fixtures omit unrelated tables and leave migrations 31 and 33 to their full-schema tests. */
 function applySchemaMigrations(db: DatabaseSync): void {
   for (const [table, version] of [
     ["report_synthesis_requests", 8],
@@ -108,6 +108,9 @@ function applySchemaMigrations(db: DatabaseSync): void {
   }
   db.prepare(
     "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (31, 'database-change-revisions', 'fixture')",
+  ).run();
+  db.prepare(
+    "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (33, 'candidate-overlaps-and-session-lookups', 'fixture')",
   ).run();
   applyRuntimeMigrations(db);
 }
@@ -958,7 +961,9 @@ describe("agent read audit timing migration", () => {
 
       applyRuntimeMigrations(db);
 
-      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 32 });
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
+        version: LATEST_SCHEMA_VERSION,
+      });
       expect(db.prepare("SELECT id, duration_ms, error_code FROM agent_read_audit").all()).toEqual([
         { id: "old-read", duration_ms: null, error_code: null },
       ]);
@@ -971,6 +976,52 @@ describe("agent read audit timing migration", () => {
         data_revision: before.data_revision,
         audit_revision: before.audit_revision + 1,
       });
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("candidate overlap and Session lookup migration", () => {
+  it("upgrades schema 32 with an empty advisory column and two indexes, changing no row", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 32);
+      db.exec(`INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+        VALUES ('meadow', 'Meadow', '/fictional/meadow', 'tracked', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`);
+      const revisions = db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get();
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 33 });
+      expect(
+        (db.prepare("PRAGMA table_info(knowledge_candidates)").all() as Array<Record<string, unknown>>).find(
+          (column) => column.name === "overlaps_json",
+        ),
+      ).toMatchObject({ type: "TEXT", notnull: 0, dflt_value: null });
+      const indexes = db
+        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND name IN (?, ?) ORDER BY name")
+        .all("idx_sessions_commit_sha", "idx_sessions_live_project") as Array<{ name: string; sql: string }>;
+      expect(indexes.map(({ name, sql }) => ({ name, sql: normalizeSql(sql) }))).toEqual([
+        { name: "idx_sessions_commit_sha", sql: "CREATE INDEX idx_sessions_commit_sha ON sessions(commit_sha)" },
+        {
+          name: "idx_sessions_live_project",
+          sql: "CREATE INDEX idx_sessions_live_project ON sessions(project_id) WHERE voided_at IS NULL",
+        },
+      ]);
+      // Additive DDL fires no project-data trigger.
+      expect(db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get()).toEqual(revisions);
+      const plan = (sql: string) =>
+        (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>)
+          .map((row) => row.detail)
+          .join(" | ");
+      expect(plan("SELECT COUNT(*) FROM sessions WHERE project_id = 'meadow' AND voided_at IS NULL")).toContain(
+        "idx_sessions_live_project",
+      );
+      expect(plan("SELECT id FROM sessions WHERE commit_sha >= 'abc1234' AND commit_sha < 'abc1235'")).toContain(
+        "idx_sessions_commit_sha",
+      );
     } finally {
       db.close();
     }

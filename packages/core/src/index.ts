@@ -2142,6 +2142,8 @@ export interface KnowledgeCandidate {
   knowledgeId?: string;
   createdAt: string;
   decidedAt?: string;
+  /** Advisory overlaps found when the candidate was submitted; absent when none were found or none were stored. */
+  overlaps?: KnowledgeCandidateOverlap[];
 }
 
 export interface KnowledgeCandidateSourceSession {
@@ -2175,12 +2177,14 @@ export interface KnowledgeCandidateContext {
 /**
  * An advisory computed when candidates are submitted: the candidate resembles existing Knowledge or an earlier
  * candidate of the same project. It never rejects, merges, or changes anything; the user decides in the Web UI.
+ * Schema 33 stores it with the candidate (ids, statuses and scores only); relation and status stay as they were at
+ * submission, while the title is read from the matched record and is absent once that record no longer exists.
  */
 export interface KnowledgeCandidateOverlap {
   relation: "possible_duplicate" | "overlaps_archived" | "overlaps_rejected";
   type: "knowledge" | "candidate";
   id: string;
-  title: string;
+  title?: string;
   status: "active" | "archived" | "proposed" | "rejected";
   /** Token overlap of title and body, 0–1, rounded to two decimals. */
   score: number;
@@ -2210,7 +2214,7 @@ export type SubmitKnowledgeCandidatesResult =
       /** Set when the same payload was already submitted for this request; nothing new was stored. */
       duplicate?: true;
       request: KnowledgeCandidateRequest;
-      candidates: Array<KnowledgeCandidate & { overlaps?: KnowledgeCandidateOverlap[] }>;
+      candidates: KnowledgeCandidate[];
       redactions?: RedactionSummary;
     }
   | { outcome: "not_found"; requestId: string; reason: string }
@@ -3175,7 +3179,15 @@ export interface SessionNotFoundResult {
 
 export type SessionDetailQueryResult = SessionDetailResult | SessionVerificationSkippedResult | SessionNotFoundResult;
 
-export type SessionListQueryResult = SessionListResult | SkippedResult | ProjectIdSkippedResult;
+/** A commitSha prefix that matches Sessions of more than one commit in the scope; nothing is listed. */
+export interface AmbiguousCommitShaResult {
+  outcome: "ambiguous_commit_sha";
+  commitSha: string;
+  reason: string;
+}
+
+export type SessionListQueryResult =
+  SessionListResult | SkippedResult | ProjectIdSkippedResult | AmbiguousCommitShaResult;
 
 export type DatabaseBackupKind = "automatic" | "manual" | "migration" | "deletion" | "session_deletion" | "maintenance";
 

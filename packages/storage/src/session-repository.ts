@@ -45,6 +45,8 @@ export type SessionListOptions = {
   trackedOnly?: boolean;
   /** Voided Sessions are excluded unless asked for; "only" lists just the voided ones. */
   voided?: SessionVoidedFilter;
+  /** Recorded commit sha equal to or starting with this lowercase hex prefix (validated by the caller's schema). */
+  commitSha?: string;
   /** Calendar-date bounds (host time zone) on when the work started; Sessions without a start never match. */
   startedFrom?: string;
   startedTo?: string;
@@ -172,6 +174,22 @@ export class SessionRepository {
     return { outcome: "sessions", items: rows.map(this.mapSession), pageInfo };
   }
 
+  /** Up to `limit` distinct recorded commits among the Sessions the filter selects; tells a prefix's ambiguity. */
+  public distinctCommitShas(options: SessionListOptions, limit: number): string[] {
+    const { clauses, parameters } = this.buildFilter(options);
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT s.commit_sha AS commit_sha
+         FROM sessions s
+         JOIN projects p ON p.id = s.project_id
+         ${where}
+         LIMIT ?`,
+      )
+      .all(...parameters, limit) as Array<{ commit_sha: string }>;
+    return rows.map((row) => row.commit_sha);
+  }
+
   /** Distinct Agent clients that wrote non-voided Sessions of tracked projects. */
   public listAgentClients(): string[] {
     const rows = this.db
@@ -268,6 +286,15 @@ export class SessionRepository {
 
     if (options.trackedOnly) {
       clauses.push("p.status = 'tracked'");
+    }
+
+    // A prefix range rather than LIKE, so idx_sessions_commit_sha seeks it: every text starting with the prefix sorts
+    // at or after it and before the prefix with its last character advanced. As a rowid subquery the range is read
+    // once; as a plain term the planner preferred the project_id equality and scanned each tracked project's Sessions.
+    if (options.commitSha) {
+      const prefix = options.commitSha;
+      clauses.push("s.rowid IN (SELECT rowid FROM sessions WHERE commit_sha >= ? AND commit_sha < ?)");
+      parameters.push(prefix, prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1));
     }
 
     const voided = options.voided ?? "exclude";

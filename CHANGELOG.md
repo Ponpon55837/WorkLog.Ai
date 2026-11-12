@@ -4,6 +4,25 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.24] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.24.md).
+
+### Upgrade note
+
+- The database upgrades from schema 31 or 32 to schema 33 on first start, after the usual pre-migration backup; if the backup fails, nothing is migrated. Schema 33 is additive only: one nullable column (`knowledge_candidates.overlaps_json`) and two indexes (`idx_sessions_commit_sha`, `idx_sessions_live_project`); no existing row is rewritten. Older MCP connections report `restartRequired` after the upgrade; reconnect Work Intelligence MCP.
+- Portable JSON import now accepts exports from schema 31 (written by v1.6.7 and later) up to 33. Before, it accepted only exports from exactly the program's schema, so this release would otherwise have refused every earlier file, including the schema-32 exports of v1.6.9–v1.6.23. An export from a newer schema is still refused with `unsupported_schema`, and the message asks the user to update Work Intelligence first; the Web shows the same advice.
+
+### Added
+
+- Knowledge candidates keep their overlap advisory. The advisory that `work_submit_knowledge_candidates` computes (up to three possible duplicates of active Knowledge, overlaps with archived Knowledge or with rejected candidates of the same project) is stored with the candidate as ids, submission-time statuses and scores only, validated by a strict Zod schema on write and dropped, never shown, when a stored value is not that form. `GET /api/knowledge/candidates` returns it as `overlaps`, with the title read from the matched record of the candidate's own project, and the Web candidate card shows a compact note in both languages and themes, saying it is advisory, with a link that opens matched Knowledge that still exists. A record of another project is never named, and the stored value holds no text, so there is nothing to redact. Resubmitting the same payload replays the stored advisory instead of recomputing it, so a matched record whose status changed later no longer changes the label; candidates submitted before schema 33 have none stored and are recomputed as before. The column travels in portable export and import as a locally derived value: a copy without it is the same candidate (skipped, never a conflict), and schema-32 exports import with it empty. It is not indexed for search and is deleted with the candidate when a project is deleted.
+- `work_list_sessions` takes `commitSha`: a full sha or an unambiguous prefix of 7 to 64 hex characters (any other character is rejected), matched only within the scoped tracked projects, so an Agent can find the Session behind a commit from `git blame` or `git log`. A prefix that matches more than one commit in the scope returns `ambiguous_commit_sha` and lists nothing. The recorded sha is the HEAD seen at finalize, which can be the commit before the work was committed; how it is captured is unchanged. The REST Session list keeps its own filters.
+
+### Changed
+
+- The partial index `sessions(project_id) WHERE voided_at IS NULL` serves counts and lists of live Sessions per project. At 20,000 synthetic Sessions the Dashboard Session count takes 0.46 ms instead of 6.1 ms (0.11 instead of 1.1–1.8 ms at 5,000) and the first Session list page 1.1 ms instead of 3.2 ms (median of three alternating processes against the same build without the index). `EXPLAIN QUERY PLAN` over the 352 read statements of the benchmark shows 21 plans switching to the new index and none to a scan; the whole read-path benchmark at 5,000 and 20,000 Sessions, in three alternating rounds against v1.6.21, shows no path slower beyond the run-to-run spread of this machine, and the two queries whose join order changed (the pending items of a Session list and the applied-Knowledge feedback) spend no more time per SQL statement.
+- The commit filter reads its prefix range from `idx_sessions_commit_sha` once as a rowid subquery; as a plain range term SQLite preferred the project equality and read every Session of each tracked project (3.5 ms instead of 0.13 ms at 5,000 Sessions). The new benchmark case `listSessionsForAgent (commitSha prefix)` has a 50 ms p90 limit.
+
 ## [1.6.23] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.23.md).

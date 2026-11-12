@@ -1973,6 +1973,7 @@ export class WorkIntelligenceStore {
       from?: string;
       to?: string;
       voided?: SessionVoidedFilter;
+      commitSha?: string;
       page?: number;
       pageSize?: number;
     } & TrackedScopeInput,
@@ -1981,16 +1982,26 @@ export class WorkIntelligenceStore {
     if ("outcome" in scope) {
       return scope;
     }
-    return this.listSessionsPage({
+    const options: SessionListOptions = {
       query: input.q || undefined,
       from: input.from,
       to: input.to,
       voided: input.voided,
+      commitSha: input.commitSha?.toLowerCase(),
       page: input.page,
       pageSize: input.pageSize,
       projectId: scope.projectId,
       trackedOnly: true,
-    });
+    };
+    // The prefix is ambiguous only among the Sessions this scope and these filters can return.
+    if (options.commitSha && this.sessions.distinctCommitShas(options, 2).length > 1) {
+      return {
+        outcome: "ambiguous_commit_sha",
+        commitSha: options.commitSha,
+        reason: "The commitSha prefix matches Sessions of more than one commit; give more characters.",
+      };
+    }
+    return this.listSessionsPage(options);
   }
 
   /** Agent-created report synthesis request; the same policy and dedupe rules as the Reports page. */

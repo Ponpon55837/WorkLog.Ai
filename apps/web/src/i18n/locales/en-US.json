@@ -179,7 +179,7 @@
     "theDeletionConfirmationIsInvalid": "The deletion confirmation is invalid. Re-enter the full project name.",
     "theDeletionDidNotFinish": "The deletion did not finish; the project data is kept and the pre-deletion backup still exists.",
     "theImportFileIsInvalid": "The import file is invalid. Check its contents.",
-    "theImportFileSData": "The import file's data version is not supported.",
+    "theImportFileSData": "The import file's data version is not supported. If a newer Work Intelligence exported it, update this program first.",
     "theInputIsInvalidCheck": "The input is invalid. Check it and try again.",
     "theNameDoesNotMatch": "The name does not match the project name; the project was not deleted.",
     "theNewFolderOverlapsAnother": "The new folder overlaps another project's root.",
@@ -471,6 +471,10 @@
     "oneReferencePerLine": "One reference per line",
     "onlyTheCentralRegistryChanges": "{value} · Only the central registry changes; the source repo is never read or modified.",
     "openSourceSession": "Open source Session",
+    "overlapAdvisory": "Similar records found when this was proposed. Advisory only: you decide.",
+    "overlapList": "Similar records",
+    "overlapRecordGone": "a record that no longer exists",
+    "overlapSimilarity": "similarity {score}",
     "proposed": "Proposed {value}",
     "rationale": "Rationale: {rationale}",
     "recordsFromSessionsThatReported": "Records from Sessions that reported it still holds or no longer holds after applying it, or confirmed here by hand",
@@ -630,7 +634,11 @@
     "worksummaryUpdates": "WorkSummary updates",
     "worktree": "Worktree",
     "reportPresentations": "Report presentation revisions",
-    "attentionPreferences": "Reminder display preferences"
+    "attentionPreferences": "Reminder display preferences",
+    "overlapDuplicateKnowledge": "May repeat Knowledge",
+    "overlapDuplicateCandidate": "May repeat another candidate",
+    "overlapArchivedKnowledge": "Overlaps archived Knowledge",
+    "overlapRejectedCandidate": "Overlaps a rejected candidate"
   },
   "layout": {
     "dataStaysInLocalSqlite": "Data stays in local SQLite only",

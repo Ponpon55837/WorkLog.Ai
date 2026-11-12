@@ -8,7 +8,7 @@ Read a Session with `work_get_session` and `view: "handoff"` by default: summary
 
 When re-reading a Session whose body is still in your current context, pass the `session.revision` you hold as `knownRevision`; on `session_unchanged` reuse what you hold. Never pass it for content you no longer hold (new conversation, after compaction, or a subagent).
 
-`work_list_sessions` returns compact digests by default: summaries are truncated and changed-file paths, events, Evidence, and full `workSummary` are omitted. Use `work_get_session` with the returned `id` when you need the complete record. This compact behavior applies to MCP only; the Web REST Session list keeps its existing full list items.
+`work_list_sessions` returns compact digests by default: summaries are truncated and changed-file paths, events, Evidence, and full `workSummary` are omitted. Use `work_get_session` with the returned `id` when you need the complete record. To find the Session behind a commit (from `git blame` or `git log`), pass `commitSha` (the full sha or an unambiguous prefix of at least 7 hex characters); the recorded sha is the HEAD seen at finalize, so it can be the commit before the work was committed. This compact behavior applies to MCP only; the Web REST Session list keeps its existing full list items.
 
 ## File history
 
