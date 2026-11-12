@@ -2487,11 +2487,10 @@ test.describe("Work Intelligence browser regression", () => {
     const confirmation = page.getByRole("dialog", { name: tt("projects.confirmProjectDataImport") });
     await expect(confirmation).toContainText(ttPattern("projects.recordsWillBeAddedAnd"));
     await confirmation.getByRole("button", { name: tt("projects.import"), exact: true }).click();
-    await expect(
-      page.getByText(ttPattern("projects.importFinishedAddedSkippedIn", { value: 0, value3: 0 })),
-    ).toBeVisible();
-    // The import wrote its pre-import snapshot first, and the backup list shows it.
-    await expect(backups).toContainText(tt("labels.beforeProjectDataImport"));
+    // Every record of the file is already here, so the import changes nothing and says so; it writes a pre-import
+    // snapshot only when it is about to change rows (storage and REST tests cover that case).
+    await expect(page.getByText(tt("projects.importFinishedNothingChanged"))).toBeVisible();
+    await expect(backups).not.toContainText(tt("labels.beforeProjectDataImport"));
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);
