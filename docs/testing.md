@@ -189,7 +189,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | finalize `knowledgeToReview` 最壞情況（200 筆候選、5,000 個之後的 Session 各 20 × 100 字元檔案，最舊的一個碰到全部候選；1.6.26 每筆候選各掃一次約 2.9 秒，本機 p90 23 ms） | 250 ms |
 | Knowledge 讀取的過時判斷（之後 5,000 個 Session 各 20 × 100 字元檔案；1.6.28 起以每次呼叫建立的不同路徑索引解析，讀完且不標 `stalenessUnchecked`；1.6.26 以 `.all()` 讀 50 × 100 字元約 433 ms、235 MB，本機 p90 188 ms） | 500 ms |
 | Knowledge 讀取的過時判斷，1.6.27 審查的不同路徑資料（另一份資料庫：之後 2,000 個 Session 各 50 個不同的約 100 字元路徑，200 筆 Knowledge 各 5 項、其中 2 項為單星號 glob，第一頁 20 筆；1.6.27 逐一比對約 2.9 秒、1.6.14 約 1.0 秒，本機 p90 225 ms） | 1,000 ms |
-| Knowledge 讀取的過時判斷遇到 15 星號 glob（同一份資料庫的另一個專案：10 個 Session × 200 個 1,000 字元路徑，20 筆 Knowledge 的 glob 沒有可縮小範圍的路徑段，每個路徑都要模擬；到解析上限停止，全部標 `stalenessUnchecked`） | 1,000 ms |
+| Knowledge 讀取的過時判斷遇到 15 星號 glob（同一份資料庫的另一個專案：10 個 Session × 200 個 1,000 字元路徑，20 筆 Knowledge 的 glob 沒有可縮小範圍的路徑段，每個路徑都要模擬；解析上限為 3 億單位時這份資料會全部判斷完，上限較低時則停止並標 `stalenessUnchecked`，案例只限制耗時；停止本身由 `tests/storage/later-change-index.test.ts` 以注入的上限驗證） | 1,000 ms |
 | 手動備份（`createBackup`，整個資料庫快照） | 300 ms |
 | 整庫匯出（`exportTo`，`VACUUM INTO`） | 300 ms |
 | 專案資料匯出（`exportProjectData`，全部專案） | 400 ms |
