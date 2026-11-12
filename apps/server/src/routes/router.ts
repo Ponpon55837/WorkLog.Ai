@@ -10,6 +10,8 @@ import type {
   SystemAgentConnections,
   UserServiceStatus,
 } from "@work-intelligence/core";
+import type { z } from "zod";
+import { safeParseStrict, type StrictParseResult } from "@work-intelligence/schema";
 import type { WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
@@ -68,11 +70,6 @@ export interface Route {
   handler(context: RouteContext): Promise<void> | void;
 }
 
-/** Any schema with zod's safeParse shape; the server does not need zod itself. */
-interface Validator<T> {
-  safeParse(value: unknown): { success: true; data: T } | { success: false; error: { flatten(): unknown } };
-}
-
 interface CompiledRoute {
   route: Route;
   segments: string[];
@@ -84,18 +81,27 @@ function splitPath(path: string): string[] {
 }
 
 /**
+ * Validates REST input strictly: a body field or query parameter the schema does not define fails with 400 and
+ * is named in the issues, where zod's default would drop it. Every route parses its input through this; the
+ * shared schemas stay as they are, so MCP keeps its own (equally strict) argument check.
+ */
+export function parseRequestInput<S extends z.ZodType>(schema: S, value: unknown): StrictParseResult<z.output<S>> {
+  return safeParseStrict(schema, value);
+}
+
+/**
  * The common route shape: build the input from the request, validate it (400 with the flattened issues when it
  * is invalid), and send what the store returns.
  */
-export function validatedRoute<T>(
-  schema: Validator<T>,
+export function validatedRoute<S extends z.ZodType>(
+  schema: S,
   invalidMessage: string,
   input: (context: RouteContext) => unknown,
-  run: (context: RouteContext, data: T) => unknown,
+  run: (context: RouteContext, data: z.output<S>) => unknown,
   status = 200,
 ): Route["handler"] {
   return async (context) => {
-    const parsed = schema.safeParse(await input(context));
+    const parsed = parseRequestInput(schema, await input(context));
     if (!parsed.success) {
       sendError(context.response, 400, invalidMessage, parsed.error.flatten());
       return;

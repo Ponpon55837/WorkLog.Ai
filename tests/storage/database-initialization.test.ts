@@ -1,9 +1,13 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { DatabaseInitializationError, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import {
+  DatabaseInitializationError,
+  initializeWorkIntelligenceDatabase,
+  WorkIntelligenceStore,
+} from "../../packages/storage/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 
 const tempDirs: string[] = [];
@@ -37,6 +41,44 @@ function hasSessionColumn(db: DatabaseSync, name: string): boolean {
   return (db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).some(
     (column) => column.name === name,
   );
+}
+
+/** Leaves a current database with one pending migration, the fixture the backup tests use. */
+function removeChangedFilesConfirmedMigration(databasePath: string): void {
+  const oldDatabase = new DatabaseSync(databasePath);
+  try {
+    oldDatabase.exec("ALTER TABLE sessions DROP COLUMN changed_files_confirmed");
+    oldDatabase
+      .prepare("DELETE FROM schema_migrations WHERE version = ?")
+      .run(CHANGED_FILES_CONFIRMED_MIGRATION_VERSION);
+  } finally {
+    oldDatabase.close();
+  }
+}
+
+function backupFiles(backupDirectory: string): string[] {
+  return existsSync(backupDirectory) ? readdirSync(backupDirectory).filter((name) => name.endsWith(".sqlite")) : [];
+}
+
+function openFailure(open: () => void): unknown {
+  try {
+    open();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+/** Holds the write lock from a second connection, as another MCP or API process would, until released. */
+function holdWriteLock(databasePath: string): { release: () => void } {
+  const holder = new DatabaseSync(databasePath);
+  holder.exec("BEGIN IMMEDIATE");
+  return {
+    release: () => {
+      holder.exec("ROLLBACK");
+      holder.close();
+    },
+  };
 }
 
 describe("database initialization", () => {
@@ -202,6 +244,107 @@ describe("database initialization", () => {
       expect(hasSessionColumn(unchanged, "changed_files_confirmed")).toBe(false);
     } finally {
       unchanged.close();
+    }
+  });
+  it("opens a current database for reads while another connection holds the write lock", () => {
+    const paths = createDatabasePaths();
+    const initialStore = new WorkIntelligenceStore(paths.databasePath, {
+      backup: { directory: paths.backupDirectory },
+    });
+    initialStore.addProject("Locked reader", join(paths.root, "locked-reader"));
+    initialStore.close();
+
+    const lock = holdWriteLock(paths.databasePath);
+    try {
+      const store = new WorkIntelligenceStore(paths.databasePath, { backup: { directory: paths.backupDirectory } });
+      try {
+        expect(store.listProjects().map((project) => project.name)).toEqual(["Locked reader"]);
+      } finally {
+        store.close();
+      }
+    } finally {
+      lock.release();
+    }
+    expect(backupFiles(paths.backupDirectory)).toEqual([]);
+  });
+
+  it("answers DATABASE_BUSY without a backup while a pending migration waits for the lock, then migrates once released", () => {
+    const paths = createDatabasePaths();
+    new WorkIntelligenceStore(paths.databasePath).close();
+    removeChangedFilesConfirmedMigration(paths.databasePath);
+
+    const lock = holdWriteLock(paths.databasePath);
+    let busy: unknown;
+    try {
+      busy = openFailure(() =>
+        new WorkIntelligenceStore(paths.databasePath, { backup: { directory: paths.backupDirectory } }).close(),
+      );
+    } finally {
+      lock.release();
+    }
+    expect(busy).toBeInstanceOf(DatabaseInitializationError);
+    expect(busy).toMatchObject({ code: "DATABASE_BUSY", message: "資料庫暫時忙碌，請稍後再試" });
+    expect(backupFiles(paths.backupDirectory)).toEqual([]);
+
+    const store = new WorkIntelligenceStore(paths.databasePath, { backup: { directory: paths.backupDirectory } });
+    store.close();
+    expect(backupFiles(paths.backupDirectory)).toHaveLength(1);
+    const upgraded = new DatabaseSync(paths.databasePath, { readOnly: true });
+    try {
+      expect(hasSchemaVersion(upgraded, CHANGED_FILES_CONFIRMED_MIGRATION_VERSION)).toBe(true);
+      expect(hasSessionColumn(upgraded, "changed_files_confirmed")).toBe(true);
+    } finally {
+      upgraded.close();
+    }
+  }, 30_000);
+
+  it("initializes a current database through a read-only connection without writing", () => {
+    const paths = createDatabasePaths();
+    new WorkIntelligenceStore(paths.databasePath).close();
+    const db = new DatabaseSync(paths.databasePath, { readOnly: true });
+    try {
+      expect(() => initializeWorkIntelligenceDatabase(db, paths.databasePath)).not.toThrow();
+      expect(maxSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("reports a pending migration on a read-only database as DATABASE_READ_ONLY before writing a backup", () => {
+    const paths = createDatabasePaths();
+    new WorkIntelligenceStore(paths.databasePath).close();
+    removeChangedFilesConfirmedMigration(paths.databasePath);
+    const db = new DatabaseSync(paths.databasePath, { readOnly: true });
+    let caught: unknown;
+    try {
+      caught = openFailure(() =>
+        initializeWorkIntelligenceDatabase(db, paths.databasePath, { directory: paths.backupDirectory }),
+      );
+      expect(hasSchemaVersion(db, CHANGED_FILES_CONFIRMED_MIGRATION_VERSION)).toBe(false);
+    } finally {
+      db.close();
+    }
+    expect(caught).toBeInstanceOf(DatabaseInitializationError);
+    expect(caught).toMatchObject({ code: "DATABASE_READ_ONLY" });
+    expect((caught as Error).message).not.toMatch(/sqlite|readonly database/i);
+    expect(backupFiles(paths.backupDirectory)).toEqual([]);
+  });
+
+  it("repairs a current-version database whose base schema lost an index through the write path", () => {
+    const paths = createDatabasePaths();
+    new WorkIntelligenceStore(paths.databasePath).close();
+    const damaged = new DatabaseSync(paths.databasePath);
+    damaged.exec("DROP INDEX idx_projects_status");
+    damaged.close();
+
+    new WorkIntelligenceStore(paths.databasePath).close();
+    const repaired = new DatabaseSync(paths.databasePath, { readOnly: true });
+    try {
+      expect(repaired.prepare("SELECT name FROM sqlite_master WHERE name = 'idx_projects_status'").get()).toEqual({
+        name: "idx_projects_status",
+      });
+    } finally {
+      repaired.close();
     }
   });
 });

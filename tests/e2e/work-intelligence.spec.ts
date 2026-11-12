@@ -3562,3 +3562,29 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 });
+
+test("list pages show only the error state when their data fails to load", async ({ page }) => {
+  // A failed first load is not "no records": the empty states must not claim the lists are empty.
+  await page.route(
+    (url) => ["/api/sessions", "/api/knowledge", "/api/projects", "/api/dashboard"].includes(url.pathname),
+    (route) => route.fulfill({ status: 500, json: { error: "Internal server error.", code: "internal_error" } }),
+  );
+  await page.goto("/sessions");
+  await expect(page.getByTestId("sessions-error")).toContainText(tt("sessions.couldNotLoadWorkHistory"));
+  await expect(page.getByText(tt("common.noWorkRecordsYet"))).toHaveCount(0);
+
+  await page.goto("/knowledge");
+  await expect(page.getByText(tt("knowledge.couldNotLoadKnowledge"))).toBeVisible();
+  await expect(page.getByText(tt("knowledge.noConfirmedKnowledgeYet"))).toHaveCount(0);
+
+  // Projects and the dashboard report a failed load in the shell banner.
+  await page.goto("/projects");
+  await expect(page.getByText(tt("common.couldNotLoadWorkIntelligence"))).toBeVisible();
+  await expect(page.getByText(tt("projects.noProjectsYet"))).toHaveCount(0);
+
+  await page.goto("/");
+  await expect(page.getByText(tt("common.couldNotLoadWorkIntelligence"))).toBeVisible();
+  await expect(page.getByText(tt("common.noWorkRecordsYet"))).toHaveCount(0);
+  await expect(page.getByText(tt("dashboard.noProjectsYet"))).toHaveCount(0);
+  await page.unrouteAll({ behavior: "wait" });
+});

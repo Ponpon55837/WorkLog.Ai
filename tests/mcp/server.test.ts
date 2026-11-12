@@ -7,9 +7,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import {
+  DATABASE_BUSY_MESSAGE,
+  DATABASE_DISK_FULL_MESSAGE,
+  DATABASE_READ_ONLY_MESSAGE,
+  LATEST_SCHEMA_VERSION,
+  WorkIntelligenceStore,
+} from "../../packages/storage/src/index.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
+import { McpStoreAccess } from "../../apps/mcp/src/store-access.js";
 import {
   getMcpRestartStatus,
   getMcpRuntimeDirectory,
@@ -433,6 +440,93 @@ describe("Work Intelligence MCP server", () => {
       outcome: "finalized",
     });
   });
+
+  it("answers DATABASE_READ_ONLY for a write to a read-only database and keeps reads working", async () => {
+    const { client, store, root } = await connect(undefined, true);
+    const project = store.addProject("Read-only MCP project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const mcpDatabase = (store as unknown as { db: DatabaseSync }).db;
+    // query_only fails writes with SQLITE_READONLY on every platform; chmod is ignored by root and differs on Windows.
+    mcpDatabase.exec("PRAGMA query_only = ON");
+    try {
+      const write = await callMcpOperation(client, "work_finalize_session", finalizePayload(root, "ro-1", "Read-only"));
+      const text = (write.content as Array<{ text: string }>)[0]?.text ?? "null";
+      expect(write.isError).toBe(true);
+      expect(JSON.parse(text)).toEqual({ code: "DATABASE_READ_ONLY", error: DATABASE_READ_ONLY_MESSAGE });
+      expect(text).not.toMatch(/sqlite|readonly database/i);
+
+      const status = await callReadOperation(client, "work_get_project_status", { projectRoot: root });
+      expect(status).toMatchObject({ outcome: "project_status", tracked: true });
+    } finally {
+      mcpDatabase.exec("PRAGMA query_only = OFF");
+    }
+    expect(store.listSessions({ projectId: project.id })).toEqual([]);
+  });
+
+  it("answers DATABASE_DISK_FULL when a write runs out of disk space", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Full disk MCP project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    // A full disk cannot be produced portably in a test; this is the error node:sqlite raises for SQLITE_FULL.
+    vi.spyOn(store, "finalizeSession").mockImplementation(() => {
+      throw Object.assign(new Error("database or disk is full"), {
+        code: "ERR_SQLITE_ERROR",
+        errcode: 13,
+        errstr: "database or disk is full",
+      });
+    });
+
+    const write = await callMcpOperation(client, "work_finalize_session", finalizePayload(root, "full-1", "Full"));
+    expect(write.isError).toBe(true);
+    expect(JSON.parse((write.content as Array<{ text: string }>)[0]?.text ?? "null")).toEqual({
+      code: "DATABASE_DISK_FULL",
+      error: DATABASE_DISK_FULL_MESSAGE,
+    });
+  });
+
+  it("opens the database on the next call after a startup that found it locked", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-startup-busy-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const initial = new WorkIntelligenceStore(databasePath);
+    const project = initial.addProject("Startup busy project", root);
+    initial.updateProject(project.id, { status: "tracked" });
+    initial.close();
+    // A pending migration needs the write lock, which another process holds while this MCP server starts.
+    const old = new DatabaseSync(databasePath);
+    old.exec("ALTER TABLE sessions DROP COLUMN changed_files_confirmed");
+    old.prepare("DELETE FROM schema_migrations WHERE version = 10").run();
+    old.close();
+
+    const holder = new DatabaseSync(databasePath);
+    holder.exec("BEGIN IMMEDIATE");
+    let access: McpStoreAccess;
+    try {
+      access = new McpStoreAccess(
+        () => new WorkIntelligenceStore(databasePath, { backup: { directory: join(root, "backups") } }),
+        { retryIntervalMs: 0 },
+      );
+    } finally {
+      holder.exec("ROLLBACK");
+      holder.close();
+    }
+    cleanups.push(() => access.close());
+    expect(access.startupFailure).toEqual({ code: "DATABASE_BUSY", message: DATABASE_BUSY_MESSAGE });
+
+    const server = createWorkIntelligenceMcpServer(access, "9.9.9", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+    expect(client.getInstructions()).toContain("DATABASE_BUSY");
+    expect(client.getInstructions()).toContain("Each tool call tries to open the database again");
+
+    const status = await callReadOperation(client, "work_get_project_status", { projectRoot: root });
+    expect(status).toMatchObject({ outcome: "project_status", tracked: true });
+    expect(
+      await callJson(client, "work_finalize_session", finalizePayload(root, "after-busy-start", "After busy start")),
+    ).toMatchObject({ outcome: "finalized" });
+  }, 30_000);
 
   it("advertises version, short instructions, annotations, and prompts", async () => {
     const { client } = await connect();

@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { DeleteSessionResult, SessionDeletionCounts } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeSessionDeletion, type BackupRetentionOptions } from "./backup.js";
-import { isDatabaseBusyError } from "./sqlite-errors.js";
+import { databaseUnavailableReason } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import type { SearchRepository } from "./search-repository.js";
 
@@ -94,7 +94,8 @@ export class SessionDeletionService {
       backupFileName = backupDatabaseBeforeSessionDeletion(this.db, this.databasePath, this.backupOptions).created
         .fileName;
     } catch (error) {
-      if (isDatabaseBusyError(error)) {
+      // A busy, read-only or full database keeps its own code; other backup failures stop the deletion as before.
+      if (databaseUnavailableReason(error)) {
         throw error;
       }
       throw new SessionDeletionError("session_backup_failed");
@@ -144,7 +145,8 @@ export class SessionDeletionService {
         };
       });
     } catch (error) {
-      if (error instanceof SessionDeletionError || isDatabaseBusyError(error)) {
+      // Busy, read-only and disk-full failures keep their own codes: the user can resolve them and retry.
+      if (error instanceof SessionDeletionError || databaseUnavailableReason(error)) {
         throw error;
       }
       throw new SessionDeletionError("session_delete_failed");

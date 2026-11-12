@@ -299,6 +299,12 @@ export const useSessionsStore = defineStore("sessions", () => {
   const sessions = computed(() => sessionsQuery.data.value?.items ?? []);
   const sessionsLoading = computed(() => sessionsQuery.isLoading.value);
   const sessionsLoaded = computed(() => sessionsQuery.data.value !== undefined);
+  // Only a list that never loaded shows the error state; a failed refresh keeps the rows already shown.
+  const sessionsError = computed(() =>
+    sessionsQuery.error.value && !sessionsLoaded.value
+      ? errorMessage(sessionsQuery.error.value, t("sessions.couldNotLoadWorkHistory"))
+      : "",
+  );
   const sessionPageInfo = computed(() => sessionsQuery.data.value?.pageInfo ?? { ...emptyPageInfo, pageSize: 10 });
   const agentOptions = computed(() => agentsQuery.data.value ?? []);
   const selectedDetail = computed(() => detailQuery.data.value ?? null);
@@ -341,6 +347,15 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessionFilterError.value = "";
     listActive.value = true;
     appliedSearchTerm.value = searchTerm.value.trim();
+  }
+
+  /** Asks again after a failed first load; the query key is unchanged, so only an explicit refetch retries it. */
+  async function retrySessions(): Promise<void> {
+    try {
+      await sessionsQuery.refetch(true);
+    } catch {
+      // The query keeps the failure; sessionsError shows it.
+    }
   }
 
   function clearSessionFilters(): void {
@@ -433,6 +448,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessions,
     sessionsLoading,
     sessionsLoaded,
+    sessionsError,
     linkCandidates,
     linkCandidatesLoading,
     linkCandidatesError,
@@ -452,6 +468,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     position,
     setSessionsListActive,
     loadSessions,
+    retrySessions,
     saveSessionEdits,
     clearSessionFilters,
     openLinkCandidates,

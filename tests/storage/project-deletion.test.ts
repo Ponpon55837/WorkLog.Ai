@@ -1,9 +1,13 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { ProjectDeletionError, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import {
+  databaseUnavailableReason,
+  ProjectDeletionError,
+  WorkIntelligenceStore,
+} from "../../packages/storage/src/index.js";
 
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
@@ -24,6 +28,41 @@ function createDiskStore(): { store: WorkIntelligenceStore; directory: string; d
   const store = new WorkIntelligenceStore(databasePath);
   stores.push(store);
   return { store, directory, databasePath };
+}
+
+function deletionFailure(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+function backupFileNames(directory: string): string[] {
+  return readdirSync(directory).filter((name) => name.endsWith(".sqlite"));
+}
+
+/** A tracked project with one Session in a file database whose backups go to a directory of its own. */
+function createDeletableProject(backupDirectory?: string) {
+  const directory = mkdtempSync(join(tmpdir(), "work-intelligence-project-delete-errors-"));
+  tempDirs.push(directory);
+  const databasePath = join(directory, "work-intelligence.sqlite");
+  const backups = backupDirectory ?? join(directory, "backups");
+  const store = new WorkIntelligenceStore(databasePath, { backup: { directory: backups } });
+  stores.push(store);
+  const root = join(directory, "deletable");
+  mkdirSync(root);
+  const project = store.addProject("Deletable Fixture", root);
+  store.updateProject(project.id, { status: "tracked" });
+  const session = store.finalizeSession({
+    projectRoot: root,
+    idempotencyKey: "project-delete-error-session",
+    title: "Session that must survive a refused deletion",
+    summary: "Synthetic Session for deletion error paths.",
+  });
+  if (session.outcome !== "finalized") throw new Error("Expected the fixture Session to finalize");
+  return { store, directory, databasePath, backups, project, sessionId: session.session.id };
 }
 
 describe("project deletion", () => {
@@ -495,6 +534,76 @@ describe("project deletion", () => {
 
     expect(() => store.deleteProject(project.id, project.name)).toThrowError(ProjectDeletionError);
     expect(store.getProjectById(project.id)).toBeDefined();
+  });
+
+  it("answers project_not_found for an unknown project without writing a backup", () => {
+    const { store, backups } = createDeletableProject();
+    expect(deletionFailure(() => store.deleteProject("missing-project", "Deletable Fixture"))).toMatchObject({
+      code: "project_not_found",
+    });
+    expect(readdirSync(join(backups, ".."))).not.toContain("backups");
+  });
+
+  it("refuses a mismatched name before writing a backup", () => {
+    const { store, project, backups } = createDeletableProject();
+    expect(deletionFailure(() => store.deleteProject(project.id, "deletable fixture"))).toMatchObject({
+      code: "project_name_mismatch",
+    });
+    expect(readdirSync(join(backups, ".."))).not.toContain("backups");
+    expect(store.getProjectById(project.id)).toBeDefined();
+  });
+
+  it("answers project_backup_failed and keeps the project when the backup directory is unusable", () => {
+    const directory = mkdtempSync(join(tmpdir(), "work-intelligence-project-delete-backup-"));
+    tempDirs.push(directory);
+    const blocked = join(directory, "not-a-directory");
+    writeFileSync(blocked, "synthetic file where the backup directory should be", "utf8");
+    const { store, project, sessionId } = createDeletableProject(blocked);
+
+    const failure = deletionFailure(() => store.deleteProject(project.id, project.name));
+    expect(failure).toBeInstanceOf(ProjectDeletionError);
+    expect(failure).toMatchObject({ code: "project_backup_failed", message: "project_backup_failed" });
+    expect(store.getProjectById(project.id)).toBeDefined();
+    expect(store.getSessionById(sessionId)).toBeDefined();
+  });
+
+  it("reports a held write lock as busy, keeps the project, and deletes once the lock is released", () => {
+    const { store, databasePath, backups, project, sessionId } = createDeletableProject();
+    (store as unknown as { db: DatabaseSync }).db.exec("PRAGMA busy_timeout = 0");
+    const holder = new DatabaseSync(databasePath);
+    holder.exec("BEGIN IMMEDIATE");
+    let failure: unknown;
+    try {
+      failure = deletionFailure(() => store.deleteProject(project.id, project.name));
+    } finally {
+      holder.exec("ROLLBACK");
+      holder.close();
+    }
+    // Busy keeps its own code (database_busy over REST) instead of becoming project_delete_failed.
+    expect(failure).not.toBeInstanceOf(ProjectDeletionError);
+    expect(databaseUnavailableReason(failure)).toBe("busy");
+    expect(store.getProjectById(project.id)).toBeDefined();
+    expect(store.getSessionById(sessionId)).toBeDefined();
+    expect(backupFileNames(backups)).toHaveLength(1);
+
+    expect(store.deleteProject(project.id, project.name)).toMatchObject({ outcome: "project_deleted" });
+    expect(store.getProjectById(project.id)).toBeUndefined();
+  });
+
+  it("reports a read-only database as read-only instead of a failed deletion", () => {
+    const { store, project, sessionId } = createDeletableProject();
+    const db = (store as unknown as { db: DatabaseSync }).db;
+    db.exec("PRAGMA query_only = ON");
+    let failure: unknown;
+    try {
+      failure = deletionFailure(() => store.deleteProject(project.id, project.name));
+    } finally {
+      db.exec("PRAGMA query_only = OFF");
+    }
+    expect(failure).not.toBeInstanceOf(ProjectDeletionError);
+    expect(databaseUnavailableReason(failure)).toBe("read_only");
+    expect(store.getProjectById(project.id)).toBeDefined();
+    expect(store.getSessionById(sessionId)).toBeDefined();
   });
 
   it("rolls back the deletion transaction if SQLite rejects the project removal and keeps its backup", () => {

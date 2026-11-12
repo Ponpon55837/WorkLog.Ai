@@ -3,14 +3,10 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { getMcpRestartStatus, type McpRestartStatus, registerMcpProcess } from "@work-intelligence/shared/mcp-runtime";
-import {
-  backupOptionsFromEnvironment,
-  DatabaseInitializationError,
-  LATEST_SCHEMA_VERSION,
-  WorkIntelligenceStore,
-} from "@work-intelligence/storage";
+import { backupOptionsFromEnvironment, LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { databasePathFor, STANDALONE } from "./database-location.js";
 import { createWorkIntelligenceMcpServer } from "./server.js";
+import { McpStoreAccess } from "./store-access.js";
 import { createLauncherUpdateCheck, readLauncherIdentity, supervisedRestartStatus } from "./supervision.js";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,20 +33,14 @@ function restartStatusReader(): () => McpRestartStatus {
 }
 
 async function startMcpServer(): Promise<void> {
-  let store: WorkIntelligenceStore | null = null;
-  let startupFailure: { code: string; message: string } | undefined;
-  try {
-    store = new WorkIntelligenceStore(databasePath, { backup: backupOptionsFromEnvironment(databasePath) });
-  } catch (error) {
-    startupFailure =
-      error instanceof DatabaseInitializationError
-        ? { code: error.code, message: error.message }
-        : {
-            code: "DATABASE_INITIALIZATION_FAILED",
-            message: "Work Intelligence 資料庫無法開啟，請檢查資料庫檔案、目錄與權限。",
-          };
-    console.error(`Work Intelligence MCP database unavailable (${startupFailure.code}): ${startupFailure.message}`);
-  }
+  const storeAccess = new McpStoreAccess(
+    () => new WorkIntelligenceStore(databasePath, { backup: backupOptionsFromEnvironment(databasePath) }),
+    {
+      onFailure: (failure) =>
+        console.error(`Work Intelligence MCP database unavailable (${failure.code}): ${failure.message}`),
+    },
+  );
+  const startupFailure = storeAccess.startupFailure;
 
   try {
     // A standalone bundle is replaced as a whole on update, so there is no on-disk build to watch.
@@ -62,10 +52,10 @@ async function startMcpServer(): Promise<void> {
       }
     }
     const server = createWorkIntelligenceMcpServer(
-      store,
+      storeAccess,
       APP_VERSION,
       LATEST_SCHEMA_VERSION,
-      startupFailure,
+      undefined,
       STANDALONE ? undefined : restartStatusReader(),
     );
     await server.connect(new StdioServerTransport());
@@ -76,7 +66,7 @@ async function startMcpServer(): Promise<void> {
     }
   } catch (error) {
     console.error("Work Intelligence MCP transport 無法啟動。");
-    store?.close();
+    storeAccess.close();
     process.exitCode = 1;
   }
 }

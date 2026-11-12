@@ -47,6 +47,7 @@ const {
   sessions,
   sessionsLoading,
   sessionsLoaded,
+  sessionsError,
   searchTerm,
   selectedProjectId,
   selectedAgent,
@@ -60,7 +61,7 @@ const {
   sessionFilterError,
   hasSessionFilters,
 } = storeToRefs(sessionsStore);
-const { loadSessions, clearSessionFilters, setSessionsListActive } = sessionsStore;
+const { loadSessions, retrySessions, clearSessionFilters, setSessionsListActive } = sessionsStore;
 const { openSessionDetail, setSessionSequence } = sessionsStore;
 const outstandingItemsStore = useOutstandingItemsStore();
 const {
@@ -225,6 +226,12 @@ onBeforeUnmount(() => {
   </PageToolbar>
 
   <UiFlash v-if="sessionFilterError && tab === 'sessions'" tone="danger">{{ sessionFilterError }}</UiFlash>
+  <UiFlash v-else-if="sessionsError && tab === 'sessions'" tone="danger" data-testid="sessions-error">
+    {{ sessionsError }}
+    <template #actions
+      ><UiButton size="sm" @click="retrySessions">{{ t("common.retry") }}</UiButton></template
+    >
+  </UiFlash>
 
   <section
     v-if="tab === 'sessions'"
@@ -271,7 +278,7 @@ onBeforeUnmount(() => {
 
       <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" :label="t('sessions.loadingWorkHistory')" />
       <UiEmptyState
-        v-else-if="sessions.length === 0"
+        v-else-if="sessionsLoaded && sessions.length === 0"
         :icon="ListChecks"
         :title="hasSessionFilters ? t('sessions.noSessionsMatchTheFilters') : t('common.noWorkRecordsYet')"
         :description="
@@ -283,7 +290,7 @@ onBeforeUnmount(() => {
         >
       </UiEmptyState>
       <VirtualList
-        v-else
+        v-else-if="sessions.length > 0"
         :items="sessions"
         :enabled="true"
         fit-viewport

@@ -9,6 +9,8 @@ import {
   getNextPendingSchemaMigrationVersion,
   LATEST_SCHEMA_VERSION,
 } from "./schema-migrations.js";
+import type { DatabaseUnavailableReason } from "./sqlite-errors.js";
+import { databaseUnavailableMessage, databaseUnavailableReason } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 export type DatabaseInitializationErrorCode =
@@ -16,7 +18,10 @@ export type DatabaseInitializationErrorCode =
   | "DATABASE_SCHEMA_VERSION_INVALID"
   | "DATABASE_SCHEMA_VERSION_MISMATCH"
   | "DATABASE_MIGRATION_BACKUP_FAILED"
-  | "DATABASE_MIGRATION_FAILED";
+  | "DATABASE_MIGRATION_FAILED"
+  | "DATABASE_BUSY"
+  | "DATABASE_READ_ONLY"
+  | "DATABASE_DISK_FULL";
 
 /** A safe, classified startup error that can be shown to a user without exposing SQLite details. */
 export class DatabaseInitializationError extends Error {
@@ -29,6 +34,19 @@ export class DatabaseInitializationError extends Error {
     this.name = "DatabaseInitializationError";
   }
 }
+
+const UNAVAILABLE_CODES: Record<DatabaseUnavailableReason, DatabaseInitializationErrorCode> = {
+  busy: "DATABASE_BUSY",
+  read_only: "DATABASE_READ_ONLY",
+  disk_full: "DATABASE_DISK_FULL",
+};
+/** Objects the base schema creates or drops; a current database has all of the first and none of the second. */
+const SCHEMA_CREATED_OBJECTS = [...DATABASE_SCHEMA.matchAll(/CREATE (?:TABLE|INDEX) IF NOT EXISTS (\w+)/g)].map(
+  (match) => match[1]!,
+);
+const SCHEMA_DROPPED_OBJECTS = [...DATABASE_SCHEMA.matchAll(/DROP (?:TABLE|INDEX) IF EXISTS (\w+)/g)].map(
+  (match) => match[1]!,
+);
 
 /** Applies connection-local settings shared by writable stores and read-only workers. */
 export function configureWorkIntelligenceDatabaseConnection(db: DatabaseSync): void {
@@ -192,6 +210,45 @@ function canonicalizeProjectRoots(db: DatabaseSync): void {
   }
 }
 
+function schemaObjectsCurrent(db: DatabaseSync): boolean {
+  const names = new Set(
+    (
+      db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')").all() as Array<{ name: string }>
+    ).map((row) => row.name),
+  );
+  return (
+    SCHEMA_CREATED_OBJECTS.every((name) => names.has(name)) && !SCHEMA_DROPPED_OBJECTS.some((name) => names.has(name))
+  );
+}
+
+function usesWriteAheadLog(db: DatabaseSync): boolean {
+  const row = db.prepare("PRAGMA journal_mode").get() as { journal_mode?: string } | undefined;
+  return row?.journal_mode?.toLowerCase() === "wal";
+}
+
+/** A lock held elsewhere, a read-only file or a full disk is reported as such: none of them is a failed upgrade. */
+function unavailableError(error: unknown): DatabaseInitializationError | undefined {
+  const reason = databaseUnavailableReason(error);
+  return reason
+    ? new DatabaseInitializationError(UNAVAILABLE_CODES[reason], databaseUnavailableMessage(reason), { cause: error })
+    : undefined;
+}
+
+/*
+ * The pre-migration backup is written outside the write transaction (VACUUM INTO cannot run inside one). Take the
+ * write lock and rewrite the header's unchanged user_version once, then roll back: a database that is locked by
+ * another process or read-only then answers with its own code before a backup is written, not after every retry.
+ */
+function assertWritable(db: DatabaseSync): void {
+  const { user_version: userVersion } = db.prepare("PRAGMA user_version").get() as { user_version: number };
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(`PRAGMA user_version = ${Number(userVersion)}`);
+  } finally {
+    db.exec("ROLLBACK");
+  }
+}
+
 function assertSchemaVersionSupported(db: DatabaseSync): void {
   if (!tableExists(db, "schema_migrations")) {
     return;
@@ -212,19 +269,34 @@ function assertSchemaVersionSupported(db: DatabaseSync): void {
   }
 }
 
-/** Checks compatibility, snapshots pending upgrades, then initializes and migrates atomically. */
+/**
+ * Checks compatibility, snapshots pending upgrades, then initializes and migrates atomically. A database that is
+ * already current is only read: opening it needs no write lock, so another process's write cannot block it.
+ */
 export function initializeWorkIntelligenceDatabase(
   db: DatabaseSync,
   databasePath: string,
   backupOptions: BackupRetentionOptions = {},
 ): void {
   configureWorkIntelligenceDatabaseConnection(db);
-  assertSchemaVersionSupported(db);
-
-  const isFreshDatabase = !hasUserTables(db);
-  const nextMigrationVersion = getNextPendingSchemaMigrationVersion(db);
-  const legacyMigrationPending = hasPendingLegacyMigration(db) || nonCanonicalProjectRoots(db).length > 0;
-  const migrationPending = nextMigrationVersion !== undefined || legacyMigrationPending;
+  let isFreshDatabase: boolean;
+  let nextMigrationVersion: number | undefined;
+  let migrationPending: boolean;
+  try {
+    assertSchemaVersionSupported(db);
+    isFreshDatabase = !hasUserTables(db);
+    nextMigrationVersion = getNextPendingSchemaMigrationVersion(db);
+    const legacyMigrationPending = hasPendingLegacyMigration(db) || nonCanonicalProjectRoots(db).length > 0;
+    migrationPending = nextMigrationVersion !== undefined || legacyMigrationPending;
+    if (!isFreshDatabase && !migrationPending && schemaObjectsCurrent(db) && usesWriteAheadLog(db)) {
+      return;
+    }
+    if (!isFreshDatabase && migrationPending && databasePath !== ":memory:") {
+      assertWritable(db);
+    }
+  } catch (error) {
+    throw unavailableError(error) ?? error;
+  }
 
   if (!isFreshDatabase && migrationPending && databasePath !== ":memory:") {
     const backupSchemaVersion = nextMigrationVersion ?? LATEST_SCHEMA_VERSION;
@@ -251,10 +323,13 @@ export function initializeWorkIntelligenceDatabase(
     if (error instanceof DatabaseInitializationError) {
       throw error;
     }
-    throw new DatabaseInitializationError(
-      "DATABASE_MIGRATION_FAILED",
-      "Work Intelligence 無法安全完成資料庫升級；migration 前備份已保留（如果已成功建立）。請從備份還原或更新 Work Intelligence。",
-      { cause: error },
+    throw (
+      unavailableError(error) ??
+      new DatabaseInitializationError(
+        "DATABASE_MIGRATION_FAILED",
+        "Work Intelligence 無法安全完成資料庫升級；migration 前備份已保留（如果已成功建立）。請從備份還原或更新 Work Intelligence。",
+        { cause: error },
+      )
     );
   }
 }

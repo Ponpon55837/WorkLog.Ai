@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspectDatabaseReadOnly } from "../../apps/server/src/doctor.js";
 import { listDatabaseBackups } from "../../packages/storage/src/backup.js";
+import { DatabaseInitializationError } from "../../packages/storage/src/database-initialization.js";
 import { DatabaseMaintenanceError, maintainDatabase } from "../../packages/storage/src/database-maintenance.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
@@ -34,6 +35,19 @@ function setup(): { directory: string; databasePath: string; store: WorkIntellig
     throw new Error(`Expected a finalized Session, got ${result.outcome}.`);
   }
   return { directory, databasePath, store };
+}
+
+function maintenanceFailure(options: Parameters<typeof maintainDatabase>[0]): unknown {
+  try {
+    maintainDatabase(options);
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+function fileHash(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 afterEach(() => {
@@ -137,5 +151,101 @@ describe("database maintenance", () => {
     };
     current.close();
     expect(version.version).toBe(LATEST_SCHEMA_VERSION);
+  });
+
+  it("answers DATABASE_MISSING for an in-memory or absent database", () => {
+    const directory = mkdtempSync(join(tmpdir(), "work-intelligence-maintenance-missing-"));
+    temporaryDirectories.push(directory);
+    expect(maintenanceFailure({ databasePath: ":memory:" })).toMatchObject({ code: "DATABASE_MISSING" });
+    expect(maintenanceFailure({ databasePath: join(directory, "absent.sqlite") })).toMatchObject({
+      code: "DATABASE_MISSING",
+    });
+    expect(existsSync(join(directory, "absent.sqlite"))).toBe(false);
+  });
+
+  it("calls a file that is not a SQLite database invalid, not in use, and leaves it unchanged", () => {
+    const directory = mkdtempSync(join(tmpdir(), "work-intelligence-maintenance-not-sqlite-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "notes.sqlite");
+    writeFileSync(databasePath, "Synthetic notes that are not a database. ".repeat(200), "utf8");
+    const before = fileHash(databasePath);
+
+    const failure = maintenanceFailure({ databasePath, backup: { directory: join(directory, "backups") } });
+    expect(failure).toBeInstanceOf(DatabaseMaintenanceError);
+    expect(failure).toMatchObject({ code: "DATABASE_INVALID" });
+    expect((failure as Error).message).not.toMatch(/sqlite|not a database/i);
+    expect(fileHash(databasePath)).toBe(before);
+    expect(existsSync(join(directory, "backups"))).toBe(false);
+  });
+
+  it("refuses a SQLite file without Work Intelligence tables", () => {
+    const directory = mkdtempSync(join(tmpdir(), "work-intelligence-maintenance-foreign-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "foreign.sqlite");
+    const foreign = new DatabaseSync(databasePath);
+    foreign.exec("CREATE TABLE recipes (name TEXT); INSERT INTO recipes VALUES ('fictional soup');");
+    foreign.close();
+    expect(maintenanceFailure({ databasePath })).toMatchObject({ code: "DATABASE_INVALID" });
+    const check = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      expect(check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([{ name: "recipes" }]);
+    } finally {
+      check.close();
+    }
+  });
+
+  it("stops at a failed integrity check before writing a backup or changing the database", () => {
+    const { directory, databasePath, store } = setup();
+    store.close();
+    // Point one index at another index's pages: SQLite then reports missing index rows, on every platform.
+    const damaged = new DatabaseSync(databasePath);
+    damaged.exec(`CREATE TABLE fixture_a (value TEXT); CREATE TABLE fixture_b (value TEXT);
+      CREATE INDEX fixture_a_value ON fixture_a(value); CREATE INDEX fixture_b_value ON fixture_b(value);
+      INSERT INTO fixture_a VALUES ('first'), ('second'); INSERT INTO fixture_b VALUES ('other');`);
+    const { rootpage } = damaged.prepare("SELECT rootpage FROM sqlite_master WHERE name = 'fixture_b_value'").get() as {
+      rootpage: number;
+    };
+    damaged.exec("PRAGMA writable_schema = ON");
+    damaged.prepare("UPDATE sqlite_master SET rootpage = ? WHERE name = 'fixture_a_value'").run(rootpage);
+    damaged.close();
+    const before = fileHash(databasePath);
+    const backupDirectory = join(directory, "backups");
+
+    const failure = maintenanceFailure({ databasePath, backup: { directory: backupDirectory } });
+    expect(failure).toBeInstanceOf(DatabaseMaintenanceError);
+    expect(failure).toMatchObject({ code: "DATABASE_INTEGRITY_FAILED" });
+    expect(fileHash(databasePath)).toBe(before);
+    expect(existsSync(backupDirectory) ? readdirSync(backupDirectory) : []).toEqual([]);
+  });
+
+  it("answers DATABASE_BACKUP_FAILED without starting maintenance when the backup cannot be written", () => {
+    const { directory, databasePath, store } = setup();
+    store.close();
+    const blocked = join(directory, "not-a-directory");
+    writeFileSync(blocked, "synthetic file where the backup directory should be", "utf8");
+
+    expect(maintenanceFailure({ databasePath, backup: { directory: blocked } })).toMatchObject({
+      code: "DATABASE_BACKUP_FAILED",
+    });
+    const check = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      expect(check.prepare("SELECT COUNT(*) AS count FROM database_maintenance_runs").get()).toEqual({ count: 0 });
+    } finally {
+      check.close();
+    }
+  });
+
+  it("passes a schema-too-new refusal through unchanged", () => {
+    const { databasePath, store } = setup();
+    store.close();
+    const future = new DatabaseSync(databasePath);
+    future
+      .prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")
+      .run(LATEST_SCHEMA_VERSION + 1, "synthetic_future_migration", new Date().toISOString());
+    future.close();
+
+    const failure = maintenanceFailure({ databasePath });
+    expect(failure).toBeInstanceOf(DatabaseInitializationError);
+    expect(failure).toMatchObject({ code: "DATABASE_SCHEMA_VERSION_TOO_NEW" });
   });
 });

@@ -71,7 +71,9 @@ import {
 import { truncateAtCodeUnitLimit, truncateText } from "@work-intelligence/shared";
 import type { McpRestartStatus } from "@work-intelligence/shared/mcp-runtime";
 import {
-  DATABASE_BUSY_MESSAGE,
+  databaseUnavailableMessage,
+  databaseUnavailableReason,
+  type DatabaseUnavailableReason,
   isDatabaseBusyError,
   toSessionDigests,
   toAgentReport,
@@ -98,6 +100,12 @@ import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { parseMcpInput } from "./input.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { sessionTextResult, textResult } from "./result.js";
+import {
+  isTransientStartupFailure,
+  McpStoreAccess,
+  type McpStartupFailure,
+  type StoreResolution,
+} from "./store-access.js";
 import {
   toSessionMetadataReceipt,
   toSessionSummaryReceipt,
@@ -128,10 +136,7 @@ interface StoreToolDefinition<S extends z.ZodType> {
   present?: (result: unknown, input: z.infer<S>) => unknown;
 }
 
-export interface McpStartupFailure {
-  code: string;
-  message: string;
-}
+export type { McpStartupFailure } from "./store-access.js";
 
 interface RegisteredStoreTool extends AgentToolContractOperation {
   invoke: (input: unknown) => Promise<CallToolResult>;
@@ -177,6 +182,11 @@ type OutstandingItemsResponse = Omit<OutstandingItemListPage, "items"> & {
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
 const OUTSTANDING_ITEM_TEXT_LENGTH = 4_000;
 const OUTSTANDING_ITEM_RESPONSE_LIMIT = 30_000;
+const DATABASE_UNAVAILABLE_CODES: Record<DatabaseUnavailableReason, string> = {
+  busy: "DATABASE_BUSY",
+  read_only: "DATABASE_READ_ONLY",
+  disk_full: "DATABASE_DISK_FULL",
+};
 const SOURCE_SUPPORT_TOOLS = new Set(["work_recall", "work_search", "work_get_context"]);
 const SOURCE_SUPPORT_GUIDANCE =
   "After reading the full source, cite it only if it directly supports the answer; otherwise say 資料不足 and do not infer from wording, confidence, rank, or recency.";
@@ -448,25 +458,44 @@ function auditRead(store: WorkIntelligenceStore, input: Parameters<WorkIntellige
   }
 }
 
+/** How the Agent learns about a database that did not open: retried on each call, or kept until restart. */
+function startupFailureInstructions(failure: McpStartupFailure | undefined, retried: boolean): string {
+  if (!failure) return "";
+  const recovery =
+    retried && isTransientStartupFailure(failure)
+      ? "Each tool call tries to open the database again; retry after the user resolves it."
+      : "All tools return this startup error until the MCP process is restarted.";
+  return ` Database startup failed (${failure.code}): ${failure.message} ${recovery}`;
+}
+
+/**
+ * The store is passed directly (tests and embedders), as an McpStoreAccess that reopens it after a transient
+ * startup failure, or as null with the startup failure every tool answers.
+ */
 export function createWorkIntelligenceMcpServer(
-  storeOrUnavailable: WorkIntelligenceStore | null,
+  storeOrAccess: WorkIntelligenceStore | McpStoreAccess | null,
   version: string,
   schemaVersion: number,
   startupFailure?: McpStartupFailure,
   getRestartStatus: () => McpRestartStatus = () => ({ restartRequired: false, monitoringAvailable: false }),
 ): McpServer {
-  if (!storeOrUnavailable && !startupFailure) {
+  if (!storeOrAccess && !startupFailure) {
     throw new Error("An initialized store or a startup failure is required to create the MCP server.");
   }
 
-  const store = storeOrUnavailable as WorkIntelligenceStore;
-  const failureInstructions = startupFailure
-    ? ` Database startup failed (${startupFailure.code}): ${startupFailure.message} All tools return this startup error until the MCP process is restarted.`
-    : "";
+  const access = storeOrAccess instanceof McpStoreAccess ? storeOrAccess : undefined;
+  // Assigned from the access on each call once the database opens; the tool definitions read it when they run.
+  let store = (access ? undefined : storeOrAccess) as WorkIntelligenceStore;
+  const failureInstructions = startupFailureInstructions(access ? access.startupFailure : startupFailure, !!access);
   const instructions = `${serverInstructions} Application version: ${version}; schema version: ${schemaVersion}.${failureInstructions}`;
   const server = new McpServer({ name: "work-intelligence", version }, { instructions });
   registerAgentResources(server);
   const registeredStoreTools = new Map<string, RegisteredStoreTool>();
+
+  function resolveStore(): StoreResolution {
+    if (access) return access.resolve();
+    return startupFailure ? { failure: startupFailure } : { store };
+  }
 
   function registerStoreTool<S extends z.ZodType>(name: string, definition: StoreToolDefinition<S>): void {
     if (registeredStoreTools.has(name)) throw new Error(`Duplicate MCP operation: ${name}`);
@@ -483,12 +512,14 @@ export function createWorkIntelligenceMcpServer(
       validationNotes: definition.validationNotes,
       annotations: { title: definition.title, ...definition.annotations },
       invoke: async (input: unknown) => {
-        if (startupFailure) {
+        const resolved = resolveStore();
+        if ("failure" in resolved) {
           return {
             isError: true,
-            ...textResult({ code: startupFailure.code, error: startupFailure.message }),
+            ...textResult({ code: resolved.failure.code, error: resolved.failure.message }),
           };
         }
+        store = resolved.store;
 
         const readOnly = definition.annotations.readOnlyHint === true;
         // The client name comes from the MCP initialize handshake, never from the Agent's arguments.
@@ -553,12 +584,17 @@ export function createWorkIntelligenceMcpServer(
               }),
             };
           }
-          if (!isDatabaseBusyError(error)) {
+          // Busy, read-only and disk-full writes changed nothing; each has a stable code and curated text.
+          const unavailable = databaseUnavailableReason(error);
+          if (!unavailable) {
             throw error;
           }
           return {
             isError: true,
-            ...textResult({ code: "DATABASE_BUSY", error: DATABASE_BUSY_MESSAGE }),
+            ...textResult({
+              code: DATABASE_UNAVAILABLE_CODES[unavailable],
+              error: databaseUnavailableMessage(unavailable),
+            }),
           };
         }
       },

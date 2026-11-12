@@ -97,6 +97,8 @@ const apiErrorMessages: Record<string, string> = translatedRecord({
   project_location_invalid: "format.chooseAFolderThatExists",
   backup_unavailable: "format.backupsAreUnavailableRightNow",
   database_busy: "format.theDatabaseIsBusyPlease",
+  database_read_only: "format.theDatabaseIsReadOnly",
+  database_disk_full: "format.theDiskIsFull",
   project_name_mismatch: "format.theNameDoesNotMatch",
   project_backup_failed: "format.couldNotCreateAndVerify",
   project_delete_failed: "format.theDeletionDidNotFinish",

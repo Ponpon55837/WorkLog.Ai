@@ -1,4 +1,5 @@
 import type { ServerResponse } from "node:http";
+import type { z } from "zod";
 import {
   createOutstandingCleanupRequestInputSchema,
   decideOutstandingCleanupProposalsInputSchema,
@@ -9,7 +10,7 @@ import {
   submitOutstandingCleanupProposalsInputSchema,
 } from "@work-intelligence/schema";
 import { numberParam, readJsonObject, sendError, sendJson, textParam } from "../http.js";
-import type { Route, RouteContext } from "./router.js";
+import { parseRequestInput, type Route, type RouteContext } from "./router.js";
 
 interface CleanupResult {
   outcome: string;
@@ -17,10 +18,6 @@ interface CleanupResult {
   itemIds?: string[];
   proposalIds?: string[];
   requestId?: string;
-}
-
-interface InputSchema<T> {
-  safeParse(value: unknown): { success: true; data: T } | { success: false; error: { flatten(): unknown } };
 }
 
 function sendResult(response: ServerResponse, result: CleanupResult, successStatus: number): void {
@@ -46,14 +43,14 @@ function sendResult(response: ServerResponse, result: CleanupResult, successStat
 }
 
 /** Maps domain conflicts without exposing database details; policy skips remain quiet successful results. */
-function cleanupRoute<T>(
-  schema: InputSchema<T>,
+function cleanupRoute<S extends z.ZodType>(
+  schema: S,
   input: (context: RouteContext) => unknown,
-  run: (context: RouteContext, data: T) => CleanupResult,
+  run: (context: RouteContext, data: z.output<S>) => CleanupResult,
   status = 200,
 ): Route["handler"] {
   return async (context) => {
-    const parsed = schema.safeParse(await input(context));
+    const parsed = parseRequestInput(schema, await input(context));
     if (!parsed.success) {
       sendError(context.response, 400, "Invalid outstanding cleanup input.", parsed.error.flatten());
       return;

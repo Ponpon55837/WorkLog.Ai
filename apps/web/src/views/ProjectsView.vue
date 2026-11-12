@@ -45,8 +45,14 @@ type ProjectsTab = "registry" | "backfill" | "import" | "backup" | "deletion-aud
 
 const route = useRoute();
 const projectsStore = useProjectsStore();
-const { projects, projectDeletionAudits, projectDeletionAuditsLoading, projectDeletionAuditsError, trackedProjects } =
-  storeToRefs(projectsStore);
+const {
+  projects,
+  projectsLoaded,
+  projectDeletionAudits,
+  projectDeletionAuditsLoading,
+  projectDeletionAuditsError,
+  trackedProjects,
+} = storeToRefs(projectsStore);
 const {
   loadProjectDeletionAudits,
   setProjectDeletionAuditsActive,
@@ -198,7 +204,7 @@ onBeforeUnmount(() => {
         <span class="projects__tracked">{{ t("projects.tracked", { length: trackedProjects.length }) }}</span>
       </template>
       <UiEmptyState
-        v-if="projects.length === 0"
+        v-if="projectsLoaded && projects.length === 0"
         :icon="FolderGit2"
         :title="t('projects.noProjectsYet')"
         :description="t('projects.addYourFirstWorkspaceTo')"
@@ -210,7 +216,7 @@ onBeforeUnmount(() => {
         >
       </UiEmptyState>
       <VirtualList
-        v-else
+        v-else-if="projects.length > 0"
         :items="projects"
         :enabled="true"
         fit-viewport
@@ -331,7 +337,7 @@ onBeforeUnmount(() => {
         <UiBoxTitle eyebrow="Handoff import" :title="t('projects.importPastHandoffs')" />
       </template>
       <UiEmptyState
-        v-if="trackedProjects.length === 0"
+        v-if="projectsLoaded && trackedProjects.length === 0"
         compact
         :icon="FileInput"
         :title="t('projects.noTrackedProjects')"
@@ -342,7 +348,7 @@ onBeforeUnmount(() => {
         >
       </UiEmptyState>
       <VirtualList
-        v-else
+        v-else-if="trackedProjects.length > 0"
         :items="trackedProjects"
         :enabled="true"
         fit-viewport

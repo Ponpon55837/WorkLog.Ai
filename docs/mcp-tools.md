@@ -57,6 +57,18 @@ MCP 寫入會在同一個 SQLite write transaction 核對 schema。報告儲存�
 
 Schema 31 新增資料與 Agent 讀取稽核 revisions。MCP build 相容性識別包含 schema 版本；資料庫升級後，舊版 MCP 會回報 `restartRequired: true`，使用者需要重新連線。所有 MCP 寫入也會在交易內檢查實際資料庫 schema；外部 migration 完成後，舊 writer 不會寫出舊格式資料。
 
+## 資料庫錯誤與啟動失敗
+
+資料庫無法完成操作時，operation 回傳 `isError: true` 與 JSON `{ "code": "...", "error": "..." }`；`error` 是固定的使用者文字，不含 SQL、SQLite 訊息或路徑。下列三種都表示這次寫入沒有改動任何資料，問題排除後可以直接重試同一個 idempotency key：
+
+| `code` | 意義 | Agent 行為 |
+| --- | --- | --- |
+| `DATABASE_BUSY` | 另一個行程（另一個 Agent、Web API、維護命令）正持有寫入鎖 | 稍後重試，不要建議從備份還原 |
+| `DATABASE_READ_ONLY` | 資料庫檔案或所在資料夾目前唯讀；讀取 operation 仍可使用 | 請使用者確認檔案與資料夾可以寫入，再重試 |
+| `DATABASE_DISK_FULL` | 磁碟空間不足 | 請使用者釋放資料庫所在磁碟的空間，再重試 |
+
+MCP 啟動時，已是最新 schema 的資料庫只讀取 schema 版本，不需要寫入鎖，所以另一個行程正在寫入時仍能啟動並提供讀取；只有需要 migration 時才取得寫入鎖並先建立 migration 前備份。資料庫因 `DATABASE_BUSY`、`DATABASE_READ_ONLY` 或 `DATABASE_DISK_FULL` 無法開啟時，instructions 會說明原因，之後每次 tool 呼叫都會再嘗試開啟一次（兩次嘗試至少間隔 1 秒，期間的呼叫直接回傳同一個錯誤），開啟成功後就照常服務，不必重新連線。schema 比程式新（`DATABASE_SCHEMA_VERSION_TOO_NEW`）、schema 版本資訊無效、migration 前備份失敗、migration 失敗或檔案無法開啟（`DATABASE_INITIALIZATION_FAILED`）需要使用者處理，所有 tool 會回傳同一個錯誤直到 MCP 重新啟動。處理方式見[疑難排解](troubleshooting.md)。
+
 ## `work_finalize_session`
 
 在既有 closing handoff 完成後呼叫。`idempotencyKey`、`changedFiles`、`verification` 與固定格式的 `workSummary` 必填；Agent 必須在工作開始時（確認專案正在記錄後）擷取並保留當時已變更的路徑，finalize 時以 `baselineChangedFiles` 傳入；系統會從本次 Session 排除這些路徑、來源與變更事件。若從基準路徑改名，會將新路徑記為新增檔案。基準檔案在工作期間又被修改時仍整筆排除，因為單靠路徑無法判斷新增差異。若無法在開始時擷取基準，應省略欄位，不要事後推測。完成時再檢查工作樹／diff，沒有本次檔案變更時傳 `changedFiles: []`。`verification.status` 必須明確是 `passed`、`failed`、`in_progress` 或 `not_run`；`in_progress` 表示驗證已開始但尚無確認結果，結束後原地更新，不能以開始執行推定通過。`workSummary` 固定包含 `outcomes`（成果）、`scope`（範圍）、`decisions`（決策）、`verification`（驗證）、`nextSteps`（API 相容欄位，畫面標示「狀態／未結項」）五個陣列；每個元素是一件已確認的短句，沒有證據時傳空陣列，不使用 `##` Markdown 標題。`nextSteps` 只能記錄已知限制、未完成項目、證據缺口或未驗證情境，不可寫建議或未來計畫；每個項目也會成為有穩定 id、連結來源 Session 的未結項。只有本次工作直接驗證完成、且仍為同專案 `pending` 的項目，才能透過選填 `resolvedOutstandingItemIds` 傳入 id 標記完成；有效轉換與 Session 在同一交易保存並保留稽核紀錄，無效、已處理或跨專案 id 只回傳警告，不透露其他專案資料。收尾前重新取得帶本次 task／paths 的 context，閱讀 `relevant.outstandingItems` 的來源 Session 再判斷。當本次非空 `nextSteps` 明確取代舊項目時，才傳 `supersededOutstandingItemIds`（最多 200 個 id），舊項目在同一交易轉為 `not_needed`，稽核的 `actorSessionId` 指向本次 Session。沒有替代 nextSteps、兩個清單重複指定同一 id、或項目無效／已處理／作廢／跨專案時維持原狀，回傳 `unresolvedIds`／`unsupersededIds` 警告。重試從原 Session 稽核還原兩種結果，不套用新的 id。finalize 的 `relatedOutstandingItems` 用本次已保存 title／summary 與 changedFiles 排序仍 pending 的舊項目，最多 5 筆，含 total／omitted 和一行提示，排除本次新建的項目；每筆與 context 相同只有 id、`sourceSessionId` 與最多 400 字元的文字（截短時 `textTruncated: true`），來源標題與時間用 `work_get_session` 讀取。不得依 `nextSteps` 文字、排名或提示推測完成狀態。Git 狀態另由可選 metadata 記錄。這讓工作歷程、Session 面板與 Agent context 都能用緊湊且一致的方式呈現。同一個 key 重試會得到原本 Session 的回條，`duplicate: true`。
@@ -325,6 +337,10 @@ Server instructions 只放路由規則；48 項 operation 的長說明與 schema
 - `sessionTruncation.currentPeriod`／`previousPeriod`：本期或上一期超過 200 個 Session 時為 `true`。`totals`、`comparison`、`projects` 的數量與 `periodSummary` 仍涵蓋整個期間；只有 `sessions`、`trends`、`risks`、`decisions`、`evidence` 與各專案的 `sourceSessionIds` 限於最新 200 筆。
 
 報告只聚合 tracked projects；指定 `unregistered`、`paused`、`ignored` 或不存在的 project 會回傳 `outcome: "skipped"`，不會讀取專案檔案。若 legacy caller 沒有提供 verification 或 changedFiles，finalize 回應會附上 `verificationFollowUp`／`changedFilesFollowUp`，要求 Agent 檢查後用 metadata tool 補回。
+
+## `work_export_report`
+
+以 Markdown（預設）或 JSON 匯出與 `work_get_report` 相同的 deterministic 報告；經 `work_read` 呼叫。參數同 `work_get_report`（`period`、`date`，或成對的 `from`／`to`，以及可選的 `projectId`、evidence 篩選），另加 `format`：`markdown` 或 `json`。回傳 `outcome: "report_export"`、`format`、`filename`（例如 `work-report-week-2026-09-14-to-2026-09-20-all-projects.md`）、`contentType`、完整文字 `content` 與 `report`。非 tracked 專案範圍回傳 `outcome: "skipped"`，不讀取任何專案檔案。
 
 ## 更新後的回條
 
@@ -624,6 +640,21 @@ Agent 不得把「有 changed files」當成 Git commit，也不得從不足的 
 
 如果使用者不想繼續目前的 pending／processing 提煉，工作報告頁可以「取消這次整理」，也可以由 Agent 在自然語言請求中自行取消；取消只停止該次 Agent attempt，既有 deterministic report、摘要與歷史版本都保留。取消後的 context／save 操作會被拒絕，重新提煉會建立新的 request。歷史摘要清單只允許移除非目前版本，避免刪掉當前可讀報告。
 
+### 報告提煉與 metadata 回補的請求 operation
+
+使用者不需要知道下列名稱；Agent 依上面的流程自行呼叫。所有請求都只限 tracked 專案範圍，`requestId` 最多 200 字元。
+
+| Operation | Dispatcher | 參數與回應 |
+| --- | --- | --- |
+| `work_list_report_synthesis_requests` | `work_read` | 可選 `period`、`date` 或成對的 `from`／`to`（最長 366 天）、`projectId`、`scopeType`、`status`、`requestId`、`limit`（1–100，預設 20）；回傳 `outcome: "report_synthesis_requests"` 與新到舊的 `requests` |
+| `work_get_report_context` | `work_write_idempotent` | `requestId`，以及 `maxSessions`（1–100，預設 24）、`sessionPage`、`evidencePage`、`maxEvidence`、`maxHandoffCharacters` 與 `view`／`maxCharacters`；把 pending 請求推進為 processing，回傳 `report_context`（來源 Session 分頁、evidence 與 coverage，欄位見下方 1.5.1 說明） |
+| `work_save_report_summary` | `work_write_idempotent` | `requestId`、`title`、`executiveSummary`、`themes`、`highlights`、`verification`、`comparison`、`risks`、`decisions`、`nextSteps`（目前狀態／未結項）、`sourceSessionIds`、`generatedByAgent`、可選 `generatedByModel`、`promptVersion`；成功回傳 `report_summary_saved`（含 `summary`、`duplicate` 與依類型計數的遮蔽 `redactions`），同一個已完成請求重送只回 `duplicate: true`；已取消或失敗的請求回傳 `report_summary_request_not_ready` |
+| `work_cancel_report_synthesis` | `work_write_idempotent` | `requestId`；pending／processing 請求回傳 `report_synthesis_request_cancelled`（重複取消為 `duplicate: true`），其他狀態回傳 `report_synthesis_cancel_rejected` 與原因；既有報告與摘要不變 |
+| `work_list_metadata_backfill_requests` | `work_read` | 可選 `scopeType`、`projectId`、`status`、`requestId`、`limit`（1–100，預設 20）；回傳 `outcome: "metadata_backfill_requests"` 與 `requests` |
+| `work_get_metadata_backfill_context` | `work_write_idempotent` | `requestId`、`limit`（1–500，預設 100）；把 pending 請求推進為 processing，回傳 `metadata_backfill_context`：`request`、仍有缺口的 Session `items`、`resolvedSessionIds`、`sourceSessionIds` 與 `truncated`；已取消的請求回傳 `metadata_backfill_request_not_ready`。只是缺口清單，不可從筆數或文字推測 changed files |
+| `work_apply_metadata_backfill` | `work_write_overwrite` | 可選 `requestId`，以及 1–100 筆 `updates`（每筆欄位同 `work_update_session_metadata`）；每筆各自通過 policy gate，回傳 `backfill_applied`：`requestedCount`、`updated`、`skipped`、`failures`（同一個 `sessionId` 第二次以後列為失敗），帶 `requestId` 時另附 `request` 與 `remainingItems`；所有缺口補齊時請求才完成 |
+| `work_cancel_metadata_backfill` | `work_write_idempotent` | `requestId`；pending／processing 請求回傳 `metadata_backfill_request_cancelled`（重複取消為 `duplicate: true`），其他狀態回傳 `metadata_backfill_cancel_rejected`；既有 Session metadata 不變 |
+
 ## `work_preview_handoff_import` / `work_import_handoffs`
 
 歷史 handoff 匯入採兩階段流程。預設掃描 tracked project root 下的 `.openspec/handoffs`（含子目錄）Markdown 文件；也可以傳入 `handoffDirectory`、`excludePaths` 與 `maxFiles`。preview 是唯讀 dry-run，會列出每個來源檔案的標題、日期、Verification、changed files 數量、是否可匯入與排除原因。
@@ -644,7 +675,7 @@ REST 對應端點是 `GET /api/imports/handoffs/preview` 與 `POST /api/imports/
 
 work_get_report 新增 view（agent／full，預設 agent）、maxCharacters（12,000–60,000，預設 24,000）、sessionPage（預設 1）、maxSessions（1–100，預設 24）。基本報告來源仍為目前期間最新 200 筆，其截斷旗標與整期 totals 保留。
 
-work_get_report_context 新增同樣 view／maxCharacters 與 sessionPage／evidencePage（皆預設 1）；maxSessions 控制固定來源頁大小。coverage 的 requestSnapshotAt／requestedSessions 是建立請求時的範圍，eligibleSessions／unavailableSessions 是目前政策檢查結果，selectedSessions／sessionPageInfo 是選取來源頁，currentPeriodAsOf／currentPeriodSessions 是本次即時期間統計；evidence.total／returned 只計 selected_sessions。
+`work_get_report_context` 新增同樣 view／maxCharacters 與 sessionPage／evidencePage（皆預設 1）；maxSessions 控制固定來源頁大小。coverage 的 requestSnapshotAt／requestedSessions 是建立請求時的範圍，eligibleSessions／unavailableSessions 是目前政策檢查結果，selectedSessions／sessionPageInfo 是選取來源頁，currentPeriodAsOf／currentPeriodSessions 是本次即時期間統計；evidence.total／returned 只計 selected_sessions。
 
 1.6.19 起 agent 模式的報告區塊（totals、comparison、projects、risks、decisions、trends、spanning 等整期資料）不隨來源頁變動，只在 `sessionPage: 1` 回傳一次；之後的頁面 `report` 只含該頁 Session 的 `evidence` 與 `evidencePageInfo`，並帶 `reportBlockOnSessionPage: 1`，`projection.omittedFields` 含 `report.block`。Agent 直接讀第 N 頁、重試某頁或重啟後續作時，再讀一次第 1 頁就會取得同一個報告區塊，伺服器不保存分頁狀態。報告區塊內 projects 與 risks 的 `sourceSessionIds` 最多列 8 筆，其餘數量為 `sourceSessionIdsOmittedCount`（完整來源在各來源頁）；evidence 只以 `sessionId` 指向同頁的 Session 預覽，不重複標題與專案名稱。maxSessions 預設維持 24：在實際資料上改為 32 以上時，第 1 頁會因預算移除報告區塊的決策或風險。view: full 與 REST 回應不變。
 

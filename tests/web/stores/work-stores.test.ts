@@ -185,6 +185,26 @@ describe("work data stores", () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it("reports a Session list that never loaded as an error, not as an empty list", async () => {
+    harness.setResponder(({ url, method }) =>
+      url.pathname === "/api/sessions"
+        ? jsonResponse({ code: "internal_error", error: "Internal server error." }, 500)
+        : workResponder({ url, method, body: undefined, signal: undefined }),
+    );
+    const store = useSessionsStore();
+    store.setSessionsListActive(true);
+    await store.loadSessions();
+
+    await vi.waitFor(() => expect(store.sessionsError).toBe(t("sessions.couldNotLoadWorkHistory")));
+    expect(store.sessionsLoaded).toBe(false);
+    expect(store.sessions).toEqual([]);
+
+    harness.setResponder(workResponder);
+    await store.retrySessions();
+    await vi.waitFor(() => expect(store.sessionsLoaded).toBe(true));
+    expect(store.sessionsError).toBe("");
+  });
+
   it("maps a report API error and blocks incomplete or oversized custom ranges before fetching", async () => {
     const store = useReportsStore();
     store.reportPeriod = "custom";

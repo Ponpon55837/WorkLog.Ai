@@ -99,7 +99,8 @@ function parseCandidate(projectRoot: string, filePath: string, sourcePath: strin
       changedFiles: parsed.changedFiles,
       changedFilesStatus: parsed.changedFiles.length > 0 ? "detected" : "not_found",
     };
-  } catch (error) {
+  } catch {
+    // The file-system message names the absolute path; the preview answers with fixed text and the relative path.
     return {
       sourcePath,
       title: basename(sourcePath).replace(/\.md$/i, ""),
@@ -107,7 +108,7 @@ function parseCandidate(projectRoot: string, filePath: string, sourcePath: strin
       content: "",
       decision: "error",
       reason: "unreadable",
-      detail: error instanceof Error ? error.message : "The handoff file could not be read.",
+      detail: "The handoff file could not be read.",
       changedFiles: [],
       changedFilesStatus: "not_read",
     };

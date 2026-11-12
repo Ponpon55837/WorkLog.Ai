@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { DeleteProjectResult, ProjectDeletionAuditRecord, ProjectDeletionCounts } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeProjectDeletion, type BackupRetentionOptions } from "./backup.js";
-import { isDatabaseBusyError } from "./sqlite-errors.js";
+import { databaseUnavailableReason } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { SearchRepository } from "./search-repository.js";
 
@@ -406,7 +406,8 @@ export class ProjectDeletionService {
       backupFileName = backupDatabaseBeforeProjectDeletion(this.db, this.databasePath, this.backupOptions).created
         .fileName;
     } catch (error) {
-      if (isDatabaseBusyError(error)) {
+      // A busy, read-only or full database keeps its own code; other backup failures stop the deletion as before.
+      if (databaseUnavailableReason(error)) {
         throw error;
       }
       throw new ProjectDeletionError("project_backup_failed");
@@ -550,10 +551,8 @@ export class ProjectDeletionService {
         };
       });
     } catch (error) {
-      if (error instanceof ProjectDeletionError) {
-        throw error;
-      }
-      if (isDatabaseBusyError(error)) {
+      // Busy, read-only and disk-full failures keep their own codes: the user can resolve them and retry.
+      if (error instanceof ProjectDeletionError || databaseUnavailableReason(error)) {
         throw error;
       }
       throw new ProjectDeletionError("project_delete_failed");

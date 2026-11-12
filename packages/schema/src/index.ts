@@ -46,6 +46,12 @@ import { parseArchitectureDiagram } from "./architecture-diagram.js";
 import { reportPresentationStateSchema } from "./report-presentation.js";
 export { attentionQuerySchema, updateAttentionPreferenceSchema } from "./attention.js";
 export {
+  findUnrecognizedKeys,
+  safeParseStrict,
+  type StrictParseResult,
+  type UnrecognizedKeys,
+} from "./unrecognized-keys.js";
+export {
   decodeFileHistoryCursor,
   encodeFileHistoryCursor,
   fileHistoryQuerySchema,

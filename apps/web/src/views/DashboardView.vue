@@ -31,7 +31,8 @@ import { trackingStatus } from "../utils/status";
 import { intlLocale, t } from "../i18n";
 
 const projectsStore = useProjectsStore();
-const { dashboard, projects, recentSessions, initialDataReady } = storeToRefs(projectsStore);
+const { dashboard, dashboardLoaded, projects, projectsLoaded, recentSessions, initialDataReady } =
+  storeToRefs(projectsStore);
 const dashboardStore = useDashboardStore();
 const {
   weekReport,
@@ -190,7 +191,7 @@ onBeforeUnmount(() => {
           }}</UiButton>
         </template>
         <UiEmptyState
-          v-if="recentSessions.length === 0"
+          v-if="dashboardLoaded && recentSessions.length === 0"
           compact
           :icon="ListChecks"
           :title="t('common.noWorkRecordsYet')"
@@ -201,7 +202,7 @@ onBeforeUnmount(() => {
           >
         </UiEmptyState>
         <VirtualList
-          v-else
+          v-else-if="recentSessions.length > 0"
           :items="recentSessions"
           :enabled="recentSessions.length > 5"
           :estimate-item-height="112"
@@ -221,9 +222,14 @@ onBeforeUnmount(() => {
         <UiBoxTitle eyebrow="Projects" :title="t('dashboard.projectStatus')" />
         <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">{{ t("dashboard.manage") }}</UiButton>
       </template>
-      <UiEmptyState v-if="projects.length === 0" compact :icon="FolderGit2" :title="t('dashboard.noProjectsYet')" />
+      <UiEmptyState
+        v-if="projectsLoaded && projects.length === 0"
+        compact
+        :icon="FolderGit2"
+        :title="t('dashboard.noProjectsYet')"
+      />
       <VirtualList
-        v-else
+        v-else-if="projects.length > 0"
         :items="visibleProjects"
         :enabled="visibleProjects.length > 5"
         :estimate-item-height="96"

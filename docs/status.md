@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.25（已完成）
+
+失敗時說實話、能自行恢復。資料庫已是最新 schema 時開啟只讀取，不需要寫入鎖：另一個行程持有寫入鎖 9 秒時，MCP 由 5.3 秒後回報「migration 失敗、請從備份還原」且之後一直如此，改為 0.3 秒啟動並可讀取；待 migration 時回傳 `DATABASE_BUSY`、不先寫備份，下一次 tool 呼叫再試。唯讀與磁碟已滿有各自代碼（MCP `DATABASE_READ_ONLY`／`DATABASE_DISK_FULL`，REST `database_read_only` 503／`database_disk_full` 507）與 Web 訊息，唯讀時讀取照常。REST 所有 body 與整組送進 schema 的查詢拒絕未知欄位並點名。列表載入失敗時只顯示錯誤，不再同時顯示「還沒有工作紀錄」。MCP 與 REST 文件補齊並加上一致性測試；正式相依套件稽核清空。`db:maintain` 對非 SQLite 檔案回報無效而非使用中，handoff 預覽不再顯示檔案系統訊息與絕對路徑。schema 維持 33。仍未做：只讀取指定名稱的 GET 查詢參數不拒絕其他參數、MCP 未分類錯誤仍由 SDK 回傳原文。詳見 [1.6.25 更新說明](releases/1.6.25.md)。
+
 ## 1.6.24（已完成）
 
 這一輪第一次 schema 變更（32 → 33），只新增可為空的欄位與索引，升級路徑以實際 build 驗證：v1.6.8 build 寫入的 schema 31 資料庫與使用者 schema 32 資料庫的副本升級後，49 張資料表列數與內容雜湊全部相同、只建立一份 migration 前備份、再次開啟不再遷移；使用者的匯出檔匯入全新資料庫 0 衝突、各表筆數相同，再次匯入全部略過，升級後再匯出／匯入也 0 衝突。可攜式匯入改為接受 schema 31 起的匯出檔（之前只接受與程式相同 schema 的檔案，升級後會拒絕所有舊檔），較新的檔案仍拒絕並請使用者先更新；守門測試確保之後新增的欄位都有匯入預設值。Knowledge 候選的重疊提示與候選一起保存（只存 id、狀態與分數），Web 候選卡片會顯示並可開啟相似的 Knowledge，重送時回傳保存的提示。`work_list_sessions` 新增 `commitSha`（完整 sha 或至少 7 個十六進位字元的前綴）；記錄的是 finalize 時的 HEAD，可能是工作 commit 之前的那個。部分索引 `sessions(project_id) WHERE voided_at IS NULL` 讓 20,000 筆 Session 時 Dashboard 的 Session 計數由 6.1 降到 0.46 ms，沒有其他查詢計畫變差。仍未做：REST Session 列表的 commit 篩選、schema 31 之前匯出檔的匯入。詳見 [1.6.24 更新說明](releases/1.6.24.md)。

@@ -6,6 +6,7 @@ import type { BackupRetentionOptions } from "./backup.js";
 import { backupDatabaseBeforeMaintenance } from "./backup.js";
 import { DatabaseInitializationError, initializeWorkIntelligenceDatabase } from "./database-initialization.js";
 import { SearchRepository } from "./search-repository.js";
+import { isDatabaseBusyError } from "./sqlite-errors.js";
 
 export type DatabaseMaintenanceErrorCode =
   | "DATABASE_MISSING"
@@ -55,9 +56,18 @@ function acquireExclusiveLock(database: DatabaseSync): void {
   try {
     database.exec("PRAGMA busy_timeout = 0; PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT;");
   } catch (error) {
+    // Only lock contention means another process is using the file; anything else (a file that is not a SQLite
+    // database, for example) must not send the user off to stop servers that are not running.
+    if (isDatabaseBusyError(error)) {
+      throw new DatabaseMaintenanceError(
+        "DATABASE_IN_USE",
+        "資料庫目前無法取得獨佔鎖。請先停止 Work Intelligence server，並關閉會啟動 MCP 的 Agent 對話後重試。",
+        { cause: error },
+      );
+    }
     throw new DatabaseMaintenanceError(
-      "DATABASE_IN_USE",
-      "資料庫目前無法取得獨佔鎖。請先停止 Work Intelligence server，並關閉會啟動 MCP 的 Agent 對話後重試。",
+      "DATABASE_INVALID",
+      "無法讀取這個檔案；它不是 Work Intelligence 資料庫或已損壞。維護程序沒有變更檔案。",
       { cause: error },
     );
   }

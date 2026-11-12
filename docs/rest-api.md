@@ -37,6 +37,8 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `code` | HTTP 狀態 | 說明 |
 | --- | --- | --- |
 | `database_busy` | 503 | SQLite 回報 `SQLITE_BUSY` 或 `SQLITE_LOCKED`；使用安全的資料庫忙碌訊息。 |
+| `database_read_only` | 503 | 資料庫檔案、所在資料夾或磁碟唯讀（`SQLITE_READONLY`），這次寫入沒有保存；讀取仍可使用。 |
+| `database_disk_full` | 507 | 磁碟空間不足（`SQLITE_FULL`，或檔案系統回報 `ENOSPC`），這次寫入沒有保存。 |
 | `backup_unavailable` | 409 | 備份功能或備份檔案目前不可用。備份清單／建立回應仍保留 `outcome` 與 `reason`，並附加 `code` 和相容用的 `error` 欄位。 |
 | `project_not_found` | 404 | 專案資料轉移、重新指定位置或刪除操作找不到 URL 或輸入指定的專案。 |
 | `invalid_bundle` | 400 | 可攜式匯入檔與所選匯入範圍不相符或無效。 |
@@ -50,6 +52,25 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `session_cited_by_pending_cleanup` | 409 | 有待審核的未結項清理建議引用這個 Session 作為證據；先接受或拒絕該建議。 |
 | `session_backup_failed` | 503 | Session 刪除前無法建立必要備份。 |
 | `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
+
+`database_busy`、`database_read_only` 與 `database_disk_full` 都不代表資料損壞，也不需要從備份還原；`error` 是固定文字，不含 SQLite 訊息或路徑。處理方式見[疑難排解](troubleshooting.md#資料庫忙碌唯讀或磁碟已滿)。
+
+### 未知欄位一律拒絕
+
+每個 REST JSON body 與整組送進 schema 的查詢參數都以嚴格模式驗證：schema 沒有定義的欄位（包含巢狀物件內的欄位）回 400，不會被默默丟掉。`details` 沿用既有的 zod flatten 形狀，並點名每個未知欄位：頂層欄位放在 `formErrors`，巢狀欄位放在其上層欄位的 `fieldErrors`。
+
+```json
+{
+  "error": "Invalid session title payload.",
+  "code": "invalid_input",
+  "details": {
+    "formErrors": ["Unknown field(s): extra. Unknown fields are rejected, not ignored."],
+    "fieldErrors": {}
+  }
+}
+```
+
+只讀取指定名稱的查詢參數的 GET 路由，不會看到其他參數；Shared schema 本身沒有改變，MCP 依舊以自己的規則拒絕未知參數（見 [MCP 工具參考](mcp-tools.md)）。
 
 Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code` 顯示目前介面語言（繁體中文或 English）的訊息；`network_error` 與 `malformed_response` 是 client 本地代碼，不會由 REST API 回傳。
 
@@ -78,6 +99,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/project-deletion-audits`                   | 列出不含內容的刪除時間、專案 id 與各類刪除筆數                                          |
 | POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |
 | GET/POST | `/api/backups`                                   | 列出資料庫備份／立即建立備份（POST body `{}`）                                         |
+| DELETE   | `/api/backups/:fileName`                         | 刪除一份備份（body `{}`；檔名須是備份清單中的名稱，找不到回 404）                      |
 | POST     | `/api/export`                                    | body `{}` 匯出整份 SQLite 快照；指定 `scope` 時匯出可攜式 JSON（見下方）                 |
 | POST     | `/api/import/preview`                            | 驗證可攜式 JSON 並預覽新增、略過、衝突與路徑轉換，不寫入資料                           |
 | POST     | `/api/import`                                     | 依合併策略將可攜式 JSON 的非衝突資料寫入目前資料庫                                     |
@@ -96,6 +118,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/sessions/:id/evidence`                     | 保存 Agent 提供的 evidence reference                                                   |
 | PATCH    | `/api/sessions/:id/verification`                 | 修正 verification（`status`：passed／failed／in_progress／not_run，選填 `summary`），每次變更寫入修改紀錄 |
 | POST     | `/api/sessions/:id/links`                        | 建立或更新 Session 關聯（`relatedSessionId`、`relation`：continues／related）            |
+| DELETE   | `/api/sessions/:id/links`                        | 沒有指定另一個 Session，一律回 400 `invalid_input`；請改用下一列                        |
 | DELETE   | `/api/sessions/:id/links/:relatedId`             | 移除兩筆 Session 之間的關聯                                                           |
 | PATCH    | `/api/sessions/:id/void`                         | 作廢（`voided: true` 與必填 `reason`）或還原（`voided: false`）Session，保留作廢紀錄 |
 | PATCH    | `/api/evidence/:id/void`                         | 標示 Evidence 為錯誤或還原，保留作廢紀錄                                              |
@@ -106,6 +129,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
 | PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge                                           |
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
+| GET      | `/api/session-decisions`                         | 列出 Agent 自主決策（Session `workSummary.decisions` 標記的項目）；可帶 `projectRoot`（先通過 project policy）、`status`（`pending` 預設或 `all`）、`limit`（1–200，預設 50）；回傳 `outcome: "session_decisions"`、`items` 與 `pendingCount`，非 tracked 專案回傳 `skipped` |
+| PATCH    | `/api/session-decisions/:id/review`              | 人工審核一筆決策：body `{ projectRoot, reviewStatus }`，`reviewStatus` 為 `confirmed`、`rejected` 或 `promoted`（`promoted` 另帶已存在的 `knowledgeId`）；回傳 `session_decision_reviewed`（重送相同結果為 `duplicate: true`），找不到回 `not_found` |
 | GET      | `/api/knowledge-pages`                           | 列出 tracked projects 的常駐知識頁（狀態、版本、新 Session 數與引用來源核對提示）；可用 `projectRoot` 篩選 |
 | POST     | `/api/knowledge-pages/update-requests`           | 要求 Agent 更新知識頁（`projectRoot`、`slug`；自訂頁另帶 `title`、`question`），不存在時建立 |
 | PATCH    | `/api/knowledge-pages/:id`                       | Web 手動編輯（`sections`，可帶 `title`）；每段須列來源 Session 或內容為「資料不足」，儲存為新版本 |
@@ -125,11 +150,14 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET/POST | `/api/backfill/metadata-requests`                | 建立或查詢 Agent metadata 回補請求                                                     |
 | GET      | `/api/backfill/metadata-requests/:id/context`    | 取得受控 metadata 回補 context                                                         |
 | POST     | `/api/backfill/metadata-requests/:id/cancel`     | 取消 pending／processing metadata 回補請求                                             |
+| GET      | `/api/imports/handoffs/preview`                  | 唯讀預覽 tracked 專案的歷史 handoff：`projectRoot`（必填）、`handoffDirectory`（預設 `.openspec/handoffs`）、可重複的 `excludePath`、`maxFiles`（1–500，預設 100）；列出每個檔案能否匯入與原因，不寫入資料 |
+| POST     | `/api/imports/handoffs`                          | 匯入預覽中勾選的 handoff：body 同預覽參數（`excludePaths` 為陣列），另加 `sourcePaths`（最多 500 個）；每個來源檔案以穩定 idempotency key 建立 Session，重試回傳 `already_imported` |
 | POST     | `/api/backfill/metadata`                         | Agent 回寫已確認的 Session metadata                                                    |
 | GET      | `/api/reports?period=week&date=YYYY-MM-DD`       | 日/週/月/季/年工作報告，可加 `projectId`                                               |
 | GET      | `/api/reports?from=YYYY-MM-DD&to=YYYY-MM-DD`     | 自訂期間工作報告（最長 366 天，`period` 為 `custom`）；`/api/reports/export` 同樣接受 |
 | GET/POST | `/api/reports/synthesis-requests`                | 建立或查詢 Agent 報告提煉請求                                                          |
 | POST     | `/api/reports/synthesis-requests/:id/cancel`     | 取消 pending／processing 報告提煉請求                                                  |
+| GET      | `/api/reports/synthesis-requests/:id`            | 讀取單一報告提煉請求的狀態（Web 等待 Agent 完成時輪詢）                                 |
 | POST     | `/api/reports/synthesis-requests/:id/retry`      | 將失敗／逾時的提煉請求建立為新的 pending attempt                                       |
 | GET      | `/api/reports/synthesis-requests/:id/context`    | 取得受控、可追溯的提煉 Context                                                         |
 | GET      | `/api/reports/summaries`                         | 查詢目前或歷史 Agent 報告摘要                                                          |

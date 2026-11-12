@@ -4,6 +4,24 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.25] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.25.md).
+
+### Fixed
+
+- An MCP server that started while another process held the write lock waited 5 seconds and then answered every tool call with `DATABASE_MIGRATION_FAILED` ("restore from backup") for the rest of its life, although the database was current. Opening a database that is already at the current schema now only reads it and needs no write lock, so it starts at once and serves reads. When a migration is pending and the lock is held, it answers `DATABASE_BUSY` before writing the pre-migration backup, and the next tool call tries again. Busy, read-only and disk-full startups are retried (at most one attempt per call and per second); a schema that is too new, invalid version information, a failed backup or migration, and a file that cannot be opened still stay until restart. The pre-migration backup and the refusal of newer schemas are unchanged.
+- A write to a read-only database returned the bare SQLite text over MCP and a generic 500 over REST. It now answers `DATABASE_READ_ONLY` (REST `database_read_only`, 503), and a full disk answers `DATABASE_DISK_FULL` (REST `database_disk_full`, 507), both in the existing error shape with fixed text and a translated Web message. Reads keep working on a read-only database. Project and Session deletion keep these codes (and busy) instead of reporting a failed backup or deletion.
+- REST request bodies, and query objects that reach a schema whole, silently dropped unknown fields: `PATCH /api/sessions/:id/title` with `{"title":"x","extra":1}` returned 200. Every REST route now rejects unknown fields, including nested ones, with 400 `invalid_input` and names each one in `details`. The Web client sent no extra fields; one E2E fixture did and was fixed. MCP schemas are unchanged.
+- When a list failed to load, Sessions, Knowledge, Projects, the dashboard, the graph and reports showed the error together with an empty state such as "no work records yet". They now show the error only; the Sessions list has its own message and retry.
+- `pnpm db:maintain` on a file that is not a SQLite database said the database was in use and asked to stop the server; it now answers `DATABASE_INVALID` and leaves the file unchanged.
+- A handoff file that could not be read showed the file-system message, including its absolute path, in the import preview; it now shows fixed text with the relative path.
+
+### Changed
+
+- `docs/mcp-tools.md` documents the eight operations it never named and `docs/rest-api.md` the routes it omitted; parity tests fail when a registered operation or route is undocumented or the docs name one that does not exist.
+- The lockfile resolves fast-uri 3.1.9, qs 6.17.1 and ip-address 10.7.6 (transitive under the MCP SDK, within its existing ranges), which clears every `pnpm audit --prod` advisory.
+
 ## [1.6.24] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.24.md).

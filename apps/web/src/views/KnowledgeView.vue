@@ -338,7 +338,7 @@ onBeforeUnmount(() => {
       :label="t('knowledge.loadingKnowledge')"
     />
     <UiEmptyState
-      v-else-if="knowledgeItems.length === 0"
+      v-else-if="knowledgeLoaded && knowledgeItems.length === 0"
       :icon="BookOpen"
       :title="hasFilters ? t('knowledge.noKnowledgeMatchesTheFilters') : t('knowledge.noConfirmedKnowledgeYet')"
       :description="hasFilters ? t('common.adjustTheSearchOrFilters') : t('knowledge.itemsAppearHereOnceThe')"
@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
       >
     </UiEmptyState>
     <VirtualList
-      v-else
+      v-else-if="knowledgeItems.length > 0"
       :items="knowledgeItems"
       :enabled="true"
       fit-viewport
@@ -362,7 +362,7 @@ onBeforeUnmount(() => {
       </template>
     </VirtualList>
 
-    <template #footer>
+    <template v-if="knowledgeLoaded" #footer>
       <UiPagination
         v-model:page-size="knowledgePageSize"
         :page-info="knowledgePageInfo"
