@@ -1876,6 +1876,7 @@ export class WorkIntelligenceStore {
             ? findKnowledgeToReview(this.db, {
                 projectId: project.id,
                 sessionId: session.id,
+                completedAt: session.completedAt,
                 changedFiles: session.changedFiles,
                 project: { name: project.name, rootPath: project.rootPath },
               })

@@ -8,7 +8,7 @@
 
 ## 1.6.20（已完成）
 
-finalize 更快、更精簡：相關未結項提醒改為一次讀出 pending 候選、在記憶體評分，規則與同分排序不變（舊 SQL 的特性測試固定排序，實際資料 300 組焦點結果完全相同）；查詢由 5.9 ms 降到 0.9 ms，實際資料 finalize 中位數 16.3 → 6.0 ms，5,000 筆合成 Session 帶 20 個變更路徑的 finalize 35.4 → 11.7 ms，知識頁維護提示移到交易提交後（交易中位數 3.8 → 1.0 ms）。MCP finalize 回應改為回條，不再回顯標題、摘要、workSummary 與 changedFiles，只回傳 id、時間、數量與伺服器推得的事實；實際請求的回應由 5,249／5,453 字（文字／structuredContent）降到 1,748／1,886 字，REST 與 storage 結果不變。新增 `knowledgeToReview`：最多 3 筆 `appliesTo` 涵蓋本次變更檔案的 active Knowledge，只是提示，不改資料；實際資料最近 50 筆 Session 有 32 筆會收到。另修正知識頁 context 預覽截斷可能切開輔助平面字元，並讓兩個 lease 目錄不可寫的測試不再依賴權限位元。其他回傳完整 Session 的寫入工具尚未改成回條。schema 維持 32。
+finalize 更快、更精簡：相關未結項提醒改為一次讀出 pending 候選、在記憶體評分，規則與同分排序不變（舊 SQL 的特性測試固定排序，實際資料 300 組焦點結果完全相同）；查詢由 5.9 ms 降到 0.9 ms，實際資料 finalize 中位數 16.3 → 6.0 ms，5,000 筆合成 Session 帶 20 個變更路徑的 finalize 35.4 → 15.8 ms，知識頁維護提示移到交易提交後（交易中位數 3.8 → 1.0 ms）。MCP finalize 回應改為回條，不再回顯標題、摘要、workSummary 與 changedFiles，只回傳 id、時間、數量與伺服器推得的事實；實際請求的回應由 5,249／5,453 字（文字／structuredContent）降到 1,500／1,638 字，REST 與 storage 結果不變。新增 `knowledgeToReview`：最多 3 筆 `appliesTo` 直接點名本次變更檔案、且由本次 Session 才第一次讓它可能過時的 active Knowledge，只是提示，不改資料；實際資料最近 50 筆 Session 有 5 筆會收到（較寬的初版規則為 32 筆）。另修正知識頁 context 預覽截斷可能切開輔助平面字元，並讓兩個 lease 目錄不可寫的測試不再依賴權限位元。其他回傳完整 Session 的寫入工具尚未改成回條。schema 維持 32。
 
 ## 1.6.19（已完成）
 

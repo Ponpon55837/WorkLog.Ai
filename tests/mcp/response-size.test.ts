@@ -642,6 +642,7 @@ describe("synthetic MCP response-size baseline", () => {
       verification: { status: "passed", summary: "Synthetic unit tests, typecheck and benchmark passed." },
     };
     expect(JSON.stringify(args).length).toBeGreaterThan(3_000);
+    vi.setSystemTime(Date.now() + 60_000);
     const result = await client.callTool({
       name: "work_write_idempotent",
       arguments: { operation: "work_finalize_session", arguments: args },
@@ -664,6 +665,9 @@ describe("synthetic MCP response-size baseline", () => {
       "packages/ledger/src/settlement-0.ts",
       expect.stringMatching(/^apps\/console\/src\/views\//),
     ]);
+    // Nothing in the receipt depends on the OS or the temp directory: paths are project-relative.
+    expect(text).not.toContain(projectRoot);
+    expect(text).not.toContain(tmpdir());
     for (const echoed of [args.title, summary, ...workSummary.outcomes, changedFiles[5]!]) {
       expect(text).not.toContain(echoed);
     }

@@ -44,6 +44,8 @@ function setup() {
     directory: record(root, "directory", ["packages/shared"]),
     unrelated: record(root, "unrelated", ["apps/web/**"]),
     suffix: record(root, "suffix", ["src/lease.ts"]),
+    exactNewer: record(root, "exact-newer", ["packages/shared/src/lease.ts"]),
+    globNarrow: record(root, "glob-narrow", ["packages/shared/src/*.ts"]),
     noScope: record(root, "no-scope", []),
     neighbour: record(otherRoot, "neighbour", ["packages/shared/src/lease.ts"]),
     applied: record(root, "applied", ["packages/shared/src/lease.ts"]),
@@ -81,28 +83,15 @@ afterEach(() => {
 });
 
 describe("knowledge to review at finalize", () => {
-  it("lists the strongest same-project matches, newest first among equals, at most three", () => {
+  it("lists Knowledge naming a changed file, exact paths before globs, newest first, at most three", () => {
     const { store, root, ids } = setup();
     const before = store.searchKnowledge({ projectRoot: root, limit: 50 });
     const result = finalize(store, root, ["README.md", "packages/shared/src/lease.ts"], ids);
+    const lease = "packages/shared/src/lease.ts";
     expect(result.knowledgeToReview).toEqual([
-      {
-        id: ids.exact,
-        title: "Synthetic exact rule",
-        path: "packages/shared/src/lease.ts",
-      },
-      {
-        id: ids.suffix,
-        title: "Synthetic suffix rule",
-        path: "packages/shared/src/lease.ts",
-        appliesTo: "src/lease.ts",
-      },
-      {
-        id: ids.glob,
-        title: "Synthetic glob rule",
-        path: "packages/shared/src/lease.ts",
-        appliesTo: "packages/shared/**",
-      },
+      { id: ids.exactNewer, title: "Synthetic exact-newer rule", path: lease },
+      { id: ids.exact, title: "Synthetic exact rule", path: lease },
+      { id: ids.globNarrow, title: "Synthetic glob-narrow rule", path: lease, appliesTo: "packages/shared/src/*.ts" },
     ]);
     // Advisory only: no Knowledge record changes.
     const after = store.searchKnowledge({ projectRoot: root, limit: 50 });
@@ -132,6 +121,40 @@ describe("knowledge to review at finalize", () => {
     expect(retry.duplicate).toBe(true);
     expect(retry.knowledgeToReview?.map((item) => item.id)).not.toContain(recorded.knowledge.id);
     expect(retry.knowledgeToReview).toEqual(first.knowledgeToReview);
+  });
+
+  it("does not count directory entries or loose path suffixes as naming a file", () => {
+    const { store, root, ids } = setup();
+    const result = finalize(store, root, ["packages/shared/src/other.ts"]);
+    expect(result.knowledgeToReview?.map((item) => item.id)).toEqual([ids.globNarrow, ids.glob]);
+  });
+
+  it("skips Knowledge an earlier Session already put in doubt until it is confirmed again", () => {
+    const { store, root, ids } = setup();
+    vi.setSystemTime(new Date("2026-06-01T09:00:00.000Z"));
+    finalize(store, root, ["packages/shared/src/lease.ts"]);
+    vi.setSystemTime(new Date("2026-06-01T10:00:00.000Z"));
+    // The first Session made every lease rule possiblyStale; a later Session adds nothing new.
+    expect(finalize(store, root, ["packages/shared/src/lease.ts", "docs/guide.md"])).not.toHaveProperty(
+      "knowledgeToReview",
+    );
+    const confirmed = store.updateKnowledge({ projectRoot: root, knowledgeId: ids.exact, confirm: true });
+    expect(confirmed.outcome).toBe("knowledge_updated");
+    vi.setSystemTime(new Date("2026-06-01T11:00:00.000Z"));
+    expect(finalize(store, root, ["packages/shared/src/lease.ts", "docs/guide.md", "docs/more.md"])).toMatchObject({
+      knowledgeToReview: [{ id: ids.exact }],
+    });
+    // A backfilled Session that finished before the confirmation does not put it in doubt.
+    const backfilled = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "knowledge-review-backfill",
+      title: "Synthetic backfill",
+      summary: "Backfilled a fictional lease change.",
+      completedAt: "2026-06-01T09:30:00.000Z",
+      changedFiles: ["packages/shared/src/lease.ts"],
+      verification: { status: "passed" },
+    });
+    expect(backfilled).not.toHaveProperty("knowledgeToReview");
   });
 
   it("omits the hint when the Session changed no covered file", () => {

@@ -197,7 +197,7 @@ node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-on
 
 `summarizeAgentReads (5,000 rows)` 在 bench 資料庫寫入一個完整保留窗（5,000 筆合成 Agent 讀取稽核，12 個工具、3 個 Agent，每 50 筆一筆 `database_busy`、每 20 筆一筆沒有耗時），以一次 SELECT 讀出 tool／耗時／錯誤代碼，在記憶體依工具分組並各排序一次求 nearest-rank p50／p95。計時前檢查 12 個工具都有 p95。2026-11-07 macOS 本機量測 p90 13.99 ms（median 12.7 ms），上限 100 ms 只擋數量級退化。
 
-`finalizeSession (changed files, Knowledge review)` 量測真實大小的收尾寫入：20 個變更路徑與待辦來源 Session 及 Knowledge `appliesTo` 重疊，相關未結項的路徑評分與 `knowledgeToReview` 掃描都實際執行；計時前檢查結果含相關未結項與 3 筆 `knowledgeToReview`。操作 p90 上限 250 ms、寫入交易 p90 上限 50 ms（與 `finalizeSession (related pending reminder)` 相同，兩者都量交易時間）。相關未結項改為一次讀出 pending 候選、在 JavaScript 評分；`tests/storage/outstanding-item-relevance.test.ts` 是改寫前以原 SQL 評分固定下來的特性測試，涵蓋同分依完成時間／Session id／位置排序、大小寫與反斜線、改名、目錄前綴與後綴、段落邊界及只折疊 ASCII 的大小寫規則。
+`finalizeSession (changed files, Knowledge review)` 量測真實大小的收尾寫入：20 個變更路徑與待辦來源 Session 及 Knowledge `appliesTo` 重疊，相關未結項的路徑評分與 `knowledgeToReview` 掃描都實際執行；種子的模組 Knowledge 早已可能過時（提早結束），每次計時前另記錄一筆從未被改過、建立時間早於所有 Session 的 Knowledge，讓檢查走完所有後續 Session；計時前後檢查結果含相關未結項，且 `knowledgeToReview` 只列這筆。操作 p90 上限 250 ms、寫入交易 p90 上限 50 ms（與 `finalizeSession (related pending reminder)` 相同，兩者都量交易時間）。相關未結項改為一次讀出 pending 候選、在 JavaScript 評分；`tests/storage/outstanding-item-relevance.test.ts` 是改寫前以原 SQL 評分固定下來的特性測試，涵蓋同分依完成時間／Session id／位置排序、大小寫與反斜線、改名、目錄前綴與後綴、段落邊界及只折疊 ASCII 的大小寫規則。
 
 `metadata follow-up count` 獨立量測 `work_get_context` 使用的 SQL 聚合，不建立完整預覽 DTO；bench 在計時前用 JavaScript 預覽 totals 驗證 SQL 結果完全相同。5,000 筆完整預覽的既有本機 p90 約 58 ms，因此 count-only 路徑設 100 ms 上限；完整明細預覽仍保留原本路徑與回傳內容。
 
