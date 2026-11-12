@@ -67,15 +67,15 @@ Work Intelligence 的資料模型、Session metadata 契約、一致性保證、
 
 ### 儲存文字上的有界工作（1.6.27 盤點）
 
-Agent 或 REST 觸發、工作量隨「儲存文字長度」或「呼叫端詞／路徑」成長的路徑，每一條都要先計費再做，預算用完就停並告知呼叫端。上限的程式位置與理由寫在各常數旁（`list-search-scan.ts`、`applies-to-match.ts`、`outstanding-item-relevance.ts`）。
+Agent 或 REST 觸發、工作量隨「儲存文字長度」或「呼叫端詞／路徑」成長的路徑，都限制「每一筆」的成本，而不是用固定總量截斷合法資料：每筆記錄（或每組樣式 × 檔案）能花的工作有上限，總量隨合法筆數線性成長；只有本來就有筆數上限的掃描（最新 2,000 筆 Knowledge、2,000 筆待辦）保留固定總量。超過單筆上限的記錄不讀、不比對，並告知呼叫端。上限的程式位置與理由寫在各常數旁（`list-search-scan.ts`、`applies-to-match.ts`、`outstanding-item-relevance.ts`）。在 20,000 個合成 Session、2,000 筆 Knowledge 的合法資料上，一般輸入沒有任何路徑截斷或警告，有固定總量的路徑最多用掉 20%。
 
 | 路徑 | 呼叫端上限 | 儲存端上限 | 計費與停止訊號 |
 | --- | --- | --- | --- |
-| Knowledge／Session 列表 `q`（REST 列表、`work_search_knowledge` 嚴格搜尋與其他狀態計數、`work_list_sessions`） | 8 詞 × 200 字元 | 不限筆數；每筆依欄位位元組數 | `instr()` 取代 `LIKE`；每詞讀一筆前計入 24M 位元組 × 詞；`warnings` |
-| `work_recall`／`work_get_context` 路徑、寬鬆搜尋的路徑詞（`search_paths`） | 20 個 × 1,000 字元（寬鬆搜尋 5 個） | 每筆儲存路徑的位元組數 | `instr()`；整次呼叫共用一個掃描上限；recall `warnings`、寬鬆搜尋 `appliesToScanTruncated` |
-| `appliesTo` 比對（recall 寬鬆搜尋、檔案歷史、`knowledgeToReview` 第一階段、過時判斷） | 20 路徑 × 1,000 字元 | 讀入前 SQL 擋掉超過 `MAX_STORED_APPLIES_TO_JSON_BYTES` 的列；30 項 × 1,000 字元進入比對 | 每個字元操作計費（1.6.26），JSON 解析 4 單位／字元；`appliesToScanTruncated`／`knowledgeToReviewTruncated`／`stalenessUnchecked` |
-| `knowledgeToReview` 第二階段（之後的 Session） | 本次 changed files | 同專案之後的 Session；每筆 changed files 讀入上限約 1.2 MB | 所有候選共用一次掃描：SQL 片段過濾依位元組 × 片段數計費，解析前計費；`knowledgeToReviewTruncated` |
-| 過時判斷讀取之後的 Session | —（儲存資料對儲存資料） | 同上 | 逐筆讀取、解析與正規化前計費，用完標 `stalenessUnchecked` |
+| Knowledge／Session 列表 `q`（REST 列表、`work_search_knowledge` 嚴格搜尋與其他狀態計數、`work_list_sessions`） | 8 詞 × 200 字元 | 每筆被搜尋欄位最多 256 KiB（Knowledge）／4 MiB（Session），高於寫入上限允許的最大列 | `instr()` 取代 `LIKE`，每詞每位元組成本固定；總量隨筆數線性。超過單筆上限的列不讀，`warnings` 與 `searchSkippedRecords`（Web 列表顯示提示） |
+| `work_recall`／`work_get_context` 路徑、寬鬆搜尋的路徑詞（`search_paths`） | 20 個 × 1,000 字元（寬鬆搜尋 5 個） | 每筆儲存路徑最多 4 KiB | `instr()`；超過的路徑不比對，recall `warnings`、寬鬆搜尋 `appliesToScanTruncated` |
+| `appliesTo` 比對（寬鬆搜尋、檔案歷史、`knowledgeToReview` 第一階段） | 20 路徑 × 1,000 字元 | 最新 2,000 筆；讀入前 SQL 擋掉超過 `MAX_STORED_APPLIES_TO_JSON_BYTES` 的列；30 項 × 1,000 字元進入比對 | 每個字元操作計費，固定 20M 單位（有筆數上限）；JSON 解析 4 單位／字元；`appliesToScanTruncated`／`knowledgeToReviewTruncated` |
+| `knowledgeToReview` 第二階段（之後的 Session） | 本次 changed files | 同專案之後的 Session；每筆 changed files 讀入上限約 1.2 MB | 所有候選共用一次掃描，每個不同樣式對每個 Session 比一次；每讀一筆先授予 3 倍一般成本（每 Session 最多 32 個不同樣式），總量隨 Session 數線性；`knowledgeToReviewTruncated` |
+| 過時判斷讀取之後的 Session | —（儲存資料對儲存資料） | 同上 | 逐筆讀取；每筆與每組樣式 × 檔案先授予 3 倍一般成本再計費，總量隨歷史線性；只有讀不到（超過讀入上限）或刻意構造的樣式耗盡時才標 `stalenessUnchecked` |
 | finalize／context 的相關未結項（`relatedPending`） | 24 詞、20 路徑 | 最多 2,000 筆候選；changed files 每個來源 Session 讀一次 | 每筆候選評分前計費（50M 單位）；`truncated` |
 | FTS `MATCH`（recall、search、寬鬆搜尋） | 32 個 token | 索引驅動 | 與符合文件數成正比，不隨儲存文字長度重試 |
 | 回傳記錄的 JSON 欄位解析、metadata backfill 預覽、圖譜、時間軸、熱點 | 分頁或日期範圍 | 與合法歷史筆數成正比 | 未另設預算；見 1.6.27 發行說明「未納入」 |

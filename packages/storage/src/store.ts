@@ -538,7 +538,7 @@ export class WorkIntelligenceStore {
     this.searchIndex = new SearchRepository(this.db);
     this.knowledgeSearch = new KnowledgeSearchService({
       searchKnowledge: (query) => this.searchKnowledge(query),
-      countKnowledge: (query, scanBudget) => this.knowledge.count(query, scanBudget),
+      countKnowledge: (query) => this.knowledge.count(query),
       rankKnowledge: (options) => this.searchIndex.rankKnowledge(options),
       getKnowledgeWithTrustMany: (knowledgeIds) => this.trackedKnowledgeWithTrust(knowledgeIds),
     });

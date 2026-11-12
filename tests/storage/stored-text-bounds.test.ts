@@ -4,9 +4,14 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  APPLIES_TO_MATCH_UNIT_LIMIT,
+  APPLIES_TO_STALENESS_UNIT_LIMIT,
   appliesToStrength,
   createAppliesToBudget,
   MAX_STORED_APPLIES_TO_JSON_BYTES,
+  MAX_STORED_CHANGED_FILES_JSON_BYTES,
+  setAppliesToBudgetProbe,
+  type AppliesToBudget,
 } from "../../packages/storage/src/applies-to-match.js";
 import { findKnowledgeToReview } from "../../packages/storage/src/knowledge-review-hint.js";
 import {
@@ -15,7 +20,7 @@ import {
   RELATED_PENDING_UNIT_LIMIT,
 } from "../../packages/storage/src/outstanding-item-relevance.js";
 import {
-  LIST_SEARCH_SCAN_BUDGET,
+  KNOWLEDGE_SEARCH_ROW_BYTES,
   MAX_LIST_SEARCH_TERM_LENGTH,
   MAX_LIST_SEARCH_TERMS,
   parseListSearchTerms,
@@ -51,8 +56,8 @@ function trackedStore(): { store: WorkIntelligenceStore; root: string; db: Datab
   return { store, root, db: (store as unknown as { db: DatabaseSync }).db, projectId: project.id };
 }
 
-function probe(budget?: number): ListSearchScanProbe {
-  const scans: ListSearchScanProbe = { scans: [], ...(budget === undefined ? {} : { budget }) };
+function probe(maxRowBytes?: number): ListSearchScanProbe {
+  const scans: ListSearchScanProbe = { scans: [], ...(maxRowBytes === undefined ? {} : { maxRowBytes }) };
   setListSearchScanProbe(scans);
   cleanups.push(() => setListSearchScanProbe(undefined));
   return scans;
@@ -137,34 +142,35 @@ describe("Knowledge list search", () => {
     expect(scans.scans).toHaveLength(1);
     const [scan] = scans.scans;
     expect(scan).toMatchObject({
-      exhausted: false,
+      overBound: 0,
       rowsCharged: rows * MAX_LIST_SEARCH_TERMS,
       bytesCharged: bytes * MAX_LIST_SEARCH_TERMS,
     });
     expect(scan!.charged).toBe((bytes + rows) * MAX_LIST_SEARCH_TERMS);
-    expect(scan!.charged).toBeLessThanOrEqual(LIST_SEARCH_SCAN_BUDGET);
+    // Every row is within the per-row cap, which is above the largest row the write limits allow.
+    expect(bytes / rows).toBeLessThan(KNOWLEDGE_SEARCH_ROW_BYTES);
     // A row the first word rules out is charged once, not once per word.
     const missing = probe();
     store.searchKnowledge({ projectRoot: root, q: `zzz ${NEAR_MISS_QUERY}` });
     expect(missing.scans[0]).toMatchObject({ rowsCharged: rows, charged: bytes + rows });
   });
 
-  it("stops at the scan budget, never reads a row it cannot afford, and says the result may be incomplete", () => {
+  it("never reads a row above the per-row cap, counts it, and says the result may be incomplete", () => {
     const { store, root, db } = trackedStore();
-    for (let index = 0; index < 6; index += 1) recordKnowledge(store, root, `k${index}`);
-    db.prepare("UPDATE knowledge SET body = ?").run(`needle ${"a".repeat(5_000)}`);
-    const { bytes, rows } = knowledgeBytes(db);
-    // Enough for about two rows: the others hold the word but are never searched.
-    const scans = probe(Math.floor((2.5 * (bytes + rows)) / rows));
+    const ids = Array.from({ length: 6 }, (_, index) => recordKnowledge(store, root, `k${index}`));
+    db.prepare("UPDATE knowledge SET body = ?").run("needle in a short body");
+    // Two rows hold the word past a long run; the cap is set between the short and the long rows.
+    db.prepare("UPDATE knowledge SET body = ? WHERE id IN (?, ?)").run(`${"a".repeat(5_000)} needle`, ids[0]!, ids[1]!);
+    const scans = probe(2_000);
     const result = store.searchKnowledge({ projectRoot: root, q: "needle" });
     if (result.outcome !== "knowledge") throw new Error("Expected a Knowledge result.");
-    const [scan] = scans.scans;
-    expect(scan!.exhausted).toBe(true);
-    expect(scan!.charged).toBeLessThanOrEqual(scans.budget!);
-    expect(scan!.rowsCharged).toBe(2);
-    expect(result.items).toHaveLength(2);
-    expect(result.pageInfo.total).toBe(2);
-    expect(result.warnings).toEqual([expect.stringContaining("text-scan limit")]);
+    expect(scans.scans[0]).toMatchObject({ overBound: 2, rowsCharged: 4 });
+    expect(result.items.map((item) => item.id).sort()).toEqual(ids.slice(2).sort());
+    expect(result.warnings).toEqual([expect.stringContaining("2 records are longer than")]);
+    // Without the lowered cap every row is searched and nothing is reported: there is no total budget.
+    probe();
+    expect(store.searchKnowledge({ projectRoot: root, q: "needle" })).toMatchObject({ pageInfo: { total: 6 } });
+    expect(store.searchKnowledge({ projectRoot: root, q: "needle" })).not.toHaveProperty("warnings");
   });
 
   it("matches a cut word by its prefix and reports the cut to the Agent search too", () => {
@@ -179,16 +185,12 @@ describe("Knowledge list search", () => {
     ]);
   });
 
-  it("shares one budget across the other-status counts of an empty Agent search", () => {
+  it("says when the other-status counts of an empty Agent search skipped an over-long row", () => {
     const { store, root, db } = trackedStore();
     for (let index = 0; index < 4; index += 1) recordKnowledge(store, root, `k${index}`);
-    db.prepare("UPDATE knowledge SET body = ?, status = 'archived'").run("a".repeat(5_000));
-    const scans = probe(10_000);
+    db.prepare("UPDATE knowledge SET body = ?, status = 'archived'").run(`zzz ${"a".repeat(5_000)}`);
+    probe(2_000);
     const result = store.searchKnowledgeForAgent({ projectRoot: root, q: "zzz" });
-    // The strict scan has its own budget; the counts of the other statuses spend one budget between them.
-    const counts = scans.scans.slice(1);
-    expect(counts.length).toBeGreaterThan(0);
-    expect(counts.reduce((total, scan) => total + scan.charged, 0)).toBeLessThanOrEqual(LIST_SEARCH_SCAN_BUDGET);
     expect(result.outcome === "knowledge" && result.warnings).toEqual(
       expect.arrayContaining([expect.stringContaining("otherStatusMatches may be low")]),
     );
@@ -230,20 +232,20 @@ describe("Sessions list search", () => {
       .get() as { rows: number; bytes: number };
     // The first near-miss word rules every row out, after being charged for all of its text.
     const [scan] = scans.scans;
-    expect(scan).toMatchObject({ exhausted: false, rowsCharged: stored.rows, bytesCharged: stored.bytes });
+    expect(scan).toMatchObject({ overBound: 0, rowsCharged: stored.rows, bytesCharged: stored.bytes });
     expect(scan!.charged).toBe(stored.bytes + stored.rows);
 
-    // About one and a half rows for a one-word query: the first row matches, the second is never read.
-    probe(Math.floor((1.5 * (stored.bytes + stored.rows)) / stored.rows));
+    // A cap below these rows: none is read, each is counted, and the answer says so.
+    probe(1_000);
     expect(store.listSessionsPage({ query: "a", trackedOnly: true })).toMatchObject({
-      items: [{}],
-      warnings: [expect.stringContaining("text-scan limit")],
+      items: [],
+      warnings: [expect.stringContaining("3 records are longer than")],
     });
   });
 });
 
 describe("recall path comparison", () => {
-  it("charges each stored path before the substring test and reports a spent budget", () => {
+  it("checks each stored path against the per-path cap before the substring test and reports skipped paths", () => {
     const { store, root } = trackedStore();
     finalize(store, root, "paths", ["src/alpha/one.ts", "src/beta/two.ts"], "2026-03-01T10:00:00.000Z");
     const scans = probe();
@@ -253,7 +255,7 @@ describe("recall path comparison", () => {
     expect(scans.scans[0]!.rowsCharged).toBeGreaterThan(0);
     probe(1);
     expect(store.recall({ projectRoot: root, paths: ["src/alpha"] })).toMatchObject({
-      warnings: [expect.stringContaining("text-scan limit")],
+      warnings: [expect.stringContaining("were not compared")],
     });
   });
 });
@@ -293,18 +295,18 @@ describe("finalize knowledgeToReview", () => {
     expect(ids).toHaveLength(40);
   });
 
-  it("stops with knowledgeToReviewTruncated when the pass cannot afford the next Session", () => {
+  it("stops with knowledgeToReviewTruncated at a later Session whose list is above the load bound", () => {
     const { store, root, db, projectId } = trackedStore();
     recordKnowledge(store, root, "c", ["src/lease.ts"]);
     db.prepare("UPDATE knowledge SET created_at = ?, updated_at = ?").run(
       "2026-01-01T00:00:00.000Z",
       "2026-01-01T00:00:00.000Z",
     );
-    for (let index = 0; index < 5; index += 1) {
-      finalize(store, root, `near${index}`, [`src/lease.ts.${index}.bak`], `2026-02-0${index + 1}T00:00:00.000Z`);
-    }
+    finalize(store, root, "huge", ["src/other.ts"], "2026-02-01T00:00:00.000Z");
+    db.prepare("UPDATE sessions SET changed_files_json = ? WHERE idempotency_key = 'huge'").run(
+      JSON.stringify([`src/lease.ts.${"x".repeat(MAX_STORED_CHANGED_FILES_JSON_BYTES)}`]),
+    );
     const session = finalize(store, root, "focus", ["src/lease.ts"], "2026-03-01T00:00:00.000Z").session;
-    const scans = probe(1);
     const result = findKnowledgeToReview(db, {
       projectId,
       sessionId: session.id,
@@ -313,12 +315,39 @@ describe("finalize knowledgeToReview", () => {
       project: { name: "Synthetic Bounds", rootPath: root },
     });
     expect(result).toEqual({ hints: [], truncated: true });
-    expect(scans.scans[0]!.exhausted).toBe(true);
+  });
+
+  it("lets legitimate history of any length finish: the budget grows with the Sessions it reads", () => {
+    const { store, root, db, projectId } = trackedStore();
+    recordKnowledge(store, root, "c", ["src/lease.ts"]);
+    db.prepare("UPDATE knowledge SET created_at = ?, updated_at = ?").run(
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    // 60 Sessions of 200 long paths that all contain the fragment: parsed and compared, about 60M units in total.
+    const files = Array.from({ length: 200 }, (_, file) => `src/lease.ts.${file}.${"y".repeat(900)}`);
+    for (let index = 0; index < 60; index += 1) {
+      finalize(store, root, `long${index}`, files, `2026-02-02T00:${String(index).padStart(2, "0")}:00.000Z`);
+    }
+    const session = finalize(store, root, "focus", ["src/lease.ts"], "2026-03-01T00:00:00.000Z").session;
+    const budgets: AppliesToBudget[] = [];
+    setAppliesToBudgetProbe(budgets);
+    cleanups.push(() => setAppliesToBudgetProbe(undefined));
+    const result = findKnowledgeToReview(db, {
+      projectId,
+      sessionId: session.id,
+      completedAt: session.completedAt,
+      changedFiles: ["src/lease.ts"],
+      project: { name: "Synthetic Bounds", rootPath: root },
+    });
+    expect(result).toMatchObject({ hints: [{}], truncated: false });
+    expect(budgets[0]!.units).toBeGreaterThan(APPLIES_TO_MATCH_UNIT_LIMIT);
+    expect(budgets[0]!.units).toBeLessThanOrEqual(budgets[0]!.limit / 2);
   });
 });
 
 describe("staleness check", () => {
-  it("charges later changed-file lists before parsing them and marks the records unchecked when spent", () => {
+  it("reads long legitimate history to the end, and marks the record unchecked only when it cannot", () => {
     const { store, root, db } = trackedStore();
     const id = recordKnowledge(store, root, "stale", ["src/target.ts"]);
     db.prepare("UPDATE knowledge SET created_at = ?, updated_at = ?").run(
@@ -327,7 +356,7 @@ describe("staleness check", () => {
     );
     const files = Array.from({ length: 200 }, (_, file) => `${file}${ENTRY.slice(1)}`);
     finalize(store, root, "seed", files, "2026-02-01T00:00:00.000Z");
-    // Copies of the largest allowed list: 40 x 200 x 1,000 characters is more than the staleness budget can parse.
+    // Copies of the largest allowed list: 40 x 200 x 1,000 characters, more than the fixed 50M units could parse.
     const row = db.prepare("SELECT * FROM sessions WHERE idempotency_key = 'seed'").get() as Record<string, unknown>;
     const columns = Object.keys(row);
     const insert = db.prepare(
@@ -338,14 +367,20 @@ describe("staleness check", () => {
       insert.run(...(columns.map((column) => copy[column]) as Array<string | number | null>));
     }
     finalize(store, root, "touch", ["src/target.ts"], "2026-02-02T00:00:00.000Z");
-    const result = store.searchKnowledge({ projectRoot: root });
-    expect(result).toMatchObject({ items: [{ id, stalenessUnchecked: true }] });
-    expect(result.outcome === "knowledge" && result.items[0]!.possiblyStale).toBeFalsy();
-    // Ordinary history is read whole and gives the marker.
-    db.prepare("DELETE FROM sessions WHERE id LIKE 'copy-%'").run();
+    const budgets: AppliesToBudget[] = [];
+    setAppliesToBudgetProbe(budgets);
+    cleanups.push(() => setAppliesToBudgetProbe(undefined));
     expect(store.searchKnowledge({ projectRoot: root })).toMatchObject({
       items: [{ id, possiblyStale: { sessionCount: 1 } }],
     });
+    expect(budgets[0]!.units).toBeGreaterThan(APPLIES_TO_STALENESS_UNIT_LIMIT);
+    // A later list above the load bound cannot be read: the record is unchecked, not reported current.
+    db.prepare("UPDATE sessions SET changed_files_json = ? WHERE id = 'copy-0'").run(
+      JSON.stringify([`src/${"x".repeat(MAX_STORED_CHANGED_FILES_JSON_BYTES)}`]),
+    );
+    const result = store.searchKnowledge({ projectRoot: root });
+    expect(result).toMatchObject({ items: [{ id, stalenessUnchecked: true }] });
+    expect(result.outcome === "knowledge" && result.items[0]!.possiblyStale).toBeFalsy();
   });
 });
 

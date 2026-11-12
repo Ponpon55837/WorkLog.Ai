@@ -11,22 +11,30 @@ import type { DatabaseSync } from "node:sqlite";
  *   MAX_LIST_SEARCH_TERM_LENGTH.
  * - Real Agent and Web queries are 2-6 short words; the longest word in the 41 real Knowledge queries is a 41-character
  *   path, and the longest stored changed-file path is 81 characters. 200 characters keeps every real path whole.
- * - Each word is charged before it reads a row: the byte length of the row's searched columns (from the record
- *   header, so an over-long row is never loaded). SQLite stops at the first word a row lacks, so ordinary queries pay
- *   about one pass over the text; an adversarial one pays at most one pass per word. When the call's scan budget is
- *   spent, the remaining rows are not searched and the caller is told so with a warning.
+ * - Each word's test of a row runs only after the row's searched bytes (from the record header, so a long row is
+ *   never loaded) were checked against a per-row cap. A row above the cap is not searched (it counts as not matching)
+ *   and is counted, and the caller is told how many were skipped. There is no total budget: an earlier version capped
+ *   the whole scan, which on legitimate data of 20,000 Sessions cut an ordinary three-word query short. What the attack
+ *   needed was amplification per row (LIKE made one row cost hundreds of times an ordinary one); with instr and the
+ *   cap, a row costs at most its bytes x words x about 5.4 ns, so the scan stays linear in the stored text.
+ *
+ * Worst case at the caps (development machine): about 11 ms per Knowledge row (256 KiB x 8 words), 0.18 s per Session
+ * row (4 MiB x 8 words), 20 us per stored path and queried path; ordinary text of the same size costs a fifth to a
+ * tenth of that, and legitimate rows are far below the caps (a real Session is about 1.5 KB of searched text).
  */
 export const MAX_LIST_SEARCH_TERMS = 8;
 export const MAX_LIST_SEARCH_TERM_LENGTH = 200;
 /**
- * Byte x term units one list search may scan. The slowest measured unit (the Knowledge list: eight 200-character
- * near-miss words over 2,000 rows of the largest allowed appliesTo, five LOWER() copies per word) is about 5.3 ns on
- * the development machine (the Sessions list with json_each 5.4 ns), so a spent budget stops after about 130 ms; the
- * Agent Knowledge search runs at most two budgets (the strict list, then the other-status counts). Ordinary text costs
- * 0.3-1 ns per unit; a real query over the real data (328 Sessions, 64 Knowledge) uses at most a few percent of it.
+ * Per-row caps on the bytes one word may scan. Each is above the largest row the write limits allow in UTF-8 (a
+ * Knowledge row: 300 + 20,000 characters of title and body, 30 tags, 30 references and 30 appliesTo entries of up to
+ * 1,000 characters, about 250 KB with three-byte characters; a Session row: a 400,000-character work summary plus
+ * summary, changed files and events, about 1.5 MB; a stored path: 1,000 characters), so only a hand-written row is
+ * skipped.
  */
-export const LIST_SEARCH_SCAN_BUDGET = 24_000_000;
-/** SQL function that charges one row for one word: CASE WHEN wi_list_search_charge(bytes) THEN <word> ELSE 0 END. */
+export const KNOWLEDGE_SEARCH_ROW_BYTES = 256 * 1024;
+export const SESSION_SEARCH_ROW_BYTES = 4 * 1024 * 1024;
+export const PATH_SEARCH_ROW_BYTES = 4 * 1024;
+/** SQL function that checks one row for one word: CASE WHEN wi_list_search_charge(bytes) THEN <word> ELSE 0 END. */
 export const LIST_SEARCH_CHARGE_FUNCTION = "wi_list_search_charge";
 
 export interface ListSearchTerms {
@@ -37,21 +45,23 @@ export interface ListSearchTerms {
 }
 
 export interface ListSearchScan {
-  /** Units per stored byte of each charge: 1 for a word, the number of fragments for an OR of them. */
+  /** Units per stored byte of each check: 1 for a word, the number of fragments for an OR of them. */
   readonly termCount: number;
-  remaining: number;
-  exhausted: boolean;
-  /** Units charged so far (debug counter for tests). */
+  /** Rows above this many searched bytes are not searched. */
+  readonly maxRowBytes: number;
+  /** Checks refused because the row was above maxRowBytes. */
+  overBound: number;
+  /** Units (bytes x termCount, plus one per check) the granted checks allowed to be read (debug counter for tests). */
   charged: number;
-  /** Charges granted: rows times the words that read them (debug counter for tests). */
+  /** Checks granted: rows times the words that read them (debug counter for tests). */
   rowsCharged: number;
-  /** Stored bytes the granted charges allowed to be read (debug counter for tests). */
+  /** Stored bytes the granted checks allowed to be read (debug counter for tests). */
   bytesCharged: number;
 }
 
-/** Test instrumentation: records every scan, and may lower the budget of the next ones. */
+/** Test instrumentation: records every scan, and may lower the row cap of the next ones. */
 export interface ListSearchScanProbe {
-  budget?: number;
+  maxRowBytes?: number;
   scans: ListSearchScan[];
 }
 
@@ -62,17 +72,12 @@ let scanProbe: ListSearchScanProbe | undefined;
 function chargeRow(bytes: unknown): number {
   const scan = activeScan;
   if (!scan) return 1;
-  if (scan.exhausted) return 0;
   const length = typeof bytes === "number" && Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
-  // One unit per stored byte (times the fragments an OR reads), plus one for the row itself.
-  const units = (length + 1) * scan.termCount;
-  if (units > scan.remaining) {
-    scan.remaining = 0;
-    scan.exhausted = true;
+  if (length > scan.maxRowBytes) {
+    scan.overBound += 1;
     return 0;
   }
-  scan.remaining -= units;
-  scan.charged += units;
+  scan.charged += (length + 1) * scan.termCount;
   scan.rowsCharged += 1;
   scan.bytesCharged += length;
   return 1;
@@ -138,29 +143,29 @@ export function splitSearchTerms(query: string): string[] {
   return parseListSearchTerms(query).terms;
 }
 
-/** The warning a list search adds when its scan budget ran out. */
-export function listSearchTruncatedWarning(scan: ListSearchScan): string | undefined {
-  if (!scan.exhausted) return undefined;
-  return `The search stopped after reading ${scan.rowsCharged} records (its text-scan limit), so older records were not searched and the results may be incomplete. Narrow it with a project, a date range, or fewer or shorter words.`;
+/** The warning a list search adds when it skipped rows above the per-row cap. */
+export function listSearchOverBoundWarning(scan: ListSearchScan): string | undefined {
+  if (scan.overBound === 0) return undefined;
+  return `${scan.overBound} ${scan.overBound === 1 ? "record is" : "records are"} longer than the ${Math.round(scan.maxRowBytes / 1024)} KB a search reads per record and ${scan.overBound === 1 ? "was" : "were"} not searched, so the results may be incomplete.`;
 }
 
 /**
- * Runs `run` with a fresh scan budget; each charge costs `termCount` units per stored byte. The SQL it runs must guard
- * each word's test of a row with `CASE WHEN wi_list_search_charge(<byte length of the searched columns>) THEN …
- * ELSE 0 END`, so a row's text is read only after it was charged; once the budget is spent every later test fails. node:sqlite is
+ * Runs `run` with a fresh scan; `termCount` is the units per stored byte of each check (debug counters only). The
+ * SQL it runs must guard each word's test of a row with `CASE WHEN wi_list_search_charge(<byte length of the searched
+ * columns>) THEN … ELSE 0 END`, so a row's text is read only when it is within `maxRowBytes`. node:sqlite is
  * synchronous, so one scan is active at a time; the previous one is restored for nested calls.
  */
 export function runListSearchScan<T>(
   db: DatabaseSync,
   termCount: number,
   run: (scan: ListSearchScan) => T,
-  budget = LIST_SEARCH_SCAN_BUDGET,
+  maxRowBytes: number,
 ): { value: T; scan: ListSearchScan } {
   registerListSearchFunctions(db);
   const scan: ListSearchScan = {
     termCount: Math.max(1, termCount),
-    remaining: scanProbe?.budget ?? budget,
-    exhausted: false,
+    maxRowBytes: scanProbe?.maxRowBytes ?? maxRowBytes,
+    overBound: 0,
     charged: 0,
     rowsCharged: 0,
     bytesCharged: 0,

@@ -110,7 +110,8 @@
     "workHistory": "工作歷程",
     "workKnowledge": "工作知識",
     "yes": "是",
-    "yesterday": "昨天"
+    "yesterday": "昨天",
+    "searchSkippedRecords": "有 {count} 筆記錄超過單筆搜尋上限而未搜尋，結果可能不完整；請縮小搜尋範圍。"
   },
   "dashboard": {
     "activityCalendarLabel": "過去一年的工作熱度，每格一天",

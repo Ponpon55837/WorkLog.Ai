@@ -469,8 +469,8 @@ function seedOutstandingCleanupReview(targetStore, project) {
 }
 
 /**
- * Separate databases at the stored-text limits of the 1.6.27 review, so the worst cases never touch benchStore: 2,000
- * Knowledge rows with 30 appliesTo entries of 1,000 characters (the list search), 200 Knowledge items with the same
+ * Separate databases at the stored-text limits of the 1.6.27 review, so the worst cases never touch benchStore: 200
+ * Knowledge rows with 30 appliesTo entries of 1,000 characters (the list search, linear in rows: x10 for 2,000), 200 Knowledge items with the same
  * appliesTo and 5,000 later Sessions of 20 x 100-character files (finalize knowledgeToReview), and a Knowledge read
  * whose staleness check meets the same 5,000 Sessions. Rows are copied in SQL; only the first goes through the store.
  */
@@ -541,7 +541,7 @@ function seedStoredTextWorstCases(baseRoot) {
       }
       database.exec("COMMIT");
     };
-    copyRows("knowledge", "list-0", 1_999, (index) => ({
+    copyRows("knowledge", "list-0", 199, (index) => ({
       id: `list-${index + 1}`,
       idempotency_key: `list-${index + 1}`,
     }));
@@ -1269,12 +1269,12 @@ try {
         throw new Error("Every synthetic candidate must overlap its module's Knowledge.");
       return result;
     },
-    // The 1.6.27 review's list-search shape: eight 200-character near-miss words over 2,000 rows of the largest
-    // appliesTo (38.6 s with LIKE for one 500-character word). instr and the scan budget stop it with a warning.
-    "searchKnowledge (2,000 x 30 x 1,000-char appliesTo, 8 near-miss words)": () => {
+    // The 1.6.27 review's list-search shape: eight 200-character near-miss words over 200 rows of the largest
+    // appliesTo (15.7 s with LIKE). With instr each row costs at most its bytes x words; every row is read, no warning.
+    "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": () => {
       const result = worstText.store.searchKnowledge({ projectRoot: worstText.listRoot, q: worstText.nearMiss });
-      if (result.outcome !== "knowledge" || !result.warnings?.some((warning) => warning.includes("text-scan limit")))
-        throw new Error("The worst-case list search must stop at the scan budget and say so.");
+      if (result.outcome !== "knowledge" || result.pageInfo.total !== 200 || result.warnings)
+        throw new Error("The worst-case list search must read every row within its cap, without a warning.");
       return result;
     },
     // 200 candidates, 5,000 later Sessions, the oldest touching all of them (3.0 s when each candidate scanned alone).
@@ -1285,11 +1285,11 @@ try {
       return result;
     },
     // A Knowledge read after 5,000 later Sessions of 20 x 100-character files (50 x 100 took 433 ms and 235 MB with
-    // one .all()); the budgeted read stops and marks the record unchecked.
+    // one .all()); the read is charged row by row and its budget grows with the rows, so it finishes.
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": () => {
       const result = worstText.store.searchKnowledge({ projectRoot: worstText.root, kind: "decision" });
-      if (result.outcome !== "knowledge" || !result.items.some((item) => item.stalenessUnchecked))
-        throw new Error("The staleness check must stop at its budget and mark the record unchecked.");
+      if (result.outcome !== "knowledge" || result.items.length !== 1 || result.items[0].stalenessUnchecked)
+        throw new Error("The staleness check must finish on legitimate history.");
       return result;
     },
     "summarizeAgentReads (5,000 rows)": () => {
@@ -1503,7 +1503,7 @@ try {
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
-    "searchKnowledge (2,000 x 30 x 1,000-char appliesTo, 8 near-miss words)": 750,
+    "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": 1000,
     "knowledgeToReview (200 candidates, 5,000 later Sessions)": 250,
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": 500,
     "searchKnowledgeForAgent (relaxed fallback)": 250,

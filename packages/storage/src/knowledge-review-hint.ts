@@ -2,8 +2,10 @@ import type { DatabaseSync } from "node:sqlite";
 import type { KnowledgeReviewHint } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
 import {
+  APPLIES_TO_GRANT_FACTOR,
   APPLIES_TO_SCAN_LIMIT,
   appliesToColumnSql,
+  appliesToPairEstimate,
   appliesToScanIncomplete,
   chargeAppliesTo,
   chargeNormalizePath,
@@ -11,6 +13,7 @@ import {
   classifyAppliesTo,
   compileAppliesTo,
   createAppliesToBudget,
+  grantAppliesTo,
   MAX_STORED_CHANGED_FILES_JSON_BYTES,
   storedAppliesTo,
   type AppliesToBudget,
@@ -54,7 +57,6 @@ type OpenCandidate = {
   candidate: Candidate;
   since: string;
   own: Set<string | null>;
-  matchers: AppliesToMatcher[];
   decision: Decision;
 };
 
@@ -71,11 +73,12 @@ const MIN_FRAGMENT_LENGTH = 3;
  */
 const MAX_FRAGMENT_LENGTH = 64;
 /**
- * Most distinct fragments the one Session pass narrows by in SQL. Each costs one instr() per stored byte, charged
- * before the row is read; with more (only many Knowledge items with different appliesTo can name the same changed
+ * Most distinct fragments the one Session pass narrows by in SQL. Each costs one instr() per stored byte; with more (only many Knowledge items with different appliesTo can name the same changed
  * files) narrowing would cost more than it saves, so every later Session is parsed instead, also charged.
  */
 const MAX_SCAN_FRAGMENTS = 16;
+/** Distinct patterns per later Session whose ordinary comparisons are granted (see selectNewlyInDoubt). */
+const MAX_GRANTED_PATTERNS = 32;
 
 /**
  * The longest run of plain path characters in a normalized pattern. Every path the pattern covers contains it (a
@@ -94,8 +97,9 @@ function requiredFragment(pattern: string): string | undefined {
  * Session since the last confirmation or creation, other than the Knowledge's own Sessions, whose changed files an
  * appliesTo entry covers), asked for "anyone but this Session". One pass reads the later Sessions newest first, shared
  * by every candidate (it used to run one SQL scan per candidate, uncharged for the rows it skipped): SQL keeps only
- * Sessions whose changed-files text contains a fragment some candidate requires, each row charged by its byte length
- * times the fragments before instr reads it, and each kept Session's list is charged before it is parsed. A candidate
+ * Sessions whose changed-files text contains a fragment some candidate requires (a row above the load bound is not
+ * read), and each kept Session's list, its paths and its comparisons are charged before they run, after granting three
+ * times their ordinary cost, so the pass is linear in the later Sessions and a crafted entry still runs out. A candidate
  * is decided when a Session touches it, or when the pass reaches Sessions not after its `since`; the pass stops once
  * the first KNOWLEDGE_TO_REVIEW_LIMIT undecided-or-newly candidates in order are all decided. Returns the hints'
  * candidates in order and whether either budget ran out (then only the candidates decided before it count).
@@ -108,20 +112,17 @@ function selectNewlyInDoubt(
   budget: AppliesToBudget,
 ): { selected: Candidate[]; truncated: boolean } {
   const open: OpenCandidate[] = [];
+  const matchers = new Map<string, AppliesToMatcher>();
   for (const candidate of candidates) {
     const { row, patterns } = candidate;
     const since = row.last_confirmed_at ?? row.created_at;
     // A backfilled Session that finished before the Knowledge was confirmed does not put it in doubt.
     if (focus.completedAt <= since) continue;
-    const matchers = patterns.map((pattern) => compileAppliesTo(pattern, budget));
+    for (const pattern of patterns) {
+      if (!matchers.has(pattern)) matchers.set(pattern, compileAppliesTo(pattern, budget));
+    }
     if (budget.exhausted) return { selected: [], truncated: true };
-    open.push({
-      candidate,
-      since,
-      own: new Set([row.session_id, row.last_confirmed_session_id]),
-      matchers,
-      decision: "open",
-    });
+    open.push({ candidate, since, own: new Set([row.session_id, row.last_confirmed_session_id]), decision: "open" });
   }
   if (open.length === 0) return { selected: [], truncated: false };
   // requiredFragment reads each pattern once.
@@ -164,39 +165,68 @@ function selectNewlyInDoubt(
     }
     return true;
   };
-  const { scan } = runListSearchScan(db, narrowed ? distinct.length : 1, (rowScan) => {
-    for (const session of statement.iterate(...parameters) as Iterable<{
-      id: string;
-      completed_at: string;
-      changed_files_json: string | null;
-    }>) {
-      // A row the narrowing could not afford comes back unfiltered; the pass stops there.
-      if (budget.exhausted || rowScan.exhausted) return;
-      // Deciding the candidates in order is charged per open candidate and Session.
-      if (!chargeAppliesTo(budget, open.length) || settle(session.completed_at)) return;
-      if (session.changed_files_json === null) {
-        // Above the load bound: this Session's files cannot be compared, so no open candidate can be decided.
-        incomplete = true;
-        return;
-      }
-      if (!chargeStoredJson(budget, session.changed_files_json)) return;
-      const files: string[] = [];
-      for (const file of parseJson<string[]>(session.changed_files_json, [])) {
-        if (typeof file !== "string") continue;
-        if (!chargeNormalizePath(budget, file, contexts)) return;
-        const normalized = normalizePath(file, contexts);
-        if (normalized) files.push(normalized);
-      }
-      for (const entry of open) {
-        if (entry.decision !== "open" || session.completed_at <= entry.since || entry.own.has(session.id)) continue;
-        if (files.some((file) => entry.matchers.some((matches) => matches(file, budget)))) entry.decision = "touched";
+  runListSearchScan(
+    db,
+    narrowed ? distinct.length : 1,
+    () => {
+      for (const session of statement.iterate(...parameters) as Iterable<{
+        id: string;
+        completed_at: string;
+        changed_files_json: string | null;
+      }>) {
         if (budget.exhausted) return;
+        // Deciding the candidates in order is charged per open candidate and Session, after granting three times it:
+        // the pass is linear in the later Sessions it reads (APPLIES_TO_GRANT_FACTOR).
+        grantAppliesTo(budget, APPLIES_TO_GRANT_FACTOR * open.length);
+        if (!chargeAppliesTo(budget, open.length) || settle(session.completed_at)) return;
+        if (session.changed_files_json === null) {
+          // Above the load (and per-row narrowing) bound: its files cannot be compared, so open candidates stay open.
+          incomplete = true;
+          return;
+        }
+        if (!chargeStoredJson(budget, session.changed_files_json, true)) return;
+        const files: string[] = [];
+        for (const file of parseJson<string[]>(session.changed_files_json, [])) {
+          if (typeof file !== "string") continue;
+          if (!chargeNormalizePath(budget, file, contexts, true)) return;
+          const normalized = normalizePath(file, contexts);
+          if (normalized) files.push(normalized);
+        }
+        const eligible = open.filter(
+          (entry) => entry.decision === "open" && session.completed_at > entry.since && !entry.own.has(session.id),
+        );
+        if (eligible.length === 0) continue;
+        // Each distinct pattern is compared with this Session's files once, however many candidates share it. The
+        // grant covers ordinary pairs of at most MAX_GRANTED_PATTERNS distinct patterns per Session, so the pass stays
+        // linear in the later Sessions; more distinct patterns spend the fixed part of the budget and then stop.
+        const patterns = [...new Set(eligible.flatMap((entry) => entry.candidate.patterns))];
+        const fileCharacters = files.reduce((total, file) => total + file.length, 0);
+        grantAppliesTo(
+          budget,
+          APPLIES_TO_GRANT_FACTOR *
+            patterns
+              .slice(0, MAX_GRANTED_PATTERNS)
+              .reduce(
+                (total, pattern) => total + files.length * appliesToPairEstimate(0, pattern.length) + fileCharacters,
+                0,
+              ),
+        );
+        const touches = new Set<string>();
+        for (const pattern of patterns) {
+          const matches = matchers.get(pattern)!;
+          if (files.some((file) => matches(file, budget))) touches.add(pattern);
+          if (budget.exhausted) return;
+        }
+        for (const entry of eligible) {
+          if (entry.candidate.patterns.some((pattern) => touches.has(pattern))) entry.decision = "touched";
+        }
       }
-    }
-    // Every later Session was read: the candidates still open were touched by none of them.
-    for (const entry of open) if (entry.decision === "open") entry.decision = "newly";
-  });
-  const truncated = incomplete || scan.exhausted || budget.exhausted;
+      // Every later Session was read: the candidates still open were touched by none of them.
+      for (const entry of open) if (entry.decision === "open") entry.decision = "newly";
+    },
+    MAX_STORED_CHANGED_FILES_JSON_BYTES,
+  );
+  const truncated = incomplete || budget.exhausted;
   const selected: Candidate[] = [];
   for (const entry of open) {
     if (selected.length === KNOWLEDGE_TO_REVIEW_LIMIT || entry.decision === "open") break;

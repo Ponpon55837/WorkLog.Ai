@@ -43,6 +43,7 @@ const PATH_PAIR_UNITS = 16;
 const JSON_UNITS_PER_CHAR = 4;
 
 const TEXT_WEIGHT = 3;
+let relatedPendingProbe: number[] | undefined;
 const TITLE_WEIGHT = 0.5;
 const SUMMARY_WEIGHT = 0.25;
 const PATH_WEIGHT = 10;
@@ -93,6 +94,11 @@ export function rankRelatedPending<T extends RelatedPendingCandidate>(
   focus: RelatedPendingFocus,
 ): T[] {
   return rankRelatedPendingWithin(candidates, focus, Number.POSITIVE_INFINITY).ranked;
+}
+
+/** Measurement instrumentation only: records the units of every scoring run until called again. */
+export function setRelatedPendingProbe(probe: number[] | undefined): void {
+  relatedPendingProbe = probe;
 }
 
 /**
@@ -158,5 +164,6 @@ export function rankRelatedPendingWithin<T extends RelatedPendingCandidate>(
         compareBinary(left.candidate.id, right.candidate.id),
     )
     .map((entry) => entry.candidate);
+  relatedPendingProbe?.push(units);
   return { ranked, exhausted, units };
 }

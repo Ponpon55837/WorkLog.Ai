@@ -12,8 +12,8 @@ import type {
 } from "@work-intelligence/core";
 import {
   LIST_SEARCH_CHARGE_FUNCTION,
-  LIST_SEARCH_SCAN_BUDGET,
-  listSearchTruncatedWarning,
+  KNOWLEDGE_SEARCH_ROW_BYTES,
+  listSearchOverBoundWarning,
   parseListSearchTerms,
   runListSearchScan,
 } from "./list-search-scan.js";
@@ -21,10 +21,8 @@ import { createPageInfo } from "./pagination.js";
 
 export interface KnowledgeCount {
   count: number;
-  /** The text scan stopped at its budget, so count is a lower bound. */
+  /** Rows above the per-row search cap were skipped, so count may be low. */
   truncated: boolean;
-  /** Budget left for further counts of the same call. */
-  remainingBudget: number;
 }
 
 type KnowledgeRepositoryRow = {
@@ -115,6 +113,7 @@ export class KnowledgeRepository {
         ? this.searchTextPage(where, parameters, options.page, pageSize)
         : this.searchPage(where, parameters, options.page, pageSize);
     const allWarnings = [...warnings, ...page.warnings];
+    const skipped = page.skippedRecords ?? 0;
     return {
       outcome: "knowledge",
       project: scopedProject,
@@ -122,18 +121,16 @@ export class KnowledgeRepository {
       items: page.rows.map(this.mapKnowledge),
       pageInfo: page.pageInfo,
       ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
+      ...(skipped > 0 ? { searchSkippedRecords: skipped } : {}),
     };
   }
 
   /**
    * How many Knowledge records the list search would return in a scope the caller already passed through the policy
    * gate (an allowed projectId, or every tracked project), without reading them. A text query spends at most
-   * `scanBudget` units (see list-search-scan.ts); several counts of one call pass the remaining budget along.
+   * reads at most KNOWLEDGE_SEARCH_ROW_BYTES of each row (see list-search-scan.ts).
    */
-  public count(
-    options: KnowledgeQuery & { status: KnowledgeStatus },
-    scanBudget = LIST_SEARCH_SCAN_BUDGET,
-  ): KnowledgeCount {
+  public count(options: KnowledgeQuery & { status: KnowledgeStatus }): KnowledgeCount {
     const { where, parameters, terms } = this.whereClause(options, options.projectId);
     const countWhere = () =>
       (
@@ -146,9 +143,9 @@ export class KnowledgeRepository {
           )
           .get(...parameters) as { count: number }
       ).count;
-    if (terms.length === 0) return { count: countWhere(), truncated: false, remainingBudget: scanBudget };
-    const { value, scan } = runListSearchScan(this.db, 1, countWhere, scanBudget);
-    return { count: value, truncated: scan.exhausted, remainingBudget: scan.remaining };
+    if (terms.length === 0) return { count: countWhere(), truncated: false };
+    const { value, scan } = runListSearchScan(this.db, 1, countWhere, KNOWLEDGE_SEARCH_ROW_BYTES);
+    return { count: value, truncated: scan.overBound > 0 };
   }
 
   private searchPage(
@@ -156,7 +153,7 @@ export class KnowledgeRepository {
     parameters: Array<string | number>,
     page: number | undefined,
     pageSize: number,
-  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[] } {
+  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[]; skippedRecords?: number } {
     const total = (
       this.db
         .prepare(
@@ -184,26 +181,30 @@ export class KnowledgeRepository {
   /**
    * A text query scans the stored text once: the ordered ids of every match give the total, and the page is cut from
    * them before the full rows are read by primary key in the same order (as the Sessions list does). The page clamps
-   * to the total exactly as COUNT plus LIMIT/OFFSET did, and a spent scan budget cuts count and page alike.
+   * to the total exactly as COUNT plus LIMIT/OFFSET did, and a row above the per-row cap is left out of both.
    */
   private searchTextPage(
     where: string,
     parameters: Array<string | number>,
     page: number | undefined,
     pageSize: number,
-  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[] } {
-    const { value: ids, scan } = runListSearchScan(this.db, 1, () =>
-      (
-        this.db
-          .prepare(
-            `SELECT k.id
+  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[]; skippedRecords?: number } {
+    const { value: ids, scan } = runListSearchScan(
+      this.db,
+      1,
+      () =>
+        (
+          this.db
+            .prepare(
+              `SELECT k.id
              FROM knowledge k
              JOIN projects p ON p.id = k.project_id
              WHERE ${where}
              ORDER BY k.updated_at DESC, k.id DESC`,
-          )
-          .all(...parameters) as Array<{ id: string }>
-      ).map((row) => row.id),
+            )
+            .all(...parameters) as Array<{ id: string }>
+        ).map((row) => row.id),
+      KNOWLEDGE_SEARCH_ROW_BYTES,
     );
     const pageInfo = this.buildPageInfo(page, pageSize, ids.length, 200);
     const pageIds = ids.slice((pageInfo.page - 1) * pageInfo.pageSize, pageInfo.page * pageInfo.pageSize);
@@ -219,8 +220,8 @@ export class KnowledgeRepository {
                ORDER BY page.key`,
             )
             .all(JSON.stringify(pageIds)) as KnowledgeRepositoryRow[]);
-    const truncated = listSearchTruncatedWarning(scan);
-    return { rows, pageInfo, warnings: truncated ? [truncated] : [] };
+    const truncated = listSearchOverBoundWarning(scan);
+    return { rows, pageInfo, warnings: truncated ? [truncated] : [], skippedRecords: scan.overBound };
   }
 
   private whereClause(

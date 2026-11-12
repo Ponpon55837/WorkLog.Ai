@@ -24,11 +24,14 @@ import type {
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
 import {
+  APPLIES_TO_GRANT_FACTOR,
   APPLIES_TO_STALENESS_UNIT_LIMIT,
+  appliesToPairEstimate,
   chargeNormalizePath,
   chargeStoredJson,
   compileAppliesTo,
   createAppliesToBudget,
+  grantAppliesTo,
   MAX_STORED_CHANGED_FILES_JSON_BYTES,
   normalizedAppliesTo,
   type AppliesToBudget,
@@ -97,6 +100,8 @@ interface LaterSessionIndex {
   sessionIndexById?: Map<string, number>;
   /** Shared by every pattern of one trust read, across projects. */
   budget: AppliesToBudget;
+  /** Total length of the distinct normalized files, for the per-pattern grant. */
+  fileCharacters: number;
 }
 
 interface PatternMatches {
@@ -121,7 +126,9 @@ function buildLaterSessionIndex(sessions: LaterSession[], budget: AppliesToBudge
       }
     }
   });
-  return { sessions, sessionsByFile, patternMatches: new Map(), budget };
+  let fileCharacters = 0;
+  for (const file of sessionsByFile.keys()) fileCharacters += file.length;
+  return { sessions, sessionsByFile, patternMatches: new Map(), budget, fileCharacters };
 }
 
 /** Matches one normalized pattern against every distinct changed file once; all Knowledge sharing it reuse the result. */
@@ -131,6 +138,12 @@ function matchesForPattern(index: LaterSessionIndex, pattern: string): PatternMa
     return cached;
   }
   const matches = compileAppliesTo(pattern, index.budget);
+  // Every distinct file is compared once: grant three times what ordinary pairs cost (see APPLIES_TO_GRANT_FACTOR).
+  grantAppliesTo(
+    index.budget,
+    APPLIES_TO_GRANT_FACTOR *
+      (index.sessionsByFile.size * appliesToPairEstimate(0, pattern.length) + index.fileCharacters),
+  );
   const files = new Set<string>();
   const touched = new Set<number>();
   for (const [file, indexes] of index.sessionsByFile) {
@@ -411,10 +424,10 @@ export class KnowledgeService {
 
   /**
    * A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. Rows are
-   * read one at a time; each list is charged to the staleness budget by its length before it is parsed, and each path
-   * before it is normalized, so a long history stops at the budget instead of loading every list (5,000 Sessions of
-   * 50 x 100 characters took 433 ms and 235 MB with one .all()). A list above MAX_STORED_CHANGED_FILES_JSON_BYTES is not
-   * loaded. `complete` is false when either stopped the read.
+   * read one at a time instead of with one .all() (5,000 Sessions of 50 x 100 characters took 433 ms and 235 MB);
+   * each list is charged by its length before it is parsed, and each path before it is normalized, after granting
+   * three times that (history grows the budget instead of exhausting it; APPLIES_TO_GRANT_FACTOR). A list above
+   * MAX_STORED_CHANGED_FILES_JSON_BYTES is not loaded. `complete` is false when a row stopped the read.
    */
   private loadLaterSessions(
     projectId: string,
@@ -439,13 +452,13 @@ export class KnowledgeService {
     }>;
     const sessions: LaterSession[] = [];
     for (const row of rows) {
-      if (row.changed_files_json === null || !chargeStoredJson(budget, row.changed_files_json)) {
+      if (row.changed_files_json === null || !chargeStoredJson(budget, row.changed_files_json, true)) {
         return { sessions, complete: false };
       }
       const files: LaterSession["files"] = [];
       for (const file of parseJson<unknown[]>(row.changed_files_json, [])) {
         if (typeof file !== "string") continue;
-        if (!chargeNormalizePath(budget, file, contexts)) return { sessions, complete: false };
+        if (!chargeNormalizePath(budget, file, contexts, true)) return { sessions, complete: false };
         files.push({ raw: file, normalized: normalizePath(file, contexts) });
       }
       sessions.push({ id: row.id, title: row.title, completedAt: row.completed_at, files });

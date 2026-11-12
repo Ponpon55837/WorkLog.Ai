@@ -30,7 +30,7 @@ import {
   type PathContext,
   type QueryWord,
 } from "./search-text.js";
-import { LIST_SEARCH_CHARGE_FUNCTION, runListSearchScan } from "./list-search-scan.js";
+import { LIST_SEARCH_CHARGE_FUNCTION, PATH_SEARCH_ROW_BYTES, runListSearchScan } from "./list-search-scan.js";
 import { nextCalendarDate } from "./session-repository.js";
 import { resetLastInsertRowid, runFtsWrite } from "./sqlite-fts.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -67,7 +67,7 @@ const MAX_QUERY_TERMS = 32;
 /** Path-like words of a Knowledge query matched against paths and appliesTo; more add cost, not recall. */
 const MAX_QUERY_PATH_WORDS = 5;
 const PATH_SCAN_TRUNCATED_WARNING =
-  "The path comparison stopped at its text-scan limit, so older records were not compared with paths; narrow the scope with projectRoot or a date range.";
+  "Some stored paths are longer than the 4 KB a path comparison reads and were not compared, so path matches may be incomplete.";
 const EXCERPT_LENGTH = 220;
 const MAX_SYNONYM_TERMS = 32;
 const SYNONYM_SCORE_WEIGHT = 0.2;
@@ -242,7 +242,7 @@ export interface RecallComputation {
   hits: RecallHit[];
   confidence: RecallConfidence;
   termHits?: RecallTermHits[];
-  /** Present when the path scan stopped at its text-scan limit, so older paths were not compared. */
+  /** Present when stored paths above the per-path cap were skipped. */
   warnings?: string[];
 }
 
@@ -268,7 +268,7 @@ export interface KnowledgeRanking {
   /** Matches per status, including the ones not returned as hits. */
   totals: Partial<Record<KnowledgeStatus, number>>;
   hits: KnowledgeRankHit[];
-  /** The appliesTo match budget or the path-scan budget ran out, so older Knowledge was not checked against the query's paths. */
+  /** The appliesTo match budget ran out or an over-long stored path was skipped, so some Knowledge was not checked. */
   appliesToScanTruncated?: true;
 }
 
@@ -884,8 +884,8 @@ export class SearchRepository {
    * Scores stored paths against each queried path: the same basename, or a stored path that contains `queried/`.
    * instr(lower(path), lower(needle)) > 0 is `path LIKE '%needle%'` with the wildcards escaped (LIKE folds ASCII
    * only, as lower() does) without LIKE's re-match from every stored position, which cost about 400 ns per stored
-   * byte for a 1,000-character near-miss path. The substring test charges each row's stored bytes first, and every
-   * queried path of the call shares one text-scan budget; returns whether that budget ran out.
+   * byte for a 1,000-character near-miss path. A stored path above PATH_SEARCH_ROW_BYTES (only a hand-written row)
+   * is not compared; returns whether any was skipped.
    */
   private scorePaths(
     queriedPaths: string[],
@@ -903,10 +903,15 @@ export class SearchRepository {
             ELSE 0 END)
          AND ${clause}`,
     );
-    const { scan } = runListSearchScan(this.db, 1, () => {
-      for (const queried of queriedPaths) this.scorePath(statement, queried, parameters, accumulator);
-    });
-    return scan.exhausted;
+    const { scan } = runListSearchScan(
+      this.db,
+      1,
+      () => {
+        for (const queried of queriedPaths) this.scorePath(statement, queried, parameters, accumulator);
+      },
+      PATH_SEARCH_ROW_BYTES,
+    );
+    return scan.overBound > 0;
   }
 
   /** Adds each document's best path score for one queried path (its own call, inside the shared scan). */

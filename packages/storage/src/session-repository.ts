@@ -3,7 +3,8 @@ import type { PageInfo, SessionListResult, SessionVoidedFilter, WorkSessionRecor
 import { localDayStartIso } from "@work-intelligence/shared";
 import {
   LIST_SEARCH_CHARGE_FUNCTION,
-  listSearchTruncatedWarning,
+  listSearchOverBoundWarning,
+  SESSION_SEARCH_ROW_BYTES,
   parseListSearchTerms,
   runListSearchScan,
 } from "./list-search-scan.js";
@@ -124,6 +125,7 @@ export class SessionRepository {
              LIMIT ?`,
           )
           .all(...parameters, limit) as SessionRow[],
+      SESSION_SEARCH_ROW_BYTES,
     );
     return rows.map(this.mapSession);
   }
@@ -132,10 +134,19 @@ export class SessionRepository {
     const { clauses, parameters, terms, warnings } = this.buildFilter(options);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     if (terms.length > 0) {
-      const { value, scan } = runListSearchScan(this.db, 1, () => this.listTextQueryPage(where, parameters, options));
-      const truncated = listSearchTruncatedWarning(scan);
+      const { value, scan } = runListSearchScan(
+        this.db,
+        1,
+        () => this.listTextQueryPage(where, parameters, options),
+        SESSION_SEARCH_ROW_BYTES,
+      );
+      const truncated = listSearchOverBoundWarning(scan);
       const allWarnings = [...warnings, ...(truncated ? [truncated] : [])];
-      return allWarnings.length > 0 ? { ...value, warnings: allWarnings } : value;
+      return {
+        ...value,
+        ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
+        ...(scan.overBound > 0 ? { searchSkippedRecords: scan.overBound } : {}),
+      };
     }
     const totalRow = this.db
       .prepare(
@@ -213,6 +224,7 @@ export class SessionRepository {
              LIMIT ?`,
           )
           .all(...parameters, limit) as Array<{ commit_sha: string }>,
+      SESSION_SEARCH_ROW_BYTES,
     );
     return rows.map((row) => row.commit_sha);
   }

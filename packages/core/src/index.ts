@@ -864,8 +864,10 @@ export interface SessionListResult {
   outcome: "sessions";
   items: WorkSessionRecord[];
   pageInfo: PageInfo;
-  /** How a text query was shortened, or that its text scan stopped at the limit; absent for ordinary queries. */
+  /** How a text query was shortened, or that records above the per-record search size were skipped. */
   warnings?: string[];
+  /** Records a text query skipped because they are above the per-record search size; absent when none. */
+  searchSkippedRecords?: number;
 }
 
 export interface KnowledgeQueryResult {
@@ -874,8 +876,10 @@ export interface KnowledgeQueryResult {
   projects: ProjectRecord[];
   items: KnowledgeRecord[];
   pageInfo: PageInfo;
-  /** How a text query was shortened, or that its text scan stopped at the limit; absent for ordinary queries. */
+  /** How a text query was shortened, or that records above the per-record search size were skipped. */
   warnings?: string[];
+  /** Records a text query skipped because they are above the per-record search size; absent when none. */
+  searchSkippedRecords?: number;
 }
 
 export type KnowledgeSearchResult = KnowledgeQueryResult | KnowledgeSkippedResult;

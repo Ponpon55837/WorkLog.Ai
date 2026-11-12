@@ -10,15 +10,14 @@ import type {
   RelaxedKnowledgeMatch,
 } from "@work-intelligence/core";
 import type { KnowledgeCount } from "./knowledge-repository.js";
-import { LIST_SEARCH_SCAN_BUDGET } from "./list-search-scan.js";
 import type { KnowledgeRankHit, KnowledgeRankOptions, KnowledgeRanking } from "./search-repository.js";
 import { excerptAround } from "./search-text.js";
 
 export interface KnowledgeSearchServiceDependencies {
   /** The strict list search with trust signals, policy-gated like every Knowledge read. */
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
-  /** Strict match count in an already-gated scope, spending at most scanBudget text-scan units. */
-  countKnowledge(options: KnowledgeQuery & { status: KnowledgeStatus }, scanBudget: number): KnowledgeCount;
+  /** Strict match count in an already-gated scope; `truncated` when rows above the per-row cap were skipped. */
+  countKnowledge(options: KnowledgeQuery & { status: KnowledgeStatus }): KnowledgeCount;
   rankKnowledge(options: KnowledgeRankOptions): KnowledgeRanking;
   /** Full records with trust signals for Knowledge of tracked projects; other ids are absent from the map. */
   getKnowledgeWithTrustMany(knowledgeIds: string[]): Map<string, KnowledgeRecord>;
@@ -107,7 +106,9 @@ export class KnowledgeSearchService {
     const warnings = [
       ...(strict.warnings ?? []),
       ...(countsTruncated
-        ? ["Counting matches in other statuses stopped at the text-scan limit; otherStatusMatches may be low."]
+        ? [
+            "Counting matches in other statuses skipped records above the per-record search size; otherStatusMatches may be low.",
+          ]
         : []),
     ];
     const otherStatuses = Object.keys(otherStatusMatches) as KnowledgeStatus[];
@@ -137,7 +138,6 @@ export class KnowledgeSearchService {
   /**
    * Per other status, how many records the same search would answer there: the strict count when it has any,
    * otherwise the relaxed count, which is what passing that status would show. Counts only, in the same gated scope.
-   * All the counts share one text-scan budget, so the call scans at most twice the stored text budget in total.
    */
   private otherStatusMatches(
     query: string,
@@ -147,12 +147,10 @@ export class KnowledgeSearchService {
     ranking: KnowledgeRanking,
   ): { counts: Partial<Record<KnowledgeStatus, number>>; truncated: boolean } {
     const counts: Partial<Record<KnowledgeStatus, number>> = {};
-    let scanBudget = LIST_SEARCH_SCAN_BUDGET;
     let truncated = false;
     for (const other of KNOWLEDGE_STATUSES) {
       if (other === status) continue;
-      const strict = this.dependencies.countKnowledge({ q: query, projectId, kind, status: other }, scanBudget);
-      scanBudget = strict.remainingBudget;
+      const strict = this.dependencies.countKnowledge({ q: query, projectId, kind, status: other });
       truncated ||= strict.truncated;
       const count = strict.count > 0 ? strict.count : (ranking.totals[other] ?? 0);
       if (count > 0) counts[other] = count;

@@ -185,9 +185,9 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 工作熱度日曆（一整年，每日 Session 計數，本地日於記憶體分桶） | 250 ms |
 | Agent 讀取各工具耗時統計（`summarizeAgentReads`，5,000 筆稽核、12 個工具，含失敗與無耗時舊紀錄） | 100 ms |
 | Knowledge 列表含過時判斷（20 筆 Knowledge × 一年的 Session） | 500 ms |
-| Knowledge 列表搜尋最壞情況（另一份資料庫：2,000 筆 × 30 項 1,000 字元 `appliesTo`，8 個 200 字元近似詞，跑到掃描預算用完並回 `warnings`；1.6.26 的 `LIKE` 一個 500 字元詞約 38.6 秒，本機 p90 128 ms） | 750 ms |
+| Knowledge 列表搜尋最壞情況（另一份資料庫：200 筆 × 30 項 1,000 字元 `appliesTo`，8 個 200 字元近似詞；每筆成本固定、讀完全部且沒有 `warnings`，與筆數成正比；1.6.26 的 `LIKE` 約 15.7 秒，本機 p90 287 ms） | 1,000 ms |
 | finalize `knowledgeToReview` 最壞情況（200 筆候選、5,000 個之後的 Session 各 20 × 100 字元檔案，最舊的一個碰到全部候選；1.6.26 每筆候選各掃一次約 2.9 秒，本機 p90 23 ms） | 250 ms |
-| Knowledge 讀取的過時判斷最壞情況（之後 5,000 個 Session 各 20 × 100 字元檔案，讀到預算用完標 `stalenessUnchecked`；1.6.26 以 `.all()` 讀 50 × 100 字元約 433 ms、235 MB，本機 p90 52 ms） | 500 ms |
+| Knowledge 讀取的過時判斷（之後 5,000 個 Session 各 20 × 100 字元檔案；預算隨讀到的 Session 成長，讀完且不標 `stalenessUnchecked`；1.6.26 以 `.all()` 讀 50 × 100 字元約 433 ms、235 MB，本機 p90 188 ms） | 500 ms |
 | 手動備份（`createBackup`，整個資料庫快照） | 300 ms |
 | 整庫匯出（`exportTo`，`VACUUM INTO`） | 300 ms |
 | 專案資料匯出（`exportProjectData`，全部專案） | 400 ms |

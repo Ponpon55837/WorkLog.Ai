@@ -45,7 +45,8 @@ import { normalizePath, type PathContext } from "./search-text.js";
  * scan stops and says it was cut short. `skippedEntries` counts stored entries above the write-time limits.
  */
 export interface AppliesToBudget {
-  readonly limit: number;
+  /** Grows with grantAppliesTo on the scans whose ordinary work is linear in stored history. */
+  limit: number;
   units: number;
   exhausted: boolean;
   skippedEntries: number;
@@ -113,6 +114,15 @@ export const APPLIES_TO_MATCH_UNIT_LIMIT = 20_000_000;
 export const APPLIES_TO_STALENESS_UNIT_LIMIT = 50_000_000;
 
 /**
+ * Scans over stored history (the staleness check, knowledgeToReview's later Sessions) cannot have a fixed total: a
+ * fixed 50M units cut legitimate 20,000-Session data short. They grant, before each stored row or each pattern x file
+ * set they process, GRANT_FACTOR times what ordinary data costs there (APPLIES_TO_PAIR_ESTIMATE per pair), so ordinary
+ * work never uses more than a third of what it was granted, while a crafted entry that makes one pair cost many times
+ * an ordinary one still runs out. The total then grows linearly with the stored rows and pairs, as other reads do.
+ */
+export const APPLIES_TO_GRANT_FACTOR = 3;
+
+/**
  * Longest stored appliesTo JSON text (UTF-8 bytes) any read loads: the structural import bound (100 entries of 4,096
  * characters) with every character written as a six-byte JSON escape, plus quotes, commas and brackets. Real lists are
  * a few hundred bytes; only a list written into SQLite by hand can be longer, and it is skipped like an entry above the
@@ -149,6 +159,7 @@ let activeStates = new Uint8Array(64);
 let nextStates = new Uint8Array(64);
 
 let workCounter: AppliesToWorkCounter | undefined;
+let budgetProbe: AppliesToBudget[] | undefined;
 
 function isStarKind(kind: number): boolean {
   return kind === APPLIES_TO_TOKEN_SEGMENT || kind === APPLIES_TO_TOKEN_ANY;
@@ -449,12 +460,40 @@ function plainStrength(stored: string, queried: string, budget: AppliesToBudget 
 
 /** A budget for one scan; see AppliesToBudget. */
 export function createAppliesToBudget(limit = APPLIES_TO_MATCH_UNIT_LIMIT): AppliesToBudget {
-  return { limit, units: 0, exhausted: false, skippedEntries: 0 };
+  const budget = { limit, units: 0, exhausted: false, skippedEntries: 0 };
+  budgetProbe?.push(budget);
+  return budget;
+}
+
+/** Test and measurement instrumentation only: records every budget created until called again. */
+export function setAppliesToBudgetProbe(probe: AppliesToBudget[] | undefined): void {
+  budgetProbe = probe;
 }
 
 /** Whether a scan's answer may be missing matches: the budget ran out, or a stored entry above the limits was skipped. */
 export function appliesToScanIncomplete(budget: AppliesToBudget): boolean {
   return budget.exhausted || budget.skippedEntries > 0;
+}
+
+/** Adds `units` to a budget's limit (no effect once it is exhausted). */
+export function grantAppliesTo(budget: AppliesToBudget, units: number): void {
+  if (!budget.exhausted) budget.limit += units;
+}
+
+/**
+ * What one ordinary pattern x path pair costs: its constant work plus about one unit per character of both. On the
+ * legitimate synthetic data (20,000 Sessions, 2,000 Knowledge with 1-3 paths or one-star globs) the scans that grant it
+ * used at most 4% of their limit; a 16-star entry of 1,000 characters against 1,000-character paths costs about 17,000
+ * units per pair against a grant of about 6,000, so crafted entries still run out.
+ */
+export function appliesToPairEstimate(pathLength: number, patternLength: number): number {
+  return PAIR_UNITS + pathLength + patternLength;
+}
+
+/** Charges `units` after granting GRANT_FACTOR times them: for reading stored history, which is always affordable. */
+export function chargeGrantedAppliesTo(budget: AppliesToBudget, units: number): boolean {
+  grantAppliesTo(budget, APPLIES_TO_GRANT_FACTOR * units);
+  return charge(budget, units);
 }
 
 /** Charges work a caller does on stored data next to matching (for example parsing changed files), before it runs. */
@@ -525,14 +564,21 @@ export function appliesToColumnSql(column: string): string {
 }
 
 /** Charges parsing a stored JSON text other than appliesTo (changed files) at the same rate, before it runs. */
-export function chargeStoredJson(budget: AppliesToBudget, text: string): boolean {
-  return charge(budget, JSON_UNITS_PER_CHAR * text.length + 1);
+export function chargeStoredJson(budget: AppliesToBudget, text: string, granted = false): boolean {
+  const units = JSON_UNITS_PER_CHAR * text.length + 1;
+  return granted ? chargeGrantedAppliesTo(budget, units) : charge(budget, units);
 }
 
 /** Charges normalizing a stored path at the rate storedAppliesTo uses for an entry, before it runs. */
-export function chargeNormalizePath(budget: AppliesToBudget, path: string, contexts: PathContext[]): boolean {
+export function chargeNormalizePath(
+  budget: AppliesToBudget,
+  path: string,
+  contexts: PathContext[],
+  granted = false,
+): boolean {
   const context = contexts.reduce((total, item) => total + item.name.length + item.rootPath.length, 0);
-  return charge(budget, NORMALIZE_UNITS_PER_CHAR * (path.length + context) + 1);
+  const units = NORMALIZE_UNITS_PER_CHAR * (path.length + context) + 1;
+  return granted ? chargeGrantedAppliesTo(budget, units) : charge(budget, units);
 }
 
 /** Whether a normalized entry is a glob, charged like the matcher's own check; undefined when unaffordable. */
