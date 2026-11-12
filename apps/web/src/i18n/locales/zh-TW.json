@@ -878,6 +878,7 @@
     "importFile": "匯入檔",
     "importFilesCannotExceed50": "匯入檔不可超過 50 MiB。",
     "importFinishedAddedSkippedIn": "匯入完成：新增 {value} 筆、更新 {updates} 筆、略過 {value2} 筆，衝突 {value3} 筆。",
+    "importFinishedNothingChanged": "沒有需要匯入的資料：檔案中的紀錄這裡都已經有了，資料沒有變更，也沒有建立備份。",
     "importPastHandoffs": "匯入歷史 handoff",
     "importProjectsAndApplyPaths": "匯入專案與套用路徑",
     "importProjectsAndPaths": "匯入專案與路徑",

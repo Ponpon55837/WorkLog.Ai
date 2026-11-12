@@ -134,9 +134,11 @@ const operationPromise = new Promise((resolve, reject) => {
         if (
           result.outcome !== "project_data_imported" ||
           (result.skipped?.sessions ?? 0) < sessionCount ||
-          typeof result.backupFileName !== "string"
+          result.changed !== false ||
+          result.backupFileName !== undefined
         ) {
-          reject(new Error("Expected every synthetic Session skipped after a pre-import backup."));
+          // Since 1.6.30 an import that changes nothing writes no pre-import snapshot.
+          reject(new Error("Expected every synthetic Session skipped, with no change and no pre-import backup."));
           return;
         }
       } else if (path === "/api/export" && content.byteLength === 0) {

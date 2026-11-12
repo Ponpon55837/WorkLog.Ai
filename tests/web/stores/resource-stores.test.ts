@@ -20,6 +20,7 @@ vi.mock("../../../apps/web/src/composables/useConfirm", () => ({ confirmAction: 
 let harness: ReturnType<typeof createStoreHarness>;
 let backupDeleteOutcome: "deleted" | "missing";
 let exportFailure: boolean;
+let importChanged: boolean;
 let knowledgeListMode: "normal" | "skipped" | "error";
 let knowledgeHistoryMode: "normal" | "missing";
 let backfillPreviewMode: "normal" | "empty" | "error";
@@ -214,6 +215,7 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
       conflictDetailsTruncated: false,
       conflictGroups: [],
       importedAt: "2026-09-27T00:00:00.000Z",
+      changed: importChanged,
     };
   }
   return {};
@@ -221,6 +223,7 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
 
 beforeEach(() => {
   backupDeleteOutcome = "deleted";
+  importChanged = true;
   exportFailure = false;
   knowledgeListMode = "normal";
   knowledgeHistoryMode = "normal";
@@ -534,6 +537,16 @@ describe("resource stores", () => {
     expect(store.importLoading).toBe(false);
     expect(mocks.confirmAction).toHaveBeenCalledTimes(2);
     expect(store.importProjects).toEqual([]);
+    expect(mocks.showToast).toHaveBeenLastCalledWith(
+      t("projects.importFinishedAddedSkippedIn", { value: 1, updates: 2, value2: 0, value3: 0 }),
+      "success",
+    );
+
+    // Importing the same file again changes nothing, writes no backup and says so.
+    importChanged = false;
+    await store.loadImportFile({ name: "work.json", size: 500, text: async () => JSON.stringify(bundle) } as File);
+    await store.applyProjectDataImport();
+    expect(mocks.showToast).toHaveBeenLastCalledWith(t("projects.importFinishedNothingChanged"), "success");
 
     exportFailure = true;
     await store.exportProjectData({ type: "all" });

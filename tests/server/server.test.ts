@@ -2022,6 +2022,7 @@ describe("Work Intelligence REST API", () => {
       expect(imported.status).toBe(200);
       expect(imported.body).toMatchObject({
         outcome: "project_data_imported",
+        changed: true,
         additions: { projects: 1, sessions: 1 },
       });
       expect(destination.listProjects().find((item) => item.id === project.id)?.status).toBe("paused");

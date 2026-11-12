@@ -127,9 +127,8 @@ describe("pre-import backup", () => {
     const { store, databasePath, backups } = fileStore();
     store.createBackup();
     store.createBackup();
-    const bundle = exportedBundle(1);
     const imported: ProjectDataImportResult[] = [];
-    for (let index = 0; index < 5; index += 1) imported.push(store.importProjectData({ bundle }));
+    for (let index = 0; index < 5; index += 1) imported.push(store.importProjectData({ bundle: exportedBundle(1) }));
     const kept = listDatabaseBackups(databasePath, backups);
     expect(kept.filter((backup) => backup.kind === "manual")).toHaveLength(2);
     // As many as automatic backups keep (3 by default), the newest ones.
@@ -139,6 +138,40 @@ describe("pre-import backup", () => {
         .reverse()
         .map((result) => result.backupFileName),
     );
+  });
+
+  it("writes no snapshot for an import that changes nothing and says so", () => {
+    const { store, databasePath, backups } = fileStore();
+    const bundle = exportedBundle();
+    const first = store.importProjectData({ bundle });
+    expect(first).toMatchObject({ changed: true, backupFileName: expect.any(String) });
+    const again = store.importProjectData({ bundle });
+    expect(again.changed).toBe(false);
+    expect(again.backupFileName).toBeUndefined();
+    expect(again.skipped.sessions).toBe(3);
+    expect(listDatabaseBackups(databasePath, backups).map((backup) => backup.fileName)).toEqual([first.backupFileName]);
+  });
+
+  it("writes no snapshot when planning fails", () => {
+    const { store, databasePath, backups } = fileStore();
+    const failure = transferFailure(() =>
+      store.importProjectData({ bundle: exportedBundle(), projectId: "synthetic-project-not-in-file" }),
+    );
+    expect(failure.code).toBe("invalid_bundle");
+    expect(listDatabaseBackups(databasePath, backups)).toEqual([]);
+  });
+
+  it("keeps the snapshot of an import that changed data through any number of imports that change nothing", () => {
+    const { store, databasePath, backups } = fileStore();
+    const bundle = exportedBundle();
+    const real = store.importProjectData({ bundle });
+    for (let index = 0; index < 4; index += 1) {
+      expect(store.importProjectData({ bundle }).backupFileName).toBeUndefined();
+      transferFailure(() => store.importProjectData({ bundle, projectId: "synthetic-project-not-in-file" }));
+    }
+    const kept = listDatabaseBackups(databasePath, backups).filter((backup) => backup.kind === "import");
+    expect(kept.map((backup) => backup.fileName)).toEqual([real.backupFileName]);
+    expect(sessionCount(join(backups, real.backupFileName!))).toBe(0);
   });
 
   it("keeps the database unchanged and the backup in place when the import fails halfway", () => {
@@ -183,6 +216,42 @@ describe("write lock", () => {
     expect(result.additions.sessions).toBe(2);
     expect(result.conflicts.sessions).toBe(1);
     expect(store.getSessionById(String(session.id))?.title).toBe("Changed elsewhere");
+  });
+  it("backs up and tries again when a change after planning turns an import that changed nothing into one that does", () => {
+    const { store, databasePath, backups } = fileStore();
+    const bundle = exportedBundle();
+    store.importProjectData({ bundle });
+    const before = listDatabaseBackups(databasePath, backups).map((backup) => backup.fileName);
+    const event = bundle.tables.work_events[0]!;
+    // Everything is already here, so the plan writes nothing and takes no snapshot. Before the write lock another
+    // process deletes one imported work event: planned again under the lock, the import would add it back.
+    const exec = DatabaseSync.prototype.exec;
+    let locks = 0;
+    vi.spyOn(DatabaseSync.prototype, "exec").mockImplementation(function (this: DatabaseSync, sql: string) {
+      if (sql === "BEGIN IMMEDIATE") {
+        locks += 1;
+        if (locks === 1) {
+          const other = new DatabaseSync(databasePath);
+          other.prepare("DELETE FROM work_events WHERE id = ?").run(String(event.id));
+          other.close();
+        }
+      }
+      return exec.call(this, sql);
+    });
+    const result = store.importProjectData({ bundle });
+    // The first lock was released without writing; the second attempt backed up first.
+    expect(result).toMatchObject({ changed: true, additions: { work_events: 1 } });
+    const created = listDatabaseBackups(databasePath, backups).filter((backup) => !before.includes(backup.fileName));
+    expect(created.map((backup) => backup.fileName)).toEqual([result.backupFileName]);
+    // The snapshot is the state the import started from: restoring it removes the event the import added.
+    const snapshot = new DatabaseSync(join(backups, result.backupFileName!), { readOnly: true });
+    try {
+      expect(snapshot.prepare("SELECT COUNT(*) AS count FROM work_events WHERE id = ?").get(String(event.id))).toEqual({
+        count: 0,
+      });
+    } finally {
+      snapshot.close();
+    }
   });
 });
 
