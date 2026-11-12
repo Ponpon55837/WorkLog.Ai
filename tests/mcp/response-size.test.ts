@@ -1091,7 +1091,9 @@ describe("synthetic MCP response-size baseline", () => {
   });
 
   it("names a projectRoot scope once instead of on every item", async () => {
-    const { client, projectId, projectRoot } = await connectWithSyntheticHistory();
+    const { client, projectId, projectRoot, store } = await connectWithSyntheticHistory();
+    // Storage canonicalizes the root (lowercase on Windows), so compare with the stored value.
+    const storedRoot = store.listProjects().find((project) => project.id === projectId)?.rootPath;
     const emptySearch = await serializedMcpPayload(client, "work_search_knowledge", {
       projectRoot,
       q: "nonexistent-synthetic-term",
@@ -1109,7 +1111,7 @@ describe("synthetic MCP response-size baseline", () => {
 
     expect(emptySearch.value).toEqual({
       outcome: "knowledge",
-      project: { id: projectId, name: "Synthetic Cedar", rootPath: projectRoot },
+      project: { id: projectId, name: "Synthetic Cedar", rootPath: storedRoot },
       items: [],
       pageInfo: expect.objectContaining({ total: 0 }),
     });
