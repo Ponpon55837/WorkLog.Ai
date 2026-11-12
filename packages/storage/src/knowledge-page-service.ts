@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   KNOWLEDGE_PAGE_DEFAULTS,
-  KNOWLEDGE_PAGE_INSUFFICIENT,
   type KnowledgePageAuthor,
   type KnowledgePageContextQuery,
   type KnowledgePageContextResult,
@@ -27,6 +26,7 @@ import {
   type SaveKnowledgePageResult,
   type UpdateKnowledgePageInput,
   type UpdateKnowledgePageResult,
+  type WorkSummarySections,
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
@@ -58,7 +58,6 @@ type ContextSessionRow = {
   id: string;
   title: string;
   completed_at: string;
-  summary: string;
   work_summary_json: string | null;
 };
 
@@ -89,8 +88,11 @@ type CitedSessionVoidEventRow = {
 
 /** Most Sessions an Agent gets for one page (newest first for a rewrite, oldest first for a review). */
 const CONTEXT_SESSION_LIMIT = 60;
-/** Character budget for those Sessions, so the context fits in one tool result. */
-const CONTEXT_CHAR_BUDGET = 24_000;
+/** Character budget for those Sessions, so the context and a full current page fit in one tool result. */
+const CONTEXT_CHAR_BUDGET = 12_000;
+/** Each context Session keeps its first outcomes, decisions and open items, shortened; the rest is in work_get_session. */
+const CONTEXT_SESSION_ITEMS = 2;
+const CONTEXT_SESSION_ITEM_CHARS = 100;
 /** How much of each page work_get_context includes, and of all pages together. */
 const DIGEST_PAGE_CHARS = 1_500;
 const DIGEST_TOTAL_CHARS = 4_500;
@@ -110,6 +112,28 @@ const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const DEFAULT_PAGES = new Map<string, { title: string; question: string }>(
   KNOWLEDGE_PAGE_DEFAULTS.map((page) => [page.slug, { title: page.title, question: page.question }]),
 );
+
+/** The first items of the sections a page answer is built from, each shortened and marked with an ellipsis. */
+function previewWorkSummary(sections: WorkSummarySections | undefined): {
+  workSummary: KnowledgePageContextSession["workSummary"];
+  truncated: boolean;
+} {
+  let truncated = false;
+  const preview = (items: string[] = []) => {
+    if (items.length > CONTEXT_SESSION_ITEMS) truncated = true;
+    return items.slice(0, CONTEXT_SESSION_ITEMS).map((item) => {
+      if (item.length <= CONTEXT_SESSION_ITEM_CHARS) return item;
+      truncated = true;
+      return `${item.slice(0, CONTEXT_SESSION_ITEM_CHARS - 1)}…`;
+    });
+  };
+  const workSummary = {
+    outcomes: preview(sections?.outcomes),
+    decisions: preview(sections?.decisions),
+    nextSteps: preview(sections?.nextSteps),
+  };
+  return { workSummary, truncated };
+}
 
 function skipped(decision: PolicyDecision): KnowledgePageSkippedResult {
   return {
@@ -365,21 +389,9 @@ export class KnowledgePageService {
       outcome: "knowledge_page_context",
       page,
       mode,
-      instructions:
-        mode === "full"
-          ? `Answer the page question for this project from these Sessions only. Rewrite the whole page as ` +
-            `sections; every section cites the Session ids it is based on in sourceSessionIds. When the Sessions ` +
-            `do not answer part of the question, write a section whose content is exactly ` +
-            `"${KNOWLEDGE_PAGE_INSUFFICIENT}" instead of guessing. Keep facts current: drop what later Sessions ` +
-            `contradict.`
-          : `Review mode: sessions holds only Sessions finished after this page's coverage (reason "new", oldest ` +
-            `first) and cited sources that changed since the page was saved (reason "source_changed"). If they do ` +
-            `not change the page answer, call work_mark_knowledge_page_checked with the last "new" Session you ` +
-            `reviewed. If they do, rewrite the whole page with work_save_knowledge_page, citing sourceSessionIds, ` +
-            `and write "${KNOWLEDGE_PAGE_INSUFFICIENT}" where the Sessions do not answer. The checked cursor never ` +
-            `clears needsReview: changed sources require a new page version. When you finalize this work, list the ` +
-            `page in maintainedKnowledgePages so this Session does not count as new data for it.`,
       sessions,
+      omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
+      sessionReadWith: "work_get_session",
       truncated,
     };
   }
@@ -988,7 +1000,7 @@ export class KnowledgePageService {
   private contextSessions(projectId: string): { sessions: KnowledgePageContextSession[]; truncated: boolean } {
     const rows = this.db
       .prepare(
-        `SELECT id, title, completed_at, summary, work_summary_json FROM sessions
+        `SELECT id, title, completed_at, work_summary_json FROM sessions
          WHERE project_id = ? AND voided_at IS NULL
          ORDER BY completed_at DESC, id DESC
          LIMIT ?`,
@@ -1009,27 +1021,22 @@ export class KnowledgePageService {
     let budget = CONTEXT_CHAR_BUDGET;
     const sessions: KnowledgePageContextSession[] = [];
     for (const { row, reason } of entries) {
-      const workSummary = parseWorkSummarySections(row.work_summary_json) ?? {
-        outcomes: [],
-        scope: [],
-        decisions: [],
-        verification: [],
-        nextSteps: [],
+      const preview = previewWorkSummary(parseWorkSummarySections(row.work_summary_json));
+      const session: KnowledgePageContextSession = {
+        id: row.id,
+        title: row.title,
+        completedAt: row.completed_at,
+        workSummary: preview.workSummary,
+        ...(preview.truncated ? { truncated: true } : {}),
+        ...(reason ? { reason } : {}),
       };
-      const size = row.title.length + row.summary.length + JSON.stringify(workSummary).length;
+      const size = JSON.stringify(session).length;
       if (size > budget) {
         truncated = true;
         break;
       }
       budget -= size;
-      sessions.push({
-        id: row.id,
-        title: row.title,
-        completedAt: row.completed_at,
-        summary: row.summary,
-        workSummary,
-        ...(reason ? { reason } : {}),
-      });
+      sessions.push(session);
     }
     return { sessions, truncated };
   }
@@ -1052,7 +1059,7 @@ export class KnowledgePageService {
         : { completedAt: row.sourced_through ?? "", id: "" };
     const newRows = this.db
       .prepare(
-        `SELECT id, title, completed_at, summary, work_summary_json FROM sessions
+        `SELECT id, title, completed_at, work_summary_json FROM sessions
          WHERE project_id = ? AND voided_at IS NULL AND (completed_at > ? OR (completed_at = ? AND id > ?))
          ORDER BY completed_at ASC, id ASC
          LIMIT ?`,
@@ -1072,7 +1079,7 @@ export class KnowledgePageService {
     const changedRows = changedIds.length
       ? (this.db
           .prepare(
-            `SELECT id, title, completed_at, summary, work_summary_json FROM sessions
+            `SELECT id, title, completed_at, work_summary_json FROM sessions
              WHERE id IN (SELECT value FROM json_each(?))
              ORDER BY completed_at ASC, id ASC`,
           )

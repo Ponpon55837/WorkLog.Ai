@@ -1,5 +1,8 @@
 import type {
   PageInfo,
+  ReportEvidence,
+  ReportInsight,
+  ReportProjectSummary,
   ReportQueryResult,
   ReportSynthesisContextQueryResult,
   ReportSynthesisContextResult,
@@ -36,12 +39,34 @@ export type AgentReport = Omit<WorkReport, "sessions" | "completedWork"> & {
   sourcePageInfo: PageInfo;
   projection: ReportAgentProjection;
 };
+
+/** An item's Session-id list in the report block: the first ids, and how many more the full report lists. */
+export type BoundedSourceIds<T extends { sourceSessionIds: string[] }> = T & { sourceSessionIdsOmittedCount?: number };
+
+/** Context evidence belongs to a Session of the same page, whose preview already carries its title. */
+export type AgentReportEvidence = Omit<ReportEvidence, "sessionTitle" | "projectName">;
+
+/** The period-level report block. It is the same on every Session page, so the Agent context sends it once. */
+export type AgentReportBlock = Omit<
+  WorkReport,
+  "sessions" | "completedWork" | "sourceSessionIds" | "projects" | "risks" | "evidence"
+> & {
+  projects: Array<BoundedSourceIds<ReportProjectSummary>>;
+  risks: Array<BoundedSourceIds<ReportInsight>>;
+  evidence: AgentReportEvidence[];
+};
+
+/** What a later Session page carries of the report: only the evidence of its own Sessions. */
+export type AgentReportPageEvidence = Pick<AgentReportBlock, "evidence" | "evidencePageInfo">;
+
 export type AgentReportContext = Omit<
   ReportSynthesisContextResult,
   "request" | "report" | "sessions" | "handoffSummaries"
 > & {
   request: Omit<ReportSynthesisRequest, "sourceSessionIds">;
-  report: Omit<WorkReport, "sessions" | "completedWork" | "sourceSessionIds">;
+  report: AgentReportBlock | AgentReportPageEvidence;
+  /** On a later Session page: the page that carries the report block (read it again there after a restart). */
+  reportBlockOnSessionPage?: 1;
   sessions: ReportSourcePreview[];
   projection: ReportAgentProjection;
 };
@@ -51,6 +76,9 @@ export type AgentReportNotReady = Omit<ReportSynthesisRequestNotReadyResult, "re
   sourceSessionCount: number;
   projection: ReportAgentProjection;
 };
+
+/** Session ids an item of the context report block keeps; the full lists repeat the period's Session pages. */
+const BLOCK_SOURCE_ID_LIMIT = 8;
 
 function preview(session: WorkSessionRecord): ReportSourcePreview {
   return {
@@ -83,14 +111,10 @@ function projection(
   };
 }
 
-/** Remove complete items, never silently cut evidence or recalculate whole-period totals from a page. */
-function bound(
-  result: AgentReport | AgentReportContext,
-  report: Omit<WorkReport, "sessions" | "completedWork" | "sourceSessionIds">,
-  sources: ReportSourcePreview[],
-  syncIds: () => void,
-): void {
-  const fields: Array<[string, unknown[]]> = [
+function reportFields(
+  report: Omit<WorkReport, "sessions" | "completedWork" | "sourceSessionIds"> | AgentReportBlock,
+): Array<[string, unknown[]]> {
+  return [
     ["evidence", report.evidence],
     ["decisions", report.decisions],
     ["pendingDecisions", report.agentAutonomousDecisions.pendingItems],
@@ -100,10 +124,18 @@ function bound(
     ["continuedLater", report.spanning.continuedLater],
     ["updatedInPeriod", report.spanning.updatedInPeriod],
     ["trends", report.trends],
-    ["sessions", sources],
   ];
+}
+
+/** Remove complete items, never silently cut evidence or recalculate whole-period totals from a page. */
+function bound(
+  result: AgentReport | AgentReportContext,
+  fields: Array<[string, unknown[]]>,
+  sources: ReportSourcePreview[],
+  syncIds: () => void,
+): void {
   let characters = JSON.stringify(result).length;
-  for (const [key, items] of fields) {
+  for (const [key, items] of [...fields, ["sessions", sources] as [string, unknown[]]]) {
     while (items.length && characters > result.projection.maxCharacters) {
       const beforeMetadata = JSON.stringify(result.projection).length;
       const beforeIds = key === "sessions" ? JSON.stringify(result.sourceSessionIds).length : 0;
@@ -123,6 +155,20 @@ function bound(
   // The non-source envelope is bounded by input schemas. Fail closed if a future field breaks that invariant.
   if (JSON.stringify(result).length > result.projection.maxCharacters)
     throw new Error("Report projection envelope exceeded its budget.");
+}
+
+/** Keep the first Session ids of a long list and count the rest; the Session pages list every source. */
+function boundSourceIds<T extends { sourceSessionIds: string[] }>(item: T): BoundedSourceIds<T> {
+  if (item.sourceSessionIds.length <= BLOCK_SOURCE_ID_LIMIT) return item;
+  return {
+    ...item,
+    sourceSessionIds: item.sourceSessionIds.slice(0, BLOCK_SOURCE_ID_LIMIT),
+    sourceSessionIdsOmittedCount: item.sourceSessionIds.length - BLOCK_SOURCE_ID_LIMIT,
+  };
+}
+
+function contextEvidence({ sessionTitle: _title, projectName: _project, ...evidence }: ReportEvidence) {
+  return evidence;
 }
 
 function reportCopy(report: WorkReport): WorkReport {
@@ -173,12 +219,17 @@ export function toAgentReport(
     },
     projection: projection(options.maxCharacters ?? 24_000, "work_get_report", ["completedWork", "sessionDetails"]),
   };
-  bound(result, result, sources, () => {
+  bound(result, reportFields(result), sources, () => {
     result.sourceSessionIds = sources.map((source) => source.id);
   });
   return result;
 }
 
+/**
+ * The report block (period totals, comparison, projects, risks, decisions, trends, spanning) does not depend on the
+ * Session page, so only sessionPage 1 carries it; a later page keeps the evidence of its own Sessions and points
+ * back to page 1. Asking for page 1 again always returns the block, so no server-side paging state is needed.
+ */
 export function toAgentReportContext(
   input: ReportSynthesisContextQueryResult,
   maxCharacters = 24_000,
@@ -205,10 +256,20 @@ export function toAgentReportContext(
   } = reportCopy(input.report);
   const { handoffSummaries: _handoffs, ...base } = input;
   const sources = input.sessions.map(preview);
+  const firstPage = input.coverage.sessionPageInfo.page === 1;
+  const evidence = report.evidence.map(contextEvidence);
+  const block: AgentReportBlock = {
+    ...report,
+    projects: report.projects.map(boundSourceIds),
+    risks: report.risks.map(boundSourceIds),
+    evidence,
+  };
+  const pageEvidence: AgentReportPageEvidence = { evidence, evidencePageInfo: report.evidencePageInfo };
   const result: AgentReportContext = {
     ...base,
     request,
-    report,
+    report: firstPage ? block : pageEvidence,
+    ...(firstPage ? {} : { reportBlockOnSessionPage: 1 as const }),
     sessions: sources,
     sourceSessionIds: sources.map((source) => source.id),
     projection: projection(maxCharacters, "work_get_report_context", [
@@ -216,11 +277,12 @@ export function toAgentReportContext(
       "report.sessions",
       "report.completedWork",
       "report.sourceSessionIds",
+      ...(firstPage ? [] : ["report.block"]),
       "sessionDetails",
       "handoffSummaries",
     ]),
   };
-  bound(result, report, sources, () => {
+  bound(result, firstPage ? reportFields(block) : [["evidence", pageEvidence.evidence]], sources, () => {
     result.sourceSessionIds = sources.map((source) => source.id);
   });
   return result;

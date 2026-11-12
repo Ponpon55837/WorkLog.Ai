@@ -150,7 +150,17 @@ describe("Knowledge pages", () => {
     expect(context.outcome).toBe("knowledge_page_context");
     if (context.outcome !== "knowledge_page_context") throw new Error("Expected context");
     expect(context.sessions.map((session) => session.id)).toEqual([first]);
-    expect(context.instructions).toContain("資料不足");
+    expect(context).toMatchObject({
+      omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
+      sessionReadWith: "work_get_session",
+    });
+    expect(context).not.toHaveProperty("instructions");
+    expect(context.sessions[0]).toEqual({
+      id: first,
+      title: expect.any(String),
+      completedAt: expect.any(String),
+      workSummary: { outcomes: ["first outcome"], decisions: [], nextSteps: [] },
+    });
     expect(store.getKnowledgePageContext({ projectRoot, slug: "missing" })).toMatchObject({ outcome: "not_found" });
 
     for (const invalid of [voided, foreign, "no-such-session"]) {
@@ -183,6 +193,54 @@ describe("Knowledge pages", () => {
       sections: sections(first),
     });
     expect(retried).toMatchObject({ outcome: "knowledge_page_saved", duplicate: true, page: { version: 1 } });
+  });
+
+  it("bounds each context Session to its first outcomes, decisions and open items within the Session budget", () => {
+    const { store, projectRoot, tick } = setup();
+    const long = (label: string, index: number) => `${label} ${index}: ${"fictional hive detail ".repeat(12)}`;
+    const ids: string[] = [];
+    for (let index = 0; index < 60; index++) {
+      tick();
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `bounded-${index}`,
+        title: `Bounded Session ${index}`,
+        summary: "A summary the page context leaves to work_get_session.",
+        workSummary: {
+          outcomes: [long("Outcome", 1), long("Outcome", 2), long("Outcome", 3)],
+          scope: [long("Scope", 1)],
+          decisions: ["Short decision.", long("Decision", 2), long("Decision", 3)],
+          verification: [long("Verification", 1)],
+          nextSteps: [long("Open item", 1)],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (result.outcome !== "finalized") throw new Error("Expected finalize");
+      ids.push(result.session.id);
+    }
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+
+    const context = store.getKnowledgePageContext({ projectRoot, slug: "architecture" });
+    if (context.outcome !== "knowledge_page_context") throw new Error("Expected context");
+    expect(context.mode).toBe("full");
+    // Newest first, without gaps, until the Session budget is spent; the rest are flagged, never cut silently.
+    expect(context.sessions.length).toBeGreaterThan(8);
+    expect(context.sessions.length).toBeLessThan(60);
+    expect(context.truncated).toBe(true);
+    expect(context.sessions.map((session) => session.id)).toEqual(ids.reverse().slice(0, context.sessions.length));
+    expect(JSON.stringify(context.sessions).length).toBeLessThanOrEqual(12_000);
+    for (const session of context.sessions) {
+      expect(session.truncated).toBe(true);
+      expect(Object.keys(session.workSummary).sort()).toEqual(["decisions", "nextSteps", "outcomes"]);
+      expect(session.workSummary.outcomes).toHaveLength(2);
+      expect(session.workSummary.decisions[0]).toBe("Short decision.");
+      for (const item of [...session.workSummary.outcomes, ...session.workSummary.nextSteps]) {
+        expect(item.length).toBeLessThanOrEqual(100);
+        expect(item.endsWith("…")).toBe(true);
+      }
+      expect(session).not.toHaveProperty("summary");
+    }
   });
 
   it("marks later non-voided Sessions as new data from each page's own write time", () => {
@@ -522,7 +580,6 @@ describe("Knowledge pages", () => {
       [secondNew, "new"],
     ]);
     expect(review.sessions.some((session) => session.id === older)).toBe(false);
-    expect(review.instructions).toContain("work_mark_knowledge_page_checked");
 
     store.markKnowledgePageChecked({ projectRoot, slug: "pitfalls", throughSessionId: firstNew });
     const afterCheck = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });

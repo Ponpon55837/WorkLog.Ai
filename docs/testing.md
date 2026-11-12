@@ -140,6 +140,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 提醒聚合（八類混合來源，每類最多 200 筆） | 500 ms |
 | 週報 | 750 ms |
 | 年報 | 1,500 ms |
+| 報告 Agent context（年度固定來源請求；第 1 頁含報告區塊，第 2 頁只含該頁 Session 與 evidence；第 2 頁本機 p90 38.9 ms） | 各 1,500 ms |
 | Agent context | 2,500 ms |
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
 | metadata follow-up count（5,000 個 tracked Sessions；計數需與完整預覽總數一致） | 100 ms |

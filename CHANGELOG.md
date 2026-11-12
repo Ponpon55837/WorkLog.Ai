@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.19] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.19.md).
+
+### Changed
+
+- `work_get_report_context` (agent view) sends the period report block once. Totals, comparison, projects, risks, decisions, trends, and spanning do not change between Session pages, yet every page repeated them: on a real month with 193 Sessions about 86,000 of the 158,000 characters of pages 1–8 were the same block. Only `sessionPage: 1` now returns the block; a later page returns `report.evidence` and `report.evidencePageInfo` for its own Sessions, `reportBlockOnSessionPage: 1`, and `report.block` in `projection.omittedFields`. An Agent that reads page N directly, retries a page, or resumes after a restart reads page 1 again to get the same block; the server keeps no paging state. A period that fits one page is complete on that page. `view: "full"` and REST are unchanged.
+- In that block, `projects` and `risks` list at most 8 `sourceSessionIds` with `sourceSessionIdsOmittedCount` for the rest (every source is on the Session pages), and evidence names its Session by `sessionId` only, because the preview of that Session is on the same page. The space this frees reaches the Agent as content the budget used to remove: on the 193-Session month page 1 now keeps all 8 decisions and 7 risks (all were removed before), and the pages deliver 317 evidence items instead of none. The month reads 156,378 characters instead of 180,943 in the same 9 calls; a 68-Session month 56,259 instead of 70,849 (3 calls); a 5-Session week 12,561 instead of 13,385 (1 call).
+- `maxSessions` stays 24 by default. With 32 or more Sessions per page the 193-Session month would take 7 or 5 calls, but page 1 of the 68-Session month would then lose decisions (32) or decisions and risks (40) to the budget.
+- `work_get_knowledge_page_context` bounds each Session to what a page rewrite needs first: id, title, completion time, and the first two `outcomes`, `decisions`, and `nextSteps` of its work summary, each at most 100 characters (shortened text ends with `…` and the Session has `truncated: true`). `omittedSessionFields` names the summary, scope, and verification, which `work_get_session` with `view: "handoff"` returns (`sessionReadWith`). The Session budget is 12,000 characters instead of 24,000, and the fixed `instructions` text is gone because the Knowledge page contract and the work-intelligence skill already carry it. The current page and the ids its sections cite are unchanged. On the real database the three standing pages read 14,935, 11,982, and 13,900 characters instead of 23,705, 20,752, and 22,670, with the same 8 Sessions each.
+- The report synthesis contract, the Knowledge page contract, the work-intelligence skill, and the report-writing skill say that the report block arrives once and that page-context Sessions are previews. The prompt version stays `report-synthesis-v4`: it names the writing rules, and they did not change.
+
 ## [1.6.18] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.18.md).

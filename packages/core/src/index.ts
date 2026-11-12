@@ -2324,13 +2324,17 @@ export interface UpdateKnowledgePageInput {
   sections: KnowledgePageSection[];
 }
 
-/** A Session as an Agent sees it while writing a Knowledge page. */
+/**
+ * A Session as an Agent sees it while writing a Knowledge page: the first two outcomes, decisions and open items,
+ * each at most 100 characters. The summary, scope and verification are one work_get_session read away.
+ */
 export interface KnowledgePageContextSession {
   id: string;
   title: string;
   completedAt: string;
-  summary: string;
-  workSummary: WorkSummarySections;
+  workSummary: Pick<WorkSummarySections, "outcomes" | "decisions" | "nextSteps">;
+  /** True when items were left out or shortened (shortened text ends with an ellipsis). */
+  truncated?: boolean;
   /** In review mode: why this Session is included (finished after the page's coverage, or a changed cited source). */
   reason?: "new" | "source_changed";
 }
@@ -2343,9 +2347,11 @@ export interface KnowledgePageContext {
    * review: only Sessions finished after the page's coverage and changed cited sources, oldest first.
    */
   mode: "full" | "review";
-  instructions: string;
   sessions: KnowledgePageContextSession[];
-  /** True when older Sessions or long text were left out to stay within the size limit. */
+  /** Session fields the context leaves out; read them with sessionReadWith. */
+  omittedSessionFields: Array<"summary" | "workSummary.scope" | "workSummary.verification">;
+  sessionReadWith: "work_get_session";
+  /** True when older Sessions were left out to stay within the size limit. */
   truncated: boolean;
 }
 

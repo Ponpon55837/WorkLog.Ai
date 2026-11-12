@@ -45,6 +45,7 @@ const RESPONSE_BUDGETS = {
   knowledgePageNotFound: 700,
   fileHistoryOnePath: 4_000,
   fileHistoryThreePaths: 10_000,
+  knowledgePageContext: 10_000,
   sessionHandoffThirtyFiles: 6_500,
 } as const;
 const CONTEXT_ITEM_KEYS = new Set(["id", "sourceSessionId", "text", "textTruncated"]);
@@ -1192,6 +1193,56 @@ describe("synthetic MCP response-size baseline", () => {
     expect(typo.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
   });
 
+  it("bounds Knowledge page context Sessions while keeping every id a page section may cite", async () => {
+    const { client, store, projectRoot } = await connectWithSyntheticHistory();
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+    const payload = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      projectRoot,
+      slug: "architecture",
+    });
+    const context = payload.value as {
+      mode: string;
+      page: { sections: Array<{ sourceSessionIds: string[] }> };
+      sessions: Array<{ id: string; workSummary: Record<string, string[]>; summary?: string }>;
+      omittedSessionFields: string[];
+      sessionReadWith: string;
+      truncated: boolean;
+      instructions?: string;
+    };
+    console.info(`[response-size] knowledge page context: ${payload.length} characters`);
+    expect(payload.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageContext);
+    expect(context.mode).toBe("full");
+    expect(context.instructions).toBeUndefined();
+    expect(context.sessionReadWith).toBe("work_get_session");
+    expect(context.omittedSessionFields).toEqual(["summary", "workSummary.scope", "workSummary.verification"]);
+    // All 20 fixture Sessions fit, and the current page keeps the ids its sections cite.
+    expect(context.truncated).toBe(false);
+    expect(context.sessions).toHaveLength(20);
+    expect(context.page.sections[0]!.sourceSessionIds).toHaveLength(1);
+    for (const session of context.sessions) {
+      expect(session.summary).toBeUndefined();
+      expect(Object.keys(session.workSummary).sort()).toEqual(["decisions", "nextSteps", "outcomes"]);
+    }
+    const saved = store.saveKnowledgePage({
+      projectRoot,
+      slug: "architecture",
+      idempotencyKey: "response-size-page-cites-context",
+      sections: [
+        {
+          heading: "Agent context retrieval budget",
+          content: "Cites every Session of the context and the current page.",
+          sourceSessionIds: [
+            ...new Set([
+              ...context.sessions.map((session) => session.id),
+              ...context.page.sections[0]!.sourceSessionIds,
+            ]),
+          ],
+        },
+      ],
+    });
+    expect(saved.outcome).toBe("knowledge_page_saved");
+  });
+
   it("keeps a relaxed Knowledge search answer within its budget and audits how it was answered", async () => {
     const { client, projectRoot, store } = await connectWithSyntheticHistory();
     const relaxed = await serializedMcpPayload(client, "work_search_knowledge", {
@@ -1512,6 +1563,52 @@ describe("Agent report response budgets", () => {
     expect(cancelled.value.sourceSessionCount).toBe(21);
     expect(cancelled.value.request.sourceSessionIds).toBeUndefined();
     expect(cancelled.raw.length).toBeLessThanOrEqual(12_000);
+  });
+  it("sends the report block once, then only each Session page with its evidence", async () => {
+    const { client, store, projectId } = await connectWithSyntheticHistory();
+    const request = store.createReportSynthesisRequest({ period: "week", date: "2026-09-01", projectId });
+    if (request.outcome !== "report_synthesis_request") throw new Error("Missing request");
+    const requestId = request.request.id;
+    async function page(sessionPage: number) {
+      const response = await client.callTool({
+        name: "work_write_idempotent",
+        arguments: {
+          operation: "work_get_report_context",
+          arguments: {
+            requestId,
+            sessionPage,
+            maxSessions: 5,
+          },
+        },
+      });
+      expect(response.isError).not.toBe(true);
+      const raw = (response.content as Array<{ type: string; text: string }>)[0]!.text;
+      return { raw, value: JSON.parse(raw) };
+    }
+    const first = await page(1);
+    expect(first.raw.length).toBeLessThanOrEqual(24_000);
+    expect(first.value.reportBlockOnSessionPage).toBeUndefined();
+    expect(first.value.report.totals.sessions).toBe(20);
+    expect(first.value.report.projects[0]).toMatchObject({ sessionCount: 20, sourceSessionIdsOmittedCount: 12 });
+    expect(first.value.report.projects[0].sourceSessionIds).toHaveLength(8);
+    const block = JSON.stringify(first.value.report).length - JSON.stringify(first.value.report.evidence).length;
+    console.info(`[response-size] report block: ${block} characters, sent once instead of on 4 pages`);
+    expect(block).toBeGreaterThan(1_500);
+    const seen = new Set<string>(first.value.sessions.map((session: { id: string }) => session.id));
+    for (const sessionPage of [2, 3, 4]) {
+      const later = await page(sessionPage);
+      expect(later.raw.length).toBeLessThanOrEqual(24_000);
+      expect(later.value.reportBlockOnSessionPage).toBe(1);
+      expect(Object.keys(later.value.report).sort()).toEqual(["evidence", "evidencePageInfo"]);
+      // Apart from the evidence of its own Sessions, a later page carries only page info of the report.
+      expect(
+        JSON.stringify(later.value.report).length - JSON.stringify(later.value.report.evidence).length,
+      ).toBeLessThan(250);
+      for (const session of later.value.sessions) seen.add(session.id);
+    }
+    expect(seen.size).toBe(20);
+    // A direct read of page 1 (a resumed Agent) returns the same block again.
+    expect((await page(1)).value.report).toEqual(first.value.report);
   });
 });
 
