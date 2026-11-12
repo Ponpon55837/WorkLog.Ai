@@ -1404,10 +1404,14 @@ try {
         throw new Error("The indexed staleness check must finish on distinct-path history.");
       return result;
     },
-    "searchKnowledge (15-star glob stops at the staleness match ceiling)": () => {
+    // Every path is a candidate for this glob and costs the full simulation. The read either decides every item or
+    // stops at the match ceiling and marks them unchecked; what this case bounds is the time either way. (With the
+    // 50M ceiling first chosen this data stopped; at 300M it is decided. tests/storage/later-change-index.test.ts
+    // covers the stop itself with an injected ceiling.)
+    "searchKnowledge (15-star glob over long paths, decided or stopped at the match ceiling)": () => {
       const result = distinctPaths.store.searchKnowledge({ projectRoot: distinctPaths.starRoot, pageSize: 20 });
-      if (result.outcome !== "knowledge" || !result.items.every((item) => item.stalenessUnchecked))
-        throw new Error("A 15-star glob tested against every long path must stop at the match ceiling.");
+      if (result.outcome !== "knowledge" || result.items.length === 0)
+        throw new Error("A 15-star glob tested against every long path must be answered or marked unchecked.");
       return result;
     },
     "summarizeAgentReads (5,000 rows)": () => {
@@ -1625,7 +1629,7 @@ try {
     "knowledgeToReview (200 candidates, 5,000 later Sessions)": 250,
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": 500,
     "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": 1000,
-    "searchKnowledge (15-star glob stops at the staleness match ceiling)": 1000,
+    "searchKnowledge (15-star glob over long paths, decided or stopped at the match ceiling)": 1000,
     "searchKnowledgeForAgent (relaxed fallback)": 250,
     createBackup: 300,
     "exportTo (whole database)": 300,
