@@ -26,6 +26,7 @@ import type {
   OutstandingItemListQueryResult,
   PolicyDecision,
   ProjectRecord,
+  ProjectScopedItem,
   RecallHit,
   DateRange,
   RecallInput,
@@ -68,9 +69,14 @@ const SEARCH_LIMIT = 20;
 const CONTEXT_DEFAULT_BUDGET_CHARS = 15_800;
 const CONTEXT_TASK_BUDGET_CHARS = 9_800;
 /** Budget-omitted ids listed per context section; the rest are counted in `moreIds`. */
-const CONTEXT_OMITTED_ID_LIMIT = 5;
+const CONTEXT_OMITTED_ID_LIMIT = 3;
 /** Reason prefix for an item left out because the same record is already shown in another section. */
 const DUPLICATE_REASON_PREFIX = "已列於";
+/**
+ * Without a task or paths, the newest Sessions are what an Agent starting work needs most, so this many outlast
+ * older Knowledge, decisions, and page content when the budget is tight.
+ */
+const CONTEXT_RECENT_SESSION_FLOOR = 3;
 const CONTEXT_PAGE_SECTION_LIMIT = 5;
 const CONTEXT_REVIEW_SOURCE_LIMIT = 8;
 const CONTEXT_SOURCE_SESSION_LIMIT = 8;
@@ -83,6 +89,14 @@ const RECALL_EXCERPT_CHARS = 110;
 export type ContextFocus = { task?: string; paths?: string[] };
 
 type MetadataBackfillTotals = Extract<MetadataBackfillPreviewResult, { outcome: "backfill_preview" }>["totals"];
+
+/** One item a context section leaves out, before it is folded into the section's compact omission pointer. */
+interface OmittedItem {
+  id: string;
+  reason: string;
+  possiblyStale?: boolean;
+  needsReview?: boolean;
+}
 
 interface ContextRecallStoreReader {
   checkProjectRoot(projectRoot: string): PolicyDecision;
@@ -156,36 +170,61 @@ function hasFocus(focus: ContextFocus): boolean {
   return Boolean(focus.task?.trim() || (focus.paths ?? []).some((path) => path.trim()));
 }
 
+/** Drops the project fields that a project-scoped context names once in `project`. */
+function withoutProjectFields<T extends { projectId: string; projectName?: string }>(item: T): ProjectScopedItem<T> {
+  const { projectId: _projectId, projectName: _projectName, ...rest } = item;
+  return rest;
+}
+
 /**
- * Records one left-out item compactly: duplicates are counted only, budget omissions keep a few ids, and items
- * with trust or review signals keep their full entry. Omission bookkeeping must not crowd out content.
+ * Every id a context left out, including those past the few listed in its pointers, so supplements never point back
+ * to an omitted record. Kept beside the response because it is not part of it.
  */
-function addOmission(
-  context: ContextResult,
-  section: string,
-  entry: NonNullable<ContextOmission["entries"]>[number],
-  readWith: string,
-): void {
+const omittedIdsByContext = new WeakMap<ContextResult, Set<string>>();
+
+/**
+ * Folds one left-out item into its section's compact pointer: duplicates are counted only, budget omissions keep a
+ * few ids, and items flagged possiblyStale or needsReview keep their id and flags. Review details and cited Session
+ * ids are left to `readWith`, so omission bookkeeping never crowds out content.
+ */
+function addOmission(context: ContextResult, section: string, item: OmittedItem, readWith: string): void {
   context.omitted ??= [];
-  let omission = context.omitted.find((item) => item.section === section);
+  let omission = context.omitted.find((candidate) => candidate.section === section);
   if (!omission) {
     omission = { section, count: 0, readWith };
     context.omitted.push(omission);
   }
   omission.count += 1;
-  if (entry.possiblyStale || entry.needsReview || entry.reviewSections) {
-    (omission.entries ??= []).push(entry);
-    return;
+  let omittedIds = omittedIdsByContext.get(context);
+  if (!omittedIds) {
+    omittedIds = new Set();
+    omittedIdsByContext.set(context, omittedIds);
   }
-  if (entry.reason.startsWith(DUPLICATE_REASON_PREFIX)) {
+  omittedIds.add(item.id);
+  // A duplicate is shown elsewhere in this response together with its flags.
+  if (item.reason.startsWith(DUPLICATE_REASON_PREFIX)) {
     omission.duplicates = (omission.duplicates ?? 0) + 1;
     return;
   }
   const reasons = (omission.reasons ??= []);
-  if (!reasons.includes(entry.reason)) reasons.push(entry.reason);
+  if (!reasons.includes(item.reason)) reasons.push(item.reason);
+  if (item.possiblyStale || item.needsReview) {
+    const entries = (omission.entries ??= []);
+    let entry = entries.find((candidate) => candidate.id === item.id);
+    if (!entry) {
+      entry = { id: item.id };
+      entries.push(entry);
+    }
+    if (item.possiblyStale) entry.possiblyStale = true;
+    if (item.needsReview) entry.needsReview = true;
+    omission.ids = omission.ids?.filter((id) => id !== item.id);
+    if (omission.ids?.length === 0) delete omission.ids;
+    return;
+  }
+  if (omission.entries?.some((entry) => entry.id === item.id)) return;
   const ids = (omission.ids ??= []);
-  if (ids.includes(entry.id)) return;
-  if (ids.length < CONTEXT_OMITTED_ID_LIMIT) ids.push(entry.id);
+  if (ids.includes(item.id)) return;
+  if (ids.length < CONTEXT_OMITTED_ID_LIMIT) ids.push(item.id);
   else omission.moreIds = (omission.moreIds ?? 0) + 1;
 }
 
@@ -422,8 +461,10 @@ export class ContextRecallService {
       tracked: true,
       clock: serverClock(),
       project,
-      projects: hasFocus(focus) ? [] : [project],
-      pendingOutstandingItems: pendingOutstandingItems.map((item) => this.boundOutstandingItem(item)),
+      projects: [],
+      pendingOutstandingItems: pendingOutstandingItems.map((item) =>
+        withoutProjectFields(this.boundOutstandingItem(item)),
+      ),
       pendingOutstandingItemsTotal,
       pendingOutstandingItemsOmitted: Math.max(0, pendingOutstandingItemsTotal - pendingOutstandingItems.length),
       pendingOutstandingItemsTruncated: pendingOutstandingItems.filter(
@@ -433,7 +474,7 @@ export class ContextRecallService {
       pendingRequests: this.getPendingRequests(project.id),
       metadataFollowUps: this.getMetadataFollowUps(project.id),
       recentSessions: recentSessions.map((session) =>
-        this.contextSessionDigest(session, pendingBySession.get(session.id) ?? []),
+        withoutProjectFields(this.contextSessionDigest(session, pendingBySession.get(session.id) ?? [])),
       ),
       recentDecisions: this.getRecentDecisions(project.id),
       recentKnowledge: this.getRecentKnowledge(project.id),
@@ -491,26 +532,14 @@ export class ContextRecallService {
     });
 
     const selectedPageIds = new Set((context.relevant.knowledgePages ?? []).map((page) => page.id));
-    let remainingReviewSources = CONTEXT_REVIEW_SOURCE_LIMIT;
     for (const page of this.store.knowledgePagesForContext(context.project?.id)) {
-      const selected = selectedPageIds.has(page.id);
-      const reviewSections =
-        page.needsReview && !selected
-          ? limitKnowledgePageReviewSections(page.reviewSections ?? [], remainingReviewSources)
-          : undefined;
-      remainingReviewSources -= reviewSections?.reduce((count, section) => count + section.sources.length, 0) ?? 0;
       addOmission(
         context,
         "knowledgePages",
         {
           id: page.slug,
-          reason: selected ? "已列於 relevant.knowledgePages" : "本次不相關",
-          ...(page.needsReview
-            ? {
-                needsReview: true,
-                ...(reviewSections ? { reviewSections } : {}),
-              }
-            : {}),
+          reason: selectedPageIds.has(page.id) ? "已列於 relevant.knowledgePages" : "本次不相關",
+          ...(page.needsReview ? { needsReview: true } : {}),
         },
         "work_get_knowledge_page_context",
       );
@@ -559,17 +588,21 @@ export class ContextRecallService {
       };
     });
 
+    const recentSessionFloor = hasFocus(focus) ? 0 : CONTEXT_RECENT_SESSION_FLOOR;
+    const trimRecentSession = (floor: number): boolean => {
+      if (context.recentSessions.length <= floor) return false;
+      const recentSession = context.recentSessions.pop()!;
+      addOmission(
+        context,
+        "recentSessions",
+        { id: recentSession.id, reason: "預算限制：較低優先近況" },
+        "work_get_session",
+      );
+      return true;
+    };
+
     const trimNext = (): boolean => {
-      const recentSession = context.recentSessions.pop();
-      if (recentSession) {
-        addOmission(
-          context,
-          "recentSessions",
-          { id: recentSession.id, reason: "預算限制：較低優先近況" },
-          "work_get_session",
-        );
-        return true;
-      }
+      if (trimRecentSession(recentSessionFloor)) return true;
       const recentKnowledge = context.recentKnowledge.pop();
       if (recentKnowledge) {
         addOmission(
@@ -600,19 +633,12 @@ export class ContextRecallService {
         addOmission(
           context,
           "knowledgePages",
-          {
-            id: page.slug,
-            reason: "預算限制：較低優先頁面",
-            sourceSessionIds: page.sourceSessionIds,
-            ...(page.sourceSessionIdsOmittedCount
-              ? { sourceSessionIdsOmittedCount: page.sourceSessionIdsOmittedCount }
-              : {}),
-            ...(page.needsReview ? { needsReview: true, reviewSections: page.reviewSections } : {}),
-          },
+          { id: page.slug, reason: "預算限制：較低優先頁面", ...(page.needsReview ? { needsReview: true } : {}) },
           "work_get_knowledge_page_context",
         );
         return true;
       }
+      if (trimRecentSession(0)) return true;
       const project = context.projects.length > 1 ? context.projects.pop() : undefined;
       if (project) {
         addOmission(
@@ -653,28 +679,8 @@ export class ContextRecallService {
           "relevant.knowledgePages",
           {
             id: pageWithSections.slug,
-            reason: `預算限制：較低相關段落（${section.heading}）`,
-            sourceSessionIds: section.sourceSessionIds,
-            ...(section.sourceSessionIdsOmittedCount
-              ? { sourceSessionIdsOmittedCount: section.sourceSessionIdsOmittedCount }
-              : {}),
-            ...(section.reviewSources || section.reviewOmittedSourceCount
-              ? {
-                  needsReview: true,
-                  reviewSections: [
-                    {
-                      heading: section.heading,
-                      sources: section.reviewSources ?? [],
-                      ...(section.reviewOmittedSourceCount
-                        ? {
-                            omittedSourceCount: section.reviewOmittedSourceCount,
-                            reasons: section.reviewReasons,
-                          }
-                        : {}),
-                    },
-                  ],
-                }
-              : {}),
+            reason: "預算限制：較低相關段落",
+            ...(section.reviewSources || section.reviewOmittedSourceCount ? { needsReview: true } : {}),
           },
           "work_get_knowledge_page_context",
         );
@@ -878,6 +884,8 @@ export class ContextRecallService {
           }),
       )
       .slice(0, RECENT_DECISION_LIMIT);
+    const scoped = <T extends { projectId: string; projectName?: string }>(item: T): ProjectScopedItem<T> =>
+      projectId ? withoutProjectFields(item) : item;
     return {
       ...(task ? { task } : {}),
       ...(paths.length > 0 ? { paths } : {}),
@@ -890,10 +898,10 @@ export class ContextRecallService {
           sourceSessionIds: recalled.hits.filter((hit) => hit.type === "session").map((hit) => hit.id),
         }),
       ),
-      knowledge,
+      knowledge: knowledge.map(scoped),
       decisions,
       sessions: sessions.map(({ hit, record }) => ({
-        ...hit,
+        ...scoped(hit),
         openItems: this.openItemsForSession(record, pendingBySession.get(record.id) ?? []),
       })),
       knowledgePages: this.getRelevantKnowledgePages(focus, projectId),
@@ -921,10 +929,7 @@ export class ContextRecallService {
       ...relevant.sessions.map((session) => session.id),
       ...relevant.knowledge.map((knowledge) => knowledge.id),
     ]);
-    for (const omission of context.omitted ?? []) {
-      for (const id of omission.ids ?? []) excludedIds.add(id);
-      for (const entry of omission.entries ?? []) excludedIds.add(entry.id);
-    }
+    for (const id of omittedIdsByContext.get(context) ?? []) excludedIds.add(id);
 
     const appliedBySession = this.store.appliedKnowledgeIdsBySessions(sources.map(({ record }) => record.id));
     const appliedKnowledgeIds = [...new Set([...appliedBySession.values()].flat())];
@@ -1044,7 +1049,7 @@ export class ContextRecallService {
       if (!digest) {
         digest = {
           id: match.page.id,
-          projectId: match.page.projectId,
+          ...(projectId ? {} : { projectId: match.page.projectId }),
           slug: match.page.slug,
           title: match.page.title,
           status: match.page.status,
@@ -1135,11 +1140,11 @@ export class ContextRecallService {
     );
   }
 
-  private getRecentKnowledge(projectId?: string): KnowledgeDigest[] {
+  private getRecentKnowledge(projectId?: string): ProjectScopedItem<KnowledgeDigest>[] {
     const result = this.store.searchKnowledge({ projectId, status: "active", limit: 12 });
-    return result.outcome === "knowledge"
-      ? result.items.map((knowledge) => this.contextKnowledgeDigest(knowledge))
-      : [];
+    if (result.outcome !== "knowledge") return [];
+    const digests = result.items.map((knowledge) => this.contextKnowledgeDigest(knowledge));
+    return projectId ? digests.map(withoutProjectFields) : digests;
   }
 
   private contextSessionDigest(

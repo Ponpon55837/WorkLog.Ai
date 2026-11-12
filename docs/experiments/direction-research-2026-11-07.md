@@ -91,6 +91,7 @@ metadata backfill 的 1 筆失敗請求已開始但沒有 `completed_at`。
 - 數據依據：`work_get_knowledge_page_context` 104 次中 6 次 not_found（5.8%），為全部讀取工具中唯一有明確失敗標籤者。
 - 預估效益：回傳可用頁面識別的提示（相近頁面、是否已刪除），降低 Agent 重試；失敗樣本太少，無法判斷原因分布，需先在稽核加入原因代碼。
 - 程式位置：`apps/mcp/src/server.ts`（約 956 行）。
+- 狀態：1.6.15 完成。not_found 回傳 `reasonCode`、`existingSlugs` 與 `suggestedSlug`，原因代碼記入讀取稽核的 `errorCode`。
 
 ### C4：知識搜尋零命中的後備
 

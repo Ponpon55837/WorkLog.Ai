@@ -50,7 +50,10 @@ export interface RecordAgentReadInput {
   projectId?: string;
   /** Wall time of the read in milliseconds; rounded and clamped, ignored when not finite. */
   durationMs?: number;
-  /** Set for a failed read: a snake_case code only (never a message); a malformed code becomes internal_error. */
+  /**
+   * Set for a failed read: a snake_case code only (never a message); a malformed code becomes internal_error. A
+   * not_found result's own `reasonCode` is stored the same way without this field.
+   */
   errorCode?: string;
   now?: string;
 }
@@ -86,6 +89,7 @@ interface AuditRow {
 
 interface StatsRow {
   tool: string;
+  outcome: string;
   duration_ms: number | null;
   error_code: string | null;
 }
@@ -168,6 +172,15 @@ function outcomeOf(result: unknown): string {
   return "ok";
 }
 
+/**
+ * The cause a not_found result names in `reasonCode` (work_get_knowledge_page_context), kept in error_code so the
+ * audit shows why lookups miss; the outcome stays not_found. Only a well-formed code is kept, never free text.
+ */
+function notFoundReasonCodeOf(result: unknown): string | undefined {
+  if (!isObject(result) || result.outcome !== "not_found") return undefined;
+  return typeof result.reasonCode === "string" && CODE_PATTERN.test(result.reasonCode) ? result.reasonCode : undefined;
+}
+
 function normalizeDuration(value: number | undefined): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Math.min(Math.max(Math.round(value), 0), MAX_DURATION_MS);
@@ -247,6 +260,7 @@ export class AgentReadAuditService {
       const extraction: AgentReadExtraction =
         skipped || errorCode ? { sessionIds: [], knowledgeIds: [] } : extractAgentReadRecords(input.result);
       const projectId = skipped ? undefined : (input.projectId ?? extraction.projectId);
+      const storedCode = errorCode ?? notFoundReasonCodeOf(input.result);
       const sessionIds = extraction.sessionIds.slice(0, AGENT_READ_AUDIT_MAX_IDS);
       const knowledgeIds = extraction.knowledgeIds.slice(0, AGENT_READ_AUDIT_MAX_IDS);
       const auditId = randomUUID();
@@ -273,7 +287,7 @@ export class AgentReadAuditService {
               extraction.sessionIds.length - sessionIds.length,
               extraction.knowledgeIds.length - knowledgeIds.length,
               normalizeDuration(input.durationMs),
-              errorCode ?? null,
+              storedCode ?? null,
             );
           if (sessionIds.length + knowledgeIds.length > 0) {
             const insertRecord = this.db.prepare(
@@ -323,7 +337,7 @@ export class AgentReadAuditService {
     const { where, parameters } = this.filterClause(options);
     const rows = this.db
       .prepare(
-        `SELECT a.tool, a.duration_ms, a.error_code
+        `SELECT a.tool, a.outcome, a.duration_ms, a.error_code
          FROM agent_read_audit a LEFT JOIN projects p ON p.id = a.project_id WHERE ${where}
          ORDER BY a.created_at DESC LIMIT ?`,
       )
@@ -337,10 +351,9 @@ export class AgentReadAuditService {
       }
       group.count += 1;
       if (row.duration_ms !== null) group.durations.push(row.duration_ms);
-      if (row.error_code) {
-        group.errorCount += 1;
-        group.errorCodes[row.error_code] = (group.errorCodes[row.error_code] ?? 0) + 1;
-      }
+      // A not_found cause is counted by code but is not a failed read.
+      if (row.outcome === "error") group.errorCount += 1;
+      if (row.error_code) group.errorCodes[row.error_code] = (group.errorCodes[row.error_code] ?? 0) + 1;
     }
     const tools = [...groups].map(([tool, group]) => toolStats(tool, group));
     tools.sort(

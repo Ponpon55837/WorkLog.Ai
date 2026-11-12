@@ -4,6 +4,20 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.15] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.15.md).
+
+### Changed
+
+- `work_get_context` keeps `omitted` to a small pointer per section: a count, the tool to read the rest, up to three ids, and the id and flag of each left-out item marked `possiblyStale` or `needsReview`. Page review sections and cited Session ids are no longer repeated there; `work_get_knowledge_page_context` carries them. On a synthetic history and a real 328-Session database, the omitted section of a task context fell from about 6,000 to 2,000 characters, and the freed budget now keeps more relevant Sessions, decisions, and page sections; task contexts that used to exceed their 10,000-character cap now fit.
+- A `work_get_context` call without a task or paths keeps its three newest Sessions until older Knowledge, decisions, and page content have been trimmed, instead of dropping every recent Session first.
+- Calls scoped by `projectRoot` name the project once: `work_get_context` returns `project` with an empty `projects`, and its Session, Knowledge, outstanding-item, and relevant entries omit `projectId`/`projectName`; `work_recall`, `work_list_sessions`, and `work_list_outstanding_items` return `project: { id, name }` instead of repeating it on every hit or row; a scoped `work_search_knowledge` returns `project: { id, name, rootPath }` without the duplicate `projects` list. Unscoped calls and REST responses other than `GET /api/context` are unchanged.
+
+### Added
+
+- `work_get_knowledge_page_context` explains a missed lookup instead of only pointing to `work_request_knowledge_page_update`: the result carries `reasonCode` (`page_id_as_slug`, `slug_looks_like_id`, `slug_near_match`, `page_not_requested`, or `page_unknown`), the project's `existingSlugs` (at most 20), and a `suggestedSlug` when the value is the id of one of the project's pages or within two edits of an existing or default slug. The read audit stores the reason code in `errorCode` with outcome `not_found`; `GET /api/agent-reads/stats` counts it under `errorCodes` but not as a failed read.
+
 ## [1.6.14] - 2026-11-10
 
 [繁體中文更新說明](docs/releases/1.6.14.md).

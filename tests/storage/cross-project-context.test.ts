@@ -83,9 +83,11 @@ describe("cross-project context and recall", () => {
 
     const violetFocusedContext = store.getContext(violet.root, { task: query });
     if (violetFocusedContext.outcome !== "context") throw new Error("Expected focused tracked-project context.");
-    expect(violetFocusedContext.relevant?.sessions).toEqual([
-      expect.objectContaining({ id: violet.session.id, projectId: violet.projectId, projectName: violet.projectName }),
-    ]);
+    // A scoped context names its project once; relevant hits do not repeat it.
+    expect(violetFocusedContext.project?.id).toBe(violet.projectId);
+    expect(violetFocusedContext.relevant?.sessions).toEqual([expect.objectContaining({ id: violet.session.id })]);
+    expect(violetFocusedContext.relevant?.sessions[0]).not.toHaveProperty("projectId");
+    expect(violetFocusedContext.relevant?.sessions[0]).not.toHaveProperty("projectName");
     expectProjectAbsent(violetFocusedContext, amber);
     expectProjectAbsent(violetFocusedContext, hidden);
 
@@ -103,9 +105,11 @@ describe("cross-project context and recall", () => {
 
     const amberFocusedContext = store.getContext(amber.root, { task: query });
     if (amberFocusedContext.outcome !== "context") throw new Error("Expected focused tracked-project context.");
-    expect(amberFocusedContext.relevant?.sessions).toEqual([
-      expect.objectContaining({ id: amber.session.id, projectId: amber.projectId, projectName: amber.projectName }),
-    ]);
+    // A scoped context names its project once; relevant hits do not repeat it.
+    expect(amberFocusedContext.project?.id).toBe(amber.projectId);
+    expect(amberFocusedContext.relevant?.sessions).toEqual([expect.objectContaining({ id: amber.session.id })]);
+    expect(amberFocusedContext.relevant?.sessions[0]).not.toHaveProperty("projectId");
+    expect(amberFocusedContext.relevant?.sessions[0]).not.toHaveProperty("projectName");
     expectProjectAbsent(amberFocusedContext, violet);
     expectProjectAbsent(amberFocusedContext, hidden);
 

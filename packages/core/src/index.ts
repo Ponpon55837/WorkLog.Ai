@@ -420,7 +420,10 @@ export interface AgentReadAuditItem {
   omittedKnowledgeCount: number;
   /** Wall time of the read in whole milliseconds; absent for rows recorded before timing existed. */
   durationMs?: number;
-  /** Machine-readable failure code when the read failed; never an error message. */
+  /**
+   * Machine-readable code, never an error message: why the read failed (outcome `error`), or why a page lookup
+   * found nothing (outcome `not_found`).
+   */
   errorCode?: string;
 }
 
@@ -448,6 +451,7 @@ export interface AgentReadToolStats {
   p50Ms: number | null;
   p95Ms: number | null;
   maxMs: number | null;
+  /** Rows per code: failed reads (counted in errorCount) and the causes of not_found page lookups. */
   errorCodes: Record<string, number>;
 }
 
@@ -2274,8 +2278,29 @@ export type RequestKnowledgePageUpdateResult =
   | { outcome: "invalid_page"; reason: string }
   | KnowledgePageSkippedResult;
 
+/**
+ * Why work_get_knowledge_page_context found no page; also recorded in the read audit. `page_id_as_slug`: the value
+ * is the id of a page of this project; `slug_looks_like_id`: an id of no page; `slug_near_match`: a slug close to
+ * an existing or default page; `page_not_requested`: a default page that was never requested; `page_unknown`: none.
+ */
+export type KnowledgePageNotFoundReasonCode =
+  "page_id_as_slug" | "slug_looks_like_id" | "slug_near_match" | "page_not_requested" | "page_unknown";
+
+/** A page lookup that found nothing, with the project's slugs so the Agent can retry instead of creating a page. */
+export interface KnowledgePageNotFoundResult {
+  outcome: "not_found";
+  slug: string;
+  reasonCode: KnowledgePageNotFoundReasonCode;
+  reason: string;
+  /** The slug to call again with: the page whose id was passed, or the nearest existing or default slug. */
+  suggestedSlug?: string;
+  /** Slugs of the project's pages in alphabetical order, bounded; the rest are counted in existingSlugsOmittedCount. */
+  existingSlugs: string[];
+  existingSlugsOmittedCount?: number;
+}
+
 export type KnowledgePageContextResult =
-  KnowledgePageContext | { outcome: "not_found"; slug: string; reason: string } | KnowledgePageSkippedResult;
+  KnowledgePageContext | KnowledgePageNotFoundResult | KnowledgePageSkippedResult;
 
 export type SaveKnowledgePageResult =
   | { outcome: "knowledge_page_saved"; duplicate: boolean; page: KnowledgePageRecord; redactions?: RedactionSummary }
@@ -2334,19 +2359,30 @@ export type DecideKnowledgeCandidateResult =
   | { outcome: "already_decided"; candidate: KnowledgeCandidate }
   | KnowledgeCandidateSkippedResult;
 
+/**
+ * An item of a project-scoped context: the project is named once in `project` instead of on every item, so the
+ * project fields are present only when the context spans several projects.
+ */
+export type ProjectScopedItem<T extends { projectId: string }> = Omit<T, "projectId" | "projectName"> & {
+  projectId?: string;
+  projectName?: string;
+};
+
 export interface ContextResult {
   outcome: "context";
   /** Present only for a projectRoot-scoped call: the policy decision that admitted it, same as work_get_project_status. */
   projectStatus?: "tracked";
   tracked?: true;
   clock: ServerClock;
+  /** The scope of a projectRoot call, named once; its items leave out projectId and projectName. */
   project?: ProjectRecord;
+  /** Tracked projects of an unscoped call; empty when `project` is set. */
   projects: ProjectRecord[];
-  recentSessions: SessionDigest[];
+  recentSessions: ProjectScopedItem<SessionDigest>[];
   recentDecisions: DecisionDigest[];
-  recentKnowledge: KnowledgeDigest[];
+  recentKnowledge: ProjectScopedItem<KnowledgeDigest>[];
   /** Pending items only, each linked to its source Session. */
-  pendingOutstandingItems: ContextOutstandingItem[];
+  pendingOutstandingItems: ProjectScopedItem<ContextOutstandingItem>[];
   pendingOutstandingItemsTotal: number;
   pendingOutstandingItemsOmitted: number;
   pendingOutstandingItemsTruncated: number;
@@ -2380,9 +2416,10 @@ export interface ContextResult {
 }
 
 /**
- * What one context section left out. Items already shown elsewhere in the response are only counted
- * (`duplicates`); budget omissions list up to a few `ids` plus `moreIds`; entries that carry trust or review
- * signals are always kept in full under `entries`, so budget never hides them.
+ * A small pointer to what one context section left out. Items already shown elsewhere in the response are only
+ * counted (`duplicates`); budget omissions list up to three `ids` plus `moreIds`; left-out items flagged
+ * possiblyStale or needsReview are listed under `entries` with their id and flags, so budget never hides a trust
+ * signal. Details such as page review sections and cited Session ids are read with `readWith`.
  */
 export interface ContextOmission {
   section: string;
@@ -2393,19 +2430,16 @@ export interface ContextOmission {
   reasons?: string[];
   entries?: Array<{
     id: string;
-    reason: string;
-    sourceSessionIds?: string[];
-    sourceSessionIdsOmittedCount?: number;
-    possiblyStale?: boolean;
-    needsReview?: boolean;
-    reviewSections?: KnowledgePageReviewSection[];
+    possiblyStale?: true;
+    needsReview?: true;
   }>;
   readWith: string;
 }
 
 export interface RelevantKnowledgePageDigest {
   id: string;
-  projectId: string;
+  /** Left out in a project-scoped context, whose `project` names it once. */
+  projectId?: string;
   projectName?: string;
   slug: string;
   title: string;
@@ -2726,13 +2760,13 @@ export interface RelevantContext {
   /** Confidence in the task-related retrieval; none means no result should be used as evidence. */
   confidence: RecallConfidence;
   /** Knowledge (gotchas, patterns, decisions, …) ranked for the task and paths. */
-  knowledge: RecallHit[];
+  knowledge: ProjectScopedItem<RecallHit>[];
   /** workSummary.decisions of the relevant Sessions, each citing its Session. */
   decisions: DecisionDigest[];
   /** Pending items ranked by their text, source paths, and source Session relevance. */
   outstandingItems?: RelatedOutstandingItems;
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
-  sessions: Array<RecallHit & { openItems: string[] }>;
+  sessions: Array<ProjectScopedItem<RecallHit> & { openItems: string[] }>;
   /** Optional compact pointers to possibly related Sessions or applied Knowledge; never literal-match evidence. */
   supplements?: ContextSupplementIndicator[];
   /** Sections of standing Knowledge pages whose headings or content match this task. */

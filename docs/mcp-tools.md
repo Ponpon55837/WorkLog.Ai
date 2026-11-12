@@ -115,11 +115,11 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_get_context`
 
-傳入 `projectRoot` 時只回傳該 tracked project 的內容，同時就是記錄狀態確認：tracked 時頂層帶 `projectStatus: "tracked"` 與 `tracked: true`；`paused`、`ignored`、`unregistered`（含不存在的路徑）只回傳 `outcome: "skipped"`、`projectRoot`、`projectStatus`、`tracked: false`、`reason` 與 `server`，不含任何專案資料。Agent 開始工作與 finalize 前各呼叫一次即可，不必另外呼叫 `work_get_project_status`。不傳 `projectRoot` 則涵蓋所有 tracked projects，且沒有這兩個欄位。回傳也包含伺服器時鐘 `clock`（同 `work_get_project_status`）與 `server` 狀態。若 `server.restartRequired` 為 `true`，請停止後續 MCP 操作並告訴使用者「請重新連線 MCP」；`server.monitoringAvailable` 為 `false` 代表建置識別未知，不可宣稱目前連線已是最新版。所有工具的文字結果都是緊湊 JSON（不縮排）。整份 context 的字元上限：帶 `task`／`paths` 時 10,000，沒有焦點時 16,000。帶焦點時優先保留相關決策、陷阱、未結項與命中的知識頁段落，再放近期活動；Session／Knowledge 在多區命中時只留一份主要內容。摘要優先在句子邊界截斷並標記 `truncated`；沒有可用句界時會在安全的字元邊界截斷並標記。超過預算或已在其他區出現的項目列在 `omitted`；`possiblyStale`、`needsReview` 與待處理請求會保留。完整內容再用對應工具讀取：
+傳入 `projectRoot` 時只回傳該 tracked project 的內容，同時就是記錄狀態確認：tracked 時頂層帶 `projectStatus: "tracked"` 與 `tracked: true`；`paused`、`ignored`、`unregistered`（含不存在的路徑）只回傳 `outcome: "skipped"`、`projectRoot`、`projectStatus`、`tracked: false`、`reason` 與 `server`，不含任何專案資料。Agent 開始工作與 finalize 前各呼叫一次即可，不必另外呼叫 `work_get_project_status`。不傳 `projectRoot` 則涵蓋所有 tracked projects，且沒有這兩個欄位。指定專案時，專案只在頂層 `project` 出現一次，`projects` 為空陣列；`recentSessions`、`recentKnowledge`、`pendingOutstandingItems`、`relevant.sessions`／`knowledge`／`knowledgePages` 的每筆項目不再重複 `projectId`／`projectName`。不指定專案時，`projects` 列出 tracked projects，每筆項目保留專案欄位。回傳也包含伺服器時鐘 `clock`（同 `work_get_project_status`）與 `server` 狀態。若 `server.restartRequired` 為 `true`，請停止後續 MCP 操作並告訴使用者「請重新連線 MCP」；`server.monitoringAvailable` 為 `false` 代表建置識別未知，不可宣稱目前連線已是最新版。所有工具的文字結果都是緊湊 JSON（不縮排）。整份 context 的字元上限：帶 `task`／`paths` 時 10,000，沒有焦點時 16,000。帶焦點時優先保留相關決策、陷阱、未結項與命中的知識頁段落，再放近期活動；Session／Knowledge 在多區命中時只留一份主要內容。摘要優先在句子邊界截斷並標記 `truncated`；沒有可用句界時會在安全的字元邊界截斷並標記。超過預算或已在其他區出現的項目列在 `omitted`；`possiblyStale`、`needsReview` 與待處理請求會保留。完整內容再用對應工具讀取：
 
 | 欄位 | 內容 | 讀取完整內容 |
 | --- | --- | --- |
-| `recentSessions` | 最近 12 筆 Session 的 id、標題、摘要（最多 400 字，句界優先截斷並標示 `summaryTruncated`）、完成時間、branch、verification 狀態、changed files 數量，以及前 3 項 pending 未結項文字（`openItems`） | `work_get_session` |
+| `recentSessions` | 最近 12 筆 Session（沒有焦點且超出預算時，最新 3 筆會保留到較舊的 Knowledge、決策與知識頁內容之後才省略）的 id、標題、摘要（最多 400 字，句界優先截斷並標示 `summaryTruncated`）、完成時間、branch、verification 狀態、changed files 數量，以及前 3 項 pending 未結項文字（`openItems`） | `work_get_session` |
 | `pendingOutstandingItems` | 最多 5 筆 pending 未結項，每筆含穩定 id、source Session id／標題／完成時間、狀態與最多 500 字文字；`pendingOutstandingItemsTotal`、`pendingOutstandingItemsOmitted`、`pendingOutstandingItemsTruncated` 分別提供總數、省略數與文字截短數，單筆截短另標示 `textTruncated` | `work_list_outstanding_items` |
 | `recentDecisions` | 最近 Session 的 `workSummary.decisions`（最多 12 條），每條附 `sessionId`、Session 標題與完成時間，方便引用來源 | `work_get_session` |
 | `recentKnowledge` | 最近 12 筆 active Knowledge 的 id、kind、標題、tags 與 `excerpt`（最多 400 字，截斷時標示 `excerptTruncated`；附 `possiblyStale`／`needsReview` 時要先核對） | `work_search_knowledge` |
@@ -129,7 +129,7 @@ MCP client 的 stdio 設定可使用：
 
 `pendingRequests.reportSynthesis`／`pendingRequests.metadataBackfill` 列出 pending 或 processing、等待 Agent 處理的請求（新到舊，各最多 5 筆）。指定專案時也包含「所有專案」範圍的請求。
 
-帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作及需要核對的知識頁段落，並保留 `sourceSessionIds`；知識頁來源 id 在整份 context 最多列 8 筆，超出的數量以 `sourceSessionIdsOmittedCount` 標示。頁面層級的 `needsReview` 會保留，受影響段落列出來源 Session id／標題與原因。單一 context 最多列出 8 筆來源核對明細；受影響段落仍全部列出，超出的來源以 `omittedSourceCount` 與 `reasons` 彙整，完整清單可用 `work_get_knowledge_page_context` 讀取。原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面，省略項目會保留核對旗標與段落指標。依 `readWith` 讀取全文，不要把摘要截斷或省略當成來源內容。
+帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作及需要核對的知識頁段落，並保留 `sourceSessionIds`；知識頁來源 id 在整份 context 最多列 8 筆，超出的數量以 `sourceSessionIdsOmittedCount` 標示。頁面層級的 `needsReview` 會保留，受影響段落列出來源 Session id／標題與原因。單一 context 最多列出 8 筆來源核對明細；受影響段落仍全部列出，超出的來源以 `omittedSourceCount` 與 `reasons` 彙整，完整清單可用 `work_get_knowledge_page_context` 讀取。原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面，省略項目只保留頁面 slug 與核對旗標；受影響段落、來源 Session id／標題與引用 id 由 `work_get_knowledge_page_context` 提供，不在 `omitted` 重複。依 `readWith` 讀取全文，不要把摘要截斷或省略當成來源內容。
 
 開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是：
 
@@ -147,14 +147,14 @@ MCP client 的 stdio 設定可使用：
 | `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
 | `relevant.hotspots` | 指定專案並帶 `paths` 時才出現：過去 30 天被 3 筆以上 Session 修改的路徑，附 Session 數、驗證失敗與未執行數；修改前應特別注意 |
 
-`omitted` 每區一筆，欄位如下；省略清單本身保持精簡，不會擠掉內容：
+`omitted` 每區一筆，是精簡指標：只說省略多少、用什麼工具讀其餘內容，以及少數 id；不重複知識頁核對明細或引用 id，不會擠掉內容：
 
 | 欄位 | 內容 |
 | --- | --- |
 | `count` | 該區省略的項目總數 |
-| `duplicates` | 其中已在這份回應其他區出現的數量（只計數，不列 id） |
-| `ids`／`reasons`／`moreIds` | 因預算省略的項目：最多列 5 個 id 與原因，其餘以 `moreIds` 計數 |
-| `entries` | 帶 `possiblyStale`、`needsReview` 或來源核對明細的項目，一律完整保留 |
+| `duplicates` | 其中已在這份回應其他區出現的數量（只計數，不列 id；旗標在該區可見） |
+| `ids`／`reasons`／`moreIds` | 因預算省略的項目：最多列 3 個 id 與原因，其餘以 `moreIds` 計數 |
+| `entries` | 被省略且帶 `possiblyStale` 或 `needsReview` 的項目，只有 `id` 與旗標，一律保留；同一 id 只列一次 |
 | `readWith` | 讀取完整內容的工具 |
 
 依照指標讀取原文後再使用，不要把 omitted 或截斷片段當作證據。
@@ -173,7 +173,7 @@ MCP client 的 stdio 設定可使用：
 
 ## `work_list_sessions` / `work_get_session`
 
-`work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的精簡 Session digest。每筆包含 id、專案、標題、最多 400 字摘要、完成／更新時間、Verification 狀態、changed-file 數量，以及最多 3 個目前狀態為 `pending` 的未結項；已完成或 `not_needed` 的 `nextSteps` 不會顯示為待處理內容。不含 changed-file 路徑、events、Evidence 或完整 workSummary。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。需要完整資料時，依 digest 的 `id` 呼叫 `work_get_session`。
+`work_list_sessions` 依完成時間新到舊分頁列出 tracked 專案的精簡 Session digest。每筆包含 id、專案（以 `projectRoot` 或 `projectId` 限定時，改在頂層 `project: { id, name }` 列一次，項目不再重複）、標題、最多 400 字摘要、完成／更新時間、Verification 狀態、changed-file 數量，以及最多 3 個目前狀態為 `pending` 的未結項；已完成或 `not_needed` 的 `nextSteps` 不會顯示為待處理內容。不含 changed-file 路徑、events、Evidence 或完整 workSummary。可選 `q`（標題、摘要、事件關鍵字）、`from`／`to`（含頭尾的日曆日期，依 server 系統時區）、`projectRoot` 或 `projectId`、`page`、`pageSize`（1–100，預設 20）；回傳 `items` 與 `pageInfo.total`。非 tracked 的範圍會回傳 `skipped`。需要完整資料時，依 digest 的 `id` 呼叫 `work_get_session`。
 
 `work_get_session` 用 `sessionId` 讀取單筆 Session：五段 workSummary、changed files、verification、events、evidence 與關聯 Knowledge。raw handoff snapshot 預設只回傳 `contentLength`，要全文時傳 `includeRawSnapshots: true`。Session 不存在回傳 `not_found`；所屬專案不是 tracked 則回傳 `skipped`。
 
@@ -198,7 +198,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## `work_list_outstanding_items`
 
-唯讀取得來源 Session 的未結項清單，可用 `projectRoot` 限定一個 tracked 專案，並以 `status` 篩選 `pending`（預設）、`completed` 或 `not_needed`；用 `page`、`pageSize` 分頁，`pageSize` 預設 5、最多 5 筆。**完整序列化後的 MCP JSON 回應上限為 30,000 個 JavaScript 字元**；必要時會截短項目文字、Session 標題、專案名稱或時間戳，並以對應的 `Truncated` 旗標標示，識別碼保持完整。若識別碼本身放不進上限，`responseBudget` 會標出該頁項目並指向 Web UI 或專案匯出；分頁資訊仍會保留。每筆 `text` 最多回傳 4,000 字元；超過時另加上 `textTruncated: true`，完整文字仍保存在 storage，並可透過 REST 匯出／匯入保留。REST 清單仍可每頁讀取最多 100 筆完整文字。每筆含 project 名稱、來源 Session id／標題／完成時間、文字、狀態與時間戳。傳入 `projectRoot` 時先通過專案追蹤政策；未追蹤範圍會安靜回傳 `skipped`，不讀取其他專案資料。這個操作不建立、刪除或更新項目；Web UI 負責狀態管理。只有經本次工作確認完成的 pending 項目，才可在 `work_finalize_session` 傳入其 id。
+唯讀取得來源 Session 的未結項清單，可用 `projectRoot` 限定一個 tracked 專案，並以 `status` 篩選 `pending`（預設）、`completed` 或 `not_needed`；用 `page`、`pageSize` 分頁，`pageSize` 預設 5、最多 5 筆。**完整序列化後的 MCP JSON 回應上限為 30,000 個 JavaScript 字元**；必要時會截短項目文字、Session 標題、專案名稱或時間戳，並以對應的 `Truncated` 旗標標示，識別碼保持完整。若識別碼本身放不進上限，`responseBudget` 會標出該頁項目並指向 Web UI 或專案匯出；分頁資訊仍會保留。每筆 `text` 最多回傳 4,000 字元；超過時另加上 `textTruncated: true`，完整文字仍保存在 storage，並可透過 REST 匯出／匯入保留。REST 清單仍可每頁讀取最多 100 筆完整文字。每筆含 project id／名稱、來源 Session id／標題／完成時間、文字、狀態與時間戳；傳入 `projectRoot` 時專案改在頂層 `project: { id, name }` 列一次，項目不再重複（專案名稱因預算被截短的頁面維持逐筆欄位）。傳入 `projectRoot` 時先通過專案追蹤政策；未追蹤範圍會安靜回傳 `skipped`，不讀取其他專案資料。這個操作不建立、刪除或更新項目；Web UI 負責狀態管理。只有經本次工作確認完成的 pending 項目，才可在 `work_finalize_session` 傳入其 id。
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "status": "pending", "page": 1, "pageSize": 5 }
@@ -235,7 +235,7 @@ Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現�
 - **排序**：BM25 × 欄位權重（title 3、tags 2、summary／workSummary／Knowledge 本文 1.5、其他 1；raw handoff 只取最相關的一段並 ×0.3），再乘上「命中關鍵字比例（依 IDF 加權）的平方」（只在 raw handoff 命中的詞在這裡只算一半，避免長篇匯入交接靠順帶提到很多詞而排在前面；最低命中門檻與 confidence 仍用完整比例），命中越多關鍵字的記錄排越前面，最後加上溫和的時間權重。結構化 Session 欄位優先於只命中 raw handoff 的記錄。raw 段落內容先做 NFKC、空白與大小寫正規化，再以 SHA-256 存進衍生的 `search_chunks.content_hash`；同一專案內最早的 Session 保留完整 raw 權重，後續重複引用只計 10% raw 分數。changed files 超過 20 個的 Session，其檔案欄位與路徑命中會依比例降權。排序前 100 筆中，如果某筆 Session 延續（`continues` 連結）了排在它前面的另一筆，而且分數至少是那筆的 30%，就移到那筆的正上方：同一系列先顯示最新狀態，較早的紀錄緊接在後，不會被移除。
 - **路徑**：`paths` 可用絕對路徑、`專案名/相對路徑` 或相對路徑，比對前會去掉專案根目錄與專案名前綴；完全相同、檔名或路徑尾段相同、位於查詢的目錄下都算命中。Knowledge `references` 裡的 commit SHA 與 URL 會分開處理，不參與路徑比對。
 
-每筆 hit 包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、最強的 `matchedIn` 欄位、raw 段落標題 `section`（最多 24 字元）、最多 110 字元的 `excerpt`、`matchedPaths`、`score`，以及 Session 的關聯 Session `related`（只保留目標 `id` 與 `relation`）。excerpt 被縮短時會帶 `truncated: true`，不能當成完整原文。提供 `projectRoot` 時，回應省略重複的頂層 `project`。用 `work_get_session` 或 `work_search_knowledge` 讀完整來源，回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。
+每筆 hit 包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、最強的 `matchedIn` 欄位、raw 段落標題 `section`（最多 24 字元）、最多 110 字元的 `excerpt`、`matchedPaths`、`score`，以及 Session 的關聯 Session `related`（只保留目標 `id` 與 `relation`）。excerpt 被縮短時會帶 `truncated: true`，不能當成完整原文。提供 `projectRoot` 時，頂層只帶精簡的 `project: { id, name }`，每筆 hit 不再重複 `projectId`／`projectName`。用 `work_get_session` 或 `work_search_knowledge` 讀完整來源，回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。
 
 ```json
 { "q": "排程 重複執行 lock", "paths": ["src/scheduler/queue.ts"], "projectRoot": "C:\\work\\assistant" }
@@ -250,7 +250,7 @@ Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現�
 
 ## 讀取稽核（被動）
 
-每個唯讀 operation 會在伺服器端被動記錄一筆：operation 名稱、MCP 用戶端名稱、專案 id、`outcome`、執行耗時（整數毫秒，schema 32 起），以及回應實際帶回的 Session／Knowledge id 與數量（每種最多 50 個）。讀取失敗也會記錄，`outcome` 為 `error` 並只存固定錯誤代碼：`invalid_input`（參數驗證失敗，無耗時）、`database_busy`、`restart_required` 或 `internal_error`；不存 id、回應或錯誤訊息，回應與錯誤處理維持原樣。不記錄查詢文字、task、路徑、紀錄內容或錯誤訊息；跳過（skipped）的結果只記 operation 與 `skipped`。資料庫啟動失敗時不記錄。記錄失敗不影響讀取。系統狀態頁另依 operation 列出次數、p50／p95 耗時與失敗數（`GET /api/agent-reads/stats`）。資料保留 30 天且最多 5,000 筆，專案永久刪除時一併清除。Agent 不需要也不會被要求做任何事；使用者在系統狀態頁與 Session 面板查看。
+每個唯讀 operation 會在伺服器端被動記錄一筆：operation 名稱、MCP 用戶端名稱、專案 id、`outcome`、執行耗時（整數毫秒，schema 32 起），以及回應實際帶回的 Session／Knowledge id 與數量（每種最多 50 個）。讀取失敗也會記錄，`outcome` 為 `error` 並只存固定錯誤代碼：`invalid_input`（參數驗證失敗，無耗時）、`database_busy`、`restart_required` 或 `internal_error`。`work_get_knowledge_page_context` 找不到頁面時 `outcome` 維持 `not_found`，同一欄位改存原因代碼（`page_id_as_slug`、`slug_looks_like_id`、`slug_near_match`、`page_not_requested`、`page_unknown`），統計會列入 `errorCodes` 但不算失敗數；不存 id、回應或錯誤訊息，回應與錯誤處理維持原樣。不記錄查詢文字、task、路徑、紀錄內容或錯誤訊息；跳過（skipped）的結果只記 operation 與 `skipped`。資料庫啟動失敗時不記錄。記錄失敗不影響讀取。系統狀態頁另依 operation 列出次數、p50／p95 耗時與失敗數（`GET /api/agent-reads/stats`）。資料保留 30 天且最多 5,000 筆，專案永久刪除時一併清除。Agent 不需要也不會被要求做任何事；使用者在系統狀態頁與 Session 面板查看。
 
 ## Tool annotations 與 prompts
 
@@ -443,7 +443,7 @@ Knowledge 必須由 Agent 明確提交，不會因為 finalize、handoff 或 sou
 }
 ```
 
-同一專案重試相同 `idempotencyKey` 會回傳原本的 Knowledge，`duplicate: true`；不會覆蓋原文。`work_search_knowledge` 預設只搜尋 `active` Knowledge，並支援 `projectRoot`、`projectId`、`q`、`kind` 與 `status` 篩選。所有結果只來自 tracked projects；unregistered、paused、ignored 專案會安靜回傳 `outcome: "skipped"`。
+同一專案重試相同 `idempotencyKey` 會回傳原本的 Knowledge，`duplicate: true`；不會覆蓋原文。`work_search_knowledge` 預設只搜尋 `active` Knowledge，並支援 `projectRoot`、`projectId`、`q`、`kind` 與 `status` 篩選。限定專案時回傳 `{ outcome, project: { id, name, rootPath }, items, pageInfo }`：不再附重複的 `projects`，每筆 Knowledge 也不再重複 `projectId`／`projectName`；不限定時維持 `projects` 與逐筆專案欄位。REST `GET /api/knowledge` 的回應不變。所有結果只來自 tracked projects；unregistered、paused、ignored 專案會安靜回傳 `outcome: "skipped"`。
 
 Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區塊，也會由 `work_get_context` 以 `recentKnowledge` 提供給後續 Agent。這一層只保存 Agent 明確確認的內容，不讓 LLM 取代 policy decision 或原始資料保存。
 
@@ -473,7 +473,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 2. `work_get_knowledge_page_context`（`projectRoot`、`slug`）：唯讀，回傳頁面問題、目前段落與來源，以及要讀的 Session（摘要與五段 workSummary，共 24,000 字內，超過時 `truncated: true`）。依頁面狀態分兩種 `mode`：
    - `full`：頁面還沒寫過或使用者要求更新，給最新的未作廢 Session（最多 60 筆），用來整頁改寫。
    - `review`：已寫過的頁面，只給頁面涵蓋範圍之後完成的 Session（`reason: "new"`，由舊到新），以及儲存後有變動的引用來源（`reason: "source_changed"`）。沒有影響就用 `work_mark_knowledge_page_checked` 回報檢查到的最後一筆。
-   - 若引用 Session 在頁面儲存後被修改、作廢或還原，`page.needsReview` 與 `page.reviewSections` 會列出受影響段落、來源 Session id／標題與原因（`source_updated_after_save`、`source_voided_after_save`、`source_restored_after_save`、`source_missing` 或 `source_state_unknown`）。還原不代表已重新核對；Agent 必須檢查目前來源，儲存新版本後標記才會清除。頁面還沒被要求過時回傳 `not_found`。
+   - 若引用 Session 在頁面儲存後被修改、作廢或還原，`page.needsReview` 與 `page.reviewSections` 會列出受影響段落、來源 Session id／標題與原因（`source_updated_after_save`、`source_voided_after_save`、`source_restored_after_save`、`source_missing` 或 `source_state_unknown`）。還原不代表已重新核對；Agent 必須檢查目前來源，儲存新版本後標記才會清除。找不到頁面時回傳 `not_found`，並附 `reasonCode`、一句可照做的 `reason`、這個專案現有的 `existingSlugs`（依字母排序，最多 20 個，其餘以 `existingSlugsOmittedCount` 計數），以及可直接重試的 `suggestedSlug`：傳入的是本專案某頁的 id（`page_id_as_slug`），或編輯距離 2 以內最接近的現有／預設 slug（`slug_near_match`）。看起來像 id 但不是本專案頁面時為 `slug_looks_like_id`，從未要求過的預設頁為 `page_not_requested`（這時才用 `work_request_knowledge_page_update` 建立），其餘為 `page_unknown`；只有使用者要求新頁面時才建立自訂頁，不要為了錯字建立新頁。其他專案的頁面不會被比對或透露。
 3. `work_save_knowledge_page`（`projectRoot`、`slug`、`idempotencyKey`、`sections`）：1–12 個段落、合計 8,000 字內；每段 `heading`、`content` 與 `sourceSessionIds`（最多 20 個）。沒有來源支持的段落內容必須正好是「資料不足」且不列來源。引用的 Session 不存在、已作廢或屬於其他專案時回傳 `invalid_sources` 與那些 id。同一個 `idempotencyKey` 重試回傳 `duplicate: true`。敏感資料會先遮蔽。
 
 ```json
