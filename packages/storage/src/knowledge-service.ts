@@ -24,21 +24,16 @@ import type {
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
 import {
-  APPLIES_TO_GRANT_FACTOR,
-  APPLIES_TO_STALENESS_UNIT_LIMIT,
-  appliesToPairEstimate,
-  chargeNormalizePath,
-  chargeStoredJson,
-  compileAppliesTo,
+  chargeAppliesTo,
   createAppliesToBudget,
-  grantAppliesTo,
   MAX_STORED_CHANGED_FILES_JSON_BYTES,
   normalizedAppliesTo,
   type AppliesToBudget,
 } from "./applies-to-match.js";
-import { normalizePath, type PathContext } from "./search-text.js";
+import { LaterChangeIndex, stalenessUnitLimits, type PatternCoverage } from "./later-change-index.js";
+import type { PathContext } from "./search-text.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
-import { cleanList, parseJson, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
+import { cleanList, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
 import type { KnowledgeAuditRow, KnowledgeRow } from "./session-record-codecs.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
@@ -48,11 +43,9 @@ export interface KnowledgeServiceDependencies {
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
 }
 
-interface LaterSession {
-  id: string;
-  title: string;
-  completedAt: string;
-  files: Array<{ raw: string; normalized: string }>;
+interface ItemPatterns {
+  patterns: string[];
+  skipped: boolean;
 }
 
 interface EvidenceRow {
@@ -75,97 +68,17 @@ function stalenessSince(knowledge: KnowledgeRecord): string {
   return knowledge.lastConfirmedAt ?? knowledge.createdAt;
 }
 
-/** Index of the first Session completed strictly after `since` (upper bound; `sessions` is sorted ascending). */
-function firstSessionAfter(sessions: LaterSession[], since: string): number {
-  let low = 0;
-  let high = sessions.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if (sessions[middle]!.completedAt > since) {
-      high = middle;
-    } else {
-      low = middle + 1;
-    }
-  }
-  return low;
+/** One item's distinct normalized appliesTo patterns, charged to the match budget; `skipped` when one was not read. */
+function itemPatterns(knowledge: KnowledgeRecord, contexts: PathContext[], budget: AppliesToBudget): ItemPatterns {
+  const skippedBefore = budget.skippedEntries;
+  const patterns = [
+    ...new Set(normalizedAppliesTo(knowledge.appliesTo, contexts, budget).map((entry) => entry.pattern)),
+  ];
+  return { patterns, skipped: budget.skippedEntries > skippedBefore };
 }
 
-/** A project's later Sessions plus an index from each distinct normalized changed file to the Sessions touching it. */
-interface LaterSessionIndex {
-  sessions: LaterSession[];
-  /** normalized path -> ascending, unique indexes into `sessions`; files that normalize to "" never match and are omitted. */
-  sessionsByFile: Map<string, number[]>;
-  /** appliesTo pattern -> distinct matching files and the ascending Session indexes touching any of them; filled lazily. */
-  patternMatches: Map<string, PatternMatches>;
-  sessionIndexById?: Map<string, number>;
-  /** Shared by every pattern of one trust read, across projects. */
-  budget: AppliesToBudget;
-  /** Total length of the distinct normalized files, for the per-pattern grant. */
-  fileCharacters: number;
-}
-
-interface PatternMatches {
-  files: Set<string>;
-  sessionIndexes: number[];
-  /** The match budget ran out while (or before) this pattern was compared with every file. */
-  incomplete: boolean;
-}
-
-function buildLaterSessionIndex(sessions: LaterSession[], budget: AppliesToBudget): LaterSessionIndex {
-  const sessionsByFile = new Map<string, number[]>();
-  sessions.forEach((session, index) => {
-    for (const file of session.files) {
-      if (!file.normalized) {
-        continue;
-      }
-      const indexes = sessionsByFile.get(file.normalized);
-      if (!indexes) {
-        sessionsByFile.set(file.normalized, [index]);
-      } else if (indexes[indexes.length - 1] !== index) {
-        indexes.push(index);
-      }
-    }
-  });
-  let fileCharacters = 0;
-  for (const file of sessionsByFile.keys()) fileCharacters += file.length;
-  return { sessions, sessionsByFile, patternMatches: new Map(), budget, fileCharacters };
-}
-
-/** Matches one normalized pattern against every distinct changed file once; all Knowledge sharing it reuse the result. */
-function matchesForPattern(index: LaterSessionIndex, pattern: string): PatternMatches {
-  const cached = index.patternMatches.get(pattern);
-  if (cached) {
-    return cached;
-  }
-  const matches = compileAppliesTo(pattern, index.budget);
-  // Every distinct file is compared once: grant three times what ordinary pairs cost (see APPLIES_TO_GRANT_FACTOR).
-  grantAppliesTo(
-    index.budget,
-    APPLIES_TO_GRANT_FACTOR *
-      (index.sessionsByFile.size * appliesToPairEstimate(0, pattern.length) + index.fileCharacters),
-  );
-  const files = new Set<string>();
-  const touched = new Set<number>();
-  for (const [file, indexes] of index.sessionsByFile) {
-    if (matches(file, index.budget)) {
-      files.add(file);
-      for (const sessionIndex of indexes) {
-        touched.add(sessionIndex);
-      }
-    }
-    if (index.budget.exhausted) break;
-  }
-  const result = {
-    files,
-    sessionIndexes: [...touched].sort((a, b) => a - b),
-    incomplete: index.budget.exhausted,
-  };
-  index.patternMatches.set(pattern, result);
-  return result;
-}
-
-/** First position in an ascending number array whose value is >= `target`. */
-function lowerBound(values: number[], target: number): number {
+/** First position in an ascending array whose value is >= `target`. */
+function lowerBound(values: Int32Array, target: number): number {
   let low = 0;
   let high = values.length;
   while (low < high) {
@@ -181,40 +94,41 @@ function lowerBound(values: number[], target: number): number {
 
 /**
  * The possiblyStale marker of one Knowledge record, or "unchecked" when the match budget ran out before its patterns
- * were compared with every later file: a partial comparison can neither prove nor rule out staleness.
+ * were resolved against every later file: a partial comparison can neither prove nor rule out staleness. Each pattern
+ * is resolved once per call by the index (later-change-index.ts); the item unions the Sessions of its patterns that
+ * completed after its `since`, without its own Sessions, and the first of them gives the paths shown.
  */
 function knowledgeStaleness(
   knowledge: KnowledgeRecord,
-  laterSessions: LaterSessionIndex,
-  contexts: PathContext[],
+  { patterns, skipped }: ItemPatterns,
+  later: LaterChangeIndex,
+  budget: AppliesToBudget,
 ): KnowledgeStaleness | "unchecked" | undefined {
-  const { sessions, budget } = laterSessions;
-  const skippedBefore = budget.skippedEntries;
-  const patterns = [
-    ...new Set(normalizedAppliesTo(knowledge.appliesTo, contexts, budget).map((entry) => entry.pattern)),
-  ];
   // An entry above the write-time limits is never compared, so staleness can be neither proven nor ruled out.
-  if (budget.skippedEntries > skippedBefore || budget.exhausted) {
+  if (skipped || budget.exhausted) {
     return "unchecked";
   }
   if (patterns.length === 0) {
     return undefined;
   }
-  const start = firstSessionAfter(sessions, stalenessSince(knowledge));
-  const matches = patterns.map((pattern) => matchesForPattern(laterSessions, pattern));
-  if (matches.some((match) => match.incomplete)) {
-    return "unchecked";
+  const start = later.firstAfter(stalenessSince(knowledge));
+  const coverage: PatternCoverage[] = [];
+  for (const pattern of patterns) {
+    const covered = later.coverage(pattern, budget);
+    if (!covered) return "unchecked";
+    coverage.push(covered);
   }
   const touched = new Set<number>();
-  for (const { sessionIndexes } of matches) {
-    for (let at = lowerBound(sessionIndexes, start); at < sessionIndexes.length; at += 1) {
-      touched.add(sessionIndexes[at]!);
+  for (const { sessions } of coverage) {
+    const from = lowerBound(sessions, start);
+    if (!chargeAppliesTo(budget, sessions.length - from + 1)) return "unchecked";
+    for (let at = from; at < sessions.length; at += 1) {
+      touched.add(sessions[at]!);
     }
   }
   for (const id of [knowledge.sessionId, knowledge.lastConfirmedSessionId]) {
     if (id) {
-      laterSessions.sessionIndexById ??= new Map(sessions.map((session, index) => [session.id, index]));
-      const excludedIndex = laterSessions.sessionIndexById.get(id);
+      const excludedIndex = later.indexOfSession(id);
       if (excludedIndex !== undefined) {
         touched.delete(excludedIndex);
       }
@@ -229,10 +143,12 @@ function knowledgeStaleness(
       firstIndex = sessionIndex;
     }
   }
-  const session = sessions[firstIndex]!;
-  const paths = session.files
-    .filter((file) => matches.some(({ files }) => files.has(file.normalized)))
-    .map((file) => file.raw);
+  const session = later.sessions[firstIndex]!;
+  if (!chargeAppliesTo(budget, session.files.length * coverage.length + 1)) return "unchecked";
+  const paths = session.files.filter((_, index) => {
+    const pathId = session.pathIds[index]!;
+    return pathId >= 0 && coverage.some(({ paths: covered }) => covered.has(pathId));
+  });
   return {
     sessionId: session.id,
     sessionTitle: session.title,
@@ -363,24 +279,30 @@ export class KnowledgeService {
     }
 
     const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
-    const budget = createAppliesToBudget(APPLIES_TO_STALENESS_UNIT_LIMIT);
+    // Two fixed ceilings per call, shared by every project of it: reading later Sessions into the index, and
+    // resolving patterns against it (later-change-index.ts).
+    const limits = stalenessUnitLimits();
+    const history = createAppliesToBudget(limits.history);
+    const budget = createAppliesToBudget(limits.match);
     for (const [projectId, group] of byProject) {
       const project = this.dependencies.getProjectById(projectId);
       const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
       const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
-      const later = this.loadLaterSessions(projectId, earliest, contexts, budget);
-      if (!later.complete) {
+      const later = this.loadLaterSessions(projectId, earliest, contexts, history);
+      if (!later) {
         // Some later Session was not read, so no item of the group can be proven current or stale.
         for (const item of group) staleness.set(item.id, "unchecked");
         continue;
       }
-      const sessions = buildLaterSessionIndex(later.sessions, budget);
-      for (const item of group) {
-        const result = knowledgeStaleness(item, sessions, contexts);
+      // The patterns first, so the index knows how many it will resolve (one or two skip the segment index).
+      const prepared = group.map((item) => itemPatterns(item, contexts, budget));
+      later.expect(new Set(prepared.flatMap(({ patterns }) => patterns)).size);
+      group.forEach((item, index) => {
+        const result = knowledgeStaleness(item, prepared[index]!, later, budget);
         if (result) {
           staleness.set(item.id, result);
         }
-      }
+      });
     }
     return items.map((item) => {
       const result = staleness.get(item.id);
@@ -423,18 +345,17 @@ export class KnowledgeService {
   }
 
   /**
-   * A project's non-voided Sessions completed after `since`, oldest first, with changed files normalized once. Rows are
-   * read one at a time instead of with one .all() (5,000 Sessions of 50 x 100 characters took 433 ms and 235 MB);
-   * each list is charged by its length before it is parsed, and each path before it is normalized, after granting
-   * three times that (history grows the budget instead of exhausting it; APPLIES_TO_GRANT_FACTOR). A list above
-   * MAX_STORED_CHANGED_FILES_JSON_BYTES is not loaded. `complete` is false when a row stopped the read.
+   * A project's non-voided Sessions completed after `since`, oldest first, read into a LaterChangeIndex one row at a
+   * time (one .all() of 5,000 Sessions of 50 x 100 characters took 433 ms and 235 MB). Each row's list, paths and new
+   * distinct paths are charged to `history` before they are parsed, normalized or split. A list above
+   * MAX_STORED_CHANGED_FILES_JSON_BYTES is not loaded. Undefined when a row stopped the read.
    */
   private loadLaterSessions(
     projectId: string,
     since: string,
     contexts: PathContext[],
-    budget: AppliesToBudget,
-  ): { sessions: LaterSession[]; complete: boolean } {
+    history: AppliesToBudget,
+  ): LaterChangeIndex | undefined {
     const rows = this.db
       .prepare(
         `SELECT id, title, completed_at,
@@ -450,20 +371,11 @@ export class KnowledgeService {
       completed_at: string;
       changed_files_json: string | null;
     }>;
-    const sessions: LaterSession[] = [];
+    const index = new LaterChangeIndex(contexts, history);
     for (const row of rows) {
-      if (row.changed_files_json === null || !chargeStoredJson(budget, row.changed_files_json, true)) {
-        return { sessions, complete: false };
-      }
-      const files: LaterSession["files"] = [];
-      for (const file of parseJson<unknown[]>(row.changed_files_json, [])) {
-        if (typeof file !== "string") continue;
-        if (!chargeNormalizePath(budget, file, contexts, true)) return { sessions, complete: false };
-        files.push({ raw: file, normalized: normalizePath(file, contexts) });
-      }
-      sessions.push({ id: row.id, title: row.title, completedAt: row.completed_at, files });
+      if (!index.add(row.id, row.title, row.completed_at, row.changed_files_json)) return undefined;
     }
-    return { sessions, complete: true };
+    return index;
   }
 
   public recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult {

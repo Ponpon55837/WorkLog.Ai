@@ -145,8 +145,8 @@ function selectNewlyInDoubt(
      WHERE project_id = ? AND voided_at IS NULL AND completed_at > ? AND id <> ?
        ${
          narrowed
-           ? `AND CASE WHEN ${LIST_SEARCH_CHARGE_FUNCTION}(octet_length(changed_files_json))
-                  THEN (${distinct.map(() => "instr(lower(changed_files_json), ?) > 0").join(" OR ")}) ELSE 1 END`
+           ? `AND CASE WHEN NOT ${LIST_SEARCH_CHARGE_FUNCTION}(octet_length(changed_files_json))
+                  OR ${distinct.map(() => "instr(lower(changed_files_json), ?) > 0").join(" OR ")} THEN 1 ELSE 0 END`
            : ""
        }
      ORDER BY completed_at DESC, id DESC`,

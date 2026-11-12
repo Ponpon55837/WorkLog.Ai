@@ -55,6 +55,15 @@ export interface AppliesToBudget {
 /** Tests a normalized path; with a budget, the match is charged to it and is false once the budget is spent. */
 export type AppliesToMatcher = (path: string, budget?: AppliesToBudget) => boolean;
 
+/** A compiled entry plus what an index needs to find the paths it can match without testing every one. */
+export interface CompiledAppliesTo {
+  matches: AppliesToMatcher;
+  /** Matches no path at all (empty, above the length limit, over the star bound, or not affordable). */
+  never: boolean;
+  /** For a glob: the literal code units every match starts and ends with (see globMatches). */
+  glob?: { prefix: string; suffix: string };
+}
+
 /** Test instrumentation: code units the matcher's loops compared, independent of what was charged. */
 export interface AppliesToWorkCounter {
   examined: number;
@@ -106,19 +115,11 @@ export const APPLIES_TO_SCAN_LIMIT = 2_000;
 export const APPLIES_TO_MATCH_UNIT_LIMIT = 20_000_000;
 
 /**
- * Units one staleness read may spend: it compares every distinct appliesTo entry of the listed Knowledge with every
- * distinct file later Sessions changed, both stored, so it grows with history rather than with the caller's input. It
- * runs synchronously inside Knowledge lists and recall and cannot yield, so it is capped at about 200 ms (2.5 times the
- * caller-path scans); a copy of real data spent 3.4M units, 7% of it, for its whole Knowledge list.
- */
-export const APPLIES_TO_STALENESS_UNIT_LIMIT = 50_000_000;
-
-/**
- * Scans over stored history (the staleness check, knowledgeToReview's later Sessions) cannot have a fixed total: a
- * fixed 50M units cut legitimate 20,000-Session data short. They grant, before each stored row or each pattern x file
- * set they process, GRANT_FACTOR times what ordinary data costs there (APPLIES_TO_PAIR_ESTIMATE per pair), so ordinary
- * work never uses more than a third of what it was granted, while a crafted entry that makes one pair cost many times
- * an ordinary one still runs out. The total then grows linearly with the stored rows and pairs, as other reads do.
+ * finalize's knowledgeToReview reads later Sessions newest first and cannot have a fixed total: a fixed 50M units cut
+ * legitimate 20,000-Session data short. It grants, before each stored row or each pattern x file set it processes,
+ * GRANT_FACTOR times what ordinary data costs there (APPLIES_TO_PAIR_ESTIMATE per pair), so ordinary work never uses
+ * more than a third of what it was granted, while a crafted entry that makes one pair cost many times an ordinary one
+ * still runs out. (The Knowledge staleness check has fixed ceilings instead; see later-change-index.ts.)
  */
 export const APPLIES_TO_GRANT_FACTOR = 3;
 
@@ -132,7 +133,7 @@ export const MAX_STORED_APPLIES_TO_JSON_BYTES =
   MAX_STORED_APPLIES_TO_ENTRIES * (6 * MAX_STORED_APPLIES_TO_ENTRY_LENGTH + 3) + 2;
 
 /**
- * Longest stored changed-files text (UTF-8 bytes) the appliesTo staleness and review reads load: the write limit of
+ * Longest stored changed-files text (UTF-8 bytes) the staleness check and knowledgeToReview load: the write limit of
  * 200 paths of 1,000 characters, every character a six-byte JSON escape (about 1.2 MB). Real lists are a few KB, and
  * an import without the count limit still fits unless its text is this long; a longer value (a hand-written database)
  * is not loaded, and the read that skipped it reports itself incomplete.
@@ -596,23 +597,38 @@ export function appliesToEntries(stored: string | null, contexts: PathContext[],
  * budget, compiling is charged to it (a cached glob costs 1 unit). An entry longer than MAX_APPLIES_TO_ENTRY_LENGTH
  * never matches and is never tokenized.
  */
-export function compileAppliesTo(pattern: string, budget?: AppliesToBudget): AppliesToMatcher {
+export function compileAppliesToEntry(pattern: string, budget?: AppliesToBudget): CompiledAppliesTo {
+  const never = { matches: () => false, never: true };
   if (!pattern) {
-    return () => false;
+    return never;
   }
   if (pattern.length > MAX_APPLIES_TO_ENTRY_LENGTH) {
     if (budget) budget.skippedEntries += 1;
-    return () => false;
+    return never;
   }
   const isGlob = chargedIsGlob(pattern, budget);
-  if (isGlob === undefined) return () => false;
+  if (isGlob === undefined) return never;
   if (isGlob) {
     const glob = cachedGlob(pattern, budget);
-    if (!glob) return () => false;
-    return (path, pathBudget) => Boolean(path) && charge(pathBudget, PAIR_UNITS) && globMatches(glob, path, pathBudget);
+    if (!glob) return never;
+    return {
+      // An over-complex glob still charges each pair, as it always has; globMatches rejects it first.
+      matches: (path, pathBudget) =>
+        Boolean(path) && charge(pathBudget, PAIR_UNITS) && globMatches(glob, path, pathBudget),
+      never: glob.overComplex,
+      glob: { prefix: glob.prefix, suffix: glob.suffix },
+    };
   }
-  return (path, pathBudget) =>
-    Boolean(path) && charge(pathBudget, PAIR_UNITS) && plainStrength(path, pattern, pathBudget) > 0;
+  return {
+    matches: (path, pathBudget) =>
+      Boolean(path) && charge(pathBudget, PAIR_UNITS) && plainStrength(path, pattern, pathBudget) > 0,
+    never: false,
+  };
+}
+
+/** compileAppliesToEntry's matcher alone. */
+export function compileAppliesTo(pattern: string, budget?: AppliesToBudget): AppliesToMatcher {
+  return compileAppliesToEntry(pattern, budget).matches;
 }
 
 /**

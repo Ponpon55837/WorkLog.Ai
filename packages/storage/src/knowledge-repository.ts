@@ -249,11 +249,14 @@ export class KnowledgeRepository {
     // CASE charges the row's stored bytes before its word reads them; the structural filters above run first.
     const { terms, warnings } = parseListSearchTerms(options.query?.trim() || options.q?.trim() || "");
     if (terms.length > 0) {
-      // Each word is charged when SQLite reaches it, so a row the first word rules out costs one pass, not eight.
+      // Each word is charged when SQLite reaches it, so a row the first word rules out costs one pass, not eight. The
+      // test is a CASE WHEN condition, which SQLite evaluates left to right and stops at the answer: the charge runs
+      // first and a word found in the title is not searched for in the body. (In a THEN branch, as in 1.6.27, the OR
+      // was computed as a value and every column was searched: 2,000 rows at the write limits took 0.74 s, not 0.04.)
       const termClauses = terms.map(
         () =>
           `CASE WHEN ${LIST_SEARCH_CHARGE_FUNCTION}(${SEARCHED_BYTES})
-             THEN (${SEARCHED_COLUMNS.map((column) => `instr(LOWER(k.${column}), ?) > 0`).join(" OR ")}) ELSE 0 END`,
+             AND (${SEARCHED_COLUMNS.map((column) => `instr(LOWER(k.${column}), ?) > 0`).join(" OR ")}) THEN 1 ELSE 0 END`,
       );
       clauses.push(`(${termClauses.join(" AND ")})`);
       for (const term of terms) parameters.push(...SEARCHED_COLUMNS.map(() => term));
