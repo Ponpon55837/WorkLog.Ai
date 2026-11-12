@@ -256,7 +256,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 活躍整理請求（pending／awaiting_review）中的快照項目由儲存層保護：Agent finalize 的完成／取代 ID 會被略過並回傳警告，Agent 編輯來源 nextSteps 也不會將它們標為不再需要。取消或完成請求後解除此限制；Web 明確人工操作仍可執行，並使舊建議依版本核對失效。
 
-Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現有 Agent 需重新連線。完整工作流程見 [Agent skill](../.agents/skills/work-intelligence/SKILL.md)。
+Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現有 Agent 需重新連線。完整工作流程見 [Agent skill](../.agents/skills/work-intelligence/SKILL.md)：核心規則加上 `references/` 內各流程的指南。
 
 ## `work_recall`
 
@@ -325,6 +325,10 @@ Server instructions 只放路由規則；48 項 operation 的長說明與 schema
 - `sessionTruncation.currentPeriod`／`previousPeriod`：本期或上一期超過 200 個 Session 時為 `true`。`totals`、`comparison`、`projects` 的數量與 `periodSummary` 仍涵蓋整個期間；只有 `sessions`、`trends`、`risks`、`decisions`、`evidence` 與各專案的 `sourceSessionIds` 限於最新 200 筆。
 
 報告只聚合 tracked projects；指定 `unregistered`、`paused`、`ignored` 或不存在的 project 會回傳 `outcome: "skipped"`，不會讀取專案檔案。若 legacy caller 沒有提供 verification 或 changedFiles，finalize 回應會附上 `verificationFollowUp`／`changedFilesFollowUp`，要求 Agent 檢查後用 metadata tool 補回。
+
+## 更新後的回條
+
+`work_update_session_metadata`、`work_update_session_summary`、`work_update_session_title`、`work_update_session_work_summary` 的 MCP 回應與 finalize 一樣是回條，不回顯整筆 Session、Agent 剛送出的內容或修正前讀過的舊內容：`session` 只有 `id`、`executionStatus`、`startedAt`（有值時）、`completedAt`、`updatedAt`、`verificationStatus`、`changedFilesCount`（作廢時加 `voided`），另外只附伺服器改動或決定的事實——與請求不同的已存 `changedFiles`（例如 `merge` 合併後）、與送出內容不同的已存 `summary`／`title`／`workSummary` 段落（例如遮蔽後）、`redactions`（有遮蔽時）與 `timestampWarnings`。標題修正保留 `previousTitle`；摘要與工作摘要保留 `duplicate` 與 `mode`。`skipped`、`not_found` 與 idempotency conflict 照原樣回傳。需要完整內容時再用 `work_get_session` 讀取；REST 與 storage 的回應不變。
 
 ## `work_update_session_metadata`
 

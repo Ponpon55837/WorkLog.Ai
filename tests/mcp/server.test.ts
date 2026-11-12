@@ -290,10 +290,14 @@ describe("Work Intelligence MCP server", () => {
       changedFilesMode: "merge",
       verification: { status: "passed" },
     });
+    // The update answers with a receipt: the verification status, not the Session body.
     expect(updated).toMatchObject({
       outcome: "updated",
-      session: { id: finalized.session.id, verification: { status: "passed" } },
+      session: { id: finalized.session.id, verificationStatus: "passed", changedFilesCount: 1 },
+      // merge kept the finalized path, so the stored list differs from the [] sent and is returned.
+      changedFiles: ["src/a.ts"],
     });
+    expect(updated).not.toHaveProperty("session.summary");
     expect(store.getSessionDetail(finalized.session.id)?.verificationHistory).toMatchObject([
       { source: "agent", previous: { status: "in_progress" }, resulting: { status: "passed" } },
     ]);
@@ -472,6 +476,12 @@ describe("Work Intelligence MCP server", () => {
       "work-intelligence://agent/architecture-diagram-v1",
       TOOL_CONTRACT_RESOURCE_URI,
       "work-intelligence://agent/work-intelligence/SKILL.md",
+      "work-intelligence://agent/work-intelligence/references/diagrams.md",
+      "work-intelligence://agent/work-intelligence/references/knowledge.md",
+      "work-intelligence://agent/work-intelligence/references/outstanding-cleanup.md",
+      "work-intelligence://agent/work-intelligence/references/reading-records.md",
+      "work-intelligence://agent/work-intelligence/references/repair-and-backfill.md",
+      "work-intelligence://agent/work-intelligence/references/synthesis.md",
       "work-intelligence://agent/work-record-and-report-format.md",
       "work-intelligence://agent/worklog-report-writing/SKILL.md",
       "work-intelligence://agent/worklog-report-writing/references/en.md",
@@ -1629,12 +1639,17 @@ describe("Work Intelligence MCP server", () => {
       destructiveHint: true,
       idempotentHint: true,
     });
-    expect(await callJson(client, "work_update_session_title", { sessionId, title: "Accurate title" })).toMatchObject({
+    const renamed = await callJson(client, "work_update_session_title", { sessionId, title: "Accurate title" });
+    expect(renamed).toMatchObject({
       outcome: "title_updated",
       duplicate: false,
       previousTitle: "Misleading title",
-      session: { id: sessionId, title: "Accurate title" },
+      session: { id: sessionId },
     });
+    // The stored title is what was sent, so the receipt does not repeat it.
+    expect(renamed).not.toHaveProperty("title");
+    expect(renamed).not.toHaveProperty("session.title");
+    expect(store.getSessionDetail(sessionId)?.session.title).toBe("Accurate title");
     expect(await callJson(client, "work_update_session_title", { sessionId, title: "Accurate title" })).toMatchObject({
       outcome: "title_updated",
       duplicate: true,

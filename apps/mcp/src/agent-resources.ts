@@ -30,8 +30,51 @@ const AGENT_RESOURCES = [
     uri: "work-intelligence://agent/work-intelligence/SKILL.md",
     title: "Work Intelligence agent skill",
     description:
-      "Complete instructions for using Work Intelligence safely, including project opt-in, context, recall, finalization, reports, and Knowledge workflows.",
+      "Core instructions for every session: project opt-in and privacy, start of work, finalization, and links to the on-demand flow guides.",
     path: ".agents/skills/work-intelligence/SKILL.md",
+  },
+  {
+    name: "work-intelligence-reading-records",
+    uri: "work-intelligence://agent/work-intelligence/references/reading-records.md",
+    title: "Reading records, context, and recall",
+    description:
+      "Partial Session reads, context omissions and supplements, recall ranking and confidence, and Knowledge search matches.",
+    path: ".agents/skills/work-intelligence/references/reading-records.md",
+  },
+  {
+    name: "work-intelligence-diagrams",
+    uri: "work-intelligence://agent/work-intelligence/references/diagrams.md",
+    title: "Session diagrams",
+    description: "When and how to attach a validated architecture v1 diagram to a Session.",
+    path: ".agents/skills/work-intelligence/references/diagrams.md",
+  },
+  {
+    name: "work-intelligence-repair-and-backfill",
+    uri: "work-intelligence://agent/work-intelligence/references/repair-and-backfill.md",
+    title: "Repair and backfill Sessions",
+    description: "Correcting a saved Session in place, records saved at task start, and metadata backfill.",
+    path: ".agents/skills/work-intelligence/references/repair-and-backfill.md",
+  },
+  {
+    name: "work-intelligence-outstanding-cleanup",
+    uri: "work-intelligence://agent/work-intelligence/references/outstanding-cleanup.md",
+    title: "Outstanding item cleanup",
+    description: "Reviewing a Web-created 整理未結項 request through evidence-linked proposals.",
+    path: ".agents/skills/work-intelligence/references/outstanding-cleanup.md",
+  },
+  {
+    name: "work-intelligence-synthesis",
+    uri: "work-intelligence://agent/work-intelligence/references/synthesis.md",
+    title: "Report synthesis and writing",
+    description: "Report synthesis by period, the ReportSummary field mapping, and source coverage.",
+    path: ".agents/skills/work-intelligence/references/synthesis.md",
+  },
+  {
+    name: "work-intelligence-knowledge",
+    uri: "work-intelligence://agent/work-intelligence/references/knowledge.md",
+    title: "Knowledge workflows",
+    description: "Knowledge candidates, standing Knowledge pages, and recording Knowledge.",
+    path: ".agents/skills/work-intelligence/references/knowledge.md",
   },
   {
     name: "work-record-and-report-format",

@@ -25,6 +25,12 @@ const ENTRY_POINTS = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** Copied beside the bundle at the paths apps/mcp/src/agent-resources.ts reads. */
 export const AGENT_RESOURCES = [
   ".agents/skills/work-intelligence/SKILL.md",
+  ".agents/skills/work-intelligence/references/reading-records.md",
+  ".agents/skills/work-intelligence/references/diagrams.md",
+  ".agents/skills/work-intelligence/references/repair-and-backfill.md",
+  ".agents/skills/work-intelligence/references/outstanding-cleanup.md",
+  ".agents/skills/work-intelligence/references/synthesis.md",
+  ".agents/skills/work-intelligence/references/knowledge.md",
   "docs/work-record-and-report-format.md",
   ".agents/skills/worklog-report-writing/SKILL.md",
   ".agents/skills/worklog-report-writing/references/en.md",

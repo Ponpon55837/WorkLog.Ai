@@ -1,5 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +29,10 @@ function temporaryDirectory(): string {
   const directory = mkdtempSync(join(root, "work-intelligence-plugin-"));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+function readText(path: string): string {
+  return readFileSync(path, "utf8").replaceAll("\r\n", "\n");
 }
 
 function readJson(path: string): Record<string, unknown> {
@@ -159,6 +173,23 @@ describe("plugin manifests", () => {
     expect(readFileSync(join(pluginRoot, "skills/work-intelligence/SKILL.md"), "utf8")).toBe(
       readFileSync(join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md"), "utf8"),
     );
+  });
+
+  it("bundle the skill's on-demand guides and the report-writing skill beside them, file for file", () => {
+    for (const skill of [
+      "work-intelligence/references",
+      "worklog-report-writing",
+      "worklog-report-writing/references",
+    ]) {
+      const canonical = join(repositoryRoot, ".agents/skills", skill);
+      const names = readdirSync(canonical).filter((name) => name.endsWith(".md"));
+      expect(names.length).toBeGreaterThan(0);
+      expect(readdirSync(join(pluginRoot, "skills", skill)).filter((name) => name.endsWith(".md"))).toEqual(names);
+      for (const name of names) {
+        // Line endings follow the checkout (.gitattributes), so compare text with them normalized.
+        expect(readText(join(pluginRoot, "skills", skill, name))).toBe(readText(join(canonical, name)));
+      }
+    }
   });
 
   it("carry the README the Anthropic directory requires: at least 40 words outside code blocks", () => {

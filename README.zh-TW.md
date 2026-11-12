@@ -116,7 +116,7 @@ codex plugin marketplace add Ponpon55837/WorkLog.Ai
 
 ### 其他安裝方式二：手動註冊（與 bootstrap 二選一）
 
-`pnpm setup:agents` 可單獨執行，預覽並安裝 Work Intelligence MCP 與 user-level skill；預設不會寫入。操作方式、備份與解除安裝見 [Agent 設定指南](docs/agent-setup.md)。MCP 也會用標準 `resources/list`／`resources/read` 提供完整 skill 與記錄格式，任何支援 MCP resources 的 client 都能讀取：`work-intelligence://agent/work-intelligence/SKILL.md`、`work-intelligence://agent/work-record-and-report-format.md`。
+`pnpm setup:agents` 可單獨執行，預覽並安裝 Work Intelligence MCP 與 user-level skill；預設不會寫入。操作方式、備份與解除安裝見 [Agent 設定指南](docs/agent-setup.md)。MCP 也會用標準 `resources/list`／`resources/read` 提供 skill 與記錄格式，任何支援 MCP resources 的 client 都能讀取：每次工作都要讀的核心 `work-intelligence://agent/work-intelligence/SKILL.md`、開始報告、修正、整理未結項、Knowledge 或架構圖等流程時才讀的 `work-intelligence://agent/work-intelligence/references/<guide>.md`，以及 `work-intelligence://agent/work-record-and-report-format.md`。
 
 macOS／Linux：
 

@@ -23,7 +23,7 @@ work-intelligence-<版本>/
   bin/work-intelligence.mjs        指令入口，只檢查 Node.js 版本後交給打包的 CLI
   libexec/apps/server/dist/        standalone-cli.js、backup-worker.js
   libexec/apps/mcp/dist/           index.js 與兩個 finalize reminder hook
-  libexec/{.agents,docs}/…         MCP 的 skill 與寫作指南資源
+  libexec/{.agents,docs}/…         MCP 的 skill（核心與流程指南）與寫作指南資源
   libexec/package.json             打包程式讀取版本的位置
   web/                             apps/web/dist 的複本
   package.json                     private、bin、engines.node（與根目錄相同）

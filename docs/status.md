@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.22（已完成）
+
+Agent 開始工作前要讀的內容變少：work-intelligence skill 拆成每次工作都要讀的核心（隱私與追蹤規則、開始工作、證據規則、finalize 流程）與六份按需讀取的流程指南（`reading-records`、`diagrams`、`repair-and-backfill`、`outstanding-cleanup`、`synthesis`、`knowledge`），以 MCP resource 與 skill 資料夾內的 `references/` 檔案提供，plugin、Claude Desktop 擴充與 standalone 套件都會帶上。重複的規則改放在 Agent 需要時會讀到的契約或指南，finalize 專用規則移到只附在 `work_finalize_session` 的收尾契約。固定閱讀量 63,209 → 39,642 字（−37%），核心 skill 35,554 → 12,893 字，記錄格式文件 11,789 → 7,749 字；少用流程最多 29,115 字（原 47,343）。拆分前抽出的 350 條規範性敘述全部仍讀得到（296 條逐字、54 條合併或改寫），並以測試鎖定預算、核心規則與指南 URI。四個 Session 更新工具的 MCP 回應改為回條，實際資料原本 3,534–5,940 字，合成資料現在 303–405 字；REST 與 storage 結果不變。user-level skill 安裝仍只複製 `SKILL.md`，指南經 MCP 讀取。schema 維持 32。
+
 ## 1.6.21（已完成）
 
 讀取路徑不再重做工作或卡住，回應內容完全不變（實際資料 220 個結果、合成資料 5,000／20,000 筆 Session 上 37 個讀取路徑，修改前後雜湊相同；排序以舊實作為 oracle 的測試比對）。`work_get_context` 每次都要的 metadata follow-up 計數改依資料庫識別、`data_revision` 與 `schema_version` 快取在每個連線上，任何程序寫入、替換資料庫或 schema 變更都會重新計算，交易中不使用快取；同一次 context 的知識頁記錄只建一次。recall 與寬鬆 Knowledge 搜尋以 `COUNT(*)` 取得詞頻，只在需要時讀取 rowid；索引同步以集合式刪除與重用 statement 批次處理，線上匯入、`db:restore`、`db:redact --apply` 在結束前同步索引；Session 列表文字查詢只掃描一次；最新優先的列表、報告熱點、未結項提醒與 Dashboard 事件數改寫 join 順序。5,000 筆合成 Session：未聚焦 context 37.9 → 19.3 ms、5,000 筆待更新文件的第一次讀取 839 → 572 ms、無符合的列表查詢 47.1 → 22.7 ms；20,000 筆時 context 139.9 → 77.2 ms、週報 61.8 → 26.2 ms、Dashboard 49.6 → 30.6 ms。大量待更新文件的第一次讀取仍約 0.6 秒，未達 100 ms 目標；建議之後的 migration 版本評估部分索引 `sessions(project_id) WHERE voided_at IS NULL`。schema 維持 32。

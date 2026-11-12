@@ -116,7 +116,7 @@ Something wrong? Run `pnpm check`, and see the [plugin guide](docs/plugins.md) f
 
 ### Alternative 2: register manually (either-or with bootstrap)
 
-To set up the MCP server and the user-level skill in one go, run `pnpm setup:agents` to preview the install plan; nothing is written by default. Usage, backups and uninstalling are in the [Agent setup guide](docs/agent-setup.md). The MCP server also serves the full skill and record format through standard `resources/list` / `resources/read`, so any client that supports MCP resources can read `work-intelligence://agent/work-intelligence/SKILL.md` and `work-intelligence://agent/work-record-and-report-format.md`.
+To set up the MCP server and the user-level skill in one go, run `pnpm setup:agents` to preview the install plan; nothing is written by default. Usage, backups and uninstalling are in the [Agent setup guide](docs/agent-setup.md). The MCP server also serves the skill and record format through standard `resources/list` / `resources/read`, so any client that supports MCP resources can read the core every session needs at `work-intelligence://agent/work-intelligence/SKILL.md`, the guide for each other flow (reports, repair, outstanding cleanup, Knowledge, diagrams) at `work-intelligence://agent/work-intelligence/references/<guide>.md` when that flow starts, and `work-intelligence://agent/work-record-and-report-format.md`.
 
 macOS / Linux:
 

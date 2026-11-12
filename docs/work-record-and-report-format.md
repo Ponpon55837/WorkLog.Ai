@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Keep Agent-written Session records consistent, factual, compact, searchable, and useful as source material for daily through annual reports. A Session is the primary record; a report is a period-specific synthesis of source Sessions, events, evidence, and saved metadata. Do not build a weekly report by summarizing daily reports, or a yearly report by summarizing monthly reports, when source Sessions are available.
+Keep Agent-written Session records consistent, factual, compact, searchable, and useful as source material for daily through annual reports. A Session is the primary record; a report is a period-specific synthesis of source Sessions, events, evidence, and saved metadata, never a summary of other reports.
 
 ## Canonical Session record
 
@@ -34,46 +34,10 @@ Additional rules:
 - Session digests and Agent context include only pending outstanding items; completed and `not_needed` entries are not shown as open work even if their compatibility text remains in `nextSteps`. Context returns bounded text and count/truncation metadata. Use the read-only outstanding-items operation for a paginated status-filtered list; do not treat the bounded context as the full list.
 - Times are never estimated. Omit `completedAt` for work that just finished; the server records it. `startedAt` is the first user message of this segment (the Claude Code save reminder states it), taken from evidence with its UTC offset, or omitted. Future times are rejected; implausible ones return `timestampWarnings` and are corrected with `work_update_session_metadata`. `updatedAt` is system-managed and records the last change.
 
-## Report synthesis by period
+## Reports, backfill, and diagrams
 
-Report periods are calendar dates in the server's local time zone; the report context states it as `timezone`, so describe the period in that zone. Always read the bounded deterministic report context and its source Sessions directly. Re-cluster related work across the whole requested period, deduplicate repeated facts, and cite `sourceSessionIds` on every material report block. If context is truncated, do not imply that the report covers unseen Sessions. Do not invent metrics or aggregate counts; use only deterministic values or exact source evidence.
+Agents read the rest of the format with the flow that needs it, from the Work Intelligence skill's on-demand guides (each is also the MCP resource `work-intelligence://agent/work-intelligence/references/<guide>.md`):
 
-| Period | Primary grouping | Detail level and report focus |
-| --- | --- | --- |
-| Daily | Task / Feature / Issue | Preserve engineering detail: outcome, scope, explicit decisions, exact verification, optional observed Git metadata, and current limitations. Merge related Session activity into one task outcome. |
-| Weekly | Feature / Workstream | Re-cluster across days; report complete feature outcomes, major workstreams, decisions, representative verification, scope, comparison when supported, and current limitations. Do not organize as a weekday diary. |
-| Monthly | Project / Milestone / Major Feature | Compress small tasks and commits into project delivery and system improvements; retain durable decisions, representative quality evidence, objective data, and month-end limitations. |
-| Quarterly | Initiative / Major Project / Major System Improvement | Describe the initiative lifecycle and system-level results, trade-offs, quality evidence, measurable outcomes, and quarter-end limitations. |
-| Annual | Major Contribution / Major Initiative / System-level Improvement | Re-analyze source Sessions for the year; report only representative contributions, long-term system changes, durable decisions, quality evidence, reliable objective metrics, and year-end limitations. Do not concatenate monthly reports. |
-
-## Agent report storage mapping
-
-The current `ReportSummary` API fields remain unchanged. Use them consistently:
-
-- `title` and `executiveSummary`: report period/scope and concise outcome-first summary.
-- `themes`: the period-level grouping from the table above (task/workstream/project/initiative/major contribution).
-- `highlights`: supported outcomes and significant delivery details. For a daily report, include an optional block titled `Git` only when source Sessions provide actual Git metadata; do not infer commits from changed files.
-- `verification`: representative exact verification outcomes, preserving `passed`, `failed`, `in_progress`, `not_run`, `not_supplied`, partial coverage, and environment limits.
-- `comparison`: previous-period comparisons or objective trends only when supplied by deterministic report data; otherwise `[]`.
-- `risks`: risks and current known limitations, with the affected Session sources.
-- `decisions`: only explicit decisions and documented trade-offs.
-- `nextSteps`: retained as a compatibility key, but carries only confirmed current status/open items/limitations; it must never contain recommendations or future plans. It may be `[]`.
-- Each block's `sourceSessionIds` must identify the Sessions that support that block. Top-level `sourceSessionIds` must include all Sessions actually used.
-
-## Backfilling existing Sessions
-
-When normalizing existing records, update the same finalized Session with `work_update_session_work_summary` (the Web UI Session editor uses the same in-place update); read the current Session first, because the user may already have edited it; do not create replacement Sessions or alter their primary summary, events, evidence, changed files, verification status, Git metadata, or snapshots. Read all available structured and raw source under the tracked-project policy gate. Preserve confirmed facts, remove unsupported or duplicated claims, and replace future-looking `nextSteps` with objective current-state facts or `[]`. If source data is unavailable or a project is not tracked, do not read it or fabricate a replacement.
-
-
-## 版本化架構圖
-
-`diagrams`／`work_attach_diagram` 支援 `kind: "architecture"`、`formatVersion: 1` 與 JSON 字串 `source`。新增圖表必須明確指定以上 kind 和版本；省略欄位或送 Mermaid 會被拒絕。歷史 Mermaid 保留讀取、原始碼複製／下載、匯出／匯入及作廢／還原；不自動轉換時序／狀態圖。重新 build 不會轉換歷史圖表。完整欄位、限制、冪等與資料生命週期見[架構圖格式](architecture-diagram-format.md)；Agent 先讀 `work-intelligence://agent/architecture-diagram-v1`。
-
-
-## 1.5.1 雙語寫作與涵蓋範圍
-
-生成或修訂工作摘要／報告時，先讀 work-intelligence://agent/worklog-report-writing/SKILL.md，再按語言讀英文或繁中參考頁。查詢、metadata 回補與知識頁維護不載入此指南。英文採 STE-inspired 清楚表達，不宣稱正式 ASD-STE100 合規；繁中以穩定用語及具體動詞改善閱讀。
-
-報告摘要先交代成果；來源涵蓋範圍集中於一個 risks block，分開標示請求保存範圍、可用／實際完整閱讀來源、目前整期統計及缺口。不要在 executiveSummary、verification、comparison、risks 重複同一段診斷。保留所有影響結論的限制及引用，不能為縮短文字刪除關鍵證據。MCP preview 不能代替完整來源閱讀。
-
-使用者明確要求任務開始即記錄時，可先保存 verification.in_progress，startedAt 必須來自可查證的對話／hook 時間。收尾更新同一記錄的實際結果、完成時間與 Git metadata；不要猜測時間或另建替代記錄。
+- [Report synthesis and writing](../.agents/skills/work-intelligence/references/synthesis.md): grouping by period (daily through annual), the `ReportSummary` field mapping, source coverage, and the bilingual writing guides.
+- [Repair and backfill](../.agents/skills/work-intelligence/references/repair-and-backfill.md): correcting a saved Session in place, records saved at task start, metadata backfill, and normalizing existing work summaries.
+- [Session diagrams](../.agents/skills/work-intelligence/references/diagrams.md): when and how to attach a versioned architecture diagram; every field and limit is in the [architecture diagram format](architecture-diagram-format.md).
