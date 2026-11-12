@@ -211,6 +211,8 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   if (table === "knowledge_candidate_requests") {
     row.candidate_count = 1;
   }
+  // A candidate without a stored overlap advisory; a present one must be the stored form, never "{}".
+  if (table === "knowledge_candidates") row.overlaps_json = null;
   if (table === "session_decisions") {
     row.position = 0;
   }
@@ -298,6 +300,22 @@ describe("project data transfer schemas", () => {
     const missingRequired = validBundle();
     delete rowAt(missingRequired, "sessions").title;
     expect(projectDataExportSchema.safeParse(missingRequired).success).toBe(false);
+  });
+
+  it("accepts a stored candidate overlap advisory only in its stored form", () => {
+    const withAdvisory = validBundle();
+    rowAt(withAdvisory, "knowledge_candidates").overlaps_json = JSON.stringify([
+      { relation: "possible_duplicate", type: "knowledge", id: "knowledge-1", status: "active", score: 0.5 },
+    ]);
+    expect(projectDataExportSchema.safeParse(withAdvisory).success).toBe(true);
+    const schema32 = validBundle();
+    delete rowAt(schema32, "knowledge_candidates").overlaps_json;
+    expect(projectDataExportSchema.safeParse(schema32).success).toBe(true);
+    for (const invalid of ["{}", "not json", 3]) {
+      const bundle = validBundle();
+      rowAt(bundle, "knowledge_candidates").overlaps_json = invalid;
+      expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
+    }
   });
 
   it("validates the all-project and single-project scopes and requests", () => {

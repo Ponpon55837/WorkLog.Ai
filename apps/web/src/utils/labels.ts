@@ -4,6 +4,7 @@ import type {
   DatabaseBackupKind,
   GraphNode,
   KnowledgeAuditAction,
+  KnowledgeCandidateOverlap,
   OutstandingItemStatus,
   ProjectDeletionCounts,
   ProjectStatus,
@@ -93,6 +94,16 @@ export const listPageSizeOptions = [
   { value: "all", label: "All" },
 ] as const;
 export type ListPageSize = (typeof listPageSizeOptions)[number]["value"];
+
+type OverlapKind = `${KnowledgeCandidateOverlap["relation"]}:${KnowledgeCandidateOverlap["type"]}`;
+
+/** How a stored candidate overlap reads; the server writes only these four relation and record pairs. */
+export const knowledgeCandidateOverlapLabels: Partial<Record<OverlapKind, string>> = translatedRecord({
+  "possible_duplicate:knowledge": "labels.overlapDuplicateKnowledge",
+  "possible_duplicate:candidate": "labels.overlapDuplicateCandidate",
+  "overlaps_archived:knowledge": "labels.overlapArchivedKnowledge",
+  "overlaps_rejected:candidate": "labels.overlapRejectedCandidate",
+});
 
 export const sessionLinkDirectionLabels: Record<SessionLinkDirection, string> = translatedRecord({
   continues: "labels.continues",

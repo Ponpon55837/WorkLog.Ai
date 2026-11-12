@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.24（已完成）
+
+這一輪第一次 schema 變更（32 → 33），只新增可為空的欄位與索引，升級路徑以實際 build 驗證：v1.6.8 build 寫入的 schema 31 資料庫與使用者 schema 32 資料庫的副本升級後，49 張資料表列數與內容雜湊全部相同、只建立一份 migration 前備份、再次開啟不再遷移；使用者的匯出檔匯入全新資料庫 0 衝突、各表筆數相同，再次匯入全部略過，升級後再匯出／匯入也 0 衝突。可攜式匯入改為接受 schema 31 起的匯出檔（之前只接受與程式相同 schema 的檔案，升級後會拒絕所有舊檔），較新的檔案仍拒絕並請使用者先更新；守門測試確保之後新增的欄位都有匯入預設值。Knowledge 候選的重疊提示與候選一起保存（只存 id、狀態與分數），Web 候選卡片會顯示並可開啟相似的 Knowledge，重送時回傳保存的提示。`work_list_sessions` 新增 `commitSha`（完整 sha 或至少 7 個十六進位字元的前綴）；記錄的是 finalize 時的 HEAD，可能是工作 commit 之前的那個。部分索引 `sessions(project_id) WHERE voided_at IS NULL` 讓 20,000 筆 Session 時 Dashboard 的 Session 計數由 6.1 降到 0.46 ms，沒有其他查詢計畫變差。仍未做：REST Session 列表的 commit 篩選、schema 31 之前匯出檔的匯入。詳見 [1.6.24 更新說明](releases/1.6.24.md)。
+
 ## 1.6.23（已完成）
 
 第二次安全複檢的發現已處理。`appliesTo` glob 比對的成本有上限：比對前先做精確排除，一個 glob 最多 16 個星號（超過的已儲存或匯入樣式仍可讀出但不比對，新增時以驗證錯誤拒絕，更新時回傳 `warnings`），每次掃描另有固定步數預算，用完時以 `appliesToScanTruncated`、`knowledgeToReviewTruncated` 或 `stalenessUnchecked` 標示。30 筆 500 個星號的樣式對 20 個 1,000 字元路徑由約 3.6 秒降到不到 2 ms，一般樣式結果不變（實際資料 59,682 組比對一致）。相關未結項每次最多讀 2,000 筆，超過時帶 `truncated`，實際資料 300 個焦點結果與順序不變。核心 skill 補回 Agent 自主決策只在 Web 審核、不可用 finalize 繞過整理未結項審核兩條規則。`db:redact` 註解更正。Web 尚未顯示新標示。schema 維持 32。

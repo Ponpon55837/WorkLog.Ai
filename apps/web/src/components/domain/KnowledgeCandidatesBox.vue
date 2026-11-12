@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { RouterLink, type RouteLocationRaw } from "vue-router";
 import { storeToRefs } from "pinia";
-import { Check, ExternalLink, Pencil, Sparkles, X } from "lucide-vue-next";
-import type { ProjectRecord } from "@work-intelligence/core";
+import { Check, ExternalLink, Info, Pencil, Sparkles, X } from "lucide-vue-next";
+import type { KnowledgeCandidate, KnowledgeCandidateOverlap, ProjectRecord } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
 import { useKnowledgeCandidates } from "../../composables/useKnowledgeCandidates";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgeStore } from "../../stores/knowledge";
 import { useSessionsStore } from "../../stores/sessions";
-import { formatRelative } from "../../utils/format";
+import { formatPercent, formatRelative } from "../../utils/format";
+import { knowledgeCandidateOverlapLabels } from "../../utils/labels";
 import { knowledgeKindVisual } from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
@@ -69,6 +71,17 @@ useActiveRequestWatch({
 });
 
 const requestItems = computed(() => props.projects.map((project) => ({ value: project.id, label: project.name })));
+
+function overlapLabel(overlap: KnowledgeCandidateOverlap): string {
+  return (
+    knowledgeCandidateOverlapLabels[`${overlap.relation}:${overlap.type}`] ?? t("labels.overlapDuplicateKnowledge")
+  );
+}
+
+// Opens the matched Knowledge in the list's history panel, scoped to the candidate's own project.
+function overlapKnowledgeLink(candidate: KnowledgeCandidate, overlap: KnowledgeCandidateOverlap): RouteLocationRaw {
+  return { name: "knowledge", query: { project: candidate.projectId, knowledge: overlap.id } };
+}
 
 function onRequest(projectId: string): void {
   const project = props.projects.find((item) => item.id === projectId);
@@ -150,6 +163,33 @@ function onRequest(projectId: string): void {
           <p class="knowledge-candidates__rationale">
             {{ t("knowledge.rationale", { rationale: candidate.rationale }) }}
           </p>
+          <div
+            v-if="candidate.overlaps?.length"
+            class="knowledge-candidates__overlaps"
+            role="note"
+            data-testid="knowledge-candidate-overlaps"
+          >
+            <p class="knowledge-candidates__overlaps-note">
+              <Info :size="16" :stroke-width="1.75" aria-hidden="true" />
+              <span>{{ t("knowledge.overlapAdvisory") }}</span>
+            </p>
+            <ul class="knowledge-candidates__overlaps-list" :aria-label="t('knowledge.overlapList')">
+              <li v-for="overlap in candidate.overlaps" :key="`${overlap.type}:${overlap.id}`">
+                <span class="knowledge-candidates__overlap-relation">{{ overlapLabel(overlap) }}</span>
+                <RouterLink
+                  v-if="overlap.type === 'knowledge' && overlap.title"
+                  class="knowledge-candidates__overlap-link"
+                  :to="overlapKnowledgeLink(candidate, overlap)"
+                  >{{ overlap.title }}</RouterLink
+                >
+                <span v-else-if="overlap.title" class="knowledge-candidates__overlap-title">{{ overlap.title }}</span>
+                <span v-else class="knowledge-candidates__overlap-gone">{{ t("knowledge.overlapRecordGone") }}</span>
+                <span class="knowledge-candidates__overlap-score">{{
+                  t("knowledge.overlapSimilarity", { score: formatPercent(overlap.score) })
+                }}</span>
+              </li>
+            </ul>
+          </div>
           <div class="knowledge-candidates__chips">
             <UiButton
               v-if="candidate.sessionId"
@@ -208,6 +248,68 @@ function onRequest(projectId: string): void {
   margin-top: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.knowledge-candidates__overlaps {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  font-size: var(--text-sm);
+}
+
+.knowledge-candidates__overlaps-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+.knowledge-candidates__overlaps-note svg {
+  flex: none;
+}
+
+.knowledge-candidates__overlaps-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0 0 0 calc(16px + var(--space-2));
+  list-style: none;
+}
+
+.knowledge-candidates__overlaps-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  min-width: 0;
+}
+
+.knowledge-candidates__overlap-relation,
+.knowledge-candidates__overlap-score,
+.knowledge-candidates__overlap-gone {
+  color: var(--fg-muted);
+}
+
+.knowledge-candidates__overlap-link,
+.knowledge-candidates__overlap-title {
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.knowledge-candidates__overlap-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.knowledge-candidates__overlap-link:hover {
+  text-decoration: underline;
+}
+
+.knowledge-candidates__overlap-score {
+  font-size: var(--text-xs);
 }
 
 .knowledge-candidates__chips {

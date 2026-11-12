@@ -2955,6 +2955,38 @@ test.describe("Work Intelligence browser regression", () => {
     }
   });
 
+  test("shows the stored overlap advisory on a candidate and opens the matched Knowledge", async ({ page }) => {
+    const knowledgeTitle = `Greenhouse vent latch sticks ${process.pid}`;
+    const knowledgeId = withAgentStore((store) => {
+      const result = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `e2e-overlap-${process.pid}`,
+        kind: "gotcha",
+        title: knowledgeTitle,
+        body: "The greenhouse vent latch sticks when the frame is cold.",
+      });
+      if (result.outcome !== "knowledge_recorded") throw new Error(`Expected Knowledge, got ${result.outcome}`);
+      return result.knowledge.id;
+    });
+    const title = `Greenhouse vent latch sticks when cold ${process.pid}`;
+    await submitKnowledgeCandidateForReview(page, {
+      title,
+      body: "The greenhouse vent latch sticks when the frame is cold.",
+      rationale: "Candidate fixture for the overlap advisory.",
+    });
+
+    const candidate = page.getByTestId("knowledge-candidate").filter({ hasText: title });
+    const advisory = candidate.getByTestId("knowledge-candidate-overlaps");
+    await expect(advisory).toBeVisible();
+    await expect(advisory).toHaveAttribute("role", "note");
+    await expect(advisory).toContainText(tt("knowledge.overlapAdvisory"));
+    await expect(advisory).toContainText(tt("labels.overlapDuplicateKnowledge"));
+    // Advisory only: the decisions stay available.
+    await expect(candidate.getByRole("button", { name: tt("knowledge.accept"), exact: true })).toBeEnabled();
+    await advisory.getByRole("link", { name: knowledgeTitle }).click();
+    await expect(page).toHaveURL(new RegExp(`knowledge=${knowledgeId}`));
+  });
+
   test("rejects an Agent-proposed Knowledge candidate without recording it as Knowledge", async ({ page }) => {
     const title = `E2E candidate to reject ${process.pid}`;
     const candidateId = await submitKnowledgeCandidateForReview(page, {

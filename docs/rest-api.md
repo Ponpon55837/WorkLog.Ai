@@ -99,7 +99,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | DELETE   | `/api/sessions/:id/links/:relatedId`             | 移除兩筆 Session 之間的關聯                                                           |
 | PATCH    | `/api/sessions/:id/void`                         | 作廢（`voided: true` 與必填 `reason`）或還原（`voided: false`）Session，保留作廢紀錄 |
 | PATCH    | `/api/evidence/:id/void`                         | 標示 Evidence 為錯誤或還原，保留作廢紀錄                                              |
-| GET      | `/api/knowledge/candidates`                      | 待審核（`status=proposed`，預設）或已處理的 Knowledge 候選與未完成的整理請求；可用 `projectRoot` 篩選 |
+| GET      | `/api/knowledge/candidates`                      | 待審核（`status=proposed`，預設）或已處理的 Knowledge 候選與未完成的整理請求；可用 `projectRoot` 篩選。候選送出時保存的重疊提示以 `overlaps` 回傳（最多 3 筆：`relation`、`type`、`id`、送出時的 `status`、`score`，以及對象仍存在於同專案時的 `title`）；沒有提示時省略 |
 | POST     | `/api/knowledge/candidate-requests`              | 建立（或回傳既有的）Knowledge 候選整理請求（`projectRoot`），由 Agent 處理                |
 | POST     | `/api/knowledge/candidates/:id/decision`         | 接受（`decision: "accept"`，可帶 `edits`）或拒絕候選；接受時才寫成 Knowledge             |
 | GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge；`q` 的每個詞須出現在標題、內文、tags、references 或 `appliesTo` 路徑（1.6.16 起含 `appliesTo`）。MCP 專用的寬鬆備援與其他狀態計數不在 REST 回應中 |
@@ -207,7 +207,7 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - REST：GET /api/backups 列出備份（檔名、種類、時間、大小，及手動／自動各自的保留份數）；POST /api/backups（body `{}`）建立手動備份。
 - 自動備份以 server 的本機日曆日為單位每天最多建立一份，預設保留最近 3 份；手動備份另有獨立的 3 份保留額度，不會影響自動備份排程或刪除自動備份。
 - REST：POST /api/export（body `{}`）即時產生整份資料的 SQLite 快照，以 `application/vnd.sqlite3` 下載，暫存檔在傳送後刪除。可攜式 JSON 則使用 `{"scope":"all"}`，或 `{"scope":"project","projectId":"<id>"}`；檔案上限為 50 MiB，超過回 413。
-- REST：POST /api/import/preview 與 POST /api/import 都接受 `{ "bundle": <可攜式匯出>, "projectId"?: "<id>", "remap"?: [{"from":"<舊路徑>","to":"<新路徑>"}], "strategy"?: "merge" | "newer-wins" }`。`projectId` 可從全專案匯出檔挑選單一專案；`remap` 可重複多筆，以完整路徑片段比對、Windows 路徑不分大小寫，並依新路徑轉換分隔符號。只有匯入兩個端點把 request body 上限提高至 50 MiB；超過回 413，格式錯誤回 400。
+- REST：POST /api/import/preview 與 POST /api/import 都接受 `{ "bundle": <可攜式匯出>, "projectId"?: "<id>", "remap"?: [{"from":"<舊路徑>","to":"<新路徑>"}], "strategy"?: "merge" | "newer-wins" }`。`projectId` 可從全專案匯出檔挑選單一專案；`remap` 可重複多筆，以完整路徑片段比對、Windows 路徑不分大小寫，並依新路徑轉換分隔符號。只有匯入兩個端點把 request body 上限提高至 50 MiB；超過回 413，格式錯誤回 400。可匯入 `schemaVersion` 31 到目前版本的匯出檔（`formatVersion` 1）；之後 migration 新增的欄位以匯入預設值補上（例如 schema 33 的候選 `overlaps_json` 為空），較舊匯出檔沒有的資料表視為空。比目前程式新的匯出檔回 400 `unsupported_schema`，訊息請使用者先更新 Work Intelligence；早於 31 的匯出檔也以同一代碼拒絕。
 - 相同專案 ID 已存在但根路徑不同時，自動以本機根路徑轉換該專案的根路徑與 handoff 來源路徑，結果列在 `autoRemaps`（`projectId`、`from`、`to`、`snapshots`）。
 - `strategy` 預設 `merge`：只新增本機沒有的列。`newer-wins`：同 ID 內容不同的可變更列，依該表的時間欄位（如 `updated_at`、`reviewed_at`、`decided_at`、`completed_at`）取較新者覆寫；兩種策略都保留本機較新的列，只追加的歷史表與本機專案列永不覆寫。比較前排除各機自行衍生的欄位（Session `redaction_count`、attention 的隱藏／延後狀態、報告 `is_current`），並以相同規則遮蔽本機文字、忽略 changed-file provenance 的合併順序。`knowledge_page_versions` 撞號時依建立時間將該頁所有版本重新編號後並存，並把頁面版本計數器移到最新版本。
 - Preview 只讀取並回傳 `strategy`、各資料表 `additions`／`updates`／`keptLocal`／`skipped`／`conflicts`／`renumbered` 筆數、`conflictGroups`（依資料表、`category`：`path`／`newer_content`／`content`／`unique`／`dependency` 與原因彙總的筆數及最多 5 個範例 id）與最多 100 筆 `conflictDetails`。正式匯入會在一個 SQLite 交易中重新計算預覽並套用；不刪除既有資料，且重複匯入可冪等略過。單一專案匯出會一併帶入引用該專案 Session 的跨專案報告請求、摘要與 metadata 回補請求。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。

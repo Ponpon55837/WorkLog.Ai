@@ -61,6 +61,11 @@ Server 測試同樣會開啟真實 SQLite 檔案、建立備份並執行 CLI；W
 
 A2 另以 286 個合成過期 lease／tmp（每次計時前重建，建置資料不計時）量測狀態讀取及 MCP 註冊清理，兩者 p90 上限各為 100 ms。測試涵蓋 TTL＋60 秒邊界、每次 64 次刪除嘗試上限、重複讀取收斂、刪除失敗、非 UUID 檔案、符號連結及 scope 隔離；runtime 單元測試 mock `tmpdir()`，其餘本機驗證使用隔離 HOME／TMPDIR。
 
+### Schema 33 升級與舊匯出檔匯入
+
+- `tests/storage/schema-33-upgrade.test.ts` 以 store API 寫入代表性資料（Session、changed files、決策、evidence、連結、Knowledge、知識頁與版本、各狀態候選、未結項、報告請求），倒回 schema 31 後重新開啟：只建立一份 `pre-migration-v32` 備份、每張資料表（含搜尋索引）在舊欄位上的列數與內容雜湊不變、FTS 有結果、第二次開啟不再遷移也不再備份；備份失敗時不遷移，資料庫維持 schema 31。`tests/storage/schema-migrations.test.ts` 檢查 32 → 33 的 DDL、可為空欄位與兩個索引被查詢計畫採用。
+- `tests/storage/project-data-import-floor.test.ts` 把 schema 倒回匯入下限（31），確認每個之後新增的匯出欄位都有匯入預設值、舊匯出缺少的資料表可視為空，且每個 project-data 欄位都在可攜式格式中；`tests/fixtures/project-data-export-schema-31.json` 與 `-32.json` 是 v1.6.8 與 v1.6.21 build 以自己的 store API 匯出的合成資料，兩種策略下預覽與匯入都 0 衝突、各表筆數相同、再次匯入全部略過。
+
 ### Schema 31 revision 通知量測（2026-11-03，Windows）
 
 依 backend skill 第 5 節，以獨立 Node 行程、同一份 5,000 Sessions 合成基準資料的全新 SQLite 副本，比較基準與 revision-trigger 分支；順序輪替三輪，每個 `read-paths.bench.mjs` 行程對 finalize 案例跑 15 次並取 p90，再取三個行程 p90 的中位數：
@@ -158,6 +163,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | `appliesTo` glob 比對（30 筆 500 個星號的樣式對 20 個 1,000 字元路徑；超過 16 個星號每組 1 步即拒絕，未設上限時約 3.5 秒；本機 p90 0.7 ms） | 20 ms |
 | `appliesTo` 掃描（16 個星號、字面片段都在路徑中的最貴樣式，跑到比對步數預算用完；本機 p90 9.87 ms） | 100 ms |
 | Knowledge 候選重疊檢查（30 筆候選對同專案 500 筆 Knowledge，每筆既有記錄只斷詞一次；本機 p90 32.9 ms） | 150 ms |
+| Session 列表依 commit 前綴（`work_list_sessions` 的 `commitSha`：歧義檢查、計數與一頁；合成 Session 沒有 commit，量的是索引 seek，本機 p90 0.2 ms） | 50 ms |
 | 未結項清單（5,000 個 Session 中的 1,000 筆合成項目） | 250 ms |
 | 未結項清單（來源 Session 完成日期區間） | 250 ms |
 | 工作歷程搜尋（`search`） | 500 ms |
