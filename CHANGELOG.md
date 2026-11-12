@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.17] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.17.md).
+
+### Added
+
+- `work_get_file_history` (a `work_read` operation, so `tools/list` is unchanged) tells an Agent what happened to a file before it edits it, in one bounded call. For a tracked project and 1–3 repository-relative paths it returns, per path, totals over the whole history (Sessions whose recorded changed files contain the path, first and last dates, counts by verification status, Sessions with decisions, pending outstanding items from them, and broad changes of more than 20 files), the newest Sessions as digests (default 5, up to 10; first decisions and pending items shortened), older failed or `not_run` Sessions under `attention` (at most 3), counts of what was left out, and a `nextCursor` to page further back. Active Knowledge whose `appliesTo` covers a path is listed by id and title, with the same matching rule as `work_recall`. Only recorded changed files relate a Session to a path; voided Sessions are excluded, untracked projects are skipped quietly, absolute and `..` paths are rejected, and the worktree is never read. The response is capped at 4,000 characters for one path (3,000 more per extra path). On a real 328-Session database the five most changed files return totals equal to a direct count (22–69 Sessions each) in 1,685–2,640 characters and about 2 ms, where assembling a partial picture took about 7 calls and 27,000–60,000 characters.
+
+### Changed
+
+- `work_get_context` with `paths` hints the first three requested paths whenever they have history, not only after three Sessions in the last 30 days; each hint adds `totalSessions` over the whole history, and `relevant.fileHistoryReadWith` points to `work_get_file_history` when a path has more Sessions than the context shows. The Web hotspot views are unchanged.
+
 ## [1.6.16] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.16.md).

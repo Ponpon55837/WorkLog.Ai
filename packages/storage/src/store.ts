@@ -244,10 +244,11 @@ import { OutstandingItemService } from "./outstanding-item-service.js";
 import { OutstandingCleanupService } from "./outstanding-cleanup-service.js";
 import { ReportPresentationService } from "./report-presentation-service.js";
 import { RelatedWorkService } from "./related-work-service.js";
-import type { RelatedWorkResult } from "@work-intelligence/core";
+import type { FileHistoryQuery, FileHistoryResult, RelatedWorkResult } from "@work-intelligence/core";
 import { AttentionService } from "./attention-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
 import { KnowledgeSearchService } from "./knowledge-search-service.js";
+import { FileHistoryService } from "./file-history-service.js";
 import { KnowledgeService } from "./knowledge-service.js";
 import { AgentReadAuditService } from "./agent-read-audit-service.js";
 import type {
@@ -399,6 +400,7 @@ export class WorkIntelligenceStore {
   private readonly contextRecallService: ContextRecallService;
   private readonly searchIndex: SearchRepository;
   private readonly hotspots: HotspotRepository;
+  private readonly fileHistory: FileHistoryService;
   private readonly timelines: TimelineRepository;
   private readonly activity: ActivityRepository;
   private readonly projectDeletionService: ProjectDeletionService;
@@ -537,6 +539,10 @@ export class WorkIntelligenceStore {
     });
     this.agentReadAudit = new AgentReadAuditService(this.db);
     this.hotspots = new HotspotRepository(this.db);
+    this.fileHistory = new FileHistoryService(this.db, {
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      syncIndex: () => this.searchIndex.syncIndex(),
+    });
     this.timelines = new TimelineRepository(this.db);
     this.activity = new ActivityRepository(this.db);
     this.projectDeletionService = new ProjectDeletionService(
@@ -1482,6 +1488,11 @@ export class WorkIntelligenceStore {
         groupBy,
       }),
     };
+  }
+
+  /** Whole-history totals and bounded digests of the Sessions that recorded a file of a tracked project. */
+  public getFileHistory(query: FileHistoryQuery): FileHistoryResult | SkippedResult {
+    return this.fileHistory.get(query);
   }
 
   public attachEvidence(input: AttachEvidenceInput): AttachEvidenceResult {

@@ -159,6 +159,74 @@ describe("MCP passive read audit", () => {
     expect(JSON.stringify(rows)).not.toMatch(/secret|lantern/);
   });
 
+  it("audits a file history read with the Sessions and Knowledge it returned, and rejects unsafe paths", async () => {
+    const { client, store, root } = await connect();
+    await call(client, "work_write_idempotent", "work_finalize_session", {
+      projectRoot: root,
+      idempotencyKey: "audit-history-1",
+      title: "Synthetic audit beacon",
+      summary: "Synthetic audit beacon summary.",
+      workSummary: { outcomes: ["Done."], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/beacon.ts"],
+      verification: { status: "failed" },
+    });
+    const knowledge = await call(client, "work_write_idempotent", "work_record_knowledge", {
+      projectRoot: root,
+      idempotencyKey: "audit-history-knowledge",
+      kind: "gotcha",
+      title: "Synthetic beacon gotcha",
+      body: "Fictional note.",
+      appliesTo: ["src/*.ts"],
+    });
+    expect(knowledge.isError).not.toBe(true);
+    const result = await call(client, "work_read", "work_get_file_history", {
+      projectRoot: root,
+      paths: ["src/beacon.ts"],
+    });
+    expect(result.isError).not.toBe(true);
+
+    for (const paths of [
+      ["../outside.ts"],
+      ["src/../../outside.ts"],
+      ["/etc/hosts"],
+      ["C:\\temp\\a.ts"],
+      ["~/a.ts"],
+      [],
+    ]) {
+      const rejected = await call(client, "work_read", "work_get_file_history", { projectRoot: root, paths });
+      expect(rejected.isError, JSON.stringify(paths)).toBe(true);
+    }
+    const extraKey = await call(client, "work_read", "work_get_file_history", {
+      projectRoot: root,
+      paths: ["src/beacon.ts"],
+      includeWorktree: true,
+    });
+    expect(extraKey.isError).toBe(true);
+    const tooMany = await call(client, "work_read", "work_get_file_history", {
+      projectRoot: root,
+      paths: ["a.ts", "b.ts", "c.ts", "d.ts"],
+    });
+    expect(tooMany.isError).toBe(true);
+    const cursorWithTwoPaths = await call(client, "work_read", "work_get_file_history", {
+      projectRoot: root,
+      paths: ["a.ts", "b.ts"],
+      cursor: "WyIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJhIl0",
+    });
+    expect(cursorWithTwoPaths.isError).toBe(true);
+    const forgedCursor = await call(client, "work_read", "work_get_file_history", {
+      projectRoot: root,
+      paths: ["a.ts"],
+      cursor: "not-a-cursor",
+    });
+    expect(forgedCursor.isError).toBe(true);
+
+    const reads = store.listAgentReads({}).items.filter((read) => read.tool === "work_get_file_history");
+    const succeeded = reads.find((read) => read.outcome === "file_history")!;
+    expect(succeeded.sessionIds).toEqual([latestSessionId(store)]);
+    expect(succeeded.knowledgeIds).toHaveLength(1);
+    expect(reads.filter((read) => read.errorCode === "invalid_input")).toHaveLength(10);
+  });
+
   it("does not audit writes that fail", async () => {
     const { client, store } = await connect();
     const result = await call(client, "work_write_idempotent", "work_finalize_session", { projectRoot: "/nowhere" });

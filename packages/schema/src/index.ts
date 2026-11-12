@@ -43,6 +43,14 @@ import { z } from "zod";
 import { parseArchitectureDiagram } from "./architecture-diagram.js";
 import { reportPresentationStateSchema } from "./report-presentation.js";
 export { attentionQuerySchema, updateAttentionPreferenceSchema } from "./attention.js";
+export {
+  decodeFileHistoryCursor,
+  encodeFileHistoryCursor,
+  fileHistoryQuerySchema,
+  fileHistoryQuerySchemaBase,
+  isRepositoryRelativePath,
+  type FileHistoryCursor,
+} from "./file-history.js";
 export { relatedWorkQuerySchema } from "./related-work.js";
 export {
   reportPresentationStateSchema,

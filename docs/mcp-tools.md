@@ -6,7 +6,7 @@
 
 ## tools/list 與 dispatcher
 
-`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；48 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；50 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
 
 | MCP tool | Annotation | 用途 |
 |---|---|---|
@@ -145,7 +145,8 @@ MCP client 的 stdio 設定可使用：
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
 | `relevant.knowledgePages` | 符合 task／paths 的知識頁段落與需核對段落；每段附 `sourceSessionIds`、`truncated`，來源變動時另附 `reviewSources`（有上限時含 `reviewOmittedSourceCount`／`reviewReasons`），頁面附 `needsReview` |
 | `relevant.termHits` | 有關鍵字完全沒命中時才出現，列出每個關鍵字的命中筆數 |
-| `relevant.hotspots` | 指定專案並帶 `paths` 時才出現：過去 30 天被 3 筆以上 Session 修改的路徑，附 Session 數、驗證失敗與未執行數；修改前應特別注意 |
+| `relevant.hotspots` | 指定專案並帶 `paths` 時才出現：過去 30 天被 3 筆以上 Session 修改的路徑，以及前 3 個指定路徑中有任何歷史者（不受 30 天／3 筆門檻限制）；附 30 天內的 Session 數、驗證失敗與未執行數，以及整段歷史的 `totalSessions`；修改前應特別注意 |
+| `relevant.fileHistoryReadWith` | 某個 hotspot 路徑的歷史 Session 多於這份 context 顯示的數量時出現，值為 `work_get_file_history`：一次呼叫讀取該檔案的完整歷史統計與摘要 |
 
 `omitted` 每區一筆，是精簡指標：只說省略多少、用什麼工具讀其餘內容，以及少數 id；不重複知識頁核對明細或引用 id，不會擠掉內容：
 
@@ -161,6 +162,33 @@ MCP client 的 stdio 設定可使用：
 
 ```json
 { "projectRoot": "C:\\work\\assistant", "task": "修正報表時區", "paths": ["src/report/range.ts"] }
+```
+
+## `work_get_file_history`
+
+修改檔案前先查它的過去：對 tracked 專案的 1–3 個 repository 相對路徑，列出所有未作廢、且記錄的 `changedFiles` 含有該路徑的 Session。只採用已記錄的關聯（`relation: "changed_files"`），不推論同時修改或相似檔名。路徑比對規則與 changed files 索引相同：接受 `/` 或 `\` 分隔、忽略大小寫、去掉 `./`；絕對路徑、`~`、磁碟代號與 `..` 段落會被拒絕。只讀資料庫中的記錄，不讀 worktree；非「記錄中」的專案安靜略過（`outcome: "skipped"`）。
+
+| 參數 | 說明 |
+| --- | --- |
+| `projectRoot` | 必填，先通過 policy gate |
+| `paths` | 1–3 個 repository 相對路徑，每個最多 500 字元 |
+| `limit` | 每個路徑回傳的最新 Session 數，1–10，預設 5 |
+| `cursor` | 上一次回應的 `nextCursor`，讀取更早的 Session；只能搭配單一路徑 |
+
+每個 `files[]` 項目：
+
+| 欄位 | 內容 |
+| --- | --- |
+| `totals` | 整段歷史：`sessions`、`firstAt`／`lastAt`、依驗證狀態計數的 `verification`、有 decisions 的 Session 數 `withDecisions`、這些 Session 產生且仍 pending 的未結項 `pendingItems`、changed files 超過 20 個的 `broadChanges` |
+| `recent` | 最新的 Session 摘要（有 cursor 時為其之前的），新到舊：`id`、`completedAt`、`title`、`verificationStatus`、前兩條 decisions 與 pending 未結項（`id`＋縮短的文字），其餘以 `decisionsOmitted`／`pendingItemsOmitted` 計數，有縮短時 `truncated: true` |
+| `attention` | 比 `recent` 更早、驗證 `failed` 或 `not_run` 的 Session，最多 3 筆 |
+| `omitted` | `older`：比 `recent` 最後一筆更早的 Session 數；`attention`：未列出的更早失敗／未執行 Session 數 |
+| `nextCursor` | 還有更早的 Session 時出現；以相同單一路徑帶回 `cursor` 分頁 |
+
+頂層 `knowledge` 列出 `appliesTo` 涵蓋任一路徑的 active Knowledge（`type`、`id`、`title`，最多 5 筆，其餘以 `knowledgeOmitted` 計數），比對規則與 `work_recall` 相同（glob、完全相同、路徑尾段、目錄）。回應上限為單一路徑 4,000 字元、每多一個路徑再加 3,000 字元；超過時依序縮短文字、只保留 id 與計數，最後才捨棄最舊的摘要，並標示 `budgetTrimmed: true`，計數與 `nextCursor` 仍然完整。讀取完整 Session 用 `work_get_session`。
+
+```json
+{ "projectRoot": "C:\\work\\assistant", "paths": ["src/report/range.ts"] }
 ```
 
 ## `work_get_project_status`

@@ -150,6 +150,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 知識頁 review context（涵蓋範圍後的一年 Session，最多 60 筆） | 250 ms |
 | 知識頁 not_found 診斷（列出專案 slug、比對 id 與編輯距離） | 50 ms |
 | 知識搜尋寬鬆備援（嚴格零命中後的 FTS 排序、`appliesTo` 路徑比對與其他狀態計數） | 250 ms |
+| 檔案歷史（3 個路徑、每個 28–125 筆 Session：整段歷史統計、摘要、驗證失敗／未執行提醒與 `appliesTo` Knowledge；本機 p90 2.98 ms） | 50 ms |
 | 未結項清單（5,000 個 Session 中的 1,000 筆合成項目） | 250 ms |
 | 未結項清單（來源 Session 完成日期區間） | 250 ms |
 | 工作歷程搜尋（`search`） | 500 ms |

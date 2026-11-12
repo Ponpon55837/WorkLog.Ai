@@ -907,6 +907,10 @@ export class ContextRecallService {
       knowledgePages: this.getRelevantKnowledgePages(focus, projectId),
       ...(termHits ? { termHits } : {}),
       ...(hotspots.length > 0 ? { hotspots } : {}),
+      // One pointer, not per path: the whole history of a file is one bounded read away.
+      ...(hotspots.some((hint) => hint.totalSessions > sessions.length)
+        ? { fileHistoryReadWith: "work_get_file_history" as const }
+        : {}),
     };
   }
 

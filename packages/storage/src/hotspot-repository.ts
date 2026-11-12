@@ -7,7 +7,7 @@ import type {
   ReportVerificationStatus,
 } from "@work-intelligence/core";
 import { localDayStartIso } from "@work-intelligence/shared";
-import { normalizePath, projectRelativePath } from "./search-text.js";
+import { normalizePath, pathBasename, projectRelativePath } from "./search-text.js";
 import { nextCalendarDate } from "./session-repository.js";
 
 export interface HotspotOptions {
@@ -33,9 +33,11 @@ interface HotspotRow {
 }
 
 const RECENT_SESSIONS = 5;
-/** A path hint needs this many Sessions within HINT_DAYS before work_get_context mentions it. */
+/** A path hint needs this many Sessions within HINT_DAYS before work_get_context mentions it (see hints()). */
 const HINT_MIN_SESSIONS = 3;
 const HINT_DAYS = 30;
+/** The first requested paths get a hint whenever they have history, below the hotspot floor too. */
+const HINT_EXPLICIT_PATHS = 3;
 
 /*
  * Reads search_paths, where each Session's changed files are already normalized to project-relative paths and
@@ -131,7 +133,11 @@ export class HotspotRepository {
     return this.withDisplayPaths(hotspots, options.groupBy);
   }
 
-  /** Paths an Agent is about to change that at least three Sessions changed in the last 30 days. */
+  /**
+   * Paths an Agent is about to change that at least three Sessions changed in the last 30 days, plus any of the
+   * first three requested paths with older history, since the Agent named it explicitly. totalSessions counts every
+   * non-voided Session that recorded the path, broad ones included, like work_get_file_history.
+   */
   public hints(projectId: string, paths: readonly string[], now = Date.now()): HotspotHint[] {
     const project = this.db.prepare("SELECT name, root_path FROM projects WHERE id = ?").get(projectId) as
       { name: string; root_path: string } | undefined;
@@ -151,32 +157,46 @@ export class HotspotRepository {
     if (normalized.length === 0) {
       return [];
     }
+    const explicit = new Set(normalized.slice(0, HINT_EXPLICIT_PATHS));
     const since = new Date(now - HINT_DAYS * 86_400_000).toISOString();
+    // The basename index finds each path's postings; recent counts keep the hotspot rule (no broad Sessions).
     const rows = this.db
       .prepare(
-        `WITH touched AS (${touchedSessionsSql("sp.path", [
-          "sp.project_id = ?",
-          "sp.path IN (SELECT value FROM json_each(?))",
-          "s.completed_at >= ?",
-        ])})
-         SELECT path, COUNT(*) AS session_count, SUM(status = 'failed') AS failed_count,
-                SUM(status = 'not_run') AS not_run_count
-         FROM touched GROUP BY path HAVING COUNT(*) >= ?
+        `WITH requested AS (
+           SELECT json_extract(value, '$[0]') AS path, json_extract(value, '$[1]') AS basename FROM json_each(?)
+         ),
+         touched AS (
+           SELECT sp.path, s.id, MIN(sp.weight) >= 1 AND s.completed_at >= ? AS recent,
+                  COALESCE(json_extract(s.verification_json, '$.status'), 'not_supplied') AS status
+           FROM requested r
+           CROSS JOIN search_paths sp ON sp.basename = r.basename AND sp.path = r.path
+           JOIN sessions s ON s.id = sp.doc_id
+           JOIN projects p ON p.id = sp.project_id
+           WHERE sp.doc_type = 'session' AND sp.project_id = ? AND p.status = 'tracked' AND s.voided_at IS NULL
+           GROUP BY sp.path, s.id
+         )
+         SELECT path, SUM(recent) AS session_count, SUM(recent AND status = 'failed') AS failed_count,
+                SUM(recent AND status = 'not_run') AS not_run_count, COUNT(*) AS total_count
+         FROM touched GROUP BY path
          ORDER BY session_count DESC, path ASC`,
       )
-      .all(projectId, JSON.stringify(normalized), since, HINT_MIN_SESSIONS) as Array<{
+      .all(JSON.stringify(normalized.map((path) => [path, pathBasename(path)])), since, projectId) as Array<{
       path: string;
       session_count: number;
       failed_count: number;
       not_run_count: number;
+      total_count: number;
     }>;
-    return rows.map((row) => ({
-      path: requested.get(row.path) ?? row.path,
-      days: HINT_DAYS,
-      sessionCount: row.session_count,
-      failedCount: row.failed_count,
-      notRunCount: row.not_run_count,
-    }));
+    return rows
+      .filter((row) => row.session_count >= HINT_MIN_SESSIONS || explicit.has(row.path))
+      .map((row) => ({
+        path: requested.get(row.path) ?? row.path,
+        days: HINT_DAYS,
+        sessionCount: row.session_count,
+        failedCount: row.failed_count,
+        notRunCount: row.not_run_count,
+        totalSessions: row.total_count,
+      }));
   }
 
   /**

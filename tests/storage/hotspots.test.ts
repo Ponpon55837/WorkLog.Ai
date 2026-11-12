@@ -113,8 +113,25 @@ describe("hotspots", () => {
       paths: ["src/hive/frames.ts", "src/hive/queen.ts"],
     });
     expect(context.outcome === "context" && context.relevant?.hotspots).toEqual([
-      { path: "src/hive/frames.ts", days: 30, sessionCount: 3, failedCount: 1, notRunCount: 1 },
+      { path: "src/hive/frames.ts", days: 30, sessionCount: 3, failedCount: 1, notRunCount: 1, totalSessions: 3 },
+      { path: "src/hive/queen.ts", days: 30, sessionCount: 0, failedCount: 0, notRunCount: 0, totalSessions: 1 },
     ]);
+  });
+
+  it("hints only the first three requested paths below the 30-day floor and points to their full history", () => {
+    const { store, root, finalize } = setup();
+    const files = ["src/hive/a.ts", "src/hive/b.ts", "src/hive/c.ts", "src/hive/d.ts"];
+    for (let index = 0; index < 7; index += 1) finalize(`old-${index}`, files);
+
+    const context = store.getContext(root, { paths: [...files, "src/hive/never.ts"] });
+    if (context.outcome !== "context") throw new Error("Expected context");
+    expect(context.relevant?.hotspots?.map((hint) => [hint.path, hint.sessionCount, hint.totalSessions])).toEqual([
+      ["src/hive/a.ts", 0, 7],
+      ["src/hive/b.ts", 0, 7],
+      ["src/hive/c.ts", 0, 7],
+    ]);
+    // Seven Sessions changed the files but context shows at most five.
+    expect(context.relevant?.fileHistoryReadWith).toBe("work_get_file_history");
   });
 
   it("adds files changed by at least two of the period's Sessions to the report risks", () => {

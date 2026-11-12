@@ -23,7 +23,7 @@ const DISPATCHER_EXPECTATIONS = {
   work_read: {
     title: "Read Work Intelligence",
     annotations: { title: "Read Work Intelligence", readOnlyHint: true, openWorldHint: false },
-    operationCount: 20,
+    operationCount: 21,
   },
   work_write_idempotent: {
     title: "Write Work Intelligence records",

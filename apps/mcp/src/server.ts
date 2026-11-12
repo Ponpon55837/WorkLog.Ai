@@ -8,6 +8,8 @@ import {
   cancelMetadataBackfillRequestInputSchema,
   cancelReportSynthesisRequestInputSchema,
   contextQuerySchema,
+  fileHistoryQuerySchema,
+  fileHistoryQuerySchemaBase,
   graphPathQuerySchema,
   graphQuerySchema,
   handoffImportApplyInputSchema,
@@ -783,6 +785,21 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid context query.",
     includeServerStatus: true,
     run: (input) => store.getContext(input.projectRoot, { task: input.task, paths: input.paths }),
+  });
+
+  registerStoreTool("work_get_file_history", {
+    title: "Get the history of a file",
+    description:
+      "Before editing a file, read what happened to it: for 1–3 repository-relative paths of a tracked project, every non-voided Session whose recorded changedFiles contain the path (nothing inferred). Each path returns totals over the whole history (Sessions, first/last dates, counts by verification status, Sessions with decisions, pending outstanding items from them, broad changes over 20 files), the newest Sessions as digests (default 5, limit up to 10; first decisions and pending items shortened), and older failed or not_run Sessions as attention (at most 3). omitted counts what was left out; pass nextCursor back as cursor (with that one path) to page older Sessions. knowledge lists active Knowledge whose appliesTo covers a path. Capped at 4,000 characters for one path, 3,000 more per extra path; budgetTrimmed marks shortened digests. Reads stored records only; non-tracked projects are skipped quietly. Read a full Session with work_get_session.",
+    inputShape: fileHistoryQuerySchemaBase.shape,
+    schema: fileHistoryQuerySchema,
+    validationNotes: [
+      "Paths are relative to the repository root (either separator); absolute, home, drive-letter, and '..' paths are rejected. Matching ignores letter case like recorded changed files.",
+      "cursor must be a nextCursor value and requires exactly one path.",
+    ],
+    annotations: READ_ONLY,
+    invalidMessage: "Invalid file history query.",
+    run: (input) => store.getFileHistory(input),
   });
 
   registerStoreTool("work_update_session_metadata", {

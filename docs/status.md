@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.17（已完成）
+
+新增 `work_get_file_history`：Agent 修改檔案前，一次呼叫取得該檔案的完整歷史統計（Session 數、首末日期、各驗證狀態數量、有 decisions 的 Session 數、仍 pending 的未結項）、最新幾筆 Session 摘要、較早的驗證失敗／未執行 Session，以及 `appliesTo` 涵蓋該路徑的 active Knowledge；只採用已記錄的 changed files，單一路徑回應上限 4,000 字。實際資料（328 筆 Session）五個最常修改的檔案，統計與直接計數完全一致，回應 1,685–2,640 字、約 2 ms，取代原本約 7 次呼叫、27,000–60,000 字仍只涵蓋 5 筆 Session 的做法。`work_get_context` 對前 3 個指定路徑一律顯示熱點提示並附整段歷史數量。schema 維持 32。
+
 ## 1.6.16（已完成）
 
 完成方向研究 C4：`work_search_knowledge` 嚴格比對沒有結果時，改用 recall 的斷詞與排序在同一範圍與狀態內做寬鬆比對，回傳最多 3 筆標示共有詞元的 `relaxedMatches`，並以 `otherStatusMatches` 計數告知被狀態篩選隱藏的符合記錄；嚴格搜尋也比對 `appliesTo` 路徑。實際資料（64 筆 Knowledge、41 個查詢）：空回答由 30 降到 0，7 個 active 目標漏查全部以第 1 名找回，21 個 archived 目標查詢全部附上數量。讀取稽核記錄 strict／relaxed／none，recall 的 `termHits` 不再列虛字與未斷詞的中文片段。schema 維持 32。

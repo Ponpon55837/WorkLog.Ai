@@ -927,6 +927,16 @@ try {
     "getHotspots (files)": () => benchStore.getHotspots({ limit: 20 }),
     "getHotspots (directories, month)": () =>
       benchStore.getHotspots({ groupBy: "directory", from: "2026-03-01", to: "2026-03-31", limit: 20 }),
+    // Three paths with 28–125 Sessions each: whole-history totals, digests, attention, and appliesTo Knowledge.
+    "getFileHistory (3 paths)": () => {
+      const result = benchStore.getFileHistory({
+        projectRoot: alphaRoot,
+        paths: ["src/module-0.ts", "src/module-2.ts", "src/feature-0/index.ts"],
+      });
+      if (result.outcome !== "file_history" || result.files.some((file) => file.totals.sessions < 20))
+        throw new Error("File history benchmark must read the synthetic histories of all three paths.");
+      return result;
+    },
     "summarizeAgentReads (5,000 rows)": () => {
       const result = benchStore.summarizeAgentReads({});
       if (result.tools.length !== 12 || result.tools.some((tool) => tool.p95Ms === null))
@@ -1110,6 +1120,7 @@ try {
     "getActivity (year)": 250,
     "getHotspots (files)": 500,
     "getHotspots (directories, month)": 500,
+    "getFileHistory (3 paths)": 50,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
     "searchKnowledgeForAgent (relaxed fallback)": 250,

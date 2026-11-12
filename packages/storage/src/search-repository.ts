@@ -11,7 +11,7 @@ import type {
 } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
 import {
-  compileAppliesTo,
+  appliesToStrength,
   excerptAround,
   ftsTermExpression,
   normalizePath,
@@ -891,14 +891,8 @@ export class SearchRepository {
       for (const raw of parseStringArray(row.applies_to_json)) {
         const pattern = normalizePath(raw, contexts);
         if (!pattern) continue;
-        const glob = /[*?]/.test(pattern);
-        const matches = glob ? compileAppliesTo(pattern) : undefined;
         for (const queried of queriedPaths) {
-          const strength = matches
-            ? matches(queried)
-              ? 0.8
-              : 0
-            : Math.max(pathMatchStrength(pattern, queried), pathMatchStrength(queried, pattern));
+          const strength = appliesToStrength(pattern, queried);
           if (strength > best) {
             best = strength;
             bestPattern = pattern;
