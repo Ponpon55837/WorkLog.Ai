@@ -197,17 +197,22 @@ describe("database maintenance", () => {
   it("stops at a failed integrity check before writing a backup or changing the database", () => {
     const { directory, databasePath, store } = setup();
     store.close();
-    // Point one index at another index's pages: SQLite then reports missing index rows, on every platform.
+    // Overwrite one index's root page with another index's: SQLite then reports missing index rows. The pages are
+    // swapped in the file itself because newer SQLite builds refuse to edit sqlite_master (defensive mode).
     const damaged = new DatabaseSync(databasePath);
     damaged.exec(`CREATE TABLE fixture_a (value TEXT); CREATE TABLE fixture_b (value TEXT);
       CREATE INDEX fixture_a_value ON fixture_a(value); CREATE INDEX fixture_b_value ON fixture_b(value);
       INSERT INTO fixture_a VALUES ('first'), ('second'); INSERT INTO fixture_b VALUES ('other');`);
-    const { rootpage } = damaged.prepare("SELECT rootpage FROM sqlite_master WHERE name = 'fixture_b_value'").get() as {
-      rootpage: number;
-    };
-    damaged.exec("PRAGMA writable_schema = ON");
-    damaged.prepare("UPDATE sqlite_master SET rootpage = ? WHERE name = 'fixture_a_value'").run(rootpage);
+    const rootPage = (name: string): number =>
+      (damaged.prepare("SELECT rootpage FROM sqlite_master WHERE name = ?").get(name) as { rootpage: number }).rootpage;
+    const targetPage = rootPage("fixture_a_value");
+    const sourcePage = rootPage("fixture_b_value");
+    const { page_size: pageSize } = damaged.prepare("PRAGMA page_size").get() as { page_size: number };
+    damaged.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     damaged.close();
+    const bytes = readFileSync(databasePath);
+    bytes.copy(bytes, (targetPage - 1) * pageSize, (sourcePage - 1) * pageSize, sourcePage * pageSize);
+    writeFileSync(databasePath, bytes);
     const before = fileHash(databasePath);
     const backupDirectory = join(directory, "backups");
 
