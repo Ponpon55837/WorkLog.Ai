@@ -98,6 +98,7 @@ metadata backfill 的 1 筆失敗請求已開始但沒有 `completed_at`。
 - 數據依據：`work_search_knowledge` 33 次中 9 次零命中（27.3%）；對照 `work_recall` 零命中只有 3.2%。
 - 預估效益：零命中時自動退回 recall 式檢索或回傳相近詞，預期可把近三成的空結果轉成有用結果；樣本僅 33，需持續觀察。
 - 程式位置：`apps/mcp/src/server.ts`（約 873 行）、`packages/storage` 的知識搜尋服務。
+- 狀態：1.6.16 完成。嚴格比對沒有結果時以 recall 排序做寬鬆比對，回傳最多 3 筆標示 `matchedTerms` 的 `relaxedMatches`，並以 `otherStatusMatches` 計數其他狀態的符合記錄；嚴格搜尋也比對 `appliesTo`。實際資料 41 個查詢的空回答由 30 降到 0，結果類型記入讀取稽核的 `outcome`。
 
 ### C5：補齊耗時與錯誤代碼訊號（其他候選的前提）
 

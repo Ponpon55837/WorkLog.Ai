@@ -916,20 +916,24 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_search_knowledge", {
     title: "Search recorded work knowledge",
     description:
-      'Search explicitly recorded knowledge by title, body, tags, references, project, or kind, newest first. Each space-separated word (or "quoted phrase") must appear in some field, so several words narrow the list; use work_recall for ranked matching of looser questions. Results are limited to active knowledge from tracked projects by default; a projectRoot or projectId scope is policy-gated before returning data and names the project once as project { id, name, rootPath }, without projects or per-item projectId and projectName.',
+      'Search explicitly recorded knowledge by title, body, tags, references, appliesTo paths, project, or kind, newest first. Each space-separated word (or "quoted phrase") must appear in some field, so several words narrow the list; use work_recall for ranked matching of looser questions. With q, match tells how the search was answered: "strict" when items hold every word; otherwise items stays empty and match is "relaxed" with up to 3 relaxedMatches, or "none". relaxedMatches are digests of ranked records of the same scope and status that share only some query terms: id, kind, status, title, up to 3 appliesTo entries, matchedTerms (the tokenized words, identifier parts, or Chinese character pairs it contains), matchedPaths for a path-like word matched by appliesTo or references, and a body excerpt of up to 400 characters around those terms (excerptTruncated when the body was cut). They are partial matches, not answers: read one in full with work_get_knowledge_history before relying on it. An empty or relaxed answer also gives otherStatusMatches, a count per status the filter left out (for example archived), and a hint naming the status to pass to read them. Results are limited to active knowledge from tracked projects by default; a projectRoot or projectId scope is policy-gated before returning data and names the project once as project { id, name, rootPath }, without projects or per-item projectId and projectName.',
     inputShape: knowledgeQuerySchema.shape,
     schema: knowledgeQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid knowledge query.",
     run: (input) => {
-      const result = store.searchKnowledge(input);
+      const result = store.searchKnowledgeForAgent(input);
       if (result.outcome !== "knowledge" || !result.project) return result;
       // A scoped search names its project once; projects would only repeat it.
       return {
         outcome: result.outcome,
         project: scopeProject(result.project),
+        ...(result.match ? { match: result.match } : {}),
         items: result.items.map(withoutProjectFields),
         pageInfo: result.pageInfo,
+        ...(result.relaxedMatches ? { relaxedMatches: result.relaxedMatches.map(withoutProjectFields) } : {}),
+        ...(result.otherStatusMatches ? { otherStatusMatches: result.otherStatusMatches } : {}),
+        ...(result.hint ? { hint: result.hint } : {}),
       };
     },
   });

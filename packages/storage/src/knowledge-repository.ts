@@ -48,6 +48,8 @@ interface KnowledgeRepositoryDependencies {
   checkProjectById(projectId: string): PolicyDecision;
 }
 
+const SEARCHED_COLUMNS = ["title", "body", "tags_json", "references_json", "applies_to_json"] as const;
+
 /** Knowledge query persistence. Mutation and audit flows remain behind the facade for now. */
 export class KnowledgeRepository {
   public constructor(
@@ -89,6 +91,54 @@ export class KnowledgeRepository {
       projectId = decision.project.id;
     }
 
+    const { where, parameters } = this.whereClause(options, projectId);
+    const pageSize = options.pageSize ?? options.limit ?? 50;
+    const pageInfo = this.buildPageInfo(options.page, pageSize, this.countWhere(where, parameters), 200);
+    const rows = this.db
+      .prepare(
+        `SELECT k.*, p.name AS project_name
+         FROM knowledge k
+         JOIN projects p ON p.id = k.project_id
+         WHERE ${where}
+         ORDER BY k.updated_at DESC, k.id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as KnowledgeRepositoryRow[];
+    const trackedProjects = this.dependencies.listTrackedProjects();
+    return {
+      outcome: "knowledge",
+      project: scopedProject,
+      projects: scopedProject ? [scopedProject] : trackedProjects,
+      items: rows.map(this.mapKnowledge),
+      pageInfo,
+    };
+  }
+
+  /**
+   * How many Knowledge records the list search would return in a scope the caller already passed through the policy
+   * gate (an allowed projectId, or every tracked project), without reading them.
+   */
+  public count(options: KnowledgeQuery & { status: KnowledgeStatus }): number {
+    const { where, parameters } = this.whereClause(options, options.projectId);
+    return this.countWhere(where, parameters);
+  }
+
+  private countWhere(where: string, parameters: Array<string | number>): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM knowledge k
+         JOIN projects p ON p.id = k.project_id
+         WHERE ${where}`,
+      )
+      .get(...parameters) as { count: number };
+    return row.count;
+  }
+
+  private whereClause(
+    options: KnowledgeQuery,
+    projectId: string | undefined,
+  ): { where: string; parameters: Array<string | number> } {
     const clauses = ["p.status = 'tracked'"];
     const parameters: Array<string | number> = [];
     if (projectId) {
@@ -104,42 +154,13 @@ export class KnowledgeRepository {
       clauses.push("k.status = ?");
       parameters.push(status);
     }
-    // Every term must appear in at least one of the Knowledge's text fields.
+    // Every term must appear in at least one of the Knowledge's text fields or appliesTo paths, so a file path
+    // finds the Knowledge recorded about it.
     for (const term of splitSearchTerms(options.query?.trim() || options.q?.trim() || "")) {
-      clauses.push(
-        `(LOWER(k.title) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.body) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.tags_json) LIKE ? ${LIKE_ESCAPE} OR LOWER(k.references_json) LIKE ? ${LIKE_ESCAPE})`,
-      );
+      clauses.push(`(${SEARCHED_COLUMNS.map((column) => `LOWER(k.${column}) LIKE ? ${LIKE_ESCAPE}`).join(" OR ")})`);
       const needle = likeContainsPattern(term);
-      parameters.push(needle, needle, needle, needle);
+      parameters.push(...SEARCHED_COLUMNS.map(() => needle));
     }
-
-    const pageSize = options.pageSize ?? options.limit ?? 50;
-    const totalRow = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE ${clauses.join(" AND ")}`,
-      )
-      .get(...parameters) as { count: number };
-    const pageInfo = this.buildPageInfo(options.page, pageSize, totalRow.count, 200);
-    const rows = this.db
-      .prepare(
-        `SELECT k.*, p.name AS project_name
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE ${clauses.join(" AND ")}
-         ORDER BY k.updated_at DESC, k.id DESC
-         LIMIT ? OFFSET ?`,
-      )
-      .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as KnowledgeRepositoryRow[];
-    const trackedProjects = this.dependencies.listTrackedProjects();
-    return {
-      outcome: "knowledge",
-      project: scopedProject,
-      projects: scopedProject ? [scopedProject] : trackedProjects,
-      items: rows.map(this.mapKnowledge),
-      pageInfo,
-    };
+    return { where: clauses.join(" AND "), parameters };
   }
 }

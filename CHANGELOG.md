@@ -4,6 +4,25 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.16] - 2026-11-12
+
+[繁體中文更新說明](docs/releases/1.6.16.md).
+
+### Added
+
+- `work_search_knowledge` no longer dead-ends on a strict miss. With `q`, the result carries `match`: `strict` when `items` hold every word (unchanged results), otherwise `items` stays empty and `match` is `relaxed` with up to 3 `relaxedMatches` or `none`. Relaxed matches come from the recall ranking over the same scope, `kind`, and status (shared tokenizer with Chinese character pairs and identifier parts, OR matching, path-like words matched against `appliesTo` and references). Each is a digest, not the full record: id, kind, status, title, up to three `appliesTo` entries, the `matchedTerms` and `matchedPaths` it shares, and a body `excerpt` of up to 400 characters around those terms (`excerptTruncated` when cut); `work_get_knowledge_history` reads the full record. A relaxed answer on real data is 1,000–2,600 characters. On a real 64-Knowledge database the 7 queries that missed an active record now find it first, and none of 41 queries returns an empty answer.
+- An empty or relaxed Knowledge search answer reports `otherStatusMatches`, a count per status the filter left out (for example `{ "archived": 2 }`), with a `hint` naming the status to pass. It carries counts only, within the policy-gated scope; all 21 real queries aimed at an archived record now say so.
+- The read audit records a Knowledge search with a query as outcome `knowledge_strict`, `knowledge_relaxed`, or `knowledge_none`, without an error code, so the real zero-hit rate can be measured.
+
+### Changed
+
+- The strict Knowledge search (MCP and `GET /api/knowledge`, so also the Web list) matches `appliesTo` paths besides title, body, tags, and references, so a file path finds the Knowledge recorded about it. Queries that already matched return the same records.
+- `work_recall`, `work_search`, and `work_get_context` leave single function characters such as 的, 與, and 讓 out of `termHits`, and count an unsegmented Chinese run as found when half of its character pairs appear in one record, instead of reporting it as matching nothing. `work_recall` judges confidence only on the hits it returns. Ranking is unchanged.
+
+### Fixed
+
+- The read audit again lists the Knowledge and Session ids of `projectRoot`-scoped responses, whose records omit `projectId` since 1.6.15.
+
 ## [1.6.15] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.15.md).

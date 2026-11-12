@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-12
 
+## 1.6.16（已完成）
+
+完成方向研究 C4：`work_search_knowledge` 嚴格比對沒有結果時，改用 recall 的斷詞與排序在同一範圍與狀態內做寬鬆比對，回傳最多 3 筆標示共有詞元的 `relaxedMatches`，並以 `otherStatusMatches` 計數告知被狀態篩選隱藏的符合記錄；嚴格搜尋也比對 `appliesTo` 路徑。實際資料（64 筆 Knowledge、41 個查詢）：空回答由 30 降到 0，7 個 active 目標漏查全部以第 1 名找回，21 個 archived 目標查詢全部附上數量。讀取稽核記錄 strict／relaxed／none，recall 的 `termHits` 不再列虛字與未斷詞的中文片段。schema 維持 32。
+
 ## 1.6.15（已完成）
 
 Agent 讀取更精簡：`work_get_context` 的 `omitted` 改為每區只有數量、讀取工具、最多 3 個 id 與核對旗標，不再重複知識頁核對明細；實際資料（328 筆 Session）帶 task 時 omitted 由約 5,800–6,800 字降到 1,700–2,100 字，省下的預算改留相關內容，五個 task context 全部回到 10,000 字上限內。沒有焦點時保留最新 3 筆 Session。以 `projectRoot` 限定的呼叫只在頂層列一次專案（context、recall、Session 清單、未結項、知識搜尋）。完成方向研究 C3：知識頁 `not_found` 回傳原因代碼、現有 slug、id 誤用與最接近的 slug，原因代碼記入讀取稽核。schema 維持 32。
@@ -51,7 +55,7 @@ Agent 讀取更精簡：`work_get_context` 的 `omitted` 改為每區只有數�
 | 項目 | 狀態 | 再次評估條件 |
 | --- | --- | --- |
 | 無 checkout 發行的後續階段 | 第一階段（Release tarball、`work-intelligence` 指令）已於 1.6.8 發行；獨立套件尚未提供 Agent 註冊與登入服務 | 依[研究](experiments/standalone-distribution-spike-2026-10-15.md)第 8 節的 PR3（Agent 註冊與 MCP 重啟偵測）、PR4（直接以 node 執行的登入服務）；npm 發佈另待使用者決定名稱、帳號與 2FA |
-| 方向研究的改進候選 | C1、C2、C5 已於 1.6.9 完成，C3 已於 1.6.15 完成；剩 [C4、C6](experiments/direction-research-2026-11-07.md)：知識搜尋零命中後備、report synthesis 拆段 | 累積 C5 的耗時與錯誤代碼資料後，依最慢工具與失敗類型排序；C1 採用率看稽核 `session_unchanged` 次數，C2 成效看 `work_get_project_status` 占比，C3 看稽核中 `work_get_knowledge_page_context` 的 not_found 原因代碼分布 |
+| 方向研究的改進候選 | C1、C2、C5 已於 1.6.9 完成，C3 已於 1.6.15 完成，C4 已於 1.6.16 完成；剩 [C6](experiments/direction-research-2026-11-07.md)：report synthesis 拆段 | 累積 C5 的耗時與錯誤代碼資料後，依最慢工具與失敗類型排序；C1 採用率看稽核 `session_unchanged` 次數，C2 成效看 `work_get_project_status` 占比，C3 看稽核中 `work_get_knowledge_page_context` 的 not_found 原因代碼分布，C4 看稽核中 `work_search_knowledge` 的 `knowledge_relaxed`／`knowledge_none` 比例 |
 | 歷史 Mermaid 圖表整理成 architecture 快照 | 不阻擋任何功能；歷史圖表以原始碼保留 | 使用者選定要整理的圖表後，逐張核對原工作來源再建立新快照 |
 | TypeSafe Adapter（Insight Provider Phase 2） | 等待外部契約 | 產品方定稿 SDK 或 HTTP endpoint、credential／egress 規則、request／response／error schema，以及 timeout／retry／circuit-breaker 契約前不新增依賴或網路呼叫 |
 | Async path resolver | 刻意延後 | 只有在提高 metadata 上限、加入批次 ingest，或實測到 server／UI 阻塞時才重新量測並評估 |

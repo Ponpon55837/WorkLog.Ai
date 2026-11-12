@@ -495,6 +495,18 @@ describe("recall", () => {
     expect(recall(store, { q: "zzyzx" })).toMatchObject({ hits: [], termHits: [{ term: "zzyzx", count: 0 }] });
   });
 
+  it("leaves function words out of termHits and counts a Chinese run found by half its character pairs", () => {
+    const { store, root } = trackedStore();
+    finalize(store, root, "cjk-words", { title: "果園灌溉排程", summary: "記錄灌溉時間。" });
+
+    // 灌溉排程表 has pairs 灌溉, 溉排, 排程, 程表: three are in the record, so the run is found, not "matched nothing".
+    const result = recall(store, { q: "灌溉排程表 的 zzyzx" });
+    expect(result.termHits).toEqual([
+      { term: "灌溉排程表", count: 1 },
+      { term: "zzyzx", count: 0 },
+    ]);
+  });
+
   it("backfills the index for data written before the search migration", () => {
     const databasePath = join(tempDir(), "legacy.sqlite");
     const { store, root } = trackedStore(databasePath);

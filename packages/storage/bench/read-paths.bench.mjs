@@ -903,6 +903,12 @@ try {
     "recall evaluator (snapshot + MCP recall/context)": () =>
       evaluateRecallQuestions(databasePath, evaluationQuestions),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
+    // A strict miss: relaxed ranking over the FTS index, appliesTo path matching, and the archived count.
+    "searchKnowledgeForAgent (relaxed fallback)": () =>
+      benchStore.searchKnowledgeForAgent({
+        projectRoot: alphaRoot,
+        q: "synthetic staleness src/feature-a/index.ts zzyzx",
+      }),
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
     "getGraph (default 180 nodes)": () => {
@@ -1106,6 +1112,7 @@ try {
     "getHotspots (directories, month)": 500,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
+    "searchKnowledgeForAgent (relaxed fallback)": 250,
     createBackup: 300,
     "exportTo (whole database)": 300,
     "exportProjectData (all projects)": 400,
