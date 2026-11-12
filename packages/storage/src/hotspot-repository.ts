@@ -48,11 +48,22 @@ const HINT_EXPLICIT_PATHS = 3;
 const DIRECTORY_KEY = `CASE WHEN instr(sp.path, '/') > 0
   THEN rtrim(rtrim(sp.path, replace(sp.path, '/', '')), '/') ELSE '.' END`;
 
-function touchedSessionsSql(key: string, filters: string[]): string {
+/*
+ * A period (from/to) selects few Sessions out of many, so its Sessions drive the join through the completed_at
+ * indexes and each one's paths come from idx_search_paths_doc. Without a period SQLite started from every Session
+ * path and dropped most of them only after reading their Sessions, which grew with the whole history (a week of a
+ * 20,000-Session database took 30 ms). The rows selected are the same set either way; every later step groups or
+ * orders them by its own keys, so the result does not depend on the join order.
+ */
+function touchedSessionsSql(key: string, filters: string[], period: boolean): string {
+  const from = period
+    ? `FROM sessions s
+          CROSS JOIN search_paths sp ON sp.doc_type = 'session' AND sp.doc_id = s.id`
+    : `FROM search_paths sp
+          JOIN sessions s ON s.id = sp.doc_id`;
   return `SELECT DISTINCT sp.project_id, ${key} AS path, s.id AS session_id, s.title AS session_title,
             s.completed_at, COALESCE(json_extract(s.verification_json, '$.status'), 'not_supplied') AS status
-          FROM search_paths sp
-          JOIN sessions s ON s.id = sp.doc_id
+          ${from}
           JOIN projects p ON p.id = sp.project_id
           WHERE sp.doc_type = 'session' AND sp.weight >= 1 AND p.status = 'tracked' AND s.voided_at IS NULL
             ${filters.map((filter) => `AND ${filter}`).join(" ")}`;
@@ -80,7 +91,7 @@ export class HotspotRepository {
     const key = options.groupBy === "directory" ? DIRECTORY_KEY : "sp.path";
     const rows = this.db
       .prepare(
-        `WITH touched AS (${touchedSessionsSql(key, filters)}),
+        `WITH touched AS (${touchedSessionsSql(key, filters, Boolean(options.from || options.to))}),
          top AS (
            SELECT project_id, path, COUNT(*) AS session_count, SUM(status = 'failed') AS failed_count,
                   SUM(status = 'not_run') AS not_run_count, MAX(completed_at) AS last_changed_at

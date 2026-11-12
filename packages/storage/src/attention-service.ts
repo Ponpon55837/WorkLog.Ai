@@ -356,7 +356,10 @@ export class AttentionService {
       const condition = pending
         ? "o.status = 'pending'"
         : "(s.changed_files_confirmed = 0 OR s.verification_json IS NULL)";
-      const source = pending ? "outstanding_items o JOIN sessions s ON s.id = o.source_session_id" : "sessions s";
+      // CROSS JOIN starts from the pending items and looks up each one's Session by key. SQLite otherwise walked every
+      // Session of the project and probed its items, so the cost followed the whole history, not the open items.
+      // The groups and their aggregates do not depend on the join order.
+      const source = pending ? "outstanding_items o CROSS JOIN sessions s ON s.id = o.source_session_id" : "sessions s";
       sql = `WITH counts AS (SELECT p.id AS project_id, p.name AS project_name, COUNT(*) AS count, MAX(s.completed_at) AS updated_at,
         ${pending ? "json_array(COUNT(*),MAX(o.updated_at),MAX(o.id))" : "json_array(COUNT(*),MAX(s.updated_at),MAX(s.id))"} AS fingerprint
         FROM ${source} JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL ${scope} AND ${condition}

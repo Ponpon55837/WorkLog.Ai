@@ -90,11 +90,15 @@ export class SessionRepository {
     const { clauses, parameters } = this.buildFilter(options);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    // CROSS JOIN keeps sessions as the outer loop, so a newest-first list walks idx_sessions_completed and stops at
+    // the limit. With a plain JOIN SQLite started from the tracked projects and sorted all of their Sessions (full
+    // rows) to return a few: 9 ms instead of 0.02 ms for the dashboard's six at 20,000 Sessions. ORDER BY ends with
+    // the unique id, so the order is the same under any plan.
     const rows = this.db
       .prepare(
         `SELECT s.*, p.name AS project_name
          FROM sessions s
-         JOIN projects p ON p.id = s.project_id
+         CROSS JOIN projects p ON p.id = s.project_id
          ${where}
          ORDER BY s.completed_at DESC, s.id DESC
          LIMIT ?`,
@@ -106,6 +110,9 @@ export class SessionRepository {
   public listPage(options: SessionListOptions = {}): SessionListResult {
     const { clauses, parameters } = this.buildFilter(options);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    if (splitSearchTerms(options.query ?? "").length > 0) {
+      return this.listTextQueryPage(where, parameters, options);
+    }
     const totalRow = this.db
       .prepare(
         `SELECT COUNT(*) AS count
@@ -201,6 +208,45 @@ export class SessionRepository {
       )
       .get(sessionId) as SessionRow | undefined;
     return row ? this.mapSession(row) : undefined;
+  }
+
+  /**
+   * A text query cannot use an index, so COUNT plus LIMIT/OFFSET scanned every Session twice with the LIKE
+   * predicates. One scan returns the ordered ids of every match instead: their count is the total, and the page is
+   * cut from them before the full rows are read by primary key in the same order. The page number still clamps to
+   * the total exactly as before, which is why the ids are read first rather than using COUNT(*) OVER ().
+   */
+  private listTextQueryPage(
+    where: string,
+    parameters: Array<string | number | null>,
+    options: SessionListOptions,
+  ): SessionListResult {
+    const ids = (
+      this.db
+        .prepare(
+          `SELECT s.id
+           FROM sessions s
+           JOIN projects p ON p.id = s.project_id
+           ${where}
+           ORDER BY s.completed_at DESC, s.id DESC`,
+        )
+        .all(...parameters) as Array<{ id: string }>
+    ).map((row) => row.id);
+    const pageInfo = this.buildPageInfo(options.page, options.pageSize, ids.length, 100);
+    const pageIds = ids.slice((pageInfo.page - 1) * pageInfo.pageSize, pageInfo.page * pageInfo.pageSize);
+    const rows =
+      pageIds.length === 0
+        ? []
+        : (this.db
+            .prepare(
+              `SELECT s.*, p.name AS project_name
+               FROM json_each(?) page
+               CROSS JOIN sessions s ON s.id = page.value
+               JOIN projects p ON p.id = s.project_id
+               ORDER BY page.key`,
+            )
+            .all(JSON.stringify(pageIds)) as SessionRow[]);
+    return { outcome: "sessions", items: rows.map(this.mapSession), pageInfo };
   }
 
   private buildFilter(options: SessionListOptions): {

@@ -136,14 +136,16 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 關鍵路徑 | p90 上限 |
 | --- | ---: |
 | Session 列表（預設第一頁） | 200 ms |
-| Dashboard | 1,000 ms |
+| Dashboard | 250 ms |
 | 提醒聚合（八類混合來源，每類最多 200 筆） | 500 ms |
 | 週報 | 750 ms |
 | 年報 | 1,500 ms |
 | 報告 Agent context（年度固定來源請求；第 1 頁含報告區塊，第 2 頁只含該頁 Session 與 evidence；第 2 頁本機 p90 38.9 ms） | 各 1,500 ms |
-| Agent context | 2,500 ms |
+| Agent context | 500 ms |
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
 | metadata follow-up count（5,000 個 tracked Sessions；計數需與完整預覽總數一致） | 100 ms |
+| metadata follow-up count（每次計時前由另一個連線寫入一筆 project data，必須重新掃描） | 100 ms |
+| 大量變更後第一次讀取（另一份資料庫副本上 5,000 筆 Session 待更新索引，讀取前全部重建） | 1,500 ms |
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
 | finalize 知識頁維護提示（3 頁 × 5,000 個新 Session） | 250 ms |
 | task context 相關未結項（5,000 Sessions／1,000 項，含文字與路徑排名） | 500 ms |
@@ -200,6 +202,8 @@ node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-on
 `finalizeSession (changed files, Knowledge review)` 量測真實大小的收尾寫入：20 個變更路徑與待辦來源 Session 及 Knowledge `appliesTo` 重疊，相關未結項的路徑評分與 `knowledgeToReview` 掃描都實際執行；種子的模組 Knowledge 早已可能過時（提早結束），每次計時前另記錄一筆從未被改過、建立時間早於所有 Session 的 Knowledge，讓檢查走完所有後續 Session；計時前後檢查結果含相關未結項，且 `knowledgeToReview` 只列這筆。操作 p90 上限 250 ms、寫入交易 p90 上限 50 ms（與 `finalizeSession (related pending reminder)` 相同，兩者都量交易時間）。相關未結項改為一次讀出 pending 候選、在 JavaScript 評分；`tests/storage/outstanding-item-relevance.test.ts` 是改寫前以原 SQL 評分固定下來的特性測試，涵蓋同分依完成時間／Session id／位置排序、大小寫與反斜線、改名、目錄前綴與後綴、段落邊界及只折疊 ASCII 的大小寫規則。
 
 `metadata follow-up count` 獨立量測 `work_get_context` 使用的 SQL 聚合，不建立完整預覽 DTO；bench 在計時前用 JavaScript 預覽 totals 驗證 SQL 結果完全相同。5,000 筆完整預覽的既有本機 p90 約 58 ms，因此 count-only 路徑設 100 ms 上限；完整明細預覽仍保留原本路徑與回傳內容。
+
+`metadata follow-up count` 的結果依資料庫識別、`data_revision` 與 `schema_version` 快取在每個連線上，所以原本的案例現在量的是重複讀取；`metadata follow-up count（after a write）` 在每次計時前由第二個連線更新一筆專案資料，量的是快取失效後的完整掃描，上限沿用 100 ms。`first read after 5,000 dirty documents` 在 VACUUM INTO 的獨立副本上每次計時前把 5,000 筆 Session 標成待更新，再量第一次 `search`（含整批重建索引），並在計時內確認 `search_dirty` 已清空；放在副本上是為了不讓反覆重建 FTS 影響之後的備份與匯出案例。本機 5,000 Sessions、三輪交錯的中位數：重建由 839 ms 降到 572 ms（20,000 Sessions 時 935 → 602 ms），上限 1,500 ms 只擋數量級退化；Dashboard 與 Agent context 的上限依修改後本機 p90（約 5.4 ms、26 ms）收緊為 250 ms 與 500 ms。`tests/storage/read-path-equivalence.test.ts` 以修改前的實作作為 oracle，比對 recall／寬鬆 Knowledge 搜尋／focused context 的排序輸出、逐筆與整批重建索引後的 chunks、rowid、paths 與 FTS 分數、文字查詢 Session 列表（含超出最後一頁與 `pageSize: 0`），以及改用 `CROSS JOIN` 的列表、Dashboard 事件數與熱點期間查詢；`tests/storage/data-revision-cache.test.ts` 用第二個 store 與原始連線模擬另一個程序，涵蓋跨連線寫入、專案範圍與 policy、交易中與 rollback 後同一個 revision 數字、DDL 與資料庫識別變更。
 
 第九輪 B1 在相同 5,000 Sessions／1,000 合成未結項中新增來源完成日期的月份篩選，p90 為 1.62 ms（上限 250 ms）；既有未結項列表 p90 為 7.89 ms。28 組讀取門檻全部通過。批次測試涵蓋 100／101 項、重複／無效 ID、作廢來源、停用專案、狀態衝突、無變更不追加稽核與稽核失敗整批回滾；瀏覽器測試涵蓋跨頁復原、日期 URL／reload，以及 1440／960／375px 的區塊內捲動。
 

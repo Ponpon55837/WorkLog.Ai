@@ -545,7 +545,7 @@ describe("portable project data transfer", () => {
     );
   }, 60_000);
 
-  it("round-trips project data, pauses new projects, marks search state dirty, and stays idempotent while open", () => {
+  it("round-trips project data, pauses new projects, re-indexes search state, and stays idempotent while open", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
     expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
@@ -610,10 +610,19 @@ describe("portable project data transfer", () => {
     const db = new DatabaseSync(destination.databasePath);
     try {
       expect(db.prepare("SELECT COUNT(*) AS total FROM project_data_import_audits").get()).toEqual({ total: 1 });
-      const dirtySearchDocuments = db
-        .prepare("SELECT COUNT(*) AS total FROM search_dirty WHERE doc_type IN ('session', 'knowledge')")
+      // Imported documents are re-indexed right after the import commits, not by the first read.
+      expect(db.prepare("SELECT COUNT(*) AS total FROM search_dirty").get()).toEqual({ total: 0 });
+      const indexedSessions = db
+        .prepare(
+          `SELECT COUNT(DISTINCT c.doc_id) AS total FROM search_chunks c
+           WHERE c.doc_type = 'session' AND c.doc_id IN (SELECT id FROM sessions)`,
+        )
         .get() as { total: number };
-      expect(dirtySearchDocuments.total).toBeGreaterThan(0);
+      const liveSessions = db.prepare("SELECT COUNT(*) AS total FROM sessions WHERE voided_at IS NULL").get() as {
+        total: number;
+      };
+      expect(liveSessions.total).toBeGreaterThan(0);
+      expect(indexedSessions.total).toBe(liveSessions.total);
       expect(db.prepare("SELECT source_digest FROM project_data_import_audits").get()).toMatchObject({
         source_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
