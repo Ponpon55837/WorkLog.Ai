@@ -16,7 +16,12 @@
 //   of S (the product's appliesToStrength > 0); and S is not K's own source Session.
 //   Reported = knowledge_feedback(K, S, 'applied'); `contradicted` is counted separately.
 //
-// Replay: for each Session with at least one opportunity, getContext() runs for {task}, {paths} and {task, paths}
+// Denominator: opportunities split into `active_now` (K is still active) and `inactive_now` (K was active at S's time
+// but is archived or superseded now). The replay runs on the current state and the product only ever offers active
+// Knowledge (recall, file history and context scan `status = 'active'`), so an inactive_now K can never be offered.
+// Every main class, cause and check below uses the active_now denominator; inactive_now is a separate block.
+//
+// Replay: for each Session with at least one opportunity (active_now or inactive_now), getContext() runs for {task}, {paths} and {task, paths}
 // (task = Session title, paths = first 20 changed files) and every K is classified full / pointer_only / absent.
 // For K absent from the combined variant, work_recall(limit 30) tells why: budget_trimmed (K is among the first five
 // Knowledge hits yet missing), ranked_behind (K is beyond the fifth), or no_match (K not recalled; applies_to_only when
@@ -52,6 +57,7 @@ const FILE_HISTORY_KNOWLEDGE_LIMIT = 5; // file-history-service.ts KNOWLEDGE_LIM
 const FILE_HISTORY_SINGLE_CAP = 10;
 const BUDGET_REASON_PREFIX = "預算限制";
 const DUPLICATE_REASON_PREFIX = "已列於";
+const BEYOND_LIMIT_REASON_PREFIX = "超出相關"; // ranked beyond the five relevant slots, listed as a path pointer
 const SESSION_BUCKETS = ["1", "2-3", "4-5", "6-10", ">10"];
 const CLASSES = ["full", "pointer_only", "absent"];
 const VARIANTS = ["task", "paths", "both"];
@@ -59,6 +65,7 @@ const NOTES = [
   "Replay uses the current database state: Sessions and Knowledge created after S compete in ranking and recency.",
   "S itself is indexed and can be recalled; supplements sourced from S's own applied Knowledge are not counted as offered (selfSupplementLeak).",
   "Context and recall also match Knowledge appliesTo against queried paths (here the first 20 changed files), so no_match/applies_to_only now means the matching file lies beyond those paths or the match budget ran out. Older builds did not match appliesTo there.",
+  "Opportunities are split by the Knowledge's CURRENT status: active_now is the denominator of every main class, cause and check; inactive_now (active at S, archived or superseded since) is reported separately because the product never offers inactive Knowledge.",
   "Diagnostic causes are verified directly with the product's exported matching functions and first match wins; file-history crowding and pattern-type counts are independent tallies as labelled.",
 ];
 
@@ -297,6 +304,7 @@ function buildOpportunities(rows, totals) {
         patternType: globs === 0 ? "plain" : globs === matching.length ? "glob" : "mixed",
         matchedFiles,
         inReferences: normalized.some((path) => references.some((reference) => pathMatchesReference(path, reference))),
+        activeNow: entry.item.status === "active",
         reported: applied.has(key),
         contradicted: contradicted.has(key),
       });
@@ -389,14 +397,28 @@ function pointerProfile(context, knowledgeId) {
   const rank = (omission) =>
     omission.section === "relevant.knowledge" ? 0 : omission.section === "recentKnowledge" ? 1 : 2;
   const omission = [...omissions].sort((left, right) => rank(left) - rank(right))[0];
-  if (!omission) return { section: "other", reason: "other", stale: false };
+  if (!omission) return { section: "other", reason: "other", stale: false, path: false };
   const reasons = omission.reasons ?? [];
   const budget = reasons.some((reason) => reason.startsWith(BUDGET_REASON_PREFIX));
   const duplicate = (omission.duplicates ?? 0) > 0 || reasons.some((reason) => reason.includes(DUPLICATE_REASON_PREFIX));
+  const beyondLimit = reasons.some((reason) => reason.startsWith(BEYOND_LIMIT_REASON_PREFIX));
+  const entry = (omission.entries ?? []).find((candidate) => candidate.id === knowledgeId);
   return {
     section: ["relevant.knowledge", "recentKnowledge"].includes(omission.section) ? omission.section : "other",
-    reason: budget && duplicate ? "budget+duplicate" : budget ? "budget" : duplicate ? "duplicate" : "other",
-    stale: (omission.entries ?? []).some((entry) => entry.id === knowledgeId && entry.possiblyStale),
+    // Reasons belong to the section, so an id in a section with both reasons counts as budget.
+    reason:
+      budget && duplicate
+        ? "budget+duplicate"
+        : budget
+          ? "budget"
+          : duplicate
+            ? "duplicate"
+            : beyondLimit
+              ? "beyond_limit"
+              : "other",
+    stale: Boolean(entry?.possiblyStale),
+    // The pointer says which file the Knowledge covers: an entry with a title and one path.
+    path: entry?.path !== undefined,
   };
 }
 
@@ -434,16 +456,22 @@ function replay(store, rows, limit, started) {
     excluded_source_session: 0,
     excluded_not_active: 0,
   };
-  const { opportunities: all, projectById, sessionById } = buildOpportunities(rows, totals);
+  const { opportunities: everything, projectById, sessionById } = buildOpportunities(rows, totals);
+  const all = everything.filter((opportunity) => opportunity.activeNow);
+  const allInactive = everything.filter((opportunity) => !opportunity.activeNow);
   const chosen = sample(all, limit);
+  const chosenInactive = sample(allInactive, limit);
   const bySession = new Map();
-  for (const opportunity of chosen) {
+  for (const opportunity of [...chosen, ...chosenInactive]) {
     const list = bySession.get(opportunity.sessionId) ?? [];
     list.push(opportunity);
     bySession.set(opportunity.sessionId, list);
   }
 
   const variants = Object.fromEntries(
+    VARIANTS.map((name) => [name, Object.fromEntries(CLASSES.map((cls) => [cls, cell()]))]),
+  );
+  const inactiveVariants = Object.fromEntries(
     VARIANTS.map((name) => [name, Object.fromEntries(CLASSES.map((cls) => [cls, cell()]))]),
   );
   const fullVia = { relevant: 0, recent_only: 0, supplement_only: 0 };
@@ -469,7 +497,15 @@ function replay(store, rows, limit, started) {
   };
   const scanDetail = { not_in_scan_set: 0, truncated_warning: 0 };
   // B: where a pointer_only Knowledge pointer sits.
-  const pointerOnly = { total: 0, bySection: {}, byReason: {}, possiblyStale: {}, inRecall20Top5: {}, profile: {} };
+  const pointerOnly = {
+    total: 0,
+    bySection: {},
+    byReason: {},
+    possiblyStale: {},
+    withPath: {},
+    inRecall20Top5: {},
+    profile: {},
+  };
   // C: opportunity Knowledge per replayed Session against the combined variant's result.
   const perSession = Object.fromEntries(
     SESSION_BUCKETS.map((bucket) => [bucket, { sessions: 0, opportunities: 0, full: 0, pointer_only: 0, absent: 0 }]),
@@ -507,7 +543,9 @@ function replay(store, rows, limit, started) {
   let contextErrors = 0;
   const contextChars = [];
 
-  for (const [sessionId, list] of bySession) {
+  for (const [sessionId, fullList] of bySession) {
+    const list = fullList.filter((opportunity) => opportunity.activeNow);
+    const inactiveList = fullList.filter((opportunity) => !opportunity.activeNow);
     const session = sessionById.get(sessionId);
     const project = projectById.get(session.project_id);
     const root = project.root_path;
@@ -525,7 +563,14 @@ function replay(store, rows, limit, started) {
       paths: store.getContext(root, { paths }),
       both: store.getContext(root, { task, paths }),
     };
-    contextChars.push(JSON.stringify(contexts.both).length);
+    if (list.length > 0) contextChars.push(JSON.stringify(contexts.both).length);
+    for (const opportunity of inactiveList) {
+      for (const variant of VARIANTS) {
+        const result = classifyContext(contexts[variant], opportunity.knowledgeId, sessionId);
+        if (result.via === "error") contextErrors += 1;
+        bump(inactiveVariants[variant][result.cls], opportunity);
+      }
+    }
     const hitsOf = (result) => (result.outcome === "recall" ? result.hits : []);
     const cache = { history: new Map() };
     const recall30Result = () => (cache.recall30 ??= store.recall({ q: task, paths, projectRoot: root, limit: 30 }));
@@ -578,10 +623,11 @@ function replay(store, rows, limit, started) {
         tally(pointerOnly.bySection, profile.section);
         tally(pointerOnly.byReason, profile.reason);
         tally(pointerOnly.possiblyStale, profile.stale ? "possiblyStale" : "not_stale");
+        tally(pointerOnly.withPath, profile.path ? "with_title_and_path" : "id_only");
         tally(pointerOnly.inRecall20Top5, top5 ? "in_top5" : "not_in_top5");
         tally(
           pointerOnly.profile,
-          `${profile.section} / ${profile.reason} / ${profile.stale ? "stale" : "not_stale"} / ${top5 ? "in_top5" : "not_in_top5"}`,
+          `${profile.section} / ${profile.reason} / ${profile.stale ? "stale" : "not_stale"} / ${profile.path ? "path" : "id_only"} / ${top5 ? "in_top5" : "not_in_top5"}`,
         );
       }
       if (classes.both.cls !== "absent") continue;
@@ -640,6 +686,7 @@ function replay(store, rows, limit, started) {
         );
       }
     }
+    if (list.length === 0) continue;
     const bucket = perSession[sessionBucket(list.length)];
     bucket.sessions += 1;
     bucket.opportunities += list.length;
@@ -648,17 +695,35 @@ function replay(store, rows, limit, started) {
 
   const reportState = cell();
   for (const opportunity of chosen) bump(reportState, opportunity);
+  const inactiveReportState = cell();
+  for (const opportunity of chosenInactive) bump(inactiveReportState, opportunity);
+  const provisionRate = Object.fromEntries(
+    VARIANTS.map((name) => {
+      const pairs = CLASSES.reduce((total, cls) => total + variants[name][cls].pairs, 0);
+      const percent = (cls) => (pairs === 0 ? 0 : Math.round((variants[name][cls].pairs / pairs) * 1000) / 10);
+      return [name, { pairs, full: percent("full"), pointer_only: percent("pointer_only"), absent: percent("absent") }];
+    }),
+  );
   return {
     totals: {
       ...totals,
       opportunities: all.length,
       opportunitiesReplayed: chosen.length,
       sessionsWithOpportunity: new Set(all.map((item) => item.sessionId)).size,
-      sessionsReplayed: bySession.size,
+      sessionsReplayed: new Set(chosen.map((item) => item.sessionId)).size,
       distinctKnowledgeInOpportunities: new Set(all.map((item) => item.knowledgeId)).size,
+      opportunitiesInactiveNow: allInactive.length,
     },
     reportState,
     variants,
+    provisionRate,
+    inactiveNow: {
+      pairs: chosenInactive.length,
+      sessions: new Set(allInactive.map((item) => item.sessionId)).size,
+      distinctKnowledge: new Set(allInactive.map((item) => item.knowledgeId)).size,
+      reportState: inactiveReportState,
+      variants: inactiveVariants,
+    },
     combined: {
       fullVia,
       absentCauses: causes,
@@ -687,8 +752,21 @@ function printReport(report) {
   for (const [key, value] of Object.entries(report.totals)) out.push(`  ${line(key, value)}`);
   out.push(`  ${line("report state of replayed", fmt(report.reportState))}`);
   for (const variant of VARIANTS) {
-    out.push(`Variant ${variant}`);
+    out.push(`Variant ${variant} (active_now)`);
     for (const cls of CLASSES) out.push(`  ${line(cls, fmt(report.variants[variant][cls]))}`);
+  }
+  out.push("provision rate (active_now)");
+  for (const [variant, rate] of Object.entries(report.provisionRate)) {
+    out.push(
+      `  ${line(variant, `full ${rate.full}%, pointer_only ${rate.pointer_only}%, absent ${rate.absent}% of ${rate.pairs}`)}`,
+    );
+  }
+  const { inactiveNow } = report;
+  out.push("inactive_now (archived/superseded after S; the product never offers these)");
+  out.push(`  ${line("pairs / Sessions / distinct K", `${inactiveNow.pairs} / ${inactiveNow.sessions} / ${inactiveNow.distinctKnowledge}`)}`);
+  out.push(`  ${line("report state", fmt(inactiveNow.reportState))}`);
+  for (const variant of VARIANTS) {
+    for (const cls of CLASSES) out.push(`  ${line(`${variant}: ${cls}`, fmt(inactiveNow.variants[variant][cls]))}`);
   }
   out.push("Combined variant");
   for (const [key, value] of Object.entries(report.combined.fullVia)) out.push(`  ${line(`full via ${key}`, value)}`);
@@ -713,6 +791,7 @@ function printReport(report) {
   out.push(`  ${line("by section", sorted(pointerOnly.bySection))}`);
   out.push(`  ${line("by reason", sorted(pointerOnly.byReason))}`);
   out.push(`  ${line("possiblyStale", sorted(pointerOnly.possiblyStale))}`);
+  out.push(`  ${line("pointer shape", sorted(pointerOnly.withPath))}`);
   out.push(`  ${line("in recall@20 Knowledge top 5", sorted(pointerOnly.inRecall20Top5))}`);
   for (const [key, value] of Object.entries(pointerOnly.profile)) out.push(`  profile ${key}: ${value}`);
   out.push("C. opportunity Knowledge per replayed Session (combined variant)");
@@ -795,7 +874,7 @@ function seedSyntheticDatabase(databasePath, root) {
   // Seven Knowledge items on one file, the oldest records: file history lists only five of them, so two are left out
   // by its KNOWLEDGE_LIMIT, and the context's five relevant slots leave the same two out.
   ids.crowd = [];
-  for (let index = 0; index < 7; index += 1) {
+  for (let index = 0; index < 14; index += 1) {
     ids.crowd.push(
       knowledge(`Marlinspike hatch rule ${index}`, `Marlinspike hatch ${index} note.`, { appliesTo: ["src/crowd/**"] }),
     );
@@ -878,6 +957,9 @@ function seedSyntheticDatabase(databasePath, root) {
   session("Replace unrelated sprocket lining", ["src/fernbrook/a.ts"]);
   session("Rewire unrelated widget cabling", [...miscFiles, "src/pier/end.ts"]);
   session("Adjust crowd lane wiring", ["src/crowd/a.ts"]);
+  // A later Session confirms the crowd rules (applied evidence newer than the change), so none is possiblyStale and
+  // the pointers cannot rely on the always-kept flagged entries: the entry cap and moreIds are exercised.
+  session("Confirm hatchway tally", ["src/hatchway/tally.ts"], { appliedKnowledgeIds: ids.crowd });
   store.close();
 
   const db = new DatabaseSync(databasePath);
@@ -901,34 +983,69 @@ function assertSelfCheck(report) {
   // Not opportunities: K after S (lateonly), K archived before S, K's own source Session.
   expect(totals.excluded_source_session, 1, "source Session exclusion");
   expect(totals.excluded_not_active, 1, "archived-before-Session exclusion");
-  expect(totals.opportunities, 27, "opportunities");
-  expect(totals.opportunitiesReplayed, 27, "replayed opportunities");
-  expect(totals.sessionsWithOpportunity, 11, "Sessions with an opportunity");
-  expect(totals.distinctKnowledgeInOpportunities, 19, "distinct Knowledge");
-  expect(totals.applied_rows_total, 6, "applied rows");
-  expect(totals.applied_rows_outside_opportunities, 0, "applied rows outside opportunities");
-  expect(counts(report.reportState), [27, 6, 21, 1], "report state");
+  // The archived-after-S rule is the one inactive_now opportunity; the 33 others are active_now.
+  expect(totals.opportunities, 33, "active_now opportunities");
+  expect(totals.opportunitiesReplayed, 33, "replayed active_now opportunities");
+  expect(totals.opportunitiesInactiveNow, 1, "inactive_now opportunities");
+  expect(totals.sessionsWithOpportunity, 10, "Sessions with an active_now opportunity");
+  expect(totals.sessionsReplayed, 10, "replayed Sessions");
+  expect(totals.distinctKnowledgeInOpportunities, 25, "distinct active_now Knowledge");
+  // Six applied rows on opportunity pairs; fourteen more come from the Session that confirms the crowd rules and is
+  // not an opportunity itself.
+  expect(totals.applied_rows_total, 20, "applied rows");
+  expect(totals.applied_rows_outside_opportunities, 14, "applied rows outside opportunities");
+  expect(counts(report.reportState), [33, 6, 27, 1], "report state");
+  // inactive_now: never offered in any variant, so every pair is absent; it stays out of the active_now classes.
+  const inactive = report.inactiveNow;
+  expect([inactive.pairs, inactive.sessions, inactive.distinctKnowledge], [1, 1, 1], "inactive_now size");
+  expect(counts(inactive.reportState), [1, 0, 1, 0], "inactive_now report state");
+  for (const variant of ["task", "paths", "both"]) {
+    expect(counts(inactive.variants[variant].absent), [1, 0, 1, 0], `inactive_now ${variant} absent`);
+    expect(
+      inactive.variants[variant].full.pairs + inactive.variants[variant].pointer_only.pairs,
+      0,
+      `inactive_now ${variant} offered`,
+    );
+  }
+  // Provision rate on the active_now denominator: percentages of each variant's 33 pairs.
+  expect(
+    report.provisionRate.both,
+    { pairs: 33, full: 33.3, pointer_only: 57.6, absent: 9.1 },
+    "provision rate (both)",
+  );
+  expect(
+    report.provisionRate.paths,
+    { pairs: 33, full: 57.6, pointer_only: 33.3, absent: 9.1 },
+    "provision rate (paths)",
+  );
+  expect(
+    report.provisionRate.task,
+    { pairs: 33, full: 21.2, pointer_only: 18.2, absent: 60.6 },
+    "provision rate (task)",
+  );
   // Combined variant: [pairs, reported, unreported, contradicted].
-  expect(counts(variants.both.full), [12, 2, 10, 1], "full: reported, unreported and contradicted");
-  expect(counts(variants.both.pointer_only), [7, 3, 4, 0], "pointer_only");
-  expect(counts(variants.both.absent), [8, 1, 7, 0], "absent");
-  // Paths alone now reach Knowledge through appliesTo: appliesTo-only opportunities within the replayed paths are full
-  // relevant records, not only a budget pointer.
+  expect(counts(variants.both.full), [11, 2, 9, 1], "full: reported, unreported and contradicted");
+  expect(counts(variants.both.pointer_only), [19, 4, 15, 0], "pointer_only");
+  expect(counts(variants.both.absent), [3, 0, 3, 0], "absent");
+  // Paths alone reach Knowledge through appliesTo: appliesTo-only opportunities within the replayed paths are full
+  // relevant records or path pointers.
   expect(variants.paths.full.pairs, 19, "paths-only variant offers appliesTo-matched records");
   const { absentCauses, absentChecks } = combined;
-  expect(counts(absentCauses.budget_trimmed), [1, 1, 0, 0], "budget_trimmed");
-  expect(counts(absentCauses.ranked_behind), [4, 0, 4, 0], "ranked_behind");
-  expect(counts(absentCauses.no_match.applies_to_only), [2, 0, 2, 0], "no_match / applies_to_only");
+  // Path-matched Knowledge that the budget trims or that ranks beyond the five relevant slots now survives as a
+  // pointer, so nothing is budget_trimmed; one of the fourteen crowd rules is past the entry cap and the id slots.
+  expect(counts(absentCauses.budget_trimmed), [0, 0, 0, 0], "budget_trimmed");
+  expect(counts(absentCauses.ranked_behind), [1, 0, 1, 0], "ranked_behind");
+  expect(counts(absentCauses.no_match.applies_to_only), [1, 0, 1, 0], "no_match / applies_to_only");
   expect(counts(absentCauses.no_match.other), [1, 0, 1, 0], "no_match / other");
-  expect(counts(absentChecks.in_recall), [3, 1, 2, 0], "absent but in default recall");
-  expect([absentChecks.in_file_history.pairs, absentChecks.not_in_file_history.pairs], [5, 3], "file history");
+  expect(counts(absentChecks.in_recall), [0, 0, 0, 0], "absent but in default recall");
+  expect([absentChecks.in_file_history.pairs, absentChecks.not_in_file_history.pairs], [2, 1], "file history");
 
-  // A: the Ambergris rule's only matching file is the 21st changed file; the archived rule is outside the scanned set
-  // (only active Knowledge is scanned); both are verified directly, not inferred.
+  // A: the Ambergris rule's only matching file is the 21st changed file. The archived rule is no longer an active_now
+  // opportunity, so no active_now Knowledge may fall outside the scan set (a hit here would be a real scan bug).
   const split = combined.appliesToOnly;
   expect(counts(split.beyond_replayed_paths), [1, 0, 1, 0], "beyond_replayed_paths");
-  expect(counts(split.applies_to_budget_or_scan), [1, 0, 1, 0], "applies_to_budget_or_scan");
-  expect(combined.appliesToScanDetail, { not_in_scan_set: 1, truncated_warning: 0 }, "scan detail");
+  expect(counts(split.applies_to_budget_or_scan), [0, 0, 0, 0], "applies_to_budget_or_scan");
+  expect(combined.appliesToScanDetail, { not_in_scan_set: 0, truncated_warning: 0 }, "scan detail");
   expect(counts(split.product_matcher_mismatch), [0, 0, 0, 0], "product_matcher_mismatch");
   expect(counts(split.reserve_crowded), [0, 0, 0, 0], "reserve_crowded");
   expect(counts(split.unknown), [0, 0, 0, 0], "unknown");
@@ -941,30 +1058,33 @@ function assertSelfCheck(report) {
     absentCauses.no_match.applies_to_only.pairs,
     "A partitions applies_to_only",
   );
-  // B: every pointer_only is a budget omission; six ranked in the relevant Knowledge top 5, one is a stale recent tail.
+  // B: eight pointers are budget-trimmed top-5 records (title and path), three crowd rules ranked beyond the five
+  // relevant slots and the entry cap keep only an id, five more beyond-the-limit rules keep title and path, and two
+  // stale budget-trimmed rules and one stale recent tail keep their flagged entry.
   const pointers = combined.pointerOnly;
   expect(pointers.total, variants.both.pointer_only.pairs, "pointer_only total");
-  expect(pointers.bySection, { "relevant.knowledge": 6, recentKnowledge: 1 }, "pointer sections");
-  expect(pointers.byReason, { budget: 7 }, "pointer reasons");
-  expect(pointers.possiblyStale, { not_stale: 6, possiblyStale: 1 }, "pointer staleness");
-  expect(pointers.inRecall20Top5, { in_top5: 6, not_in_top5: 1 }, "pointer recall top 5");
-  // C: eight Sessions with one opportunity, three with seven to nine; buckets partition the replayed pairs.
+  expect(pointers.bySection, { "relevant.knowledge": 18, recentKnowledge: 1 }, "pointer sections");
+  expect(pointers.byReason, { budget: 11, beyond_limit: 8 }, "pointer reasons");
+  expect(pointers.possiblyStale, { not_stale: 16, possiblyStale: 3 }, "pointer staleness");
+  expect(pointers.withPath, { with_title_and_path: 15, id_only: 4 }, "pointer shape");
+  expect(pointers.inRecall20Top5, { in_top5: 8, not_in_top5: 11 }, "pointer recall top 5");
+  // C: seven Sessions with one opportunity, two with six to nine, one with fourteen; buckets partition the pairs.
   const buckets = combined.perSession;
-  expect([buckets["1"].sessions, buckets["6-10"].sessions], [8, 3], "Session buckets");
+  expect([buckets["1"].sessions, buckets["6-10"].sessions, buckets[">10"].sessions], [7, 2, 1], "Session buckets");
   expect(
     Object.values(buckets).reduce((total, item) => total + item.full + item.pointer_only + item.absent, 0),
     totals.opportunitiesReplayed,
     "bucket pairs",
   );
-  // D: seven Knowledge on one file, file history lists five, so the other two are crowded out by its limit of five;
-  // the archived rule is outside the scanned set.
+  // D: fourteen Knowledge on one file, file history lists five; the one rule the context cannot point to is also
+  // crowded out of file history. No active_now Knowledge is outside the scanned set.
   const misses = combined.fileHistoryMisses;
   expect(misses.total, absentChecks.not_in_file_history.pairs, "file history misses");
-  expect(misses.causes.crowding_limit5, 2, "file-history crowding");
-  expect(misses.causes.outside_scan_set, 1, "file history outside scan set");
+  expect(misses.causes.crowding_limit5, 1, "file-history crowding");
+  expect(misses.causes.outside_scan_set, 0, "file history outside scan set");
   expect(misses.causes.matcher_mismatch + misses.causes.scan_truncated + misses.causes.unknown, 0, "other causes");
-  expect(misses.pattern_type, { glob: 3 }, "file history pattern types");
-  expect(misses.single_file_finds, { yes: 0, no: 3 }, "single file finds");
+  expect(misses.pattern_type, { glob: 1 }, "file history pattern types");
+  expect(misses.single_file_finds, { yes: 0, no: 1 }, "single file finds");
   // Every fictional changed file is a plain relative path, so normalization changes nothing.
   expect(combined.replayedPathShapes.total, combined.replayedPathShapes.relative, "path shapes");
   expect(combined.replayedPathShapes.changed_by_normalization, 0, "normalization changes");

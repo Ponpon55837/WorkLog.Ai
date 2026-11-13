@@ -72,6 +72,16 @@ const CONTEXT_DEFAULT_BUDGET_CHARS = 15_800;
 const CONTEXT_TASK_BUDGET_CHARS = 9_800;
 /** Budget-omitted ids listed per context section; the rest are counted in `moreIds`. */
 const CONTEXT_OMITTED_ID_LIMIT = 3;
+/** Path-matched Knowledge left out of relevant.knowledge that keep a title and one path in the omission pointer. */
+const CONTEXT_OMITTED_PATH_ENTRY_LIMIT = 5;
+const CONTEXT_PATH_ENTRY_TITLE_CHARS = 60;
+/** Last-resort title length once the response is still over budget after every other trim. */
+const CONTEXT_PATH_ENTRY_SHORT_TITLE_CHARS = 24;
+const CONTEXT_PATH_ENTRY_PATH_CHARS = 100;
+/** Path-matched Knowledge is found again by path (appliesTo) or by words from its title. */
+const PATH_KNOWLEDGE_READ_WITH = "work_get_file_history/work_search_knowledge";
+const DEFAULT_KNOWLEDGE_READ_WITH = "work_search_knowledge";
+const RANKED_BEYOND_REASON = "超出相關 Knowledge 上限";
 /** Reason prefix for an item left out because the same record is already shown in another section. */
 const DUPLICATE_REASON_PREFIX = "已列於";
 /**
@@ -98,6 +108,18 @@ type MetadataBackfillTotals = Extract<MetadataBackfillPreviewResult, { outcome: 
 interface OmittedItem {
   id: string;
   reason: string;
+  possiblyStale?: boolean;
+  needsReview?: boolean;
+  /** Path-matched Knowledge: keeps a title and one path in the pointer while the entry cap allows. */
+  pathKnowledge?: Pick<PathKnowledge, "title" | "path" | "rank">;
+}
+
+/** Knowledge that matched a focus path, in recall rank order among Knowledge hits (0 is the best). */
+interface PathKnowledge {
+  id: string;
+  title: string;
+  path: string;
+  rank: number;
   possiblyStale?: boolean;
   needsReview?: boolean;
 }
@@ -193,6 +215,83 @@ function withoutProjectFields<T extends { projectId: string; projectName?: strin
  */
 const omittedIdsByContext = new WeakMap<ContextResult, Set<string>>();
 
+/** Every path-matched Knowledge a focus recalled, kept beside the relevant block because it is not part of it. */
+const pathKnowledgeByRelevant = new WeakMap<RelevantContext, PathKnowledge[]>();
+/** The same records by id once a context is assembled, so budget trimming can turn a dropped record into a path entry. */
+const pathKnowledgeByContext = new WeakMap<ContextResult, Map<string, PathKnowledge>>();
+/** Recall rank of each path entry in an omission, so a better-ranked record can replace the worst one at the cap. */
+const pathEntryRanks = new WeakMap<ContextOmission, Map<string, number>>();
+
+function boundedPath(path: string): string {
+  return path.length > CONTEXT_PATH_ENTRY_PATH_CHARS ? `…${path.slice(-(CONTEXT_PATH_ENTRY_PATH_CHARS - 1))}` : path;
+}
+
+function pathKnowledgeItem(context: ContextResult, id: string): Pick<OmittedItem, "pathKnowledge"> {
+  const known = pathKnowledgeByContext.get(context)?.get(id);
+  return known ? { pathKnowledge: { title: known.title, path: known.path, rank: known.rank } } : {};
+}
+
+function pathEntries(omission: ContextOmission): NonNullable<ContextOmission["entries"]> {
+  return (omission.entries ?? []).filter((entry) => entry.path !== undefined);
+}
+
+/** Turns a path entry back into what the omission would hold without it: a flagged entry, or a plain id. */
+function demotePathEntry(omission: ContextOmission, id: string): void {
+  const entry = omission.entries?.find((candidate) => candidate.id === id);
+  if (!entry) return;
+  delete entry.title;
+  delete entry.path;
+  pathEntryRanks.get(omission)?.delete(id);
+  if (!entry.possiblyStale && !entry.needsReview) {
+    omission.entries = omission.entries!.filter((candidate) => candidate !== entry);
+    if (omission.entries.length === 0) delete omission.entries;
+    const ids = (omission.ids ??= []);
+    if (ids.length < CONTEXT_OMITTED_ID_LIMIT) ids.push(id);
+    else omission.moreIds = (omission.moreIds ?? 0) + 1;
+  }
+  if (pathEntries(omission).length === 0) omission.readWith = DEFAULT_KNOWLEDGE_READ_WITH;
+}
+
+/**
+ * Lists a path-matched Knowledge with its title and one path, ahead of plain ids. At the cap the worst-ranked path
+ * entry makes room for a better-ranked one; returns false when the item must fall back to the ordinary pointer.
+ */
+function addPathEntry(omission: ContextOmission, item: OmittedItem): boolean {
+  const { title, path, rank } = item.pathKnowledge!;
+  const ranks = pathEntryRanks.get(omission) ?? new Map<string, number>();
+  pathEntryRanks.set(omission, ranks);
+  const rankOf = (id: string) => ranks.get(id) ?? Number.POSITIVE_INFINITY;
+  const existing = omission.entries?.find((entry) => entry.id === item.id);
+  if (existing?.path === undefined) {
+    const withPath = pathEntries(omission);
+    if (withPath.length >= CONTEXT_OMITTED_PATH_ENTRY_LIMIT) {
+      const worst = withPath.reduce((left, right) => (rankOf(right.id) > rankOf(left.id) ? right : left));
+      if (rankOf(worst.id) <= rank) return false;
+      demotePathEntry(omission, worst.id);
+    }
+  }
+  const entries = (omission.entries ??= []);
+  let entry = entries.find((candidate) => candidate.id === item.id);
+  if (!entry) {
+    entry = { id: item.id };
+    entries.push(entry);
+  }
+  entry.title = title;
+  entry.path = path;
+  if (item.possiblyStale) entry.possiblyStale = true;
+  if (item.needsReview) entry.needsReview = true;
+  ranks.set(item.id, rank);
+  entries.sort((left, right) => {
+    const leftRank = rankOf(left.id);
+    const rightRank = rankOf(right.id);
+    return leftRank === rightRank ? 0 : leftRank < rightRank ? -1 : 1;
+  });
+  omission.ids = omission.ids?.filter((id) => id !== item.id);
+  if (omission.ids?.length === 0) delete omission.ids;
+  omission.readWith = PATH_KNOWLEDGE_READ_WITH;
+  return true;
+}
+
 /**
  * Folds one left-out item into its section's compact pointer: duplicates are counted only, budget omissions keep a
  * few ids, and items flagged possiblyStale or needsReview keep their id and flags. Review details and cited Session
@@ -219,6 +318,7 @@ function addOmission(context: ContextResult, section: string, item: OmittedItem,
   }
   const reasons = (omission.reasons ??= []);
   if (!reasons.includes(item.reason)) reasons.push(item.reason);
+  if (item.pathKnowledge && addPathEntry(omission, item)) return;
   if (item.possiblyStale || item.needsReview) {
     const entries = (omission.entries ??= []);
     let entry = entries.find((candidate) => candidate.id === item.id);
@@ -536,6 +636,27 @@ export class ContextRecallService {
       );
       return false;
     });
+    const pathKnowledge = pathKnowledgeByRelevant.get(context.relevant) ?? [];
+    if (pathKnowledge.length > 0) {
+      pathKnowledgeByContext.set(context, new Map(pathKnowledge.map((item) => [item.id, item])));
+      // A record still shown in full (relevant or recent) needs no pointer; it becomes one only if the budget drops it.
+      const shownIds = new Set([...relevantKnowledgeIds, ...context.recentKnowledge.map((knowledge) => knowledge.id)]);
+      for (const item of pathKnowledge) {
+        if (shownIds.has(item.id)) continue;
+        addOmission(
+          context,
+          "relevant.knowledge",
+          {
+            id: item.id,
+            reason: RANKED_BEYOND_REASON,
+            ...(item.possiblyStale ? { possiblyStale: true } : {}),
+            ...(item.needsReview ? { needsReview: true } : {}),
+            pathKnowledge: { title: item.title, path: item.path, rank: item.rank },
+          },
+          DEFAULT_KNOWLEDGE_READ_WITH,
+        );
+      }
+    }
     context.recentDecisions = context.recentDecisions.filter((decision) => {
       if (!relevantDecisionKeys.has(`${decision.sessionId}\u0000${decision.text}`)) return true;
       addOmission(
@@ -621,16 +742,19 @@ export class ContextRecallService {
       if (trimRecentSession(recentSessionFloor)) return true;
       const recentKnowledge = context.recentKnowledge.pop();
       if (recentKnowledge) {
+        // A path-matched record is counted once, in the pointer that tells which file it covers.
+        const pathKnowledge = pathKnowledgeItem(context, recentKnowledge.id);
         addOmission(
           context,
-          "recentKnowledge",
+          pathKnowledge.pathKnowledge ? "relevant.knowledge" : "recentKnowledge",
           {
             id: recentKnowledge.id,
             reason: "預算限制：較低優先 Knowledge",
             ...(recentKnowledge.possiblyStale ? { possiblyStale: true } : {}),
             ...(recentKnowledge.needsReview ? { needsReview: true } : {}),
+            ...pathKnowledge,
           },
-          "work_search_knowledge",
+          DEFAULT_KNOWLEDGE_READ_WITH,
         );
         return true;
       }
@@ -723,8 +847,9 @@ export class ContextRecallService {
             reason: "預算限制：較低排名 Knowledge",
             ...(relevantKnowledge.possiblyStale ? { possiblyStale: true } : {}),
             ...(relevantKnowledge.needsReview ? { needsReview: true } : {}),
+            ...pathKnowledgeItem(context, relevantKnowledge.id),
           },
-          "work_search_knowledge",
+          DEFAULT_KNOWLEDGE_READ_WITH,
         );
         return true;
       }
@@ -812,8 +937,31 @@ export class ContextRecallService {
       return false;
     };
 
+    // Last resorts, after every other content trim: shorten path-entry titles, then drop path entries from the end
+    // (back to plain ids or flagged entries) so the trust flags and ids stay the last things the budget touches.
+    const shortenPathTitles = (): boolean => {
+      const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+      for (const entry of omission ? pathEntries(omission) : []) {
+        if (entry.title && entry.title.length > CONTEXT_PATH_ENTRY_SHORT_TITLE_CHARS) {
+          entry.title = truncateAtSentenceBoundary(entry.title, CONTEXT_PATH_ENTRY_SHORT_TITLE_CHARS).text;
+          return true;
+        }
+      }
+      return false;
+    };
+    const dropPathEntry = (): boolean => {
+      const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+      const last = omission ? pathEntries(omission).at(-1) : undefined;
+      if (!omission || !last) return false;
+      demotePathEntry(omission, last.id);
+      return true;
+    };
+
     let trimmed = false;
-    while (responseLength() > limit && (trimNext() || shortenNext() || trimRelevant())) {
+    while (
+      responseLength() > limit &&
+      (trimNext() || shortenNext() || trimRelevant() || shortenPathTitles() || dropPathEntry())
+    ) {
       trimmed = true;
     }
 
@@ -872,7 +1020,24 @@ export class ContextRecallService {
     const recalled = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
     const termHits = recalled.termHits;
     const hits = this.withRelatedSessions(recalled.hits).map((hit) => this.contextHit(hit));
-    const knowledge = hits.filter((hit) => hit.type === "knowledge").slice(0, RELEVANT_LIMIT);
+    const knowledgeHits = hits.filter((hit) => hit.type === "knowledge");
+    const knowledge = knowledgeHits.slice(0, RELEVANT_LIMIT);
+    // Knowledge matched by a focus path, wherever it ranks: past the five relevant slots or dropped by the budget it
+    // still tells an Agent which Knowledge covers which file.
+    const pathKnowledge = knowledgeHits.flatMap((hit, rank): PathKnowledge[] => {
+      const path = hit.matchedPaths?.[0];
+      if (!path) return [];
+      return [
+        {
+          id: hit.id,
+          title: truncateAtSentenceBoundary(hit.title, CONTEXT_PATH_ENTRY_TITLE_CHARS).text,
+          path: boundedPath(path),
+          rank,
+          ...(hit.possiblyStale ? { possiblyStale: true } : {}),
+          ...(hit.needsReview ? { needsReview: true } : {}),
+        },
+      ];
+    });
     const sessions = hits
       .filter((hit) => hit.type === "session")
       .slice(0, RELEVANT_LIMIT)
@@ -902,7 +1067,7 @@ export class ContextRecallService {
       .slice(0, RECENT_DECISION_LIMIT);
     const scoped = <T extends { projectId: string; projectName?: string }>(item: T): ProjectScopedItem<T> =>
       projectId ? withoutProjectFields(item) : item;
-    return {
+    const relevant: RelevantContext = {
       ...(task ? { task } : {}),
       ...(paths.length > 0 ? { paths } : {}),
       confidence: recalled.confidence,
@@ -928,6 +1093,8 @@ export class ContextRecallService {
         ? { fileHistoryReadWith: "work_get_file_history" as const }
         : {}),
     };
+    if (pathKnowledge.length > 0) pathKnowledgeByRelevant.set(relevant, pathKnowledge);
+    return relevant;
   }
 
   private contextHit(hit: RecallHit): RecallHit {

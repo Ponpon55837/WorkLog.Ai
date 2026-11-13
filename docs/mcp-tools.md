@@ -155,7 +155,7 @@ MCP client 的 stdio 設定可使用：
 | --- | --- |
 | `relevant.outstandingItems` | 依項目關鍵字、來源 changed-file 路徑與來源 Session 檢索順序排序的 pending 指標；直接文字／路徑命中可找出來源不在前 20 筆 Session 的舊項目。最多 5 項，每項只有 `id`、`sourceSessionId` 與最多 240 字的文字摘錄（截短時 `textTruncated`），來源 Session 標題在 `relevant.sessions` 或讀一次 `work_get_session` 即可取得；附 total／omitted 與證據提示，預算省略在 omitted 指向完整清單。每次最多讀取並排名 2,000 筆 pending 項目（來源 Session 由新到舊）；範圍內更多時帶 `truncated: true`，total 只計入已排名的項目。finalize 回條的 `relatedOutstandingItems` 同樣適用。先讀來源 Session，排名不代表已完成。 |
 | `relevant.confidence` | 規則同 `work_recall`：`none` 時沒有可引用依據；`high` 與 `low` 都只代表字面相符，依賴前都要讀原文。來源讀完仍不支持答案時，明確回覆「資料不足」，不可依字面、confidence 或排名推論 |
-| `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit；`paths` 涵蓋其 `appliesTo` 的 Knowledge（含 `possiblyStale`）會以這種精簡記錄出現，不只是 `omitted` 指標 |
+| `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit；`paths` 涵蓋其 `appliesTo` 的 Knowledge（含 `possiblyStale`）會以這種精簡記錄出現，不只是 `omitted` 指標；其餘命中路徑的 Knowledge 在 `omitted` 以帶 `title`／`path` 的 entry 列出 |
 | `relevant.supplements` | 選填的可能相關指標；最多 4 筆，限最終保留的前三筆 Session 的一層 parent／related 與 active applied Knowledge。它們不是字面命中或答案證據，需讀取完整來源；Knowledge 可附 `possiblyStale`／`needsReview` |
 | `relevant.decisions` | 相關 Session 的 `workSummary.decisions`，每條附來源 `sessionId`；同一 Session 的決策連續排列，只有第一條帶 `sessionTitle` 與 `completedAt` |
 | `relevant.sessions` | 相關 Session（最多 5 筆，包含改過同批檔案的 Session），附 `openItems` |
@@ -171,8 +171,19 @@ MCP client 的 stdio 設定可使用：
 | `count` | 該區省略的項目總數 |
 | `duplicates` | 其中已在這份回應其他區出現的數量（只計數，不列 id；旗標在該區可見） |
 | `ids`／`reasons`／`moreIds` | 因預算省略的項目：最多列 3 個 id 與原因，其餘以 `moreIds` 計數 |
-| `entries` | 被省略且帶 `possiblyStale` 或 `needsReview` 的項目，只有 `id` 與旗標，一律保留；同一 id 只列一次 |
-| `readWith` | 讀取完整內容的工具 |
+| `entries` | 被省略且帶 `possiblyStale` 或 `needsReview` 的項目，只有 `id` 與旗標，一律保留；同一 id 只列一次。帶 `paths` 時，`relevant.knowledge` 區的 entry 另可有 `title`（最多 60 字元，在句界或詞界截斷）與 `path`（命中的一條專案相對路徑或 `appliesTo` 樣式），見下方 |
+| `readWith` | 讀取完整內容的工具；`relevant.knowledge` 區出現帶 `path` 的 entry 時為 `work_get_file_history/work_search_knowledge` |
+
+帶 `paths` 時，命中某個路徑（`references` 或 `appliesTo`）的 Knowledge 若沒有以完整記錄出現在 `relevant.knowledge`（被預算裁掉，或排在五筆相關上限之外，例如同一個檔案同時有 6–10 筆 Knowledge），會列在 `relevant.knowledge` 區的 `entries`，每筆是精簡形式 `{ id, title, path, possiblyStale?, needsReview? }`，讓 Agent 在修改檔案前知道哪筆 Knowledge 涵蓋哪個檔案；完整內容用 `work_get_file_history`（依路徑）或 `work_search_knowledge`（依標題用詞）讀取。這類 entry 最多 5 筆，依召回排名保留，優先於一般 `ids`，不會被擠進 `moreIds`；超過上限的帶旗標項目仍只保留 `id` 與旗標，其餘走一般 `ids`／`moreIds`。它們算在整份回應的字元預算內：預算仍不足時，先縮短標題（約 24 字元），再從最後一筆起退回一般 `ids` 或只有旗標的 entry，其餘必要的來源、可信度旗標與待處理請求不受影響。已完整顯示在 `recentKnowledge` 的同一筆不會重複列出；被預算裁掉時只計入 `relevant.knowledge` 區一次。沒有 `paths`（只有 `task`）時行為不變。範例（虛構）：
+
+```json
+{ "section": "relevant.knowledge", "count": 4, "readWith": "work_get_file_history/work_search_knowledge",
+  "reasons": ["預算限制：較低排名 Knowledge", "超出相關 Knowledge 上限"],
+  "entries": [
+    { "id": "…", "title": "Queen cell spacing rule for the east hive frames that must…", "path": "src/hive/**", "possiblyStale": true },
+    { "id": "…", "title": "Hive comb rule 6", "path": "src/hive/**", "possiblyStale": true } ],
+  "ids": ["…"] }
+```
 
 依照指標讀取原文後再使用，不要把 omitted 或截斷片段當作證據。
 
@@ -277,7 +288,7 @@ Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現�
 - **索引範圍**：Session 的 title、summary、五段 workSummary、changed files、branch、events，以及 raw handoff snapshot 依 `#`～`###` 標題切成的段落；Knowledge 的 title、body、tags、references。
 - **查詢**：以空白分隔的每個詞獨立比對，不需要整句完全相符；英文識別字會拆成 camelCase／snake_case 各段，中文以雙字切詞（兩字中文詞可直接查），常見虛詞（the、what、為什麼、如何…）會略過。
 - **排序**：BM25 × 欄位權重（title 3、tags 2、summary／workSummary／Knowledge 本文 1.5、其他 1；raw handoff 只取最相關的一段並 ×0.3），再乘上「命中關鍵字比例（依 IDF 加權）的平方」（只在 raw handoff 命中的詞在這裡只算一半，避免長篇匯入交接靠順帶提到很多詞而排在前面；最低命中門檻與 confidence 仍用完整比例），命中越多關鍵字的記錄排越前面，最後加上溫和的時間權重。結構化 Session 欄位優先於只命中 raw handoff 的記錄。raw 段落內容先做 NFKC、空白與大小寫正規化，再以 SHA-256 存進衍生的 `search_chunks.content_hash`；同一專案內最早的 Session 保留完整 raw 權重，後續重複引用只計 10% raw 分數。changed files 超過 20 個的 Session，其檔案欄位與路徑命中會依比例降權。排序前 100 筆中，如果某筆 Session 延續（`continues` 連結）了排在它前面的另一筆，而且分數至少是那筆的 30%，就移到那筆的正上方：同一系列先顯示最新狀態，較早的紀錄緊接在後，不會被移除。回傳的 hits 中，如果某筆 Knowledge 的來源 Session（記錄這筆 Knowledge 時的 `sessionId`，同一專案）也在其中而且排在它前面，這筆 Knowledge 會移到該 Session 的正上方（1.6.30 起）：Knowledge 是整理並審核過的結論，來源 Session 是同一件事較長的原始紀錄，緊接在後。這只調整已選出的 hits 的順序，不改變分數、confidence、回傳哪些記錄或筆數；同一 Session 有多筆 Knowledge 時依原本的順序排在它上方。移動後的 Knowledge 也會排在原本介於它與來源 Session 之間的其他記錄之前，所以 hits 不再完全依分數排序；`work_get_context` 的 `relevant.knowledge` 取前幾筆時依的是這個順序。
-- **路徑**：`paths` 可用絕對路徑、`專案名/相對路徑` 或相對路徑，比對前會去掉專案根目錄與專案名前綴；完全相同、檔名或路徑尾段相同、位於查詢的目錄下都算命中。比對對象是 Session 的 changed files 與 Knowledge 的 `references` 路徑；帶 `paths` 時，Knowledge 的 `appliesTo`（glob、完全相同、路徑尾段、目錄）也會比對，分數略低於 `references` 命中（約 0.85 倍），只靠 `appliesTo` 連到檔案的 Knowledge 因此也能被找到；沒有 `paths` 時不比對 `appliesTo`，所以不會壓過文字命中。常被修改的檔案有大量 Session 同樣完整命中路徑，所以路徑命中（`references` 或 `appliesTo`）的 Knowledge 若排在前 `limit` 名之外，會取代最後幾筆 Session，最多佔 15% 的名額（至多 3 筆；`limit` 小於 7 時不保留）。這與 `work_get_file_history` 的 `knowledge` 同一套規則，每次呼叫最多讀最新的 2,000 筆並共用同一個比對預算，預算用完或略過超限項目時，回應的 `warnings` 會說明路徑比對可能不完整。`work_search_knowledge` 嚴格搜尋零命中後的寬鬆備援（`relaxedMatches`）則拿像路徑的詞比對 `appliesTo`。Knowledge `references` 裡的 commit SHA 與 URL 會分開處理，不參與路徑比對。超過 4 KiB 的儲存路徑（只有直接改寫的資料庫會有）不比對，回應帶 `warnings` 說明，一般查詢不會出現。
+- **路徑**：`paths` 最多 20 筆（每筆最多 1,000 字元，`work_get_context` 相同），可用絕對路徑、`專案名/相對路徑` 或相對路徑，比對前會去掉專案根目錄與專案名前綴；完全相同、檔名或路徑尾段相同、位於查詢的目錄下都算命中。比對對象是 Session 的 changed files 與 Knowledge 的 `references` 路徑；帶 `paths` 時，Knowledge 的 `appliesTo`（glob、完全相同、路徑尾段、目錄）也會比對，分數略低於 `references` 命中（約 0.85 倍），只靠 `appliesTo` 連到檔案的 Knowledge 因此也能被找到；沒有 `paths` 時不比對 `appliesTo`，所以不會壓過文字命中。常被修改的檔案有大量 Session 同樣完整命中路徑，所以路徑命中（`references` 或 `appliesTo`）的 Knowledge 若排在前 `limit` 名之外，會取代最後幾筆 Session，最多佔 15% 的名額（至多 3 筆；`limit` 小於 7 時不保留）。這與 `work_get_file_history` 的 `knowledge` 同一套規則，每次呼叫最多讀最新的 2,000 筆並共用同一個比對預算，預算用完或略過超限項目時，回應的 `warnings` 會說明路徑比對可能不完整。`work_search_knowledge` 嚴格搜尋零命中後的寬鬆備援（`relaxedMatches`）則拿像路徑的詞比對 `appliesTo`。Knowledge `references` 裡的 commit SHA 與 URL 會分開處理，不參與路徑比對。超過 4 KiB 的儲存路徑（只有直接改寫的資料庫會有）不比對，回應帶 `warnings` 說明，一般查詢不會出現。
 
 每筆 hit 包含 `type`（`session`／`knowledge`）、`id`、專案、標題、Knowledge `kind`、日期、最強的 `matchedIn` 欄位、raw 段落標題 `section`（最多 24 字元）、最多 110 字元的 `excerpt`、`matchedPaths`、`score`，以及 Session 的關聯 Session `related`（只保留目標 `id` 與 `relation`）。excerpt 被縮短時會帶 `truncated: true`，不能當成完整原文。提供 `projectRoot` 時，頂層只帶精簡的 `project: { id, name }`，每筆 hit 不再重複 `projectId`／`projectName`。用 `work_get_session` 或 `work_search_knowledge` 讀完整來源，回覆中引用所依據的 `sessionId`／`knowledgeId`。有關鍵字完全沒命中時會附上 `termHits`（每個詞的命中筆數），Agent 可據此換詞重查。單一的虛字（的、與、讓等）不列入 `termHits`；三字以上連續的中文詞會拆成雙字組，只要有一半雙字組出現在同一筆紀錄就算找到，不會因為沒有完整詞段就回報 0。`confidence` 只依實際回傳的 hit 判斷。
 

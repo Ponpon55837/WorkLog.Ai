@@ -2586,6 +2586,14 @@ export interface ContextResult {
  * counted (`duplicates`); budget omissions list up to three `ids` plus `moreIds`; left-out items flagged
  * possiblyStale or needsReview are listed under `entries` with their id and flags, so budget never hides a trust
  * signal. Details such as page review sections and cited Session ids are read with `readWith`.
+ *
+ * When the focus has `paths`, Knowledge that matched one of them (its `references` or `appliesTo`) and is not listed
+ * in `relevant.knowledge` (budget-trimmed, or ranked beyond the five relevant slots) is listed under the
+ * `relevant.knowledge` omission as an entry that also carries a short `title` (at most 60 characters) and one matched
+ * `path` (project-relative stored path or pattern), so an Agent about to edit those files can see which Knowledge
+ * covers which file. At most five entries carry them; they take the place of plain `ids`, are never counted in
+ * `moreIds`, and are shortened and dropped (back to plain ids or flagged entries) only after everything else is
+ * trimmed. Read them with `work_get_file_history` (by path) or `work_search_knowledge`.
  */
 export interface ContextOmission {
   section: string;
@@ -2596,6 +2604,10 @@ export interface ContextOmission {
   reasons?: string[];
   entries?: Array<{
     id: string;
+    /** Path-matched Knowledge only: its title, at most 60 characters. */
+    title?: string;
+    /** Path-matched Knowledge only: one stored path or pattern that matched a focus path. */
+    path?: string;
     possiblyStale?: true;
     needsReview?: true;
   }>;
