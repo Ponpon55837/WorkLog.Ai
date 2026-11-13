@@ -25,6 +25,21 @@
 //   (simulated). gained / lost compare with the task response; stats satisfy full = task.full + gained - lost.
 //   The gate is reached as `store.contextRecallService.shouldInferTaskPaths` (private field, instance method).
 //
+//   Knob variants (report.metrics, not under `prototype`): the gate is forced on and the recall service's instance field
+//   `inferredPathOptions` (mode, pathLimit, pointerLimit, yieldRecent, promoteRecent, allowRecentOmitted) is overridden:
+//   off (gate off), paths3 (the first prototype: no yield, promote or omitted), paths3Yield, paths5Yield, paths8Yield,
+//   weighted3Yield, weighted5Yield (pointerLimit 5), bestAllKnobs (weighted, yield, promote, allowRecentOmitted).
+//   report.metrics.<variant> holds, for every variant, both definitions: loose (the Hit definition above) and strict (a
+//   target id with a title or excerpt inside relevant.knowledge or relevant.supplements only, so recentKnowledge and
+//   anything else do not count), gained / lost against the task baseline for both, chars (sum, max), onNegative noise,
+//   recentDisplaced (recentKnowledge items of the task baseline that the variant removed, split target / other), and
+//   gained by first-round confidence and by the time / size slices. report.diagnostics explains each target pair the
+//   knob variants did not strictly hit (notInferred, alreadyRecent, excludedOmitted, cutByCap, cutByBudget, firstRound),
+//   recomputed from what the product's private inference methods returned during the call (wrapped at runtime) and the
+//   response itself; the cut classes are approximate where the response lists omitted ids only up to a limit.
+//   report.knowledgeRecallOnly counts strict targets among Knowledge-only recall hits for the task (limits 5 and 8): would
+//   relevant.knowledge find more if Sessions did not crowd the mixed recall page.
+//
 // Safety: --db is opened read-only; replay writes go to an in-memory store. Output is aggregate JSON only, never
 // titles, paths, ids or project names.
 //
@@ -46,6 +61,20 @@ const TASK_BUDGET_CHARS = 9_800;
 const MERGED_FIELD_OVERHEAD = '"mergedPointers":[]'.length;
 const ORIGINAL_VARIANTS = ["task", "frequent", "predicted", "actual"];
 const PROTOTYPE_VARIANTS = ["merged", "productOff", "product", "productAlways"];
+const BASELINE_METRICS = ["task", "frequent", "predicted", "actual"];
+const KNOB_VARIANTS = {
+  off: null,
+  paths3: { mode: "paths", pathLimit: 3, pointerLimit: 3, yieldRecent: false, promoteRecent: false, allowRecentOmitted: false },
+  paths3Yield: { mode: "paths", pathLimit: 3, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
+  paths5Yield: { mode: "paths", pathLimit: 5, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
+  paths8Yield: { mode: "paths", pathLimit: 8, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
+  weighted3Yield: { mode: "weighted", pathLimit: 3, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
+  weighted5Yield: { mode: "weighted", pathLimit: 3, pointerLimit: 5, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
+  bestAllKnobs: { mode: "weighted", pathLimit: 3, pointerLimit: 3, yieldRecent: true, promoteRecent: true, allowRecentOmitted: true },
+};
+const PRODUCT_METRICS = ["product", "productAlways", ...Object.keys(KNOB_VARIANTS).filter((key) => key !== "off")];
+const CONFIDENCES = ["none", "low", "high"];
+const SLICE_TAGS = ["latestQuarter", "earlier", "smallChange", "broadChange"];
 const LOCATIONS = ["relevantKnowledge", "supplements", "recentKnowledge", "elsewhere"];
 
 function flagValue(args, name) {
@@ -119,6 +148,71 @@ function omittedPathEntryIds(context) {
       .filter((entry) => entry.title !== undefined && entry.path !== undefined)
       .map((entry) => entry.id),
   );
+}
+
+/** Knowledge ids with a title or excerpt inside relevant.knowledge or relevant.supplements only (no recentKnowledge). */
+function strictIds(context, known) {
+  const ids = new Set();
+  function walk(value) {
+    if (!value || typeof value !== "object") return;
+    if (known.has(value.id) && (value.title !== undefined || value.excerpt !== undefined)) ids.add(value.id);
+    for (const child of Object.values(value)) walk(child);
+  }
+  walk(context.relevant?.knowledge);
+  walk(context.relevant?.supplements);
+  return ids;
+}
+
+function newGainCell() {
+  return { tasks: 0, pairs: 0, looseGained: 0, strictGained: 0 };
+}
+
+function newMetric() {
+  return {
+    responses: 0,
+    loose: { full: 0, gained: 0, lost: 0 },
+    strict: { full: 0, gained: 0, lost: 0 },
+    chars: { sum: 0, max: 0, average: 0 },
+    onNegative: { looseItems: 0, strictItems: 0, strictItemsAddedVsTask: 0, strictInferredPointers: 0 },
+    recentDisplaced: { target: 0, other: 0 },
+    gainedBy: {
+      confidence: Object.fromEntries(CONFIDENCES.map((key) => [key, newGainCell()])),
+      slices: Object.fromEntries(SLICE_TAGS.map((key) => [key, newGainCell()])),
+    },
+  };
+}
+
+function newDiagnostic() {
+  return { pairs: 0, strictHits: 0, notInferred: 0, alreadyRecent: 0, excludedOmitted: 0, cutByCap: 0, cutByBudget: 0, firstRound: 0 };
+}
+
+/** Ids the response keeps in an omission, listed by id or by flagged / path entry (the rest is only counted). */
+function omissionListedIds(context) {
+  const ids = new Set();
+  for (const omission of context.omitted ?? []) {
+    for (const id of omission.ids ?? []) ids.add(id);
+    for (const entry of omission.entries ?? []) ids.add(entry.id);
+  }
+  return ids;
+}
+
+/**
+ * Why a target pair was not strictly hit. `capture` holds what the product's private inference methods returned for this
+ * call: the ranked matches (raw), the candidates after first-round / trust filtering, and the first-round ids.
+ */
+function classifyMiss(id, context, capture, options) {
+  if (capture.firstRoundIds.has(id)) return "firstRound";
+  if (!capture.raw.has(id)) return "notInferred";
+  const index = capture.candidates.findIndex((candidate) => candidate.id === id);
+  if (index < 0) return "notInferred";
+  const recent = new Set((context.recentKnowledge ?? []).map((item) => item.id));
+  const listed = omissionListedIds(context);
+  if (recent.has(id) && !options.promoteRecent) return "alreadyRecent";
+  if (listed.has(id) && !options.allowRecentOmitted) return "excludedOmitted";
+  const eligible = capture.candidates.filter(
+    (candidate) => !(recent.has(candidate.id) && !options.promoteRecent) && !(listed.has(candidate.id) && !options.allowRecentOmitted),
+  );
+  return eligible.findIndex((candidate) => candidate.id === id) >= options.pointerLimit ? "cutByCap" : "cutByBudget";
 }
 
 function newLocationTally() {
@@ -209,12 +303,43 @@ function replay(project, sessions, audits) {
       return true;
     },
   };
-  const contextWith = (gate, focus) => {
+  const search = service.searchIndex;
+  const servicePrototype = Object.getPrototypeOf(service);
+  const searchPrototype = Object.getPrototypeOf(search);
+  const defaultOptions = { ...service.inferredPathOptions };
+  // Runs getContext with the gate and optional inferredPathOptions overrides (private instance field of the service),
+  // and records what the product's private inference methods returned, for the miss diagnostics.
+  const contextWith = (gate, focus, options, capture) => {
     service.shouldInferTaskPaths = gate;
+    // A class field is an own property of the instance, so it is restored, not deleted.
+    const previousOptions = service.inferredPathOptions;
+    if (options) service.inferredPathOptions = { ...defaultOptions, ...options };
+    if (capture) {
+      capture.raw = new Set();
+      capture.candidates = [];
+      capture.firstRoundIds = new Set();
+      service.inferredKnowledge = (...args) => {
+        for (const id of args[2]) capture.firstRoundIds.add(id);
+        const result = servicePrototype.inferredKnowledge.apply(service, args);
+        capture.candidates = result;
+        return result;
+      };
+      for (const name of ["knowledgeForPaths", "knowledgeForWeightedPaths"]) {
+        search[name] = (...args) => {
+          const result = searchPrototype[name].apply(search, args);
+          for (const item of result) capture.raw.add(item.id);
+          return result;
+        };
+      }
+    }
     try {
       return store.getContext(project.root_path, focus);
     } finally {
       delete service.shouldInferTaskPaths;
+      service.inferredPathOptions = previousOptions;
+      delete service.inferredKnowledge;
+      delete search.knowledgeForPaths;
+      delete search.knowledgeForWeightedPaths;
     }
   };
 
@@ -241,6 +366,11 @@ function replay(project, sessions, audits) {
   const prototypeGroups = {};
   const mergedDetail = { keptOld: 0, added: 0, addedTargets: 0, cutByBudget: 0, cutTargets: 0, oldNotKept: 0 };
   const signals = { product: newSignalBuckets(), productAlways: newSignalBuckets() };
+  const metrics = Object.fromEntries(
+    [...BASELINE_METRICS, "merged", ...Object.keys(KNOB_VARIANTS), "product", "productAlways"].filter((key, index, all) => all.indexOf(key) === index).map((key) => [key, newMetric()]),
+  );
+  const diagnostics = Object.fromEntries(PRODUCT_METRICS.map((key) => [key, newDiagnostic()]));
+  const recallOnly = { positives: 0, baselineStrictPairs: 0, ...Object.fromEntries([5, 8].map((limit) => [`limit${limit}`, { pairs: 0, newVsBaselineStrict: 0, nonTargetHits: 0, tasksWithNewPair: 0 }])) };
 
   for (const [index, q] of questions.entries()) {
     while (si < history.length && history[si].available < q.start) {
@@ -274,7 +404,41 @@ function replay(project, sessions, audits) {
     tally.pairs += targets.size;
     let baseline;
     let baselineContext;
+    let baselineStrict;
     let predictedIds;
+    const confidenceOf = () => baselineContext.relevant?.confidence ?? "none";
+    // Both definitions for one response, against the task baseline (loose = fullIds, strict = relevant.* only).
+    const measure = (name, context, looseIds, strictSet, extraChars = 0) => {
+      const m = metrics[name];
+      const looseGained = [...targets].filter((id) => looseIds.has(id) && !baseline.has(id)).length;
+      const strictGained = [...targets].filter((id) => strictSet.has(id) && !baselineStrict.has(id)).length;
+      m.responses++;
+      m.loose.full += [...targets].filter((id) => looseIds.has(id)).length;
+      m.loose.gained += looseGained;
+      m.loose.lost += [...targets].filter((id) => !looseIds.has(id) && baseline.has(id)).length;
+      m.strict.full += [...targets].filter((id) => strictSet.has(id)).length;
+      m.strict.gained += strictGained;
+      m.strict.lost += [...targets].filter((id) => !strictSet.has(id) && baselineStrict.has(id)).length;
+      const length = JSON.stringify(context).length + extraChars;
+      m.chars.sum += length;
+      m.chars.max = Math.max(m.chars.max, length);
+      if (!targets.size) {
+        m.onNegative.looseItems += looseIds.size;
+        m.onNegative.strictItems += strictSet.size;
+        m.onNegative.strictItemsAddedVsTask += [...strictSet].filter((id) => !baselineStrict.has(id)).length;
+        m.onNegative.strictInferredPointers += (context.relevant?.supplements ?? []).filter((item) => item.includedBecause?.kind === "inferred_path").length;
+      }
+      const recent = new Set((context.recentKnowledge ?? []).map((item) => item.id));
+      for (const item of baselineContext.recentKnowledge ?? []) {
+        if (!recent.has(item.id)) m.recentDisplaced[targets.has(item.id) ? "target" : "other"]++;
+      }
+      for (const cell of [m.gainedBy.confidence[confidenceOf()], ...tags.map((tag) => m.gainedBy.slices[tag])]) {
+        cell.tasks++;
+        cell.pairs += targets.size;
+        cell.looseGained += looseGained;
+        cell.strictGained += strictGained;
+      }
+    };
     for (const [key, candidates] of Object.entries(paths)) {
       const a = stats[key];
       const correct = candidates.filter((file) => q.files.includes(file)).length;
@@ -296,6 +460,7 @@ function replay(project, sessions, audits) {
       if (key === "task") {
         baseline = ids;
         baselineContext = context;
+        baselineStrict = strictIds(context, known);
       }
       if (key === "predicted") {
         predictedIds = ids;
@@ -324,6 +489,7 @@ function replay(project, sessions, audits) {
         if (ids.has(id) && !baseline.has(id)) a.gained++;
         if (!ids.has(id) && baseline.has(id)) a.lost++;
       }
+      measure(key, context, ids, strictIds(context, known));
     }
 
     // Prototype variants, compared with the task baseline above.
@@ -370,6 +536,41 @@ function replay(project, sessions, audits) {
     }
     if (!active.length) continue;
 
+    const diagnose = (name, context, strictSet, capture, options) => {
+      const d = diagnostics[name];
+      for (const id of targets) {
+        d.pairs++;
+        if (strictSet.has(id)) {
+          d.strictHits++;
+          continue;
+        }
+        d[classifyMiss(id, context, capture, options)]++;
+      }
+    };
+    // Knowledge-only recall: would relevant.knowledge find more if Sessions did not crowd the mixed recall page?
+    if (targets.size) {
+      recallOnly.positives++;
+      recallOnly.baselineStrictPairs += [...targets].filter((id) => baselineStrict.has(id)).length;
+    }
+    for (const limit of [5, 8]) {
+      const hits = search.recall({ q: task, projectId: project.id, types: ["knowledge"], limit }).hits.map((hit) => hit.id);
+      const cell = recallOnly[`limit${limit}`];
+      const found = hits.filter((id) => targets.has(id));
+      const fresh = found.filter((id) => !baselineStrict.has(id));
+      cell.pairs += found.length;
+      cell.newVsBaselineStrict += fresh.length;
+      cell.nonTargetHits += hits.length - found.length;
+      if (fresh.length) cell.tasksWithNewPair++;
+    }
+    for (const [key, options] of Object.entries(KNOB_VARIANTS)) {
+      const capture = {};
+      const context = options ? contextWith(gates.always, { task }, options, capture) : contextWith(gates.off, { task });
+      const ids = fullIds(context, known);
+      const strict = strictIds(context, known);
+      measure(key, context, ids, strict);
+      if (options) diagnose(key, context, strict, capture, { ...defaultOptions, ...options });
+    }
+
     const baselineChars = JSON.stringify(baselineContext).length;
     // merged: the old response untouched, new Knowledge from the predicted query appended while it still fits.
     {
@@ -393,6 +594,8 @@ function replay(project, sessions, audits) {
       mergedDetail.keptOld += baseline.size;
       for (const id of baseline) if (!mergedIds.has(id)) mergedDetail.oldNotKept++;
       record("merged", baselineContext, mergedIds, length - baselineChars);
+      // The simulated pointers would sit in the relevant block, so they count as strict hits.
+      measure("merged", baselineContext, mergedIds, new Set([...baselineStrict, ...[...mergedIds].filter((id) => !baseline.has(id))]), length - baselineChars);
     }
 
     const off = contextWith(gates.off, { task });
@@ -403,8 +606,12 @@ function replay(project, sessions, audits) {
 
     for (const [key, gate] of [["product", gates.shipped], ["productAlways", gates.always]]) {
       const before = gateFired;
-      const context = contextWith(gate, { task });
+      const capture = {};
+      const context = contextWith(gate, { task }, undefined, capture);
       const ids = fullIds(context, known);
+      const strict = strictIds(context, known);
+      measure(key, context, ids, strict);
+      diagnose(key, context, strict, capture, defaultOptions);
       const a = record(key, context, ids);
       a.gateFired += gateFired - before;
       const inferred = (context.relevant?.supplements ?? []).filter((item) => item.includedBecause.kind === "inferred_path");
@@ -429,11 +636,15 @@ function replay(project, sessions, audits) {
   for (const a of Object.values(stats)) assert.equal(a.full, stats.task.full + a.gained - a.lost);
   for (const a of Object.values(prototypeStats)) assert.equal(a.full, stats.task.full + a.gained - a.lost);
   for (const a of Object.values(prototypeStats)) a.averageChars = a.responses ? Math.round(a.chars / a.responses) : 0;
+  for (const m of Object.values(metrics)) m.chars.average = m.responses ? Math.round(m.chars.sum / m.responses) : 0;
   return {
     tally,
     stats,
     groups,
     prototype: { stats: prototypeStats, groups: prototypeGroups, merged: mergedDetail, signals },
+    metrics,
+    diagnostics,
+    knowledgeRecallOnly: recallOnly,
   };
 }
 
@@ -527,6 +738,22 @@ function assertSelfCheck(report) {
   assert(prototype.stats.productAlways.gained > 0, "inference must reach scoped Knowledge in the synthetic replay");
   assert(prototype.stats.product.gained > 0, "the shipped gate must fire on the synthetic replay");
   assert(prototype.stats.product.locations.supplementsByKind.inferred_path, "gains arrive as inferred_path supplements");
+  const { metrics } = report;
+  for (const key of PRODUCT_METRICS) {
+    assert(metrics[key].responses > 0, `${key} must be measured`);
+    assert(metrics[key].chars.max <= TASK_BUDGET_CHARS, `${key} must stay within the task budget`);
+    assert.equal(metrics[key].strict.lost, 0, `${key} must not lose strict hits`);
+    assert.equal(metrics[key].loose.lost, 0, `${key} must not lose loose hits`);
+  }
+  assert.equal(metrics.off.loose.full, metrics.task.loose.full, "off equals task (loose)");
+  assert.equal(metrics.off.strict.full, metrics.task.strict.full, "off equals task (strict)");
+  assert.equal(metrics.off.chars.sum, metrics.task.chars.sum, "off equals task (chars)");
+  assert(metrics.paths3Yield.strict.gained > 0, "paths inference gains strict hits in the synthetic replay");
+  assert(metrics.weighted3Yield.strict.gained > 0, "weighted inference gains strict hits in the synthetic replay");
+  for (const key of PRODUCT_METRICS) {
+    const d = report.diagnostics[key];
+    assert.equal(d.strictHits + d.notInferred + d.alreadyRecent + d.excludedOmitted + d.cutByCap + d.cutByBudget + d.firstRound, d.pairs, `${key} diagnostics cover every pair`);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

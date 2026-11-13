@@ -972,24 +972,30 @@ try {
   // seeded context is budget-tight and its recent Knowledge already covers the matches, so the work done is checked
   // by counting the inference ranking passes instead of requiring a visible pointer.
   const taskContextService = benchStore.contextRecallService;
-  const getContextTaskOnly = (inference) => () => {
+  // `mode` picks the inference: "off" (gate closed), "paths" (the three heaviest files) or "weighted" (every file of the
+  // similar Sessions in one appliesTo scan). The service's inferredPathOptions field is overridden for the call.
+  const getContextTaskOnly = (mode) => () => {
     const original = taskContextService.shouldInferTaskPaths;
+    const originalOptions = taskContextService.inferredPathOptions;
     const searchIndex = taskContextService.searchIndex;
-    const rank = searchIndex.knowledgeForPaths;
+    const ranking = mode === "weighted" ? "knowledgeForWeightedPaths" : "knowledgeForPaths";
+    const rank = searchIndex[ranking];
     let passes = 0;
-    taskContextService.shouldInferTaskPaths = inference ? () => true : () => false;
-    searchIndex.knowledgeForPaths = (...args) => {
+    taskContextService.shouldInferTaskPaths = mode === "off" ? () => false : () => true;
+    taskContextService.inferredPathOptions = { ...originalOptions, mode: mode === "weighted" ? "weighted" : "paths" };
+    searchIndex[ranking] = (...args) => {
       passes += 1;
       return rank.apply(searchIndex, args);
     };
     try {
       const result = benchStore.getContext(alphaRoot, { task: "graph renderer module" });
-      if (result.outcome !== "context" || passes !== (inference ? 1 : 0))
+      if (result.outcome !== "context" || passes !== (mode === "off" ? 0 : 1))
         throw new Error("Task-only context must run the inference ranking exactly when inference is on.");
       return result;
     } finally {
-      searchIndex.knowledgeForPaths = rank;
+      searchIndex[ranking] = rank;
       taskContextService.shouldInferTaskPaths = original;
+      taskContextService.inferredPathOptions = originalOptions;
     }
   };
   // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.
@@ -1286,8 +1292,9 @@ try {
     // work costs.
     "getContext (paths, appliesTo-matched Knowledge)": getContextPathsAppliesTo,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": getContextPathsAppliesTo,
-    "getContext (task only, no inference)": getContextTaskOnly(false),
-    "getContext (task only, inferred-path Knowledge)": getContextTaskOnly(true),
+    "getContext (task only, no inference)": getContextTaskOnly("off"),
+    "getContext (task only, inferred-path Knowledge)": getContextTaskOnly("paths"),
+    "getContext (task only, weighted inferred-path Knowledge)": getContextTaskOnly("weighted"),
     "finalizeSession (related pending reminder)": () => {
       const index = ++maintenanceFinalizeIndex;
       const focus = [
@@ -1753,6 +1760,7 @@ try {
     "getContext (paths, appliesTo-matched Knowledge, after a write)": 400,
     "getContext (task only, no inference)": 250,
     "getContext (task only, inferred-path Knowledge)": 250,
+    "getContext (task only, weighted inferred-path Knowledge)": 250,
     "recall (paths, appliesTo)": 100,
     "recall (paths, appliesTo, after a write)": 150,
     "finalizeSession (related pending reminder)": 250,
