@@ -72,7 +72,8 @@ export class DataRevisionCache<T> {
     for (const [key, value] of computed.values) {
       result.set(key, value);
     }
-    if (revisionKey !== undefined && computed.cacheable) {
+    // A batch larger than the cap is not remembered at all, so the cache never holds more than maxKeys values.
+    if (revisionKey !== undefined && computed.cacheable && computed.values.size <= this.maxKeys) {
       if (this.values.size + computed.values.size > this.maxKeys) this.values.clear();
       for (const [key, value] of computed.values) this.values.set(key, value);
     }
