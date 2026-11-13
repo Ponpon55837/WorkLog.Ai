@@ -146,8 +146,8 @@ Claude Code 另外提供兩個 MCP prompts：`/mcp__work-intelligence__finalize-
 
 | Agent | 全域設定檔 | 事件 | 腳本 |
 |---|---|---|---|
-| Claude Code | `~/.claude/settings.json` | `Stop`；選用 `PreCompact`＋`SessionStart`（`compact`） | `apps/mcp/dist/finalize-reminder.js` |
-| Codex | `~/.codex/hooks.json` | `PostToolUse`（`apply_patch`、`work_finalize_session`）＋`Stop`；選用 `UserPromptSubmit`＋`SessionStart`（`compact`） | `apps/mcp/dist/codex-finalize-reminder.js` |
+| Claude Code | `~/.claude/settings.json` | `Stop`；選用 `PreToolUse`＋`PreCompact`＋`SessionStart`（`compact`） | `apps/mcp/dist/finalize-reminder.js` |
+| Codex | `~/.codex/hooks.json` | `PostToolUse`（`apply_patch`、`work_finalize_session`）＋`Stop`；選用 `PreToolUse`＋`UserPromptSubmit`＋`SessionStart`（`compact`） | `apps/mcp/dist/codex-finalize-reminder.js` |
 
 - 設定時請使用 repo 的絕對路徑，並先執行 `pnpm build`。
 - Codex 需要在 `/hooks` 中檢查並信任這個 hook。

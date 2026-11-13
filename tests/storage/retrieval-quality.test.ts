@@ -1275,3 +1275,149 @@ describe("synthetic related outstanding-item retrieval quality", () => {
     }
   });
 });
+
+// Knowledge linked to files only through appliesTo (no references, no shared words with the query) must be found by
+// paths alone. Fictional targets; the established K/S/R/N/P baseline above is not mixed with these cases.
+describe("synthetic appliesTo path retrieval quality", () => {
+  const appliesToCases = [
+    {
+      key: "exact",
+      appliesTo: ["src/loom/shuttle.ts"],
+      queried: "src/loom/shuttle.ts",
+      nearMiss: ["src/loom-legacy/shuttle.ts"],
+    },
+    {
+      key: "directory",
+      appliesTo: ["src/kiln/glaze"],
+      queried: "src/kiln/glaze/fire.ts",
+      nearMiss: ["src/kiln/glazed"],
+    },
+    {
+      key: "glob",
+      appliesTo: ["src/weir/**/*.sluice.ts"],
+      queried: "src/weir/east/gate.sluice.ts",
+      nearMiss: ["src/weir/**/*.flume.ts"],
+    },
+  ] as const;
+  let fixtureStore: WorkIntelligenceStore;
+  let fixtureRoot: string;
+  const targets = new Map<string, string>();
+  const nearMisses = new Map<string, string>();
+
+  beforeAll(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "work-intelligence-applies-to-eval-"));
+    fixtureStore = new WorkIntelligenceStore(":memory:");
+    const project = fixtureStore.addProject("Fictional Mill", fixtureRoot);
+    fixtureStore.updateProject(project.id, { status: "tracked" });
+    const record = (key: string, title: string, appliesTo: readonly string[]): string => {
+      const result = fixtureStore.recordKnowledge({
+        projectRoot: fixtureRoot,
+        idempotencyKey: key,
+        kind: "pattern",
+        title,
+        body: `${title} keeps its own wording unrelated to any path.`,
+        appliesTo: [...appliesTo],
+      });
+      if (result.outcome !== "knowledge_recorded") throw new Error(`Expected Knowledge ${key}; got ${result.outcome}.`);
+      return result.knowledge.id;
+    };
+    for (const [index, item] of appliesToCases.entries()) {
+      targets.set(item.key, record(`target-${item.key}`, `Millstone rule ${index} amberwick`, item.appliesTo));
+      nearMisses.set(item.key, record(`near-${item.key}`, `Millstone rule ${index} bramblecot`, item.nearMiss));
+    }
+  });
+
+  afterAll(() => {
+    fixtureStore?.close();
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  it.each(appliesToCases)("ranks Knowledge linked only through appliesTo first for a $key path", (item) => {
+    const result = fixtureStore.recall({
+      paths: [`${fixtureRoot}/${item.queried}`],
+      projectRoot: fixtureRoot,
+      limit: 5,
+    });
+    if (result.outcome !== "recall") throw new Error("Expected recall.");
+    const ids = result.hits.map((hit) => hit.id);
+    expect(ids[0]).toBe(targets.get(item.key));
+    expect(ids).not.toContain(nearMisses.get(item.key));
+  });
+
+  it("scores appliesTo only when a path is queried", () => {
+    const result = fixtureStore.recall({ q: "millstone amberwick", projectRoot: fixtureRoot, limit: 5 });
+    if (result.outcome !== "recall") throw new Error("Expected recall.");
+    expect(result.hits.map((hit) => hit.id)).toContain(targets.get("exact"));
+    const unrelated = fixtureStore.recall({ q: "zebra quasar", projectRoot: fixtureRoot, limit: 5 });
+    if (unrelated.outcome !== "recall") throw new Error("Expected recall.");
+    expect(unrelated.hits).toHaveLength(0);
+  });
+
+  it("keeps a strong text match ahead of an appliesTo-only match for the same path query", () => {
+    const strong = fixtureStore.recordKnowledge({
+      projectRoot: fixtureRoot,
+      idempotencyKey: "strong-text",
+      kind: "pattern",
+      title: "Shuttle wobble pitfall",
+      body: "Shuttle wobble appears when the loom shuttle lacks a counterweight.",
+      tags: ["shuttle", "wobble"],
+    });
+    if (strong.outcome !== "knowledge_recorded") throw new Error("Expected Knowledge.");
+    const result = fixtureStore.recall({
+      q: "shuttle wobble counterweight",
+      paths: [`${fixtureRoot}/src/loom/shuttle.ts`],
+      projectRoot: fixtureRoot,
+      limit: 5,
+    });
+    if (result.outcome !== "recall") throw new Error("Expected recall.");
+    const ids = result.hits.map((hit) => hit.id);
+    expect(ids).toContain(strong.knowledge.id);
+    expect(ids).toContain(targets.get("exact"));
+    expect(ids.indexOf(strong.knowledge.id)).toBeLessThan(ids.indexOf(targets.get("exact")!));
+  });
+});
+
+describe("synthetic appliesTo retrieval on a frequently changed file", () => {
+  it("keeps appliesTo-linked Knowledge on the first page when many Sessions changed the same file", () => {
+    const hotRoot = mkdtempSync(join(tmpdir(), "work-intelligence-hot-file-eval-"));
+    const hotStore = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = hotStore.addProject("Fictional Foundry", hotRoot);
+      hotStore.updateProject(project.id, { status: "tracked" });
+      const recorded = hotStore.recordKnowledge({
+        projectRoot: hotRoot,
+        idempotencyKey: "hot-knowledge",
+        kind: "gotcha",
+        title: "Crucible lining rule",
+        body: "Relined crucibles need a slow first heat.",
+        appliesTo: ["src/foundry/crucible.ts"],
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected Knowledge.");
+      for (let index = 0; index < 40; index += 1) {
+        createSession(
+          `hot-session-${index}`,
+          hotRoot,
+          {
+            title: `Foundry session ${index}`,
+            summary: `Adjusted the crucible module in step ${index}.`,
+            changedFiles: ["src/foundry/crucible.ts", `src/foundry/step-${index % 5}.ts`],
+          },
+          hotStore,
+        );
+      }
+      const paths = [`${hotRoot}/src/foundry/crucible.ts`, `${hotRoot}/src/foundry/step-1.ts`];
+      for (const limit of [8, 20]) {
+        const result = hotStore.recall({ paths, projectRoot: hotRoot, limit });
+        if (result.outcome !== "recall") throw new Error("Expected recall.");
+        expect(result.hits).toHaveLength(limit);
+        expect(result.hits.some((hit) => hit.id === recorded.knowledge.id)).toBe(true);
+      }
+      const context = hotStore.getContext(hotRoot, { paths });
+      if (context.outcome !== "context") throw new Error("Expected context.");
+      expect(context.relevant?.knowledge.map((item) => item.id)).toContain(recorded.knowledge.id);
+    } finally {
+      hotStore.close();
+      rmSync(hotRoot, { recursive: true, force: true });
+    }
+  });
+});

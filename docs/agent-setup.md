@@ -110,13 +110,25 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 
 #### Claude Code
 
-先執行 `pnpm build`，再把下面的設定加到全域的 `~/.claude/settings.json`（路徑換成你的 repo 位置）。這樣任何專案都會套用，hook 會自行略過沒有記錄的專案。三個事件用同一支腳本，腳本依 `hook_event_name` 分辨：
+先執行 `pnpm build`，再把下面的設定加到全域的 `~/.claude/settings.json`（路徑換成你的 repo 位置）。這樣任何專案都會套用，hook 會自行略過沒有記錄的專案。四個事件用同一支腳本，腳本依 `hook_event_name` 分辨：
 
 ```json
 {
   "hooks": {
     "Stop": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__.*(work_finalize_session|work_write_idempotent)$",
         "hooks": [
           {
             "type": "command",
@@ -157,17 +169,18 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 - 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
 - 提醒時會附上這段工作的**開始時間**：上一次**成功**保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果與壓縮摘要）。被拒絕、衝突或略過的保存不算數，所以不會把下一段的開始時間算錯。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
+- `PreToolUse`（matcher 只選 `work_finalize_session` 與 `work_write_idempotent`）：Agent 主動保存、沒等到 Stop 提醒時，也要讓它知道開始時間。保存呼叫沒有填 `startedAt` 也沒有 `completedAt`、且工作目錄在記錄中專案內、transcript 讀得到這段工作的開始時間時，**每一段只暫停一次**（`permissionDecision: "deny"`，理由列出開始時間，請 Agent 填入 `startedAt` 後重新呼叫）；同一段的第二次呼叫一律放行，所以不會卡住。其他情況不輸出任何東西，也從不使用 `allow` 或改寫輸入，不會改變權限行為；只有保存呼叫才會讀 transcript。
 - `PreCompact`（不設 matcher，手動 `/compact` 與自動壓縮都適用）：有未保存的改動時，以純文字 stdout 提供壓縮摘要的額外指示，請摘要保留「尚未保存、開始時間、記錄中專案改過的檔案」。檔案只列相對於專案根目錄的路徑（最多 30 個，其餘以「等 N 個」表示），不含檔案內容，控制字元會移除，總長度遠低於 Claude Code 的 10,000 字元上限。它永遠不擋住壓縮（擋住會讓壓縮略過或失敗）；沒有未保存改動時不輸出任何東西。
 - `SessionStart`（matcher `compact`）：壓縮完成後，以 `additionalContext` 放回未保存提醒、開始時間與改過的檔案，即使摘要漏掉也不會遺失開始時間。壓縮後 transcript 檔仍保留壓縮前的紀錄，所以邊界之前的改動與保存都照常計入。
 - 兩個壓縮 hook 是選用的：只設 `Stop` 時保存提醒照常運作；`pnpm check` 會指出缺少的壓縮 hook。
 
 #### Codex
 
-hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功透過 `work_write_idempotent` 執行 `work_finalize_session` operation 會清除標記，也保留舊的直接工具名稱相容；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。另外設定 `UserPromptSubmit` 時，它會記下「上一次成功保存之後，第一則訊息送出的時間」，提醒時附上這段工作的開始時間。Codex 的對話紀錄格式不是穩定的 hook 介面，所以這裡不解析對話紀錄，而是在訊息送出當下記錄時間。
+hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功透過 `work_write_idempotent` 執行 `work_finalize_session` operation 會清除標記，也保留舊的直接工具名稱相容；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。另外設定 `UserPromptSubmit` 時，它會記下「上一次成功保存之後，第一則訊息送出的時間」，並在這段工作的第一則訊息就以 `additionalContext` 告訴 Agent 這個開始時間（每段只告知一次），提醒時也附上開始時間。設定 `PreToolUse` 時，保存呼叫沒有填 `startedAt` 與 `completedAt` 會被暫停一次並給出該時間（標記檔 `.pre-denied`，成功保存後清除）；Codex 是否對 MCP 工具觸發 `PreToolUse` 尚未驗證，不觸發時無任何影響。Codex 的對話紀錄格式不是穩定的 hook 介面，所以這裡不解析對話紀錄，而是在訊息送出當下記錄時間。
 
 和 MCP 一樣，這個 hook 要裝在**全域**，任何專案都能用；它會自己判斷目前的工作目錄是否屬於「記錄中」的專案，其他專案一律放行。repo 不附專案層級的 `.codex/hooks.json`。
 
-先執行 `pnpm build`，再把下面四段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
+先執行 `pnpm build`，再把下面五段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
 
 ```json
 {
@@ -175,6 +188,18 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
     "PostToolUse": [
       {
         "matcher": "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^.*(work_finalize_session|work_write_idempotent)$",
         "hooks": [
           {
             "type": "command",
@@ -224,7 +249,7 @@ hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patc
 
 既有安裝若仍使用只匹配 `work_finalize_session` 的舊 matcher，該 matcher 不會收到新 dispatcher 的成功保存事件。下次使用者依專案更新流程執行 `pnpm setup:agents` 並確認套用時，installer 會更新它管理的 matcher；`pnpm check` 在更新前會將舊 matcher 顯示為未完整設定。此文件更新不會自行修改使用者的全域設定。
 
-`UserPromptSubmit` 是選用的：沒有設定時提醒照常運作，只是不會附上開始時間；`pnpm check` 會指出這件事。
+`UserPromptSubmit` 與 `PreToolUse` 是選用的：沒有設定時提醒照常運作，只是不會在保存前告知開始時間；`pnpm check` 會指出缺少的 hook。
 
 `SessionStart`（matcher `compact`，Codex 以 `source` 比對）也是選用的：上下文壓縮後，若仍有未保存的改動，就以 `additionalContext` 放回未保存提醒與開始時間；每次壓縮都會提供，不受「只提醒一次」限制。Codex 的 `PreCompact` 會忽略純文字 stdout，無法影響摘要內容，所以 Codex 不設定 `PreCompact`；Codex 的提醒也不列出檔案，因為它只記錄「有未保存改動」，不保存路徑。
 

@@ -30,6 +30,7 @@ export function createOutstandingItemsApi(client: ApiTransport): OutstandingItem
         appendQuery("/api/outstanding-items", {
           projectId: options.projectId,
           status: options.status,
+          closedBy: options.closedBy?.join(","),
           page: options.page,
           pageSize: options.pageSize === "all" ? 0 : options.pageSize,
           from: options.from,

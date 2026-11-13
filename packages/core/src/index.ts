@@ -277,6 +277,20 @@ export const OUTSTANDING_ITEM_STATUSES = ["pending", "completed", "not_needed"] 
 export const MAX_OUTSTANDING_ITEM_BATCH_SIZE = 100;
 export type OutstandingItemStatus = (typeof OUTSTANDING_ITEM_STATUSES)[number];
 export type OutstandingItemEventSource = "agent" | "web" | "migration";
+/**
+ * Who closed a non-pending item, derived from the latest event that moved it into its current status:
+ * source_session = an Agent update of the source Session's own nextSteps dropped it; later_session = another
+ * Session's finalize closed it; user = a person acted in the web UI (including editing the Session's work summary);
+ * cleanup_review = an accepted cleanup proposal; migration = a schema-migration backfill.
+ */
+export const OUTSTANDING_ITEM_CLOSED_BY = [
+  "source_session",
+  "later_session",
+  "user",
+  "cleanup_review",
+  "migration",
+] as const;
+export type OutstandingItemClosedBy = (typeof OUTSTANDING_ITEM_CLOSED_BY)[number];
 
 export interface OutstandingItem {
   id: string;
@@ -288,6 +302,8 @@ export interface OutstandingItem {
   position: number;
   text: string;
   status: OutstandingItemStatus;
+  /** Present on completed and not_needed items whose closing event is known. */
+  closedBy?: OutstandingItemClosedBy;
   createdAt: string;
   updatedAt: string;
 }
@@ -296,6 +312,8 @@ export interface ListOutstandingItemsInput {
   projectRoot?: string;
   projectId?: string;
   status?: OutstandingItemStatus;
+  /** Keeps only non-pending items closed by one of these; matches nothing for pending. */
+  closedBy?: readonly OutstandingItemClosedBy[];
   page?: number;
   pageSize?: number;
   from?: string;
@@ -336,6 +354,28 @@ export type BatchUpdateOutstandingItemStatusResult =
   | { outcome: "outstanding_items_updated"; items: OutstandingItem[]; updatedItemIds: string[]; duplicate: boolean }
   | { outcome: "rejected"; reason: "invalid_batch" | "invalid_items" | "status_conflict"; invalidItemIds: string[] }
   | { outcome: "skipped"; projectStatus: PolicyStatus; reason?: string };
+
+/** Closes pending items a finalized Session's own later work directly verified (see work_resolve_outstanding_items). */
+export interface ResolveOutstandingItemsInput {
+  sessionId: string;
+  resolvedOutstandingItemIds?: string[];
+  supersededOutstandingItemIds?: string[];
+}
+
+export type ResolveOutstandingItemsResult =
+  | {
+      outcome: "outstanding_items_resolved";
+      sessionId: string;
+      resolvedOutstandingItemIds: string[];
+      supersededOutstandingItemIds: string[];
+      /** Requested ids this same Session had already moved to the requested status. */
+      alreadyAppliedIds?: string[];
+      /** True when every requested id had already been applied and nothing changed now. */
+      duplicate?: true;
+      outstandingItemWarnings?: { unresolvedIds: string[]; unsupersededIds: string[]; message: string };
+    }
+  | { outcome: "not_found"; sessionId: string }
+  | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
 
 export interface ListSessionDecisionsInput {
   projectRoot?: string;
@@ -1592,6 +1632,8 @@ export interface FinalizedSessionResult {
   outcome: "finalized";
   duplicate: boolean;
   session: WorkSessionRecord;
+  /** Where a newly stored startedAt came from; absent on duplicates and when the Session has no start. */
+  startedAtSource?: "reported" | "events" | "server_observed";
   redactions?: RedactionSummary;
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
@@ -1610,6 +1652,8 @@ export interface FinalizedSessionResult {
   supersededOutstandingItemIds?: string[];
   /** Still-pending older items related to this work; retrieval is not completion evidence. */
   relatedOutstandingItems?: RelatedOutstandingItems;
+  /** Still-pending items of the Sessions this one continues or relates to (its links); pointers, not evidence. */
+  continuedOutstandingItems?: RelatedOutstandingItems;
   /** Active Knowledge whose appliesTo covers a file this Session changed; advisory, nothing was changed. */
   knowledgeToReview?: KnowledgeReviewHint[];
   /** The appliesTo match budget ran out, so older Knowledge was not checked for knowledgeToReview. */
@@ -1690,7 +1734,8 @@ export interface UpdatedSessionVerificationResult {
 
 export interface UpdateSessionMetadataInput {
   sessionId: string;
-  changedFiles: string[];
+  /** Omitted keeps the stored files, provenance, and changes unchanged. */
+  changedFiles?: string[];
   changedFilesMode?: ChangedFilesMode;
   changedFilesProvenance?: ChangedFileProvenance[];
   changedFileChanges?: ChangedFileChange[];
@@ -1700,6 +1745,8 @@ export interface UpdateSessionMetadataInput {
   startedAt?: string;
   /** Corrected completion time from evidence; not applied when before startedAt. Kept as a note event. */
   completedAt?: string;
+  /** The work continued and just finished: the server clock is recorded as completedAt. Exclusive with completedAt. */
+  completedAtNow?: true;
 }
 
 export type MetadataBackfillGap = "changed_files" | "verification";
@@ -2014,6 +2061,14 @@ export interface UpdateSessionWorkSummaryInput {
   workSummary: WorkSummaryInputSections | Partial<WorkSummaryInputSections>;
 }
 
+/** What one nextSteps synchronization did to a Session's outstanding items. */
+export interface OutstandingItemSyncSummary {
+  created: number;
+  retained: number;
+  reworded: number;
+  closed: number;
+}
+
 export interface UpdatedSessionWorkSummaryResult {
   outcome: "work_summary_updated";
   duplicate: boolean;
@@ -2023,6 +2078,8 @@ export interface UpdatedSessionWorkSummaryResult {
   previousWorkSummary?: WorkSummarySections;
   appliedWorkSummary: WorkSummarySections;
   redactions?: RedactionSummary;
+  /** Present only when this update changed the Session's outstanding items (not on a replay). */
+  outstandingItems?: OutstandingItemSyncSummary;
 }
 
 export interface SessionWorkSummaryUpdateIdempotencyConflictResult {
@@ -2121,6 +2178,16 @@ export interface KnowledgeCandidateRequest {
   candidateCount: number;
 }
 
+/** Live Sessions no Knowledge candidate request has covered. High value: confirmed decisions, recovered verification, or later work built on them. */
+export interface KnowledgeCandidateBacklogCounts {
+  uncoveredSessions: number;
+  highValueSessions: number;
+}
+
+export interface KnowledgeCandidateBacklog extends KnowledgeCandidateBacklogCounts {
+  projectId: string;
+}
+
 export interface KnowledgeCandidateInput {
   /** The Session whose record supports this candidate; must be one of the request's sources. */
   sourceSessionId: string;
@@ -2209,7 +2276,13 @@ export type KnowledgeCandidateSkippedResult = {
 };
 
 export type RequestKnowledgeCandidatesResult =
-  | { outcome: "knowledge_candidate_request"; duplicate: boolean; request: KnowledgeCandidateRequest }
+  | {
+      outcome: "knowledge_candidate_request";
+      duplicate: boolean;
+      request: KnowledgeCandidateRequest;
+      /** Sessions still not covered by any request after this new one (absent on a duplicate); tell the user, do not request again unasked. */
+      remaining?: KnowledgeCandidateBacklogCounts;
+    }
   | { outcome: "knowledge_candidates_not_needed"; reason: string }
   | KnowledgeCandidateSkippedResult;
 
@@ -2478,7 +2551,13 @@ export interface KnowledgePageDigest {
 }
 
 export type KnowledgeCandidateListResult =
-  | { outcome: "knowledge_candidates"; items: KnowledgeCandidate[]; openRequests: KnowledgeCandidateRequest[] }
+  | {
+      outcome: "knowledge_candidates";
+      items: KnowledgeCandidate[];
+      openRequests: KnowledgeCandidateRequest[];
+      /** Uncovered Session counts per project in scope; projects with none are left out. */
+      backlog: KnowledgeCandidateBacklog[];
+    }
   | KnowledgeCandidateSkippedResult;
 
 export interface DecideKnowledgeCandidateInput {
@@ -2523,13 +2602,22 @@ export interface ContextResult {
   pendingOutstandingItemsTruncated: number;
   /** Counts only; list the affected Sessions with work_preview_metadata_backfill. */
   metadataFollowUps: MetadataBackfillPreview["totals"];
-  /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
+  /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind); Knowledge candidate requests also list failed ones, which block a new request until resumed. */
   pendingRequests: {
     reportSynthesis: Array<ReportSynthesisRequest & { sourceSessionIdsOmittedCount?: number }>;
     metadataBackfill: MetadataBackfillRequest[];
     /** Active project cleanup requests for Agents; proposals require Web review. */
     outstandingCleanup?: OutstandingCleanupRequest[];
     knowledgeCandidates: KnowledgeCandidateRequest[];
+    /**
+     * Project-scoped only, and only when no candidate request is open, at least 5 uncovered Sessions are
+     * high value, and the last request is over 7 days old (or none). Offer it to the user once; never request unasked.
+     */
+    knowledgeBacklog?: {
+      uncoveredSessions: number;
+      highValueSessions: number;
+      requestWith: "work_request_knowledge_candidates";
+    };
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
     /** Knowledge pages to inspect: explicit update request, cited-source review, or at least three accumulated new Sessions; ordered by priority. */
@@ -2555,6 +2643,14 @@ export interface ContextResult {
  * counted (`duplicates`); budget omissions list up to three `ids` plus `moreIds`; left-out items flagged
  * possiblyStale or needsReview are listed under `entries` with their id and flags, so budget never hides a trust
  * signal. Details such as page review sections and cited Session ids are read with `readWith`.
+ *
+ * When the focus has `paths`, Knowledge that matched one of them (its `references` or `appliesTo`) and is not listed
+ * in `relevant.knowledge` (budget-trimmed, or ranked beyond the five relevant slots) is listed under the
+ * `relevant.knowledge` omission as an entry that also carries a short `title` (at most 60 characters) and one matched
+ * `path` (project-relative stored path or pattern), so an Agent about to edit those files can see which Knowledge
+ * covers which file. At most five entries carry them; they take the place of plain `ids`, are never counted in
+ * `moreIds`, and are shortened and dropped (back to plain ids or flagged entries) only after everything else is
+ * trimmed. Read them with `work_get_file_history` (by path) or `work_search_knowledge`.
  */
 export interface ContextOmission {
   section: string;
@@ -2565,6 +2661,10 @@ export interface ContextOmission {
   reasons?: string[];
   entries?: Array<{
     id: string;
+    /** Path-matched Knowledge only: its title, at most 60 characters. */
+    title?: string;
+    /** Path-matched Knowledge only: one stored path or pattern that matched a focus path. */
+    path?: string;
     possiblyStale?: true;
     needsReview?: true;
   }>;
@@ -2830,6 +2930,11 @@ export type CreateOutstandingCleanupRequestResult =
   | { outcome: "not_needed"; projectId: string }
   | OutstandingCleanupRejectedResult
   | ProjectIdSkippedResult;
+export type RequestOutstandingCleanupResult =
+  | Extract<CreateOutstandingCleanupRequestResult, { outcome: "outstanding_cleanup_request_created" | "not_needed" }>
+  | { outcome: "outstanding_cleanup_request_active"; request: OutstandingCleanupRequest }
+  | OutstandingCleanupRejectedResult
+  | KnowledgeCandidateSkippedResult;
 export type OutstandingCleanupRequestListResult =
   | { outcome: "outstanding_cleanup_requests"; requests: OutstandingCleanupRequest[]; pageInfo: PageInfo }
   | ProjectIdSkippedResult;
@@ -2912,6 +3017,8 @@ export interface RelevantContext {
   decisions: RelevantDecisionDigest[];
   /** Pending items ranked by their text, source paths, and source Session relevance. */
   outstandingItems?: ContextRelatedOutstandingItems;
+  /** Pending items of the Sessions passed as linkedSessionIds (same project, at most 10); not repeated in outstandingItems. */
+  continuedOutstandingItems?: ContextRelatedOutstandingItems;
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<ProjectScopedItem<RecallHit> & { openItems: string[] }>;
   /** Optional compact pointers to possibly related Sessions or applied Knowledge; never literal-match evidence. */

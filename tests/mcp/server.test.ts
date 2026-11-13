@@ -41,7 +41,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 16,
+    operationCount: 17,
   },
   work_write_additive: {
     title: "Add Work Intelligence records or proposals",
@@ -63,7 +63,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 9,
+    operationCount: 10,
   },
 } as const;
 
@@ -308,6 +308,206 @@ describe("Work Intelligence MCP server", () => {
     expect(store.getSessionDetail(finalized.session.id)?.verificationHistory).toMatchObject([
       { source: "agent", previous: { status: "in_progress" }, resulting: { status: "passed" } },
     ]);
+  });
+
+  it("fills a missing startedAt from the first call this server saw, once per segment", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Observed start", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const otherRoot = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-observed-other-"));
+    cleanups.push(() => rmSync(otherRoot, { recursive: true, force: true }));
+    const other = store.addProject("Observed other", otherRoot);
+    store.updateProject(other.id, { status: "tracked" });
+    type Receipt = {
+      outcome: string;
+      session: { id: string; startedAt?: string; startedAtSource?: string };
+      startedAtFollowUp?: string;
+      suggestedCall?: { tool: string; arguments: { sessionId: string } };
+    };
+
+    // A save with no earlier call has nothing observed: no start, and a follow-up that asks for evidence.
+    const first = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-1", "First"),
+    );
+    expect(first.session.startedAt).toBeUndefined();
+    expect(first.startedAtFollowUp).toContain("Never estimate");
+    expect(first.suggestedCall).toEqual({
+      tool: "work_update_session_metadata",
+      arguments: { sessionId: first.session.id },
+    });
+
+    // The next call starts a new segment; another project's call does not interfere.
+    const before = Date.now();
+    await callReadOperation(client, "work_get_context", { projectRoot: root, task: "Fictional task" });
+    await callReadOperation(client, "work_get_context", { projectRoot: otherRoot, task: "Fictional other task" });
+    const second = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-2", "Second"),
+    );
+    expect(second.session.startedAtSource).toBe("server_observed");
+    expect(Date.parse(second.session.startedAt ?? "")).toBeGreaterThanOrEqual(before - 1_000);
+    expect(second.startedAtFollowUp).toBeUndefined();
+    const note = store
+      .getSessionDetail(second.session.id)
+      ?.events.find((event) => event.details?.field === "startedAt");
+    expect(note?.details).toMatchObject({ source: "server_observed", tool: "work_get_context" });
+
+    // A skipped or conflicting save keeps the observation; a successful one resets it.
+    await callReadOperation(client, "work_get_context", { projectRoot: root, task: "Fictional task" });
+    const conflict = await callJson<{ outcome: string }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "observed-2", "Second"),
+      summary: "A different summary.",
+    });
+    expect(conflict.outcome).toBe("idempotency_conflict");
+    const third = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-3", "Third"),
+    );
+    expect(third.session.startedAtSource).toBe("server_observed");
+    const fourth = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-4", "Fourth"),
+    );
+    expect(fourth.session.startedAt).toBeUndefined();
+
+    // The other project's segment is untouched by the saves above, and a reported or backfilled time wins.
+    const reported = "2020-01-01T00:00:00.000Z";
+    const withReported = await callJson<Receipt>(client, "work_finalize_session", {
+      ...finalizePayload(otherRoot, "observed-5", "Reported"),
+      startedAt: reported,
+      completedAt: "2020-01-01T01:00:00.000Z",
+    });
+    expect(withReported.session.startedAt).toBeUndefined();
+    expect(store.getSessionById(withReported.session.id)?.startedAt).toBe(reported);
+    const otherNext = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(otherRoot, "observed-6", "Other"),
+    );
+    expect(otherNext.session.startedAtSource).toBe("server_observed");
+
+    // Correcting only the start does not need the changed files again, and keeps them.
+    const startedAt = new Date(Date.now() - 3_600_000).toISOString();
+    const corrected = await callJson(client, "work_update_session_metadata", {
+      sessionId: fourth.session.id,
+      startedAt,
+    });
+    expect(corrected).toMatchObject({
+      outcome: "updated",
+      session: { id: fourth.session.id, startedAt, changedFilesCount: 1 },
+    });
+    expect(corrected).not.toHaveProperty("changedFiles");
+    expect(store.getSessionById(fourth.session.id)?.changedFiles).toEqual(["src/a.ts"]);
+  });
+
+  it("observes segment starts identically through every dispatcher tool, shared with direct-shaped calls", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Observed dispatcher", root);
+    store.updateProject(project.id, { status: "tracked" });
+    type Receipt = {
+      outcome: string;
+      session: { id: string; startedAt?: string; startedAtSource?: string };
+      startedAtFollowUp?: string;
+    };
+    const callDispatcher = (dispatcher: string, operation: string, args: Record<string, unknown>) =>
+      client.callTool({ name: dispatcher, arguments: { operation, arguments: args } });
+    const finalizeViaDispatcher = async (projectRoot: string, key: string, title: string) => {
+      const result = await callDispatcher(
+        "work_write_idempotent",
+        "work_finalize_session",
+        finalizePayload(projectRoot, key, title),
+      );
+      const [content] = result.content as Array<{ type: string; text: string }>;
+      return JSON.parse(content?.text ?? "null") as Receipt;
+    };
+    const observedTool = (receipt: Receipt) =>
+      store.getSessionDetail(receipt.session.id)?.events.find((event) => event.details?.field === "startedAt")?.details
+        ?.tool;
+
+    // work_read: a work_get_context call with projectRoot is recorded; the dispatcher finalize uses then resets it.
+    await callDispatcher("work_read", "work_get_context", { projectRoot: root, task: "Fictional task" });
+    const read = await finalizeViaDispatcher(root, "dispatch-read-1", "Read");
+    expect(read.session.startedAtSource).toBe("server_observed");
+    expect(Date.parse(read.session.startedAt ?? "")).not.toBeNaN();
+    expect(read.startedAtFollowUp).toBeUndefined();
+    expect(observedTool(read)).toBe("work_get_context");
+    const afterReset = await finalizeViaDispatcher(root, "dispatch-read-2", "Read again");
+    expect(afterReset.session.startedAt).toBeUndefined();
+    expect(afterReset.session.startedAtSource).toBeUndefined();
+    expect(afterReset.startedAtFollowUp).toContain("Never estimate");
+
+    // work_write_additive: work_request_metadata_backfill takes projectRoot (the outcome does not matter).
+    await callDispatcher("work_write_additive", "work_request_metadata_backfill", { projectRoot: root });
+    const additive = await finalizeViaDispatcher(root, "dispatch-additive-1", "Additive");
+    expect(additive.session.startedAtSource).toBe("server_observed");
+    expect(observedTool(additive)).toBe("work_request_metadata_backfill");
+
+    // work_write_overwrite: work_update_knowledge takes projectRoot; an unknown id still counts as a call.
+    await callDispatcher("work_write_overwrite", "work_update_knowledge", {
+      projectRoot: root,
+      knowledgeId: "fictional-missing-knowledge",
+      status: "archived",
+    });
+    const overwrite = await finalizeViaDispatcher(root, "dispatch-overwrite-1", "Overwrite");
+    expect(overwrite.session.startedAtSource).toBe("server_observed");
+    expect(observedTool(overwrite)).toBe("work_update_knowledge");
+
+    // Mixed calls share one observation: the first call wins whichever dispatcher carried it.
+    await callDispatcher("work_write_additive", "work_request_metadata_backfill", { projectRoot: root });
+    await callDispatcher("work_read", "work_get_context", { projectRoot: root, task: "Fictional later task" });
+    await callDispatcher("work_write_overwrite", "work_update_knowledge", {
+      projectRoot: root,
+      knowledgeId: "fictional-missing-knowledge",
+      status: "archived",
+    });
+    const mixed = await finalizeViaDispatcher(root, "dispatch-mixed-1", "Mixed");
+    expect(mixed.session.startedAtSource).toBe("server_observed");
+    expect(observedTool(mixed)).toBe("work_request_metadata_backfill");
+    const mixedNext = await finalizeViaDispatcher(root, "dispatch-mixed-2", "Mixed next");
+    expect(mixedNext.session.startedAt).toBeUndefined();
+    expect(mixedNext.startedAtFollowUp).toContain("Never estimate");
+  });
+
+  it("records server time with completedAtNow and rejects it together with completedAt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-completed-now-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Completed now", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "fiction-agent-cli", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const earlier = new Date(Date.now() - 3_600_000).toISOString();
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "completed-now-1", "Continued"),
+      completedAt: earlier,
+    });
+    const sessionId = finalized.session.id;
+
+    const rejected = await client.callTool({
+      name: "work_update_session_metadata",
+      arguments: { sessionId, completedAtNow: true, completedAt: earlier },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(store.getSessionById(sessionId)?.completedAt).toBe(earlier);
+
+    const updated = await callJson<{ outcome: string; session: { completedAt: string } }>(
+      client,
+      "work_update_session_metadata",
+      { sessionId, completedAtNow: true },
+    );
+    expect(updated.outcome).toBe("updated");
+    expect(Date.parse(updated.session.completedAt)).toBeGreaterThan(Date.parse(earlier));
+    expect(store.getSessionById(sessionId)?.completedAt).toBe(updated.session.completedAt);
   });
 
   it("records the connecting client name and the optional model on finalize without Agent input", async () => {
@@ -1088,6 +1288,18 @@ describe("Work Intelligence MCP server", () => {
       openWorldHint: false,
     });
 
+    expect(await operationAnnotations(client, "work_request_outstanding_cleanup")).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(
+      await callJson(client, "work_request_outstanding_cleanup", {
+        projectRoot: root,
+        idempotencyKey: "mcp-agent-cleanup-request",
+      }),
+    ).toMatchObject({ outcome: "outstanding_cleanup_request_active", request: { id: created.request.id } });
+
     const listed = await callJson<{ outcome: string; requests: Array<{ id: string }> }>(
       client,
       "work_list_outstanding_cleanup_requests",
@@ -1821,6 +2033,62 @@ describe("Work Intelligence MCP server", () => {
         linked: false,
       }),
     ).toMatchObject({ outcome: "session_link_updated", links: [] });
+  });
+
+  it("closes verified items through work_resolve_outstanding_items and reports continued items and rewording", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Resolve project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const source = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-resolve-source", "Source"),
+      completedAt: "2026-01-01T10:00:00.000Z",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["PR #12 尚未合併", "Rotate signing certificate"],
+      },
+    });
+    const actor = await callJson<{
+      session: { id: string };
+      continuedOutstandingItems?: { items: Array<{ id: string; text: string }>; total: number };
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-resolve-actor", "Actor"),
+      completedAt: "2026-01-02T10:00:00.000Z",
+      parentSessionId: source.session.id,
+    });
+    expect(actor.continuedOutstandingItems).toMatchObject({ total: 2 });
+    const item = actor.continuedOutstandingItems?.items.find((entry) => entry.text === "PR #12 尚未合併");
+    expect(item).toBeDefined();
+
+    const resolved = await callJson(client, "work_resolve_outstanding_items", {
+      sessionId: actor.session.id,
+      resolvedOutstandingItemIds: [item?.id],
+    });
+    expect(resolved).toMatchObject({
+      outcome: "outstanding_items_resolved",
+      resolvedOutstandingItemIds: [item?.id],
+      supersededOutstandingItemIds: [],
+    });
+    expect(
+      await callJson(client, "work_resolve_outstanding_items", {
+        sessionId: actor.session.id,
+        resolvedOutstandingItemIds: [item?.id],
+      }),
+    ).toMatchObject({ duplicate: true, alreadyAppliedIds: [item?.id] });
+    expect(await operationAnnotations(client, "work_resolve_outstanding_items")).toMatchObject({
+      destructiveHint: true,
+      idempotentHint: true,
+    });
+    expect(
+      await callJson(client, "work_update_session_work_summary", {
+        sessionId: source.session.id,
+        idempotencyKey: "mcp-reword-1",
+        mode: "patch",
+        workSummary: { nextSteps: ["Rotate the signing certificate before release"] },
+      }),
+    ).toMatchObject({ outstandingItems: { created: 0, retained: 0, reworded: 1, closed: 0 } });
   });
 
   it("lets an Agent propose Knowledge candidates but not accept them", async () => {

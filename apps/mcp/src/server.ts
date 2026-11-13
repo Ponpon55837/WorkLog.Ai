@@ -25,7 +25,10 @@ import {
   mcpListSessionsInputSchema,
   mcpListSessionsInputSchemaBase,
   mcpOutstandingItemListQuerySchema,
+  resolveOutstandingItemsInputSchema,
+  resolveOutstandingItemsInputSchemaBase,
   mcpOutstandingCleanupRequestQuerySchema,
+  requestOutstandingCleanupInputSchema,
   outstandingCleanupContextQuerySchema,
   submitOutstandingCleanupProposalsInputSchema,
   metadataBackfillApplyInputSchema,
@@ -63,6 +66,7 @@ import {
   updateKnowledgeInputSchema,
   updateKnowledgeInputSchemaBase,
   updateSessionMetadataInputSchema,
+  updateSessionMetadataInputSchemaBase,
   updateSessionSummaryInputSchema,
   updateSessionTitleInputSchema,
   updateSessionWorkSummaryInputSchema,
@@ -98,6 +102,7 @@ import {
 } from "./contracts.js";
 import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { parseMcpInput } from "./input.js";
+import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { sessionTextResult, textResult } from "./result.js";
 import {
@@ -128,7 +133,10 @@ interface StoreToolDefinition<S extends z.ZodType> {
   sessionResult?: boolean;
   /** Attach the process build status to this operation's result. */
   includeServerStatus?: boolean;
-  run: (input: z.infer<S>, context: { agentClient?: string; serverStatus: McpRestartStatus }) => unknown;
+  run: (
+    input: z.infer<S>,
+    context: { agentClient?: string; serverStatus: McpRestartStatus; observedStartedAt?: ObservedSegmentStart },
+  ) => unknown;
   /**
    * Shapes the result for the Agent once the write has committed, so reminders that storage attaches after the
    * commit are included.
@@ -491,6 +499,7 @@ export function createWorkIntelligenceMcpServer(
   const server = new McpServer({ name: "work-intelligence", version }, { instructions });
   registerAgentResources(server);
   const registeredStoreTools = new Map<string, RegisteredStoreTool>();
+  const segmentObserver = new SegmentObserver();
 
   function resolveStore(): StoreResolution {
     if (access) return access.resolve();
@@ -548,10 +557,33 @@ export function createWorkIntelligenceMcpServer(
               }),
             };
           }
-          const context = { agentClient, serverStatus: restartStatus };
+          // A save is not its own start: look before recording, and only for a save of work that just finished.
+          const projectRoot = (parsed.data as { projectRoot?: unknown } | null)?.projectRoot;
+          const observedRoot = typeof projectRoot === "string" ? projectRoot : undefined;
+          const isFinalize = name === "work_finalize_session";
+          const finalizeInput = parsed.data as { startedAt?: unknown; completedAt?: unknown };
+          const observedStartedAt =
+            isFinalize && observedRoot && !finalizeInput.startedAt && !finalizeInput.completedAt
+              ? segmentObserver.peek(observedRoot)
+              : undefined;
+          if (observedRoot && !isFinalize) segmentObserver.record(observedRoot, name);
+          const context = {
+            agentClient,
+            serverStatus: restartStatus,
+            ...(observedStartedAt ? { observedStartedAt } : {}),
+          };
           const stored = readOnly
             ? await definition.run(parsed.data, context)
             : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
+          // A backfill (completedAt) saves earlier work, so the current segment stays open.
+          if (
+            isFinalize &&
+            observedRoot &&
+            !finalizeInput.completedAt &&
+            (stored as { outcome?: unknown } | null)?.outcome === "finalized"
+          ) {
+            segmentObserver.reset(observedRoot);
+          }
           const result = definition.present ? definition.present(stored, parsed.data) : stored;
           if (readOnly) {
             // Passive audit of what this read returned (ids only) and how long it took; never affects the response.
@@ -667,6 +699,18 @@ export function createWorkIntelligenceMcpServer(
     run: (input) => store.listOutstandingCleanupRequests(input),
   });
 
+  registerStoreTool("work_request_outstanding_cleanup", {
+    title: "Request outstanding cleanup",
+    description:
+      "Only when the user asks to 整理未結項 / clean up outstanding items for this tracked project; never on your own initiative. Creates the Web UI's fixed-snapshot request, or returns the open one (outstanding_cleanup_request_active); not_needed when nothing is pending. Request only: never changes item status; acceptance is Web-only. " +
+      outstandingCleanupContract,
+    inputShape: requestOutstandingCleanupInputSchema.shape,
+    schema: requestOutstandingCleanupInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid outstanding cleanup request.",
+    run: (input) => store.requestOutstandingCleanup(input),
+  });
+
   registerStoreTool("work_get_outstanding_cleanup_context", {
     title: "Read outstanding cleanup evidence context",
     description:
@@ -742,10 +786,25 @@ export function createWorkIntelligenceMcpServer(
     },
   });
 
+  registerStoreTool("work_resolve_outstanding_items", {
+    title: "Close verified outstanding items",
+    description:
+      "Right after work_finalize_session, close pending items that this Session's own work directly verified: resolvedOutstandingItemIds become completed, supersededOutstandingItemIds (needs this Session's nextSteps to be non-empty) become not_needed, both audited with sessionId as the actor. Use it for items listed in the finalize receipt's continuedOutstandingItems or relatedOutstandingItems, or in the context, that you verified yourself. It only changes a pending item in the same project whose source Session is nonvoided, differs from this Session, completed earlier than this Session, and is not held by a cleanup request; anything else stays pending and is listed in outstandingItemWarnings. An id in both lists changes nothing. Repeating a call reports already applied ids instead of warning. It never closes uncertain items, never bypasses cleanup review, and cannot reopen items; ranking or wording similarity is not evidence. Untracked projects are skipped quietly. " +
+      finalizeClosingContract,
+    inputShape: resolveOutstandingItemsInputSchemaBase.shape,
+    schema: resolveOutstandingItemsInputSchema,
+    validationNotes: [
+      "At least one of resolvedOutstandingItemIds or supersededOutstandingItemIds must be non-empty; each list has at most 200 distinct ids.",
+    ],
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid outstanding item resolution payload.",
+    run: (input) => store.resolveOutstandingItems(input),
+  });
+
   registerStoreTool("work_recall", {
     title: "Recall related work",
     description:
-      'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. Structured Session fields (title, summary, and workSummary) carry more weight than raw handoff text. Raw section content is normalized and hashed per project; only the earliest Session reference keeps full raw weight and later duplicates are downweighted. This helps completed implementation records rank ahead of repeated old planning excerpts while keeping raw-only answers searchable. A Session that continues an earlier hit and scores at least 30% of it is placed directly above that hit, so the latest state of a chain comes first and the earlier record follows. For ranking, query words found only in raw handoff text count half; raw-only answers are still returned, just lower. paths match changed files and Knowledge references by path suffix (absolute, project-prefixed, or relative). Returns confidence plus ranked hits with id, type, title, the strongest matchedIn field, raw section heading, an excerpt capped at 110 characters, and score; truncated excerpts are marked. confidence is "none" when no hit has meaningful query coverage or a path match, "low" for weak partial matches or matches found only in raw handoff text, and "high" when a hit matches most of the query in its title, summary, workSummary, or Knowledge, or matches a path. When confidence is "none", hits is empty and you must not use the result as evidence; rephrase the query or try a path. "high" and "low" only measure how much of the query wording a hit matches, not whether it answers the question: a question no record answers can still be "high", and a correct answer is often "low". Read the full record before citing it. Hits keep only their strongest matchedIn field, raw section headings are capped at 24 characters, and related Session links keep their ids and relations without repeating titles. With projectRoot, the project appears once as project { id, name } and hits omit projectId and projectName. Read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
+      'Ranked recall across tracked-project Sessions (title, summary, five-section workSummary, changed files, branch, events, and raw handoff sections) and active Knowledge. Use it before starting a task (describe the task in q and pass the files you will change as paths), when an error appears (pass the error message), or when the user asks about past work. Multi-word and Chinese queries are supported; words are matched independently and records containing more of them rank higher. Structured Session fields (title, summary, and workSummary) carry more weight than raw handoff text. Raw section content is normalized and hashed per project; only the earliest Session reference keeps full raw weight and later duplicates are downweighted. This helps completed implementation records rank ahead of repeated old planning excerpts while keeping raw-only answers searchable. A Session that continues an earlier hit and scores at least 30% of it is placed directly above that hit, so the latest state of a chain comes first and the earlier record follows. For ranking, query words found only in raw handoff text count half; raw-only answers are still returned, just lower. paths match changed files, Knowledge references, and (for Knowledge) appliesTo by path suffix (absolute, project-prefixed, or relative). Returns confidence plus ranked hits with id, type, title, the strongest matchedIn field, raw section heading, an excerpt capped at 110 characters, and score; truncated excerpts are marked. confidence is "none" when no hit has meaningful query coverage or a path match, "low" for weak partial matches or matches found only in raw handoff text, and "high" when a hit matches most of the query in its title, summary, workSummary, or Knowledge, or matches a path. When confidence is "none", hits is empty and you must not use the result as evidence; rephrase the query or try a path. "high" and "low" only measure how much of the query wording a hit matches, not whether it answers the question: a question no record answers can still be "high", and a correct answer is often "low". Read the full record before citing it. Hits keep only their strongest matchedIn field, raw section headings are capped at 24 characters, and related Session links keep their ids and relations without repeating titles. With projectRoot, the project appears once as project { id, name } and hits omit projectId and projectName. Read full records with work_get_session or work_search_knowledge and cite the sessionId or knowledgeId you rely on. termHits lists words that matched nothing so you can rephrase. When the user names a time ("last week", "in June", "yesterday"), pass from and/or to as calendar dates in the server time zone (get today from work_get_project_status clock); Sessions are dated by completion and Knowledge by its last update. A projectRoot scope is policy-gated first.',
     inputShape: recallQuerySchemaBase.shape,
     schema: recallQuerySchema,
     validationNotes: [
@@ -821,19 +880,24 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. relevant.outstandingItems ranks pending items by direct item keywords, source changed-file paths, and recalled source Session order, so older items are not excluded by recency or the top recalled sources. It contains at most 5 pointers (id, sourceSessionId, and text capped at 240 characters; read the source Session for its title), total/omitted counts and a caution hint; context budgeting may shorten text or omit lower-ranked items with a readWith pointer. Ranking is not completion evidence. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. "high" and "low" only measure wording overlap, not whether a result answers the task; read the record before relying on it. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted, a small pointer per section: count, duplicates (already shown elsewhere in this response), up to 3 ids with reasons for budget omissions plus moreIds, entries with only the id and flags of anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; page review detail and citation ids are not repeated there. Truncated excerpts are marked. Without a focus, the 3 newest Sessions are kept until older Knowledge, decisions, and page content are trimmed. With projectRoot, the project appears once in project, projects is empty, and items omit projectId and projectName. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns projectStatus "tracked" and tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", projectRoot, projectStatus, tracked: false, reason, and server, with no project data, so no separate work_get_project_status call is needed.',
+      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. Pass the files you plan to change as paths at the start, and call again with paths (or work_get_file_history) when more files become known: Knowledge scoped to files (appliesTo) is matched only through paths. relevant.outstandingItems ranks pending items by direct item keywords, source changed-file paths, and recalled source Session order, so older items are not excluded by recency or the top recalled sources. It contains at most 5 pointers (id, sourceSessionId, and text capped at 240 characters; read the source Session for its title), total/omitted counts and a caution hint; context budgeting may shorten text or omit lower-ranked items with a readWith pointer. Ranking is not completion evidence. linkedSessionIds (Sessions you will link) adds relevant.continuedOutstandingItems, their pending items, kept out of outstandingItems. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. "high" and "low" only measure wording overlap, not whether a result answers the task; read the record before relying on it. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted, a small pointer per section: count, duplicates (already shown elsewhere in this response), up to 3 ids with reasons for budget omissions plus moreIds, entries with only the id and flags of anything flagged possiblyStale or needsReview (relevant.knowledge entries for Knowledge matched by a focus path may also carry a short title and path), and readWith, the tool that reads the full item (work_get_file_history/work_search_knowledge when such path entries exist); page review detail and citation ids are not repeated there. Truncated excerpts are marked. Without a focus, the 3 newest Sessions are kept until older Knowledge, decisions, and page content are trimmed. With projectRoot, the project appears once in project, projects is empty, and items omit projectId and projectName. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns projectStatus "tracked" and tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", projectRoot, projectStatus, tracked: false, reason, and server, with no project data, so no separate work_get_project_status call is needed.',
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid context query.",
     includeServerStatus: true,
-    run: (input) => store.getContext(input.projectRoot, { task: input.task, paths: input.paths }),
+    run: (input) =>
+      store.getContext(input.projectRoot, {
+        task: input.task,
+        paths: input.paths,
+        linkedSessionIds: input.linkedSessionIds,
+      }),
   });
 
   registerStoreTool("work_get_file_history", {
     title: "Get the history of a file",
     description:
-      "Before editing a file, read what happened to it: for 1–3 repository-relative paths of a tracked project, every non-voided Session whose recorded changedFiles contain the path (nothing inferred). Each path returns totals over the whole history (Sessions, first/last dates, counts by verification status, Sessions with decisions, pending outstanding items from them, broad changes over 20 files), the newest Sessions as digests (default 5, limit up to 10; first decisions and pending items shortened), and older failed or not_run Sessions as attention (at most 3). omitted counts what was left out; pass nextCursor back as cursor (with that one path) to page older Sessions. knowledge lists active Knowledge whose appliesTo covers a path. Capped at 4,000 characters for one path, 3,000 more per extra path; budgetTrimmed marks shortened digests. Reads stored records only; non-tracked projects are skipped quietly. Read a full Session with work_get_session.",
+      "Before editing a file, read what happened to it: for 1–3 repository-relative paths of a tracked project, every non-voided Session whose recorded changedFiles contain the path (nothing inferred). Each path returns totals over the whole history (Sessions, first/last dates, counts by verification status, Sessions with decisions, pending outstanding items from them, broad changes over 20 files), the newest Sessions as digests (default 5, limit up to 10; first decisions and pending items shortened), and older failed or not_run Sessions as attention (at most 3). omitted counts what was left out; pass nextCursor back as cursor (with that one path) to page older Sessions. knowledge lists active Knowledge whose appliesTo covers a path, so call it again whenever another file you will change becomes known. Capped at 4,000 characters for one path, 3,000 more per extra path; budgetTrimmed marks shortened digests. Reads stored records only; non-tracked projects are skipped quietly. Read a full Session with work_get_session.",
     inputShape: fileHistoryQuerySchemaBase.shape,
     schema: fileHistoryQuerySchema,
     validationNotes: [
@@ -848,8 +912,8 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_update_session_metadata", {
     title: "Update session metadata",
     description:
-      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. The Agent must inspect the worktree/diff first and provide the confirmed changedFiles list; use [] only when the work intentionally changed no files. By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
-    inputShape: updateSessionMetadataInputSchema.shape,
+      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. To change changed files, inspect the worktree/diff first and provide the confirmed changedFiles list ([] only when the work intentionally changed no files); omit changedFiles to leave the stored files, provenance, and changes untouched (for example when only correcting startedAt or completedAt). By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a startedAt or completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. If you continued this same Session and it has now finished, pass completedAtNow=true instead of completedAt (server time). The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
+    inputShape: updateSessionMetadataInputSchemaBase.shape,
     schema: updateSessionMetadataInputSchema,
     validationNotes: [
       "A changedFileChanges entry with status=renamed must include previousPath.",

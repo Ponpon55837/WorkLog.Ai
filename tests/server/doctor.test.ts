@@ -406,6 +406,8 @@ describe("pnpm doctor read-only checks", () => {
       codexSegmentStartConfigured: false,
       claudeCompactionConfigured: false,
       codexCompactionConfigured: false,
+      claudeStartGuardConfigured: false,
+      codexStartGuardConfigured: false,
       codexHooksFeature: "enabled",
     });
 
@@ -454,6 +456,15 @@ describe("pnpm doctor read-only checks", () => {
     claudeWithPreCompact.hooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
     writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeCompactionConfigured).toBe(true);
+    // The start guard counts only with a PreToolUse matcher that selects the finalize dispatcher.
+    claudeWithPreCompact.hooks.PreToolUse = [{ matcher: "^Bash$", hooks: claudeHandler }];
+    writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeStartGuardConfigured).toBe(false);
+    claudeWithPreCompact.hooks.PreToolUse = [
+      { matcher: "^mcp__.*(work_finalize_session|work_write_idempotent)$", hooks: claudeHandler },
+    ];
+    writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeStartGuardConfigured).toBe(true);
     writeFileSync(claudeSettingsPath, claudeSettings);
 
     writeFileSync(
@@ -531,6 +542,8 @@ describe("pnpm doctor read-only checks", () => {
       codexSegmentStartConfigured: false,
       claudeCompactionConfigured: false,
       codexCompactionConfigured: false,
+      claudeStartGuardConfigured: false,
+      codexStartGuardConfigured: false,
       codexHooksFeature: "disabled",
     });
   });
@@ -760,14 +773,37 @@ describe("pnpm doctor read-only checks", () => {
       recommendation: expect.stringContaining("setup:agents"),
     });
 
+    expect(findings.find((finding) => finding.title === "Codex 全域 hook")?.detail).toContain("未設定 PreToolUse hook");
     claudeHooks.PreCompact = [{ hooks: claudeHandler }];
     claudeHooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
     codexHooks.SessionStart = [{ matcher: "compact", hooks: codexHandler }];
     write();
+
+    // Only the PreToolUse guard is missing: the recommendation points at setup:agents instead of a generic check.
     findings = await collectDoctorFindings(doctorOptions);
-    expect(findings.find((finding) => finding.title === "Claude 全域 hook")?.detail).toContain(
-      "Stop、PreCompact 與 SessionStart（compact）hook 已設定",
-    );
+    expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining("未設定 PreToolUse hook（保存前提示開始時間）"),
+      recommendation:
+        "執行 pnpm setup:agents，預覽後確認即可補上 PreToolUse hook（保存前提示開始時間），或更新 plugin。",
+    });
+    expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining("未設定 PreToolUse hook（保存前提示開始時間）"),
+      recommendation:
+        "執行 pnpm setup:agents 補上缺少的選用 hook；之後在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks。",
+    });
+
+    claudeHooks.PreToolUse = [
+      { matcher: "^mcp__.*(work_finalize_session|work_write_idempotent)$", hooks: claudeHandler },
+    ];
+    codexHooks.PreToolUse = [{ matcher: "^.*(work_finalize_session|work_write_idempotent)$", hooks: codexHandler }];
+    write();
+    findings = await collectDoctorFindings(doctorOptions);
+    expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+      detail: expect.stringContaining("Stop、PreCompact 與 SessionStart（compact）hook 已設定"),
+      recommendation: "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。",
+    });
     expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
       severity: "ok",
       detail:

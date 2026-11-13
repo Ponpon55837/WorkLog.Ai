@@ -100,6 +100,40 @@ describe("finalize receipt", () => {
     expect(JSON.stringify(receipt)).not.toContain("sourceSessionTitle");
   });
 
+  it("labels a start the server filled in and omits the source for a reported one", () => {
+    const observed = toFinalizeReceipt({ changedFiles: [] }, finalized({ startedAtSource: "server_observed" }));
+    const events = toFinalizeReceipt({ changedFiles: [] }, finalized({ startedAtSource: "events" }));
+    const reported = toFinalizeReceipt(
+      { changedFiles: [], startedAt: SESSION.startedAt },
+      finalized({ startedAtSource: "reported" }),
+    );
+
+    expect(observed).toMatchObject({
+      session: { startedAt: SESSION.startedAt, startedAtSource: "server_observed" },
+    });
+    expect(events).toMatchObject({ session: { startedAtSource: "events" } });
+    expect(JSON.stringify(reported)).not.toContain("startedAtSource");
+    expect(observed).not.toHaveProperty("startedAtSource");
+    expect(observed).not.toHaveProperty("startedAtFollowUp");
+  });
+
+  it("asks for evidence only when no start was stored and the request had no completedAt", () => {
+    const noStart = { ...SESSION, startedAt: undefined };
+    const missing = toFinalizeReceipt({ changedFiles: [] }, finalized({ session: noStart })) as Record<string, unknown>;
+    const backfill = toFinalizeReceipt(
+      { changedFiles: [], completedAt: "2026-05-01T09:00:00.000Z" },
+      finalized({ session: noStart }),
+    );
+
+    expect(missing.startedAtFollowUp).toEqual(expect.stringContaining("Never estimate"));
+    expect(missing.suggestedCall).toEqual({
+      tool: "work_update_session_metadata",
+      arguments: { sessionId: SESSION.id },
+    });
+    expect(String(missing.startedAtFollowUp).length).toBeLessThan(600);
+    expect(backfill).not.toHaveProperty("startedAtFollowUp");
+  });
+
   it("passes other outcomes through unchanged", () => {
     const skipped: FinalizeResult = {
       outcome: "skipped",

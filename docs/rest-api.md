@@ -124,8 +124,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | DELETE   | `/api/sessions/:id/links/:relatedId`             | 移除兩筆 Session 之間的關聯                                                           |
 | PATCH    | `/api/sessions/:id/void`                         | 作廢（`voided: true` 與必填 `reason`）或還原（`voided: false`）Session，保留作廢紀錄 |
 | PATCH    | `/api/evidence/:id/void`                         | 標示 Evidence 為錯誤或還原，保留作廢紀錄                                              |
-| GET      | `/api/knowledge/candidates`                      | 待審核（`status=proposed`，預設）或已處理的 Knowledge 候選與未完成的整理請求；可用 `projectRoot` 篩選。候選送出時保存的重疊提示以 `overlaps` 回傳（最多 3 筆：`relation`、`type`、`id`、送出時的 `status`、`score`，以及對象仍存在於同專案時的 `title`）；沒有提示時省略 |
-| POST     | `/api/knowledge/candidate-requests`              | 建立（或回傳既有的）Knowledge 候選整理請求（`projectRoot`），由 Agent 處理                |
+| GET      | `/api/knowledge/candidates`                      | 待審核（`status=proposed`，預設）或已處理的 Knowledge 候選與未完成的整理請求；可用 `projectRoot` 篩選。另帶 `backlog`：每個範圍內專案一筆 `{ projectId, uncoveredSessions, highValueSessions }`，是尚未被任何非取消請求涵蓋的未作廢 Session 數及其中高價值者（已確認決策、驗證修復、被後續工作引用或常被 Agent 讀取），沒有未涵蓋 Session 的專案不列出；指定 `projectRoot` 時只含該專案，未指定時涵蓋所有 tracked 專案。`openRequests` 含 pending、processing 與 failed。候選送出時保存的重疊提示以 `overlaps` 回傳（最多 3 筆：`relation`、`type`、`id`、送出時的 `status`、`score`，以及對象仍存在於同專案時的 `title`）；沒有提示時省略 |
+| POST     | `/api/knowledge/candidate-requests`              | 建立（或回傳既有的，含 failed）Knowledge 候選整理請求（`projectRoot`），由 Agent 處理；新建立時回應帶 `remaining: { uncoveredSessions, highValueSessions }`               |
 | POST     | `/api/knowledge/candidates/:id/decision`         | 接受（`decision: "accept"`，可帶 `edits`）或拒絕候選；接受時才寫成 Knowledge             |
 | GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge；`q` 的每個詞須出現在標題、內文、tags、references 或 `appliesTo` 路徑（1.6.16 起含 `appliesTo`）。MCP 專用的寬鬆備援與其他狀態計數不在 REST 回應中；`q` 的上限與 `warnings` 同 `/api/sessions` |
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
@@ -182,6 +182,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 - `GET /api/outstanding-items` 預設只列 `pending` 項目；可用 `status=pending|completed|not_needed`、`projectId`、`page` 與 `pageSize` 篩選及分頁。省略 `projectId` 時只涵蓋目前 tracked 的專案。
 - 每筆資料帶穩定 `id`、文字、狀態、來源 Session id／標題、專案及建立／更新時間。來源 Session 被作廢後不再出現在清單中。
 - `from`／`to` 是來源 Session 完成日期的含首尾日篩選（`YYYY-MM-DD`，伺服器時區）；非法日曆日期或倒置範圍回傳 `400 invalid_input`。MCP 既有清單參數保持不變。
+- 已完成與不再需要的項目帶選填的 `closedBy`，由讓它進入目前狀態的最新稽核事件推得：`source_session`（Agent 更新來源 Session 自己的 nextSteps 時移除）、`later_session`（其他 Session 的 finalize 結案）、`user`（Web 操作，包含在 Web 編輯 Session 工作摘要而移除；雖記錄該 Session 為 actor，但視為人的決定）、`cleanup_review`（接受整理建議）、`migration`（遷移回填）。待處理項目與找不到事件者沒有此欄位。`GET` 可帶 `closedBy`（單一值或逗號分隔的多個值，例如 `later_session,user`）只保留這些結案方式；未知值、重複空值，或搭配 `status=pending` 回傳 `400 invalid_input`。MCP 清單不接受此參數，只回傳欄位。
 - Web 可呼叫 `PATCH /api/outstanding-items/:itemId`，JSON body 為 `{ "status": "completed" }`、`{ "status": "not_needed" }` 或 `{ "status": "pending" }`。狀態轉換會追加稽核事件；恢復為 `pending` 可重新開啟。這個 API 不提供建立或刪除項目的能力。
 - 專案不是 tracked 時回傳 `skipped`；無效的篩選或狀態回傳 `400 invalid_input`。找不到項目回傳 `not_found`，不揭露其他專案是否曾有該項目。
 - `PATCH /api/outstanding-items/batch` body 為 `{ "itemIds": ["id1", "id2"], "status": "completed" }`。ID 必須非空且不重複，每批最多 100；不存在或來源已作廢時整批回傳 `400 invalid_input`。含未啟用記錄的專案時整批 `skipped`，不讀內容、不部分更新。成功回傳 `outstanding_items_updated`，`updatedItemIds` 僅包含實際變更者；相同狀態不新增稽核。

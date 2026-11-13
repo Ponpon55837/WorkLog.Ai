@@ -4,6 +4,42 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.32] - 2026-11-13
+
+[繁體中文更新說明](docs/releases/1.6.32.md).
+
+This release follows measurements on a copy of real data (647 Sessions in six projects). It keeps the product loop unchanged (record what matters, bring it back when it applies, correct it afterwards) and fixes where that loop was measurably leaking.
+
+### Added
+
+- Start times no longer need a reminder from the user. Claude Code's plugin adds a PreToolUse hook: a save that names neither `startedAt` nor `completedAt` is paused once per segment with the start time read from the transcript, and the Agent retries with it. Codex states the start time at the first prompt of a segment and has a matching PreToolUse guard. When an Agent still omits `startedAt`, the MCP server uses the first tool call it observed for that project since the last save: the receipt labels it `startedAtSource: "server_observed"`, a note event records it, a value older than seven days is not used, and a backfill that passes `completedAt` never uses it. A save left without a start returns `startedAtFollowUp` and a `suggestedCall`. Nothing is estimated.
+- `work_update_session_metadata` accepts `completedAtNow: true` (the server records its own current time; mutually exclusive with `completedAt`) for a Session that was continued and has now finished, and accepts an omitted `changedFiles`, which leaves the stored files, provenance and changes untouched. Before, a time-only correction had to resend the file list, and `[]` cleared it.
+- `work_resolve_outstanding_items`: a finalized Session closes, in one call, pending items of earlier Sessions that its work verified, also after finalize. Every rule is rechecked in one transaction and the event records that Session as the actor. `work_get_context` accepts `linkedSessionIds` and returns `relevant.continuedOutstandingItems`, and the finalize receipt returns `continuedOutstandingItems`: the pending items of the same-project Sessions being linked (up to 10, kept out of `relatedOutstandingItems`).
+- `work_request_outstanding_cleanup`: an Agent starts 整理未結項 when the user asks, without a round trip through Web. Accepting or rejecting proposals stays in Web.
+- Outstanding item lists expose `closedBy` (`source_session`, `later_session`, `user`, `cleanup_review`, `migration`), derived from existing events, with a REST filter, Web labels and a filter that hides removals by the source Session.
+- `pendingRequests.knowledgeBacklog` in a project-scoped `work_get_context` (`uncoveredSessions`, `highValueSessions`, `requestWith`), shown only when the project has no open request, at least five high-value uncovered Sessions and no request in the last seven days. `work_request_knowledge_candidates` returns `remaining`; the candidates list and the Web candidates box show the backlog.
+- Read-only experiment scripts with synthetic self-checks that print aggregate numbers only: `docs/experiments/outstanding-items-probe.mjs` and `docs/experiments/knowledge-reuse-attribution.mjs`.
+
+### Changed
+
+- `work_recall` and `work_get_context` match Knowledge `appliesTo` against the queried `paths` (at 0.85 of a `references` match, inside the existing bounded scan), keep up to three places for path-matched Knowledge on files with many Sessions, and list path-matched Knowledge that does not fit as pointers with a title and the matched path. Character budgets are unchanged and calls without `paths` behave as before. On the real-data replay, for later Sessions that changed a file an active Knowledge item applies to, a call with those paths returned the full item in 67.1% of 337 cases instead of 3.3% (a pointer in 29.7%, nothing in 3.3%), and the mean response length changed by less than 0.5%. When the response is at its limit, lower-ranked Knowledge page sections, recent lists and later Sessions give way before these pointers lose their title and path.
+- Knowledge candidate requests pick the ten uncovered Sessions with the strongest recorded signals (confirmed decisions, a failed verification later passed, later Sessions linking to it, deliberate re-reads) instead of the ten newest, so older uncovered Sessions are reached. A failed request is now listed in `pendingRequests` instead of silently blocking new ones.
+- An outstanding item keeps its identity when its own Session rewords the `nextSteps` entry (character-bigram similarity of at least 0.5, paired one to one): the item is updated in place instead of being closed as `not_needed` and recreated. `work_update_session_work_summary` reports `outstandingItems` counts when anything changed.
+- The work record contract keeps in-task progress (uncommitted changes, a PR awaiting merge, CI running, a phase not started) out of `nextSteps`.
+- A `startedAt` correction now leaves a note event, like a `completedAt` correction. The skill tells Agents to pass `agentModel` when their system prompt states it.
+- Knowledge staleness results are reused while the data revision is unchanged; warm `work_recall` and `work_get_context` with paths are as fast as in 1.6.31 on 5,000 synthetic Sessions (about 11 ms and 50 ms). `resolveStartedAt` scans events once instead of sorting them.
+- `doctor` recommends adding the PreToolUse hook when only that hook is missing.
+- Tests and budgets: the largest operation contract may be 12,500 characters (12,000) and the fixed Agent reading 42,250 (41,500) for the two new operations and the new parameters; the core skill stays within 14,000.
+- Docs: `docs/mcp-tools.md`, `docs/rest-api.md`, `docs/agent-setup.md`, `docs/user-guide.md`, `docs/testing.md`, `docs/plugins.md`, `docs/troubleshooting.md`, `docs/status.md`, the work-intelligence skill and its guides.
+
+### Fixed
+
+- `DataRevisionCache.getMany` wrote a whole batch even when it exceeded the cache limit.
+
+### Upgrading
+
+No schema change (33); exports and existing data are unaffected. Reinstall or refresh the plugin, or run `pnpm setup:agents` for a manual setup, to get the PreToolUse hooks; `pnpm check` reports when they are missing. Reconnect Agents so they see the new operations and tool descriptions. The hooks are covered by unit tests only and were not exercised in a real Claude Code or Codex client. In Claude Desktop several conversations can share one MCP process, so a server-observed start can predate the current conversation; it is labelled and capped at seven days.
+
 ## [1.6.31] - 2026-11-13
 
 [繁體中文更新說明](docs/releases/1.6.31.md).

@@ -10,6 +10,7 @@ interface FinalizeReceiptRequest {
   changedFiles?: readonly string[];
   git?: unknown;
   startedAt?: string;
+  completedAt?: string;
   resolvedOutstandingItemIds?: readonly string[];
   supersededOutstandingItemIds?: readonly string[];
 }
@@ -22,6 +23,8 @@ export interface FinalizeReceiptSession {
   updatedAt: string;
   /** Present when the server derived it (from events) or changed the submitted value. */
   startedAt?: string;
+  /** Present with a startedAt the server filled in: the earliest recorded event, or the first call it observed. */
+  startedAtSource?: "events" | "server_observed";
   verificationStatus?: NonNullable<WorkSessionRecord["verification"]>["status"];
   changedFilesCount: number;
   /** The stored list, only when it differs from the submitted changedFiles (normalized, excluded, or added). */
@@ -31,6 +34,10 @@ export interface FinalizeReceiptSession {
   gitBranch?: string;
   voided?: WorkSessionRecord["voided"];
 }
+
+/** Asked when a just-finished save has no start: only evidence may fill it, never an estimate. */
+const STARTED_AT_FOLLOW_UP =
+  'startedAt is missing. If you have evidence of when this segment began (the hook message "這段工作的開始時間…", transcript timestamps, a handoff), call work_update_session_metadata with { sessionId, startedAt } now. Never estimate; otherwise leave it empty.';
 
 /** Pointers in the same shape as work_get_context: the source title and date are one read away. */
 function compactRelatedItems(related: RelatedOutstandingItems): unknown {
@@ -60,10 +67,12 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
   if (result.outcome !== "finalized") return result;
   const {
     session,
+    startedAtSource,
     redactions,
     resolvedOutstandingItemIds,
     supersededOutstandingItemIds,
     relatedOutstandingItems,
+    continuedOutstandingItems,
     outcome,
     duplicate,
     ...reminders
@@ -74,6 +83,9 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     completedAt: session.completedAt,
     updatedAt: session.updatedAt,
     ...(session.startedAt && session.startedAt !== input.startedAt ? { startedAt: session.startedAt } : {}),
+    ...(session.startedAt && !input.startedAt && (startedAtSource === "events" || startedAtSource === "server_observed")
+      ? { startedAtSource }
+      : {}),
     ...(session.verification ? { verificationStatus: session.verification.status } : {}),
     changedFilesCount: session.changedFiles.length,
     ...(sameList(input.changedFiles, session.changedFiles) ? {} : { changedFiles: session.changedFiles }),
@@ -93,7 +105,14 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     ...(supersededOutstandingItemIds?.length || input.supersededOutstandingItemIds?.length
       ? { supersededOutstandingItemIds: supersededOutstandingItemIds ?? [] }
       : {}),
+    ...(!session.startedAt && !input.completedAt
+      ? {
+          startedAtFollowUp: STARTED_AT_FOLLOW_UP,
+          suggestedCall: { tool: "work_update_session_metadata", arguments: { sessionId: session.id } },
+        }
+      : {}),
     ...reminders,
+    ...(continuedOutstandingItems ? { continuedOutstandingItems: compactRelatedItems(continuedOutstandingItems) } : {}),
     ...(relatedOutstandingItems ? { relatedOutstandingItems: compactRelatedItems(relatedOutstandingItems) } : {}),
   };
 }

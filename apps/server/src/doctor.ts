@@ -92,6 +92,10 @@ export interface DoctorFinding {
 
 export type { ReadOnlyDatabaseInspection } from "./database-inspection.js";
 
+/** Tool names a finalize call arrives under; the PreToolUse matchers must select them. */
+const CLAUDE_PRE_TOOL_USE_TOOL_NAME = "mcp__work-intelligence__work_write_idempotent";
+const CODEX_PRE_TOOL_USE_TOOL_NAME = "mcp__work_intelligence__work_write_idempotent";
+
 export interface GlobalHookInspection {
   claudeConfigured: boolean;
   codexConfigured: boolean;
@@ -103,6 +107,10 @@ export interface GlobalHookInspection {
   claudeCompactionConfigured: boolean;
   /** Optional SessionStart (compact) hook that restores the unsaved-work reminder after a Codex compaction. */
   codexCompactionConfigured: boolean;
+  /** Optional PreToolUse hook that pauses a Claude Code save without startedAt once, with the observed start. */
+  claudeStartGuardConfigured: boolean;
+  /** Optional PreToolUse hook that does the same for Codex. */
+  codexStartGuardConfigured: boolean;
   codexHooksFeature: CodexHooksFeature;
 }
 
@@ -384,6 +392,18 @@ function inspectGlobalHookConfigs(
         "SessionStart",
         codexScript,
         COMPACT_SESSION_START_MATCHER,
+      ),
+      claudeStartGuardConfigured: hasHookFor(
+        record(claudeSettings?.hooks),
+        "PreToolUse",
+        claudeScript,
+        CLAUDE_PRE_TOOL_USE_TOOL_NAME,
+      ),
+      codexStartGuardConfigured: hasHookFor(
+        record(codexSettings?.hooks),
+        "PreToolUse",
+        codexScript,
+        CODEX_PRE_TOOL_USE_TOOL_NAME,
       ),
       codexHooksFeature,
     },
@@ -1212,13 +1232,17 @@ export async function collectDoctorFindings(
         : claudeHookExists
           ? globalHooks.claudeConfigured
             ? globalHooks.claudeCompactionConfigured
-              ? "全域 Stop、PreCompact 與 SessionStart（compact）hook 已設定指向目前專案的 dist 腳本；doctor 只檢查設定檔，沒有執行 hook。"
+              ? `全域 Stop、PreCompact 與 SessionStart（compact）hook 已設定指向目前專案的 dist 腳本${
+                  globalHooks.claudeStartGuardConfigured ? "" : "，未設定 PreToolUse hook（保存前提示開始時間）"
+                }；doctor 只檢查設定檔，沒有執行 hook。`
               : "全域 Stop hook 已設定，但未設定 PreCompact 與 SessionStart（compact）hook，上下文壓縮後可能遺失未保存工作的開始時間與改過的檔案；doctor 沒有執行 hook。"
             : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
           : "apps/mcp/dist/finalize-reminder.js 不存在。",
       claudeHookState === "installed"
         ? globalHooks.claudeCompactionConfigured
-          ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
+          ? globalHooks.claudeStartGuardConfigured
+            ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
+            : `執行 ${cmd("setup:agents")}，預覽後確認即可補上 PreToolUse hook（保存前提示開始時間），或更新 plugin。`
           : `執行 ${cmd("setup:agents")}，預覽後確認即可補上壓縮前後的提醒 hook。`
         : claudeHookState === "unknown"
           ? `確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`
@@ -1246,7 +1270,7 @@ export async function collectDoctorFindings(
                     : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit"
                 }${
                   globalHooks.codexCompactionConfigured ? "" : "，未設定壓縮後提醒的 SessionStart（compact）hook"
-                }；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。`
+                }${globalHooks.codexStartGuardConfigured ? "" : "，未設定 PreToolUse hook（保存前提示開始時間）"}；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。`
               : globalHooks.codexLegacyMatcher
                 ? "PostToolUse hook 仍使用 MCP dispatcher 之前的舊 matcher，漏掉 work_write_idempotent 的 finalize 呼叫。"
                 : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
@@ -1256,7 +1280,9 @@ export async function collectDoctorFindings(
         : codexHooksDisabled
           ? `如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 ${cmd("check")}。`
           : codexHookExists && globalHooks.codexConfigured
-            ? globalHooks.codexCompactionConfigured && globalHooks.codexSegmentStartConfigured
+            ? globalHooks.codexCompactionConfigured &&
+              globalHooks.codexSegmentStartConfigured &&
+              globalHooks.codexStartGuardConfigured
               ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
               : `執行 ${cmd("setup:agents")} 補上缺少的選用 hook；之後在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks。`
             : globalHooks.codexHooksFeature === "unknown"

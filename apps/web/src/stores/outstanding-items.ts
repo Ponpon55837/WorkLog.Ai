@@ -5,6 +5,7 @@ import type {
   BatchUpdateOutstandingItemStatusInput,
   BatchUpdateOutstandingItemStatusResult,
   OutstandingItem,
+  OutstandingItemClosedBy,
   OutstandingItemListQueryResult,
   OutstandingItemStatus,
   PageInfo,
@@ -29,9 +30,15 @@ const emptyPageInfo: PageInfo = {
   truncated: false,
 };
 
+export type OutstandingClosedFilter = "all" | "hide_source_session";
+
+/** closedBy values that remain when source-Session removals are hidden. */
+const NON_SOURCE_CLOSERS: OutstandingItemClosedBy[] = ["later_session", "user", "cleanup_review", "migration"];
+
 type OutstandingListScope = {
   projectId?: string;
   status: OutstandingItemStatus;
+  closedBy?: OutstandingItemClosedBy[];
   page: number;
   pageSize: ListPageSize;
   from?: string;
@@ -45,8 +52,18 @@ function buildListScope(
   pageSize: ListPageSize,
   from: string,
   to: string,
+  closedFilter: OutstandingClosedFilter,
 ): OutstandingListScope {
-  return { projectId: projectId || undefined, status, page, pageSize, from: from || undefined, to: to || undefined };
+  return {
+    projectId: projectId || undefined,
+    status,
+    // Pending items have no closer, and the API rejects the filter for them.
+    closedBy: closedFilter === "hide_source_session" && status !== "pending" ? NON_SOURCE_CLOSERS : undefined,
+    page,
+    pageSize,
+    from: from || undefined,
+    to: to || undefined,
+  };
 }
 
 /** Owns the URL-scoped, project-filtered nextSteps work queue and its audited status transitions. */
@@ -59,15 +76,32 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
   const pageSize = ref<ListPageSize>(10);
   const from = ref("");
   const to = ref("");
+  const closedFilter = ref<OutstandingClosedFilter>("all");
 
   const listQuery = useQuery<OutstandingItemListQueryResult>({
     key: () => [
       ...queryKeys.outstandingItems.list,
-      buildListScope(projectId.value, status.value, page.value, pageSize.value, from.value, to.value),
+      buildListScope(
+        projectId.value,
+        status.value,
+        page.value,
+        pageSize.value,
+        from.value,
+        to.value,
+        closedFilter.value,
+      ),
     ],
     enabled: listEnabled,
     query: ({ signal }) => {
-      const scope = buildListScope(projectId.value, status.value, page.value, pageSize.value, from.value, to.value);
+      const scope = buildListScope(
+        projectId.value,
+        status.value,
+        page.value,
+        pageSize.value,
+        from.value,
+        to.value,
+        closedFilter.value,
+      );
       return useApi().client.listOutstandingItems({ ...scope, pageSize: pageSizeToQuery(pageSize.value) }, signal);
     },
   });
@@ -166,6 +200,7 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     pageSize,
     from,
     to,
+    closedFilter,
     items,
     pageInfo,
     loading,

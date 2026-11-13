@@ -3,6 +3,7 @@ export { AttentionPreferenceError } from "./attention-service.js";
 export { ReportPresentationError } from "./report-presentation-service.js";
 export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";
 export type { FinalizeSessionContext, TrackedScopeInput } from "./store.js";
+export type { ObservedStart } from "./session-record-codecs.js";
 export { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 export {
   DatabaseRedactionError,
@@ -71,3 +72,11 @@ export type {
   AgentReadToolStats,
   SummarizeAgentReadsOptions,
 } from "./agent-read-audit-service.js";
+export {
+  outstandingTextSimilarity,
+  pairRewordedItems,
+  REWORD_SIMILARITY_THRESHOLD,
+  type RewordNextEntry,
+  type RewordPair,
+  type RewordPreviousItem,
+} from "./outstanding-item-matching.js";

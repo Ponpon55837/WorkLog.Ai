@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { databasePathFor } from "./database-location.js";
 
 /**
- * Claude Code hooks for unsaved work in a tracked project. Stop: when an Agent changed files and has not saved a
+ * Claude Code hooks for unsaved work in a tracked project. PreToolUse: pause a finalize call that names no startedAt
+ * once, with the observed segment start. Stop: when an Agent changed files and has not saved a
  * Work Intelligence record since, ask it once to finalize. PreCompact: tell the compaction summary to keep when the
  * segment began and which files changed. SessionStart (after compaction): put the same facts back into context.
  * It reads the project registry read-only, never writes the database, and stays silent whenever it cannot tell.
@@ -20,6 +21,9 @@ export interface StopHookInput {
   hook_event_name?: string;
   /** SessionStart only: `compact` after a compaction. */
   source?: string;
+  /** PreToolUse only. */
+  tool_name?: string;
+  tool_input?: unknown;
 }
 
 /** Unsaved work in a tracked project: when its segment began and the tracked files edited since the last save. */
@@ -55,6 +59,11 @@ function startHint(segmentStartedAt: string | undefined): string {
   return segmentStartedAt
     ? `這段工作的開始時間（上一次成功保存後的第一則訊息）：${segmentStartedAt}。保存時請把它填入 startedAt；completedAt 請省略，由伺服器記錄。`
     : "";
+}
+
+/** Why a save without startedAt was paused once. */
+export function missingStartedAtReason(segmentStartedAt: string): string {
+  return `保存被暫停一次：沒有填 startedAt。這段工作的開始時間（上一次成功保存後的第一則訊息）是 ${segmentStartedAt}，請把 startedAt 設為 ${segmentStartedAt} 後重新呼叫；completedAt 照舊省略。`;
 }
 
 /** Adds when the current segment began (the first message after the last successful save), so the Agent never estimates startedAt. */
@@ -169,6 +178,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isFinalizeToolCall(name: string, input: unknown): boolean {
   if (name.endsWith("work_finalize_session")) return true;
   return name.endsWith("work_write_idempotent") && isRecord(input) && input.operation === "work_finalize_session";
+}
+
+/** The arguments of a finalize call: nested under `arguments` when it goes through the dispatcher tool. */
+function finalizeArguments(name: string, input: unknown): Record<string, unknown> {
+  if (!isRecord(input)) return {};
+  if (name.endsWith("work_write_idempotent")) {
+    return isRecord(input.arguments) ? input.arguments : {};
+  }
+  return input;
 }
 
 function parseJson(value: unknown): unknown {
@@ -356,6 +374,40 @@ export function reminderFor(input: StopHookInput, deps: ReminderDeps): string | 
   return deps.markOnce(`${input.session_id}:${work.lastFinalize}`) ? reminderWithStart(work.segmentStartedAt) : null;
 }
 
+/**
+ * Pauses a finalize call once per segment when it names neither startedAt nor completedAt, so the Agent can retry
+ * with the observed segment start. The transcript is read only for finalize calls. Never denies a second attempt.
+ */
+export function preToolUseDenial(input: StopHookInput, deps: ReminderDeps): string | null {
+  const name = input.tool_name;
+  if (
+    !name ||
+    !input.cwd ||
+    !input.transcript_path ||
+    !input.session_id ||
+    !isFinalizeToolCall(name, input.tool_input)
+  ) {
+    return null;
+  }
+  const args = finalizeArguments(name, input.tool_input);
+  if (args.startedAt !== undefined || args.completedAt !== undefined) {
+    return null;
+  }
+  try {
+    const cwd = deps.realpath(input.cwd);
+    if (!findTrackedRoot(cwd, deps.trackedRoots())) {
+      return null;
+    }
+    const { lastFinalize, segmentStartedAt } = summarizeTranscript(deps.readTranscript(input.transcript_path));
+    if (!segmentStartedAt || !deps.markOnce(`pre:${input.session_id}:${lastFinalize}`)) {
+      return null;
+    }
+    return missingStartedAtReason(segmentStartedAt);
+  } catch {
+    return null;
+  }
+}
+
 /** "a、b、c 等 N 個" with at most MAX_LISTED_FILES names. */
 function fileList(files: readonly string[]): string {
   const listed = files.slice(0, MAX_LISTED_FILES).join("、");
@@ -391,6 +443,14 @@ export function responseForClaudeHook(raw: string, deps: ReminderDeps): string |
     input = value as StopHookInput;
   } catch {
     return null;
+  }
+  if (input.hook_event_name === "PreToolUse") {
+    const permissionDecisionReason = preToolUseDenial(input, deps);
+    return permissionDecisionReason
+      ? JSON.stringify({
+          hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason },
+        })
+      : null;
   }
   if (input.hook_event_name === "PreCompact") {
     // Plain stdout becomes summary instructions. Never block: that would skip or fail the compaction.

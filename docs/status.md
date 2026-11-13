@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-13
 
+## 1.6.32（已完成）
+
+依真實使用資料副本（6 個專案、647 筆 Session）的量測，補上「有效沉澱 → 精準再利用 → 持續修正」實際漏掉的四處，沒有 schema 變更（33）。開始時間：Claude Code 保存前以 PreToolUse hook 告知、Codex 在第一則訊息告知，Agent 仍省略時改用伺服器觀察到的第一次工具呼叫時間並標示 `startedAtSource`，仍沒有時回條附 `startedAtFollowUp`；`work_update_session_metadata` 可省略 `changedFiles`、可用 `completedAtNow`。再利用：`work_get_context`／`work_recall` 帶 `paths` 時比對 Knowledge 的 `appliesTo`，真實資料回放 337 次機會的完整提供率由 3.3% 提高到 67.1%，回應長度變化不到 0.5%。沉澱：Knowledge 候選改依已確認決策、驗證失敗後修復、後續連結與刻意重讀挑選，並以 `pendingRequests.knowledgeBacklog` 顯示未整理數。修正：未結項在同一筆 Session 改寫時保留身分，`work_resolve_outstanding_items` 讓後續 Session 在保存前後附依據結案，`closedBy` 區分結案來源，`work_request_outstanding_cleanup` 讓 Agent 依使用者要求建立整理請求；歷史回放顯示使用者手動結案的 785 筆中 75% 會被列給 Agent。兩個 PreToolUse hook 只有單元測試，未在真實用戶端實測；Agent 是否照新指引結案與帶路徑，要在使用後以 `docs/experiments/` 的兩支腳本量測。見[更新說明](releases/1.6.32.md)。
+
 ## 1.6.31（已完成）
 
 `work_get_session` 的精準讀取（`view`／`select`）改為只回傳文字 content，不附 `structuredContent`。先前本體只在文字裡，`structuredContent` 只有識別與狀態欄位；在兩者並存時只把 `structuredContent` 交給模型的用戶端（已在 Claude 桌面版的 Code 分頁觀察到），Agent 讀不到 summary、workSummary、decisions、files 與 links，而 1.6.18 起 `view: "handoff"` 是預設讀法，結果是每次都要再做一次完整讀取。現在每個用戶端都拿得到本體，而且仍只送一次。完整讀取、`session_unchanged`、finalize 與 Session 更新回條不變。其他用戶端（終端機版 Claude Code、Codex、Claude Desktop 擴充）的行為沒有驗證。schema 維持 33。

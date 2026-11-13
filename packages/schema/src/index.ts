@@ -31,6 +31,7 @@ import {
   SESSION_DECISION_ORIGINS,
   SESSION_DECISION_REVIEW_STATUSES,
   OUTSTANDING_ITEM_STATUSES,
+  OUTSTANDING_ITEM_CLOSED_BY,
   OUTSTANDING_CLEANUP_REQUEST_STATUSES,
   OUTSTANDING_CLEANUP_PROPOSAL_STATUSES,
   MAX_OUTSTANDING_ITEM_BATCH_SIZE,
@@ -394,6 +395,11 @@ export const contextQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
   task: z.string().trim().min(1).max(500).optional(),
   paths: recallPathsSchema.optional(),
+  linkedSessionIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(20)
+    .refine((ids) => new Set(ids).size === ids.length, "linkedSessionIds must be distinct.")
+    .optional(),
 });
 
 export const sessionDecisionListQuerySchema = z.object({
@@ -450,8 +456,22 @@ const outstandingCalendarDateSchema = z
     return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
   }, "Provide a valid calendar date.");
 
+/** Comma-separated closedBy values, e.g. `later_session,user`; each must be a known value. */
+const outstandingClosedByFilterSchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.split(",") : value),
+  z.array(z.enum(OUTSTANDING_ITEM_CLOSED_BY)).min(1).max(OUTSTANDING_ITEM_CLOSED_BY.length),
+);
+
 export const webOutstandingItemListQuerySchema = outstandingItemListQuerySchema
-  .extend({ from: outstandingCalendarDateSchema.optional(), to: outstandingCalendarDateSchema.optional() })
+  .extend({
+    from: outstandingCalendarDateSchema.optional(),
+    to: outstandingCalendarDateSchema.optional(),
+    closedBy: outstandingClosedByFilterSchema.optional(),
+  })
+  .refine((value) => !value.closedBy || value.status !== "pending", {
+    message: "closedBy applies only to completed or not_needed items.",
+    path: ["closedBy"],
+  })
   .refine((value) => !value.from || !value.to || value.from <= value.to, {
     message: "The end date must be on or after the start date.",
     path: ["to"],
@@ -468,6 +488,30 @@ export const batchUpdateOutstandingItemStatusInputSchema = z
     expectedStatus: z.enum(OUTSTANDING_ITEM_STATUSES).optional(),
   })
   .strict();
+
+const resolveOutstandingItemIdListSchema = z
+  .array(z.string().trim().min(1).max(200))
+  .max(200)
+  .refine((ids) => new Set(ids).size === ids.length, "Item ids must be unique.");
+
+export const resolveOutstandingItemsInputSchemaBase = z
+  .object({
+    sessionId: z.string().trim().min(1).max(200).describe("The finalized Session whose own work verified the items."),
+    resolvedOutstandingItemIds: resolveOutstandingItemIdListSchema
+      .optional()
+      .describe("Pending items this Session's work directly verified as completed."),
+    supersededOutstandingItemIds: resolveOutstandingItemIdListSchema
+      .optional()
+      .describe(
+        "Pending items this Session's nextSteps explicitly replaced; they become not_needed. Needs a non-empty stored nextSteps.",
+      ),
+  })
+  .strict();
+
+export const resolveOutstandingItemsInputSchema = resolveOutstandingItemsInputSchemaBase.refine(
+  (value) => (value.resolvedOutstandingItemIds?.length ?? 0) + (value.supersededOutstandingItemIds?.length ?? 0) > 0,
+  { message: "Provide at least one item id to resolve or supersede." },
+);
 
 const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
 
@@ -855,9 +899,15 @@ export const updateSessionVerificationInputSchema = z.object({
   verification: verificationSchema,
 });
 
-export const updateSessionMetadataInputSchema = z.object({
+export const updateSessionMetadataInputSchemaBase = z.object({
   sessionId: z.string().trim().min(1).max(200),
-  changedFiles: z.array(z.string().max(1_000)).max(200),
+  changedFiles: z
+    .array(z.string().max(1_000))
+    .max(200)
+    .optional()
+    .describe(
+      "Omit to keep the stored changed files, provenance, and changes unchanged (e.g. a time-only correction).",
+    ),
   changedFilesMode: changedFilesModeSchema.default("replace"),
   changedFilesProvenance: z.array(changedFileProvenanceSchema).max(200).optional(),
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
@@ -871,6 +921,22 @@ export const updateSessionMetadataInputSchema = z.object({
     .describe(
       "Corrects a wrong completion time from evidence; must not be in the future or before startedAt. The change is kept as a note event on the Session.",
     ),
+  completedAtNow: z
+    .literal(true)
+    .optional()
+    .describe(
+      "The work recorded in this Session continued and has just finished: the server records its current time as completedAt. Use instead of completedAt when continuing the same Session; mutually exclusive with completedAt.",
+    ),
+});
+
+export const updateSessionMetadataInputSchema = updateSessionMetadataInputSchemaBase.superRefine((value, context) => {
+  if (value.completedAtNow && value.completedAt !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["completedAtNow"],
+      message: "completedAtNow and completedAt are mutually exclusive; provide only one.",
+    });
+  }
 });
 
 const voidReasonSchema = z.string().trim().min(1).max(1_000);
@@ -1301,6 +1367,7 @@ export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
 export type UpdateProjectLocationInput = z.infer<typeof updateProjectLocationInputSchema>;
 export type DeleteProjectInput = z.infer<typeof deleteProjectInputSchema>;
 export type DeleteSessionInput = z.infer<typeof deleteSessionInputSchema>;
+export type ResolveOutstandingItemsInput = z.infer<typeof resolveOutstandingItemsInputSchema>;
 export type UpdateSessionTitleInput = z.infer<typeof updateSessionTitleInputSchema>;
 export type FinalizeSessionInput = z.infer<typeof finalizeSessionInputSchema>;
 export type McpFinalizeSessionInput = z.infer<typeof mcpFinalizeSessionInputSchema>;
@@ -1349,6 +1416,10 @@ const cleanupPageSchema = z.number().int().min(1).max(1_000_000).optional();
 
 export const createOutstandingCleanupRequestInputSchema = z.object({
   projectId: cleanupIdSchema,
+  idempotencyKey: cleanupIdSchema,
+});
+export const requestOutstandingCleanupInputSchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: cleanupIdSchema,
 });
 export const outstandingCleanupRequestQuerySchema = z.object({

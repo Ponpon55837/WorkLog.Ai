@@ -26,10 +26,12 @@ export type AgentSetupComponentId =
   | "claudeMcp"
   | "claudeStopHook"
   | "claudePreCompactHook"
+  | "claudePreToolUseHook"
   | "claudeSessionStartHook"
   | "codexPostToolUseHook"
   | "codexStopHook"
   | "codexUserPromptSubmitHook"
+  | "codexPreToolUseHook"
   | "codexSessionStartHook";
 
 export type CodexHooksFeature = "enabled" | "disabled" | "unknown";
@@ -126,16 +128,21 @@ interface ReadFileResult {
 const HOOK_COMPONENT_IDS: ReadonlySet<AgentSetupComponentId> = new Set<HookComponentId>([
   "claudeStopHook",
   "claudePreCompactHook",
+  "claudePreToolUseHook",
   "claudeSessionStartHook",
   "codexPostToolUseHook",
   "codexStopHook",
   "codexUserPromptSubmitHook",
+  "codexPreToolUseHook",
   "codexSessionStartHook",
 ]);
 /** SessionStart matcher (on `source`) for the session that resumes after a compaction; same in both Agents. */
 export const COMPACT_SESSION_START_MATCHER = "compact";
 /** PostToolUse matcher that sees finalize calls both as a legacy direct tool and through the MCP dispatcher. */
 export const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
+/** PreToolUse matchers for finalize calls (Claude names MCP tools `mcp__server__tool`). */
+export const CLAUDE_PRE_TOOL_USE_MATCHER = "^mcp__.*(work_finalize_session|work_write_idempotent)$";
+export const CODEX_PRE_TOOL_USE_MATCHER = "^.*(work_finalize_session|work_write_idempotent)$";
 /** Pre-dispatcher matcher; setup upgrades it and Doctor reports it as stale. */
 export const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -248,11 +255,13 @@ function targetPath(id: AgentSetupComponentId, options: AgentSetupPlanOptions): 
       return join(options.homeDirectory, ".claude.json");
     case "claudeStopHook":
     case "claudePreCompactHook":
+    case "claudePreToolUseHook":
     case "claudeSessionStartHook":
       return join(claudeConfigDirectory, "settings.json");
     case "codexPostToolUseHook":
     case "codexStopHook":
     case "codexUserPromptSubmitHook":
+    case "codexPreToolUseHook":
     case "codexSessionStartHook":
       return join(codexHome, "hooks.json");
   }
@@ -1007,6 +1016,25 @@ function compactSessionStartSpec(
   };
 }
 
+/** A PreToolUse hook that pauses a finalize call without startedAt once. */
+function preToolUseSpec(
+  id: "claudePreToolUseHook" | "codexPreToolUseHook",
+  label: string,
+  matcher: string,
+  scriptPath: string,
+  command: string,
+): JsonMutationSpec {
+  return {
+    id,
+    kind: "array-item",
+    path: ["hooks", "PreToolUse"],
+    expected: { matcher, hooks: [{ type: "command", command }] },
+    label,
+    similar: (value) => referencesScriptPath(value, scriptPath),
+    equivalent: (value) => JSON_OBJECT(value) && value.matcher === matcher && invokesNodeScript(value, scriptPath),
+  };
+}
+
 function getClaudeHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): JsonMutationSpec[] {
   const scriptPath = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
   const command = commandForAgentHook(scriptPath, platform);
@@ -1031,6 +1059,7 @@ function getClaudeHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): 
       similar: (value) => referencesScriptPath(value, scriptPath),
       equivalent: (value) => invokesNodeScript(value, scriptPath),
     },
+    preToolUseSpec("claudePreToolUseHook", "Claude PreToolUse hook", CLAUDE_PRE_TOOL_USE_MATCHER, scriptPath, command),
     compactSessionStartSpec("claudeSessionStartHook", "Claude SessionStart（compact）hook", scriptPath, command),
   ];
 }
@@ -1079,6 +1108,7 @@ function getCodexHookSpecs(repositoryRoot: string, platform: NodeJS.Platform): J
       similar: (value) => referencesScriptPath(value, scriptPath),
       equivalent: (value) => invokesNodeScript(value, scriptPath),
     },
+    preToolUseSpec("codexPreToolUseHook", "Codex PreToolUse hook", CODEX_PRE_TOOL_USE_MATCHER, scriptPath, command),
     compactSessionStartSpec("codexSessionStartHook", "Codex SessionStart（compact）hook", scriptPath, command),
   ];
 }

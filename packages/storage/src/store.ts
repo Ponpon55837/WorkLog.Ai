@@ -18,6 +18,7 @@ import type {
   KnowledgeCandidateListResult,
   KnowledgeCandidateStatus,
   RequestKnowledgeCandidatesResult,
+  RequestOutstandingCleanupResult,
   SubmitKnowledgeCandidatesResult,
   LinkSessionsInput,
   LinkSessionsResult,
@@ -137,6 +138,8 @@ import type {
   OutstandingItemListQueryResult,
   OutstandingItemStatus,
   UpdateOutstandingItemStatusResult,
+  ResolveOutstandingItemsInput,
+  ResolveOutstandingItemsResult,
   KnowledgePageContextQuery,
   KnowledgePageContextResult,
   KnowledgePageListQuery,
@@ -277,7 +280,9 @@ import {
   excludeBaselineChangedFileChanges,
   toSession,
   toEvidence,
-  resolveStartedAt,
+  resolveStartedAtWithSource,
+  type ObservedStart,
+  type StartedAtSource,
   toKnowledge,
   getVerificationFollowUp,
   getChangedFilesFollowUp,
@@ -289,7 +294,11 @@ import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-de
 export type { ContextFocus } from "./context-recall-service.js";
 
 /** Server-side facts about a finalize call that the caller never supplies through the public input. */
-export type FinalizeSessionContext = { agentClient?: string };
+export type FinalizeSessionContext = {
+  agentClient?: string;
+  /** The first call the MCP server saw for this project since its last save; only a fact the server observed. */
+  observedStartedAt?: ObservedStart;
+};
 
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
@@ -466,6 +475,7 @@ export class WorkIntelligenceStore {
     });
     this.outstandingCleanup = new OutstandingCleanupService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
     });
     this.sessionRecords = new SessionRecordService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
@@ -604,6 +614,7 @@ export class WorkIntelligenceStore {
       previewMetadataBackfill: (previewOptions) => this.previewMetadataBackfill(previewOptions),
       countMetadataBackfillFollowUps: (countOptions) => this.countMetadataBackfillFollowUps(countOptions),
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
+      knowledgeCandidateBacklog: (projectId) => this.knowledgeCandidates.contextBacklog(projectId),
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
       listOutstandingItems: (input) => this.outstandingItems.list(input),
       listOutstandingCleanupRequests: (input) => this.outstandingCleanup.listRequests(input),
@@ -1312,6 +1323,13 @@ export class WorkIntelligenceStore {
     return this.outstandingCleanup.create(input);
   }
 
+  public requestOutstandingCleanup(input: {
+    projectRoot: string;
+    idempotencyKey: string;
+  }): RequestOutstandingCleanupResult {
+    return this.outstandingCleanup.requestForRoot(input);
+  }
+
   public submitOutstandingCleanupProposals(
     input: SubmitOutstandingCleanupProposalsInput,
   ): SubmitOutstandingCleanupProposalsResult {
@@ -1336,6 +1354,10 @@ export class WorkIntelligenceStore {
     input: BatchUpdateOutstandingItemStatusInput,
   ): BatchUpdateOutstandingItemStatusResult {
     return this.outstandingItems.batchUpdateStatus(input);
+  }
+
+  public resolveOutstandingItems(input: ResolveOutstandingItemsInput): ResolveOutstandingItemsResult {
+    return this.outstandingItems.resolveForSession(input);
   }
 
   public updateOutstandingItemStatus(
@@ -1659,7 +1681,13 @@ export class WorkIntelligenceStore {
     const sessionId = randomUUID();
     const createdAt = nowIso();
     const completedAt = input.completedAt ?? createdAt;
-    const startedAt = resolveStartedAt(input.startedAt, input.events, completedAt);
+    const resolvedStart = resolveStartedAtWithSource(
+      input.startedAt,
+      input.events,
+      completedAt,
+      input.completedAt || input.startedAt ? undefined : context.observedStartedAt,
+    );
+    const startedAt = resolvedStart?.value;
     const timestampWarnings = [
       ...suppliedCompletedAtWarnings(input.completedAt),
       ...(input.startedAt && input.startedAt > completedAt
@@ -1675,6 +1703,7 @@ export class WorkIntelligenceStore {
       },
     ];
 
+    let linkedIds: string[] = [];
     const result = runImmediateSqlTransaction<FinalizeSessionResult>(this.db, () => {
       const existing = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (existing) {
@@ -1787,7 +1816,20 @@ export class WorkIntelligenceStore {
         ]),
       ];
 
-      for (const event of events) {
+      const observedTool = context.observedStartedAt?.tool;
+      const storedEvents =
+        resolvedStart?.source === "server_observed" && context.observedStartedAt
+          ? [
+              ...events,
+              {
+                type: "note" as const,
+                summary: `開始時間取自 MCP 伺服器觀察：上次保存後此連線第一次呼叫 ${observedTool} 的時間（Agent 未回報 startedAt）。`,
+                details: { field: "startedAt", source: "server_observed", tool: observedTool },
+                occurredAt: context.observedStartedAt.at,
+              },
+            ]
+          : events;
+      for (const event of storedEvents) {
         this.db
           .prepare(
             `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
@@ -1841,6 +1883,7 @@ export class WorkIntelligenceStore {
         this.touchSession(linkedSessionId, createdAt);
       }
 
+      linkedIds = [...linkedSessionIds];
       const knowledgeWarnings = this.applyKnowledgeFeedback(project.id, sessionId, completedAt, input);
       const diagramRedactions = input.diagrams?.length
         ? this.diagrams.attachWithFinalize(sessionId, project.id, input.idempotencyKey, input.diagrams, createdAt)
@@ -1858,6 +1901,7 @@ export class WorkIntelligenceStore {
         outcome: "finalized",
         duplicate: false,
         session,
+        ...(resolvedStart ? { startedAtSource: resolvedStart.source satisfies StartedAtSource } : {}),
         redactions: diagramRedactions ? combineRedactionSummaries(redactions, diagramRedactions) : redactions,
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
@@ -1891,6 +1935,17 @@ export class WorkIntelligenceStore {
         } catch {
           delete result.knowledgePageMaintenanceHint;
         }
+        let continuedIds: string[] = [];
+        try {
+          if (linkedIds.length > 0) {
+            const continued = this.contextRecallService.continuedOutstandingItems(session.projectId, linkedIds);
+            continuedIds = continued.allIds;
+            if (continued.digest.total > 0) result.continuedOutstandingItems = continued.digest;
+          }
+        } catch {
+          continuedIds = [];
+          delete result.continuedOutstandingItems;
+        }
         try {
           result.relatedOutstandingItems = this.contextRecallService.relatedOutstandingItems(
             session.projectId,
@@ -1899,6 +1954,7 @@ export class WorkIntelligenceStore {
               paths: session.changedFiles,
             },
             session.id,
+            continuedIds,
           );
         } catch {
           delete result.relatedOutstandingItems;

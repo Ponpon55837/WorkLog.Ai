@@ -30,6 +30,10 @@ import type {
 } from "@work-intelligence/core";
 import { createProjectPathResolver } from "@work-intelligence/project-policy";
 import type { SessionRow } from "./session-repository.js";
+import { LONG_SEGMENT_WARNING_DAYS } from "./work-timestamps.js";
+
+/** A server-observed start older than this is ignored: it spans more than one plausible segment. */
+const MAX_OBSERVED_SEGMENT_MS = LONG_SEGMENT_WARNING_DAYS * 24 * 3_600_000;
 
 export type EventRow = {
   id: string;
@@ -587,23 +591,45 @@ export function sameVerification(left: VerificationSummary | undefined, right: V
   return left?.status === right.status && (left.summary?.trim() || undefined) === right.summary;
 }
 
+export type StartedAtSource = "reported" | "events" | "server_observed";
+
+/** A first MCP call the server saw for the project since its last save; an observed fact, never an estimate. */
+export interface ObservedStart {
+  at: string;
+  tool: string;
+}
+
 /**
- * The reported start wins when it is not after completion; otherwise the earliest event recorded
- * before completion. No start is invented when neither exists.
+ * The reported start wins when it is not after completion. Otherwise the earliest observed fact wins: an event
+ * recorded before completion, or the server-observed first call (only when it is not after completion and within
+ * the long-segment limit). No start is invented when none exists.
  */
-export function resolveStartedAt(
+export function resolveStartedAtWithSource(
   reported: string | undefined,
   events: ReadonlyArray<{ occurredAt?: string }> | undefined,
   completedAt: string,
-): string | undefined {
+  observed?: ObservedStart,
+): { value: string; source: StartedAtSource } | undefined {
   if (reported && reported <= completedAt) {
-    return reported;
+    return { value: reported, source: "reported" };
   }
-  const earliest = (events ?? [])
-    .map((event) => event.occurredAt)
-    .filter((value): value is string => Boolean(value) && value! < completedAt)
-    .sort()[0];
-  return earliest;
+  let earliest: string | undefined;
+  for (const event of events ?? []) {
+    const at = event.occurredAt;
+    if (at && at < completedAt && (earliest === undefined || at < earliest)) {
+      earliest = at;
+    }
+  }
+  const observedAt =
+    observed &&
+    observed.at <= completedAt &&
+    Date.parse(completedAt) - Date.parse(observed.at) <= MAX_OBSERVED_SEGMENT_MS
+      ? observed.at
+      : undefined;
+  if (observedAt && (earliest === undefined || observedAt < earliest)) {
+    return { value: observedAt, source: "server_observed" };
+  }
+  return earliest === undefined ? undefined : { value: earliest, source: "events" };
 }
 
 /** Voiding needs a reason so the audit explains it; a restore reason is optional. */
