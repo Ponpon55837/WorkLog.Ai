@@ -55,6 +55,10 @@ jobs:
       - name: Standalone package smoke test
         run: pnpm run test:standalone
 
+      # The real `pnpm start` entry (scripts/start.mjs) on a temporary database and free port; E2E no longer covers it.
+      - name: Start entry smoke test
+        run: pnpm run test:start-smoke
+
       # The coverage run executes the same test files as pnpm test, so each OS runs the suite once:
       # Ubuntu runs lint + format:check + coverage, Windows and macOS run pnpm test (lint + format:check + tests).
       - name: Lint and format
