@@ -24,7 +24,7 @@ import VirtualList from "../components/VirtualList.vue";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
-import { useOutstandingItemsStore } from "../stores/outstanding-items";
+import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../stores/outstanding-items";
 import { useProjectsStore } from "../stores/projects";
 import { useSessionsStore } from "../stores/sessions";
 import { formatDayGroup } from "../utils/format";
@@ -73,6 +73,7 @@ const {
   pageSize: outstandingPageSize,
   from: outstandingFrom,
   to: outstandingTo,
+  closedFilter: outstandingClosedFilter,
   pageInfo: outstandingPageInfo,
   loading: outstandingLoading,
   loaded: outstandingLoaded,
@@ -110,6 +111,11 @@ useRouteQuery(
   outstandingStatus,
   enumQuery<OutstandingItemStatus>(Object.keys(outstandingItemStatusLabels) as OutstandingItemStatus[], "pending"),
 );
+useRouteQuery(
+  "itemClosed",
+  outstandingClosedFilter,
+  enumQuery<OutstandingClosedFilter>(["all", "hide_source_session"], "all"),
+);
 useRouteQuery("itemPage", outstandingPage, pageQuery());
 useRouteQuery(
   "itemSize",
@@ -130,7 +136,14 @@ const { reloadNow } = useListReload({
 useListReload({
   load: () => outstandingItemsStore.listEnabled && reloadOutstandingItems(),
   page: outstandingPage,
-  filters: [outstandingProjectId, outstandingStatus, outstandingPageSize, outstandingFrom, outstandingTo],
+  filters: [
+    outstandingProjectId,
+    outstandingStatus,
+    outstandingPageSize,
+    outstandingFrom,
+    outstandingTo,
+    outstandingClosedFilter,
+  ],
 });
 
 const tab = computed<SessionsTab>({
@@ -330,6 +343,7 @@ onBeforeUnmount(() => {
       v-model:page-size="outstandingPageSize"
       v-model:from="outstandingFrom"
       v-model:to="outstandingTo"
+      v-model:closed-filter="outstandingClosedFilter"
       :items="outstandingItems"
       :projects="projects"
       :page-info="outstandingPageInfo"

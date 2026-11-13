@@ -117,6 +117,24 @@ describe("outstanding items store", () => {
     expect(undo?.body).toEqual({ itemIds: ["item-1"], status: "pending", expectedStatus: "completed" });
   });
 
+  it("sends the non-source closers only while source-Session removals are hidden for a closed status", async () => {
+    const store = useOutstandingItemsStore();
+    store.setListActive(true);
+    const latestListRequest = () =>
+      [...harness.calls].reverse().find((request) => request.url.pathname === "/api/outstanding-items");
+    await vi.waitFor(() => expect(latestListRequest()).toBeDefined());
+    expect(latestListRequest()?.url.searchParams.has("closedBy")).toBe(false);
+
+    store.status = "not_needed";
+    store.closedFilter = "hide_source_session";
+    await vi.waitFor(() =>
+      expect(latestListRequest()?.url.searchParams.get("closedBy")).toBe("later_session,user,cleanup_review,migration"),
+    );
+
+    store.closedFilter = "all";
+    await vi.waitFor(() => expect(latestListRequest()?.url.searchParams.has("closedBy")).toBe(false));
+  });
+
   it.each(batchScenarios)("preserves a successful $name when its list refetch is aborted", async ({ input }) => {
     let listReadCount = 0;
     let invalidationReadAborted = false;

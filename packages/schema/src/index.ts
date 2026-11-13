@@ -31,6 +31,7 @@ import {
   SESSION_DECISION_ORIGINS,
   SESSION_DECISION_REVIEW_STATUSES,
   OUTSTANDING_ITEM_STATUSES,
+  OUTSTANDING_ITEM_CLOSED_BY,
   OUTSTANDING_CLEANUP_REQUEST_STATUSES,
   OUTSTANDING_CLEANUP_PROPOSAL_STATUSES,
   MAX_OUTSTANDING_ITEM_BATCH_SIZE,
@@ -450,8 +451,22 @@ const outstandingCalendarDateSchema = z
     return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
   }, "Provide a valid calendar date.");
 
+/** Comma-separated closedBy values, e.g. `later_session,user`; each must be a known value. */
+const outstandingClosedByFilterSchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.split(",") : value),
+  z.array(z.enum(OUTSTANDING_ITEM_CLOSED_BY)).min(1).max(OUTSTANDING_ITEM_CLOSED_BY.length),
+);
+
 export const webOutstandingItemListQuerySchema = outstandingItemListQuerySchema
-  .extend({ from: outstandingCalendarDateSchema.optional(), to: outstandingCalendarDateSchema.optional() })
+  .extend({
+    from: outstandingCalendarDateSchema.optional(),
+    to: outstandingCalendarDateSchema.optional(),
+    closedBy: outstandingClosedByFilterSchema.optional(),
+  })
+  .refine((value) => !value.closedBy || value.status !== "pending", {
+    message: "closedBy applies only to completed or not_needed items.",
+    path: ["closedBy"],
+  })
   .refine((value) => !value.from || !value.to || value.from <= value.to, {
     message: "The end date must be on or after the start date.",
     path: ["to"],
@@ -1374,6 +1389,10 @@ const cleanupPageSchema = z.number().int().min(1).max(1_000_000).optional();
 
 export const createOutstandingCleanupRequestInputSchema = z.object({
   projectId: cleanupIdSchema,
+  idempotencyKey: cleanupIdSchema,
+});
+export const requestOutstandingCleanupInputSchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: cleanupIdSchema,
 });
 export const outstandingCleanupRequestQuerySchema = z.object({

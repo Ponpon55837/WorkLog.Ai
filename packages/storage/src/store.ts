@@ -18,6 +18,7 @@ import type {
   KnowledgeCandidateListResult,
   KnowledgeCandidateStatus,
   RequestKnowledgeCandidatesResult,
+  RequestOutstandingCleanupResult,
   SubmitKnowledgeCandidatesResult,
   LinkSessionsInput,
   LinkSessionsResult,
@@ -468,6 +469,7 @@ export class WorkIntelligenceStore {
     });
     this.outstandingCleanup = new OutstandingCleanupService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
     });
     this.sessionRecords = new SessionRecordService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
@@ -1312,6 +1314,13 @@ export class WorkIntelligenceStore {
     input: CreateOutstandingCleanupRequestInput,
   ): CreateOutstandingCleanupRequestResult {
     return this.outstandingCleanup.create(input);
+  }
+
+  public requestOutstandingCleanup(input: {
+    projectRoot: string;
+    idempotencyKey: string;
+  }): RequestOutstandingCleanupResult {
+    return this.outstandingCleanup.requestForRoot(input);
   }
 
   public submitOutstandingCleanupProposals(

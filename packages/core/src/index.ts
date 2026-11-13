@@ -277,6 +277,20 @@ export const OUTSTANDING_ITEM_STATUSES = ["pending", "completed", "not_needed"] 
 export const MAX_OUTSTANDING_ITEM_BATCH_SIZE = 100;
 export type OutstandingItemStatus = (typeof OUTSTANDING_ITEM_STATUSES)[number];
 export type OutstandingItemEventSource = "agent" | "web" | "migration";
+/**
+ * Who closed a non-pending item, derived from the latest event that moved it into its current status:
+ * source_session = an Agent update of the source Session's own nextSteps dropped it; later_session = another
+ * Session's finalize closed it; user = a person acted in the web UI (including editing the Session's work summary);
+ * cleanup_review = an accepted cleanup proposal; migration = a schema-migration backfill.
+ */
+export const OUTSTANDING_ITEM_CLOSED_BY = [
+  "source_session",
+  "later_session",
+  "user",
+  "cleanup_review",
+  "migration",
+] as const;
+export type OutstandingItemClosedBy = (typeof OUTSTANDING_ITEM_CLOSED_BY)[number];
 
 export interface OutstandingItem {
   id: string;
@@ -288,6 +302,8 @@ export interface OutstandingItem {
   position: number;
   text: string;
   status: OutstandingItemStatus;
+  /** Present on completed and not_needed items whose closing event is known. */
+  closedBy?: OutstandingItemClosedBy;
   createdAt: string;
   updatedAt: string;
 }
@@ -296,6 +312,8 @@ export interface ListOutstandingItemsInput {
   projectRoot?: string;
   projectId?: string;
   status?: OutstandingItemStatus;
+  /** Keeps only non-pending items closed by one of these; matches nothing for pending. */
+  closedBy?: readonly OutstandingItemClosedBy[];
   page?: number;
   pageSize?: number;
   from?: string;
@@ -2864,6 +2882,11 @@ export type CreateOutstandingCleanupRequestResult =
   | { outcome: "not_needed"; projectId: string }
   | OutstandingCleanupRejectedResult
   | ProjectIdSkippedResult;
+export type RequestOutstandingCleanupResult =
+  | Extract<CreateOutstandingCleanupRequestResult, { outcome: "outstanding_cleanup_request_created" | "not_needed" }>
+  | { outcome: "outstanding_cleanup_request_active"; request: OutstandingCleanupRequest }
+  | OutstandingCleanupRejectedResult
+  | KnowledgeCandidateSkippedResult;
 export type OutstandingCleanupRequestListResult =
   | { outcome: "outstanding_cleanup_requests"; requests: OutstandingCleanupRequest[]; pageInfo: PageInfo }
   | ProjectIdSkippedResult;

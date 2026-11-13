@@ -28,6 +28,7 @@ import {
   resolveOutstandingItemsInputSchema,
   resolveOutstandingItemsInputSchemaBase,
   mcpOutstandingCleanupRequestQuerySchema,
+  requestOutstandingCleanupInputSchema,
   outstandingCleanupContextQuerySchema,
   submitOutstandingCleanupProposalsInputSchema,
   metadataBackfillApplyInputSchema,
@@ -667,6 +668,18 @@ export function createWorkIntelligenceMcpServer(
     annotations: READ_ONLY,
     invalidMessage: "Invalid outstanding cleanup request query.",
     run: (input) => store.listOutstandingCleanupRequests(input),
+  });
+
+  registerStoreTool("work_request_outstanding_cleanup", {
+    title: "Request outstanding cleanup",
+    description:
+      "Only when the user asks to 整理未結項 / clean up outstanding items for this tracked project; never on your own initiative. Creates the Web UI's fixed-snapshot request, or returns the open one (outstanding_cleanup_request_active); not_needed when nothing is pending. Request only: never changes item status; acceptance is Web-only. " +
+      outstandingCleanupContract,
+    inputShape: requestOutstandingCleanupInputSchema.shape,
+    schema: requestOutstandingCleanupInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid outstanding cleanup request.",
+    run: (input) => store.requestOutstandingCleanup(input),
   });
 
   registerStoreTool("work_get_outstanding_cleanup_context", {

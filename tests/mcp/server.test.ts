@@ -41,7 +41,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 16,
+    operationCount: 17,
   },
   work_write_additive: {
     title: "Add Work Intelligence records or proposals",
@@ -1087,6 +1087,18 @@ describe("Work Intelligence MCP server", () => {
       idempotentHint: true,
       openWorldHint: false,
     });
+
+    expect(await operationAnnotations(client, "work_request_outstanding_cleanup")).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(
+      await callJson(client, "work_request_outstanding_cleanup", {
+        projectRoot: root,
+        idempotencyKey: "mcp-agent-cleanup-request",
+      }),
+    ).toMatchObject({ outcome: "outstanding_cleanup_request_active", request: { id: created.request.id } });
 
     const listed = await callJson<{ outcome: string; requests: Array<{ id: string }> }>(
       client,

@@ -248,12 +248,13 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 { "projectRoot": "C:\\work\\assistant", "status": "pending", "page": 1, "pageSize": 5 }
 ```
 
-## 未結項整理：兩個讀取與一個提交 operation
+## 未結項整理：建立、讀取與提交 operation
 
-使用者先在 Web 選擇一個記錄中的專案建立「整理未結項」請求。MCP 不建立、取消或審核整理請求；只有以下三項新增操作：
+「整理未結項」請求可由使用者在 Web 建立，或在使用者明確要求時由 Agent 以 `work_request_outstanding_cleanup` 建立（Agent 不會自行發起）。MCP 不取消或審核整理請求，也不改變項目狀態；接受／拒絕只能在 Web。操作如下：
 
 | Operation | Dispatcher | 參數與回應 |
 | --- | --- | --- |
+| `work_request_outstanding_cleanup` | `work_write_idempotent` | `projectRoot`、`idempotencyKey`；建立與 Web 相同的固定快照請求（每專案一個進行中請求）。回傳 `outstanding_cleanup_request_created`（`duplicate` 表示同 key 重送）、`outstanding_cleanup_request_active`（已有 pending／awaiting_review 請求，直接沿用）、`not_needed`（沒有待處理項目）、`rejected`（`idempotency_conflict`、`too_many_items`）；未追蹤專案安靜回傳 `skipped`。 |
 | `work_list_outstanding_cleanup_requests` | `work_read` | 可選 `projectId`、`status`、`page`；`pageSize` 預設／上限 5，列出 tracked 專案請求 |
 | `work_get_outstanding_cleanup_context` | `work_read` | `requestId`；獨立 `itemPage`／`sessionPage`，`itemPageSize` 上限 5、`sessionPageSize` 上限 10；整體 24,000 字元 |
 | `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個 `proposals` |

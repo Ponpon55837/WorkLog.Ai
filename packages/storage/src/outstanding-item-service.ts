@@ -5,6 +5,7 @@ import type {
   BatchUpdateOutstandingItemStatusResult,
   ListOutstandingItemsInput,
   OutstandingItem,
+  OutstandingItemClosedBy,
   OutstandingItemEventSource,
   OutstandingItemListQueryResult,
   OutstandingItemSyncSummary,
@@ -47,6 +48,7 @@ type OutstandingItemRow = {
   position: number;
   text: string;
   status: OutstandingItemStatus;
+  closed_by?: OutstandingItemClosedBy | null;
   created_at: string;
   updated_at: string;
 };
@@ -65,6 +67,22 @@ const RELATED_PENDING_LIMIT = 5;
  */
 const RELATED_PENDING_CANDIDATE_LIMIT = 2_000;
 
+/**
+ * Derives who closed an item from the latest event into its current status (idx_outstanding_item_events_item serves
+ * the item_id lookup and ordering). Web edits of a Session's work summary record the Session as actor but are a
+ * person's decision, so only source = 'agent' counts as the Session itself.
+ */
+const CLOSED_BY_SQL = `CASE WHEN i.status = 'pending' THEN NULL ELSE (
+  SELECT CASE
+    WHEN e.cleanup_proposal_id IS NOT NULL THEN 'cleanup_review'
+    WHEN e.source = 'migration' THEN 'migration'
+    WHEN e.source = 'agent' AND e.actor_session_id IS i.source_session_id THEN 'source_session'
+    WHEN e.source = 'agent' THEN 'later_session'
+    ELSE 'user' END
+  FROM outstanding_item_events e
+  WHERE e.item_id = i.id AND e.to_status = i.status
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1) END`;
+
 function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
   return {
     id: row.id,
@@ -76,6 +94,7 @@ function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
     position: row.position,
     text: row.text,
     status: row.status,
+    ...(row.closed_by ? { closedBy: row.closed_by } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -84,7 +103,7 @@ function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
 function baseSelect(
   where: string,
   columns = `i.*, p.name AS project_name, s.title AS source_session_title,
-                 s.completed_at AS source_session_completed_at`,
+                 s.completed_at AS source_session_completed_at, ${CLOSED_BY_SQL} AS closed_by`,
 ): string {
   return `SELECT ${columns}
           FROM outstanding_items i
@@ -160,11 +179,14 @@ export class OutstandingItemService {
       }
     }
     const status = input.status ?? "pending";
+    const closedBy = [...new Set(input.closedBy ?? [])];
     const where = `${projectId ? "AND i.project_id = ?" : ""} AND i.status = ?
+      ${closedBy.length ? `AND (${CLOSED_BY_SQL}) IN (SELECT value FROM json_each(?))` : ""}
       ${input.from ? "AND s.completed_at >= ?" : ""} ${input.to ? "AND s.completed_at < ?" : ""}`;
     const params = [
       ...(projectId ? [projectId] : []),
       status,
+      ...(closedBy.length ? [JSON.stringify(closedBy)] : []),
       ...(input.from ? [calendarDayBound(input.from)] : []),
       ...(input.to ? [calendarDayBound(input.to, true)] : []),
     ];
@@ -322,9 +344,15 @@ export class OutstandingItemService {
         row.updated_at = updatedAt;
         updatedItemIds.push(id);
       }
+      // Re-read so closedBy reflects the events just appended.
+      const fresh = new Map(
+        (this.db.prepare(baseSelect(`AND i.id IN (${placeholders})`)).all(...itemIds) as OutstandingItemRow[]).map(
+          (row) => [row.id, row],
+        ),
+      );
       return {
         outcome: "outstanding_items_updated",
-        items: itemIds.map((id) => toOutstandingItem(byId.get(id)!)),
+        items: itemIds.map((id) => toOutstandingItem(fresh.get(id) ?? byId.get(id)!)),
         updatedItemIds,
         duplicate: updatedItemIds.length === 0,
       };

@@ -37,6 +37,7 @@ const EXPECTED_OPERATIONS = {
   ],
   work_write_idempotent: [
     "work_finalize_session",
+    "work_request_outstanding_cleanup",
     "work_submit_outstanding_cleanup_proposals",
     "work_attach_evidence",
     "work_attach_diagram",
@@ -218,7 +219,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
         (count, name) => count + EXPECTED_OPERATIONS[name as keyof typeof EXPECTED_OPERATIONS].length,
         0,
       ),
-    ).toBe(51);
+    ).toBe(52);
 
     for (const tool of listing.tools) {
       const expected = EXPECTED_DISPATCHER_ANNOTATIONS[tool.name as keyof typeof EXPECTED_DISPATCHER_ANNOTATIONS];
@@ -235,16 +236,16 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     }
   });
 
-  it("publishes each of the 51 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
+  it("publishes each of the 52 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
     const { client } = await connect();
     const document = await readAllOperationContracts(client);
     const sections = resourceOperationSections(document);
     const expectedOperationIds = Object.values(EXPECTED_OPERATIONS).flat();
     const operationHeadingCount = [...document.matchAll(/^## work_/gm)].length;
 
-    expect(operationHeadingCount).toBe(51);
+    expect(operationHeadingCount).toBe(52);
     expect([...sections.keys()].sort()).toEqual([...expectedOperationIds].sort());
-    expect(sections.size).toBe(51);
+    expect(sections.size).toBe(52);
 
     for (const [dispatcher, operationIds] of Object.entries(EXPECTED_OPERATIONS)) {
       for (const operationId of operationIds) {
@@ -458,7 +459,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
       }
     }
 
-    expect(callCount).toBe(51);
+    expect(callCount).toBe(52);
   });
 
   it("routes representative handlers and reports invalid operation arguments as tool errors", async () => {
