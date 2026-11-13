@@ -405,6 +405,74 @@ describe("Work Intelligence MCP server", () => {
     expect(store.getSessionById(fourth.session.id)?.changedFiles).toEqual(["src/a.ts"]);
   });
 
+  it("observes segment starts identically through every dispatcher tool, shared with direct-shaped calls", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Observed dispatcher", root);
+    store.updateProject(project.id, { status: "tracked" });
+    type Receipt = {
+      outcome: string;
+      session: { id: string; startedAt?: string; startedAtSource?: string };
+      startedAtFollowUp?: string;
+    };
+    const callDispatcher = (dispatcher: string, operation: string, args: Record<string, unknown>) =>
+      client.callTool({ name: dispatcher, arguments: { operation, arguments: args } });
+    const finalizeViaDispatcher = async (projectRoot: string, key: string, title: string) => {
+      const result = await callDispatcher(
+        "work_write_idempotent",
+        "work_finalize_session",
+        finalizePayload(projectRoot, key, title),
+      );
+      const [content] = result.content as Array<{ type: string; text: string }>;
+      return JSON.parse(content?.text ?? "null") as Receipt;
+    };
+    const observedTool = (receipt: Receipt) =>
+      store.getSessionDetail(receipt.session.id)?.events.find((event) => event.details?.field === "startedAt")?.details
+        ?.tool;
+
+    // work_read: a work_get_context call with projectRoot is recorded; the dispatcher finalize uses then resets it.
+    await callDispatcher("work_read", "work_get_context", { projectRoot: root, task: "Fictional task" });
+    const read = await finalizeViaDispatcher(root, "dispatch-read-1", "Read");
+    expect(read.session.startedAtSource).toBe("server_observed");
+    expect(Date.parse(read.session.startedAt ?? "")).not.toBeNaN();
+    expect(read.startedAtFollowUp).toBeUndefined();
+    expect(observedTool(read)).toBe("work_get_context");
+    const afterReset = await finalizeViaDispatcher(root, "dispatch-read-2", "Read again");
+    expect(afterReset.session.startedAt).toBeUndefined();
+    expect(afterReset.session.startedAtSource).toBeUndefined();
+    expect(afterReset.startedAtFollowUp).toContain("Never estimate");
+
+    // work_write_additive: work_request_metadata_backfill takes projectRoot (the outcome does not matter).
+    await callDispatcher("work_write_additive", "work_request_metadata_backfill", { projectRoot: root });
+    const additive = await finalizeViaDispatcher(root, "dispatch-additive-1", "Additive");
+    expect(additive.session.startedAtSource).toBe("server_observed");
+    expect(observedTool(additive)).toBe("work_request_metadata_backfill");
+
+    // work_write_overwrite: work_update_knowledge takes projectRoot; an unknown id still counts as a call.
+    await callDispatcher("work_write_overwrite", "work_update_knowledge", {
+      projectRoot: root,
+      knowledgeId: "fictional-missing-knowledge",
+      status: "archived",
+    });
+    const overwrite = await finalizeViaDispatcher(root, "dispatch-overwrite-1", "Overwrite");
+    expect(overwrite.session.startedAtSource).toBe("server_observed");
+    expect(observedTool(overwrite)).toBe("work_update_knowledge");
+
+    // Mixed calls share one observation: the first call wins whichever dispatcher carried it.
+    await callDispatcher("work_write_additive", "work_request_metadata_backfill", { projectRoot: root });
+    await callDispatcher("work_read", "work_get_context", { projectRoot: root, task: "Fictional later task" });
+    await callDispatcher("work_write_overwrite", "work_update_knowledge", {
+      projectRoot: root,
+      knowledgeId: "fictional-missing-knowledge",
+      status: "archived",
+    });
+    const mixed = await finalizeViaDispatcher(root, "dispatch-mixed-1", "Mixed");
+    expect(mixed.session.startedAtSource).toBe("server_observed");
+    expect(observedTool(mixed)).toBe("work_request_metadata_backfill");
+    const mixedNext = await finalizeViaDispatcher(root, "dispatch-mixed-2", "Mixed next");
+    expect(mixedNext.session.startedAt).toBeUndefined();
+    expect(mixedNext.startedAtFollowUp).toContain("Never estimate");
+  });
+
   it("records server time with completedAtNow and rejects it together with completedAt", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-completed-now-"));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
