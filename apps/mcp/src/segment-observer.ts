@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 export interface ObservedSegmentStart {
   at: string;
   tool: string;
+  /** HEAD commit of a tracked project when the segment began; the base for Git change observation. */
+  headCommit?: string;
 }
 
 /** Entries kept at once; the oldest project is dropped first so a long-lived process stays bounded. */
@@ -29,15 +31,24 @@ export class SegmentObserver {
     private readonly maxProjects: number = MAX_OBSERVED_PROJECTS,
   ) {}
 
-  /** Records the call time for a project that has no open segment; later calls keep the first one. */
-  public record(projectRoot: string, tool: string): void {
+  /**
+   * Records the call time for a project that has no open segment; later calls keep the first one. `headCommit` is
+   * called only when a new entry is created, so later calls cost nothing; a failure just leaves it out.
+   */
+  public record(projectRoot: string, tool: string, headCommit?: () => string | undefined): void {
     const key = segmentObserverKey(projectRoot);
     if (this.starts.has(key)) return;
     if (this.starts.size >= this.maxProjects) {
       const oldest = this.starts.keys().next();
       if (!oldest.done) this.starts.delete(oldest.value);
     }
-    this.starts.set(key, { at: this.now().toISOString(), tool });
+    let head: string | undefined;
+    try {
+      head = headCommit?.();
+    } catch {
+      head = undefined;
+    }
+    this.starts.set(key, { at: this.now().toISOString(), tool, ...(head ? { headCommit: head } : {}) });
   }
 
   public peek(projectRoot: string): ObservedSegmentStart | undefined {

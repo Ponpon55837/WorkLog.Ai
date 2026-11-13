@@ -83,6 +83,8 @@ import {
   toAgentReport,
   toAgentReportContext,
   type WorkIntelligenceStore,
+  type GitObservedChanges,
+  type GitRunner,
 } from "@work-intelligence/storage";
 import {
   registerAgentResources,
@@ -101,6 +103,7 @@ import {
   workRecordContract,
 } from "./contracts.js";
 import { toFinalizeReceipt } from "./finalize-receipt.js";
+import { observeFinalizeChangedFiles, type FinalizeInput } from "./finalize-observation.js";
 import { parseMcpInput } from "./input.js";
 import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
@@ -135,7 +138,12 @@ interface StoreToolDefinition<S extends z.ZodType> {
   includeServerStatus?: boolean;
   run: (
     input: z.infer<S>,
-    context: { agentClient?: string; serverStatus: McpRestartStatus; observedStartedAt?: ObservedSegmentStart },
+    context: {
+      agentClient?: string;
+      serverStatus: McpRestartStatus;
+      observedStartedAt?: ObservedSegmentStart;
+      observedChangedFileChanges?: GitObservedChanges;
+    },
   ) => unknown;
   /**
    * Shapes the result for the Agent once the write has committed, so reminders that storage attaches after the
@@ -486,6 +494,8 @@ export function createWorkIntelligenceMcpServer(
   schemaVersion: number,
   startupFailure?: McpStartupFailure,
   getRestartStatus: () => McpRestartStatus = () => ({ restartRequired: false, monitoringAvailable: false }),
+  /** Injection point so tests never depend on the machine's git. */
+  runGit?: GitRunner,
 ): McpServer {
   if (!storeOrAccess && !startupFailure) {
     throw new Error("An initialized store or a startup failure is required to create the MCP server.");
@@ -562,15 +572,23 @@ export function createWorkIntelligenceMcpServer(
           const observedRoot = typeof projectRoot === "string" ? projectRoot : undefined;
           const isFinalize = name === "work_finalize_session";
           const finalizeInput = parsed.data as { startedAt?: unknown; completedAt?: unknown };
+          const segmentStart = isFinalize && observedRoot ? segmentObserver.peek(observedRoot) : undefined;
           const observedStartedAt =
-            isFinalize && observedRoot && !finalizeInput.startedAt && !finalizeInput.completedAt
-              ? segmentObserver.peek(observedRoot)
+            segmentStart && !finalizeInput.startedAt && !finalizeInput.completedAt ? segmentStart : undefined;
+          if (observedRoot && !isFinalize) {
+            const root = observedRoot;
+            segmentObserver.record(root, name, () => store.observeHeadCommit(root));
+          }
+          // Git runs before the write lock is taken, never inside it; any failure only omits the observation.
+          const observedChangedFileChanges =
+            isFinalize && !readOnly
+              ? await observeFinalizeChangedFiles(store, parsed.data as FinalizeInput, segmentStart?.headCommit, runGit)
               : undefined;
-          if (observedRoot && !isFinalize) segmentObserver.record(observedRoot, name);
           const context = {
             agentClient,
             serverStatus: restartStatus,
             ...(observedStartedAt ? { observedStartedAt } : {}),
+            ...(observedChangedFileChanges ? { observedChangedFileChanges } : {}),
           };
           const stored = readOnly
             ? await definition.run(parsed.data, context)
@@ -650,7 +668,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_finalize_session", {
     title: "Finalize a work session",
     description:
-      "Finalize only after planning, execution, verification, and closing are complete. Required: outcome-first summary, five-section workSummary, intentional changedFiles ([] for no changes), and verification passed/failed/in_progress/not_run. in_progress means started with no confirmed result; update the same Session after verification. Starting work never means passed. Pass baselineChangedFiles captured at start: exclude those paths even if edited again; a rename from baseline records the new path as added. changedFilesProvenance cites Agent/handoff/Git/worktree evidence; changedFileChanges records lifecycle changes (renamed requires previousPath). Report only recalled Knowledge actually used with appliedKnowledgeIds or contradictedKnowledgeIds; parentSessionId links continued work. startedAt and completedAt follow their field rules below and are never estimated; future times are rejected; correct timestampWarnings with work_update_session_metadata. updatedAt tracks edits. Only tracked projects permit source/handoff/Git reads and recording; others quietly skip. Same-key retries return the original Session; a different summary conflicts. Missing legacy verification/files/workSummary yields follow-up instructions. " +
+      "Finalize only after planning, execution, verification, and closing are complete. Required: outcome-first summary, five-section workSummary, intentional changedFiles ([] for no changes), and verification passed/failed/in_progress/not_run. in_progress means started with no confirmed result; update the same Session after verification. Pass baselineChangedFiles captured at start: exclude those paths even if edited again; a rename from baseline records the new path as added. changedFilesProvenance cites Agent/handoff/Git/worktree evidence; changedFileChanges gives each path's status (renamed requires previousPath), else Git-observed when certain. Report only recalled Knowledge actually used with appliedKnowledgeIds or contradictedKnowledgeIds; parentSessionId links continued work. startedAt and completedAt follow their field rules below and are never estimated; future times are rejected; correct timestampWarnings with work_update_session_metadata. updatedAt tracks edits. Only tracked projects permit source/handoff/Git reads and recording; others quietly skip. Same-key retries return the original Session; a different summary conflicts. Missing verification/files/statuses/workSummary yields follow-ups. " +
       "resolvedOutstandingItemIds and supersededOutstandingItemIds (rules in the contract below) change only same-project pending items; both transitions are atomic with the Session and audited with actorSessionId; conflicting ids stay unchanged and warn. relatedOutstandingItems lists bounded still-pending matches (not this Session's new items) with an evidence caution. " +
       "The result is a receipt, not an echo of the request; it may include knowledgePageMaintenanceHint (pages with a source-review warning, an update request, or 3+ new Sessions). " +
       "Sensitive values are masked before storage; the result reports redaction counts by type only, never token fragments. " +
