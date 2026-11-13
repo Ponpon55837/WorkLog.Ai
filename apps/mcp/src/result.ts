@@ -32,27 +32,13 @@ function buildSessionStructuredContent(value: StructuredContent): StructuredCont
   };
 }
 
-/** Projected reads expose small factual metadata rather than duplicating selected source content. */
-function toProjectionStructuredContent(value: unknown): StructuredContent | undefined {
-  if (!isRecord(value) || !isRecord(value.projection) || !isRecord(value.session)) return undefined;
-  const session = value.session;
-  return {
-    outcome: value.outcome,
-    sessionId: session.id,
-    projection: {
-      version: value.projection.version,
-      ...(value.projection.view ? { view: value.projection.view } : {}),
-    },
-    status: session.status,
-    executionStatus: session.executionStatus,
-    ...(session.voided ? { voided: session.voided } : {}),
-    ...(session.verification ? { verification: session.verification } : {}),
-    ...(Array.isArray(session.changedFiles)
-      ? { changedFilesCount: session.changedFiles.length }
-      : Array.isArray(session.files)
-        ? { changedFilesCount: session.files.length }
-        : {}),
-  };
+/**
+ * A projected read (view/select) answers in text only. Some clients hand the model structuredContent
+ * instead of the text when both are present, so a metadata-only structuredContent hid the selected
+ * body from the Agent; repeating the body there would send it twice to clients that pass both.
+ */
+function isProjectedSessionRead(value: unknown): boolean {
+  return isRecord(value) && isRecord(value.projection) && isRecord(value.session);
 }
 
 /** session_unchanged carries identity only; Session-shaped defaults (0 changed files, no verification) would mislead. */
@@ -85,8 +71,9 @@ export function toStructuredContent(value: unknown): StructuredContent | undefin
 
 /** Tool results are compact JSON: indentation only costs the Agent tokens. */
 export function textResult(value: unknown) {
-  const structuredContent =
-    toUnchangedStructuredContent(value) ?? toProjectionStructuredContent(value) ?? toStructuredContent(value);
+  const structuredContent = isProjectedSessionRead(value)
+    ? undefined
+    : (toUnchangedStructuredContent(value) ?? toStructuredContent(value));
 
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],

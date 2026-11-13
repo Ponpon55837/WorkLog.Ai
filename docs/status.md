@@ -4,7 +4,11 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-12
+- 最後更新：2026-11-13
+
+## 1.6.31（已完成）
+
+`work_get_session` 的精準讀取（`view`／`select`）改為只回傳文字 content，不附 `structuredContent`。先前本體只在文字裡，`structuredContent` 只有識別與狀態欄位；在兩者並存時只把 `structuredContent` 交給模型的用戶端（已在 Claude 桌面版的 Code 分頁觀察到），Agent 讀不到 summary、workSummary、decisions、files 與 links，而 1.6.18 起 `view: "handoff"` 是預設讀法，結果是每次都要再做一次完整讀取。現在每個用戶端都拿得到本體，而且仍只送一次。完整讀取、`session_unchanged`、finalize 與 Session 更新回條不變。其他用戶端（終端機版 Claude Code、Codex、Claude Desktop 擴充）的行為沒有驗證。schema 維持 33。
 
 ## 1.6.30（已完成）
 
