@@ -10,12 +10,13 @@ import type {
   RecallTermHits,
 } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
+import { AppliesToFileIndex } from "./applies-to-file-index.js";
 import {
   APPLIES_TO_SCAN_LIMIT,
   appliesToColumnSql,
   appliesToEntries,
   appliesToStrength,
-  compileAppliesToStrength,
+  compileAppliesToStrengthEntry,
   createAppliesToBudget,
 } from "./applies-to-match.js";
 import {
@@ -619,7 +620,10 @@ export class SearchRepository {
    *
    * Cost: one appliesTo scan like scoreAppliesTo (at most APPLIES_TO_SCAN_LIMIT rows, one shared match budget, stopping
    * at the first row the budget cuts short). Each stored entry is classified and compiled once per row, then tested
-   * against at most WEIGHTED_PATH_LIMIT files, so at most rows x patterns x files tests, all charged to the budget; one
+   * only against the files it can cover (AppliesToFileIndex: a glob's literal prefix range and suffix, a plain entry's
+   * segment lookups), all charged to the budget. The index is built once per call, O(F x d) for F <= WEIGHTED_PATH_LIMIT
+   * files of depth d; an entry costs O(d + log F + candidates) instead of O(F), with strengths and scores identical to
+   * testing every pair. One
    * indexed query for references (at most WEIGHTED_REFERENCE_ROW_LIMIT rows, newest first); and one title query for the
    * winners. It does not sync the index.
    */
@@ -675,21 +679,31 @@ export class SearchRepository {
       root_path: string;
     }>;
     const budget = createAppliesToBudget();
+    const index = new AppliesToFileIndex(files.map(([file]) => file));
+    const strengths = new Float64Array(files.length);
     for (const row of rows) {
       const rowContexts = [{ name: row.name, rootPath: row.root_path }];
-      const matchers = appliesToEntries(row.applies_to_json, rowContexts, budget).map((pattern) =>
-        compileAppliesToStrength(pattern, budget),
+      const entries = appliesToEntries(row.applies_to_json, rowContexts, budget).map(
+        (pattern) => [compileAppliesToStrengthEntry(pattern, budget), pattern] as const,
       );
-      const contributions: Array<[string, number]> = [];
-      for (const [file, weight] of files) {
-        if (budget.exhausted) break;
-        let fileStrength = 0;
-        for (const matcher of matchers) fileStrength = Math.max(fileStrength, matcher(file, budget));
-        if (fileStrength > 0) contributions.push([file, weight * fileStrength]);
+      // Only the files an entry can cover are tested; the best strength per file is kept by file position so the
+      // contributions keep the weight order of `files` (it decides matchedPath ties and the order of `files`).
+      const touched = new Set<number>();
+      strengths.fill(0);
+      for (const [entry, pattern] of entries) {
+        for (const position of index.candidates(entry, pattern)) {
+          if (budget.exhausted) break;
+          const strength = entry.strength(files[position]![0], budget);
+          if (strength > strengths[position]!) strengths[position] = strength;
+          if (strength > 0) touched.add(position);
+        }
       }
       // A row whose matching the budget cut short is left out whole, so a partial score never ranks it.
       if (budget.exhausted) break;
-      for (const [file, contribution] of contributions) add(row.id, contribution, file);
+      for (const position of [...touched].sort((left, right) => left - right)) {
+        const [file, weight] = files[position]!;
+        add(row.id, weight * strengths[position]!, file);
+      }
     }
 
     const filesByBasename = new Map<string, Array<readonly [string, number]>>();

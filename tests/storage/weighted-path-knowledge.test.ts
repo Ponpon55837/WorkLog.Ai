@@ -1,8 +1,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import type { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { setAppliesToBudgetProbe, type AppliesToBudget } from "../../packages/storage/src/applies-to-match.js";
+import {
+  appliesToStrength,
+  createAppliesToBudget,
+  setAppliesToBudgetProbe,
+  type AppliesToBudget,
+} from "../../packages/storage/src/applies-to-match.js";
+import { normalizePath } from "../../packages/storage/src/search-text.js";
 import type { WeightedPathKnowledge } from "../../packages/storage/src/search-repository.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -173,4 +180,150 @@ describe("SearchRepository.knowledgeForWeightedPaths", () => {
     expect(rank(weights)).toEqual([]);
     expect(rank([["src/light/a.ts", 1]]).map((item) => item.id)).toEqual([only.id]);
   });
+
+  it("equals the test-every-pair reference on seeded synthetic entries and files", () => {
+    const { project, record, rank } = setup();
+    const random = seededRandom(20_260_101);
+    const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
+    const dirs = ["src", "lib", "App", "docs", "packages"];
+    const mods = ["mod1", "mod2", "Mod3", "part-a"];
+    const leaves = ["index.ts", "Loom.TS", "heddle.vue", "a.json", "b.md"];
+    const filePaths = new Set<string>();
+    while (filePaths.size < 70) {
+      const segments = [
+        pick(dirs),
+        ...Array.from({ length: Math.floor(random() * 3) }, () => pick(mods)),
+        pick(leaves),
+      ];
+      filePaths.add(segments.join("/"));
+    }
+    const files = [...filePaths];
+    const entryFor = (): string => {
+      const file = pick(files);
+      const segments = file.split("/");
+      const kind = Math.floor(random() * 14);
+      const dir = pick(dirs);
+      const mod = pick(mods);
+      switch (kind) {
+        case 0:
+          return `${dir}/${mod}/**`;
+        case 1:
+          return `${dir}/**/${pick(leaves)}`;
+        case 2:
+          return `**/${pick(leaves)}`;
+        case 3:
+          return `${dir}/*/${pick(leaves).replace("index", "?ndex")}`;
+        case 4:
+          return `**/${mod}/*.ts`;
+        case 5:
+          return "**";
+        case 6:
+          return `*.vue`;
+        case 7:
+          return file;
+        case 8:
+          return segments.slice(0, Math.max(1, segments.length - 1)).join("/");
+        case 9:
+          return segments.slice(1).join("/") || file;
+        case 10:
+          return `${mod}/${pick(leaves)}`;
+        case 11:
+          return `./${file.toUpperCase()}:12`;
+        case 12:
+          return mod;
+        default:
+          return `${dir}/${mod}/${pick(mods)}/**/*.TS`;
+      }
+    };
+    const entries: Array<{ id: string; appliesTo: string[] }> = [];
+    for (let index = 0; index < 120; index += 1) {
+      const appliesTo = Array.from({ length: 1 + Math.floor(random() * 4) }, entryFor);
+      const knowledge = record(`Synthetic rule ${index}`, appliesTo);
+      entries.push({ id: knowledge.id, appliesTo: knowledge.appliesTo });
+    }
+    const weights: Array<[string, number]> = files.map((file) => [
+      random() < 0.3 ? file.toUpperCase().replace(/^\.?\//, "") : file,
+      1 + Math.floor(random() * 5),
+    ]);
+
+    // Reference: every (entry, file) pair through appliesToStrength, in the implementation's file order.
+    const contexts = [{ name: project.name, rootPath: project.rootPath }];
+    const spelling = new Map<string, string>();
+    const merged = new Map<string, number>();
+    for (const [path, weight] of weights) {
+      const normalized = normalizePath(path, contexts);
+      if (!spelling.has(normalized)) spelling.set(normalized, path);
+      merged.set(normalized, (merged.get(normalized) ?? 0) + weight);
+    }
+    const ordered = [...merged].sort(([lp, lw], [rp, rw]) => rw - lw || (lp < rp ? -1 : 1));
+    const budget = createAppliesToBudget(Number.MAX_SAFE_INTEGER);
+    const expected = entries
+      .flatMap(({ id, appliesTo }) => {
+        const patterns = appliesTo.map((entry) => normalizePath(entry, contexts)).filter(Boolean);
+        let score = 0;
+        let best = 0;
+        let matchedPath = "";
+        const covered: string[] = [];
+        for (const [file, weight] of ordered) {
+          const strength = Math.max(0, ...patterns.map((pattern) => appliesToStrength(pattern, file, budget)));
+          if (strength <= 0) continue;
+          const contribution = weight * strength;
+          score += contribution;
+          covered.push(spelling.get(file)!);
+          if (contribution > best) {
+            best = contribution;
+            matchedPath = spelling.get(file)!;
+          }
+        }
+        return covered.length === 0 ? [] : [{ id, matchedPath, score, files: covered }];
+      })
+      .sort((left, right) => right.score - left.score || (left.id < right.id ? -1 : 1));
+    expect(expected.length).toBeGreaterThan(20);
+
+    const actual = rank(weights, 1_000).map(({ id, matchedPath, score, files: covered }) => ({
+      id,
+      matchedPath,
+      score,
+      files: covered,
+    }));
+    expect(actual).toEqual(expected);
+  });
+
+  it("does not exhaust the match budget on 2,000 Knowledge of 10 globs against 100 files", () => {
+    const { store, project, rank } = setup();
+    const db = (store as unknown as { db: DatabaseSync }).db;
+    const insert = db.prepare(
+      `INSERT INTO knowledge (id, project_id, idempotency_key, title, body, kind, status, created_at, updated_at,
+         references_json, tags_json, applies_to_json) VALUES (?, ?, ?, ?, 'b', 'pattern', 'active', ?, ?, '[]', '[]', ?)`,
+    );
+    const now = new Date().toISOString();
+    for (let index = 0; index < 2_000; index += 1) {
+      const globs = Array.from({ length: 10 }, (_, part) => `src/mod${index % 50}/**/part${part}/*.ts`);
+      insert.run(`stress-${index}`, project.id, `stress-${index}`, `Stress ${index}`, now, now, JSON.stringify(globs));
+    }
+    const weights: Array<[string, number]> = Array.from({ length: 100 }, (_, file) => [
+      `src/mod${file % 50}/a/b/part${file % 10}/file${file}.ts`,
+      1 + (file % 7),
+    ]);
+    const budgets: AppliesToBudget[] = [];
+    setAppliesToBudgetProbe(budgets);
+
+    const result = rank(weights, 15);
+
+    expect(result).toHaveLength(15);
+    expect(budgets).toHaveLength(1);
+    expect(budgets[0]?.exhausted).toBe(false);
+    // Testing every pair spent the whole 20M units here; the index leaves a third of it unused.
+    expect(budgets[0]!.units).toBeLessThan(budgets[0]!.limit * 0.7);
+  });
 });
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
