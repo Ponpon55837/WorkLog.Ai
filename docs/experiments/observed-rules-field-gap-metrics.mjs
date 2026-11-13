@@ -7,10 +7,10 @@
 // It never prints ids, titles, summaries, paths, idempotency keys, project names or any record text.
 // The DB is opened read-only (SQLITE_OPEN_READONLY via { readOnly: true }) plus PRAGMA query_only=1.
 // Missing tables/columns are reported as "column_absent" / "table_absent" instead of failing.
-import { DatabaseSync } from "node:sqlite";
 import console from "node:console";
-import { existsSync } from "node:fs";
 import process from "node:process";
+import { DatabaseSync } from "node:sqlite";
+import { existsSync } from "node:fs";
 
 const dbPath = process.argv[2];
 const basis = (process.argv.find((a) => a.startsWith("--month-basis=")) ?? "--month-basis=created").split("=")[1];
@@ -103,6 +103,7 @@ const outstandingClosedByActor = mapCount(
 );
 // Server-observed start: finalize stores a work_events note with details_json.source = 'server_observed'.
 const serverObserved = new Set();
+const serverObservedGitStatus = new Set(); // work_events note details {field:'changedFileChanges', source:'server_observed_git'} (integration branch)
 if (has("work_events", "details_json")) {
   for (const r of db
     .prepare(
@@ -111,6 +112,13 @@ if (has("work_events", "details_json")) {
     )
     .all())
     serverObserved.add(r.k);
+  for (const r of db
+    .prepare(
+      `SELECT session_id k FROM work_events WHERE json_valid(details_json) AND json_extract(details_json,'$.field')='changedFileChanges'
+       AND json_extract(details_json,'$.source')='server_observed_git'`,
+    )
+    .all())
+    serverObservedGitStatus.add(r.k);
 }
 // First server-observed MCP read for the project after the previous Session's completion (agent_read_audit).
 const auditByProject = new Map();
@@ -154,7 +162,7 @@ const bucketKey = (n) => (n < 16 ? "<16" : n <= 40 ? "16-40" : ">40");
 const ms = (iso) => Date.parse(iso);
 
 function newCell() {
-  return { sessions: 0, missing: {}, errors: {}, distributions: { verification_status: {}, provenance_sources: {}, next_steps: {}, decision_origin: {}, start_source: {}, idempotency_key_length: {}, applied_knowledge: {}, contradicted_knowledge: {} }, links: {}, counters: { decisions_total: 0, next_steps_total: 0 } };
+  return { sessions: 0, missing: {}, errors: {}, distributions: { verification_status: {}, provenance_sources: {}, next_steps: {}, decision_origin: {}, start_source: {}, change_status_source: {}, changed_files_shape: {}, commit_sha_length: {}, completedAt_backfill_gap: {}, idempotency_key_length: {}, applied_knowledge: {}, contradicted_knowledge: {} }, links: {}, counters: { decisions_total: 0, next_steps_total: 0 } };
 }
 const cells = new Map();
 let voidedExcluded = 0;
@@ -181,10 +189,21 @@ for (const s of sessions) {
   if (!verification) M("verification");
   else if (!String(verification.summary ?? "").trim()) M("verificationSummary");
   if (files.length === 0) M("changedFiles");
+  bump(
+    c.distributions.changed_files_shape,
+    files.length > 0 ? "non_empty" : s.changed_files_confirmed ? "empty_but_confirmed" : "empty_unconfirmed",
+  );
+  bump(c.distributions.commit_sha_length, s.commit_sha ? `len_${String(s.commit_sha).length}` : "none");
   if (has("sessions", "changed_files_confirmed") && !s.changed_files_confirmed) M("changedFilesConfirmed");
   if (files.length > 0 && prov.length === 0) M("changedFilesProvenance");
   if (files.length > 0 && changes.length === 0) M("changedFileChanges");
   if (!(parentOf?.get(s.id))) M("parentSession");
+  if (files.length > 0) {
+    const covered = new Set(changes.flatMap((x) => [x.path, x.previousPath].filter(Boolean)));
+    const uncovered = files.filter((f) => !covered.has(f)).length;
+    if (uncovered > 0) M("changedFileChangesPartial");
+    bump(c.distributions.change_status_source, serverObservedGitStatus.has(s.id) ? "server_observed_git" : changes.length ? "agent_reported" : "none");
+  }
 
   bump(c.distributions.verification_status, verification?.status ?? "(none)");
   const srcs = new Set();
@@ -222,7 +241,14 @@ for (const s of sessions) {
     else if (en - st > 24 * 3600e3) E("segment_longer_than_24h");
     else if (en - st === 0) E("segment_zero_length");
   }
-  if (s.created_at && s.completed_at && ms(s.completed_at) < ms(s.created_at) - 1000) E("completedAt_backfilled_before_createdAt");
+  if (s.created_at && s.completed_at && ms(s.completed_at) < ms(s.created_at) - 1000) {
+    E("completedAt_backfilled_before_createdAt");
+    const gapHours = (ms(s.created_at) - ms(s.completed_at)) / 3600e3;
+    bump(
+      c.distributions.completedAt_backfill_gap,
+      gapHours < 1 ? "<1h" : gapHours < 24 ? "1-24h" : gapHours < 24 * 7 ? "1-7d" : ">7d",
+    );
+  }
   if (s.updated_at && s.created_at && s.updated_at < s.created_at) E("updatedAt_before_createdAt");
   if (verification && verification.status === "passed" && !String(verification.summary ?? "").trim()) E("verification_passed_without_summary");
   if (verification && ["in_progress", "not_run"].includes(verification.status)) E("verification_not_final");
