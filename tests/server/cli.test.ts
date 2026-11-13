@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
+import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import {
   DatabaseInitializationError,
   DatabaseMaintenanceError,
@@ -249,9 +250,11 @@ describe("database maintenance CLI", () => {
     const output = messages.log.join("\n");
     expect(output).toContain("合併策略：較新者優先");
     expect(output).toContain("將以匯入資料更新 1 筆");
-    expect(output).toContain(`自動沿用本機路徑：${project.rootPath} → ${localRoot}`);
+    // An imported root is stored as the canonical key, which is lower case on Windows.
+    const storedLocalRoot = canonicalizeProjectRoot(localRoot);
+    expect(output).toContain(`自動沿用本機路徑：${project.rootPath} → ${storedLocalRoot}`);
     expect(destination.getSessionById(finalized.session.id)?.summary).toBe("另一台電腦較新的摘要。");
-    expect(destination.listProjects()).toMatchObject([{ id: project.id, rootPath: localRoot }]);
+    expect(destination.listProjects()).toMatchObject([{ id: project.id, rootPath: storedLocalRoot }]);
 
     expect(await runDatabaseCli(["import", "portable.json", "--strategy=overwrite", "--dry-run"], deps)).toBe(1);
     expect(messages.error.join("\n")).toContain("--strategy 只接受 merge 或 newer-wins");
@@ -278,7 +281,9 @@ describe("database maintenance CLI", () => {
 
     expect(await runDatabaseCli(["import", "portable.json"], deps)).toBe(0);
     expect(promptedFor).toBe(project.rootPath);
-    expect(destination.listProjects()).toMatchObject([{ id: project.id, status: "paused", rootPath: selectedRoot }]);
+    expect(destination.listProjects()).toMatchObject([
+      { id: project.id, status: "paused", rootPath: canonicalizeProjectRoot(selectedRoot) },
+    ]);
     expect(messages.log.join("\n")).toContain(`匯出路徑 ${project.rootPath}`);
     expect(messages.log.join("\n")).toContain("找到資料夾");
   });
