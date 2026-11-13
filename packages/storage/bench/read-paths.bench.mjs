@@ -968,18 +968,18 @@ try {
     return result;
   };
   // A task without paths: the similar Sessions' changed files lead to appliesTo-scoped Knowledge the task words miss.
-  // The baseline switches the gate off on this store's service (a private field, reached only by this benchmark). The
+  // The baseline turns the feature off on this store's service (the private `inferTaskPaths` field, reached only by this benchmark). The
   // seeded context is budget-tight and its recent Knowledge already covers the matches, so the work done is checked
   // by counting the inference ranking passes instead of requiring a visible pointer.
   const taskContextService = benchStore.contextRecallService;
-  // `inference` false closes the gate; true runs the weighted inference (every file of the similar Sessions in one
-  // appliesTo scan, knowledgeForWeightedPaths) with the service's default options.
+  // `inference` false turns the feature off; true runs the weighted inference (every file of the similar Sessions in one
+  // appliesTo scan, knowledgeForWeightedPaths) as shipped.
   const getContextTaskOnly = (inference) => () => {
-    const original = taskContextService.shouldInferTaskPaths;
+    const original = taskContextService.inferTaskPaths;
     const searchIndex = taskContextService.searchIndex;
     const rank = searchIndex.knowledgeForWeightedPaths;
     let passes = 0;
-    taskContextService.shouldInferTaskPaths = inference ? () => true : () => false;
+    taskContextService.inferTaskPaths = inference;
     searchIndex.knowledgeForWeightedPaths = (...args) => {
       passes += 1;
       return rank.apply(searchIndex, args);
@@ -991,7 +991,7 @@ try {
       return result;
     } finally {
       searchIndex.knowledgeForWeightedPaths = rank;
-      taskContextService.shouldInferTaskPaths = original;
+      taskContextService.inferTaskPaths = original;
     }
   };
   // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.

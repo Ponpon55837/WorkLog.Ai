@@ -29,7 +29,6 @@ import type {
   ProjectScopedItem,
   RecallHit,
   DateRange,
-  RecallConfidence,
   RecallInput,
   RecallQueryResult,
   RelevantContext,
@@ -243,38 +242,14 @@ interface InferredMatches {
 const inferredKnowledgeByRelevant = new WeakMap<RelevantContext, InferredMatches>();
 
 /**
- * How a task without paths looks for Knowledge through the files of its similar Sessions. The recall service keeps one
- * instance field of this shape; the replay experiment and the benchmark override it at runtime.
+ * Task-only inference, frozen from the real-data replay in docs/experiments/task-path-replay.md: at most this many
+ * inferred pointers per response, and only Knowledge that at least INFERRED_MIN_SESSIONS distinct similar Sessions
+ * support through the files they changed (one Session alone is too often a coincidence).
  */
-interface InferredPathOptions {
-  /** Most inferred pointers added to one response. */
-  pointerLimit: number;
-  /** When pointers do not fit, first drop recentKnowledge items no weighted file matched, then pointers. */
-  yieldRecent: boolean;
-  /** A match shown in recentKnowledge still gets a pointer and leaves recentKnowledge, so it is counted once, labelled. */
-  promoteRecent: boolean;
-  /** A match that budget trimming took out of recentKnowledge may come back as a pointer. */
-  allowRecentOmitted: boolean;
-  /** Smallest score of a Knowledge divided by the sum of all file weights (0 to 1; scale-free); 0 keeps every match. */
-  minScoreShare: number;
-  /** Smallest score of a Knowledge divided by the best score found (0 to 1); 0 keeps every match. */
-  minTopRatio: number;
-  /** Fewest distinct similar Sessions whose files must support the same Knowledge; 1 keeps every match. */
-  minSessions: number;
-  /** Do not infer when the first round's confidence is already "high". */
-  skipHighConfidence: boolean;
-}
-
-const DEFAULT_INFERRED_PATH_OPTIONS: InferredPathOptions = {
-  pointerLimit: 3,
-  yieldRecent: true,
-  promoteRecent: true,
-  allowRecentOmitted: false,
-  minScoreShare: 0,
-  minTopRatio: 0,
-  minSessions: 1,
-  skipHighConfidence: false,
-};
+const INFERRED_POINTER_LIMIT = 3;
+const INFERRED_MIN_SESSIONS = 2;
+/** What a title-only recentKnowledge record gains in JSON besides losing its excerpt. */
+const EXCERPT_TRUNCATED_MARK = ',"excerptTruncated":true';
 
 /** Unflagged recentKnowledge records trimmed for budget only (not duplicates), which an inferred pointer may bring back. */
 const budgetOmittedRecentByContext = new WeakMap<ContextResult, Set<string>>();
@@ -421,8 +396,8 @@ function contextSupplementOmission(supplements: ContextSupplementIndicator[], in
 }
 
 export class ContextRecallService {
-  /** Overridden per instance by docs/experiments/task-path-replay.mjs and the read-path benchmark. */
-  private inferredPathOptions: InferredPathOptions = { ...DEFAULT_INFERRED_PATH_OPTIONS };
+  /** Always true in the product. docs/experiments/task-path-replay.mjs and the tests turn it off to get the response without the feature. */
+  private inferTaskPaths = true;
 
   public constructor(
     private readonly db: DatabaseSync,
@@ -1303,13 +1278,7 @@ export class ContextRecallService {
         : {}),
     };
     if (pathKnowledge.length > 0) pathKnowledgeByRelevant.set(relevant, pathKnowledge);
-    if (
-      task &&
-      paths.length === 0 &&
-      projectId &&
-      !(this.inferredPathOptions.skipHighConfidence && recalled.confidence === "high") &&
-      this.shouldInferTaskPaths(knowledgeHits.length, recalled.confidence)
-    ) {
+    if (task && paths.length === 0 && projectId && this.inferTaskPaths) {
       const inferred = this.inferredKnowledge(
         sessions.map(({ hit, record }) => ({ id: record.id, score: hit.score, changedFiles: record.changedFiles })),
         projectId,
@@ -1321,25 +1290,17 @@ export class ContextRecallService {
   }
 
   /**
-   * Whether a task without paths looks for Knowledge through paths its similar Sessions changed. Initial rule: only
-   * when the page leaves room, that is fewer Knowledge hits than the relevant slots. Experiments override it per instance.
-   */
-  private shouldInferTaskPaths(knowledgeHitCount: number, _confidence: RecallConfidence): boolean {
-    return knowledgeHitCount < RELEVANT_LIMIT;
-  }
-
-  /**
-   * Adds the supplements the response still has room for, never changing the first-round content. Pointers are dropped
-   * from the end until the response fits (today's rule). With `yieldRecent`, when inferred pointers are among the
-   * selected ones, recentKnowledge records the inference did not match are first trimmed from the end (with the usual
-   * omission), keeping the most pointers and the fewest trimmed records. A promoted match leaves recentKnowledge, and a
-   * match budget trimming had taken out of it leaves its omission, so each record is counted once. When nothing fits,
-   * the response stays exactly as it was.
-   * Complexity: at most (pointers + 1) x (recent items + 1) serializations, about 8 x 13 when every step is needed.
+   * Adds the supplements the response still has room for, never changing the first-round content (relevant.*). Pointers
+   * are dropped from the end until the response fits. When inferred pointers are among the selected ones, the
+   * recentKnowledge records no weighted file matched yield room instead, from the end: first each is reduced to its
+   * title (empty excerpt, excerptTruncated), and only when every one is title-only and the response still does not fit
+   * are they popped (with the usual omission), so a recent record keeps its title whenever it can. Matched records are
+   * never shortened or popped. A promoted match leaves recentKnowledge, and a match budget trimming had taken out of it
+   * leaves its omission, so each record is counted once. When nothing fits, the response stays exactly as it was.
+   * Complexity: at most (pointers + 1) x (2 x recent items + 1) serializations, about 4 x 25 when every step is needed.
    */
   private fitSupplements(context: ContextResult, supplements: ContextSupplementIndicator[], limit: number): void {
     const relevant = context.relevant!;
-    const options = this.inferredPathOptions;
     const baseOmitted = context.omitted;
     const baseRecent = context.recentKnowledge;
     const isInferred = (item: ContextSupplementIndicator): boolean => item.includedBecause.kind === "inferred_path";
@@ -1350,16 +1311,23 @@ export class ContextRecallService {
       ...(inferredMatches?.items ?? []).map((item) => item.id),
     ]);
     const budgetOmitted = budgetOmittedRecentByContext.get(context) ?? new Set<string>();
-    // Newest-last order, so reversing it pops from the end like budget trimming does.
-    const poppable = options.yieldRecent ? baseRecent.filter((item) => !matchedIds.has(item.id)).reverse() : [];
+    // Newest-last order, so reversing it yields from the end like budget trimming does.
+    const poppable = baseRecent.filter((item) => !matchedIds.has(item.id)).reverse();
+    // Only a record whose excerpt is longer than the marker it gains saves any room.
+    const shortenable = poppable.filter(
+      (item) => item.excerpt.length > (item.excerptTruncated ? 0 : EXCERPT_TRUNCATED_MARK.length),
+    );
 
-    const apply = (selectedCount: number, popCount: number, listRemovedIds = true): void => {
+    const apply = (selectedCount: number, shortenCount: number, popCount: number, listRemovedIds = true): void => {
       const selected = supplements.slice(0, selectedCount);
       const removed = supplements.slice(selectedCount);
       const inferredIds = new Set(selected.filter(isInferred).map(({ id }) => id));
       const popped = new Set(poppable.slice(0, popCount).map(({ id }) => id));
+      const shortened = new Set(shortenable.slice(0, shortenCount).map(({ id }) => id));
       context.omitted = baseOmitted ? structuredClone(baseOmitted) : undefined;
-      context.recentKnowledge = baseRecent.filter(({ id }) => !inferredIds.has(id) && !popped.has(id));
+      context.recentKnowledge = baseRecent
+        .filter(({ id }) => !inferredIds.has(id) && !popped.has(id))
+        .map((item) => (shortened.has(item.id) ? { ...item, excerpt: "", excerptTruncated: true } : item));
       for (const item of poppable.slice(0, popCount)) {
         const pathKnowledge = pathKnowledgeItem(context, item.id);
         addOmission(
@@ -1381,21 +1349,24 @@ export class ContextRecallService {
       if (removed.length > 0) (context.omitted ??= []).push(contextSupplementOmission(removed, listRemovedIds));
       if (context.omitted?.length === 0) delete context.omitted;
     };
-    const fits = (selectedCount: number, popCount: number): boolean => {
-      apply(selectedCount, popCount);
+    const fits = (selectedCount: number, shortenCount: number, popCount: number): boolean => {
+      apply(selectedCount, shortenCount, popCount);
       return JSON.stringify(context).length <= limit;
     };
 
     for (let selectedCount = supplements.length; selectedCount >= 0; selectedCount -= 1) {
-      if (fits(selectedCount, 0)) return;
+      if (fits(selectedCount, 0, 0)) return;
       if (poppable.length === 0 || !supplements.slice(0, selectedCount).some(isInferred)) continue;
-      if (!fits(selectedCount, poppable.length)) continue;
+      if (!fits(selectedCount, shortenable.length, poppable.length)) continue;
+      for (let shortenCount = 1; shortenCount <= shortenable.length; shortenCount += 1) {
+        if (fits(selectedCount, shortenCount, 0)) return;
+      }
       let popCount = 1;
-      while (popCount < poppable.length && !fits(selectedCount, popCount)) popCount += 1;
-      apply(selectedCount, popCount);
+      while (popCount < poppable.length && !fits(selectedCount, shortenable.length, popCount)) popCount += 1;
+      apply(selectedCount, shortenable.length, popCount);
       return;
     }
-    apply(0, 0, false);
+    apply(0, 0, 0, false);
     if (JSON.stringify(context).length <= limit) return;
     // When even the omission pointer cannot fit, keep the baseline response byte-for-byte intact.
     delete relevant.supplements;
@@ -1424,10 +1395,9 @@ export class ContextRecallService {
   /**
    * One scan over the files of the similar Sessions and one trust batch; first-round hits and inactive records are
    * skipped. Every file gets its weight (weighTaskPaths, at most 5 x 20 files) and knowledgeForWeightedPaths scores each
-   * Knowledge by the weights of the files it covers in one appliesTo scan. The precision knobs then drop a Knowledge
-   * whose score is too small a share of the total weight or of the best score, or that fewer than `minSessions`
-   * distinct similar Sessions support. Returns more candidates than the pointer cap because recentKnowledge ones are
-   * dropped or promoted when supplements are chosen.
+   * Knowledge by the weights of the files it covers in one appliesTo scan. A Knowledge that fewer than
+   * INFERRED_MIN_SESSIONS distinct similar Sessions support is dropped. Returns more candidates than the pointer cap
+   * because recentKnowledge ones are promoted when supplements are chosen.
    * Complexity: O(S*F) weighing, one repository scan, O(wanted * files) filtering, one trust batch.
    */
   private inferredKnowledge(
@@ -1436,11 +1406,10 @@ export class ContextRecallService {
     firstRoundIds: ReadonlySet<string>,
   ): InferredMatches {
     const none: InferredMatches = { items: [], matchedIds: new Set() };
-    const options = this.inferredPathOptions;
     const weights = weighTaskPaths(sources);
     if (weights.size === 0) return none;
     // Records already shown in full under recentKnowledge are skipped (or promoted) when supplements are chosen, so look past them.
-    const wanted = options.pointerLimit + RECENT_KNOWLEDGE_LIMIT + firstRoundIds.size;
+    const wanted = INFERRED_POINTER_LIMIT + RECENT_KNOWLEDGE_LIMIT + firstRoundIds.size;
     const matchedIds = new Set<string>();
     const ranked = this.searchIndex.knowledgeForWeightedPaths(
       new Map([...weights].map(([path, { weight }]) => [path, weight])),
@@ -1449,18 +1418,13 @@ export class ContextRecallService {
       matchedIds,
     );
     for (const id of firstRoundIds) matchedIds.delete(id);
-    const totalWeight = [...weights.values()].reduce((sum, { weight }) => sum + weight, 0);
-    const topScore = ranked[0]?.score ?? 0;
     const matched = ranked
       .filter((item) => !firstRoundIds.has(item.id))
-      .filter((item) => item.score / totalWeight >= options.minScoreShare)
-      .filter((item) => item.score / topScore >= options.minTopRatio)
       .filter(
         (item) =>
-          options.minSessions <= 1 ||
-          new Set(item.files.flatMap((file) => weights.get(file)?.sessionIds ?? [])).size >= options.minSessions,
+          new Set(item.files.flatMap((file) => weights.get(file)?.sessionIds ?? [])).size >= INFERRED_MIN_SESSIONS,
       )
-      .slice(0, options.pointerLimit + RECENT_KNOWLEDGE_LIMIT);
+      .slice(0, INFERRED_POINTER_LIMIT + RECENT_KNOWLEDGE_LIMIT);
     if (matched.length === 0) return { items: [], matchedIds };
     const trusted = this.store.getKnowledgeWithTrustMany(matched.map((item) => item.id));
     const items = matched.flatMap((item): InferredKnowledge[] => {
@@ -1568,15 +1532,13 @@ export class ContextRecallService {
     }
 
     // Appended last, so the fitting loop drops them first and the one-hop supplements above keep their order.
-    const options = this.inferredPathOptions;
-    const shownIds = new Set(context.recentKnowledge.map((knowledge) => knowledge.id));
     const budgetOmitted = budgetOmittedRecentByContext.get(context);
     let inferredCount = 0;
     for (const item of inferredKnowledgeByRelevant.get(relevant)?.items ?? []) {
-      if (inferredCount >= options.pointerLimit) break;
+      if (inferredCount >= INFERRED_POINTER_LIMIT) break;
       if (supplements.some(({ id }) => id === item.id)) continue;
-      if (excludedIds.has(item.id) && !(options.allowRecentOmitted && budgetOmitted?.has(item.id))) continue;
-      if (shownIds.has(item.id) && !options.promoteRecent) continue;
+      // A match shown in recentKnowledge or trimmed out of it is promoted: counted once, in the labelled pointer.
+      if (excludedIds.has(item.id) && !budgetOmitted?.has(item.id)) continue;
       excludedIds.add(item.id);
       supplements.push({
         type: "knowledge",

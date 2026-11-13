@@ -357,7 +357,7 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 | `outstanding-cleanup-accuracy-2026-10-01.md` | 未結項清理建議的合成準確度評估 |
 | `standalone-distribution-spike-2026-10-15.md`／`.mjs` | 不需要 checkout 的發行方式研究與原型 |
 | `knowledge-reuse-attribution.mjs` | Knowledge 重用歸因重播（唯讀），說明見下方 Knowledge reuse attribution |
-| `task-path-replay.mjs` | 只給 `task`、不給 `paths` 時能否找到以 `appliesTo` 綁檔案的 Knowledge：重播原有四種變體，並比較 `merged`、`product`（由相似 Session 的變更檔推論路徑）等原型變體；唯讀、只輸出彙總 JSON。用法：`pnpm build` 後 `node docs/experiments/task-path-replay.mjs --db <資料庫> --project <專案 id 或根目錄>`；`--self-check`（未給 `--db` 時預設）用合成資料庫驗證不變式。數字待補 |
+| `task-path-replay.mjs`／`.md` | 只給 `task`、不給 `paths` 時，能否由相似 Session 改過的檔案找到以 `appliesTo` 綁檔案的 Knowledge：重播原有四種變體，比較 `off`／`product`（出貨的 `inferred_path` 指標）與 `merged` 大小模擬；分嚴格與寬鬆兩種命中定義，唯讀、只輸出彙總 JSON。問題、方法、真實資料彙總、決策與被否決的方案見 [task-path-replay.md](experiments/task-path-replay.md)。用法：`pnpm build` 後 `node docs/experiments/task-path-replay.mjs --self-check`，或加 `--db <資料庫> --project <專案 id 或根目錄>` |
 
 ### Knowledge reuse attribution
 

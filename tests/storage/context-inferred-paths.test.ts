@@ -6,20 +6,8 @@ import type { ContextResult } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only.
-interface InferredPathOptions {
-  pointerLimit: number;
-  yieldRecent: boolean;
-  promoteRecent: boolean;
-  allowRecentOmitted: boolean;
-  minScoreShare: number;
-  minTopRatio: number;
-  minSessions: number;
-  skipHighConfidence: boolean;
-}
-
 interface ServiceInternals {
-  inferredPathOptions: InferredPathOptions;
-  shouldInferTaskPaths: (knowledgeHitCount: number, confidence: string) => boolean;
+  inferTaskPaths: boolean;
   searchIndex: { knowledgeForWeightedPaths: (...args: unknown[]) => unknown };
 }
 
@@ -29,6 +17,8 @@ const filler = "The fictional lantern ledger keeps its verified wick spacing win
 /** Long enough that its pointer needs more room than the heavy fixture leaves under the budget. */
 const BURNER_TITLE = `Burner tolerance rule ${"for the valve and dial assembly ".repeat(10)}`.trim();
 const TASK = "rework swarm frame splitting";
+/** Excerpts long enough that reducing a recentKnowledge record to its title saves room. */
+const LONG_FILLER = "x ".repeat(60);
 
 function setup() {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-inferred-paths-"));
@@ -91,7 +81,7 @@ function contextOf(
 function lanternFixture(
   heavy = false,
   heavyCount = 5,
-  extra: { burnerTitle?: string; matchedRecentTitle?: string } = {},
+  extra: { burnerTitle?: string; matchedRecentTitle?: string; fillerBody?: string } = {},
 ) {
   const fixture = setup();
   const scoped = fixture.record("scoped", extra.burnerTitle ?? BURNER_TITLE, "Keep the burner within tolerance.", [
@@ -108,7 +98,12 @@ function lanternFixture(
     : undefined;
   // The 12 newest Knowledge records fill recentKnowledge, so the scoped record is reachable only by its path.
   for (let index = 0; index < (matchedRecent ? 11 : 12); index += 1) {
-    fixture.record(`filler-${index}`, `Candle storage note ${index}`, "Store candles away from the window.", []);
+    fixture.record(
+      `filler-${index}`,
+      `Candle storage note ${index}`,
+      extra.fillerBody ?? "Store candles away from the window.",
+      [],
+    );
   }
   return { ...fixture, scoped, first, matchedRecent };
 }
@@ -130,8 +125,14 @@ function withoutRecentAndSupplements(context: ContextResult): unknown {
   return copy;
 }
 
-function withOptions(service: ServiceInternals, options: Partial<InferredPathOptions>): void {
-  service.inferredPathOptions = { ...service.inferredPathOptions, ...options };
+/** The response the product would give without the feature (the replay experiment's `off` variant). */
+function withFeatureOff<T>(service: ServiceInternals, run: () => T): T {
+  service.inferTaskPaths = false;
+  try {
+    return run();
+  } finally {
+    service.inferTaskPaths = true;
+  }
 }
 
 afterEach(() => {
@@ -173,18 +174,11 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("returns byte-identical responses for calls with paths or without a task, whatever the knobs", () => {
-    const { store, root, service } = lanternFixture(true, 1);
-    const focuses = [{ task: TASK, paths: ["src/burner/valve.ts"] }, { paths: ["src/other/file.ts"] }, {}];
-    service.shouldInferTaskPaths = () => false;
-    const off = focuses.map((focus) => JSON.stringify(contextOf(store, root, focus)));
-    service.shouldInferTaskPaths = () => true;
-    for (let flags = 0; flags < 8; flags += 1) {
-      withOptions(service, {
-        yieldRecent: Boolean(flags & 1),
-        promoteRecent: Boolean(flags & 2),
-        allowRecentOmitted: Boolean(flags & 4),
-      });
+  it("returns byte-identical responses for calls with paths or without a task, with the feature on or off", () => {
+    for (const heavyCount of [0, 1, 5]) {
+      const { store, root, service } = lanternFixture(true, heavyCount, { matchedRecentTitle: "Valve seat rule" });
+      const focuses = [{ task: TASK, paths: ["src/burner/valve.ts"] }, { paths: ["src/other/file.ts"] }, {}];
+      const off = withFeatureOff(service, () => focuses.map((focus) => JSON.stringify(contextOf(store, root, focus))));
       expect(focuses.map((focus) => JSON.stringify(contextOf(store, root, focus)))).toEqual(off);
     }
   });
@@ -192,8 +186,7 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
   it("keeps the rest of a budget-tight response identical to the response without the feature", () => {
     const { store, root, service } = lanternFixture(true);
     const on = contextOf(store, root, { task: TASK });
-    service.shouldInferTaskPaths = () => false;
-    const off = contextOf(store, root, { task: TASK });
+    const off = withFeatureOff(service, () => contextOf(store, root, { task: TASK }));
 
     expect(JSON.stringify(withoutSupplements(on))).toBe(JSON.stringify(withoutSupplements(off)));
     expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
@@ -202,97 +195,99 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
     expect((off.relevant?.supplements ?? []).some((item) => item.includedBecause.kind === "inferred_path")).toBe(false);
   });
 
-  it("does not infer when the page already holds a full set of Knowledge", () => {
-    const { store, root, record, service } = lanternFixture();
-    const gate = vi.fn(service.shouldInferTaskPaths.bind(service));
-    service.shouldInferTaskPaths = gate;
-    for (let index = 0; index < 5; index += 1) {
-      record(`swarm-${index}`, `Swarm frame splitting rule ${index}`, "Swarm frame splitting needs care.", []);
-    }
-    const context = contextOf(store, root, { task: TASK });
+  it("offers a Knowledge only when at least two similar Sessions support it", () => {
+    const { store, root, record, finalize, scoped } = lanternFixture();
+    const solo = record("solo", "Gear mesh rule", "Keep the gears meshed.", ["src/solo/**"]);
+    finalize("solo-1", "Swarm frame splitting solo gear", ["src/solo/gear.ts"]);
+    const ids = () => (contextOf(store, root, { task: TASK }).relevant?.supplements ?? []).map((item) => item.id);
 
-    expect(context.relevant?.knowledge).toHaveLength(5);
-    expect(gate).toHaveBeenCalledWith(5, expect.any(String));
-    expect(gate.mock.results.at(-1)?.value).toBe(false);
-    expect((context.relevant?.supplements ?? []).map((item) => item.includedBecause.kind)).not.toContain(
-      "inferred_path",
-    );
+    // The valve Knowledge has two supporting Sessions; the gear one has only one.
+    expect(ids()).toContain(scoped.id);
+    expect(ids()).not.toContain(solo.id);
+    finalize("solo-2", "Swarm frame splitting solo gear again", ["src/solo/gear.ts"]);
+    expect(ids()).toContain(solo.id);
+  });
+
+  it("labels the pointer with the inferred file and the Sessions to read first", () => {
+    const { store, root, scoped } = lanternFixture();
+    const pointer = contextOf(store, root, { task: TASK }).relevant?.supplements?.find((item) => item.id === scoped.id);
+    expect(pointer?.includedBecause.kind).toBe("inferred_path");
+    if (pointer?.includedBecause.kind !== "inferred_path") throw new Error("Expected an inferred path.");
+    expect(pointer.includedBecause.path).toBe("src/burner/valve.ts");
+    expect(pointer.includedBecause.sourceSessionIds.length).toBeGreaterThan(0);
   });
 });
 
-describe("work_get_context inferred-path knobs", () => {
+describe("work_get_context inferred-path budget yield", () => {
   /** One heavy Session leaves the page 10-12 characters short of the pointer, with recentKnowledge still present. */
-  it("yields unmatched recentKnowledge to make room for a pointer and changes nothing else", () => {
-    const { store, root, scoped, service } = lanternFixture(true, 1);
-    withOptions(service, { yieldRecent: false });
-    const noYield = contextOf(store, root, { task: TASK });
-    withOptions(service, { yieldRecent: true });
+  it("shortens unmatched recentKnowledge to titles before popping any, and changes nothing else", () => {
+    const { store, root, scoped, service } = lanternFixture(true, 1, { fillerBody: LONG_FILLER });
     const on = contextOf(store, root, { task: TASK });
-    service.shouldInferTaskPaths = () => false;
-    const off = contextOf(store, root, { task: TASK });
+    const off = withFeatureOff(service, () => contextOf(store, root, { task: TASK }));
 
-    expect(noYield.relevant?.supplements).toBeUndefined();
     expect(on.relevant?.supplements?.map((item) => item.id)).toEqual([scoped.id]);
     expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
     expect(JSON.stringify(withoutRecentAndSupplements(on))).toBe(JSON.stringify(withoutRecentAndSupplements(off)));
-    // Recent records were trimmed from the end, and the usual omission counts them.
-    expect(on.recentKnowledge.length).toBeLessThan(off.recentKnowledge.length);
-    expect(on.recentKnowledge.map((item) => item.id)).toEqual(
-      off.recentKnowledge.slice(0, on.recentKnowledge.length).map((item) => item.id),
+    // Nothing was popped: the same records stay, the usual omission is untouched, and the last ones lost their excerpts.
+    expect(on.recentKnowledge.map((item) => item.id)).toEqual(off.recentKnowledge.map((item) => item.id));
+    expect(on.omitted?.find((omission) => omission.section === "recentKnowledge")).toEqual(
+      off.omitted?.find((omission) => omission.section === "recentKnowledge"),
     );
-    const trimmed = off.recentKnowledge.length - on.recentKnowledge.length;
-    const before = off.omitted?.find((omission) => omission.section === "recentKnowledge");
-    const after = on.omitted?.find((omission) => omission.section === "recentKnowledge");
-    expect(after?.count).toBe((before?.count ?? 0) + trimmed);
-    expect(after?.reasons).toContain("預算限制：較低優先 Knowledge");
-    expect(on.omitted?.some((omission) => omission.section === "relevant.supplements")).toBe(false);
+    const shortened = on.recentKnowledge.filter((item) => item.excerpt === "");
+    expect(shortened.length).toBeGreaterThan(0);
+    expect(shortened.every((item) => item.excerptTruncated === true)).toBe(true);
+    // From the end: every record after the first shortened one is shortened too, and the ones before are untouched.
+    const firstShortened = on.recentKnowledge.findIndex((item) => item.excerpt === "");
+    expect(on.recentKnowledge.slice(firstShortened).every((item) => item.excerpt === "")).toBe(true);
+    expect(on.recentKnowledge.slice(0, firstShortened)).toEqual(off.recentKnowledge.slice(0, firstShortened));
   });
 
-  it("never exceeds the budget for any option combination and keeps first-round content", () => {
+  it("pops recentKnowledge only when every unmatched record is already title-only and the pointer still does not fit", () => {
+    const { store, root, scoped, service } = lanternFixture(true, 2, {
+      burnerTitle: "Burner rule",
+      fillerBody: LONG_FILLER,
+    });
+    const on = contextOf(store, root, { task: TASK });
+    const off = withFeatureOff(service, () => contextOf(store, root, { task: TASK }));
+
+    expect(on.relevant?.supplements?.map((item) => item.id)).toContain(scoped.id);
+    expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
+    expect(on.recentKnowledge.length).toBeLessThan(off.recentKnowledge.length);
+    expect(on.recentKnowledge.every((item) => item.excerpt === "" && item.excerptTruncated === true)).toBe(true);
+    const before = off.omitted?.find((omission) => omission.section === "recentKnowledge");
+    const after = on.omitted?.find((omission) => omission.section === "recentKnowledge");
+    expect(after?.count).toBe((before?.count ?? 0) + off.recentKnowledge.length - on.recentKnowledge.length);
+    expect(after?.reasons).toContain("預算限制：較低優先 Knowledge");
+  });
+
+  it("never exceeds the budget and keeps first-round content", () => {
     for (const heavyCount of [0, 1, 2, 3, 5]) {
       const { store, root, service } = lanternFixture(true, heavyCount, { matchedRecentTitle: "Valve seat rule" });
-      service.shouldInferTaskPaths = () => false;
-      const off = contextOf(store, root, { task: TASK });
-      service.shouldInferTaskPaths = () => true;
-      for (let flags = 0; flags < 8; flags += 1) {
-        withOptions(service, {
-          yieldRecent: Boolean(flags & 1),
-          promoteRecent: Boolean(flags & 2),
-          allowRecentOmitted: Boolean(flags & 4),
-        });
-        const on = contextOf(store, root, { task: TASK });
-        expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
-        expect(JSON.stringify(on.relevant?.knowledge)).toBe(JSON.stringify(off.relevant?.knowledge));
-        expect(JSON.stringify(on.relevant?.sessions)).toBe(JSON.stringify(off.relevant?.sessions));
-      }
+      const off = withFeatureOff(service, () => contextOf(store, root, { task: TASK }));
+      const on = contextOf(store, root, { task: TASK });
+      expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
+      expect(JSON.stringify(on.relevant?.knowledge)).toBe(JSON.stringify(off.relevant?.knowledge));
+      expect(JSON.stringify(on.relevant?.sessions)).toBe(JSON.stringify(off.relevant?.sessions));
     }
   });
 
-  it("does not trim recentKnowledge records the inference matched, and skips them unless promoted", () => {
-    const { store, root, scoped, matchedRecent, service } = lanternFixture(true, 1, {
-      matchedRecentTitle: "Valve seat rule",
-    });
-    const off = (() => {
-      service.shouldInferTaskPaths = () => false;
-      const result = contextOf(store, root, { task: TASK });
-      delete (service as { shouldInferTaskPaths?: unknown }).shouldInferTaskPaths;
-      return result;
-    })();
-    expect(off.recentKnowledge.map((item) => item.id)).toContain(matchedRecent!.id);
+  it("promotes a matched recentKnowledge record into one labelled pointer and never shortens or pops it", () => {
+    for (const heavyCount of [0, 1]) {
+      const { store, root, scoped, matchedRecent, service } = lanternFixture(true, heavyCount, {
+        matchedRecentTitle: "Valve seat rule",
+      });
+      const off = withFeatureOff(service, () => contextOf(store, root, { task: TASK }));
+      expect(off.recentKnowledge.map((item) => item.id)).toContain(matchedRecent!.id);
 
-    withOptions(service, { yieldRecent: true, promoteRecent: false });
-    const skipped = contextOf(store, root, { task: TASK });
-    expect(skipped.recentKnowledge.map((item) => item.id)).toContain(matchedRecent!.id);
-    expect((skipped.relevant?.supplements ?? []).map((item) => item.id)).not.toContain(matchedRecent!.id);
-
-    withOptions(service, { promoteRecent: true });
-    const promoted = contextOf(store, root, { task: TASK });
-    const ids = (promoted.relevant?.supplements ?? []).map((item) => item.id);
-    expect(ids).toContain(matchedRecent!.id);
-    expect(ids).toContain(scoped.id);
-    // Counted once: the labelled pointer replaced the recent record.
-    expect(promoted.recentKnowledge.map((item) => item.id)).not.toContain(matchedRecent!.id);
-    expect(JSON.stringify(promoted).length).toBeLessThanOrEqual(9_800);
+      const on = contextOf(store, root, { task: TASK });
+      const pointers = (on.relevant?.supplements ?? []).map((item) => item.id);
+      expect(pointers).toContain(matchedRecent!.id);
+      expect(pointers).toContain(scoped.id);
+      // Counted once: the labelled pointer replaced the recent record, and no omission names it.
+      expect(on.recentKnowledge.map((item) => item.id)).not.toContain(matchedRecent!.id);
+      expect(JSON.stringify(on.omitted)).not.toContain(matchedRecent!.id);
+      expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
+    }
   });
 
   it("brings back a record budget trimming took out of recentKnowledge and keeps the omission counts consistent", () => {
@@ -302,56 +297,15 @@ describe("work_get_context inferred-path knobs", () => {
     });
     // Only the recent record is left to match, so its short pointer is the one that has to fit.
     store.updateKnowledge({ projectRoot: root, knowledgeId: scoped.id, status: "archived" });
-    withOptions(service, { yieldRecent: false });
-    const without = contextOf(store, root, { task: TASK });
-    withOptions(service, { allowRecentOmitted: true });
-    const allowed = contextOf(store, root, { task: TASK });
+    const off = withFeatureOff(service, () => contextOf(store, root, { task: TASK }));
+    const on = contextOf(store, root, { task: TASK });
 
     const omission = (context: ContextResult) => context.omitted?.find((item) => item.section === "recentKnowledge");
-    const pointers = (allowed.relevant?.supplements ?? []).map((item) => item.id);
-    expect(pointers).toContain(matchedRecent!.id);
-    expect((without.relevant?.supplements ?? []).map((item) => item.id)).not.toContain(matchedRecent!.id);
-    const kept = omission(allowed);
-    expect(kept?.count).toBe((omission(without)?.count ?? 0) - 1);
+    expect((on.relevant?.supplements ?? []).map((item) => item.id)).toContain(matchedRecent!.id);
+    const kept = omission(on);
+    expect(kept?.count).toBe((omission(off)?.count ?? 0) - 1);
     expect(kept?.ids ?? []).not.toContain(matchedRecent!.id);
     expect((kept?.ids?.length ?? 0) + (kept?.moreIds ?? 0)).toBe(kept?.count);
-    expect(JSON.stringify(allowed).length).toBeLessThanOrEqual(9_800);
-  });
-
-  it("scores every file of the similar Sessions and names the weighted file", () => {
-    const { store, root, scoped } = lanternFixture();
-    const context = contextOf(store, root, { task: TASK });
-    const pointer = context.relevant?.supplements?.find((item) => item.id === scoped.id);
-    expect(pointer?.includedBecause.kind).toBe("inferred_path");
-    if (pointer?.includedBecause.kind !== "inferred_path") throw new Error("Expected an inferred path.");
-    expect(pointer.includedBecause.path).toBe("src/burner/valve.ts");
-  });
-
-  it("drops pointers below the precision thresholds", () => {
-    const { store, root, scoped, service } = lanternFixture();
-    const has = () =>
-      (contextOf(store, root, { task: TASK }).relevant?.supplements ?? []).some((item) => item.id === scoped.id);
-    expect(has()).toBe(true);
-    // Two similar Sessions changed the files the Knowledge covers.
-    withOptions(service, { minSessions: 2 });
-    expect(has()).toBe(true);
-    withOptions(service, { minSessions: 3 });
-    expect(has()).toBe(false);
-    withOptions(service, { minSessions: 1, minTopRatio: 1 });
-    expect(has()).toBe(true);
-    withOptions(service, { minTopRatio: 1.01 });
-    expect(has()).toBe(false);
-    withOptions(service, { minTopRatio: 0, minScoreShare: 0.01 });
-    expect(has()).toBe(true);
-    withOptions(service, { minScoreShare: 1.01 });
-    expect(has()).toBe(false);
-  });
-
-  it("skips inference only for high first-round confidence when skipHighConfidence is on", () => {
-    const { store, root, scoped, service } = lanternFixture();
-    const confidence = contextOf(store, root, { task: TASK }).relevant?.confidence;
-    withOptions(service, { skipHighConfidence: true });
-    const pointers = (contextOf(store, root, { task: TASK }).relevant?.supplements ?? []).map((item) => item.id);
-    expect(pointers.includes(scoped.id)).toBe(confidence !== "high");
+    expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
   });
 });

@@ -16,35 +16,32 @@
 //   Hit ("full") = a Knowledge id whose title or excerpt appears outside `omitted` in the getContext response, wherever
 //   it sits (relevant.knowledge, relevant.supplements pointers, recentKnowledge). Path entries inside `omitted` are
 //   not hits; they are reported separately.
-//   Original variants (reproduce the upstream numbers; the inference gate is forced off so they equal the pre-feature
-//   product): task = {task}; frequent = the project's three most changed files; predicted = the top files of the five
-//   Sessions with the most similar titles; actual = the real changed files (an upper bound).
-//   Prototype variants (under `prototype`): productOff = {task} with the gate off (must equal `task`); product = {task}
-//   with the gate as shipped; productAlways = gate always on; merged = the task response plus Knowledge newly found by
-//   the `predicted` query, appended as {id,title} pointers while the JSON stays within the 9,800 character task budget
-//   (simulated). gained / lost compare with the task response; stats satisfy full = task.full + gained - lost.
-//   The gate is reached as `store.contextRecallService.shouldInferTaskPaths` (private field, instance method).
+//   Original variants (reproduce the pre-feature numbers; the feature is switched off): task = {task}; frequent = the
+//   project's three most changed files; predicted = the top files of the five Sessions with the most similar titles;
+//   actual = the real changed files (an upper bound).
+//   Product variants: off = {task} with the feature switched off (must equal `task`); product = {task} as shipped
+//   (weighted inferred_path pointers, yield of recentKnowledge, promote and omitted-record return, pointer limit 3,
+//   at least two supporting Sessions; frozen constants in ContextRecallService). merged = the task response plus
+//   Knowledge newly found by the `predicted` query, appended as {id,title} pointers while the JSON stays within the
+//   9,800 character task budget (simulated). gained / lost compare with the task response; stats satisfy
+//   full = task.full + gained - lost.
+//   The only product hook is the private instance field `inferTaskPaths` of store.contextRecallService (true in the
+//   product); the script sets it to false for `off` and the original variants and restores it afterwards.
 //
-//   Knob variants (report.metrics, not under `prototype`): the gate is forced on and the recall service's instance field
-//   `inferredPathOptions` (pointerLimit, yieldRecent, promoteRecent, allowRecentOmitted, minScoreShare, minTopRatio,
-//   minSessions, skipHighConfidence) is overridden: off (gate off), weighted3Yield, weighted5Yield (pointerLimit 5),
-//   weighted3YieldPromote (the shipped defaults), bestAllKnobs (adds allowRecentOmitted), bestSkipHigh.
 //   report.metrics.<variant> holds, for every variant, both definitions: loose (the Hit definition above) and strict (a
 //   target id with a title or excerpt inside relevant.knowledge or relevant.supplements only, so recentKnowledge and
 //   anything else do not count), gained / lost against the task baseline for both, chars (sum, max), onNegative noise,
 //   inferredPointers (total, target pairs, split by positive / negative tasks, precision), recentDisplaced
 //   (recentKnowledge items of the task baseline that the variant removed, split target / other), looseLostBy (yieldPop /
 //   promote / other: why a loose hit of the baseline was lost) and gained by first-round confidence (none / low / high)
-//   and by the time / size slices. report.diagnostics explains each target pair the knob variants did not strictly hit
-//   (notInferred, filtered, alreadyRecent, excludedOmitted, cutByCap, cutByBudget, firstRound), recomputed from what the
-//   product's private inference methods returned during the call (wrapped at runtime) and the response itself; the cut
-//   classes are approximate where the response lists omitted ids only up to a limit.
-//   report.sweep (skip with --no-sweep) is the precision curve around bestAllKnobs: minScoreShare (score / sum of all
-//   file weights) x pointerLimit x minSessions, and minTopRatio (score / best score) x minSessions. Each row gives
-//   strictGained, strictLost, looseGained, looseLost, pointers, targetPointers, negativeTaskPointers, precision,
-//   noiseOverGain (negative-task pointers / strict gain), charsMax and looseLostBy.
+//   and by the time / size slices. report.diagnostics explains each target pair the product did not strictly hit
+//   (notInferred, filtered, cutByCap, cutByBudget, firstRound), recomputed from what the product's private inference
+//   method returned during the call (wrapped at runtime) and the response itself; the cut classes are approximate where
+//   the response lists omitted ids only up to a limit.
 //   report.knowledgeRecallOnly counts strict targets among Knowledge-only recall hits for the task (limits 5 and 8): would
 //   relevant.knowledge find more if Sessions did not crowd the mixed recall page.
+//   The parameter sweep and knob variants that chose the shipped constants were removed with the knobs; their numbers
+//   are in docs/experiments/task-path-replay.md.
 //
 // Safety: --db is opened read-only; replay writes go to an in-memory store. Output is aggregate JSON only, never
 // titles, paths, ids or project names.
@@ -66,53 +63,11 @@ const { appliesToStrength } = await import("../../packages/storage/dist/applies-
 const TASK_BUDGET_CHARS = 9_800;
 const MERGED_FIELD_OVERHEAD = '"mergedPointers":[]'.length;
 const ORIGINAL_VARIANTS = ["task", "frequent", "predicted", "actual"];
-const PROTOTYPE_VARIANTS = ["merged", "productOff", "product", "productAlways"];
+const PROTOTYPE_VARIANTS = ["merged", "productOff", "product"];
 const BASELINE_METRICS = ["task", "frequent", "predicted", "actual"];
-// Product knobs (ContextRecallService.inferredPathOptions). BASE is the widest line: weighted files, yield, promote and
-// allowRecentOmitted, pointerLimit 3, no precision threshold. Variants override single knobs.
-const BASE = {
-  pointerLimit: 3,
-  yieldRecent: true,
-  promoteRecent: true,
-  allowRecentOmitted: true,
-  minScoreShare: 0,
-  minTopRatio: 0,
-  minSessions: 1,
-  skipHighConfidence: false,
-};
-const KNOB_VARIANTS = {
-  off: null,
-  weighted3Yield: { ...BASE, promoteRecent: false, allowRecentOmitted: false },
-  weighted5Yield: { ...BASE, pointerLimit: 5, promoteRecent: false, allowRecentOmitted: false },
-  // The shipped defaults: weighted, yield, promote, pointerLimit 3.
-  weighted3YieldPromote: { ...BASE, allowRecentOmitted: false },
-  bestAllKnobs: { ...BASE },
-  bestSkipHigh: { ...BASE, skipHighConfidence: true },
-};
-// Precision curves around BASE: relative score floor (score / sum of all file weights), pointer limit, distinct-Session
-// support, and the share of the best Knowledge's score. Report: gain(strict), negative-task pointers, precision.
-const SWEEP_SHARES = [0, 0.02, 0.05, 0.1, 0.2];
-const SWEEP_LIMITS = [1, 2, 3];
-const SWEEP_SUPPORTS = [1, 2];
-const SWEEP_RATIOS = [0.25, 0.5, 0.75];
-function sweepVariants() {
-  const variants = {};
-  for (const minScoreShare of SWEEP_SHARES) {
-    for (const pointerLimit of SWEEP_LIMITS) {
-      for (const minSessions of SWEEP_SUPPORTS) {
-        variants[`share${minScoreShare}_limit${pointerLimit}_sessions${minSessions}`] = { ...BASE, minScoreShare, pointerLimit, minSessions };
-      }
-    }
-  }
-  for (const minTopRatio of SWEEP_RATIOS) {
-    for (const minSessions of SWEEP_SUPPORTS) {
-      variants[`ratio${minTopRatio}_limit3_sessions${minSessions}`] = { ...BASE, minTopRatio, minSessions };
-    }
-  }
-  return variants;
-}
-const SWEEP_VARIANTS = sweepVariants();
-const PRODUCT_METRICS = ["product", "productAlways", ...Object.keys(KNOB_VARIANTS).filter((key) => key !== "off")];
+// Shipped constants of ContextRecallService, repeated only to classify misses (INFERRED_POINTER_LIMIT).
+const POINTER_LIMIT = 3;
+const PRODUCT_METRICS = ["product"];
 const CONFIDENCES = ["none", "low", "high"];
 const SLICE_TAGS = ["latestQuarter", "earlier", "smallChange", "broadChange"];
 const LOCATIONS = ["relevantKnowledge", "supplements", "recentKnowledge", "elsewhere"];
@@ -228,37 +183,21 @@ function newMetric() {
 }
 
 function newDiagnostic() {
-  return { pairs: 0, strictHits: 0, notInferred: 0, filtered: 0, alreadyRecent: 0, excludedOmitted: 0, cutByCap: 0, cutByBudget: 0, firstRound: 0 };
-}
-
-/** Ids the response keeps in an omission, listed by id or by flagged / path entry (the rest is only counted). */
-function omissionListedIds(context) {
-  const ids = new Set();
-  for (const omission of context.omitted ?? []) {
-    for (const id of omission.ids ?? []) ids.add(id);
-    for (const entry of omission.entries ?? []) ids.add(entry.id);
-  }
-  return ids;
+  return { pairs: 0, strictHits: 0, notInferred: 0, filtered: 0, cutByCap: 0, cutByBudget: 0, firstRound: 0 };
 }
 
 /**
- * Why a target pair was not strictly hit. `capture` holds what the product's private inference methods returned for this
- * call: the ranked matches (raw), the candidates after first-round / trust filtering, and the first-round ids.
+ * Why a target pair was not strictly hit. `capture` holds what the product's private inference method returned for this
+ * call: the ranked matches (raw), the candidates after first-round / support / trust filtering, and the first-round ids.
  */
-function classifyMiss(id, context, capture, options) {
+function classifyMiss(id, context, capture) {
   if (capture.firstRoundIds.has(id)) return "firstRound";
   if (!capture.raw.has(id)) return "notInferred";
   const index = capture.candidates.findIndex((candidate) => candidate.id === id);
-  // Ranked by the weighted scan but dropped before pointer choice: a precision threshold (or trust) removed it.
-  if (index < 0) return options.minScoreShare > 0 || options.minTopRatio > 0 || options.minSessions > 1 ? "filtered" : "notInferred";
-  const recent = new Set((context.recentKnowledge ?? []).map((item) => item.id));
-  const listed = omissionListedIds(context);
-  if (recent.has(id) && !options.promoteRecent) return "alreadyRecent";
-  if (listed.has(id) && !options.allowRecentOmitted) return "excludedOmitted";
-  const eligible = capture.candidates.filter(
-    (candidate) => !(recent.has(candidate.id) && !options.promoteRecent) && !(listed.has(candidate.id) && !options.allowRecentOmitted),
-  );
-  return eligible.findIndex((candidate) => candidate.id === id) >= options.pointerLimit ? "cutByCap" : "cutByBudget";
+  // Ranked by the weighted scan but dropped before pointer choice: fewer than two supporting Sessions, or trust.
+  if (index < 0) return "filtered";
+  // Candidates that were already shown in full are promoted, so the pointer cap counts every candidate in order.
+  return index >= POINTER_LIMIT ? "cutByCap" : "cutByBudget";
 }
 
 function newLocationTally() {
@@ -303,7 +242,6 @@ function newPrototypeStat() {
   return {
     ...newStat(),
     responses: 0,
-    gateFired: 0,
     inferredOnNegative: 0,
     locations: newLocationTally(),
   };
@@ -319,7 +257,7 @@ function newSignalBuckets() {
 }
 
 /** Replays every question against the history before it; returns the aggregate report. */
-function replay(project, sessions, audits, { sweep = true } = {}) {
+function replay(project, sessions, audits) {
   const pathContext = [{ name: project.name, rootPath: project.root_path }];
   const norm = (path) => normalizePath(path, pathContext);
   for (const row of sessions) {
@@ -333,33 +271,15 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
   const revisions = audits.map((row) => ({ time: Date.parse(row.occurred_at), k: JSON.parse(row.after_json) }));
 
   const store = new WorkIntelligenceStore(":memory:");
-  // The gate is an instance method of the recall service; the experiment overrides it per call and restores it.
   const service = store.contextRecallService;
-  const shippedGate = Object.getPrototypeOf(service).shouldInferTaskPaths;
-  let gateFired = 0;
-  const gates = {
-    off: () => false,
-    shipped: (...args) => {
-      const open = shippedGate.apply(service, args);
-      if (open) gateFired++;
-      return open;
-    },
-    always: () => {
-      gateFired++;
-      return true;
-    },
-  };
   const search = service.searchIndex;
   const servicePrototype = Object.getPrototypeOf(service);
   const searchPrototype = Object.getPrototypeOf(search);
-  const defaultOptions = { ...service.inferredPathOptions };
-  // Runs getContext with the gate and optional inferredPathOptions overrides (private instance field of the service),
-  // and records what the product's private inference methods returned, for the miss diagnostics.
-  const contextWith = (gate, focus, options, capture) => {
-    service.shouldInferTaskPaths = gate;
-    // A class field is an own property of the instance, so it is restored, not deleted.
-    const previousOptions = service.inferredPathOptions;
-    if (options) service.inferredPathOptions = { ...defaultOptions, ...options };
+  // Runs getContext with the feature on or off (the private `inferTaskPaths` field, restored afterwards) and records
+  // what the product's private inference method returned, for the miss diagnostics.
+  const contextWith = (enabled, focus, capture) => {
+    const previous = service.inferTaskPaths;
+    service.inferTaskPaths = enabled;
     if (capture) {
       capture.raw = new Set();
       capture.candidates = [];
@@ -371,19 +291,16 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
         capture.matched = result.matchedIds;
         return result;
       };
-      for (const name of ["knowledgeForWeightedPaths"]) {
-        search[name] = (...args) => {
-          const result = searchPrototype[name].apply(search, args);
-          for (const item of result) capture.raw.add(item.id);
-          return result;
-        };
-      }
+      search.knowledgeForWeightedPaths = (...args) => {
+        const result = searchPrototype.knowledgeForWeightedPaths.apply(search, args);
+        for (const item of result) capture.raw.add(item.id);
+        return result;
+      };
     }
     try {
       return store.getContext(project.root_path, focus);
     } finally {
-      delete service.shouldInferTaskPaths;
-      service.inferredPathOptions = previousOptions;
+      service.inferTaskPaths = previous;
       delete service.inferredKnowledge;
       delete search.knowledgeForWeightedPaths;
     }
@@ -411,11 +328,10 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
   const prototypeStats = Object.fromEntries(PROTOTYPE_VARIANTS.map((key) => [key, newPrototypeStat()]));
   const prototypeGroups = {};
   const mergedDetail = { keptOld: 0, added: 0, addedTargets: 0, cutByBudget: 0, cutTargets: 0, oldNotKept: 0 };
-  const signals = { product: newSignalBuckets(), productAlways: newSignalBuckets() };
+  const signals = { product: newSignalBuckets() };
   const metrics = Object.fromEntries(
-    [...BASELINE_METRICS, "merged", ...Object.keys(KNOB_VARIANTS), "product", "productAlways"].filter((key, index, all) => all.indexOf(key) === index).map((key) => [key, newMetric()]),
+    [...BASELINE_METRICS, "merged", "off", "product"].map((key) => [key, newMetric()]),
   );
-  const sweepMetrics = Object.fromEntries(Object.keys(SWEEP_VARIANTS).map((key) => [key, newMetric()]));
   const diagnostics = Object.fromEntries(PRODUCT_METRICS.map((key) => [key, newDiagnostic()]));
   const recallOnly = { positives: 0, baselineStrictPairs: 0, ...Object.fromEntries([5, 8].map((limit) => [`limit${limit}`, { pairs: 0, newVsBaselineStrict: 0, nonTargetHits: 0, tasksWithNewPair: 0 }])) };
 
@@ -456,7 +372,7 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
     const confidenceOf = () => baselineContext.relevant?.confidence ?? "none";
     // Both definitions for one response, against the task baseline (loose = fullIds, strict = relevant.* only).
     const measure = (name, context, looseIds, strictSet, extraChars = 0, capture = undefined) => {
-      const m = metrics[name] ?? sweepMetrics[name];
+      const m = metrics[name];
       const looseGained = [...targets].filter((id) => looseIds.has(id) && !baseline.has(id)).length;
       const strictGained = [...targets].filter((id) => strictSet.has(id) && !baselineStrict.has(id)).length;
       m.responses++;
@@ -513,7 +429,7 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
       a.correct += correct;
       if (correct) a.hits++;
       if (!active.length) continue;
-      const context = contextWith(gates.off, candidates.length ? { task, paths: candidates } : { task });
+      const context = contextWith(false, candidates.length ? { task, paths: candidates } : { task });
       const ids = fullIds(context, known);
       if (key === "task") {
         baseline = ids;
@@ -594,7 +510,7 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
     }
     if (!active.length) continue;
 
-    const diagnose = (name, context, strictSet, capture, options) => {
+    const diagnose = (name, context, strictSet, capture) => {
       const d = diagnostics[name];
       for (const id of targets) {
         d.pairs++;
@@ -602,7 +518,7 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
           d.strictHits++;
           continue;
         }
-        d[classifyMiss(id, context, capture, options)]++;
+        d[classifyMiss(id, context, capture)]++;
       }
     };
     // Knowledge-only recall: would relevant.knowledge find more if Sessions did not crowd the mixed recall page?
@@ -620,19 +536,10 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
       cell.nonTargetHits += hits.length - found.length;
       if (fresh.length) cell.tasksWithNewPair++;
     }
-    for (const [key, options] of Object.entries(KNOB_VARIANTS)) {
-      const capture = {};
-      const context = options ? contextWith(gates.always, { task }, options, capture) : contextWith(gates.off, { task });
-      const ids = fullIds(context, known);
-      const strict = strictIds(context, known);
-      measure(key, context, ids, strict, 0, capture);
-      if (options) diagnose(key, context, strict, capture, { ...defaultOptions, ...options });
-    }
-    if (sweep) {
-      for (const [key, options] of Object.entries(SWEEP_VARIANTS)) {
-        const context = contextWith(gates.always, { task }, options);
-        measure(key, context, fullIds(context, known), strictIds(context, known));
-      }
+    {
+      // off: the feature switched off, measured like every other variant (must equal task).
+      const context = contextWith(false, { task });
+      measure("off", context, fullIds(context, known), strictIds(context, known));
     }
 
     const baselineChars = JSON.stringify(baselineContext).length;
@@ -662,25 +569,24 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
       measure("merged", baselineContext, mergedIds, new Set([...baselineStrict, ...[...mergedIds].filter((id) => !baseline.has(id))]), length - baselineChars);
     }
 
-    const off = contextWith(gates.off, { task });
+    const off = contextWith(false, { task });
     const offIds = fullIds(off, known);
     assert.equal(JSON.stringify(off).length, baselineChars, "productOff must equal task");
     assert.deepEqual([...offIds].sort(), [...baseline].sort(), "productOff must equal task");
     record("productOff", off, offIds);
 
-    for (const [key, gate] of [["product", gates.shipped], ["productAlways", gates.always]]) {
-      const before = gateFired;
+    {
+      const key = "product";
       const capture = {};
-      const context = contextWith(gate, { task }, undefined, capture);
+      const context = contextWith(true, { task }, capture);
       const ids = fullIds(context, known);
       const strict = strictIds(context, known);
       measure(key, context, ids, strict, 0, capture);
-      diagnose(key, context, strict, capture, defaultOptions);
+      diagnose(key, context, strict, capture);
       const a = record(key, context, ids);
-      a.gateFired += gateFired - before;
       const inferred = (context.relevant?.supplements ?? []).filter((item) => item.includedBecause.kind === "inferred_path");
       if (!targets.size) a.inferredOnNegative += inferred.length;
-      if (targets.size && key !== "productOff") {
+      if (targets.size) {
         const gained = [...targets].filter((id) => ids.has(id) && !offIds.has(id)).length;
         const hits = off.relevant?.knowledge.length ?? 0;
         const buckets = [
@@ -705,33 +611,12 @@ function replay(project, sessions, audits, { sweep = true } = {}) {
     m.inferredPointers.precision = m.inferredPointers.total ? Number((m.inferredPointers.targets / m.inferredPointers.total).toFixed(3)) : 0;
   };
   for (const m of Object.values(metrics)) finish(m);
-  // Compact precision curves: what each knob setting gains (strict) against what it adds on tasks with no target.
-  const sweepReport = {};
-  for (const [key, m] of Object.entries(sweepMetrics)) {
-    if (!m.responses) continue;
-    finish(m);
-    sweepReport[key] = {
-      knobs: SWEEP_VARIANTS[key],
-      strictGained: m.strict.gained,
-      strictLost: m.strict.lost,
-      looseGained: m.loose.gained,
-      looseLost: m.loose.lost,
-      pointers: m.inferredPointers.total,
-      targetPointers: m.inferredPointers.targets,
-      negativeTaskPointers: m.inferredPointers.onNegativeTasks,
-      precision: m.inferredPointers.precision,
-      noiseOverGain: m.strict.gained ? Number((m.inferredPointers.onNegativeTasks / m.strict.gained).toFixed(3)) : null,
-      charsMax: m.chars.max,
-      looseLostBy: m.looseLostBy,
-    };
-  }
   return {
     tally,
     stats,
     groups,
     prototype: { stats: prototypeStats, groups: prototypeGroups, merged: mergedDetail, signals },
     metrics,
-    ...(sweep ? { sweep: sweepReport } : {}),
     diagnostics,
     knowledgeRecallOnly: recallOnly,
   };
@@ -821,11 +706,9 @@ function assertSelfCheck(report) {
   }
   assert.equal(prototype.stats.productOff.full, stats.task.full, "productOff equals task");
   assert.equal(prototype.stats.product.lost, 0, "product must not lose hits");
-  assert.equal(prototype.stats.productAlways.lost, 0, "productAlways must not lose hits");
   assert.equal(prototype.stats.merged.lost, 0, "merged keeps every old hit");
   assert.equal(prototype.merged.oldNotKept, 0);
-  assert(prototype.stats.productAlways.gained > 0, "inference must reach scoped Knowledge in the synthetic replay");
-  assert(prototype.stats.product.gained > 0, "the shipped gate must fire on the synthetic replay");
+  assert(prototype.stats.product.gained > 0, "inference must reach scoped Knowledge in the synthetic replay");
   assert(prototype.stats.product.locations.supplementsByKind.inferred_path, "gains arrive as inferred_path supplements");
   const { metrics } = report;
   for (const key of PRODUCT_METRICS) {
@@ -837,12 +720,7 @@ function assertSelfCheck(report) {
   assert.equal(metrics.off.loose.full, metrics.task.loose.full, "off equals task (loose)");
   assert.equal(metrics.off.strict.full, metrics.task.strict.full, "off equals task (strict)");
   assert.equal(metrics.off.chars.sum, metrics.task.chars.sum, "off equals task (chars)");
-  assert(metrics.weighted3Yield.strict.gained > 0, "weighted inference gains strict hits in the synthetic replay");
-  assert(metrics.weighted3YieldPromote.strict.gained > 0, "the shipped line gains strict hits in the synthetic replay");
-  for (const [key, entry] of Object.entries(report.sweep ?? {})) {
-    assert(entry.charsMax <= TASK_BUDGET_CHARS, `${key} must stay within the task budget`);
-    assert.equal(entry.strictLost, 0, `${key} must not lose strict hits`);
-  }
+  assert(metrics.product.strict.gained > 0, "the product gains strict hits in the synthetic replay");
   for (const key of PRODUCT_METRICS) {
     const m = metrics[key];
     assert.equal(m.inferredPointers.onPositiveTasks + m.inferredPointers.onNegativeTasks, m.inferredPointers.total, `${key} pointer split`);
@@ -850,7 +728,7 @@ function assertSelfCheck(report) {
   }
   for (const key of PRODUCT_METRICS) {
     const d = report.diagnostics[key];
-    assert.equal(d.strictHits + d.notInferred + d.filtered + d.alreadyRecent + d.excludedOmitted + d.cutByCap + d.cutByBudget + d.firstRound, d.pairs, `${key} diagnostics cover every pair`);
+    assert.equal(d.strictHits + d.notInferred + d.filtered + d.cutByCap + d.cutByBudget + d.firstRound, d.pairs, `${key} diagnostics cover every pair`);
   }
 }
 
@@ -870,7 +748,7 @@ function main() {
       seedSyntheticDatabase(target, join(temp, "fictional-root"));
     }
     const { project, sessions, audits } = loadProject(target, selfCheck ? undefined : flagValue(args, "--project"));
-    const report = replay(project, sessions, audits, { sweep: !args.includes("--no-sweep") });
+    const report = replay(project, sessions, audits);
     console.log(JSON.stringify(report, null, 2));
     if (selfCheck) {
       assertSelfCheck(report);
