@@ -158,6 +158,9 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
 | metadata follow-up count（5,000 個 tracked Sessions；計數需與完整預覽總數一致） | 100 ms |
 | metadata follow-up count（每次計時前由另一個連線寫入一筆 project data，必須重新掃描） | 100 ms |
+| `requestKnowledgeCandidates selection`（5,000 Sessions 的獨立副本，含已確認決策、延續連結、驗證修復與重讀訊號；每次計時前清掉候選請求；為未涵蓋的 Session 計分、選出前 10 筆並寫入請求） | 250 ms |
+| `getContext with knowledge backlog (cold token)`（同一份副本；每次計時前由另一個連線寫入一筆 project data 並清掉候選請求，必須重新計分；回應必須帶 `knowledgeBacklog`） | 500 ms |
+| `getContext with knowledge backlog (warm token)`（資料未變，只讀資料變更序號，不再計分） | 500 ms |
 | 大量變更後第一次讀取（另一份資料庫副本上 5,000 筆 Session 待更新索引，讀取前全部重建） | 1,500 ms |
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
 | finalize 知識頁維護提示（3 頁 × 5,000 個新 Session） | 250 ms |
@@ -179,6 +182,10 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 工作歷程搜尋（`search`） | 500 ms |
 | 依月份範圍的排序檢索（`recall` 帶 `from`／`to`） | 500 ms |
 | 同義詞擴展排序檢索（`q=endpoint performance`） | 500 ms |
+| 帶 `paths` 的排序檢索（`recall (paths, appliesTo)`：兩個路徑比對 20 筆只靠 `appliesTo` 連到檔案的 Knowledge，資料未變時重複讀取會重用信任（過時）結果；本機 median 約 11 ms，改動前約 23 ms） | 100 ms |
+| 同上，每次執行前先由另一連線寫入一次（`recall (paths, appliesTo, after a write)`：重新讀取之後的 Session 並比對；本機 median 約 11 ms 起，批次讀取） | 150 ms |
+| 帶 `task`/`paths` 的 Agent context（`getContext (paths, appliesTo-matched Knowledge)`：同一批 Knowledge 以 `appliesTo` 命中並放進 `relevant.knowledge`；本機 median 約 50 ms，改動前約 80 ms） | 250 ms |
+| 同上，每次執行前先由另一連線寫入一次（`getContext (paths, appliesTo-matched Knowledge, after a write)`） | 400 ms |
 | 熱點檔案（全部期間前 20 名；依目錄、單月） | 各 500 ms |
 | 圖譜含推導關係、兩節點路徑（500 節點內 BFS） | 各 750 ms |
 | 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |
@@ -347,6 +354,24 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 | `agent-data-source-audit-2026-09-30.md` | 第八輪工作記錄的來源與時間核對 |
 | `outstanding-cleanup-accuracy-2026-10-01.md` | 未結項清理建議的合成準確度評估 |
 | `standalone-distribution-spike-2026-10-15.md`／`.mjs` | 不需要 checkout 的發行方式研究與原型 |
+| `knowledge-reuse-attribution.mjs` | Knowledge 重用歸因重播（唯讀），說明見下方 Knowledge reuse attribution |
+
+### Knowledge reuse attribution
+
+`docs/experiments/knowledge-reuse-attribution.mjs` is a read-only replay that asks why a Knowledge item that could have been reused in a Session was or was not reported as applied. Run `pnpm build` first, then:
+
+```
+node docs/experiments/knowledge-reuse-attribution.mjs --db <database path> [--limit 500] [--json <new file>]
+node docs/experiments/knowledge-reuse-attribution.mjs --self-check
+```
+
+- Opportunity: a (Session, Knowledge) pair in the same tracked project where the Session is not voided, the Knowledge was created before the Session started, was active then (an unexplained archived row is counted as `excluded_not_active`), its appliesTo covers a changed file by the product's `appliesToStrength` rule, and the Session is not the Knowledge's own source. Reported means a `knowledge_feedback` row of kind `applied`; `contradicted` is counted separately.
+- Denominator: opportunities are split by the Knowledge's current status. `active_now` (still active) is the denominator of every class, cause, check and diagnostic below; `inactive_now` (active at the Session's time, archived or superseded since) is reported as a separate block with its own full / pointer_only / absent classes per variant (all `absent` by construction, because recall, file history and context scan `status = 'active'` only, and the replay uses the current state). Counting inactive_now as an opportunity produced false `not_in_scan_set` and `outside_scan_set` counts although the 2,000-row scan cap was never reached. The report prints a `provision rate (active_now)` line with the full / pointer_only / absent percentage per variant. Any `not_in_scan_set` left on active_now Knowledge is a real scan-set bug to investigate.
+- Replay: per Session (once, cached) `getContext` runs with `{task}`, `{paths}` and `{task, paths}` (task = Session title, paths = first 20 changed files). Each pair is `full`, `pointer_only` (id only inside `omitted`) or `absent`. For pairs absent from the combined variant, `recall` (limit 30) gives the cause: `budget_trimmed`, `ranked_behind` or `no_match` (`applies_to_only` when no changed file is among the Knowledge references), plus counts for default `recall` and `getFileHistory` presence. Every class is cross-tabbed by reported, unreported and contradicted.
+- Safety: the database is opened read-only and copied with `VACUUM INTO` to a temp folder; the store runs on the copy only and the folder is removed afterwards. The output is aggregate numbers only (no ids, titles, paths or project names); `--json` writes the same object to a new file and refuses to overwrite. `--limit` takes a deterministic every-k-th sample of the opportunities.
+- Diagnostics (aggregate counts only, each verified with the product's exported matching functions, first match wins): **A** splits `no_match/applies_to_only` into `beyond_replayed_paths` (no matched file within the 20 replayed paths), `applies_to_budget_or_scan` (the Knowledge is outside the newest 2,000 active rows with appliesTo of its project, or recall carries the appliesTo-truncated warning), `product_matcher_mismatch` (the script's matcher matches a replayed path but `appliesToEntries` + `appliesToStrength` on the normalized queried paths do not), `reserve_crowded` (present in a Knowledge-only recall at limit 30, absent from the mixed one) and `unknown`. **B** profiles `pointer_only` by omitted section, reason (budget, duplicate or `beyond_limit`: ranked past the five relevant slots), possiblyStale, pointer shape (`with_title_and_path` entry versus `id_only`) and whether it ranked in the recall@20 Knowledge top 5. **C** buckets replayed Sessions by opportunity Knowledge count (1, 2-3, 4-5, 6-10, >10) with full / pointer_only / absent totals. **D** splits absent Knowledge missing from `getFileHistory` of its first three matched files into `outside_scan_set`, `scan_truncated`, `matcher_mismatch`, `crowding_limit5` and `unknown`, with independent tallies of whether a single-file call (up to 10 matched files) finds it and of glob versus plain appliesTo. A shape table of the raw replayed changed-file paths (absolute, backslash, project-name prefix, changed by normalization and so on) shows what the product's path normalization has to absorb. `maybe hidden by moreIds` counts absent pairs whose Knowledge sections kept more omitted ids than the pointer lists (it can overlap any cause).
+- `--self-check` (and no `--db`) builds a fictional database through the real store API and asserts the expected counts through the same `--db` path. It also constructs a Knowledge whose only matching file is the 21st changed file, a rule archived after its Session (the one `inactive_now` opportunity, asserted absent in every variant and absent from the scan-set counters) and fourteen confirmed (not possiblyStale) Knowledge on one file (file-history limit of five; the context keeps five records, five path entries and three plain ids, so one rule is left out), and asserts the diagnostic counters above. It constructs full (reported, unreported, contradicted), `pointer_only`, `budget_trimmed`, `ranked_behind`, both `no_match` kinds and the not-an-opportunity cases (Knowledge newer than the Session, archived before the Session, the Knowledge's own source Session).
+- Known biases: the replay reads the current database, so Sessions and Knowledge created after the original Session compete in the ranking and recency differs; the Session itself is indexed (supplements sourced from its own applied Knowledge are discarded and counted as `selfSupplementLeak`). Context and recall match `paths` against Knowledge appliesTo (the replay passes the first 20 raw changed files), so appliesTo-only Knowledge beyond those paths or outside the scanned set reaches an Agent only through `getFileHistory().knowledge`, the relaxed Knowledge search or `recentKnowledge`.
 
 ## 五項整合 A1 提醒聚合
 

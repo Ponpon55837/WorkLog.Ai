@@ -30,6 +30,7 @@ import {
   normalizedAppliesTo,
   type AppliesToBudget,
 } from "./applies-to-match.js";
+import { DataRevisionCache } from "./data-revision-cache.js";
 import { LaterChangeIndex, stalenessUnitLimits, type PatternCoverage } from "./later-change-index.js";
 import type { PathContext } from "./search-text.js";
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
@@ -158,11 +159,19 @@ function knowledgeStaleness(
   };
 }
 
+/** Distinct Knowledge records whose staleness result one connection remembers while the data is unchanged. */
+const STALENESS_CACHE_KEYS = 512;
+
 export class KnowledgeService {
+  /** The possiblyStale result per Knowledge id and staleness limits; null is a checked record without a marker. */
+  private readonly stalenessResults: DataRevisionCache<KnowledgeStaleness | null>;
+
   public constructor(
     private readonly db: DatabaseSync,
     private readonly dependencies: KnowledgeServiceDependencies,
-  ) {}
+  ) {
+    this.stalenessResults = new DataRevisionCache(db, STALENESS_CACHE_KEYS);
+  }
 
   public applyKnowledgeFeedback(
     projectId: string,
@@ -278,10 +287,62 @@ export class KnowledgeService {
       }
     }
 
+    const staleness = this.stalenessOf(byProject);
+    return items.map((item) => {
+      const result = staleness.get(item.id);
+      const counts = evidence.get(item.id);
+      return {
+        ...item,
+        ...(result === "unchecked" ? { stalenessUnchecked: true as const } : result ? { possiblyStale: result } : {}),
+        ...(counts ? { evidence: counts } : {}),
+      };
+    });
+  }
+
+  /**
+   * The possiblyStale result of every grouped record. A record's result depends only on its project's Sessions and
+   * the record itself, so while the data is unchanged (the revision cache) it is reused; only records without a
+   * remembered result read later Sessions. Nothing is remembered from a call whose budget ran out or that left a
+   * record unchecked: such answers depend on which records shared the budget.
+   */
+  private stalenessOf(byProject: Map<string, KnowledgeRecord[]>): Map<string, KnowledgeStaleness | "unchecked"> {
+    const limits = stalenessUnitLimits();
+    const keyOf = (id: string): string => `${limits.history}:${limits.match}:${id}`;
+    const items = new Map<string, KnowledgeRecord>();
+    for (const group of byProject.values()) for (const item of group) items.set(keyOf(item.id), item);
+    const results = this.stalenessResults.getMany([...items.keys()], (missing) => {
+      const missingByProject = new Map<string, KnowledgeRecord[]>();
+      for (const key of missing) {
+        const item = items.get(key)!;
+        const group = missingByProject.get(item.projectId);
+        if (group) group.push(item);
+        else missingByProject.set(item.projectId, [item]);
+      }
+      const computed = this.computeStaleness(missingByProject, limits);
+      const values = new Map<string, KnowledgeStaleness | null>();
+      for (const key of missing) {
+        const result = computed.results.get(items.get(key)!.id);
+        if (result !== "unchecked") values.set(key, result ?? null);
+      }
+      return { values, cacheable: computed.complete };
+    });
+    const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
+    for (const item of items.values()) {
+      const result = results.get(keyOf(item.id));
+      if (result) staleness.set(item.id, result);
+      else if (result === undefined) staleness.set(item.id, "unchecked");
+    }
+    return staleness;
+  }
+
+  /** Reads each project's later Sessions once and resolves every grouped record against them. */
+  private computeStaleness(
+    byProject: Map<string, KnowledgeRecord[]>,
+    limits: ReturnType<typeof stalenessUnitLimits>,
+  ): { results: Map<string, KnowledgeStaleness | "unchecked">; complete: boolean } {
     const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
     // Two fixed ceilings per call, shared by every project of it: reading later Sessions into the index, and
     // resolving patterns against it (later-change-index.ts).
-    const limits = stalenessUnitLimits();
     const history = createAppliesToBudget(limits.history);
     const budget = createAppliesToBudget(limits.match);
     for (const [projectId, group] of byProject) {
@@ -304,15 +365,12 @@ export class KnowledgeService {
         }
       });
     }
-    return items.map((item) => {
-      const result = staleness.get(item.id);
-      const counts = evidence.get(item.id);
-      return {
-        ...item,
-        ...(result === "unchecked" ? { stalenessUnchecked: true as const } : result ? { possiblyStale: result } : {}),
-        ...(counts ? { evidence: counts } : {}),
-      };
-    });
+    const complete =
+      !history.exhausted &&
+      !budget.exhausted &&
+      budget.skippedEntries === 0 &&
+      ![...staleness.values()].includes("unchecked");
+    return { results: staleness, complete };
   }
 
   /** Confirmation and contradiction counts per Knowledge id, from one grouped query. */

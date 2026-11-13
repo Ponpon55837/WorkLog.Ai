@@ -200,6 +200,24 @@ async function serializedFinalizePayload(client: Client, args: Record<string, un
 }
 
 describe("synthetic MCP response-size baseline", () => {
+  it("keeps context within budget while it offers the Knowledge candidate backlog", async () => {
+    const { client, projectRoot } = await connectWithSyntheticHistory();
+    const taskArgs = { projectRoot, task: query };
+    const contextWithoutTask = await serializedMcpPayload(client, "work_get_context", { projectRoot });
+    const contextWithTask = await serializedMcpPayload(client, "work_get_context", taskArgs);
+    for (const payload of [contextWithoutTask, contextWithTask]) {
+      expect((payload.value as { pendingRequests: { knowledgeBacklog?: unknown } }).pendingRequests).toMatchObject({
+        knowledgeBacklog: {
+          uncoveredSessions: 20,
+          highValueSessions: expect.any(Number),
+          requestWith: "work_request_knowledge_candidates",
+        },
+      });
+    }
+    expect(contextWithoutTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithoutTask);
+    expect(contextWithTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+  });
+
   it("measures context with and without a task, default recall, and default search", async () => {
     const { client, projectRoot, store } = await connectWithSyntheticHistory();
     const contextWithoutTask = await serializedMcpPayload(client, "work_get_context", { projectRoot });
@@ -584,6 +602,106 @@ describe("synthetic MCP response-size baseline", () => {
     expect(related.items.every((item) => item.sourceSessionId !== finalizeValue.session.id)).toBe(true);
     expect(related.items.map((item) => item.text)).not.toContain(newNextStep);
     expect(JSON.stringify(related).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.relatedOutstandingItems);
+  });
+
+  it("keeps focused context and recall within budget when many Knowledge records match through appliesTo", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const guidance = "Synthetic guidance for the fictional tidal gate retains its calibration notes. ".repeat(8);
+    for (let index = 0; index < 14; index += 1) {
+      const recorded = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `response-size-applies-to-${index}`,
+        kind: index % 2 === 0 ? "pattern" : "gotcha",
+        title: `Tidal gate calibration rule ${index}`,
+        body: `${guidance}${index}`,
+        appliesTo: ["packages/example-3/**", "packages/example-3/src/context.ts"],
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected synthetic appliesTo Knowledge.");
+    }
+    const paths = ["packages/example-3/src/context.ts"];
+
+    const context = await serializedMcpPayload(client, "work_get_context", { projectRoot, task: "tidal gate", paths });
+    const contextValue = context.value as { relevant?: { knowledge: Array<{ id: string; title: string }> } };
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    expect(contextValue.relevant?.knowledge.length ?? 0).toBeGreaterThanOrEqual(1);
+    expect(contextValue.relevant?.knowledge.length ?? 0).toBeLessThanOrEqual(5);
+    console.info(`appliesTo context (characters): ${JSON.stringify({ taskAndPaths: context.length })}`);
+
+    const pathsOnly = await serializedMcpPayload(client, "work_get_context", { projectRoot, paths });
+    const pathsOnlyValue = pathsOnly.value as { relevant?: { knowledge: Array<{ title: string }> } };
+    expect(pathsOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    expect(pathsOnlyValue.relevant?.knowledge.some((item) => item.title.startsWith("Tidal gate"))).toBe(true);
+
+    const recall = await serializedMcpPayload(client, "work_recall", { projectRoot, paths });
+    const recallValue = recall.value as { hits: Array<{ type: string; title: string }> };
+    expect(recall.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallDefault);
+    expect(recallValue.hits.some((hit) => hit.type === "knowledge" && hit.title.startsWith("Tidal gate"))).toBe(true);
+  });
+
+  it("lists path-matched possiblyStale Knowledge with title and path inside the task budget", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const guidance = "Synthetic guidance for the fictional weir keeps its sluice calibration notes. ".repeat(8);
+    const ids: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const recorded = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `response-size-stale-path-${index}`,
+        kind: "gotcha",
+        title: `Weir sluice calibration rule ${index} that applies to every file under the weir directory`,
+        body: `${guidance}${index}`,
+        appliesTo: ["packages/weir/**"],
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected synthetic path Knowledge.");
+      ids.push(recorded.knowledge.id);
+    }
+    // A later Session changed the covered files, so every rule is possiblyStale.
+    vi.setSystemTime(Date.now() + 60_000);
+    const later = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "response-size-stale-path-session",
+      title: "Adjust fictional weir sluice",
+      summary: "Changed the fictional weir sluice.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["packages/weir/src/sluice.ts"],
+      verification: { status: "passed" },
+    });
+    if (later.outcome !== "finalized") throw new Error("Expected the later Session to finalize.");
+
+    const context = await serializedMcpPayload(client, "work_get_context", {
+      projectRoot,
+      task: "weir sluice",
+      paths: ["packages/weir/src/gate.ts"],
+    });
+    const value = context.value as {
+      relevant?: { knowledge: Array<{ id: string }> };
+      recentKnowledge: Array<{ id: string }>;
+      omitted?: Array<{
+        section: string;
+        moreIds?: number;
+        ids?: string[];
+        entries?: Array<{ id: string; title?: string; path?: string; possiblyStale?: boolean }>;
+      }>;
+    };
+    console.info(
+      `Path-matched Knowledge context (characters): ${JSON.stringify({
+        context: context.length,
+        omitted: JSON.stringify(value.omitted ?? []).length,
+      })}`,
+    );
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    expect(value.relevant?.knowledge.length ?? 0).toBeGreaterThanOrEqual(1);
+    const omission = value.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+    const withPath = (omission?.entries ?? []).filter((entry) => entry.path !== undefined);
+    expect(withPath.length).toBeGreaterThanOrEqual(1);
+    expect(withPath.length).toBeLessThanOrEqual(5);
+    expect(withPath.every((entry) => entry.path === "packages/weir/**" && (entry.title?.length ?? 0) <= 60)).toBe(true);
+    expect(omission?.moreIds ?? 0).toBe(0);
+    const named = [
+      ...(value.relevant?.knowledge ?? []).map((item) => item.id),
+      ...value.recentKnowledge.map((item) => item.id),
+      ...(value.omitted ?? []).flatMap((entry) => [...(entry.ids ?? []), ...(entry.entries ?? []).map((e) => e.id)]),
+    ].filter((id) => ids.includes(id));
+    expect(new Set(named).size).toBe(named.length);
   });
 
   it("returns a finalize receipt, not an echo, for a realistic request", async () => {

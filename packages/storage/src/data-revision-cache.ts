@@ -24,7 +24,10 @@ export class DataRevisionCache<T> {
   private revisionKey: string | undefined;
   private readonly values = new Map<string, T>();
 
-  public constructor(private readonly db: DatabaseSync) {}
+  public constructor(
+    private readonly db: DatabaseSync,
+    private readonly maxKeys = MAX_CACHED_KEYS,
+  ) {}
 
   public get(key: string, compute: () => T): T {
     const revisionKey = this.db.isTransaction ? undefined : this.readRevisionKey();
@@ -39,9 +42,42 @@ export class DataRevisionCache<T> {
       return this.values.get(key)!;
     }
     const value = compute();
-    if (this.values.size >= MAX_CACHED_KEYS) this.values.clear();
+    if (this.values.size >= this.maxKeys) this.values.clear();
     this.values.set(key, value);
     return value;
+  }
+
+  /**
+   * Reads many keys at once: the cached ones are returned as they are and `computeMissing` is called once with the
+   * rest. It returns every value for them, and `cacheable` says whether those may be remembered (false when the
+   * values depend on a bound that ran out, so another call could differ). The revision rules of `get` apply.
+   */
+  public getMany(
+    keys: readonly string[],
+    computeMissing: (missing: string[]) => { values: Map<string, T>; cacheable: boolean },
+  ): Map<string, T> {
+    const revisionKey = this.db.isTransaction ? undefined : this.readRevisionKey();
+    if (revisionKey !== undefined && revisionKey !== this.revisionKey) {
+      this.values.clear();
+      this.revisionKey = revisionKey;
+    }
+    const result = new Map<string, T>();
+    const missing: string[] = [];
+    for (const key of keys) {
+      if (revisionKey !== undefined && this.values.has(key)) result.set(key, this.values.get(key)!);
+      else missing.push(key);
+    }
+    if (missing.length === 0) return result;
+    const computed = computeMissing(missing);
+    for (const [key, value] of computed.values) {
+      result.set(key, value);
+    }
+    // A batch larger than the cap is not remembered at all, so the cache never holds more than maxKeys values.
+    if (revisionKey !== undefined && computed.cacheable && computed.values.size <= this.maxKeys) {
+      if (this.values.size + computed.values.size > this.maxKeys) this.values.clear();
+      for (const [key, value] of computed.values) this.values.set(key, value);
+    }
+    return result;
   }
 
   private readRevisionKey(): string | undefined {

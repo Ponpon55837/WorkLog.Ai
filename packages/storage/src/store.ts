@@ -614,6 +614,7 @@ export class WorkIntelligenceStore {
       previewMetadataBackfill: (previewOptions) => this.previewMetadataBackfill(previewOptions),
       countMetadataBackfillFollowUps: (countOptions) => this.countMetadataBackfillFollowUps(countOptions),
       openKnowledgeCandidateRequests: (projectId) => this.knowledgeCandidates.openRequests(projectId),
+      knowledgeCandidateBacklog: (projectId) => this.knowledgeCandidates.contextBacklog(projectId),
       countPendingAgentDecisions: (projectId) => this.sessionDecisions.countPending(projectId),
       listOutstandingItems: (input) => this.outstandingItems.list(input),
       listOutstandingCleanupRequests: (input) => this.outstandingCleanup.listRequests(input),

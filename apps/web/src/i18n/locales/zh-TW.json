@@ -428,6 +428,8 @@
     "filterKind": "篩選類型",
     "filterStatus": "篩選狀態",
     "finishSourceLink": "完成來源連結",
+    "candidateBacklog": "尚有 {uncovered} 筆 Session 未整理為候選，其中 {highValue} 筆有已確認決策、修復或後續引用",
+    "candidateBacklogPlain": "尚有 {uncovered} 筆 Session 未整理為候選",
     "hasSessionsWaitingForThe": "{projectName} 有 {length} 筆 Session 等待 Agent 整理{value}。在 Claude Code 或 Codex 說「整理 Knowledge 候選」即可。",
     "initialContent": "初始內容",
     "interruptedLastTimeCanBe": "（上次中斷，可重新處理）",

@@ -2178,6 +2178,16 @@ export interface KnowledgeCandidateRequest {
   candidateCount: number;
 }
 
+/** Live Sessions no Knowledge candidate request has covered. High value: confirmed decisions, recovered verification, or later work built on them. */
+export interface KnowledgeCandidateBacklogCounts {
+  uncoveredSessions: number;
+  highValueSessions: number;
+}
+
+export interface KnowledgeCandidateBacklog extends KnowledgeCandidateBacklogCounts {
+  projectId: string;
+}
+
 export interface KnowledgeCandidateInput {
   /** The Session whose record supports this candidate; must be one of the request's sources. */
   sourceSessionId: string;
@@ -2266,7 +2276,13 @@ export type KnowledgeCandidateSkippedResult = {
 };
 
 export type RequestKnowledgeCandidatesResult =
-  | { outcome: "knowledge_candidate_request"; duplicate: boolean; request: KnowledgeCandidateRequest }
+  | {
+      outcome: "knowledge_candidate_request";
+      duplicate: boolean;
+      request: KnowledgeCandidateRequest;
+      /** Sessions still not covered by any request after this new one (absent on a duplicate); tell the user, do not request again unasked. */
+      remaining?: KnowledgeCandidateBacklogCounts;
+    }
   | { outcome: "knowledge_candidates_not_needed"; reason: string }
   | KnowledgeCandidateSkippedResult;
 
@@ -2535,7 +2551,13 @@ export interface KnowledgePageDigest {
 }
 
 export type KnowledgeCandidateListResult =
-  | { outcome: "knowledge_candidates"; items: KnowledgeCandidate[]; openRequests: KnowledgeCandidateRequest[] }
+  | {
+      outcome: "knowledge_candidates";
+      items: KnowledgeCandidate[];
+      openRequests: KnowledgeCandidateRequest[];
+      /** Uncovered Session counts per project in scope; projects with none are left out. */
+      backlog: KnowledgeCandidateBacklog[];
+    }
   | KnowledgeCandidateSkippedResult;
 
 export interface DecideKnowledgeCandidateInput {
@@ -2580,13 +2602,22 @@ export interface ContextResult {
   pendingOutstandingItemsTruncated: number;
   /** Counts only; list the affected Sessions with work_preview_metadata_backfill. */
   metadataFollowUps: MetadataBackfillPreview["totals"];
-  /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
+  /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind); Knowledge candidate requests also list failed ones, which block a new request until resumed. */
   pendingRequests: {
     reportSynthesis: Array<ReportSynthesisRequest & { sourceSessionIdsOmittedCount?: number }>;
     metadataBackfill: MetadataBackfillRequest[];
     /** Active project cleanup requests for Agents; proposals require Web review. */
     outstandingCleanup?: OutstandingCleanupRequest[];
     knowledgeCandidates: KnowledgeCandidateRequest[];
+    /**
+     * Project-scoped only, and only when no candidate request is open, at least 5 uncovered Sessions are
+     * high value, and the last request is over 7 days old (or none). Offer it to the user once; never request unasked.
+     */
+    knowledgeBacklog?: {
+      uncoveredSessions: number;
+      highValueSessions: number;
+      requestWith: "work_request_knowledge_candidates";
+    };
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
     /** Knowledge pages to inspect: explicit update request, cited-source review, or at least three accumulated new Sessions; ordered by priority. */
@@ -2612,6 +2643,14 @@ export interface ContextResult {
  * counted (`duplicates`); budget omissions list up to three `ids` plus `moreIds`; left-out items flagged
  * possiblyStale or needsReview are listed under `entries` with their id and flags, so budget never hides a trust
  * signal. Details such as page review sections and cited Session ids are read with `readWith`.
+ *
+ * When the focus has `paths`, Knowledge that matched one of them (its `references` or `appliesTo`) and is not listed
+ * in `relevant.knowledge` (budget-trimmed, or ranked beyond the five relevant slots) is listed under the
+ * `relevant.knowledge` omission as an entry that also carries a short `title` (at most 60 characters) and one matched
+ * `path` (project-relative stored path or pattern), so an Agent about to edit those files can see which Knowledge
+ * covers which file. At most five entries carry them; they take the place of plain `ids`, are never counted in
+ * `moreIds`, and are shortened and dropped (back to plain ids or flagged entries) only after everything else is
+ * trimmed. Read them with `work_get_file_history` (by path) or `work_search_knowledge`.
  */
 export interface ContextOmission {
   section: string;
@@ -2622,6 +2661,10 @@ export interface ContextOmission {
   reasons?: string[];
   entries?: Array<{
     id: string;
+    /** Path-matched Knowledge only: its title, at most 60 characters. */
+    title?: string;
+    /** Path-matched Knowledge only: one stored path or pattern that matched a focus path. */
+    path?: string;
     possiblyStale?: true;
     needsReview?: true;
   }>;
