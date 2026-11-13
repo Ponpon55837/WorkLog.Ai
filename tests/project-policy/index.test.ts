@@ -26,6 +26,15 @@ function project(status: ProjectRecord["status"]): ProjectRecord {
   };
 }
 
+describe("canonicalizeProjectRoot platform", () => {
+  it("case-folds a Windows root into a comparison key only on win32", () => {
+    expect(canonicalizeProjectRoot("C:\\Users\\Dev\\Round6-Alpha\\", "win32")).toBe("c:\\users\\dev\\round6-alpha");
+    expect(canonicalizeProjectRoot("C:\\", "win32")).toBe("c:\\");
+    expect(canonicalizeProjectRoot("/Users/Dev/Round6-Alpha/", "linux")).toBe("/Users/Dev/Round6-Alpha");
+    expect(canonicalizeProjectRoot("/Users/Dev/Round6-Alpha", "darwin")).toBe("/Users/Dev/Round6-Alpha");
+  });
+});
+
 describe("ProjectPolicyGate", () => {
   it("denies unknown projects before any project data access", () => {
     const gate = new ProjectPolicyGate({ getProjectByRootPath: () => undefined });

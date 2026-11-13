@@ -31,6 +31,7 @@
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:standalone": "node scripts/build-standalone.mjs",
     "test:standalone": "node scripts/smoke-standalone.mjs",
+    "test:start-smoke": "node scripts/smoke-start.mjs",
     "setup:agents": "pnpm --filter @work-intelligence/server exec tsx src/setup-agents.ts",
     "eval:recall": "node --experimental-sqlite apps/mcp/dist/eval-recall.js",
     "test:recall-eval:example": "node scripts/run-recall-eval-example.mjs",

@@ -18,6 +18,7 @@ import {
   findTrackedRoot,
   isFileInTrackedRoots,
   isFinalizedPayload,
+  lacksChangeStatuses,
   missingStartedAtReason,
   readTrackedRoots,
   reminderWithStart,
@@ -214,6 +215,11 @@ export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps)
 
   const markers = deps.markerPaths(input.session_id);
   if (input.tool_name === "apply_patch") {
+    // A patch that failed to apply changed nothing, so it does not make the work unsaved.
+    const response = parseJson(input.tool_response);
+    if (isRecord(response) && response.isError === true) {
+      return;
+    }
     const paths = parseApplyPatchFilePaths(input.tool_input);
     if (!paths || !deps.hasTrackedFiles(input.cwd, paths)) {
       return;
@@ -277,7 +283,7 @@ export function denialForFinalize(input: CodexHookInput, deps: CodexReminderDeps
   if (!startedAt || deps.markerExists(markers.preDenied) || !deps.createMarker(markers.preDenied)) {
     return null;
   }
-  return missingStartedAtReason(startedAt);
+  return missingStartedAtReason(startedAt, isRecord(args) && lacksChangeStatuses(args));
 }
 
 function segmentStart(value: string | undefined): string | undefined {

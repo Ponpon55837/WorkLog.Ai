@@ -29,6 +29,7 @@ import {
 } from "@work-intelligence/storage";
 import { commandName } from "@work-intelligence/shared";
 import { STANDALONE } from "@work-intelligence/shared/database-location";
+import { checkCliArgs, isHelpFlag, type CliOptionSpec } from "./cli-args.js";
 import { databasePath, repositoryRoot, storeOptions } from "./config.js";
 import {
   diagnoseDatabaseInUse,
@@ -55,30 +56,59 @@ const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[]
   ["track <資料夾> [--name <名稱>] [--yes]", "預覽後把專案加入並設為記錄中"],
 ];
 
-/** The help text; command names follow the mode (`pnpm db:backup` in a checkout, `work-intelligence db backup` standalone). */
-export function databaseUsage(standalone?: boolean): string {
-  const commands = COMMAND_SUMMARIES.map(([script, summary]) => {
+const EXPORT_OPTIONS_HELP = `export 選項：
+  --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑`;
+const IMPORT_OPTIONS_HELP = `import 選項：
+  --project <名稱或 id>              只匯入檔案中的單一專案；預設為全部
+  --remap-root <舊路徑>=<新路徑>     換電腦時替換路徑前綴（可重複）；相同專案 ID 會自動沿用本機路徑
+  --strategy <merge|newer-wins>     merge 只新增（預設）；newer-wins 同 ID 內容不同時以較新者覆寫，本機較新則保留
+  --dry-run                         只顯示預覽，不寫入資料`;
+const RESTORE_OPTIONS_HELP = `restore 選項：
+  --remap-root <舊路徑>=<新路徑>     專案在新電腦的位置不同時，把路徑前綴換掉（可重複）`;
+const OPTIONS_HELP: Readonly<Record<string, string>> = {
+  export: EXPORT_OPTIONS_HELP,
+  import: IMPORT_OPTIONS_HELP,
+  restore: RESTORE_OPTIONS_HELP,
+};
+
+/** Accepted options per subcommand; the shared argument check refuses everything else before a command acts. */
+const COMMAND_OPTIONS: Readonly<Record<string, CliOptionSpec>> = {
+  maintain: {},
+  backup: {},
+  backups: { valued: ["--delete"] },
+  redact: { flags: ["--apply", "--dry-run"] },
+  export: { flags: ["--all"], valued: ["--project", "--out"] },
+  import: { flags: ["--dry-run"], valued: ["--project", "--remap-root", "--strategy"] },
+  restore: { valued: ["--remap-root"] },
+};
+
+/** The help text; command names follow the mode (`pnpm db:backup` in a checkout, `work-intelligence db backup` standalone). With a subcommand, only that subcommand's lines. */
+export function databaseUsage(standalone?: boolean, subcommand?: string): string {
+  const commands = COMMAND_SUMMARIES.filter(
+    ([script]) => !subcommand || script.split(" ")[0]?.replace(/^db:/, "") === subcommand,
+  ).map(([script, summary]) => {
     const [name = script, ...rest] = script.split(" ");
     return [[commandName(name, standalone), ...rest].join(" "), summary] as const;
   });
   const width = Math.max(...commands.map(([command]) => command.length));
-  return `用法：
-${commands.map(([command, summary]) => `  ${command.padEnd(width)}  ${summary}`).join("\n")}
-
-export 選項：
-  --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑
-
-import 選項：
-  --project <名稱或 id>              只匯入檔案中的單一專案；預設為全部
-  --remap-root <舊路徑>=<新路徑>     換電腦時替換路徑前綴（可重複）；相同專案 ID 會自動沿用本機路徑
-  --strategy <merge|newer-wins>     merge 只新增（預設）；newer-wins 同 ID 內容不同時以較新者覆寫，本機較新則保留
-  --dry-run                         只顯示預覽，不寫入資料
-
-restore 選項：
-  --remap-root <舊路徑>=<新路徑>     專案在新電腦的位置不同時，把路徑前綴換掉（可重複）
-
-還原前請先停止 API server（${(standalone ?? STANDALONE) ? commandName("start", true) : "pnpm dev／pnpm start:server"}），並關閉會啟動 MCP 的 Codex／Claude 對話。
+  const lines = `用法：
+${commands.map(([command, summary]) => `  ${command.padEnd(width)}  ${summary}`).join("\n")}`;
+  const restoreNote = `還原前請先停止 API server（${(standalone ?? STANDALONE) ? commandName("start", true) : "pnpm dev／pnpm start:server"}），並關閉會啟動 MCP 的 Codex／Claude 對話。
 還原會先取得獨佔鎖、自動備份目前的資料，並將資料庫升級至本版 schema；回傳新的 revision，重新啟動 server 後前端會重新讀取資料。`;
+  if (subcommand) {
+    return [lines, OPTIONS_HELP[subcommand], subcommand === "restore" ? restoreNote : undefined]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return `${lines}
+
+${EXPORT_OPTIONS_HELP}
+
+${IMPORT_OPTIONS_HELP}
+
+${RESTORE_OPTIONS_HELP}
+
+${restoreNote}`;
 }
 
 const backupKindLabels: Record<DatabaseBackupKind, string> = {
@@ -306,6 +336,10 @@ export async function runDatabaseCli(
   const chooseImportProjectLocation = dependencies.chooseImportProjectLocation ?? promptImportProjectLocation;
   const confirmDeleteBackup = dependencies.confirmBackupDeletion ?? confirmBackupDeletion;
   const [command, ...args] = argv;
+  if (isHelpFlag(command)) {
+    print(usage);
+    return 0;
+  }
   if (command === "track") {
     return runTrackCommand(args, {
       withStore: runWithStore,
@@ -315,6 +349,19 @@ export async function runDatabaseCli(
       error: printError,
       ...dependencies.track,
     });
+  }
+  const optionSpec = command ? COMMAND_OPTIONS[command] : undefined;
+  if (command && optionSpec) {
+    // Before any command touches the database or the filesystem: help, and options the command does not declare.
+    const check = checkCliArgs(args, optionSpec);
+    if (check.kind === "help") {
+      print(databaseUsage(dependencies.standalone, command));
+      return 0;
+    }
+    if (check.kind === "error") {
+      printError(`錯誤：${check.message}\n\n${databaseUsage(dependencies.standalone, command)}`);
+      return 1;
+    }
   }
   try {
     if (command === "maintain") {
@@ -345,6 +392,9 @@ export async function runDatabaseCli(
         print(`整理前備份：${result.backupFileName}。舊備份與舊匯出仍可能保留原始文字，請在備份管理中檢視。`);
       }
     } else if (command === "backup") {
+      if (args.length > 0) {
+        fail(`${commandText("db:backup")} 不接受參數：${args[0]}`);
+      }
       const result = runWithStore((store) => store.createBackup());
       if (result.outcome !== "database_backups") {
         fail(result.reason);
@@ -585,9 +635,12 @@ export async function runDatabaseCli(
       // restored documents now rather than on the first read after the API starts.
       runWithStore((store) => store.syncSearchIndex());
       print("完成。重新啟動 API server 與 Agent 對話即可使用。");
+    } else if (command) {
+      printError(`錯誤：未知的指令：${command}\n\n${usage}`);
+      return 1;
     } else {
       print(usage);
-      return command ? 1 : 0;
+      return 0;
     }
     return 0;
   } catch (error) {

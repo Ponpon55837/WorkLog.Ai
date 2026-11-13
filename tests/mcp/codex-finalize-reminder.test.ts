@@ -165,6 +165,42 @@ describe("Codex finalize reminder hook", () => {
     expect(markers.has("session-1.pre-denied")).toBe(false);
   });
 
+  it("words its one pause to ask for change statuses when changedFiles come without them", () => {
+    const preTool = (toolInput: unknown) => {
+      const { deps } = createDeps(true);
+      responseForCodexHook(
+        JSON.stringify({ session_id: "session-1", cwd: trackedCwd, hook_event_name: "UserPromptSubmit" }),
+        deps,
+      );
+      return responseForCodexHook(
+        JSON.stringify({
+          session_id: "session-1",
+          cwd: trackedCwd,
+          hook_event_name: "PreToolUse",
+          tool_name: finalizeDispatcher,
+          tool_input: toolInput,
+        }),
+        deps,
+      );
+    };
+    const reason = (value: string | null) =>
+      (JSON.parse(value ?? "null") as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput
+        .permissionDecisionReason;
+
+    expect(reason(preTool({ operation: "work_finalize_session", arguments: { changedFiles: ["src/a.ts"] } }))).toBe(
+      missingStartedAtReason("2026-09-27T01:00:00.000Z", true),
+    );
+    expect(reason(preTool(finalizeDispatcherInput))).toBe(missingStartedAtReason("2026-09-27T01:00:00.000Z"));
+    expect(
+      reason(
+        preTool({
+          operation: "work_finalize_session",
+          arguments: { changedFiles: ["src/a.ts"], changedFileChanges: [{ path: "src/a.ts", status: "added" }] },
+        }),
+      ),
+    ).toBe(missingStartedAtReason("2026-09-27T01:00:00.000Z"));
+  });
+
   it("keeps the segment open when a save fails, and ignores prompts outside tracked projects", () => {
     const { deps, markers } = createDeps(true);
     responseForCodexHook(
@@ -180,6 +216,13 @@ describe("Codex finalize reminder hook", () => {
       untracked.deps,
     );
     expect(untracked.markers.size).toBe(0);
+  });
+
+  it("does not mark the work unsaved when apply_patch failed", () => {
+    const { deps, markers } = createDeps();
+    responseForCodexHook(postToolEvent("apply_patch", { isError: true, content: [] }), deps);
+    expect(markers.has("session-1.dirty")).toBe(false);
+    expect(responseForCodexHook(stopEvent(), deps)).toBeNull();
   });
 
   it("marks apply_patch edits and reminds only once until a successful finalize", () => {

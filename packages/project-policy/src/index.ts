@@ -1,12 +1,18 @@
 import { existsSync, promises as fsPromises, realpathSync } from "node:fs";
-import { dirname, normalize, parse, relative, resolve, sep } from "node:path";
+import { dirname, posix, relative, resolve, sep, win32 } from "node:path";
 import type { PolicyDecision, ProjectReader } from "@work-intelligence/core";
 
-export function canonicalizeProjectRoot(input: string): string {
-  const normalized = normalize(resolve(input.trim()));
-  const root = parse(normalized).root;
+/**
+ * The canonical form of a project root: the stored comparison key. On Windows the file system ignores case, so
+ * the key is case-folded and is NOT the spelling the user typed; anything shown to a person must keep the original
+ * spelling (the platform argument exists so both spellings can be unit-tested on any host).
+ */
+export function canonicalizeProjectRoot(input: string, platform: NodeJS.Platform = process.platform): string {
+  const pathApi = platform === "win32" ? win32 : posix;
+  const normalized = pathApi.normalize(pathApi.resolve(input.trim()));
+  const root = pathApi.parse(normalized).root;
   const withoutTrailingSeparator = normalized.length > root.length ? normalized.replace(/[\\/]$/, "") : normalized;
-  return process.platform === "win32" ? withoutTrailingSeparator.toLowerCase() : withoutTrailingSeparator;
+  return platform === "win32" ? withoutTrailingSeparator.toLowerCase() : withoutTrailingSeparator;
 }
 
 export function isPathWithinProject(projectRoot: string, candidatePath: string): boolean {

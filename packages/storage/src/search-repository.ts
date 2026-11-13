@@ -303,6 +303,8 @@ export interface KnowledgeRanking {
   hits: KnowledgeRankHit[];
   /** The appliesTo match budget ran out or an over-long stored path was skipped, so some Knowledge was not checked. */
   appliesToScanTruncated?: true;
+  /** The query had more terms or path-like words than the ranking uses, so the rest were ignored. */
+  queryTruncated?: true;
 }
 
 export interface SearchIndexRebuildResult {
@@ -505,9 +507,13 @@ export class SearchRepository {
       .flatMap((word) => normalizeReference(word))
       .filter((reference) => reference.kind === "path")
       .map((reference) => reference.value);
+    const uniquePaths = [...new Set(paths)];
+    const queryTruncated =
+      uniquePaths.length > MAX_QUERY_PATH_WORDS ||
+      new Set(parseQueryWords(options.q).flatMap((word) => word.terms)).size > MAX_QUERY_TERMS;
     const { terms, ranked, appliesToScanTruncated, pathScanTruncated } = this.rank({
       q: options.q,
-      paths: [...new Set(paths)].slice(0, MAX_QUERY_PATH_WORDS),
+      paths: uniquePaths.slice(0, MAX_QUERY_PATH_WORDS),
       projectId: options.projectId,
       types: ["knowledge"],
       knowledgeStatuses: [...KNOWLEDGE_STATUSES],
@@ -534,6 +540,7 @@ export class SearchRepository {
           ...(doc.matchedPaths.size > 0 ? { matchedPaths: [...doc.matchedPaths].slice(0, MAX_MATCHED_PATHS) } : {}),
         })),
       ...(appliesToScanTruncated || pathScanTruncated ? { appliesToScanTruncated: true as const } : {}),
+      ...(queryTruncated ? { queryTruncated: true as const } : {}),
     };
   }
 

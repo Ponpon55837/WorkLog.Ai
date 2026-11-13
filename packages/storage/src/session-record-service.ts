@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { nowIso } from "@work-intelligence/shared";
 import type {
+  ChangedFileChange,
   LinkSessionsInput,
   LinkSessionsResult,
   OutstandingItemEventSource,
@@ -56,6 +57,8 @@ import {
   toVerificationUpdate,
   toKnowledge,
   normalizeCommitSha,
+  changedFileIdentity,
+  getChangedFileChangesFollowUp,
 } from "./session-record-codecs.js";
 import type {
   EvidenceRow,
@@ -83,6 +86,12 @@ export type SessionDecisionDbRow = {
   reviewed_at: string | null;
   knowledge_id: string | null;
 };
+
+/** Replacing the file list without new changes keeps only the stored changes whose path is still listed. */
+function keepChangesForFiles(changes: ChangedFileChange[], files: string[]): ChangedFileChange[] {
+  const listed = new Set(files.map(changedFileIdentity));
+  return changes.filter((change) => listed.has(changedFileIdentity(change.path)));
+}
 
 export function toSessionDecision(row: SessionDecisionDbRow): SessionDecisionRecord {
   return {
@@ -364,7 +373,7 @@ export class SessionRecordService {
       : changedFilesMode === "merge"
         ? mergeChangedFileChanges(project.rootPath, current, incomingChangedFileChanges, pathResolver)
         : input.changedFileChanges === undefined
-          ? current.changedFileChanges
+          ? keepChangesForFiles(current.changedFileChanges, normalizedChangedFiles.files)
           : incomingChangedFileChanges;
     const changedFilesConfirmed = leavesChangedFiles
       ? row.changed_files_confirmed === 1
@@ -487,11 +496,13 @@ export class SessionRecordService {
     if (!session) {
       throw new Error("Session metadata was updated but could not be loaded.");
     }
+    const changedFileChangesFollowUp = leavesChangedFiles ? undefined : getChangedFileChangesFollowUp(session);
     return {
       outcome: "updated",
       session,
       redactions,
       ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
+      ...(changedFileChangesFollowUp ? { changedFileChangesFollowUp } : {}),
     };
   }
 

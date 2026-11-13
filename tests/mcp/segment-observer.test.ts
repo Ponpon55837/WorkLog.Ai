@@ -61,4 +61,26 @@ describe("segment observer", () => {
     expect(observer.peek("/fiction/two")).toBeDefined();
     expect(observer.peek("/fiction/three")).toBeDefined();
   });
+
+  it("captures the head commit only when a new entry is created, and survives a failing lookup", () => {
+    const observer = new SegmentObserver();
+    let lookups = 0;
+    const head = () => {
+      lookups += 1;
+      return "a".repeat(40);
+    };
+
+    observer.record("/fiction/alpha", "work_get_context", head);
+    observer.record("/fiction/alpha", "work_recall", head);
+    observer.record("/fiction/beta", "work_recall", () => {
+      throw new Error("no repository");
+    });
+    observer.record("/fiction/gamma", "work_recall");
+
+    expect(lookups).toBe(1);
+    expect(observer.peek("/fiction/alpha")?.headCommit).toBe("a".repeat(40));
+    expect(observer.peek("/fiction/beta")).toMatchObject({ tool: "work_recall" });
+    expect(observer.peek("/fiction/beta")).not.toHaveProperty("headCommit");
+    expect(observer.peek("/fiction/gamma")).not.toHaveProperty("headCommit");
+  });
 });

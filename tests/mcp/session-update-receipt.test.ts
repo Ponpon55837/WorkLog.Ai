@@ -78,6 +78,29 @@ describe("Session update receipts", () => {
     });
   });
 
+  it("passes a compact change-status follow-up through a metadata receipt", () => {
+    const receipt = toSessionMetadataReceipt(
+      { changedFiles: ["src/ledger.ts", "src/panel.ts"], changedFileChanges: [{ path: "src/ledger.ts" }] },
+      {
+        outcome: "updated",
+        session: SESSION,
+        changedFileChangesFollowUp: {
+          required: true,
+          sessionId: SESSION.id,
+          missingPaths: ["src/panel.ts"],
+          missingCount: 1,
+          message: "Fictional long storage message.",
+        },
+      },
+    ) as Record<string, unknown>;
+    expect(receipt.changedFileChangesFollowUp).toEqual({
+      required: true,
+      missingPaths: ["src/panel.ts"],
+      missingCount: 1,
+      message: expect.any(String),
+    });
+  });
+
   it("returns the stored summary only when it is not what was sent", () => {
     const updated = {
       outcome: "summary_updated" as const,
