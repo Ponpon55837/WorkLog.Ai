@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   activityQuerySchema,
+  databaseBackupFileNameSchema,
+  resolveOutstandingItemsInputSchema,
+  timelineQuerySchema,
+  updateProjectInputSchema,
   reportQuerySchema,
   searchQuerySchema,
   saveKnowledgePageInputSchema,
@@ -602,5 +606,82 @@ describe("activity ranges", () => {
     expect(activityQuerySchema.safeParse({ from: "2031-06-30", to: "2031-06-01" }).success).toBe(false);
     expect(activityQuerySchema.safeParse({ from: "2031-06-01" }).success).toBe(false);
     expect(activityQuerySchema.safeParse({ from: "2031-06-01", to: "2031-06-30", extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("outstanding item closing inputs", () => {
+  it("resolves or supersedes at least one distinct item for a Session", () => {
+    const sessionId = "session-1";
+    expect(
+      resolveOutstandingItemsInputSchema.safeParse({ sessionId, resolvedOutstandingItemIds: ["a", "b"] }).success,
+    ).toBe(true);
+    expect(
+      resolveOutstandingItemsInputSchema.safeParse({ sessionId, supersededOutstandingItemIds: ["c"] }).success,
+    ).toBe(true);
+    expect(
+      resolveOutstandingItemsInputSchema.safeParse({
+        sessionId,
+        resolvedOutstandingItemIds: ["a"],
+        supersededOutstandingItemIds: ["c"],
+      }).success,
+    ).toBe(true);
+    expect(resolveOutstandingItemsInputSchema.safeParse({ sessionId }).success).toBe(false);
+    expect(resolveOutstandingItemsInputSchema.safeParse({ sessionId, resolvedOutstandingItemIds: [] }).success).toBe(
+      false,
+    );
+    expect(
+      resolveOutstandingItemsInputSchema.safeParse({ sessionId, resolvedOutstandingItemIds: ["a", "a"] }).success,
+    ).toBe(false);
+    expect(
+      resolveOutstandingItemsInputSchema.safeParse({ sessionId, resolvedOutstandingItemIds: ["a"], extra: 1 }).success,
+    ).toBe(false);
+  });
+
+  it("reads closedBy as a comma-separated list or an array, only for closed items", () => {
+    const fromText = webOutstandingItemListQuerySchema.safeParse({
+      status: "completed",
+      closedBy: "later_session,user",
+    });
+    expect(fromText.success && fromText.data.closedBy).toEqual(["later_session", "user"]);
+    const fromList = webOutstandingItemListQuerySchema.safeParse({
+      status: "not_needed",
+      closedBy: ["source_session"],
+    });
+    expect(fromList.success && fromList.data.closedBy).toEqual(["source_session"]);
+    expect(webOutstandingItemListQuerySchema.safeParse({ status: "completed", closedBy: "someone_else" }).success).toBe(
+      false,
+    );
+    expect(webOutstandingItemListQuerySchema.safeParse({ status: "completed", closedBy: "" }).success).toBe(false);
+    expect(webOutstandingItemListQuerySchema.safeParse({ status: "pending", closedBy: "user" }).success).toBe(false);
+    expect(webOutstandingItemListQuerySchema.safeParse({ status: "completed", closedBy: "user" }).success).toBe(true);
+  });
+});
+
+describe("project and backup inputs", () => {
+  it("accepts an https repository URL or an empty value and rejects credentials or other schemes", () => {
+    expect(updateProjectInputSchema.safeParse({ repositoryUrl: "https://example.test/acme/widgets" }).success).toBe(
+      true,
+    );
+    expect(updateProjectInputSchema.safeParse({ repositoryUrl: "" }).success).toBe(true);
+    expect(updateProjectInputSchema.safeParse({ repositoryUrl: "https://user:token@example.test/acme" }).success).toBe(
+      false,
+    );
+    expect(updateProjectInputSchema.safeParse({ repositoryUrl: "ssh://example.test/acme" }).success).toBe(false);
+  });
+
+  it("accepts a plain .sqlite backup name and rejects parent-directory sequences", () => {
+    expect(databaseBackupFileNameSchema.safeParse("backup-2031-01-01.sqlite").success).toBe(true);
+    expect(databaseBackupFileNameSchema.safeParse("backup..2031.sqlite").success).toBe(false);
+    expect(databaseBackupFileNameSchema.safeParse("../backup.sqlite").success).toBe(false);
+  });
+});
+
+describe("timeline ranges", () => {
+  it("accepts open or ordered ranges up to 366 days and rejects longer ones", () => {
+    expect(timelineQuerySchema.safeParse({}).success).toBe(true);
+    expect(timelineQuerySchema.safeParse({ from: "2031-01-01" }).success).toBe(true);
+    expect(timelineQuerySchema.safeParse({ to: "2031-01-01" }).success).toBe(true);
+    expect(timelineQuerySchema.safeParse({ from: "2031-01-01", to: "2032-01-01" }).success).toBe(true);
+    expect(timelineQuerySchema.safeParse({ from: "2031-01-01", to: "2032-01-02" }).success).toBe(false);
   });
 });
