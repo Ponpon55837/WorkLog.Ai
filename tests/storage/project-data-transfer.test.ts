@@ -2035,3 +2035,31 @@ describe("project path prefix conversion", () => {
     expect(remapPathPrefix("/old/app", { from: "/old/app/", to: "/new/app/" })).toBe("/new/app/");
   });
 });
+
+describe("import preview root spelling", () => {
+  it("shows Windows roots in their original spelling while matching them case-insensitively", () => {
+    const source = new WorkIntelligenceStore(":memory:");
+    const destination = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = source.addProject("Spelling fixture", "/synthetic/spelling-fixture");
+      const bundle = source.exportProjectData({ type: "project", projectId: project.id });
+      bundle.tables.projects[0]!.root_path = "D:\\Old Machine\\Round6-Alpha";
+      const mapped = destination.previewProjectDataImport({
+        bundle,
+        remap: [{ from: "d:/old machine/round6-alpha", to: "E:\\New Machine\\Round6-Alpha" }],
+      });
+      expect(mapped.selectedProjects[0]).toMatchObject({
+        sourceRootPath: "D:\\Old Machine\\Round6-Alpha",
+        rootPath: "E:\\New Machine\\Round6-Alpha",
+      });
+      const unmapped = destination.previewProjectDataImport({ bundle });
+      expect(unmapped.selectedProjects[0]).toMatchObject({
+        sourceRootPath: "D:\\Old Machine\\Round6-Alpha",
+        rootPath: "D:\\Old Machine\\Round6-Alpha",
+      });
+    } finally {
+      source.close();
+      destination.close();
+    }
+  });
+});

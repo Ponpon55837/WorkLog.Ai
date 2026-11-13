@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import type { ProjectDataExport, SystemAgentConnections } from "../../packages/core/src/index.js";
-import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
+import { canonicalizeProjectRoot, WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 import { LANGUAGE_NAMES, textIn, tt, ttPattern } from "./helpers/i18n.js";
 
 const projectRoot = process.cwd();
@@ -2548,7 +2548,9 @@ test.describe("Work Intelligence browser regression", () => {
       const preview = backups.getByTestId("project-import-preview");
       await expect(preview).toBeVisible();
       const projects = preview.getByTestId("project-import-selected-projects");
-      await expect(projects).toContainText(alphaSource);
+      // The exported root is the stored canonical key, which is case-folded on Windows; the picked target below keeps
+      // the spelling the folder picker returned.
+      await expect(projects).toContainText(canonicalizeProjectRoot(alphaSource));
       await expect(projects).toContainText(tt("projects.thisFolderWasNotFound"));
       await expect(projects).not.toContainText(secretFileContent);
 
