@@ -63,6 +63,7 @@ import {
   updateKnowledgeInputSchema,
   updateKnowledgeInputSchemaBase,
   updateSessionMetadataInputSchema,
+  updateSessionMetadataInputSchemaBase,
   updateSessionSummaryInputSchema,
   updateSessionTitleInputSchema,
   updateSessionWorkSummaryInputSchema,
@@ -98,6 +99,7 @@ import {
 } from "./contracts.js";
 import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { parseMcpInput } from "./input.js";
+import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { sessionTextResult, textResult } from "./result.js";
 import {
@@ -128,7 +130,10 @@ interface StoreToolDefinition<S extends z.ZodType> {
   sessionResult?: boolean;
   /** Attach the process build status to this operation's result. */
   includeServerStatus?: boolean;
-  run: (input: z.infer<S>, context: { agentClient?: string; serverStatus: McpRestartStatus }) => unknown;
+  run: (
+    input: z.infer<S>,
+    context: { agentClient?: string; serverStatus: McpRestartStatus; observedStartedAt?: ObservedSegmentStart },
+  ) => unknown;
   /**
    * Shapes the result for the Agent once the write has committed, so reminders that storage attaches after the
    * commit are included.
@@ -491,6 +496,7 @@ export function createWorkIntelligenceMcpServer(
   const server = new McpServer({ name: "work-intelligence", version }, { instructions });
   registerAgentResources(server);
   const registeredStoreTools = new Map<string, RegisteredStoreTool>();
+  const segmentObserver = new SegmentObserver();
 
   function resolveStore(): StoreResolution {
     if (access) return access.resolve();
@@ -548,10 +554,33 @@ export function createWorkIntelligenceMcpServer(
               }),
             };
           }
-          const context = { agentClient, serverStatus: restartStatus };
+          // A save is not its own start: look before recording, and only for a save of work that just finished.
+          const projectRoot = (parsed.data as { projectRoot?: unknown } | null)?.projectRoot;
+          const observedRoot = typeof projectRoot === "string" ? projectRoot : undefined;
+          const isFinalize = name === "work_finalize_session";
+          const finalizeInput = parsed.data as { startedAt?: unknown; completedAt?: unknown };
+          const observedStartedAt =
+            isFinalize && observedRoot && !finalizeInput.startedAt && !finalizeInput.completedAt
+              ? segmentObserver.peek(observedRoot)
+              : undefined;
+          if (observedRoot && !isFinalize) segmentObserver.record(observedRoot, name);
+          const context = {
+            agentClient,
+            serverStatus: restartStatus,
+            ...(observedStartedAt ? { observedStartedAt } : {}),
+          };
           const stored = readOnly
             ? await definition.run(parsed.data, context)
             : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
+          // A backfill (completedAt) saves earlier work, so the current segment stays open.
+          if (
+            isFinalize &&
+            observedRoot &&
+            !finalizeInput.completedAt &&
+            (stored as { outcome?: unknown } | null)?.outcome === "finalized"
+          ) {
+            segmentObserver.reset(observedRoot);
+          }
           const result = definition.present ? definition.present(stored, parsed.data) : stored;
           if (readOnly) {
             // Passive audit of what this read returned (ids only) and how long it took; never affects the response.
@@ -848,8 +877,8 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_update_session_metadata", {
     title: "Update session metadata",
     description:
-      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. The Agent must inspect the worktree/diff first and provide the confirmed changedFiles list; use [] only when the work intentionally changed no files. By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
-    inputShape: updateSessionMetadataInputSchema.shape,
+      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. To change changed files, inspect the worktree/diff first and provide the confirmed changedFiles list ([] only when the work intentionally changed no files); omit changedFiles to leave the stored files, provenance, and changes untouched (for example when only correcting startedAt or completedAt). By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a startedAt or completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. If you continued this same Session and it has now finished, pass completedAtNow=true instead of completedAt (server time). The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
+    inputShape: updateSessionMetadataInputSchemaBase.shape,
     schema: updateSessionMetadataInputSchema,
     validationNotes: [
       "A changedFileChanges entry with status=renamed must include previousPath.",

@@ -343,32 +343,34 @@ export class SessionRecordService {
       input.changedFileChanges,
       pathResolver,
     );
-    const normalizedChangedFiles =
-      input.changedFilesMode === "merge"
-        ? mergeChangedFiles(
-            project.rootPath,
-            current,
-            [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
-            input.changedFilesProvenance,
-            pathResolver,
-          )
-        : normalizeChangedFiles(
-            project.rootPath,
-            [...input.changedFiles, ...changedFilePathsFromChanges(incomingChangedFileChanges)],
-            input.changedFilesProvenance,
-            pathResolver,
-          );
-    const changedFileChanges =
-      input.changedFilesMode === "merge"
+    // Without changedFiles, provenance, or changes the stored list is left exactly as it is (a time-only correction).
+    const leavesChangedFiles =
+      input.changedFiles === undefined &&
+      input.changedFilesProvenance === undefined &&
+      input.changedFileChanges === undefined;
+    const changedFilesMode = input.changedFiles === undefined ? "merge" : input.changedFilesMode;
+    const incomingChangedFiles = [
+      ...(input.changedFiles ?? []),
+      ...changedFilePathsFromChanges(incomingChangedFileChanges),
+    ];
+    const normalizedChangedFiles = leavesChangedFiles
+      ? { files: current.changedFiles, provenance: current.changedFilesProvenance }
+      : changedFilesMode === "merge"
+        ? mergeChangedFiles(project.rootPath, current, incomingChangedFiles, input.changedFilesProvenance, pathResolver)
+        : normalizeChangedFiles(project.rootPath, incomingChangedFiles, input.changedFilesProvenance, pathResolver);
+    const changedFileChanges = leavesChangedFiles
+      ? current.changedFileChanges
+      : changedFilesMode === "merge"
         ? mergeChangedFileChanges(project.rootPath, current, incomingChangedFileChanges, pathResolver)
         : input.changedFileChanges === undefined
           ? current.changedFileChanges
           : incomingChangedFileChanges;
-    const changedFilesConfirmed =
-      normalizedChangedFiles.files.length > 0 ||
-      input.changedFilesMode !== "merge" ||
-      (input.changedFileChanges?.length ?? 0) > 0 ||
-      isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed);
+    const changedFilesConfirmed = leavesChangedFiles
+      ? row.changed_files_confirmed === 1
+      : normalizedChangedFiles.files.length > 0 ||
+        changedFilesMode !== "merge" ||
+        (input.changedFileChanges?.length ?? 0) > 0 ||
+        isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed);
     const updatedAt = nowIso();
     const previousVerificationResult = current.verification ? redactValue(current.verification) : undefined;
     const nextVerificationResult = input.verification
@@ -377,14 +379,16 @@ export class SessionRecordService {
     const nextVerification = nextVerificationResult?.value ?? previousVerificationResult?.value;
     const timestampWarnings: string[] = [];
     let nextCompletedAt = current.completedAt;
-    if (input.completedAt && input.completedAt !== current.completedAt) {
+    const requestedCompletedAt = input.completedAtNow ? updatedAt : input.completedAt;
+    const completedAtFromServerClock = input.completedAtNow === true;
+    if (requestedCompletedAt && requestedCompletedAt !== current.completedAt) {
       const effectiveStartedAt = input.startedAt ?? current.startedAt;
-      if (effectiveStartedAt && effectiveStartedAt > input.completedAt) {
+      if (effectiveStartedAt && effectiveStartedAt > requestedCompletedAt) {
         timestampWarnings.push(
-          `completedAt ${input.completedAt} is before startedAt ${effectiveStartedAt} and was not applied.`,
+          `completedAt ${requestedCompletedAt} is before startedAt ${effectiveStartedAt} and was not applied.`,
         );
       } else {
-        nextCompletedAt = input.completedAt;
+        nextCompletedAt = requestedCompletedAt;
       }
     }
     let nextStartedAt: string | undefined;
@@ -445,13 +449,34 @@ export class SessionRecordService {
           .run(
             randomUUID(),
             input.sessionId,
-            `完成時間由 ${current.completedAt} 更正為 ${nextCompletedAt}。`,
-            JSON.stringify({ field: "completedAt", previous: current.completedAt, next: nextCompletedAt }),
+            completedAtFromServerClock
+              ? `完成時間由 ${current.completedAt} 更新為 ${nextCompletedAt}（伺服器時間，工作延續）。`
+              : `完成時間由 ${current.completedAt} 更正為 ${nextCompletedAt}。`,
+            JSON.stringify({
+              field: "completedAt",
+              previous: current.completedAt,
+              next: nextCompletedAt,
+              ...(completedAtFromServerClock ? { source: "server_clock" } : {}),
+            }),
             updatedAt,
           );
       }
-      if (nextStartedAt !== undefined) {
+      if (nextStartedAt !== undefined && nextStartedAt !== current.startedAt) {
         this.db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?").run(nextStartedAt, input.sessionId);
+        this.db
+          .prepare(
+            `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
+             VALUES (?, ?, 'note', ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            input.sessionId,
+            current.startedAt
+              ? `開始時間由 ${current.startedAt} 更正為 ${nextStartedAt}。`
+              : `補上開始時間 ${nextStartedAt}。`,
+            JSON.stringify({ field: "startedAt", previous: current.startedAt ?? null, next: nextStartedAt }),
+            updatedAt,
+          );
       }
       this.touchSession(input.sessionId, updatedAt);
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);

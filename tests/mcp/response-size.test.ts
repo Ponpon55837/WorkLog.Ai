@@ -29,6 +29,7 @@ const RESPONSE_BUDGETS = {
   contextWithTask: 10_000,
   finalizeWithRelatedOutstandingItems: 4_000,
   finalizeReceipt: 2_000,
+  startedAtFollowUp: 500,
   sessionUpdateReceipt: 1_200,
   outstandingItemsPage: 30_000,
   outstandingCleanupContext: 24_000,
@@ -636,6 +637,7 @@ describe("synthetic MCP response-size baseline", () => {
       projectRoot,
       idempotencyKey: "response-size-receipt",
       title: "Settle fictional ledger rounding and panel totals",
+      startedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
       summary,
       workSummary,
       changedFiles,
@@ -672,6 +674,23 @@ describe("synthetic MCP response-size baseline", () => {
     for (const echoed of [args.title, summary, ...workSummary.outcomes, changedFiles[5]!]) {
       expect(text).not.toContain(echoed);
     }
+
+    // Without a startedAt the receipt adds the evidence-only follow-up, which stays within its own small allowance.
+    const { startedAt: _startedAt, ...withoutStart } = args;
+    const missing = await client.callTool({
+      name: "work_write_idempotent",
+      arguments: {
+        operation: "work_finalize_session",
+        arguments: { ...withoutStart, idempotencyKey: "response-size-receipt-no-start" },
+      },
+    });
+    const missingText = (missing.content as Array<{ type: string; text?: string }>).find(
+      (item) => item.type === "text",
+    )!.text!;
+    expect(missingText).toContain("startedAtFollowUp");
+    expect(missingText.length).toBeLessThanOrEqual(
+      RESPONSE_BUDGETS.finalizeReceipt + RESPONSE_BUDGETS.startedAtFollowUp,
+    );
   });
 
   it("answers the in-place Session updates with receipts, not an echo of the Session", async () => {

@@ -13,7 +13,7 @@ type SubmittedSection = ReadonlyArray<string | { text: string }>;
 
 /** The request fields a receipt compares with what was stored. */
 interface MetadataReceiptRequest {
-  changedFiles: readonly string[];
+  changedFiles?: readonly string[];
 }
 
 interface SummaryReceiptRequest {
@@ -75,7 +75,9 @@ export function toSessionMetadataReceipt(input: MetadataReceiptRequest, result: 
     outcome,
     session: receiptSession(session),
     // A merge, normalization, or excluded path makes the stored list differ from the one sent.
-    ...(sameList(input.changedFiles, session.changedFiles) ? {} : { changedFiles: session.changedFiles }),
+    ...(input.changedFiles === undefined || sameList(input.changedFiles, session.changedFiles)
+      ? {}
+      : { changedFiles: session.changedFiles }),
     ...redactionsIfAny(result),
     ...warnings,
   };

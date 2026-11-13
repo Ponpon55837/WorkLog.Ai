@@ -1592,6 +1592,8 @@ export interface FinalizedSessionResult {
   outcome: "finalized";
   duplicate: boolean;
   session: WorkSessionRecord;
+  /** Where a newly stored startedAt came from; absent on duplicates and when the Session has no start. */
+  startedAtSource?: "reported" | "events" | "server_observed";
   redactions?: RedactionSummary;
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
@@ -1690,7 +1692,8 @@ export interface UpdatedSessionVerificationResult {
 
 export interface UpdateSessionMetadataInput {
   sessionId: string;
-  changedFiles: string[];
+  /** Omitted keeps the stored files, provenance, and changes unchanged. */
+  changedFiles?: string[];
   changedFilesMode?: ChangedFilesMode;
   changedFilesProvenance?: ChangedFileProvenance[];
   changedFileChanges?: ChangedFileChange[];
@@ -1700,6 +1703,8 @@ export interface UpdateSessionMetadataInput {
   startedAt?: string;
   /** Corrected completion time from evidence; not applied when before startedAt. Kept as a note event. */
   completedAt?: string;
+  /** The work continued and just finished: the server clock is recorded as completedAt. Exclusive with completedAt. */
+  completedAtNow?: true;
 }
 
 export type MetadataBackfillGap = "changed_files" | "verification";

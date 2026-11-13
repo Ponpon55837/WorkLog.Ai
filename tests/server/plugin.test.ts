@@ -14,7 +14,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { CODEX_POST_TOOL_USE_MATCHER, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
+import {
+  CLAUDE_PRE_TOOL_USE_MATCHER,
+  CODEX_POST_TOOL_USE_MATCHER,
+  CODEX_PRE_TOOL_USE_MATCHER,
+  commandForAgentHook,
+} from "../../apps/server/src/agent-setup.js";
 import { claudePluginEnabled, codexPluginEnabled, collectDoctorFindings } from "../../apps/server/src/doctor.js";
 import type { UserServiceStatus } from "../../packages/core/src/index.js";
 
@@ -134,6 +139,7 @@ describe("plugin manifests", () => {
       hooks: {
         PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler }],
         Stop: [{ hooks: handler }],
+        PreToolUse: [{ matcher: CODEX_PRE_TOOL_USE_MATCHER, hooks: handler }],
         UserPromptSubmit: [{ hooks: handler }],
         SessionStart: [{ matcher: "compact", hooks: handler }],
       },
@@ -148,6 +154,7 @@ describe("plugin manifests", () => {
       Stop: [{ hooks: handler }],
       // No matcher: both manual and automatic compactions get the summary instructions.
       PreCompact: [{ hooks: handler }],
+      PreToolUse: [{ matcher: CLAUDE_PRE_TOOL_USE_MATCHER, hooks: handler }],
       SessionStart: [{ matcher: "compact", hooks: handler }],
     });
   });

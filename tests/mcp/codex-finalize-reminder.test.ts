@@ -11,6 +11,7 @@ import {
 import {
   compactedSessionReminder,
   isFileInTrackedRoots,
+  missingStartedAtReason,
   REMINDER,
   reminderWithStart,
 } from "../../apps/mcp/src/finalize-reminder.js";
@@ -33,6 +34,7 @@ function createDeps(tracked = true, now = () => new Date("2026-09-27T01:00:00.00
       dirty: `${sessionId}.dirty`,
       reminded: `${sessionId}.reminded`,
       segment: `${sessionId}.segment`,
+      preDenied: `${sessionId}.pre-denied`,
     }),
     markerExists: (path) => markers.has(path),
     createMarker: (path) => {
@@ -97,9 +99,18 @@ describe("Codex finalize reminder hook", () => {
         deps,
       );
 
-    expect(prompt()).toBeNull();
+    // The first prompt of a segment tells the Agent the start before it saves; a follow-up stays silent.
+    expect(prompt()).toBe(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext:
+            "這個專案有在 Work Intelligence 記錄。這段工作的開始時間是 2026-09-27T01:00:00.000Z；之後保存工作記錄時請把 startedAt 設為 2026-09-27T01:00:00.000Z，completedAt 省略。",
+        },
+      }),
+    );
     clock = new Date("2026-09-27T01:20:00.000Z");
-    prompt(); // A follow-up in the same segment keeps the first time.
+    expect(prompt()).toBeNull(); // A follow-up in the same segment keeps the first time.
     responseForCodexHook(postToolEvent("apply_patch"), deps);
     expect(responseForCodexHook(stopEvent(), deps)).toBe(
       JSON.stringify({ decision: "block", reason: reminderWithStart("2026-09-27T01:00:00.000Z") }),
@@ -113,6 +124,45 @@ describe("Codex finalize reminder hook", () => {
     expect(responseForCodexHook(stopEvent(), deps)).toBe(
       JSON.stringify({ decision: "block", reason: reminderWithStart("2026-09-27T02:00:00.000Z") }),
     );
+  });
+
+  it("pauses a finalize without startedAt once per segment, then lets it through", () => {
+    const { deps, markers } = createDeps(true);
+    const prompt = JSON.stringify({ session_id: "session-1", cwd: trackedCwd, hook_event_name: "UserPromptSubmit" });
+    const preTool = (toolName: string, toolInput: unknown) =>
+      responseForCodexHook(
+        JSON.stringify({
+          session_id: "session-1",
+          cwd: trackedCwd,
+          hook_event_name: "PreToolUse",
+          tool_name: toolName,
+          tool_input: toolInput,
+        }),
+        deps,
+      );
+
+    // No recorded start yet: nothing to offer, so nothing is paused.
+    expect(preTool(finalizeTool, {})).toBeNull();
+    responseForCodexHook(prompt, deps);
+    expect(preTool("mcp__other__tool", {})).toBeNull();
+    expect(preTool(finalizeTool, { startedAt: "2026-09-27T00:30:00.000Z" })).toBeNull();
+    expect(
+      preTool(finalizeDispatcher, { operation: "work_finalize_session", arguments: { completedAt: "x" } }),
+    ).toBeNull();
+
+    const denial = preTool(finalizeDispatcher, finalizeDispatcherInput);
+    expect(JSON.parse(denial ?? "")).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: missingStartedAtReason("2026-09-27T01:00:00.000Z"),
+      },
+    });
+    expect(preTool(finalizeDispatcher, finalizeDispatcherInput)).toBeNull();
+
+    const saved = { content: [{ type: "text", text: JSON.stringify({ outcome: "finalized", session: { id: "s" } }) }] };
+    responseForCodexHook(postToolEvent(finalizeDispatcher, saved, finalizeDispatcherInput), deps);
+    expect(markers.has("session-1.pre-denied")).toBe(false);
   });
 
   it("keeps the segment open when a save fails, and ignores prompts outside tracked projects", () => {

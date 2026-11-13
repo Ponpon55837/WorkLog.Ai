@@ -398,6 +398,40 @@ describe("Session start and update times", () => {
     expect(longSpan.outcome === "finalized" && longSpan.timestampWarnings?.join(" ")).toContain("days before");
   });
 
+  it("records the server clock as completedAt for completedAtNow and labels the note", () => {
+    const { store, finalize } = setup();
+    const earlier = new Date(Date.now() - 3_600_000).toISOString();
+    const sessionId = finalize("continued-work", { completedAt: earlier });
+    const before = Date.now();
+
+    const result = store.updateSessionMetadata({ sessionId, completedAtNow: true });
+    const after = Date.now();
+    const applied = store.getSessionById(sessionId)!.completedAt;
+    expect(result).toMatchObject({ outcome: "updated", session: { id: sessionId, completedAt: applied } });
+    expect(Date.parse(applied)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(applied)).toBeLessThanOrEqual(after);
+    const detail = store.getSessionDetailForAgent({ sessionId });
+    const note = detail.outcome === "session_detail" ? detail.events.find((event) => event.type === "note") : undefined;
+    expect(note?.summary).toBe(`完成時間由 ${earlier} 更新為 ${applied}（伺服器時間，工作延續）。`);
+    expect(note?.details).toMatchObject({
+      field: "completedAt",
+      previous: earlier,
+      next: applied,
+      source: "server_clock",
+    });
+  });
+
+  it("does not apply completedAtNow when it would fall before startedAt", () => {
+    const { store, finalize } = setup();
+    const sessionId = finalize("clock-before-start", { completedAt: new Date(Date.now() - 3_600_000).toISOString() });
+    const before = store.getSessionById(sessionId)!.completedAt;
+    const futureStart = new Date(Date.now() + 3_600_000).toISOString();
+
+    const result = store.updateSessionMetadata({ sessionId, completedAtNow: true, startedAt: futureStart });
+    expect(result.outcome === "updated" && result.timestampWarnings?.join(" ")).toContain("was not applied");
+    expect(store.getSessionById(sessionId)?.completedAt).toBe(before);
+  });
+
   it("corrects completedAt with a note event instead of voiding and recreating the Session", () => {
     const { store, finalize } = setup();
     const sessionId = finalize("wrong-completion");

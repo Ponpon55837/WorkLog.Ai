@@ -42,7 +42,7 @@ MCP tool 清單會在 Codex／Claude 建立 stdio 連線時載入。更新 MCP �
 Work Intelligence hook 只使用使用者的全域設定，不使用單一專案設定。確認：
 
 1. 在 repo 根目錄執行 `pnpm build`，確認所需的 `apps/mcp/dist/` 腳本存在。
-2. Claude Code 的 Stop hook（以及選用的 `PreCompact`、`SessionStart` `compact` 壓縮 hook）設於全域 `~/.claude/settings.json`；Codex 的 `PostToolUse` 與 `Stop` hook（以及選用的 `UserPromptSubmit`、`SessionStart` `compact`）設於全域 `~/.codex/hooks.json`。指令必須指向這個 repo 內腳本的**絕對路徑**。
+2. Claude Code 的 Stop hook（以及選用的 `PreToolUse`、`PreCompact`、`SessionStart` `compact` 壓縮 hook）設於全域 `~/.claude/settings.json`；Codex 的 `PostToolUse` 與 `Stop` hook（以及選用的 `PreToolUse`、`UserPromptSubmit`、`SessionStart` `compact`）設於全域 `~/.codex/hooks.json`。指令必須指向這個 repo 內腳本的**絕對路徑**。
 3. Codex 請輸入 `/hooks`，確認保存提醒 hook 已載入並完成信任；未信任的 hook 會被略過。
 4. 確認 `node` 可以從 Agent 的 `PATH` 找到；若找不到，將 hook 指令中的 `node` 改成 Node.js 執行檔的絕對路徑。
 5. 出現 `hook timed out after 3s` 之類的逾時：hook 本身幾乎不花時間，時間主要花在啟動 `node`。Windows 上防毒或端點防護掃描可能讓每次啟動 node 超過 1 秒，再加上 `cmd.exe` 與同時執行的其他 hook，很容易超過 3 秒。請把 Work Intelligence hook 的 `timeout` 調成 `10`（與 Claude Code 範例相同），Codex 需要在 `/hooks` 重新信任修改後的 hook。

@@ -277,7 +277,9 @@ import {
   excludeBaselineChangedFileChanges,
   toSession,
   toEvidence,
-  resolveStartedAt,
+  resolveStartedAtWithSource,
+  type ObservedStart,
+  type StartedAtSource,
   toKnowledge,
   getVerificationFollowUp,
   getChangedFilesFollowUp,
@@ -289,7 +291,11 @@ import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-de
 export type { ContextFocus } from "./context-recall-service.js";
 
 /** Server-side facts about a finalize call that the caller never supplies through the public input. */
-export type FinalizeSessionContext = { agentClient?: string };
+export type FinalizeSessionContext = {
+  agentClient?: string;
+  /** The first call the MCP server saw for this project since its last save; only a fact the server observed. */
+  observedStartedAt?: ObservedStart;
+};
 
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
@@ -1659,7 +1665,13 @@ export class WorkIntelligenceStore {
     const sessionId = randomUUID();
     const createdAt = nowIso();
     const completedAt = input.completedAt ?? createdAt;
-    const startedAt = resolveStartedAt(input.startedAt, input.events, completedAt);
+    const resolvedStart = resolveStartedAtWithSource(
+      input.startedAt,
+      input.events,
+      completedAt,
+      input.completedAt || input.startedAt ? undefined : context.observedStartedAt,
+    );
+    const startedAt = resolvedStart?.value;
     const timestampWarnings = [
       ...suppliedCompletedAtWarnings(input.completedAt),
       ...(input.startedAt && input.startedAt > completedAt
@@ -1787,7 +1799,20 @@ export class WorkIntelligenceStore {
         ]),
       ];
 
-      for (const event of events) {
+      const observedTool = context.observedStartedAt?.tool;
+      const storedEvents =
+        resolvedStart?.source === "server_observed" && context.observedStartedAt
+          ? [
+              ...events,
+              {
+                type: "note" as const,
+                summary: `開始時間取自 MCP 伺服器觀察：上次保存後此連線第一次呼叫 ${observedTool} 的時間（Agent 未回報 startedAt）。`,
+                details: { field: "startedAt", source: "server_observed", tool: observedTool },
+                occurredAt: context.observedStartedAt.at,
+              },
+            ]
+          : events;
+      for (const event of storedEvents) {
         this.db
           .prepare(
             `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
@@ -1858,6 +1883,7 @@ export class WorkIntelligenceStore {
         outcome: "finalized",
         duplicate: false,
         session,
+        ...(resolvedStart ? { startedAtSource: resolvedStart.source satisfies StartedAtSource } : {}),
         redactions: diagramRedactions ? combineRedactionSummaries(redactions, diagramRedactions) : redactions,
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
