@@ -591,8 +591,10 @@ describe("portable project data transfer", () => {
 
     const result = destination.importProjectData(input);
     expect(total(result.additions)).toBe(total(preview.additions));
+    // The preview shows the picked spelling; the stored root is the canonical key (lower case on Windows).
+    const storedRoot = storedProjectRoot(destinationRoot);
     expect(destination.listProjects()).toMatchObject([
-      { id: source.projectId, rootPath: destinationRoot, status: "paused" },
+      { id: source.projectId, rootPath: storedRoot, status: "paused" },
     ]);
     const imported = destination.exportProjectData({ type: "all" });
     const expected = structuredClone(bundle.tables);
@@ -600,7 +602,7 @@ describe("portable project data transfer", () => {
     if (!project) {
       throw new Error("The fixture should contain a project.");
     }
-    project.root_path = destinationRoot;
+    project.root_path = storedRoot;
     project.status = "paused";
     const snapshot = expected.raw_snapshots[0];
     if (snapshot) {
@@ -2080,12 +2082,16 @@ describe("imported project root storage", () => {
     try {
       const project = source.addProject("Stored root fixture", "/synthetic/stored-root-fixture");
       const bundle = source.exportProjectData({ type: "project", projectId: project.id });
-      const picked = "/synthetic/new-machine//scratch/../Round6-Alpha/";
+      // A root that is absolute on the platform running the test, so it is canonicalized there.
+      const windows = process.platform === "win32";
+      const picked = windows
+        ? "E:\\New Machine\\scratch\\..\\Round6-Alpha\\"
+        : "/synthetic/new-machine//scratch/../Round6-Alpha/";
       const input = { bundle, remap: [{ from: project.rootPath, to: picked }] };
       expect(destination.previewProjectDataImport(input).selectedProjects[0]?.rootPath).toBe(picked);
       destination.importProjectData(input);
       expect(destination.getProjectByRootPath(canonicalizeProjectRoot(picked))?.rootPath).toBe(
-        "/synthetic/new-machine/Round6-Alpha",
+        windows ? "e:\\new machine\\round6-alpha" : "/synthetic/new-machine/Round6-Alpha",
       );
     } finally {
       source.close();
@@ -2093,15 +2099,16 @@ describe("imported project root storage", () => {
     }
   });
 
-  it("keeps a Windows-spelled root from a bundle unchanged when imported without remap on this platform", () => {
+  it("keeps a root spelled for another platform unchanged when imported without remap", () => {
     const source = new WorkIntelligenceStore(":memory:");
     const destination = new WorkIntelligenceStore(":memory:");
     try {
       const project = source.addProject("Foreign root fixture", "/synthetic/foreign-root-fixture");
       const bundle = source.exportProjectData({ type: "project", projectId: project.id });
-      bundle.tables.projects[0]!.root_path = "D:\\Old Machine\\Round6-Alpha";
+      const foreign = process.platform === "win32" ? "/Users/Me/Round6-Alpha" : "D:\\Old Machine\\Round6-Alpha";
+      bundle.tables.projects[0]!.root_path = foreign;
       destination.importProjectData({ bundle });
-      expect(destination.listProjects().map((item) => item.rootPath)).toContain("D:\\Old Machine\\Round6-Alpha");
+      expect(destination.listProjects().map((item) => item.rootPath)).toContain(foreign);
     } finally {
       source.close();
       destination.close();
