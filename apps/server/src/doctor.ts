@@ -1240,7 +1240,9 @@ export async function collectDoctorFindings(
           : "apps/mcp/dist/finalize-reminder.js 不存在。",
       claudeHookState === "installed"
         ? globalHooks.claudeCompactionConfigured
-          ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
+          ? globalHooks.claudeStartGuardConfigured
+            ? "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。"
+            : `執行 ${cmd("setup:agents")}，預覽後確認即可補上 PreToolUse hook（保存前提示開始時間），或更新 plugin。`
           : `執行 ${cmd("setup:agents")}，預覽後確認即可補上壓縮前後的提醒 hook。`
         : claudeHookState === "unknown"
           ? `確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`
@@ -1278,7 +1280,9 @@ export async function collectDoctorFindings(
         : codexHooksDisabled
           ? `如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 ${cmd("check")}。`
           : codexHookExists && globalHooks.codexConfigured
-            ? globalHooks.codexCompactionConfigured && globalHooks.codexSegmentStartConfigured
+            ? globalHooks.codexCompactionConfigured &&
+              globalHooks.codexSegmentStartConfigured &&
+              globalHooks.codexStartGuardConfigured
               ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
               : `執行 ${cmd("setup:agents")} 補上缺少的選用 hook；之後在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks。`
             : globalHooks.codexHooksFeature === "unknown"

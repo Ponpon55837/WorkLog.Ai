@@ -775,17 +775,35 @@ describe("pnpm doctor read-only checks", () => {
 
     expect(findings.find((finding) => finding.title === "Codex 全域 hook")?.detail).toContain("未設定 PreToolUse hook");
     claudeHooks.PreCompact = [{ hooks: claudeHandler }];
+    claudeHooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
+    codexHooks.SessionStart = [{ matcher: "compact", hooks: codexHandler }];
+    write();
+
+    // Only the PreToolUse guard is missing: the recommendation points at setup:agents instead of a generic check.
+    findings = await collectDoctorFindings(doctorOptions);
+    expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining("未設定 PreToolUse hook（保存前提示開始時間）"),
+      recommendation:
+        "執行 pnpm setup:agents，預覽後確認即可補上 PreToolUse hook（保存前提示開始時間），或更新 plugin。",
+    });
+    expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining("未設定 PreToolUse hook（保存前提示開始時間）"),
+      recommendation:
+        "執行 pnpm setup:agents 補上缺少的選用 hook；之後在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks。",
+    });
+
     claudeHooks.PreToolUse = [
       { matcher: "^mcp__.*(work_finalize_session|work_write_idempotent)$", hooks: claudeHandler },
     ];
     codexHooks.PreToolUse = [{ matcher: "^.*(work_finalize_session|work_write_idempotent)$", hooks: codexHandler }];
-    claudeHooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
-    codexHooks.SessionStart = [{ matcher: "compact", hooks: codexHandler }];
     write();
     findings = await collectDoctorFindings(doctorOptions);
-    expect(findings.find((finding) => finding.title === "Claude 全域 hook")?.detail).toContain(
-      "Stop、PreCompact 與 SessionStart（compact）hook 已設定",
-    );
+    expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+      detail: expect.stringContaining("Stop、PreCompact 與 SessionStart（compact）hook 已設定"),
+      recommendation: "在 Claude Code 工作階段確認 Stop hook 執行與提醒結果。",
+    });
     expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
       severity: "ok",
       detail:
