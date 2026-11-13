@@ -191,6 +191,59 @@ describe("Agent Knowledge search fallback", () => {
     expect(search(store, { projectRoot: root, q: "cider press", status: "archived" }).match).toBe("strict");
   });
 
+  it("tells whole-query matches in another status from partial ones", () => {
+    const { store, root } = setup();
+    record(store, root, "k1", { title: "Cider press cleaning", archived: true });
+    record(store, root, "k2", { title: "Cider barrel racking", archived: true });
+    record(store, root, "k3", { title: "Mulch around young trees" });
+
+    // One archived record holds both words, one only "cider".
+    const result = search(store, { projectRoot: root, q: "cider press" });
+    expect(result).toMatchObject({
+      match: "none",
+      otherStatusMatches: { archived: 1 },
+      otherStatusFullMatches: { archived: 1 },
+    });
+    expect(result.hint).toContain("contain every word");
+
+    // Only partial in archived: no full count, and the hint says passing the status gives leads, not an answer.
+    const partial = search(store, { projectRoot: root, q: "cider zzyzx" });
+    expect(partial).toMatchObject({ match: "none", otherStatusMatches: { archived: 2 } });
+    expect(partial).not.toHaveProperty("otherStatusFullMatches");
+    expect(partial.hint).toContain("only some");
+    expect(search(store, { projectRoot: root, q: "cider zzyzx", status: "archived" }).match).toBe("relaxed");
+  });
+
+  it("names the effective query when the word cap cut it, so one status switch finds the record", () => {
+    const { store, root } = setup();
+    record(store, root, "k1", { title: "alpha bravo charlie delta echo foxtrot golf hotel", archived: true });
+    const query = "alpha bravo charlie delta echo foxtrot golf hotel india juliet";
+
+    const result = search(store, { projectRoot: root, q: query });
+    expect(result).toMatchObject({
+      match: "none",
+      otherStatusFullMatches: { archived: 1 },
+      effectiveQuery: "alpha bravo charlie delta echo foxtrot golf hotel",
+    });
+    expect(result.hint).toContain("first 8 words");
+    // The count was computed against the effective query, and the re-query with the status answers it.
+    const archived = search(store, { projectRoot: root, q: query, status: "archived" });
+    expect(archived).toMatchObject({ match: "strict", pageInfo: { total: 1 } });
+    const effective = search(store, { projectRoot: root, q: result.effectiveQuery!, status: "archived" });
+    expect(effective.items.map((item) => item.id)).toEqual(archived.items.map((item) => item.id));
+  });
+
+  it("says when the relaxed search cut the query's terms or path words", () => {
+    const { store, root } = setup();
+    record(store, root, "k1", { title: "Orchard path notes", appliesTo: ["src/p1/**"], archived: true });
+    const paths = Array.from({ length: 7 }, (_, index) => `src/p${index + 1}/file.ts`).join(" ");
+
+    const result = search(store, { projectRoot: root, q: paths });
+    expect(result.queryTruncated).toBe(true);
+    expect(result.hint).toContain("cut");
+    expect(search(store, { projectRoot: root, q: "orchard notes zzyzx" })).not.toHaveProperty("queryTruncated");
+  });
+
   it("keeps the kind filter in the fallback", () => {
     const { store, root } = setup();
     record(store, root, "k1", { title: "Apple storage humidity", kind: "decision" });

@@ -50,6 +50,7 @@ const RESPONSE_BUDGETS = {
   fileHistoryOnePath: 4_000,
   fileHistoryThreePaths: 10_000,
   knowledgePageContext: 10_000,
+  knowledgePageFocused: 1_500,
   sessionHandoffThirtyFiles: 6_500,
 } as const;
 const CONTEXT_ITEM_KEYS = new Set(["id", "sourceSessionId", "text", "textTruncated"]);
@@ -1527,6 +1528,41 @@ describe("synthetic MCP response-size baseline", () => {
     ]);
     expect(byId.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
     expect(typo.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
+  });
+
+  it("reads one Knowledge page topic with only the matching section, the rest as sizes, and no Sessions", async () => {
+    const { client, store, projectRoot } = await connectWithSyntheticHistory();
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+    const contract = (
+      (await client.readResource({ uri: "work-intelligence://agent/tool-contracts/work_get_knowledge_page_context" }))
+        .contents as Array<{ text?: string }>
+    )[0]?.text;
+    expect(contract).toContain("headings");
+    expect(contract).toContain("query");
+
+    const full = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      projectRoot,
+      slug: "architecture",
+    });
+    const focused = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      projectRoot,
+      slug: "architecture",
+      query: "retrieval budget",
+    });
+    const value = focused.value as {
+      focused: boolean;
+      match: string;
+      sessionsOmitted: boolean;
+      sections: Array<{ heading: string; sourceSessionIds: string[] }>;
+      otherSections: unknown[];
+      sessions?: unknown;
+    };
+    console.info(`[response-size] knowledge page focused: ${focused.length} of ${full.length} characters`);
+    expect(value).toMatchObject({ focused: true, match: "sections", sessionsOmitted: true, otherSections: [] });
+    expect(value.sections).toHaveLength(1);
+    expect(value.sessions).toBeUndefined();
+    expect(focused.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageFocused);
+    expect(focused.length).toBeLessThan(full.length);
   });
 
   it("bounds Knowledge page context Sessions while keeping every id a page section may cite", async () => {

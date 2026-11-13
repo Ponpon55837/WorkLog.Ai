@@ -963,6 +963,15 @@ export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
   /** Matches in the statuses this search did not cover, counted the same way; counts only, never content. */
   otherStatusMatches?: Partial<Record<KnowledgeStatus, number>>;
   /**
+   * Per other status, how many records contain every word of the effective query: passing that status answers with
+   * them as a strict match. A status absent here but present in otherStatusMatches has only partial matches.
+   */
+  otherStatusFullMatches?: Partial<Record<KnowledgeStatus, number>>;
+  /** Present only when the strict search cut the query (word cap); the exact words every count and re-query used. */
+  effectiveQuery?: string;
+  /** The relaxed search used only part of the query's terms or path-like words (caps), so matchedTerms are partial. */
+  queryTruncated?: true;
+  /**
    * The relaxed search's appliesTo match budget or its path-scan budget ran out (only crafted stored patterns or
    * very long histories reach them), or a stored list above the load bound was skipped, so older Knowledge was not
    * checked against the path words of the query.
@@ -2427,6 +2436,10 @@ export interface RequestKnowledgePageUpdateInput {
 export interface KnowledgePageContextQuery {
   projectRoot: string;
   slug: string;
+  /** Focused read: only the sections whose heading or content contains a query term. */
+  query?: string;
+  /** Focused read: only the sections with these headings (case-insensitive, trimmed). */
+  headings?: string[];
 }
 
 export interface SaveKnowledgePageInput {
@@ -2486,6 +2499,23 @@ export interface KnowledgePageContext {
   truncated: boolean;
 }
 
+/** A focused read: the matching sections in full and the size of the rest; no Session list. */
+export interface KnowledgePageFocusedContext {
+  outcome: "knowledge_page_context";
+  focused: true;
+  /** none: nothing matched, so no sections are returned; pick from otherSections by heading. */
+  match: "sections" | "none";
+  page: Pick<KnowledgePageRecord, "slug" | "title" | "version" | "status" | "newSessionCount" | "updatedAt"> & {
+    needsReview?: true;
+    updateRequestedAt?: string;
+  };
+  sections: Array<KnowledgePageSection & { needsReview?: true }>;
+  otherSections: Array<{ heading: string; chars: number }>;
+  sessionsOmitted: true;
+  /** How to get the Session list and the complete page. */
+  readFullWith: string;
+}
+
 export type KnowledgePageSkippedResult = {
   outcome: "skipped";
   projectRoot?: string;
@@ -2523,7 +2553,7 @@ export interface KnowledgePageNotFoundResult {
 }
 
 export type KnowledgePageContextResult =
-  KnowledgePageContext | KnowledgePageNotFoundResult | KnowledgePageSkippedResult;
+  KnowledgePageContext | KnowledgePageFocusedContext | KnowledgePageNotFoundResult | KnowledgePageSkippedResult;
 
 export type SaveKnowledgePageResult =
   | { outcome: "knowledge_page_saved"; duplicate: boolean; page: KnowledgePageRecord; redactions?: RedactionSummary }

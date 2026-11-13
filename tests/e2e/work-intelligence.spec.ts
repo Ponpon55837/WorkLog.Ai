@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import type { ProjectDataExport, SystemAgentConnections } from "../../packages/core/src/index.js";
-import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
+import { canonicalizeProjectRoot, WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 import { LANGUAGE_NAMES, textIn, tt, ttPattern } from "./helpers/i18n.js";
 
 const projectRoot = process.cwd();
@@ -2548,7 +2548,9 @@ test.describe("Work Intelligence browser regression", () => {
       const preview = backups.getByTestId("project-import-preview");
       await expect(preview).toBeVisible();
       const projects = preview.getByTestId("project-import-selected-projects");
-      await expect(projects).toContainText(alphaSource);
+      // The exported root is the stored canonical key, which is case-folded on Windows; the picked target below keeps
+      // the spelling the folder picker returned.
+      await expect(projects).toContainText(canonicalizeProjectRoot(alphaSource));
       await expect(projects).toContainText(tt("projects.thisFolderWasNotFound"));
       await expect(projects).not.toContainText(secretFileContent);
 
@@ -2569,12 +2571,13 @@ test.describe("Work Intelligence browser regression", () => {
 
       const verifyDb = new DatabaseSync(databasePath);
       try {
+        // The import stores the canonical root key (case-folded on Windows); it is identical to the picked path on Linux.
         expect(verifyDb.prepare("SELECT root_path, status FROM projects WHERE id = ?").get(created.ids[0])).toEqual({
-          root_path: alphaTarget,
+          root_path: canonicalizeProjectRoot(alphaTarget),
           status: "paused",
         });
         expect(verifyDb.prepare("SELECT root_path, status FROM projects WHERE id = ?").get(created.ids[1])).toEqual({
-          root_path: betaTarget,
+          root_path: canonicalizeProjectRoot(betaTarget),
           status: "paused",
         });
       } finally {
