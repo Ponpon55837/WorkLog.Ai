@@ -946,6 +946,27 @@ try {
     withBenchConnection(databasePath, (connection) =>
       connection.prepare("UPDATE projects SET updated_at = updated_at WHERE id = ?").run(alpha.id),
     );
+  // Queried paths also match Knowledge appliesTo: the 20 seeded Knowledge records are linked to files only that way
+  // (an exact module path and a glob), so the bounded appliesTo scan and the trust batch both do real work.
+  const recallPathsAppliesTo = () => {
+    const result = benchStore.recall({
+      paths: ["src/module-3.ts", "src/feature-7/index.ts"],
+      projectRoot: alphaRoot,
+      limit: 8,
+    });
+    if (result.outcome !== "recall" || !result.hits.some((hit) => hit.type === "knowledge"))
+      throw new Error("Path recall must return appliesTo-matched Knowledge.");
+    return result;
+  };
+  const getContextPathsAppliesTo = () => {
+    const result = benchStore.getContext(alphaRoot, {
+      task: "adjust module wiring",
+      paths: ["src/module-3.ts", "src/feature-7/index.ts"],
+    });
+    if (result.outcome !== "context" || !result.relevant?.knowledge.length)
+      throw new Error("Path-focused context must offer appliesTo-matched Knowledge.");
+    return result;
+  };
   // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.
   const reindexPath = join(root, "bench-reindex.sqlite");
   withBenchConnection(databasePath, (connection) =>
@@ -1235,17 +1256,11 @@ try {
         throw new Error("Related context benchmark must return pending pointers.");
       return result;
     },
-    // Queried paths also match Knowledge appliesTo: the 20 seeded Knowledge records are linked to files only that way
-    // (an exact module path and a glob), so the bounded appliesTo scan and the trust batch both do real work.
-    "getContext (paths, appliesTo-matched Knowledge)": () => {
-      const result = benchStore.getContext(alphaRoot, {
-        task: "adjust module wiring",
-        paths: ["src/module-3.ts", "src/feature-7/index.ts"],
-      });
-      if (result.outcome !== "context" || !result.relevant?.knowledge.length)
-        throw new Error("Path-focused context must offer appliesTo-matched Knowledge.");
-      return result;
-    },
+    // Repeated reads of unchanged data reuse the remembered staleness results (the revision cache); the "(after a
+    // write)" case below reads the later Sessions again on every run, which is what a first read at the start of
+    // work costs.
+    "getContext (paths, appliesTo-matched Knowledge)": getContextPathsAppliesTo,
+    "getContext (paths, appliesTo-matched Knowledge, after a write)": getContextPathsAppliesTo,
     "finalizeSession (related pending reminder)": () => {
       const index = ++maintenanceFinalizeIndex;
       const focus = [
@@ -1367,18 +1382,11 @@ try {
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
     "recall (synonym expansion)": () => benchStore.recall({ q: "endpoint performance", limit: 8 }),
     // Twenty stale-checked Knowledge hits; trust must be read in one batch, not once per hit.
+    // Every run follows a write by another connection, so the staleness is read again instead of reused.
     "recall (20 Knowledge hits with staleness)": () =>
       benchStore.recall({ q: "synthetic knowledge staleness", projectRoot: alphaRoot, limit: 30 }),
-    "recall (paths, appliesTo)": () => {
-      const result = benchStore.recall({
-        paths: ["src/module-3.ts", "src/feature-7/index.ts"],
-        projectRoot: alphaRoot,
-        limit: 8,
-      });
-      if (result.outcome !== "recall" || !result.hits.some((hit) => hit.type === "knowledge"))
-        throw new Error("Path recall must return appliesTo-matched Knowledge.");
-      return result;
-    },
+    "recall (paths, appliesTo)": recallPathsAppliesTo,
+    "recall (paths, appliesTo, after a write)": recallPathsAppliesTo,
     "recall evaluator (snapshot + MCP recall/context)": () =>
       evaluateRecallQuestions(databasePath, evaluationQuestions),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
@@ -1666,6 +1674,9 @@ try {
   const beforeEachRun = {
     "finalizeSession (changed files, Knowledge review)": seedFreshReviewKnowledge,
     "metadata follow-up counts (after a write)": touchProjectData,
+    "recall (20 Knowledge hits with staleness)": touchProjectData,
+    "recall (paths, appliesTo, after a write)": touchProjectData,
+    "getContext (paths, appliesTo-matched Knowledge, after a write)": touchProjectData,
     "requestKnowledgeCandidates selection": resetBacklogRequests,
     "getContext with knowledge backlog (cold token)": prepareColdBacklogRead,
     "first read after 5,000 dirty documents": markSessionsDirty,
@@ -1711,8 +1722,10 @@ try {
     "first read after 5,000 dirty documents": 1500,
     "getContext (project with pages)": 500,
     "getContext (related pending items)": 500,
-    "getContext (paths, appliesTo-matched Knowledge)": 500,
-    "recall (paths, appliesTo)": 250,
+    "getContext (paths, appliesTo-matched Knowledge)": 250,
+    "getContext (paths, appliesTo-matched Knowledge, after a write)": 400,
+    "recall (paths, appliesTo)": 100,
+    "recall (paths, appliesTo, after a write)": 150,
     "finalizeSession (related pending reminder)": 250,
     "finalizeSession (changed files, Knowledge review)": 250,
     "listKnowledgePages (staleness)": 250,
