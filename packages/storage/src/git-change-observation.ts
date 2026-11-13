@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import type { ChangedFileChange } from "@work-intelligence/core";
 import { changedFileIdentity, isCommitSha } from "./session-record-codecs.js";
 
@@ -65,6 +65,37 @@ const runGitProcess: GitRunner = (args, options) =>
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
   });
+
+export type GitHead = { branch?: string; commitSha?: string };
+
+/** Runs one git query synchronously; undefined on a non-zero exit, timeout, missing git, or empty output. */
+function runGitSync(rootPath: string, args: string[], timeoutMs: number): string | undefined {
+  try {
+    const output = execFileSync("git", [...baseArguments(rootPath), ...args], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: timeoutMs,
+      maxBuffer: MAX_BUFFER_BYTES,
+      env: gitEnvironment(),
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return output || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Asks Git itself for the checked-out branch and HEAD commit. Used when the loose files under `.git` cannot answer:
+ * a linked worktree (`.git` is a file), a packed ref, or another ref storage format. A detached HEAD has no branch
+ * and an unborn branch has no commit; undefined when Git reports neither.
+ */
+export function readGitHeadWithGit(rootPath: string, timeoutMs = DEFAULT_TIMEOUT_MS): GitHead | undefined {
+  const branch = runGitSync(rootPath, ["symbolic-ref", "--short", "-q", "HEAD"], timeoutMs);
+  const commit = runGitSync(rootPath, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], timeoutMs);
+  const commitSha = commit && isCommitSha(commit) ? commit.toLowerCase() : undefined;
+  return branch || commitSha ? { branch, commitSha } : undefined;
+}
 
 /** Parses `git diff --name-status -z`; throws on a truncated record so the caller drops the whole observation. */
 function parseNameStatus(output: string, allowed: Set<string>): ChangedFileChange[] {

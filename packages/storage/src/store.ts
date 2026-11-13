@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { NoopInsightProvider } from "@work-intelligence/core";
 import type {
@@ -291,7 +291,7 @@ import {
   normalizeCommitSha,
   isCommitSha,
 } from "./session-record-codecs.js";
-import type { GitObservedChanges } from "./git-change-observation.js";
+import { readGitHeadWithGit, type GitObservedChanges } from "./git-change-observation.js";
 import {
   applyObservedChangedFileChanges,
   observedChangedFileChangesNote,
@@ -1661,7 +1661,7 @@ export class WorkIntelligenceStore {
     return planChangedFileObservation(decision.project.rootPath, input, context.baseCommit);
   }
 
-  /** The HEAD commit of a tracked project read from .git files (no subprocess); undefined for any other project. */
+  /** The HEAD commit of a tracked project (loose .git files first, Git itself as fallback); undefined for any other project. */
   public observeHeadCommit(projectRoot: string): string | undefined {
     const decision = this.checkProjectRoot(projectRoot);
     if (!decision.allowed || !decision.project) return undefined;
@@ -2250,7 +2250,19 @@ export class WorkIntelligenceStore {
     }
   }
 
+  /**
+   * The checked-out branch and HEAD commit. The loose files under `.git` answer the common case without a subprocess;
+   * when they cannot (linked worktree, packed ref, other ref storage) Git itself is asked.
+   */
   private readGitMetadata(projectRoot: string): GitSummary | undefined {
+    const loose = this.readLooseGitHead(projectRoot);
+    if (loose?.commitSha && isCommitSha(loose.commitSha)) return loose;
+    // Only a root that is itself a checkout is asked, so a plain folder never spawns git or reads a parent repository.
+    if (!existsSync(join(projectRoot, ".git"))) return loose;
+    return readGitHeadWithGit(projectRoot) ?? loose;
+  }
+
+  private readLooseGitHead(projectRoot: string): GitSummary | undefined {
     try {
       const headPath = safeExistingProjectPath(projectRoot, ".git/HEAD");
       if (!headPath) {
