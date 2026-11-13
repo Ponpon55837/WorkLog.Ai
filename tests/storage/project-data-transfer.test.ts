@@ -17,7 +17,7 @@ import {
   projectDataImportInputSchema,
 } from "../../packages/schema/src/index.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
-import { remapPathPrefix } from "../../packages/storage/src/project-path-remap.js";
+import { remapPathPrefix, storedProjectRoot } from "../../packages/storage/src/project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -2057,6 +2057,51 @@ describe("import preview root spelling", () => {
         sourceRootPath: "D:\\Old Machine\\Round6-Alpha",
         rootPath: "D:\\Old Machine\\Round6-Alpha",
       });
+    } finally {
+      source.close();
+      destination.close();
+    }
+  });
+});
+
+describe("imported project root storage", () => {
+  it("stores the canonical root key for a platform and leaves foreign-platform roots alone", () => {
+    expect(storedProjectRoot("E:\\New Machine\\Round6-Alpha\\", "win32")).toBe("e:\\new machine\\round6-alpha");
+    expect(storedProjectRoot("//Server/Share/Proj/", "win32")).toBe("\\\\server\\share\\proj");
+    expect(storedProjectRoot("/Users/Me/Proj/../Mixed/", "linux")).toBe("/Users/Me/Mixed");
+    // A Windows-spelled root imported on Linux, and a POSIX root imported on Windows, must not be resolved against cwd.
+    expect(storedProjectRoot("D:\\Old Machine\\Round6-Alpha", "linux")).toBe("D:\\Old Machine\\Round6-Alpha");
+    expect(storedProjectRoot("/Users/Me/Proj", "win32")).toBe("/Users/Me/Proj");
+  });
+
+  it("writes the canonical remapped root, previews the picked spelling, and finds the project by canonical lookup", () => {
+    const source = new WorkIntelligenceStore(":memory:");
+    const destination = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = source.addProject("Stored root fixture", "/synthetic/stored-root-fixture");
+      const bundle = source.exportProjectData({ type: "project", projectId: project.id });
+      const picked = "/synthetic/new-machine//scratch/../Round6-Alpha/";
+      const input = { bundle, remap: [{ from: project.rootPath, to: picked }] };
+      expect(destination.previewProjectDataImport(input).selectedProjects[0]?.rootPath).toBe(picked);
+      destination.importProjectData(input);
+      expect(destination.getProjectByRootPath(canonicalizeProjectRoot(picked))?.rootPath).toBe(
+        "/synthetic/new-machine/Round6-Alpha",
+      );
+    } finally {
+      source.close();
+      destination.close();
+    }
+  });
+
+  it("keeps a Windows-spelled root from a bundle unchanged when imported without remap on this platform", () => {
+    const source = new WorkIntelligenceStore(":memory:");
+    const destination = new WorkIntelligenceStore(":memory:");
+    try {
+      const project = source.addProject("Foreign root fixture", "/synthetic/foreign-root-fixture");
+      const bundle = source.exportProjectData({ type: "project", projectId: project.id });
+      bundle.tables.projects[0]!.root_path = "D:\\Old Machine\\Round6-Alpha";
+      destination.importProjectData({ bundle });
+      expect(destination.listProjects().map((item) => item.rootPath)).toContain("D:\\Old Machine\\Round6-Alpha");
     } finally {
       source.close();
       destination.close();

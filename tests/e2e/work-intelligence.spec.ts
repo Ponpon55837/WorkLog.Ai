@@ -2571,12 +2571,13 @@ test.describe("Work Intelligence browser regression", () => {
 
       const verifyDb = new DatabaseSync(databasePath);
       try {
+        // The import stores the canonical root key (case-folded on Windows); it is identical to the picked path on Linux.
         expect(verifyDb.prepare("SELECT root_path, status FROM projects WHERE id = ?").get(created.ids[0])).toEqual({
-          root_path: alphaTarget,
+          root_path: canonicalizeProjectRoot(alphaTarget),
           status: "paused",
         });
         expect(verifyDb.prepare("SELECT root_path, status FROM projects WHERE id = ?").get(created.ids[1])).toEqual({
-          root_path: betaTarget,
+          root_path: canonicalizeProjectRoot(betaTarget),
           status: "paused",
         });
       } finally {
