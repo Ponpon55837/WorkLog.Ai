@@ -2,6 +2,8 @@
 // node docs/experiments/task-path-replay.mjs [database]
 // The source is read in one read-only transaction. All replay writes go to an in-memory store.
 import assert from "node:assert/strict";
+import console from "node:console";
+import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { resolve } from "node:path";
 import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
