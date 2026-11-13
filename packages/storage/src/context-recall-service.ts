@@ -510,10 +510,10 @@ export class ContextRecallService {
   }
 
   /** Trust for every Knowledge hit is read in one batch; per-hit lookups rescanned later Sessions once per hit. */
-  private withRelatedSessions(hits: RecallHit[]): RecallHit[] {
-    const trusted = this.store.getKnowledgeWithTrustMany(
-      hits.filter((hit) => hit.type === "knowledge").map((hit) => hit.id),
-    );
+  private withRelatedSessions(
+    hits: RecallHit[],
+    trusted = this.store.getKnowledgeWithTrustMany(hits.filter((hit) => hit.type === "knowledge").map((hit) => hit.id)),
+  ): RecallHit[] {
     return hits.map((hit) => this.withRelatedSessionsFor(hit, trusted));
   }
 
@@ -841,8 +841,9 @@ export class ContextRecallService {
       return false;
     };
 
-    // Relevant items are dropped only after recent activity is gone and long excerpts are shortened.
-    const trimRelevant = (): boolean => {
+    // Relevant items are dropped only after recent activity is gone and long excerpts are shortened. Each step pops one
+    // kind of item; Knowledge has its own step because path pointers change where it ranks (see the loop below).
+    const trimRelevantPageSection = (): boolean => {
       const relevant = context.relevant;
       const pageWithSections = relevant?.knowledgePages?.at(-1);
       const pageSectionCount = relevant?.knowledgePages?.reduce((count, page) => count + page.sections.length, 0) ?? 0;
@@ -861,6 +862,10 @@ export class ContextRecallService {
         if (pageWithSections.sections.length === 0) relevant!.knowledgePages!.pop();
         return true;
       }
+      return false;
+    };
+    const trimRelevantSession = (): boolean => {
+      const relevant = context.relevant;
       const relevantSession = relevant && relevant.sessions.length > 1 ? relevant.sessions.pop() : undefined;
       if (relevantSession) {
         addOmission(
@@ -871,6 +876,10 @@ export class ContextRecallService {
         );
         return true;
       }
+      return false;
+    };
+    const trimRelevantKnowledge = (): boolean => {
+      const relevant = context.relevant;
       const relevantKnowledge = relevant && relevant.knowledge.length > 1 ? relevant.knowledge.pop() : undefined;
       if (relevantKnowledge) {
         addOmission(
@@ -887,6 +896,10 @@ export class ContextRecallService {
         );
         return true;
       }
+      return false;
+    };
+    const trimRelevantDecision = (): boolean => {
+      const relevant = context.relevant;
       const relevantDecision = relevant && relevant.decisions.length > 1 ? relevant.decisions.pop() : undefined;
       if (relevantDecision) {
         addOmission(
@@ -897,7 +910,10 @@ export class ContextRecallService {
         );
         return true;
       }
-      const outstanding = relevant?.outstandingItems;
+      return false;
+    };
+    const trimRelevantOutstanding = (): boolean => {
+      const outstanding = context.relevant?.outstandingItems;
       const item = outstanding && outstanding.items.length > 1 ? outstanding.items.pop() : undefined;
       if (outstanding && item) {
         outstanding.omitted += 1;
@@ -923,6 +939,16 @@ export class ContextRecallService {
       }
       return false;
     };
+    const trimRelevant = (): boolean =>
+      trimRelevantPageSection() ||
+      trimRelevantSession() ||
+      trimRelevantKnowledge() ||
+      trimRelevantDecision() ||
+      trimRelevantOutstanding();
+    // With path pointers in play, full relevant Knowledge outranks everything else relevant, so the other relevant
+    // sections go first.
+    const trimRelevantBesidesKnowledge = (): boolean =>
+      trimRelevantPageSection() || trimRelevantSession() || trimRelevantDecision() || trimRelevantOutstanding();
 
     const shortenNext = (): boolean => {
       for (const session of context.recentSessions) {
@@ -990,9 +1016,13 @@ export class ContextRecallService {
       return false;
     };
 
-    // Pointers yield before full relevant records: shorten path-entry titles, then drop path entries from the end (back
-    // to flagged entries or plain ids, so trust flags and ids stay). Only then is a full relevant record popped, which
-    // may itself become a path entry; each step removes or shortens something, so the loop ends.
+    // Priority under budget when path-matched Knowledge has pointers (most valuable last to go): full relevant.knowledge
+    // records, then up to five pointers in their shortest form (id, title of at most 24 characters, path), then
+    // everything lower: recent sections and the plain ids of their pointers, page content, further relevant Sessions,
+    // decisions, open items, and text length. So titles shorten first, all lower-value content is trimmed next (recent
+    // sections, text, recentKnowledge ids, relevant page sections, Sessions, decisions, open items), and only then is a pointer demoted
+    // (back to a flagged entry or plain id, so trust flags and ids stay) before a full relevant record is popped,
+    // which may itself become a pointer. Each step removes or shortens something, so the loop ends.
     const shortenPathTitles = (): boolean => {
       const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
       for (const entry of omission ? pathEntries(omission) : []) {
@@ -1039,15 +1069,24 @@ export class ContextRecallService {
       return true;
     };
 
+    // The few plain ids a recentKnowledge pointer lists are the cheapest bookkeeping to give up: the count and the flagged
+    // entries stay, and the records are one work_search_knowledge call away.
+    const dropRecentKnowledgeIds = (): boolean => {
+      const omission = context.omitted?.find((candidate) => candidate.section === "recentKnowledge");
+      if (!omission || (!omission.ids?.length && !omission.moreIds)) return false;
+      delete omission.ids;
+      delete omission.moreIds;
+      return true;
+    };
+    const hasPathPointers = pathKnowledgeByContext.has(context);
+    const trimLast = (): boolean =>
+      hasPathPointers
+        ? dropRecentKnowledgeIds() || trimRelevantBesidesKnowledge() || dropPathEntry() || trimRelevantKnowledge()
+        : trimRelevant();
     let trimmed = false;
     while (
       responseLength() > limit &&
-      (trimNext() ||
-        shortenNext() ||
-        shortenPathTitles() ||
-        dropPathEntry() ||
-        forgetBeyondLimitPointer() ||
-        trimRelevant())
+      (shortenPathTitles() || trimNext() || shortenNext() || forgetBeyondLimitPointer() || trimLast())
     ) {
       trimmed = true;
     }
@@ -1104,14 +1143,28 @@ export class ContextRecallService {
     if (!task && paths.length === 0) {
       return undefined;
     }
-    const recalled = this.searchIndex.recall({ q: task, paths, projectId, limit: 20 });
+    // On a busy file the Sessions fill the page and recall reserves only a few slots for Knowledge, so the same ranking
+    // pass also names the best path-matched Knowledge beyond the page (internal; work_recall never returns them).
+    const recalled = this.searchIndex.recall({
+      q: task,
+      paths,
+      projectId,
+      limit: 20,
+      ...(paths.length > 0 ? { extraPathKnowledge: CONTEXT_OMITTED_PATH_ENTRY_LIMIT + RELEVANT_LIMIT } : {}),
+    });
     const termHits = recalled.termHits;
-    const hits = this.withRelatedSessions(recalled.hits).map((hit) => this.contextHit(hit));
+    const extraPathKnowledge = recalled.extraPathKnowledge ?? [];
+    // One batch for the page and the extra records, so staleness is still read once.
+    const trusted = this.store.getKnowledgeWithTrustMany([
+      ...recalled.hits.filter((hit) => hit.type === "knowledge").map((hit) => hit.id),
+      ...extraPathKnowledge.map((item) => item.id),
+    ]);
+    const hits = this.withRelatedSessions(recalled.hits, trusted).map((hit) => this.contextHit(hit));
     const knowledgeHits = hits.filter((hit) => hit.type === "knowledge");
     const knowledge = knowledgeHits.slice(0, RELEVANT_LIMIT);
     // Knowledge matched by a focus path, wherever it ranks: past the five relevant slots or dropped by the budget it
     // still tells an Agent which Knowledge covers which file.
-    const pathKnowledge = knowledgeHits.flatMap((hit, rank): PathKnowledge[] => {
+    const pageEntries = knowledgeHits.flatMap((hit, rank): PathKnowledge[] => {
       const path = hit.matchedPaths?.[0];
       if (!path) return [];
       return [
@@ -1125,6 +1178,21 @@ export class ContextRecallService {
         },
       ];
     });
+    // Ranked after every Knowledge hit of the page; together they stay within the entry cap plus the relevant slots.
+    const extraEntries = extraPathKnowledge
+      .slice(0, Math.max(0, CONTEXT_OMITTED_PATH_ENTRY_LIMIT + RELEVANT_LIMIT - pageEntries.length))
+      .map((item, index): PathKnowledge => {
+        const record = trusted.get(item.id);
+        return {
+          id: item.id,
+          title: truncateAtSentenceBoundary(item.title, CONTEXT_PATH_ENTRY_TITLE_CHARS).text,
+          path: boundedPath(item.matchedPath),
+          rank: knowledgeHits.length + index,
+          ...(record?.possiblyStale ? { possiblyStale: true } : {}),
+          ...(record?.review ? { needsReview: true } : {}),
+        };
+      });
+    const pathKnowledge = [...pageEntries, ...extraEntries];
     const sessions = hits
       .filter((hit) => hit.type === "session")
       .slice(0, RELEVANT_LIMIT)
