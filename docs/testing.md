@@ -347,6 +347,22 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 | `agent-data-source-audit-2026-09-30.md` | 第八輪工作記錄的來源與時間核對 |
 | `outstanding-cleanup-accuracy-2026-10-01.md` | 未結項清理建議的合成準確度評估 |
 | `standalone-distribution-spike-2026-10-15.md`／`.mjs` | 不需要 checkout 的發行方式研究與原型 |
+| `knowledge-reuse-attribution.mjs` | Knowledge 重用歸因重播（唯讀），說明見下方 Knowledge reuse attribution |
+
+### Knowledge reuse attribution
+
+`docs/experiments/knowledge-reuse-attribution.mjs` is a read-only replay that asks why a Knowledge item that could have been reused in a Session was or was not reported as applied. Run `pnpm build` first, then:
+
+```
+node docs/experiments/knowledge-reuse-attribution.mjs --db <database path> [--limit 500] [--json <new file>]
+node docs/experiments/knowledge-reuse-attribution.mjs --self-check
+```
+
+- Opportunity: a (Session, Knowledge) pair in the same tracked project where the Session is not voided, the Knowledge was created before the Session started, was active then (an unexplained archived row is counted as `excluded_not_active`), its appliesTo covers a changed file by the product's `appliesToStrength` rule, and the Session is not the Knowledge's own source. Reported means a `knowledge_feedback` row of kind `applied`; `contradicted` is counted separately.
+- Replay: per Session (once, cached) `getContext` runs with `{task}`, `{paths}` and `{task, paths}` (task = Session title, paths = first 20 changed files). Each pair is `full`, `pointer_only` (id only inside `omitted`) or `absent`. For pairs absent from the combined variant, `recall` (limit 30) gives the cause: `budget_trimmed`, `ranked_behind` or `no_match` (`applies_to_only` when no changed file is among the Knowledge references), plus counts for default `recall` and `getFileHistory` presence. Every class is cross-tabbed by reported, unreported and contradicted.
+- Safety: the database is opened read-only and copied with `VACUUM INTO` to a temp folder; the store runs on the copy only and the folder is removed afterwards. The output is aggregate numbers only (no ids, titles, paths or project names); `--json` writes the same object to a new file and refuses to overwrite. `--limit` takes a deterministic every-k-th sample of the opportunities.
+- `--self-check` (and no `--db`) builds a fictional database through the real store API and asserts the expected counts through the same `--db` path. It constructs full (reported, unreported, contradicted), `pointer_only`, `budget_trimmed`, `ranked_behind`, both `no_match` kinds and the not-an-opportunity cases (Knowledge newer than the Session, archived before the Session, the Knowledge's own source Session).
+- Known biases: the replay reads the current database, so Sessions and Knowledge created after the original Session compete in the ranking and recency differs; the Session itself is indexed (supplements sourced from its own applied Knowledge are discarded and counted as `selfSupplementLeak`). Context and recall do not match `paths` against Knowledge appliesTo, so appliesTo-only Knowledge reaches an Agent only through `getFileHistory().knowledge`, the relaxed Knowledge search or `recentKnowledge`.
 
 ## 五項整合 A1 提醒聚合
 
