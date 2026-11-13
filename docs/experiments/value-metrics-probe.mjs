@@ -6,7 +6,9 @@
 //
 // Usage:
 //   pnpm build
-//   node docs/experiments/value-metrics-probe.mjs --db <path> [--split 2026-11-01] [--json <new file>]
+//   node docs/experiments/value-metrics-probe.mjs --db <path> [--split 2026-11-01 | --by-depth] [--json <new file>]
+//   --by-depth buckets by project history depth instead of time: how many live Sessions the record's project already
+//   had at that moment (0-49, 50-199, 200-999, 1000+). This is the "better with more history" curve.
 //   node docs/experiments/value-metrics-probe.mjs --self-check      (also the default without --db)
 //
 // Metric groups (definitions in docs/experiments/research-2026-11-value-measurement.md):
@@ -147,7 +149,8 @@ function load(path) {
       const proposal = eventColumns.has("cleanup_proposal_id") ? "cleanup_proposal_id" : "NULL AS cleanup_proposal_id";
       rows.itemEvents = db
         .prepare(
-          `SELECT from_status, to_status, source, actor_session_id, created_at, ${proposal} FROM outstanding_item_events`,
+          `SELECT project_id, from_status, to_status, source, actor_session_id, created_at, ${proposal}
+           FROM outstanding_item_events`,
         )
         .all();
     }
@@ -219,7 +222,20 @@ function emptyBucket() {
   };
 }
 
-function analyze(rows, { split } = {}) {
+const DEPTH_BINS = [
+  [0, "depth-0000-0049"],
+  [50, "depth-0050-0199"],
+  [200, "depth-0200-0999"],
+  [1000, "depth-1000+"],
+];
+
+function depthLabel(depth) {
+  let label = DEPTH_BINS[0][1];
+  for (const [from, name] of DEPTH_BINS) if (depth >= from) label = name;
+  return label;
+}
+
+function analyze(rows, { split, byDepth = false } = {}) {
   const projectById = new Map(rows.projects.map((project) => [project.id, project]));
   const buckets = new Map();
   const bucket = (key) => {
@@ -366,6 +382,15 @@ function analyze(rows, { split } = {}) {
     }
   }
 
+  // Bucket key: calendar month / before-after, or (byDepth) how many live Sessions the project already had then.
+  const keyOf = (projectId, time) => {
+    if (!byDepth) return bucketOf(time, split);
+    if (!Number.isFinite(time)) return "unknown";
+    const list = liveByProject.get(projectId) ?? [];
+    return depthLabel(lowerBound(list, time, (session) => session.completed));
+  };
+  for (const session of sessions) session.bucket = keyOf(session.project_id, session.completed);
+
   const appliedByPair = new Set();
   const feedbackBySession = new Map();
   for (const row of rows.feedback) {
@@ -454,16 +479,16 @@ function analyze(rows, { split } = {}) {
   }
 
   for (const item of knowledge) {
-    const b = bucket(bucketOf(item.created, split));
+    const b = bucket(keyOf(item.project_id, item.created));
     b.knowledgeSaved += 1;
     if (item.patterns.length > 0) b.knowledgeWithAppliesTo += 1;
     if (item.status === "active") b.knowledgeActiveNow += 1;
   }
 
   const backed = new Set(rows.backedProposals.map((row) => row.id));
-  for (const item of rows.items) bucket(bucketOf(Date.parse(item.created_at), split)).itemsCreated += 1;
+  for (const item of rows.items) bucket(keyOf(item.project_id, Date.parse(item.created_at))).itemsCreated += 1;
   for (const event of rows.itemEvents) {
-    const b = bucket(bucketOf(Date.parse(event.created_at), split));
+    const b = bucket(keyOf(event.project_id, Date.parse(event.created_at)));
     if (event.to_status === "pending" && event.from_status && event.from_status !== "pending") b.reopens += 1;
     if (event.to_status === "pending" || event.from_status !== "pending") continue;
     if (event.source === "agent") {
@@ -539,7 +564,7 @@ function printReport(report) {
   console.log(JSON.stringify(report.totals));
   const keys = Object.keys(report.table[0] ?? {});
   for (const key of keys) {
-    console.log([key.padEnd(30), ...report.table.map((row) => String(row[key] ?? "-").padStart(9))].join(" "));
+    console.log([key.padEnd(30), ...report.table.map((row) => String(row[key] ?? "-").padStart(16))].join(" "));
   }
 }
 
@@ -684,6 +709,12 @@ function assertSelfCheck(report) {
   assert.equal(october.groundedClosurePct, 50, "e1 (actor Session) and e2 (accepted proposal) of 4 closures");
   assert.equal(october.reopens, 2);
   assert.equal(october.contextMsMedian, 40);
+  const depth = analyze(load(report.path), { byDepth: true });
+  assert.deepEqual(
+    depth.table.map((row) => [row.bucket, row.sessions]),
+    [["depth-0000-0049", 3]],
+  );
+  assert.equal(depth.table[0].opportunities, 3);
   const split = analyze(load(report.path), { split: Date.parse("2026-10-05T00:00:00Z") });
   assert.deepEqual(
     split.table.map((row) => [row.bucket, row.sessions]),
@@ -703,6 +734,8 @@ async function main() {
   const jsonPath = flagValue(args, "--json");
   const splitText = flagValue(args, "--split");
   const split = splitText ? Date.parse(splitText) : undefined;
+  const byDepth = args.includes("--by-depth");
+  if (byDepth && splitText) throw new Error("--by-depth and --split cannot be combined.");
   if (splitText && !Number.isFinite(split)) throw new Error("--split must be a date such as 2026-11-01.");
   if (jsonPath && existsSync(jsonPath)) throw new Error("--json refuses to overwrite an existing file.");
   if (dbPath && !existsSync(dbPath)) throw new Error("--db file not found.");
@@ -711,7 +744,7 @@ async function main() {
     const target = dbPath ?? join(temp, "synthetic.sqlite");
     if (!dbPath) await seedSynthetic(target);
     const started = performance.now();
-    const report = { path: target, ...analyze(load(target), { split }) };
+    const report = { path: target, ...analyze(load(target), { split, byDepth }) };
     report.totals.elapsedMs = Math.round(performance.now() - started);
     printReport(report);
     if (jsonPath) {
