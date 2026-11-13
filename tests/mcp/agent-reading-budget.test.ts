@@ -11,10 +11,13 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
  * What an Agent must read before its first useful call: the server instructions, tools/list, the core skill, the
  * operation index, and the contracts of work_get_context and work_finalize_session. Before the core was split
  * from its on-demand guides (v1.6.22) this path was 63,209 UTF-16 code units; each flow guide is read only when
- * its flow starts.
+ * its flow starts. 1.6.32 raised the fixed budget from 41,500 to 42,250: two new operations in the index
+ * (work_resolve_outstanding_items, work_request_outstanding_cleanup), linkedSessionIds and appliesTo path matching
+ * in work_get_context, and the start-time rules of work_finalize_session add about 2,250 units after the wording
+ * they duplicated was removed; the core skill budget is unchanged.
  */
 const CORE_SKILL_CHARACTER_BUDGET = 14_000;
-const FIXED_READING_CHARACTER_BUDGET = 41_500;
+const FIXED_READING_CHARACTER_BUDGET = 42_250;
 const FORMAT_RESOURCE_CHARACTER_BUDGET = 8_500;
 const GUIDE_CHARACTER_BUDGET = 9_000;
 /** A rare flow (core, format and its guide) costs less than the old complete skill and format did (47,343). */
