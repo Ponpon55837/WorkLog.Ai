@@ -657,3 +657,51 @@ export function appliesToStrength(pattern: string, path: string, budget?: Applie
   if (!charge(budget, PAIR_UNITS)) return 0;
   return Math.max(plainStrength(pattern, path, budget), plainStrength(path, pattern, budget));
 }
+
+/** Strength of one precompiled entry against a path, charged to the budget it is given. */
+export type AppliesToStrengthMatcher = (path: string, budget?: AppliesToBudget) => number;
+
+/**
+ * appliesToStrength for one entry against many paths: the entry is classified and (for a glob) compiled once, then each
+ * path costs its own match only. The strengths are appliesToStrength's (glob 0.8; plain 1, 0.8 or 0.6), and each pair is
+ * charged the same units; only the per-path re-classification of the entry is gone. An entry that cannot be afforded or
+ * is above the length limit matches nothing (the latter counts as skipped, like appliesToStrength).
+ */
+export function compileAppliesToStrength(pattern: string, budget?: AppliesToBudget): AppliesToStrengthMatcher {
+  return compileAppliesToStrengthEntry(pattern, budget).strength;
+}
+
+/** compileAppliesToStrength plus what a file index needs to find the paths the entry can match (see AppliesToFileIndex). */
+export interface CompiledAppliesToStrength {
+  strength: AppliesToStrengthMatcher;
+  /** Strength is 0 for every path (above the length limit, over the star bound, or not affordable). */
+  never: boolean;
+  /** For a glob: the literal code units every match starts and ends with. */
+  glob?: { prefix: string; suffix: string };
+}
+
+/** compileAppliesToStrength with the entry's glob prefix and suffix exposed; charged exactly the same. */
+export function compileAppliesToStrengthEntry(pattern: string, budget?: AppliesToBudget): CompiledAppliesToStrength {
+  const never: CompiledAppliesToStrength = { strength: () => 0, never: true };
+  if (pattern.length > MAX_APPLIES_TO_ENTRY_LENGTH) {
+    if (budget) budget.skippedEntries += 1;
+    return never;
+  }
+  const isGlob = chargedIsGlob(pattern, budget);
+  if (isGlob === undefined) return never;
+  if (isGlob) {
+    const compiled = compileAppliesToEntry(pattern, budget);
+    return {
+      strength: (path, pathBudget) => (compiled.matches(path, pathBudget) ? 0.8 : 0),
+      never: compiled.never,
+      glob: compiled.glob,
+    };
+  }
+  return {
+    strength: (path, pathBudget) =>
+      charge(pathBudget, PAIR_UNITS)
+        ? Math.max(plainStrength(pattern, path, pathBudget), plainStrength(path, pattern, pathBudget))
+        : 0,
+    never: false,
+  };
+}

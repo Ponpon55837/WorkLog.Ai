@@ -4,6 +4,39 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.33] - 2026-11-13
+
+[繁體中文更新說明](docs/releases/1.6.33.md).
+
+This release follows measurements on a copy of real data (650 Sessions in six projects). It adds the server-observed change statuses, Knowledge pointers for task-only context calls, focused reads of Knowledge pages, and several fixes to the CLI, the save hooks and the Git lookups.
+
+### Added
+
+- Server-observed change statuses. A `work_finalize_session` call that lists a path in `changedFiles` without a `changedFileChanges` entry for it gets the status from Git: `added`, `modified`, `deleted`, or `renamed` with `previousPath`. Git is asked only for a tracked project, when the call has no `completedAt`, and not on a retry with the same `idempotencyKey`. The lookup runs in at most three Git processes with a 1.5-second timeout, outside the write lock. An Agent-reported status always wins. Each status the server fills is recorded as a `note` event with `source: "server_observed_git"`, and the receipt returns `changedFileChangesSource: { serverObservedGit: <count> }`. A path Git does not report gets no status: the receipt returns `changedFileChangesFollowUp` and a `suggestedCall` to `work_update_session_metadata` with `changedFilesMode: "merge"`. A failed lookup only skips the observation; the save still succeeds.
+- Knowledge pointers for task-only context. `work_get_context` with `task` and no `paths` may return up to three `relevant.supplements` entries with `includedBecause.kind: "inferred_path"`. Each is an active Knowledge item whose `appliesTo` or references cover files changed by the most similar Sessions, and at least two distinct similar Sessions must support it. The pointer names the inferred file and up to two source Sessions to read first. It is a pointer, not evidence. Pointers use only budget left after the normal response, and calls with `paths` or without `task` are unchanged. On 5,000 synthetic Sessions the task-only call has a median of 55 ms and a p90 of 62 ms with inference on (gate 250 ms).
+- Focused Knowledge page reads. `work_get_knowledge_page_context` accepts `query` (up to 200 characters) and `headings` (up to 12, from `relevant.knowledgePages` or a previous `otherSections`). A focused read returns the matching sections in full with their `sourceSessionIds`, the page metadata, and `otherSections` (heading and length of every other section, in page order). It returns no Session list and sets `sessionsOmitted: true`. A query term matches a whole token, or a token prefix when it has at least four Latin characters. On real pages the median full read is 14,648 characters (maximum 30,705), a focused read by heading 1,334 (maximum 2,927) and by query 1,437 (maximum 5,357).
+- Search hints for `work_search_knowledge` when the strict search finds nothing. `otherStatusFullMatches` counts the records in other statuses that contain every word, so a re-query with that `status` answers strictly. `effectiveQuery` appears when the strict search cut the query (more than eight words, or an over-long word) and is the exact query the counts were computed with. `queryTruncated` marks a relaxed ranking that reached its term or path-word limit.
+- `pnpm test:start-smoke` (`scripts/smoke-start.mjs`) starts the real `pnpm start` entry against a temporary database on a free port, checks `/api/health` and the Web UI, and checks that the process exits and releases its port on SIGTERM. CI runs it in every OS Quality job after the build.
+- `docs/experiments/task-path-replay.mjs` is rewritten as a read-only replay with `--db` and `--project` options and a `--self-check` on a synthetic database. It prints aggregate JSON only. See `docs/experiments/task-path-replay.md`.
+
+### Changed
+
+- `work_update_session_metadata` applies the `changedFiles` merge rules to `changedFileChanges`. With `changedFilesMode: "merge"`, a status replaces the stored status of the same path, and a rename replaces the entry for its `previousPath`, so a correction never leaves two statuses for one path. With `"replace"`, a call that sends `changedFiles` without `changedFileChanges` keeps only the stored statuses of paths still listed.
+- Knowledge page sections in `relevant.knowledgePages` are excerpted around the matched terms instead of their first characters. The excerpt keeps the densest cluster of matched terms and cuts at a sentence or word boundary.
+- The Claude Code start-time pause also asks for change statuses. When a save sends `changedFiles` without `changedFileChanges`, the pause asks the Agent to add each file's status from the real diff. The hook never reads Git.
+
+### Fixed
+
+- `pnpm db:export --help` no longer writes a snapshot to a file named `--help`. Before any `db` or `track` command acts, option-like arguments are checked: `--help` and `-h` print the subcommand's usage and exit with 0, and an undeclared option, or a valued option whose value looks like an option (`--out --foo`), is refused with the usage on stderr and a non-zero exit. `db:backup` rejects extra arguments.
+- Imported project roots are stored in the canonical key that every other writer and lookup uses. On Windows, an imported project with a mixed-case folder was missed until the next startup repair. A root that is not absolute on the current platform (a Windows path in a bundle imported on Linux, or the reverse) is kept as written.
+- The branch and HEAD commit are now read in linked worktrees (where `.git` is a file) and when refs are packed. Loose `.git` files still answer the common case without a subprocess. Git is asked only when they cannot, and only for a root that is itself a checkout.
+- `structuredContent` no longer claims a save that did not happen. A `work_finalize_session` result without a Session (`skipped` for a paused or unregistered project, `idempotency_conflict`, `not_found`) carried the defaults `executionStatus: "completed"`, `changedFilesCount: 0` and `sessionId: null`; Claude Code and Codex hand the model `structuredContent` alone, so the Agent could read a skipped save as completed. Such results are now passed through unchanged. A `session_unchanged` answer from `work_get_session` keeps the `session` fields the text has.
+- The Claude Code save hooks ignore a failed `Edit`, `Write`, `MultiEdit` or `NotebookEdit` result, and use the most specific tracked project root when tracked roots are nested.
+
+### Upgrading
+
+No schema change (33), so no migration; exports and existing data are unaffected. Build and restart as for 1.6.32, and reconnect Agents so they see the updated tool descriptions. The Claude Code change-status flow was verified with the real `claude` CLI in four scenarios. Codex was not verified with a real client, because no CLI was available, and the Windows-specific behaviour (path handling in the E2E fix, CLI arguments, import roots) was not run on real Windows. The Claude Code hook counts only changes made with `Edit`, `Write`, `MultiEdit` and `NotebookEdit`; changes made by Bash commands are not seen. Whether Agents read or use the inferred pointers is not measured: only one project has enough data, and a pointer in a response does not mean the Agent used it. At 20,000 synthetic Sessions the task-only `work_get_context` p90 is about 263 ms with or without inference; this cost was already there and is not addressed in this release.
+
 ## [1.6.32] - 2026-11-13
 
 [繁體中文更新說明](docs/releases/1.6.32.md).

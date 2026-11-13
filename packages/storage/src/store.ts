@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { NoopInsightProvider } from "@work-intelligence/core";
 import type {
@@ -286,9 +286,18 @@ import {
   toKnowledge,
   getVerificationFollowUp,
   getChangedFilesFollowUp,
+  getChangedFileChangesFollowUp,
   getWorkSummaryFollowUp,
   normalizeCommitSha,
+  isCommitSha,
 } from "./session-record-codecs.js";
+import { readGitHeadWithGit, type GitObservedChanges } from "./git-change-observation.js";
+import {
+  applyObservedChangedFileChanges,
+  observedChangedFileChangesNote,
+  planChangedFileObservation,
+  type ChangedFileObservationPlan,
+} from "./changed-file-observation.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
@@ -298,6 +307,8 @@ export type FinalizeSessionContext = {
   agentClient?: string;
   /** The first call the MCP server saw for this project since its last save; only a fact the server observed. */
   observedStartedAt?: ObservedStart;
+  /** What the MCP server saw in Git for changed files the Agent gave no status for; Agent entries always win. */
+  observedChangedFileChanges?: GitObservedChanges;
 };
 
 /** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
@@ -360,6 +371,11 @@ function toHandoffPreviewItem(
     changedFiles: candidate.changedFiles,
     changedFilesStatus: candidate.changedFilesStatus,
   };
+}
+
+function changedFileChangesFollowUpEntry(session: WorkSessionRecord) {
+  const followUp = getChangedFileChangesFollowUp(session);
+  return followUp ? { changedFileChangesFollowUp: followUp } : {};
 }
 
 function countHandoffPreviewItems(items: HandoffImportPreviewItem[]): HandoffImportPreview["totals"] {
@@ -1626,6 +1642,33 @@ export class WorkIntelligenceStore {
     });
   }
 
+  /**
+   * The Git question a finalize request would ask, or undefined when it must not be asked: backfills (the worktree no
+   * longer represents that time), untracked projects (their Git is never read), duplicate retries, and requests with
+   * nothing left to observe. Cheap and synchronous; the caller runs Git outside any write lock.
+   */
+  public prepareChangedFileObservation(
+    input: FinalizeSessionInput,
+    context: { baseCommit?: string } = {},
+  ): ChangedFileObservationPlan | undefined {
+    if (input.completedAt) return undefined;
+    const decision = this.checkProjectRoot(input.projectRoot);
+    if (!decision.allowed || !decision.project) return undefined;
+    const duplicate = this.db
+      .prepare("SELECT 1 AS found FROM sessions WHERE idempotency_key = ?")
+      .get(input.idempotencyKey);
+    if (duplicate) return undefined;
+    return planChangedFileObservation(decision.project.rootPath, input, context.baseCommit);
+  }
+
+  /** The HEAD commit of a tracked project (loose .git files first, Git itself as fallback); undefined for any other project. */
+  public observeHeadCommit(projectRoot: string): string | undefined {
+    const decision = this.checkProjectRoot(projectRoot);
+    if (!decision.allowed || !decision.project) return undefined;
+    const commitSha = this.readGitMetadata(decision.project.rootPath)?.commitSha;
+    return commitSha && isCommitSha(commitSha) ? commitSha.toLowerCase() : undefined;
+  }
+
   public finalizeSession(input: FinalizeSessionInput, context: FinalizeSessionContext = {}): FinalizeSessionResult {
     const decision = this.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
@@ -1650,7 +1693,7 @@ export class WorkIntelligenceStore {
       normalizeChangedFileChanges(project.rootPath, input.changedFileChanges, pathResolver),
       baselineChangedFileIdentities,
     );
-    const normalizedChangedFiles = excludeBaselineChangedFiles(
+    const suppliedChangedFiles = excludeBaselineChangedFiles(
       normalizeChangedFiles(
         project.rootPath,
         [...(input.changedFiles ?? []), ...changedFilePathsFromChanges(normalizedChangedFileChanges)],
@@ -1659,6 +1702,15 @@ export class WorkIntelligenceStore {
       ),
       baselineChangedFileIdentities,
     );
+    const observedApplication = applyObservedChangedFileChanges(
+      project.rootPath,
+      suppliedChangedFiles,
+      normalizedChangedFileChanges,
+      baselineChangedFileIdentities,
+      context.observedChangedFileChanges,
+    );
+    const normalizedChangedFiles = observedApplication?.files ?? suppliedChangedFiles;
+    const storedChangedFileChanges = observedApplication?.changes ?? normalizedChangedFileChanges;
     const normalizedDecisionInputs = normalizeWorkSummaryDecisions(input.workSummary?.decisions);
     const normalizedWorkSummary = normalizeWorkSummarySections(input.workSummary);
     const sanitizedTitle = redactText(input.title);
@@ -1728,6 +1780,7 @@ export class WorkIntelligenceStore {
           ...(this.hasConfirmedChangedFilesForSession(existing.id)
             ? {}
             : { changedFilesFollowUp: getChangedFilesFollowUp(existing) }),
+          ...changedFileChangesFollowUpEntry(existing),
           workSummaryFollowUp: getWorkSummaryFollowUp(existing),
           resolvedOutstandingItemIds: this.outstandingItems.resolvedByActorSession(existing.id),
           supersededOutstandingItemIds: this.outstandingItems.transitionedByActorSession(existing.id, "not_needed"),
@@ -1763,7 +1816,7 @@ export class WorkIntelligenceStore {
           changedFiles: JSON.stringify(normalizedChangedFiles.files),
           changedFilesConfirmed: input.changedFiles !== undefined || normalizedChangedFiles.files.length > 0 ? 1 : 0,
           changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
-          changedFileChanges: JSON.stringify(normalizedChangedFileChanges),
+          changedFileChanges: JSON.stringify(storedChangedFileChanges),
           verification: sanitizedVerification ? JSON.stringify(sanitizedVerification.value) : null,
           startedAt: startedAt ?? null,
           redactionCount: redactions.total,
@@ -1817,7 +1870,7 @@ export class WorkIntelligenceStore {
       ];
 
       const observedTool = context.observedStartedAt?.tool;
-      const storedEvents =
+      const startedAtEvents =
         resolvedStart?.source === "server_observed" && context.observedStartedAt
           ? [
               ...events,
@@ -1829,6 +1882,9 @@ export class WorkIntelligenceStore {
               },
             ]
           : events;
+      const storedEvents = observedApplication
+        ? [...startedAtEvents, { type: "note" as const, ...observedChangedFileChangesNote(observedApplication) }]
+        : startedAtEvents;
       for (const event of storedEvents) {
         this.db
           .prepare(
@@ -1905,6 +1961,10 @@ export class WorkIntelligenceStore {
         redactions: diagramRedactions ? combineRedactionSummaries(redactions, diagramRedactions) : redactions,
         verificationFollowUp: getVerificationFollowUp(session),
         changedFilesFollowUp: input.changedFiles === undefined ? getChangedFilesFollowUp(session) : undefined,
+        ...changedFileChangesFollowUpEntry(session),
+        ...(observedApplication
+          ? { changedFileChangesSource: { serverObservedGit: observedApplication.applied.length } }
+          : {}),
         workSummaryFollowUp: getWorkSummaryFollowUp(session),
         ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
         ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
@@ -2190,7 +2250,19 @@ export class WorkIntelligenceStore {
     }
   }
 
+  /**
+   * The checked-out branch and HEAD commit. The loose files under `.git` answer the common case without a subprocess;
+   * when they cannot (linked worktree, packed ref, other ref storage) Git itself is asked.
+   */
   private readGitMetadata(projectRoot: string): GitSummary | undefined {
+    const loose = this.readLooseGitHead(projectRoot);
+    if (loose?.commitSha && isCommitSha(loose.commitSha)) return loose;
+    // Only a root that is itself a checkout is asked, so a plain folder never spawns git or reads a parent repository.
+    if (!existsSync(join(projectRoot, ".git"))) return loose;
+    return readGitHeadWithGit(projectRoot) ?? loose;
+  }
+
+  private readLooseGitHead(projectRoot: string): GitSummary | undefined {
     try {
       const headPath = safeExistingProjectPath(projectRoot, ".git/HEAD");
       if (!headPath) {

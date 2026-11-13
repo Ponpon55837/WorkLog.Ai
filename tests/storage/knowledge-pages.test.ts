@@ -53,6 +53,14 @@ function setup(databasePath = ":memory:") {
   return { store, root, projectRoot, otherRoot, project, finalize, tick, sections };
 }
 
+/** Narrows a default (non-focused) read for assertions. */
+function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageContext"]>) {
+  if (result.outcome !== "knowledge_page_context" || "focused" in result) {
+    throw new Error(`Expected a default knowledge page context, received ${JSON.stringify(result).slice(0, 120)}`);
+  }
+  return result;
+}
+
 describe("Knowledge pages", () => {
   it("creates a default page on request and asks for a title and question for a custom page", () => {
     const { store, projectRoot } = setup();
@@ -153,8 +161,7 @@ describe("Knowledge pages", () => {
     });
     if (result.outcome !== "finalized") throw new Error("Expected finalize");
     store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
-    const context = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
-    if (context.outcome !== "knowledge_page_context") throw new Error("Expected context");
+    const context = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" }));
     const [preview] = context.sessions[0]!.workSummary.outcomes;
     expect(preview).toBe(`${"a".repeat(98)}…`);
   });
@@ -167,9 +174,8 @@ describe("Knowledge pages", () => {
     const foreign = finalize("foreign", otherRoot);
     store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
 
-    const context = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
+    const context = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" }));
     expect(context.outcome).toBe("knowledge_page_context");
-    if (context.outcome !== "knowledge_page_context") throw new Error("Expected context");
     expect(context.sessions.map((session) => session.id)).toEqual([first]);
     expect(context).toMatchObject({
       omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
@@ -242,8 +248,7 @@ describe("Knowledge pages", () => {
     }
     store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
 
-    const context = store.getKnowledgePageContext({ projectRoot, slug: "architecture" });
-    if (context.outcome !== "knowledge_page_context") throw new Error("Expected context");
+    const context = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
     expect(context.mode).toBe("full");
     // Newest first, without gaps, until the Session budget is spent; the rest are flagged, never cut silently.
     expect(context.sessions.length).toBeGreaterThan(8);
@@ -591,9 +596,8 @@ describe("Knowledge pages", () => {
       summary: "The cited source was corrected after the page was saved.",
     });
 
-    const review = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
+    const review = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" }));
     expect(review.outcome).toBe("knowledge_page_context");
-    if (review.outcome !== "knowledge_page_context") throw new Error("Expected review context");
     expect(review.mode).toBe("review");
     expect(review.sessions.map((session) => [session.id, session.reason])).toEqual([
       [cited, "source_changed"],
@@ -603,8 +607,7 @@ describe("Knowledge pages", () => {
     expect(review.sessions.some((session) => session.id === older)).toBe(false);
 
     store.markKnowledgePageChecked({ projectRoot, slug: "pitfalls", throughSessionId: firstNew });
-    const afterCheck = store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" });
-    if (afterCheck.outcome !== "knowledge_page_context") throw new Error("Expected review context");
+    const afterCheck = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" }));
     expect(afterCheck.sessions.map((session) => session.id)).toEqual([cited, secondNew]);
   });
 
@@ -652,8 +655,7 @@ describe("Knowledge pages", () => {
     // A later maintaining Session does not hide the unrelated one before it.
     const late = finalizeMaintaining("maintained-late", ["architecture"]);
     expect(late.knowledgePagesAcknowledged).toBeUndefined();
-    const context = store.getKnowledgePageContext({ projectRoot, slug: "architecture" });
-    if (context.outcome !== "knowledge_page_context") throw new Error("Expected review context");
+    const context = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
     expect(context.sessions.map((session) => session.id)).toEqual([unrelated, late.session.id]);
   });
 
@@ -691,5 +693,158 @@ describe("Knowledge pages", () => {
     const deleted = store.deleteProject(project.id, "Apiary");
     expect(deleted.deletedCounts).toMatchObject({ knowledgePages: 1, knowledgePageVersions: 1 });
     expect(store.listKnowledgePages({})).toMatchObject({ outcome: "knowledge_pages", items: [] });
+  });
+  describe("focused reads", () => {
+    function writtenPage() {
+      const ctx = setup();
+      const a = ctx.finalize("a");
+      const b = ctx.finalize("b");
+      ctx.store.requestKnowledgePageUpdate({ projectRoot: ctx.projectRoot, slug: "architecture" });
+      ctx.store.saveKnowledgePage({
+        projectRoot: ctx.projectRoot,
+        slug: "architecture",
+        idempotencyKey: "focused-v1",
+        sections: [
+          { heading: "Hive layout", content: "Queen excluders go on first.", sourceSessionIds: [a] },
+          {
+            heading: "Winter care",
+            content: "Insulate the lid before frost; check the mite-sweep rota.",
+            sourceSessionIds: [b, a],
+          },
+          { heading: "winter care", content: "Second winter note about wrapping.", sourceSessionIds: [a] },
+          { heading: "蜂箱管理", content: "每週檢查一次蜂王狀態。", sourceSessionIds: [b] },
+        ],
+      });
+      ctx.finalize("c");
+      return ctx;
+    }
+
+    it("returns the default read unchanged when neither query nor headings is given", () => {
+      const { store, projectRoot } = writtenPage();
+      const plain = store.getKnowledgePageContext({ projectRoot, slug: "architecture" });
+      expect(plain).toMatchObject({ outcome: "knowledge_page_context", mode: "review" });
+      expect(plain).not.toHaveProperty("focused");
+      expect(plain).not.toHaveProperty("otherSections");
+      expect(Object.keys(plain)).toEqual([
+        "outcome",
+        "page",
+        "mode",
+        "sessions",
+        "omittedSessionFields",
+        "sessionReadWith",
+        "truncated",
+      ]);
+      expect(JSON.stringify(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }))).toBe(
+        JSON.stringify(plain),
+      );
+    });
+
+    it("returns only the sections matching a query, in page order, without Sessions or review detail", () => {
+      const { store, projectRoot } = writtenPage();
+      const result = store.getKnowledgePageContext({ projectRoot, slug: "architecture", query: "mite sweep frost" });
+      expect(result).toMatchObject({
+        outcome: "knowledge_page_context",
+        focused: true,
+        match: "sections",
+        sessionsOmitted: true,
+        page: { slug: "architecture", version: 1, status: "has_new_data", newSessionCount: 1 },
+      });
+      if (!("focused" in result)) throw new Error("Expected a focused read");
+      expect(result.sections.map((section) => section.heading)).toEqual(["Winter care"]);
+      expect(result.sections[0]!.content).toContain("Insulate");
+      expect(result.sections[0]!.sourceSessionIds).toHaveLength(2);
+      expect(result.otherSections).toEqual([
+        { heading: "Hive layout", chars: "Queen excluders go on first.".length },
+        { heading: "winter care", chars: "Second winter note about wrapping.".length },
+        { heading: "蜂箱管理", chars: "每週檢查一次蜂王狀態。".length },
+      ]);
+      expect(result).not.toHaveProperty("sessions");
+      expect(result.page).not.toHaveProperty("sections");
+      expect(result.page).not.toHaveProperty("reviewSections");
+    });
+
+    it("matches CJK query terms and returns every section sharing a heading by headings", () => {
+      const { store, projectRoot } = writtenPage();
+      const cjk = store.getKnowledgePageContext({ projectRoot, slug: "architecture", query: "蜂王" });
+      if (!("focused" in cjk)) throw new Error("Expected a focused read");
+      expect(cjk.sections.map((section) => section.heading)).toEqual(["蜂箱管理"]);
+
+      const byHeading = store.getKnowledgePageContext({
+        projectRoot,
+        slug: "architecture",
+        headings: ["  WINTER CARE ", "no such heading"],
+      });
+      if (!("focused" in byHeading)) throw new Error("Expected a focused read");
+      expect(byHeading.match).toBe("sections");
+      expect(byHeading.sections.map((section) => section.heading)).toEqual(["Winter care", "winter care"]);
+      expect(byHeading.otherSections.map((section) => section.heading)).toEqual(["Hive layout", "蜂箱管理"]);
+    });
+
+    it("ranks sections by distinct matched query terms and keeps only the best half, not every shared term", () => {
+      const { store, projectRoot, finalize } = setup();
+      const source = finalize("rank");
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+      store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "rank-v1",
+        sections: [
+          { heading: "Intro", content: "The ledger is described here.", sourceSessionIds: [source] },
+          { heading: "Audit", content: "The ledger audit runs weekly.", sourceSessionIds: [source] },
+          { heading: "Rotation", content: "Ledger rotation window schedule: nightly.", sourceSessionIds: [source] },
+          { heading: "簽章", content: "簽章流程由維護者負責。", sourceSessionIds: [source] },
+          { heading: "排程", content: "排程每晚執行。", sourceSessionIds: [source] },
+          { heading: "輪替", content: "簽章輪替排程在每晚執行。", sourceSessionIds: [source] },
+          {
+            heading: "Rights",
+            content: "Granted rights stay with the owners of the ts config.",
+            sourceSessionIds: [source],
+          },
+        ],
+      });
+      const names = (input: { query?: string; headings?: string[] }) => {
+        const result = store.getKnowledgePageContext({ projectRoot, slug: "architecture", ...input });
+        if (!("focused" in result)) throw new Error("Expected a focused read");
+        return result.sections.map((section) => section.heading);
+      };
+      // Three sections share "ledger"; only the one with most of the terms is returned.
+      expect(names({ query: "ledger rotation window schedule" })).toEqual(["Rotation"]);
+      // Chinese bigrams: several sections share one bigram, only the one with most bigrams remains.
+      expect(names({ query: "簽章輪替排程" })).toEqual(["輪替"]);
+      // A short Latin term matches whole tokens only: "ts" is a token of Rights' content; "gh" is inside "rights".
+      expect(names({ query: "ts" })).toEqual(["Rights"]);
+      expect(names({ query: "gh" })).toEqual([]);
+      // A 4+ character Latin term also matches as a token prefix.
+      expect(names({ query: "rotat" })).toEqual(["Rotation"]);
+      // Headings are always included, in addition to the best query matches.
+      expect(names({ query: "ledger rotation window schedule", headings: ["intro"] })).toEqual(["Intro", "Rotation"]);
+    });
+
+    it("reports match none with every section listed when nothing matches", () => {
+      const { store, projectRoot } = writtenPage();
+      for (const input of [{ query: "zeppelin" }, { query: "the of" }, { headings: ["Missing"] }]) {
+        const result = store.getKnowledgePageContext({ projectRoot, slug: "architecture", ...input });
+        if (!("focused" in result)) throw new Error("Expected a focused read");
+        expect(result.match).toBe("none");
+        expect(result.sections).toEqual([]);
+        expect(result.otherSections).toHaveLength(4);
+      }
+    });
+
+    it("flags matched sections that need a source review and keeps not_found and skipped results", () => {
+      const { store, projectRoot, tick } = writtenPage();
+      const page = store.getKnowledgePageContext({ projectRoot, slug: "architecture" });
+      if (page.outcome !== "knowledge_page_context" || "focused" in page) throw new Error("Expected a page");
+      const sourceId = page.page.sections[1]!.sourceSessionIds[0]!;
+      tick();
+      store.setSessionVoid({ sessionId: sourceId, voided: true, reason: "Fixture source review." });
+      const focused = store.getKnowledgePageContext({ projectRoot, slug: "architecture", headings: ["Winter care"] });
+      if (!("focused" in focused)) throw new Error("Expected a focused read");
+      expect(focused.page.needsReview).toBe(true);
+      expect(focused.sections[0]!.needsReview).toBe(true);
+      expect(store.getKnowledgePageContext({ projectRoot, slug: "missing", query: "x" })).toMatchObject({
+        outcome: "not_found",
+      });
+    });
   });
 });

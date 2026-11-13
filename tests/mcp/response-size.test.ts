@@ -30,6 +30,7 @@ const RESPONSE_BUDGETS = {
   finalizeWithRelatedOutstandingItems: 4_000,
   finalizeReceipt: 2_000,
   startedAtFollowUp: 500,
+  changedFileChangesFollowUp: 400,
   sessionUpdateReceipt: 1_200,
   outstandingItemsPage: 30_000,
   outstandingCleanupContext: 24_000,
@@ -49,6 +50,7 @@ const RESPONSE_BUDGETS = {
   fileHistoryOnePath: 4_000,
   fileHistoryThreePaths: 10_000,
   knowledgePageContext: 10_000,
+  knowledgePageFocused: 1_500,
   sessionHandoffThirtyFiles: 6_500,
 } as const;
 const CONTEXT_ITEM_KEYS = new Set(["id", "sourceSessionId", "text", "textTruncated"]);
@@ -759,6 +761,7 @@ describe("synthetic MCP response-size baseline", () => {
       summary,
       workSummary,
       changedFiles,
+      changedFileChanges: changedFiles.map((path) => ({ path, status: "modified" })),
       changedFilesProvenance: changedFiles.map((path) => ({ path, sources: ["agent", "git"] })),
       verification: { status: "passed", summary: "Synthetic unit tests, typecheck and benchmark passed." },
     };
@@ -809,6 +812,24 @@ describe("synthetic MCP response-size baseline", () => {
     expect(missingText.length).toBeLessThanOrEqual(
       RESPONSE_BUDGETS.finalizeReceipt + RESPONSE_BUDGETS.startedAtFollowUp,
     );
+
+    // Without statuses the receipt asks for them with a count (no echo of the paths) and a suggested call.
+    const { changedFileChanges: _changes, ...withoutStatuses } = args;
+    const unstated = await client.callTool({
+      name: "work_write_idempotent",
+      arguments: {
+        operation: "work_finalize_session",
+        arguments: { ...withoutStatuses, idempotencyKey: "response-size-receipt-no-statuses" },
+      },
+    });
+    const unstatedText = (unstated.content as Array<{ type: string; text?: string }>).find(
+      (item) => item.type === "text",
+    )!.text!;
+    expect(unstatedText).toContain("changedFileChangesFollowUp");
+    expect(unstatedText).not.toContain(changedFiles[5]!);
+    expect(unstatedText.length).toBeLessThanOrEqual(
+      RESPONSE_BUDGETS.finalizeReceipt + RESPONSE_BUDGETS.changedFileChangesFollowUp,
+    );
   });
 
   it("answers the in-place Session updates with receipts, not an echo of the Session", async () => {
@@ -845,7 +866,12 @@ describe("synthetic MCP response-size baseline", () => {
     const calls = [
       {
         operation: "work_update_session_metadata",
-        args: { sessionId, changedFiles, verification: { status: "passed", summary: "Re-ran the synthetic suite." } },
+        args: {
+          sessionId,
+          changedFiles,
+          changedFileChanges: changedFiles.map((path) => ({ path, status: "modified" })),
+          verification: { status: "passed", summary: "Re-ran the synthetic suite." },
+        },
         outcome: "updated",
         echoed: [changedFiles[5]!],
       },
@@ -1502,6 +1528,41 @@ describe("synthetic MCP response-size baseline", () => {
     ]);
     expect(byId.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
     expect(typo.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageNotFound);
+  });
+
+  it("reads one Knowledge page topic with only the matching section, the rest as sizes, and no Sessions", async () => {
+    const { client, store, projectRoot } = await connectWithSyntheticHistory();
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+    const contract = (
+      (await client.readResource({ uri: "work-intelligence://agent/tool-contracts/work_get_knowledge_page_context" }))
+        .contents as Array<{ text?: string }>
+    )[0]?.text;
+    expect(contract).toContain("headings");
+    expect(contract).toContain("query");
+
+    const full = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      projectRoot,
+      slug: "architecture",
+    });
+    const focused = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      projectRoot,
+      slug: "architecture",
+      query: "retrieval budget",
+    });
+    const value = focused.value as {
+      focused: boolean;
+      match: string;
+      sessionsOmitted: boolean;
+      sections: Array<{ heading: string; sourceSessionIds: string[] }>;
+      otherSections: unknown[];
+      sessions?: unknown;
+    };
+    console.info(`[response-size] knowledge page focused: ${focused.length} of ${full.length} characters`);
+    expect(value).toMatchObject({ focused: true, match: "sections", sessionsOmitted: true, otherSections: [] });
+    expect(value.sections).toHaveLength(1);
+    expect(value.sessions).toBeUndefined();
+    expect(focused.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageFocused);
+    expect(focused.length).toBeLessThan(full.length);
   });
 
   it("bounds Knowledge page context Sessions while keeping every id a page section may cite", async () => {

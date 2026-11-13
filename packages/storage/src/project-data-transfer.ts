@@ -30,7 +30,7 @@ import {
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeImport, type BackupRetentionOptions } from "./backup.js";
 import { redactDiagramSource } from "./diagram-source-redaction.js";
-import { remapPathPrefix } from "./project-path-remap.js";
+import { remapPathPrefix, storedProjectRoot } from "./project-path-remap.js";
 import { databaseUnavailableReason } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
@@ -1628,7 +1628,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     const sourceId = String(row.id);
     const rootPath = String(row.root_path);
     const sourceRootPath = sourceRootPaths.get(sourceId) ?? rootPath;
-    const rootKey = projectRootKey(rootPath);
+    const rootKey = projectRootKey(storedProjectRoot(rootPath));
     const byId = existingProjectsById.get(sourceId);
     const byRoot = existingProjectsByRoot.get(rootKey);
     const plannedByRoot = plannedProjectsByRoot.get(rootKey);
@@ -1687,6 +1687,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     }
     projectIds.set(sourceId, sourceId);
     row.status = "paused";
+    row.root_path = storedProjectRoot(rootPath);
     plannedProjectsByRoot.set(rootKey, { rootPath, projectId: sourceId });
     plannedProjectIds.add(sourceId);
     existingIds.projects.add(sourceId);

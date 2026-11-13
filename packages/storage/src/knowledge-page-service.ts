@@ -7,6 +7,7 @@ import {
   type KnowledgePageContextResult,
   type KnowledgePageContextSession,
   type KnowledgePageDigest,
+  type KnowledgePageFocusedContext,
   type KnowledgePageListQuery,
   type KnowledgePageListResult,
   type KnowledgePageNotFoundResult,
@@ -31,7 +32,65 @@ import {
 import { nowIso, truncateAtCodeUnitLimit } from "@work-intelligence/shared";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import { parseJson, parseWorkSummarySections } from "./session-record-codecs.js";
+import { parseQueryWords, tokenize } from "./search-text.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
+
+/** Focused read: matching sections in full (heading, content, source ids), the rest as sizes; no Sessions. */
+function focusedContext(page: KnowledgePageRecord, query: KnowledgePageContextQuery): KnowledgePageFocusedContext {
+  const wanted = new Set((query.headings ?? []).map((heading) => heading.trim().toLowerCase()));
+  const terms = [...new Set(parseQueryWords(query.query ?? "").flatMap((word) => word.terms))];
+  const reviewHeadings = new Set((page.reviewSections ?? []).map((section) => section.heading));
+  // One tokenization per section; a term matches as a whole token, or (Latin, 4+ characters) as a token prefix.
+  const scores = page.sections.map((section) => {
+    if (terms.length === 0) return 0;
+    const tokens = new Set(tokenize(`${section.heading}\n${section.content}`));
+    let tokenList: string[] | undefined;
+    let score = 0;
+    for (const term of terms) {
+      if (tokens.has(term)) {
+        score += 1;
+      } else if (/^[a-z0-9]{4,}$/.test(term)) {
+        tokenList ??= [...tokens];
+        if (tokenList.some((token) => token.startsWith(term))) score += 1;
+      }
+    }
+    return score;
+  });
+  const threshold = Math.max(1, Math.ceil(Math.max(0, ...scores) / 2));
+  const sections: KnowledgePageFocusedContext["sections"] = [];
+  const otherSections: KnowledgePageFocusedContext["otherSections"] = [];
+  page.sections.forEach((section, index) => {
+    if (wanted.has(section.heading.trim().toLowerCase()) || scores[index]! >= threshold) {
+      sections.push({
+        heading: section.heading,
+        content: section.content,
+        sourceSessionIds: section.sourceSessionIds,
+        ...(reviewHeadings.has(section.heading) ? { needsReview: true as const } : {}),
+      });
+    } else {
+      otherSections.push({ heading: section.heading, chars: section.content.length });
+    }
+  });
+  return {
+    outcome: "knowledge_page_context",
+    focused: true,
+    match: sections.length > 0 ? "sections" : "none",
+    page: {
+      slug: page.slug,
+      title: page.title,
+      version: page.version,
+      status: page.status,
+      newSessionCount: page.newSessionCount,
+      updatedAt: page.updatedAt,
+      ...(page.needsReview ? { needsReview: true as const } : {}),
+      ...(page.updateRequestedAt ? { updateRequestedAt: page.updateRequestedAt } : {}),
+    },
+    sections,
+    otherSections,
+    sessionsOmitted: true,
+    readFullWith: "work_get_knowledge_page_context without query and headings (also returns the Sessions)",
+  };
+}
 
 export interface KnowledgePageDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
@@ -402,6 +461,7 @@ export class KnowledgePageService {
     const row = this.findPage(decision.project.id, query.slug);
     if (!row) return this.pageNotFound(decision.project.id, query.slug);
     const page = this.recordFor(row);
+    if (query.query !== undefined || query.headings !== undefined) return focusedContext(page, query);
     const mode = row.version === 0 || row.update_requested_at ? "full" : "review";
     const { sessions, truncated } =
       mode === "full" ? this.contextSessions(decision.project.id) : this.reviewSessions(row, page);

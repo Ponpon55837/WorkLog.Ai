@@ -11,6 +11,7 @@ import type {
 } from "@work-intelligence/core";
 import type { KnowledgeCount } from "./knowledge-repository.js";
 import type { KnowledgeRankHit, KnowledgeRankOptions, KnowledgeRanking } from "./search-repository.js";
+import { parseListSearchTerms } from "./list-search-scan.js";
 import { excerptAround } from "./search-text.js";
 
 export interface KnowledgeSearchServiceDependencies {
@@ -96,13 +97,16 @@ export class KnowledgeSearchService {
       }
       return [toRelaxedMatch(record, hit)];
     });
-    const { counts: otherStatusMatches, truncated: countsTruncated } = this.otherStatusMatches(
-      query,
-      status,
-      projectId,
-      options.kind,
-      ranking,
-    );
+    const effective = parseListSearchTerms(query);
+    const strictCut = effective.warnings.length > 0;
+    const effectiveQuery = strictCut
+      ? effective.terms.map((term) => (/\s/u.test(term) ? `"${term}"` : term)).join(" ")
+      : undefined;
+    const {
+      counts: otherStatusMatches,
+      fullCounts: otherStatusFullMatches,
+      truncated: countsTruncated,
+    } = this.otherStatusMatches(query, status, projectId, options.kind, ranking);
     const warnings = [
       ...(strict.warnings ?? []),
       ...(countsTruncated
@@ -115,10 +119,22 @@ export class KnowledgeSearchService {
     const hints = [
       relaxedMatches.length > 0
         ? "No Knowledge contains every word; relaxedMatches are digests sharing only their matchedTerms. Read one in full with work_get_knowledge_history (projectRoot, knowledgeId) before relying on it."
-        : "Nothing matched; rephrase or try work_recall.",
-      ...otherStatuses.map(
-        (other) => `${otherStatusMatches[other]} ${other} match; pass status "${other}" to read them.`,
+        : Object.keys(otherStatusFullMatches).length > 0
+          ? `No ${status} Knowledge matched.`
+          : "Nothing matched; rephrase or try work_recall.",
+      ...otherStatuses.map((other) =>
+        otherStatusFullMatches[other]
+          ? `${otherStatusFullMatches[other]} ${other} contain every word; pass status "${other}" to read them.`
+          : `${otherStatusMatches[other]} ${other} share only some words (leads, not an answer); pass status "${other}" for their relaxedMatches.`,
       ),
+      ...(effectiveQuery !== undefined
+        ? [
+            `The query was cut to its first ${effective.terms.length} words (or word length); counts and any re-query use only: ${effectiveQuery}`,
+          ]
+        : []),
+      ...(ranking.queryTruncated
+        ? ["The relaxed search cut the query's extra terms or paths; matchedTerms are partial."]
+        : []),
     ];
     return {
       outcome: strict.outcome,
@@ -129,6 +145,9 @@ export class KnowledgeSearchService {
       pageInfo: strict.pageInfo,
       ...(relaxedMatches.length > 0 ? { relaxedMatches } : {}),
       ...(otherStatuses.length > 0 ? { otherStatusMatches } : {}),
+      ...(Object.keys(otherStatusFullMatches).length > 0 ? { otherStatusFullMatches } : {}),
+      ...(effectiveQuery !== undefined ? { effectiveQuery } : {}),
+      ...(ranking.queryTruncated ? { queryTruncated: true as const } : {}),
       ...(ranking.appliesToScanTruncated ? { appliesToScanTruncated: true as const } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       hint: hints.join(" "),
@@ -137,7 +156,8 @@ export class KnowledgeSearchService {
 
   /**
    * Per other status, how many records the same search would answer there: the strict count when it has any,
-   * otherwise the relaxed count, which is what passing that status would show. Counts only, in the same gated scope.
+   * otherwise the relaxed count, which is what passing that status would show; fullCounts holds the strict ones alone.
+   * The strict count parses the query exactly as the re-query does, so a cut query counts what the re-query returns. Counts only, in the same gated scope.
    */
   private otherStatusMatches(
     query: string,
@@ -145,8 +165,13 @@ export class KnowledgeSearchService {
     projectId: string | undefined,
     kind: KnowledgeKind | undefined,
     ranking: KnowledgeRanking,
-  ): { counts: Partial<Record<KnowledgeStatus, number>>; truncated: boolean } {
+  ): {
+    counts: Partial<Record<KnowledgeStatus, number>>;
+    fullCounts: Partial<Record<KnowledgeStatus, number>>;
+    truncated: boolean;
+  } {
     const counts: Partial<Record<KnowledgeStatus, number>> = {};
+    const fullCounts: Partial<Record<KnowledgeStatus, number>> = {};
     let truncated = false;
     for (const other of KNOWLEDGE_STATUSES) {
       if (other === status) continue;
@@ -154,7 +179,8 @@ export class KnowledgeSearchService {
       truncated ||= strict.truncated;
       const count = strict.count > 0 ? strict.count : (ranking.totals[other] ?? 0);
       if (count > 0) counts[other] = count;
+      if (strict.count > 0) fullCounts[other] = strict.count;
     }
-    return { counts, truncated };
+    return { counts, fullCounts, truncated };
   }
 }

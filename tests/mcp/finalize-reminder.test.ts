@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import {
   compactedSessionReminder,
   findTrackedRoot,
+  lacksChangeStatuses,
   missingStartedAtReason,
   REMINDER,
   reminderFor,
@@ -357,6 +358,35 @@ describe("finalize reminder hook", () => {
     expect(responseForClaudeHook(hookEvent("Stop", { stop_hook_active: true }), deps(transcript))).toBeNull();
   });
 
+  it("words the one existing pause to ask for change statuses, and never adds a pause for them", () => {
+    const transcript = [typed("start", "2026-09-27T01:00:00.000Z"), toolWithInput("Edit", { file_path: "/p/a.ts" })];
+    const pre = (toolInput: unknown, d: ReturnType<typeof deps>) =>
+      responseForClaudeHook(hookEvent("PreToolUse", { tool_name: FINALIZE, tool_input: toolInput }), d);
+    const reason = (value: string | null) =>
+      (JSON.parse(value ?? "null") as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput
+        .permissionDecisionReason;
+
+    const withFiles = reason(pre({ changedFiles: ["src/a.ts"] }, deps(transcript)));
+    expect(withFiles).toBe(missingStartedAtReason("2026-09-27T01:00:00.000Z", true));
+    expect(withFiles).toContain("changedFileChanges");
+    expect(reason(pre({ changedFiles: [] }, deps(transcript)))).toBe(
+      missingStartedAtReason("2026-09-27T01:00:00.000Z"),
+    );
+    expect(
+      reason(
+        pre(
+          { changedFiles: ["src/a.ts"], changedFileChanges: [{ path: "src/a.ts", status: "added" }] },
+          deps(transcript),
+        ),
+      ),
+    ).not.toContain("changedFileChanges");
+
+    // A call that already carries startedAt is never paused for missing statuses.
+    expect(pre({ startedAt: "2026-09-27T00:50:00.000Z", changedFiles: ["src/a.ts"] }, deps(transcript))).toBeNull();
+    expect(lacksChangeStatuses({ changedFiles: ["a"] })).toBe(true);
+    expect(lacksChangeStatuses({})).toBe(false);
+  });
+
   it("pauses a finalize without startedAt once per segment, with the observed start", () => {
     const transcript = [typed("start", "2026-09-27T01:00:00.000Z"), toolWithInput("Edit", { file_path: "/p/a.ts" })];
     const pre = (toolName: string, toolInput: unknown, d: ReturnType<typeof deps>) =>
@@ -408,5 +438,72 @@ describe("finalize reminder hook", () => {
       "C:\\Users\\Me\\apiary",
     );
     expect(findTrackedRoot("c:\\users\\me\\apiary", ["C:\\Users\\Me\\apiary"], "linux")).toBeNull();
+  });
+
+  it("prefers the most specific tracked root when roots are nested", () => {
+    expect(findTrackedRoot("/a/b/c", ["/a", "/a/b"])).toBe("/a/b");
+    expect(findTrackedRoot("/a/b/c", ["/a/b", "/a"])).toBe("/a/b");
+    expect(findTrackedRoot("/a/x", ["/a", "/a/b"])).toBe("/a");
+    expect(findTrackedRoot("C:\\A\\B\\c", ["c:\\a", "C:\\a\\B\\"], "win32")).toBe("C:\\a\\B\\");
+  });
+
+  it("does not count an edit whose result is an error, but counts one with no result or no id", () => {
+    const editWithId = (id: string, name: string, path: string) =>
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id, name, input: { file_path: path } }] },
+      });
+    const editResult = (id: string, isError: boolean) =>
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: id,
+              content: isError ? "String to replace not found in file." : "The file has been updated.",
+              ...(isError ? { is_error: true } : {}),
+            },
+          ],
+        },
+      });
+    const scope = { cwd: PROJECT_SRC, roots: [PROJECT_ROOT], realpath: (path: string) => path };
+    const failedOnly = summarizeTranscript(
+      [editWithId("e1", "Edit", join(PROJECT_SRC, "hive.ts")), editResult("e1", true)].join("\n"),
+      scope,
+    );
+    expect(failedOnly.lastEdit).toBe(-1);
+    expect(failedOnly.editedFiles).toEqual([]);
+
+    const mixed = summarizeTranscript(
+      [
+        editWithId("e1", "Edit", join(PROJECT_SRC, "hive.ts")),
+        editResult("e1", true),
+        editWithId("e2", "Write", join(PROJECT_SRC, "queen.ts")),
+        editResult("e2", false),
+        editWithId("e3", "MultiEdit", join(PROJECT_SRC, "drone.ts")),
+      ].join("\n"),
+      scope,
+    );
+    expect(mixed.editedFiles).toEqual(["src/queen.ts", "src/drone.ts"]);
+    expect(mixed.lastEdit).toBe(3);
+
+    // An id-less edit keeps the old behavior, and a failed edit before a save never reopens the segment.
+    const idless = summarizeTranscript(toolWithInput("Edit", { file_path: join(PROJECT_SRC, "hive.ts") }));
+    expect(idless.lastEdit).toBe(1);
+    const afterSave = summarizeTranscript(
+      [
+        editWithId("e1", "Edit", join(PROJECT_SRC, "hive.ts")),
+        editResult("e1", false),
+        finalizeCall("f1"),
+        finalizeResult("f1", saved),
+        editWithId("e2", "Edit", join(PROJECT_SRC, "hive.ts")),
+        editResult("e2", true),
+      ].join("\n"),
+    );
+    expect(afterSave.lastFinalize).toBeGreaterThan(afterSave.lastEdit);
+    expect(
+      reminderFor(input, deps([editWithId("e1", "Edit", join(PROJECT_SRC, "hive.ts")), editResult("e1", true)])),
+    ).toBeNull();
   });
 });

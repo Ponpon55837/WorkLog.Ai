@@ -21,6 +21,7 @@ import {
   WorkIntelligenceStore,
 } from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
+import { getUserServiceStatusAsync } from "../../apps/server/src/user-service.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
 import {
   getMcpRuntimeDirectory,
@@ -179,6 +180,57 @@ describe("Work Intelligence REST API", () => {
     } finally {
       now.mockRestore();
     }
+  });
+  it("reports a timed-out service check as unavailable without caching it and retries on the next request", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-status-timeout-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const agents: SystemAgentConnections = {
+      codex: { mcpRegistered: "missing", canonicalSkill: "missing", legacySkill: "missing", hook: "missing" },
+      claudeCode: { mcpRegistered: "missing", skill: "missing", hook: "missing" },
+    };
+    const healthy = isolatedUserServiceStatus(root);
+    let calls = 0;
+    let settleHungQuery: (() => void) | undefined;
+    // The real status function with an injected runner that, like a killed execFile, rejects with a SIGTERM error.
+    const query = () => {
+      calls++;
+      if (calls > 2) return Promise.resolve(healthy);
+      const hung = calls === 1;
+      return getUserServiceStatusAsync({
+        platform: "linux",
+        homeDirectory: root,
+        repositoryRoot: root,
+        environment: { HOME: root, WORK_INTELLIGENCE_DB: join(root, "db.sqlite") },
+        configFileExists: () => true,
+        runCommand: () =>
+          new Promise<string>((_resolve, reject) => {
+            const fail = () => reject(Object.assign(new Error("timed out"), { killed: true, signal: "SIGTERM" }));
+            if (hung) settleHungQuery = fail;
+            else fail();
+          }),
+      });
+    };
+    const { server, baseUrl } = await startApi(store, { userServiceStatus: query, agentConnections: () => agents });
+    resources.push({ server, store, root });
+    const first = fetch(`${baseUrl}/api/system/status`);
+    while (!settleHungQuery) await new Promise((resolve) => setTimeout(resolve, 1));
+    const concurrent = fetch(`${baseUrl}/api/system/status`);
+    expect((await fetch(`${baseUrl}/api/health`)).status).toBe(200);
+    expect(calls).toBe(1);
+    settleHungQuery();
+    for (const response of [await first, await concurrent]) {
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { userService: UserServiceStatus }).userService.state).toBe("unavailable");
+    }
+    expect(calls).toBe(1);
+    const retried = await requestJson<{ userService: UserServiceStatus }>(baseUrl, "/api/system/status");
+    expect(calls).toBe(2);
+    expect(retried.body.userService.state).toBe("unavailable");
+    const recovered = await requestJson<{ userService: UserServiceStatus }>(baseUrl, "/api/system/status");
+    expect(calls).toBe(3);
+    expect(recovered.body.userService.state).toBe(healthy.state);
+    await requestJson(baseUrl, "/api/system/status");
+    expect(calls).toBe(3);
   });
   it("names every API error code in lowercase snake_case", () => {
     expect(API_ERROR_CODES.filter((code) => !/^[a-z_]+$/.test(code))).toEqual([]);

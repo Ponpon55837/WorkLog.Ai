@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import { commandName } from "@work-intelligence/shared";
 import { canonicalizeProjectRoot, isPathWithinProject, type WorkIntelligenceStore } from "@work-intelligence/storage";
+import { checkCliArgs } from "./cli-args.js";
 import { inspectProjectFolder } from "./http.js";
 import { resolveServerPort } from "./server-port.js";
 
@@ -125,7 +126,12 @@ async function askToConfirm(question: string): Promise<boolean> {
 
 /** `track` (`pnpm track` in a checkout): the user, in a terminal, explicitly adds a folder and switches it to tracked. Never callable by Agents. */
 export async function runTrackCommand(args: readonly string[], dependencies: TrackCliDependencies): Promise<number> {
-  const parsed = parseTrackArgs(args);
+  const check = checkCliArgs(args, { flags: ["--yes"], valued: ["--name"] });
+  if (check.kind === "help") {
+    dependencies.log(trackUsage(dependencies.standalone));
+    return 0;
+  }
+  const parsed = check.kind === "error" ? check.message : parseTrackArgs(args);
   if (typeof parsed === "string") {
     dependencies.error(`錯誤：${parsed}\n\n${trackUsage(dependencies.standalone)}`);
     return USAGE_EXIT_CODE;

@@ -3,6 +3,15 @@ export { AttentionPreferenceError } from "./attention-service.js";
 export { ReportPresentationError } from "./report-presentation-service.js";
 export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";
 export type { FinalizeSessionContext, TrackedScopeInput } from "./store.js";
+export {
+  observeGitChangedFileChanges,
+  type GitObservationDependencies,
+  type GitObservationRequest,
+  type GitObservedChanges,
+  type GitRunner,
+  type GitRunnerOptions,
+} from "./git-change-observation.js";
+export type { ChangedFileObservationPlan } from "./changed-file-observation.js";
 export type { ObservedStart } from "./session-record-codecs.js";
 export { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 export {
@@ -12,6 +21,7 @@ export {
   type DatabaseRedactionResult,
 } from "./database-redaction.js";
 export { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
+export { weighTaskPaths, type InferredPathSource, type WeightedTaskPath } from "./inferred-task-paths.js";
 export { toSessionDigest, toSessionDigests } from "./digest.js";
 export type { SessionDigest } from "@work-intelligence/core";
 export { backupOptionsFromEnvironment } from "./backup-environment.js";

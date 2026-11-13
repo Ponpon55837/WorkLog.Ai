@@ -61,9 +61,20 @@ function startHint(segmentStartedAt: string | undefined): string {
     : "";
 }
 
+const CHANGE_STATUS_HINT =
+  "重新呼叫時也請為 changedFiles 補上 changedFileChanges（added／modified／deleted／renamed＋previousPath），依實際 diff，不要猜。";
+
 /** Why a save without startedAt was paused once. */
-export function missingStartedAtReason(segmentStartedAt: string): string {
-  return `保存被暫停一次：沒有填 startedAt。這段工作的開始時間（上一次成功保存後的第一則訊息）是 ${segmentStartedAt}，請把 startedAt 設為 ${segmentStartedAt} 後重新呼叫；completedAt 照舊省略。`;
+export function missingStartedAtReason(segmentStartedAt: string, missingChangeStatuses = false): string {
+  const base = `保存被暫停一次：沒有填 startedAt。這段工作的開始時間（上一次成功保存後的第一則訊息）是 ${segmentStartedAt}，請把 startedAt 設為 ${segmentStartedAt} 後重新呼叫；completedAt 照舊省略。`;
+  return missingChangeStatuses ? `${base}${CHANGE_STATUS_HINT}` : base;
+}
+
+/** True when a finalize call lists changedFiles but gives no changedFileChanges; only used to word an existing pause. */
+export function lacksChangeStatuses(args: Record<string, unknown>): boolean {
+  const files = args.changedFiles;
+  const changes = args.changedFileChanges;
+  return Array.isArray(files) && files.length > 0 && (!Array.isArray(changes) || changes.length === 0);
 }
 
 /** Adds when the current segment began (the first message after the last successful save), so the Agent never estimates startedAt. */
@@ -241,6 +252,13 @@ export function summarizeTranscript(text: string, scope?: TranscriptPathScope): 
       if (editIndex < finalizeIndex) editedFiles.delete(file);
     }
   };
+  // An edit counts at its tool_use index, but only once its result is not an error (a failed edit changed nothing);
+  // one whose result is missing at the end of the transcript still counts.
+  const countEdit = (editIndex: number, display: string | null) => {
+    lastEdit = Math.max(lastEdit, editIndex);
+    if (display && editIndex > lastFinalize) editedFiles.set(display, editIndex);
+  };
+  const pendingEdits = new Map<string, { index: number; display: string | null }>();
   // Finalize calls wait for their result: only a successful save ends the segment.
   const pendingFinalize = new Map<string, number>();
   for (const line of text.split("\n")) {
@@ -267,6 +285,12 @@ export function summarizeTranscript(text: string, scope?: TranscriptPathScope): 
         if (result.type !== "tool_result" || typeof result.tool_use_id !== "string") {
           continue;
         }
+        const pendingEdit = pendingEdits.get(result.tool_use_id);
+        if (pendingEdit) {
+          pendingEdits.delete(result.tool_use_id);
+          if (result.is_error !== true) countEdit(pendingEdit.index, pendingEdit.display);
+          continue;
+        }
         const finalizeIndex = pendingFinalize.get(result.tool_use_id);
         if (finalizeIndex === undefined) {
           continue;
@@ -283,16 +307,20 @@ export function summarizeTranscript(text: string, scope?: TranscriptPathScope): 
       const name = tool.type === "tool_use" ? tool.name : "";
       index += 1;
       if (name && EDIT_TOOLS.has(name)) {
+        let display: string | null = null;
         if (scope) {
           const path = editedPath(name, tool.input);
           const location = path && trackedLocation(path, scope.cwd, scope.roots, scope.realpath, scope.platform);
           if (!location) {
             continue;
           }
-          const display = relativeDisplayPath(location);
-          if (display) editedFiles.set(display, index);
+          display = relativeDisplayPath(location);
         }
-        lastEdit = index;
+        if (typeof tool.id === "string") {
+          pendingEdits.set(tool.id, { index, display });
+        } else {
+          countEdit(index, display);
+        }
       } else if (name && isFinalizeToolCall(name, tool.input)) {
         if (typeof tool.id === "string") {
           pendingFinalize.set(tool.id, index);
@@ -303,6 +331,9 @@ export function summarizeTranscript(text: string, scope?: TranscriptPathScope): 
       }
     }
   }
+  for (const { index: editIndex, display } of pendingEdits.values()) {
+    countEdit(editIndex, display);
+  }
   return {
     lastEdit,
     lastFinalize,
@@ -311,7 +342,7 @@ export function summarizeTranscript(text: string, scope?: TranscriptPathScope): 
   };
 }
 
-/** The tracked project root containing `cwd`, comparing whole path segments (case-insensitive on Windows). */
+/** The most specific tracked project root containing `cwd`, comparing whole path segments (case-insensitive on Windows). */
 export function findTrackedRoot(
   cwd: string,
   roots: readonly string[],
@@ -319,12 +350,14 @@ export function findTrackedRoot(
 ): string | null {
   const fold = (value: string) => (platform === "win32" ? value.toLowerCase() : value);
   const target = fold(cwd);
-  return (
-    roots.find((root) => {
-      const base = fold(root.replace(/[\\/]+$/, ""));
-      return target === base || target.startsWith(`${base}/`) || target.startsWith(`${base}\\`);
-    }) ?? null
-  );
+  let best: { root: string; length: number } | null = null;
+  for (const root of roots) {
+    const base = fold(root.replace(/[\\/]+$/, ""));
+    const matches = target === base || target.startsWith(`${base}/`) || target.startsWith(`${base}\\`);
+    // The most specific (longest) root wins when tracked roots are nested.
+    if (matches && (!best || base.length > best.length)) best = { root, length: base.length };
+  }
+  return best ? best.root : null;
 }
 
 export interface ReminderDeps {
@@ -402,7 +435,7 @@ export function preToolUseDenial(input: StopHookInput, deps: ReminderDeps): stri
     if (!segmentStartedAt || !deps.markOnce(`pre:${input.session_id}:${lastFinalize}`)) {
       return null;
     }
-    return missingStartedAtReason(segmentStartedAt);
+    return missingStartedAtReason(segmentStartedAt, lacksChangeStatuses(args));
   } catch {
     return null;
   }

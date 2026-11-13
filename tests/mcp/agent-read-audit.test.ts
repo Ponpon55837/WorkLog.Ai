@@ -93,8 +93,9 @@ describe("MCP passive read audit", () => {
       outcome: "session_unchanged",
       session: { id: sessionId, revision: body.session.revision },
     });
+    // structuredContent says everything the text says, plus the flat identity fields.
     expect(unchanged.structuredContent).toEqual({
-      outcome: "session_unchanged",
+      ...JSON.parse((unchanged.content as Array<{ text: string }>)[0]!.text),
       sessionId,
       revision: body.session.revision,
     });

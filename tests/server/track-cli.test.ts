@@ -174,7 +174,27 @@ describe("pnpm track", () => {
     expect(messages.log.join("\n")).toContain("與專案「外層專案」的根目錄重疊");
   });
 
-  it.each([[[]], [["a", "b"]], [["folder", "--unknown"]], [["folder", "--name"]]])(
+  it.each(["--help", "-h"])(
+    "prints track usage on stdout and exits 0 for %s without opening the database",
+    async (flag) => {
+      const { store, messages, dependencies } = setup();
+
+      expect(
+        await runDatabaseCli(["track", flag], {
+          ...dependencies,
+          withStore: () => {
+            throw new Error("opened");
+          },
+        }),
+      ).toBe(0);
+
+      expect(store.listProjects()).toHaveLength(0);
+      expect(messages.error).toEqual([]);
+      expect(messages.log.join("\n")).toContain("用法：");
+    },
+  );
+
+  it.each([[[]], [["a", "b"]], [["folder", "--unknown"]], [["folder", "-x"]], [["-x"]], [["folder", "--name"]]])(
     "prints usage and exits 2 for bad arguments %j",
     async (extra) => {
       const { store, messages, dependencies } = setup();

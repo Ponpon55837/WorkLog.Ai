@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-13
 
+## 1.6.33（已完成）
+
+依真實使用資料副本（6 個專案、650 筆 Session）的量測，沒有 schema 變更（33）。變更狀態：Agent 在 `changedFiles` 列出的路徑沒有 `changedFileChanges` 時，保存會向 Git 查詢補上並標示 `changedFileChangesSource`，仍缺的以 `changedFileChangesFollowUp` 請 Agent 補回；真實資料中 3,312 個檔案的 Git 狀態與 Agent 回報有 99.6% 一致，211 個缺漏路徑都能補上。只帶 `task` 的 `work_get_context` 會依相似 Session 改過的檔案提供最多 3 筆 `inferred_path` 指標（至少兩筆相似 Session 支持）；回放中因任務本身而顯示的 Knowledge 配對由 11 組增加到 60 組，推論指標 71% 是預定的 Knowledge，原本顯示的內容沒有遺失。Knowledge 頁可用 `query` 或 `headings` 聚焦讀取；搜尋零結果時回應附 `otherStatusFullMatches`、`effectiveQuery` 與 `queryTruncated`。修正：`db:export --help` 不再寫出快照，CLI 在執行前檢查選項；匯入的專案根目錄以規範化 key 儲存；linked worktree 與 packed refs 的分支與 HEAD 可讀取；保存 hook 忽略失敗的編輯，並以最深的 tracked 根目錄判斷。新增 `pnpm test:start-smoke`。Claude Code 的變更狀態流程以真實 `claude` CLI 驗證四個情境；Codex 與 Windows 未實測。見[更新說明](releases/1.6.33.md)。
+
 ## 1.6.32（已完成）
 
 依真實使用資料副本（6 個專案、647 筆 Session）的量測，補上「有效沉澱 → 精準再利用 → 持續修正」實際漏掉的四處，沒有 schema 變更（33）。開始時間：Claude Code 保存前以 PreToolUse hook 告知、Codex 在第一則訊息告知，Agent 仍省略時改用伺服器觀察到的第一次工具呼叫時間並標示 `startedAtSource`，仍沒有時回條附 `startedAtFollowUp`；`work_update_session_metadata` 可省略 `changedFiles`、可用 `completedAtNow`。再利用：`work_get_context`／`work_recall` 帶 `paths` 時比對 Knowledge 的 `appliesTo`，真實資料回放 337 次機會的完整提供率由 3.3% 提高到 67.1%，回應長度變化不到 0.5%。沉澱：Knowledge 候選改依已確認決策、驗證失敗後修復、後續連結與刻意重讀挑選，並以 `pendingRequests.knowledgeBacklog` 顯示未整理數。修正：未結項在同一筆 Session 改寫時保留身分，`work_resolve_outstanding_items` 讓後續 Session 在保存前後附依據結案，`closedBy` 區分結案來源，`work_request_outstanding_cleanup` 讓 Agent 依使用者要求建立整理請求；歷史回放顯示使用者手動結案的 785 筆中 75% 會被列給 Agent。兩個 PreToolUse hook 只有單元測試，未在真實用戶端實測；Agent 是否照新指引結案與帶路徑，要在使用後以 `docs/experiments/` 的兩支腳本量測。見[更新說明](releases/1.6.32.md)。

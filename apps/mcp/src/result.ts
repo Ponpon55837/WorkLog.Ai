@@ -41,24 +41,32 @@ function isProjectedSessionRead(value: unknown): boolean {
   return isRecord(value) && isRecord(value.projection) && isRecord(value.session);
 }
 
-/** session_unchanged carries identity only; Session-shaped defaults (0 changed files, no verification) would mislead. */
+/**
+ * session_unchanged carries identity only; Session-shaped defaults (0 changed files, no verification) would mislead.
+ * Everything the text says stays, because some clients hand the model structuredContent instead of the text.
+ */
 function toUnchangedStructuredContent(value: unknown): StructuredContent | undefined {
   if (!isRecord(value) || value.outcome !== "session_unchanged" || !isRecord(value.session)) return undefined;
   const session = value.session;
   return {
-    outcome: value.outcome,
+    ...value,
     sessionId: session.id,
     revision: session.revision,
     ...(session.voided ? { voided: session.voided } : {}),
   };
 }
 
+/**
+ * The structured form of a Session tool's result. A result that carries a Session gets the stable Session fields;
+ * any other result (skipped, idempotency_conflict, not_found) is passed through unchanged, because defaults such as
+ * executionStatus "completed" would tell a client that reads only structuredContent that something was saved.
+ */
 export function toSessionStructuredContent(value: unknown): StructuredContent | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
 
-  return buildSessionStructuredContent(value);
+  return isRecord(value.session) ? buildSessionStructuredContent(value) : value;
 }
 
 export function toStructuredContent(value: unknown): StructuredContent | undefined {

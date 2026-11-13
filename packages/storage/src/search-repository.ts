@@ -10,11 +10,13 @@ import type {
   RecallTermHits,
 } from "@work-intelligence/core";
 import { localDayStartIso, truncateText } from "@work-intelligence/shared";
+import { AppliesToFileIndex } from "./applies-to-file-index.js";
 import {
   APPLIES_TO_SCAN_LIMIT,
   appliesToColumnSql,
   appliesToEntries,
   appliesToStrength,
+  compileAppliesToStrengthEntry,
   createAppliesToBudget,
 } from "./applies-to-match.js";
 import {
@@ -62,6 +64,10 @@ const DUPLICATE_RAW_WEIGHT_FACTOR = 0.1;
 // Sessions listing more changed files than this are likely polluted by unrelated dirty worktrees.
 export const CHANGED_FILES_NORMAL = 20;
 const PATH_WEIGHT = 4;
+/** Most weighted files knowledgeForWeightedPaths tests: the changed files of five Sessions, at most 20 each. */
+const WEIGHTED_PATH_LIMIT = 100;
+/** Most search_paths rows its reference query reads (newest first); a basename such as index.ts can be common. */
+const WEIGHTED_REFERENCE_ROW_LIMIT = 2_000;
 const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
 /** Path-like words of a Knowledge query matched against paths and appliesTo; more add cost, not recall. */
@@ -257,6 +263,12 @@ export interface ExtraPathKnowledge {
   matchedPath: string;
 }
 
+/** A Knowledge ranked by knowledgeForWeightedPaths: its score and every weighted file (as passed) that contributed. */
+export interface WeightedPathKnowledge extends ExtraPathKnowledge {
+  score: number;
+  files: string[];
+}
+
 export interface RecallComputation {
   hits: RecallHit[];
   /** Only when `extraPathKnowledge` was requested; internal to the context builder, never returned by work_recall. */
@@ -291,6 +303,8 @@ export interface KnowledgeRanking {
   hits: KnowledgeRankHit[];
   /** The appliesTo match budget ran out or an over-long stored path was skipped, so some Knowledge was not checked. */
   appliesToScanTruncated?: true;
+  /** The query had more terms or path-like words than the ranking uses, so the rest were ignored. */
+  queryTruncated?: true;
 }
 
 export interface SearchIndexRebuildResult {
@@ -493,9 +507,13 @@ export class SearchRepository {
       .flatMap((word) => normalizeReference(word))
       .filter((reference) => reference.kind === "path")
       .map((reference) => reference.value);
+    const uniquePaths = [...new Set(paths)];
+    const queryTruncated =
+      uniquePaths.length > MAX_QUERY_PATH_WORDS ||
+      new Set(parseQueryWords(options.q).flatMap((word) => word.terms)).size > MAX_QUERY_TERMS;
     const { terms, ranked, appliesToScanTruncated, pathScanTruncated } = this.rank({
       q: options.q,
-      paths: [...new Set(paths)].slice(0, MAX_QUERY_PATH_WORDS),
+      paths: uniquePaths.slice(0, MAX_QUERY_PATH_WORDS),
       projectId: options.projectId,
       types: ["knowledge"],
       knowledgeStatuses: [...KNOWLEDGE_STATUSES],
@@ -522,6 +540,7 @@ export class SearchRepository {
           ...(doc.matchedPaths.size > 0 ? { matchedPaths: [...doc.matchedPaths].slice(0, MAX_MATCHED_PATHS) } : {}),
         })),
       ...(appliesToScanTruncated || pathScanTruncated ? { appliesToScanTruncated: true as const } : {}),
+      ...(queryTruncated ? { queryTruncated: true as const } : {}),
     };
   }
 
@@ -596,6 +615,172 @@ export class SearchRepository {
     return { chunks, fts, paths, dirty };
   }
 
+  /**
+   * The best `count` active Knowledge of one project for a weighted set of files (task-only context infers them from
+   * similar Sessions). A Knowledge scores the sum over the weighted files of weight x match strength: appliesTo entries
+   * through appliesToStrength (best entry per file), and references through search_paths rows with the file's basename
+   * (an exact, suffix, or contained-path match as pathMatchStrength; unlike recall's path scan this does not find a
+   * stored reference that merely contains the file's name inside a longer basename, which keeps it on the basename
+   * index). `matchedPath` is the weighted file (not the stored pattern or reference) that contributed most to the
+   * Knowledge, `files` every weighted file that contributed, and `score` the sum. Ties rank by id. When `matched` is
+   * given, the id of every scored Knowledge (not only the best `count`) is added to it.
+   *
+   * Cost: one appliesTo scan like scoreAppliesTo (at most APPLIES_TO_SCAN_LIMIT rows, one shared match budget, stopping
+   * at the first row the budget cuts short). Each stored entry is classified and compiled once per row, then tested
+   * only against the files it can cover (AppliesToFileIndex: a glob's literal prefix range and suffix, a plain entry's
+   * segment lookups), all charged to the budget. The index is built once per call, O(F x d) for F <= WEIGHTED_PATH_LIMIT
+   * files of depth d; an entry costs O(d + log F + candidates) instead of O(F), with strengths and scores identical to
+   * testing every pair. One
+   * indexed query for references (at most WEIGHTED_REFERENCE_ROW_LIMIT rows, newest first); and one title query for the
+   * winners. It does not sync the index.
+   */
+  public knowledgeForWeightedPaths(
+    weights: ReadonlyMap<string, number>,
+    projectId: string,
+    count: number,
+    matched?: Set<string>,
+  ): WeightedPathKnowledge[] {
+    if (weights.size === 0 || count <= 0) return [];
+    const contexts = this.pathContexts(projectId);
+    const merged = new Map<string, { weight: number; sources: string[] }>();
+    for (const [path, weight] of weights) {
+      const normalized = normalizePath(path, contexts);
+      if (!normalized || !(weight > 0)) continue;
+      const entry = merged.get(normalized) ?? { weight: 0, sources: [] };
+      entry.weight += weight;
+      entry.sources.push(path);
+      merged.set(normalized, entry);
+    }
+    const files = [...merged]
+      .sort(([leftPath, left], [rightPath, right]) => right.weight - left.weight || (leftPath < rightPath ? -1 : 1))
+      .slice(0, WEIGHTED_PATH_LIMIT)
+      .map(([file, { weight }]) => [file, weight] as const);
+    if (files.length === 0) return [];
+
+    const scored = new Map<string, { score: number; best: number; matchedPath: string; files: Set<string> }>();
+    const add = (id: string, contribution: number, file: string): void => {
+      const entry = scored.get(id) ?? { score: 0, best: 0, matchedPath: file, files: new Set<string>() };
+      entry.score += contribution;
+      entry.files.add(file);
+      if (contribution > entry.best) {
+        entry.best = contribution;
+        entry.matchedPath = file;
+      }
+      scored.set(id, entry);
+    };
+    const scope = { projectId, types: ["knowledge" as DocType], limit: 0 };
+
+    const appliesToScope = this.scopeClause("k", { ...scope, types: undefined });
+    const rows = this.db
+      .prepare(
+        `SELECT k.id, ${appliesToColumnSql("k.applies_to_json")} AS applies_to_json, p.name, p.root_path
+         FROM knowledge k
+         JOIN projects p ON p.id = k.project_id
+         WHERE k.applies_to_json <> '[]' AND ${appliesToScope.clause}
+         ORDER BY k.updated_at DESC, k.id ASC LIMIT ?`,
+      )
+      .iterate(...appliesToScope.parameters, APPLIES_TO_SCAN_LIMIT) as Iterable<{
+      id: string;
+      applies_to_json: string | null;
+      name: string;
+      root_path: string;
+    }>;
+    const budget = createAppliesToBudget();
+    const index = new AppliesToFileIndex(files.map(([file]) => file));
+    const strengths = new Float64Array(files.length);
+    for (const row of rows) {
+      const rowContexts = [{ name: row.name, rootPath: row.root_path }];
+      const entries = appliesToEntries(row.applies_to_json, rowContexts, budget).map(
+        (pattern) => [compileAppliesToStrengthEntry(pattern, budget), pattern] as const,
+      );
+      // Only the files an entry can cover are tested; the best strength per file is kept by file position so the
+      // contributions keep the weight order of `files` (it decides matchedPath ties and the order of `files`).
+      const touched = new Set<number>();
+      strengths.fill(0);
+      for (const [entry, pattern] of entries) {
+        for (const position of index.candidates(entry, pattern)) {
+          if (budget.exhausted) break;
+          const strength = entry.strength(files[position]![0], budget);
+          if (strength > strengths[position]!) strengths[position] = strength;
+          if (strength > 0) touched.add(position);
+        }
+      }
+      // A row whose matching the budget cut short is left out whole, so a partial score never ranks it.
+      if (budget.exhausted) break;
+      for (const position of [...touched].sort((left, right) => left - right)) {
+        const [file, weight] = files[position]!;
+        add(row.id, weight * strengths[position]!, file);
+      }
+    }
+
+    const filesByBasename = new Map<string, Array<readonly [string, number]>>();
+    for (const entry of files) {
+      const basename = pathBasename(entry[0]);
+      filesByBasename.set(basename, [...(filesByBasename.get(basename) ?? []), entry]);
+    }
+    const referenceScope = this.scopeClause("sp", scope);
+    const references = this.db
+      .prepare(
+        `SELECT sp.doc_id, sp.path, sp.weight
+         FROM json_each(?) j
+         JOIN search_paths sp ON sp.basename = j.value
+         JOIN projects p ON p.id = sp.project_id
+         LEFT JOIN knowledge k ON sp.doc_type = 'knowledge' AND k.id = sp.doc_id
+         WHERE ${referenceScope.clause}
+         ORDER BY sp.doc_date DESC LIMIT ?`,
+      )
+      .all(
+        JSON.stringify([...filesByBasename.keys()]),
+        ...referenceScope.parameters,
+        WEIGHTED_REFERENCE_ROW_LIMIT,
+      ) as unknown as Array<{ doc_id: string; path: string; weight: number }>;
+    // Each document counts once per file, by its best reference.
+    const bestPerFile = new Map<string, { id: string; contribution: number; file: string }>();
+    for (const row of references) {
+      for (const [file, weight] of filesByBasename.get(pathBasename(row.path)) ?? []) {
+        const contribution = weight * pathMatchStrength(row.path, file) * row.weight;
+        const key = `${row.doc_id}\u0000${file}`;
+        if (contribution > (bestPerFile.get(key)?.contribution ?? 0)) {
+          bestPerFile.set(key, { id: row.doc_id, contribution, file });
+        }
+      }
+    }
+    for (const { id, contribution, file } of bestPerFile.values()) add(id, contribution, file);
+    if (matched) for (const id of scored.keys()) matched.add(id);
+
+    const winners = [...scored]
+      .sort(([leftId, left], [rightId, right]) => right.score - left.score || (leftId < rightId ? -1 : 1))
+      .slice(0, count);
+    if (winners.length === 0) return [];
+    const titles = this.knowledgeTitles(winners.map(([id]) => id));
+    // Back to the caller's spelling of each file (the first of the weights that normalized to it).
+    const original = (file: string): string => merged.get(file)?.sources[0] ?? file;
+    return winners.flatMap(([id, entry]) => {
+      const title = titles.get(id);
+      return title === undefined
+        ? []
+        : [
+            {
+              id,
+              title,
+              matchedPath: original(entry.matchedPath),
+              score: entry.score,
+              files: [...entry.files].flatMap((file) => merged.get(file)?.sources ?? []),
+            },
+          ];
+    });
+  }
+
+  private knowledgeTitles(ids: string[]): Map<string, string> {
+    return new Map(
+      (
+        this.db
+          .prepare("SELECT id, title FROM knowledge WHERE id IN (SELECT value FROM json_each(?))")
+          .all(JSON.stringify(ids)) as Array<{ id: string; title: string }>
+      ).map((row) => [row.id, row.title]),
+    );
+  }
+
   /** The first `count` path-matched Knowledge of the ranking that the page did not select, with one title query. */
   private extraPathKnowledgeBeyond(ranked: RankedDoc[], selected: RankedDoc[], count: number): ExtraPathKnowledge[] {
     const selectedIds = new Set(selected.map((entry) => entry.doc.id));
@@ -607,13 +792,7 @@ export class SearchRepository {
     if (beyond.length === 0) {
       return [];
     }
-    const titles = new Map(
-      (
-        this.db
-          .prepare("SELECT id, title FROM knowledge WHERE id IN (SELECT value FROM json_each(?))")
-          .all(JSON.stringify(beyond.map((entry) => entry.doc.id))) as Array<{ id: string; title: string }>
-      ).map((row) => [row.id, row.title]),
-    );
+    const titles = this.knowledgeTitles(beyond.map((entry) => entry.doc.id));
     return beyond.flatMap((entry) => {
       const title = titles.get(entry.doc.id);
       const matchedPath = [...entry.doc.matchedPaths][0];

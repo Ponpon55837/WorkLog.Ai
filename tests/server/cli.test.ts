@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
+import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import {
   DatabaseInitializationError,
   DatabaseMaintenanceError,
@@ -88,7 +89,7 @@ describe("database maintenance CLI", () => {
     expect(messages.log.join("\n")).toContain("重新索引 4 筆 Session、2 筆 Knowledge");
     expect(messages.error).toEqual([]);
     expect(await runDatabaseCli(["maintain", "--force"], deps)).toBe(1);
-    expect(messages.error.join("\n")).toContain("不接受參數");
+    expect(messages.error.join("\n")).toContain("看不懂的選項：--force");
   });
 
   it("runs db:redact as a count-only dry-run unless --apply is explicit", async () => {
@@ -119,7 +120,7 @@ describe("database maintenance CLI", () => {
     expect(modes).toEqual([false, false, true]);
     expect(messages.log.join("\n")).toContain("redaction-backup.sqlite");
     expect(await runDatabaseCli(["redact", "--force"], deps)).toBe(1);
-    expect(messages.error.join("\n")).toContain("敏感資料整理只接受");
+    expect(messages.error.join("\n")).toContain("看不懂的選項：--force");
   });
 
   it("lists backup types, timestamps, sizes, and totals, then requires deletion confirmation", async () => {
@@ -215,7 +216,9 @@ describe("database maintenance CLI", () => {
     expect(messages.log.join("\n")).toContain("僅預覽，資料沒有變更");
 
     expect(await runDatabaseCli(args, deps)).toBe(0);
-    expect(destination.listProjects()).toMatchObject([{ id: project.id, status: "paused", rootPath: newRoot }]);
+    expect(destination.listProjects()).toMatchObject([
+      { id: project.id, status: "paused", rootPath: canonicalizeProjectRoot(newRoot) },
+    ]);
     expect(destination.getSessionById(finalized.session.id)?.summary).toBe(finalized.session.summary);
     expect(messages.log.join("\n")).toContain("匯入完成");
     expect(existsSync(newRoot)).toBe(false);
@@ -249,9 +252,11 @@ describe("database maintenance CLI", () => {
     const output = messages.log.join("\n");
     expect(output).toContain("合併策略：較新者優先");
     expect(output).toContain("將以匯入資料更新 1 筆");
-    expect(output).toContain(`自動沿用本機路徑：${project.rootPath} → ${localRoot}`);
+    // An imported root is stored as the canonical key, which is lower case on Windows.
+    const storedLocalRoot = canonicalizeProjectRoot(localRoot);
+    expect(output).toContain(`自動沿用本機路徑：${project.rootPath} → ${storedLocalRoot}`);
     expect(destination.getSessionById(finalized.session.id)?.summary).toBe("另一台電腦較新的摘要。");
-    expect(destination.listProjects()).toMatchObject([{ id: project.id, rootPath: localRoot }]);
+    expect(destination.listProjects()).toMatchObject([{ id: project.id, rootPath: storedLocalRoot }]);
 
     expect(await runDatabaseCli(["import", "portable.json", "--strategy=overwrite", "--dry-run"], deps)).toBe(1);
     expect(messages.error.join("\n")).toContain("--strategy 只接受 merge 或 newer-wins");
@@ -278,7 +283,9 @@ describe("database maintenance CLI", () => {
 
     expect(await runDatabaseCli(["import", "portable.json"], deps)).toBe(0);
     expect(promptedFor).toBe(project.rootPath);
-    expect(destination.listProjects()).toMatchObject([{ id: project.id, status: "paused", rootPath: selectedRoot }]);
+    expect(destination.listProjects()).toMatchObject([
+      { id: project.id, status: "paused", rootPath: canonicalizeProjectRoot(selectedRoot) },
+    ]);
     expect(messages.log.join("\n")).toContain(`匯出路徑 ${project.rootPath}`);
     expect(messages.log.join("\n")).toContain("找到資料夾");
   });
@@ -322,6 +329,172 @@ describe("database maintenance CLI", () => {
     expect(await runDatabaseCli(["backup"], deps)).toBe(1);
     expect(messages.error.join("\n")).toContain("請更新 Work Intelligence");
     expect(messages.error.join("\n")).not.toContain("SQLITE");
+  });
+});
+
+describe("database CLI option safety", () => {
+  const writingCommands = [
+    ["maintain"],
+    ["redact"],
+    ["backup"],
+    ["backups"],
+    ["export"],
+    ["export", "--all"],
+    ["import", "portable.json"],
+    ["restore", "snapshot.sqlite"],
+  ] as const;
+  const readOnlyCommands = [["backups"], ["redact", "--dry-run"], ["track"]] as const;
+
+  function guardedSetup() {
+    const root = createRoot();
+    const messages = { log: [] as string[], error: [] as string[] };
+    const calls: string[] = [];
+    const deps: DatabaseCliDependencies = {
+      invocationDirectory: root,
+      withStore: () => {
+        calls.push("withStore");
+        throw new Error("the database must not be opened");
+      },
+      runMaintenance: () => {
+        calls.push("runMaintenance");
+        throw new Error("maintenance must not run");
+      },
+      runRedaction: () => {
+        calls.push("runRedaction");
+        throw new Error("redaction must not run");
+      },
+      confirmBackupDeletion: async () => {
+        calls.push("confirmBackupDeletion");
+        return true;
+      },
+      log: (message) => messages.log.push(message),
+      error: (message) => messages.error.push(message),
+    };
+    return { root, messages, calls, deps };
+  }
+
+  it.each(writingCommands.flatMap((command) => (["--help", "-h"] as const).map((flag) => [command, flag] as const)))(
+    "prints that command's usage to stdout and acts on nothing for %j %s",
+    async (command, flag) => {
+      const { root, messages, calls, deps } = guardedSetup();
+
+      expect(await runDatabaseCli([command[0], flag], deps)).toBe(0);
+
+      expect(calls).toEqual([]);
+      expect(readdirSync(root)).toEqual([]);
+      expect(messages.error).toEqual([]);
+      expect(messages.log.join("\n")).toContain("用法：");
+      expect(messages.log.join("\n")).toContain(command[0]);
+    },
+  );
+
+  it.each(writingCommands.flatMap((command) => ["--foo", "-x"].map((option) => [command, option] as const)))(
+    "refuses the unknown option for %j %s with an error and usage on stderr, without acting",
+    async (command, option) => {
+      const { root, messages, calls, deps } = guardedSetup();
+
+      expect(await runDatabaseCli([...command, option], deps)).toBe(1);
+
+      expect(calls).toEqual([]);
+      expect(readdirSync(root)).toEqual([]);
+      expect(messages.log).toEqual([]);
+      expect(messages.error.join("\n")).toContain(`看不懂的選項：${option}`);
+      expect(messages.error.join("\n")).toContain("用法：");
+    },
+  );
+
+  it.each([
+    ["export", "--all", "--out", "--help"],
+    ["export", "--project", "x", "--out", "-x"],
+    ["export", "--out=ok.json", "--bogus"],
+    ["import", "portable.json", "--strategy", "--dry-run"],
+    ["restore", "snapshot.sqlite", "--remap-root", "-x"],
+    ["backups", "--delete", "--help"],
+    ["backups", "--delete", "-x"],
+  ])("never treats an option-like value as a file name or backup for %j", async (...argv) => {
+    const { root, messages, calls, deps } = guardedSetup();
+
+    const exitCode = await runDatabaseCli(argv, deps);
+
+    expect(calls).toEqual([]);
+    expect(readdirSync(root)).toEqual([]);
+    // `--help` as a value is still a help request; anything else is an error.
+    expect(exitCode).toBe(argv.includes("--help") ? 0 : 1);
+    expect(messages.error.length > 0).toBe(exitCode === 1);
+  });
+
+  it("does not create a backup or export file when export, backup or backups get an option-like argument", async () => {
+    const root = createRoot();
+    const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));
+    stores.push(store);
+    const before = readdirSync(root).sort();
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps = dependencies(store, root, messages);
+
+    for (const argv of [
+      ["backup", "--help"],
+      ["backup", "-x"],
+      ["export", "--help"],
+      ["export", "-h"],
+      ["export", "--foo"],
+    ]) {
+      await runDatabaseCli(argv, deps);
+    }
+
+    expect(readdirSync(root).sort()).toEqual(before);
+    expect(store.listBackups()).toMatchObject({ backups: [] });
+  });
+
+  it("refuses extra positional arguments to backup instead of ignoring them", async () => {
+    const { messages, calls, deps } = guardedSetup();
+
+    expect(await runDatabaseCli(["backup", "extra"], deps)).toBe(1);
+
+    expect(calls).toEqual([]);
+    expect(messages.error.join("\n")).toContain("不接受參數");
+  });
+
+  it.each(["--help", "-h"])("prints usage on stdout and exits 0 for the bare top-level %s", async (flag) => {
+    const { messages, calls, deps } = guardedSetup();
+
+    expect(await runDatabaseCli([flag], deps)).toBe(0);
+
+    expect(calls).toEqual([]);
+    expect(messages.log.join("\n")).toContain("用法：");
+    expect(messages.error).toEqual([]);
+  });
+
+  it("reports an unknown command on stderr with usage and exits non-zero", async () => {
+    const { messages, deps } = guardedSetup();
+
+    expect(await runDatabaseCli(["bogus"], deps)).toBe(1);
+
+    expect(messages.log).toEqual([]);
+    expect(messages.error.join("\n")).toContain("未知的指令：bogus");
+    expect(messages.error.join("\n")).toContain("用法：");
+  });
+
+  it.each(readOnlyCommands.flatMap((command) => (["--help", "-h"] as const).map((flag) => [command, flag] as const)))(
+    "shows usage for read-only %j %s without opening the database",
+    async (command, flag) => {
+      const { messages, calls, deps } = guardedSetup();
+
+      expect(await runDatabaseCli([command[0], flag], deps)).toBe(0);
+
+      expect(calls).toEqual([]);
+      expect(messages.log.join("\n")).toContain("用法：");
+    },
+  );
+
+  it("scopes help to the subcommand but keeps its own options", async () => {
+    const { messages, deps } = guardedSetup();
+
+    await runDatabaseCli(["import", "--help"], deps);
+
+    const text = messages.log.join("\n");
+    expect(text).toContain("db:import");
+    expect(text).toContain("--strategy");
+    expect(text).not.toContain("db:backup ");
   });
 });
 

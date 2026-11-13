@@ -1,4 +1,5 @@
 import type { WorkIntelligenceStore } from "@work-intelligence/storage";
+import { compactChangeStatusFollowUp } from "./change-status-follow-up.js";
 
 type FinalizeResult = ReturnType<WorkIntelligenceStore["finalizeSession"]>;
 type FinalizedResult = Extract<FinalizeResult, { outcome: "finalized" }>;
@@ -8,6 +9,7 @@ type RelatedOutstandingItems = NonNullable<FinalizedResult["relatedOutstandingIt
 /** The request fields a receipt compares with what was stored. */
 interface FinalizeReceiptRequest {
   changedFiles?: readonly string[];
+  changedFileChanges?: readonly unknown[];
   git?: unknown;
   startedAt?: string;
   completedAt?: string;
@@ -75,6 +77,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     continuedOutstandingItems,
     outcome,
     duplicate,
+    changedFileChangesFollowUp,
     ...reminders
   } = result;
   const receipt: FinalizeReceiptSession = {
@@ -93,6 +96,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     ...(!input.git && session.gitBranch ? { gitBranch: session.gitBranch } : {}),
     ...(session.voided ? { voided: session.voided } : {}),
   };
+  const startedAtMissing = !session.startedAt && !input.completedAt;
   return {
     outcome,
     duplicate,
@@ -105,10 +109,26 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     ...(supersededOutstandingItemIds?.length || input.supersededOutstandingItemIds?.length
       ? { supersededOutstandingItemIds: supersededOutstandingItemIds ?? [] }
       : {}),
-    ...(!session.startedAt && !input.completedAt
+    ...(startedAtMissing ? { startedAtFollowUp: STARTED_AT_FOLLOW_UP } : {}),
+    // One call serves both follow-ups: changedFilesMode only matters once changedFileChanges are sent.
+    ...(startedAtMissing || changedFileChangesFollowUp
       ? {
-          startedAtFollowUp: STARTED_AT_FOLLOW_UP,
-          suggestedCall: { tool: "work_update_session_metadata", arguments: { sessionId: session.id } },
+          suggestedCall: {
+            tool: "work_update_session_metadata",
+            arguments: {
+              sessionId: session.id,
+              ...(changedFileChangesFollowUp ? { changedFilesMode: "merge" } : {}),
+            },
+          },
+        }
+      : {}),
+    ...(changedFileChangesFollowUp
+      ? {
+          changedFileChangesFollowUp: compactChangeStatusFollowUp(
+            changedFileChangesFollowUp,
+            input,
+            !!reminders.changedFileChangesSource,
+          ),
         }
       : {}),
     ...reminders,

@@ -1,4 +1,5 @@
 import type { ProjectPathRemap } from "@work-intelligence/core";
+import { canonicalizeProjectRoot } from "@work-intelligence/project-policy";
 
 function isWindowsPath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(value) || /^\\\\/.test(value);
@@ -40,4 +41,15 @@ export function remapPathPrefix(value: string, mapping: ProjectPathRemap): strin
   const convertedSuffix = targetIsWindows ? suffix.replace(/\//g, "\\") : suffix.replace(/\\/g, "/");
   const needsSeparator = !target.endsWith(separator);
   return `${target}${needsSeparator ? separator : ""}${convertedSuffix}`;
+}
+
+/**
+ * The form a project root is stored in: the canonical key every other writer and lookup uses. A root that is not
+ * absolute for this platform (a Windows path in a bundle imported on Linux, or the reverse) is kept as written,
+ * because canonicalizing it would resolve it against the working directory and corrupt it. Display values never
+ * pass through here.
+ */
+export function storedProjectRoot(value: string, platform: NodeJS.Platform = process.platform): string {
+  const absolute = platform === "win32" ? isWindowsPath(value) || value.startsWith("//") : value.startsWith("/");
+  return absolute ? canonicalizeProjectRoot(value, platform) : value;
 }
