@@ -179,6 +179,8 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 工作歷程搜尋（`search`） | 500 ms |
 | 依月份範圍的排序檢索（`recall` 帶 `from`／`to`） | 500 ms |
 | 同義詞擴展排序檢索（`q=endpoint performance`） | 500 ms |
+| 帶 `paths` 的排序檢索（`recall (paths, appliesTo)`：兩個路徑比對 20 筆只靠 `appliesTo` 連到檔案的 Knowledge，含有界的 `appliesTo` 掃描與信任批次查詢） | 250 ms |
+| 帶 `task`／`paths` 的 Agent context（`getContext (paths, appliesTo-matched Knowledge)`：同一批 Knowledge 以 `appliesTo` 命中並放進 `relevant.knowledge`） | 500 ms |
 | 熱點檔案（全部期間前 20 名；依目錄、單月） | 各 500 ms |
 | 圖譜含推導關係、兩節點路徑（500 節點內 BFS） | 各 750 ms |
 | 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |

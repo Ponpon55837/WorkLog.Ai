@@ -585,6 +585,39 @@ describe("synthetic MCP response-size baseline", () => {
     expect(JSON.stringify(related).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.relatedOutstandingItems);
   });
 
+  it("keeps focused context and recall within budget when many Knowledge records match through appliesTo", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const guidance = "Synthetic guidance for the fictional tidal gate retains its calibration notes. ".repeat(8);
+    for (let index = 0; index < 14; index += 1) {
+      const recorded = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `response-size-applies-to-${index}`,
+        kind: index % 2 === 0 ? "pattern" : "gotcha",
+        title: `Tidal gate calibration rule ${index}`,
+        body: `${guidance}${index}`,
+        appliesTo: ["packages/example-3/**", "packages/example-3/src/context.ts"],
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected synthetic appliesTo Knowledge.");
+    }
+    const paths = ["packages/example-3/src/context.ts"];
+
+    const context = await serializedMcpPayload(client, "work_get_context", { projectRoot, task: "tidal gate", paths });
+    const contextValue = context.value as { relevant?: { knowledge: Array<{ id: string; title: string }> } };
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    expect(contextValue.relevant?.knowledge.length ?? 0).toBeGreaterThanOrEqual(1);
+    expect(contextValue.relevant?.knowledge.length ?? 0).toBeLessThanOrEqual(5);
+
+    const pathsOnly = await serializedMcpPayload(client, "work_get_context", { projectRoot, paths });
+    const pathsOnlyValue = pathsOnly.value as { relevant?: { knowledge: Array<{ title: string }> } };
+    expect(pathsOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+    expect(pathsOnlyValue.relevant?.knowledge.some((item) => item.title.startsWith("Tidal gate"))).toBe(true);
+
+    const recall = await serializedMcpPayload(client, "work_recall", { projectRoot, paths });
+    const recallValue = recall.value as { hits: Array<{ type: string; title: string }> };
+    expect(recall.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.recallDefault);
+    expect(recallValue.hits.some((hit) => hit.type === "knowledge" && hit.title.startsWith("Tidal gate"))).toBe(true);
+  });
+
   it("returns a finalize receipt, not an echo, for a realistic request", async () => {
     const { client, projectRoot, store } = await connectWithSyntheticHistory();
     const changedFiles = Array.from({ length: 20 }, (_, index) =>

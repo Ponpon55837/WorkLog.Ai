@@ -641,7 +641,7 @@ export function matchesAppliesTo(path: string, pattern: string): boolean {
 }
 
 /**
- * How strongly a normalized appliesTo entry covers a normalized path, the rule work_recall ranks by: a glob matching
+ * How strongly a normalized appliesTo entry covers a normalized path, the rule work_recall and work_get_context rank Knowledge by when paths are queried: a glob matching
  * the whole path 0.8; a plain entry equal to it 1, either one a path-segment suffix of the other 0.8, either one a
  * directory containing the other 0.6; otherwise 0.
  */

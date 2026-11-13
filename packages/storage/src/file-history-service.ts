@@ -336,7 +336,7 @@ export class FileHistoryService {
     return new Map(texts.map((row) => [row.id, row]));
   }
 
-  /** Active Knowledge of the project whose appliesTo covers a requested path, by the work_recall matching rule. */
+  /** Active Knowledge of the project whose appliesTo covers a requested path, by the same appliesTo matching rule work_recall and work_get_context rank by. */
   private applicableKnowledge(
     projectId: string,
     contexts: PathContext[],

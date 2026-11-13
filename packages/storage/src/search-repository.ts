@@ -68,6 +68,10 @@ const MAX_QUERY_TERMS = 32;
 const MAX_QUERY_PATH_WORDS = 5;
 const PATH_SCAN_TRUNCATED_WARNING =
   "Some stored paths are longer than the 4 KB a path comparison reads and were not compared, so path matches may be incomplete.";
+const APPLIES_TO_TRUNCATED_WARNING =
+  "Some Knowledge appliesTo entries were not compared within the match budget, so file-scope matches may be incomplete.";
+/** Share of a path score a recall gives an appliesTo-only match; the relaxed Knowledge search keeps the full score. */
+const RECALL_APPLIES_TO_SHARE = 0.85;
 const EXCERPT_LENGTH = 220;
 const MAX_SYNONYM_TERMS = 32;
 const SYNONYM_SCORE_WEIGHT = 0.2;
@@ -92,6 +96,9 @@ const CONTRADICTED_FACTOR = 0.7;
 const CONTINUATION_SCORE_SHARE = 0.3;
 // Only the leading ranked entries are reordered; continuations further down cannot reach the returned hits anyway.
 const CONTINUATION_WINDOW = 100;
+// With queried paths, path-matched Knowledge may fill this share of a recall page (at most this many slots).
+const KNOWLEDGE_PATH_RESERVE_SHARE = 0.15;
+const KNOWLEDGE_PATH_RESERVE_MAX = 3;
 // A relaxed Knowledge match names at most this many shared query terms and appliesTo/reference paths.
 const MAX_MATCHED_TERMS = 8;
 const MAX_MATCHED_PATHS = 3;
@@ -400,12 +407,14 @@ export class SearchRepository {
 
   public recall(options: RecallOptions): RecallComputation {
     this.syncIndex();
-    const { words, terms, idf, docs, ranked, pathScanTruncated } = this.rank(options);
+    const { words, terms, idf, docs, ranked, pathScanTruncated, appliesToScanTruncated } = this.rank(options);
     const excerptTerms = terms
       .map((term, index) => ({ term, idf: idf[index] ?? 0 }))
       .sort((left, right) => right.idf - left.idf)
       .map((entry) => entry.term);
-    const selected = this.preferKnowledgeOverSource(this.preferContinuations(ranked).slice(0, options.limit));
+    const selected = this.preferKnowledgeOverSource(
+      this.reserveKnowledgeSlots(this.preferContinuations(ranked), options.limit),
+    );
     // Confidence is judged only on the entries that became hits, so a record the response leaves out cannot raise it.
     const returned = selected.flatMap((entry) => {
       const hit = this.toHit(entry.doc, entry.score, excerptTerms);
@@ -441,7 +450,14 @@ export class SearchRepository {
       hits,
       confidence,
       ...(termHits.some((entry) => entry.count === 0) ? { termHits } : {}),
-      ...(pathScanTruncated ? { warnings: [PATH_SCAN_TRUNCATED_WARNING] } : {}),
+      ...(pathScanTruncated || appliesToScanTruncated
+        ? {
+            warnings: [
+              ...(pathScanTruncated ? [PATH_SCAN_TRUNCATED_WARNING] : []),
+              ...(appliesToScanTruncated ? [APPLIES_TO_TRUNCATED_WARNING] : []),
+            ],
+          }
+        : {}),
     };
   }
 
@@ -610,8 +626,14 @@ export class SearchRepository {
     let pathScanTruncated = false;
     if (queriedPaths.length > 0) {
       pathScanTruncated = this.scorePaths(queriedPaths, accumulator, options);
-      if (options.matchAppliesTo) {
-        appliesToScanTruncated = this.scoreAppliesTo(queriedPaths, accumulator, options);
+      // Recall with paths also matches Knowledge appliesTo, unless it was limited to Sessions only.
+      if (options.matchAppliesTo || !options.types || options.types.includes("knowledge")) {
+        appliesToScanTruncated = this.scoreAppliesTo(
+          queriedPaths,
+          accumulator,
+          options,
+          options.matchAppliesTo ? 1 : RECALL_APPLIES_TO_SHARE,
+        );
       }
     }
 
@@ -703,6 +725,40 @@ export class SearchRepository {
       index -= 1;
     }
     return [...order, ...ranked.slice(CONTINUATION_WINDOW)];
+  }
+
+  /**
+   * Returns the first `limit` entries, except that a path-matched Knowledge item (references or appliesTo) ranked
+   * below them takes the place of the lowest-ranked Sessions until KNOWLEDGE_PATH_RESERVE_SHARE of the slots (at most
+   * KNOWLEDGE_PATH_RESERVE_MAX) hold Knowledge. A frequently changed file has far more Sessions than Knowledge, each
+   * scoring a full path match, so without a reserve its Knowledge never reaches the first page. Queries without a
+   * path match, and pages that already hold enough Knowledge, are returned unchanged.
+   */
+  private reserveKnowledgeSlots<T extends { doc: { type: DocType; matchedPaths: Set<string> } }>(
+    ranked: T[],
+    limit: number,
+  ): T[] {
+    const page = ranked.slice(0, limit);
+    const wanted = Math.min(KNOWLEDGE_PATH_RESERVE_MAX, Math.floor(limit * KNOWLEDGE_PATH_RESERVE_SHARE));
+    const missing = wanted - page.filter((entry) => entry.doc.type === "knowledge").length;
+    if (missing <= 0) {
+      return page;
+    }
+    const promoted = ranked
+      .slice(limit)
+      .filter((entry) => entry.doc.type === "knowledge" && entry.doc.matchedPaths.size > 0)
+      .slice(0, missing);
+    if (promoted.length === 0) {
+      return page;
+    }
+    const kept = [...page];
+    for (let index = kept.length - 1, removed = 0; index >= 0 && removed < promoted.length; index -= 1) {
+      if (kept[index]!.doc.type === "session") {
+        kept.splice(index, 1);
+        removed += 1;
+      }
+    }
+    return [...kept, ...promoted];
   }
 
   /**
@@ -997,6 +1053,7 @@ export class SearchRepository {
     queriedPaths: string[],
     accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
     options: RecallOptions,
+    share: number,
   ): boolean {
     const { clause, parameters } = this.scopeClause("k", {
       ...options,
@@ -1040,7 +1097,7 @@ export class SearchRepository {
       if (budget.exhausted) return true;
       if (best > 0) {
         const doc = accumulator("knowledge", row.id, row.project_id, row.updated_at);
-        doc.pathScore += best * PATH_WEIGHT;
+        doc.pathScore += best * PATH_WEIGHT * share;
         doc.matchedPaths.add(bestPattern);
       }
     }
