@@ -32,7 +32,7 @@ import {
 import { nowIso, truncateAtCodeUnitLimit } from "@work-intelligence/shared";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import { parseJson, parseWorkSummarySections } from "./session-record-codecs.js";
-import { parseQueryWords } from "./search-text.js";
+import { parseQueryWords, tokenize } from "./search-text.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 /** Focused read: matching sections in full (heading, content, source ids), the rest as sizes; no Sessions. */
@@ -40,13 +40,27 @@ function focusedContext(page: KnowledgePageRecord, query: KnowledgePageContextQu
   const wanted = new Set((query.headings ?? []).map((heading) => heading.trim().toLowerCase()));
   const terms = [...new Set(parseQueryWords(query.query ?? "").flatMap((word) => word.terms))];
   const reviewHeadings = new Set((page.reviewSections ?? []).map((section) => section.heading));
+  // One tokenization per section; a term matches as a whole token, or (Latin, 4+ characters) as a token prefix.
+  const scores = page.sections.map((section) => {
+    if (terms.length === 0) return 0;
+    const tokens = new Set(tokenize(`${section.heading}\n${section.content}`));
+    let tokenList: string[] | undefined;
+    let score = 0;
+    for (const term of terms) {
+      if (tokens.has(term)) {
+        score += 1;
+      } else if (/^[a-z0-9]{4,}$/.test(term)) {
+        tokenList ??= [...tokens];
+        if (tokenList.some((token) => token.startsWith(term))) score += 1;
+      }
+    }
+    return score;
+  });
+  const threshold = Math.max(1, Math.ceil(Math.max(0, ...scores) / 2));
   const sections: KnowledgePageFocusedContext["sections"] = [];
   const otherSections: KnowledgePageFocusedContext["otherSections"] = [];
-  for (const section of page.sections) {
-    const haystack = terms.length > 0 ? `${section.heading}\n${section.content}`.normalize("NFKC").toLowerCase() : "";
-    const matched =
-      wanted.has(section.heading.trim().toLowerCase()) || terms.some((term) => haystack.includes(term));
-    if (matched) {
+  page.sections.forEach((section, index) => {
+    if (wanted.has(section.heading.trim().toLowerCase()) || scores[index]! >= threshold) {
       sections.push({
         heading: section.heading,
         content: section.content,
@@ -56,7 +70,7 @@ function focusedContext(page: KnowledgePageRecord, query: KnowledgePageContextQu
     } else {
       otherSections.push({ heading: section.heading, chars: section.content.length });
     }
-  }
+  });
   return {
     outcome: "knowledge_page_context",
     focused: true,

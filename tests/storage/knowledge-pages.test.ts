@@ -777,6 +777,42 @@ describe("Knowledge pages", () => {
       expect(byHeading.otherSections.map((section) => section.heading)).toEqual(["Hive layout", "蜂箱管理"]);
     });
 
+    it("ranks sections by distinct matched query terms and keeps only the best half, not every shared term", () => {
+      const { store, projectRoot, finalize } = setup();
+      const source = finalize("rank");
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+      store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "rank-v1",
+        sections: [
+          { heading: "Intro", content: "The ledger is described here.", sourceSessionIds: [source] },
+          { heading: "Audit", content: "The ledger audit runs weekly.", sourceSessionIds: [source] },
+          { heading: "Rotation", content: "Ledger rotation window schedule: nightly.", sourceSessionIds: [source] },
+          { heading: "簽章", content: "簽章流程由維護者負責。", sourceSessionIds: [source] },
+          { heading: "排程", content: "排程每晚執行。", sourceSessionIds: [source] },
+          { heading: "輪替", content: "簽章輪替排程在每晚執行。", sourceSessionIds: [source] },
+          { heading: "Rights", content: "Granted rights stay with the owners of the ts config.", sourceSessionIds: [source] },
+        ],
+      });
+      const names = (input: { query?: string; headings?: string[] }) => {
+        const result = store.getKnowledgePageContext({ projectRoot, slug: "architecture", ...input });
+        if (!("focused" in result)) throw new Error("Expected a focused read");
+        return result.sections.map((section) => section.heading);
+      };
+      // Three sections share "ledger"; only the one with most of the terms is returned.
+      expect(names({ query: "ledger rotation window schedule" })).toEqual(["Rotation"]);
+      // Chinese bigrams: several sections share one bigram, only the one with most bigrams remains.
+      expect(names({ query: "簽章輪替排程" })).toEqual(["輪替"]);
+      // A short Latin term matches whole tokens only: "ts" is a token of Rights' content; "gh" is inside "rights".
+      expect(names({ query: "ts" })).toEqual(["Rights"]);
+      expect(names({ query: "gh" })).toEqual([]);
+      // A 4+ character Latin term also matches as a token prefix.
+      expect(names({ query: "rotat" })).toEqual(["Rotation"]);
+      // Headings are always included, in addition to the best query matches.
+      expect(names({ query: "ledger rotation window schedule", headings: ["intro"] })).toEqual(["Intro", "Rotation"]);
+    });
+
     it("reports match none with every section listed when nothing matches", () => {
       const { store, projectRoot } = writtenPage();
       for (const input of [{ query: "zeppelin" }, { query: "the of" }, { headings: ["Missing"] }]) {
