@@ -5,6 +5,7 @@ import type {
   LinkSessionsInput,
   LinkSessionsResult,
   OutstandingItemEventSource,
+  OutstandingItemSyncSummary,
   KnowledgeRecord,
   PolicyDecision,
   ProjectRecord,
@@ -110,7 +111,7 @@ export interface SessionRecordDependencies {
     source: Exclude<OutstandingItemEventSource, "migration">,
     actorSessionId: string,
     updatedAt: string,
-  ): void;
+  ): OutstandingItemSyncSummary;
 }
 
 /** Replay payloads (previous/resulting summary) are kept this long; afterwards replay uses the current summary. */
@@ -816,7 +817,7 @@ export class SessionRecordService {
         }));
         replaceSessionDecisions(this.db, input.sessionId, project.id, persistedDecisions);
       }
-      this.dependencies.syncOutstandingItems(
+      const outstandingSummary = this.dependencies.syncOutstandingItems(
         input.sessionId,
         project.id,
         appliedWorkSummary.nextSteps,
@@ -856,6 +857,9 @@ export class SessionRecordService {
         ...(previousWorkSummary ? { previousWorkSummary } : {}),
         appliedWorkSummary,
         redactions,
+        ...(outstandingSummary.reworded + outstandingSummary.created + outstandingSummary.closed > 0
+          ? { outstandingItems: outstandingSummary }
+          : {}),
       };
     });
   }

@@ -88,6 +88,7 @@ const CONTEXT_EXCERPT_CHARS = 240;
 const RELATED_OUTSTANDING_HINT =
   "這些相關項目仍未處理；先讀來源並核對證據，確認完成才結案，被本次 nextSteps 取代才標記不再需要，不確定就保留。";
 const RECALL_EXCERPT_CHARS = 110;
+const CONTINUED_OUTSTANDING_ITEM_LIMIT = 10;
 
 /** What an Agent is about to work on; ranks relevant records into the context result. */
 export type ContextFocus = { task?: string; paths?: string[] };
@@ -355,6 +356,7 @@ export class ContextRecallService {
     projectId: string,
     focus: ContextFocus,
     excludeSourceSessionId?: string,
+    excludeItemIds?: readonly string[],
   ): RelatedOutstandingItems {
     if (!this.store.hasPendingOutstandingItems(projectId, excludeSourceSessionId))
       return { items: [], total: 0, omitted: 0 };
@@ -365,8 +367,32 @@ export class ContextRecallService {
         projectId,
         ...focus,
         excludeSourceSessionId,
+        ...(excludeItemIds?.length ? { excludeItemIds } : {}),
       }),
     );
+  }
+
+  /**
+   * Pending items of the Sessions a finalize linked, at most CONTINUED_OUTSTANDING_ITEM_LIMIT, with an omitted count.
+   * Links may cross projects, but only same-project items can be closed by this Session, so only those are listed.
+   */
+  public continuedOutstandingItems(
+    projectId: string,
+    linkedSessionIds: readonly string[],
+  ): {
+    digest: RelatedOutstandingItems;
+    allIds: string[];
+  } {
+    const pending = this.store
+      .pendingOutstandingItemsForSessions(linkedSessionIds)
+      .filter((item) => item.projectId === projectId);
+    return {
+      digest: this.outstandingItemDigest({
+        items: pending.slice(0, CONTINUED_OUTSTANDING_ITEM_LIMIT),
+        total: pending.length,
+      }),
+      allIds: pending.map((item) => item.id),
+    };
   }
 
   private compactRecallHit(hit: RecallHit): RecallHit {

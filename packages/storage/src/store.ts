@@ -137,6 +137,8 @@ import type {
   OutstandingItemListQueryResult,
   OutstandingItemStatus,
   UpdateOutstandingItemStatusResult,
+  ResolveOutstandingItemsInput,
+  ResolveOutstandingItemsResult,
   KnowledgePageContextQuery,
   KnowledgePageContextResult,
   KnowledgePageListQuery,
@@ -1338,6 +1340,10 @@ export class WorkIntelligenceStore {
     return this.outstandingItems.batchUpdateStatus(input);
   }
 
+  public resolveOutstandingItems(input: ResolveOutstandingItemsInput): ResolveOutstandingItemsResult {
+    return this.outstandingItems.resolveForSession(input);
+  }
+
   public updateOutstandingItemStatus(
     itemId: string,
     status: OutstandingItemStatus,
@@ -1675,6 +1681,7 @@ export class WorkIntelligenceStore {
       },
     ];
 
+    let linkedIds: string[] = [];
     const result = runImmediateSqlTransaction<FinalizeSessionResult>(this.db, () => {
       const existing = this.getSessionByIdempotencyKey(input.idempotencyKey);
       if (existing) {
@@ -1841,6 +1848,7 @@ export class WorkIntelligenceStore {
         this.touchSession(linkedSessionId, createdAt);
       }
 
+      linkedIds = [...linkedSessionIds];
       const knowledgeWarnings = this.applyKnowledgeFeedback(project.id, sessionId, completedAt, input);
       const diagramRedactions = input.diagrams?.length
         ? this.diagrams.attachWithFinalize(sessionId, project.id, input.idempotencyKey, input.diagrams, createdAt)
@@ -1891,6 +1899,17 @@ export class WorkIntelligenceStore {
         } catch {
           delete result.knowledgePageMaintenanceHint;
         }
+        let continuedIds: string[] = [];
+        try {
+          if (linkedIds.length > 0) {
+            const continued = this.contextRecallService.continuedOutstandingItems(session.projectId, linkedIds);
+            continuedIds = continued.allIds;
+            if (continued.digest.total > 0) result.continuedOutstandingItems = continued.digest;
+          }
+        } catch {
+          continuedIds = [];
+          delete result.continuedOutstandingItems;
+        }
         try {
           result.relatedOutstandingItems = this.contextRecallService.relatedOutstandingItems(
             session.projectId,
@@ -1899,6 +1918,7 @@ export class WorkIntelligenceStore {
               paths: session.changedFiles,
             },
             session.id,
+            continuedIds,
           );
         } catch {
           delete result.relatedOutstandingItems;

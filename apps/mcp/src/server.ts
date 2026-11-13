@@ -25,6 +25,8 @@ import {
   mcpListSessionsInputSchema,
   mcpListSessionsInputSchemaBase,
   mcpOutstandingItemListQuerySchema,
+  resolveOutstandingItemsInputSchema,
+  resolveOutstandingItemsInputSchemaBase,
   mcpOutstandingCleanupRequestQuerySchema,
   outstandingCleanupContextQuerySchema,
   submitOutstandingCleanupProposalsInputSchema,
@@ -740,6 +742,21 @@ export function createWorkIntelligenceMcpServer(
       const { outcome, ...page } = response;
       return { outcome, ...(project ? { project } : {}), ...page, items };
     },
+  });
+
+  registerStoreTool("work_resolve_outstanding_items", {
+    title: "Close verified outstanding items",
+    description:
+      "Right after work_finalize_session, close pending items that this Session's own work directly verified: resolvedOutstandingItemIds become completed, supersededOutstandingItemIds (needs this Session's nextSteps to be non-empty) become not_needed, both audited with sessionId as the actor. Use it for items listed in the finalize receipt's continuedOutstandingItems or relatedOutstandingItems, or in the context, that you verified yourself. It only changes a pending item in the same project whose source Session is nonvoided, differs from this Session, completed earlier than this Session, and is not held by a cleanup request; anything else stays pending and is listed in outstandingItemWarnings. An id in both lists changes nothing. Repeating a call reports already applied ids instead of warning. It never closes uncertain items, never bypasses cleanup review, and cannot reopen items; ranking or wording similarity is not evidence. Untracked projects are skipped quietly. " +
+      finalizeClosingContract,
+    inputShape: resolveOutstandingItemsInputSchemaBase.shape,
+    schema: resolveOutstandingItemsInputSchema,
+    validationNotes: [
+      "At least one of resolvedOutstandingItemIds or supersededOutstandingItemIds must be non-empty; each list has at most 200 distinct ids.",
+    ],
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid outstanding item resolution payload.",
+    run: (input) => store.resolveOutstandingItems(input),
   });
 
   registerStoreTool("work_recall", {

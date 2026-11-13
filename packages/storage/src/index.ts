@@ -71,3 +71,11 @@ export type {
   AgentReadToolStats,
   SummarizeAgentReadsOptions,
 } from "./agent-read-audit-service.js";
+export {
+  outstandingTextSimilarity,
+  pairRewordedItems,
+  REWORD_SIMILARITY_THRESHOLD,
+  type RewordNextEntry,
+  type RewordPair,
+  type RewordPreviousItem,
+} from "./outstanding-item-matching.js";

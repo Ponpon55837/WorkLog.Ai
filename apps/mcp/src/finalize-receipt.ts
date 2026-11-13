@@ -64,6 +64,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     resolvedOutstandingItemIds,
     supersededOutstandingItemIds,
     relatedOutstandingItems,
+    continuedOutstandingItems,
     outcome,
     duplicate,
     ...reminders
@@ -94,6 +95,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
       ? { supersededOutstandingItemIds: supersededOutstandingItemIds ?? [] }
       : {}),
     ...reminders,
+    ...(continuedOutstandingItems ? { continuedOutstandingItems: compactRelatedItems(continuedOutstandingItems) } : {}),
     ...(relatedOutstandingItems ? { relatedOutstandingItems: compactRelatedItems(relatedOutstandingItems) } : {}),
   };
 }

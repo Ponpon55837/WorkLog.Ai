@@ -63,7 +63,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 9,
+    operationCount: 10,
   },
 } as const;
 
@@ -1821,6 +1821,62 @@ describe("Work Intelligence MCP server", () => {
         linked: false,
       }),
     ).toMatchObject({ outcome: "session_link_updated", links: [] });
+  });
+
+  it("closes verified items through work_resolve_outstanding_items and reports continued items and rewording", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Resolve project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const source = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-resolve-source", "Source"),
+      completedAt: "2026-01-01T10:00:00.000Z",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [],
+        verification: [],
+        nextSteps: ["PR #12 尚未合併", "Rotate signing certificate"],
+      },
+    });
+    const actor = await callJson<{
+      session: { id: string };
+      continuedOutstandingItems?: { items: Array<{ id: string; text: string }>; total: number };
+    }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-resolve-actor", "Actor"),
+      completedAt: "2026-01-02T10:00:00.000Z",
+      parentSessionId: source.session.id,
+    });
+    expect(actor.continuedOutstandingItems).toMatchObject({ total: 2 });
+    const item = actor.continuedOutstandingItems?.items.find((entry) => entry.text === "PR #12 尚未合併");
+    expect(item).toBeDefined();
+
+    const resolved = await callJson(client, "work_resolve_outstanding_items", {
+      sessionId: actor.session.id,
+      resolvedOutstandingItemIds: [item?.id],
+    });
+    expect(resolved).toMatchObject({
+      outcome: "outstanding_items_resolved",
+      resolvedOutstandingItemIds: [item?.id],
+      supersededOutstandingItemIds: [],
+    });
+    expect(
+      await callJson(client, "work_resolve_outstanding_items", {
+        sessionId: actor.session.id,
+        resolvedOutstandingItemIds: [item?.id],
+      }),
+    ).toMatchObject({ duplicate: true, alreadyAppliedIds: [item?.id] });
+    expect(await operationAnnotations(client, "work_resolve_outstanding_items")).toMatchObject({
+      destructiveHint: true,
+      idempotentHint: true,
+    });
+    expect(
+      await callJson(client, "work_update_session_work_summary", {
+        sessionId: source.session.id,
+        idempotencyKey: "mcp-reword-1",
+        mode: "patch",
+        workSummary: { nextSteps: ["Rotate the signing certificate before release"] },
+      }),
+    ).toMatchObject({ outstandingItems: { created: 0, retained: 0, reworded: 1, closed: 0 } });
   });
 
   it("lets an Agent propose Knowledge candidates but not accept them", async () => {

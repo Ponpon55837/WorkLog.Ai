@@ -337,6 +337,28 @@ export type BatchUpdateOutstandingItemStatusResult =
   | { outcome: "rejected"; reason: "invalid_batch" | "invalid_items" | "status_conflict"; invalidItemIds: string[] }
   | { outcome: "skipped"; projectStatus: PolicyStatus; reason?: string };
 
+/** Closes pending items a finalized Session's own later work directly verified (see work_resolve_outstanding_items). */
+export interface ResolveOutstandingItemsInput {
+  sessionId: string;
+  resolvedOutstandingItemIds?: string[];
+  supersededOutstandingItemIds?: string[];
+}
+
+export type ResolveOutstandingItemsResult =
+  | {
+      outcome: "outstanding_items_resolved";
+      sessionId: string;
+      resolvedOutstandingItemIds: string[];
+      supersededOutstandingItemIds: string[];
+      /** Requested ids this same Session had already moved to the requested status. */
+      alreadyAppliedIds?: string[];
+      /** True when every requested id had already been applied and nothing changed now. */
+      duplicate?: true;
+      outstandingItemWarnings?: { unresolvedIds: string[]; unsupersededIds: string[]; message: string };
+    }
+  | { outcome: "not_found"; sessionId: string }
+  | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
+
 export interface ListSessionDecisionsInput {
   projectRoot?: string;
   status?: "pending" | "all";
@@ -1610,6 +1632,8 @@ export interface FinalizedSessionResult {
   supersededOutstandingItemIds?: string[];
   /** Still-pending older items related to this work; retrieval is not completion evidence. */
   relatedOutstandingItems?: RelatedOutstandingItems;
+  /** Still-pending items of the Sessions this one continues or relates to (its links); pointers, not evidence. */
+  continuedOutstandingItems?: RelatedOutstandingItems;
   /** Active Knowledge whose appliesTo covers a file this Session changed; advisory, nothing was changed. */
   knowledgeToReview?: KnowledgeReviewHint[];
   /** The appliesTo match budget ran out, so older Knowledge was not checked for knowledgeToReview. */
@@ -2014,6 +2038,14 @@ export interface UpdateSessionWorkSummaryInput {
   workSummary: WorkSummaryInputSections | Partial<WorkSummaryInputSections>;
 }
 
+/** What one nextSteps synchronization did to a Session's outstanding items. */
+export interface OutstandingItemSyncSummary {
+  created: number;
+  retained: number;
+  reworded: number;
+  closed: number;
+}
+
 export interface UpdatedSessionWorkSummaryResult {
   outcome: "work_summary_updated";
   duplicate: boolean;
@@ -2023,6 +2055,8 @@ export interface UpdatedSessionWorkSummaryResult {
   previousWorkSummary?: WorkSummarySections;
   appliedWorkSummary: WorkSummarySections;
   redactions?: RedactionSummary;
+  /** Present only when this update changed the Session's outstanding items (not on a replay). */
+  outstandingItems?: OutstandingItemSyncSummary;
 }
 
 export interface SessionWorkSummaryUpdateIdempotencyConflictResult {

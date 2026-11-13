@@ -469,6 +469,30 @@ export const batchUpdateOutstandingItemStatusInputSchema = z
   })
   .strict();
 
+const resolveOutstandingItemIdListSchema = z
+  .array(z.string().trim().min(1).max(200))
+  .max(200)
+  .refine((ids) => new Set(ids).size === ids.length, "Item ids must be unique.");
+
+export const resolveOutstandingItemsInputSchemaBase = z
+  .object({
+    sessionId: z.string().trim().min(1).max(200).describe("The finalized Session whose own work verified the items."),
+    resolvedOutstandingItemIds: resolveOutstandingItemIdListSchema
+      .optional()
+      .describe("Pending items this Session's work directly verified as completed."),
+    supersededOutstandingItemIds: resolveOutstandingItemIdListSchema
+      .optional()
+      .describe(
+        "Pending items this Session's nextSteps explicitly replaced; they become not_needed. Needs a non-empty stored nextSteps.",
+      ),
+  })
+  .strict();
+
+export const resolveOutstandingItemsInputSchema = resolveOutstandingItemsInputSchemaBase.refine(
+  (value) => (value.resolvedOutstandingItemIds?.length ?? 0) + (value.supersededOutstandingItemIds?.length ?? 0) > 0,
+  { message: "Provide at least one item id to resolve or supersede." },
+);
+
 const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
 
 /** Optional inclusive calendar-date range in the server's time zone, e.g. for "last week" or "in June". */
@@ -1301,6 +1325,7 @@ export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
 export type UpdateProjectLocationInput = z.infer<typeof updateProjectLocationInputSchema>;
 export type DeleteProjectInput = z.infer<typeof deleteProjectInputSchema>;
 export type DeleteSessionInput = z.infer<typeof deleteSessionInputSchema>;
+export type ResolveOutstandingItemsInput = z.infer<typeof resolveOutstandingItemsInputSchema>;
 export type UpdateSessionTitleInput = z.infer<typeof updateSessionTitleInputSchema>;
 export type FinalizeSessionInput = z.infer<typeof finalizeSessionInputSchema>;
 export type McpFinalizeSessionInput = z.infer<typeof mcpFinalizeSessionInputSchema>;
