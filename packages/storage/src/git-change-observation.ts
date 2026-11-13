@@ -160,7 +160,8 @@ export async function observeGitChangedFileChanges(
         base = "HEAD";
       }
     }
-    const [tracked, untracked] = await Promise.all([
+    // Both processes are awaited even when one fails, so none is left running in the project after this returns.
+    const [trackedResult, untrackedResult] = await Promise.allSettled([
       runGit(
         [
           ...prefix,
@@ -179,6 +180,9 @@ export async function observeGitChangedFileChanges(
       ),
       runGit([...prefix, "ls-files", "--others", "--exclude-standard", "-z", "--", ...paths], options),
     ]);
+    if (trackedResult.status === "rejected" || untrackedResult.status === "rejected") return undefined;
+    const tracked = trackedResult.value;
+    const untracked = untrackedResult.value;
     const changes = parseNameStatus(tracked, allowed);
     const seen = new Set(changes.map((change) => changedFileIdentity(change.path)));
     for (const path of parseNulList(untracked)) {

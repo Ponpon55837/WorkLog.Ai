@@ -10,7 +10,8 @@ const tempDirs: string[] = [];
 
 afterEach(() => {
   for (const directory of tempDirs.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
+    // Windows releases a directory a moment after the git process that used it exits.
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
