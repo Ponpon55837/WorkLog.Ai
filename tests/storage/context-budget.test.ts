@@ -186,4 +186,60 @@ describe("context budget", () => {
     expect(unscoped.projects.map((item) => item.id)).toEqual([project.id]);
     expect(unscoped.relevant?.sessions[0]).toMatchObject({ projectId: project.id, projectName: "Heron Gate" });
   });
+
+  it("centers relevant page section excerpts on the matched terms, also after budget shortening", () => {
+    const { store, root, sessionIds } = setup();
+    const plain = "The fictional pond sluice keeps its steady pressure. ";
+    store.requestKnowledgePageUpdate({ projectRoot: root, slug: "architecture" });
+    const saved = store.saveKnowledgePage({
+      projectRoot: root,
+      slug: "architecture",
+      idempotencyKey: "heron-page-latch-notes",
+      sections: [
+        {
+          heading: "Latch notes",
+          content: `${plain.repeat(15)}The zebraquokka latch must be recalibrated before release. ${plain.repeat(15)}`,
+          sourceSessionIds: sessionIds.slice(0, 2),
+        },
+      ],
+    });
+    expect(saved.outcome).toBe("knowledge_page_saved");
+    const context = store.getContext(root, { task: "zebraquokka latch" });
+    if (context.outcome !== "context") throw new Error("Expected context.");
+    const section = context.relevant?.knowledgePages
+      ?.find((page) => page.slug === "architecture")
+      ?.sections.find((item) => item.heading === "Latch notes");
+    expect(section?.content).toContain("zebraquokka");
+    expect(section?.truncated).toBe(true);
+    expect(section?.content.length).toBeLessThanOrEqual(500);
+
+    for (let index = 0; index < 8; index += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `heron-crowd-${index}`,
+        title: `Zebraquokka latch heron gate crowd ${index}`,
+        summary: `Zebraquokka latch heron gate. ${plain.repeat(8)}`,
+        workSummary: {
+          outcomes: [`Zebraquokka outcome ${index}.`],
+          scope: [],
+          decisions: [`Zebraquokka latch decision ${index}. ${plain.repeat(4)}`],
+          verification: [],
+          nextSteps: [`Zebraquokka follow-up ${index}. ${plain.repeat(4)}`],
+        },
+        changedFiles: [`src/crowd-${index}.ts`],
+        verification: { status: "passed" },
+      });
+    }
+    const crowded = store.getContext(root, { task: "zebraquokka latch heron gate" });
+    if (crowded.outcome !== "context") throw new Error("Expected context.");
+    const shortened = crowded.relevant?.knowledgePages
+      ?.flatMap((page) => page.sections)
+      .filter((item) => item.heading === "Latch notes");
+    expect(shortened?.some((item) => item.content.length <= 240)).toBe(true);
+    for (const item of shortened ?? []) {
+      expect(item.content).toContain("zebraquokka");
+      expect(item.content.length).toBeLessThanOrEqual(500);
+    }
+  });
 });

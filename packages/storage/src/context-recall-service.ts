@@ -57,6 +57,7 @@ import {
 import type { SessionListOptions } from "./session-repository.js";
 import type { SearchRepository } from "./search-repository.js";
 import { appliesToStrength } from "./applies-to-match.js";
+import { windowExcerpt } from "./excerpt-window.js";
 import { inferTaskPaths, type InferredTaskPath } from "./inferred-task-paths.js";
 import { limitKnowledgePageReviewSections } from "./knowledge-page-service.js";
 
@@ -968,6 +969,8 @@ export class ContextRecallService {
     const trimRelevantBesidesKnowledge = (): boolean =>
       trimRelevantPageSection() || trimRelevantSession() || trimRelevantDecision() || trimRelevantOutstanding();
 
+    let focusTerms: string[] | undefined;
+    const shortenTerms = (): string[] => (focusTerms ??= contextTerms(focus));
     const shortenNext = (): boolean => {
       for (const session of context.recentSessions) {
         if (session.summary.length > CONTEXT_EXCERPT_CHARS) {
@@ -1014,7 +1017,7 @@ export class ContextRecallService {
       for (const page of context.relevant?.knowledgePages ?? []) {
         for (const pageSection of page.sections) {
           if (pageSection.content.length > CONTEXT_EXCERPT_CHARS) {
-            pageSection.content = truncateAtSentenceBoundary(pageSection.content, CONTEXT_EXCERPT_CHARS).text;
+            pageSection.content = windowExcerpt(pageSection.content, shortenTerms(), CONTEXT_EXCERPT_CHARS).text;
             pageSection.truncated = true;
             return true;
           }
@@ -1515,7 +1518,7 @@ export class ContextRecallService {
         };
         pageDigests.set(match.page.id, digest);
       }
-      const bounded = truncateAtSentenceBoundary(match.section.content, CONTEXT_PAGE_SECTION_CHARS);
+      const bounded = windowExcerpt(match.section.content, terms, CONTEXT_PAGE_SECTION_CHARS);
       const reviewSection = reviewSectionsByPage
         .get(match.page.id)
         ?.find((item) => item.heading === match.section.heading);
