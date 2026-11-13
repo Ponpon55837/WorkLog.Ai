@@ -2421,6 +2421,10 @@ export interface RequestKnowledgePageUpdateInput {
 export interface KnowledgePageContextQuery {
   projectRoot: string;
   slug: string;
+  /** Focused read: only the sections whose heading or content contains a query term. */
+  query?: string;
+  /** Focused read: only the sections with these headings (case-insensitive, trimmed). */
+  headings?: string[];
 }
 
 export interface SaveKnowledgePageInput {
@@ -2480,6 +2484,23 @@ export interface KnowledgePageContext {
   truncated: boolean;
 }
 
+/** A focused read: the matching sections in full and the size of the rest; no Session list. */
+export interface KnowledgePageFocusedContext {
+  outcome: "knowledge_page_context";
+  focused: true;
+  /** none: nothing matched, so no sections are returned; pick from otherSections by heading. */
+  match: "sections" | "none";
+  page: Pick<KnowledgePageRecord, "slug" | "title" | "version" | "status" | "newSessionCount" | "updatedAt"> & {
+    needsReview?: true;
+    updateRequestedAt?: string;
+  };
+  sections: Array<KnowledgePageSection & { needsReview?: true }>;
+  otherSections: Array<{ heading: string; chars: number }>;
+  sessionsOmitted: true;
+  /** How to get the Session list and the complete page. */
+  readFullWith: string;
+}
+
 export type KnowledgePageSkippedResult = {
   outcome: "skipped";
   projectRoot?: string;
@@ -2517,7 +2538,7 @@ export interface KnowledgePageNotFoundResult {
 }
 
 export type KnowledgePageContextResult =
-  KnowledgePageContext | KnowledgePageNotFoundResult | KnowledgePageSkippedResult;
+  KnowledgePageContext | KnowledgePageFocusedContext | KnowledgePageNotFoundResult | KnowledgePageSkippedResult;
 
 export type SaveKnowledgePageResult =
   | { outcome: "knowledge_page_saved"; duplicate: boolean; page: KnowledgePageRecord; redactions?: RedactionSummary }

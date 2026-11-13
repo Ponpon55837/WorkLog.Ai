@@ -1070,7 +1070,12 @@ export const requestKnowledgePageUpdateInputSchema = z
   })
   .strict();
 export const knowledgePageContextQuerySchema = z
-  .object({ projectRoot: z.string().trim().min(1).max(1_000), slug: knowledgePageSlugSchema })
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000),
+    slug: knowledgePageSlugSchema,
+    query: z.string().trim().min(1).max(200).optional(),
+    headings: z.array(z.string().trim().min(1).max(200)).min(1).max(12).optional(),
+  })
   .strict();
 export const markKnowledgePageCheckedInputSchema = z
   .object({
